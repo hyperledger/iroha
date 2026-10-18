@@ -393,7 +393,10 @@ impl Journal {
     /// before decode. Whole Journal and directory ancestry bracket all ordinary callback results;
     /// exit refusal dominates body errors. Intermediate ancestry observations consolidate, so a
     /// completely restored transient change may be unobserved. This is neither an atomic snapshot
-    /// nor an unwind guarantee. Keep callbacks free of writes, signing and network effects.
+    /// nor an unwind guarantee. Entry lock failures also close directory ancestry: a concurrent
+    /// directory exit refusal takes precedence over that native entry error. This is stronger
+    /// closure than a standalone lock open, which can return before its trailing ancestry check.
+    /// Keep callbacks free of writes, signing and network effects.
     ///
     /// # Errors
     /// Preserves record/decoder errors only after original lock and full ancestry exit succeeds.
@@ -401,13 +404,25 @@ impl Journal {
         &self,
         read: impl for<'read, 'scope> FnOnce(&mut NativeJournalReadScope<'read, 'scope>) -> Result<T>,
     ) -> Result<T> {
-        self.with_read_custody(|| {
-            self.directory.read_scope(|reader| {
-                read(&mut NativeJournalReadScope {
-                    journal: self,
-                    reader,
-                })
-            })
+        self.directory.read_scope(|reader| {
+            // The outer scope brackets both lock observations. Retain independent full
+            // directory checks immediately before and after the callback, in the original
+            // order, without repeating adjacent ancestry walks around each lock open.
+            let entry = self.revalidate_lock_in_scope(reader);
+            #[cfg(test)]
+            let entry = scope_boundary_tests::after_entry_lock(entry);
+            entry?;
+            self.directory.revalidate()?;
+            let result = read(&mut NativeJournalReadScope {
+                journal: self,
+                reader,
+            });
+            self.directory.revalidate()?;
+            if let Err(error) = self.revalidate_lock_in_scope(reader) {
+                drop(result);
+                return Err(error);
+            }
+            result
         })
     }
 
@@ -1031,3 +1046,6 @@ mod open_durability_tests;
 
 #[cfg(all(test, unix))]
 mod revalidate_tests;
+
+#[cfg(test)]
+mod scope_boundary_tests;

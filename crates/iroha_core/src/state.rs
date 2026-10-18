@@ -7991,6 +7991,7 @@ impl<'block> WorldTransaction<'block, '_> {
         }
     }
     /// Insert an asset definition and keep derived indexes consistent.
+    /// This generic replacement remains an unowned quantity write.
     pub(crate) fn insert_asset_definition_entry(
         &mut self,
         definition_id: AssetDefinitionId,
@@ -8006,15 +8007,77 @@ impl<'block> WorldTransaction<'block, '_> {
         let previous = self
             .asset_definitions
             .insert(definition_id.clone(), definition);
-        if let Some(previous) = previous.as_ref() {
+        self.update_inserted_asset_definition_indexes(
+            &definition_id,
+            &owner,
+            domain_context,
+            next_transition_height,
+            previous.as_ref(),
+        );
+        previous
+    }
+
+    /// Original registration's absent-to-zero storage port. The canonical caller
+    /// derives and installs the new incarnation in this same World transaction.
+    fn register_empty_asset_definition_entry(
+        &mut self,
+        definition_id: AssetDefinitionId,
+        definition: AssetDefinition,
+    ) -> Result<(), Error> {
+        if self.axt_asset_incarnations.get(&definition_id).is_some()
+            || self.asset_definition_assets.get(&definition_id).is_some()
+            || self.asset_definition_holders.get(&definition_id).is_some()
+            || self
+                .asset_definition_nonzero_holders
+                .get(&definition_id)
+                .is_some()
+            || self
+                .asset_definition_direct_homes
+                .get(&definition_id)
+                .is_some()
+        {
+            return Err(Error::InvariantViolation(
+                "asset-definition registration must own an absent lifecycle and balance indexes"
+                    .into(),
+            ));
+        }
+        let owner = definition.owned_by().clone();
+        let domain_context = definition.owning_domain().clone();
+        let next_transition_height = definition
+            .confidential_policy()
+            .pending_transition()
+            .as_ref()
+            .map(|transition| transition.effective_height());
+        self.asset_definitions
+            .register_empty_definition(definition_id.clone(), definition)?;
+        self.update_inserted_asset_definition_indexes(
+            &definition_id,
+            &owner,
+            domain_context,
+            next_transition_height,
+            None,
+        );
+        Ok(())
+    }
+
+    /// Preserve the same derived indexes for raw replacement and canonical registration.
+    fn update_inserted_asset_definition_indexes(
+        &mut self,
+        definition_id: &AssetDefinitionId,
+        owner: &AccountId,
+        domain_context: Option<DomainId>,
+        next_transition_height: Option<u64>,
+        previous: Option<&AssetDefinition>,
+    ) {
+        if let Some(previous) = previous {
             if let Some(transition) = previous.confidential_policy().pending_transition() {
                 self.untrack_confidential_policy_transition(
-                    &definition_id,
+                    definition_id,
                     transition.effective_height(),
                 );
             }
-            self.untrack_asset_definition_domain(&definition_id);
-            self.untrack_asset_definition_owner(&definition_id, previous.owned_by());
+            self.untrack_asset_definition_domain(definition_id);
+            self.untrack_asset_definition_owner(definition_id, previous.owned_by());
         }
         match domain_context {
             Some(domain_id) => {
@@ -8025,12 +8088,11 @@ impl<'block> WorldTransaction<'block, '_> {
                 self.asset_definition_domains.remove(definition_id.clone());
             }
         }
-        self.track_asset_definition_domain(&definition_id);
-        self.track_asset_definition_owner(&definition_id, &owner);
+        self.track_asset_definition_domain(definition_id);
+        self.track_asset_definition_owner(definition_id, owner);
         if let Some(effective_height) = next_transition_height {
-            self.track_confidential_policy_transition(&definition_id, effective_height);
+            self.track_confidential_policy_transition(definition_id, effective_height);
         }
-        previous
     }
     /// Remove an asset definition and keep derived indexes consistent.
     pub(crate) fn remove_asset_definition_entry(
@@ -12979,15 +13041,36 @@ impl<'state> std::ops::Deref for StateBlock<'state> {
 
 impl std::ops::DerefMut for StateBlock<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        assert!(
-            self.publication.is_none(),
-            "publication retains immutable original State"
-        );
+        self.assert_execution_mutable();
         self.fields.as_mut().expect("original executing State")
     }
 }
 
 impl<'state> StateBlock<'state> {
+    /// Reject mutable projections before they can alter an original completed cut.
+    /// The existing finality owner alone enters Finalizing for the canonical tail.
+    /// Poisoned attempts retain diagnostics only through their private owners.
+    /// TODO: retain the complete pre-tail collector progress here before engine selection;
+    /// this mutation boundary alone is neither a State root nor restoration authority.
+    fn assert_execution_mutable(&self) {
+        assert!(
+            self.publication.is_none(),
+            "publication retains immutable original State"
+        );
+        assert!(
+            !matches!(
+                self.execution_output_plan,
+                Some(
+                    output_capacity::ExecutionOutputPlanState::Sealed(_)
+                        | output_capacity::ExecutionOutputPlanState::Authorized(_)
+                        | output_capacity::ExecutionOutputPlanState::Finalized(_)
+                        | output_capacity::ExecutionOutputPlanState::Poisoned
+                )
+            ),
+            "completed execution retains immutable original State"
+        );
+    }
+
     fn from_fields(fields: StateBlockFields<'state>) -> Self {
         Self {
             fields: Some(fields),
@@ -13083,7 +13166,10 @@ impl<'state> StateBlock<'state> {
         let parameters = self.world.parameters.get().block();
         let source_policy = parameters.fastpq_source();
         let output_policy = parameters.execution_output();
-        self.fastpq_source_policy_at_block_start = Some((source_policy, output_policy));
+        self.fields
+            .as_mut()
+            .expect("original block construction owner")
+            .fastpq_source_policy_at_block_start = Some((source_policy, output_policy));
         let height = self._curr_block.height().get();
         let quota = (|| {
             source_policy.validate(output_policy)?;
@@ -13106,10 +13192,19 @@ impl<'state> StateBlock<'state> {
             )
         })();
         if let Err(error) = &quota {
-            self.execution_output_plan = Some(output_capacity::ExecutionOutputPlanState::Poisoned);
-            self.fastpq_source_inventory = Some(Err(error.clone()));
+            self.fields
+                .as_mut()
+                .expect("original block construction owner")
+                .execution_output_plan = Some(output_capacity::ExecutionOutputPlanState::Poisoned);
+            self.fields
+                .as_mut()
+                .expect("original block construction owner")
+                .fastpq_source_inventory = Some(Err(error.clone()));
         }
-        self.fastpq_source_quota = Some(quota);
+        self.fields
+            .as_mut()
+            .expect("original block construction owner")
+            .fastpq_source_quota = Some(quota);
         // Global execution retains its original lane-zero identity. Every other execution
         // lane comes from the native committed record used by routing and merge admission;
         // physical Nexus catalogs do not authorize Sumeragi execution incarnations.
@@ -13123,7 +13218,10 @@ impl<'state> StateBlock<'state> {
                 lane_incarnations.insert(record.lane, Hash::from_marked_bytes(record.incarnation));
             }
         }
-        self.fastpq_source_context = Some(Arc::new(crate::fastpq::FastpqBlockStartSourceContext {
+        self.fields
+            .as_mut()
+            .expect("original block construction owner")
+            .fastpq_source_context = Some(Arc::new(crate::fastpq::FastpqBlockStartSourceContext {
             source: iroha_data_model::fastpq::FastpqSourceStatementContextV1 {
                 network_id: self.network_id,
                 height,
@@ -13143,8 +13241,14 @@ impl<'state> StateBlock<'state> {
                 .map(|_| ())
         })();
         if let Err(error) = &result {
-            self.execution_output_plan = Some(output_capacity::ExecutionOutputPlanState::Poisoned);
-            self.fastpq_source_inventory = Some(Err(error.clone()));
+            self.fields
+                .as_mut()
+                .expect("original block construction owner")
+                .execution_output_plan = Some(output_capacity::ExecutionOutputPlanState::Poisoned);
+            self.fields
+                .as_mut()
+                .expect("original block construction owner")
+                .fastpq_source_inventory = Some(Err(error.clone()));
         }
         result
     }
@@ -13201,13 +13305,19 @@ impl<'state> StateBlock<'state> {
             "AXT block-start authorization context must be captured exactly once"
         );
         let snapshot = Arc::new(AxtBlockStartSnapshot::capture(self));
-        self.axt_next_handle_counters = snapshot
+        self.fields
+            .as_mut()
+            .expect("original block construction owner")
+            .axt_next_handle_counters = snapshot
             .policy_snapshot()
             .entries
             .iter()
             .map(|binding| (binding.dsid, binding.policy.next_handle_counter))
             .collect();
-        self.axt_block_start_snapshot = Some(snapshot);
+        self.fields
+            .as_mut()
+            .expect("original block construction owner")
+            .axt_block_start_snapshot = Some(snapshot);
     }
     /// Return the immutable AXT authorization context captured before block effects.
     #[must_use]
@@ -13486,6 +13596,7 @@ impl<'state> StateBlock<'state> {
         Some(out)
     }
     fn prepare_replay_checkpoint_preview(&mut self) -> Result<(), LaneLifecycleError> {
+        self.assert_execution_mutable();
         let fields = self.fields.as_mut().expect("original executing State");
         let Some(pending) = fields.pending_autoscale_lifecycle.as_ref() else {
             return Ok(());
@@ -29077,11 +29188,12 @@ impl State {
         sb.freeze_fastpq_source_context();
         sb.require_storage_admission()?;
         sb.freeze_axt_block_start();
-        let continuation = before_start(&mut sb).map_err(StateBlockStartError::Stage)?;
-        if matches!(sb.fastpq_source_quota, Some(Err(_))) {
-            let result = after_start(&mut sb, continuation).map_err(StateBlockStartError::Stage)?;
-            return Ok((sb, result));
+        if let Some(Err(error)) = &sb.fastpq_source_quota {
+            // A malformed retained policy cannot authorize a pristine callback.
+            // Keep its original reason; no mutable Poisoned scope escapes this constructor.
+            return Err(StateBlockStartError::Policy(error.clone()));
         }
+        let continuation = before_start(&mut sb).map_err(StateBlockStartError::Stage)?;
         let pinned_sortition_anchors =
             match crate::smartcontracts::isi::sorafs_moderation::pin_due_sortition_anchors_v1(
                 &mut sb,
@@ -29913,10 +30025,10 @@ impl State {
         state_block.freeze_fastpq_source_context();
         state_block.require_storage_admission()?;
         state_block.freeze_axt_block_start();
-        stage(&mut state_block).map_err(StateBlockStartError::Stage)?;
-        if matches!(state_block.fastpq_source_quota, Some(Err(_))) {
-            return Ok(state_block);
+        if let Some(Err(error)) = &state_block.fastpq_source_quota {
+            return Err(StateBlockStartError::Policy(error.clone()));
         }
+        stage(&mut state_block).map_err(StateBlockStartError::Stage)?;
         let pinned_sortition_anchors =
             crate::smartcontracts::isi::sorafs_moderation::pin_due_sortition_anchors_v1(
                 &mut state_block,
@@ -37993,6 +38105,12 @@ impl<'state> StateBlock<'state> {
         crate::exec_witness::synchronize_fastpq_transcripts(&self.fastpq_transcripts);
         mem::take(&mut self.fastpq_transcripts)
     }
+    /// Observe whether the original block's raw transcript staging map is empty.
+    /// This immutable test observation remains valid after output sealing.
+    #[cfg(test)]
+    pub(crate) fn transfer_transcripts_are_empty_for_testing(&self) -> bool {
+        self.fastpq_transcripts.is_empty()
+    }
     /// Drain the accumulated transfer transcripts recorded while executing this block.
     pub fn drain_transfer_transcripts(
         &mut self,
@@ -38144,9 +38262,21 @@ impl<'state> StateBlock<'state> {
                 });
                 state.bind_execution_output_witness(&witness)?;
                 // Publish only after every fallible preparation and binding check.
-                state.parliament_timed_ovn_casting_bindings = Some(casting_bindings);
-                state.fastpq_witness_context = context;
-                state.exec_witness = Some(witness);
+                state
+                    .fields
+                    .as_mut()
+                    .expect("original witness owner")
+                    .parliament_timed_ovn_casting_bindings = Some(casting_bindings);
+                state
+                    .fields
+                    .as_mut()
+                    .expect("original witness owner")
+                    .fastpq_witness_context = context;
+                state
+                    .fields
+                    .as_mut()
+                    .expect("original witness owner")
+                    .exec_witness = Some(witness);
                 Ok(())
             })();
             match result {
@@ -38220,15 +38350,27 @@ impl<'state> StateBlock<'state> {
             Some(Err(previous)) => previous.clone(),
             _ => error,
         };
-        self.fastpq_source_inventory = Some(Err(error.clone()));
+        self.fields
+            .as_mut()
+            .expect("original witness owner")
+            .fastpq_source_inventory = Some(Err(error.clone()));
         self.clear_cached_exec_witness();
         error
     }
     /// Discard every cached output derived from one captured execution witness.
     fn clear_cached_exec_witness(&mut self) {
-        self.exec_witness = None;
-        self.fastpq_witness_context = None;
-        self.parliament_timed_ovn_casting_bindings = None;
+        self.fields
+            .as_mut()
+            .expect("original witness owner")
+            .exec_witness = None;
+        self.fields
+            .as_mut()
+            .expect("original witness owner")
+            .fastpq_witness_context = None;
+        self.fields
+            .as_mut()
+            .expect("original witness owner")
+            .parliament_timed_ovn_casting_bindings = None;
     }
     /// Reject stale output extraction even when capture has not been called again.
     fn guard_captured_exec_witness(&mut self) -> bool {
@@ -38251,7 +38393,11 @@ impl<'state> StateBlock<'state> {
         if !self.guard_captured_exec_witness() {
             return None;
         }
-        self.exec_witness.take()
+        self.fields
+            .as_mut()
+            .expect("original witness owner")
+            .exec_witness
+            .take()
     }
     /// Borrow the original captured casting leaves while their execution overlay is retained.
     /// The archive independently binds their snapshot to the same original execution result.
@@ -38270,7 +38416,11 @@ impl<'state> StateBlock<'state> {
         if !self.guard_captured_exec_witness() {
             return None;
         }
-        self.parliament_timed_ovn_casting_bindings.take()
+        self.fields
+            .as_mut()
+            .expect("original witness owner")
+            .parliament_timed_ovn_casting_bindings
+            .take()
     }
     /// Take the local-only FASTPQ witness context, if one was captured.
     #[cfg_attr(
@@ -38283,7 +38433,11 @@ impl<'state> StateBlock<'state> {
         if !self.guard_captured_exec_witness() {
             return None;
         }
-        self.fastpq_witness_context.take()
+        self.fields
+            .as_mut()
+            .expect("original witness owner")
+            .fastpq_witness_context
+            .take()
     }
     fn stage_da_pin_intent_bundle(
         &mut self,
@@ -38314,6 +38468,10 @@ impl<'state> StateBlock<'state> {
     /// # Errors
     /// Returns a previously latched local storage refusal or the original admission
     /// error if the World transaction checkpoints cannot be acquired.
+    ///
+    /// # Panics
+    /// Panics before acquisition if the execution is sealed, finalized, poisoned,
+    /// or retained for publication. Only the private finality owner opens its tail.
     pub fn try_transaction(
         &mut self,
     ) -> Result<StateTransaction<'_, 'state>, StateStorageAdmissionError> {
@@ -38437,6 +38595,29 @@ impl<'state> StateBlock<'state> {
         transaction.authorize_fastpq_governance_source_scope();
         transaction
     }
+    /// Read the exact original fee corpus through a disposable, shared child.
+    /// No mutable child escapes, no effects are applied, and a refusal retains the
+    /// original State storage cause. This is the sole sealed child construction.
+    pub(crate) fn capture_pending_fee_evidence(
+        &mut self,
+    ) -> Result<Vec<iroha_data_model::fee_evidence::FeeEvidenceRecordV1>, WitnessCaptureError> {
+        assert!(
+            self.publication.is_none(),
+            "publication retains immutable original State"
+        );
+        if !matches!(
+            self.execution_output_plan,
+            None | Some(output_capacity::ExecutionOutputPlanState::Sealed(_))
+        ) {
+            return Err("fee capture requires the original completed execution".into());
+        }
+        let transaction = self
+            .transaction_from_original_fields(false)
+            .map_err(WitnessCaptureError::StorageAdmission)?;
+        crate::validation_fee_rewards::checked_pending_fee_evidence(&transaction)
+            .map_err(Into::into)
+    }
+
     /// Create a finality-effects transaction that cannot publish speculative event telemetry.
     pub(crate) fn consensus_effects_transaction(
         &mut self,
@@ -38444,6 +38625,16 @@ impl<'state> StateBlock<'state> {
         self.transaction_with_event_telemetry(false)
     }
     fn transaction_with_event_telemetry(
+        &mut self,
+        ingest_event_telemetry: bool,
+    ) -> Result<StateTransaction<'_, 'state>, StateStorageAdmissionError> {
+        self.assert_execution_mutable();
+        self.transaction_from_original_fields(ingest_event_telemetry)
+    }
+
+    /// Construct only from the original fields. Writable callers first pass the
+    /// phase gate; the sealed fee reader below exposes only a shared child borrow.
+    fn transaction_from_original_fields(
         &mut self,
         ingest_event_telemetry: bool,
     ) -> Result<StateTransaction<'_, 'state>, StateStorageAdmissionError> {
@@ -38671,6 +38862,7 @@ impl<'state> StateBlock<'state> {
         ordinary_entrypoints: &mut [HashOf<TransactionEntrypoint>],
         block_height: NonZeroUsize,
     ) -> Result<(), MergeLedgerCommitError> {
+        self.assert_execution_mutable();
         let fields = self.fields.as_mut().expect("original executing State");
         fields
             .transactions
@@ -39000,6 +39192,7 @@ impl<'state> StateBlock<'state> {
         block: &SignedBlock,
         committed_fragment_count: u64,
     ) -> Result<bool, String> {
+        self.assert_execution_mutable();
         let block_header = block.header();
         if block_header.height() != self._curr_block.height()
             || block_header.hash() != self._curr_block.hash()

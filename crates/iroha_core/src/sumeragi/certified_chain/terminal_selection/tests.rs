@@ -335,7 +335,7 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
     context.with(|| gap.decode(2, prefix, &budget)).unwrap();
     let original_gap: *const CommittedBlock = gap.borrowed();
     let original_body = gap.borrowed().block().clone();
-    let original_authority = Arc::as_ptr(&prefix.authority);
+    let original_authority = std::ptr::from_ref(prefix.authority.material());
     let original_tip = prefix.tip.id();
     let original_schedule = prefix.schedule.clone();
     let original_source = prefix.proof_source;
@@ -373,7 +373,7 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
         &config,
         header,
         table.as_slice(),
-        &prefix.authority.crypto,
+        prefix.authority.projection().crypto,
     )
     .unwrap();
     let shape = authenticated.shape();
@@ -434,7 +434,10 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
     );
     assert_eq!(prefix.tip.id(), original_tip);
     assert_eq!(prefix.schedule, original_schedule);
-    assert_eq!(Arc::as_ptr(&prefix.authority), original_authority);
+    assert_eq!(
+        std::ptr::from_ref(prefix.authority.material()),
+        original_authority
+    );
     assert_eq!(prefix.proof_source, original_source);
     assert!(std::ptr::eq::<CommittedBlock>(gap.borrowed(), original_gap));
     assert!(SharedSignedBlock::ptr_eq(
@@ -463,7 +466,10 @@ fn terminal_amx_original_scratch_admission(rs16_only: bool) {
     assert_eq!(prepared.certificate.commit_qc.as_ref().unwrap().height, 2);
     assert_eq!(prefix.tip.id(), original_tip);
     assert_eq!(prefix.schedule, original_schedule);
-    assert_eq!(Arc::as_ptr(&prefix.authority), original_authority);
+    assert_eq!(
+        std::ptr::from_ref(prefix.authority.material()),
+        original_authority
+    );
     drop(prepared);
     assert_eq!(budget.reserved_bytes(), retained);
     assert!(std::ptr::eq::<CommittedBlock>(gap.borrowed(), original_gap));
@@ -525,7 +531,7 @@ fn terminal_late_result_slot(gap: bool, cancel: bool) {
     let prefix = cursor.as_mut().unwrap();
     assert_eq!(prefix.tip.height(), 1);
     let original_tip = prefix.tip.id();
-    let original_authority = Arc::as_ptr(&prefix.authority);
+    let original_authority = std::ptr::from_ref(prefix.authority.material());
     let mut target = OriginalReceipt::new(&view, 3, &budget).unwrap();
     context.with(|| target.acquire_body()).unwrap();
     let target_body = target.body.as_ref().unwrap().clone();
@@ -616,7 +622,7 @@ fn terminal_late_result_slot(gap: bool, cancel: bool) {
     let cursor = reader.prefix.lock();
     assert_eq!(cursor.as_ref().unwrap().tip.id(), original_tip);
     assert_eq!(
-        Arc::as_ptr(&cursor.as_ref().unwrap().authority),
+        std::ptr::from_ref(cursor.as_ref().unwrap().authority.material()),
         original_authority
     );
     drop(cursor);

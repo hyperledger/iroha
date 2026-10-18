@@ -137,15 +137,16 @@ fn abandoned_draft_never_changes_source_and_wrong_successor_cannot_be_published(
         .unwrap();
     assert!(draft.finish(&state).is_err());
     assert_eq!(archive::encode(&original).unwrap(), before);
-    let mut restored =
-        PreparationMapsV1::new(&mut store, &original, &state, K::Receive, None).unwrap();
-    restored
-        .non_membership(PreparationMapV1::Consumed, &field(3))
-        .unwrap();
-    restored
-        .insert(PreparationMapV1::Consumed, field(3), field(4))
-        .unwrap();
-    drop(restored);
+    {
+        let mut restored =
+            PreparationMapsV1::new(&mut store, &original, &state, K::Receive, None).unwrap();
+        restored
+            .non_membership(PreparationMapV1::Consumed, &field(3))
+            .unwrap();
+        restored
+            .insert(PreparationMapV1::Consumed, field(3), field(4))
+            .unwrap();
+    }
     assert_eq!(archive::encode(&original).unwrap(), before);
 }
 
@@ -154,15 +155,15 @@ fn only_archive_can_clear_pending_and_its_removed_slot_is_not_reused() {
     let mut store = MemoryArchive::new();
     let maps = SourceMapsV1::default();
     let initial = state();
-    let mut send = PreparationMapsV1::new(&mut store, &maps, &initial, K::Send, None).unwrap();
-    let insertion = send
+    let mut draft = PreparationMapsV1::new(&mut store, &maps, &initial, K::Send, None).unwrap();
+    let insertion = draft
         .insert(PreparationMapV1::Pending, field(3), field(4))
         .unwrap();
     let mut sent = initial;
     sent.core.pending_outgoing_root = insertion
         .verify(&initial.core.pending_outgoing_root, &field(3), &field(4))
         .unwrap();
-    let maps = send.finish(&sent).unwrap();
+    let maps = draft.finish(&sent).unwrap();
     for kind in K::ALL {
         let mut view = PreparationMapsV1::new(
             &mut store,
@@ -411,20 +412,22 @@ fn selected_missing_or_corrupt_objects_never_produce_absence_openings() {
     let original = archive::encode(&maps).unwrap();
     for fault in [ReadFault::Missing, ReadFault::Corrupt] {
         store.read_fault = fault;
-        let mut view = PreparationMapsV1::new(&mut store, &maps, &selected, K::Send, None).unwrap();
-        assert!(matches!(
-            view.non_membership(PreparationMapV1::Pending, &field(9)),
-            Err(Error::WitnessLost(_))
-        ));
-        assert!(matches!(
-            view.membership(PreparationMapV1::Pending, &field(3)),
-            Err(Error::WitnessLost(_))
-        ));
-        assert!(
-            view.insert(PreparationMapV1::Pending, field(9), field(10))
-                .is_err()
-        );
-        drop(view);
+        {
+            let mut view =
+                PreparationMapsV1::new(&mut store, &maps, &selected, K::Send, None).unwrap();
+            assert!(matches!(
+                view.non_membership(PreparationMapV1::Pending, &field(9)),
+                Err(Error::WitnessLost(_))
+            ));
+            assert!(matches!(
+                view.membership(PreparationMapV1::Pending, &field(3)),
+                Err(Error::WitnessLost(_))
+            ));
+            assert!(
+                view.insert(PreparationMapV1::Pending, field(9), field(10))
+                    .is_err()
+            );
+        }
         assert_eq!(archive::encode(&maps).unwrap(), original);
     }
     store.read_fault = ReadFault::None;
@@ -448,23 +451,25 @@ fn unavailable_or_locked_selected_storage_remains_retryable_without_any_write() 
     let (maps, selected) = nonempty_sources(&mut store);
     let writes = store.writes;
     store.read_fault = ReadFault::Unavailable;
-    let mut view = PreparationMapsV1::new(&mut store, &maps, &selected, K::Send, None).unwrap();
-    match view.non_membership(PreparationMapV1::Pending, &field(9)) {
-        Err(Error::Storage(error)) => assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock),
-        other => panic!("temporary storage failure cannot mean nonmembership: {other:?}"),
+    {
+        let mut view = PreparationMapsV1::new(&mut store, &maps, &selected, K::Send, None).unwrap();
+        match view.non_membership(PreparationMapV1::Pending, &field(9)) {
+            Err(Error::Storage(error)) => assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock),
+            other => panic!("temporary storage failure cannot mean nonmembership: {other:?}"),
+        }
     }
-    drop(view);
     store.read_fault = ReadFault::Protected;
-    let mut view = PreparationMapsV1::new(&mut store, &maps, &selected, K::Send, None).unwrap();
-    assert!(matches!(
-        view.membership(PreparationMapV1::Pending, &field(3)),
-        Err(Error::Provider(
-            crate::kagemusha_wallet_advance_v1::KagemushaWalletProviderErrorV1::Unavailable(
-                crate::kagemusha_wallet_advance_v1::KagemushaWalletUnavailableV1::Locked,
-            )
-        ))
-    ));
-    drop(view);
+    {
+        let mut view = PreparationMapsV1::new(&mut store, &maps, &selected, K::Send, None).unwrap();
+        assert!(matches!(
+            view.membership(PreparationMapV1::Pending, &field(3)),
+            Err(Error::Provider(
+                crate::kagemusha_wallet_advance_v1::KagemushaWalletProviderErrorV1::Unavailable(
+                    crate::kagemusha_wallet_advance_v1::KagemushaWalletUnavailableV1::Locked,
+                )
+            ))
+        ));
+    }
     assert_eq!(store.writes, writes);
     store.read_fault = ReadFault::None;
     let mut view = PreparationMapsV1::new(&mut store, &maps, &selected, K::Send, None).unwrap();
@@ -481,12 +486,13 @@ fn partial_insert_or_remove_publication_keeps_the_exact_selected_source() {
         inner: store.inner.clone(),
         ..StorageProbe::new()
     };
-    let mut expected =
-        PreparationMapsV1::new(&mut control, &maps, &selected, K::Send, None).unwrap();
-    let insertion = expected
-        .insert(PreparationMapV1::Pending, field(9), field(10))
-        .unwrap();
-    drop(expected);
+    let insertion = {
+        let mut expected =
+            PreparationMapsV1::new(&mut control, &maps, &selected, K::Send, None).unwrap();
+        expected
+            .insert(PreparationMapV1::Pending, field(9), field(10))
+            .unwrap()
+    };
     store.writes_before_failure = Some(7);
     let mut view = PreparationMapsV1::new(&mut store, &maps, &selected, K::Send, None).unwrap();
     assert!(matches!(
@@ -496,14 +502,16 @@ fn partial_insert_or_remove_publication_keeps_the_exact_selected_source() {
     view.finish(&selected).unwrap();
     assert_eq!(archive::encode(&maps).unwrap(), original);
     store.writes_before_failure = None;
-    let mut retry = PreparationMapsV1::new(&mut store, &maps, &selected, K::Send, None).unwrap();
-    assert_eq!(
-        retry
-            .insert(PreparationMapV1::Pending, field(9), field(10))
-            .unwrap(),
-        insertion
-    );
-    drop(retry);
+    {
+        let mut retry =
+            PreparationMapsV1::new(&mut store, &maps, &selected, K::Send, None).unwrap();
+        assert_eq!(
+            retry
+                .insert(PreparationMapV1::Pending, field(9), field(10))
+                .unwrap(),
+            insertion
+        );
+    }
     store.writes_before_failure = Some(7);
     let mut view =
         PreparationMapsV1::new(&mut store, &maps, &selected, K::ArchiveSent, None).unwrap();

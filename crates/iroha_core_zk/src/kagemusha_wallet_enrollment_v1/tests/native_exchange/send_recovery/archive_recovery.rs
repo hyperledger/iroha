@@ -5,6 +5,9 @@ use super::*;
 #[path = "archive_recovery/interrupted.rs"]
 mod interrupted;
 
+#[path = "archive_recovery/checkpoint.rs"]
+mod checkpoint;
+
 fn completed(wallet: &mut Wallet, id: u8) -> Vec<u8> {
     let state::RequestStatusV1::Outcome(Completion::Complete(bytes)) =
         wallet.retry_request(&[id; 32]).unwrap()
@@ -14,46 +17,69 @@ fn completed(wallet: &mut Wallet, id: u8) -> Vec<u8> {
     bytes
 }
 
+/// Recover an already committed Archive, never permit a fresh sequence or signature.
+fn retained_archive(
+    wallet: &mut Wallet,
+    sources: &Sources,
+    fixture: &Fixture,
+    frames: &[Vec<u8>; 4],
+    evidence: &[u8],
+    credit_id: [u8; 32],
+) -> Vec<u8> {
+    let before = wallet.snapshot().unwrap();
+    let original = complete(wallet.accept_credited(evidence).unwrap());
+    let package: KagemushaWalletPackageV1 = decode(&original);
+    let credential = KagemushaWalletCredentialV1::decode_canonical(
+        &frames[0],
+        &fixture.config.scheme.scheme_id(),
+    )
+    .unwrap();
+    package.verify(&credential).unwrap();
+    assert!(matches!(package.statement.effect,
+        KagemushaWalletEffectV1::ArchiveSent { credit_id: actual, .. }
+        if actual == credit_id));
+    sources
+        .installed
+        .verifier()
+        .verify_package_proofs(&package, MemoryBudget::DEFAULT)
+        .unwrap();
+    assert_eq!(package.statement.sequence, before.sequence);
+    assert_eq!(package.statement.successor.value, before.head);
+    assert_eq!(wallet.snapshot().unwrap(), before);
+    original
+}
+
 #[test]
-#[ignore = "requires retained A Archive, both completed transfers/Receive folds and successful one-checkpoint repair; never repeats Load, enrollment, Send or Receive"]
+#[ignore = "requires retained A Archive, both completed transfers/Receive folds and current one-checkpoint receipt; never repeats Load, enrollment, Send or Receive"]
 fn continue_retained_archives_then_unload_without_repeating_transfers() {
     // Require all exact session originals before opening or advancing retained custody.
     let (census_manifest, census_originals) = message_census::read_pinned_originals();
     let output = fresh_output("KAGEMUSHA_NATIVE_ARCHIVE_RECOVERY_OUTPUT");
-    let checkpoint_path = selected_path("KAGEMUSHA_NATIVE_SEND_FOLD_DIAGNOSTIC_RESULT");
+    let checkpoint_path = selected_path("KAGEMUSHA_NATIVE_SEND_CHECKPOINT_RECEIPT");
     let checkpoint_bytes = read_pin(
         &checkpoint_path,
         TARGET_MAX,
-        &env_pin("KAGEMUSHA_NATIVE_SEND_FOLD_DIAGNOSTIC_RESULT_SHA256"),
+        &env_pin("KAGEMUSHA_NATIVE_SEND_CHECKPOINT_RECEIPT_SHA256"),
     );
-    let checkpoint: norito::json::Value = norito::json::from_slice(&checkpoint_bytes).unwrap();
-    assert_eq!(
-        checkpoint["schema"].as_str(),
-        Some("iroha.kagemusha.retained-send-fold-diagnostic-result.v1")
-    );
-    assert_eq!(checkpoint["fold_succeeded"].as_bool(), Some(true));
-    assert_eq!(
-        checkpoint["fold_outcome"].as_str(),
-        Some("Ok(Checkpoint { sequence: 2, ordinal: 6 })")
-    );
-    let checkpoint_selection_path = checkpoint_path.parent().unwrap().join("selection.json");
+    let receipt: norito::json::Value = norito::json::from_slice(&checkpoint_bytes).unwrap();
     let checkpoint_selection_bytes = read_pin(
-        &checkpoint_selection_path,
+        &checkpoint_path.parent().unwrap().join("selection.json"),
         TARGET_MAX,
-        checkpoint["selection_sha256"].as_str().unwrap(),
+        receipt["selection_sha256"].as_str().unwrap(),
     );
+    let next_checkpoint = checkpoint::require_receipt(&receipt, &checkpoint_selection_bytes);
     let checkpoint_selection: norito::json::Value =
         norito::json::from_slice(&checkpoint_selection_bytes).unwrap();
+    message_census::require_manifest_continuity(&census_manifest, &checkpoint_selection);
+    assert_eq!(checkpoint_selection["source_pins"], source_pins());
     assert_eq!(
-        checkpoint_selection["schema"].as_str(),
-        Some("iroha.kagemusha.retained-send-fold-diagnostic.v1")
+        checkpoint_selection["consumer_binary_sha256"].as_str(),
+        Some(executable_hash().as_str())
     );
-    assert_eq!(checkpoint_selection["maximum_fold_calls"].as_u64(), Some(1));
     assert_eq!(
-        checkpoint_selection["new_monetary_operations"].as_u64(),
-        Some(0)
+        checkpoint_selection["consumer_source_sha256"].as_str(),
+        Some(env_pin("KAGEMUSHA_NATIVE_SOURCE_SHA256").as_str())
     );
-    assert_eq!(checkpoint_selection["retained_fee"].as_u64(), Some(0));
     let previous_path = selected_path("KAGEMUSHA_NATIVE_COMPLETED_SEND_CONTINUATION");
     let previous_bytes = read_pin(
         &previous_path,
@@ -77,6 +103,10 @@ fn continue_retained_archives_then_unload_without_repeating_transfers() {
     );
     assert_eq!(
         previous["previous_continuation_sha256"].as_str(),
+        Some(sha(&prior_bytes).as_str())
+    );
+    assert_eq!(
+        checkpoint_selection["selected_send_continuation_sha256"].as_str(),
         Some(sha(&prior_bytes).as_str())
     );
     let prior: norito::json::Value = norito::json::from_slice(&prior_bytes).unwrap();
@@ -137,7 +167,15 @@ fn continue_retained_archives_then_unload_without_repeating_transfers() {
         (3, 0, 2)
     );
     assert_eq!(before_a.verified_fold.unwrap().sequence, 1);
-    assert_eq!(a.fold_checkpoint_cursor_for_test().unwrap(), (2, 7));
+    assert_eq!(before_a.folded_balance, None);
+    assert_eq!(
+        checkpoint::snapshot_record(&before_a),
+        checkpoint_selection["snapshot_before"]
+    );
+    assert_eq!(
+        a.fold_checkpoint_cursor_for_test().unwrap(),
+        next_checkpoint
+    );
     assert_eq!(
         (
             before_b.sequence,
@@ -208,24 +246,24 @@ fn continue_retained_archives_then_unload_without_repeating_transfers() {
         [&payment_ab, &payment_bc],
         [&credited_ab, &credited_bc],
     );
-    // This must be the previously committed Archive package. Hardware signing is disabled,
-    // and its sequence/head must equal the existing snapshot before any fold is attempted.
-    let archived_ab = complete(a.accept_credited(&credited_ab).unwrap());
-    let package: KagemushaWalletPackageV1 = decode(&archived_ab);
-    package.verify(&credential_a).unwrap();
-    assert!(matches!(package.statement.effect,
-        KagemushaWalletEffectV1::ArchiveSent { credit_id, .. } if credit_id == credit_ab));
-    sources
-        .installed
-        .verifier()
-        .verify_package_proofs(&package, MemoryBudget::DEFAULT)
-        .unwrap();
-    assert_eq!(package.statement.sequence, before_a.sequence);
-    assert_eq!(package.statement.successor.value, before_a.head);
-    assert_eq!(a.snapshot().unwrap(), before_a);
+    // Recover the current Archive through the same exact-replay verifier used after interruption.
+    let archived_ab = retained_archive(&mut a, &sources, &f, &frames_a, &credited_ab, credit_ab);
+    for (name, bytes, pin) in [
+        ("retained-payment.norito", &payment_ab, "payment_sha256"),
+        ("retained-archive.norito", &archived_ab, "archive_sha256"),
+    ] {
+        assert_eq!(
+            read_pin(
+                &checkpoint_path.parent().unwrap().join(name),
+                KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1,
+                checkpoint_selection[pin].as_str().unwrap()
+            ),
+            *bytes,
+        );
+    }
     let selection = norito::json!({
         "schema": "iroha.kagemusha.retained-archive-continuation.v1",
-        "checkpoint_result_sha256": (sha(&checkpoint_bytes)),
+        "checkpoint_receipt_sha256": (sha(&checkpoint_bytes)),
         "completed_send_continuation_sha256": (sha(&previous_bytes)),
         "consumer_binary_sha256": (executable_hash()),
         "consumer_source_sha256": (env_pin("KAGEMUSHA_NATIVE_SOURCE_SHA256")),

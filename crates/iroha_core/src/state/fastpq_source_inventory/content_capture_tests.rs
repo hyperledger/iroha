@@ -11,6 +11,7 @@ use crate::{
     exec_witness,
     state::{State, WorldReadOnly},
 };
+use iroha_crypto::HashOf;
 use iroha_data_model::{
     asset::AssetId,
     fastpq::{TransferDeltaTranscript, TransferTranscript},
@@ -194,14 +195,23 @@ fn original_recorder_authority_failure_is_sticky_without_consuming_another_recor
             true,
             |state, mut block, recording, mut native_source, _source| {
                 let mut recording = Some(recording);
+                if mutation == 0 {
+                    // Introduce the absent-recorder invariant violation while the
+                    // original execution is still mutable; capture must retain its
+                    // exact refusal after source sealing.
+                    block.original_execution_recorder = None;
+                }
                 let archive = finalized_source(&mut block, &mut native_source);
                 assert!(block.verified_fastpq_source_inventory_for_capture().is_ok());
+                if mutation != 0 {
+                    super::tests::assert_completed_state_refuses_mutation(|| {
+                        block.original_execution_recorder = None;
+                    });
+                    block.require_original_execution_recorder().unwrap();
+                }
                 let mut foreign = None;
                 let expected = match mutation {
-                    0 => {
-                        block.original_execution_recorder = None;
-                        "State execution has no original recorder"
-                    }
+                    0 => "State execution has no original recorder",
                     1 => {
                         exec_witness::start_block();
                         exec_witness::synchronize_fastpq_transcripts(&archive);
@@ -298,7 +308,7 @@ fn content_failure_survives_resynchronization_retry_getters_and_commit() {
 }
 
 #[test]
-fn cached_public_mutation_rejects_repeat_capture_and_each_getter_as_first_operation() {
+fn cached_public_mutation_is_refused_before_repeat_capture_and_each_first_getter() {
     for missing_digest in [false, true] {
         for first_operation in 0..4 {
             with_native_capture_source(
@@ -306,27 +316,27 @@ fn cached_public_mutation_rejects_repeat_capture_and_each_getter_as_first_operat
                 |_state, mut block, _recording, mut native_source, _source| {
                     finalized_source(&mut block, &mut native_source);
                     block.capture_exec_witness().unwrap();
-                    block
-                        .exec_witness
-                        .as_mut()
-                        .unwrap()
-                        .offer_reconstructed_tamper_for_test(|offered| {
-                            change_public_content(
-                                &mut offered.fastpq_transcripts[0].transcripts[0],
-                                missing_digest,
-                            );
-                        });
+                    let refusal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        block
+                            .exec_witness
+                            .as_mut()
+                            .unwrap()
+                            .offer_reconstructed_tamper_for_test(|offered| {
+                                change_public_content(
+                                    &mut offered.fastpq_transcripts[0].transcripts[0],
+                                    missing_digest,
+                                );
+                            });
+                    }));
+                    assert!(refusal.is_err());
                     assert_eq!(cached_outputs(&block), [true; 3]);
+                    block.verify_execution_output_seal(&native_source).unwrap();
                     if first_operation == 0 {
-                        assert!(block.capture_exec_witness().is_err());
+                        block.capture_exec_witness().unwrap();
                     } else {
-                        assert!(!take_output(&mut block, first_operation - 1));
+                        assert!(take_output(&mut block, first_operation - 1));
                     }
-                    let error = assert_raw_content_failure(&block);
-                    assert!(error.contains("public content differs"), "{error}");
-                    assert_getters_refuse(&mut block, &error);
-                    assert_eq!(block.capture_exec_witness(), Err(error.clone()));
-                    assert_eq!(assert_raw_content_failure(&block), error);
+                    assert!(block.fastpq_source_inventory.as_ref().unwrap().is_ok());
                 },
             );
         }
@@ -441,16 +451,19 @@ fn private_path_only_changes_survive_first_repeat_and_ordered_capture_extraction
                         .fastpq_batches
                         .is_empty()
                 );
-                block
-                    .exec_witness
-                    .as_mut()
-                    .unwrap()
-                    .offer_reconstructed_tamper_for_test(|offered| {
-                        change_private_paths(
-                            &mut offered.fastpq_transcripts[0].transcripts[0].deltas[0],
-                            20,
-                        );
-                    });
+                let refusal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    block
+                        .exec_witness
+                        .as_mut()
+                        .unwrap()
+                        .offer_reconstructed_tamper_for_test(|offered| {
+                            change_private_paths(
+                                &mut offered.fastpq_transcripts[0].transcripts[0].deltas[0],
+                                20,
+                            );
+                        });
+                }));
+                assert!(refusal.is_err());
                 block.capture_exec_witness().unwrap();
                 assert_eq!(cached_outputs(&block), [true; 3]);
                 assert!(Arc::ptr_eq(
@@ -491,16 +504,19 @@ fn directly_mutated_cached_public_bundles_cannot_commit_without_recapture_or_get
                     stage_marker_and_membership(&mut block);
                     finalized_source(&mut block, &mut native_source);
                     block.capture_exec_witness().unwrap();
-                    block
-                        .exec_witness
-                        .as_mut()
-                        .unwrap()
-                        .offer_reconstructed_tamper_for_test(|offered| {
-                            change_public_content(
-                                &mut offered.fastpq_transcripts[0].transcripts[0],
-                                missing_digest,
-                            );
-                        });
+                    let refusal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        block
+                            .exec_witness
+                            .as_mut()
+                            .unwrap()
+                            .offer_reconstructed_tamper_for_test(|offered| {
+                                change_public_content(
+                                    &mut offered.fastpq_transcripts[0].transcripts[0],
+                                    missing_digest,
+                                );
+                            });
+                    }));
+                    assert!(refusal.is_err());
                     assert_eq!(cached_outputs(&block), [true; 3]);
                     assert!(block.fastpq_source_inventory.as_ref().unwrap().is_ok());
                     // A genuine Sealed/Poisoned output owner has no finality publication
@@ -533,45 +549,49 @@ fn unexpected_prebuilt_batch() -> iroha_data_model::fastpq::FastpqTransitionBatc
 }
 
 #[test]
-fn cached_prebuilt_batches_reject_recapture_and_every_first_getter_with_sticky_failure() {
+fn cached_prebuilt_batches_are_refused_before_recapture_and_every_first_getter() {
     for with_transfer in [false, true] {
         for first_operation in 0..4 {
             with_native_capture_source(
                 with_transfer,
                 |state, mut block, _recording, mut native_source, _source| {
                     stage_marker_and_membership(&mut block);
-                    let original = if with_transfer {
-                        finalized_source(&mut block, &mut native_source)
+                    if with_transfer {
+                        finalized_source(&mut block, &mut native_source);
                     } else {
                         seal_native_source(&mut block, &mut native_source).unwrap();
-                        native_source.fastpq_transcripts().clone()
+                        assert!(native_source.fastpq_transcripts().is_empty());
                     };
                     block.capture_exec_witness().unwrap();
                     assert_eq!(cached_outputs(&block), [true, with_transfer, true]);
-                    block
-                        .exec_witness
-                        .as_mut()
-                        .unwrap()
-                        .offer_reconstructed_tamper_for_test(|offered| {
-                            offered.fastpq_batches.push(unexpected_prebuilt_batch());
-                        });
-                    if first_operation == 0 {
-                        assert!(block.capture_exec_witness().is_err());
-                    } else {
-                        assert!(!take_output(&mut block, first_operation - 1));
-                    }
-                    let error = assert_raw_content_failure(&block);
-                    assert_eq!(
-                        error,
-                        "ordinary captured witness contains prebuilt FASTPQ batches"
+                    let refusal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        block
+                            .exec_witness
+                            .as_mut()
+                            .unwrap()
+                            .offer_reconstructed_tamper_for_test(|offered| {
+                                offered.fastpq_batches.push(unexpected_prebuilt_batch());
+                            });
+                    }));
+                    assert!(refusal.is_err());
+                    assert!(
+                        block
+                            .exec_witness
+                            .as_ref()
+                            .unwrap()
+                            .fastpq_batches
+                            .is_empty()
                     );
-                    assert_getters_refuse(&mut block, &error);
-                    // Restarting the recorder with the original archive cannot repair the
-                    // StateBlock content failure after the unauthorized batch was observed.
-                    exec_witness::start_block();
-                    exec_witness::synchronize_fastpq_transcripts(&original);
-                    assert_eq!(block.capture_exec_witness(), Err(error.clone()));
-                    assert_eq!(assert_raw_content_failure(&block), error);
+                    block.verify_execution_output_seal(&native_source).unwrap();
+                    if first_operation == 0 {
+                        block.capture_exec_witness().unwrap();
+                    } else {
+                        assert_eq!(
+                            take_output(&mut block, first_operation - 1),
+                            first_operation != 2 || with_transfer
+                        );
+                    }
+                    assert!(block.fastpq_source_inventory.as_ref().unwrap().is_ok());
                     // A genuine Sealed/Poisoned output owner has no finality publication
                     // capability. The paired native control below exercises the real
                     // prepare/publish path; it cannot reach the old component enum gate.
@@ -599,13 +619,16 @@ fn cached_prebuilt_batches_cannot_commit_without_recapture_or_getters() {
                         assert!(native_source.fastpq_transcripts().is_empty());
                     }
                     block.capture_exec_witness().unwrap();
-                    block
-                        .exec_witness
-                        .as_mut()
-                        .unwrap()
-                        .offer_reconstructed_tamper_for_test(|offered| {
-                            offered.fastpq_batches.push(unexpected_prebuilt_batch());
-                        });
+                    let refusal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        block
+                            .exec_witness
+                            .as_mut()
+                            .unwrap()
+                            .offer_reconstructed_tamper_for_test(|offered| {
+                                offered.fastpq_batches.push(unexpected_prebuilt_batch());
+                            });
+                    }));
+                    assert!(refusal.is_err());
                     assert_eq!(cached_outputs(&block), [true, with_transfer, true]);
                     assert!(block.fastpq_source_inventory.as_ref().unwrap().is_ok());
                     // A genuine Sealed/Poisoned output owner has no finality publication
@@ -621,52 +644,36 @@ fn cached_prebuilt_batches_cannot_commit_without_recapture_or_getters() {
 }
 
 #[test]
-fn failed_output_binding_publishes_no_partial_capture_and_cannot_be_retried() {
-    use crate::state::output_capacity::ExecutionOutputPlanState;
+fn foreign_output_binding_cannot_replace_the_original_completed_capture() {
     for with_transfer in [false, true] {
         with_native_capture_source(
             with_transfer,
             |state, mut block, _recording, mut native_source, _source| {
                 stage_marker_and_membership(&mut block);
-                let archive = if with_transfer {
-                    finalized_source(&mut block, &mut native_source)
-                } else {
-                    seal_native_source(&mut block, &mut native_source).unwrap();
-                    native_source.fastpq_transcripts().clone()
-                };
+                seal_native_source(&mut block, &mut native_source).unwrap();
+                block.capture_exec_witness().unwrap();
                 let prior_lane_seal = block.sumeragi_lane_state_seal;
-                block.execution_output_plan = Some(ExecutionOutputPlanState::Running);
-                let error = block.capture_exec_witness().unwrap_err();
+                let original_hash = HashOf::new(block.exec_witness.as_ref().unwrap().wire());
+                let mut offered = block.exec_witness.as_ref().unwrap().wire().clone();
+                offered
+                    .writes
+                    .push(iroha_data_model::block::consensus::ExecKv {
+                        key: b"foreign-cut".to_vec(),
+                        value: vec![1],
+                    });
+                let error = block.bind_execution_output_witness(&offered).unwrap_err();
+                assert_eq!(error, "captured execution witness changed after sealing");
                 assert_eq!(
-                    error,
-                    "witness capture requires completed execution outputs"
+                    HashOf::new(block.exec_witness.as_ref().unwrap().wire()),
+                    original_hash
                 );
-                assert_eq!(assert_raw_content_failure(&block), error);
                 assert_eq!(block.sumeragi_lane_state_seal, prior_lane_seal);
-                assert!(matches!(
-                    block.execution_output_plan,
-                    Some(ExecutionOutputPlanState::Poisoned)
-                ));
-                assert_recorder_discarded();
-
-                // Neither repairing the output plan nor restoring identical public inputs
-                // can turn a failed first capture into a new authority-bearing attempt.
-                block.execution_output_plan = None;
-                crate::exec_witness::start_block();
-                crate::exec_witness::synchronize_fastpq_transcripts(&archive);
-                assert_eq!(block.capture_exec_witness(), Err(error.clone()));
-                assert_getters_refuse(&mut block, &error);
-                // Deliberately removing the plan selects the component setup
-                // surface, but cannot remove the first source-inventory failure.
-                block.verify_execution_output_publication().unwrap();
-                block.validate_canonical_runtime_projection().unwrap();
-                block.verify_sumeragi_lane_state_publication().unwrap();
-                assert!(matches!(
-                    block.commit(),
-                    Err(crate::state::TransactionsBlockError::FastpqSourceInventory)
-                ));
+                assert_eq!(cached_outputs(&block), [true, with_transfer, true]);
+                block.capture_exec_witness().unwrap();
+                block.verify_execution_output_seal(&native_source).unwrap();
+                assert!(block.verify_execution_output_publication().is_err());
+                drop(block);
                 assert_not_published(state);
-                crate::exec_witness::drain_exec_witness();
             },
         );
     }
@@ -682,24 +689,18 @@ fn interrupted_capture_restores_prior_lane_seal_and_latches_publication_failure(
             true,
             |_state, mut block, _recording, mut native_source, _source| {
                 let original = finalized_source(&mut block, &mut native_source);
-                let prior = had_lane_seal.then(|| {
-                    iroha_data_model::sumeragi_finality::SumeragiLaneStateCommitment::from_state(
-                        block.network_id,
-                        block._curr_block.height().get(),
-                        block.world.sumeragi_lanes(),
-                    )
-                    .unwrap()
-                    .state_hash()
-                });
-                block.sumeragi_lane_state_seal = prior;
-                block.execution_output_plan = Some(ExecutionOutputPlanState::Running);
+                if had_lane_seal {
+                    block
+                        .capture_sumeragi_lane_state(&mut Default::default())
+                        .unwrap();
+                }
+                let prior = block.sumeragi_lane_state_seal;
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let capture = WitnessCaptureGuard::new(&mut block);
-                    capture.state.sumeragi_lane_state_seal = Some(Hash::new(b"partial lane seal"));
-                    capture.state.parliament_timed_ovn_casting_bindings = Some(Vec::new());
-                    let wire = crate::exec_witness::drain_exec_witness();
-                    capture.state.exec_witness =
-                        Some(capture.state.retain_quantity_source_witness(wire).unwrap());
+                    capture
+                        .state
+                        .capture_sumeragi_lane_state(&mut Default::default())
+                        .unwrap();
                     panic!("test-only capture interruption");
                 }));
                 assert!(outcome.is_err());
@@ -731,8 +732,8 @@ fn interrupted_capture_restores_prior_lane_seal_and_latches_publication_failure(
 /// capability or claiming the later inventory gate ran before publication checks.
 fn assert_poisoned_native_source_cannot_publish(with_transfer: bool) {
     assert_native_publication_refuses(with_transfer, |original| {
-        original.state.execution_output_plan =
-            Some(crate::state::output_capacity::ExecutionOutputPlanState::Poisoned);
+        // Interrupt the actual capture owner; do not fabricate a plan variant.
+        drop(crate::state::exec_witness_capture::WitnessCaptureGuard::new(original.state));
         assert_eq!(
             original
                 .state

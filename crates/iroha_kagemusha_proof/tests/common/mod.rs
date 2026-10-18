@@ -60,14 +60,14 @@ pub const RELATION_CASES: [(SigmaRelation, Mutation, bool); 10] = [
 /// The relation-check cases over every relation shape (both prefix modes).
 pub const RELATION_CHECK_CASES: usize = 2 * RELATION_CASES.len();
 
-/// The shape `(k, lanes)` the selector picks at the smallest `k` (every
-/// relation; `tests/shapes.rs` checks it).
-pub const SMALLEST_SHAPE: (u32, usize) = (10, 4); // TODO(blacklist-local V2): re-measure
-/// The shape `(k, lanes)` the selector picks within the 3.5 KB budget
-/// (every relation; `tests/shapes.rs` checks it).
+/// The shape `(k, lanes)` the selector picks at the smallest `k` for the
+/// folded k12-class relations; `tests/shapes.rs` checks it.
+pub const SMALLEST_SHAPE: (u32, usize) = (10, 3);
+/// The shape `(k, lanes)` the selector picks within the 3,520-byte sigma
+/// role cap for the folded k12-class relations; `tests/shapes.rs` checks it.
 pub const BUDGET_SHAPE: (u32, usize) = (12, 1);
-/// The fewest lanes at `k = 11` (every relation; `tests/shapes.rs` checks
-/// it).
+/// The fewest lanes at `k = 11` for the folded k12-class relations;
+/// `tests/shapes.rs` checks it.
 pub const K11_SHAPE: (u32, usize) = (11, 2);
 
 /// The shape of `relation` at `(k, lanes)` with `(k - 1)`-bit limbs.
@@ -128,7 +128,7 @@ pub fn smallest_shape(relation: RelationShape) -> SigmaShape {
     shape(relation, &ShapePolicy::smallest_k())
 }
 
-/// The shape meeting the 3.5 KB budget.
+/// The shape meeting the 3,520-byte sigma role cap.
 pub fn budget_shape(relation: RelationShape) -> SigmaShape {
     shape(relation, &ShapePolicy::default())
 }

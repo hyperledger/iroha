@@ -737,7 +737,7 @@ mod tests {
         let mut verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(
             &one,
             &native.network_id(),
-            &native.chain_id(),
+            native.chain_id(),
         )
         .unwrap();
         let block = native.block_with_submitted_work(native.next_header());

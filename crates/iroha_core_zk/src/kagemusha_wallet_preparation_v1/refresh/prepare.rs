@@ -12,7 +12,7 @@ pub struct RefreshOriginalsV1<'a> {
     pub update: &'a [u8],
     /// Complete original canonical direct-root certificate set.
     pub certificates: &'a [u8],
-    /// Original canonical 64-slot predecessor usage frame, exactly for QuotaShare.
+    /// Original canonical 64-slot predecessor usage frame, exactly for `QuotaShare`.
     pub quota: Option<&'a [u8]>,
 }
 

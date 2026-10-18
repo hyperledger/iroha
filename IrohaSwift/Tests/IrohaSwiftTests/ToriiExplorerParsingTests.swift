@@ -83,12 +83,14 @@ final class ToriiExplorerParsingTests: XCTestCase {
     }
 
     func testExplorerTransferDetailsParsesAssetBatch() throws {
+        let secondSender = try explorerAccountFixture(seed: 0x31)
+        let secondReceiver = try explorerAccountFixture(seed: 0x32)
         let json = """
         {
             "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
             "created_at":"2025-01-01T00:00:00Z",
             "kind":"Transfer",
-            "box":\(try explorerBatchBoxFixture([("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", "62Fk4FPcMuLvW5QjDGNF2a4jAmjM", "5"), ("sorauﾛ1Pﾀﾚｿ1ﾍｶsFｲAfｾeB3ｽヱヱｳcyﾊyｹ1ﾂﾈヰヰ6ﾛヰEAﾃｱｳﾖLPN4XM", "sorauﾛ1PﾜKNﾗ7ｼｺa2WｸｼﾒﾐQﾎbｺﾄocﾆﾁヰJaｱbg6sｾgｲﾖPfX7WAWRY", "61CtjvNd9T3THAR65GsMVHr82Bjc", "2")])),
+            "box":\(try explorerBatchBoxFixture([("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", "62Fk4FPcMuLvW5QjDGNF2a4jAmjM", "5"), (secondSender, secondReceiver, "61CtjvNd9T3THAR65GsMVHr82Bjc", "2")])),
             "transaction_hash":"hash",
             "transaction_status":"Committed",
             "block":1,
@@ -108,13 +110,13 @@ final class ToriiExplorerParsingTests: XCTestCase {
             XCTAssertEqual(entries[0].receiverAccountId, "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D")
             XCTAssertEqual(entries[0].assetDefinitionId, "62Fk4FPcMuLvW5QjDGNF2a4jAmjM")
             XCTAssertEqual(entries[0].amount, "5")
-            XCTAssertEqual(entries[1].senderAccountId, "sorauﾛ1Pﾀﾚｿ1ﾍｶsFｲAfｾeB3ｽヱヱｳcyﾊyｹ1ﾂﾈヰヰ6ﾛヰEAﾃｱｳﾖLPN4XM")
-            XCTAssertEqual(entries[1].receiverAccountId, "sorauﾛ1PﾜKNﾗ7ｼｺa2WｸｼﾒﾐQﾎbｺﾄocﾆﾁヰJaｱbg6sｾgｲﾖPfX7WAWRY")
+            XCTAssertEqual(entries[1].senderAccountId, secondSender)
+            XCTAssertEqual(entries[1].receiverAccountId, secondReceiver)
             XCTAssertEqual(entries[1].assetDefinitionId, "61CtjvNd9T3THAR65GsMVHr82Bjc")
             XCTAssertEqual(entries[1].amount, "2")
             XCTAssertEqual(details.role(for: "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV"), .sender)
             XCTAssertEqual(details.role(for: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D"), .receiver)
-            XCTAssertTrue(details.involvesAccount("sorauﾛ1PﾜKNﾗ7ｼｺa2WｸｼﾒﾐQﾎbｺﾄocﾆﾁヰJaｱbg6sｾgｲﾖPfX7WAWRY"))
+            XCTAssertTrue(details.involvesAccount(secondReceiver))
             XCTAssertTrue(details.involvesAssetDefinition("62Fk4FPcMuLvW5QjDGNF2a4jAmjM"))
             XCTAssertTrue(details.involvesAssetDefinition("61CtjvNd9T3THAR65GsMVHr82Bjc"))
             XCTAssertFalse(details.involvesAssetDefinition("5ywNgSPQ5KyuQh7SwaZmwMW4GTXu"))
@@ -122,6 +124,8 @@ final class ToriiExplorerParsingTests: XCTestCase {
     }
 
     func testExplorerTransferRecordsFiltersByAccountAndAssetDefinition() throws {
+        let secondSender = try explorerAccountFixture(seed: 0x31)
+        let secondReceiver = try explorerAccountFixture(seed: 0x32)
         let json = """
         {
             "next_cursor":null,
@@ -137,10 +141,10 @@ final class ToriiExplorerParsingTests: XCTestCase {
                     "index":0
                 },
                 {
-                    "authority":"sorauﾛ1Pﾀﾚｿ1ﾍｶsFｲAfｾeB3ｽヱヱｳcyﾊyｹ1ﾂﾈヰヰ6ﾛヰEAﾃｱｳﾖLPN4XM",
+                    "authority":"\(secondSender)",
                     "created_at":"2025-01-01T00:00:00Z",
                     "kind":"Transfer",
-                    "box":\(try explorerBatchBoxFixture([("sorauﾛ1Pﾀﾚｿ1ﾍｶsFｲAfｾeB3ｽヱヱｳcyﾊyｹ1ﾂﾈヰヰ6ﾛヰEAﾃｱｳﾖLPN4XM", "sorauﾛ1PﾜKNﾗ7ｼｺa2WｸｼﾒﾐQﾎbｺﾄocﾆﾁヰJaｱbg6sｾgｲﾖPfX7WAWRY", "61CtjvNd9T3THAR65GsMVHr82Bjc", "2")])),
+                    "box":\(try explorerBatchBoxFixture([(secondSender, secondReceiver, "61CtjvNd9T3THAR65GsMVHr82Bjc", "2")])),
                     "transaction_hash":"hash2",
                     "transaction_status":"Committed",
                     "block":1,
@@ -152,7 +156,7 @@ final class ToriiExplorerParsingTests: XCTestCase {
         let page = try JSONDecoder().decode(ToriiPage<ToriiExplorerInstructionItem>.self, from: Data(json.utf8))
         XCTAssertEqual(page.transferRecords().count, 2)
         XCTAssertEqual(page.transferRecords(matchingAccount: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D").count, 1)
-        XCTAssertEqual(page.transferRecords(matchingAccount: "sorauﾛ1Pﾀﾚｿ1ﾍｶsFｲAfｾeB3ｽヱヱｳcyﾊyｹ1ﾂﾈヰヰ6ﾛヰEAﾃｱｳﾖLPN4XM").count, 1)
+        XCTAssertEqual(page.transferRecords(matchingAccount: secondSender).count, 1)
         XCTAssertEqual(page.transferRecords(assetDefinitionId: "61CtjvNd9T3THAR65GsMVHr82Bjc").count, 1)
         XCTAssertEqual(page.transferRecords(assetDefinitionId: "62Fk4FPcMuLvW5QjDGNF2a4jAmjM").count, 1)
         XCTAssertEqual(page.transferRecords(matchingAccount: "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D",
@@ -268,6 +272,7 @@ final class ToriiExplorerParsingTests: XCTestCase {
     }
 
     func testExplorerTransferSummariesAssignBatchIndices() throws {
+        let secondReceiver = try explorerAccountFixture(seed: 0x31)
         let json = """
         {
             "next_cursor":null,
@@ -276,7 +281,7 @@ final class ToriiExplorerParsingTests: XCTestCase {
                     "authority":"sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
                     "created_at":"2025-01-01T00:00:00Z",
                     "kind":"Transfer",
-                    "box":\(try explorerBatchBoxFixture([("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", "62Fk4FPcMuLvW5QjDGNF2a4jAmjM", "5"), ("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", "sorauﾛ1Pﾀﾚｿ1ﾍｶsFｲAfｾeB3ｽヱヱｳcyﾊyｹ1ﾂﾈヰヰ6ﾛヰEAﾃｱｳﾖLPN4XM", "62Fk4FPcMuLvW5QjDGNF2a4jAmjM", "7")])),
+                    "box":\(try explorerBatchBoxFixture([("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", "sorauﾛ1PaQｽGh1ｴ6pAﾜnqｸfJuｿMﾑVqﾏvQﾐﾚｼｾﾋaﾈｳﾊc1ｺﾊ1GGM2D", "62Fk4FPcMuLvW5QjDGNF2a4jAmjM", "5"), ("sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV", secondReceiver, "62Fk4FPcMuLvW5QjDGNF2a4jAmjM", "7")])),
                     "transaction_hash":"hash1",
                     "transaction_status":"Committed",
                     "block":1,

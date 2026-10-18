@@ -204,8 +204,8 @@ internal class KagemushaNearbyDeviceStages(
             trace("native-return", fields = arrayOf("status" to call.status.toString(), "outputSHA256" to digest(call.bytes())))
             probeRequire(call.status == KagemushaWalletCallV1.COMPLETE, "nearby-native-incomplete")
         }
-        fun released(kind: KagemushaWalletReleasedOutputV1.Kind): KagemushaWalletReleasedOutputV1 {
-            val released = wallet.releasedOutputForRequest(requestId)
+        fun released(kind: KagemushaWalletReleasedOutputV1.Kind, selectedRequestId: ByteArray = requestId): KagemushaWalletReleasedOutputV1 {
+            val released = wallet.releasedOutputForRequest(selectedRequestId)
             probeRequire(released.kind == kind && released.peerKind == if (kind == KagemushaWalletReleasedOutputV1.Kind.SEND)
                 KagemushaWalletTransportKindV1.PAYMENT else KagemushaWalletTransportKindV1.CREDITED, "native-projection")
             output("nearby-released-original.norito", released.original(), sequence)
@@ -286,15 +286,32 @@ internal class KagemushaNearbyDeviceStages(
                 output("nearby-payment-opened-ipm1.bin", paymentWire.encode(), sequence)
                 val payment = wallet.original(KagemushaWalletTransportKindV1.PAYMENT, paymentWire.canonicalPayload.bytes)
                 bind(requestId, "receive", mapOf("request-id" to requestId, "payment" to payment, "offer" to offer), recovery)
-                if (recovery) {
+                val call = if (recovery) {
                     probeRequire(config.files.exists(marker(requestId)), "recovery-required")
-                    complete(wallet.requestStatus(requestId))
+                    wallet.requestStatus(requestId)
                 } else {
                     config.files.publish(marker(requestId), probeJson("kind" to "RECEIVE", "paymentSHA256" to digest(payment)), exclusive = true)
-                    complete(wallet.receiveFromOffer(requestId, payment, offer))
+                    wallet.receiveFromOffer(requestId, payment, offer)
                 }
-                val nativeOutput = released(KagemushaWalletReleasedOutputV1.Kind.RECEIVE)
-                val credited = nativeOutput.peerOriginal() ?: throw EnrollmentProbeFailure("native-projection")
+                trace("native-return", fields = arrayOf("status" to call.status.toString(), "outputSHA256" to digest(call.bytes())))
+                val credited = gate.receivedCredit(call.status, requestId,
+                    retainedOutput = { selected -> released(KagemushaWalletReleasedOutputV1.Kind.RECEIVE, selected) },
+                    projection = { selected ->
+                        val current = wallet.receivedCredit(selected)
+                        trace("native-credit-projection", fields = arrayOf(
+                            "evidence" to current.evidence.name, "archive" to current.archive.name,
+                            "corePending" to current.corePending.toString(),
+                            "creditID" to EnrollmentProbeFiles.hex(current.creditId()),
+                            "paymentDigest" to EnrollmentProbeFiles.hex(current.paymentDigest()),
+                            "amountLow" to java.lang.Long.toUnsignedString(current.amount.low),
+                            "amountHigh" to java.lang.Long.toUnsignedString(current.amount.high)))
+                        KagemushaNearbyAttemptGate.ReceivedCredit(
+                            current.archive == KagemushaWalletCreditProjectionV1.Archive.RECEIVER,
+                            current.evidence == KagemushaWalletCreditProjectionV1.Evidence.BURNED,
+                            current.creditedOriginal())
+                    })
+                output("nearby-fresh-credited-original.norito", credited, sequence)
+                trace("native-fresh-received-credit", fields = arrayOf("outputSHA256" to digest(credited)))
                 trace("receiver-durable-before-ack", fields = arrayOf("creditedSHA256" to digest(credited)))
                 send(session.seal(message(IrohaPeerPayloadKind.CREDITED,
                     wallet.envelope(KagemushaWalletTransportKindV1.CREDITED, credited))).encode())

@@ -97,9 +97,16 @@ What exists so far:
   provisioning/relay turns; parent failure leaves private execution running. Remote
   bindings and release watermarks survive local reset, which cannot replace their child
   identity. Status separates live local peers from historical verified parent receipts.
+  `ManagedStore::build_registry` accepts the caller's captured `PreparedLocalnet` and
+  validates its complete preparation and original native directories before and after
+  lookup, including absent registries and errors. Successful lookup also retains the
+  original deadline. Kagami and Mochi use this shared check for deployment and publication;
+  source, bytecode and local-only packages keep lazy registry resolution.
 - `localnet` and `genesis`: canonical configuration generation, independent private
   authority seeds, profile policy and genuine core genesis execution. CLI parsing
   stays in Kagami; generation and process ownership have no CLI or GUI dependency.
+  Retained private-root fee policies decode under the validated child's account
+  profile; verification restores the parent caller's profile on success and failure.
 - `bootstrap`: canonical release-signed native checkpoint verification against an
   independently installed authority, with private durable release/clock rollback
   protection and explicit network reset identity. `ParentFinalityStore` retains

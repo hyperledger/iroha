@@ -13,20 +13,21 @@
 //! ladder; a checkpoint whose pinned frame changed is discarded.
 
 use super::{NativeFinalityProofBudget, ProofDestinationError, proof_destination::OwnedProof};
-use crate::{
-    execution_attempt::ExecutionAttemptError,
-    kura::Kura,
-    state::{BlockHashRead, StateView},
-    sumeragi::certified_chain::{
-        CertifiedChain, ChainReadError, FinalityPrefixCheckpoints, PrefixCheckpoint, QcVerification,
-    },
-};
 #[cfg(not(all(test, sumeragi_core_mutation = "HC211")))]
 use crate::{
     execution_attempt::kura_read_attempt_error,
     sumeragi::certified_chain::{proof_source_append, proof_source_start},
 };
-use iroha_allocation::{ChargedBuffer, ChargedBufferError};
+use crate::{
+    execution_attempt::{ExecutionAttemptError, ExecutionDeferred},
+    kura::Kura,
+    state::{BlockHashRead, StateView},
+    sumeragi::certified_chain::{
+        CertifiedChain, ChainReadError, FinalityPrefixCheckpoints, PrefixCheckpoint,
+        QcVerification, QueryCacheOwner,
+    },
+};
+use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError, ChargedShared};
 use iroha_crypto::Hash;
 use iroha_data_model::{
     NetworkId,
@@ -35,10 +36,7 @@ use iroha_data_model::{
 use iroha_model_base::chain::ChainId;
 use std::{
     num::{NonZeroU64, NonZeroUsize},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::atomic::{AtomicBool, Ordering},
     time::Instant,
 };
 
@@ -55,7 +53,10 @@ pub struct NativeFinalityProofSource<'source> {
     hashes: &'source dyn BlockHashRead,
     kura: &'source Kura,
     // The owning State's resume ladder; a source without one always walks from genesis.
-    checkpoints: Option<&'source FinalityPrefixCheckpoints>,
+    checkpoints: Option<(
+        &'source FinalityPrefixCheckpoints,
+        &'source AllocationBudget,
+    )>,
 }
 impl<'source> NativeFinalityProofSource<'source> {
     /// Borrow the original caller-owned cut without cloning history or authority.
@@ -79,18 +80,20 @@ impl<'source> NativeFinalityProofSource<'source> {
     pub(crate) fn with_checkpoints(
         mut self,
         checkpoints: &'source FinalityPrefixCheckpoints,
+        budget: &'source AllocationBudget,
     ) -> Self {
-        self.checkpoints = Some(checkpoints);
+        self.checkpoints = Some((checkpoints, budget));
         self
     }
 
-    fn resume_point(&self, from: u64) -> Option<Arc<PrefixCheckpoint>> {
-        self.checkpoints?.resume_point(from)
+    fn resume_point(&self, from: u64) -> Option<ChargedShared<PrefixCheckpoint>> {
+        let (checkpoints, budget) = self.checkpoints?;
+        checkpoints.resume_point(from, budget)
     }
 
     fn forget_from(&self, height: u64) {
-        if let Some(checkpoints) = self.checkpoints {
-            checkpoints.forget_from(height);
+        if let Some((checkpoints, budget)) = self.checkpoints {
+            checkpoints.forget_from(height, budget);
         }
     }
 }
@@ -302,10 +305,17 @@ impl From<ExecutionAttemptError<ChainReadError>> for NativeFinalityProofInterval
 pub struct NativeFinalityProofInterval {
     proofs: ChargedBuffer<OwnedProof>,
     from: u64,
+    // Optional State-cache refusal never changes the successfully verified proofs.
+    cache_refusal: Option<ExecutionDeferred>,
     // Proof allocations/control retire before the original request pool handles.
     _owner: NativeFinalityProofBudget,
 }
 impl NativeFinalityProofInterval {
+    /// Original local refusal of optional persistent cache retention, if any.
+    /// The returned interval still contains fully verified native proofs.
+    pub fn cache_retention_refusal(&self) -> Option<&ExecutionDeferred> {
+        self.cache_refusal.as_ref()
+    }
     /// First exact historical height represented by this response.
     pub fn from_height(&self) -> u64 {
         self.from
@@ -358,6 +368,23 @@ fn build_interval(
     cancelled: &AtomicBool,
     after_verified: impl FnOnce(),
 ) -> Result<NativeFinalityProofInterval, NativeFinalityProofIntervalError> {
+    // State-cache refunds can invoke arbitrary waiters. Every reader/cache guard
+    // retires before notifications from this exact original source pool escape.
+    match source.checkpoints {
+        Some((_, budget)) => budget.with_deferred_refund_notifications(|_| {
+            build_interval_in_cache_scope(source, owner, limits, cancelled, after_verified)
+        }),
+        None => build_interval_in_cache_scope(source, owner, limits, cancelled, after_verified),
+    }
+}
+
+fn build_interval_in_cache_scope(
+    source: &NativeFinalityProofSource<'_>,
+    owner: &NativeFinalityProofBudget,
+    limits: &NativeFinalityProofIntervalLimits,
+    cancelled: &AtomicBool,
+    after_verified: impl FnOnce(),
+) -> Result<NativeFinalityProofInterval, NativeFinalityProofIntervalError> {
     let budget = owner.frames();
     budget.with_deferred_refund_notifications(|_| {
         {
@@ -379,6 +406,13 @@ fn build_interval(
             })?;
             progress()?;
             chain.enable_proof_source_cut();
+            if let Some((checkpoints, budget)) = source.checkpoints {
+                let mut cache = QueryCacheOwner::new(budget.clone());
+                if let Err(original) = checkpoints.prepare(budget) {
+                    cache.refuse(original);
+                }
+                chain.configure_query_cache(cache);
+            }
             cursor.push_reserved(chain);
             let count = usize::try_from(limits.to - limits.from + 1)
                 .map_err(|_| NativeFinalityProofIntervalError::Request)?;
@@ -464,25 +498,35 @@ fn build_interval(
                 &workspace,
             )?);
             progress()?;
-            // Only a walk whose complete native verification and source join succeeded
-            // becomes a resume point; it owns no frame or request-pool charge.
-            let checkpoint =
-                parent_source
-                    .zip(source.checkpoints)
-                    .and_then(|(parent, checkpoints)| {
-                        reader
-                            .proof_prefix_checkpoint(parent)
-                            .map(|checkpoint| (checkpoints, checkpoint))
-                    });
-            // Cursor/result/authority graphs retire after their physical guards, still
-            // inside the original pool's refund fence, before exposing any response.
+            // Only the original completed verifier/source join can export a checkpoint.
+            // Optional persistent retention is independent of this proof's validity.
+            let checkpoint = match parent_source.zip(source.checkpoints) {
+                Some((parent, (checkpoints, budget))) => {
+                    match reader.proof_prefix_checkpoint(parent) {
+                        Ok(original) => original.map(|original| (checkpoints, budget, original)),
+                        Err(original) => {
+                            reader.refuse_query_cache(original);
+                            None
+                        }
+                    }
+                }
+                None => None,
+            };
+            let mut cache_refusal = reader.take_query_cache_refusal();
+            // Original request graphs retire before returning their workspace credit.
+            // A retained authority keeps its independently prepaid State source owner.
             drop(cursor);
-            if let Some((checkpoints, checkpoint)) = checkpoint {
-                checkpoints.retain(checkpoint);
+            if let Some((checkpoints, budget, checkpoint)) = checkpoint {
+                if let Err(original) = checkpoints.retain(checkpoint, budget) {
+                    if cache_refusal.is_none() {
+                        cache_refusal = Some(original);
+                    }
+                }
             }
             Ok(NativeFinalityProofInterval {
                 proofs,
                 from: limits.from,
+                cache_refusal,
                 _owner: owner.clone(),
             })
         }

@@ -553,13 +553,19 @@ fn validated_original_with_crypto_source(
     }
     assert!(complete);
     block.retire_original_musubi_group_read().unwrap();
-    block
-        .fields
-        .as_mut()
-        .unwrap()
-        .transactions
-        .try_prepare_publication()
-        .unwrap();
+    // The first publication attempt already admitted and detached this original
+    // membership action. Rejoin its frozen writer exactly as StatePublication
+    // does; logical admission is one-shot and must never be repeated.
+    assert!(block.transactions.prepared_membership_writer().is_none());
+    let membership = &mut block.fields.as_mut().unwrap().transactions;
+    membership.install_frozen_publication(&state.transactions);
+    membership.try_prepare_frozen_publication().unwrap();
+    assert!(
+        membership
+            .prepared_membership_writer()
+            .unwrap()
+            .belongs_to(&state.transactions)
+    );
     assert_eq!(
         std::ptr::from_ref(block.runtime_policy.static_inputs()) as usize,
         owner
@@ -860,18 +866,27 @@ fn world_and_membership_share_physical_traversal_admission_on_first_pass_and_ret
         .insert_block((0..10).map(key).collect(), NonZeroUsize::MIN);
     block.transactions.try_prepare_publication().unwrap();
     freeze(&mut block);
+    let native = block.world.smart_contract_state.frozen_images().unwrap();
+    let native_visits = native.current_entries().len() + native.undo_entries().len();
+    assert!(
+        native_visits >= 80,
+        "all seeded rows and authoritative defaults remain"
+    );
     let mut bound = limits();
     bound.max_source_visits = 100;
+    assert!(native_visits + 10 <= bound.max_source_visits);
+    assert!(native_visits + 20 > bound.max_source_visits);
     let mut output = Collector::new(state.ivm_execution_budget(), bound).unwrap();
     append_native(&block, &mut output).unwrap();
-    assert_eq!(output.source_visits, 80);
+    assert_eq!(output.source_visits, native_visits);
     assert!(matches!(
         membership::append(&block, &mut output),
         Err(CaptureError::CountLimit)
     ));
     assert_eq!(
-        output.source_visits, 100,
-        "third original scan was refused before inspection"
+        output.source_visits,
+        native_visits + 10,
+        "current-membership emission was refused before its original scan"
     );
     assert!(
         output.rows < bound.max_rows,
@@ -891,8 +906,8 @@ fn world_and_membership_share_physical_traversal_admission_on_first_pass_and_ret
     );
     membership::append(&block, &mut output).unwrap();
     assert_eq!(
-        output.source_visits, 22,
-        "recount, remaining filtered scan, current/undo frontier"
+        output.source_visits, 32,
+        "recount, both pending filtered scans, current/undo frontier"
     );
     assert_eq!(
         find(&output, "world.smart_contract_state")
@@ -911,12 +926,25 @@ fn world_and_membership_share_physical_traversal_admission_on_first_pass_and_ret
         "even a complete retry admits its membership recount"
     );
 
-    bound.max_source_visits = 112;
+    let complete_visits = native_visits + 3 * 10 + 2;
+    bound.max_source_visits = complete_visits - 1;
+    let mut short = Collector::new(state.ivm_execution_budget(), bound).unwrap();
+    append_native(&block, &mut short).unwrap();
+    assert!(matches!(
+        membership::append(&block, &mut short),
+        Err(CaptureError::CountLimit)
+    ));
+    assert_eq!(
+        short.source_visits,
+        native_visits + 3 * 10,
+        "both frontier values are admitted together before either is encoded"
+    );
+    bound.max_source_visits = complete_visits;
     let mut exact = Collector::new(state.ivm_execution_budget(), bound).unwrap();
     append_native(&block, &mut exact).unwrap();
     membership::append(&block, &mut exact).unwrap();
     assert_eq!(
-        exact.source_visits, 112,
-        "80 World + three 10-row scans + two frontier values"
+        exact.source_visits, complete_visits,
+        "all original World rows + three 10-row scans + two frontier values"
     );
 }

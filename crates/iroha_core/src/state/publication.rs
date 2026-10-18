@@ -356,17 +356,22 @@ impl<'state> StateBlock<'state> {
                     return Err(TransactionsBlockError::FastpqSourceInventory);
                 }
             }
-            this.finalize_axt_asset_incarnations()
-                .map_err(|_| TransactionsBlockError::AxtAssetIncarnation)?;
-            this.finalize_axt_policy_transition_ratchets()
-                .map_err(|_| TransactionsBlockError::AxtCounterRatchet)?;
+            // Native Finalized already includes these effects in the verified
+            // original publication surface. Only unsealed setup overlays still
+            // owe them here; publication cannot reopen a completed native cut.
+            if this.execution_output_plan.is_none() {
+                this.finalize_axt_asset_incarnations()
+                    .map_err(|_| TransactionsBlockError::AxtAssetIncarnation)?;
+                this.finalize_axt_policy_transition_ratchets()
+                    .map_err(|_| TransactionsBlockError::AxtCounterRatchet)?;
+            }
         }
         let block_height = this._curr_block.height().get();
         let block_header_hash = this._curr_block.hash();
         let current_axt_slot =
             current_axt_slot_from_block(&this._curr_block, this.nexus.axt.slot_length_ms);
         let axt_replay_retention_slots = this.nexus.axt.replay_retention_slots.get();
-        if world_effects.is_none() {
+        if world_effects.is_none() && this.execution_output_plan.is_none() {
             this.prune_axt_replay_ledger(current_axt_slot, axt_replay_retention_slots);
         }
         let state_ref = this.state_ref;

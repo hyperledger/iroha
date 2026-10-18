@@ -72,6 +72,13 @@ The closed commands and exact sets of input names are:
 | `finish-time` | `anchor`, `certificate` | Consume native exchange with actual issuer response |
 | `refresh-time` | `request-id`, `anchor`, `certificates` | Native TimeAnchor refresh after direct exchange retention |
 
+After collection of a completed Receive's retained output, `request-status`
+may return `CREDIT_STATUS` (10). Run `credit` for the same Receive request ID:
+fresh native `UNFOLDED` or `CREDITED` evidence satisfies the invocation's
+`received` stage. Raw status 10, burned evidence and exports alone do not.
+This records recovered credit without reconstructing the old receipt or its
+completion time.
+
 Receipt/anchor/certificate bounds are512 bytes; fee schedule/quote1024;
 canonical account/beneficiary4096; peer originals/envelopes/certificate bundle10000;
 signed transaction/claim65536; epoch boundary256KiB. Finality intake is capped at
@@ -189,6 +196,15 @@ Monetary completion and fold completion remain separate. Confirmation-to-complet
 includes this test driver's own retention overhead and is not an optimized UI
 latency measurement. Hardware/OS interrupts and all unsuccessful attempts remain
 in the evidence population.
+
+Nearby Receive recovery accepts the native `CREDIT_STATUS` result after old
+Receive output collection. It reads fresh covering evidence through
+`creditProjection(receiveRequestId:)`, without looking up the collected release.
+An ordinary `COMPLETE` result still records its retained release separately before
+reading fresh credit evidence. Missing, burned or nonreceiver evidence fails the
+diagnostic; only the exact native Credited original enters the acknowledgement.
+Sender recovery remains `COMPLETE`-only. Recovery does not reconstruct the
+original completion time.
 
 For A→B→C, the external controller must carry original Offer/Request/Payment/
 Credited bytes through the selected actual carrier and preserve independent

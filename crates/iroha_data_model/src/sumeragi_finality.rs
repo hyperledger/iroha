@@ -1181,6 +1181,13 @@ impl SumeragiFinalityVerifier {
             self.decisions.pop_first();
         }
     }
+    /// Oldest decision still retained from this authenticated contiguous prefix.
+    /// Historical witness verification also needs its parent (except at genesis).
+    /// This is local retention metadata, never evidence of ledger absence or rejection.
+    #[must_use]
+    pub fn oldest_authenticated_height(&self) -> Option<u64> {
+        self.decisions.first_key_value().map(|(height, _)| *height)
+    }
     /// Highest decision in the authenticated contiguous prefix, if any.
     /// This is local verified progress, never an unauthenticated server height.
     #[must_use]

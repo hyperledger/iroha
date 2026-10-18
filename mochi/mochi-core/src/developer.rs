@@ -315,7 +315,7 @@ impl DeveloperWorkspace {
                     },
                 )?;
             let (registry, archive_transport) = store
-                .build_registry(&self.runtime, &selected.name, deadline)?
+                .build_registry(&self.runtime, prepared, deadline)?
                 .ok_or_else(|| {
                     color_eyre::eyre::eyre!(
                         "selected generation has no authenticated build registry"
@@ -496,13 +496,9 @@ impl DeveloperWorkspace {
             // External dependencies require the original registry binding before cache
             // selection. Local-only graphs never call this; complete cache hits skip
             // registry/provider reads after this binding and custody are resolved.
-            captured.validate()?;
             let deadline = Instant::now() + Duration::from_secs(60);
             let store = ManagedStore::open(&registry_root)?;
-            let registry =
-                store.build_registry(&installed, &captured.prepared.context.name, deadline);
-            captured.validate()?;
-            Ok(registry?)
+            Ok(store.build_registry(&installed, &captured.prepared, deadline)?)
         }))
     }
 }

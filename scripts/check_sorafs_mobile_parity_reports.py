@@ -4,8 +4,12 @@
 Run after the five canonical Gradle tasks in a newly created external build
 directory. No environment variables or native artifacts are consumed here;
 the workflow separately authenticates the exact JNI library before/after tests.
-Inputs are bounded, link-free Gradle JUnit reports. Output contains only fixed
-task identifiers, execution counts, and report digests, never test payloads.
+Inputs are bounded, link-free Gradle JUnit reports, including Gradle's encoded
+__TEST-* filenames. Unknown XML files are refused, not counted or ignored.
+The caller must supply a fresh build tree: this checker does not authenticate
+run freshness from report timestamps or mtimes, or reconcile historical output.
+Output contains only fixed task identifiers, execution counts, and report
+digests, never test payloads.
 """
 
 from __future__ import annotations
@@ -124,7 +128,16 @@ def validate_reports(root: Path) -> dict[str, object]:
                 for count, entry in enumerate(entries, 1):
                     if count > MAX_DIRECTORY_ENTRIES:
                         raise ValueError("report directory exceeds its entry limit")
-                    if entry.name.startswith("TEST-") and entry.name.endswith(".xml"):
+                    if entry.name.endswith(".xml"):
+                        # Gradle encodes some suite filenames with __TEST-.
+                        # Inspect every XML candidate so an unrecognized name
+                        # cannot conceal a failed suite or inflate the count.
+                        if not any(
+                            entry.name.startswith(prefix)
+                            and len(entry.name) > len(prefix) + len(".xml")
+                            for prefix in ("TEST-", "__TEST-")
+                        ):
+                            raise ValueError("unrecognized JUnit report filename")
                         reports.append(directory / entry.name)
             cases = 0
             digests = []

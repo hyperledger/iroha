@@ -13,7 +13,7 @@ use sha2::{Digest as _, Sha256};
 mod terminal_reader;
 pub use terminal_reader::CustodyPreparationReader;
 #[cfg(test)]
-pub(super) use terminal_reader::count_request_verifications;
+pub(super) use terminal_reader::{count_request_commitments, count_request_verifications};
 
 const PAYLOAD_MAX: usize = 1024 * 1024;
 // Norito counts raw byte vectors as sequence elements. Bound them by the admitted journal
@@ -220,6 +220,8 @@ impl Request {
         Ok(())
     }
     fn commitment(&self) -> Result<String> {
+        #[cfg(test)]
+        terminal_reader::record_request_commitment();
         Ok(hex::encode(Sha256::digest(canonical_bytes(self)?)))
     }
 }
@@ -280,6 +282,8 @@ struct TerminalRecords {
 }
 struct TerminalRead {
     request: NativeRecordObservation,
+    // Owned only until this inspection returns; never retained across wallet callbacks.
+    request_commitment: Option<String>,
     retirement: Option<ObservedRecord<Retirement>>,
     custody_plan: Option<stream_token_custody::RetainedPlanTimestamp>,
 }
@@ -387,10 +391,20 @@ impl Retained {
                 )
             };
             let has_dispatch = reader.has_dispatch_evidence()?;
+            let mut request_commitment = None;
             if let Some(retirement) = &retirement {
                 eyre::ensure!(
                     retirement.schema == "iroha.wallet.native-retirement.v1"
-                        && retirement.request_sha256 == request.commitment()?
+                        && {
+                            // Compute at the original short-circuit position after the schema
+                            // and prior native reads. Only this same eligible call consumes it.
+                            let commitment = request.commitment()?;
+                            let matches = retirement.request_sha256 == commitment;
+                            if retain {
+                                request_commitment = Some(commitment);
+                            }
+                            matches
+                        }
                         && payload.is_none()
                         && record.is_none()
                         && !has_dispatch,
@@ -437,6 +451,7 @@ impl Retained {
             let retired = retirement.is_some();
             let retained = request_observation.map(|request| TerminalRead {
                 request,
+                request_commitment,
                 custody_plan,
                 retirement: retirement
                     .zip(retirement_observation)

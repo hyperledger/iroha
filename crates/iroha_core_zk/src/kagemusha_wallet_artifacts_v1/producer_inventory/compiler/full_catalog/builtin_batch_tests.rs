@@ -48,8 +48,10 @@ fn builtin_complete_batch_reuse_preserves_every_role_and_original() {
         config,
         &profile,
     );
-    assert_eq!(signature_controls, 63);
-    assert_eq!(receive_controls, 175);
+    // Twenty current signature references plus every existing refusal/retry case.
+    assert_eq!(signature_controls, 57);
+    // Nine A/eight W sources per Receive variant, including all original roles.
+    assert_eq!(receive_controls, 163);
     let sigma_rebuilds = builtin_sigma_rebuilds(&qualified, &mut originals, config);
     assert_eq!(sigma_rebuilds, 11);
     let (distinct, memo_off) =

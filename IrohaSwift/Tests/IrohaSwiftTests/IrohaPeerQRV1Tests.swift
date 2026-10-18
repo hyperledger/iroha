@@ -182,7 +182,9 @@ final class IrohaPeerQRV1Tests: XCTestCase {
     }
 
     func testStaticCandidateAndFixedPairParitySequence() throws {
-        let small = try makeMessage(count: 80, seed: 1)
+        // The current Payment frame includes both bounded proof-vector headers.
+        // Keep this below the static QR limit while leaving room for that framing.
+        let small = try makeMessage(count: 96, seed: 1)
         let staticText = try XCTUnwrap(
             IrohaPeerQRCodecV1.staticCompleteTextCandidate(for: small)
         )
@@ -386,7 +388,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         let kindSession = IrohaPeerQRScanSessionV1(expectedKind: .credited)
         let paymentText = try XCTUnwrap(
             IrohaPeerQRCodecV1.staticCompleteTextCandidate(
-                for: try makeMessage(count: 80, seed: 89)
+                for: try makeMessage(count: 96, seed: 89)
             )
         )
         XCTAssertThrowsError(try kindSession.ingest(paymentText)) { error in
@@ -408,7 +410,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
             idleTimeout: 1,
             absoluteTimeout: 3
         )
-        let message = try makeMessage(count: 80, seed: 91)
+        let message = try makeMessage(count: 96, seed: 91)
         let text = try XCTUnwrap(IrohaPeerQRCodecV1.staticCompleteTextCandidate(for: message))
         let session = IrohaPeerQRScanSessionV1(scanLimits: limits)
         guard case .completed(let completed) = try session.ingest(text, atUptime: 100) else {
@@ -450,7 +452,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
 
         var bounded: [(message: IrohaPeerWireMessageV1, text: String)] = []
         for seed in 100..<113 {
-            let item = try makeMessage(count: 80, seed: UInt8(seed))
+            let item = try makeMessage(count: 96, seed: UInt8(seed))
             bounded.append((
                 item,
                 try XCTUnwrap(IrohaPeerQRCodecV1.staticCompleteTextCandidate(for: item))
@@ -473,7 +475,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
     }
 
     func testInjectedUptimeMustBeFiniteNonnegativeAndMonotonicUntilReset() throws {
-        let message = try makeMessage(count: 80, seed: 92)
+        let message = try makeMessage(count: 96, seed: 92)
         let text = try XCTUnwrap(IrohaPeerQRCodecV1.staticCompleteTextCandidate(for: message))
         for invalid in [-1.0, Double.nan, Double.infinity, -Double.infinity] {
             let session = IrohaPeerQRScanSessionV1()
@@ -615,7 +617,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
     }
 
     func testChecksumCorrectHostileCompleteBodyAndPaddingFailClosed() throws {
-        let small = try makeMessage(count: 80, seed: 62)
+        let small = try makeMessage(count: 96, seed: 62)
         var corruptMessage = small.encoded
         corruptMessage[corruptMessage.count - 1] ^= 1
         let hostileComplete = try IrohaPeerQRFrameV1(
@@ -675,7 +677,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
             idleTimeout: 1,
             absoluteTimeout: 3
         )
-        let staticMessage = try makeMessage(count: 80, seed: 71)
+        let staticMessage = try makeMessage(count: 96, seed: 71)
         let staticText = try XCTUnwrap(
             IrohaPeerQRCodecV1.staticCompleteTextCandidate(for: staticMessage)
         )

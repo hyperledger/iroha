@@ -1,4 +1,4 @@
-//! Exact durable CloseLoads transport from a source-selected Retiring package.
+//! Exact durable `CloseLoads` transport from a source-selected Retiring package.
 use super::*;
 
 const PLAN_MAX: usize = KAGEMUSHA_WALLET_CLOSE_LOADS_MAX_BYTES_V1 + 4096;
@@ -195,9 +195,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
     Coordinator<AdvanceHandle<F, P>, ProviderArchive<F, P>, NativeWalletProofsV1<F, P, S>>
 {
     /// Retain and return the exact signed load-closure transport for ledger submission.
-    /// Reuse request_id for exact delivery retries. After a preissued Load changes next_load,
-    /// use a fresh request_id to select the newer complete consumer; old ids remain retrievable.
-    /// The package and next_load come from released native custody; no ledger acknowledgement
+    /// Reuse `request_id` for exact delivery retries. After a preissued Load changes `next_load`,
+    /// use a fresh `request_id` to select the newer complete consumer; old ids remain retrievable.
+    /// The package and `next_load` come from released native custody; no ledger acknowledgement
     /// or permission to retire the payment key is inferred from this result.
     /// # Errors
     /// Current source is not a complete Retiring consumer, proof/key checks fail, storage is

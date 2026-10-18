@@ -49,14 +49,78 @@ fn take_capture_output(block: &mut StateBlock<'_>, output: usize) -> bool {
     }
 }
 
-/// Inject an explicit post-seal source fault into the actual carrier's private
-/// accumulator. This grants no execution owner and invokes no apply bypass;
-/// all assertions below require the original sealed carrier to reject it.
-fn inject_late_source_capture(block: &mut StateBlock<'_>, hash: Hash) {
+/// The completed carrier refuses mutable projection before the offered change runs.
+/// Exact inventory, source, quota and previously captured outputs stay owned in place.
+fn assert_sealed_mutation_refused(
+    block: &mut StateBlock<'_>,
+    change: impl FnOnce(&mut StateBlock<'_>),
+) {
+    let inventory = block
+        .verified_fastpq_source_inventory_for_capture()
+        .unwrap();
+    let context = Arc::clone(block.fastpq_source_context.as_ref().unwrap());
+    let captures = block
+        .fastpq_source_captures
+        .sealed_sources()
+        .unwrap()
+        .clone();
+    let archive = block.fastpq_transcripts.clone();
+    let dataspaces = block.fastpq_entry_dataspaces.clone();
+    let tx_set = block.fastpq_tx_set_hash;
+    let quota = block.fastpq_source_usage_for_testing();
+    let policy = block.fastpq_source_policy_at_block_start;
+    let fragments = block.committed_fragment_count();
+    let outputs = cached_output_presence(block);
+    let bundles = block
+        .exec_witness
+        .as_ref()
+        .map(|witness| witness.fastpq_transcripts.clone());
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| change(block)))
+        .expect_err("completed carrier must refuse mutable access");
+    let reason = panic
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| panic.downcast_ref::<String>().map(String::as_str));
+    assert_eq!(
+        reason,
+        Some("completed execution retains immutable original State")
+    );
     assert!(matches!(
         block.execution_output_plan,
         Some(super::super::output_capacity::ExecutionOutputPlanState::Sealed(_))
     ));
+    assert!(Arc::ptr_eq(
+        &inventory,
+        &block
+            .verified_fastpq_source_inventory_for_capture()
+            .unwrap()
+    ));
+    assert!(Arc::ptr_eq(
+        &context,
+        block.fastpq_source_context.as_ref().unwrap()
+    ));
+    assert_eq!(
+        block.fastpq_source_captures.sealed_sources().unwrap(),
+        &captures
+    );
+    assert_eq!(block.fastpq_transcripts, archive);
+    assert_eq!(block.fastpq_entry_dataspaces, dataspaces);
+    assert_eq!(block.fastpq_tx_set_hash, tx_set);
+    assert_eq!(block.fastpq_source_usage_for_testing(), quota);
+    assert_eq!(block.fastpq_source_policy_at_block_start, policy);
+    assert_eq!(block.committed_fragment_count(), fragments);
+    assert_eq!(cached_output_presence(block), outputs);
+    assert_eq!(
+        block
+            .exec_witness
+            .as_ref()
+            .map(|witness| witness.fastpq_transcripts.clone()),
+        bundles
+    );
+}
+
+/// Offer the same or a new source while preserving the original completed carrier.
+fn refuse_late_source_capture(block: &mut StateBlock<'_>, hash: Hash) {
     let captured = block
         .fastpq_source_context
         .as_ref()
@@ -68,11 +132,15 @@ fn inject_late_source_capture(block: &mut StateBlock<'_>, hash: Hash) {
             Some(DataSpaceId::UNIVERSAL),
             block.committed_fragment_count(),
         );
-    block.fastpq_source_captures.record(captured);
+    // The accumulator's independent sticky-seal rule remains a live negative control.
+    let mut offered = crate::fastpq::FastpqSourceCaptureAccumulator::default();
+    offered.seal().unwrap();
+    offered.record(captured.clone());
     assert_eq!(
-        block.fastpq_source_captures.sealed_sources().unwrap_err(),
-        crate::fastpq::FastpqSourceCaptureError::AppliedAfterSeal,
+        offered.sealed_sources().unwrap_err(),
+        crate::fastpq::FastpqSourceCaptureError::AppliedAfterSeal
     );
+    assert_sealed_mutation_refused(block, |block| block.fastpq_source_captures.record(captured));
     let delta = delta();
     let poseidon_preimage_digest = crate::fastpq::poseidon_preimage_digest(&delta, &hash);
     let transcript = TransferTranscript {
@@ -81,12 +149,196 @@ fn inject_late_source_capture(block: &mut StateBlock<'_>, hash: Hash) {
         authority_digest: crate::fastpq::authority_digest(&ALICE_ID),
         poseidon_preimage_digest: Some(poseidon_preimage_digest),
     };
-    assert!(
+    assert_sealed_mutation_refused(block, |block| {
+        block.fastpq_transcripts.insert(hash, vec![transcript]);
+    });
+}
+
+/// Inspect original executed sources without acquiring publication authority.
+/// The existing producer consumes this scope into Poisoned on every exit.
+fn with_original_quota_inspection(protocol: bool, inspect: impl FnOnce(&mut StateBlock<'_>, Hash)) {
+    with_native_capture_quota_source(protocol, |_state, mut block, _recording, source, hash| {
+        let tx_set = iroha_data_model::nexus::axt_ordered_transaction_set_digest_v1(
+            source.external_entrypoints_slice().iter(),
+        )
+        .unwrap();
+        block.set_fastpq_tx_set_hash(tx_set.into());
         block
-            .fastpq_transcripts
-            .insert(hash, vec![transcript])
-            .is_none()
+            .inspect_owned_execution_sources_for_test(&source, |block, sources| {
+                block.finalize_fastpq_source_inventory_from(
+                    None,
+                    |block| block.validate_owned_fastpq_sources(sources),
+                    |block, tx_set| block.build_owned_fastpq_source_inventory(sources, tx_set),
+                )?;
+                inspect(block, hash);
+                Ok(())
+            })
+            .unwrap();
+        assert!(matches!(
+            block.execution_output_plan,
+            Some(super::super::output_capacity::ExecutionOutputPlanState::Poisoned)
+        ));
+        assert!(block.capture_exec_witness().is_err());
+        assert_no_cached_capture(&mut block);
+        assert!(matches!(
+            block.commit(),
+            Err(crate::state::TransactionsBlockError::ExecutionOutputCapacity)
+        ));
+    });
+}
+
+#[test]
+fn duplicate_owned_finalization_preserves_original_inventory_phase_and_refusal() {
+    for protocol in [false, true] {
+        with_native_capture_quota_source(protocol, |_state, mut block, _recording, source, _| {
+            let tx_set = iroha_data_model::nexus::axt_ordered_transaction_set_digest_v1(
+                source.external_entrypoints_slice().iter(),
+            )
+            .unwrap();
+            block.set_fastpq_tx_set_hash(tx_set.into());
+            block
+                .inspect_owned_execution_sources_for_test(&source, |block, sources| {
+                    // The real source inspection owns this producer's capsule and
+                    // seals its canonical inventory, but cannot authorize publication.
+                    block.finalize_fastpq_source_inventory_from(
+                        None,
+                        |block| block.validate_owned_fastpq_sources(sources),
+                        |block, tx_set| block.build_owned_fastpq_source_inventory(sources, tx_set),
+                    )?;
+                    let original = Arc::clone(
+                        block
+                            .fastpq_source_inventory
+                            .as_ref()
+                            .unwrap()
+                            .as_ref()
+                            .unwrap(),
+                    );
+                    let quota = block.fastpq_source_usage_for_testing();
+                    let fragments = block.committed_fragment_count();
+                    let archive = block.fastpq_transcripts.clone();
+                    let quantity_issue = block.fastpq_quantity_candidate.issue_for_test();
+                    let pool = block.pipeline_ivm_prepared_cache.execution_budget().clone();
+                    let retained_credit = pool.reserved_bytes();
+                    let publication_refusal =
+                        block.verify_execution_output_publication().unwrap_err();
+                    let capture_refusal = block
+                        .verified_fastpq_source_inventory_for_capture()
+                        .unwrap_err();
+                    block
+                        .fastpq_source_quota_seal
+                        .as_ref()
+                        .unwrap()
+                        .verify(block, &original)
+                        .unwrap();
+                    let error = block
+                        .finalize_owned_fastpq_source_inventory_with_pending(sources, None)
+                        .unwrap_err();
+                    assert!(matches!(
+                        error,
+                        crate::execution_attempt::ExecutionAttemptError::Rejected(ref reason)
+                            if reason == "FASTPQ source inventory has already been finalized"
+                    ));
+                    assert!(matches!(
+                        block.execution_output_plan,
+                        Some(super::super::output_capacity::ExecutionOutputPlanState::Inspecting)
+                    ));
+                    assert!(Arc::ptr_eq(
+                        &original,
+                        block
+                            .fastpq_source_inventory
+                            .as_ref()
+                            .unwrap()
+                            .as_ref()
+                            .unwrap()
+                    ));
+                    block
+                        .fastpq_source_quota_seal
+                        .as_ref()
+                        .unwrap()
+                        .verify(block, &original)
+                        .unwrap();
+                    assert_eq!(block.fastpq_source_usage_for_testing(), quota);
+                    assert_eq!(block.committed_fragment_count(), fragments);
+                    assert_eq!(block.fastpq_transcripts, archive);
+                    assert_eq!(
+                        block.fastpq_quantity_candidate.issue_for_test(),
+                        quantity_issue
+                    );
+                    assert_eq!(pool.reserved_bytes(), retained_credit);
+                    assert_eq!(
+                        block.verify_execution_output_publication(),
+                        Err(publication_refusal)
+                    );
+                    assert_eq!(
+                        block.verified_fastpq_source_inventory_for_capture(),
+                        Err(capture_refusal)
+                    );
+                    assert_no_cached_capture(block);
+                    Ok(())
+                })
+                .unwrap();
+            // The inspection itself remains a consuming, nonpublishable scope.
+            assert!(matches!(
+                block.execution_output_plan,
+                Some(super::super::output_capacity::ExecutionOutputPlanState::Poisoned)
+            ));
+        });
+    }
+}
+
+/// Rebuild equal public quota contributions as an independent, nonauthoritative offer.
+fn reconstructed_quota(
+    block: &StateBlock<'_>,
+    inventory: &FastpqSourceInventoryV1,
+    transcripts: &BTreeMap<Hash, Vec<TransferTranscript>>,
+) -> crate::fastpq::source_reservation::admission::PreparedSourceQuota {
+    use crate::fastpq::source_reservation::admission::PreparedSourceQuota;
+    use iroha_data_model::fastpq::FastpqSourceExecutionKindV1;
+    let (profile, output_policy) = block.fastpq_source_policy_at_block_start();
+    let height = block._curr_block.height().get();
+    let scope = Hash::new(
+        norito::encode_canonical(&(block.network_id, height, block._curr_block.hash())).unwrap(),
     );
+    let mut reconstructed = PreparedSourceQuota::new(
+        profile,
+        output_policy,
+        height,
+        scope,
+        profile.maximum_network_inputs(output_policy).unwrap(),
+    )
+    .unwrap();
+    for entry in inventory.entries() {
+        if entry.execution_kind == FastpqSourceExecutionKindV1::ExecutionCall {
+            reconstructed
+                .retain_ordinary_entry(entry.entry_hash)
+                .unwrap();
+        }
+    }
+    let mut transaction = reconstructed.transaction().unwrap();
+    transaction.authorize_governance_purposes();
+    for entry in inventory.entries() {
+        if let Some(bundle) = transcripts.get(&entry.entry_hash) {
+            transaction
+                .replace_entry(
+                    entry.entry_hash,
+                    entry.execution_kind == FastpqSourceExecutionKindV1::ProtocolPurpose,
+                    bundle,
+                )
+                .unwrap();
+        }
+    }
+    transaction.commit();
+    reconstructed
+        .reconcile_and_retain(inventory.entries(), transcripts)
+        .unwrap();
+    assert_eq!(
+        (
+            reconstructed.ordinary_usage(),
+            reconstructed.mandatory_usage()
+        ),
+        block.fastpq_source_usage_for_testing()
+    );
+    reconstructed
 }
 
 fn cache_transfer_capture(
@@ -185,43 +437,38 @@ fn sealed_empty_and_transferred_inventory_capture_without_reconstruction() {
 }
 
 #[test]
-fn same_or_new_key_late_apply_refuses_capture_even_after_late_data_is_drained() {
+fn same_or_new_key_late_capture_and_drain_refuse_before_original_source_changes() {
     for same_key in [false, true] {
         for drain_late in [false, true] {
             with_native_capture_source(
                 true,
-                |_state, mut block, _recording, mut native_source, original_hash| {
-                    seal_native_source(&mut block, &mut native_source).unwrap();
-                    let owned = block
+                |_state, mut block, _recording, mut source, original| {
+                    seal_native_source(&mut block, &mut source).unwrap();
+                    let wire = source.encode_wire().unwrap();
+                    let inventory = block
                         .verified_fastpq_source_inventory_for_capture()
                         .unwrap();
-
-                    let late_hash = if same_key {
-                        original_hash
+                    let late = if same_key {
+                        original
                     } else {
                         Hash::new(b"late new source")
                     };
-                    inject_late_source_capture(&mut block, late_hash);
+                    refuse_late_source_capture(&mut block, late);
                     if drain_late {
-                        let drained = block.drain_transfer_transcripts_with_pending(None);
-                        assert_eq!(drained.len(), 1);
-                        assert!(drained.contains_key(&late_hash));
-                        assert!(block.fastpq_transcripts.is_empty());
+                        assert_sealed_mutation_refused(&mut block, |block| {
+                            block.drain_transfer_transcripts_with_pending(None);
+                        });
                     }
-                    assert!(
-                        block
+                    assert!(block.fastpq_transcripts.is_empty());
+                    block.capture_exec_witness().unwrap();
+                    assert_eq!(cached_output_presence(&block), [true; 3]);
+                    assert!(Arc::ptr_eq(
+                        &inventory,
+                        &block
                             .verified_fastpq_source_inventory_for_capture()
-                            .is_err()
-                    );
-                    assert!(block.capture_exec_witness().is_err());
-                    assert_no_cached_capture(&mut block);
-                    // Draining or retrying cannot turn a late applied occurrence into a valid seal.
-                    block.drain_transfer_transcripts_with_pending(None);
-                    assert!(block.capture_exec_witness().is_err());
-                    assert_eq!(
-                        block.fastpq_source_inventory().unwrap(),
-                        Some(owned.as_ref())
-                    );
+                            .unwrap()
+                    ));
+                    assert_eq!(source.encode_wire().unwrap(), wire);
                 },
             );
         }
@@ -234,13 +481,8 @@ fn rolled_back_transfer_and_empty_apply_preserve_sealed_capture() {
         true,
         |_state, mut block, _recording, mut native_source, original_hash| {
             // Empty application is permitted before the completed output seal.
-            // Applying any transaction after Sealed correctly poisons the carrier.
+            // After Sealed, child acquisition is refused before any effect.
             block.transaction().apply();
-            seal_native_source(&mut block, &mut native_source).unwrap();
-            let owned = block
-                .verified_fastpq_source_inventory_for_capture()
-                .unwrap();
-
             {
                 let witness_overlay = crate::exec_witness::begin_exec_witness_overlay();
                 let mut tx = block.transaction();
@@ -251,10 +493,14 @@ fn rolled_back_transfer_and_empty_apply_preserve_sealed_capture() {
                 tx.record_test_transfer_transcripts(&ALICE_ID, original_hash, vec![delta()]);
                 // Transaction rollback discards the unapplied source capture. The recorder
                 // overlay separately discards its speculative raw transcript, preserving
-                // the finalized global archive copied before this rollback-only attempt.
+                // the original active archive before its subsequent final seal.
                 drop(tx);
                 drop(witness_overlay);
             }
+            seal_native_source(&mut block, &mut native_source).unwrap();
+            let owned = block
+                .verified_fastpq_source_inventory_for_capture()
+                .unwrap();
             assert!(block.fastpq_transcripts.is_empty());
             assert!(Arc::ptr_eq(
                 &block
@@ -269,34 +515,29 @@ fn rolled_back_transfer_and_empty_apply_preserve_sealed_capture() {
 }
 
 #[test]
-fn later_applied_transfer_invalidates_and_clears_previously_cached_capture() {
-    with_native_capture_source(
-        true,
-        |_state, mut block, _recording, mut native_source, hash| {
-            seal_native_source(&mut block, &mut native_source).unwrap();
-
-            block.capture_exec_witness().unwrap();
-            assert!(block.exec_witness.is_some());
-            assert!(block.fastpq_witness_context.is_some());
-            inject_late_source_capture(&mut block, hash);
+fn late_transfer_mutation_preserves_previously_captured_original_outputs() {
+    with_native_capture_source(true, |_state, mut block, _recording, mut source, hash| {
+        cache_transfer_capture(&mut block, &mut source);
+        refuse_late_source_capture(&mut block, hash);
+        assert_sealed_mutation_refused(&mut block, |block| {
             block.drain_transfer_transcripts_with_pending(None);
-            assert!(block.capture_exec_witness().is_err());
-            assert_no_cached_capture(&mut block);
-            assert!(block.capture_exec_witness().is_err());
-            assert_no_cached_capture(&mut block);
-        },
-    );
+        });
+        block.capture_exec_witness().unwrap();
+        assert_eq!(cached_output_presence(&block), [true; 3]);
+        block.capture_exec_witness().unwrap();
+        assert_eq!(cached_output_presence(&block), [true; 3]);
+    });
 }
 
 #[test]
-fn capture_rejects_unsealed_replaced_contexts_and_changed_source_caches() {
+fn sealed_capture_refuses_unsealed_replaced_contexts_and_changed_source_caches() {
     for mutation in 0..8 {
         with_native_capture_source(
             true,
             |_state, mut block, _recording, mut native_source, hash| {
                 seal_native_source(&mut block, &mut native_source).unwrap();
 
-                match mutation {
+                assert_sealed_mutation_refused(&mut block, |block| match mutation {
                     0 => {
                         block.fastpq_source_captures =
                             crate::fastpq::FastpqSourceCaptureAccumulator::default()
@@ -341,15 +582,13 @@ fn capture_rejects_unsealed_replaced_contexts_and_changed_source_caches() {
                         block.fastpq_source_captures = replacement;
                     }
                     _ => unreachable!(),
-                }
-                assert!(
-                    block
-                        .verified_fastpq_source_inventory_for_capture()
-                        .is_err(),
+                });
+                block.capture_exec_witness().unwrap();
+                assert_eq!(
+                    cached_output_presence(&block),
+                    [true; 3],
                     "mutation {mutation}"
                 );
-                assert!(block.capture_exec_witness().is_err(), "mutation {mutation}");
-                assert_no_cached_capture(&mut block);
             },
         );
     }
@@ -436,38 +675,35 @@ fn intact_capture_outputs_can_be_taken_in_every_order_without_recapture() {
 }
 
 #[test]
-fn each_extraction_accessor_first_rejects_late_applies_without_recapture() {
+fn each_extraction_accessor_preserves_original_after_refused_late_mutation_without_recapture() {
     for same_key in [false, true] {
         for order in CAPTURE_EXTRACTION_ORDERS {
             with_native_capture_source(
                 true,
-                |_state, mut block, _recording, mut native_source, original| {
-                    cache_transfer_capture(&mut block, &mut native_source);
+                |_state, mut block, _recording, mut source, original| {
+                    cache_transfer_capture(&mut block, &mut source);
                     let late = if same_key {
                         original
                     } else {
                         Hash::new(b"late source before direct extraction")
                     };
-                    inject_late_source_capture(&mut block, late);
-                    let late_archive = block.drain_transfer_transcripts_with_pending(None);
-                    assert!(late_archive.contains_key(&late));
+                    refuse_late_source_capture(&mut block, late);
+                    assert_sealed_mutation_refused(&mut block, |block| {
+                        block.drain_transfer_transcripts_with_pending(None);
+                    });
                     assert!(block.fastpq_transcripts.is_empty());
-                    // All stale outputs are still present. The first getter must invalidate them
-                    // without relying on a second capture or on any particular extraction order.
                     assert_eq!(cached_output_presence(&block), [true; 3]);
+                    let mut remaining = [true; 3];
                     for output in order {
                         assert!(
-                            !take_capture_output(&mut block, output),
+                            take_capture_output(&mut block, output),
                             "same_key {same_key}, order {order:?}, output {output}"
                         );
-                        assert_eq!(cached_output_presence(&block), [false; 3]);
+                        remaining[output] = false;
+                        assert_eq!(cached_output_presence(&block), remaining);
                     }
                     assert_no_cached_capture(&mut block);
-                    assert!(
-                        block
-                            .verified_fastpq_source_inventory_for_capture()
-                            .is_err()
-                    );
+                    assert!(block.verified_fastpq_source_inventory_for_capture().is_ok());
                 },
             );
         }
@@ -501,43 +737,37 @@ fn repeat_capture_preserves_original_cached_outputs() {
 }
 
 #[test]
-fn original_quota_custody_rejects_same_value_applied_ordinary_and_mandatory_replacements() {
+fn sealed_quota_refuses_same_value_ordinary_and_mandatory_replacements() {
     for protocol in [false, true] {
         for order in CAPTURE_EXTRACTION_ORDERS {
             with_native_capture_quota_source(
                 protocol,
-                |_state, mut block, _recording, mut native_source, hash| {
-                    seal_native_source(&mut block, &mut native_source).unwrap();
-                    block.capture_exec_witness().unwrap();
-                    assert_eq!(cached_output_presence(&block), [true; 3]);
+                |_state, mut block, _recording, mut source, hash| {
+                    cache_transfer_capture(&mut block, &mut source);
                     let bundle = block.exec_witness.as_ref().unwrap().fastpq_transcripts[0]
                         .transcripts
                         .clone();
-                    let before = block.fastpq_source_usage_for_testing();
-                    let quota = block
-                        .fastpq_source_quota
-                        .as_mut()
-                        .unwrap()
-                        .as_mut()
-                        .unwrap();
-                    // The original journal applies a replacement and restores every public
-                    // quota count. No new State movement or capture is fabricated here.
-                    let mut transaction = quota.transaction().unwrap();
-                    transaction.authorize_governance_purposes();
-                    transaction.replace_entry(hash, protocol, []).unwrap();
-                    transaction.replace_entry(hash, protocol, &bundle).unwrap();
-                    transaction.commit();
-                    assert_eq!(block.fastpq_source_usage_for_testing(), before);
-                    assert!(block.fastpq_source_captures.sealed_sources().is_ok());
+                    assert_sealed_mutation_refused(&mut block, |block| {
+                        let quota = block
+                            .fastpq_source_quota
+                            .as_mut()
+                            .unwrap()
+                            .as_mut()
+                            .unwrap();
+                        let mut transaction = quota.transaction().unwrap();
+                        transaction.authorize_governance_purposes();
+                        transaction.replace_entry(hash, protocol, []).unwrap();
+                        transaction.replace_entry(hash, protocol, &bundle).unwrap();
+                        transaction.commit();
+                    });
                     assert_eq!(
                         block.exec_witness.as_ref().unwrap().fastpq_transcripts[0].transcripts,
                         bundle
                     );
                     for output in order {
-                        assert!(!take_capture_output(&mut block, output));
+                        assert!(take_capture_output(&mut block, output));
                     }
                     assert_no_cached_capture(&mut block);
-                    assert!(block.capture_exec_witness().is_err());
                 },
             );
         }
@@ -545,147 +775,103 @@ fn original_quota_custody_rejects_same_value_applied_ordinary_and_mandatory_repl
 }
 
 #[test]
-fn original_quota_custody_rejects_equal_reconstruction_and_cannot_recover_after_observation() {
-    use crate::fastpq::source_reservation::admission::PreparedSourceQuota;
-    use iroha_data_model::fastpq::FastpqSourceExecutionKindV1;
-
-    for order in CAPTURE_EXTRACTION_ORDERS {
-        with_native_capture_source(
-            true,
-            |_state, mut block, _recording, mut native_source, _hash| {
-                cache_transfer_capture(&mut block, &mut native_source);
-                let inventory = block
-                    .verified_fastpq_source_inventory_for_capture()
-                    .unwrap();
-                let (profile, output_policy) = block.fastpq_source_policy_at_block_start();
-                let height = block._curr_block.height().get();
-                let scope = Hash::new(
-                    norito::encode_canonical(&(block.network_id, height, block._curr_block.hash()))
-                        .unwrap(),
-                );
-                let mut reconstructed = PreparedSourceQuota::new(
-                    profile,
-                    output_policy,
-                    height,
-                    scope,
-                    profile.maximum_network_inputs(output_policy).unwrap(),
-                )
-                .unwrap();
-                for entry in inventory.entries() {
-                    if entry.execution_kind == FastpqSourceExecutionKindV1::ExecutionCall {
-                        reconstructed
-                            .retain_ordinary_entry(entry.entry_hash)
-                            .unwrap();
-                    }
-                }
-                let transcripts: BTreeMap<_, _> = block
-                    .exec_witness
+fn inspected_original_quota_latches_same_value_ordinary_and_mandatory_replacements() {
+    for protocol in [false, true] {
+        with_original_quota_inspection(protocol, |block, hash| {
+            let inventory = Arc::clone(
+                block
+                    .fastpq_source_inventory
                     .as_ref()
                     .unwrap()
-                    .fastpq_transcripts
-                    .iter()
-                    .map(|bundle| (bundle.entry_hash, bundle.transcripts.clone()))
-                    .collect();
-                let mut transaction = reconstructed.transaction().unwrap();
-                transaction.authorize_governance_purposes();
-                for entry in inventory.entries() {
-                    if let Some(bundle) = transcripts.get(&entry.entry_hash) {
-                        transaction
-                            .replace_entry(
-                                entry.entry_hash,
-                                entry.execution_kind
-                                    == FastpqSourceExecutionKindV1::ProtocolPurpose,
-                                bundle,
-                            )
-                            .unwrap();
-                    }
-                }
-                transaction.commit();
-                reconstructed
-                    .reconcile_and_retain(inventory.entries(), &transcripts)
-                    .unwrap();
-                assert_eq!(
-                    (
-                        reconstructed.ordinary_usage(),
-                        reconstructed.mandatory_usage()
-                    ),
-                    block.fastpq_source_usage_for_testing()
-                );
-                let original = block.fastpq_source_quota.replace(Ok(reconstructed));
-                assert!(
-                    block
-                        .verified_fastpq_source_inventory_for_capture()
-                        .is_err()
-                );
-                // Restoring the original allocation after refusal cannot repair the retained
-                // State custody latch, even though its entries and counters never changed.
-                block.fastpq_source_quota = original;
-                assert!(
-                    block
-                        .verified_fastpq_source_inventory_for_capture()
-                        .is_err()
-                );
-                for output in order {
-                    assert!(!take_capture_output(&mut block, output));
-                }
-                assert_no_cached_capture(&mut block);
-                assert!(block.capture_exec_witness().is_err());
-            },
-        );
+                    .as_ref()
+                    .unwrap(),
+            );
+            let bundle = block.fastpq_transcripts[&hash].clone();
+            let before = block.fastpq_source_usage_for_testing();
+            block
+                .fastpq_source_quota_seal
+                .as_ref()
+                .unwrap()
+                .verify(block, &inventory)
+                .unwrap();
+            let quota = block
+                .fastpq_source_quota
+                .as_mut()
+                .unwrap()
+                .as_mut()
+                .unwrap();
+            let mut transaction = quota.transaction().unwrap();
+            transaction.authorize_governance_purposes();
+            transaction.replace_entry(hash, protocol, []).unwrap();
+            transaction.replace_entry(hash, protocol, &bundle).unwrap();
+            transaction.commit();
+            assert_eq!(block.fastpq_source_usage_for_testing(), before);
+            assert!(block.fastpq_source_captures.sealed_sources().is_ok());
+            assert_eq!(block.fastpq_transcripts[&hash], bundle);
+            assert_eq!(
+                block
+                    .fastpq_source_quota_seal
+                    .as_ref()
+                    .unwrap()
+                    .verify(block, &inventory),
+                Err("FASTPQ source quota ownership changed after inventory finalization".into())
+            );
+            assert!(
+                block
+                    .fastpq_source_quota_seal
+                    .as_ref()
+                    .unwrap()
+                    .verify(block, &inventory)
+                    .is_err()
+            );
+        });
     }
 }
 
 #[test]
-fn original_quota_custody_latches_frozen_policy_and_unavailable_journal_changes() {
-    for mutation in 0..3 {
-        with_native_capture_source(
-            true,
-            |_state, mut block, _recording, mut native_source, _hash| {
-                cache_transfer_capture(&mut block, &mut native_source);
-                if mutation == 0 {
-                    let original = block.fastpq_source_policy_at_block_start;
-                    block
-                        .fastpq_source_policy_at_block_start
-                        .as_mut()
-                        .unwrap()
-                        .0
-                        .intrinsic
-                        .max_deltas += 1;
-                    assert!(
-                        block
-                            .verified_fastpq_source_inventory_for_capture()
-                            .is_err()
-                    );
-                    block.fastpq_source_policy_at_block_start = original;
-                } else {
-                    let original = block.fastpq_source_quota.take();
-                    if mutation == 2 {
-                        block.fastpq_source_quota = Some(Err("replaced failed quota".into()));
-                    }
-                    assert!(
-                        block
-                            .verified_fastpq_source_inventory_for_capture()
-                            .is_err()
-                    );
-                    block.fastpq_source_quota = original;
-                }
-                assert!(
-                    block
-                        .verified_fastpq_source_inventory_for_capture()
-                        .is_err()
-                );
-                assert!(block.capture_exec_witness().is_err());
-                assert_no_cached_capture(&mut block);
-            },
-        );
+fn sealed_quota_refuses_equal_reconstruction_without_replacing_original_owner() {
+    for order in CAPTURE_EXTRACTION_ORDERS {
+        with_native_capture_source(true, |_state, mut block, _recording, mut source, _hash| {
+            cache_transfer_capture(&mut block, &mut source);
+            let inventory = block
+                .verified_fastpq_source_inventory_for_capture()
+                .unwrap();
+            let transcripts: BTreeMap<_, _> = block
+                .exec_witness
+                .as_ref()
+                .unwrap()
+                .fastpq_transcripts
+                .iter()
+                .map(|bundle| (bundle.entry_hash, bundle.transcripts.clone()))
+                .collect();
+            let reconstructed = reconstructed_quota(&block, &inventory, &transcripts);
+            let (profile, output) = block.fastpq_source_policy_at_block_start();
+            assert!(!reconstructed.matches_retained(
+                &block.fastpq_source_quota_seal.as_ref().unwrap().quota,
+                profile,
+                output
+            ));
+            assert_sealed_mutation_refused(&mut block, |block| {
+                block.fastpq_source_quota.replace(Ok(reconstructed));
+            });
+            for output in order {
+                assert!(take_capture_output(&mut block, output));
+            }
+            assert_no_cached_capture(&mut block);
+            assert!(Arc::ptr_eq(
+                &inventory,
+                &block
+                    .verified_fastpq_source_inventory_for_capture()
+                    .unwrap()
+            ));
+        });
     }
 }
 
 #[test]
-fn genuine_sealed_carrier_refuses_even_empty_late_application_before_state_publication() {
-    with_native_capture_source(true, |state, mut block, _recording, mut source, _hash| {
-        seal_native_source(&mut block, &mut source).unwrap();
-        let original_inventory = Arc::clone(
+fn inspected_original_quota_rejects_equal_reconstruction_and_stays_latched_after_restore() {
+    with_original_quota_inspection(false, |block, _hash| {
+        let inventory = Arc::clone(
             block
                 .fastpq_source_inventory
                 .as_ref()
@@ -693,30 +879,153 @@ fn genuine_sealed_carrier_refuses_even_empty_late_application_before_state_publi
                 .as_ref()
                 .unwrap(),
         );
-        let original_source_wire = source.encode_wire().unwrap();
-        let original_fragment_count = block.committed_fragment_count();
-        let original_height = state.committed_height();
-        block.transaction().apply();
-        assert!(matches!(
-            block.execution_output_plan,
-            Some(super::super::output_capacity::ExecutionOutputPlanState::Poisoned)
-        ));
-        assert_eq!(block.committed_fragment_count(), original_fragment_count);
+        let reconstructed = reconstructed_quota(block, &inventory, &block.fastpq_transcripts);
+        block
+            .fastpq_source_quota_seal
+            .as_ref()
+            .unwrap()
+            .verify(block, &inventory)
+            .unwrap();
+        let original = block.fastpq_source_quota.replace(Ok(reconstructed));
+        assert!(
+            block
+                .fastpq_source_quota_seal
+                .as_ref()
+                .unwrap()
+                .verify(block, &inventory)
+                .is_err()
+        );
+        block.fastpq_source_quota = original;
+        assert!(
+            block
+                .fastpq_source_quota_seal
+                .as_ref()
+                .unwrap()
+                .verify(block, &inventory)
+                .is_err()
+        );
+        assert_eq!(
+            block.fastpq_source_inventory().unwrap(),
+            Some(inventory.as_ref())
+        );
+    });
+}
+
+#[test]
+fn sealed_quota_refuses_frozen_policy_and_unavailable_journal_substitutions() {
+    for mutation in 0..3 {
+        with_native_capture_source(true, |_state, mut block, _recording, mut source, _hash| {
+            cache_transfer_capture(&mut block, &mut source);
+            assert_sealed_mutation_refused(&mut block, |block| match mutation {
+                0 => {
+                    block
+                        .fastpq_source_policy_at_block_start
+                        .as_mut()
+                        .unwrap()
+                        .0
+                        .intrinsic
+                        .max_deltas += 1
+                }
+                1 => {
+                    block.fastpq_source_quota.take();
+                }
+                2 => block.fastpq_source_quota = Some(Err("replaced failed quota".into())),
+                _ => unreachable!(),
+            });
+            block.capture_exec_witness().unwrap();
+            assert_eq!(cached_output_presence(&block), [true; 3]);
+        });
+    }
+}
+
+#[test]
+fn inspected_original_quota_latches_frozen_policy_and_unavailable_journal_changes() {
+    for mutation in 0..3 {
+        with_original_quota_inspection(false, |block, _hash| {
+            let inventory = Arc::clone(
+                block
+                    .fastpq_source_inventory
+                    .as_ref()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap(),
+            );
+            block
+                .fastpq_source_quota_seal
+                .as_ref()
+                .unwrap()
+                .verify(block, &inventory)
+                .unwrap();
+            if mutation == 0 {
+                let original = block.fastpq_source_policy_at_block_start;
+                block
+                    .fastpq_source_policy_at_block_start
+                    .as_mut()
+                    .unwrap()
+                    .0
+                    .intrinsic
+                    .max_deltas += 1;
+                assert!(
+                    block
+                        .fastpq_source_quota_seal
+                        .as_ref()
+                        .unwrap()
+                        .verify(block, &inventory)
+                        .is_err()
+                );
+                block.fastpq_source_policy_at_block_start = original;
+            } else {
+                let original = block.fastpq_source_quota.take();
+                if mutation == 2 {
+                    block.fastpq_source_quota = Some(Err("replaced failed quota".into()));
+                }
+                assert!(
+                    block
+                        .fastpq_source_quota_seal
+                        .as_ref()
+                        .unwrap()
+                        .verify(block, &inventory)
+                        .is_err()
+                );
+                block.fastpq_source_quota = original;
+            }
+            assert!(
+                block
+                    .fastpq_source_quota_seal
+                    .as_ref()
+                    .unwrap()
+                    .verify(block, &inventory)
+                    .is_err()
+            );
+        });
+    }
+}
+
+#[test]
+fn genuine_sealed_carrier_refuses_even_empty_late_transaction_acquisition() {
+    with_native_capture_source(true, |state, mut block, _recording, mut source, _hash| {
+        seal_native_source(&mut block, &mut source).unwrap();
+        let original_inventory = block
+            .verified_fastpq_source_inventory_for_capture()
+            .unwrap();
+        let wire = source.encode_wire().unwrap();
+        let fragments = block.committed_fragment_count();
+        let height = state.committed_height();
+        assert_sealed_mutation_refused(&mut block, |block| block.transaction().apply());
+        assert_eq!(block.committed_fragment_count(), fragments);
         assert!(block.fastpq_transcripts.is_empty());
-        assert_eq!(source.encode_wire().unwrap(), original_source_wire);
+        assert_eq!(source.encode_wire().unwrap(), wire);
         assert_eq!(
             block.fastpq_source_inventory().unwrap(),
             Some(original_inventory.as_ref())
         );
-        assert_eq!(
-            block.capture_exec_witness(),
-            Err("FASTPQ witness capture refuses a poisoned carrier".into())
-        );
-        assert_no_cached_capture(&mut block);
+        block.capture_exec_witness().unwrap();
+        assert_eq!(cached_output_presence(&block), [true; 3]);
+        // A sealed source is still not certified/finalized publication authority.
         assert!(matches!(
             block.commit(),
             Err(crate::state::TransactionsBlockError::ExecutionOutputCapacity)
         ));
-        assert_eq!(state.committed_height(), original_height);
+        assert_eq!(state.committed_height(), height);
     });
 }

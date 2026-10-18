@@ -46,7 +46,7 @@ fn query_committee_allocation_failure(bytes: usize) -> QueryCommitteeError {
 
 // Complete allocator-visible backing of the closed one-shot constructor below. No temporary
 // committee Vec or returned key list is built, and each core key moves once into the map.
-fn query_committee_allocation_bytes(
+pub(super) fn query_committee_allocation_bytes(
     members: &[ValidatorCommitteeMemberV1],
 ) -> Result<usize, QueryCommitteeError> {
     let overflow = || query_committee_allocation_failure(usize::MAX);

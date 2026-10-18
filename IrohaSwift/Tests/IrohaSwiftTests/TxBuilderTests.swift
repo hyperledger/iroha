@@ -936,7 +936,12 @@ final class TxBuilderTests: XCTestCase {
         let first = try fixedClockSdk.buildSignedTransfer(transfer: transfer, keypair: keypair)
         let second = try fixedClockSdk.buildSignedTransfer(transfer: transfer, keypair: keypair)
         XCTAssertEqual(first.transactionHash, second.transactionHash)
-        XCTAssertEqual(first.signedTransaction, second.signedTransaction)
+        let secondWithFirstSignature = try canonicalSignedTransactionUsingReferenceSignature(
+            second, referenceWire: first.norito
+        )
+        XCTAssertEqual(first.signedTransaction, Data(secondWithFirstSignature.dropFirst()))
+        XCTAssertEqual(first.norito, secondWithFirstSignature)
+        XCTAssertEqual(first.signedTransaction, Data(first.norito.dropFirst()))
 
         let shiftedClockSdk = IrohaSDK(baseURL: URL(string: "https://example.test")!,
                                        creationTimeProvider: { Self.fixtureCreationTimeMs + 1 })
@@ -1545,9 +1550,12 @@ final class TxBuilderTests: XCTestCase {
         }
 
         let normalized = normalizeNativeSignedTransaction(native)
-        XCTAssertEqual(normalized.signed, swift.signedTransaction)
+        let swiftWithNativeSignature = try canonicalSignedTransactionUsingReferenceSignature(
+            swift, referenceWire: normalized.norito
+        )
+        XCTAssertEqual(normalized.signed, Data(swiftWithNativeSignature.dropFirst()))
         XCTAssertEqual(native.hash, swift.transactionHash)
-        XCTAssertEqual(normalized.norito, swift.norito)
+        XCTAssertEqual(normalized.norito, swiftWithNativeSignature)
     }
 
     func testSigningKeyTransferMatchesKeypairEncoding() throws {
@@ -1569,7 +1577,12 @@ final class TxBuilderTests: XCTestCase {
         let withSigningKey = try SwiftTransactionEncoder.encodeTransfer(transfer: request,
                                                                         signingKey: signingKey,
                                                                         creationTimeMs: Self.fixtureCreationTimeMs)
-        XCTAssertEqual(withKeypair.signedTransaction, withSigningKey.signedTransaction)
+        let withReferenceSignature = try canonicalSignedTransactionUsingReferenceSignature(
+            withSigningKey, referenceWire: withKeypair.norito
+        )
+        XCTAssertEqual(withKeypair.signedTransaction, Data(withReferenceSignature.dropFirst()))
+        XCTAssertEqual(withKeypair.norito, withReferenceSignature)
+        XCTAssertEqual(withKeypair.signedTransaction, Data(withKeypair.norito.dropFirst()))
         XCTAssertEqual(withKeypair.transactionHash, withSigningKey.transactionHash)
     }
 

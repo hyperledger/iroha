@@ -53,7 +53,8 @@ Chips for the Iroha-native PIPA-v1 PLONKish engine (`iroha_plonk`,
 - `sha256` (M3): one SHA-256 compression per block on two-row spread units
   (13 advice columns: a `(dense, spread)` lookup pair, 7 bit and 4 word
   columns; one lookup `(2^33 + w, spread(x), x)` into a 2,433-row table;
-  degree 5, rotations 0 and 1 only) and the codec of a Poseidon digest as the
+  arithmetic degree 5, standalone norm lookup degree 8, rotations 0 and 1
+  only) and the codec of a Poseidon digest as the
   32-byte canonical little-endian message of one padded block with the
   `m < |D|` canonicity check. 2,062 rows and 23.3k cells per compression,
   2,094 rows with the codec (`hash_digest`, `HASH_DIGEST_ROWS`). With its
@@ -69,8 +70,9 @@ Chips for the Iroha-native PIPA-v1 PLONKish engine (`iroha_plonk`,
   columns (10 width-1 range lookups into one 15-bit column `V`, `2^15` rows,
   `k >= 16`; a top sublimb of `w < 15` bits is looked up as `v` and as
   `2^(15-w) v`; operands on block row 0, running sums on rows 1-6); the
-  `C`/`Q` lookups have degree 6 (ternary patterns), the `U` lookups 5, gates
-  3. The carry-bound memo is re-checked by
+  `C`/`Q` lookup inputs have degree 3 and the `U` inputs degree 2 against
+  fixed degree-1 tables, giving norm argument degrees 10 and 8 respectively;
+  arithmetic gates have degree 3. The carry-bound memo is re-checked by
   `ff_carry_memo_bounds_hold_for_every_modulus`.
 - `ecc` (M3): native Pasta ECC for in-circuit verifiers, Pallas in `Fp`
   (`PallasChip`) and Vesta in `Fq` (`VestaChip`), on 10 advice columns (4
@@ -97,7 +99,8 @@ Chips for the Iroha-native PIPA-v1 PLONKish engine (`iroha_plonk`,
   `[u1] G` and fixed keys use 8-bit fixed-base windows (Orchard offsets,
   incomplete partial sums proven exception-free, a complete top window); a
   witness key uses a per-proof table of `[1..16] Q` behind one `lookup_any`
-  argument (degree 6) with offset 4-bit digits and an incomplete
+  norm argument (input/table degrees 2/2, argument degree 10) with offset
+  4-bit digits and an incomplete
   double-and-add chain proven exception-free for every nonzero `u2`; the
   joins use affine complete addition with soft zero tests. Per
   verification: 115,787 cells and 10,003 rows for a witness key (18 advice
@@ -115,7 +118,7 @@ Chips for the Iroha-native PIPA-v1 PLONKish engine (`iroha_plonk`,
   glue, also the window lookups below the split and the dynamic tables
   above the table rows; 3 SHA-only), 12 equality columns (three
   permutation sets), 10 lookup arguments (eight width-1, one width-3, one
-  width-8), degree 6, 26 raw fixed columns; the row plan with bounded
+  width-8), total degree 10, 26 raw fixed columns; the row plan with bounded
   cursors; and `QLeafConfig::audit`, which checks the shared-table
   conditions on synthesized tables. Five witness-key and one fixed-key
   verification with their SHA blocks span 64,238 of 65,530 rows.

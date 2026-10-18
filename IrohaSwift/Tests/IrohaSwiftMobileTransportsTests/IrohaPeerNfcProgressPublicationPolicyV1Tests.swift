@@ -381,7 +381,21 @@ final class IrohaPeerNfcReaderPlatformCallGateV1Tests: XCTestCase {
         assertEveryCallIsGuarded("readerSession.begin()")
         assertEveryCallIsGuarded("session.connect(to: tag)")
         assertEveryCallIsGuarded("session.restartPolling()")
-        XCTAssertTrue(source.contains("platformCallGate?.invalidate()\n        progressReporter?.invalidate()"))
+        let normalizedSource = source.split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .joined(separator: "\n")
+        // Both terminal branches retire progress after the platform-call
+        // barrier; failure also publishes its typed terminal diagnostic.
+        XCTAssertTrue(normalizedSource.contains("""
+            platformCallGate?.invalidate()
+            switch result {
+            case .failure(let error): progressReporter?.finish(error: error)
+            case .success: progressReporter?.invalidate()
+            }
+            task?.cancel()
+            if invalidating { session?.invalidate() }
+            continuation?.resume(with: result)
+            """))
     }
 }
 
@@ -937,10 +951,41 @@ final class IrohaPeerNfcDurabilityLeaseV1Tests: XCTestCase {
         XCTAssertTrue(source.contains(
             "leaseGate: IrohaPeerNfcDurabilityLeaseGateV1 = .shared"
         ))
-        XCTAssertEqual(
-            source.components(separatedBy: "leaseGate.release(lease)").count - 1,
-            1,
-            "timeout and cancellation paths must never release a running callback's lease"
+        let normalizedSource = source.split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .joined(separator: "\n")
+        // A rejected reservation releases before dispatch. Once dispatched,
+        // only the callback's actual return or throw may release its lease.
+        let releasePaths = [
+            """
+            do { callback = try settlement?.reserveCallback() }
+            catch {
+            leaseGate.release(lease)
+            throw error
+            }
+            self.context = context
+            Task.detached { [self] in
+            """,
+            """
+            do { result = .success(try await operation()) }
+            catch { result = .failure(error) }
+            leaseGate.release(lease)
+            complete(result)
+            callback?.finish()
+            """
+        ]
+        var remainingSource = normalizedSource
+        for releasePath in releasePaths {
+            XCTAssertEqual(
+                remainingSource.components(separatedBy: releasePath).count - 1,
+                1,
+                "each permitted lease-release path must remain uniquely wired"
+            )
+            remainingSource = remainingSource.replacingOccurrences(of: releasePath, with: "")
+        }
+        XCTAssertFalse(
+            remainingSource.contains("leaseGate.release(lease)"),
+            "timeout, cancellation, and retirement must never release a running callback's lease"
         )
         XCTAssertGreaterThanOrEqual(
             source.components(separatedBy: "guard mayContinue(session) else {").count - 1,

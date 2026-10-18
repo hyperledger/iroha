@@ -44,6 +44,16 @@ pub enum NativePaymentObservationError {
     /// Local bounded proof-read budget; retry with the retained verifier or a larger local budget.
     #[error("native payment proof-read budget exhausted; verification remains resumable")]
     ReadBudgetExhausted,
+    /// The local session retired history required to authenticate this original payment.
+    /// Recover with the same request/storage and an independently pinned cold verifier;
+    /// this is neither ledger absence nor rejection and authorizes no replacement carrier.
+    #[error("native payment history at {requested_height} was retired; oldest verifiable height is {oldest_verifiable_height}")]
+    HistoryUnavailable {
+        /// Original payment's required certified height.
+        requested_height: u64,
+        /// Earliest witness whose decision and parent are retained by this session.
+        oldest_verifiable_height: u64,
+    },
     /// No exact candidate is present at the selected locator.
     #[error("payment locator differs from its authenticated block or carrier")]
     CandidateMismatch,
@@ -142,7 +152,7 @@ impl PaymentSource for OnlinePaymentSource {
 
 pub(super) struct NativePaymentLedger {
     pub request: NativePaymentRequest,
-    verifier: Mutex<SumeragiFinalityVerifier>,
+    session: NativePaymentSession,
     dispatch: Arc<dyn WorkflowLedger>,
     source: Arc<dyn PaymentSource>,
     reads_remaining: AtomicUsize,
@@ -160,13 +170,13 @@ fn lock<T>(
 impl NativePaymentLedger {
     pub fn new(
         request: NativePaymentRequest,
-        verifier: SumeragiFinalityVerifier,
+        session: NativePaymentSession,
         dispatch: Arc<dyn WorkflowLedger>,
         source: Arc<dyn PaymentSource>,
     ) -> Self {
         Self {
             request,
-            verifier: Mutex::new(verifier),
+            session,
             dispatch,
             source,
             reads_remaining: AtomicUsize::new(0),
@@ -214,19 +224,39 @@ impl NativePaymentLedger {
         if height < 2 {
             return Err(NativePaymentObservationError::CandidateMismatch);
         }
+        // One original prefix owner spans different operations. Never hold its
+        // synchronous verifier guard across transport; cancellation releases this
+        // async gate and preserves only fully authenticated progress.
+        let _catch_up = self.session.owner.catch_up.lock().await;
         loop {
-            let next = lock(&self.verifier)?
-                .authenticated_height()
-                .unwrap_or(0)
-                .checked_add(1)
-                .ok_or(NativePaymentObservationError::CandidateMismatch)?;
+            let next = {
+                let verifier = self.session.verifier()?;
+                let first = verifier.oldest_authenticated_height().unwrap_or(1);
+                let oldest_verifiable_height = if first == 1 { 1 } else { first + 1 };
+                if height < oldest_verifiable_height {
+                    return Err(NativePaymentObservationError::HistoryUnavailable {
+                        requested_height: height,
+                        oldest_verifiable_height,
+                    });
+                }
+                verifier
+                    .authenticated_height()
+                    .unwrap_or(0)
+                    .checked_add(1)
+                    .ok_or(NativePaymentObservationError::CandidateMismatch)?
+            };
             if next > height {
                 let proof = self.read_proof(height).await?;
-                return Ok(lock(&self.verifier)?.verify_retained_decision(&proof)?);
+                return Ok(self.session.verifier()?.verify_retained_decision(&proof)?);
             }
             // One bounded existing proof transport at a time; no retained block/proof buffer.
             let proof = self.read_proof(next).await?;
-            let block = lock(&self.verifier)?.verify(&proof)?;
+            let block = {
+                let mut verifier = self.session.verifier()?;
+                let block = verifier.verify(&proof)?;
+                verifier.retain_recent_decisions(self.session.owner.retained_decisions);
+                block
+            };
             if next == height {
                 return Ok(block);
             }

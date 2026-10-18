@@ -1176,8 +1176,9 @@ impl History {
     }
 
     // The parser already owns predecessor coverage and its separate full-graph exit. This
-    // bracket shares only native ancestry inside one local census; every original record,
-    // codec, inventory and scope check still runs before it closes on every ordinary result.
+    // bracket shares only native ancestry inside one local census. Every original native
+    // record read, inventory and scope check still runs before the ordinary-result exit;
+    // terminal immutable decoding can reuse exact fresh bytes.
     fn require_current_local(
         &self,
         pass: Option<&crate::managed::stream_token_custody::body_history::SnapshotReadPass<'_>>,
@@ -1249,7 +1250,8 @@ impl History {
         mut operation_read: Option<&mut local_census::OperationRead<'_, '_>>,
     ) -> Result<()> {
         // The same native leaf and inventory recipe runs inside either original brackets
-        // or one admitted, callback-free operation census. No byte or verdict is cached.
+        // or one admitted, callback-free operation census. Exact fresh bytes may reuse the
+        // immutable parsed terminal image; no currentness or authority verdict is reused.
         let (operation_names, image) = match operation_read
             .as_deref_mut()
             .filter(|read| read.covers(self))
@@ -1295,17 +1297,22 @@ impl History {
                                         && value.highest.ordinal == attempt.ordinal()
                                 }),
                             )?;
-                            attempt.verify_authorization_in_scope(&image)?;
-                            if image.read::<Observation>(Some(attempt.ordinal()), 1)?
-                                != attempt.observation
-                                || image.read::<Commit>(Some(attempt.ordinal()), 2)?
-                                    != attempt.commit
-                                || image.read::<Retirement>(Some(attempt.ordinal()), 3)?
-                                    != attempt.retirement
-                            {
-                                return Err(invalid(
-                                    "retained dispatch metadata changed during native operation",
-                                ));
+                            // No mutable field or authority is retained with this observation.
+                            // Recheck decoder ownership at the actual row use. Every attempt
+                            // inventory and original native owner still closes independently.
+                            if !image.is_original(&self.image) {
+                                attempt.verify_authorization_in_scope(&image)?;
+                                if image.read::<Observation>(Some(attempt.ordinal()), 1)?
+                                    != attempt.observation
+                                    || image.read::<Commit>(Some(attempt.ordinal()), 2)?
+                                        != attempt.commit
+                                    || image.read::<Retirement>(Some(attempt.ordinal()), 3)?
+                                        != attempt.retirement
+                                {
+                                    return Err(invalid(
+                                        "retained dispatch metadata changed during native operation",
+                                    ));
+                                }
                             }
                             if checked_attempt_inventory(measured_inventory!(
                                 AttemptScopedInventory,
@@ -1394,7 +1401,7 @@ impl History {
         &self,
         mut tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
         originals: Option<&retained_graph::OriginalReadPass<'_, '_>>,
-    ) -> Result<(Vec<std::ffi::OsString>, metadata::Image)> {
+    ) -> Result<(Vec<std::ffi::OsString>, metadata::ObservedImage<'_>)> {
         if reuse_operation_scope()
             && let Some(tree) = tree.as_deref_mut()
         {
@@ -1447,7 +1454,7 @@ impl History {
         &self,
         reader: &mut iroha_fs::PrivateReadScope<'_>,
         originals: Option<&retained_graph::OriginalReadPass<'_, '_>>,
-    ) -> Result<(Vec<std::ffi::OsString>, metadata::Image)> {
+    ) -> Result<(Vec<std::ffi::OsString>, metadata::ObservedImage<'_>)> {
         let names = operation_inventory_in_scope(reader, self.purpose)?;
         if !originals.is_some_and(|pass| pass.covers(self)) {
             require_semantic_original_in_scope(reader, self.semantic)?;
@@ -1476,14 +1483,22 @@ impl History {
     fn require_metadata_in_scope(
         &self,
         reader: &mut iroha_fs::PrivateReadScope<'_>,
-    ) -> Result<metadata::Image> {
+    ) -> Result<metadata::ObservedImage<'_>> {
         let result = (|| {
-            let image = metadata::load_in_scope(reader)?;
-            // Fresh bytes must equal the parser's exact complete source. Typed root values
-            // are still decoded at the original census positions under inherited limits.
-            if image.read::<Dispatch>(None, 0)? != self.dispatch
-                || image.read::<ClosurePlan>(None, 1)? != self.closing
-                || image.read::<ClosureRecord>(None, 2)? != self.closed
+            let original = match &self.records {
+                HistoryRecordsOwner::Retained(records) if reuse_history_image() => {
+                    Some(&records.image)
+                }
+                HistoryRecordsOwner::Owned(_) | HistoryRecordsOwner::Retained(_) => None,
+            };
+            let image = metadata::load_matching_in_scope(reader, original)?;
+            // These typed fields were decoded from this exact immutable terminal Image by
+            // the sole parser. Every current native byte is still read above. Changed bytes,
+            // owned/recovery records and active decoder owners keep the original comparisons.
+            if !image.is_original(&self.image)
+                && (image.read::<Dispatch>(None, 0)? != self.dispatch
+                    || image.read::<ClosurePlan>(None, 1)? != self.closing
+                    || image.read::<ClosureRecord>(None, 2)? != self.closed)
             {
                 return Err(invalid(
                     "dispatch inventory changed during native operation",
@@ -1498,7 +1513,7 @@ impl History {
     fn require_metadata_in_tree(
         &self,
         tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
-    ) -> Result<metadata::Image> {
+    ) -> Result<metadata::ObservedImage<'_>> {
         #[cfg(test)]
         operation_scope_tests::bracket();
         tree.map_or_else(
@@ -1797,6 +1812,14 @@ fn revalidate_directory_in_tree(
         None => directory.revalidate()?,
     }
     Ok(())
+}
+
+fn reuse_history_image() -> bool {
+    #[cfg(test)]
+    if crate::managed::stream_token_custody::body_history::metadata_reuse_tests::original_recipe() {
+        return false;
+    }
+    !norito::core::decode_limits_active()
 }
 
 fn reuse_operation_scope() -> bool {

@@ -87,8 +87,9 @@
 //! The chip runs on the caller's [`FfChip`] (ten columns, moduli
 //! [`P256_MODULI`]) and [`GlueChip`] (four columns), plus the four advice
 //! columns of the window lookup ([`window::WindowConfig`]): with its own
-//! table ([`P256Config::configure`]) one `lookup_any` argument (degree 6)
-//! and thirteen fixed columns, 18 advice columns. Measured per verification
+//! table ([`P256Config::configure`]) one norm `lookup_any` argument with
+//! input/table degrees (2, 2), hence argument degree 10, and thirteen fixed
+//! columns, 18 advice columns. Measured per verification
 //! (inputs included; pinned by `p256_inventory_per_verification`, module
 //! tests):
 //!

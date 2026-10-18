@@ -67,7 +67,7 @@ pub(crate) fn sponsor_vault_custody<'a>(
     let policy = if is_initial_genesis_context(state_transaction) {
         state_transaction
             .world
-            .state_parameters()
+            .parameters()
             .root_fees()
             .ok_or_else(|| {
                 InstructionExecutionError::InvariantViolation(

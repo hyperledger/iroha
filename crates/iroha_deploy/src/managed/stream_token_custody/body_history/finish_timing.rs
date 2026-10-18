@@ -14,7 +14,10 @@
 //! calls made during successor construction; the digest phases also count their other original
 //! callers. `EpochRecordDecode` surrounds only an actual canonical epoch/claim decoder, excluding
 //! native reads, exact-image reuse, semantic checks and memoized digest work. These intervals
-//! overlap and must not be added together.
+//! overlap and must not be added together. `BodyHandleRevalidate` brackets one full body
+//! history handle check, including the root exit. `MetadataEnvelopeDecode` counts actual
+//! image envelope decoders; `MetadataImageMatch` surrounds only fresh-byte equality and
+//! selection of immutable geometry. All three require the existing explicit capture.
 
 use std::{cell::Cell, fmt, time::Instant};
 
@@ -51,8 +54,11 @@ pub(in crate::managed) enum Phase {
     SelectionDigest,
     ReservationDigest,
     EpochRecordDecode,
+    BodyHandleRevalidate,
+    MetadataEnvelopeDecode,
+    MetadataImageMatch,
 }
-const PHASES: [Phase; 30] = [
+const PHASES: [Phase; 33] = [
     Phase::Finish,
     Phase::Reopen,
     Phase::ReadRecords,
@@ -83,6 +89,9 @@ const PHASES: [Phase; 30] = [
     Phase::SelectionDigest,
     Phase::ReservationDigest,
     Phase::EpochRecordDecode,
+    Phase::BodyHandleRevalidate,
+    Phase::MetadataEnvelopeDecode,
+    Phase::MetadataImageMatch,
 ];
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -91,8 +100,13 @@ struct Sample {
     elapsed_us: u128,
 }
 /// Fixed-size counters only, copied out after the measured finish returns.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub(in crate::managed) struct Stats([Sample; PHASES.len()]);
+impl Default for Stats {
+    fn default() -> Self {
+        Self([Sample::default(); PHASES.len()])
+    }
+}
 impl Stats {
     /// Numeric accounting for native reader tests; no source or validation result is retained.
     pub(in crate::managed) fn sample(&self, phase: Phase) -> (u64, u128) {
@@ -210,6 +224,9 @@ mod tests {
             Phase::SelectionDigest,
             Phase::ReservationDigest,
             Phase::EpochRecordDecode,
+            Phase::BodyHandleRevalidate,
+            Phase::MetadataEnvelopeDecode,
+            Phase::MetadataImageMatch,
         ] {
             assert!(phase(measured).started.is_none());
         }
@@ -220,6 +237,9 @@ mod tests {
             Phase::SelectionDigest,
             Phase::ReservationDigest,
             Phase::EpochRecordDecode,
+            Phase::BodyHandleRevalidate,
+            Phase::MetadataEnvelopeDecode,
+            Phase::MetadataImageMatch,
         ] {
             drop(phase(measured));
             assert!(!CLOSURE_ACTIVE.get());
@@ -254,6 +274,9 @@ mod tests {
             Phase::SelectionDigest,
             Phase::ReservationDigest,
             Phase::EpochRecordDecode,
+            Phase::BodyHandleRevalidate,
+            Phase::MetadataEnvelopeDecode,
+            Phase::MetadataImageMatch,
         ] {
             assert_eq!(stats.sample(measured).0, 1);
         }

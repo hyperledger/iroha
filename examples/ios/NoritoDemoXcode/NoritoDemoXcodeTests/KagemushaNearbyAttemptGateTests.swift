@@ -69,19 +69,115 @@ final class KagemushaNearbyAttemptGateTests: XCTestCase {
     var gate = try sender(); gate.fail()
     XCTAssertThrowsError(try gate.confirmed(at: 100))
   }
-  func testNearbyCommandInputsAreClosedAndRecoveryHasSameOriginalIDs() throws {
-    let sender: Set<String> = ["request-id", "session-id", "request-hash", "peer-certificate"]
-    for action in ["nearby-send", "nearby-recover-send"] {
-      try KagemushaMonetaryProbeManifest.validate(action, names: sender)
-      XCTAssertThrowsError(try KagemushaMonetaryProbeManifest.validate(action, names: sender.union(["payment"])))
+  func testReceiveRejectsOtherStatusesBeforeReadingRetainedOrProjectedData() {
+    let requestID = Data(repeating: 0x31, count: 32)
+    let statuses: [Int32] = [Int32.min, -15, -1] + Array(0...59) + [Int32.max]
+    for recovery in [false, true] {
+      for status in statuses where status != 1 && !(recovery && status == 10) {
+        var callbacks = 0
+        XCTAssertThrowsError(try KagemushaNearbyAttemptGate.receivedCredit(
+          status: status, recovery: recovery, requestID: requestID,
+          retainedOutput: { _ in callbacks += 1 },
+          projection: { _ in
+            callbacks += 1
+            return .init(isReceiver: true, isBurned: false, original: Data([0x71]))
+          }), "status \(status), recovery \(recovery)")
+        XCTAssertEqual(callbacks, 0, "status must be admitted before any evidence lookup")
+      }
     }
-    for action in ["nearby-receive", "nearby-recover-receive"] {
-      try KagemushaMonetaryProbeManifest.validate(action, names: sender.union(["setup-id"]))
-      XCTAssertThrowsError(try KagemushaMonetaryProbeManifest.validate(action, names: sender))
+    XCTAssertThrowsError(try KagemushaNearbyAttemptGate.requireComplete(10),
+      "Send admission remains COMPLETE-only, including recovery")
+  }
+  func testCollectedReceiveRecoveryNeverLooksUpRetainedOutputAndReturnsExactFreshBytes() throws {
+    let requestID = Data(repeating: 0x32, count: 32)
+    let fresh = Data([0x00, 0x7f, 0x80, 0xff, 0x00])
+    var requests: [Data] = []
+    let actual = try KagemushaNearbyAttemptGate.receivedCredit(
+      status: 10, recovery: true, requestID: requestID,
+      retainedOutput: { _ in XCTFail("collected Receive no longer has retained output") },
+      projection: { requested in
+        requests.append(requested)
+        return .init(isReceiver: true, isBurned: false, original: fresh)
+      })
+    XCTAssertEqual(requests, [requestID], "the native projection must use the exact Receive ID")
+    XCTAssertEqual(actual, fresh)
+  }
+  func testCompleteReceiveStillCapturesOriginalReleaseBeforeReadingFreshCredit() throws {
+    let requestID = Data(repeating: 0x33, count: 32)
+    let retainedReceipt = Data([0x81, 0x82])
+    let fresh = Data([0x91, 0x92, 0x93])
+    for recovery in [false, true] {
+      var callbacks: [String] = []
+      var captured: Data?
+      let actual = try KagemushaNearbyAttemptGate.receivedCredit(
+        status: 1, recovery: recovery, requestID: requestID,
+        retainedOutput: { requested in
+          XCTAssertEqual(requested, requestID)
+          callbacks.append("retained")
+          captured = retainedReceipt
+        },
+        projection: { requested in
+          XCTAssertEqual(requested, requestID)
+          callbacks.append("projection")
+          return .init(isReceiver: true, isBurned: false, original: fresh)
+        })
+      XCTAssertEqual(callbacks, ["retained", "projection"])
+      XCTAssertEqual(captured, retainedReceipt, "normal Receive keeps its original release evidence")
+      XCTAssertEqual(actual, fresh, "the radio acknowledgement must use current native credit evidence")
+      XCTAssertNotEqual(actual, captured)
     }
-    XCTAssertThrowsError(try KagemushaMonetaryProbeManifest.validate("nearby-prepare", names: ["setup-id", "offer", "fee-schedule"]))
-    XCTAssertEqual(try KagemushaMonetaryProbeManifest.maximum("session-id"), 16)
-    XCTAssertEqual(try KagemushaMonetaryProbeManifest.maximum("peer-certificate"), 32)
+  }
+  func testReceiveRejectsMissingBurnedAndPayerProjectionEvidence() {
+    let requestID = Data(repeating: 0x34, count: 32)
+    let invalid: [KagemushaNearbyAttemptGate.ReceivedCredit] = [
+      .init(isReceiver: true, isBurned: false, original: nil),
+      .init(isReceiver: true, isBurned: false, original: Data()),
+      .init(isReceiver: true, isBurned: true, original: Data([0x71])),
+      .init(isReceiver: false, isBurned: false, original: Data([0x71])),
+    ]
+    let attempts: [(Int32, Bool)] = [(1, false), (1, true), (10, true)]
+    for (status, recovery) in attempts {
+      for value in invalid {
+        var retainedCalls = 0, projectionCalls = 0
+        XCTAssertThrowsError(try KagemushaNearbyAttemptGate.receivedCredit(
+          status: status, recovery: recovery, requestID: requestID,
+          retainedOutput: { _ in retainedCalls += 1 },
+          projection: { requested in
+            XCTAssertEqual(requested, requestID)
+            projectionCalls += 1
+            return value
+          }))
+        XCTAssertEqual(retainedCalls, status == 1 ? 1 : 0)
+        XCTAssertEqual(projectionCalls, 1)
+      }
+    }
+  }
+  func testReceivePropagatesProjectionAndRetainedOutputFailuresWithoutFallback() {
+    enum ProbeFailure: Error { case retained, projection }
+    let requestID = Data(repeating: 0x35, count: 32)
+    let attempts: [(Int32, Bool)] = [(1, false), (1, true), (10, true)]
+    for (status, recovery) in attempts {
+      var retainedCalls = 0, projectionCalls = 0
+      XCTAssertThrowsError(try KagemushaNearbyAttemptGate.receivedCredit(
+        status: status, recovery: recovery, requestID: requestID,
+        retainedOutput: { _ in retainedCalls += 1 },
+        projection: { _ in projectionCalls += 1; throw ProbeFailure.projection })) { error in
+        guard case ProbeFailure.projection = error else { return XCTFail("changed projection failure") }
+      }
+      XCTAssertEqual(retainedCalls, status == 1 ? 1 : 0)
+      XCTAssertEqual(projectionCalls, 1)
+    }
+    var projectionCalled = false
+    XCTAssertThrowsError(try KagemushaNearbyAttemptGate.receivedCredit(
+      status: 1, recovery: false, requestID: requestID,
+      retainedOutput: { _ in throw ProbeFailure.retained },
+      projection: { _ in
+        projectionCalled = true
+        return .init(isReceiver: true, isBurned: false, original: Data([0x71]))
+      })) { error in
+      guard case ProbeFailure.retained = error else { return XCTFail("changed retained-output failure") }
+    }
+    XCTAssertFalse(projectionCalled, "failed original-release capture cannot become a successful diagnostic")
   }
   func testAuthenticationOwnsOneContextAndCompletesOnlyOnce() {
     let first = UUID(), second = UUID()

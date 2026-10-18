@@ -215,7 +215,8 @@ enum NativeChildOutcome<T> {
 /// This view exposes no pathname, descriptor, retention or mutation operation. [`Self::read`]
 /// and [`Self::read_optional`] consume borrowed bytes before their original native owners
 /// and zeroized buffer drop.
-/// [`Self::read_admitted`] instead returns the caller's one original owned `Vec`, preserving
+/// [`Self::read_optional_owned`] moves the original zeroized native allocation;
+/// [`Self::read_admitted`] returns the caller's one original owned `Vec`, preserving
 /// its allocation and ownership semantics. The view cannot leave its owning scope callback,
 /// including [`PrivateDirectory::read_tree_scope_with_root`] and [`PrivateReadTreeScope::read_scope`].
 pub struct PrivateReadScope<'scope> {
@@ -267,6 +268,25 @@ impl PrivateReadScope<'_> {
             .read_optional_native(checked_name(name.as_ref())?, maximum, true, |bytes| {
                 Ok(consume(bytes.as_slice()))
             })
+    }
+
+    /// Move one optional bounded file's original zeroized allocation out of its native read.
+    ///
+    /// This is the same leaf producer as [`Self::read_optional`] and
+    /// [`PrivateDirectory::read_optional`], without copying its bytes. Initial native absence
+    /// alone returns `None`; all leaf, extent, named-identity and metadata checks still run.
+    /// The enclosing read scope closes original directory custody after every ordinary result.
+    /// No descriptor, writer or currentness verdict is returned with the bytes.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe or changing leaves, oversized files and late native errors.
+    pub fn read_optional_owned(
+        &mut self,
+        name: impl AsRef<OsStr>,
+        maximum: usize,
+    ) -> io::Result<Option<Zeroizing<Vec<u8>>>> {
+        self.directory
+            .read_optional_native(checked_name(name.as_ref())?, maximum, true, Ok)
     }
 
     /// List a bounded native inventory within this enclosing read scope.

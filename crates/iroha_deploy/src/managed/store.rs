@@ -436,7 +436,12 @@ impl ManagedStore {
         selected_generation_tests::before_startup(&retained.prepared)?;
         retain_context(&retained.prepared)?;
         runtime::startup_remaining_until(started, request.startup_timeout, startup_deadline_ns)?;
-        if let Ok(status) = exchange(&directory, "status") {
+        if let Ok(status) = startup_exchange(
+            &directory,
+            started,
+            request.startup_timeout,
+            startup_deadline_ns,
+        ) {
             let status = observe_startup_status(
                 &directory,
                 &retained.prepared.context,
@@ -464,6 +469,12 @@ impl ManagedStore {
                 return Ok(status);
             }
         } else {
+            // A timed-out initial observation cannot stop or replace a retained healthy owner.
+            runtime::startup_remaining_until(
+                started,
+                request.startup_timeout,
+                startup_deadline_ns,
+            )?;
             // A crashed controller's still-running children keep this lock. Never adopt or kill
             // processes merely because their integer PID appears in a previous record.
             let available = acquire(&directory, "runtime.lock", &request.name)?;
@@ -539,7 +550,12 @@ impl ManagedStore {
                 }
                 Err(error) => return Err(error),
             }
-            if let Ok(status) = exchange(&directory, "status") {
+            if let Ok(status) = startup_exchange(
+                &directory,
+                started,
+                request.startup_timeout,
+                startup_deadline_ns,
+            ) {
                 let status = observe_startup_status(
                     &directory,
                     &retained.prepared.context,
@@ -587,6 +603,11 @@ impl ManagedStore {
     /// # Errors
     /// Missing context, custody failure, or live ownership without a reachable control endpoint.
     pub fn status(&self, name: &str) -> Result<ManagedStatus> {
+        self.status_until(name, Instant::now() + transport::IO_TIMEOUT)
+    }
+
+    /// Observe the same retained identity without extending a foreground caller's deadline.
+    pub(super) fn status_until(&self, name: &str, deadline: Instant) -> Result<ManagedStatus> {
         let directory = self.directory(name)?;
         let retained = generation::read(&directory)?;
         validate_prepared(
@@ -595,7 +616,7 @@ impl ManagedStore {
             &retained.prepared,
             &retained.root_kind,
         )?;
-        if let Ok(status) = exchange(&directory, "status") {
+        if let Ok(status) = exchange_until(&directory, "status", deadline) {
             if status.context != retained.prepared.context {
                 return Err(Error::Invalid(
                     "worker status belongs to another managed identity".into(),
@@ -1053,6 +1074,36 @@ pub(super) fn exchange(directory: &PrivateDirectory, action: &str) -> Result<Man
     )
 }
 
+/// Retain the original worker session and bound its typed reply by the caller's deadline.
+pub(super) fn exchange_until(
+    directory: &PrivateDirectory,
+    action: &str,
+    deadline: Instant,
+) -> Result<ManagedStatus> {
+    let worker: WorkerRecord = decode(&directory.read(WORKER, MAX_METADATA)?)?;
+    transport::request_as_until(
+        directory,
+        &ControlRequest {
+            token: worker.token,
+            action: action.into(),
+        },
+        deadline,
+    )
+}
+
+/// Charge status I/O to the original local and suspend-inclusive startup clocks.
+pub(super) fn startup_exchange(
+    directory: &PrivateDirectory,
+    started: Instant,
+    timeout: Duration,
+    startup_deadline_ns: u128,
+) -> Result<ManagedStatus> {
+    // Sample before reading either remainder: conversion to an Instant can only shorten it.
+    let observed_at = Instant::now();
+    let remaining = runtime::startup_remaining_until(started, timeout, startup_deadline_ns)?;
+    exchange_until(directory, "status", observed_at + remaining)
+}
+
 // Only a public status observer may interpret a competing operation lock as a foreground
 // handoff. Down already holds that operation lock and proves runtime availability itself.
 fn retained_status(
@@ -1207,6 +1258,8 @@ pub(super) fn expire_startup(
     context: &ManagedContext,
     timeout: Duration,
 ) -> Result<ManagedStatus> {
+    // Readiness has already expired. This separate ordinary IPC budget observes the owner's
+    // cancellation/cleanup result; a timeout still cannot establish that cleanup completed.
     if let Ok(status) = exchange(directory, "startup_expired") {
         if status.context != *context {
             return Err(Error::Invalid(

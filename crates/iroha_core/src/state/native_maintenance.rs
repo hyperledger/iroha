@@ -92,7 +92,11 @@ impl StateBlock<'_> {
         }
         impl Drop for SnsSourceInspectionOwner<'_, '_> {
             fn drop(&mut self) {
-                self.state.execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
+                self.state
+                    .fields
+                    .as_mut()
+                    .expect("original source inspection owner")
+                    .execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
             }
         }
 
