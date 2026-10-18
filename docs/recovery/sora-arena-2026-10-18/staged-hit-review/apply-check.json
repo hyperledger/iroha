@@ -1,0 +1,30 @@
+[
+  {
+    "command": [
+      "git",
+      "apply",
+      "--check",
+      "--whitespace=error-all",
+      "/Users/takemiyamakoto/soramitsudev/sora-arena/Saved/Qualification/2026-10-18/native-staged-hit-candidate/native-staged-hit.patch"
+    ],
+    "cwd": "/Users/takemiyamakoto/soramitsudev/sora-arena/Saved/Qualification/2026-10-18/native-staged-hit-candidate/base-snapshot",
+    "exit_code": 0,
+    "scope": "read-only applicability against copied sparse base files; no compilation",
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "command": [
+      "git",
+      "apply",
+      "--check",
+      "--whitespace=error-all",
+      "/Users/takemiyamakoto/soramitsudev/sora-arena/Saved/Qualification/2026-10-18/native-staged-hit-candidate/component-readme.patch"
+    ],
+    "cwd": "/Users/takemiyamakoto/soramitsudev/sora-arena/Saved/Qualification/2026-10-18/native-staged-hit-candidate/base-snapshot",
+    "exit_code": 0,
+    "scope": "read-only applicability against copied sparse base files; no compilation",
+    "stderr": "",
+    "stdout": ""
+  }
+]

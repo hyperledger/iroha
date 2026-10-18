@@ -1,0 +1,16 @@
+{
+  "head": "8209033deae7409d800fcc576a63609a0c2c5f9d",
+  "refs_sha256": "6ec51bdb896109f8655e1fc847b411ac13ce28dad4130ce01ae2be9ae0182f57",
+  "selected_source_and_git_metadata": {
+    "crates/iroha_core/src/execution_proofs/arena_aim_air.rs": "5238f640c5203abc027868a22c6e4c46e9ecbe92ef239e206abc8c16ca7f0f28",
+    "crates/iroha_core/src/execution_proofs/arena_geometry_air.rs": "74b8073807fccbb1aa2e07104311f3b933e69eb0ba054e312611eab8c18ecc40",
+    "crates/iroha_core/src/execution_proofs/arena_staged_hit_air.rs": "e2d6d84c1a5e511c46552a036bb2044c1d121a32fb91ff2a1fb9a3da289a4a8f",
+    "crates/iroha_core/src/execution_proofs/arena_staged_hit_stark_research.rs": "05c4e15af2d7b9d0f5674413e46190c58b3e7ab4a0c4d85c88d9b6c8b2e9f846",
+    "crates/iroha_core/src/execution_proofs/checked_integer_air.rs": "d362db7c8b537b550f960536f0750ae18b456fa0c41e5be06a3ffa543293c25c",
+    "crates/iroha_core/src/execution_proofs/integer_air.rs": "106b5589b91be64881a3b8dd522c01bf72d4f04c7dbf6f0cc887d450c0b65446",
+    "crates/iroha_core/src/execution_proofs/mod.rs": "fd3ba31d5431705308d0078776c3e4f9fb643c47aa933fe72f5902be48630741",
+    "crates/iroha_core/tests/fixtures/arena_staged_hit_reference.json": "d0a3443232c3b9440f5cb607861e8459285da7b1184303bbb81c01b61e08d3bf",
+    "git:config": "56233946d83dfe495b19d6a9a5ca2264595876721853b4cdc3e8de7e8d91fdf0",
+    "git:index": "52288ed3c58e78ea2e6b95ea228ec5313ee3a80b23c93de3ff0222e5a4e0f610"
+  }
+}

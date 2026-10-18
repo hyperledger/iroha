@@ -687,7 +687,7 @@ mod tests {
                 time: Some(10.0),
                 ..Default::default()
             },
-            |context| show_toasts(context),
+            show_toasts,
         );
         assert!(current_toast(&context).is_none());
 

@@ -110,6 +110,16 @@ cargo test -p mochi-ui --features gui --bin mochi
 ci/check_mochi.sh
 ```
 
+Design previews render every view headlessly to PPM images. The harness runs a
+genuine Quickstart with matching installed programs, then stages phases and
+fixture observations on that real generation; its balances and blocks are not
+ledger evidence:
+
+```sh
+MOCHI_PREVIEW_RUNTIME=<dir with kagami and iroha3d> MOCHI_PREVIEW_OUT=<dir> \
+  cargo test -p mochi-ui --features gui --bin mochi design_previews -- --ignored --nocapture
+```
+
 Shared generator/worker tests live in `iroha_deploy`; custody tests live in
 `iroha_fs`. Mochi tests cover context binding, query authority, canonical stream
 transport and desktop review cancellation. Mock services do not qualify native

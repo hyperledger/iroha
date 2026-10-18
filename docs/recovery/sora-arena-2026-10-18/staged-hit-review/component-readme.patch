@@ -1,0 +1,38 @@
+diff --git a/crates/iroha_core/src/execution_proofs/README-arena-staged-hit.md b/crates/iroha_core/src/execution_proofs/README-arena-staged-hit.md
+new file mode 100644
+--- /dev/null
++++ b/crates/iroha_core/src/execution_proofs/README-arena-staged-hit.md
+@@ -0,0 +1,33 @@
++# Arena staged ray selection research
++
++`arena_staged_hit_stark_research` exposes inspection, proving and verification of
++one ordered ray-stop computation over a public snapshot. It derives the ray
++from yaw/pitch and constrains slab arithmetic, eligibility, strict nearest-hit
++selection, and state carried across the candidate scan. Bounds are 1–12 players,
++0–64 walls and 0–48 entities. Static walls precede entities and original player
++slots; ties preserve the earlier candidate. The shared reference fixture is
++`../../tests/fixtures/arena_staged_hit_reference.json`.
++
++The native adapter retains 8,192 rows, degree four, 136 queries, 8× LDE, FRI
++terminal size 1,024 and degree 143, four composition chunks, and a 4 MiB proof
++cap. It is unregistered and unqualified. This component does not authenticate a
++World boundary, establish legal attacks or damage, prove kills, or authorize
++custody, NFT equipment, XOR rewards or settlement. Complete execution and
++four-validator qualification remain required.
++
++A source-sealed research harness on 2026-10-18 used the full dirty native tree
++based on `8209033deae7409d800fcc576a63609a0c2c5f9d`, not an isolated eight-file
++candidate build. For the 12-player/64-wall/48-entity `bounded_random_9` fixture,
++it verified a 2,514,656-byte proof and 10 negative verifications. The
++final candidate changes three Copy derives and refreshes source hashes in the
++fixture; that final source has not been re-proved. These historical measurements
++qualify neither the final candidate nor a complete match. Its
++source seal, pinned dependency artifacts and raw results live with the SORA
++Arena qualification record, not in this native patch.
++
++The game runner also imports native `scripts/check_arena_geometry_stark.py`.
++That currently untracked helper is outside this component patch; these eight
++files alone do not package that runner. Build and test an isolated candidate
++before integration. Changing shared `integer_air.rs` changes the source-bound
++Race profile identity. Race qualification remains false; no old identity,
++compatibility alias or decoder is retained.
