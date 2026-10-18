@@ -5724,7 +5724,7 @@ impl Executor {
     ) -> Result<(), ValidationFail> {
         if !is_initial_genesis_context(state_transaction) {
             if cfg!(all(test, sumeragi_core_mutation = "HC397")) {
-                if let Some(policy) = state_transaction.world.parameters().root_fees() {
+                if let Some(policy) = state_transaction.world.state_parameters().root_fees() {
                     state_transaction.nexus.fees = policy.clone();
                 }
             }

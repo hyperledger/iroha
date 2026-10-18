@@ -53,9 +53,13 @@ impl ValidBlock {
                 "signed genesis must execute exactly one original root fee policy",
             ));
         }
-        let fees = state.world().parameters().root_fees().ok_or_else(|| {
-            Self::execution_context_error("signed genesis root fee policy is absent")
-        })?;
+        let fees = state
+            .world()
+            .state_parameters()
+            .root_fees()
+            .ok_or_else(|| {
+                Self::execution_context_error("signed genesis root fee policy is absent")
+            })?;
         fees.validate_for_scope(&metadata.sumeragi_context.root_scope)
             .map_err(|error| Self::execution_context_error(error.to_string()))?;
         if matches!(

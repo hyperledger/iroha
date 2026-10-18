@@ -21341,6 +21341,8 @@ macro_rules! world_ro_accessors {
 /// roles, triggers and the executor configuration without mutation.
 pub trait WorldReadOnly {
     world_ro_accessors!(configuration, declaration);
+    /// Borrow canonical parameters and their validated policies from the same World version.
+    fn state_parameters(&self) -> &StateParameters;
     /// Decode the `sumeragi_npos_parameters` custom payload when present.
     ///
     /// # Errors
@@ -22264,6 +22266,9 @@ macro_rules! impl_world_ro {
     ($($ident:ty),*) => {$(
         impl WorldReadOnly for $ident {
             world_ro_accessors!(configuration, implementation);
+            fn state_parameters(&self) -> &StateParameters {
+                self.parameters.get()
+            }
             world_ro_accessors!(identity, implementation);
             world_ro_accessors!(assets, implementation);
             world_ro_accessors!(oracle_and_incentives, implementation);

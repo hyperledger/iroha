@@ -22,7 +22,7 @@ pub(super) fn effective(
     world: &impl WorldReadOnly,
     captured: &RootFeePolicy,
 ) -> Result<RootFeePolicy, ExecutionAttemptError<NexusFeeAdmissionError>> {
-    if world.parameters().root_fees().is_none() {
+    if world.state_parameters().root_fees().is_none() {
         return Err(invalid("committed root fee policy is absent").into());
     }
     let scope = scope(world)?;
@@ -54,6 +54,18 @@ pub(super) fn effective(
     Ok(captured.clone())
 }
 
+/// Validate the complete committed policy for executed-genesis schedule admission.
+/// This borrows the existing projection; it never decodes parameters or selects local defaults.
+pub(crate) fn validate_committed(
+    world: &impl WorldReadOnly,
+) -> Result<(), ExecutionAttemptError<NexusFeeAdmissionError>> {
+    let policy = world
+        .state_parameters()
+        .root_fees()
+        .ok_or_else(|| invalid("committed root fee policy is absent"))?;
+    effective(world, policy).map(|_| ())
+}
+
 /// Public quoting is evaluated against the supplied committed World. A caller-supplied
 /// Nexus value cannot supply monetary policy; the usual captured view takes no clone.
 pub(super) fn quote_nexus<'a>(
@@ -64,7 +76,7 @@ pub(super) fn quote_nexus<'a>(
     ExecutionAttemptError<NexusFeeAdmissionError>,
 > {
     let policy = world
-        .parameters()
+        .state_parameters()
         .root_fees()
         .ok_or_else(|| invalid("committed root fee policy is absent"))?;
     let policy = effective(world, policy)?;
@@ -235,6 +247,28 @@ mod tests {
     }
 
     #[test]
+    fn committed_policy_validation_uses_exact_world_projection() {
+        let (state, _, _) = fixture(true, true);
+        let view = state.view();
+        let world = view.world();
+        assert!(std::ptr::eq(
+            world.state_parameters(),
+            world.parameters.get(),
+        ));
+        assert!(std::ptr::eq(
+            world.parameters(),
+            &**world.state_parameters()
+        ));
+        validate_committed(world).unwrap();
+
+        let (missing, _, _) = fixture(false, true);
+        assert!(validate_committed(missing.view().world()).is_err());
+        let (wrong_scope, _, _) = fixture(true, false);
+        assert!(validate_committed(wrong_scope.view().world()).is_err());
+        assert!(validate_committed(&World::new().view()).is_err());
+    }
+
+    #[test]
     fn private_fee_policy_is_frozen_before_transaction_parameter_writes() {
         let (state, _, asset) = fixture(true, true);
         let mut block = state.block(BlockHeader::new(2.try_into().unwrap(), None, None, 1000, 0));
@@ -252,7 +286,7 @@ mod tests {
             ))
             .unwrap();
         Executor::validate_root_fee_policy(&mut tx).unwrap();
-        assert_eq!(tx.world.parameters().root_fees(), Some(&next));
+        assert_eq!(tx.world.state_parameters().root_fees(), Some(&next));
         assert_eq!(tx.nexus.fees, before);
         assert_eq!(tx.nexus.fees.fee_asset_id, asset);
         assert_eq!(tx.pipeline.gas, frozen_gas);
@@ -393,7 +427,7 @@ mod tests {
             .get(&RootFeePolicy::parameter_id())
             .unwrap()
             .clone();
-        let original = view.world().parameters().clone();
+        let original = view.world().state_parameters().clone();
         for restore in [false, true] {
             let baseline = pool.reserved_bytes();
             let context = original_fee_decode_context(&pool, 0);
@@ -404,7 +438,7 @@ mod tests {
                 .with(|| {
                     if restore {
                         crate::pipeline_gas_policy::StateParameters::try_from(
-                            (**view.world().parameters()).clone(),
+                            view.world().parameters().clone(),
                         )
                         .map(|_| ())
                     } else {
@@ -455,7 +489,7 @@ mod tests {
             assert_eq!(retry, original);
             assert_eq!(
                 crate::pipeline_gas_policy::StateParameters::try_from(
-                    (**view.world().parameters()).clone()
+                    view.world().parameters().clone()
                 )
                 .unwrap(),
                 original

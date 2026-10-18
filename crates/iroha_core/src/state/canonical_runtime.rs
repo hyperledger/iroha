@@ -412,7 +412,7 @@ impl State {
         let catalog = runtime_catalog_from_world(world)?;
         let nexus = crate::pipeline_gas_policy::with_root_fees(
             record.nexus_projection_with_catalog(configured, catalog.as_ref())?,
-            world.parameters(),
+            world.state_parameters(),
         );
         if let Some(catalog) = &catalog
             && catalog.baseline_manifests_hash

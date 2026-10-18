@@ -278,7 +278,7 @@ pub fn native_private_context_route_fixture()
         .state()
         .view()
         .world()
-        .parameters()
+        .state_parameters()
         .root_fees()
         .cloned()
         .expect("committed Global root fee policy");

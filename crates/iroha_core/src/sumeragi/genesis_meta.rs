@@ -42,7 +42,7 @@ pub fn staged_genesis_nexus_amx_context_preimage(staged: &StateBlock<'_>) -> Vec
         .collect::<Vec<_>>();
     let authored_nexus = crate::pipeline_gas_policy::with_root_fees(
         staged.nexus.clone(),
-        staged.world().parameters(),
+        staged.world().state_parameters(),
     );
     sumeragi_nexus_amx_context_preimage(
         &authored_nexus,
