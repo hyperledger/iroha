@@ -111,7 +111,7 @@ FIXTURE_GENERATOR_SHA256="$(sha256_file "${FIXTURE_GENERATOR}")"
 
 NATIVE_LIBRARY_DIR="$(cd "$(dirname "${NATIVE_LIBRARY}")" && pwd -P)"
 NATIVE_MANIFEST="${NATIVE_BUILD_ROOT}/native-sdk-abi30.json"
-CSHARP_NATIVE_MANIFEST="${NATIVE_BUILD_ROOT}/native-sdk-abi29-csharp.json"
+CSHARP_NATIVE_MANIFEST="${NATIVE_BUILD_ROOT}/native-sdk-abi30-csharp.json"
 
 # Native evidence binds the clean source tree, including the tracked root lock.
 # The independently sealed canonical graph snapshot remains external for all
@@ -295,7 +295,7 @@ if [[ -n "${PRIVACY_JVM_NATIVE_EXPORT_DIR:-}" ]]; then
   install -m 400 "${NATIVE_MANIFEST}" \
     "${PRIVACY_JVM_NATIVE_EXPORT_DIR}/native-sdk-abi30-c-jni.json"
   install -m 400 "${CSHARP_NATIVE_MANIFEST}" \
-    "${PRIVACY_JVM_NATIVE_EXPORT_DIR}/native-sdk-abi29-csharp.json"
+    "${PRIVACY_JVM_NATIVE_EXPORT_DIR}/native-sdk-abi30-csharp.json"
   install -m 400 "${SELECTED_CARGO_LOCK}" \
     "${PRIVACY_JVM_NATIVE_EXPORT_DIR}/Cargo.lock"
   "${PYTHON_BIN}" -I -S "${ABI30_CHECKER}" verify \
@@ -304,6 +304,6 @@ if [[ -n "${PRIVACY_JVM_NATIVE_EXPORT_DIR:-}" ]]; then
     --source-root "${ROOT_DIR}"
   "${PYTHON_BIN}" -I -S "${ABI30_CHECKER}" verify \
     --artifact "${EXPORTED_LIBRARY}" \
-    --manifest "${PRIVACY_JVM_NATIVE_EXPORT_DIR}/native-sdk-abi29-csharp.json" \
+    --manifest "${PRIVACY_JVM_NATIVE_EXPORT_DIR}/native-sdk-abi30-csharp.json" \
     --source-root "${ROOT_DIR}"
 fi

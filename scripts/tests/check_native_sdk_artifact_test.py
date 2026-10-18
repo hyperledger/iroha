@@ -369,6 +369,15 @@ def test_retired_kagemusha_c_exports_are_rejected() -> None:
 def test_native_artifact_checker_has_no_retired_protocol_surface() -> None:
     retired = {
         "c-jni": {
+            'connect_norito_parliament_timed_ovn_verify_casting_proof_page_v1',
+            'connect_norito_parliament_timed_ovn_verify_casting_proof_v1',
+            'connect_norito_parliament_timed_ovn_registration_from_proof_v1',
+            'connect_norito_parliament_timed_ovn_ballot_from_proof_v1',
+            'Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_nativeBridgeAbiVersion',
+            'Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_nativeVerifyCastingProofV1',
+            'Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_nativeVerifyCastingProofPageV1',
+            'Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_nativeRegistrationFromProofV1',
+            'Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_nativeBallotFromProofV1',
             "connect_norito_validation_fee_hijiri_quote_request_v1",
             "connect_norito_validation_fee_hijiri_quote_response_verify_v1",
             "connect_norito_kagemusha_device_response_authenticator_v1_verify",
@@ -381,6 +390,10 @@ def test_native_artifact_checker_has_no_retired_protocol_surface() -> None:
             "Java_org_hyperledger_iroha_sdk_crypto_keystore_NativeFirstDeviceAuthKeyJniV1_restore",
         },
         "csharp": {
+            'connect_norito_parliament_timed_ovn_verify_casting_proof_page_v1',
+            'connect_norito_parliament_timed_ovn_verify_casting_proof_v1',
+            'connect_norito_parliament_timed_ovn_registration_from_proof_v1',
+            'connect_norito_parliament_timed_ovn_ballot_from_proof_v1',
             "connect_norito_validation_fee_hijiri_quote_request_v1",
             "connect_norito_validation_fee_hijiri_quote_response_verify_v1",
             "connect_norito_kagemusha_device_response_authenticator_v1_verify",
@@ -513,6 +526,7 @@ def test_retired_abi23_manifest_and_schema_are_rejected() -> None:
         ("bridge_abi_version", 27, "must be exactly 30"),
         ("bridge_abi_version", 28, "must be exactly 30"),
         ("bridge_abi_version", 29, "must be exactly 30"),
+        ("bridge_abi_version", 31, "must be exactly 30"),
         ("schema", "iroha.native-sdk-abi29-artifact.v1", "schema is unsupported"),
         ("schema", "iroha.native-sdk-abi28-artifact.v1", "schema is unsupported"),
         ("schema", "iroha.native-sdk-abi27-artifact.v1", "schema is unsupported"),
@@ -1087,3 +1101,17 @@ def test_swift_retained_bridge_exports_have_one_canonical_header_owner() -> None
     for symbol in retained:
         assert declarations[symbol] == 1, symbol
     assert not prototype_counts(retention), "local bridge declarations substitute for the owner"
+
+
+def test_abi30_rejects_all_retired_timed_ovn_exports() -> None:
+    for sdk, retired in (
+        ("c-jni", (*MODULE.RETIRED_TIMED_OVN_C_EXPORTS, *MODULE.RETIRED_TIMED_OVN_JNI_EXPORTS)),
+        ("csharp", MODULE.RETIRED_TIMED_OVN_C_EXPORTS),
+    ):
+        for symbol in retired:
+            try:
+                MODULE.validate_retired_protocol_symbols([*MODULE.REQUIRED_SYMBOLS[sdk], symbol], sdk=sdk)
+            except MODULE.ArtifactContractError as error:
+                assert "retired protocol symbols" in str(error)
+            else:
+                raise AssertionError(f"ABI 30 accepted retired symbol: {symbol}")

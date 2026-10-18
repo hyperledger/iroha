@@ -116,6 +116,24 @@ final class NativeBridgeLoaderTests: XCTestCase {
         }))
     }
 
+    func testExactABI30AdmissionRejectsOlderAndFutureVersions() {
+        for identifier in ["macos-arm64_x86_64", "ios-arm64", "ios-arm64_x86_64-simulator"] {
+            XCTAssertEqual(NoritoBridgeLoader.expectedBridgeAbiVersion(for: identifier), 30)
+            XCTAssertTrue(NoritoBridgeLoader.isSupportedBridgeAbiVersion(30, for: identifier))
+            for rejected in [UInt32(18), 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 31] {
+                XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(rejected, for: identifier))
+            }
+            XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(nil, for: identifier))
+        }
+    }
+
+    func testRetiredTimedOvnExportsAndStatusAreNotPartOfABI30Admission() {
+        XCTAssertTrue(NoritoBridgeLoader.hasRequiredExports(resolving: {
+            !$0.hasPrefix("connect_norito_parliament_timed_ovn_")
+        }))
+        XCTAssertEqual(NativeBridgeError.fromStatus(-505), .unknown(-505))
+    }
+
     func testExpectedBridgeAbiVersionIsThirtyForPackagedArtifacts() {
         XCTAssertEqual(NoritoBridgeLoader.expectedBridgeAbiVersion(for: "macos-arm64_x86_64"), 30)
         XCTAssertEqual(NoritoBridgeLoader.expectedBridgeAbiVersion(for: "ios-arm64"), 30)

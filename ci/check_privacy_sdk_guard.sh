@@ -929,10 +929,10 @@ def _check_cargo_workflow(
         ),
     }
     native_lane_job_digests = {
-        "privacy_swift_sdk_parse": "4709102a01e03c6a9d990fa425886d2d84eb3f2cf4583f3f94cf523c1cad68aa",
-        "privacy_jvm_sdk_tests": "2e40ab2ac6fc0925845db59008fa887efd526973c0ae5fe01110b3694ff2f4aa",
-        "privacy_csharp_sdk_tests": "409a44665464047fae8e3107e5a83711c5f80010924911cb85c1f6ac99aa4bec",
-        "privacy_javascript_sdk_tests": "110a4eab33e7aa6259e682d42f92a63048f18684dc2f2c017bea4dec31017de1",
+        "privacy_swift_sdk_parse": "d05a83a5ce9498335206d4a0055f97a4bd7b6650ecea4f4e5bb326d1c34a92e4",
+        "privacy_jvm_sdk_tests": "e0f74f7b988b055785e07d4157eb493ef9df6fa6bdcb5547ac4ea3f6ea23d7d1",
+        "privacy_csharp_sdk_tests": "697465f2e76ef78d4d82d0622619f701eedb3f647ee529b1d98c7fdbebb74a62",
+        "privacy_javascript_sdk_tests": "30043ba08b4fffc68871d9e511dc5094440f31869847742020509898ad8a4782",
     }
 
     require(
@@ -1207,10 +1207,10 @@ def _check_cargo_workflow(
     # complete job digests above. They do not open a general Cargo-policy lane.
     canonical_graph_steps = {
         "privacy_javascript_sdk_tests": ("Authenticate canonical privacy graph snapshot",),
-        "privacy_csharp_sdk_tests": ("Authenticate exact ABI29 C# privacy input",),
+        "privacy_csharp_sdk_tests": ("Authenticate exact ABI30 C# privacy input",),
         "privacy_swift_sdk_parse": (
             "Authenticate canonical privacy graph snapshot",
-            "Revalidate frozen Swift inputs and ABI29 artifacts",
+            "Revalidate frozen Swift inputs and ABI30 artifacts",
         ),
     }
     for job_name, step_names in canonical_graph_steps.items():

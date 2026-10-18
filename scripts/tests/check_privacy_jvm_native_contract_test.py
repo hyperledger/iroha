@@ -160,10 +160,10 @@ class PrivacyJvmNativeContractTests(unittest.TestCase):
         )
         for marker in (
             "PRIVACY_JVM_SDK_PYTHON_BIN: ${{ steps.privacy-jvm-python.outputs.python-path }}",
-            "PRIVACY_JVM_NATIVE_EXPORT_DIR: ${{ runner.temp }}/privacy-jvm-native-abi29",
+            "PRIVACY_JVM_NATIVE_EXPORT_DIR: ${{ runner.temp }}/privacy-jvm-native-abi30",
             "run: ci/check_privacy_jvm_sdk.sh",
-            "Upload source-bound privacy JVM native ABI29 input",
-            "privacy-jvm-native-abi29-${{ github.sha }}",
+            "Upload source-bound privacy JVM native ABI30 input",
+            "privacy-jvm-native-abi30-${{ github.sha }}",
         ):
             self.assertIn(marker, job)
         self.assertNotIn("IROHA_REQUIRE_PRIVACY_EXACT12_NATIVE", job)

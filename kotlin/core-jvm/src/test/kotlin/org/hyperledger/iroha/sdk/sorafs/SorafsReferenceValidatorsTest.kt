@@ -294,6 +294,7 @@ class SorafsReferenceValidatorsTest {
         assertTrue(!SorafsReferenceValidators.isBridgeAbiSupported(20))
         assertTrue(!SorafsReferenceValidators.isBridgeAbiSupported(23))
         assertTrue(!SorafsReferenceValidators.isBridgeAbiSupported(24))
+        assertTrue(!SorafsReferenceValidators.isBridgeAbiSupported(28))
         assertTrue(!SorafsReferenceValidators.isBridgeAbiSupported(29))
         assertTrue(SorafsReferenceValidators.isBridgeAbiSupported(30))
         assertTrue(!SorafsReferenceValidators.isBridgeAbiSupported(22))

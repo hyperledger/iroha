@@ -10,7 +10,7 @@ NATIVE = Path(__file__).resolve().parents[1] / "src/iroha_native"
 ROOT = Path(__file__).resolve().parents[3]
 
 
-@pytest.mark.parametrize("version", [None, 29, 30, 31])
+@pytest.mark.parametrize("version", [None, 28, 29, 30, 31])
 @pytest.mark.parametrize(
     "missing",
     [None, "_validate_account_address_v1", "_parse_account_address_v1", "_render_account_address_v1"],

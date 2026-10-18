@@ -205,8 +205,8 @@ def test_csharp_lane_consumes_the_same_authenticated_native_bytes() -> None:
     assert "needs: privacy_jvm_sdk_tests" in job
     assert 'IROHA_REQUIRE_PRIVACY_EXACT12_NATIVE: "1"' in job
     assert "actions/download-artifact@" in job
-    assert "privacy-jvm-native-abi29-${{ github.sha }}" in job
-    assert "native-sdk-abi29-csharp.json" in job
+    assert "privacy-jvm-native-abi30-${{ github.sha }}" in job
+    assert "native-sdk-abi30-csharp.json" in job
     assert job.count("check_native_sdk_artifact.py verify") == 2
     assert job.count("${PRIVACY_SDK_CANONICAL_CARGO_LOCK_SHA256}") >= 2
     assert "source ci/privacy_sdk_cargo_lockfile.sh" in job
@@ -337,7 +337,7 @@ def test_swift_lane_rebuilds_external_xcframework_and_requires_native_abi30() ->
     assert "chmod -R a-w" in job
     assert "scripts/build_norito_xcframework.sh" in job
     assert "run: ci/check_privacy_swift_sdk.sh" in job
-    assert "Revalidate frozen Swift inputs and ABI29 artifacts" in job
+    assert "Revalidate frozen Swift inputs and ABI30 artifacts" in job
     assert job.count("scripts/check_mobile_sdk_artifacts.sh --apple-only") == 1
 
     gate = read("ci/check_privacy_swift_sdk.sh")

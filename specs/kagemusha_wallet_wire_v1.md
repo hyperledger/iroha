@@ -1030,18 +1030,16 @@ carries one byte.
 | Completion record (`completion` over the frame) | `{version, wallet_id, operation_id, capsule_digest, receipt, output: bytes}` | Decoded against the expected wallet. `output` is the canonical compact Payment for Send, whose payer key and credential digest are the wallet's, and the canonical Package frame otherwise. Its receipt equals the record's; its statement, Ω(pred), σ and receipt Payment digest are the capsule's; its receipt-free parts rebuild the capsule's output descriptor; the private `capsule_digest` equals the authenticated wrapper hash, while the receipt verifies over that same wrapper's recomputed `capsule_commitment`. Exact output bytes and all other joins remain required. After W is collected, an operation retry reads the canonical Payment or Package selected by its explicit frame schema, treats the embedded sequence only as a locator, and authenticates the exact completion frame and its private/public capsule identifiers against the permanent StepEntry selected by the protected manifest. It neither scans history nor trusts the decoded sequence as authority. |
 | Fold record (`fold` over the frame) | `{version, scheme_id, wallet_id, LE128 first_sequence, LE128 sequence, head, capsule_digest, lineage: Ω}` | The self-verified Ω of one folded head covering the run `first_sequence..=sequence`. Nonzero identities and capsule digest; complete `head`; Ω valid with this scheme, wallet and head; `first_sequence ≤ sequence`. |
 
-The protected manifest permanently indexes each committed `operation_id` to its
-sequence locator (`16 zero bytes ‖ BE128 sequence`), published atomically with
-the corresponding `StepEntry` and retained after witness collection. If provider
-lookup reports `Unknown`, the coordinator authenticates this bounded locator,
-its range and the matching permanent step. Request and direct-commit retries
-also require the recorded private capsule identity to match. A recorded commit
-whose completion is missing returns `DeliveryDataLoss`, never `Preparing` or
-`NotPerformed`; only authenticated operation absence preserves unknown or
-preparing handling. Missing or corrupt index objects, malformed locators and
-conflicting joins are custody errors, not absence. This lookup never scans
-history, reconstructs Payment bytes, proves again or signs again. Explicit
-collection tombstones retain their `Archived` semantics.
+The protected manifest retains the installed 33-field layout and permanent
+sequence-keyed `StepEntry` records after witness collection. A retained completion
+is authenticated against its selected step before its exact bytes are returned.
+Explicit collection tombstones retain their `Archived` semantics, and provider
+`DeliveryDataLoss` remains a loss outcome. Provider `Unknown` retains the installed
+unknown/preparing handling; this layout has no operation-to-sequence index that
+can independently identify a historical committed operation whose completion
+copies have disappeared. That loss-classification gap remains open in this
+release. The stronger operation-index change and its tests are held for the next
+reset; they are not a current guarantee or an automatic wallet-format transition.
 
 ### 3.6 Ledger objects
 

@@ -715,7 +715,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             Lookup::SelectedUnsigned { .. } => Some(Completion::Pending),
             Lookup::Archived(_) => Some(Completion::Archived),
             Lookup::DeliveryDataLoss => Some(Completion::DeliveryDataLoss),
-            Lookup::Unknown => self.missing_retained_output(operation_id, None)?,
+            Lookup::Unknown => None,
         })
     }
 
@@ -734,12 +734,6 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let request = frozen.request()?;
         let owner = TransitionOwner::new(&frozen.credential);
         let lookup = self.custody.lookup(&c.body().operation_id)?;
-        if lookup == Lookup::Unknown
-            && let Some(loss) =
-                self.missing_retained_output(&c.body().operation_id, Some(&c.custody_digest()))?
-        {
-            return Ok(loss);
-        }
         // A released Receive is recognized by its permanent credit identity even after its
         // completion was collected. Validate the original Payment below before returning its
         // first evidence or a fresh CreditStatus. Pending and delivery-loss answers retain

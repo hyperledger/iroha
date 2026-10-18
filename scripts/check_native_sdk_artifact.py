@@ -276,6 +276,20 @@ REQUIRED_SYMBOLS: Mapping[str, tuple[str, ...]] = {
     ),
 }
 
+RETIRED_TIMED_OVN_C_EXPORTS = (
+    'connect_norito_parliament_timed_ovn_verify_casting_proof_page_v1',
+    'connect_norito_parliament_timed_ovn_verify_casting_proof_v1',
+    'connect_norito_parliament_timed_ovn_registration_from_proof_v1',
+    'connect_norito_parliament_timed_ovn_ballot_from_proof_v1',
+)
+RETIRED_TIMED_OVN_JNI_EXPORTS = (
+    'Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_nativeBridgeAbiVersion',
+    'Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_nativeVerifyCastingProofV1',
+    'Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_nativeVerifyCastingProofPageV1',
+    'Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_nativeRegistrationFromProofV1',
+    'Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_nativeBallotFromProofV1',
+)
+
 RETIRED_PROTOCOL_SYMBOLS: Mapping[str, tuple[str, ...]] = {
     "c-jni": (
         "connect_norito_validation_fee_hijiri_quote_request_v1",
@@ -286,8 +300,11 @@ RETIRED_PROTOCOL_SYMBOLS: Mapping[str, tuple[str, ...]] = {
         "Java_org_hyperledger_iroha_sdk_client_AtomicPrivateSettlementNativeResponseVerifierV1_nativeVerifyAuditorCapsuleResponseV1",
         "Java_org_hyperledger_iroha_android_client_AtomicPrivateSettlementNativeResponseVerifierV1_nativeVerifyAuditorCapsuleResponseV1",
         *RETIRED_FIRST_DEVICE_AUTH_JNI_EXPORTS,
+        *RETIRED_TIMED_OVN_C_EXPORTS,
+        *RETIRED_TIMED_OVN_JNI_EXPORTS,
     ),
     "csharp": (
+        *RETIRED_TIMED_OVN_C_EXPORTS,
         "connect_norito_validation_fee_hijiri_quote_request_v1",
         "connect_norito_validation_fee_hijiri_quote_response_verify_v1",
         "connect_norito_kagemusha_device_response_authenticator_v1_verify",

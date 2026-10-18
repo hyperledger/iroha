@@ -114,10 +114,10 @@ class PrivacyCsharpNativeContractTests(unittest.TestCase):
         csharp = workflow_job(source, "privacy_csharp_sdk_tests")
         job_header = csharp[: csharp.index("    steps:\n")]
         test_step_start = csharp.index(
-            "      - name: Privacy C# SDK tests through authenticated ABI29"
+            "      - name: Privacy C# SDK tests through authenticated ABI30"
         )
         test_step_end = csharp.index(
-            "      - name: Revalidate ABI29 C# privacy input after execution",
+            "      - name: Revalidate ABI30 C# privacy input after execution",
             test_step_start,
         )
         test_step = csharp[test_step_start:test_step_end]
@@ -130,29 +130,29 @@ class PrivacyCsharpNativeContractTests(unittest.TestCase):
         for marker in (
             "needs: privacy_jvm_sdk_tests",
             "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
-            "privacy-jvm-native-abi29-${{ github.sha }}",
-            "Authenticate exact ABI29 C# privacy input",
+            "privacy-jvm-native-abi30-${{ github.sha }}",
+            "Authenticate exact ABI30 C# privacy input",
             "scripts/check_native_sdk_artifact.py verify",
             'IROHA_REQUIRE_PRIVACY_EXACT12_NATIVE: "1"',
-            "LD_LIBRARY_PATH: ${{ runner.temp }}/privacy-jvm-native-abi29",
+            "LD_LIBRARY_PATH: ${{ runner.temp }}/privacy-jvm-native-abi30",
             "PRIVACY_CSHARP_NATIVE_ARTIFACT: ${{ runner.temp }}/"
-            "privacy-jvm-native-abi29/libconnect_norito_bridge.so",
+            "privacy-jvm-native-abi30/libconnect_norito_bridge.so",
             "PRIVACY_CSHARP_NATIVE_MANIFEST: ${{ runner.temp }}/"
-            "privacy-jvm-native-abi29/native-sdk-abi29-csharp.json",
+            "privacy-jvm-native-abi30/native-sdk-abi30-csharp.json",
             "run: ci/check_privacy_csharp_sdk.sh",
         ):
             self.assertIn(marker, csharp)
 
         self.assertNotIn("${{ runner.temp }}", job_header)
         self.assertIn(
-            "LD_LIBRARY_PATH: ${{ runner.temp }}/privacy-jvm-native-abi29",
+            "LD_LIBRARY_PATH: ${{ runner.temp }}/privacy-jvm-native-abi30",
             test_step,
         )
 
         ordered = (
             csharp.index("actions/setup-dotnet@"),
             csharp.index("actions/download-artifact@"),
-            csharp.index("Authenticate exact ABI29 C# privacy input"),
+            csharp.index("Authenticate exact ABI30 C# privacy input"),
             csharp.index("Privacy C# SDK tests"),
         )
         self.assertEqual(ordered, tuple(sorted(ordered)))
