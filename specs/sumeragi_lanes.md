@@ -433,7 +433,14 @@ job, including failed store openings that never started a driver. Their original
 buffers and exclusive locks are released; outstanding authenticated readers keep their
 ready-store ownership until finished. Historical openings after retirement keep their own
 recovery progress across subsequent lifecycle checks. This owner cleanup does not delete
-certified frames.
+certified frames. A retired driver's already-admitted pending publication stays with its
+original store and is retried by lifecycle reconciliation before idle owner release. The
+retry accepts no new body or certificate, retains the original owner on refusal, and runs
+outside registry/running maps with a nonblocking state-mutex probe. Materialized frames do
+not advance the durable tip before their original synchronization succeeds. Native I/O may
+still delay the lifecycle reconciler, its transaction wakeups, later starts and shutdown;
+it does not hold another instance's map lock. Each pass attempts at most the initial
+registry owner count; new historical owners may continue on the next lifecycle check.
 
 The registry map only selects or publishes a per-key owner. Directory establishment,
 prefix authentication, RS16 restoration and native synchronization run outside that shared

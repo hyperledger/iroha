@@ -5612,7 +5612,7 @@ def test_norito_owner_refuses_cross_owner_and_incomplete_qualification(monkeypat
 
 def test_norito_registry_matches_actual_owner_switches_and_original_controls():
     indexed = gate.index_mutations(gate.NORITO_MUTATIONS)
-    assert set(indexed) == {"NC1", "NC2", "NC3", "NC4", "NC5"}
+    assert set(indexed) == {"NC1", "NC2", "NC3", "NC4", "NC5", "NC6", "NC7", "NC8", "NC9", "NC10", "NC11", "NC12", "NC13", "NC14", "NC15"}
     assert indexed["NC1"].tests == ("core::decode_attempt::tests::direct_json_refusal_keeps_original_context_and_retry",)
     assert indexed["NC2"].tests == (
         "core::decode_attempt::tests::direct_attempt_replay_under_same_counter_owner_is_invalid",
@@ -5626,9 +5626,26 @@ def test_norito_registry_matches_actual_owner_switches_and_original_controls():
         "json::tests::direct_json_parser_retains_unscoped_fields_and_same_input_retry",
     )
     assert indexed["NC5"].tests == ("json::tests::non_resource_core_errors_cannot_become_json_allocator_refusals",)
+    assert indexed["NC6"].tests == ('json::decode_depth_tests::typed_and_fast_documents_preserve_exact_and_short_active_depth', 'json::decode_depth_tests::borrowed_and_skipped_values_check_the_peak_before_advancing_the_cursor', 'json::value_depth_tests::native_value_and_aggregate_conversions_enforce_exact_and_short_depth')
+    assert indexed["NC7"].tests == ('json_parse_string_allocations::fast_depth_order::active_depth_refuses_before_structural_tape_allocation', 'json_parse_string_allocations::fast_depth_order::fixed_depth_refuses_before_structural_tape_allocation')
+    assert indexed["NC8"].tests == ('json_from_value_fast::resource_budget::native_value_clone_charges_strings_arrays_and_object_owners',)
+    assert indexed["NC9"].tests == ('json_from_value_fast::resource_budget::vec_conversion_enforces_sequence_total_and_storage_budgets',)
+    assert indexed["NC10"].tests == ('json_from_value_fast::resource_budget::btree_set_conversion_enforces_sequence_total_and_storage_budgets',)
+    assert indexed["NC11"].tests == ('json_from_value_fast::resource_budget::hash_set_conversion_enforces_sequence_total_and_storage_budgets',)
+    assert indexed["NC12"].tests == ('json_from_value_fast::resource_budget::btree_map_conversion_enforces_sequence_total_and_storage_budgets',)
+    assert indexed["NC13"].tests == ('json_from_value_fast::resource_budget::hash_map_conversion_enforces_sequence_total_and_storage_budgets',)
+    assert indexed["NC14"].tests == ('json_parse_string_allocations::field_budget::owned_strings_check_decoded_field_before_allocation', 'json_parse_string_allocations::field_budget::parser_reference_fields_refuse_before_escape_scratch', 'json_parse_string_allocations::field_budget::tape_reference_fields_refuse_before_escape_scratch', 'json_parse_string_allocations::field_budget::native_string_copies_and_hex_fields_use_decoded_utf8_length', 'json_parse_string_allocations::field_budget::borrowed_and_buffered_keys_preserve_field_admission_and_colon_progress', 'json_parse_string_allocations::field_budget::key_hash_fields_preserve_hash_last_key_and_tape_cursor', 'json_parse_string_allocations::field_budget::direct_numeric_map_keys_cannot_bypass_field_limit', 'json_parse_string_allocations::field_budget::field_refusal_preserves_scope_identity_retry_and_cumulative_charge')
+    assert indexed["NC15"].tests == ('json_cleanup_stack_tests::array_comb_cleanup_survives_default_stack_child', 'json_cleanup_stack_tests::object_comb_cleanup_survives_default_stack_child')
     source = ROOT / "crates/norito"
     texts = "\n".join(path.read_text() for path in (source / "src").rglob("*.rs"))
     assert set(re.findall(r'sumeragi_norito_mutation\s*=\s*"([^"]+)"', texts)) == set(indexed)
+    lib = (source / "src/lib.rs").read_text()
+    shared_controls = ("json_from_value_fast", "json_parse_string_allocations")
+    control_texts = texts
+    for name in shared_controls:
+        declaration = f'#[cfg(all(test, feature = "json"))]\n#[path = "../tests/{name}.rs"]\nmod {name};'
+        assert declaration in lib
+        control_texts += "\n" + (source / "tests" / f"{name}.rs").read_text()
     for identifier, rule in indexed.items():
         assert gate.has_switch(identifier, norito=True)
         assert not gate.has_switch(identifier, core=True)
@@ -5636,7 +5653,7 @@ def test_norito_registry_matches_actual_owner_switches_and_original_controls():
         assert not rule.scenarios
         assert f'all(test, sumeragi_norito_mutation = "{identifier}")' in texts
         for selector in rule.tests:
-            assert f'fn {selector.rsplit("::", 1)[-1]}(' in texts
+            assert f'fn {selector.rsplit("::", 1)[-1]}(' in control_texts
     manifest = (source / "Cargo.toml").read_text()
     assert "mutation-testing = []" in manifest and "/mutation-testing" not in manifest
     build = (source / "build.rs").read_text()
@@ -8316,7 +8333,11 @@ def test_lane_retirement_refunds_cover_original_registry_and_enclosing_runner(mi
     registry = (root / "sumeragi/lanes/registry.rs").read_text()
     runner = (root / "sumeragi/lanes/runner.rs").read_text()
     controls = (root / "sumeragi/lanes/registry/tests.rs").read_text()
-    assert registry.count("self.with_original_refunds(|| {") == 3
+    original_refund_owners = ("store_with_runtime_owner", "release", "release_retired")
+    for function in original_refund_owners:
+        assert named_rust_function(registry, function).count("self.with_original_refunds(|| {") == 1
+    assert named_rust_function(registry, "resume_retired_publications").count("self.with_original_refunds(|| {") == 1
+    assert registry.count("self.with_original_refunds(|| {") == 4
     assert "self.budget" in registry and "with_deferred_refund_notifications" in registry
     assert "let retired = { self.running.lock().remove(&key) };" in runner
     assert "let replaced = { self.running.lock().insert(key, lane) };" in runner
@@ -8353,7 +8374,13 @@ def test_direct_lane_store_refunds_cover_state_batch_and_original_opening():
     store = (root / "sumeragi/lanes/store.rs").read_text()
     recovery = (root / "sumeragi/lanes/store/recovery.rs").read_text()
     controls = (root / "sumeragi/lanes/store/refund_tests.rs").read_text()
-    assert store.count("Self::with_original_refunds(&self.budget, || {") == 5
+    inherent, trait = store.split("impl BlockStore for FileLaneBlockStore {", 1)
+    for function in ("committed_body", "committed_batch", "authenticated_height"):
+        assert named_rust_function(inherent, function).count("Self::with_original_refunds(&self.budget, || {") == 1
+    for function in ("entry", "append"):
+        assert named_rust_function(trait, function).count("Self::with_original_refunds(&self.budget, || {") == 1
+    assert named_rust_function(inherent, "resume_retired_publication").count("Self::with_original_refunds(&self.budget, || {") == 1
+    assert store.count("Self::with_original_refunds(&self.budget, || {") == 6
     assert "FileLaneBlockStore::with_original_refunds(&budget, || {" in recovery
     assert "let budget = self.store.budget.clone();" in recovery
     for obligation in (
@@ -9029,7 +9056,11 @@ def test_lane_recovery_keeps_exact_per_key_owner_without_shared_map_io():
     assert "StoreSlot::Ready(Arc::clone(&store))" in completion
     assert registry.count("Arc::strong_count(opening) > 1") == 2
     assert registry.count("#[inline(never)]") == 2
-    assert registry.count("self.with_original_refunds(|| {") == 3
+    original_refund_owners = ("store_with_runtime_owner", "release", "release_retired")
+    for function in original_refund_owners:
+        assert named_rust_function(registry, function).count("self.with_original_refunds(|| {") == 1
+    assert named_rust_function(registry, "resume_retired_publications").count("self.with_original_refunds(|| {") == 1
+    assert registry.count("self.with_original_refunds(|| {") == 4
     probe = (root / "sumeragi/lanes/registry/tests.rs").read_text()
     assert "opening.progress.try_lock().is_some()" in probe
     controls = (root / "sumeragi/lanes/registry/isolation_tests.rs").read_text()
@@ -9909,3 +9940,320 @@ def test_capture_preparation_and_cargo_share_the_original_build_deadline(monkeyp
     assert step.status == "build-error" and receipt["exit_code"] is None
     assert receipt["seconds"] == 6 and receipt["original_deadline_seconds"] == 5
     assert receipt["deadline_exceeded"] is True
+
+
+def test_norito_json_mutations_keep_single_test_allocator_and_shipping_guards():
+    owner = ROOT / "crates/norito"
+    lib = (owner / "src/lib.rs").read_text()
+    allocator = (owner / "tests/json_parse_string_allocations.rs").read_text()
+    assert not any("#[global_allocator]" in path.read_text() for path in (owner / "src").rglob("*.rs"))
+    assert allocator.count("#[global_allocator]") == 1
+    assert "static OBSERVED_ALLOCATIONS: Cell<Option<usize>> = const { Cell::new(None) };" in allocator
+    for call in ("System.alloc(layout)", "System.alloc_zeroed(layout)", "System.realloc(ptr, layout, new_size)", "System.dealloc(ptr, layout)"):
+        assert call in allocator
+    for control in ("allocation_observation_is_thread_local_under_overlapping_scopes", "allocation_observation_restores_tracking_after_unwind", "allocation_observation_forwards_zeroed_and_reallocated_storage"):
+        assert f"fn {control}(" in allocator
+    assert "record_allocation_request();" in allocator
+    guard = (owner / "src/norito_mutation_guard.rs").read_text()
+    assert '#[cfg(all(feature = "mutation-testing", not(test)))]' in guard
+    assert "compile_error!" in guard
+    assert 'mod norito_mutation_guard;' in lib
+    for mid in range(6, 15):
+        assert f'all(test, sumeragi_norito_mutation = "NC{mid}")' in lib
+    # Each collection has one independently faulted original admission site.
+    for mid in range(9, 14):
+        assert lib.count(f'sumeragi_norito_mutation = "NC{mid}"') == 1
+    fast = lib[lib.index("pub fn from_json_fast<'a, T>"):lib.index("pub fn from_json_fast_smart<'a, T>")]
+    assert fast.index('sumeragi_norito_mutation = "NC7"') < fast.index("TapeWalker::new(s)") < fast.index("w.ensure_document_depth()?")
+    depth = lib[lib.index("fn ensure_json_value_depth("):lib.index("fn try_decode_vec_with_capacity")]
+    assert depth.index("depth > MAX_JSON_VALUE_NESTING_DEPTH") < depth.index('sumeragi_norito_mutation = "NC6"') < depth.index("checked_decode_depth")
+    gate_owner = gate.index_mutations(gate.NORITO_MUTATIONS)["NC7"]
+    assert tuple(cause.cause for cause in gate_owner.causes) == (
+        "active depth refusal must precede structural tape allocation",
+        "fixed depth refusal must precede structural tape allocation",
+    )
+
+
+def test_norito_cleanup_mutation_keeps_child_isolation_and_original_test_owners():
+    rule = gate.index_mutations(gate.NORITO_MUTATIONS)["NC15"]
+    owner = ROOT / "crates/norito"
+    source = (owner / "src/json/value_drop.rs").read_text()
+    control = (owner / "src/json_cleanup_stack_tests.rs").read_text()
+    shared = (owner / "tests/support/json_cleanup_comb.rs").read_text()
+    original = (owner / "tests/json_object_key_allocations.rs").read_text()
+    lib = (owner / "src/lib.rs").read_text()
+    assert rule.tests == (
+        "json_cleanup_stack_tests::array_comb_cleanup_survives_default_stack_child",
+        "json_cleanup_stack_tests::object_comb_cleanup_survives_default_stack_child",
+    )
+    assert [(cause.cause, cause.source) for cause in rule.causes] == [
+        ("original JSON cleanup must not overflow the default-stack child", "crates/norito/src/json_cleanup_stack_tests.rs")
+    ] * 2
+    assert 'if cfg!(all(test, sumeragi_norito_mutation = "NC15")) {\n        drop(pending);\n        return;\n    }' in source
+    assert '#[cfg(all(test, feature = "json"))]\nmod json_cleanup_stack_tests;' in lib
+    assert '#[path = "../tests/support/json_cleanup_comb.rs"]\nmod json_cleanup_comb;' in lib
+    assert '#[path = "support/json_cleanup_comb.rs"]\nmod json_cleanup_comb;' in original
+    assert 'use json_cleanup_comb::{CombContainer, deep_comb, pair};' in original
+    assert 'fn deep_comb(' not in original and shared.count('fn deep_comb(') == 1
+    assert 'for _ in 0..json::MAX_JSON_VALUE_NESTING_DEPTH' in shared
+    assert 'deep_comb(container, 4_096)' in control
+    assert 'Command::new(std::env::current_exe()' in control
+    arguments = re.search(r"\.args\(\[(.*?)\]\)", control, re.S)
+    assert arguments is not None
+    assert re.findall(r'"[^"]*"|\bname\b', arguments.group(1)) == [
+        '"--exact"', 'name', '"--nocapture"', '"--test-threads=1"', '"--format=pretty"', '"--color=never"'
+    ]
+    assert '.env(CHILD_ENV, name)' in control and '.output()' in control
+    assert 'std::env::var_os("RUST_MIN_STACK").is_none()' in control
+    assert 'output.stdout.escape_ascii()' in control and 'output.stderr.escape_ascii()' in control
+    assert 'std::io::stderr().lock()' in control
+    assert 'std::str::from_utf8(&output.stdout)' in control and 'std::str::from_utf8(&output.stderr)' in control
+    assert control.index('let value = deep_comb(') < control.index('eprintln!("NORITO_CLEANUP_READY:') < control.index('json::drop_json_value_iteratively(value)')
+    for text in (control, shared):
+        assert '#[global_allocator]' not in text and 'stack_size(' not in text
+    for name in rule.tests:
+        assert f'fn {name.rsplit("::", 1)[-1]}(' in control
+    assert not rule.scenarios
+    rows = re.findall(r'^\| NC15 \|.*$', (ROOT / 'specs/sumeragi.md').read_text(), re.M)
+    assert len(rows) == 1 and all(name in rows[0] for name in rule.tests)
+
+
+@pytest.mark.parametrize("defect", ["none", "unrelated", "wrong-source", "missing-parent-panic", "one-passes", "missing-terminal", "raw-child-terminal", "parent-abort", "timeout"])
+def test_norito_cleanup_kill_requires_normal_parent_census_and_each_exact_cause(monkeypatch, tmp_path, defect):
+    rule = gate.index_mutations(gate.NORITO_MUTATIONS)["NC15"]
+    rows = [(name, "ok" if defect == "one-passes" and index == 0 else "FAILED") for index, name in enumerate(rule.tests)]
+    if defect == "missing-terminal":
+        rows.pop()
+    code, output = causal_control_output(rule, rows)
+    name, expected = rule.tests[0], rule.causes[0]
+    panic = f"thread '{name}' (12) panicked at {expected.source}:123:7:\n{expected.cause}\n"
+    # These are escaped diagnostic lines, never another native terminal or panic owner.
+    escaped = 'cleanup child stdout: ' + json.dumps(f"running 1 test\ntest {name} ... ") + '\n'
+    escaped += 'cleanup child stderr: ' + json.dumps(f"thread '{name}' (123) has overflowed its stack\nfatal runtime error: stack overflow, aborting\n") + '\n'
+    output = output.replace(panic, escaped + panic, 1)
+    if defect == "unrelated":
+        output = output.replace(expected.cause, "cleanup child did not complete its exact declared protocol", 1)
+    elif defect == "wrong-source":
+        output = output.replace(expected.source + ':123:', 'foreign.rs:123:', 1)
+    elif defect == "missing-parent-panic":
+        output = output.replace(panic, '', 1)
+    elif defect == "raw-child-terminal":
+        output = 'running 1 test\ntest foreign_child ... ok\n' + output
+    elif defect == "parent-abort":
+        code = -6
+    elif defect == "timeout":
+        code = None
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(norito=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    assert result["verdict"] == ("killed_by_test" if defect == "none" else "error"), result
+    if defect == "none":
+        assert result["named"]["causal_failures"] == dict.fromkeys(rule.tests, True)
+
+
+def test_norito_cleanup_parent_launch_drops_only_the_child_marker(monkeypatch, tmp_path):
+    monkeypatch.delenv("RUST_MIN_STACK", raising=False)
+    monkeypatch.setenv("NORITO_JSON_CLEANUP_TEST_CHILD", "foreign inherited child marker")
+    monkeypatch.setenv("KEEP_NATIVE_TEST_ENVIRONMENT", "unchanged")
+    args = SimpleNamespace(norito=True)
+    artifact = fixture_artifact(args, tmp_path, "NC15")
+    captured = []
+    def popen(command, **options):
+        captured.append((command, options))
+        class Process:
+            returncode = 0
+            def communicate(self, *, timeout=None):
+                return b"synthetic native output", None
+        return Process()
+    monkeypatch.setattr(gate.subprocess, "Popen", popen)
+    code, _, _, _ = gate.cargo_test(args, tmp_path, "NC15", ["named"], None, 900,
+        tmp_path / "parent.log", expected_artifact=artifact)
+    assert code == 0 and len(captured) == 1
+    command, options = captured[0]
+    assert command == [artifact["executable"], "named"]
+    assert "NORITO_JSON_CLEANUP_TEST_CHILD" not in options["env"]
+    assert options["env"]["KEEP_NATIVE_TEST_ENVIRONMENT"] == "unchanged"
+    assert options["env"]["SUMERAGI_NORITO_MUTATION"] == "NC15"
+
+
+@pytest.mark.parametrize("identifier,owner,controls,cause,source", [
+    ('HC389', 'crates/iroha_core/src/sumeragi/lanes/store.rs', ('sumeragi::lanes::store::retirement_probe_tests::durable_tip_zero_wait_does_not_acquire_original_io_state',), 'a zero-time durable-tip observation must complete while the original I/O state remains held', 'crates/iroha_core/src/sumeragi/lanes/store/retirement_probe_tests.rs'),
+    ('HC390', 'crates/iroha_core/src/sumeragi/lanes/runner.rs', ('sumeragi::lanes::registry::tests::retired_reconcile_finishes_original_publication_after_create_refusal', 'sumeragi::lanes::registry::tests::retired_reconcile_finishes_original_publication_after_directory_sync_refusal'), 'retired reconciliation must finish the original pending publication after refusal clears, then release only its idle in-memory owner', 'crates/iroha_core/src/sumeragi/lanes/registry/tests.rs'),
+    ('HC391', 'crates/iroha_core/src/sumeragi/lanes/registry.rs', ('sumeragi::lanes::registry::tests::registry_debug_releases_original_map_before_field_callback',), 'registry Debug field callbacks must not retain the original map lock', 'crates/iroha_core/src/sumeragi/lanes/registry/tests.rs'),
+    ('HC392', 'crates/iroha_core/src/sumeragi/lanes/runner.rs', ('sumeragi::lanes::registry::tests::runner_debug_releases_original_map_before_field_callback',), 'runner Debug field callbacks must not retain the original map lock', 'crates/iroha_core/src/sumeragi/lanes/registry/tests.rs'),
+])
+def test_lane_wait_retirement_and_debug_mutations_keep_exact_original_owners(
+    identifier, owner, controls, cause, source
+):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[identifier]
+    assert rule.tests == controls and not rule.scenarios
+    assert rule.causes == tuple(gate.ExpectedFailure(cause, source) for _ in controls)
+    assert gate.has_switch(identifier, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch(identifier, **family)
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(ROOT).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"' + identifier + '"', path.read_text())}
+    assert owners == {owner}
+    code = (ROOT / owner).read_text()
+    assert code.count(f'sumeragi_core_mutation = "{identifier}"') == 1
+    if identifier == "HC390":
+        guard = f'#[cfg(not(all(test, sumeragi_core_mutation = "{identifier}")))]'
+        assert re.search(re.escape(guard) + r"\s*self\.inputs\.stores\.resume_retired_publications\(&lanes,\s*\|key\|\s*\{\s*!self\.running\.lock\(\)\.contains_key\(key\)\s*\}\);", code)
+        assert code.index(guard) < code.index('if cfg!(all(test, sumeragi_core_mutation = "HC349"))')
+    else:
+        guard = f'#[cfg(all(test, sumeragi_core_mutation = "{identifier}"))]'
+        statement = {
+            "HC389": "let _original_io_state = self.state.lock();",
+            "HC391": "let _original_map = self.stores.lock();",
+            "HC392": "let _original_map = self.inner.running.lock();",
+        }[identifier]
+        assert re.search(re.escape(guard) + r"\s*" + re.escape(statement), code)
+    control = (ROOT / source).read_text()
+    for name in controls:
+        assert f"fn {name.rsplit('::', 1)[-1]}(" in control
+    assert json.dumps(cause) in control
+    if identifier == "HC389":
+        body = named_rust_function(control, controls[0].rsplit("::", 1)[-1])
+        assert body.index("drop(state);") < body.index("waiter.join()") < body.index(json.dumps(cause))
+        assert "store.wait_for(0, Duration::ZERO)" in body
+        assert "store.wait_for(1, Duration::ZERO)" in body
+    elif identifier == "HC390":
+        body = named_rust_function(control, "retired_publication_continuation_control")
+        assert re.search(r"runner\.running_count\(\),\s*0\b", body)
+        assert body.count("runner.reconcile();") == 2
+        assert "budget.reserved_bytes(), limit" in body
+        assert "original.upgrade().is_none()" in body
+        assert re.search(r"Arc::ptr_eq\(\s*&same\b", body)
+        assert re.search(r"authorities\.calls\.load\(Ordering::SeqCst\),\s*authority_calls", body)
+        assert "certificate, qc" in body
+    else:
+        body = named_rust_function(control, controls[0].rsplit("::", 1)[-1])
+        assert "formatted.unwrap();" in body and "Some(true)" in body
+        assert body.index("formatted.unwrap();") < body.index(json.dumps(cause))
+        if identifier == "HC391":
+            assert "assert_eq!(probe.output, expected)" in body
+        else:
+            assert 'assert_eq!(output, "LaneRunner { running: 0, .. }")' in body
+    rows = re.findall(r"^\| " + identifier + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and all(name.rsplit("::", 1)[-1] in rows[0] for name in controls)
+    build = (ROOT / "crates/iroha_core/build.rs").read_text()
+    guard = (root / "mutation_guard.rs").read_text()
+    assert 'env::var_os("CARGO_FEATURE_MUTATION_TESTING").is_none()' in build
+    assert 'mentions(Path::new("src"), &needle)' in build
+    assert '#[cfg(all(feature = "mutation-testing", not(test)))]' in guard
+    assert "compile_error!" in guard
+    assert "mod mutation_guard;" in (root / "lib.rs").read_text()
+
+
+@pytest.mark.parametrize("identifier", ["HC389", "HC390", "HC391", "HC392"])
+@pytest.mark.parametrize("defect", ["none", "unrelated", "wrong-source", "missing-terminal", "one-passes", "abort", "timeout"])
+def test_lane_custody_kills_require_normal_complete_exact_causal_failures(monkeypatch, tmp_path, identifier, defect):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[identifier]
+    rows = [(name, "ok" if defect == "one-passes" and index == 0 else "FAILED") for index, name in enumerate(rule.tests)]
+    if defect == "missing-terminal":
+        rows.pop()
+    code, output = causal_control_output(rule, rows)
+    expected = rule.causes[0]
+    if defect == "unrelated":
+        output = output.replace(expected.cause, "unrelated setup refusal", 1)
+    elif defect == "wrong-source":
+        output = output.replace(expected.source + ':123:', 'foreign.rs:123:', 1)
+    elif defect == "abort":
+        code = -6
+    elif defect == "timeout":
+        code = None
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    verdict = "killed_by_test" if defect == "none" else "survived" if defect == "one-passes" and len(rule.tests) == 1 else "error"
+    assert result["verdict"] == verdict, result
+    if defect == "none":
+        assert result["named"]["causal_failures"] == dict.fromkeys(rule.tests, True)
+
+
+@pytest.mark.parametrize("identifier,owner,control,cause", [
+    ('HC393', 'crates/iroha_core/src/sumeragi/driver/mod.rs', 'sumeragi::driver::tests::threaded::retirement_tests::retiring_executor_does_not_block_other_lane_transaction_delivery', 'retired worker joins must not block the actual lane lifecycle turn'),
+    ('HC394', 'crates/iroha_core/src/sumeragi/lanes/runner.rs', 'sumeragi::driver::tests::threaded::retirement_tests::retiring_incarnation_blocks_same_lane_start_until_original_workers_finish', 'a new incarnation must not acquire startup authority before its same-lane predecessor physically finishes'),
+    ('HC395', 'crates/iroha_core/src/sumeragi/lanes/registry.rs', 'sumeragi::driver::tests::threaded::retirement_tests::pending_publication_waits_for_its_original_retiring_driver', 'a still-owned retiring driver must exclude its original pending publication from lifecycle continuation')
+])
+def test_lane_shutdown_mutations_keep_independent_original_owners(identifier, owner, control, cause):
+    source = "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[identifier]
+    assert rule.tests == (control,) and not rule.scenarios
+    assert rule.causes == (gate.ExpectedFailure(cause, source),)
+    assert gate.has_switch(identifier, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch(identifier, **family)
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(ROOT).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"' + identifier + '"', path.read_text())}
+    assert owners == {owner}
+    code = (ROOT / owner).read_text()
+    assert code.count(f'sumeragi_core_mutation = "{identifier}"') == 1
+    if identifier == "HC393":
+        body = named_rust_function(code, "poll_shutdown")
+        guard = '#[cfg(all(test, sumeragi_core_mutation = "HC393"))]'
+        assert re.search(re.escape(guard) + r"\s*self\.stop_and_join\(\);", body)
+        assert body.index(guard) < body.index("self.request_shutdown();")
+        assert "!thread.is_finished()" in body and "joiner.handoff" in body
+    elif identifier == "HC394":
+        assert re.search(r'if cfg!\(all\(test, sumeragi_core_mutation = "HC394"\)\)\s*\{\s*self\s*\.\s*running\s*\.\s*lock\(\)\s*\.\s*contains_key\(&key\)\s*\}\s*else\s*\{\s*self\s*\.\s*running\s*\.\s*lock\(\)\s*\.\s*keys\(\)\s*\.\s*any\(\|\(lane, _\)\| \*lane == record\.lane\)\s*\}', code)
+    else:
+        body = named_rust_function(code, "resume_retired_publications")
+        assert re.search(r'physically_retired\(&key\)\s*\|\| cfg!\(all\(test, sumeragi_core_mutation = "HC395"\)\)\)\s*&& let Err\(error\) = store\.resume_retired_publication\(\)', body)
+        assert body.index("self.with_original_refunds") < body.index("physically_retired(&key)")
+    controls = (ROOT / source).read_text()
+    body = named_rust_function(controls, control.rsplit("::", 1)[-1])
+    assert body.index("lifecycle.join()") < body.index("joined.unwrap();") < body.index(json.dumps(cause))
+    if identifier == "HC395":
+        assert body.index("clock.release();") < body.index("lifecycle.join()")
+        assert "ReleasePendingClockOnDrop" in body
+        assert "let height = store.height();" in body
+        fixture = (ROOT / "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs").read_text()
+        original = named_rust_function(fixture, "observe_pending_lane_retirement_for_test")
+        assert 'assert_eq!(body, fixture.body);' in original
+        assert 'assert_eq!(certificate, fixture.qc);' in original
+        assert 'faults.armed.store(true, Ordering::SeqCst);' in original
+    else:
+        assert body.index("release.0.set_open(true);") < body.index("lifecycle.join()")
+        assert "OpenExecutorOnDrop(release.0.clone())" in body
+        assert "runner.shutdown();" in body
+    spec_rows = re.findall(r"^\| " + identifier + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(spec_rows) == 1 and control.rsplit("::", 1)[-1] in spec_rows[0]
+    build = (ROOT / "crates/iroha_core/build.rs").read_text()
+    guard = (root / "mutation_guard.rs").read_text()
+    assert 'env::var_os("CARGO_FEATURE_MUTATION_TESTING").is_none()' in build
+    assert 'mentions(Path::new("src"), &needle)' in build
+    assert '#[cfg(all(feature = "mutation-testing", not(test)))]' in guard
+    assert "compile_error!" in guard
+    assert "mod mutation_guard;" in (root / "lib.rs").read_text()
+
+
+@pytest.mark.parametrize("identifier", ["HC393", "HC394", "HC395"])
+@pytest.mark.parametrize("defect", ["none", "unrelated", "wrong-source", "missing-terminal", "one-passes", "abort", "timeout"])
+def test_lane_shutdown_kills_require_normal_complete_causal_failure(monkeypatch, tmp_path, identifier, defect):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[identifier]
+    rows = [(name, "ok" if defect == "one-passes" else "FAILED") for name in rule.tests]
+    if defect == "missing-terminal":
+        rows.pop()
+    code, output = causal_control_output(rule, rows)
+    expected = rule.causes[0]
+    if defect == "unrelated":
+        output = output.replace(expected.cause, "unrelated setup refusal", 1)
+    elif defect == "wrong-source":
+        output = output.replace(expected.source + ':123:', 'foreign.rs:123:', 1)
+    elif defect == "abort":
+        code = -6
+    elif defect == "timeout":
+        code = None
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    verdict = "killed_by_test" if defect == "none" else "survived" if defect == "one-passes" else "error"
+    assert result["verdict"] == verdict, result
+    if defect == "none":
+        assert result["named"]["causal_failures"] == dict.fromkeys(rule.tests, True)

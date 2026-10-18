@@ -625,6 +625,26 @@ the input does not fund a second copy. Scalar and empty native `Value` variants
 need no element or heap charge. Transparent `Option` and `Box` conversions do
 not duplicate collection counts; `Box` still charges its own storage.
 
+The default `JsonDeserialize::json_from_value` adapter serializes its native
+`Value` input through the count-first bounded writer. Its exact temporary JSON
+buffer is charged to the active decode scope before allocation; the subsequent
+typed parser retains that scope and independently charges its destination owners.
+This complete-document scratch is not a single decoded string field. The native
+`Value` writer identifies empty arrays and objects explicitly: an empty terminal
+at structural depth 33 requires no child level, while populated containers retain
+the original child-level guard. Its paired sink entry and exit remain mandatory.
+
+Owned `Parser` strings, `Parser`/`TapeWalker` string-reference and key readers,
+and native string/map conversions check decoded UTF-8 field bytes against the
+active `max_field_bytes` limit.
+Escapes count their decoded bytes, including object keys and hexadecimal string
+fields; quoting and escape spelling do not add field bytes. The original scope
+and error provenance are retained. Existing owned-string allocation charges
+remain single charges. Arena and inline tape string readers validate/count their
+own escape grammar before allocating scratch, then emit admitted bytes through
+the same kernel. This field check does not replace arena allocation accounting
+or add a field policy to lexical-only skipping APIs or raw `Reader` token slices.
+
 Owned JSON cleanup threads parent ownership through existing child slots and
 releases only leaves or empty containers with ordinary drop. It therefore uses
 constant native stack space and allocates no cleanup storage, including for

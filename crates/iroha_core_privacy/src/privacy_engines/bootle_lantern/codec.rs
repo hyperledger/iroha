@@ -436,7 +436,7 @@ fn validate_challenge(challenge: &[u64]) -> Result<(), ProofCodecErrorV1> {
             .expect("strict challenge slice has the fixed ring degree"),
     )
     .expect("all challenge residues were already proved canonical");
-    if !challenge_eta_is_valid_v1(challenge) {
+    if !challenge_eta_is_valid_v1(&challenge) {
         return Err(ProofCodecErrorV1::ChallengeEtaBoundExceeded);
     }
     Ok(())

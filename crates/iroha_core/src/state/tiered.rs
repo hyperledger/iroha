@@ -5244,7 +5244,7 @@ mod tests {
         let temp = tempdir().expect("cold storage");
         let root = temp.path().to_path_buf();
         let mut backend = TieredStateBackend::new(true, 0, 1, 0, Some(root.clone()), None, 0, 0);
-        let mut world = World::default();
+        let world = World::default();
         let predecessor = WorldStateAccumulator::capture(&world.block()).expect("empty capture");
         let records = tiered_proof_managed_records();
         let expected = {

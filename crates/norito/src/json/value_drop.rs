@@ -12,6 +12,10 @@ use super::{Error, Value, native::Map, try_decode_vec_with_capacity};
 /// Panics only if an internal parent link is not its original nonempty container.
 #[doc(hidden)]
 pub fn drop_json_value_iteratively(mut pending: Value) {
+    if cfg!(all(test, sumeragi_norito_mutation = "NC15")) {
+        drop(pending);
+        return;
+    }
     let mut parents = Value::Null;
     loop {
         let last = match &mut pending {

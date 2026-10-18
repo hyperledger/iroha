@@ -1901,3 +1901,571 @@ fn original_authority_recheck_retains_reentrant_opening_and_historical_interest(
 
 #[path = "isolation_tests.rs"]
 mod isolation_tests;
+
+fn retired_publication_runner(
+    chain: &crate::sumeragi::test_chain::CertifiedTestChain,
+    stores: Arc<LaneStores>,
+    dir: &Path,
+) -> super::super::runner::RetirementControl {
+    use crate::sumeragi::{
+        crypto::BlsCrypto,
+        driver::DriverConfig,
+        lanes::{
+            global::AppliedWatch,
+            runner::{LaneRunnerInputs, RetirementControl},
+        },
+        records::FileRecordStore,
+    };
+    let state = Arc::clone(chain.state());
+    let (_, time) = iroha_primitives::time::TimeSource::new_mock(Duration::ZERO);
+    RetirementControl::new(LaneRunnerInputs {
+        state: Arc::clone(&state),
+        queue: Arc::new(crate::queue::Queue::test(
+            iroha_config::parameters::actual::Queue::default(),
+            &time,
+        )),
+        watch: Arc::new(AppliedWatch::new(
+            chain.height(),
+            state.view().latest_block_hash(),
+        )),
+        stores,
+        crypto: Arc::new(BlsCrypto::new()),
+        net: Arc::new(RetirementNoFrames),
+        ingress: None,
+        records: Arc::new(
+            FileRecordStore::open(dir.join("records"), dir.join("keys/installation.log")).unwrap(),
+        ),
+        global_instance: chain.instance(),
+        bodies_dir: dir.join("bodies"),
+        key_pair: KeyPair::from_seed(vec![1; 32], Algorithm::BlsNormal),
+        local: iroha_config::parameters::actual::SumeragiLocalOverrides::default(),
+        driver: DriverConfig::default(),
+        network: chain.network_id(),
+        chain_id: state.chain_id_ref().to_string(),
+    })
+}
+
+fn retired_publication_continuation_control(step: crate::sumeragi::records::FsStep) {
+    use crate::sumeragi::records::FsStep;
+    use crate::{
+        state::{World, WorldReadOnly},
+        sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
+    };
+
+    let chain = CertifiedTestChain::start(TestChainConfig::new(World::default(), 1)).unwrap();
+    let state = chain.state();
+    assert!(state.view().world().sumeragi_lanes().lanes.is_empty());
+    let fixture = Fixture::with_transactions_for_state(true, Vec::new(), Some(state));
+    let path = fixture.path();
+    let faults = Arc::new(RetiredReadyPublicationFault {
+        step,
+        armed: AtomicBool::new(false),
+    });
+    let store = Arc::new(
+        FileLaneBlockStore::begin_open_with_faults(
+            fixture.dir.path(),
+            &fixture.source.instance(),
+            fixture.stores.crypto.clone(),
+            fixture.stores.budget.clone(),
+            fixture.authorities.schedule.clone(),
+            faults.clone(),
+        )
+        .unwrap()
+        .complete()
+        .unwrap_or_else(|(_, error)| panic!("original empty store: {error}")),
+    );
+    assert!(
+        fixture
+            .stores
+            .stores
+            .lock()
+            .insert((LANE, INCARNATION), StoreSlot::Ready(Arc::clone(&store)))
+            .is_none()
+    );
+    let original = Arc::downgrade(&store);
+    let budget = fixture.stores.budget.clone();
+    let Fixture {
+        dir,
+        stores,
+        body,
+        qc,
+        source,
+        authorities,
+    } = fixture;
+    let stores = Arc::new(stores);
+    let runner = retired_publication_runner(&chain, Arc::clone(&stores), dir.path());
+    assert_eq!(
+        runner.running_count(),
+        0,
+        "this is the actual post-shutdown reconcile seam"
+    );
+    let baseline = budget.reserved_bytes();
+    faults.armed.store(true, Ordering::SeqCst);
+    assert_eq!(
+        store.append(&body, &qc).unwrap_err().to_string(),
+        "retained ready publication refusal"
+    );
+    assert_eq!(store.height(), 0);
+    let visible = if step == FsStep::SyncDir {
+        Some(fs::read(&path).unwrap())
+    } else {
+        assert!(!path.exists());
+        None
+    };
+    let retained = budget.reserved_bytes();
+    assert!(retained > baseline);
+    drop(store);
+    let authority_calls = authorities.calls.load(Ordering::SeqCst);
+    let limit = budget.limit_bytes();
+    let occupied_bytes = limit - retained;
+    let occupied = budget.try_reserve_bytes(occupied_bytes).unwrap();
+
+    // The first automatic retry still refuses. It must retain the exact original
+    // owner and prepared bytes, rather than drop custody to make release appear done.
+    faults.armed.store(true, Ordering::SeqCst);
+    runner.reconcile();
+    let same = original
+        .upgrade()
+        .expect("a refused original publication remains owned");
+    assert_eq!(same.height(), 0);
+    assert!(Arc::ptr_eq(
+        &same,
+        &stores.store(LANE, &INCARNATION).unwrap()
+    ));
+    assert_eq!(budget.reserved_bytes(), limit);
+    assert_eq!(path.exists(), visible.is_some());
+    if let Some(bytes) = &visible {
+        assert_eq!(fs::read(&path).unwrap(), *bytes);
+    }
+    assert!(
+        FileLaneBlockStore::begin_open(
+            dir.path(),
+            &source.instance(),
+            stores.crypto.clone(),
+            budget.clone(),
+            authorities.schedule.clone()
+        )
+        .is_err()
+    );
+    drop(same);
+
+    // No live driver or manual append is allowed to supply a replacement input.
+    runner.reconcile();
+    assert!(
+        original.upgrade().is_none(),
+        "retired reconciliation must finish the original pending publication after refusal clears, then release only its idle in-memory owner"
+    );
+    assert_eq!(budget.reserved_bytes(), baseline + occupied_bytes);
+    assert_eq!(
+        authorities.calls.load(Ordering::SeqCst),
+        authority_calls,
+        "the retained admitted source must not be replaced by a new authority lookup"
+    );
+    assert!(path.is_file());
+    if let Some(bytes) = visible {
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+    }
+    drop(occupied);
+    assert_eq!(budget.reserved_bytes(), baseline);
+    let replay = stores.store(LANE, &INCARNATION).unwrap();
+    let (restored, certificate) = replay.committed_body(1).unwrap().unwrap();
+    assert_eq!(restored, body);
+    assert_eq!(certificate, qc);
+    assert_eq!(replay.height(), 1);
+    assert_eq!(budget.limit_bytes(), limit);
+}
+
+#[test]
+fn retired_reconcile_finishes_original_publication_after_create_refusal() {
+    retired_publication_continuation_control(crate::sumeragi::records::FsStep::CreateTemp);
+}
+
+#[test]
+fn retired_reconcile_finishes_original_publication_after_directory_sync_refusal() {
+    retired_publication_continuation_control(crate::sumeragi::records::FsStep::SyncDir);
+}
+
+struct BusyRetiredPublication {
+    entered: Mutex<Option<std::sync::mpsc::SyncSender<()>>>,
+    resume: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+impl crate::sumeragi::records::Faults for BusyRetiredPublication {
+    fn before(&self, step: crate::sumeragi::records::FsStep, _: &Path) -> io::Result<()> {
+        if step == crate::sumeragi::records::FsStep::SyncDir
+            && let Some(entered) = self.entered.lock().take()
+        {
+            entered.send(()).map_err(io::Error::other)?;
+            self.resume
+                .lock()
+                .recv_timeout(Duration::from_secs(5))
+                .map_err(io::Error::other)?;
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn retired_reconcile_does_not_wait_for_an_in_flight_original_publication() {
+    use crate::{
+        state::World,
+        sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
+    };
+
+    let chain = CertifiedTestChain::start(TestChainConfig::new(World::default(), 1)).unwrap();
+    let fixture = Fixture::with_transactions_for_state(true, Vec::new(), Some(chain.state()));
+    let (entered, acquired) = std::sync::mpsc::sync_channel(1);
+    let (resume, resumed) = std::sync::mpsc::sync_channel(1);
+    let faults = Arc::new(BusyRetiredPublication {
+        entered: Mutex::new(None),
+        resume: Mutex::new(resumed),
+    });
+    let store = Arc::new(
+        FileLaneBlockStore::begin_open_with_faults(
+            fixture.dir.path(),
+            &fixture.source.instance(),
+            fixture.stores.crypto.clone(),
+            fixture.stores.budget.clone(),
+            fixture.authorities.schedule.clone(),
+            faults.clone(),
+        )
+        .unwrap()
+        .complete()
+        .unwrap_or_else(|(_, error)| panic!("original empty store: {error}")),
+    );
+    assert!(
+        fixture
+            .stores
+            .stores
+            .lock()
+            .insert((LANE, INCARNATION), StoreSlot::Ready(Arc::clone(&store)))
+            .is_none()
+    );
+    let stores = Arc::new(fixture.stores);
+    let runner = retired_publication_runner(&chain, Arc::clone(&stores), fixture.dir.path());
+    *faults.entered.lock() = Some(entered);
+    let (finished, observed) = std::sync::mpsc::sync_channel(1);
+    let (acquired, completed, resumed, publication, reconciliation) = std::thread::scope(|scope| {
+        let publisher = scope.spawn(|| store.append(&fixture.body, &fixture.qc));
+        let acquired = acquired.recv_timeout(Duration::from_secs(5));
+        let reconciler = scope.spawn(|| {
+            runner.reconcile();
+            let _ = finished.send(());
+        });
+        let completed = observed.recv_timeout(Duration::from_secs(1));
+        // Release the exact I/O owner before joining or asserting, including negative runs.
+        let resumed = resume.send(());
+        let publication = publisher.join();
+        let reconciliation = reconciler.join();
+        (acquired, completed, resumed, publication, reconciliation)
+    });
+    acquired.unwrap();
+    resumed.unwrap();
+    publication.unwrap().unwrap();
+    reconciliation.unwrap();
+    assert_eq!(
+        completed,
+        Ok(()),
+        "retired continuation must not wait on another operation's original state mutex"
+    );
+    assert!(runner.running_lock_available());
+    assert!(stores.stores.try_lock().is_some());
+    assert_eq!(store.height(), 1);
+    assert_eq!(store.entry(1).unwrap().unwrap().commit_qc, fixture.qc);
+}
+
+struct DebugMapProbe<'a> {
+    field: &'static str,
+    available: &'a dyn Fn() -> bool,
+    observed: Option<bool>,
+    output: String,
+}
+
+impl std::fmt::Write for DebugMapProbe<'_> {
+    fn write_str(&mut self, text: &str) -> std::fmt::Result {
+        self.output.push_str(text);
+        if text == self.field {
+            assert!(
+                self.observed.is_none(),
+                "the original Debug field appears once"
+            );
+            self.observed = Some((self.available)());
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn registry_debug_releases_original_map_before_field_callback() {
+    use std::fmt::Write as _;
+
+    let fixture = Fixture::new(true);
+    let store = fixture.stores.store(LANE, &INCARNATION).unwrap();
+    let expected = format!(
+        "LaneStores {{ root: {:?}, owned: 1, .. }}",
+        fixture.stores.root
+    );
+    let available = || fixture.stores.stores.try_lock().is_some();
+    let mut probe = DebugMapProbe {
+        field: "owned",
+        available: &available,
+        observed: None,
+        output: String::new(),
+    };
+    let formatted = write!(&mut probe, "{:?}", fixture.stores);
+    // No callback waits; even the original implementation releases its guard before assertion.
+    formatted.unwrap();
+    assert_eq!(probe.output, expected);
+    assert_eq!(
+        probe.observed,
+        Some(true),
+        "registry Debug field callbacks must not retain the original map lock"
+    );
+    assert_eq!(store.height(), 0);
+}
+
+#[test]
+fn runner_debug_releases_original_map_before_field_callback() {
+    use crate::{
+        state::World,
+        sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
+    };
+    use std::fmt::Write as _;
+
+    let chain = CertifiedTestChain::start(TestChainConfig::new(World::default(), 1)).unwrap();
+    let fixture = Fixture::with_transactions_for_state(true, Vec::new(), Some(chain.state()));
+    let stores = Arc::new(fixture.stores);
+    let runner = retired_publication_runner(&chain, stores, fixture.dir.path());
+    let (formatted, output, observed) = runner.observe_runner_debug(|runner, available| {
+        let mut probe = DebugMapProbe {
+            field: "running",
+            available,
+            observed: None,
+            output: String::new(),
+        };
+        let formatted = write!(&mut probe, "{runner:?}");
+        (formatted, probe.output, probe.observed)
+    });
+    // The exact threadless runner is dropped before checking the causal observation.
+    formatted.unwrap();
+    assert_eq!(output, "LaneRunner { running: 0, .. }");
+    assert_eq!(
+        observed,
+        Some(true),
+        "runner Debug field callbacks must not retain the original map lock"
+    );
+}
+
+/// Exercise an actual admitted pending lane write while observing the real coordinator.
+pub fn observe_pending_lane_retirement_for_test(
+    observe: impl FnOnce(
+        &crate::sumeragi::lanes::runner::LaneRunner,
+        (LaneId, [u8; 32]),
+        &Arc<FileLaneBlockStore>,
+    ),
+) {
+    use crate::{
+        state::World,
+        sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
+    };
+    let chain = CertifiedTestChain::start(TestChainConfig::new(World::default(), 1)).unwrap();
+    let fixture = Fixture::with_transactions_for_state(true, Vec::new(), Some(chain.state()));
+    let faults = Arc::new(RetiredReadyPublicationFault {
+        step: crate::sumeragi::records::FsStep::CreateTemp,
+        armed: AtomicBool::new(false),
+    });
+    let store = Arc::new(
+        FileLaneBlockStore::begin_open_with_faults(
+            fixture.dir.path(),
+            &fixture.source.instance(),
+            fixture.stores.crypto.clone(),
+            fixture.stores.budget.clone(),
+            fixture.authorities.schedule.clone(),
+            faults.clone(),
+        )
+        .unwrap()
+        .complete()
+        .unwrap_or_else(|(_, error)| panic!("original empty store: {error}")),
+    );
+    assert!(
+        fixture
+            .stores
+            .stores
+            .lock()
+            .insert((LANE, INCARNATION), StoreSlot::Ready(Arc::clone(&store)))
+            .is_none()
+    );
+    faults.armed.store(true, Ordering::SeqCst);
+    assert_eq!(
+        store
+            .append(&fixture.body, &fixture.qc)
+            .unwrap_err()
+            .to_string(),
+        "retained ready publication refusal"
+    );
+    assert_eq!(store.height(), 0);
+    assert!(!fixture.path().exists());
+    let calls = fixture.authorities.calls.load(Ordering::SeqCst);
+    let budget = fixture.stores.budget.clone();
+    let limit = budget.limit_bytes();
+    let stores = Arc::new(fixture.stores);
+    let runner = retired_publication_runner(&chain, stores, fixture.dir.path());
+    runner.observe_runner_debug(|runner, _| observe(runner, (LANE, INCARNATION), &store));
+    assert_eq!(store.height(), 1);
+    let (body, certificate) = store.committed_body(1).unwrap().unwrap();
+    assert_eq!(body, fixture.body);
+    assert_eq!(certificate, fixture.qc);
+    assert_eq!(
+        fixture.authorities.calls.load(Ordering::SeqCst),
+        calls,
+        "the admitted write retains its independent original source"
+    );
+    assert_eq!(budget.limit_bytes(), limit);
+}
+
+/// A single armed native directory synchronization of an original retired store.
+pub struct RetiredSyncGate {
+    refuse_create: AtomicBool,
+    block_sync: AtomicBool,
+    entered: std::sync::mpsc::SyncSender<()>,
+    observed: Mutex<std::sync::mpsc::Receiver<()>>,
+    resume: Mutex<std::sync::mpsc::Receiver<()>>,
+    release: Mutex<Option<std::sync::mpsc::SyncSender<()>>>,
+}
+impl RetiredSyncGate {
+    /// Observe the exact native SyncDir boundary without changing its original deadline.
+    ///
+    /// # Errors
+    /// The original observation times out or its sender disconnects before entering SyncDir.
+    pub fn wait_entered(&self) -> Result<(), std::sync::mpsc::RecvTimeoutError> {
+        self.observed.lock().recv_timeout(Duration::from_secs(5))
+    }
+    /// Release the original gate once, including during a test unwind.
+    pub fn release(&self) {
+        if let Some(sender) = self.release.lock().take() {
+            let _ = sender.send(());
+        }
+    }
+}
+impl crate::sumeragi::records::Faults for RetiredSyncGate {
+    fn before(&self, step: crate::sumeragi::records::FsStep, _: &Path) -> io::Result<()> {
+        use crate::sumeragi::records::FsStep;
+        if step == FsStep::CreateTemp && self.refuse_create.swap(false, Ordering::SeqCst) {
+            return Err(io::Error::other(
+                "original retired-sync fixture admission refusal",
+            ));
+        }
+        if step == FsStep::SyncDir && self.block_sync.swap(false, Ordering::SeqCst) {
+            self.entered.send(()).map_err(io::Error::other)?;
+            self.resume
+                .lock()
+                .recv_timeout(Duration::from_secs(5))
+                .map_err(io::Error::other)?;
+        }
+        Ok(())
+    }
+}
+struct ReleaseRetiredSyncOnDrop(Arc<RetiredSyncGate>);
+impl Drop for ReleaseRetiredSyncOnDrop {
+    fn drop(&mut self) {
+        self.0.release();
+    }
+}
+
+/// Exact original store and independent live lane used by the lifecycle isolation control.
+pub struct RetiredSyncObservation<'a> {
+    /// Actual coordinator with no automatic background test thread.
+    pub runner: &'a crate::sumeragi::lanes::runner::LaneRunner,
+    /// Key of the retired authenticated store.
+    pub retired: (LaneId, [u8; 32]),
+    /// Key of the committed independent live lane.
+    pub active: (LaneId, [u8; 32]),
+    /// Original independently derived instance of the retired store.
+    pub instance: Hash32,
+    /// Exact Ready store retaining its admitted pending write.
+    pub store: &'a Arc<FileLaneBlockStore>,
+    /// Original State pool from which both publication and its driver are funded.
+    pub budget: AllocationBudget,
+    /// Real native synchronization observation and cleanup gate.
+    pub gate: &'a Arc<RetiredSyncGate>,
+}
+
+/// Exercise original retired SyncDir alongside an already active independent lane.
+pub fn observe_retired_sync_for_test<R>(
+    observe: impl FnOnce(RetiredSyncObservation<'_>) -> R,
+) -> R {
+    let (chain, active, _epoch) =
+        crate::sumeragi::runtime_availability::tests::npos_fixed_lane_chain_at(4);
+    assert_ne!(active.lane, LANE);
+    let fixture = Fixture::with_transactions_for_state(true, Vec::new(), Some(chain.state()));
+    let (entered, observed) = std::sync::mpsc::sync_channel(1);
+    let (release, resume) = std::sync::mpsc::sync_channel(1);
+    let gate = Arc::new(RetiredSyncGate {
+        refuse_create: AtomicBool::new(false),
+        block_sync: AtomicBool::new(false),
+        entered,
+        observed: Mutex::new(observed),
+        resume: Mutex::new(resume),
+        release: Mutex::new(Some(release)),
+    });
+    let _release = ReleaseRetiredSyncOnDrop(Arc::clone(&gate));
+    let store = Arc::new(
+        FileLaneBlockStore::begin_open_with_faults(
+            fixture.dir.path(),
+            &fixture.source.instance(),
+            fixture.stores.crypto.clone(),
+            fixture.stores.budget.clone(),
+            fixture.authorities.schedule.clone(),
+            gate.clone(),
+        )
+        .unwrap()
+        .complete()
+        .unwrap_or_else(|(_, error)| panic!("original empty store: {error}")),
+    );
+    assert!(
+        fixture
+            .stores
+            .stores
+            .lock()
+            .insert((LANE, INCARNATION), StoreSlot::Ready(Arc::clone(&store)))
+            .is_none()
+    );
+    gate.refuse_create.store(true, Ordering::SeqCst);
+    assert_eq!(
+        store
+            .append(&fixture.body, &fixture.qc)
+            .unwrap_err()
+            .to_string(),
+        "original retired-sync fixture admission refusal"
+    );
+    assert_eq!(store.height(), 0);
+    assert!(!fixture.path().exists());
+    gate.block_sync.store(true, Ordering::SeqCst);
+    let calls = fixture.authorities.calls.load(Ordering::SeqCst);
+    let budget = fixture.stores.budget.clone();
+    let limit = budget.limit_bytes();
+    let runner = retired_publication_runner(&chain, Arc::new(fixture.stores), fixture.dir.path());
+    let result = runner.observe_runner_debug(|runner, _| {
+        observe(RetiredSyncObservation {
+            runner,
+            retired: (LANE, INCARNATION),
+            active: (active.lane, active.incarnation),
+            instance: fixture.source.instance(),
+            store: &store,
+            budget: budget.clone(),
+            gate: &gate,
+        })
+    });
+    // The coordinator and both original drivers are dropped before these final assertions.
+    assert_eq!(
+        Arc::strong_count(&store),
+        1,
+        "all original driver and registry references to the actual retired file store must be released"
+    );
+    assert_eq!(store.height(), 1);
+    let (body, certificate) = store.committed_body(1).unwrap().unwrap();
+    assert_eq!(body, fixture.body);
+    assert_eq!(certificate, fixture.qc);
+    assert_eq!(fixture.authorities.calls.load(Ordering::SeqCst), calls);
+    assert_eq!(budget.limit_bytes(), limit);
+    result
+}

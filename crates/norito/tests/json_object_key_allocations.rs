@@ -165,34 +165,9 @@ fn assert_fully_released(built: &OwnershipMeasurement, dropped: &OwnershipMeasur
     );
 }
 
-#[derive(Clone, Copy)]
-enum CombContainer {
-    Array,
-    Object,
-}
-
-fn pair(container: CombContainer, first: json::Value, last: json::Value) -> json::Value {
-    match container {
-        CombContainer::Array => json::Value::Array(vec![first, last]),
-        CombContainer::Object => {
-            let mut values = BTreeMap::new();
-            values.insert(String::from("a"), first);
-            values.insert(String::from("z"), last);
-            json::Value::Object(values)
-        }
-    }
-}
-
-fn deep_comb(container: CombContainer, blocks: usize) -> json::Value {
-    let mut value = json::Value::String(String::from("original terminal owner"));
-    for _ in 0..blocks {
-        value = pair(container, json::Value::Null, value);
-        for _ in 0..json::MAX_JSON_VALUE_NESTING_DEPTH {
-            value = pair(container, value, json::Value::Null);
-        }
-    }
-    value
-}
+#[path = "support/json_cleanup_comb.rs"]
+mod json_cleanup_comb;
+use json_cleanup_comb::{CombContainer, deep_comb, pair};
 
 #[test]
 fn deep_array_comb_cleanup_uses_default_stack_and_releases_every_owner() {

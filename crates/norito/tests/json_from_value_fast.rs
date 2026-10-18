@@ -1,3 +1,5 @@
+//! Native Value conversions shared by integration and owning-library tests.
+
 use norito::json::{self, Error, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 #[test]

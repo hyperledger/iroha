@@ -113,6 +113,9 @@ pub struct LaneRunnerInputs {
 struct RunningLane {
     instance: Hash32,
     driver: RunningDriver,
+    // The original entry owns all shutdown handles until they physically finish.
+    // Retirement removes delivery/status membership immediately, not join custody.
+    retiring: bool,
 }
 
 type PendingRecovery = LaneRecovery<GlobalAnchors, StatelessChecks, QueueLaneTransactions>;
@@ -134,9 +137,18 @@ pub struct LaneRunner {
 
 impl core::fmt::Debug for LaneRunner {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let running = self
+            .inner
+            .running
+            .lock()
+            .values()
+            .filter(|lane| !lane.retiring)
+            .count();
+        #[cfg(all(test, sumeragi_core_mutation = "HC392"))]
+        let _original_map = self.inner.running.lock();
         formatter
             .debug_struct("LaneRunner")
-            .field("running", &self.inner.running.lock().len())
+            .field("running", &running)
             .finish_non_exhaustive()
     }
 }
@@ -190,6 +202,7 @@ impl LaneRunnerHandle {
             .map(|record| {
                 let instance = running
                     .get(&(record.lane, record.incarnation))
+                    .filter(|lane| !lane.retiring)
                     .and_then(|lane| {
                         crate::sumeragi::node::status_dto(
                             &lane.driver.handle(),
@@ -293,6 +306,7 @@ impl LaneRunner {
             .running
             .lock()
             .iter()
+            .filter(|(_, lane)| !lane.retiring)
             .map(|((lane, incarnation), running)| LaneInstance {
                 lane: *lane,
                 incarnation: *incarnation,
@@ -305,7 +319,10 @@ impl LaneRunner {
     #[cfg(test)]
     pub(crate) fn with_live_lane_map_for_test(&self, observe: impl FnOnce()) {
         let lanes = self.inner.running.lock();
-        assert!(!lanes.is_empty(), "an original live lane must exist");
+        assert!(
+            lanes.values().any(|lane| !lane.retiring),
+            "an original live lane must exist"
+        );
         observe();
         drop(lanes);
     }
@@ -317,6 +334,7 @@ impl LaneRunner {
             .running
             .lock()
             .values()
+            .filter(|lane| !lane.retiring)
             .any(|lane| lane.driver.handle().waiting_after_empty_for_test())
     }
 
@@ -357,7 +375,7 @@ impl Inner {
         if !self.stop.load(Ordering::Acquire)
             && self.transactions_pending.swap(false, Ordering::AcqRel)
         {
-            for lane in self.running.lock().values() {
+            for lane in self.running.lock().values().filter(|lane| !lane.retiring) {
                 lane.driver.handle().transactions_available();
             }
         }
@@ -393,28 +411,55 @@ impl Inner {
                 });
             });
         // Reconcile has one owner: startup completes before the runner launches, and
-        // shutdown joins that runner before draining this map. Keep the topology cut
-        // and stop-before-start order, but never join a worker under its observation lock.
+        // shutdown joins that runner before draining this map. Keep each original
+        // retiring driver until all its physical joins finish. Stop-before-start is
+        // per LaneId, including a replacement incarnation with a different map key.
+        // Every poll, owner drop and join runs outside the observation lock.
         let retired = self
             .running
             .lock()
-            .keys()
-            .filter(|(lane, incarnation)| {
-                lanes
-                    .lane(*lane)
-                    .is_none_or(|record| record.incarnation != *incarnation)
+            .iter()
+            .filter(|((lane, incarnation), owner)| {
+                owner.retiring
+                    || lanes
+                        .lane(*lane)
+                        .is_none_or(|record| record.incarnation != *incarnation)
             })
-            .copied()
+            .map(|(key, _)| *key)
             .collect::<Vec<_>>();
         for key in retired {
             let retired = { self.running.lock().remove(&key) };
-            if let Some(lane) = retired {
-                self.stop_lane(lane);
-                #[cfg(feature = "telemetry")]
-                InstanceMetrics::retire(&self.inputs.state.telemetry, MetricsInstance::Lane(key.0));
-                iroha_logger::info!(lane = %key.0, "sumeragi: lane instance retired");
+            if let Some(mut lane) = retired {
+                if !lane.retiring {
+                    if let Some(ingress) = &self.inputs.ingress {
+                        ingress.unregister(&lane.instance);
+                    }
+                    lane.retiring = true;
+                }
+                if lane.driver.poll_shutdown() {
+                    drop(lane);
+                    #[cfg(feature = "telemetry")]
+                    InstanceMetrics::retire(
+                        &self.inputs.state.telemetry,
+                        MetricsInstance::Lane(key.0),
+                    );
+                    iroha_logger::info!(lane = %key.0, "sumeragi: lane instance retired");
+                } else {
+                    let replaced = { self.running.lock().insert(key, lane) };
+                    debug_assert!(
+                        replaced.is_none(),
+                        "the sole reconciler retains each original retirement once"
+                    );
+                    drop(replaced);
+                }
             }
         }
+        // Driver shutdown retires its append retry scheduler, not its admitted publication.
+        // Finish that exact retained store work before considering idle owner release.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC390")))]
+        self.inputs
+            .stores
+            .resume_retired_publications(&lanes, |key| !self.running.lock().contains_key(key));
         // Failed store openings never enter `running` or executor recovery. Reconcile the
         // registry itself so their original funded buffers and disk locks retire as well.
         if cfg!(all(test, sumeragi_core_mutation = "HC349")) {
@@ -426,7 +471,14 @@ impl Inner {
         }
         for record in &lanes.lanes {
             let key = (record.lane, record.incarnation);
-            let already_running = self.running.lock().contains_key(&key);
+            let already_running = if cfg!(all(test, sumeragi_core_mutation = "HC394")) {
+                self.running.lock().contains_key(&key)
+            } else {
+                self.running
+                    .lock()
+                    .keys()
+                    .any(|(lane, _)| *lane == record.lane)
+            };
             if record.active_from > applied || already_running {
                 continue;
             }
@@ -452,7 +504,9 @@ impl Inner {
     }
 
     fn stop_lane(&self, lane: RunningLane) {
-        if let Some(ingress) = &self.inputs.ingress {
+        if !lane.retiring
+            && let Some(ingress) = &self.inputs.ingress
+        {
             ingress.unregister(&lane.instance);
         }
         lane.driver.shutdown();
@@ -618,7 +672,11 @@ impl Inner {
         if let Some(ingress) = &inputs.ingress {
             ingress.register(instance, Arc::new(driver.handle()));
         }
-        Ok(RunningLane { instance, driver })
+        Ok(RunningLane {
+            instance,
+            driver,
+            retiring: false,
+        })
     }
 }
 
@@ -703,5 +761,66 @@ impl RetirementControl {
     /// Execute the unchanged production reconcile entry point on these inputs.
     pub(super) fn reconcile(&self) {
         self.inner.reconcile();
+    }
+}
+
+#[cfg(test)]
+impl RetirementControl {
+    /// Observe the actual runner formatter and its original map without starting a thread.
+    pub(super) fn observe_runner_debug<R>(
+        self,
+        observe: impl FnOnce(&LaneRunner, &dyn Fn() -> bool) -> R,
+    ) -> R {
+        let runner = LaneRunner {
+            inner: Arc::new(self.inner),
+            thread: None,
+        };
+        observe(&runner, &|| runner.inner.running.try_lock().is_some())
+    }
+}
+
+#[cfg(test)]
+impl LaneRunner {
+    /// Own the actual lane coordinator without its automatic polling thread.
+    pub(in crate::sumeragi) fn for_retirement_test(inputs: LaneRunnerInputs) -> Self {
+        Self {
+            inner: Arc::new(RetirementControl::new(inputs).inner),
+            thread: None,
+        }
+    }
+
+    /// Install an already running original driver at the actual topology owner boundary.
+    pub(in crate::sumeragi) fn install_retirement_driver_for_test(
+        &self,
+        key: (LaneId, [u8; 32]),
+        instance: Hash32,
+        driver: RunningDriver,
+    ) {
+        let replaced = {
+            self.inner.running.lock().insert(
+                key,
+                RunningLane {
+                    instance,
+                    driver,
+                    retiring: false,
+                },
+            )
+        };
+        assert!(
+            replaced.is_none(),
+            "one original driver per test incarnation"
+        );
+        drop(replaced);
+    }
+
+    /// Run the production lifecycle and the immediately following transaction delivery turn.
+    pub(in crate::sumeragi) fn drive_retirement_for_test(&self) {
+        self.inner.reconcile();
+        self.inner.drain_transactions();
+    }
+
+    /// Count original driver owners, including any retirement that has not physically joined.
+    pub(in crate::sumeragi) fn retirement_owner_count_for_test(&self) -> usize {
+        self.inner.running.lock().len()
     }
 }

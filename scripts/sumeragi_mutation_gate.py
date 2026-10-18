@@ -58,7 +58,7 @@ Purpose
     `SUMERAGI_SDK_MUTATION` and `SUMERAGI_DEPLOY_MUTATION`.
     `--torii` selects Torii canonical-outcome custody unit tests in the test profile
     with `SUMERAGI_TORII_MUTATION`.
-    `--norito` selects canonical decode-origin unit tests in the test profile
+    `--norito` selects canonical decode-origin and JSON resource unit tests in the test profile
     with `SUMERAGI_NORITO_MUTATION`.
     `--p2p` selects receive-credit transport custody unit tests in the test profile
     with `SUMERAGI_P2P_MUTATION`.
@@ -1486,6 +1486,44 @@ CORE_MUTATIONS = [
           ExpectedFailure("signed snapshot depth must refuse before typed State decoding",
           "crates/iroha_core/src/snapshot/support_policy_tests.rs"))),
 
+    m("HC389", "Lane durable tip: reacquire original I/O state before bounded wait",
+      ["sumeragi::lanes::store::retirement_probe_tests::durable_tip_zero_wait_does_not_acquire_original_io_state"],
+      causes=(ExpectedFailure("a zero-time durable-tip observation must complete while the original I/O state remains held",
+          "crates/iroha_core/src/sumeragi/lanes/store/retirement_probe_tests.rs"),)),
+
+    m("HC390", "Retired lane publication: omit original continuation after driver shutdown",
+      ["sumeragi::lanes::registry::tests::retired_reconcile_finishes_original_publication_after_create_refusal",
+       "sumeragi::lanes::registry::tests::retired_reconcile_finishes_original_publication_after_directory_sync_refusal"],
+      causes=(ExpectedFailure("retired reconciliation must finish the original pending publication after refusal clears, then release only its idle in-memory owner",
+          "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs"),
+          ExpectedFailure("retired reconciliation must finish the original pending publication after refusal clears, then release only its idle in-memory owner",
+          "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs"),)),
+
+    m("HC391", "Lane registry Debug: retain original map through formatter callbacks",
+      ["sumeragi::lanes::registry::tests::registry_debug_releases_original_map_before_field_callback"],
+      causes=(ExpectedFailure("registry Debug field callbacks must not retain the original map lock",
+          "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs"),)),
+
+    m("HC392", "Lane runner Debug: retain original map through formatter callbacks",
+      ["sumeragi::lanes::registry::tests::runner_debug_releases_original_map_before_field_callback"],
+      causes=(ExpectedFailure("runner Debug field callbacks must not retain the original map lock",
+          "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs"),)),
+
+    m("HC393", "Lane shutdown: synchronously join original workers in lifecycle polling",
+      ["sumeragi::driver::tests::threaded::retirement_tests::retiring_executor_does_not_block_other_lane_transaction_delivery"],
+      causes=(ExpectedFailure("retired worker joins must not block the actual lane lifecycle turn",
+          "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
+
+    m("HC394", "Lane shutdown: admit a new incarnation before its same-lane original finishes",
+      ["sumeragi::driver::tests::threaded::retirement_tests::retiring_incarnation_blocks_same_lane_start_until_original_workers_finish"],
+      causes=(ExpectedFailure("a new incarnation must not acquire startup authority before its same-lane predecessor physically finishes",
+          "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
+
+    m("HC395", "Lane shutdown: resume original publication while its retiring driver remains owned",
+      ["sumeragi::driver::tests::threaded::retirement_tests::pending_publication_waits_for_its_original_retiring_driver"],
+      causes=(ExpectedFailure("a still-owned retiring driver must exclude its original pending publication from lifecycle continuation",
+          "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
+
     m("HC365", "Retail idle maintenance: omit original native receipt-purpose admission",
       ['retail_fee_tests::original_idle_sweep_admits_exact_native_receipts_before_carrier_execution', 'retail_fee_tests::original_idle_sweep_keeps_bounded_month_prefix_and_fair_native_share', 'retail_fee_tests::original_one_entry_native_policy_alternates_retail_and_sns_admission'],
       causes=(
@@ -2208,6 +2246,46 @@ NORITO_MUTATIONS = [
        "json::tests::direct_json_parser_retains_unscoped_fields_and_same_input_retry"]),
     m("NC5", "JSON resource conversion: turn malformed input into allocator refusal",
       ["json::tests::non_resource_core_errors_cannot_become_json_allocator_refusals"]),
+    m("NC6", "JSON depth: omit original active relative structural depth admission",
+      ["json::decode_depth_tests::typed_and_fast_documents_preserve_exact_and_short_active_depth",
+       "json::decode_depth_tests::borrowed_and_skipped_values_check_the_peak_before_advancing_the_cursor",
+       "json::value_depth_tests::native_value_and_aggregate_conversions_enforce_exact_and_short_depth"]),
+    m("NC7", "Fast JSON entry: construct the structural tape before original depth refusal",
+      ["json_parse_string_allocations::fast_depth_order::active_depth_refuses_before_structural_tape_allocation",
+       "json_parse_string_allocations::fast_depth_order::fixed_depth_refuses_before_structural_tape_allocation"],
+      causes=(ExpectedFailure("active depth refusal must precede structural tape allocation",
+          "crates/norito/src/../tests/json_parse_string_allocations.rs"),
+          ExpectedFailure("fixed depth refusal must precede structural tape allocation",
+          "crates/norito/src/../tests/json_parse_string_allocations.rs"))),
+    m("NC8", "Native JSON Value: restore uncharged clone of original owners",
+      ["json_from_value_fast::resource_budget::native_value_clone_charges_strings_arrays_and_object_owners"]),
+    m("NC9", "Native JSON Vec<T>: omit original sequence admission",
+      ["json_from_value_fast::resource_budget::vec_conversion_enforces_sequence_total_and_storage_budgets"]),
+    m("NC10", "Native JSON std::collections::BTreeSet<T>: omit original sequence admission",
+      ["json_from_value_fast::resource_budget::btree_set_conversion_enforces_sequence_total_and_storage_budgets"]),
+    m("NC11", "Native JSON std::collections::HashSet<T>: omit original sequence admission",
+      ["json_from_value_fast::resource_budget::hash_set_conversion_enforces_sequence_total_and_storage_budgets"]),
+    m("NC12", "Native JSON std::collections::BTreeMap<K, V>: omit original sequence admission",
+      ["json_from_value_fast::resource_budget::btree_map_conversion_enforces_sequence_total_and_storage_budgets"]),
+    m("NC13", "Native JSON std::collections::HashMap<K, V>: omit original sequence admission",
+      ["json_from_value_fast::resource_budget::hash_map_conversion_enforces_sequence_total_and_storage_budgets"]),
+    m("NC14", "Decoded JSON fields: omit original UTF-8 byte admission",
+      ["json_parse_string_allocations::field_budget::owned_strings_check_decoded_field_before_allocation",
+       "json_parse_string_allocations::field_budget::parser_reference_fields_refuse_before_escape_scratch",
+       "json_parse_string_allocations::field_budget::tape_reference_fields_refuse_before_escape_scratch",
+       "json_parse_string_allocations::field_budget::native_string_copies_and_hex_fields_use_decoded_utf8_length",
+       "json_parse_string_allocations::field_budget::borrowed_and_buffered_keys_preserve_field_admission_and_colon_progress",
+       "json_parse_string_allocations::field_budget::key_hash_fields_preserve_hash_last_key_and_tape_cursor",
+       "json_parse_string_allocations::field_budget::direct_numeric_map_keys_cannot_bypass_field_limit",
+       "json_parse_string_allocations::field_budget::field_refusal_preserves_scope_identity_retry_and_cumulative_charge"]),
+    m("NC15", "Owned JSON cleanup: replace iterative ownership release with recursive drop",
+      ["json_cleanup_stack_tests::array_comb_cleanup_survives_default_stack_child",
+       "json_cleanup_stack_tests::object_comb_cleanup_survives_default_stack_child"],
+      causes=(ExpectedFailure("original JSON cleanup must not overflow the default-stack child",
+          "crates/norito/src/json_cleanup_stack_tests.rs"),
+          ExpectedFailure("original JSON cleanup must not overflow the default-stack child",
+          "crates/norito/src/json_cleanup_stack_tests.rs"))),
+
 ]
 
 
@@ -2560,7 +2638,8 @@ def cargo_test(args, target_dir, mutation, filters, seeds, timeout, log_path, no
     for key in ("SUMERAGI_MUTATION", "SUMERAGI_CORE_MUTATION", "SUMERAGI_DAEMON_MUTATION",
                 "SUMERAGI_MODEL_MUTATION", "SUMERAGI_SDK_MUTATION", "SUMERAGI_DEPLOY_MUTATION",
                 "SUMERAGI_TORII_MUTATION", "SUMERAGI_NORITO_MUTATION", "SUMERAGI_P2P_MUTATION",
-                "SUMERAGI_SIM_SEED", "SUMERAGI_SIM_SEED_BASE", "SUMERAGI_SIM_SEEDS"):
+                "SUMERAGI_SIM_SEED", "SUMERAGI_SIM_SEED_BASE", "SUMERAGI_SIM_SEEDS",
+                "NORITO_JSON_CLEANUP_TEST_CHILD"):
         env.pop(key, None)
     _, _, mutation_env = package_options(args)
     if mutation:
@@ -2952,7 +3031,7 @@ def main():
     owner.add_argument("--torii", action="store_true",
                        help="qualify registered Torii canonical-outcome custody rules with owning unit tests in the test profile")
     owner.add_argument("--norito", action="store_true",
-                       help="qualify registered Norito decode-origin rules with owning unit tests in the test profile")
+                       help="qualify registered Norito decode-origin and JSON resource rules with owning unit tests in the test profile")
     owner.add_argument("--p2p", action="store_true",
                        help="qualify registered P2P receive-credit custody rules with owning unit tests in the test profile")
     parser.add_argument("--only", help="comma-separated mutation ids (default: all)")

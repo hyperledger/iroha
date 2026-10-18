@@ -703,6 +703,7 @@ fn batch_label(batch: &QueryOutputBatchBox) -> &'static str {
         QueryOutputBatchBox::AssetEscrowRecord(_) => "AssetEscrowRecord",
         QueryOutputBatchBox::FeeSponsorProgram(_) => "FeeSponsorProgram",
         QueryOutputBatchBox::FeeSponsorProgramId(_) => "FeeSponsorProgramId",
+        QueryOutputBatchBox::BondRecord(_) => "BondRecord",
     }
 }
 #[cfg(test)]
@@ -1043,6 +1044,23 @@ mod tests {
             "domain norito encoding should not be empty"
         );
     }
+    #[test]
+    fn bond_batches_preserve_requested_query_in_unsupported_response() {
+        for requested in StateQueryKind::all() {
+            let output = QueryOutput::new(
+                QueryOutputBatchBoxTuple::from_batch(QueryOutputBatchBox::BondRecord(Vec::new())),
+                0,
+                None,
+            );
+            let error = parse_iterable_output(requested, output)
+                .expect_err("a bond batch cannot become an empty page of another query kind");
+            assert!(matches!(
+                error,
+                StateQueryError::UnexpectedBatch { kind, actual: "BondRecord" } if kind == requested
+            ));
+        }
+    }
+
     #[test]
     fn batch_label_handles_rwa_and_escrow_variants() {
         assert_eq!(

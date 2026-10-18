@@ -123,7 +123,10 @@ fn env_flag_enabled(name: &str) -> bool {
 // dependency mutation through compiler flags or a shipping feature.
 const CFG: &str = "sumeragi_norito_mutation";
 const ENV: &str = "SUMERAGI_NORITO_MUTATION";
-const IDS: &[&str] = &["NC1", "NC2", "NC3", "NC4", "NC5"];
+const IDS: &[&str] = &[
+    "NC1", "NC2", "NC3", "NC4", "NC5", "NC6", "NC7", "NC8", "NC9", "NC10", "NC11", "NC12", "NC13",
+    "NC14", "NC15",
+];
 
 fn emit_mutation_cfg() {
     let values = IDS

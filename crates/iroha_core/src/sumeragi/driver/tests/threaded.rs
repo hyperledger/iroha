@@ -1126,3 +1126,6 @@ fn storage_closure_refuses_buffered_dispatch_and_each_physical_send() {
 
 #[path = "threaded_transactions.rs"]
 mod transactions;
+
+#[path = "threaded_retirement.rs"]
+mod retirement_tests;

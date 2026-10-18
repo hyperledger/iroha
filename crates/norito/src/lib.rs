@@ -42,6 +42,20 @@
 mod norito_mutation_guard;
 
 extern crate self as norito;
+
+// Reuse the integration controls in the owning libtest so mutation switches never
+// need to enter a non-test dependency. Exactly one test-only allocator is shared.
+#[cfg(all(test, feature = "json"))]
+#[path = "../tests/support/json_cleanup_comb.rs"]
+mod json_cleanup_comb;
+#[cfg(all(test, feature = "json"))]
+mod json_cleanup_stack_tests;
+#[cfg(all(test, feature = "json"))]
+#[path = "../tests/json_from_value_fast.rs"]
+mod json_from_value_fast;
+#[cfg(all(test, feature = "json"))]
+#[path = "../tests/json_parse_string_allocations.rs"]
+mod json_parse_string_allocations;
 use std::{
     alloc::{Layout, alloc, dealloc},
     cell::Cell,
@@ -2118,6 +2132,9 @@ pub mod json {
                 context: "JSON value",
             });
         }
+        if cfg!(all(test, sumeragi_norito_mutation = "NC6")) {
+            return Ok(());
+        }
         // JSON counts its root at one; the shared budget counts nested values beyond it.
         crate::core::checked_decode_depth(depth.saturating_sub(1))
             .map(|_| ())
@@ -2131,7 +2148,15 @@ pub mod json {
             .map_err(Error::from_decode_resource)?;
         exact_string::allocate(entries)
     }
+    fn check_json_string_length(length: usize) -> Result<(), Error> {
+        if cfg!(all(test, sumeragi_norito_mutation = "NC14")) {
+            return Ok(());
+        }
+        let length = u64::try_from(length).map_err(|_| Error::DecodeResourceLimit)?;
+        crate::core::check_decode_field_length(length).map_err(Error::from_decode_resource)
+    }
     fn try_decode_string_copy(value: &str) -> Result<String, Error> {
+        check_json_string_length(value.len())?;
         crate::core::reserve_decode_allocation(value.len()).map_err(Error::from_decode_resource)?;
         let mut decoded = exact_string::allocate(value.len())?;
         decoded.extend_from_slice(value.as_bytes());
@@ -4237,6 +4262,7 @@ pub mod json {
                     self.i = i + 1;
                     let text = std::str::from_utf8(slice)
                         .map_err(|_| self.err_at(start, "invalid utf8"))?;
+                    check_json_string_length(text.len())?;
                     crate::core::reserve_decode_allocation(text.len())
                         .map_err(Error::from_decode_resource)?;
                     let mut buffer = allocate(text.len())?;
@@ -4252,6 +4278,7 @@ pub mod json {
                 let mut preflight = Parser::new_at(self.input(), token_start);
                 preflight.skip_string_bounded(usize::MAX)?
             };
+            check_json_string_length(decoded_bytes)?;
             crate::core::reserve_decode_allocation(decoded_bytes)
                 .map_err(Error::from_decode_resource)?;
             let mut buffer = allocate(decoded_bytes)?;
@@ -4980,6 +5007,7 @@ pub mod json {
                         }
                     }
                     let st = std::str::from_utf8(slice).map_err(|_| Error::InvalidUtf8)?;
+                    check_json_string_length(st.len())?;
                     return Ok(KeyRef::Borrowed(st));
                 }
                 if b == b'\\' || b < 0x20 {
@@ -5035,7 +5063,8 @@ pub mod json {
     pub use JsonDeserializeOwned as DeserializeOwned;
     fn json_from_value_via_string<T: JsonDeserialize>(value: &Value) -> Result<T, Error> {
         value_depth::ensure(value)?;
-        let json = to_json(value)?;
+        let json = to_json_bounded(value, usize::MAX)
+            .map_err(|error| Error::from_decode_resource(error.into_core_error()))?;
         let mut parser = Parser::new(&json);
         let result = T::json_deserialize(&mut parser)?;
         parser.skip_ws();
@@ -5624,10 +5653,12 @@ pub mod json {
         fn json_from_value(value: &Value) -> Result<Self, Error> {
             value_depth::ensure(value)?;
             if let Value::Array(items) = value {
-                crate::core::enforce_decode_sequence_length(
-                    u64::try_from(items.len()).map_err(|_| Error::DecodeResourceLimit)?,
-                )
-                .map_err(Error::from_decode_resource)?;
+                if !cfg!(all(test, sumeragi_norito_mutation = "NC9")) {
+                    crate::core::enforce_decode_sequence_length(
+                        u64::try_from(items.len()).map_err(|_| Error::DecodeResourceLimit)?,
+                    )
+                    .map_err(Error::from_decode_resource)?;
+                }
                 let mut out = try_decode_vec_with_capacity(items.len())?;
                 for item in items {
                     out.push(T::json_from_value(item)?);
@@ -5670,10 +5701,12 @@ pub mod json {
         fn json_from_value(value: &Value) -> Result<Self, Error> {
             value_depth::ensure(value)?;
             if let Value::Array(items) = value {
-                crate::core::enforce_decode_sequence_length(
-                    u64::try_from(items.len()).map_err(|_| Error::DecodeResourceLimit)?,
-                )
-                .map_err(Error::from_decode_resource)?;
+                if !cfg!(all(test, sumeragi_norito_mutation = "NC10")) {
+                    crate::core::enforce_decode_sequence_length(
+                        u64::try_from(items.len()).map_err(|_| Error::DecodeResourceLimit)?,
+                    )
+                    .map_err(Error::from_decode_resource)?;
+                }
                 crate::core::reserve_decode_btree_allocation::<T, ()>(items.len())
                     .map_err(Error::from_decode_resource)?;
                 let mut set = std::collections::BTreeSet::new();
@@ -5698,6 +5731,9 @@ pub mod json {
         }
         fn json_from_value(value: &Value) -> Result<Self, Error> {
             value_depth::ensure(value)?;
+            if cfg!(all(test, sumeragi_norito_mutation = "NC8")) {
+                return Ok(value.clone());
+            }
             match value {
                 Value::Null => Ok(Value::Null),
                 Value::Bool(value) => Ok(Value::Bool(*value)),
@@ -7387,6 +7423,14 @@ pub mod json {
             }
             let bytes = self.input.as_bytes();
             let mut hash = key_hash::KeyHasher::new();
+            let mut decoded_bytes = 0usize;
+            let mut update_hash = |byte: u8| -> Result<(), Error> {
+                decoded_bytes = decoded_bytes.checked_add(1).ok_or_else(|| {
+                    Error::Message("decoded JSON string byte length overflow".into())
+                })?;
+                hash.update(byte);
+                Ok(())
+            };
             let mut i = open_off + 1;
             while i < close_off {
                 let b = bytes[i];
@@ -7400,22 +7444,22 @@ pub mod json {
                     i += 1;
                     match esc {
                         b'"' | b'\\' | b'/' => {
-                            hash.update(esc);
+                            update_hash(esc)?;
                         }
                         b'b' => {
-                            hash.update(0x08);
+                            update_hash(0x08)?;
                         }
                         b'f' => {
-                            hash.update(0x0C);
+                            update_hash(0x0C)?;
                         }
                         b'n' => {
-                            hash.update(b'\n');
+                            update_hash(b'\n')?;
                         }
                         b'r' => {
-                            hash.update(b'\r');
+                            update_hash(b'\r')?;
                         }
                         b't' => {
-                            hash.update(b'\t');
+                            update_hash(b'\t')?;
                         }
                         b'u' => {
                             // Parse 4 hex digits, handle surrogate pair, hash UTF‑8
@@ -7490,7 +7534,7 @@ pub mod json {
                                 let mut buf = [0u8; 4];
                                 let s = ch.encode_utf8(&mut buf);
                                 for &bb in s.as_bytes() {
-                                    hash.update(bb);
+                                    update_hash(bb)?;
                                 }
                             } else {
                                 let (byte, line, col) =
@@ -7515,7 +7559,7 @@ pub mod json {
                         }
                     }
                 } else {
-                    hash.update(b);
+                    update_hash(b)?;
                     i += 1;
                 }
             }
@@ -7545,6 +7589,7 @@ pub mod json {
                     return Err(Error::ExpectedColon { byte, line, col });
                 }
             }
+            check_json_string_length(decoded_bytes)?;
             Ok(hash.finish())
         }
         fn skip_ws_raw(&mut self) {
@@ -7890,150 +7935,192 @@ pub mod json {
                         let s = unsafe { std::str::from_utf8_unchecked(&b[start..i]) };
                         self.raw = i + 1;
                         self.skip_ws();
+                        check_json_string_length(s.len())?;
                         return Ok(StrRef::Borrowed(s));
                     }
                     // slow path: unescape into arena (supports surrogate pairs)
-                    let mut out = Vec::with_capacity(i - start);
-                    let mut j = start;
-                    while j < i {
-                        match b[j] {
-                            b'\\' => {
-                                j += 1;
-                                if j >= i {
-                                    let (byte, line, col) = pos_from_offset(self.input, j);
-                                    return Err(Error::EofEscape { byte, line, col });
+                    // Validate and count with this owner's original escape kernel before
+                    // allocating scratch; the admitted second pass emits the same bytes.
+                    let decode_escaped =
+                        |mut output: Option<&mut Vec<u8>>| -> Result<usize, Error> {
+                            let mut decoded_bytes = 0usize;
+                            let mut emit = |bytes: &[u8]| -> Result<(), Error> {
+                                decoded_bytes =
+                                    decoded_bytes.checked_add(bytes.len()).ok_or_else(|| {
+                                        Error::Message(
+                                            "decoded JSON string byte length overflow".into(),
+                                        )
+                                    })?;
+                                if let Some(output) = output.as_deref_mut() {
+                                    output.extend_from_slice(bytes);
                                 }
-                                let esc = b[j];
-                                j += 1;
-                                match esc {
-                                    b'"' => out.push(b'"'),
-                                    b'\\' => out.push(b'\\'),
-                                    b'/' => out.push(b'/'),
-                                    b'b' => out.push(0x08),
-                                    b'f' => out.push(0x0C),
-                                    b'n' => out.push(b'\n'),
-                                    b'r' => out.push(b'\r'),
-                                    b't' => out.push(b'\t'),
-                                    b'u' => {
-                                        if j + 4 > i {
+                                Ok(())
+                            };
+                            let mut j = start;
+                            while j < i {
+                                match b[j] {
+                                    b'\\' => {
+                                        j += 1;
+                                        if j >= i {
                                             let (byte, line, col) = pos_from_offset(self.input, j);
-                                            return Err(Error::EofHex { byte, line, col });
+                                            return Err(Error::EofEscape { byte, line, col });
                                         }
-                                        // Read high 16-bit code unit
-                                        let mut hi: u32 = 0;
-                                        for _ in 0..4 {
-                                            let h = b[j];
-                                            hi = (hi << 4)
-                                                | match h {
-                                                    b'0'..=b'9' => (h - b'0') as u32,
-                                                    b'a'..=b'f' => (h - b'a' + 10) as u32,
-                                                    b'A'..=b'F' => (h - b'A' + 10) as u32,
-                                                    _ => {
+                                        let esc = b[j];
+                                        j += 1;
+                                        match esc {
+                                            b'"' => emit(b"\"")?,
+                                            b'\\' => emit(b"\\")?,
+                                            b'/' => emit(b"/")?,
+                                            b'b' => emit(&[0x08])?,
+                                            b'f' => emit(&[0x0C])?,
+                                            b'n' => emit(b"\n")?,
+                                            b'r' => emit(b"\r")?,
+                                            b't' => emit(b"\t")?,
+                                            b'u' => {
+                                                if j + 4 > i {
+                                                    let (byte, line, col) =
+                                                        pos_from_offset(self.input, j);
+                                                    return Err(Error::EofHex { byte, line, col });
+                                                }
+                                                // Read high 16-bit code unit
+                                                let mut hi: u32 = 0;
+                                                for _ in 0..4 {
+                                                    let h = b[j];
+                                                    hi = (hi << 4)
+                                                        | match h {
+                                                            b'0'..=b'9' => (h - b'0') as u32,
+                                                            b'a'..=b'f' => (h - b'a' + 10) as u32,
+                                                            b'A'..=b'F' => (h - b'A' + 10) as u32,
+                                                            _ => {
+                                                                let (byte, line, col) =
+                                                                    pos_from_offset(self.input, j);
+                                                                return Err(Error::InvalidHex {
+                                                                    byte,
+                                                                    line,
+                                                                    col,
+                                                                });
+                                                            }
+                                                        };
+                                                    j += 1;
+                                                }
+                                                let cp = if (0xD800..=0xDBFF).contains(&hi) {
+                                                    // High surrogate: require a following \uDC00..\uDFFF
+                                                    if j + 6 > i
+                                                        || b[j] != b'\\'
+                                                        || b[j + 1] != b'u'
+                                                    {
                                                         let (byte, line, col) =
-                                                            pos_from_offset(self.input, j);
-                                                        return Err(Error::InvalidHex {
+                                                            pos_from_offset(self.input, j.min(i));
+                                                        return Err(Error::WithPos {
+                                                            msg: "expected low surrogate",
                                                             byte,
                                                             line,
                                                             col,
                                                         });
                                                     }
+                                                    j += 2; // skip \\u
+                                                    let mut lo: u32 = 0;
+                                                    for _ in 0..4 {
+                                                        let h = b[j];
+                                                        lo = (lo << 4)
+                                                            | match h {
+                                                                b'0'..=b'9' => (h - b'0') as u32,
+                                                                b'a'..=b'f' => {
+                                                                    (h - b'a' + 10) as u32
+                                                                }
+                                                                b'A'..=b'F' => {
+                                                                    (h - b'A' + 10) as u32
+                                                                }
+                                                                _ => {
+                                                                    let (byte, line, col) =
+                                                                        pos_from_offset(
+                                                                            self.input, j,
+                                                                        );
+                                                                    return Err(
+                                                                        Error::InvalidHex {
+                                                                            byte,
+                                                                            line,
+                                                                            col,
+                                                                        },
+                                                                    );
+                                                                }
+                                                            };
+                                                        j += 1;
+                                                    }
+                                                    if !(0xDC00..=0xDFFF).contains(&lo) {
+                                                        let (byte, line, col) = pos_from_offset(
+                                                            self.input,
+                                                            j.saturating_sub(1),
+                                                        );
+                                                        return Err(Error::WithPos {
+                                                            msg: "invalid low surrogate",
+                                                            byte,
+                                                            line,
+                                                            col,
+                                                        });
+                                                    }
+                                                    0x10000
+                                                        + (((hi - 0xD800) << 10) | (lo - 0xDC00))
+                                                } else if (0xDC00..=0xDFFF).contains(&hi) {
+                                                    let (byte, line, col) = pos_from_offset(
+                                                        self.input,
+                                                        j.saturating_sub(1),
+                                                    );
+                                                    return Err(Error::WithPos {
+                                                        msg: "unexpected low surrogate",
+                                                        byte,
+                                                        line,
+                                                        col,
+                                                    });
+                                                } else {
+                                                    hi
                                                 };
-                                            j += 1;
-                                        }
-                                        let cp = if (0xD800..=0xDBFF).contains(&hi) {
-                                            // High surrogate: require a following \uDC00..\uDFFF
-                                            if j + 6 > i || b[j] != b'\\' || b[j + 1] != b'u' {
-                                                let (byte, line, col) =
-                                                    pos_from_offset(self.input, j.min(i));
-                                                return Err(Error::WithPos {
-                                                    msg: "expected low surrogate",
-                                                    byte,
-                                                    line,
-                                                    col,
-                                                });
+                                                let ch = char::from_u32(cp).ok_or_else(|| {
+                                                    let (byte, line, col) = pos_from_offset(
+                                                        self.input,
+                                                        j.saturating_sub(1),
+                                                    );
+                                                    Error::WithPos {
+                                                        msg: "invalid codepoint",
+                                                        byte,
+                                                        line,
+                                                        col,
+                                                    }
+                                                })?;
+                                                let mut buf = [0u8; 4];
+                                                let n = ch.encode_utf8(&mut buf).len();
+                                                emit(&buf[..n])?;
                                             }
-                                            j += 2; // skip \\u
-                                            let mut lo: u32 = 0;
-                                            for _ in 0..4 {
-                                                let h = b[j];
-                                                lo = (lo << 4)
-                                                    | match h {
-                                                        b'0'..=b'9' => (h - b'0') as u32,
-                                                        b'a'..=b'f' => (h - b'a' + 10) as u32,
-                                                        b'A'..=b'F' => (h - b'A' + 10) as u32,
-                                                        _ => {
-                                                            let (byte, line, col) =
-                                                                pos_from_offset(self.input, j);
-                                                            return Err(Error::InvalidHex {
-                                                                byte,
-                                                                line,
-                                                                col,
-                                                            });
-                                                        }
-                                                    };
-                                                j += 1;
-                                            }
-                                            if !(0xDC00..=0xDFFF).contains(&lo) {
+                                            _ => {
                                                 let (byte, line, col) = pos_from_offset(
                                                     self.input,
                                                     j.saturating_sub(1),
                                                 );
                                                 return Err(Error::WithPos {
-                                                    msg: "invalid low surrogate",
+                                                    msg: "bad escape",
                                                     byte,
                                                     line,
                                                     col,
                                                 });
                                             }
-                                            0x10000 + (((hi - 0xD800) << 10) | (lo - 0xDC00))
-                                        } else if (0xDC00..=0xDFFF).contains(&hi) {
-                                            let (byte, line, col) =
-                                                pos_from_offset(self.input, j.saturating_sub(1));
-                                            return Err(Error::WithPos {
-                                                msg: "unexpected low surrogate",
-                                                byte,
-                                                line,
-                                                col,
-                                            });
-                                        } else {
-                                            hi
-                                        };
-                                        let ch = char::from_u32(cp).ok_or_else(|| {
-                                            let (byte, line, col) =
-                                                pos_from_offset(self.input, j.saturating_sub(1));
-                                            Error::WithPos {
-                                                msg: "invalid codepoint",
-                                                byte,
-                                                line,
-                                                col,
-                                            }
-                                        })?;
-                                        let mut buf = [0u8; 4];
-                                        let n = ch.encode_utf8(&mut buf).len();
-                                        out.extend_from_slice(&buf[..n]);
+                                        }
                                     }
-                                    _ => {
-                                        let (byte, line, col) =
-                                            pos_from_offset(self.input, j.saturating_sub(1));
-                                        return Err(Error::WithPos {
-                                            msg: "bad escape",
-                                            byte,
-                                            line,
-                                            col,
-                                        });
+                                    x if x < 0x20 => {
+                                        let (byte, line, col) = pos_from_offset(self.input, j);
+                                        return Err(Error::ControlInString { byte, line, col });
+                                    }
+                                    x => {
+                                        emit(&[x])?;
+                                        j += 1;
                                     }
                                 }
                             }
-                            x if x < 0x20 => {
-                                let (byte, line, col) = pos_from_offset(self.input, j);
-                                return Err(Error::ControlInString { byte, line, col });
-                            }
-                            x => {
-                                out.push(x);
-                                j += 1;
-                            }
-                        }
-                    }
+                            Ok(decoded_bytes)
+                        };
+                    let decoded_bytes = decode_escaped(None)?;
+                    check_json_string_length(decoded_bytes)?;
+                    let mut out = Vec::with_capacity(i - start);
+                    decode_escaped(Some(&mut out))?;
                     let st = std::str::from_utf8(&out).map_err(|_| Error::InvalidUtf8)?;
                     let intern = arena.alloc_str(st.as_bytes());
                     self.raw = i + 1;
@@ -8432,7 +8519,9 @@ pub mod json {
         T: FastFromJson<'a> + JsonDeserialize,
     {
         // Refuse the complete document before Stage-1 can allocate its structural tape.
-        ensure_json_value_depth(document_json_value_depth(s))?;
+        if !cfg!(all(test, sumeragi_norito_mutation = "NC7")) {
+            ensure_json_value_depth(document_json_value_depth(s))?;
+        }
         // Tape-first path: build structural index, then invoke the type's fast parser.
         let mut w = TapeWalker::new(s);
         w.ensure_document_depth()?;
@@ -8514,144 +8603,198 @@ pub mod json {
                             let slice = &b[start..i];
                             let st = std::str::from_utf8(slice).map_err(|_| Error::InvalidUtf8)?;
                             self.i = i + 1;
+                            check_json_string_length(st.len())?;
                             return Ok(StrRef::Borrowed(st));
                         }
                         // slow path: unescape into arena (supports surrogate pairs)
-                        let mut out = Vec::with_capacity(i - start);
-                        let mut j = start;
-                        while j < i {
-                            match b[j] {
-                                b'\\' => {
-                                    j += 1;
-                                    let esc = b.get(j).copied().ok_or_else(|| {
-                                        let (byte, line, col) = self.pos_meta(j);
-                                        Error::EofEscape { byte, line, col }
-                                    })?;
-                                    j += 1;
-                                    match esc {
-                                        b'"' => out.push(b'"'),
-                                        b'\\' => out.push(b'\\'),
-                                        b'/' => out.push(b'/'),
-                                        b'b' => out.push(0x08),
-                                        b'f' => out.push(0x0C),
-                                        b'n' => out.push(b'\n'),
-                                        b'r' => out.push(b'\r'),
-                                        b't' => out.push(b'\t'),
-                                        b'u' => {
-                                            // Read high 16-bit code unit
-                                            let mut hi: u32 = 0;
-                                            for _ in 0..4 {
-                                                let h = b.get(j).copied().ok_or_else(|| {
-                                                    let (byte, line, col) = self.pos_meta(j);
-                                                    Error::EofHex { byte, line, col }
-                                                })?;
-                                                hi = (hi << 4)
-                                                    | match h {
-                                                        b'0'..=b'9' => (h - b'0') as u32,
-                                                        b'a'..=b'f' => (h - b'a' + 10) as u32,
-                                                        b'A'..=b'F' => (h - b'A' + 10) as u32,
-                                                        _ => {
+                        // Validate and count with this owner's original escape kernel before
+                        // allocating scratch; the admitted second pass emits the same bytes.
+                        let decode_escaped =
+                            |mut output: Option<&mut Vec<u8>>| -> Result<usize, Error> {
+                                let mut decoded_bytes = 0usize;
+                                let mut emit = |bytes: &[u8]| -> Result<(), Error> {
+                                    decoded_bytes = decoded_bytes
+                                        .checked_add(bytes.len())
+                                        .ok_or_else(|| {
+                                            Error::Message(
+                                                "decoded JSON string byte length overflow".into(),
+                                            )
+                                        })?;
+                                    if let Some(output) = output.as_deref_mut() {
+                                        output.extend_from_slice(bytes);
+                                    }
+                                    Ok(())
+                                };
+                                let mut j = start;
+                                while j < i {
+                                    match b[j] {
+                                        b'\\' => {
+                                            j += 1;
+                                            let esc = b.get(j).copied().ok_or_else(|| {
+                                                let (byte, line, col) = self.pos_meta(j);
+                                                Error::EofEscape { byte, line, col }
+                                            })?;
+                                            j += 1;
+                                            match esc {
+                                                b'"' => emit(b"\"")?,
+                                                b'\\' => emit(b"\\")?,
+                                                b'/' => emit(b"/")?,
+                                                b'b' => emit(&[0x08])?,
+                                                b'f' => emit(&[0x0C])?,
+                                                b'n' => emit(b"\n")?,
+                                                b'r' => emit(b"\r")?,
+                                                b't' => emit(b"\t")?,
+                                                b'u' => {
+                                                    // Read high 16-bit code unit
+                                                    let mut hi: u32 = 0;
+                                                    for _ in 0..4 {
+                                                        let h =
+                                                            b.get(j).copied().ok_or_else(|| {
+                                                                let (byte, line, col) =
+                                                                    self.pos_meta(j);
+                                                                Error::EofHex { byte, line, col }
+                                                            })?;
+                                                        hi = (hi << 4)
+                                                            | match h {
+                                                                b'0'..=b'9' => (h - b'0') as u32,
+                                                                b'a'..=b'f' => {
+                                                                    (h - b'a' + 10) as u32
+                                                                }
+                                                                b'A'..=b'F' => {
+                                                                    (h - b'A' + 10) as u32
+                                                                }
+                                                                _ => {
+                                                                    let (byte, line, col) =
+                                                                        self.pos_meta(j);
+                                                                    return Err(
+                                                                        Error::InvalidHex {
+                                                                            byte,
+                                                                            line,
+                                                                            col,
+                                                                        },
+                                                                    );
+                                                                }
+                                                            };
+                                                        j += 1;
+                                                    }
+                                                    let cp = if (0xD800..=0xDBFF).contains(&hi) {
+                                                        // Expect a following low surrogate
+                                                        if j + 6 > i
+                                                            || b[j] != b'\\'
+                                                            || b[j + 1] != b'u'
+                                                        {
                                                             let (byte, line, col) =
-                                                                self.pos_meta(j);
-                                                            return Err(Error::InvalidHex {
+                                                                self.pos_meta(j.min(i));
+                                                            return Err(Error::WithPos {
+                                                                msg: "expected low surrogate",
                                                                 byte,
                                                                 line,
                                                                 col,
                                                             });
                                                         }
+                                                        j += 2; // skip \\u
+                                                        let mut lo: u32 = 0;
+                                                        for _ in 0..4 {
+                                                            let h = b.get(j).copied().ok_or_else(
+                                                                || {
+                                                                    let (byte, line, col) =
+                                                                        self.pos_meta(j);
+                                                                    Error::EofHex {
+                                                                        byte,
+                                                                        line,
+                                                                        col,
+                                                                    }
+                                                                },
+                                                            )?;
+                                                            lo = (lo << 4)
+                                                                | match h {
+                                                                    b'0'..=b'9' => {
+                                                                        (h - b'0') as u32
+                                                                    }
+                                                                    b'a'..=b'f' => {
+                                                                        (h - b'a' + 10) as u32
+                                                                    }
+                                                                    b'A'..=b'F' => {
+                                                                        (h - b'A' + 10) as u32
+                                                                    }
+                                                                    _ => {
+                                                                        let (byte, line, col) =
+                                                                            self.pos_meta(j);
+                                                                        return Err(
+                                                                            Error::InvalidHex {
+                                                                                byte,
+                                                                                line,
+                                                                                col,
+                                                                            },
+                                                                        );
+                                                                    }
+                                                                };
+                                                            j += 1;
+                                                        }
+                                                        if !(0xDC00..=0xDFFF).contains(&lo) {
+                                                            let (byte, line, col) =
+                                                                self.pos_meta(j.saturating_sub(1));
+                                                            return Err(Error::WithPos {
+                                                                msg: "invalid low surrogate",
+                                                                byte,
+                                                                line,
+                                                                col,
+                                                            });
+                                                        }
+                                                        0x10000
+                                                            + (((hi - 0xD800) << 10)
+                                                                | (lo - 0xDC00))
+                                                    } else if (0xDC00..=0xDFFF).contains(&hi) {
+                                                        let (byte, line, col) =
+                                                            self.pos_meta(j.saturating_sub(1));
+                                                        return Err(Error::WithPos {
+                                                            msg: "unexpected low surrogate",
+                                                            byte,
+                                                            line,
+                                                            col,
+                                                        });
+                                                    } else {
+                                                        hi
                                                     };
-                                                j += 1;
-                                            }
-                                            let cp = if (0xD800..=0xDBFF).contains(&hi) {
-                                                // Expect a following low surrogate
-                                                if j + 6 > i || b[j] != b'\\' || b[j + 1] != b'u' {
-                                                    let (byte, line, col) = self.pos_meta(j.min(i));
-                                                    return Err(Error::WithPos {
-                                                        msg: "expected low surrogate",
-                                                        byte,
-                                                        line,
-                                                        col,
-                                                    });
-                                                }
-                                                j += 2; // skip \\u
-                                                let mut lo: u32 = 0;
-                                                for _ in 0..4 {
-                                                    let h = b.get(j).copied().ok_or_else(|| {
-                                                        let (byte, line, col) = self.pos_meta(j);
-                                                        Error::EofHex { byte, line, col }
-                                                    })?;
-                                                    lo = (lo << 4)
-                                                        | match h {
-                                                            b'0'..=b'9' => (h - b'0') as u32,
-                                                            b'a'..=b'f' => (h - b'a' + 10) as u32,
-                                                            b'A'..=b'F' => (h - b'A' + 10) as u32,
-                                                            _ => {
-                                                                let (byte, line, col) =
-                                                                    self.pos_meta(j);
-                                                                return Err(Error::InvalidHex {
-                                                                    byte,
-                                                                    line,
-                                                                    col,
-                                                                });
+                                                    let ch =
+                                                        char::from_u32(cp).ok_or_else(|| {
+                                                            let (byte, line, col) =
+                                                                self.pos_meta(j.saturating_sub(1));
+                                                            Error::WithPos {
+                                                                msg: "invalid codepoint",
+                                                                byte,
+                                                                line,
+                                                                col,
                                                             }
-                                                        };
-                                                    j += 1;
+                                                        })?;
+                                                    let mut buf = [0u8; 4];
+                                                    let n = ch.encode_utf8(&mut buf).len();
+                                                    emit(&buf[..n])?;
                                                 }
-                                                if !(0xDC00..=0xDFFF).contains(&lo) {
+                                                _ => {
                                                     let (byte, line, col) =
                                                         self.pos_meta(j.saturating_sub(1));
                                                     return Err(Error::WithPos {
-                                                        msg: "invalid low surrogate",
+                                                        msg: "bad escape",
                                                         byte,
                                                         line,
                                                         col,
                                                     });
                                                 }
-                                                0x10000 + (((hi - 0xD800) << 10) | (lo - 0xDC00))
-                                            } else if (0xDC00..=0xDFFF).contains(&hi) {
-                                                let (byte, line, col) =
-                                                    self.pos_meta(j.saturating_sub(1));
-                                                return Err(Error::WithPos {
-                                                    msg: "unexpected low surrogate",
-                                                    byte,
-                                                    line,
-                                                    col,
-                                                });
-                                            } else {
-                                                hi
-                                            };
-                                            let ch = char::from_u32(cp).ok_or_else(|| {
-                                                let (byte, line, col) =
-                                                    self.pos_meta(j.saturating_sub(1));
-                                                Error::WithPos {
-                                                    msg: "invalid codepoint",
-                                                    byte,
-                                                    line,
-                                                    col,
-                                                }
-                                            })?;
-                                            let mut buf = [0u8; 4];
-                                            let n = ch.encode_utf8(&mut buf).len();
-                                            out.extend_from_slice(&buf[..n]);
+                                            }
                                         }
-                                        _ => {
-                                            let (byte, line, col) =
-                                                self.pos_meta(j.saturating_sub(1));
-                                            return Err(Error::WithPos {
-                                                msg: "bad escape",
-                                                byte,
-                                                line,
-                                                col,
-                                            });
+                                        x => {
+                                            emit(&[x])?;
+                                            j += 1;
                                         }
                                     }
                                 }
-                                x => {
-                                    out.push(x);
-                                    j += 1;
-                                }
-                            }
-                        }
+                                Ok(decoded_bytes)
+                            };
+                        let decoded_bytes = decode_escaped(None)?;
+                        check_json_string_length(decoded_bytes)?;
+                        let mut out = Vec::with_capacity(i - start);
+                        decode_escaped(Some(&mut out))?;
                         let st = std::str::from_utf8(&out).map_err(|_| Error::InvalidUtf8)?;
                         let intern = arena.alloc_str(st.as_bytes());
                         self.i = i + 1;
@@ -8696,6 +8839,7 @@ pub mod json {
         }
         fn json_from_value(value: &Value) -> Result<Self, Error> {
             if let Some(s) = value.as_str() {
+                check_json_string_length(s.len())?;
                 decode_hex::<N>(s)
             } else {
                 json_from_value_via_string(value)
@@ -8759,16 +8903,19 @@ pub mod json {
         fn json_from_value(value: &Value) -> Result<Self, Error> {
             value_depth::ensure(value)?;
             if let Value::Object(obj) = value {
-                crate::core::enforce_decode_sequence_length(
-                    u64::try_from(obj.len()).map_err(|_| Error::DecodeResourceLimit)?,
-                )
-                .map_err(Error::from_decode_resource)?;
+                if !cfg!(all(test, sumeragi_norito_mutation = "NC13")) {
+                    crate::core::enforce_decode_sequence_length(
+                        u64::try_from(obj.len()).map_err(|_| Error::DecodeResourceLimit)?,
+                    )
+                    .map_err(Error::from_decode_resource)?;
+                }
                 crate::core::reserve_decode_hash_table_allocation::<(K, V)>(obj.len())
                     .map_err(Error::from_decode_resource)?;
                 let mut map = std::collections::HashMap::new();
                 map.try_reserve(obj.len())
                     .map_err(|_| Error::AllocationFailed)?;
                 for (k, v) in obj.iter() {
+                    check_json_string_length(k.len())?;
                     let parsed_key = K::from_json_key_text(k)?;
                     if map.insert(parsed_key, V::json_from_value(v)?).is_some() {
                         return Err(Error::duplicate_field(k));
@@ -8808,14 +8955,17 @@ pub mod json {
         fn json_from_value(value: &Value) -> Result<Self, Error> {
             value_depth::ensure(value)?;
             if let Value::Object(obj) = value {
-                crate::core::enforce_decode_sequence_length(
-                    u64::try_from(obj.len()).map_err(|_| Error::DecodeResourceLimit)?,
-                )
-                .map_err(Error::from_decode_resource)?;
+                if !cfg!(all(test, sumeragi_norito_mutation = "NC12")) {
+                    crate::core::enforce_decode_sequence_length(
+                        u64::try_from(obj.len()).map_err(|_| Error::DecodeResourceLimit)?,
+                    )
+                    .map_err(Error::from_decode_resource)?;
+                }
                 crate::core::reserve_decode_btree_allocation::<K, V>(obj.len())
                     .map_err(Error::from_decode_resource)?;
                 let mut map = std::collections::BTreeMap::new();
                 for (k, v) in obj.iter() {
+                    check_json_string_length(k.len())?;
                     let parsed_key = K::from_json_key_text(k)?;
                     if map.insert(parsed_key, V::json_from_value(v)?).is_some() {
                         return Err(Error::duplicate_field(k));
@@ -8861,10 +9011,12 @@ pub mod json {
         fn json_from_value(value: &Value) -> Result<Self, Error> {
             value_depth::ensure(value)?;
             if let Value::Array(items) = value {
-                crate::core::enforce_decode_sequence_length(
-                    u64::try_from(items.len()).map_err(|_| Error::DecodeResourceLimit)?,
-                )
-                .map_err(Error::from_decode_resource)?;
+                if !cfg!(all(test, sumeragi_norito_mutation = "NC11")) {
+                    crate::core::enforce_decode_sequence_length(
+                        u64::try_from(items.len()).map_err(|_| Error::DecodeResourceLimit)?,
+                    )
+                    .map_err(Error::from_decode_resource)?;
+                }
                 crate::core::reserve_decode_hash_table_allocation::<T>(items.len())
                     .map_err(Error::from_decode_resource)?;
                 let mut set = std::collections::HashSet::new();

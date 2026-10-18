@@ -101,10 +101,13 @@ pub struct LaneStores {
 
 impl core::fmt::Debug for LaneStores {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let owned = self.stores.lock().len();
+        #[cfg(all(test, sumeragi_core_mutation = "HC391"))]
+        let _original_map = self.stores.lock();
         formatter
             .debug_struct("LaneStores")
             .field("root", &self.root)
-            .field("owned", &self.stores.lock().len())
+            .field("owned", &owned)
             .finish_non_exhaustive()
     }
 }
@@ -375,6 +378,57 @@ impl LaneStores {
         })
     }
 
+    /// Resume each retired Ready owner's exact admitted publication outside the maps.
+    /// A refusal retains the same Arc and prepared work for the next lifecycle check;
+    /// no caller-supplied body, authority replacement, or history deletion is involved.
+    pub(super) fn resume_retired_publications(
+        &self,
+        lanes: &SumeragiLaneState,
+        physically_retired: impl Fn(&(LaneId, [u8; 32])) -> bool,
+    ) {
+        // A callback may register another historical owner while maps are unlocked.
+        // Bound this pass by its initial owner count; additions can wait for the next tick.
+        let owner_count = self.stores.lock().len();
+        let mut after = None;
+        for _ in 0..owner_count {
+            let next = {
+                let stores = self.stores.lock();
+                let lower = after.map_or(std::ops::Bound::Unbounded, std::ops::Bound::Excluded);
+                stores
+                    .range((lower, std::ops::Bound::Unbounded))
+                    .find_map(|(key, slot)| {
+                        if lanes
+                            .lane(key.0)
+                            .is_some_and(|record| record.incarnation == key.1)
+                        {
+                            return None;
+                        }
+                        match slot {
+                            StoreSlot::Ready(store) => Some((*key, Arc::clone(store))),
+                            StoreSlot::Opening(_, _) => None,
+                        }
+                    })
+            };
+            let Some((key, store)) = next else {
+                break;
+            };
+            after = Some(key);
+            self.with_original_refunds(|| {
+                // The exact driver may still be finishing an admitted backend call.
+                // Check only after dropping the registry map, before touching its store.
+                if (physically_retired(&key)
+                    || cfg!(all(test, sumeragi_core_mutation = "HC395")))
+                    && let Err(error) = store.resume_retired_publication()
+                {
+                    iroha_logger::warn!(lane = %key.0, %error, "sumeragi: original retired lane publication remains pending");
+                }
+                // Complete this store's original notifications before another store's I/O.
+                // Its final temporary Arc and every refund leave both maps free.
+                drop(store);
+            });
+        }
+    }
+
     /// Release every runtime owner absent from the applied lane set, including openings
     /// that never reached a running driver. Call after stopping retired drivers and recovery
     /// jobs. Historical frames remain available to authenticated global replay; outstanding
@@ -440,3 +494,9 @@ impl LaneBlockSource for LaneStores {
 #[cfg(test)]
 #[path = "registry/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+pub(in crate::sumeragi) use tests::observe_pending_lane_retirement_for_test;
+
+#[cfg(test)]
+pub(in crate::sumeragi) use tests::{RetiredSyncGate, observe_retired_sync_for_test};

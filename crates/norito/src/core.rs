@@ -833,7 +833,7 @@ pub(crate) fn enforce_decode_field_length(length: u64) -> Result<(), Error> {
     reserve_decode_allocation_u64(length)
 }
 #[inline]
-fn check_decode_field_length(length: u64) -> Result<(), Error> {
+pub(crate) fn check_decode_field_length(length: u64) -> Result<(), Error> {
     budget_scope::with_active(|layers| {
         for (index, layer) in decode_attempt::layers_in_order(layers) {
             let limit = limit_to_u64(layer.budget.limits.max_field_bytes());
