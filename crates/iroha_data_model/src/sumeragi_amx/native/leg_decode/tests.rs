@@ -1,7 +1,12 @@
 //! Canonical graph parity, actual nested layouts and original-prefix retry controls.
 
 use super::*;
-use iroha_allocation::{AllocationRefusal, release::ReleaseRegistration};
+use crate::account::{
+    AccountController, MultisigMember, MultisigPolicy,
+    prepared_decode::{MemberParts, MembersDestination},
+};
+use iroha_allocation::{AllocationRefusal, ChargedBuffer, release::ReleaseRegistration};
+use iroha_crypto::PublicKey;
 use iroha_crypto::{Algorithm, KeyPair};
 use iroha_model_base::domain::DomainId;
 use norito::core::{DecodeBudgetContext, DecodeLimits, SequenceSpan};
@@ -265,7 +270,7 @@ fn funded_multisig_members_keep_actual_vector_capacity_key_ledger_and_existing_r
         .with_payload(|bytes| {
             destination
                 .decode(bytes, &pool, None)
-                .map_err(super::destination)
+                .map_err(|error| super::destination(error.into()))
         })
         .unwrap();
     let parts = MemberParts::new(
@@ -706,7 +711,7 @@ fn partial_native_multisig_retains_original_member_ledger_spans_and_key_pointer_
         .to_bytes()
         .1
         .as_ptr();
-    assert_eq!(members.spans.allocation_bytes(), Some(span_bytes));
+    assert_eq!(members.span_allocation_bytes(), Some(span_bytes));
     assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
     let mut waiter = registration();
     let mut context = Context::from_waker(Waker::noop());
@@ -1071,7 +1076,7 @@ fn invalid_native_multisig_retains_original_policy_and_member_prefix_on_replay()
             values.as_slice()[0].public_key().to_bytes().1.as_ptr()
         };
         assert_eq!(
-            members.spans.allocation_bytes(),
+            members.span_allocation_bytes(),
             Some(original_span_bytes(&original))
         );
         let admitted = pool.reserved_bytes();
@@ -1168,7 +1173,7 @@ fn assert_multisig_semantic_replay_has_no_diagnostic_allocation(member_weight: b
         values.as_slice()[0].public_key().to_bytes().1.as_ptr()
     };
     assert_eq!(
-        members.spans.allocation_bytes(),
+        members.span_allocation_bytes(),
         Some(original_span_bytes(&original))
     );
     let admitted = pool.reserved_bytes();
@@ -1214,7 +1219,7 @@ fn assert_multisig_semantic_replay_has_no_diagnostic_allocation(member_weight: b
         };
         assert_eq!(key, key_pointer);
         assert_eq!(
-            members.spans.allocation_bytes(),
+            members.span_allocation_bytes(),
             Some(original_span_bytes(&original))
         );
         assert!(pending.belongs_to(&pool));

@@ -112,51 +112,92 @@ fn fee_policy_or_peer_identity_substitution_refuses_despite_unchanged_expected_h
             Some(&prepared.peers[3].config_path),
         )
         .unwrap();
-        assert!(original_config.nexus.fees.per_instruction_fee > Quantity::zero());
+        let signed_bytes = root
+            .read(
+                "genesis.signed.nrt",
+                iroha_genesis::SIGNED_GENESIS_MAX_BYTES_V1,
+            )
+            .unwrap();
+        let signed = iroha_data_model::block::decode_framed_signed_block(&signed_bytes).unwrap();
+        let fees = iroha_genesis::signed_genesis_root_fee_policy(&signed).unwrap();
+        assert!(fees.per_instruction_fee > Quantity::zero());
         assert_eq!(original_config.genesis.expected_hash, selected.genesis_hash);
-        let original_policy =
-            crate::localnet::service_authorities::configured_execution_policy(&original_config)
-                .unwrap();
+        let original_policy = crate::localnet::service_authorities::configured_execution_policy(
+            &original_config,
+            &fees,
+        )
+        .unwrap();
+        let mut changed_fees = fees.clone();
+        changed_fees.per_instruction_fee = Quantity::zero();
+        assert_ne!(changed_fees, fees);
+        assert_ne!(
+            crate::localnet::service_authorities::configured_execution_policy(
+                &original_config,
+                &changed_fees
+            )
+            .unwrap(),
+            original_policy,
+        );
+        // A replacement unsigned manifest must not redirect the fee selected from the
+        // unchanged signed block, even when all four expected hashes remain untouched.
+        let original_manifest = root
+            .read(
+                "genesis.json",
+                iroha_genesis::GENESIS_MANIFEST_JSON_MAX_BYTES_V1,
+            )
+            .unwrap();
+        let manifest = iroha_genesis::RawGenesisTransaction::from_json_slice_at_path(
+            &original_manifest,
+            root.path().join("genesis.json"),
+        )
+        .unwrap();
+        let changed_manifest = manifest
+            .into_builder()
+            .append_parameter(iroha_data_model::parameter::Parameter::Custom(
+                changed_fees.into_custom_parameter().unwrap(),
+            ))
+            .build_raw()
+            .unwrap();
+        root.write_atomic(
+            "genesis.json",
+            &norito::json::to_vec(&changed_manifest).unwrap(),
+            PublishMode::Replace,
+        )
+        .unwrap();
+        assert!(fees::select(&prepared, &client).is_err());
+        root.write_atomic("genesis.json", &original_manifest, PublishMode::Replace)
+            .unwrap();
+        assert_eq!(
+            fees::select(&prepared, &client).unwrap().payment,
+            selected.payment
+        );
+        // Retired node-local fee tables are refused, not accepted as a second authority.
         let mut table = crate::secret_toml::Table::new(
             crate::secret_toml::parse_table(original_text, "readiness mutation control").unwrap(),
         );
-        // Standard omits the default fee table; the explicit profile already supplies it.
-        // Both must refuse a valid changed schedule rather than a malformed configuration.
         table
             .get_mut("nexus")
             .unwrap()
             .as_table_mut()
             .unwrap()
-            .entry("fees".to_owned())
-            .or_insert_with(|| toml::Value::Table(toml::Table::new()))
-            .as_table_mut()
-            .unwrap()
             .insert(
-                "per_instruction_fee".into(),
-                toml::Value::String("0".into()),
+                "fees".into(),
+                toml::Value::Table(
+                    [(
+                        "per_instruction_fee".into(),
+                        toml::Value::String("0".into()),
+                    )]
+                    .into_iter()
+                    .collect(),
+                ),
             );
         let altered = toml::to_string(&*table).unwrap();
-        let altered_config = crate::localnet::parse_localnet_peer_config(
-            &altered,
-            Some(&prepared.peers[3].config_path),
-        )
-        .unwrap();
-        assert_eq!(
-            altered_config.nexus.fees.per_instruction_fee,
-            Quantity::zero()
-        );
-        assert_ne!(
-            altered_config.nexus.fees.per_instruction_fee,
-            original_config.nexus.fees.per_instruction_fee
-        );
-        assert_eq!(
-            altered_config.genesis.expected_hash,
-            original_config.genesis.expected_hash
-        );
-        assert_ne!(
-            crate::localnet::service_authorities::configured_execution_policy(&altered_config)
-                .unwrap(),
-            original_policy
+        assert!(
+            crate::localnet::parse_localnet_peer_config(
+                &altered,
+                Some(&prepared.peers[3].config_path)
+            )
+            .is_err()
         );
         root.write_atomic("peer3.toml", altered.as_bytes(), PublishMode::Replace)
             .unwrap();

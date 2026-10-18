@@ -192,7 +192,7 @@ CORE_RECOVERY_SUPPORT_PATHS = tuple(
         "executor_stream_token_gateway_direct_source_tests.rs",
         "executor_stream_token_gateway_permission_tests.rs",
         "executor_stream_token_gateway_check_permission_tests.rs",
-        "executor/private_fees.rs",
+        "executor/root_fees.rs",
         "executor_contract_owner_permission_tests.rs",
         "executor_asset_lock_admission_tests.rs",
         "executor_conditional_escrow_repo_admission_tests.rs",

@@ -168,3 +168,6 @@ mod pulse_inline_custody;
 
 #[path = "block_signature_serialization_allocations/header_inline_custody.rs"]
 mod header_inline_custody;
+
+#[path = "block_signature_serialization_allocations/evidence_codec_custody.rs"]
+mod evidence_codec_custody;

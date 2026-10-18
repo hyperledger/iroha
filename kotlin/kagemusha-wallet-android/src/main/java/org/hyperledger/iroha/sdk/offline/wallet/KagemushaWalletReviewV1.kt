@@ -59,7 +59,6 @@ class KagemushaWalletReviewProjectionV1 internal constructor(original: ByteArray
     fun credentialDigest() = word(8)
     fun artifactManifestDigest() = word(9)
     fun paymentPublicKey() = retained.copyOfRange(426,491)
-    fun paymentKey() = paymentPublicKey()
     override fun toString() = "KagemushaWalletReviewProjectionV1(kind=$kind, source=[REDACTED])"
 }
 
@@ -100,8 +99,6 @@ class KagemushaWalletReviewV1 private constructor(
     override fun toString() = "KagemushaWalletReviewV1(owner=[REDACTED])"
 }
 
-/** Current integration uses the same Native kind; no second display codec. */
-typealias KagemushaWalletReviewedKindV1 = KagemushaWalletReviewProjectionV1.Kind
 /** Copy/bounds only. Native authenticates all financial originals and retains the review. */
 internal class KagemushaWalletReviewInputV1(
     val selector: Int,

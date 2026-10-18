@@ -3,11 +3,10 @@
 mod duration_clamp_tests {
     use super::{
         AssetDefinitionId, BTreeSet, ConfidentialComputeMechanism, ContentAuthMode,
-        DaManifestPolicy, DomainId, Emitter, NexusFees, NonZeroU64,
-        RETIRED_LANE_FUNCTIONAL_METADATA_KEYS, SORA_INROU_EPHEMERAL_STORAGE_ALIGNMENT_BYTES_V1,
-        SORA_INROU_MIN_CPU_MILLIS_V1, SORA_INROU_MIN_MEMORY_BYTES_V1,
-        SORA_INROU_VMM_CPU_OVERHEAD_MILLIS_V1, SORA_INROU_VMM_MEMORY_OVERHEAD_BYTES_V1,
-        UniversalAccountId, Url, parse_content_auth_mode,
+        DaManifestPolicy, DomainId, Emitter, NonZeroU64, RETIRED_LANE_FUNCTIONAL_METADATA_KEYS,
+        SORA_INROU_EPHEMERAL_STORAGE_ALIGNMENT_BYTES_V1, SORA_INROU_MIN_CPU_MILLIS_V1,
+        SORA_INROU_MIN_MEMORY_BYTES_V1, SORA_INROU_VMM_CPU_OVERHEAD_MILLIS_V1,
+        SORA_INROU_VMM_MEMORY_OVERHEAD_BYTES_V1, UniversalAccountId, Url, parse_content_auth_mode,
     };
     use crate::parameters::{
         actual, defaults,
@@ -1501,42 +1500,6 @@ policy_digest_hex = "{policy_digest_hex}"
                 format!("{error:?}").contains(expected),
                 "unexpected `{field}` error: {error:?}"
             );
-        }
-    }
-    #[test]
-    fn nexus_fee_settlement_mode_accepts_direct_and_rejects_retired_modes() {
-        {
-            let canonical = "direct";
-            let fees = NexusFees {
-                settlement_mode: canonical.to_owned(),
-                ..NexusFees::default()
-            };
-            let mut emitter = Emitter::new();
-            let parsed = fees.parse(&mut emitter);
-            assert!(
-                parsed.is_some(),
-                "canonical settlement mode `{canonical}` must parse"
-            );
-            assert!(emitter.into_result().is_ok());
-        }
-        for alias in [
-            "lane_relay_burn",
-            "lane-relay-burn",
-            "Lane_Relay_Burn",
-            " direct",
-            "direct ",
-        ] {
-            let fees = NexusFees {
-                settlement_mode: alias.to_owned(),
-                ..NexusFees::default()
-            };
-            let mut emitter = Emitter::new();
-            let parsed = fees.parse(&mut emitter);
-            assert!(
-                parsed.is_none(),
-                "non-canonical settlement mode `{alias}` must fail closed"
-            );
-            assert!(emitter.into_result().is_err());
         }
     }
     #[test]

@@ -29,6 +29,10 @@ pub(crate) mod kagemusha_setup;
 mod local_certificate;
 /// Genuine paid private-root approval source for downstream HTTP permission tests.
 pub use amx_approval::native_amx_approval_route_fixture;
+#[path = "test_chain/private_context.rs"]
+mod private_context;
+/// Real paid, certified private context for downstream HTTP authorization tests.
+pub use private_context::native_private_context_route_fixture;
 #[path = "test_chain/retail_multisig.rs"]
 mod retail_multisig;
 #[cfg(test)]
@@ -61,6 +65,7 @@ use iroha_data_model::{
 use iroha_genesis::{GenesisBuilder, GenesisTopologyEntry};
 use iroha_logger::Level;
 use iroha_model_base::{chain::ChainId, peer::PeerId};
+use iroha_primitives::numeric::Quantity;
 use iroha_primitives::time::{MockTimeHandle, TimeSource};
 use iroha_sumeragi::{
     api::ExecOutcome,
@@ -135,6 +140,10 @@ pub struct TestChainConfig {
     /// Optional original BLS-normal committee custody, ordered canonically before signing genesis.
     /// The signed genesis validator rules still reject invalid committee sizes or keys.
     pub validator_keys: Option<Vec<KeyPair>>,
+    /// Register the fixture clock through its signed genesis instead of initial World.
+    /// Recovery tests use this with an empty World so all business rows are carried
+    /// by canonical signed inputs, just as in production startup.
+    pub clock_bootstrap_in_genesis: bool,
     /// Instructions of the genesis's ordinary transaction.
     pub genesis_instructions: Vec<InstructionBox>,
     /// Explicit parameters carried by the authoritative signed genesis snapshot.
@@ -187,6 +196,7 @@ impl TestChainConfig {
             world,
             genesis_key: KeyPair::from_seed(vec![0xCE; 32], Algorithm::Ed25519),
             validator_keys: None,
+            clock_bootstrap_in_genesis: false,
             genesis_instructions: Vec::new(),
             genesis_parameters: Vec::new(),
             consensus_mode: SumeragiConsensusMode::Permissioned,
@@ -358,8 +368,9 @@ impl CertifiedTestChain {
             mut world,
             genesis_key,
             validator_keys,
-            genesis_instructions,
-            genesis_parameters,
+            clock_bootstrap_in_genesis,
+            mut genesis_instructions,
+            mut genesis_parameters,
             consensus_mode,
             root_scope,
             genesis_time_ms,
@@ -382,6 +393,14 @@ impl CertifiedTestChain {
             world.insert_domain_for_testing(domain_id, domain);
         }
         for account in [&genesis_account, &clock_account] {
+            if clock_bootstrap_in_genesis && account == &clock_account {
+                genesis_instructions.insert(
+                    0,
+                    iroha_data_model::isi::Register::account(Account::new(clock_account.clone()))
+                        .into(),
+                );
+                continue;
+            }
             if world.accounts.view().get(account).is_none() {
                 let (id, value) = Account::new(account.clone())
                     .build(account)
@@ -401,6 +420,45 @@ impl CertifiedTestChain {
                 )
             })
             .collect::<Vec<_>>();
+        // Fixture authoring is explicit: chosen rates become original signed H1 bytes.
+        // Runtime State capture never reads this authoring input as a fee fallback.
+        let fee_id = iroha_data_model::block::consensus::RootFeePolicy::parameter_id();
+        if !genesis_parameters.iter().any(|parameter| {
+            matches!(parameter,
+            Parameter::Custom(custom) if custom.id() == &fee_id)
+        }) {
+            let authored = world
+                .parameters
+                .view()
+                .get()
+                .root_fees()
+                .cloned()
+                .or_else(|| nexus.as_ref().map(|nexus| nexus.fees.clone()))
+                .unwrap_or_else(|| {
+                    let mut fees =
+                        iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+                    if let Some(npos) = genesis_parameters.iter().find_map(|parameter| {
+                        let Parameter::Custom(custom) = parameter else {
+                            return None;
+                        };
+                        SumeragiNposParameters::from_custom_parameter(custom)
+                            .ok()
+                            .flatten()
+                    }) {
+                        fees.fee_asset_id = npos.xor_asset_definition_id;
+                    }
+                    fees.base_fee = Quantity::zero();
+                    fees.per_byte_fee = Quantity::zero();
+                    fees.per_instruction_fee = Quantity::zero();
+                    fees.per_gas_unit_fee = Quantity::zero();
+                    fees
+                });
+            genesis_parameters.push(Parameter::Custom(
+                authored
+                    .into_custom_parameter()
+                    .expect("fixture authors the complete root fee policy"),
+            ));
+        }
         let (genesis, manifest) = match build_genesis(
             &chain_id,
             &genesis_key,

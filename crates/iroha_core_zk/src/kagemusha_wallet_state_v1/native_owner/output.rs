@@ -74,6 +74,35 @@ fn released_output(step: &ReleasedStep) -> Result<NativeReleasedOutputV1, Error>
     })
 }
 
+// The native wrapper and fault tests share this exact custody/read bracket. This helper
+// installs no owner and performs no preparation, signing or proof generation.
+fn released_operation_output<C: Custody, A: ArchiveStore, N: NativeProofs>(
+    wallet: &mut Coordinator<C, A, N>,
+    operation: &[u8; 32],
+) -> Result<NativeReleasedOutputV1, Error> {
+    if *operation == [0; 32] {
+        return Err(Error::Invalid("output operation identity"));
+    }
+    let selected = wallet.status()?;
+    let retained = match wallet.custody.lookup(operation)? {
+        Lookup::Retained(value) => value,
+        Lookup::SelectedUnsigned { .. } => return Err(Error::Pending),
+        Lookup::Archived(_) => return Err(Error::Collected),
+        Lookup::DeliveryDataLoss => return Err(Error::WitnessLost("released output lost")),
+        Lookup::Unknown => return Err(Error::Invalid("unknown output operation")),
+    };
+    let step = wallet.checked_step(retained.capsule_digest)?;
+    if step.retained != *retained || step.retained.operation_id != *operation {
+        return Err(Error::WitnessLost("released output changed"));
+    }
+    let value = released_output(&step)?;
+    wallet.require_retained_output(operation, &retained)?;
+    if wallet.status()? != selected {
+        return Err(Error::WitnessLost("output custody changed"));
+    }
+    Ok(value)
+}
+
 // A selected, unfinished transition still owns the exact admitted account and asset.
 // Reading this immutable DATA neither releases its output nor permits a new operation.
 fn metadata_custody(
@@ -146,26 +175,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         &mut self,
         operation: &[u8; 32],
     ) -> Result<NativeReleasedOutputV1, Error> {
-        if *operation == [0; 32] {
-            return Err(Error::Invalid("output operation identity"));
-        }
-        let selected = self.status()?;
-        let retained = match self.custody.lookup(operation)? {
-            Lookup::Retained(value) => value,
-            Lookup::SelectedUnsigned { .. } => return Err(Error::Pending),
-            Lookup::Archived(_) => return Err(Error::Collected),
-            Lookup::DeliveryDataLoss => return Err(Error::WitnessLost("released output lost")),
-            Lookup::Unknown => return Err(Error::Invalid("unknown output operation")),
-        };
-        let step = self.checked_step(retained.capsule_digest)?;
-        if step.retained != *retained || step.retained.operation_id != *operation {
-            return Err(Error::WitnessLost("released output changed"));
-        }
-        let value = released_output(&step)?;
-        if self.status()? != selected {
-            return Err(Error::WitnessLost("output custody changed"));
-        }
-        Ok(value)
+        released_operation_output(self, operation)
     }
 
     /// Resolve the durable local retry mapping, then read its actual retained Native operation.
@@ -242,6 +252,52 @@ mod tests {
             },
         }
     }
+    #[test]
+    fn released_operation_requires_selected_bytes_even_for_another_valid_receipt() {
+        use crate::kagemusha_wallet_state_v1::tests::{
+            alternate_retained_completion, bootstrap, field, frozen, wallet,
+        };
+
+        let mut wallet = wallet();
+        let boot = bootstrap();
+        wallet.commit(boot.clone()).unwrap();
+        wallet
+            .commit(frozen(
+                Some(&boot),
+                KagemushaWalletEffectV1::Load {
+                    load_ordinal: 0,
+                    receipt_digest: field(114),
+                    amount: 1,
+                    online_charge: 0,
+                },
+            ))
+            .unwrap();
+        let operation = boot.capsule.body().operation_id;
+        let exact = released_operation_output(&mut wallet, &operation).unwrap();
+        let Lookup::Retained(original) = wallet.custody.lookup(&operation).unwrap() else {
+            panic!("retained Bootstrap");
+        };
+        let signatures = wallet.custody.signatures;
+        let selected = wallet.manifest().unwrap().0;
+        let alternate = alternate_retained_completion(&boot, &original);
+        wallet.custody.replace_retained(alternate);
+        // Frozen-capsule verification still succeeds; the output boundary must additionally
+        // enforce the exact completion selected by the authenticated historical StepEntry.
+        let step = wallet.checked_step(boot.capsule.custody_digest()).unwrap();
+        assert_ne!(released_output(&step).unwrap().original, exact.original);
+        assert!(matches!(
+            released_operation_output(&mut wallet, &operation),
+            Err(Error::WitnessLost("retry selected completion binding"))
+        ));
+        wallet.custody.replace_retained(*original);
+        assert_eq!(
+            released_operation_output(&mut wallet, &operation).unwrap(),
+            exact
+        );
+        assert_eq!(wallet.custody.signatures, signatures);
+        assert_eq!(wallet.manifest().unwrap().0, selected);
+    }
+
     #[test]
     fn receive_peer_projection_uses_exact_verified_retained_package() {
         let step = received();

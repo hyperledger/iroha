@@ -12,6 +12,7 @@ mod verified;
 pub use operation::{
     PrivateSettlementError, PrivateSettlementOperation, PrivateSettlementRecovery,
     PrivateSettlementRequest, PrivateSettlementResult, PrivateSettlementRunOptions,
+    run_private_settlement_worker,
 };
 pub use verified::{PrivateSettlementReceiptError, VerifiedPrivateSettlementReceipt};
 
@@ -54,7 +55,8 @@ use iroha_torii_shared::private_settlement_api::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-const PRIVATE_SETTLEMENT_RESPONSE_MAX_BYTES_V1: usize = 32 * 1024 * 1024;
+/// Maximum decoded HTTP response size for private-settlement certificate and carrier reads.
+pub const PRIVATE_SETTLEMENT_RESPONSE_MAX_BYTES_V1: usize = 32 * 1024 * 1024;
 
 // Diagnostic values are closed local categories or recognized public codes.
 // Never retain the request URL, headers, body, or arbitrary transport/server text.
@@ -357,7 +359,13 @@ fn validate_private_settlement_endpoint_v1(endpoint: &Url) -> Result<()> {
     Ok(())
 }
 
-fn validate_private_settlement_committee_endpoints_v1(endpoints: &[Url]) -> Result<()> {
+/// Require four distinct canonical HTTP(S) base URLs for a settlement committee.
+/// Endpoint order must be supplied separately in the authenticated roster order.
+///
+/// # Errors
+/// Rejects credentials, query/fragment components, non-base URLs, missing trailing
+/// slashes, unsupported schemes, duplicates and any committee size other than four.
+pub fn validate_private_settlement_committee_endpoints_v1(endpoints: &[Url]) -> Result<()> {
     for endpoint in endpoints {
         validate_private_settlement_endpoint_v1(endpoint)?;
     }
@@ -3301,15 +3309,11 @@ mod tests {
     use crate::client::evidence_http_tests::{
         SnapshotStore, base_url, client_with_base_url, respond_with, with_mock_http,
     };
-    use iroha_data_model::{
-        nexus::{PrivateSettlementLegCommitmentV1, PrivateSettlementRouteV1},
-        privacy::{
-            PRIVACY_IVM_PRIVATE_ENCRYPTED_OUTPUT_BYTES_V1, PrivacyCommitmentV1,
-            PrivacyEncryptedOutputV1, PrivacyEncryptionKeyV1, PrivacyNullifierV1, PrivacyPoolIdV1,
-            PrivacyRecipientIdV1, PrivacyRootV1,
-        },
-    };
+    use iroha_data_model::nexus::PrivateSettlementRouteV1;
     use iroha_model_base::{topology::DataSpaceId, topology::LaneId};
+    use iroha_test_samples::private_settlement::{
+        availability_material_fixture_v1, finalization_authority_v1, finalization_manifest_v1,
+    };
     use std::{
         num::NonZeroU64,
         sync::{Arc, Mutex},
@@ -3404,7 +3408,7 @@ mod tests {
         // through the existing client-owned mock transport, without a network.
         for case in 0..7 {
             let client = client_with_base_url(base_url());
-            let (manifest, _) = finalization_manifest_v1(&client);
+            let (manifest, _) = finalization_manifest_v1(&client.network_id, &client.account);
             let (authority, keys) = finalization_authority_v1(manifest.legs[0].route, 0);
             let payload_digest = manifest.legs[0].payload_digest;
             let body = expected_phase_body_v1(
@@ -4134,188 +4138,13 @@ mod tests {
             .collect()
     }
 
-    fn finalization_route_v1(index: usize) -> PrivateSettlementRouteV1 {
-        let dataspace = u64::try_from(index + 41).expect("fixture dataspace fits u64");
-        PrivateSettlementRouteV1 {
-            dataspace_id: DataSpaceId::new(dataspace),
-            lane_id: LaneId::new(u32::try_from(index + 11).expect("fixture lane fits u32")),
-            lane_incarnation: Hash::new_from_chunks(&[
-                b"client-finalization-route-v1",
-                &dataspace.to_le_bytes(),
-            ]),
-        }
-    }
-
-    pub(super) fn finalization_authority_v1(
-        route: PrivateSettlementRouteV1,
-        ordinal: u8,
-    ) -> (
-        PrivateSettlementCommitteeAuthorityV1,
-        Vec<iroha_crypto::KeyPair>,
-    ) {
-        let keys = (0_u8..4)
-            .map(|index| {
-                iroha_crypto::KeyPair::from_seed(
-                    vec![0x90_u8.saturating_add(ordinal * 4).saturating_add(index); 32],
-                    Algorithm::BlsNormal,
-                )
-            })
-            .collect::<Vec<_>>();
-        let validators = keys
-            .iter()
-            .map(|key| iroha_model_base::peer::PeerId::from(key.public_key().clone()))
-            .collect::<Vec<_>>();
-        let authority = PrivateSettlementCommitteeAuthorityV1 {
-            route,
-            validator_set_hash: iroha_crypto::HashOf::new(&validators),
-            validators,
-            validator_pops: keys
-                .iter()
-                .map(|key| {
-                    iroha_crypto::bls_normal_pop_prove(key.private_key())
-                        .expect("finalization fixture validator PoP")
-                })
-                .collect(),
-        };
-        (authority, keys)
-    }
-
-    pub(super) fn finalization_delta_v1(
-        manifest: &AtomicPrivateSettlementV1,
-        index: usize,
-    ) -> PrivateSettlementDeltaV1 {
-        let leg = &manifest.legs[index];
-        let base = 0x20_u8.saturating_add(
-            u8::try_from(index)
-                .expect("fixture index fits u8")
-                .saturating_mul(16),
-        );
-        let output_commitments = (0_u8..3)
-            .map(|slot| PrivacyCommitmentV1::new([base.saturating_add(slot); 32]))
-            .collect::<Vec<_>>();
-        let encrypted_outputs = output_commitments
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(slot, commitment)| {
-                let slot = u8::try_from(slot).expect("fixture slot fits u8");
-                let seed = base.saturating_add(8).saturating_add(slot);
-                let mut ciphertext = vec![seed; PRIVACY_IVM_PRIVATE_ENCRYPTED_OUTPUT_BYTES_V1];
-                ciphertext[..4].copy_from_slice(b"IPNE");
-                PrivacyEncryptedOutputV1 {
-                    recipient: PrivacyRecipientIdV1::new([seed; 32]),
-                    ephemeral_public_key: PrivacyEncryptionKeyV1::new([seed.saturating_add(1); 32]),
-                    commitment,
-                    ciphertext,
-                }
-            })
-            .collect::<Vec<_>>();
-        let delta = PrivateSettlementDeltaV1 {
-            version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
-            bundle_id: manifest.bundle_id,
-            leg_ordinal: leg.ordinal,
-            route: leg.route,
-            pool_id: leg.pool_id,
-            asset_binding_commitment: leg.asset_binding_commitment,
-            old_root: PrivacyRootV1::new([base.saturating_add(11); 32]),
-            new_root: PrivacyRootV1::new([base.saturating_add(12); 32]),
-            old_epoch: 7,
-            new_epoch: 8,
-            nullifiers: vec![
-                PrivacyNullifierV1::new([base.saturating_add(13); 32]),
-                PrivacyNullifierV1::new([base.saturating_add(14); 32]),
-            ],
-            output_commitments,
-            encrypted_outputs,
-            statement_digest: Hash::new_from_chunks(&[
-                b"client-finalization-statement-v1",
-                &[leg.ordinal],
-            ]),
-            proof_digest: Hash::new_from_chunks(&[b"client-finalization-proof-v1", &[leg.ordinal]]),
-            capsule_digest: Hash::new_from_chunks(&[
-                b"client-finalization-capsule-v1",
-                &[leg.ordinal],
-            ]),
-            audit_policy_digest: leg.audit_policy_digest,
-            audit_key_epoch: 3,
-        };
-        delta
-            .validate_public_shape()
-            .expect("finalization fixture delta validates");
-        delta
-    }
-
-    fn finalization_manifest_v1(
-        client: &Client,
-    ) -> (AtomicPrivateSettlementV1, Vec<PrivateSettlementDeltaV1>) {
-        let mut manifest = AtomicPrivateSettlementV1 {
-            version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
-            network_id: client.network_id,
-            bundle_id: Hash::new(b"client-finalization-bundle-placeholder"),
-            authority_context_height: 10,
-            expiry_height: 100,
-            sponsor: client.account.clone(),
-            public_fee_intent: FeePaymentIntent::authority(Vec::new(), None),
-            fee_intent_digest: Hash::new(b"client-finalization-fee-placeholder"),
-            reimbursement_terms_commitment: Hash::new(b"client-finalization-reimbursement-terms"),
-            reimbursement_leg_ordinal: 0,
-            legs: (0_usize..2)
-                .map(|index| {
-                    let ordinal = u8::try_from(index).expect("fixture ordinal fits u8");
-                    PrivateSettlementLegCommitmentV1 {
-                        ordinal,
-                        route: finalization_route_v1(index),
-                        pool_id: PrivacyPoolIdV1::new([0x11_u8.saturating_add(ordinal); 32]),
-                        asset_binding_commitment: Hash::new_from_chunks(&[
-                            b"client-finalization-asset-v1",
-                            &[ordinal],
-                        ]),
-                        audit_policy_digest: Hash::new_from_chunks(&[
-                            b"client-finalization-policy-v1",
-                            &[ordinal],
-                        ]),
-                        payload_digest: Hash::new_from_chunks(&[
-                            b"client-finalization-payload-v1",
-                            &[ordinal],
-                        ]),
-                        availability_certificate_digest: Hash::new_from_chunks(&[
-                            b"client-finalization-availability-v1",
-                            &[ordinal],
-                        ]),
-                        delta_digest: Hash::new_from_chunks(&[
-                            b"client-finalization-delta-placeholder-v1",
-                            &[ordinal],
-                        ]),
-                    }
-                })
-                .collect(),
-        };
-        manifest.fee_intent_digest = manifest
-            .computed_fee_intent_digest()
-            .expect("finalization fixture fee hashes");
-        manifest.bundle_id = manifest
-            .computed_bundle_id()
-            .expect("finalization fixture bundle hashes");
-        let deltas = (0..manifest.legs.len())
-            .map(|index| finalization_delta_v1(&manifest, index))
-            .collect::<Vec<_>>();
-        for (leg, delta) in manifest.legs.iter_mut().zip(&deltas) {
-            leg.delta_digest = delta.digest().expect("finalization fixture delta hashes");
-        }
-        manifest
-            .validate()
-            .expect("finalization fixture manifest validates");
-
-        (manifest, deltas)
-    }
-
     fn finalization_fixture_v1(
         client: &Client,
     ) -> (
         PrivateSettlementPrepareBarrierV1,
         Vec<PrivateSettlementPhaseCertificateV1>,
     ) {
-        let (manifest, deltas) = finalization_manifest_v1(client);
+        let (manifest, deltas) = finalization_manifest_v1(&client.network_id, &client.account);
         let authority_material = manifest
             .legs
             .iter()
@@ -5245,177 +5074,6 @@ mod tests {
         }
     }
 
-    // Structural fixture for the public availability request/certifier:
-    // it uses opaque proof/capsule bytes, real committee keys/PoPs/signatures and the
-    // real material validator. It neither generates nor verifies a native proof.
-    // Binding order follows Core sidecar_store::provisional_material_fixture;
-    // padded opaque capsule shape follows torii_shared's response-validation fixture.
-    pub(super) fn availability_material_fixture_v1(
-        client: &Client,
-    ) -> (
-        PrivateSettlementProvisionalLegMaterialV1,
-        Vec<PrivateSettlementAvailabilityShareV1>,
-    ) {
-        use iroha_data_model::nexus::{
-            PRIVATE_SETTLEMENT_ML_KEM_768_CIPHERTEXT_BYTES_V1,
-            PRIVATE_SETTLEMENT_WRAPPED_DEK_BYTES_V1, PrivateSettlementAuditAadV1,
-            PrivateSettlementAuditCapsuleV1, PrivateSettlementAuditPolicyBodyV1,
-            PrivateSettlementAuditPolicyV1, PrivateSettlementAuditorV1,
-            PrivateSettlementCapsulePaddingV1, PrivateSettlementHybridPublicKeyV1,
-            PrivateSettlementProofProfileV1, PrivateSettlementProofStatementV1,
-            PrivateSettlementWrappedDekV1,
-        };
-        let (mut manifest, _) = finalization_manifest_v1(client);
-        let route = manifest.legs[0].route;
-        let (authority, keys) = finalization_authority_v1(route, 0);
-        let auditor = KeyPair::from_seed(vec![0xE1; 32], Algorithm::Ed25519);
-        let auditor_id = AccountId::new(auditor.public_key().clone());
-        let mut rng = iroha_crypto::rng_from_seed_slice(b"client availability fixture auditor");
-        let hybrid = iroha_crypto::HybridKeyPair::generate(&mut rng).expect("fixture hybrid key");
-        let policy = PrivateSettlementAuditPolicyV1::new(PrivateSettlementAuditPolicyBodyV1 {
-            version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
-            dataspace_id: route.dataspace_id,
-            policy_id: Hash::new(b"client availability fixture policy"),
-            revision: 1,
-            key_epoch: 3,
-            activation_height: 5,
-            retirement_height: None,
-            min_approvals: 1,
-            auditors: vec![PrivateSettlementAuditorV1 {
-                auditor_id: auditor_id.clone(),
-                signing_key: auditor.public_key().clone(),
-                encryption_key: PrivateSettlementHybridPublicKeyV1::from_hybrid(hybrid.public()),
-            }],
-        })
-        .expect("fixture audit policy");
-        manifest.legs[0].audit_policy_digest = policy.policy_digest;
-        for leg in &mut manifest.legs {
-            leg.availability_certificate_digest = Hash::prehashed([0; Hash::LENGTH]);
-        }
-        manifest.bundle_id = manifest.computed_bundle_id().expect("fixture bundle id");
-        for index in 0..manifest.legs.len() {
-            let digest = finalization_delta_v1(&manifest, index)
-                .digest()
-                .expect("fixture delta digest");
-            manifest.legs[index].delta_digest = digest;
-        }
-        let mut delta = finalization_delta_v1(&manifest, 0);
-        let authority_digest = authority.digest().expect("fixture authority digest");
-        let plaintext_commitment = Hash::new(b"client availability fixture plaintext");
-        let padding = PrivateSettlementCapsulePaddingV1::KiB4;
-        let audit_capsule = PrivateSettlementAuditCapsuleV1 {
-            version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
-            aad: PrivateSettlementAuditAadV1 {
-                network_id: manifest.network_id,
-                bundle_id: manifest.bundle_id,
-                leg_ordinal: 0,
-                route,
-                authority_digest,
-                authority_context_height: manifest.authority_context_height,
-                audit_policy_digest: policy.policy_digest,
-                audit_key_epoch: policy.body.key_epoch,
-                plaintext_commitment,
-            },
-            padding,
-            nonce: [0xE2; 24],
-            ciphertext: vec![0xE3; padding.ciphertext_bytes()],
-            wrapped_deks: vec![PrivateSettlementWrappedDekV1 {
-                auditor_id,
-                ephemeral_x25519: [0xE4; 32],
-                ml_kem_ciphertext: vec![0xE5; PRIVATE_SETTLEMENT_ML_KEM_768_CIPHERTEXT_BYTES_V1],
-                nonce: [0xE6; 24],
-                wrapped_dek: vec![0xE7; PRIVATE_SETTLEMENT_WRAPPED_DEK_BYTES_V1],
-            }],
-        };
-        let profile = PrivateSettlementProofProfileV1::IvmPrivateNoteFixed2In3Out;
-        let statement = PrivateSettlementProofStatementV1 {
-            version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
-            profile,
-            proof_profile_digest: profile.digest(),
-            network_id: manifest.network_id,
-            bundle_id: manifest.bundle_id,
-            leg_ordinal: 0,
-            route,
-            authority_context_height: manifest.authority_context_height,
-            pool_id: delta.pool_id,
-            asset_binding_commitment: delta.asset_binding_commitment,
-            old_root: delta.old_root,
-            new_root: delta.new_root,
-            old_epoch: delta.old_epoch,
-            new_epoch: delta.new_epoch,
-            nullifiers: delta.nullifiers.clone(),
-            output_commitments: delta.output_commitments.clone(),
-            encrypted_outputs: delta.encrypted_outputs.clone(),
-            audit_plaintext_commitment: plaintext_commitment,
-            audit_input_commitment: [0xE8; 32],
-            audit_capsule_digest: audit_capsule.digest().expect("fixture capsule digest"),
-            audit_policy_digest: policy.policy_digest,
-            audit_key_epoch: policy.body.key_epoch,
-            fee_intent_digest: manifest.fee_intent_digest,
-            reimbursement_terms_commitment: manifest.reimbursement_terms_commitment,
-            reimbursement_leg_ordinal: manifest.reimbursement_leg_ordinal,
-            expiry_height: manifest.expiry_height,
-        };
-        let proof = b"availability-request-proof-canary".to_vec();
-        delta.statement_digest = statement.digest().expect("fixture statement digest");
-        delta.proof_digest = iroha_data_model::nexus::private_settlement_proof_digest_v1(&proof);
-        delta.capsule_digest = statement.audit_capsule_digest;
-        manifest.legs[0].delta_digest = delta.digest().expect("fixture bound delta digest");
-        let availability_body = PrivateSettlementSidecarAvailabilityBodyV1 {
-            version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
-            network_id: manifest.network_id,
-            bundle_id: manifest.bundle_id,
-            leg_ordinal: 0,
-            route,
-            authority_digest,
-            authority_context_height: manifest.authority_context_height,
-            payload_digest: Hash::new(b"client availability fixture provisional digest"),
-            payload_bytes: 1,
-            retention_until_height: manifest.expiry_height,
-        };
-        let mut material = PrivateSettlementProvisionalLegMaterialV1 {
-            version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
-            manifest,
-            audit_policy: policy,
-            committee_authority: authority,
-            statement,
-            proof,
-            delta,
-            audit_capsule,
-            availability_body,
-        };
-        let payload_digest = material.payload_digest().expect("fixture payload digest");
-        material.manifest.legs[0].payload_digest = payload_digest;
-        material.availability_body.payload_digest = payload_digest;
-        material.availability_body.payload_bytes = u32::try_from(
-            material
-                .sidecar_material_bytes_len()
-                .expect("fixture material size"),
-        )
-        .expect("fixture size fits u32");
-        material
-            .validate()
-            .expect("complete provisional material must validate");
-        let preimage = material
-            .availability_body
-            .signature_preimage()
-            .expect("fixture preimage");
-        let shares = keys
-            .iter()
-            .enumerate()
-            .map(|(index, key)| PrivateSettlementAvailabilityShareV1 {
-                version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
-                body: material.availability_body,
-                signer: material.committee_authority.validators[index].clone(),
-                signature: Signature::try_new(key.private_key(), &preimage)
-                    .expect("fixture availability signature")
-                    .payload()
-                    .to_vec(),
-            })
-            .collect();
-        (material, shares)
-    }
-
     pub(super) fn availability_endpoints_fixture_v1() -> Vec<Url> {
         (0..4)
             .map(|index| {
@@ -5428,7 +5086,7 @@ mod tests {
     fn availability_public_certifier_retains_all_four_http_rejections_without_private_text() {
         const CANARY: &str = "availability-response-auth-capsule-canary";
         let client = client_with_base_url(base_url());
-        let (material, _) = availability_material_fixture_v1(&client);
+        let (material, _) = availability_material_fixture_v1(&client.network_id, &client.account);
         let endpoints = availability_endpoints_fixture_v1();
         let snapshots: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
         let response = Response::builder()
@@ -5475,7 +5133,8 @@ mod tests {
     #[test]
     fn availability_public_certifier_tolerates_one_http_failure_and_verifies_three_real_shares() {
         let client = client_with_base_url(base_url());
-        let (material, shares) = availability_material_fixture_v1(&client);
+        let (material, shares) =
+            availability_material_fixture_v1(&client.network_id, &client.account);
         let endpoints = availability_endpoints_fixture_v1();
         let expected = aggregate_availability_shares_v1(
             material.availability_body,

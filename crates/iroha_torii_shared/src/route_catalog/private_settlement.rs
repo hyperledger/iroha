@@ -124,6 +124,22 @@ const fn test_network_diagnostic_get(id: &'static str, path: &'static str) -> Ro
     .with_private_no_store()
 }
 
+/// Authenticate public pool, native assignment and key originals at the requested current cut.
+pub const CONTEXT: RouteDescriptor = RouteDescriptor::new(
+    "private_settlement.context",
+    HttpMethod::Post,
+    "/v1/nexus/private-settlements/context/{height}",
+    ApiSurface::Public,
+    Listener::Torii,
+    RouteEffect::ReadOnly,
+    AdmissionPolicy::AuthenticatedAccount,
+)
+.with_authentication(AuthenticationPolicy::CanonicalAccountSignature)
+.with_feature_gate(FeatureGate::Feature("app_api"))
+.with_projections(RouteProjections::OPENAPI_AND_SDK)
+.with_private_no_store()
+.with_cors_options(true);
+
 /// Upload one complete encrypted leg through restricted confidential DA.
 pub const LEG_UPLOAD: RouteDescriptor = account_post(
     "private_settlement.leg.upload",
@@ -202,6 +218,7 @@ pub const TEST_NETWORK_STATE_COMMITMENT: RouteDescriptor = test_network_diagnost
 
 /// Complete atomic-private-settlement Torii route family.
 pub const ROUTES: &[RouteDescriptor] = &[
+    CONTEXT,
     AVAILABILITY_SHARE,
     PREPARE_VOTE,
     COMMIT_VOTE,
@@ -264,6 +281,7 @@ mod tests {
     #[test]
     fn restricted_routes_require_exact_principals_and_no_store() {
         for route in [
+            CONTEXT,
             AVAILABILITY_SHARE,
             PREPARE_VOTE,
             COMMIT_VOTE,

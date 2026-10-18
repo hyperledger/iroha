@@ -6,7 +6,7 @@ use iroha_crypto::{ExposedPrivateKey, KeyPair, PublicKey};
 use iroha_data_model::{
     NetworkId,
     account::{Account, AccountId},
-    asset::{AssetDefinitionId, AssetId},
+    asset::AssetId,
     isi::{Mint, Register},
     parameter::system::{Parameters, SumeragiNposParameters},
     role::Role,
@@ -47,6 +47,20 @@ pub(super) struct Prepared {
 // independently configured public dataspace, without a second network ceremony.
 fn routed_account_and_snapshot_config(directory: &Path, manifest: &Path) -> Result<PathBuf> {
     let _profile = iroha_data_model::account::address::ChainDiscriminantGuard::enter(369);
+    let source = RawGenesisTransaction::from_path(directory.join("genesis.json"))?;
+    let public_key: PublicKey = fs::read_to_string(directory.join("genesis.public_key"))?
+        .trim()
+        .parse()?;
+    let network: NetworkId = fs::read_to_string(directory.join("genesis.expected_hash"))?
+        .trim()
+        .parse()?;
+    let signed = validate_prepared_genesis_bundle(
+        &iroha_genesis::read_signed_genesis_bytes(&directory.join("genesis.signed.nrt"))?,
+        &source,
+        &public_key,
+        network.into_genesis_hash(),
+    )?;
+    let fee_asset = iroha_genesis::signed_genesis_root_fee_policy(signed.block())?.fee_asset_id;
     let key = KeyPair::try_random()?;
     let account = AccountId::new(key.public_key().clone());
     let authority = account.to_i105_for_discriminant(369)?;
@@ -80,7 +94,6 @@ fn routed_account_and_snapshot_config(directory: &Path, manifest: &Path) -> Resu
         .open(&client_path)?;
     file.write_all(toml::to_string(&client)?.as_bytes())?;
     file.sync_all()?;
-    let mut fee_asset = None;
     for index in 0..4 {
         let path = directory.join(format!("peer{index}.toml"));
         let mut config: toml::Table = fs::read_to_string(&path)?.parse()?;
@@ -88,17 +101,10 @@ fn routed_account_and_snapshot_config(directory: &Path, manifest: &Path) -> Resu
             .get_mut("nexus")
             .and_then(toml::Value::as_table_mut)
             .ok_or_else(|| eyre!("missing Nexus fixture config"))?;
-        let asset = nexus
-            .get("fees")
-            .and_then(|v| v.get("fee_asset_id"))
-            .and_then(toml::Value::as_str)
-            .ok_or_else(|| eyre!("missing explicit fixture fee asset"))?;
-        let asset = AssetDefinitionId::parse_address_literal(asset)?;
-        if let Some(expected) = &fee_asset {
-            ensure!(expected == &asset, "peer fee assets differ");
-        } else {
-            fee_asset = Some(asset);
-        }
+        ensure!(
+            nexus.get("fees").is_none(),
+            "generated peer cannot override the original signed monetary policy"
+        );
         let rules = nexus
             .get_mut("routing_policy")
             .and_then(|v| v.get_mut("rules"))
@@ -150,13 +156,13 @@ fn routed_account_and_snapshot_config(directory: &Path, manifest: &Path) -> Resu
     .into();
     // Resolve native resource paths at their original source before deriving
     // a separate manifest; preserve the localnet raw/signed/identity bundle.
-    let raw = RawGenesisTransaction::from_path(directory.join("genesis.json"))?
+    let raw = source
         .into_builder()
         .next_transaction()
         .append_instruction(Register::account(Account::new(account.clone())))
         .append_instruction(Mint::asset_quantity(
             iroha_primitives::numeric::Quantity::from(25_000_u32),
-            AssetId::new(fee_asset.ok_or_else(|| eyre!("no fee asset"))?, account),
+            AssetId::new(fee_asset, account),
         ))
         .append_instruction(Register::role(
             Role::new("runtime_catalog_resolution_delegate".parse()?, writer)

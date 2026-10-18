@@ -238,6 +238,25 @@ fn verified_claim_box_is_exactly_funded_refunds_late_refusal_and_retries() {
     )
     .unwrap();
     assert_eq!(scratch.reserved_bytes(), 0);
+    let copy_pool = AllocationBudget::new(1 << 20);
+    let copy_error = norito::core::with_decode_limits_scope(
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+        || prepare_claim(&verified, verified.qc().signers, &copy_pool),
+    )
+    .err()
+    .expect("actual nested account copy must retain the original enclosing refusal");
+    let Preparation::DecodeResource(original) = copy_error else {
+        panic!("original nested account-copy refusal: {copy_error:?}");
+    };
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeLocalRefusalKind::EnclosingLimit
+    );
+    assert_eq!(
+        copy_pool.reserved_bytes(),
+        0,
+        "partial claim refunds its graph"
+    );
     let count = usize::try_from(verified.qc().signers.count_ones()).unwrap();
     let mut account_bytes = 0;
     let mut account_allocations = 0;
@@ -313,4 +332,45 @@ fn verified_claim_box_is_exactly_funded_refunds_late_refusal_and_retries() {
         "last owner refunds the complete original graph"
     );
     assert_eq!(scratch.reserved_bytes(), 0);
+}
+
+#[test]
+fn sccp_record_decode_adapter_keeps_original_counter_and_rejects_replayed_diagnostics() {
+    use norito::core::{
+        DecodeLimits, DecodeLocalRefusalKind, reserve_decode_allocation, with_decode_limits_scope,
+    };
+    let limits = DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    let fail = || {
+        with_decode_limits_scope(limits, || decode(|| reserve_decode_allocation(1))).unwrap_err()
+    };
+    let Preparation::DecodeResource(original) = fail() else {
+        panic!("original enclosing scope");
+    };
+    assert_eq!(original.kind(), DecodeLocalRefusalKind::EnclosingLimit);
+    let Preparation::DecodeResource(separate) = fail() else {
+        panic!("separate enclosing scope");
+    };
+    assert_eq!(original.resource_error(), separate.resource_error());
+    assert_ne!(
+        original, separate,
+        "equal numeric bounds are distinct counter owners"
+    );
+    let diagnostic = original.resource_error();
+    assert_eq!(
+        decode(|| Err::<(), _>(original.into_error())),
+        Err(Preparation::Invariant)
+    );
+    assert_eq!(
+        decode(|| Err::<(), _>(norito::core::Error::from(diagnostic))),
+        Err(Preparation::Invariant)
+    );
+    assert_eq!(
+        decode(|| with_decode_limits_scope(limits, || reserve_decode_allocation(1))),
+        Err(Preparation::Invariant)
+    );
+    assert_eq!(
+        decode(|| Err::<(), _>(norito::core::Error::InvalidMagic)),
+        Err(Preparation::Invariant)
+    );
+    assert_eq!(decode(|| Ok(7)), Ok(7));
 }

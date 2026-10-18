@@ -9,8 +9,9 @@
 //! aggregate file bytes. Full stores refuse new content; no unreferenced-record
 //! inference authorizes deletion. Changing the supplied Config after construction
 //! cannot change the live instance policy.
-//! TODO: connect authenticated reference publication and authority-aware retention
-//! to the qualified compact producer before enabling production use.
+//! Producer records share these exact aggregate count/byte limits and durability barriers.
+//! Their ordered positions form a restart cursor only after fresh source/proof verification.
+//! TODO: authority-aware retention must preserve every unresolved producer record/artifact.
 
 use std::{
     fs::File,
@@ -25,6 +26,8 @@ use super::{BoundProgressNamespace, Error, Kura, KuraInstanceIdentity, Result};
 
 pub(super) const DIRECTORY: &str = "fastpq_artifacts_v1";
 pub(super) const TEMPORARY: &str = "pending.tmp";
+pub(super) const PRODUCER_SUFFIX: &str = ".producer";
+pub(super) const SOURCE_SUFFIX: &str = ".fqs";
 const KIND: &str = "FASTPQ artifact";
 
 /// Untrusted content reference, with no claim about proof validity or durability.
@@ -97,6 +100,29 @@ struct Inventory {
     temporary: bool,
 }
 
+pub(super) fn stable_name(name: &str) -> bool {
+    let hash = if let Some(source) = name.strip_suffix(SOURCE_SUFFIX) {
+        let Some((height, hash)) = source.split_once('-') else {
+            return false;
+        };
+        if height.len() != 20
+            || !height.bytes().all(|c| c.is_ascii_digit())
+            || height.parse::<u64>().ok().is_none_or(|height| height == 0)
+        {
+            return false;
+        }
+        hash
+    } else {
+        name.strip_suffix(".norito")
+            .or_else(|| name.strip_suffix(PRODUCER_SUFFIX))
+            .unwrap_or_default()
+    };
+    hash.len() == Hash::LENGTH * 2
+        && hash
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
 fn invalid(path: impl Into<PathBuf>, message: &'static str) -> Error {
     Error::IO(
         std::io::Error::new(ErrorKind::InvalidData, message),
@@ -105,6 +131,19 @@ fn invalid(path: impl Into<PathBuf>, message: &'static str) -> Error {
 }
 
 impl Kura {
+    /// Construct the existing isolated test store with an immutable artifact policy.
+    #[cfg(test)]
+    pub(crate) fn blank_with_fastpq_artifact_policy_for_testing(
+        policy: KuraFastpqArtifactPolicy,
+    ) -> std::sync::Arc<Self> {
+        policy.validate().expect("valid test artifact policy");
+        let mut kura = Self::blank_kura_for_testing();
+        std::sync::Arc::get_mut(&mut kura)
+            .expect("new isolated test store")
+            .fastpq_artifact_policy = policy;
+        kura
+    }
+
     /// Persist bounded opaque FASTPQ artifact bytes without replacing any existing content.
     ///
     /// This method does not decode or admit compact proofs. Its caller must first verify
@@ -116,9 +155,75 @@ impl Kura {
     /// entries, unavailable Kura mutation authority, insufficient configured Kura capacity
     /// after existing reservations, or any failed durability barrier.
     pub fn persist_fastpq_artifact(&self, bytes: &[u8]) -> Result<FastpqDurableArtifactReceipt> {
+        self.persist_fastpq_object(
+            bytes,
+            &FastpqStoredArtifactReference::for_bytes(bytes).file_name(),
+        )
+    }
+
+    /// Store an immutable source-position record in the same bounded artifact owner.
+    /// The key and bytes remain untrusted; the lane joins them to original source and proof.
+    pub(crate) fn persist_fastpq_producer_record(
+        &self,
+        key: Hash,
+        bytes: &[u8],
+    ) -> Result<FastpqDurableArtifactReceipt> {
+        self.persist_fastpq_object(
+            bytes,
+            &format!("{}{PRODUCER_SUFFIX}", hex::encode(key.as_ref())),
+        )
+    }
+
+    /// Persist optional exact source transport under the same aggregate quota and barriers.
+    /// Native finality and the complete D7 verifier, not this pathname, authenticate it.
+    pub(crate) fn persist_fastpq_source_record(
+        &self,
+        height: u64,
+        carrier: iroha_crypto::HashOf<iroha_data_model::block::BlockHeader>,
+        bytes: &[u8],
+    ) -> Result<FastpqDurableArtifactReceipt> {
+        let name = format!(
+            "{height:020}-{}{SOURCE_SUFFIX}",
+            hex::encode(carrier.as_ref())
+        );
+        self.persist_fastpq_object(bytes, &name)
+    }
+
+    /// Existing aggregate artifact namespace, shared by bounded original source tapes.
+    pub(crate) const fn fastpq_source_namespace() -> &'static str {
+        DIRECTORY
+    }
+
+    /// Same configured complete-object ceiling for source tapes and produced artifacts.
+    pub(crate) fn fastpq_object_max_bytes(&self) -> std::num::NonZeroUsize {
+        self.fastpq_artifact_policy.max_artifact_bytes
+    }
+
+    /// Bind source transport to the original Kura root after its bounded inventory audit.
+    /// Release notifications remain owned here; archive consumers never acquire raw fences.
+    pub(crate) fn fastpq_source_archive_root(&self) -> Result<File> {
+        let mut sidecar_releases = self.sidecar_lock.defer_notifications();
+        let root = self
+            .native_context_archive_root()
+            .map_err(|error| Error::IO(error, self.store_root.clone()))?;
+        self.validate_fastpq_artifact_inventory_on_startup(&mut sidecar_releases)?;
+        Ok(root)
+    }
+
+    fn persist_fastpq_object(
+        &self,
+        bytes: &[u8],
+        name: &str,
+    ) -> Result<FastpqDurableArtifactReceipt> {
         let limits = self.fastpq_artifact_policy;
         let directory = self.store_root.join(DIRECTORY);
         Self::validate_fastpq_artifact_limits(limits, &directory)?;
+        if !stable_name(name) {
+            return Err(invalid(
+                directory,
+                "FASTPQ object name is not a canonical source position",
+            ));
+        }
         if bytes.is_empty() || bytes.len() > limits.max_artifact_bytes.get() {
             return Err(invalid(
                 directory,
@@ -185,7 +290,7 @@ impl Kura {
         } else {
             usage_mutation.resource_batch(0).finish();
         }
-        let path = directory.join(reference.file_name());
+        let path = directory.join(name);
         let publication_child =
             usage_mutation.resource_child(vec![path.clone(), directory.join(TEMPORARY)]);
         let existing = self.read_bound_regular_file_bytes_locked(
@@ -208,7 +313,13 @@ impl Kura {
                     .checked_add(reference.byte_len)
                     .is_none_or(|total| total > limits.max_total_bytes.get())
             {
-                return Err(invalid(path, "FASTPQ artifact storage quota exhausted"));
+                return Err(Error::FastpqArtifactQuota {
+                    stable_count: inventory.stable_count,
+                    retained_bytes: inventory.total_bytes,
+                    incoming_bytes: reference.byte_len,
+                    maximum_records: limits.max_artifacts.get(),
+                    maximum_bytes: limits.max_total_bytes.get(),
+                });
             }
             // This unrelated payload must not consume capacity reserved for
             // pending canonical blocks, terminal outcomes, carrier components
@@ -329,6 +440,60 @@ impl Kura {
         Ok(bytes)
     }
 
+    /// Read one bounded untrusted source-position record without creating an outbox.
+    /// `None` is local exact-path absence, never a negative ledger/proof verdict.
+    pub(crate) fn read_fastpq_producer_record(&self, key: Hash) -> Result<Option<Vec<u8>>> {
+        let directory = self.store_root.join(DIRECTORY);
+        let limits = self.fastpq_artifact_policy;
+        Self::validate_fastpq_artifact_limits(limits, &directory)?;
+        // Producer reads retain the same physical release sources as artifact reads,
+        // including exact-path absence and errors after partial fence acquisition.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC358")))]
+        let (mut prune_releases, mut canonical_releases, mut sidecar_releases) = (
+            self.prune_lock.defer_notifications(),
+            self.canonical_chain_lock.defer_notifications(),
+            self.sidecar_lock.defer_notifications(),
+        );
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC358")))]
+        let _prune_guard = prune_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC358"))]
+        let _prune_guard = self.prune_lock.lock();
+        #[cfg(all(test, unix, not(target_os = "espidf")))]
+        original_release_tests::fence_boundary(1);
+        self.ensure_prune_recovery_not_required()?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC358")))]
+        let _canonical_guard = canonical_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC358"))]
+        let _canonical_guard = self.canonical_chain_lock.lock();
+        #[cfg(all(test, unix, not(target_os = "espidf")))]
+        original_release_tests::fence_boundary(2);
+        self.durable_mutation_authorized()?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC358")))]
+        let _sidecar_guard = sidecar_releases.lock();
+        #[cfg(all(test, sumeragi_core_mutation = "HC358"))]
+        let _sidecar_guard = self.sidecar_lock.lock();
+        #[cfg(all(test, unix, not(target_os = "espidf")))]
+        original_release_tests::fence_boundary(3);
+        self.validate_fastpq_artifact_root()?;
+        // The root remains descriptor-bound. Absence does not skip work: the caller
+        // still authenticates its exact source and produces/verifies the artifact.
+        if self.canonical_sidecar_directory(&directory)?.is_none() {
+            self.validate_fastpq_artifact_root()?;
+            return Ok(None);
+        }
+        let namespace = self.open_fastpq_artifact_namespace(false)?;
+        self.inventory_fastpq_artifacts(&namespace, limits)?;
+        let path = directory.join(format!("{}{PRODUCER_SUFFIX}", hex::encode(key.as_ref())));
+        let result = self.read_bound_regular_file_bytes_locked(
+            &namespace,
+            &path,
+            limits.max_artifact_bytes.get(),
+            KIND,
+        )?;
+        self.validate_fastpq_artifact_root()?;
+        Ok(result)
+    }
+
     fn validate_fastpq_artifact_limits(
         limits: KuraFastpqArtifactPolicy,
         directory: &Path,
@@ -433,16 +598,8 @@ impl Kura {
             };
             let temporary = name == TEMPORARY;
             if !temporary {
-                let hash = name.strip_suffix(".norito").unwrap_or_default();
-                if hash.len() != Hash::LENGTH * 2
-                    || !hash
-                        .bytes()
-                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-                {
-                    return Err(invalid(
-                        path,
-                        "FASTPQ artifact filename is not a lowercase content hash",
-                    ));
+                if !stable_name(name) {
+                    return Err(invalid(path, "FASTPQ object filename is not canonical"));
                 }
                 inventory.stable_count += 1;
                 if inventory.stable_count > limits.max_artifacts.get() {
@@ -1077,6 +1234,143 @@ mod tests {
                 .component_usage_for_tests(ResourceFamily::EvidenceKeyRecords)
                 .unwrap(),
             observed[ResourceFamily::EvidenceKeyRecords as usize]
+        );
+    }
+
+    #[test]
+    fn producer_and_source_share_one_aggregate_outbox_and_retry_identity() {
+        let kura = configured_fixture(limits(8, 2, 8));
+        let key = Hash::new(b"original full position");
+        let carrier = iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(b"carrier"));
+        let first = kura
+            .persist_fastpq_source_record(2, carrier, b"tape")
+            .unwrap();
+        let produced = kura.persist_fastpq_producer_record(key, b"proof");
+        assert!(
+            produced.is_err(),
+            "combined source + artifact exceeds the SAME byte cap"
+        );
+        assert!(kura.read_fastpq_producer_record(key).unwrap().is_none());
+        let produced = kura.persist_fastpq_producer_record(key, b"artf").unwrap();
+        assert!(first.is_from(&kura));
+        assert!(produced.is_from(&kura));
+        assert_eq!(
+            kura.read_fastpq_producer_record(key).unwrap().unwrap(),
+            b"artf"
+        );
+        assert_eq!(
+            kura.persist_fastpq_producer_record(key, b"artf")
+                .unwrap()
+                .reference(),
+            produced.reference()
+        );
+        assert!(kura.persist_fastpq_producer_record(key, b"evil").is_err());
+        assert_eq!(
+            kura.read_fastpq_producer_record(key).unwrap().unwrap(),
+            b"artf"
+        );
+        assert!(
+            kura.persist_fastpq_artifact(b"x").is_err(),
+            "content-addressed attachments share both limits too"
+        );
+        assert!(!kura.store_root.join(DIRECTORY).join(TEMPORARY).exists());
+        kura.validate_fastpq_artifact_inventory_on_startup(
+            &mut kura.sidecar_lock.defer_notifications(),
+        )
+        .unwrap();
+        let counts = observe_actual_physical_fixture(&kura);
+        let evidence = counts[super::super::ResourceFamily::EvidenceKeyRecords as usize];
+        assert!(evidence.persisted_entries >= 2);
+    }
+
+    #[test]
+    fn producer_record_requires_original_durability_barriers_on_every_retry() {
+        let kura = configured_fixture(generous());
+        let key = Hash::new(b"source position");
+        for _ in 0..2 {
+            FAIL_NEXT_FILE_SYNC.with(|flag| flag.set(true));
+            assert!(
+                kura.persist_fastpq_producer_record(key, b"exact artifact")
+                    .is_err()
+            );
+            // Observable bytes are only an advertisement after a failed durability barrier.
+            assert_eq!(
+                kura.read_fastpq_producer_record(key).unwrap().unwrap(),
+                b"exact artifact"
+            );
+        }
+        let receipt = kura
+            .persist_fastpq_producer_record(key, b"exact artifact")
+            .unwrap();
+        assert!(receipt.is_from(&kura));
+        assert_eq!(
+            receipt.reference().digest(),
+            *Hash::new(b"exact artifact").as_ref()
+        );
+        let other = configured_fixture(generous());
+        assert!(!receipt.is_from(&other));
+    }
+
+    #[test]
+    fn canonical_outbox_names_accept_only_exact_source_positions() {
+        let hash = hex::encode(Hash::new(b"position").as_ref());
+        assert!(stable_name(&format!("{hash}.producer")));
+        assert!(stable_name(&format!("00000000000000000002-{hash}.fqs")));
+        for invalid in [
+            format!("00000000000000000000-{hash}.fqs"),
+            format!("2-{hash}.fqs"),
+            format!("00000000000000000002-{}.fqs", hash.to_uppercase()),
+            format!("{hash}.producer.extra"),
+            "cursor.json".into(),
+        ] {
+            assert!(!stable_name(&invalid), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn actual_restart_retains_all_outbox_objects_and_enforces_aggregate_caps() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = actual_config(directory.path(), limits(8, 2, 8));
+        let key = Hash::new(b"complete source");
+        let carrier = iroha_crypto::HashOf::from_untyped_unchecked(Hash::new(b"native carrier"));
+        let (kura, _) = Kura::open_test_kura_with_configured_lane_config(
+            &config,
+            &iroha_config::parameters::actual::LaneConfig::default(),
+        )
+        .unwrap();
+        let source_receipt = kura
+            .persist_fastpq_source_record(2, carrier, b"tape")
+            .unwrap();
+        assert!(source_receipt.is_from(&kura));
+        assert_eq!(
+            source_receipt.reference(),
+            FastpqStoredArtifactReference::for_bytes(b"tape")
+        );
+        let receipt = kura.persist_fastpq_producer_record(key, b"artf").unwrap();
+        drop(kura);
+        let (kura, _) = Kura::open_test_kura_with_configured_lane_config(
+            &config,
+            &iroha_config::parameters::actual::LaneConfig::default(),
+        )
+        .unwrap();
+        assert!(
+            !receipt.is_from(&kura),
+            "old receipts cannot authorize a new Kura instance"
+        );
+        assert!(
+            !source_receipt.is_from(&kura),
+            "source transport receipts also retain their original Kura identity"
+        );
+        assert_eq!(
+            kura.read_fastpq_producer_record(key).unwrap().unwrap(),
+            b"artf"
+        );
+        assert!(kura.persist_fastpq_artifact(b"x").is_err());
+        assert_eq!(
+            kura.persist_fastpq_producer_record(key, b"artf")
+                .unwrap()
+                .reference(),
+            receipt.reference()
         );
     }
 

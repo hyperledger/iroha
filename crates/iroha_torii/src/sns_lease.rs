@@ -101,7 +101,6 @@ pub async fn handler(
                         format,
                         maximum,
                         &budget,
-                        unavailable,
                     )
                     .map_err(|_| "SNS lease projection encoding refused".to_owned())
                 })

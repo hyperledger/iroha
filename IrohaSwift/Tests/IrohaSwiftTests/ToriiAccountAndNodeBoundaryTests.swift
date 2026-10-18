@@ -2306,7 +2306,6 @@ final class ToriiAccountAndNodeBoundaryTests: XCTestCase {
                 "per_instruction_fee": "0",
                 "per_gas_unit_fee": "0",
                 "sponsor_vault_custody_account_id": canonicalAccountId,
-                "settlement_mode": "direct",
                 "successful_claim_fee_exempt_authorities": [canonicalAccountId],
             ]
             payload[field] = value

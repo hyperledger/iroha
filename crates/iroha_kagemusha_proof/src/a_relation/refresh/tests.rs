@@ -293,7 +293,7 @@ impl Circuit<Fp> for Originals {
         let a = meta.advice_column();
         let b = meta.advice_column();
         let bytes = iroha_plonk_gadgets::bytes::tape::BytesConfig::configure(meta, a, b);
-        let public = meta.instance_column(15);
+        let public = meta.instance_column(17);
         meta.enable_equality(public);
         Self::Config {
             verifier,
@@ -331,11 +331,23 @@ impl Circuit<Fp> for Originals {
                     self.variant,
                     sources.each_ref().map(Vec::as_slice),
                 )?;
-                Ok(objects
+                let mut output = objects
                     .context()
                     .iter()
                     .flat_map(ContextObjectCells::commitment_words)
-                    .collect::<Vec<_>>())
+                    .collect::<Vec<_>>();
+                if self.variant == Variant::RefreshCredential {
+                    let RefreshUpdate::Credential { issued, lease, .. } =
+                        objects.credential_update()?
+                    else {
+                        return Err(Error::Synthesis);
+                    };
+                    output.extend([issued.clone(), lease.clone()]);
+                } else {
+                    let zero = chip.uint().glue().constant(&mut region, Fp::ZERO)?;
+                    output.extend([zero.clone(), zero]);
+                }
+                Ok(output)
             },
         )?;
         for (i, word) in output.iter().enumerate() {
@@ -406,7 +418,48 @@ fn original_public(source: &Originals) -> Vec<Fp> {
             hash_with_domain(u64::from_le_bytes(*b"kgwctap1"), &tape),
         ]);
     }
+    if source.variant == Variant::RefreshCredential {
+        // Independent wire projection: the suffix is issued_at_ms:u64,
+        // renewal_sequence:u32, lease_expiry_ms:u64, issuer_certificate:P.
+        let raw = &source.sources[1];
+        let end = ObjectKind::Credential.body_len();
+        for start in [end - 52, end - 40] {
+            output.push(Fp::from(u64::from_le_bytes(
+                raw[start..start + 8].try_into().unwrap(),
+            )));
+        }
+    } else {
+        output.extend([Fp::ZERO; 2]);
+    }
     output
+}
+
+#[test]
+fn credential_refresh_binds_issue_and_lease_instead_of_counter_and_certificate() {
+    use iroha_plonk::check::{CheckMode, check_circuit};
+    let source = originals(Variant::RefreshCredential);
+    let expected = original_public(&source);
+    assert!(
+        check_circuit(&source, 16, &[expected.clone()], CheckMode::Strict)
+            .unwrap()
+            .is_satisfied()
+    );
+    let raw = &source.sources[1];
+    let end = ObjectKind::Credential.body_len();
+    let counter = Fp::from(u64::from(u32::from_le_bytes(
+        raw[end - 44..end - 40].try_into().unwrap(),
+    )));
+    let certificate = Fp::from_repr(raw[end - 32..end].try_into().unwrap()).unwrap();
+    for (index, wrong) in [(15, counter), (16, certificate)] {
+        assert_ne!(expected[index], wrong);
+        let mut substituted = expected.clone();
+        substituted[index] = wrong;
+        assert!(
+            !check_circuit(&source, 16, &[substituted], CheckMode::Strict)
+                .unwrap()
+                .is_satisfied()
+        );
+    }
 }
 #[test]
 fn signed_refresh_originals_and_context_keep_every_body_signature_and_fixed_shape() {

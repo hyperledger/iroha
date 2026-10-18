@@ -310,8 +310,12 @@ fn f1_abandoned_or_custody_refused_publication_drops_only_its_own_retention() {
     let SlotStatus::Released(record) = released.clone() else {
         panic!("a released head");
     };
+    let before = durable(&w);
     w.custody.status = SlotStatus::Pending(record);
-    assert!(matches!(w.fold_publish(f1), Err(Error::Pending)));
+    // Pending custody discards a completed sub-proof; the next prepare parks until
+    // the selected payment finishes. No checkpoint or retained value is promoted.
+    assert!(matches!(w.fold_publish(f1), Err(Error::Cancelled)));
+    assert_eq!(durable(&w), before);
     w.custody.status = released;
     assert!(!holds(&w));
     assert_eq!(w.fold_once().unwrap(), checkpoint(2));
@@ -329,6 +333,7 @@ fn f1_abandoned_or_custody_refused_publication_drops_only_its_own_retention() {
             "F1's pending marker was evicted"
         );
         let newer_marker = w.proofs.last_left();
+        let before = durable(&w);
         if abandon {
             drop(f1);
         } else {
@@ -337,9 +342,10 @@ fn f1_abandoned_or_custody_refused_publication_drops_only_its_own_retention() {
                 panic!("a released head");
             };
             w.custody.status = SlotStatus::Pending(record);
-            assert!(w.fold_publish(f1).is_err());
+            assert!(matches!(w.fold_publish(f1), Err(Error::Cancelled)));
             w.custody.status = released;
         }
+        assert_eq!(durable(&w), before);
         assert!(holds(&w), "the newer marker survives");
         assert_eq!(w.fold_once().unwrap(), checkpoint(ordinal + 1));
         assert_eq!(w.proofs.last_handed(), Some(newer_marker));

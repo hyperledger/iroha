@@ -197,13 +197,17 @@ fn original_artifact_quota_refusal_notifies_after_storage_fences() {
     let kura = fixture(1);
     let _receipt = kura.persist_fastpq_artifact(b"retained").unwrap();
     let before = inventory(&kura);
-    let reference = FastpqStoredArtifactReference::for_bytes(b"additional");
     let result = observe_original_release(&kura, 3, || kura.persist_fastpq_artifact(b"additional"));
-    assert_invalid(
-        &result.unwrap_err(),
-        &path(&kura, reference),
-        "FASTPQ artifact storage quota exhausted",
-    );
+    assert!(matches!(
+        result,
+        Err(Error::FastpqArtifactQuota {
+            stable_count: 1,
+            retained_bytes: 8,
+            incoming_bytes: 10,
+            maximum_records: 1,
+            maximum_bytes: 256,
+        })
+    ));
     assert_eq!(inventory(&kura), before);
 }
 
@@ -237,6 +241,33 @@ fn original_artifact_read_success_notifies_after_storage_fences() {
 }
 
 #[test]
+fn original_producer_read_success_and_absence_notify_after_storage_fences() {
+    let kura = fixture(4);
+    let key = Hash::new(b"original producer position");
+    let missing =
+        observe_original_release(&kura, 3, || kura.read_fastpq_producer_record(key)).unwrap();
+    assert!(missing.is_none());
+    assert!(inventory(&kura).is_empty());
+
+    let bytes = b"opaque original producer artifact";
+    let receipt = kura.persist_fastpq_producer_record(key, bytes).unwrap();
+    assert!(receipt.is_from(&kura));
+    assert_eq!(receipt.reference().digest(), *Hash::new(bytes).as_ref());
+    assert_eq!(receipt.reference().byte_len(), bytes.len() as u64);
+    let before = inventory(&kura);
+    for (selected, expected) in [
+        (key, Some(bytes.to_vec())),
+        (Hash::new(b"absent producer position"), None),
+    ] {
+        let read =
+            observe_original_release(&kura, 3, || kura.read_fastpq_producer_record(selected))
+                .unwrap();
+        assert_eq!(read, expected);
+        assert_eq!(inventory(&kura), before);
+    }
+}
+
+#[test]
 fn original_artifact_read_refusals_retain_exact_errors_and_bytes() {
     for absent in [true, false] {
         let kura = fixture(4);
@@ -264,10 +295,23 @@ fn original_artifact_read_refusals_retain_exact_errors_and_bytes() {
 
 #[test]
 fn original_artifact_partial_refusals_retain_exact_storage_errors() {
-    for read in [false, true] {
+    for operation in ["persist", "artifact-read", "producer-read"] {
         for stage in 1..=2 {
             let kura = fixture(4);
             let receipt = kura.persist_fastpq_artifact(b"original").unwrap();
+            let producer = Hash::new(b"original producer position");
+            let producer_receipt = kura
+                .persist_fastpq_producer_record(producer, b"producer")
+                .unwrap();
+            assert!(producer_receipt.is_from(&kura));
+            assert_eq!(
+                producer_receipt.reference().digest(),
+                *Hash::new(b"producer").as_ref()
+            );
+            assert_eq!(
+                producer_receipt.reference().byte_len(),
+                b"producer".len() as u64
+            );
             let before = inventory(&kura);
             let flag = if stage == 1 {
                 &kura.prune_recovery_required
@@ -276,10 +320,11 @@ fn original_artifact_partial_refusals_retain_exact_storage_errors() {
             };
             flag.store(true, Ordering::Release);
             let result = observe_original_release(&kura, stage - 1, || {
-                let result = if read {
-                    kura.read_fastpq_artifact(receipt.reference()).map(|_| ())
-                } else {
-                    kura.persist_fastpq_artifact(b"original").map(|_| ())
+                let result = match operation {
+                    "persist" => kura.persist_fastpq_artifact(b"original").map(|_| ()),
+                    "artifact-read" => kura.read_fastpq_artifact(receipt.reference()).map(|_| ()),
+                    "producer-read" => kura.read_fastpq_producer_record(producer).map(|_| ()),
+                    _ => unreachable!(),
                 };
                 flag.store(false, Ordering::Release);
                 result
@@ -300,21 +345,37 @@ fn original_artifact_partial_refusals_retain_exact_storage_errors() {
 
 #[test]
 fn original_artifact_unwind_notifies_after_each_acquired_prefix() {
-    for read in [false, true] {
+    for operation in ["persist", "artifact-read", "producer-read"] {
+        let read = operation != "persist";
         for stage in 1..=if read { 3 } else { 4 } {
             let kura = fixture(4);
             let receipt = kura.persist_fastpq_artifact(b"original").unwrap();
+            let producer = Hash::new(b"original producer position");
+            let producer_receipt = kura
+                .persist_fastpq_producer_record(producer, b"producer")
+                .unwrap();
+            assert!(producer_receipt.is_from(&kura));
+            assert_eq!(
+                producer_receipt.reference().digest(),
+                *Hash::new(b"producer").as_ref()
+            );
+            assert_eq!(
+                producer_receipt.reference().byte_len(),
+                b"producer".len() as u64
+            );
             let before = inventory(&kura);
             let fence = if read && stage == 3 { 3 } else { stage - 1 };
             observe_original_release(&kura, fence, || {
                 UNWIND_AFTER_FENCE.with(|fault| fault.set(Some(stage)));
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    if read {
-                        kura.read_fastpq_artifact(receipt.reference()).map(|_| ())
-                    } else {
-                        kura.persist_fastpq_artifact(b"original").map(|_| ())
-                    }
-                }));
+                let result =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match operation {
+                        "persist" => kura.persist_fastpq_artifact(b"original").map(|_| ()),
+                        "artifact-read" => {
+                            kura.read_fastpq_artifact(receipt.reference()).map(|_| ())
+                        }
+                        "producer-read" => kura.read_fastpq_producer_record(producer).map(|_| ()),
+                        _ => unreachable!(),
+                    }));
                 UNWIND_AFTER_FENCE.with(|fault| fault.set(None));
                 let error = result.expect_err("unwind after original acquired artifact fence");
                 assert_eq!(

@@ -112,9 +112,11 @@ final class KagemushaWalletExchangeBindingV1Tests: XCTestCase {
             XCTAssertEqual(try wire.inspectEnvelope(payment).kind, .payment)
             try wire.requireExchangeBinding(request: request, payment: payment)
         }
+        let sigmaCap = wire.paymentSigmaProofCapBytes
+        let omegaCap = wire.paymentOmegaProofCapBytes
         for (sigma, omega, field) in [
-            (3_521, 0, "payment.sigma_proof"), (0, 5_045, "payment.omega_proof"),
-            (3_521, 5_043, "payment.sigma_proof"), (3_519, 5_045, "payment.omega_proof")
+            (sigmaCap + 1, 0, "payment.sigma_proof"), (0, omegaCap + 1, "payment.omega_proof"),
+            (sigmaCap + 1, omegaCap - 1, "payment.sigma_proof"), (sigmaCap - 1, omegaCap + 1, "payment.omega_proof")
         ] {
             let payment = envelope(.payment, paymentWithProofVectors(
                 sigma: proofVector(count: sigma), omega: proofVector(count: omega)))

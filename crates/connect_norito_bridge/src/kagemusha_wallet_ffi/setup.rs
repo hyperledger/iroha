@@ -578,11 +578,14 @@ where
                 wrap,
                 original,
             } => {
-                let scheme = self.wallet.snapshot()?.scheme_id;
+                // Framing/extraction validates representation and scheme, not wallet readiness.
+                let scheme = self.wallet.transport_scheme_id()?;
                 transport::convert(kind, wrap, &original, &scheme)?
             }
             Setup::CreditedOriginal { status, original } => {
-                let scheme = self.wallet.snapshot()?.scheme_id;
+                // Encoding retained bytes needs the admitted scheme and live custody, not a
+                // balance/fold snapshot. The codec still validates its full canonical carrier.
+                let scheme = self.wallet.transport_scheme_id()?;
                 transport::credited(status, &original, &scheme)?
             }
             Setup::BackgroundStatus => return Err(Failure::code(INTERNAL)),

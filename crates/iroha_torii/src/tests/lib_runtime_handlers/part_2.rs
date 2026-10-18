@@ -1281,11 +1281,7 @@ async fn global_asset_definition_and_own_balance_ignore_unrelated_restricted_rou
         checked_torii_test_ed25519_keypair(0xc0, "derive existing asset-query validator authority");
     let caller = AccountId::new(caller_key.public_key().clone());
     let mut nexus = private_ingress_nexus_for_test();
-    let fee_asset: AssetDefinitionId = nexus
-        .fees
-        .fee_asset_id
-        .parse()
-        .expect("canonical Nexus fee currency");
+    let fee_asset: AssetDefinitionId = nexus.fees.fee_asset_id.clone();
     assert_eq!(
         fee_asset, definition,
         "the global XOR fixture uses its original fee currency"
@@ -1295,7 +1291,7 @@ async fn global_asset_definition_and_own_balance_ignore_unrelated_restricted_rou
         fee_sink, *ALICE_ID,
         "the configured sink is independent from the original payer"
     );
-    nexus.fees.fee_sink_account_id = fee_sink.to_string();
+    nexus.fees.fee_sink_account_id = fee_sink.clone();
     // The original native Mint costs 150 gas plus one instruction at the
     // unchanged default Nexus schedule; Core quotes the actual signed limit below.
     let original_fee: Quantity = "0.0085".parse().expect("exact original Mint fee");
@@ -1734,8 +1730,7 @@ async fn signed_query_scope_for_app_classifies_opaque_find_asset_definition_by_i
 }
 #[tokio::test]
 async fn signed_query_scope_for_app_classifies_direct_home_by_exact_definition() {
-    let authority =
-        checked_torii_test_account_id(0xde, "derive direct-home authority fixture key");
+    let authority = checked_torii_test_account_id(0xde, "derive direct-home authority fixture key");
     let domain_id =
         iroha_model_base::domain::DomainId::try_new("hbl", "governance").expect("domain id");
     let asset_definition_id = iroha_data_model::asset::AssetDefinitionId::derive_from_components(

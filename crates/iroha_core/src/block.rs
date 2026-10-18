@@ -4726,7 +4726,6 @@ pub(crate) mod valid {
             block: &SignedBlock,
             state: &StateBlock<'_>,
         ) -> Result<(), BlockValidationError> {
-            Self::validate_native_fee_settlement_mode(state)?;
             Self::checked_execution_context_header(block)?;
 
             Ok(())
@@ -6166,11 +6165,14 @@ pub(crate) mod valid {
                     }
                 }
             }
+            let isolate_observations = crate::status::replay_observations_are_isolated();
             let validate_tx = |(idx, (tx, prepared)): (
                 usize,
                 (&SignedTransaction, &PreparedBlockTransaction),
             )|
              -> Option<BlockValidationError> {
+                let _observations =
+                    isolate_observations.then(crate::status::isolate_replay_observations);
                 #[cfg(test)]
                 let inherited_account_profile = chain_discriminant();
                 let _profile = ChainDiscriminantGuard::enter(account_discriminant);
@@ -9582,6 +9584,17 @@ pub(crate) mod tests {
         chain_id: ChainId,
         nexus: iroha_config::parameters::actual::Nexus,
     ) -> State {
+        let mut parameters = world.parameters.block();
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                nexus
+                    .fees
+                    .clone()
+                    .into_custom_parameter()
+                    .expect("explicit fixture fee policy"),
+            ))
+            .expect("valid fixture fee policy");
+        parameters.commit();
         let (mut state, _) = State::new_with_chain_and_network_id_and_pre_genesis_nexus_for_testing(
             world,
             nexus.clone(),
@@ -11228,8 +11241,8 @@ seiyaku DynamicTarget { permission CanWriteCounters;
             [],
         );
         let mut nexus = iroha_config::parameters::actual::Nexus::default();
-        nexus.fees.fee_asset_id = fee_asset.to_string();
-        nexus.fees.fee_sink_account_id = fee_sink.to_string();
+        nexus.fees.fee_asset_id = fee_asset.clone();
+        nexus.fees.fee_sink_account_id = fee_sink.clone();
         nexus.fees.base_fee = Quantity::zero();
         nexus.fees.per_byte_fee = Quantity::zero();
         nexus.fees.per_instruction_fee = Quantity::zero();

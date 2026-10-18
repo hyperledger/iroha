@@ -306,7 +306,10 @@ pub fn committed_root_scope(world: &impl WorldReadOnly) -> Option<SumeragiRootSc
 
 /// Preserve original root decoding through native routing and pre-effect capture.
 /// Completed malformed metadata remains scope absence; local refusal never does.
-pub(crate) fn read_routing_root_scope(
+/// Off-chain proof serving uses this same owner before projecting a capacity observation.
+/// # Errors
+/// Returns the original local decoding refusal; no root authority is inferred from failure.
+pub fn read_routing_root_scope(
     world: &impl WorldReadOnly,
 ) -> Result<Option<SumeragiRootScope>, crate::execution_attempt::ExecutionDeferred> {
     let read = norito::core::classify_decode_attempt(|| {

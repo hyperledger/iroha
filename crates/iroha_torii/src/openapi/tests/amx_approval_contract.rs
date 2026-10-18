@@ -57,17 +57,19 @@ fn amx_debit_approval_openapi_matches_the_route_and_native_bounds() {
         success["content"]["application/x-norito"]["schema"]["maxLength"].as_u64(),
         Some(MAX_AMX_DEBIT_APPROVAL_PROOF_BYTES_V1 as u64)
     );
-    for status in ["200", "401", "403", "503"] {
+    for status in ["200", "401", "403", "409", "429"] {
         assert_eq!(
             operation["responses"][status]["headers"]["Cache-Control"]["schema"]["const"].as_str(),
             Some("private, no-store")
         );
     }
-    let unavailable = operation["responses"]["503"]["description"]
-        .as_str()
-        .unwrap();
-    assert!(unavailable.contains("amx_debit_approval_authentication_capacity"));
-    assert!(unavailable.contains("retryable"));
+    for status in ["409", "429"] {
+        let description = operation["responses"][status]["description"]
+            .as_str()
+            .unwrap();
+        assert!(description.contains("amx_approval_read_failure"));
+        assert!(description.contains("request"));
+    }
     let description = operation["description"].as_str().unwrap();
     assert!(description.contains("current applied certified private-root height"));
     assert!(description.contains("Prepare rechecks"));
@@ -145,4 +147,93 @@ fn amx_debit_approval_openapi_closed_fields_match_actual_native_json() {
                 as u64
         )
     );
+}
+
+#[test]
+fn amx_approval_failure_openapi_matches_tagged_json_and_negotiated_frames() {
+    use iroha_torii_shared::amx_approval_read::{
+        AMX_APPROVAL_READ_FAILURE_MAX_BYTES, AmxApprovalReadFailureV1, AmxApprovalReadReasonV1,
+    };
+
+    let document = canonical_document();
+    let schemas = component_schemas(&document);
+    let failure_schema = &schemas["AmxApprovalReadFailureV1"];
+    let reason_schema = &failure_schema["properties"]["reason"];
+    assert_eq!(reason_schema["type"].as_str(), Some("object"));
+    assert_eq!(reason_schema["additionalProperties"].as_bool(), Some(false));
+    assert_eq!(
+        reason_schema["required"],
+        norito::json!(["kind", "details"]),
+    );
+    assert_eq!(
+        reason_schema["properties"]["details"]["type"].as_str(),
+        Some("null")
+    );
+    assert_eq!(
+        reason_schema["properties"]["kind"]["type"].as_str(),
+        Some("string")
+    );
+    assert_eq!(
+        reason_schema["properties"]["kind"]["enum"],
+        norito::json!(["CutChanged", "Capacity"]),
+    );
+    for (reason, kind, observed) in [
+        (AmxApprovalReadReasonV1::CutChanged, "CutChanged", Some(1)),
+        (AmxApprovalReadReasonV1::Capacity, "Capacity", None),
+    ] {
+        let failure = AmxApprovalReadFailureV1 {
+            approval_hash: iroha_crypto::Hash::new(b"original request"),
+            relay_header_hash: iroha_crypto::Hash::new(b"original relay"),
+            requested_height: 2,
+            reason,
+            observed_height: observed,
+            retry_after_ms: None,
+        };
+        let value = norito::json::to_value(&failure).unwrap();
+        assert_eq!(
+            closed_schema_fields(schemas, "AmxApprovalReadFailureV1"),
+            json_fields(&value, "AMX failure")
+        );
+        assert_eq!(
+            value["reason"],
+            norito::json!({"kind": kind, "details": null})
+        );
+        let encoded = norito::json::to_json(&failure).unwrap();
+        assert_eq!(
+            norito::json::from_str::<AmxApprovalReadFailureV1>(&encoded).unwrap(),
+            failure
+        );
+    }
+    for retired in [
+        r#""Capacity""#,
+        r#"{"kind":"Capacity"}"#,
+        r#"{"kind":"Capacity","details":null,"extra":0}"#,
+    ] {
+        assert!(norito::json::from_str::<AmxApprovalReadReasonV1>(retired).is_err());
+    }
+    let route = route_catalog::contracts_and_verification_keys::AMX_DEBIT_APPROVAL_PROOF_POST;
+    let operation = openapi_operation(&document, route.path(), "post");
+    for status in ["409", "429"] {
+        let content = &operation["responses"][status]["content"];
+        assert_eq!(
+            content["application/json"]["schema"],
+            schema_ref("ErrorEnvelope")
+        );
+        let wire = &content["application/x-norito"]["schema"];
+        assert_eq!(wire["type"].as_str(), Some("string"));
+        assert_eq!(wire["format"].as_str(), Some("binary"));
+        assert_eq!(
+            wire["maxLength"].as_u64(),
+            Some(AMX_APPROVAL_READ_FAILURE_MAX_BYTES as u64)
+        );
+        assert_eq!(
+            wire["x-iroha-norito-schema"].as_str(),
+            Some("iroha_torii_shared::ErrorEnvelope")
+        );
+    }
+    let unauthorized = operation["responses"]["401"]["description"]
+        .as_str()
+        .unwrap();
+    assert!(!unauthorized.contains("503"));
+    assert!(unauthorized.contains("429"));
 }

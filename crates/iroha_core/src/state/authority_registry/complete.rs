@@ -166,6 +166,8 @@ fn check_history_field(
     }
 }
 
+pub(crate) mod original_stream;
+
 mod derivation_path;
 use derivation_path::DerivationPath;
 

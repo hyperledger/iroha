@@ -1,9 +1,9 @@
 //! Background complete-effect work retaining its original authenticated native source.
+mod durable;
+mod producer;
 mod source;
 use crate::{
-    fastpq::finalized_source::{
-        AdmittedFinalizedFastpqSource, FinalizedFastpqSource, FinalizedFastpqWorkError,
-    },
+    fastpq::finalized_source::{FinalizedFastpqSource, FinalizedFastpqWorkError},
     kura::Kura,
 };
 use fastpq_prover::{
@@ -121,9 +121,9 @@ impl Drop for WorkRequest {
     }
 }
 /// Move-only job; metadata comes only from the retained actual native result.
-/// TODO: connect completed entries to durable proof admission before automatic dispatch.
+/// Autonomous work retires each position only after the existing Kura barrier succeeds.
 pub(crate) struct FastpqWitnessJob {
-    source: AdmittedFinalizedFastpqSource,
+    source: source::SourceOwner,
     next_statement: usize,
 }
 impl std::fmt::Debug for FastpqWitnessJob {
@@ -146,9 +146,17 @@ impl FastpqWitnessJob {
         source: FinalizedFastpqSource,
     ) -> Result<Self, (FinalizedFastpqSource, FinalizedFastpqWorkError)> {
         Ok(Self {
-            source: source.into_work()?,
+            source: source::SourceOwner::Original(source.into_work()?),
             next_statement: 0,
         })
+    }
+    fn from_recovered(
+        source: crate::query::native_context_archive::fastpq_source::AuthenticatedRecoveredFastpqSource,
+    ) -> Self {
+        Self {
+            source: source::SourceOwner::Recovered(source),
+            next_statement: 0,
+        }
     }
     pub(crate) fn height(&self) -> u64 {
         self.source.native().committed().height()
@@ -228,13 +236,10 @@ impl FastpqCompletedEntry {
     }
     #[cfg_attr(
         not(test),
-        expect(
-            dead_code,
-            reason = "TODO: connect durable complete-effect artifact admission before automatic dispatch; preserve original-job queue refusal and cancellation custody"
-        )
+        expect(dead_code, reason = "test inspection of the retained completed source")
     )]
-    pub(crate) fn source(&self) -> &FinalizedFastpqSource {
-        self.job.source.original()
+    pub(crate) fn source(&self) -> &source::SourceOwner {
+        &self.job.source
     }
     #[cfg_attr(
         not(test),
@@ -259,13 +264,6 @@ impl FastpqCompletedEntry {
     pub(crate) fn identity(&self) -> &FastpqArtifactIdentityDescriptionV1 {
         self.output.identity()
     }
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "TODO: connect durable complete-effect artifact admission before automatic dispatch; preserve original-job queue refusal and cancellation custody"
-        )
-    )]
     pub(crate) fn verified(&self) -> Option<&offline_compact::VerifiedArtifact> {
         match &self.output {
             FastpqProofOutput::Produced(value) => Some(value.verified()),
@@ -290,13 +288,6 @@ pub(crate) enum FastpqJobOutcome {
     Complete(FastpqCompletedEntry),
     Deferred {
         job: FastpqWitnessJob,
-        #[cfg_attr(
-            not(test),
-            expect(
-                dead_code,
-                reason = "TODO: connect durable complete-effect artifact admission before automatic dispatch; preserve original-job queue refusal and cancellation custody"
-            )
-        )]
         error: FastpqWorkRefusal,
     },
     Exhausted(FastpqWitnessJob),
@@ -395,41 +386,58 @@ fn lock_global_lane() -> MutexGuard<'static, FastpqLaneRegistry> {
 }
 /// Start the FASTPQ prover lane. Returns the handle and the spawned task when successful.
 pub fn start(cfg: &Fastpq) -> Option<(FastpqLaneHandle, tokio::task::JoinHandle<()>)> {
-    start_with_backpressure(cfg, None, None)
+    start_with_backpressure(cfg, None)
 }
-/// Start the FASTPQ prover lane with optional queue backpressure.
-/// Kura lifecycle context remains supplied by the node, but metadata snapshots do not
-/// acknowledge the complete artifact; automatic durable dispatch is still pending.
+/// Start the existing explicit-source queue with optional backpressure.
+/// Autonomous discovery requires the State-bound supervised startup below.
 pub fn start_with_backpressure(
     cfg: &Fastpq,
     backpressure: Option<crate::queue::BackpressureHandle>,
-    kura: Option<Arc<Kura>>,
 ) -> Option<(FastpqLaneHandle, tokio::task::JoinHandle<()>)> {
-    start_with_options(cfg, backpressure, kura, None)
+    start_with_options(cfg, backpressure, None, None, None)
 }
-/// Start the FASTPQ prover lane with queue integration and a node shutdown signal.
+/// Start the sole prover worker with exact State/Kura discovery and node shutdown ownership.
 pub fn start_with_backpressure_and_shutdown(
     cfg: &Fastpq,
     backpressure: Option<crate::queue::BackpressureHandle>,
-    kura: Option<Arc<Kura>>,
+    state: Arc<crate::state::State>,
+    replay_seed: crate::sumeragi::node::NativeReplaySeed,
     shutdown: ShutdownSignal,
 ) -> Option<(FastpqLaneHandle, tokio::task::JoinHandle<()>)> {
-    start_with_options(cfg, backpressure, kura, Some(shutdown))
+    start_with_options(
+        cfg,
+        backpressure,
+        Some(state),
+        Some(replay_seed),
+        Some(shutdown),
+    )
 }
 fn start_with_options(
     cfg: &Fastpq,
     backpressure: Option<crate::queue::BackpressureHandle>,
-    kura: Option<Arc<Kura>>,
+    state: Option<Arc<crate::state::State>>,
+    replay_seed: Option<crate::sumeragi::node::NativeReplaySeed>,
     external_shutdown: Option<ShutdownSignal>,
 ) -> Option<(FastpqLaneHandle, tokio::task::JoinHandle<()>)> {
-    let cfg = cfg.clone();
-    start_with_builder(backpressure, kura, external_shutdown, move || {
+    let mut cfg = cfg.clone();
+    if let Some(state) = &state {
+        // Refuse oversized output in the canonical prover before trace work; the
+        // actual immutable outbox bound cannot be widened by transport policy.
+        cfg.proof_sidecar_max_bytes = iroha_config::base::util::Bytes(
+            cfg.proof_sidecar_max_bytes
+                .get()
+                .min(state.kura().fastpq_object_max_bytes().get() as u64),
+        );
+    }
+    let producer =
+        state.map(|state| producer::Producer::new(state, cfg.producer.clone(), replay_seed));
+    start_with_builder(backpressure, producer, external_shutdown, move || {
         build_engine(&cfg)
     })
 }
 fn start_with_builder(
     backpressure: Option<crate::queue::BackpressureHandle>,
-    kura: Option<Arc<Kura>>,
+    producer: Option<producer::Producer>,
     external_shutdown: Option<ShutdownSignal>,
     build_engine: impl FnOnce() -> Option<Arc<dyn FastpqProofEngine>> + Send + 'static,
 ) -> Option<(FastpqLaneHandle, tokio::task::JoinHandle<()>)> {
@@ -464,7 +472,7 @@ fn start_with_builder(
     let task = spawn_worker(
         rx,
         ready,
-        kura,
+        producer,
         generation_lease,
         shutdown,
         external_shutdown,
@@ -579,7 +587,7 @@ fn configured_digest_execution(cfg: &Fastpq) -> fastpq_prover::Result<DigestExec
 fn spawn_worker(
     mut rx: mpsc::Receiver<WorkRequest>,
     ready: Arc<AtomicBool>,
-    _kura: Option<Arc<Kura>>,
+    mut producer: Option<producer::Producer>,
     generation_lease: Arc<FastpqLaneGenerationLease>,
     shutdown: ShutdownSignal,
     external_shutdown: Option<ShutdownSignal>,
@@ -623,16 +631,71 @@ fn spawn_worker(
             }
         };
         ready.store(true, Ordering::Release);
+        let mut interval = producer.as_ref().map(|producer| {
+            let mut interval = tokio::time::interval(producer.poll_interval());
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            interval
+        });
+        enum Turn {
+            Request(WorkRequest),
+            Produce,
+        }
         loop {
-            let job = tokio::select! {
-                job = rx.recv() => job,
+            let turn = tokio::select! {
+                request = rx.recv() => request.map(Turn::Request),
+                () = async {
+                    match &mut interval {
+                        Some(interval) => { interval.tick().await; }
+                        None => std::future::pending::<()>().await,
+                    }
+                } => Some(Turn::Produce),
                 () = wait_for_shutdown(shutdown.clone(), external_shutdown.clone()) => {
                     rx.close();
                     None
                 },
             };
-            let Some(request) = job else {
-                break;
+            let Some(turn) = turn else { break };
+            let request = match turn {
+                Turn::Request(request) => request,
+                Turn::Produce => {
+                    let Some(mut original) = producer.take() else {
+                        break;
+                    };
+                    let engine = Arc::clone(&engine);
+                    let produce_shutdown = shutdown.clone();
+                    let produce_external = external_shutdown.clone();
+                    let lease = Arc::clone(&generation_lease);
+                    let mut task = tokio::task::spawn_blocking(move || {
+                        let generation = lease.generation;
+                        let _lease = lease;
+                        original.attempt(
+                            &engine,
+                            generation,
+                            &produce_shutdown,
+                            produce_external.as_ref(),
+                        );
+                        original
+                    });
+                    let stopped = tokio::select! {
+                        result = &mut task => {
+                            match result {
+                                Ok(original) => producer = Some(original),
+                                Err(error) => { warn!(?error, "FASTPQ producer task failed; disk work remains unresolved"); break; }
+                            }
+                            false
+                        }
+                        () = wait_for_shutdown(shutdown.clone(), external_shutdown.clone()) => {
+                            rx.close();
+                            // Blocking native/proof work retires naturally with its generation.
+                            if let Err(error) = task.await { warn!(?error, "FASTPQ producer failed during shutdown"); }
+                            true
+                        }
+                    };
+                    if stopped {
+                        break;
+                    }
+                    continue;
+                }
             };
             let (job, reply) = request.into_parts();
             if reply.is_closed() {
@@ -824,7 +887,8 @@ mod tests {
     use super::*;
     use crate::fastpq::{
         DigestAccelerationTestGuard, FASTPQ_CANONICAL_PARAMETER_SET, FastpqPublicInputsTemplate,
-        authority_digest, batches_from_bundles, transition_batch_to_dto,
+        authority_digest, batches_from_bundles, finalized_source::AdmittedFinalizedFastpqSource,
+        transition_batch_to_dto,
     };
     use fastpq_prover::TransitionBatch;
     use iroha_crypto::Hash;
@@ -838,6 +902,7 @@ mod tests {
     static LANE_REGISTRY_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     fn gpu_execution_cpu_poseidon_config() -> Fastpq {
         Fastpq {
+            producer: iroha_config::parameters::actual::FastpqProducer::default(),
             execution_mode: FastpqExecutionMode::Gpu,
             poseidon_mode: FastpqPoseidonMode::Cpu,
             proof_sidecar_queue_cap:
@@ -867,6 +932,7 @@ mod tests {
             calls: Arc::clone(&calls),
         }));
         let cfg = Fastpq {
+            producer: iroha_config::parameters::actual::FastpqProducer::default(),
             execution_mode: FastpqExecutionMode::Cpu,
             poseidon_mode: FastpqPoseidonMode::Cpu,
             proof_sidecar_queue_cap:
@@ -1293,6 +1359,7 @@ mod tests {
     #[test]
     fn maps_config_to_metal_overrides() {
         let cfg = Fastpq {
+            producer: iroha_config::parameters::actual::FastpqProducer::default(),
             execution_mode: FastpqExecutionMode::Gpu,
             poseidon_mode: FastpqPoseidonMode::Gpu,
             proof_sidecar_queue_cap:
@@ -1993,7 +2060,7 @@ mod tests {
                 assert_eq!(pool.reserved_bytes(), reserved);
             }
             assert_eq!(
-                norito::encode_canonical(job.source.original().manifest()).unwrap(),
+                norito::encode_canonical(job.source.manifest()).unwrap(),
                 source_bytes
             );
         }
@@ -2018,7 +2085,7 @@ mod tests {
             let native = source.native().committed().result();
             // Explicit local optional-archive fault before admission. It changes no
             // mandatory D7 facts, source coverage or native authority.
-            source.withhold_optional_archive_for_test(issue);
+            source.withhold_optional_archive_for_test(issue.clone());
             source.verify_current().unwrap();
             let reserved = source.pool().reserved_bytes();
             let before = AdmittedFinalizedFastpqSource::scan_counts_for_test();
@@ -2041,3 +2108,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) use producer::isolated_replay_retryable_for_test;

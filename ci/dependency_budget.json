@@ -177,6 +177,72 @@
         "package": "iroha_musubi_service",
         "target": "all"
       },
+      "private-settlement-native": {
+        "default_features": true,
+        "features": [],
+        "forbidden_features": {
+          "fastpq_prover": [
+            "dev-tools",
+            "bench"
+          ],
+          "iroha": [
+            "mutation-testing",
+            "test-fixtures",
+            "test-network-private-settlement-evidence"
+          ],
+          "iroha_core_privacy": [
+            "privacy-release-evidence",
+            "test-utils",
+            "fastpq-replay-measurement"
+          ],
+          "iroha_data_model": [
+            "mutation-testing",
+            "dev-tools",
+            "test-fixtures",
+            "privacy-exact12-conformance",
+            "fault_injection",
+            "trybuild-tests",
+            "bench"
+          ],
+          "iroha_zkp_halo2": [
+            "bench",
+            "schema-structural"
+          ],
+          "ivm": [
+            "dev-tools",
+            "bench",
+            "beep",
+            "cuda-hardware-tests",
+            "metal-hardware-tests",
+            "ivm_zk_tests",
+            "ivm_vrf_tests"
+          ]
+        },
+        "forbidden_layers": [
+          "service_runtime",
+          "storage_runtime",
+          "storage_client",
+          "sccp_rpc",
+          "sccp_wallet",
+          "wallet_proof_execution"
+        ],
+        "forbidden_packages": [
+          "iroha_core",
+          "iroha_core_zk",
+          "iroha_core_timed_ovn",
+          "iroha_torii",
+          "irohad",
+          "irohad_lib",
+          "iroha_p2p",
+          "kotodama_lang",
+          "kotodama_toolchain",
+          "zk_ace_prover",
+          "iroha_plonk_oracle"
+        ],
+        "include_root_dev_dependencies": false,
+        "package": "iroha_private_settlement",
+        "target": "all"
+      },
       "sccp-rpc-default": {
         "default_features": true,
         "features": [],
@@ -738,7 +804,8 @@
         "zk_ace_prover",
         "iroha_core_privacy",
         "iroha_core_timed_ovn",
-        "irohad_lib"
+        "irohad_lib",
+        "iroha_private_settlement"
       ],
       "privacy_model": [
         "iroha_privacy_model"

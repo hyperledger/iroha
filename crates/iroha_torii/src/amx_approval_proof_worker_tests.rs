@@ -11,8 +11,11 @@ use iroha_data_model::{
     sumeragi_amx::AmxDebitApprovalProofV1,
     sumeragi_finality::{FinalityValidator, SumeragiFinalityVerifier, VerifiedSumeragiBlock},
 };
-use iroha_torii_shared::route_catalog::{
-    RouteCatalog, contracts_and_verification_keys::AMX_DEBIT_APPROVAL_PROOF_POST,
+use iroha_torii_shared::{
+    amx_approval_read::{
+        AMX_APPROVAL_READ_FAILURE_MAX_BYTES, AmxApprovalReadFailureV1, AmxApprovalReadReasonV1,
+    },
+    route_catalog::{RouteCatalog, contracts_and_verification_keys::AMX_DEBIT_APPROVAL_PROOF_POST},
 };
 use std::{future::Future as _, sync::mpsc, task::Poll, time::Duration};
 use tower::ServiceExt as _;
@@ -70,7 +73,7 @@ fn verified_tip(chain: &CertifiedTestChain) -> VerifiedSumeragiBlock {
     last.unwrap()
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Outcome {
     Allowed,
     Revoked,
@@ -116,6 +119,17 @@ fn worker_boundary_case(outcome: Outcome) {
         );
         headers.insert(axum::http::header::ACCEPT, HeaderValue::from_static("application/x-norito"));
         headers.insert("x-api-token", HeaderValue::from_static("amx-worker-local-test"));
+        // Preserve the exact original wire/header identities before the actual request moves.
+        // This unsigned expectation does not establish account or ledger authentication.
+        let expected_capacity = AmxApprovalReadFailureV1 {
+            approval_hash: Hash::new(&body),
+            relay_header_hash: Hash::new(headers[crate::app_auth::HEADER_ACCOUNT].as_bytes()),
+            requested_height: 2,
+            reason: AmxApprovalReadReasonV1::Capacity,
+            observed_height: None,
+            retry_after_ms: Some(app.proof_limits.retry_after.as_secs().max(1).saturating_mul(1_000)),
+        };
+        assert_eq!(AMX_APPROVAL_READ_FAILURE_MAX_BYTES, 4_096);
         let mut request = axum::http::Request::builder().method(Method::POST).uri(uri)
             .body(Body::from(body)).unwrap();
         *request.headers_mut() = headers;
@@ -175,7 +189,9 @@ fn worker_boundary_case(outcome: Outcome) {
                 "read-role removal must not remove the exact direct debit approval");
         }
         let response = tokio::time::timeout(Duration::from_secs(5), response).await.unwrap().unwrap();
+        assert_eq!(response.headers().get_all(axum::http::header::CACHE_CONTROL).iter().count(), 1);
         assert_eq!(response.headers()[axum::http::header::CACHE_CONTROL], "private, no-store");
+        assert_eq!(response.headers().get_all(axum::http::header::CONTENT_TYPE).iter().count(), 1);
         assert_eq!(response.headers()[axum::http::header::CONTENT_TYPE], "application/x-norito");
         let status = response.status();
         if outcome == Outcome::Allowed {
@@ -186,18 +202,51 @@ fn worker_boundary_case(outcome: Outcome) {
             let proof = AmxDebitApprovalProofV1::decode_frame(&bytes).unwrap();
             proof.verify(&approval, &account, iroha_core::state::State::native_world_schema_hash_v1().unwrap(), &verified).unwrap();
             drop(bytes);
-        } else {
-            let (expected_status, expected_error) = if outcome == Outcome::Revoked {
-                (StatusCode::FORBIDDEN, require_full_ledger_carrier_permission(&app, &account).unwrap_err())
-            } else {
-                (StatusCode::TOO_MANY_REQUESTS, Error::ProofRateLimited {
-                    endpoint: ROUTE, retry_after_secs: app.proof_limits.retry_after.as_secs().max(1),
-                })
-            };
-            assert_eq!(status, expected_status, "current permission is checked before exact-byte egress; authorized capacity remains typed");
-            let expected = axum::body::to_bytes(expected_error.into_response().into_body(), usize::MAX).await.unwrap();
+        } else if outcome == Outcome::Revoked {
+            assert_eq!(status, StatusCode::FORBIDDEN,
+                "current permission must be checked before the exhausted exact-byte egress owner");
+            // Pin the public route denial independently; the generic full-ledger helper
+            // has a different public message and must not define this route's contract.
+            let expected = norito::encode_canonical(&iroha_torii_shared::ErrorEnvelope::new(
+                "query_validation_failed",
+                "Operation is not permitted: AMX approval complete World carrier requires current CanReadAllLedgerData",
+            )).unwrap();
+            assert!(expected.len() <= AMX_APPROVAL_READ_FAILURE_MAX_BYTES);
             let bytes = axum::body::to_bytes(response.into_body(), expected.len()).await.unwrap();
-            assert_eq!(bytes, expected, "only the exact negotiated public error frame may leave the handler");
+            assert_eq!(bytes.as_ref(), expected.as_slice(),
+                "only the exact public denial may leave the handler, without any proof or request-bound capacity detail");
+            let envelope: iroha_torii_shared::ErrorEnvelope = norito::decode_canonical(&bytes).unwrap();
+            assert!(envelope.details.is_none());
+        } else {
+            assert_eq!(outcome, Outcome::EgressLimited);
+            assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+            let expected = norito::encode_canonical(&expected_capacity.into_error_envelope()).unwrap();
+            assert!(!expected.is_empty() && expected.len() <= AMX_APPROVAL_READ_FAILURE_MAX_BYTES);
+            let bytes = axum::body::to_bytes(
+                response.into_body(), AMX_APPROVAL_READ_FAILURE_MAX_BYTES,
+            ).await.unwrap();
+            assert_eq!(bytes.as_ref(), expected.as_slice(),
+                "only the exact original request-bound capacity envelope may leave the handler");
+            let observed = AmxApprovalReadFailureV1::decode_response(
+                status.as_u16(), "application/x-norito", &bytes, &approval, &account, 2,
+            ).unwrap();
+            assert_eq!(observed, expected_capacity);
+            // A bounded body is insufficient: different authenticated selection or
+            // negotiation cannot reuse this original request's scheduling observation.
+            for (status, media, height) in [
+                (429, "application/x-norito", 3),
+                (429, "application/json", 2),
+                (403, "application/x-norito", 2),
+            ] {
+                assert!(AmxApprovalReadFailureV1::decode_response(
+                    status, media, &bytes, &approval, &account, height,
+                ).is_err());
+            }
+            let mut other_approval = approval.clone();
+            other_approval.transaction_id[0] ^= 1;
+            assert!(AmxApprovalReadFailureV1::decode_response(
+                429, "application/x-norito", &bytes, &other_approval, &account, 2,
+            ).is_err());
         }
         assert_eq!(pool.available_bytes(), baseline_bytes);
         drop(completed);

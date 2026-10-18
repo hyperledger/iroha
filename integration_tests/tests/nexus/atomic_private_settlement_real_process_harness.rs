@@ -107,7 +107,10 @@ fn validate_real_process_smoke_request(request: &RealProcessSmokeRequestV1) -> R
     ensure!(
         request.version == 1
             && request.protocol == "AtomicPrivateSettlementV1"
-            && matches!(request.kind.as_str(), "smoke" | "happy_day")
+            && matches!(
+                request.kind.as_str(),
+                "smoke" | "happy_day" | "cold_one_call"
+            )
             && request.run < 10
             && lowercase_digest(&request.request_id, &[64])
             && lowercase_digest(&request.invocation_nonce, &[64])
@@ -1777,7 +1780,7 @@ fn read_bound_real_process_request() -> Result<(RealProcessBoundRequestV1, Strin
         .and_then(HarnessJsonValue::as_str)
         .ok_or_else(|| eyre!("real-process request lacks kind"))?;
     let request = match kind {
-        "smoke" | "happy_day" => {
+        "smoke" | "happy_day" | "cold_one_call" => {
             let request: RealProcessSmokeRequestV1 =
                 norito::json::from_value(value).wrap_err("decode strict smoke request")?;
             validate_real_process_smoke_request(&request)?;
@@ -11277,4 +11280,21 @@ fn benchmark_native_payload_excludes_adapter_measurements() {
             .insert(key.to_owned(), 1.into());
         assert!(norito::json::from_value::<RealProcessBenchmarkResultPayloadV1>(changed).is_err());
     }
+}
+
+#[test]
+fn cold_one_call_request_has_a_distinct_bound_experiment_kind() {
+    let mut request = RealProcessSmokeRequestV1 {
+        version: 1,
+        protocol: "AtomicPrivateSettlementV1".to_owned(),
+        kind: "cold_one_call".to_owned(),
+        request_id: "1".repeat(64),
+        invocation_nonce: "2".repeat(64),
+        commit: "3".repeat(40),
+        seed: 1,
+        run: 0,
+    };
+    assert!(validate_real_process_smoke_request(&request).is_ok());
+    request.kind = "cold".to_owned();
+    assert!(validate_real_process_smoke_request(&request).is_err());
 }

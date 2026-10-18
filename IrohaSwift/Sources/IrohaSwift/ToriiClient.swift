@@ -16383,12 +16383,8 @@ public struct ToriiPipelinePreflightQueue: Decodable, Sendable, Equatable {
 
 /// Nexus fee configuration Torii serves in pipeline preflight.
 ///
-/// Fee amounts are canonical decimal quantity strings; `settlementMode` is `direct` or
-/// `lane_relay_burn`.
+/// Fee amounts are canonical decimal quantity strings from the committed root policy.
 public struct ToriiPipelinePreflightFees: Decodable, Sendable, Equatable {
-    /// Settlement modes Torii serves.
-    public static let settlementModes: Set<String> = ["direct", "lane_relay_burn"]
-
     public let feeAssetId: String
     public let feeSinkAccountId: String
     public let baseFee: String
@@ -16396,7 +16392,6 @@ public struct ToriiPipelinePreflightFees: Decodable, Sendable, Equatable {
     public let perInstructionFee: String
     public let perGasUnitFee: String
     public let sponsorVaultCustodyAccountId: String
-    public let settlementMode: String
     public let successfulClaimFeeExemptAuthorities: [String]
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
@@ -16407,7 +16402,6 @@ public struct ToriiPipelinePreflightFees: Decodable, Sendable, Equatable {
         case perInstructionFee = "per_instruction_fee"
         case perGasUnitFee = "per_gas_unit_fee"
         case sponsorVaultCustodyAccountId = "sponsor_vault_custody_account_id"
-        case settlementMode = "settlement_mode"
         case successfulClaimFeeExemptAuthorities = "successful_claim_fee_exempt_authorities"
     }
 
@@ -16444,15 +16438,6 @@ public struct ToriiPipelinePreflightFees: Decodable, Sendable, Equatable {
             )
         }
         self.sponsorVaultCustodyAccountId = sponsorVaultCustodyAccountId
-        let settlementMode = try container.decode(String.self, forKey: .settlementMode)
-        guard Self.settlementModes.contains(settlementMode) else {
-            throw DecodingError.dataCorruptedError(
-                forKey: .settlementMode,
-                in: container,
-                debugDescription: "settlement_mode must be one of: direct, lane_relay_burn"
-            )
-        }
-        self.settlementMode = settlementMode
         let authorities = try container.decode(
             [String].self,
             forKey: .successfulClaimFeeExemptAuthorities

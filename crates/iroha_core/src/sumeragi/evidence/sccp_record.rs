@@ -73,9 +73,10 @@ impl SccpRecordBody {
 fn invalid(message: &'static str) -> Error {
     json::Error::Message(message.into()).into()
 }
-fn codec(e: norito::core::Error) -> Preparation {
-    e.decode_resource_error()
-        .map_or(Preparation::Invariant, Preparation::DecodeResource)
+fn decode<T>(action: impl FnOnce() -> Result<T, norito::core::Error>) -> Result<T, Preparation> {
+    // Classify around the actual operation while its original enclosing counter is active.
+    // Invalid/protocol/stale errors stay invariants; diagnostics cannot construct custody.
+    norito::core::classify_decode_attempt(action).map_err(Preparation::from_decode_attempt)
 }
 fn prepaid(e: iroha_allocation::PrepaidBufferError) -> Preparation {
     match e {
@@ -379,9 +380,8 @@ pub(crate) fn prepare_claim(
             continue;
         }
         let member = member.ok_or(Preparation::Invariant)?;
-        member
-            .validator
-            .for_each_admission_clone_layout(|layout| {
+        decode(|| {
+            member.validator.for_each_admission_clone_layout(|layout| {
                 match (
                     ledger_count.checked_add(1),
                     bytes.checked_add(layout.size()),
@@ -393,7 +393,7 @@ pub(crate) fn prepare_claim(
                     _ => overflowed = true,
                 }
             })
-            .map_err(codec)?;
+        })?;
     }
     if overflowed {
         return Err(overflow());
@@ -420,23 +420,29 @@ pub(crate) fn prepare_claim(
             continue;
         }
         let member = member.ok_or(Preparation::Invariant)?;
-        let peer = PreparedPublicKeyDecode::try_from_material(Algorithm::BlsNormal, key, budget)
-            .map_err(|e| match e {
-                PublicKeyDecodeAdmissionError::Allocation(e) => Preparation::from(e),
-                PublicKeyDecodeAdmissionError::Codec(e) => codec(e),
-            })?;
+        let peer = decode(|| {
+            match PreparedPublicKeyDecode::try_from_material(Algorithm::BlsNormal, key, budget) {
+                Ok(peer) => Ok(Ok(peer)),
+                // Keep this distinct original pool/allocator error, without fabricating
+                // a decoder error or reclassifying a diagnostic after the operation.
+                Err(PublicKeyDecodeAdmissionError::Allocation(error)) => Ok(Err(error)),
+                Err(PublicKeyDecodeAdmissionError::Codec(error)) => Err(error),
+            }
+        })?
+        .map_err(Preparation::from)?;
         let mut mismatch = false;
-        member
-            .validator
-            .for_each_admission_clone_layout(|layout| match original.try_split(layout) {
-                Ok(c) => ledger.push_reserved(c),
-                Err(_) => mismatch = true,
+        decode(|| {
+            member.validator.for_each_admission_clone_layout(|layout| {
+                match original.try_split(layout) {
+                    Ok(c) => ledger.push_reserved(c),
+                    Err(_) => mismatch = true,
+                }
             })
-            .map_err(codec)?;
+        })?;
         if mismatch {
             return Err(Preparation::Invariant);
         }
-        let account = member.validator.try_clone_for_admission().map_err(codec)?;
+        let account = decode(|| member.validator.try_clone_for_admission())?;
         offenders.push_reserved(SccpForgeryOffenderV1 {
             signer,
             lane_id: member.lane_id,

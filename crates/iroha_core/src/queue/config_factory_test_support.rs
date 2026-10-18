@@ -19,8 +19,11 @@ fn new_queue_test_state_with_telemetry(
     nexus.lane_config = LaneGeometry::from_catalog(&nexus.lane_catalog);
     nexus.configured_lane_catalog = nexus.lane_catalog.clone();
     nexus.configured_dataspace_catalog = nexus.dataspace_catalog.clone();
-    crate::sns::try_seed_default_namespace_policies(&mut world, &nexus.fees.fee_asset_id)
-        .expect("configured fixture SNS policies");
+    crate::sns::try_seed_default_namespace_policies(
+        &mut world,
+        &nexus.fees.fee_asset_id.canonical_address(),
+    )
+    .expect("configured fixture SNS policies");
     let config = iroha_config::parameters::actual::Kura {
         init_mode: iroha_config::kura::InitMode::Strict,
         store_dir: iroha_config::base::WithOrigin::inline(std::path::PathBuf::new()),

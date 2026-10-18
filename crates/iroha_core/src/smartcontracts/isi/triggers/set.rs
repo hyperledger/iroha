@@ -1301,6 +1301,54 @@ impl SetBlock<'_> {
         Ok(())
     }
 
+    /// Encode canonical trigger authority from these exact frozen original stores.
+    /// The enclosing State owner retains relation validation and publication;
+    /// this borrower cannot substitute rows or produce finality evidence.
+    pub(crate) fn append_original_state_bytes(
+        &self,
+        expected: &Set,
+        mode: mv::BlockMode,
+        output: &mut crate::state::authority_registry::original_stream::Collector,
+    ) -> core::result::Result<(), crate::state::authority_registry::original_stream::CaptureError>
+    {
+        use crate::state::authority_registry::original_stream::bare;
+        output.storage(
+            "triggers.data",
+            &self.data_triggers,
+            &expected.data_triggers,
+            mode,
+            |value, writer| bare(&BorrowedWorldAction::new(value), writer),
+        )?;
+        output.storage(
+            "triggers.pipeline",
+            &self.pipeline_triggers,
+            &expected.pipeline_triggers,
+            mode,
+            |value, writer| bare(&BorrowedWorldAction::new(value), writer),
+        )?;
+        output.storage(
+            "triggers.time",
+            &self.time_triggers,
+            &expected.time_triggers,
+            mode,
+            |value, writer| bare(&BorrowedWorldAction::new(value), writer),
+        )?;
+        output.storage(
+            "triggers.by_call",
+            &self.by_call_triggers,
+            &expected.by_call_triggers,
+            mode,
+            |value, writer| bare(&BorrowedWorldAction::new(value), writer),
+        )?;
+        output.storage(
+            "triggers.contracts",
+            &self.contracts,
+            &expected.contracts,
+            mode,
+            |value, writer| bare(&BorrowedWorldContract::from(value), writer),
+        )
+    }
+
     /// Visit actual trigger stores for the private World projection.
     ///
     /// Delta and baseline owners share borrowed semantic encoders. This covers

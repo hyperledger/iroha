@@ -28,7 +28,7 @@ use std::alloc::Layout;
 
 /// A source/canonical failure remains distinct from original-pool resource refusal.
 #[derive(Debug, thiserror::Error)]
-pub(super) enum WriteDecodeError {
+pub(crate) enum WriteDecodeError {
     /// The caller offered encoded bytes retained by a different original pool.
     #[error("native write source belongs to another allocation pool")]
     ForeignPool,
@@ -49,11 +49,11 @@ pub(super) enum WriteDecodeError {
 /// Decoded archive fields with independent, move-only custody of every ordinary write.
 /// Lane payload bytes borrow the original charged frame and confer no authority before the
 /// complete commitment matches the independently authenticated native result.
-pub(super) struct DecodedProjection<'a> {
+pub(crate) struct DecodedProjection<'a> {
     /// Original carrier height.
-    pub(super) carrier_height: u64,
+    pub(crate) carrier_height: u64,
     /// Original carrier identity.
-    pub(super) carrier_hash: HashOf<BlockHeader>,
+    pub(crate) carrier_hash: HashOf<BlockHeader>,
     /// Complete lane payload, still borrowing the original input owner.
     pub(super) lane_payload: &'a [u8],
     /// Exact SCCP delta preimage, joined to the sole synthetic ordinary write.
@@ -61,7 +61,7 @@ pub(super) struct DecodedProjection<'a> {
     /// Typed original complete casting corpus.
     pub(super) casting_bindings: CastingOwner,
     /// All ordinary-write allocations retained in their original pool.
-    pub(super) witness: RetainedPayload<ExecWitness>,
+    pub(crate) witness: RetainedPayload<ExecWitness>,
 }
 
 fn field<'a>(bytes: &mut &'a [u8], flags: u8) -> Result<&'a [u8], norito::Error> {
@@ -297,7 +297,7 @@ impl Construction {
 /// Decode the sole canonical projection frame while prepaying its exact ordinary-write graph.
 /// Input bytes must already belong to this original pool. No witness allocation happens before
 /// the complete checked demand is admitted; capacity failure preserves the original refusal.
-pub(super) fn decode_projection<'a>(
+pub(crate) fn decode_projection<'a>(
     bytes: &'a ChargedBuffer<u8>,
     budget: &AllocationBudget,
 ) -> Result<DecodedProjection<'a>, WriteDecodeError> {

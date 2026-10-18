@@ -7,12 +7,12 @@ use color_eyre::eyre::{Result, ensure};
 pub use iroha_contract_deploy::{DeploymentPreflight, DeploymentProgress};
 use iroha_data_model::{smart_contract::ContractAlias, transaction::FeePaymentIntent};
 use iroha_deploy::managed::{
-    InstalledRuntime, ManagedContext, ManagedStatus, ManagedStore, PreparedLocalnet,
-    default_state_root, workspace_state_root,
+    InstalledRuntime, ManagedStore, default_state_root, workspace_state_root,
 };
 pub use iroha_deploy::managed::{
     ManagedAttachmentFailure, ManagedAttachmentPhase, ManagedAttachmentStatus,
-    ManagedConfirmedAnchor, ManagedDataspaceStatus, ManagedDeploymentReport, ManagedPhase,
+    ManagedConfirmedAnchor, ManagedContext, ManagedDataspaceStatus, ManagedDeploymentReport,
+    ManagedPhase, ManagedStatus, PreparedLocalnet,
 };
 pub use musubi::deployment_runtime::ContractInput;
 use musubi::deployment_runtime::{AliasSelection, DeploymentRuntime};
@@ -32,6 +32,25 @@ pub struct DeveloperWorkspace {
     root: PathBuf,
     project: PathBuf,
     runtime: InstalledRuntime,
+}
+
+/// One desktop action's exact target and result, including failures after target acquisition.
+///
+/// The target remains available for read-only refresh without resolving a mutable context name.
+/// An error in `outcome` never authorizes replacement, repeat dispatch or another generation.
+pub struct ManagedActionOutcome<T> {
+    /// Immutable network captured before the action entered compilation or publication.
+    pub network: ManagedNetwork,
+    /// Original operation result; completed receipts and failures retain their exact target.
+    pub outcome: Result<T>,
+}
+
+fn run_on_network<T>(
+    network: ManagedNetwork,
+    action: impl FnOnce(&ManagedNetwork) -> Result<T>,
+) -> ManagedActionOutcome<T> {
+    let outcome = action(&network);
+    ManagedActionOutcome { network, outcome }
 }
 
 impl DeveloperWorkspace {
@@ -194,25 +213,17 @@ impl DeveloperWorkspace {
             .create_localnet(&self.runtime.localnet_request(name, Duration::from_secs(30)))?)
     }
 
-    /// Start a new localnet or restart the exact retained global or private generation.
+    /// Restart exactly the displayed generation without changing workspace selection.
     ///
     /// # Errors
-    /// Generation, custody, startup, or readiness failure.
-    pub fn start(&self, name: &str) -> Result<ManagedStatus> {
-        let store = ManagedStore::open(&self.root)?;
-        let mut request = self.runtime.localnet_request(name, Duration::from_secs(30));
-        match store.context(Some(name)) {
-            Ok(context) => {
-                request.service_profile = store.prepared(name)?.service_profile;
-                Ok(store.up_retained(&request, &context)?)
-            }
-            Err(iroha_deploy::managed::Error::Io(error))
-                if error.kind() == std::io::ErrorKind::NotFound =>
-            {
-                Ok(store.up(&request)?)
-            }
-            Err(error) => Err(error.into()),
-        }
+    /// A foreign, missing/replaced generation, custody, startup or readiness failure is refused.
+    pub fn start(&self, network: &ManagedNetwork) -> Result<ManagedStatus> {
+        self.validate_action_network(network)?;
+        Ok(ManagedStore::open(&self.root)?.ensure_captured(
+            &self.runtime,
+            network.prepared(),
+            Duration::from_secs(30),
+        )?)
     }
 
     /// Observe the native worker without inferring liveness from stored numeric PIDs.
@@ -227,209 +238,272 @@ impl DeveloperWorkspace {
     ///
     /// # Errors
     /// Unknown generation, unsafe custody or uncertain process ownership.
-    pub fn stop(&self, name: &str) -> Result<ManagedStatus> {
-        Ok(ManagedStore::open(&self.root)?.down(name)?)
+    pub fn stop(&self, network: &ManagedNetwork) -> Result<ManagedStatus> {
+        self.validate_action_network(network)?;
+        Ok(ManagedStore::open(&self.root)?.down_captured(network.prepared())?)
     }
 
-    /// Reset an explicitly named stopped localnet after the desktop obtains reset intent.
+    /// Reset the exact captured stopped localnet after the desktop obtains reset intent.
     ///
     /// # Errors
     /// Refuses a running or orphan-owned network and unsafe generation storage.
-    pub fn reset(&self, name: &str) -> Result<()> {
-        Ok(ManagedStore::open(&self.root)?.reset(name)?)
+    pub fn reset(&self, network: &ManagedNetwork) -> Result<()> {
+        self.validate_action_network(network)?;
+        Ok(ManagedStore::open(&self.root)?.reset_captured(network.prepared())?)
     }
 
-    /// Read a bounded private log tail for display.
+    /// Read a bounded private log tail from the captured generation, validating before and after.
     ///
     /// # Errors
     /// Unknown peer, excessive byte limit, or unsafe log custody.
-    pub fn logs(&self, name: &str, peer: Option<usize>, maximum: usize) -> Result<String> {
-        Ok(ManagedStore::open(&self.root)?.logs(name, peer, maximum)?)
+    pub fn logs(
+        &self,
+        network: &ManagedNetwork,
+        peer: Option<usize>,
+        maximum: usize,
+    ) -> Result<String> {
+        self.validate_action_network(network)?;
+        let logs =
+            ManagedStore::open(&self.root)?.logs(&network.prepared().context.name, peer, maximum);
+        network.validate()?;
+        Ok(logs?)
     }
 
     /// Publish an explicit package action through the same generated context and engine as Kagami.
     ///
-    /// Run this blocking action on the desktop executor. Begin may start the default environment;
-    /// Resume/Recover require an existing selection and retain their original operation. Original
+    /// Run this blocking action on the desktop executor. Begin without a captured network creates
+    /// the default only in an unselected workspace; Resume/Recover require a captured network.
+    /// Existing selections retain their exact generation and original operation. Original
     /// generation-bound publication/cache roots and namespace custody are shared with the CLI.
     /// The returned outcome uses canonical redacting output; it is not a readiness assertion.
     /// # Errors
-    /// Invalid workspace, missing selection, original profile/registry mismatch or startup failure.
+    /// Invalid input, missing/replaced target or startup failure is returned directly. Later
+    /// profile/registry and publication failures remain in the target-bound outcome.
     pub fn publish_package(
         &self,
         manifest: &Path,
-        context: Option<&str>,
+        context: Option<&ManagedNetwork>,
         action: GeneratedPublishAction,
-    ) -> Result<GeneratedPublishOutcome> {
+    ) -> Result<ManagedActionOutcome<GeneratedPublishOutcome>> {
         let manifest = self.resolve_path(manifest);
         let action =
             musubi::generated_publication::prepare_generated_publish_action(&manifest, action)?;
-        let store = ManagedStore::open(&self.root)?;
-        if !matches!(&action, GeneratedPublishAction::Begin { .. }) {
-            store.context(context)?;
-        }
-        let selected = store
-            .ensure_selected(&self.runtime, context, Duration::from_secs(30))?
-            .context;
-        let prepared = store.prepared(&selected.name)?;
-        ensure!(
-            prepared.context == selected,
-            "selected publication generation changed"
-        );
-        let deadline = Instant::now() + Duration::from_secs(60);
-        let original = prepared.publication_client_config()?.ok_or_else(|| {
-            color_eyre::eyre::eyre!("selected generation has no generated publication intent")
-        })?;
-        let context =
-            musubi::publication_runtime::GeneratedPublicationContextV1::from_original_image(
-                original.client_config_path(),
-                original.client_config_image(),
-                original.publication_transport()?,
-                musubi::publication_runtime::GeneratedPublicationNamespaceIntentV1 {
-                    publisher: original.publisher().clone(),
-                    binding: original.namespace_binding().clone(),
-                    policy: original.registry_policy().clone(),
-                    fee_payment: original.namespace_fee_payment(),
-                    journal_root: original.namespace_journal_root().to_path_buf(),
-                },
-            )?;
-        let (registry, archive_transport) = store
-            .build_registry(&self.runtime, &selected.name, deadline)?
-            .ok_or_else(|| {
-                color_eyre::eyre::eyre!("selected generation has no authenticated build registry")
+        let network = self.action_network(
+            context,
+            matches!(&action, GeneratedPublishAction::Begin { .. }),
+        )?;
+        Ok(run_on_network(network, |network| {
+            network.validate()?;
+            let store = ManagedStore::open(&self.root)?;
+            let prepared = network.prepared();
+            let selected = &prepared.context;
+            let deadline = Instant::now() + Duration::from_secs(60);
+            let original = prepared.publication_client_config()?.ok_or_else(|| {
+                color_eyre::eyre::eyre!("selected generation has no generated publication intent")
             })?;
-        ensure!(
-            registry.account == *original.publisher()
-                && registry.network_id == original.service_plan().network_id()
-                && registry.chain.as_str() == original.service_plan().chain_id()
-                && registry.torii_api_url.as_str() == prepared.context.torii_url
-                && store.prepared(&selected.name)? == prepared,
-            "generated publication registry or generation changed"
-        );
-        Ok(musubi::generated_publication::publish_generated(
-            &context,
-            &musubi::generated_publication::GeneratedPublishRequest {
-                manifest_path: manifest,
-                state_root: original.publication_state_root(),
-                cache_root: original.publication_cache_root(),
-                archive_transport,
-                action,
-            },
-        ))
+            let context =
+                musubi::publication_runtime::GeneratedPublicationContextV1::from_original_image(
+                    original.client_config_path(),
+                    original.client_config_image(),
+                    original.publication_transport()?,
+                    musubi::publication_runtime::GeneratedPublicationNamespaceIntentV1 {
+                        publisher: original.publisher().clone(),
+                        binding: original.namespace_binding().clone(),
+                        policy: original.registry_policy().clone(),
+                        fee_payment: original.namespace_fee_payment(),
+                        journal_root: original.namespace_journal_root().to_path_buf(),
+                    },
+                )?;
+            let (registry, archive_transport) = store
+                .build_registry(&self.runtime, &selected.name, deadline)?
+                .ok_or_else(|| {
+                    color_eyre::eyre::eyre!(
+                        "selected generation has no authenticated build registry"
+                    )
+                })?;
+            ensure!(
+                registry.account == *original.publisher()
+                    && registry.network_id == original.service_plan().network_id()
+                    && registry.chain.as_str() == original.service_plan().chain_id()
+                    && registry.torii_api_url.as_str() == prepared.context.torii_url
+                    && store.prepared(&selected.name)? == *prepared,
+                "generated publication registry or generation changed"
+            );
+            Ok(musubi::generated_publication::publish_generated(
+                &context,
+                &musubi::generated_publication::GeneratedPublishRequest {
+                    manifest_path: manifest,
+                    state_root: original.publication_state_root(),
+                    cache_root: original.publication_cache_root(),
+                    archive_transport,
+                    action,
+                },
+            ))
+        }))
     }
 
-    /// Compile and deploy one input, starting the default localnet if no context was selected.
+    /// Compile and deploy one input against a captured network, or create the unselected default.
     ///
     /// `review` sees exact signed-plan fee quotes before dispatch; `progress` reports native
     /// stage evidence. Exact repeats recover the same journal and submitted transaction hashes.
     ///
     /// # Errors
-    /// Preparation, authorization, budget, original-hash recovery or final readback failure.
+    /// Target admission/startup failure is returned directly. Preparation, authorization, budget,
+    /// original-hash recovery and readback failures remain in the target-bound outcome.
     pub fn deploy(
         &self,
         input: &ContractInput,
-        context: Option<&str>,
+        context: Option<&ManagedNetwork>,
         alias: Option<ContractAlias>,
         review: &mut dyn FnMut(&DeploymentPreflight) -> Result<()>,
         progress: &mut dyn FnMut(DeploymentProgress),
-    ) -> Result<ManagedDeploymentReport> {
-        let store = ManagedStore::open(&self.root)?;
-        let selected = store
-            .ensure_selected(&self.runtime, context, Duration::from_secs(30))?
-            .context;
-        let target = store.capture_deployment(&selected)?;
-        let config = selected.load_client_config()?;
-        let prepared = store.prepared(&selected.name)?;
-        ensure!(
-            prepared.context == selected,
-            "deployment generation changed before cache selection"
-        );
-        let cache_root = prepared.build_cache_root();
-        let runtime = self.deployment_runtime(config, &selected.name, cache_root);
-        let alias = alias.map_or_else(
-            || AliasSelection::Scope {
-                domain: None,
-                dataspace: selected.dataspace_alias.clone(),
-            },
-            AliasSelection::Exact,
-        );
-        let run = runtime.deploy(
-            input,
-            &alias,
-            FeePaymentIntent::authority(Vec::new(), None),
-            &mut |preflight| {
-                ensure!(
-                    preflight.dataspace_id.as_u64() == selected.dataspace_id,
-                    "deployment resolved outside the selected dataspace"
-                );
-                review(preflight)
-            },
-            progress,
-        )?;
-        let mut report = target.finish(&store, run.receipt, run.journal)?;
-        report.lifecycle = run.lifecycle;
-        Ok(report)
+    ) -> Result<ManagedActionOutcome<ManagedDeploymentReport>> {
+        let network = self.action_network(context, true)?;
+        Ok(run_on_network(network, |network| {
+            network.validate()?;
+            let store = ManagedStore::open(&self.root)?;
+            let prepared = network.prepared();
+            let selected = &prepared.context;
+            let target = store.capture_deployment(selected)?;
+            let runtime = self.deployment_runtime(network);
+            let alias = alias.map_or_else(
+                || AliasSelection::Scope {
+                    domain: None,
+                    dataspace: selected.dataspace_alias.clone(),
+                },
+                AliasSelection::Exact,
+            );
+            let run = runtime.deploy(
+                input,
+                &alias,
+                FeePaymentIntent::authority(Vec::new(), None),
+                &mut |preflight| {
+                    ensure!(
+                        preflight.dataspace_id.as_u64() == selected.dataspace_id,
+                        "deployment resolved outside the selected dataspace"
+                    );
+                    review(preflight)
+                },
+                progress,
+            )?;
+            let mut report = target.finish(&store, run.receipt, run.journal)?;
+            report.lifecycle = run.lifecycle;
+            Ok(report)
+        }))
     }
 
     /// Recover an exact retained journal using its selected environment without rebuilding.
     ///
     /// # Errors
-    /// Missing selection, mismatched original authority, pending finality or failed readback.
+    /// Missing/replaced target is returned directly. Mismatched original authority, pending
+    /// finality or failed readback remains in the target-bound outcome.
     pub fn resume(
         &self,
         journal: &Path,
-        context: Option<&str>,
+        context: Option<&ManagedNetwork>,
         review: &mut dyn FnMut(&DeploymentPreflight) -> Result<()>,
         progress: &mut dyn FnMut(DeploymentProgress),
-    ) -> Result<ManagedDeploymentReport> {
-        let store = ManagedStore::open(&self.root)?;
-        store.context(context)?;
-        let selected = store
-            .ensure_selected(&self.runtime, context, Duration::from_secs(30))?
-            .context;
-        let target = store.capture_deployment(&selected)?;
-        let prepared = store.prepared(&selected.name)?;
-        ensure!(
-            prepared.context == selected,
-            "deployment generation changed before cache selection"
-        );
-        let cache_root = prepared.build_cache_root();
-        let runtime =
-            self.deployment_runtime(selected.load_client_config()?, &selected.name, cache_root);
-        let run = runtime.resume(
-            journal,
-            &mut |preflight| {
-                ensure!(
-                    preflight.dataspace_id.as_u64() == selected.dataspace_id,
-                    "recovery belongs to another dataspace"
-                );
-                review(preflight)
-            },
-            progress,
-        )?;
-        let mut report = target.finish(&store, run.receipt, run.journal)?;
-        report.lifecycle = run.lifecycle;
-        Ok(report)
+    ) -> Result<ManagedActionOutcome<ManagedDeploymentReport>> {
+        let network = self.action_network(context, false)?;
+        Ok(run_on_network(network, |network| {
+            network.validate()?;
+            let store = ManagedStore::open(&self.root)?;
+            let prepared = network.prepared();
+            let selected = &prepared.context;
+            let target = store.capture_deployment(selected)?;
+            let runtime = self.deployment_runtime(network);
+            let run = runtime.resume(
+                journal,
+                &mut |preflight| {
+                    ensure!(
+                        preflight.dataspace_id.as_u64() == selected.dataspace_id,
+                        "recovery belongs to another dataspace"
+                    );
+                    review(preflight)
+                },
+                progress,
+            )?;
+            let mut report = target.finish(&store, run.receipt, run.journal)?;
+            report.lifecycle = run.lifecycle;
+            Ok(report)
+        }))
     }
 
-    fn deployment_runtime(
+    fn validate_action_network(&self, network: &ManagedNetwork) -> Result<()> {
+        ensure!(
+            network.root == self.root,
+            "selected network belongs to another workspace"
+        );
+        network.validate()
+    }
+
+    fn action_network(
         &self,
-        config: iroha::config::Config,
-        name: &str,
-        cache_root: PathBuf,
-    ) -> DeploymentRuntime {
+        captured: Option<&ManagedNetwork>,
+        create_default: bool,
+    ) -> Result<ManagedNetwork> {
+        if let Some(network) = captured {
+            // The startup owner repeats complete preparation admission under its operation lock.
+            self.start(network)?;
+            network.validate()?;
+            return Ok(network.clone());
+        }
+        if !create_default {
+            return Err(iroha_deploy::managed::Error::NoSelection.into());
+        }
+        let store = ManagedStore::open(&self.root)?;
+        match store.context(None) {
+            Err(iroha_deploy::managed::Error::NoSelection) => {}
+            Ok(_) => {
+                return Err(color_eyre::eyre::eyre!(
+                    "workspace selection changed; select the network explicitly"
+                ));
+            }
+            Err(error) => return Err(error.into()),
+        }
+        // Empty-desktop startup creates only its own default. A retained/concurrently created
+        // `local` is refused; an unrelated concurrent selection is never adopted as authority.
+        // Successfully creating our fresh default selects it through the ordinary explicit
+        // create owner, even if another frontend selected a different name while it started.
+        let status = store.create_localnet(
+            &self
+                .runtime
+                .localnet_request("local", Duration::from_secs(30)),
+        )?;
+        ensure!(
+            status.phase == ManagedPhase::Ready,
+            "{}",
+            status
+                .failure
+                .unwrap_or_else(|| "default developer environment is not ready".into())
+        );
+        let prepared = store.prepared(&status.context.name)?;
+        self.network_from_prepared(&status.context, prepared)
+    }
+
+    fn deployment_runtime(&self, network: &ManagedNetwork) -> DeploymentRuntime {
         let registry_root = self.root.clone();
-        let registry_context = name.to_owned();
+        let captured = network.clone();
         let installed = self.runtime.clone();
-        DeploymentRuntime::new(config, self.root.join("deployments").join(name), cache_root)
-            .with_build_registry_resolver(Arc::new(move || {
-                // External dependencies require the original registry binding before cache
-                // selection. Local-only graphs never call this; complete cache hits skip
-                // registry/provider reads after this binding and custody are resolved.
-                let deadline = Instant::now() + Duration::from_secs(60);
-                let store = ManagedStore::open(&registry_root)?;
-                Ok(store.build_registry(&installed, &registry_context, deadline)?)
-            }))
+        DeploymentRuntime::new(
+            network.config.clone(),
+            self.root
+                .join("deployments")
+                .join(&network.prepared.context.name),
+            network.prepared.build_cache_root(),
+        )
+        .with_build_registry_resolver(Arc::new(move || {
+            // External dependencies require the original registry binding before cache
+            // selection. Local-only graphs never call this; complete cache hits skip
+            // registry/provider reads after this binding and custody are resolved.
+            captured.validate()?;
+            let deadline = Instant::now() + Duration::from_secs(60);
+            let store = ManagedStore::open(&registry_root)?;
+            let registry =
+                store.build_registry(&installed, &captured.prepared.context.name, deadline);
+            captured.validate()?;
+            Ok(registry?)
+        }))
     }
 }
 
@@ -715,7 +789,8 @@ mod tests {
         let owner = prepared.context.load_client_config().unwrap();
         assert!(owner.api_token.is_some());
         assert_create_refuses_retained_context(&desktop, "private");
-        let failure = desktop.start("private").unwrap_err();
+        let captured = desktop.network(Some("private")).unwrap();
+        let failure = desktop.start(&captured).unwrap_err();
         assert!(
             matches!(
                 failure.downcast_ref::<iroha_deploy::managed::Error>(),
@@ -807,10 +882,9 @@ mod tests {
         assert_eq!(std::fs::read_dir(&workspace).unwrap().count(), 0);
         assert!(desktop.select("missing").is_err());
         assert!(desktop.status("missing").is_err());
-        assert!(desktop.stop("missing").is_err());
-        assert!(desktop.reset("missing").is_err());
-        assert!(desktop.logs("missing", None, 1024).is_err());
-        assert!(desktop.start("../invalid").is_err());
+        // Lifecycle actions require a captured network; missing/invalid names fail capture.
+        assert!(desktop.network(Some("missing")).is_err());
+        assert!(desktop.network(Some("../invalid")).is_err());
         assert!(desktop.create_localnet("../invalid").is_err());
         assert!(
             desktop
@@ -821,19 +895,10 @@ mod tests {
         // managed context; source admission must not fail before that original owner gate.
         let selected_source = temporary.path().join("unselected.ko");
         std::fs::write(&selected_source, "seiyaku Unselected {}").unwrap();
-        let selected_source =
-            ContractInput::from_path(&selected_source, None, None, false).unwrap();
-        assert!(
-            desktop
-                .deploy(
-                    &selected_source,
-                    Some("missing"),
-                    None,
-                    &mut |_| Ok(()),
-                    &mut |_| {}
-                )
-                .is_err()
-        );
+        assert!(ContractInput::from_path(&selected_source, None, None, false).is_ok());
+        // A name cannot be supplied directly to the typed action API; failed capture prevents
+        // the action before startup. Removed captured targets are exercised below.
+        assert!(desktop.network(Some("missing")).is_err());
         // Desktop input selection uses the same early native admission as Kagami. Invalid
         // content cannot reach deploy/start, change selection, or create a managed generation.
         for (name, contents) in [
@@ -870,7 +935,7 @@ mod tests {
             InstalledRuntime::from_directory(&bin).unwrap(),
         )
         .unwrap();
-        let failure = desktop.start("fixture").unwrap_err();
+        let failure = desktop.create_localnet("fixture").unwrap_err();
         assert!(
             matches!(
                 failure.downcast_ref::<iroha_deploy::managed::Error>(),
@@ -921,13 +986,11 @@ mod tests {
             "seiyaku Offline { view fn quote(int cups) authorize(anyone) -> int { return cups * 10; } }",
         )
         .unwrap();
+        let mut absent_registry = network.clone();
+        absent_registry.prepared.context.name = "missing-registry-context".into();
         assert_eq!(
             desktop
-                .deployment_runtime(
-                    network.config.clone(),
-                    "missing-registry-context",
-                    network.prepared().build_cache_root(),
-                )
+                .deployment_runtime(&absent_registry)
                 .build(&ContractInput::from_path(&source, None, None, false).unwrap())
                 .unwrap()
                 .name(),
@@ -996,7 +1059,82 @@ mod tests {
             .block_on(wrong_network.submit(0, &preview))
             .unwrap_err();
         assert!(error.to_string().contains("another network"));
+        // A desktop that observed no selection must not adopt one that appeared externally.
+        assert_eq!(
+            desktop
+                .action_network(None, true)
+                .err()
+                .unwrap()
+                .to_string(),
+            "workspace selection changed; select the network explicitly"
+        );
+        assert!(matches!(
+            desktop
+                .action_network(None, false)
+                .err()
+                .unwrap()
+                .downcast_ref::<iroha_deploy::managed::Error>(),
+            Some(iroha_deploy::managed::Error::NoSelection)
+        ));
+        // All actual action entries reject a captured authority from another workspace before
+        // readiness, compile/review, namespace wallets or any network operation.
+        let input = ContractInput::from_path(&source, None, None, false).unwrap();
+        let mut foreign = network.clone();
+        foreign.root = temporary.path().join("another-workspace");
+        let operation_id = "56".repeat(32).parse().unwrap();
+        let failures = [
+            desktop
+                .deploy(
+                    &input,
+                    Some(&foreign),
+                    None,
+                    &mut |_| panic!("foreign deployment reached review"),
+                    &mut |_| panic!("foreign deployment reached progress"),
+                )
+                .err()
+                .unwrap(),
+            desktop
+                .resume(
+                    Path::new("missing-journal"),
+                    Some(&foreign),
+                    &mut |_| panic!("foreign recovery reached review"),
+                    &mut |_| panic!("foreign recovery reached progress"),
+                )
+                .err()
+                .unwrap(),
+            desktop
+                .publish_package(
+                    Path::new("missing-manifest"),
+                    Some(&foreign),
+                    GeneratedPublishAction::Resume { operation_id },
+                )
+                .err()
+                .unwrap(),
+        ];
+        for error in failures {
+            assert_eq!(
+                error.to_string(),
+                "selected network belongs to another workspace"
+            );
+        }
+        for error in [
+            desktop.start(&foreign).err().unwrap(),
+            desktop.stop(&foreign).err().unwrap(),
+            desktop.reset(&foreign).err().unwrap(),
+            desktop.logs(&foreign, None, 1024).err().unwrap(),
+        ] {
+            assert_eq!(
+                error.to_string(),
+                "selected network belongs to another workspace"
+            );
+        }
+        // The exact stopped generation remains a valid stop/log target without spawning peers.
+        assert_eq!(desktop.stop(&network).unwrap().context, context);
+        assert!(desktop.logs(&network, None, 1024).is_ok());
+        assert_eq!(desktop.selected_name().unwrap().as_deref(), Some("fixture"));
+        assert!(!temporary.path().join("another-workspace").exists());
         let root = desktop.state_root().to_path_buf();
+        let retained_desktop = desktop.clone();
         drop(desktop);
         assert_eq!(
             ManagedStore::open(&root).unwrap().context(None).unwrap(),
@@ -1008,6 +1146,59 @@ mod tests {
         assert!(network.observer(0).is_err());
         assert!(network.ledger_reader(0).is_err());
         assert!(network.preview(&[]).is_err());
+        // Removal after capture refuses all three real action entrances. None may restart a
+        // replacement generation or create a missing journal on a different authority.
+        assert!(
+            retained_desktop
+                .deploy(
+                    &input,
+                    Some(&network),
+                    None,
+                    &mut |_| panic!("stale deployment reached review"),
+                    &mut |_| panic!("stale deployment reached progress")
+                )
+                .is_err()
+        );
+        assert!(
+            retained_desktop
+                .resume(
+                    Path::new("missing-journal"),
+                    Some(&network),
+                    &mut |_| panic!("stale recovery reached review"),
+                    &mut |_| panic!("stale recovery reached progress")
+                )
+                .is_err()
+        );
+        assert!(
+            retained_desktop
+                .publish_package(
+                    Path::new("missing-manifest"),
+                    Some(&network),
+                    GeneratedPublishAction::Resume { operation_id }
+                )
+                .is_err()
+        );
+        assert!(retained_desktop.start(&network).is_err());
+        assert!(retained_desktop.stop(&network).is_err());
+        assert!(retained_desktop.reset(&network).is_err());
+        assert!(retained_desktop.logs(&network, None, 1024).is_err());
+        assert!(
+            ManagedStore::open(&root)
+                .unwrap()
+                .contexts()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(!root.join("deployments").exists());
+        // Failure after the target was admitted keeps that same target in the production
+        // outcome owner; observing its name cannot replace this saved authority.
+        let failed = run_on_network(network.clone(), ManagedNetwork::validate);
+        assert!(failed.outcome.is_err());
+        assert_eq!(failed.network.prepared(), network.prepared());
+        assert_eq!(
+            failed.network.signer().account_id(),
+            network.signer().account_id()
+        );
         assert_eq!(std::fs::read_dir(project).unwrap().count(), 0);
     }
 

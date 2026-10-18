@@ -101,6 +101,7 @@ pub mod pacemaker;
 pub mod preimage;
 pub mod prepare_admission;
 pub mod proposal_admission;
+pub mod qc_custody;
 pub mod safety;
 #[cfg(any(test, feature = "sim"))]
 pub mod sim;

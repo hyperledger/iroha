@@ -142,8 +142,8 @@ impl Fixture {
             nexus.fees.per_instruction_fee = Quantity::from(1_u32);
             nexus.fees.per_byte_fee = Quantity::zero();
             nexus.fees.per_gas_unit_fee = Quantity::zero();
-            nexus.fees.fee_asset_id = asset.to_string();
-            nexus.fees.fee_sink_account_id = observer.to_string();
+            nexus.fees.fee_asset_id = asset.clone();
+            nexus.fees.fee_sink_account_id = observer.clone();
             config.nexus = Some(nexus);
             config.genesis_instructions.push(
                 Register::asset_definition(AssetDefinition::numeric(

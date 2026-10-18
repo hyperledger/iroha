@@ -46,7 +46,7 @@ impl SettlementPhases for OnlinePhases {
             let request = self.request.clone();
             // The original worker owns its permit and prepared-artifact Arc even if its
             // awaiting call is dropped. No unbounded blocking task queue is created.
-            run_worker(permit, move || {
+            run_private_settlement_worker(permit, move || {
                 run(&client, &request, phase, &journal, read_only)
             })
             .await?

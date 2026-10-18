@@ -8,6 +8,27 @@
 use norito::core::{DecodeFlagsGuard, Encoder, Error, SerializePayload};
 use std::io::Write;
 
+/// Size of the sole fixed-V1 transaction version prefix, in bytes.
+pub const SIGNED_TRANSACTION_WIRE_PREFIX_BYTES_V1: usize = 1;
+/// Header alignment padding for the supported canonical signed-transaction layout.
+///
+/// The type invariant below refuses a model/target layout that would change this
+/// geometry. This is not the unrelated untyped ArchiveView padding allowance.
+pub const SIGNED_TRANSACTION_FRAME_PADDING_BYTES_V1: usize = 0;
+/// Bytes added when replacing the V1 prefix with a canonical signed-transaction frame.
+pub const SIGNED_TRANSACTION_FRAME_OVERHEAD_BYTES_V1: usize = norito::core::Header::SIZE
+    + SIGNED_TRANSACTION_FRAME_PADDING_BYTES_V1
+    - SIGNED_TRANSACTION_WIRE_PREFIX_BYTES_V1;
+
+// Existing bytes require zero padding: fail compilation before a new native type
+// alignment could silently change size admission. No serializer/layout is replaced.
+const _: () = {
+    let align = norito::core::archived_payload_align::<super::SignedTransaction>();
+    let padding = (align - norito::core::Header::SIZE % align) % align;
+    assert!(padding == SIGNED_TRANSACTION_FRAME_PADDING_BYTES_V1);
+};
+const VERSION_PREFIX_V1: [u8; SIGNED_TRANSACTION_WIRE_PREFIX_BYTES_V1] = [1];
+
 /// Borrowed, measured complete V1 transaction or entrypoint wire.
 ///
 /// Construction is private to the canonical model. A plan supplies byte encoding only, never
@@ -77,7 +98,7 @@ struct VersionedPayloadV1<'a>(&'a dyn SerializePayload);
 
 impl SerializePayload for VersionedPayloadV1<'_> {
     fn serialize(&self, writer: &mut Encoder<'_>) -> Result<(), Error> {
-        writer.write_all(&[1])?;
+        writer.write_all(&VERSION_PREFIX_V1)?;
         self.0.serialize(writer)
     }
 }

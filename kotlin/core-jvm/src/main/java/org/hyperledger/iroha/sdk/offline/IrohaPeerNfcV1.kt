@@ -12,8 +12,9 @@ import org.hyperledger.iroha.sdk.norito.Varint
  * Transport-neutral Iroha peer NFC V1 constants (`specs/kagemusha_wallet_wire_v1.md` §6, NFC).
  *
  * The receiver's phone is the card (host card emulation) and the payer's phone is the reader.
- * One continuous hold carries the payer's Offer to the card and the receiver's Request back
- * ([IrohaPeerNfcOfferExchangeV1], [IrohaPeerNfcOfferIntakeV1]), then carries the approved
+ * One continuous hold reads the receiver's ask ([IrohaPeerAskV1]) and carries the payer's Offer for that amount to
+ * the card, which answers with the receiver's Request ([IrohaPeerNfcOfferExchangeV1],
+ * [IrohaPeerNfcOfferIntakeV1]), then carries the approved
  * Payment and returns the receiver's durable acknowledgement, the wallet's Credited envelope
  * ([IrohaPeerNfcReaderExchangeV1], [IrohaPeerNfcReceiverSessionV1]). Every value matches the
  * Swift `IrohaPeerNfcV1` byte for byte. TODO(G4): SessionControl and Lineage over NFC.
@@ -36,6 +37,9 @@ object IrohaPeerNfcV1 {
 
     /** Length of the `IOI1` record returned by GET_INTAKE. */
     const val INTAKE_BYTES = 68
+
+    /** Length of the receiver's `IAK1` ask returned by GET_ASK ([IrohaPeerAskV1]). */
+    const val ASK_BYTES = IrohaPeerAskV1.RECORD_BYTES
 
     /** Length of the `INF1` record returned by GET_INFO. */
     const val INFO_BYTES = 98
@@ -137,7 +141,8 @@ enum class IrohaPeerNfcInstructionV1(val code: Int) {
     GET_INTAKE(0x30),
     BEGIN_OFFER(0x31),
     WRITE_OFFER(0x32),
-    SUBMIT_OFFER(0x33);
+    SUBMIT_OFFER(0x33),
+    GET_ASK(0x34);
 
     companion object {
         @JvmStatic fun fromCode(code: Int): IrohaPeerNfcInstructionV1? =
@@ -285,6 +290,9 @@ enum class IrohaPeerNfcErrorV1 {
 
     /** The card did not finish preparing the Request within the reader's preparation budget. */
     REQUEST_PREPARATION_TIMED_OUT,
+
+    /** The card answered GET_ASK with a 56-byte record that is not a valid `IAK1` ask. */
+    INVALID_ASK,
 }
 
 /**
@@ -294,6 +302,7 @@ enum class IrohaPeerNfcErrorV1 {
 enum class IrohaPeerNfcOperationV1 {
     SELECT_APPLICATION,
     GET_INTAKE,
+    GET_ASK,
     BEGIN_OFFER,
     WRITE_OFFER,
     SUBMIT_OFFER,
@@ -367,6 +376,7 @@ class IrohaPeerNfcExceptionV1 @JvmOverloads constructor(
                 "The nearby NFC peer could not durably persist ${operation?.name}."
             IrohaPeerNfcErrorV1.OFFER_DECLINED -> "The receiver declined the Offer (reason $detail)."
             IrohaPeerNfcErrorV1.REQUEST_PREPARATION_TIMED_OUT -> "The receiver did not prepare a Request in time."
+            IrohaPeerNfcErrorV1.INVALID_ASK -> "The NFC card's ask is not a valid IAK1 record."
         }
 
         fun hexByte(value: Int): String {
@@ -426,6 +436,7 @@ enum class IrohaPeerNfcStatusWordV1(val code: Int) {
             IrohaPeerNfcErrorV1.INVALID_APDU,
             IrohaPeerNfcErrorV1.INVALID_OFFSET,
             IrohaPeerNfcErrorV1.INVALID_FLAGS,
+            IrohaPeerNfcErrorV1.INVALID_ASK,
             -> WRONG_DATA
         }
     }

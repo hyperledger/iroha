@@ -1,7 +1,13 @@
 //! This module provides the [`State`] — an in-memory representation of the current blockchain state.
 #![allow(clippy::items_after_statements, clippy::used_underscore_binding)]
+use crate::private_settlement::global_state::PrivateSettlementPoolKeyExtV1 as _;
 /// Original finite allocation pool passed from startup into State and restore.
 pub use iroha_allocation::AllocationBudget;
+use iroha_data_model::nexus::{
+    PrivateSettlementNullifierKeyV1, PrivateSettlementOutputKeyV1,
+    PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolKeyV1,
+    PrivateSettlementPoolStateV1,
+};
 /// Read-only access to the original storage views exposed by [`WorldReadOnly`].
 pub use mv::storage::StorageReadOnly;
 
@@ -18,8 +24,7 @@ use crate::private_settlement::{
     carrier::{PrivateSettlementCarrierBindingErrorV1, PrivateSettlementCarrierBindingV1},
     global_state::{
         PrivateSettlementFinalizationReferenceV1, PrivateSettlementGlobalStateErrorV1,
-        PrivateSettlementGlobalStateOutcomeV1, PrivateSettlementNullifierKeyV1,
-        PrivateSettlementOutputKeyV1, PrivateSettlementOutputRecordV1, PrivateSettlementPoolKeyV1,
+        PrivateSettlementGlobalStateOutcomeV1, PrivateSettlementOutputRecordV1,
         PrivateSettlementRootKeyV1, PrivateSettlementRootProvenanceV1,
         PrivateSettlementStagedLockKeyV1, PrivateSettlementStagedLockRecordV1,
         expired_private_settlement_staged_lock_keys_v1, plan_private_settlement_abort_v1,
@@ -30,12 +35,9 @@ use crate::private_settlement::{
     protocol::{
         native_private_settlement_route_v1, validate_private_settlement_committee_authority_v1,
     },
-    state::{PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolStateV1},
 };
 use eyre::Result;
-use iroha_config::parameters::actual::{
-    LaneConfig, LaneConfigEntry, LaneRoutingPolicy, NexusFeeSettlementMode,
-};
+use iroha_config::parameters::actual::{LaneConfig, LaneConfigEntry, LaneRoutingPolicy};
 #[cfg(any(test, feature = "bench"))]
 use iroha_crypto::KeyPair;
 #[cfg(feature = "sm")]
@@ -2950,19 +2952,10 @@ pub enum EvidencePreparationError {
         /// Exact backing allocation requested by the charged buffer.
         requested_bytes: usize,
     },
-    /// The active Norito decode scope refused cumulative allocation accounting.
-    #[error(
-        "consensus penalty preparation decode scope attempted {attempted_bytes} bytes above {limit_bytes} bytes"
-    )]
-    DecodeScope {
-        /// Cumulative allocation bytes after the attempted clone.
-        attempted_bytes: u64,
-        /// Maximum cumulative bytes permitted by the active decode scope.
-        limit_bytes: u64,
-    },
-    /// Exact local Norito ceiling or allocator refusal while decoding an original proof.
+    /// Original captured local refusal, retaining its actual counter owner.
+    /// Diagnostic fields alone cannot construct this preparation cause.
     #[error("consensus evidence decoder resource refusal: {0}")]
-    DecodeResource(norito::core::DecodeResourceError),
+    DecodeResource(#[source] norito::core::DecodeLocalRefusal),
     /// Original native history or its funded read owner cannot complete yet.
     #[error("original native evidence history is pending")]
     OriginalHistoryPending,
@@ -2981,6 +2974,16 @@ impl From<iroha_allocation::ChargedBufferError> for EvidencePreparationError {
     }
 }
 impl EvidencePreparationError {
+    /// Retain only the original local refusal captured by an actual synchronous decoder.
+    /// Invalid bytes, protocol/default limits and stale or copied diagnostics are
+    /// preparation invariants; numeric fields cannot grant retry or construct custody.
+    pub(crate) fn from_decode_attempt(error: norito::core::DecodeAttemptError) -> Self {
+        match error.into_local_refusal() {
+            Ok(original) => Self::DecodeResource(original),
+            Err(_) => Self::Invariant,
+        }
+    }
+
     /// Original pool release observation, available only for temporary contention.
     pub fn release_wait(&self) -> Option<&iroha_allocation::release::ReleaseWait> {
         match self {
@@ -3091,18 +3094,11 @@ pub enum LaneLifecycleError {
         /// Pending-progress invariant that blocks retirement.
         reason: &'static str,
     },
-    /// Relay worker requires asynchronous lane-relay-burn fee settlement.
-    #[error("nexus.relay_worker.enabled requires lane-relay-burn fee settlement")]
-    RelayWorkerFeeConfig,
-    /// Nexus fee selector must be canonical; execution pins its identity to the signed root policy.
+    /// The local staking selector must name the signed network asset.
     #[error(
-        "invalid nexus.fees.fee_asset_id; expected a canonical asset definition id or exact xor#universal alias"
+        "invalid nexus.staking.stake_asset_id; expected a canonical asset definition id or exact xor#universal alias"
     )]
-    NexusFeeAssetIdInvalid,
-    /// Nexus fee sink account literal must be non-empty.
-    #[error("nexus.fees.fee_sink_account_id must not be empty")]
-    NexusFeeSinkAccountEmpty,
-    /// Lane-relay emergency multisig threshold cannot exceed member count.
+    NexusStakeAssetIdInvalid,
     /// Dataspace default sponsor program references a dataspace absent from the catalog.
     #[error("nexus dataspace fee sponsor program references unknown dataspace {0}")]
     DataspaceFeeSponsorProgramUnknownDataspace(DataSpaceId),
@@ -12798,10 +12794,6 @@ pub struct StateBlockFields<'state> {
     accounts_snapshot_cache: SyncOnceCell<Arc<Vec<AccountId>>>,
     /// Pipeline execution preferences for this block.
     pub pipeline: iroha_config::parameters::actual::Pipeline,
-    /// Oracle configuration snapshot for this block.
-    pub oracle: iroha_config::parameters::actual::Oracle,
-    /// Cryptography configuration snapshot for this block.
-    pub crypto: Arc<iroha_config::parameters::actual::Crypto>,
     /// Nexus configuration snapshot for this block.
     pub nexus: iroha_config::parameters::actual::Nexus,
     /// Active lane incarnation commitments for this block scope.
@@ -12820,12 +12812,6 @@ pub struct StateBlockFields<'state> {
     pub fraud_monitoring: iroha_config::parameters::actual::FraudMonitoring,
     /// Zero-knowledge verification configuration snapshot for this block.
     pub zk: iroha_config::parameters::actual::Zk,
-    /// Governance configuration snapshot for this block.
-    pub gov: iroha_config::parameters::actual::Governance,
-    /// Content lane configuration snapshot for this block.
-    pub content: iroha_config::parameters::actual::Content,
-    /// Settlement configuration snapshot for this block.
-    pub settlement: iroha_config::parameters::actual::Settlement,
     /// Settlement engine snapshot for this block.
     pub settlement_engine: crate::settlement::SettlementEngine,
     /// Chain identifier for this block.
@@ -12970,6 +12956,17 @@ pub struct StateBlockFields<'state> {
     _read_releases: StateViewReleases<'state>,
     /// Original execution-pool scratch wakes outlive every physical State writer.
     _ivm_refunds: iroha_allocation::AllocationRefundBatch,
+}
+
+/// Immutable execution inputs retained by the original block construction owner.
+pub use canonical_runtime::StaticExecutionPolicy;
+
+impl std::ops::Deref for StateBlockFields<'_> {
+    type Target = StaticExecutionPolicy;
+
+    fn deref(&self) -> &Self::Target {
+        self.runtime_policy.static_inputs()
+    }
 }
 
 impl<'state> std::ops::Deref for StateBlock<'state> {
@@ -14029,10 +14026,8 @@ pub struct StateTransaction<'block, 'state> {
     pub(crate) zk_dedup: &'block mut crate::zk::DedupCache,
     /// Pipeline execution preferences snapshot for this transaction.
     pub pipeline: iroha_config::parameters::actual::Pipeline,
-    /// Oracle configuration snapshot for this transaction.
-    pub oracle: iroha_config::parameters::actual::Oracle,
-    /// Cryptography configuration snapshot for this transaction.
-    pub crypto: Arc<iroha_config::parameters::actual::Crypto>,
+    /// The exact block-owned immutable policy; rollback never acquires another source.
+    static_policy: &'block StaticExecutionPolicy,
     /// Nexus configuration snapshot for this transaction.
     pub nexus: iroha_config::parameters::actual::Nexus,
     /// Active lane incarnation commitments for this transaction overlay.
@@ -14071,12 +14066,6 @@ pub struct StateTransaction<'block, 'state> {
     pub zk: iroha_config::parameters::actual::Zk,
     /// Parent block ZK configuration snapshot updated when the transaction commits.
     block_zk: &'block mut iroha_config::parameters::actual::Zk,
-    /// Governance configuration snapshot for this transaction.
-    pub gov: iroha_config::parameters::actual::Governance,
-    /// Content lane configuration snapshot for this transaction.
-    pub content: iroha_config::parameters::actual::Content,
-    /// Settlement configuration snapshot for this transaction.
-    pub settlement: iroha_config::parameters::actual::Settlement,
     /// Settlement engine snapshot for this transaction.
     pub settlement_engine: crate::settlement::SettlementEngine,
     /// Display chain identifier snapshot exposed through the display sysvar.
@@ -14303,7 +14292,25 @@ pub struct StateTransaction<'block, 'state> {
     /// Lazy snapshot of accounts for trigger execution within this transaction.
     accounts_snapshot_cache: OnceCell<Arc<Vec<AccountId>>>,
 }
+
+impl std::ops::Deref for StateTransaction<'_, '_> {
+    type Target = StaticExecutionPolicy;
+
+    fn deref(&self) -> &Self::Target {
+        self.static_policy
+    }
+}
+
 impl<'block, 'state> StateTransaction<'block, 'state> {
+    /// Borrow the exact immutable execution inputs retained by this transaction's block.
+    ///
+    /// The borrow keeps the original block lifetime, allowing a caller to inspect
+    /// these inputs while updating disjoint transaction state. It cannot replace
+    /// the owner, reacquire live State configuration, or outlive the block.
+    pub fn static_execution_policy(&self) -> &'block StaticExecutionPolicy {
+        self.static_policy
+    }
+
     /// Return whether execution is currently inside a scheduled or data-trigger body.
     #[inline]
     pub(crate) const fn is_trigger_execution_active(&self) -> bool {
@@ -14424,6 +14431,9 @@ impl<'block, 'state> StateTransaction<'block, 'state> {
 /// [`State::view`] retries if a writer advances the state-view generation while
 /// the component snapshots are being acquired.
 pub struct StateView<'state> {
+    /// Local publication provenance validated by the original acquired-view owner.
+    /// This is not consensus state and is never decoded or supplied by a caller.
+    publication_generation: u64,
     /// Borrowed undo paired with this view under the State generation check.
     pub(crate) canonical_runtime_predecessor: CellView<'state, Option<SnapshotNexusRuntime>>,
     /// Actual MV runtime scope; projected fields never replace its undo authority.
@@ -20639,8 +20649,8 @@ macro_rules! world_ro_accessors {
     };
     (configuration, $mode:ident) => {
         world_ro_accessors!(@items $mode;
-            /// Global parameters registry.
-            cell_ref parameters: Parameters;
+            /// Committed parameters and their validated execution projections.
+            cell_ref parameters: StateParameters;
             /// Lag-2 Sumeragi height-configuration schedule (read-only).
             cell_ref consensus_schedule: crate::sumeragi::schedule::RetainedConsensusSchedule;
             /// Dataspace alias catalog used to qualify domain-scoped aliases.
@@ -25861,11 +25871,24 @@ mod state_block_construction;
 mod uaid_dataspace_restore;
 impl State {
     fn disable_nexus_fees_for_testing(&mut self) {
-        let nexus = self.nexus.get_mut();
-        nexus.fees.base_fee = Quantity::zero();
-        nexus.fees.per_byte_fee = Quantity::zero();
-        nexus.fees.per_instruction_fee = Quantity::zero();
-        nexus.fees.per_gas_unit_fee = Quantity::zero();
+        // Fixture authoring only. Preserve an already committed/root-specific schedule.
+        // Every ordinary test execution still reads the real StateParameters projection.
+        if self.world.parameters.view().get().root_fees().is_some() {
+            return;
+        }
+        let mut fees = self.nexus.get_mut().fees.clone();
+        fees.base_fee = Quantity::zero();
+        fees.per_byte_fee = Quantity::zero();
+        fees.per_instruction_fee = Quantity::zero();
+        fees.per_gas_unit_fee = Quantity::zero();
+        let mut parameters = self.world.parameters.block();
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                fees.into_custom_parameter()
+                    .expect("explicit free test policy"),
+            ))
+            .expect("valid free test policy");
+        parameters.commit();
     }
     /// Snapshot the current Nexus configuration.
     ///
@@ -25893,7 +25916,9 @@ impl State {
         let runtime = self.canonical_runtime.view();
         let parameters = self.world.parameters.view();
         let projection = runtime_catalog_from_parameters(parameters.get()).and_then(|catalog| {
-            runtime.nexus_projection_with_catalog(&self.nexus.read(), catalog.as_ref())
+            runtime
+                .nexus_projection_with_catalog(&self.nexus.read(), catalog.as_ref())
+                .map(|nexus| crate::pipeline_gas_policy::with_root_fees(nexus, parameters.get()))
         });
         if !is_stable_state_view_generation(generation_before, self.state_view_generation()) {
             return Ok(None);
@@ -27433,6 +27458,7 @@ impl State {
         kura: Arc<Kura>,
         query_handle: LiveQueryStoreHandle,
         exact_durable_height: usize,
+        process_runtime: ProcessRuntimeInstallation,
         chain_id: iroha_model_base::chain::ChainId,
         network_id: iroha_data_model::NetworkId,
         #[cfg(feature = "telemetry")] telemetry: StateTelemetry,
@@ -27737,6 +27763,7 @@ impl State {
         ipa_commitment: iroha_config::parameters::actual::IpaCommitment::default(),
         max_verify_batch: iroha_config::parameters::defaults::zk::MAX_VERIFY_BATCH,
                 fastpq: iroha_config::parameters::actual::Fastpq {
+                    producer: iroha_config::parameters::actual::FastpqProducer::default(),
                     execution_mode: iroha_config::parameters::actual::FastpqExecutionMode::Cpu,
                     poseidon_mode: iroha_config::parameters::actual::FastpqPoseidonMode::Cpu,
                     proof_sidecar_queue_cap:
@@ -28035,7 +28062,7 @@ impl State {
             telemetry_seed.seed_space_directory_manifests(&manifest_view);
         }
         #[cfg(feature = "sm")]
-        {
+        if process_runtime.installs() {
             Sm2PublicKey::set_default_distid(initial_crypto.sm2_distid_default.clone())
                 .expect("sm2_distid_default must be valid");
         }
@@ -28073,13 +28100,15 @@ impl State {
             wtx.apply();
             wblock.commit();
         }
-        // Initialize the global IVM pre-decode cache with configured limits.
-        ivm::ivm_cache::configure_limits(ivm::ivm_cache::CacheLimits {
-            capacity: s.pipeline.cache_size,
-            max_bytes: s.pipeline.ivm_cache_max_bytes,
-            max_decoded_ops: s.pipeline.ivm_cache_max_decoded_ops,
-        });
-        ivm::zk::set_prover_threads(s.pipeline.ivm_prover_threads);
+        if process_runtime.installs() {
+            // Only the live node installs process-wide execution resources.
+            ivm::ivm_cache::configure_limits(ivm::ivm_cache::CacheLimits {
+                capacity: s.pipeline.cache_size,
+                max_bytes: s.pipeline.ivm_cache_max_bytes,
+                max_decoded_ops: s.pipeline.ivm_cache_max_decoded_ops,
+            });
+            ivm::zk::set_prover_threads(s.pipeline.ivm_prover_threads);
+        }
         Ok(s)
     }
     /// Synchronize Kura lane storage and manifests after an in-process test catalog mutation.
@@ -28317,6 +28346,7 @@ impl State {
             kura,
             query_handle,
             exact_durable_height,
+            ProcessRuntimeInstallation::Install,
             chain_id,
             network_id,
             #[cfg(feature = "telemetry")]
@@ -28389,6 +28419,47 @@ impl State {
             #[cfg(feature = "telemetry")]
             StateTelemetry::default(),
         )
+    }
+    /// Construct the original empty reconstruction State in a physically isolated store.
+    /// The same canonical constructor and pipeline policy validation run, but the
+    /// live process cache, prover settings and original pool limit retain their
+    /// current owners. This is not a selectable execution/consensus mode.
+    pub(crate) fn try_new_for_isolated_replay(
+        execution_budget: AllocationBudget,
+        world: World,
+        kura: Arc<Kura>,
+        query_handle: LiveQueryStoreHandle,
+        chain_id: iroha_model_base::chain::ChainId,
+        network_id: iroha_data_model::NetworkId,
+        pipeline: iroha_config::parameters::actual::Pipeline,
+    ) -> Result<Self, IsolatedReplayStateError> {
+        if !kura.is_temporary_staging() {
+            return Err(MergeLedgerCommitError::ExecutionStatePublication(
+                "isolated replay requires an original temporary destination".into(),
+            )
+            .into());
+        }
+        let exact_durable_height = kura
+            .exact_durable_blocks_count()
+            .map_err(MergeLedgerCommitError::from)?;
+        let mut state = Self::new_inner(
+            execution_budget,
+            world,
+            kura,
+            query_handle,
+            exact_durable_height,
+            ProcessRuntimeInstallation::Preserve,
+            chain_id,
+            network_id,
+            #[cfg(feature = "telemetry")]
+            StateTelemetry::default(),
+        )?;
+        state.world.parameters.view().pipeline_policy().validate()?;
+        state.install_pipeline_settings(
+            crate::pipeline_validity_policy::node_local_resources(pipeline),
+            ProcessRuntimeInstallation::Preserve,
+        );
+        Ok(state)
     }
     /// _(test only)_ Create state with mock telemetry (depends on features)
     #[must_use]
@@ -28615,8 +28686,11 @@ impl State {
             iroha_config::parameters::actual::LaneConfig::from_catalog(&nexus.lane_catalog);
         nexus.configured_lane_catalog = nexus.lane_catalog.clone();
         nexus.configured_dataspace_catalog = nexus.dataspace_catalog.clone();
-        crate::sns::try_seed_default_namespace_policies(&mut world, &nexus.fees.fee_asset_id)
-            .expect("pre-genesis test world must use current SNS namespace policies");
+        crate::sns::try_seed_default_namespace_policies(
+            &mut world,
+            &nexus.fees.fee_asset_id.canonical_address(),
+        )
+        .expect("pre-genesis test world must use current SNS namespace policies");
         let kura_config = iroha_config::parameters::actual::Kura {
             init_mode: iroha_config::kura::InitMode::Strict,
             // The authenticated temporary constructor replaces this placeholder.
@@ -29222,6 +29296,7 @@ impl State {
         let sb = sb.fields.as_mut().expect("original executing State");
         let transitions = collect_confidential_transitions(&sb.world, now_h);
         let axt_lane_map = axt_active_lane_map_at_height(&sb.nexus, now_h);
+        let static_policy = sb.runtime_policy.static_inputs();
         let mut wtx = sb.world.try_transaction_with_axt_lane_map(
             #[cfg(feature = "telemetry")]
             Some(sb.telemetry),
@@ -29479,9 +29554,9 @@ impl State {
                         approve,
                         reject,
                         abstain,
-                        sb.gov.approval_threshold_q_num,
-                        sb.gov.approval_threshold_q_den,
-                        sb.gov.min_turnout,
+                        static_policy.gov.approval_threshold_q_num,
+                        static_policy.gov.approval_threshold_q_den,
+                        static_policy.gov.min_turnout,
                     )
                     .expect("persisted standalone referendum tally must remain exact");
                 wtx.emit_events(Some(governance_events::GovernanceEvent::ReferendumDecided(
@@ -29641,6 +29716,7 @@ impl State {
     ) -> Result<(), StateStorageAdmissionError> {
         let sb = sb.fields.as_mut().expect("original executing State");
         let axt_lane_map = axt_active_lane_map_at_height(&sb.nexus, now_h);
+        let static_policy = sb.runtime_policy.static_inputs();
         let mut wtx = sb.world.try_transaction_with_axt_lane_map(
             #[cfg(feature = "telemetry")]
             Some(sb.telemetry),
@@ -29648,7 +29724,7 @@ impl State {
             current_slot,
             axt_lane_map,
         )?;
-        update_oracle_change_pipeline(&mut wtx, now_h, &sb.oracle.governance);
+        update_oracle_change_pipeline(&mut wtx, now_h, &static_policy.oracle.governance);
         crate::smartcontracts::ivm::active_runtime_abi_hash(&wtx, now_h).unwrap_or_else(
             |error| {
                 panic!(
@@ -31184,9 +31260,13 @@ impl State {
         }
     }
     /// Attempt one complete nonblocking view acquisition with the original retry source.
-    /// Stable malformed runtime and poisoned reader ownership remain terminal errors.
+    ///
+    /// # Errors
+    /// Returns the exact original release observation when busy. Stable malformed
+    /// runtime, changed custody and poisoned reader ownership remain terminal errors.
+    /// Callers retain their own absolute deadlines; this method never retries.
     #[track_caller]
-    pub(crate) fn try_view_once(&self) -> Result<StateView<'_>, StateViewError> {
+    pub fn try_view_once(&self) -> Result<StateView<'_>, StateViewError> {
         StateViewReleases::new(self).try_view_once()
     }
     #[track_caller]
@@ -31317,6 +31397,7 @@ impl State {
                 world.parameters.get(),
             );
             return Ok(StateView {
+                publication_generation: generation_after,
                 canonical_runtime,
                 canonical_runtime_predecessor,
                 native_execution_tip,
@@ -32220,6 +32301,14 @@ impl State {
     pub fn crypto(&self) -> Arc<iroha_config::parameters::actual::Crypto> {
         self.crypto.read().clone()
     }
+    /// Retain the original startup crypto snapshot in a separately owned replay
+    /// State without reconfiguring the running process's acceleration/SM defaults.
+    pub(crate) fn install_crypto_snapshot_for_isolated_replay(
+        &self,
+        crypto: iroha_config::parameters::actual::Crypto,
+    ) {
+        self.commit_crypto_snapshot(crypto);
+    }
     /// Update cryptography settings using loaded configuration.
     pub fn set_crypto(&self, crypto: iroha_config::parameters::actual::Crypto) {
         Self::apply_crypto_runtime(&crypto);
@@ -32751,31 +32840,17 @@ impl State {
             &dataspace_aliases,
             &dataspace_ids,
         )?;
-        if !nexus_fee_asset_selector_is_canonical(&nexus.fees.fee_asset_id) {
-            return Err(LaneLifecycleError::NexusFeeAssetIdInvalid);
-        }
         if let Some(params) = self.world.view().sumeragi_npos_parameters()? {
-            // Runtime selectors cannot replace the identity authenticated by genesis.
-            // Aliases are resolved at execution; the literal XOR alias is only a
-            // routing convenience and every monetary use still checks this pin.
-            for selector in [&nexus.fees.fee_asset_id, &nexus.staking.stake_asset_id] {
-                if selector != "xor#universal"
-                    && AssetDefinitionId::parse_address_literal(selector)
-                        .ok()
-                        .as_ref()
-                        != Some(&params.xor_asset_definition_id)
-                {
-                    return Err(LaneLifecycleError::NexusFeeAssetIdInvalid);
-                }
+            // Staking configuration still has its existing authenticated XOR pin.
+            let selector = &nexus.staking.stake_asset_id;
+            if selector != "xor#universal"
+                && AssetDefinitionId::parse_address_literal(selector)
+                    .ok()
+                    .as_ref()
+                    != Some(&params.xor_asset_definition_id)
+            {
+                return Err(LaneLifecycleError::NexusStakeAssetIdInvalid);
             }
-        }
-        if nexus.fees.fee_sink_account_id.trim().is_empty() {
-            return Err(LaneLifecycleError::NexusFeeSinkAccountEmpty);
-        }
-        if nexus.relay_worker.enabled
-            && nexus.fees.settlement_mode != NexusFeeSettlementMode::LaneRelayBurn
-        {
-            return Err(LaneLifecycleError::RelayWorkerFeeConfig);
         }
         for dataspace_id in nexus.dataspace_fee_sponsor_program_ids.keys() {
             if !dataspace_ids.contains(dataspace_id) {
@@ -32848,16 +32923,13 @@ impl State {
         )?;
         nexus.lane_config =
             iroha_config::parameters::actual::LaneConfig::from_catalog(&nexus.lane_catalog);
-        let configured_fee_asset_id = nexus.fees.fee_asset_id.clone();
-        crate::sns::ensure_default_namespace_policies_match_configured(
-            &self.world.view(),
-            &configured_fee_asset_id,
-        )
-        .map_err(|error| {
-            LaneLifecycleError::Storage(format!(
-                "Nexus fee configuration does not match current SNS namespace policies: {error}"
-            ))
-        })?;
+        if let Some(committed) = self.world.parameters.view().get().root_fees() {
+            crate::sns::ensure_default_namespace_policies_match_configured(
+                &self.world.view(), &committed.fee_asset_id.canonical_address(),
+            ).map_err(|error| LaneLifecycleError::Storage(format!(
+                "committed root fee currency does not match current SNS namespace policies: {error}",
+            )))?;
+        }
         let previous_lane_config = previous_nexus.lane_config.clone();
         let previous_lane_incarnations = self.lane_incarnations_snapshot();
         let previous_lane_incarnation_lineage = self.lane_incarnation_lineage_snapshot();
@@ -34873,10 +34945,6 @@ fn ensure_autoscale_managed_created_heights_not_future(
     }
     Ok(())
 }
-fn nexus_fee_asset_selector_is_canonical(value: &str) -> bool {
-    value.trim() == value
-        && (AssetDefinitionId::parse_address_literal(value).is_ok() || value == "xor#universal")
-}
 fn ensure_autoscale_managed_lane_in_range(
     lane: LaneId,
     min_lane_id: u32,
@@ -36403,6 +36471,7 @@ pub fn default_zk_config() -> iroha_config::parameters::actual::Zk {
         ipa_commitment: iroha_config::parameters::actual::IpaCommitment::default(),
         max_verify_batch: iroha_config::parameters::defaults::zk::MAX_VERIFY_BATCH,
         fastpq: iroha_config::parameters::actual::Fastpq {
+            producer: iroha_config::parameters::actual::FastpqProducer::default(),
             execution_mode: iroha_config::parameters::actual::FastpqExecutionMode::Cpu,
             poseidon_mode: iroha_config::parameters::actual::FastpqPoseidonMode::Cpu,
             proof_sidecar_queue_cap:
@@ -36524,7 +36593,7 @@ pub(crate) fn consensus_owned_custom_parameter_ids()
 -> Vec<iroha_data_model::parameter::CustomParameterId> {
     use iroha_data_model::{
         account::admission::AccountAdmissionPolicy,
-        block::consensus::PrivateRootFeePolicy,
+        block::consensus::RootFeePolicy,
         da::ingest::DaIngestAdmissionPolicyV1,
         hijiri::HijiriParametersV1,
         isi::settlement::FxCorridorPolicyRegistry,
@@ -36553,7 +36622,7 @@ pub(crate) fn consensus_owned_custom_parameter_ids()
         FxCorridorPolicyRegistry::parameter_id(),
         ValidationFeePolicyRegistryV1::parameter_id(),
         AccountAdmissionPolicy::parameter_id(),
-        PrivateRootFeePolicy::parameter_id(),
+        RootFeePolicy::parameter_id(),
         ReputationFinalizedArchiveRetentionRequestV1::parameter_id(),
     ];
     ids.extend(crate::pipeline_gas_policy::parameter_ids());
@@ -37184,11 +37253,15 @@ impl State {
         // The committed ZK and pipeline validity policies, as every view and block reads them.
         let zk = self.zk_snapshot();
         let pipeline = self.pipeline_snapshot();
+        let nexus = crate::pipeline_gas_policy::with_root_fees(
+            nexus.clone(),
+            self.world.parameters.view().get(),
+        );
         compute_execution_policy_digest_v1(
             &pipeline,
             &self.oracle,
             crypto.as_ref(),
-            nexus,
+            &nexus,
             lane_manifests,
             lane_compliance,
             &self.fraud_monitoring_snapshot(),
@@ -37218,11 +37291,15 @@ impl StateBlock<'_> {
             self.fraud_monitoring.clone(),
             self.world.parameters.get(),
         );
+        let authored_nexus = crate::pipeline_gas_policy::with_root_fees(
+            self.nexus.clone(),
+            self.world.parameters.get(),
+        );
         compute_execution_policy_digest_v1(
             &self.pipeline,
             &self.oracle,
             self.crypto.as_ref(),
-            &self.nexus,
+            &authored_nexus,
             self.lane_manifests.as_ref(),
             self.lane_compliance.as_deref(),
             &authored_fraud,
@@ -38449,8 +38526,7 @@ impl<'state> StateBlock<'state> {
             #[cfg(feature = "zk-preverify")]
             zk_dedup: &mut fields.zk_dedup,
             pipeline: fields.pipeline.clone(),
-            oracle: fields.oracle.clone(),
-            crypto: fields.crypto.clone(),
+            static_policy: fields.runtime_policy.static_inputs(),
             nexus,
             lane_incarnations,
             lane_incarnation_lineage,
@@ -38471,9 +38547,6 @@ impl<'state> StateBlock<'state> {
             fraud_monitoring: fields.fraud_monitoring.clone(),
             zk,
             block_zk: &mut fields.zk,
-            gov: fields.gov.clone(),
-            content: fields.content.clone(),
-            settlement: fields.settlement,
             settlement_engine: fields.settlement_engine.clone(),
             chain_id: fields.chain_id.clone(),
             network_id: fields.network_id,

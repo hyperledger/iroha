@@ -40,14 +40,20 @@ impl OriginalReadPass<'_, '_> {
     }
 }
 
-// Borrowed only inside one closed callback-free graph direction. Its original directory
+// Borrowed only inside one closed callback-free graph direction or local census. Its directory
 // is the exact object behind the enrollment root Arc, not a pathname or inode-equivalence key.
 // No reader, scope or freshness result can escape the native root's ordinary-result exit.
 pub(in crate::managed) struct GraphRootReadPass<'borrow, 'scope> {
     root: &'borrow PrivateDirectory,
     reader: &'borrow mut iroha_fs::PrivateReadScope<'scope>,
 }
-impl GraphRootReadPass<'_, '_> {
+impl<'borrow, 'scope> GraphRootReadPass<'borrow, 'scope> {
+    pub(super) fn new(
+        root: &'borrow PrivateDirectory,
+        reader: &'borrow mut iroha_fs::PrivateReadScope<'scope>,
+    ) -> Self {
+        Self { root, reader }
+    }
     pub(in crate::managed) fn covers(&self, root: &PrivateDirectory) -> bool {
         !norito::core::decode_limits_active() && std::ptr::eq(self.root, root)
     }

@@ -6,9 +6,6 @@
 
 use std::{collections::BTreeMap, path::Path};
 
-#[path = "evm_receipt.rs"]
-mod authenticated_receipt;
-
 use eyre::{Result, WrapErr as _, ensure, eyre};
 use iroha::data_model::{bridge::SccpNetworkV1, sccp::deployment::SccpCommitteePinV1};
 use iroha_sccp::{
@@ -249,34 +246,6 @@ pub(super) struct EvmTransport<'a> {
 }
 
 impl EvmTransport<'_> {
-    /// One deadline covers every RPC request and poll for this retained attempt.
-    pub(super) fn confirmation_budget(
-        &self,
-        duration: std::time::Duration,
-    ) -> iroha_sccp_rpc::endpoints::PollBudgetGuard {
-        self.client.transport().budget().start(duration)
-    }
-
-    /// A successful transaction alone is not a terminal mint observation.
-    pub(super) fn confirm_finalized(
-        &self,
-        receipt: &iroha_sccp_rpc::evm::EvmReceipt,
-        bundle: &SccpMessageProofBundleV1,
-    ) -> Result<Vec<iroha_sccp_wallet::journal::SccpEvidenceItemV1>> {
-        let payload = iroha_sccp::v1::payload::SccpTransferPayloadRefV1::decode(&bundle.payload)?;
-        let expected = iroha_sccp::v1::evm_abi::FinalizedLogV1 {
-            message_id: bundle.message_id,
-            nonce: payload.nonce,
-            token_amount: payload.amount,
-            recipient: payload
-                .recipient
-                .bytes
-                .try_into()
-                .map_err(|_| eyre!("original recipient is not EVM"))?,
-        };
-        require_finalized_log(&receipt.logs, self.contract, expected)?;
-        authenticated_receipt::consumed(self, receipt, expected.nonce)
-    }
     /// Quote an exact unsigned transaction for an external payer, without loading a key.
     pub(super) fn unsigned(&self, payer: [u8; 20], data: Vec<u8>) -> Result<Eip1559TransactionV1> {
         unsigned_transaction(self.client, self.network, payer, Some(self.contract), data)
@@ -308,16 +277,6 @@ impl EvmTransport<'_> {
         self.client
             .send_raw_transaction(raw)
             .map_err(|error| eyre!("eth_sendRawTransaction: {error}"))
-    }
-
-    /// Observe the exact transaction without signing or sending.
-    pub(super) fn receipt(
-        &self,
-        taira: &super::BlockingClient,
-        original: &super::origin::AuthenticatedOrigin,
-        raw: &[u8],
-    ) -> Result<Option<authenticated_receipt::Observation>> {
-        authenticated_receipt::observe(self, taira, original, raw)
     }
 }
 
@@ -582,7 +541,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn confirmation_budget_owns_one_deadline_until_attempt_observation_ends() {
+    fn receipt_budget_owns_one_deadline_until_attempt_observation_ends() {
         let client = EvmClient::new(
             HttpTransport::new(
                 EndpointSet::parse(&["http://127.0.0.1:1"], &[]).unwrap(),
@@ -599,8 +558,9 @@ mod tests {
         };
         assert_eq!(client.transport().budget().deadline(), None);
         let before = std::time::Instant::now();
-        let guard = destination.confirmation_budget(std::time::Duration::from_secs(3));
-        let deadline = client.transport().budget().deadline().unwrap();
+        let (deadline, guard) = destination
+            .receipt_budget(std::time::Duration::from_secs(3))
+            .unwrap();
         assert!(deadline >= before + std::time::Duration::from_secs(3));
         assert!(deadline <= std::time::Instant::now() + std::time::Duration::from_secs(3));
         // The same transport is borrowed by every receipt, trie and storage acquisition.
@@ -918,3 +878,6 @@ impl EvmDestination {
 
 #[path = "evm_monitor.rs"]
 mod monitor;
+
+#[path = "evm_receipt.rs"]
+mod receipt;

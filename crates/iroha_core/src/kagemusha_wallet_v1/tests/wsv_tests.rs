@@ -1339,7 +1339,7 @@ fn private_root_load_rejects_before_debit_or_receipt_creation() {
         sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
     };
     use iroha_data_model::{
-        block::consensus::{PrivateRootFeePolicy, SumeragiRootScope},
+        block::consensus::{RootFeePolicy, SumeragiRootScope},
         domain::Domain,
         isi::{
             Mint, Register,
@@ -1442,9 +1442,9 @@ fn private_root_load_rejects_before_debit_or_receipt_creation() {
     .unwrap();
     nexus.configured_dataspace_catalog = nexus.dataspace_catalog.clone();
     nexus.routing_policy.default_dataspace = dataspace;
-    nexus.fees.fee_asset_id = fee_asset.canonical_address();
+    nexus.fees.fee_asset_id = fee_asset.clone();
     nexus.fees.fee_sink_account_id =
-        AccountId::new(config.genesis_key.public_key().clone()).to_string();
+        AccountId::new(config.genesis_key.public_key().clone()).clone();
     nexus.fees.base_fee = Quantity::zero();
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
@@ -1453,12 +1453,13 @@ fn private_root_load_rejects_before_debit_or_receipt_creation() {
     config
         .genesis_parameters
         .push(iroha_data_model::parameter::Parameter::Custom(
-            PrivateRootFeePolicy {
-                asset_definition_id: fee_asset.clone(),
+            RootFeePolicy {
+                fee_asset_id: fee_asset.clone(),
                 base_fee: 1_u32.into(),
                 per_byte_fee: Quantity::zero(),
                 per_instruction_fee: 1_u32.into(),
                 per_gas_unit_fee: 1_u32.into(),
+                ..iroha_config::parameters::defaults::nexus::fees::genesis_policy()
             }
             .into_custom_parameter()
             .unwrap(),

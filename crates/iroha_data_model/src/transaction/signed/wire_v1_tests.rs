@@ -337,3 +337,69 @@ fn entrypoint_canonical_rewrite_preserves_original_writer_refusal_after_decode()
     assert_canonical_rewrite_original_refusal(&entrypoint, &wire);
     assert_eq!(entrypoint.encode_wire_v1().unwrap(), wire);
 }
+
+#[test]
+fn canonical_signed_frame_and_wire_share_checked_geometry_and_roundtrips() {
+    assert_eq!(SIGNED_TRANSACTION_WIRE_PREFIX_BYTES_V1, 1);
+    assert_eq!(SIGNED_TRANSACTION_FRAME_PADDING_BYTES_V1, 0);
+    assert_eq!(SIGNED_TRANSACTION_FRAME_OVERHEAD_BYTES_V1, 39);
+    let align = norito::core::archived_payload_align::<SignedTransaction>();
+    assert_eq!((align - norito::core::Header::SIZE % align) % align, 0);
+    for profile in [
+        "advance",
+        "large",
+        "large-one-over",
+        "multisig-a",
+        "multisig-b",
+    ] {
+        let signed = support::signed(profile);
+        signed.verify_signature().unwrap();
+        let wire = signed.encode_wire_v1().unwrap();
+        let frame = norito::encode_canonical(&signed).unwrap();
+        assert_eq!(wire[0], 1);
+        assert_eq!(&frame[norito::core::Header::SIZE..], &wire[1..]);
+        assert_eq!(
+            SignedTransaction::canonical_frame_len_from_wire_len_v1(wire.len()),
+            Some(frame.len())
+        );
+        assert_eq!(
+            norito::decode_canonical::<SignedTransaction>(&frame).unwrap(),
+            signed
+        );
+        assert_eq!(
+            SignedTransaction::decode_all_versioned(&wire).unwrap(),
+            signed
+        );
+    }
+    let exact = support::signed("large");
+    let one_over = support::signed("large-one-over");
+    let frame_bound = norito::canonical_frame_len(&exact).unwrap();
+    let exact_wire = exact.encode_wire_v1().unwrap();
+    let larger_wire = one_over.encode_wire_v1().unwrap();
+    assert_eq!(larger_wire.len(), exact_wire.len() + 1);
+    assert!(
+        SignedTransaction::canonical_frame_len_from_wire_len_v1(exact_wire.len())
+            .is_some_and(|bytes| bytes <= frame_bound)
+    );
+    assert!(
+        !SignedTransaction::canonical_frame_len_from_wire_len_v1(larger_wire.len())
+            .is_some_and(|bytes| bytes <= frame_bound)
+    );
+    assert_eq!(
+        norito::canonical_frame_len(&one_over).unwrap(),
+        frame_bound + 1
+    );
+    assert_eq!(
+        SignedTransaction::canonical_frame_len_from_wire_len_v1(0),
+        None
+    );
+    let exact_wire = usize::MAX - SIGNED_TRANSACTION_FRAME_OVERHEAD_BYTES_V1;
+    assert_eq!(
+        SignedTransaction::canonical_frame_len_from_wire_len_v1(exact_wire),
+        Some(usize::MAX)
+    );
+    assert_eq!(
+        SignedTransaction::canonical_frame_len_from_wire_len_v1(exact_wire + 1),
+        None
+    );
+}

@@ -77,9 +77,9 @@ fn config() -> TestChainConfig {
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = fee_asset().canonical_address();
+    nexus.fees.fee_asset_id = fee_asset().clone();
     nexus.fees.fee_sink_account_id =
-        AccountId::new(config.genesis_key.public_key().clone()).to_string();
+        AccountId::new(config.genesis_key.public_key().clone()).clone();
     config.nexus = Some(nexus);
     config.genesis_instructions = vec![
         Register::account(Account::new(payer())).into(),

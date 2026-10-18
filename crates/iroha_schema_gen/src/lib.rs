@@ -56,9 +56,16 @@ macro_rules! schema_types {
             // Account-signed AMX debit-approval reads use separate request and proof frames.
             iroha_data_model::sumeragi_amx::AmxDebitApprovalV1,
             iroha_data_model::sumeragi_amx::AmxDebitApprovalProofV1,
+            iroha_torii_shared::amx_approval_read::AmxApprovalReadFailureV1,
+            // One-call private preparation has its sole public typed context and pre-proof intent.
+            iroha_data_model::nexus::PrivateSettlementPoolKeyV1,
+            iroha_data_model::nexus::PrivateSettlementContextProofV1,
+            iroha_data_model::nexus::PrivateSettlementContextsProofV1,
+            iroha_data_model::nexus::PrivateSettlementContextRequestV1,
+            iroha_data_model::nexus::PrivateSettlementProofIntentV1,
             // Independent private roots and body-free parent anchoring.
             iroha_data_model::block::consensus::SumeragiRootScope,
-            iroha_data_model::block::consensus::PrivateRootFeePolicy,
+            iroha_data_model::block::consensus::RootFeePolicy,
             iroha_data_model::private_dataspace::PrivateDataspaceRegistration,
             iroha_data_model::private_dataspace::PrivateDataspaceAnchor,
             iroha_data_model::private_dataspace::PrivateDataspaceAnchorState,

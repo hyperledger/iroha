@@ -302,7 +302,7 @@ impl ManagedStore {
         request: &LocalnetRequest,
         expected: &ManagedContext,
     ) -> Result<ManagedStatus> {
-        self.up_retained_with_selection(request, expected, StartupSelection::Select)
+        self.up_retained_with_selection(request, expected, StartupSelection::Select, |_| Ok(()))
     }
 
     pub(super) fn up_retained_with_selection(
@@ -310,6 +310,7 @@ impl ManagedStore {
         request: &LocalnetRequest,
         expected: &ManagedContext,
         selection: StartupSelection,
+        retain_context: impl FnOnce(&PreparedLocalnet) -> Result<()>,
     ) -> Result<ManagedStatus> {
         let directory = self.directory(&request.name)?;
         let retained = generation::read(&directory)?;
@@ -319,7 +320,7 @@ impl ManagedStore {
             GenerationPolicy::RetainOnly(expected),
             selection,
             None,
-            |_| Ok(()),
+            retain_context,
         )
     }
 
@@ -613,13 +614,32 @@ impl ManagedStore {
     /// # Errors
     /// Missing context, competing operation, failed custody or unreconciled process ownership.
     pub fn down(&self, name: &str) -> Result<ManagedStatus> {
-        self.down_until(name, Instant::now() + STOP_OBSERVATION_MAXIMUM)
+        self.down_until(name, Instant::now() + STOP_OBSERVATION_MAXIMUM, None)
+    }
+
+    /// Stop only the previously captured generation, refusing a recreated name before IPC.
+    ///
+    /// # Errors
+    /// Changed preparation, custody, competing operation or unconfirmed ownership is refused.
+    pub fn down_captured(&self, expected: &PreparedLocalnet) -> Result<ManagedStatus> {
+        self.down_until(
+            &expected.context.name,
+            Instant::now() + STOP_OBSERVATION_MAXIMUM,
+            Some(expected),
+        )
     }
 
     // One observation deadline covers session admission, terminal reply and original-owner exit.
     // Tests inject a short bound here; no user option or task authorization is introduced.
-    fn down_until(&self, name: &str, deadline: Instant) -> Result<ManagedStatus> {
+    fn down_until(
+        &self,
+        name: &str,
+        deadline: Instant,
+        expected: Option<&PreparedLocalnet>,
+    ) -> Result<ManagedStatus> {
         let directory = self.directory(name)?;
+        #[cfg(test)]
+        selected_generation_tests::before_operation();
         let _operation = acquire(&directory, "operation.lock", name)?;
         let retained = generation::read(&directory)?;
         validate_prepared(
@@ -628,6 +648,11 @@ impl ManagedStore {
             &retained.prepared,
             &retained.root_kind,
         )?;
+        if expected.is_some_and(|expected| expected != &retained.prepared) {
+            return Err(Error::Invalid(
+                "captured managed generation changed before stop".into(),
+            ));
+        }
         let context = retained.prepared.context.clone();
         let mut stopped = None;
         loop {
@@ -695,8 +720,37 @@ impl ManagedStore {
     /// # Errors
     /// Competing operation, active ownership, malformed name, custody failure or deletion failure.
     pub fn reset(&self, name: &str) -> Result<()> {
+        self.reset_selected(name, None)
+    }
+
+    /// Delete only the stopped generation whose complete preparation the caller confirmed.
+    ///
+    /// # Errors
+    /// A removed/recreated name, changed preparation, custody or active ownership is refused
+    /// before clearing an endpoint or deleting any retained material.
+    pub fn reset_captured(&self, expected: &PreparedLocalnet) -> Result<()> {
+        self.reset_selected(&expected.context.name, Some(expected))
+    }
+
+    fn reset_selected(&self, name: &str, expected: Option<&PreparedLocalnet>) -> Result<()> {
         let directory = self.directory(name)?;
+        #[cfg(test)]
+        selected_generation_tests::before_operation();
         let _operation = acquire(&directory, "operation.lock", name)?;
+        if let Some(expected) = expected {
+            let retained = generation::read(&directory)?;
+            validate_prepared(
+                name,
+                directory.path(),
+                &retained.prepared,
+                &retained.root_kind,
+            )?;
+            if &retained.prepared != expected {
+                return Err(Error::Invalid(
+                    "captured managed generation changed before reset".into(),
+                ));
+            }
+        }
         let _runtime = acquire(&directory, "runtime.lock", name)?;
         directory.revalidate()?;
         transport::clear_stopped_endpoint(&directory)?;

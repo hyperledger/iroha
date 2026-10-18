@@ -37,12 +37,8 @@ group = "0.13"
 
 [dev-dependencies]
 sha2 = "0.10.9"
-# Canonical executed-genesis admission for the source-only finality compiler.
-# These test-driver dependencies never enter the production native proof boundary.
-iroha_genesis = { workspace = true }
+# Native signed-genesis, certificate and receipt admission for captured Load fixtures.
 iroha_data_model = { workspace = true, default-features = false }
-# Exact canonical CommitQC projection from independently verified captured blocks.
-iroha_sumeragi = { workspace = true }
 # Independent native normal-validator signature and BLS program oracles.
 iroha_crypto = { workspace = true, default-features = false, features = ["bls"] }
 # Thread pools for the measurement harness and the parallel tamper sweep.

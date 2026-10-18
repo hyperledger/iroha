@@ -5,6 +5,10 @@
 //! and returns explicitly allowlisted projections.  It never accepts or emits
 //! auditor plaintext or private note openings.
 
+#[path = "private_settlement_context.rs"]
+mod context;
+pub(crate) use context::handler as handler_context;
+
 use crate::{JsonBody, NoritoJson, SharedAppState, app_auth::VerifiedCanonicalRequest};
 use axum::{
     Extension,

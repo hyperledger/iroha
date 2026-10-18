@@ -117,7 +117,21 @@ fn failed_charge_has_no_fee_receipt_or_balance_supply_effect() {
     let _guard = crate::status::nexus_fee_test_lock().lock().unwrap();
     let (mut state, asset) = priced(65_536, None);
     // Sign a valid nonzero cap, then reject it against the actual configured fee.
-    state.nexus.get_mut().fees.base_fee = Quantity::from(2_u32);
+    {
+        let mut fees = state.nexus_snapshot().fees;
+        fees.base_fee = Quantity::from(2_u32);
+        {
+            let mut parameters = state.world.parameters.block();
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    fees.clone()
+                        .into_custom_parameter()
+                        .expect("explicit fixture policy"),
+                ))
+                .expect("valid fixture monetary projection");
+            parameters.commit();
+        }
+    }
     let source = carrier(
         &state,
         vec![input(

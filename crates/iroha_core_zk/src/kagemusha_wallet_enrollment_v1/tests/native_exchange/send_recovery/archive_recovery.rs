@@ -17,6 +17,8 @@ fn completed(wallet: &mut Wallet, id: u8) -> Vec<u8> {
 #[test]
 #[ignore = "requires retained A Archive, both completed transfers/Receive folds and successful one-checkpoint repair; never repeats Load, enrollment, Send or Receive"]
 fn continue_retained_archives_then_unload_without_repeating_transfers() {
+    // Require all exact session originals before opening or advancing retained custody.
+    let (census_manifest, census_originals) = message_census::read_pinned_originals();
     let output = fresh_output("KAGEMUSHA_NATIVE_ARCHIVE_RECOVERY_OUTPUT");
     let checkpoint_path = selected_path("KAGEMUSHA_NATIVE_SEND_FOLD_DIAGNOSTIC_RESULT");
     let checkpoint_bytes = read_pin(
@@ -81,6 +83,11 @@ fn continue_retained_archives_then_unload_without_repeating_transfers() {
     assert_eq!(
         prior["schema"].as_str(),
         Some("iroha.kagemusha.selected-send-continuation.v1")
+    );
+    message_census::require_selected_send_session(
+        &census_originals[4],
+        &census_originals[5],
+        &prior,
     );
     let custody = selected_path("KAGEMUSHA_NATIVE_RETAINED_EXCHANGE");
     assert_eq!(prior["prior_custody_root"].as_str(), custody.to_str());
@@ -184,6 +191,23 @@ fn continue_retained_archives_then_unload_without_repeating_transfers() {
         KagemushaWalletEffectV1::Receive { credit_id, payer_wallet_id, amount }
         if credit_id == credit_ab && payer_wallet_id == before_a.wallet_id && amount == LOAD_AMOUNT));
     let credited_ab = credited(&received_ab);
+    let bc: KagemushaWalletPaymentV1 = decode(&payment_bc);
+    let status_bc = c
+        .credit_status(
+            &bc.signed_request().unwrap().body.credit_id(),
+            &bc.payment_digest().unwrap(),
+        )
+        .unwrap();
+    assert_eq!(status_bc.lineage.public.wallet_id, before_c.wallet_id);
+    let credited_bc =
+        norito::encode_canonical(&KagemushaWalletCreditedV1::from_status(status_bc).unwrap())
+            .unwrap();
+    let sessions = message_census::sessions_for_exchange(
+        census_originals,
+        &f.config.scheme,
+        [&payment_ab, &payment_bc],
+        [&credited_ab, &credited_bc],
+    );
     // This must be the previously committed Archive package. Hardware signing is disabled,
     // and its sequence/head must equal the existing snapshot before any fold is attempted.
     let archived_ab = complete(a.accept_credited(&credited_ab).unwrap());
@@ -205,6 +229,7 @@ fn continue_retained_archives_then_unload_without_repeating_transfers() {
         "completed_send_continuation_sha256": (sha(&previous_bytes)),
         "consumer_binary_sha256": (executable_hash()),
         "consumer_source_sha256": (env_pin("KAGEMUSHA_NATIVE_SOURCE_SHA256")),
+        "message_originals_manifest_sha256": (sha(&census_manifest)),
         "target_sha256": (sha(&target_bytes)),
         "retained_payment_ab_sha256": (sha(&payment_ab)),
         "retained_payment_bc_sha256": (sha(&payment_bc)),
@@ -260,17 +285,6 @@ fn continue_retained_archives_then_unload_without_repeating_transfers() {
     // Only the remaining original B Archive and C Unload are now allowed to sign.
     device_b.platform.with(|state| state.sign_fault_at = None);
     device_c.platform.with(|state| state.sign_fault_at = None);
-    let bc: KagemushaWalletPaymentV1 = decode(&payment_bc);
-    let status_bc = c
-        .credit_status(
-            &bc.signed_request().unwrap().body.credit_id(),
-            &bc.payment_digest().unwrap(),
-        )
-        .unwrap();
-    assert_eq!(status_bc.lineage.public.wallet_id, before_c.wallet_id);
-    let credited_bc =
-        norito::encode_canonical(&KagemushaWalletCreditedV1::from_status(status_bc).unwrap())
-            .unwrap();
     let (b, archived_bc) = archive::exercise(b, &device_b, &sources, &f_b, &frames_b, &credited_bc);
     finish_unload(
         output,
@@ -298,6 +312,7 @@ fn continue_retained_archives_then_unload_without_repeating_transfers() {
             },
         ],
         ExchangeOriginals {
+            sessions,
             payment_ab,
             payment_bc,
             received_ab,

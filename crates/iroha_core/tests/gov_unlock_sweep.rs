@@ -47,6 +47,7 @@ fn unlocks_after_expiry_height() {
             1_000_000_u64.into(),
             0,
         );
+        let static_policy = stx.static_execution_policy();
         stx.world.governance_referenda_mut().insert(
             "rid-unlock".to_owned(),
             GovernanceReferendumRecord {
@@ -55,7 +56,8 @@ fn unlocks_after_expiry_height() {
                 status: GovernanceReferendumStatus::Closed,
                 mode: iroha_core::state::GovernanceReferendumMode::Plain,
                 plain_context: iroha_core::query::standalone_plain_test_fixture::context(
-                    &stx.gov, 0,
+                    &static_policy.gov,
+                    0,
                 ),
                 plain_result:
                     iroha_data_model::governance::conviction::PlainVotingResultV1::Decided(

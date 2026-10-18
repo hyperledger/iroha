@@ -134,6 +134,60 @@ impl OraclePolicyV1 {
     }
 }
 
+/// Stream the complete original oracle policy without cloning its variable leaves.
+pub(super) fn borrowed(config: &Oracle) -> impl norito::SerializePayload + '_ {
+    use super::policy_borrowed::{Ref, record};
+
+    let economics = &config.economics;
+    let governance = &config.governance;
+    let twitter = &config.twitter_binding;
+    record!(
+        count(config.history_depth.get()),
+        record!(
+            Ref(&economics.reward_asset),
+            Ref(&economics.reward_pool),
+            Ref(&economics.reward_amount),
+            Ref(&economics.slash_asset),
+            Ref(&economics.slash_receiver),
+            Ref(&economics.slash_outlier_amount),
+            Ref(&economics.slash_error_amount),
+            Ref(&economics.slash_no_show_amount),
+            Ref(&economics.dispute_bond_asset),
+            Ref(&economics.dispute_bond_amount),
+            Ref(&economics.dispute_reward_amount),
+            Ref(&economics.frivolous_slash_amount)
+        ),
+        record!(
+            governance.intake_sla_blocks,
+            governance.rules_sla_blocks,
+            governance.cop_sla_blocks,
+            governance.technical_sla_blocks,
+            governance.policy_jury_sla_blocks,
+            governance.enact_sla_blocks,
+            count(governance.intake_min_votes.get()),
+            count(governance.rules_min_votes.get()),
+            record!(
+                count(governance.cop_min_votes.low.get()),
+                count(governance.cop_min_votes.medium.get()),
+                count(governance.cop_min_votes.high.get())
+            ),
+            count(governance.technical_min_votes.get()),
+            record!(
+                count(governance.policy_jury_min_votes.low.get()),
+                count(governance.policy_jury_min_votes.medium.get()),
+                count(governance.policy_jury_min_votes.high.get())
+            )
+        ),
+        record!(
+            Ref(&twitter.feed_id),
+            Ref(&twitter.pepper_id),
+            twitter.max_ttl_ms,
+            twitter.min_ttl_ms,
+            twitter.min_update_spacing_ms
+        )
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,6 +199,10 @@ mod tests {
     }
 
     fn frame(config: &Oracle) -> Vec<u8> {
+        super::super::policy_borrowed::assert_same_payload(
+            &borrowed(config),
+            &OraclePolicyV1::from_actual(config),
+        );
         norito::encode_canonical(&OraclePolicyV1::from_actual(config)).unwrap()
     }
 

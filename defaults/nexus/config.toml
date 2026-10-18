@@ -49,10 +49,6 @@ feature_bits = 0b11
 [nexus]
 lane_count = 3
 
-[nexus.fees]
-fee_asset_id = "xor#universal"
-sponsor_vault_custody_account_id = "sorauﾛ1NｱｻｸYSafﾇｷヰc5ﾇﾄVxﾏ9jLZヱﾋzsKqurﾊﾘ9ｸ3eｴAｶD54TDT"
-
 [nexus.staking]
 stake_asset_id = "xor#universal"
 

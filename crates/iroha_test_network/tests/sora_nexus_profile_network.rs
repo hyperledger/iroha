@@ -1134,7 +1134,10 @@ async fn four_peer_sora_nexus_qual_predealt_beacon_installs_without_restart() ->
         let profile_custody = protocol_custody_account(ProfileId::SoraNexusV1)
             .to_i105_for_discriminant(369)?;
         ensure!(
-            seats[0].text(&["nexus", "fees", "fee_sink_account_id"])? == kagami_custody,
+            iroha_data_model::block::consensus::RootFeePolicy::from_parameters(
+                &RawGenesisTransaction::from_path(kagami_dir.join("genesis.json"))?.effective_parameters()?
+            )?.ok_or_else(|| eyre!("Kagami genesis omitted its fee policy"))?
+                .fee_sink_account_id.to_i105_for_discriminant(369)? == kagami_custody,
             "Kagami custody roles no longer share one account"
         );
         profile_manifest(

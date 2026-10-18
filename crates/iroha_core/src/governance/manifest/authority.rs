@@ -178,7 +178,13 @@ impl LaneManifestEffectiveAuthorityV1 {
 
     #[cfg(test)]
     fn from_registry(registry: &LaneManifestRegistry) -> Self {
-        Self::try_from_registry(registry).expect("materialized lane manifest authority")
+        let value =
+            Self::try_from_registry(registry).expect("materialized lane manifest authority");
+        crate::state::authority_registry::policy_borrowed::assert_same_payload(
+            &BorrowedManifest(registry),
+            &value,
+        );
+        value
     }
 }
 
@@ -423,6 +429,243 @@ impl From<&GovernanceRules> for GovernanceRulesAuthorityV1 {
     }
 }
 
+/// Exact original materialized registry bytes. This is an encoder, not an
+/// authorization capability: original-cut callers must retain StatePublication's
+/// validated and frozen runtime/catalog/manifest owner throughout both passes.
+pub(crate) struct BorrowedManifest<'a>(&'a LaneManifestRegistry);
+impl LaneManifestRegistry {
+    /// Check the original retained source bodies and exact catalog, then borrow
+    /// their complete authority payload. The publication owner separately retains
+    /// the source-rebinding proof from before these same originals were frozen.
+    pub(crate) fn borrowed_materialized_for_frozen_catalog(
+        &self,
+        lane_count: u32,
+        lanes: &[iroha_data_model::nexus::LaneConfig],
+    ) -> Result<BorrowedManifest<'_>, norito::Error> {
+        use crate::state::authority_registry::policy_borrowed::{Ref, Seq, hash_payload, record};
+        let invalid = |message: &str| norito::Error::Message(message.into());
+        let source = self
+            .source_snapshot
+            .as_deref()
+            .ok_or_else(|| invalid("lane manifest authority has no materialized frozen source"))?;
+        validate_borrowed_source(source)?;
+        if let Some(baseline) = self.baseline_source_snapshot.as_deref() {
+            validate_borrowed_source(baseline)?;
+        }
+        if source.consensus_policy_digest != self.consensus_policy_digest
+            || !source
+                .manifests_by_alias
+                .keys()
+                .eq(self.manifest_source_aliases.iter())
+        {
+            return Err(invalid(
+                "lane manifest registry differs from its retained source",
+            ));
+        }
+        let catalog_hash = hash_payload(
+            b"iroha:nexus:lane-catalog:v1\0",
+            &record!(lane_count, Seq(lanes.iter().map(Ref))),
+        )?;
+        if self.bound_catalog_hash.map(<[u8; 32]>::from) != Some(catalog_hash) {
+            return Err(invalid(
+                "lane manifest authority is bound to a different frozen catalog",
+            ));
+        }
+        if self.statuses.len() != lanes.len()
+            || !self.statuses.iter().zip(lanes).all(|((id, status), lane)| {
+                *id == lane.id
+                    && status.lane == lane.id
+                    && status.alias == lane.alias
+                    && status.dataspace == lane.dataspace_id
+                    && status.visibility == lane.visibility
+                    && status.storage == lane.storage
+            })
+        {
+            return Err(invalid(
+                "lane manifest statuses differ from the frozen catalog",
+            ));
+        }
+        Ok(BorrowedManifest(self))
+    }
+}
+impl norito::SerializePayload for BorrowedManifest<'_> {
+    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::Error> {
+        use crate::state::authority_registry::policy_borrowed::{Raw, Ref, Seq, record};
+        let registry = self.0;
+        let baseline_digest = registry.baseline_consensus_policy_digest();
+        record!(
+            Raw(&registry.consensus_policy_digest),
+            Raw(&baseline_digest),
+            registry.bound_catalog_hash.map(<[u8; 32]>::from),
+            Seq(registry.manifest_source_aliases.iter().map(Ref)),
+            Seq(registry.statuses.iter().map(|(id, status)| borrowed_status(
+                id.as_u32(),
+                status,
+                registry.has_manifest(*id)
+            ))),
+            registry.source_snapshot.as_deref().map(borrowed_source),
+            registry
+                .baseline_source_snapshot
+                .as_deref()
+                .map(borrowed_source)
+        )
+        .serialize(writer)
+    }
+}
+fn validate_borrowed_source(source: &LaneManifestSourceSnapshot) -> Result<(), norito::Error> {
+    use crate::state::authority_registry::policy_borrowed::{
+        Raw, Ref, Seq, hash_json, hash_payload, record,
+    };
+    if source.pending_registry.is_some() {
+        return Err(norito::Error::Message(
+            "lane manifest source has not been materialized for a catalog".into(),
+        ));
+    }
+    let digest = hash_payload(
+        b"iroha:nexus:lane-manifest-source-set:v1\0",
+        &record!(
+            1_u8,
+            Seq(source
+                .manifests_by_alias
+                .iter()
+                .map(|(alias, value)| record!(
+                    Ref(alias),
+                    record!(
+                        value.content_digest.valid,
+                        Raw(&value.content_digest.digest)
+                    )
+                ))),
+            source.governance_overlay.as_ref().map(|value| record!(
+                value.content_digest.valid,
+                Raw(&value.content_digest.digest)
+            ))
+        ),
+    )?;
+    if digest != source.consensus_policy_digest {
+        return Err(norito::Error::Message(
+            "lane manifest source digest does not match its contents".into(),
+        ));
+    }
+    fn check<T: norito::json::JsonSerialize>(
+        valid: bool,
+        digest: &[u8; 32],
+        parsed: Result<&T, &String>,
+    ) -> Result<(), norito::Error> {
+        if valid != parsed.is_ok() {
+            return Err(norito::Error::Message(
+                "lane manifest source validity differs from its retained body".into(),
+            ));
+        }
+        if let Ok(parsed) = parsed
+            && hash_json(parsed)? != *digest
+        {
+            return Err(norito::Error::Message(
+                "lane manifest source digest differs from its retained canonical JSON".into(),
+            ));
+        }
+        Ok(())
+    }
+    for value in source.manifests_by_alias.values() {
+        check(
+            value.content_digest.valid,
+            &value.content_digest.digest,
+            value.parsed.as_ref(),
+        )?;
+    }
+    if let Some(value) = &source.governance_overlay {
+        check(
+            value.content_digest.valid,
+            &value.content_digest.digest,
+            value.parsed.as_ref(),
+        )?;
+    }
+    Ok(())
+}
+fn borrowed_source(source: &LaneManifestSourceSnapshot) -> impl norito::SerializePayload + '_ {
+    use crate::state::authority_registry::policy_borrowed::{JsonString, Raw, Ref, Seq, record};
+    record!(
+        Raw(&source.consensus_policy_digest),
+        Seq(source
+            .bound_lanes
+            .iter()
+            .map(|(id, lane)| record!(id.as_u32(), lane.borrowed_consensus_projection()))),
+        Seq(source
+            .manifests_by_alias
+            .iter()
+            .map(|(alias, value)| record!(
+                Ref(alias),
+                record!(
+                    value.content_digest.valid,
+                    Raw(&value.content_digest.digest),
+                    value.parsed.as_ref().ok().map(JsonString)
+                )
+            ))),
+        source.governance_overlay.as_ref().map(|value| record!(
+            value.content_digest.valid,
+            Raw(&value.content_digest.digest),
+            value.parsed.as_ref().ok().map(JsonString)
+        ))
+    )
+}
+fn borrowed_status(
+    lookup_lane: u32,
+    status: &LaneManifestStatus,
+    has_manifest: bool,
+) -> impl norito::SerializePayload + '_ {
+    use crate::state::authority_registry::policy_borrowed::{Ref, Seq, record};
+    use iroha_data_model::nexus::{LaneStorageProfile, LaneVisibility};
+    record!(
+        lookup_lane,
+        status.lane.as_u32(),
+        Ref(&status.alias),
+        status.dataspace.as_u64(),
+        match status.visibility {
+            LaneVisibility::Public => 0_u8,
+            LaneVisibility::Restricted => 1_u8,
+        },
+        match status.storage {
+            LaneStorageProfile::FullReplica => 0_u8,
+            LaneStorageProfile::CommitmentOnly => 1_u8,
+            LaneStorageProfile::SplitReplica => 2_u8,
+        },
+        Ref(&status.governance),
+        has_manifest,
+        status.governance_rules.as_ref().map(borrowed_rules),
+        Seq(status
+            .privacy_commitments
+            .iter()
+            .map(|commitment| match commitment.scheme() {
+                CommitmentScheme::Merkle(merkle) => LanePrivacyCommitmentAuthorityV1::Merkle {
+                    id: commitment.id().get(),
+                    root: *merkle.root().as_ref(),
+                    max_depth: merkle.max_depth(),
+                },
+            }))
+    )
+}
+fn borrowed_rules(rules: &GovernanceRules) -> impl norito::SerializePayload + '_ {
+    use crate::state::authority_registry::policy_borrowed::{Ref, Seq, record};
+    record!(
+        rules.version,
+        Ref(&rules.validators),
+        Seq(rules.validator_bindings.iter().map(|binding| record!(
+            Ref(&binding.validator),
+            Ref(&binding.peer_id),
+            Ref(&binding.torii_url)
+        ))),
+        rules.quorum,
+        Seq(rules.protected_namespaces.iter().map(Ref)),
+        rules.hooks.runtime_upgrade.as_ref().map(|hook| record!(
+            hook.allow,
+            hook.require_metadata,
+            Ref(&hook.metadata_key),
+            hook.allowed_ids
+                .as_ref()
+                .map(|ids| Seq(ids.iter().map(Ref)))
+        ))
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,6 +687,52 @@ mod tests {
         str::FromStr,
         sync::Arc,
     };
+
+    #[test]
+    fn borrowed_materialized_source_binds_complete_body_and_catalog() {
+        let source = materialized_source(
+            NativeLaneManifestV1::default(),
+            Some(GovernanceCatalogFile::default()),
+        );
+        let registry = materialized_registry(source.clone());
+        let catalog = LaneCatalog::default();
+        let borrowed = registry
+            .borrowed_materialized_for_frozen_catalog(catalog.lane_count().get(), catalog.lanes())
+            .unwrap();
+        crate::state::authority_registry::policy_borrowed::assert_same_payload(
+            &borrowed,
+            &LaneManifestEffectiveAuthorityV1::try_from_registry(&registry).unwrap(),
+        );
+        let mut wrong = catalog.lanes().to_vec();
+        wrong[0].alias = "rebound".into();
+        assert!(
+            registry
+                .borrowed_materialized_for_frozen_catalog(catalog.lane_count().get(), &wrong)
+                .is_err()
+        );
+        let mut changed = source;
+        changed
+            .manifests_by_alias
+            .get_mut("default")
+            .unwrap()
+            .parsed
+            .as_mut()
+            .unwrap()
+            .lane = Some("changed-body".into());
+        assert!(
+            validate_borrowed_source(&changed).is_err(),
+            "digest cannot substitute for retained source bytes"
+        );
+        let provisional = LaneManifestRegistry::from_statuses(BTreeMap::new());
+        assert!(
+            provisional
+                .borrowed_materialized_for_frozen_catalog(
+                    catalog.lane_count().get(),
+                    catalog.lanes()
+                )
+                .is_err()
+        );
+    }
 
     #[test]
     fn emergency_empty_registry_cannot_claim_materialized_source() {

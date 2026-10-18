@@ -205,6 +205,40 @@ fn c_boundary_preserves_foreign_review_freezes_money_and_keeps_only_terminal_rec
         TERMINAL
     );
     assert_eq!(fold(b).unwrap_err().status, TERMINAL);
+    let codecs_refused = |expected| {
+        for status in [false, true] {
+            assert_eq!(
+                setup(
+                    b,
+                    setup::Setup::CreditedOriginal {
+                        status,
+                        original: vec![1],
+                    },
+                )
+                .unwrap_err()
+                .status,
+                expected
+            );
+        }
+        for kind in 1..=4 {
+            for wrap in [false, true] {
+                assert_eq!(
+                    setup(
+                        b,
+                        setup::Setup::Transport {
+                            kind,
+                            wrap,
+                            original: vec![1],
+                        },
+                    )
+                    .unwrap_err()
+                    .status,
+                    expected
+                );
+            }
+        }
+    };
+    codecs_refused(TERMINAL);
     assert_eq!(b_calls.load(Ordering::SeqCst), calls);
     assert_eq!(call(b, 49, rb.sequence_low).status, INVALID);
     for _ in 0..2 {
@@ -227,8 +261,11 @@ fn c_boundary_preserves_foreign_review_freezes_money_and_keeps_only_terminal_rec
     }
     assert_eq!(snapshot(b).unwrap_err().status, TERMINAL);
     assert_eq!(call(b, 48, 0).status, TERMINAL);
+    codecs_refused(TERMINAL);
     close(a).unwrap();
     close(b).unwrap();
+    codecs_refused(CLOSED);
+    assert_eq!(b_calls.load(Ordering::SeqCst), calls);
     assert_eq!(a_drops.load(Ordering::SeqCst), 1);
     assert_eq!(b_drops.load(Ordering::SeqCst), 1);
 }

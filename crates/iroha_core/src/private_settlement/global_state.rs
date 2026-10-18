@@ -8,14 +8,20 @@ use super::{
     protocol::{
         validate_private_settlement_prepare_barrier_v1, verify_private_settlement_receipt_v1,
     },
-    state::{
-        PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolStateV1,
-        PrivateSettlementStateErrorV1,
-    },
+    state::PrivateSettlementStateErrorV1,
+};
+use crate::private_settlement::state::{
+    PrivateSettlementPoolGovernanceExtV1 as _, PrivateSettlementPoolStateExtV1 as _,
 };
 use iroha_crypto::Hash;
 #[cfg(test)]
 use iroha_data_model::nexus::PrivateSettlementPoolGovernanceV1;
+use iroha_data_model::nexus::{
+    PrivateSettlementNullifierKeyV1, PrivateSettlementOutputKeyV1,
+    PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolKeyV1,
+    PrivateSettlementPoolStateV1, decode_private_settlement_storage_key_v1,
+    encode_private_settlement_storage_key_v1,
+};
 use iroha_data_model::{
     nexus::{
         PrivateSettlementAbortReceiptV1, PrivateSettlementDeltaV1,
@@ -49,30 +55,17 @@ pub(crate) fn canonical_receipt_digest_v1(
     ]))
 }
 
-/// Exact route-scoped identity of one governed confidential settlement pool.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    JsonDeserialize,
-    JsonSerialize,
-    norito::NoritoSchema,
-)]
-#[norito_schema(name = "iroha_core::private_settlement::global_state::PrivateSettlementPoolKeyV1")]
-pub(crate) struct PrivateSettlementPoolKeyV1 {
-    route: PrivateSettlementRouteV1,
-    pool_id: PrivacyPoolIdV1,
+/// Native state validation/mutation for the single Model-owned canonical record.
+pub(crate) trait PrivateSettlementPoolKeyExtV1: Sized {
+    fn new(
+        route: PrivateSettlementRouteV1,
+        pool_id: PrivacyPoolIdV1,
+    ) -> Result<Self, PrivateSettlementGlobalStateErrorV1>;
 }
 
-impl PrivateSettlementPoolKeyV1 {
+impl PrivateSettlementPoolKeyExtV1 for PrivateSettlementPoolKeyV1 {
     /// Construct the key used by every private-settlement state map.
-    pub(crate) fn new(
+    fn new(
         route: PrivateSettlementRouteV1,
         pool_id: PrivacyPoolIdV1,
     ) -> Result<Self, PrivateSettlementGlobalStateErrorV1> {
@@ -102,50 +95,6 @@ pub(crate) struct PrivateSettlementRootKeyV1 {
     pub(crate) pool: PrivateSettlementPoolKeyV1,
     pub(crate) epoch: u64,
     pub(crate) root: PrivacyRootV1,
-}
-
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    JsonDeserialize,
-    JsonSerialize,
-    norito::NoritoSchema,
-)]
-#[norito_schema(
-    name = "iroha_core::private_settlement::global_state::PrivateSettlementNullifierKeyV1"
-)]
-pub(crate) struct PrivateSettlementNullifierKeyV1 {
-    pub(crate) pool: PrivateSettlementPoolKeyV1,
-    pub(crate) nullifier: PrivacyNullifierV1,
-}
-
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Decode,
-    Encode,
-    JsonDeserialize,
-    JsonSerialize,
-    norito::NoritoSchema,
-)]
-#[norito_schema(
-    name = "iroha_core::private_settlement::global_state::PrivateSettlementOutputKeyV1"
-)]
-pub(crate) struct PrivateSettlementOutputKeyV1 {
-    pub(crate) pool: PrivateSettlementPoolKeyV1,
-    pub(crate) commitment: PrivacyCommitmentV1,
 }
 
 /// Canonical key for one globally replicated private-settlement staged lock.
@@ -217,35 +166,6 @@ pub(crate) enum PrivateSettlementStagedLockRecordV1 {
     },
 }
 
-fn encode_private_settlement_storage_key_v1<T: norito::NoritoSerialize>(key: &T, out: &mut String) {
-    let encoded = norito::to_bytes(key).expect("fixed private-settlement keys always encode");
-    json::write_json_string(&hex::encode_upper(encoded), out);
-}
-
-fn decode_private_settlement_storage_key_v1<
-    T: for<'__frame> norito::NoritoDeserialize<'__frame> + norito::NoritoSerialize,
->(
-    encoded: &str,
-) -> Result<T, json::Error> {
-    let bytes = hex::decode(encoded).map_err(|error| {
-        json::Error::Message(format!("invalid private-settlement key hex: {error}"))
-    })?;
-    let key: T = norito::decode_from_bytes(&bytes).map_err(|error| {
-        json::Error::Message(format!("invalid private-settlement key encoding: {error}"))
-    })?;
-    let canonical = norito::to_bytes(&key).map_err(|error| {
-        json::Error::Message(format!(
-            "failed to re-encode private-settlement key: {error}"
-        ))
-    })?;
-    if encoded != hex::encode_upper(canonical) {
-        return Err(json::Error::Message(
-            "private-settlement key is not canonical uppercase exact Norito hex".to_owned(),
-        ));
-    }
-    Ok(key)
-}
-
 macro_rules! impl_private_settlement_json_key_v1 {
     ($($key:ty),+ $(,)?) => {
         $(
@@ -262,13 +182,7 @@ macro_rules! impl_private_settlement_json_key_v1 {
     };
 }
 
-impl_private_settlement_json_key_v1!(
-    PrivateSettlementPoolKeyV1,
-    PrivateSettlementRootKeyV1,
-    PrivateSettlementNullifierKeyV1,
-    PrivateSettlementOutputKeyV1,
-    PrivateSettlementStagedLockKeyV1,
-);
+impl_private_settlement_json_key_v1!(PrivateSettlementRootKeyV1, PrivateSettlementStagedLockKeyV1,);
 
 /// Public provenance shared by every state item created by one finalized leg.
 #[derive(
@@ -1975,10 +1889,19 @@ pub(crate) mod tests {
                 );
             };
         }
-        check!(PrivateSettlementPoolKeyV1, pool);
+        assert_private_settlement_frame_v1::<PrivateSettlementPoolKeyV1>(
+            &pool,
+            "iroha_data_model::nexus::PrivateSettlementPoolKeyV1",
+        );
         check!(PrivateSettlementRootKeyV1, root);
-        check!(PrivateSettlementNullifierKeyV1, nullifier);
-        check!(PrivateSettlementOutputKeyV1, output);
+        assert_private_settlement_frame_v1::<PrivateSettlementNullifierKeyV1>(
+            &nullifier,
+            "iroha_data_model::nexus::PrivateSettlementNullifierKeyV1",
+        );
+        assert_private_settlement_frame_v1::<PrivateSettlementOutputKeyV1>(
+            &output,
+            "iroha_data_model::nexus::PrivateSettlementOutputKeyV1",
+        );
         check!(
             PrivateSettlementStagedLockKeyV1,
             PrivateSettlementStagedLockKeyV1::PoolHead {

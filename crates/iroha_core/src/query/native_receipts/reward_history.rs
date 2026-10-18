@@ -3,7 +3,8 @@
 use super::ordinary_writes::{self, WriteDecodeError};
 use crate::{
     execution_attempt::{
-        ExecutionAttemptError, canonical_decode_attempt_error, norito_decode_attempt_error,
+        ExecutionAttemptError, canonical_decode_attempt_error, kura_read_attempt_error,
+        norito_decode_attempt_error,
     },
     query::native_context_archive::{NativeContextArchive, NativeContextArchiveError},
     state::StateReadOnly,
@@ -39,10 +40,18 @@ fn allocation(error: ChargedBufferError) -> ExecutionAttemptError<String> {
 fn archive_error(error: NativeContextArchiveError) -> ExecutionAttemptError<String> {
     match error {
         NativeContextArchiveError::Allocation(error) => allocation(error),
+        NativeContextArchiveError::Storage(error) => match kura_read_attempt_error(error, |_| ()) {
+            ExecutionAttemptError::Deferred(original) => ExecutionAttemptError::Deferred(original),
+            ExecutionAttemptError::Rejected(()) => unavailable(),
+        },
         NativeContextArchiveError::Proof(error) => lane_error(error),
         NativeContextArchiveError::Codec(error) => archive_codec_error(error),
         // Missing, oversized or corrupt local custody is never a protocol verdict.
         NativeContextArchiveError::Io(_)
+        // CaptureAdmission is produced only by isolated target-tape writes, never
+        // by this historical reward reader. It supplies no missing reward fact.
+        | NativeContextArchiveError::CaptureAdmission(_)
+        | NativeContextArchiveError::CaptureFailure(_)
         | NativeContextArchiveError::Limit { .. }
         | NativeContextArchiveError::Source(_) => unavailable(),
     }

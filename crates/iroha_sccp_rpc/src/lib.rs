@@ -35,3 +35,5 @@ pub use http::{HttpConfig, HttpTransport, RpcError};
 
 mod receipt_stream;
 mod receipt_trie;
+
+mod transaction_proof;

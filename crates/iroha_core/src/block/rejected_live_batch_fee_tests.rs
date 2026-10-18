@@ -42,8 +42,8 @@ fn rejected_live_batch_business_execution_still_charges_nexus_fee() {
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = asset_definition_id.to_string();
-    nexus.fees.fee_sink_account_id = sink_id.to_string();
+    nexus.fees.fee_asset_id = asset_definition_id.clone();
+    nexus.fees.fee_sink_account_id = sink_id.clone();
     let state = configured_component_state(world, chain_id.clone(), nexus);
     let (max_clock_drift, tx_limits) = {
         let state_view = state.world.view();
@@ -280,8 +280,8 @@ ledger::account::set_metadata(
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = asset_definition_id.to_string();
-    nexus.fees.fee_sink_account_id = sink_id.to_string();
+    nexus.fees.fee_asset_id = asset_definition_id.clone();
+    nexus.fees.fee_sink_account_id = sink_id.clone();
     let state = configured_component_state(world, chain_id.clone(), nexus);
     let (max_clock_drift, tx_limits) = {
         let state_view = state.world.view();

@@ -51,6 +51,7 @@ fn plain_ballot_emits_open_event_with_window() {
             1_000_000_u64.into(),
             0,
         );
+        let static_policy = stx.static_execution_policy();
         stx.world.governance_referenda_mut().insert(
             rid.clone(),
             GovernanceReferendumRecord {
@@ -59,7 +60,8 @@ fn plain_ballot_emits_open_event_with_window() {
                 status: GovernanceReferendumStatus::Proposed,
                 mode: iroha_core::state::GovernanceReferendumMode::Plain,
                 plain_context: iroha_core::query::standalone_plain_test_fixture::context(
-                    &stx.gov, 0,
+                    &static_policy.gov,
+                    0,
                 ),
                 plain_result:
                     iroha_data_model::governance::conviction::PlainVotingResultV1::Pending,

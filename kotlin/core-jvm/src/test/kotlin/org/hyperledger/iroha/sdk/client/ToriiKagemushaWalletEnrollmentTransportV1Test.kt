@@ -102,19 +102,46 @@ class ToriiKagemushaWalletEnrollmentTransportV1Test {
 
     @Test
     fun transportBindsEveryResponseVariantToItsRequestedAction() {
-        val requests = listOf(Request.preKey(dispatch), Request.evidence(dispatch, evidence), Request.issue(dispatch), Request.deliver(dispatch))
+        val requests = listOf(Request.preKey(dispatch), Request.evidence(dispatch, evidence), Request.issue(dispatch), Request.deliver(dispatch), Request.expiryProof(dispatch))
         val responses = listOf(Response.Permit(byteArrayOf(7, 8)), Response.EvidenceReady, Response.Pending,
-            Response.CredentialReady, Response.Credential(byteArrayOf(9, 10)))
+            Response.CredentialReady, Response.Credential(byteArrayOf(9, 10)), Response.ExpiryProof(byteArrayOf(11, 12)))
         requests.forEachIndexed { action, request -> responses.forEachIndexed { tag, response ->
             val executor = RecordingExecutor().apply {
                 this.response = { CompletableFuture.completedFuture(ok(it, response.canonicalWire())) }
             }
             val call = client(executor).enrollKagemushaWalletV1(request, auth(), Runnable {})
-            val accepted = (action == 0 && tag == 0) || (action == 1 && tag in 1..2) || (action == 2 && tag == 3) || (action == 3 && tag == 4)
+            val accepted = (action == 0 && tag == 0) || (action == 1 && tag in 1..2) || (action == 2 && tag == 3) || (action == 3 && tag == 4) || (action == 4 && tag == 5)
             if (accepted) assertContentEquals(response.canonicalWire(), call.join().canonicalWire())
             else assertFailsWith<CompletionException> { call.join() }
             assertEquals(1, executor.requests.size)
         } }
+    }
+
+    @Test
+    fun expiryProofRecoveryReturnsTheExactUnverifiedOriginalWithFreshHttpAuth() {
+        val proof = byteArrayOf(11, 12)
+        val response = Response.ExpiryProof(proof).canonicalWire()
+        val executor = RecordingExecutor().apply {
+            this.response = { CompletableFuture.completedFuture(ok(it, response)) }
+        }
+        val transport = client(executor)
+        val request = Request.expiryProof(dispatch)
+        val recovered = Request.decodeCanonical(request.canonicalWire())
+        val authentication = auth()
+        for (original in listOf(request, recovered)) {
+            val result = transport.enrollKagemushaWalletV1(original, authentication, Runnable {}).join()
+            assertTrue(result is Response.ExpiryProof)
+            assertContentEquals(proof, result.unverifiedOriginal)
+            assertContentEquals(response, result.canonicalWire())
+        }
+        assertEquals(2, executor.requests.size)
+        val first = executor.requests[0]
+        val second = executor.requests[1]
+        assertContentEquals(request.canonicalWire(), first.body)
+        assertContentEquals(first.body, second.body)
+        assertEquals(RequestReplayPolicy.ONE_SHOT, first.replayPolicy)
+        assertFalse(first.headers[CanonicalRequestSigner.HEADER_NONCE]!!.single() ==
+            second.headers[CanonicalRequestSigner.HEADER_NONCE]!!.single())
     }
 
     @Test

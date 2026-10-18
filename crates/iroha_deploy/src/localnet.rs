@@ -109,7 +109,7 @@ use zeroize::{Zeroize as _, Zeroizing};
 mod managed_puzzle;
 mod private_root;
 pub(crate) use custody::sync_private_tree;
-pub(crate) use private_root::private_fee_policy;
+pub(crate) use private_root::private_fee_asset;
 pub use private_root::{PrivateRootSpec, prepare_private_root};
 pub(crate) use private_root::{
     prepare_private_root_at, prepare_private_root_with_amx_at,
@@ -1344,6 +1344,13 @@ fn generate_localnet_runtime<T: Write>(
     genesis = genesis
         .into_builder()
         .append_parameter(localnet_gas_custody_parameter(&gas_account_id))
+        .append_parameter(Parameter::Custom(
+            localnet_root_fee_policy(
+                npos_bootstrap || chain_discriminant.is_some(),
+                &gas_account_id,
+            )
+            .into_custom_parameter()?,
+        ))
         .build_raw()?;
     genesis = append_localnet_contract_permissions_for_client(
         genesis,
@@ -2716,31 +2723,6 @@ fn render_peer_config(
         );
     }
     nexus.insert("staking".into(), Value::Table(staking));
-    if npos_bootstrap || chain_discriminant.is_some() {
-        let fee_asset_id = localnet_xor_asset_literal();
-        let mut fees = Table::new();
-        fees.insert("fee_asset_id".into(), Value::String(fee_asset_id));
-        fees.insert("base_fee".into(), Value::String("0".to_owned()));
-        fees.insert("per_byte_fee".into(), Value::String("0".to_owned()));
-        fees.insert(
-            "per_instruction_fee".into(),
-            Value::String("0.001".to_owned()),
-        );
-        fees.insert(
-            "per_gas_unit_fee".into(),
-            Value::String("0.00005".to_owned()),
-        );
-        fees.insert("settlement_mode".into(), Value::String("direct".to_owned()));
-        fees.insert(
-            "fee_sink_account_id".into(),
-            Value::String(gas_account_id.to_owned()),
-        );
-        fees.insert(
-            "sponsor_vault_custody_account_id".into(),
-            Value::String(gas_account_id.to_owned()),
-        );
-        nexus.insert("fees".into(), Value::Table(fees));
-    }
     if let Some((lane_count, lane_catalog)) = localnet_lane_catalog(sora_profile, taira) {
         nexus.insert("lane_count".into(), Value::Integer(lane_count));
         nexus.insert("lane_catalog".into(), Value::Array(lane_catalog));
@@ -3620,6 +3602,18 @@ fn localnet_gas_custody_parameter(account: &AccountId) -> Parameter {
         localnet_custom_parameter_id("ivm_gas_tech_account_id"),
         Json::new(account.to_string()),
     ))
+}
+fn localnet_root_fee_policy(
+    generated_custody: bool,
+    gas_account: &AccountId,
+) -> iroha_data_model::block::consensus::RootFeePolicy {
+    let mut policy = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+    policy.fee_asset_id = localnet_xor_asset_definition_id();
+    if generated_custody {
+        policy.fee_sink_account_id = gas_account.clone();
+        policy.sponsor_vault_custody_account_id = gas_account.clone();
+    }
+    policy
 }
 fn localnet_ivm_gas_units_per_gas_payload(asset: &str) -> Json {
     let payload = format!(
@@ -5053,19 +5047,6 @@ fn generated_config_parameter_name(id: &iroha_config::base::ParameterId) -> Opti
                 "stake_asset_id",
                 "stake_escrow_account_id",
                 "slash_sink_account_id",
-            ],
-        ),
-        (
-            &["nexus", "fees"],
-            &[
-                "fee_asset_id",
-                "base_fee",
-                "per_byte_fee",
-                "per_instruction_fee",
-                "per_gas_unit_fee",
-                "settlement_mode",
-                "fee_sink_account_id",
-                "sponsor_vault_custody_account_id",
             ],
         ),
         (&["nexus", "registry"], &["manifest_directory"]),

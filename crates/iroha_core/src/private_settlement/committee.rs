@@ -6,7 +6,6 @@
 //! the exact purpose-separated Prepare body that their consensus key may sign.
 
 use super::{
-    global_state::PrivateSettlementPoolKeyV1,
     protocol::{
         private_settlement_phase_body_v1, private_settlement_reserved_prepared_bundle_digest_v1,
     },
@@ -14,13 +13,23 @@ use super::{
         PrivateSettlementCommitteeValidationMaterialV1, PrivateSettlementFileSidecarStoreV1,
     },
     state::{
-        PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolStateV1,
         PrivateSettlementStateErrorV1, ValidatedPrivateSettlementLegV1,
         validate_private_settlement_leg_v1,
     },
 };
+use crate::private_settlement::global_state::PrivateSettlementPoolKeyExtV1 as _;
+#[cfg(test)]
+use crate::private_settlement::state::{
+    PrivateSettlementPoolGovernanceExtV1 as _, PrivateSettlementPoolStateExtV1 as _,
+};
 use crate::state::{StateView, WorldView};
 use iroha_crypto::Hash;
+#[cfg(test)]
+use iroha_data_model::nexus::PrivateSettlementNullifierKeyV1;
+use iroha_data_model::nexus::{
+    PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolKeyV1,
+    PrivateSettlementPoolStateV1,
+};
 use iroha_data_model::{
     nexus::{PrivateSettlementPhaseBodyV1, PrivateSettlementPhaseV1},
     privacy::{PrivacyCommitmentV1, PrivacyNullifierV1},
@@ -181,9 +190,7 @@ mod tests {
     use super::*;
     use crate::{
         private_settlement::{
-            global_state::{
-                PrivateSettlementFinalizationReferenceV1, PrivateSettlementNullifierKeyV1,
-            },
+            global_state::PrivateSettlementFinalizationReferenceV1,
             sidecar_store::{
                 PrivateSettlementSidecarLifecycleV1, PrivateSettlementSidecarStoreConfigV1,
                 tests::{
@@ -191,10 +198,7 @@ mod tests {
                     sidecar_fixture_with_threshold,
                 },
             },
-            state::{
-                PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolStateV1,
-                validate_private_settlement_leg_without_proof_for_test_v1,
-            },
+            state::validate_private_settlement_leg_without_proof_for_test_v1,
         },
         state::World,
     };

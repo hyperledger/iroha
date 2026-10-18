@@ -95,8 +95,6 @@ pub mod tag {
     /// Sponsor vault custody account.
     pub const FEES_SPONSOR_VAULT_CUSTODY_ACCOUNT_ID: &str =
         "nexus.fees.sponsor_vault_custody_account_id";
-    /// Fee settlement mode.
-    pub const FEES_SETTLEMENT_MODE: &str = "nexus.fees.settlement_mode";
     /// Successful-claim fee-exempt authorities.
     pub const FEES_SUCCESSFUL_CLAIM_EXEMPT_AUTHORITIES: &str =
         "nexus.fees.successful_claim_exempt_authorities";
@@ -200,7 +198,7 @@ pub mod tag {
     pub const STAGED_ACTIVE_PUBLIC_LANE_VALIDATORS: &str = "staged.active_public_lane_validators";
 
     /// Fixed-arity fields after the routing rules, in exact preimage order.
-    pub const TAIL: [&str; 66] = [
+    pub const TAIL: [&str; 65] = [
         STAKING_PUBLIC_VALIDATOR_MODE,
         STAKING_RESTRICTED_VALIDATOR_MODE,
         STAKING_MIN_VALIDATOR_STAKE,
@@ -219,7 +217,6 @@ pub mod tag {
         FEES_PER_INSTRUCTION,
         FEES_PER_GAS_UNIT,
         FEES_SPONSOR_VAULT_CUSTODY_ACCOUNT_ID,
-        FEES_SETTLEMENT_MODE,
         FEES_SUCCESSFUL_CLAIM_EXEMPT_AUTHORITIES,
         DATASPACE_FEE_SPONSOR_PROGRAM_IDS,
         AXT_SLOT_LENGTH_MS,

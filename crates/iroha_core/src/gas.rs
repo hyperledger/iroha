@@ -158,6 +158,9 @@ pub(crate) fn gas_components_fit_block_limit(
 /// Set the telemetry gauges to the schedule a block charges: operators see the
 /// committed schedule, never a configured one. Metering does not read the gauges.
 pub(crate) fn publish_confidential_gas_gauges(schedule: &ActualConfidentialGas) {
+    if crate::status::replay_observations_are_isolated() {
+        return;
+    }
     #[cfg(feature = "telemetry")]
     if let Some(metrics) = iroha_telemetry::metrics::global() {
         metrics.set_confidential_gas_schedule(schedule);

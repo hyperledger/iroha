@@ -1554,6 +1554,8 @@ pub(crate) fn capture_retained(
         .map_err(|_| invalid())?;
     let metadata = authenticated.metadata();
     let epoch = authenticated.into_parts().0;
+    let signed_fees =
+        iroha_genesis::signed_genesis_root_fee_policy(&block).map_err(|_| invalid())?;
     let registered_roles = validate_signed_profile(prepared, &block, &metadata)?;
     if prepared.context.dataspace_id != 0
         || prepared.context.dataspace_alias != "universal"
@@ -1791,7 +1793,7 @@ pub(crate) fn capture_retained(
         if config.musubi_publication.installation.is_some()
             || config.genesis.expected_hash != block.hash()
             || config.gov.sorafs_provider_owners != owners
-            || configured_execution_policy(&config).map_err(|_| invalid())?
+            || configured_execution_policy(&config, &signed_fees).map_err(|_| invalid())?
                 != Hash::prehashed(metadata.sumeragi_context.execution_policy_hash)
             || config.torii.sorafs_storage.native_transaction_signers
                 != actual::SorafsNativeTransactionSignerBindings::default()
@@ -1931,7 +1933,10 @@ fn validate_genesis_material(
 
 // Reuse the canonical runtime policy owners; no native genesis execution or cached authority is
 // needed on a retained reopen. The closed profile has no external compliance policy source.
-pub(crate) fn configured_execution_policy(config: &actual::Root) -> Result<Hash> {
+pub(crate) fn configured_execution_policy(
+    config: &actual::Root,
+    fees: &iroha_data_model::block::consensus::RootFeePolicy,
+) -> Result<Hash> {
     ensure!(
         !config.nexus.compliance.enabled,
         "service authority profile cannot select an external compliance policy"
@@ -1944,8 +1949,12 @@ pub(crate) fn configured_execution_policy(config: &actual::Root) -> Result<Hash>
     manifests
         .validate_active_coverage_for_catalog(&config.nexus.lane_catalog)
         .map_err(|_| eyre!("service authority lane policies are invalid"))?;
+    // Only original signed fee terms enter this runtime projection. Node configuration
+    // supplies local settings and the other independently checked policy inputs.
+    let mut projected_nexus = config.nexus.clone();
+    projected_nexus.fees = fees.clone();
     let nexus = actual::nexus_consensus_policy_digest_with_runtime_policies(
-        &config.nexus,
+        &projected_nexus,
         None,
         Some(manifests.baseline_consensus_policy_digest()),
     )

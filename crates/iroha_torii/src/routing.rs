@@ -158,10 +158,7 @@ use core::str::FromStr;
 #[cfg(feature = "telemetry")]
 use eyre::eyre;
 use hex::ToHex;
-use iroha_config::parameters::{
-    actual::{NexusFeeSettlementMode, TelemetryProfile},
-    defaults,
-};
+use iroha_config::parameters::{actual::TelemetryProfile, defaults};
 #[cfg(feature = "app_api")]
 use iroha_version::codec::DecodeVersioned as _;
 use std::{
@@ -701,7 +698,6 @@ pub struct PipelinePreflightFees {
     pub per_instruction_fee: iroha_primitives::numeric::Quantity,
     pub per_gas_unit_fee: iroha_primitives::numeric::Quantity,
     pub sponsor_vault_custody_account_id: String,
-    pub settlement_mode: String,
     pub successful_claim_fee_exempt_authorities: Vec<String>,
 }
 ( Clone, Debug, crate::json_macros::JsonSerialize, crate::json_macros::JsonDeserialize, norito::derive::NoritoSerialize, norito::derive::NoritoDeserialize,)
@@ -6446,8 +6442,8 @@ pub fn build_pipeline_preflight_response(
             inflight: size.saturating_sub(queued),
         },
         fees: PipelinePreflightFees {
-            fee_asset_id: nexus.fees.fee_asset_id,
-            fee_sink_account_id: nexus.fees.fee_sink_account_id,
+            fee_asset_id: nexus.fees.fee_asset_id.canonical_address(),
+            fee_sink_account_id: nexus.fees.fee_sink_account_id.to_string(),
             base_fee: nexus.fees.base_fee,
             per_byte_fee: nexus.fees.per_byte_fee,
             per_instruction_fee: nexus.fees.per_instruction_fee,
@@ -6456,11 +6452,6 @@ pub fn build_pipeline_preflight_response(
                 .fees
                 .sponsor_vault_custody_account_id
                 .to_string(),
-            settlement_mode: match nexus.fees.settlement_mode {
-                NexusFeeSettlementMode::Direct => "direct",
-                NexusFeeSettlementMode::LaneRelayBurn => "lane_relay_burn",
-            }
-            .to_owned(),
             successful_claim_fee_exempt_authorities: nexus
                 .fees
                 .successful_claim_fee_exempt_authorities
@@ -9257,6 +9248,14 @@ fn recorded_evidence_fields_to_json(
         }
     }
 }
+fn native_evidence_decode_error(error: iroha_sumeragi::message::CodecError) -> Error {
+    match error {
+        iroha_sumeragi::message::CodecError::Resource(original) => {
+            Error::NativeEvidenceDecode(original)
+        }
+        other => conversion_error(format!("stored native evidence is not canonical: {other}")),
+    }
+}
 fn evidence_fields_to_json(
     evidence: &iroha_data_model::block::consensus::Evidence,
     attribution: &iroha_data_model::block::consensus::EvidenceAttribution,
@@ -9274,14 +9273,9 @@ fn evidence_fields_to_json(
             "native evidence has an SCCP generation scope".into(),
         ));
     }
-    let native = evidence.decode_native().map_err(|error| match error {
-        iroha_sumeragi::message::CodecError::Resource(_) => {
-            Error::Query(iroha_data_model::ValidationFail::QueryFailed(
-                iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded,
-            ))
-        }
-        other => conversion_error(format!("stored native evidence is not canonical: {other}")),
-    })?;
+    let native = evidence
+        .decode_native()
+        .map_err(native_evidence_decode_error)?;
     let class = match native {
         NativeEvidence::ProposalEquivocation(..) => "proposal",
         NativeEvidence::VoteEquivocation(..) => "phase_vote",
@@ -50208,7 +50202,7 @@ fn onboarding_owner_auto_renew_follow_up(
         return Ok(None);
     };
     let world = app.state.world_view();
-    let configured_fee_asset_selector = app.state.nexus_snapshot().fees.fee_asset_id;
+    let configured_fee_asset_selector = app.state.nexus_snapshot().fees.fee_asset_id.canonical_address();
     iroha_core::alias_setup::validate_configured_alias_payment_asset(
         &world,
         &target,
@@ -50289,7 +50283,7 @@ fn build_account_onboarding_plan(
     // service capability. An idle chain must still issue a fresh bounded receipt.
     let valid_until_ms = current_time_millis()
         .saturating_add(APP_API_TRANSACTION_TTL_SECS.saturating_mul(1_000));
-    let configured_fee_asset_selector = app.state.nexus_snapshot().fees.fee_asset_id;
+    let configured_fee_asset_selector = app.state.nexus_snapshot().fees.fee_asset_id.canonical_address();
     let configured_fee_asset =
         resolve_asset_definition_selector(&world, &configured_fee_asset_selector, committed_time_ms).map_err(
             |error| Error::AppConflict {
@@ -50525,7 +50519,7 @@ fn revalidate_onboarding_prepared_work(
             )));
         }
         if disposition == AliasPlanDispositionV1::Create {
-            let configured_fee_asset = app.state.nexus_snapshot().fees.fee_asset_id;
+            let configured_fee_asset = app.state.nexus_snapshot().fees.fee_asset_id.canonical_address();
             iroha_core::alias_setup::validate_configured_alias_payment_asset(
                 &world,
                 &normalized.intent.target(),

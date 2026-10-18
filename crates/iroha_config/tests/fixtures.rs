@@ -567,44 +567,6 @@ fn nexus_rejects_zero_axt_slot_length() {
     assert!(emitter.into_result().is_err());
 }
 #[test]
-fn nexus_relay_worker_requires_lane_relay_burn() {
-    use iroha_config::parameters::user::{Nexus, NexusRelayWorker};
-    use iroha_config_base::util::Emitter;
-    let mut emitter = Emitter::<ParseError>::new();
-    let nexus = Nexus {
-        relay_worker: NexusRelayWorker {
-            enabled: true,
-            ..NexusRelayWorker::default()
-        },
-        ..Nexus::default()
-    };
-    assert!(nexus.parse(&mut emitter).is_none());
-    let error = format!("{:?}", emitter.into_result().expect_err("invalid config"));
-    assert!(error.contains("nexus.relay_worker.enabled"));
-}
-#[test]
-fn nexus_rejects_retired_lane_relay_burn_even_with_a_configured_worker() {
-    use iroha_config::parameters::user::{Nexus, NexusFees, NexusRelayWorker};
-    use iroha_config_base::util::Emitter;
-    let mut emitter = Emitter::<ParseError>::new();
-    let nexus = Nexus {
-        fees: NexusFees {
-            settlement_mode: "lane_relay_burn".to_owned(),
-            ..NexusFees::default()
-        },
-        relay_worker: NexusRelayWorker {
-            enabled: true,
-            max_retry_attempts: 3,
-            ..NexusRelayWorker::default()
-        },
-        ..Nexus::default()
-    };
-    assert!(nexus.parse(&mut emitter).is_none());
-    let error = format!("{:?}", emitter.into_result().expect_err("retired mode"));
-    assert!(error.contains("nexus.fees.settlement_mode"), "{error}");
-    assert!(error.contains("expected `direct`"), "{error}");
-}
-#[test]
 fn nexus_rejects_out_of_range_axt_slot_length() {
     let result = load_config_from_fixtures("bad.nexus_axt_slot_length_too_large.toml");
     assert!(
@@ -1970,12 +1932,14 @@ fn taira_config_enables_untrusted_cid_hosting() {
     );
     assert_eq!(
         governance.get("sorafs_pin_fee_treasury_account"),
+        governance.get("bond_escrow_account"),
+        "the SoraFS pin-fee treasury retains the selected Taira custody identity"
+    );
+    assert!(
         doc.get("nexus")
             .and_then(TomlValue::as_table)
-            .and_then(|nexus| nexus.get("fees"))
-            .and_then(TomlValue::as_table)
-            .and_then(|fees| fees.get("fee_sink_account_id")),
-        "the SoraFS pin-fee treasury must use the Taira-prefixed fee-sink identity"
+            .is_none_or(|nexus| !nexus.contains_key("fees")),
+        "monetary policy belongs to signed genesis"
     );
     assert!(
         doc.get("settlement")

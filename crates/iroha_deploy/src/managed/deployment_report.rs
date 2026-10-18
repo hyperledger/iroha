@@ -196,8 +196,7 @@ impl ManagedDeploymentTarget {
     pub(super) fn fee_asset(&self) -> Result<iroha_data_model::asset::AssetDefinitionId> {
         match &self.root_kind {
             RootKind::Global => Ok(crate::localnet::localnet_xor_asset_definition_id()),
-            RootKind::Private { spec } => crate::localnet::private_fee_policy(spec)
-                .map(|policy| policy.asset_definition_id)
+            RootKind::Private { spec } => crate::localnet::private_fee_asset(spec)
                 .map_err(|_| Error::Invalid("retained private fee policy is invalid".into())),
         }
     }

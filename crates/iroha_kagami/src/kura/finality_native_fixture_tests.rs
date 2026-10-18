@@ -80,8 +80,7 @@ fn native_capture(lane_count: u32) -> BTreeMap<String, Vec<u8>> {
         lane_count as usize - 1
     );
     let clock = KeyPair::from_seed(vec![0x7D; 32], Algorithm::Ed25519);
-    let asset =
-        AssetDefinitionId::parse_address_literal(&fixture.config.nexus.fees.fee_asset_id).unwrap();
+    let asset = fixture.config.nexus.fees.fee_asset_id.clone();
     let payer = AssetId::new(asset.clone(), AccountId::new(clock.public_key().clone()));
     let before = chain
         .state()

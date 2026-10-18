@@ -2358,9 +2358,37 @@ pub enum FastpqPoseidonMode {
     /// Force GPU hashing; startup fails if kernels or preflight are unavailable.
     Gpu,
 }
+/// Finite scheduling/admission of the existing autonomous FASTPQ producer.
+#[derive(Debug, Clone, Copy)]
+pub struct FastpqProducer {
+    /// Interval between finite attempts, including when no new block arrives.
+    pub poll_interval: std::time::Duration,
+    /// Monotonic budget for one source/proof-dispatch attempt; never a payment deadline.
+    pub step_timeout: std::time::Duration,
+    /// Number of native prefix steps in one attempt (at most 64).
+    pub max_native_steps: std::num::NonZeroU16,
+    /// Complete source entries admitted before allocation.
+    pub max_source_entries: std::num::NonZeroU32,
+    /// Complete nonempty source statements admitted before allocation.
+    pub max_source_statements: std::num::NonZeroU32,
+}
+impl Default for FastpqProducer {
+    fn default() -> Self {
+        use crate::parameters::defaults::zk::fastpq as d;
+        Self {
+            poll_interval: d::PRODUCER_POLL_INTERVAL,
+            step_timeout: d::PRODUCER_STEP_TIMEOUT,
+            max_native_steps: d::PRODUCER_MAX_NATIVE_STEPS,
+            max_source_entries: d::PRODUCER_MAX_SOURCE_ENTRIES,
+            max_source_statements: d::PRODUCER_MAX_SOURCE_STATEMENTS,
+        }
+    }
+}
 /// FASTPQ prover configuration.
 #[derive(Debug, Clone)]
 pub struct Fastpq {
+    /// Original-source autonomous producer scheduling and finite source admission.
+    pub producer: FastpqProducer,
     /// Execution mode used when initialising the prover backend.
     pub execution_mode: FastpqExecutionMode,
     /// Poseidon pipeline override.
@@ -3103,80 +3131,6 @@ impl NexusStaking {
         }
     }
 }
-/// Nexus fee schedule for universal XOR-denominated charges.
-/// The default anchor is `1 TransferAsset = 1 TEU = 0.01 XOR`.
-#[derive(Debug, Clone)]
-pub struct NexusFees {
-    /// Asset definition used to collect fees (e.g., `61CtjvNd9T3THAR65GsMVHr82Bjc`).
-    pub fee_asset_id: String,
-    /// Account that receives collected fees.
-    pub fee_sink_account_id: String,
-    /// Base fee charged per transaction.
-    pub base_fee: Quantity,
-    /// Per-byte fee charged over the signed transaction payload.
-    pub per_byte_fee: Quantity,
-    /// Per-instruction fee charged for native ISI batches.
-    pub per_instruction_fee: Quantity,
-    /// Per-gas-unit fee multiplier applied to measured gas usage.
-    pub per_gas_unit_fee: Quantity,
-    /// Protocol account that physically custodies isolated sponsor-program vault assets.
-    pub sponsor_vault_custody_account_id: AccountId,
-    /// How fees are settled after they are computed.
-    pub settlement_mode: NexusFeeSettlementMode,
-    /// Canonical authorities allowed to submit fee-free successful SORA v2 XOR claim mint
-    /// transactions.
-    pub successful_claim_fee_exempt_authorities: BTreeSet<AccountId>,
-}
-/// Settlement mode for Nexus fee debits.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NexusFeeSettlementMode {
-    /// Fees are debited in the same chain transaction execution path.
-    Direct,
-    /// Fees are committed into lane receipts and burned during Nexus merge settlement.
-    LaneRelayBurn,
-}
-impl_default!(NexusFees => {
-        Self {
-            fee_asset_id: defaults::nexus::fees::fee_asset_id(),
-            fee_sink_account_id: defaults::nexus::fees::FEE_SINK_ACCOUNT_ID.to_string(),
-            base_fee: defaults::nexus::fees::base_fee(),
-            per_byte_fee: defaults::nexus::fees::per_byte_fee(),
-            per_instruction_fee: defaults::nexus::fees::per_instruction_fee(),
-            per_gas_unit_fee: defaults::nexus::fees::per_gas_unit_fee(),
-            sponsor_vault_custody_account_id:
-                defaults::nexus::fees::sponsor_vault_custody_account_id(),
-            settlement_mode: NexusFeeSettlementMode::Direct,
-            successful_claim_fee_exempt_authorities: BTreeSet::new(),
-        }
-});
-/// Asynchronous worker that proves DPN lane relays and sponsor fee budgets.
-#[derive(Debug, Clone)]
-pub struct NexusRelayWorker {
-    /// Whether the protocol worker is active.
-    pub enabled: bool,
-    /// Optional account id that must match the node signing key's account id.
-    pub authority_account_id: Option<String>,
-    /// Hard per-kind cap for durable relay/allocation work and verified-relay announcement history.
-    pub max_pending_relays: NonZeroUsize,
-    /// Delay between proof/submission retry passes.
-    pub retry_backoff: Duration,
-    /// Maximum proof/submission attempts before local worker retry stops.
-    pub max_retry_attempts: NonZeroU32,
-}
-impl_default!(NexusRelayWorker => {
-        Self {
-            enabled: defaults::nexus::relay_worker::ENABLED,
-            authority_account_id: defaults::nexus::relay_worker::AUTHORITY_ACCOUNT_ID
-                .map(str::to_owned),
-            max_pending_relays: NonZeroUsize::new(
-                defaults::nexus::relay_worker::MAX_PENDING_RELAYS,
-            )
-            .expect("default Nexus relay worker max_pending_relays is non-zero"),
-            retry_backoff: Duration::from_millis(defaults::nexus::relay_worker::RETRY_BACKOFF_MS),
-            max_retry_attempts: NonZeroU32::new(defaults::nexus::relay_worker::MAX_RETRY_ATTEMPTS)
-                .expect("default Nexus relay worker max_retry_attempts is non-zero"),
-        }
-});
 /// Shared Hugging Face lease policy for Soracloud pool draining.
 #[derive(Debug, Clone, Copy)]
 pub struct NexusHfSharedLeases {
@@ -3574,9 +3528,7 @@ pub struct Nexus {
     /// Staking guardrails for public lanes.
     pub staking: NexusStaking,
     /// Universal fee schedule for Nexus transactions.
-    pub fees: NexusFees,
-    /// Asynchronous lane-relay proof and sponsor-budget worker.
-    pub relay_worker: NexusRelayWorker,
+    pub fees: iroha_data_model::block::consensus::RootFeePolicy,
     /// Shared Hugging Face lease policy.
     pub hf_shared_leases: NexusHfSharedLeases,
     /// Uploaded-model registry quota policy.
@@ -3627,8 +3579,7 @@ impl_default!(#[allow(clippy::derivable_impls)] Nexus => {
         Self {
             storage: NexusStorage::default(),
             staking: NexusStaking::default(),
-            fees: NexusFees::default(),
-            relay_worker: NexusRelayWorker::default(),
+            fees: defaults::nexus::fees::genesis_policy(),
             hf_shared_leases: NexusHfSharedLeases::default(),
             uploaded_models: NexusUploadedModels::default(),
             endorsement: NexusEndorsement::default(),
@@ -3782,7 +3733,7 @@ struct NexusConsensusPolicyPreimageV1 {
     dataspace_fee_sponsor_program_ids: Vec<(u64, FeeSponsorProgramId)>,
     routing: NexusConsensusRoutingV1,
     staking: NexusConsensusStakingV1,
-    fees: NexusConsensusFeesV1,
+    fees: iroha_data_model::block::consensus::RootFeePolicy,
     hf_shared_leases: NexusConsensusHfSharedLeasesV1,
     uploaded_models: NexusConsensusUploadedModelsV1,
     endorsement: NexusConsensusEndorsementV1,
@@ -3835,18 +3786,6 @@ struct NexusConsensusStakingV1 {
     stake_asset_id: String,
     stake_escrow_account_id: String,
     slash_sink_account_id: String,
-}
-#[derive(Encode)]
-struct NexusConsensusFeesV1 {
-    fee_asset_id: String,
-    fee_sink_account_id: String,
-    base_fee: Quantity,
-    per_byte_fee: Quantity,
-    per_instruction_fee: Quantity,
-    per_gas_unit_fee: Quantity,
-    sponsor_vault_custody_account_id: AccountId,
-    settlement_mode: u8,
-    successful_claim_fee_exempt_authorities: Vec<String>,
 }
 #[derive(Encode)]
 struct NexusConsensusHfSharedLeasesV1 {
@@ -3957,12 +3896,7 @@ const fn lane_validator_mode_tag(mode: LaneValidatorMode) -> u8 {
         LaneValidatorMode::AdminManaged => 1,
     }
 }
-const fn nexus_fee_settlement_mode_tag(mode: NexusFeeSettlementMode) -> u8 {
-    match mode {
-        NexusFeeSettlementMode::Direct => 0,
-        NexusFeeSettlementMode::LaneRelayBurn => 1,
-    }
-}
+
 fn nexus_consensus_ratio_bits(
     field: &'static str,
     value: f64,
@@ -4101,16 +4035,6 @@ pub fn nexus_consensus_policy_preimage_with_runtime_policies(
         .iter()
         .map(|(id, program_id)| (id.as_u64(), program_id.clone()))
         .collect();
-    let successful_claim_fee_exempt_authorities = nexus
-        .fees
-        .successful_claim_fee_exempt_authorities
-        .iter()
-        .map(|authority| {
-            authority
-                .canonical_i105()
-                .expect("validated Nexus fee-exempt authority must encode as canonical I105")
-        })
-        .collect();
     let endorsement_committee_keys = nexus
         .endorsement
         .committee_keys
@@ -4165,17 +4089,7 @@ pub fn nexus_consensus_policy_preimage_with_runtime_policies(
             stake_escrow_account_id: nexus.staking.stake_escrow_account_id.clone(),
             slash_sink_account_id: nexus.staking.slash_sink_account_id.clone(),
         },
-        fees: NexusConsensusFeesV1 {
-            fee_asset_id: nexus.fees.fee_asset_id.clone(),
-            fee_sink_account_id: nexus.fees.fee_sink_account_id.clone(),
-            base_fee: nexus.fees.base_fee.clone(),
-            per_byte_fee: nexus.fees.per_byte_fee.clone(),
-            per_instruction_fee: nexus.fees.per_instruction_fee.clone(),
-            per_gas_unit_fee: nexus.fees.per_gas_unit_fee.clone(),
-            sponsor_vault_custody_account_id: nexus.fees.sponsor_vault_custody_account_id.clone(),
-            settlement_mode: nexus_fee_settlement_mode_tag(nexus.fees.settlement_mode),
-            successful_claim_fee_exempt_authorities,
-        },
+        fees: nexus.fees.clone(),
         hf_shared_leases: NexusConsensusHfSharedLeasesV1 {
             drain_grace: nexus.hf_shared_leases.drain_grace.into(),
         },
@@ -5945,11 +5859,7 @@ pub fn sumeragi_nexus_amx_context_preimage(
         tag::FEES_SPONSOR_VAULT_CUSTODY_ACCOUNT_ID,
         &nexus.fees.sponsor_vault_custody_account_id,
     );
-    let settlement_mode = match nexus.fees.settlement_mode {
-        NexusFeeSettlementMode::Direct => 0_u8,
-        NexusFeeSettlementMode::LaneRelayBurn => 1,
-    };
-    preimage.field(tag::FEES_SETTLEMENT_MODE, &settlement_mode);
+
     let successful_claim_fee_exempt_authorities = nexus
         .fees
         .successful_claim_fee_exempt_authorities

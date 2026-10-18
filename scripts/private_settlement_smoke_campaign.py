@@ -64,6 +64,16 @@ HAPPY_DAY_TEST_NAME = (
     "nexus::atomic_private_settlement_localnet::"
     "atomic_private_settlement_n3_happy_day"
 )
+COLD_ONE_CALL_TEST_NAME = (
+    "nexus::atomic_private_settlement_localnet::"
+    "atomic_private_settlement_n3_cold_one_call"
+)
+COLD_CHILD_TEST_NAME = (
+    "nexus::atomic_private_settlement_localnet::atomic_private_settlement_onecall::child::cold_sdk_child"
+)
+COLD_CHILD_COUNT = 28
+COLD_REPORT_MAX = 512 * 1024
+COLD_LOG_MAX = 1024 * 1024
 RUN_COUNT = 10
 PEER_COUNT = 16
 RAYON_WORKER_THREADS = 8
@@ -102,6 +112,18 @@ HAPPY_DAY_EVIDENCE_NAMES = frozenset(
     - {f"{prefix}-{peer:02}.json" for prefix in ("state-restarted", "finality-after")
        for peer in range(PEER_COUNT)}
 )
+COLD_ONE_CALL_EVIDENCE_NAMES = frozenset(EVIDENCE_NAMES | {"sdk-process-custody.json"}
+    | {f"sdk-child-{index:02}{suffix}" for index in range(COLD_CHILD_COUNT)
+       for suffix in (".norito", "-stdout.log", "-stderr.log")})
+
+
+def selected_test(kind: str) -> str:
+    """Select one current exact acceptance entrypoint, never an alias."""
+    require(kind in ("smoke", "happy_day", "cold_one_call"), "unknown experiment kind")
+    return {"smoke": TEST_NAME, "happy_day": HAPPY_DAY_TEST_NAME,
+            "cold_one_call": COLD_ONE_CALL_TEST_NAME}[kind]
+
+
 CRYPTOGRAPHIC_SCOPE = (
     "Rust CertifiedPrefix verifies contiguous native finality from the configured signed genesis, "
     "including exact-quorum BLS and original signed RS16 availability. Python validates retained "
@@ -246,7 +268,7 @@ def outside_repo(path: Path, repo: Path) -> None:
 
 def validate_request(value: Any, commit: str, run: int, *, kind: str = "smoke") -> dict[str, Any]:
     """Bind a request to its explicitly selected experiment and exact intent."""
-    require(kind in ("smoke", "happy_day"), "unknown experiment kind")
+    require(kind in ("smoke", "happy_day", "cold_one_call"), "unknown experiment kind")
     request = fields(value, REQUEST_FIELDS, "request")
     require(type(request["version"]) is int and request["version"] == 1
             and request["protocol"] == PROTOCOL and request["kind"] == kind, "wrong experiment protocol/kind")
@@ -262,7 +284,7 @@ def validate_request(value: Any, commit: str, run: int, *, kind: str = "smoke") 
 
 def new_request(commit: str, run: int, *, kind: str = "smoke") -> dict[str, Any]:
     """Create fresh per-run network entropy before any process starts."""
-    require(kind in ("smoke", "happy_day"), "unknown experiment kind")
+    require(kind in ("smoke", "happy_day", "cold_one_call"), "unknown experiment kind")
     request = {"version": 1, "protocol": PROTOCOL, "kind": kind, "commit": commit,
                "seed": secrets.randbits(64), "run": run, "invocation_nonce": secrets.token_hex(32)}
     request["request_id"] = sha(canonical(request))
@@ -271,8 +293,8 @@ def new_request(commit: str, run: int, *, kind: str = "smoke") -> dict[str, Any]
 
 def terminal_success(output: str, *, kind: str = "smoke") -> None:
     """Require an executed exact test, excluding zero-test/ignored/skip successes."""
-    require(kind in ("smoke", "happy_day"), "unknown experiment kind")
-    selected = TEST_NAME if kind == "smoke" else HAPPY_DAY_TEST_NAME
+    require(kind in ("smoke", "happy_day", "cold_one_call"), "unknown experiment kind")
+    selected = selected_test(kind)
     terminals, owners_valid = native_accounting.serial_test_terminals(output)
     headers = list(native_accounting.TEST_RUNNING.finditer(output))
     summaries = list(native_accounting.TEST_COMPLETION.finditer(output))
@@ -290,8 +312,9 @@ def terminal_success(output: str, *, kind: str = "smoke") -> None:
     require(re.search(r"\bskip(?:ped|ping)?\b|\bretrying\b|fresh startup attempt [2-9]", output,
                       re.IGNORECASE) is None, "smoke reported a skip or retry")
     require(output.count(f"APS {kind} completed:") == 1, "missing unique Rust experiment completion")
-    other = "happy_day" if kind == "smoke" else "smoke"
-    require(f"APS {other} completed:" not in output, "another experiment completion was mixed into the stream")
+    require(all(f"APS {other} completed:" not in output
+                for other in ("smoke", "happy_day", "cold_one_call") if other != kind),
+            "another experiment completion was mixed into the stream")
 
 
 def validate_process_closure(output: str) -> None:
@@ -317,10 +340,10 @@ def validate_process_closure(output: str) -> None:
 def validate_inventory(before: Any, after: Any, restarts: Any, validator_sha: str,
                        *, kind: str = "smoke") -> list[Any]:
     """Check identity/configuration and the process lifecycle selected by the experiment."""
-    require(kind in ("smoke", "happy_day"), "unknown experiment kind")
+    require(kind in ("smoke", "happy_day", "cold_one_call"), "unknown experiment kind")
     require(isinstance(before, list) and isinstance(after, list)
             and len(before) == len(after) == PEER_COUNT, "incomplete process inventory")
-    require((kind == "smoke" and isinstance(restarts, list) and len(restarts) == PEER_COUNT)
+    require((kind in ("smoke", "cold_one_call") and isinstance(restarts, list) and len(restarts) == PEER_COUNT)
             or (kind == "happy_day" and restarts is None), "wrong experiment restart inventory")
     names = {"peer_index", "peer_id", "committee_index", "validator_index", "pid",
              "executable_sha256", "configuration_sha256"}
@@ -339,7 +362,7 @@ def validate_inventory(before: Any, after: Any, restarts: Any, validator_sha: st
                     "process executable/identity substitution")
         require(len(set(pids)) == 16, "process inventory repeats a PID")
     for index, (old, new) in enumerate(zip(before, after, strict=True)):
-        if kind == "smoke":
+        if kind in ("smoke", "cold_one_call"):
             record = fields(restarts[index], {"peer_index", "before_pid", "after_pid"}, "restart")
             require(integer(record["peer_index"], 0, 15, "restart peer index") == index
                     and integer(record["before_pid"], 1, 2**32 - 1, "restart before PID") == old["pid"]
@@ -372,8 +395,8 @@ def state_identity(observation: Any, peer: int, label: str) -> Any:
 def validate_states(evidence: dict[str, Any], finalized_height: int,
                     *, kind: str = "smoke") -> tuple[Any, Any]:
     """Require baseline financial state at every preparation stage and exact atomic deltas."""
-    require(kind in ("smoke", "happy_day"), "unknown experiment kind")
-    phases = STATE_PHASES + (tuple(f"restarted-{index:02}" for index in range(16)) if kind == "smoke" else ())
+    require(kind in ("smoke", "happy_day", "cold_one_call"), "unknown experiment kind")
+    phases = STATE_PHASES + (tuple(f"restarted-{index:02}" for index in range(16)) if kind in ("smoke", "cold_one_call") else ())
     vectors = {}
     for phase in phases:
         name = f"state-{phase}.json"
@@ -389,6 +412,9 @@ def validate_states(evidence: dict[str, Any], finalized_height: int,
         if phase in ("finalized", "replay") or phase.startswith("restarted-"):
             require(all(row["height"] >= finalized_height for row in snapshot["validators"]),
                     f"{name} predates finality")
+            if kind == "cold_one_call":
+                require(all(row["height"] == finalized_height for row in snapshot["validators"]),
+                        "cold case advanced beyond the final payment")
     before, after = vectors["before"][0], vectors["finalized"][0]
     require(len(set(vectors["before"])) == len(set(vectors["finalized"])) == 1,
             "validators lack coherent before/finalized states")
@@ -841,11 +867,103 @@ def validate_artifact_sizes(evidence: dict[str, Any]) -> None:
     integer(carrier["signed_carrier_json_bytes"], 1, HTTP_BODY_BOUND_BYTES, "signed carrier JSON bytes")
 
 
+def marked_digest(value: Any, label: str) -> str:
+    """Require the producer's exact lowercase Hash Display bytes, including marker bit.
+
+    Cold diagnostic records explicitly use Hash.to_string(); protocol JSON records
+    elsewhere use the distinct canonical tagged/checksummed Hash JSON literal.
+    """
+    body = digest(value, label)
+    require(int(body[-2:], 16) & 1 == 1 and body != EMPTY_PROTOCOL_HASH,
+            f"{label} is not a nonempty marked Iroha digest")
+    return body
+
+
+def validate_cold_custody(evidence: dict[str, Any]) -> None:
+    """Check retained process reports and logs; Rust authenticates their Norito contents.
+
+    This is source-bound producer evidence, not an independent Norito/BLS decoder.
+    Every report's exact bytes and corresponding selected child terminal are retained.
+    """
+    row = fields(evidence["sdk-process-custody.json"], {"version", "operation", "child_test", "children",
+        "encrypted_originals", "original_case_limit_ms", "original_deadline_unix_ms",
+        "child_report_bound_bytes", "child_log_bound_bytes", "read_only_before_every_continuation"}, "cold custody")
+    require(type(row["version"]) is int and row["version"] == 1
+            and row["operation"] == "one_call_cold_process" and row["child_test"] == COLD_CHILD_TEST_NAME
+            and row["read_only_before_every_continuation"] is True, "cold operation/process contract changed")
+    for name, expected in (("original_case_limit_ms", 3_600_000), ("child_report_bound_bytes", COLD_REPORT_MAX),
+                           ("child_log_bound_bytes", COLD_LOG_MAX)):
+        integer(row[name], expected, expected, name)
+    integer(row["original_deadline_unix_ms"], 1, 2**64 - 1, "original absolute deadline")
+    modes = [value for phase in ("checkpoint_0", "unaudited", "checkpoint_1", "checkpoint_2", "checkpoint_3", "finish")
+             for value in ("read_only", phase)] + ["read_only"] * 16
+    require(isinstance(row["children"], list) and len(row["children"]) == COLD_CHILD_COUNT,
+            "cold operation needs 28 fresh processes")
+    pids, bindings, preparations, settlements = set(), set(), set(), set()
+    for index, (value, mode) in enumerate(zip(row["children"], modes, strict=True)):
+        child = fields(value, {"sequence", "mode", "pid", "input_binding", "report_sha256", "report_bytes",
+            "stdout_sha256", "stderr_sha256", "preparation_id", "settlement_id", "openings", "reservations",
+            "read_only_custody_unchanged", "original_artifacts_unchanged"}, "cold child")
+        require(integer(child["sequence"], 0, COLD_CHILD_COUNT - 1, "child sequence") == index
+                and child["mode"] == mode, "cold continuation phase order changed")
+        pid = integer(child["pid"], 1, 2**32 - 1, "child PID")
+        binding = marked_digest(child["input_binding"], "child input binding")
+        require(pid not in pids and binding not in bindings, "cold process or original invocation was reused")
+        pids.add(pid)
+        bindings.add(binding)
+        preparations.add(digest(child["preparation_id"], "original preparation identity"))
+        if index == 0:
+            require(child["settlement_id"] is None, "fresh readonly child invented settlement identity")
+        else:
+            settlements.add(digest(child["settlement_id"], "original settlement identity"))
+        for counter in ("openings", "reservations"):
+            expected = 3 if index == 1 else 0
+            integer(child[counter], expected, expected, "original wallet " + counter)
+        require(child["read_only_custody_unchanged"] is (mode == "read_only")
+                and child["original_artifacts_unchanged"] is (index != 0), "cold custody assertion changed")
+        report = evidence[f"sdk-child-{index:02}.norito"]
+        require(isinstance(report, bytes) and 0 < len(report) <= COLD_REPORT_MAX
+                and integer(child["report_bytes"], 1, COLD_REPORT_MAX, "child report bytes") == len(report)
+                and child["report_sha256"] == sha(report), "original child report substituted")
+        stdout = evidence[f"sdk-child-{index:02}-stdout.log"]
+        stderr = evidence[f"sdk-child-{index:02}-stderr.log"]
+        require(isinstance(stdout, bytes) and isinstance(stderr, bytes)
+                and 0 < len(stdout) <= COLD_LOG_MAX and len(stderr) <= COLD_LOG_MAX
+                and child["stdout_sha256"] == sha(stdout) and child["stderr_sha256"] == sha(stderr),
+                "cold child log substituted or unbounded")
+        text = stdout.decode("utf-8")
+        terminals, owners = native_accounting.serial_test_terminals(text)
+        headers = list(native_accounting.TEST_RUNNING.finditer(text))
+        summaries = list(native_accounting.TEST_COMPLETION.finditer(text))
+        require(owners and len(terminals) == 1 and terminals[0][:2] == (COLD_CHILD_TEST_NAME, "ok")
+                and len(headers) == len(summaries) == 1 and headers[0].group(1) == "1"
+                and summaries[0].group(1) == "ok"
+                and tuple(map(int, summaries[0].group(2, 3, 4, 5))) == (1, 0, 0, 0)
+                and headers[0].end() < terminals[0][2] and terminals[0][3] < summaries[0].start()
+                and len(re.findall(r"^test result:.*$", text, re.MULTILINE)) == 1,
+                "cold child lacks exact ordered successful test terminal")
+    require(len(preparations) == len(settlements) == 1, "cold restart replaced original operation identities")
+    originals = row["encrypted_originals"]
+    require(isinstance(originals, list) and len(originals) == 4, "original encrypted artifact population changed")
+    names = []
+    for value in originals:
+        original = fields(value, {"name", "hash"}, "encrypted original")
+        require(isinstance(original["name"], str) and re.fullmatch(
+            r"encrypted-artifacts/[0-9a-f]{64}(?:\.contexts|-(?:000|001|002)\.prepared)", original["name"]),
+            "unexpected encrypted original name")
+        marked_digest(original["hash"], "encrypted original hash")
+        names.append(original["name"])
+    require(names == sorted(set(names)) and len({name[20:84] for name in names}) == 1
+            and sum(name.endswith(".contexts") for name in names) == 1,
+            "encrypted original round/order changed")
+
+
 def validate_run(path: Path, request: dict[str, Any], validator_sha: str,
                  *, kind: str = "smoke") -> dict[str, Any]:
     """Validate the exact financial evidence population of the selected experiment."""
-    require(kind in ("smoke", "happy_day"), "unknown experiment kind")
-    evidence_names = EVIDENCE_NAMES if kind == "smoke" else HAPPY_DAY_EVIDENCE_NAMES
+    require(kind in ("smoke", "happy_day", "cold_one_call"), "unknown experiment kind")
+    evidence_names = {"smoke": EVIDENCE_NAMES, "happy_day": HAPPY_DAY_EVIDENCE_NAMES,
+                      "cold_one_call": COLD_ONE_CALL_EVIDENCE_NAMES}[kind]
     owner_path(path, directory=True)
     evidence_path = path / "evidence"
     owner_path(evidence_path, directory=True)
@@ -859,7 +977,7 @@ def validate_run(path: Path, request: dict[str, Any], validator_sha: str,
             and result["protocol"] == PROTOCOL and result["kind"] == kind
             and result["passed"] is True, "unbound Rust result")
     for name, expected in (("participants", 3), ("processes", 16),
-                           ("restarted", 16 if kind == "smoke" else 0), ("signed_rs16_observations", 16)):
+                           ("restarted", 16 if kind in ("smoke", "cold_one_call") else 0), ("signed_rs16_observations", 16)):
         require(type(result[name]) is int and result[name] == expected, f"wrong {name}")
     _activation, _authority, height = validate_smoke_result_heights(result)
     require({item.name for item in evidence_path.iterdir()} == evidence_names, "incomplete or extra experiment evidence files")
@@ -872,17 +990,21 @@ def validate_run(path: Path, request: dict[str, Any], validator_sha: str,
         name = entry["name"]
         require(isinstance(name, str) and name in evidence_names and name not in evidence,
                 "duplicate or unsafe evidence entry")
-        limit = MAX_TRANSPORT_LOG_BYTES if name.endswith(".log") else MAX_JSON_BYTES
+        limit = (COLD_REPORT_MAX if name.endswith(".norito") else COLD_LOG_MAX
+                 if name.startswith("sdk-child-") else MAX_TRANSPORT_LOG_BYTES
+                 if name.endswith(".log") else MAX_JSON_BYTES)
         raw = read_bytes(evidence_path / name, limit=limit)
-        require(integer(entry["bytes"], 1, limit, "evidence size") == len(raw)
+        require(integer(entry["bytes"], 0 if name.endswith("-stderr.log") else 1, limit, "evidence size") == len(raw)
                 and entry["sha256"] == sha(raw), "evidence byte/digest mismatch")
         evidence_raw[name] = raw
-        evidence[name] = raw if name.endswith(".log") else release_runner.strict_json_loads(raw.decode("utf-8"), name)
+        evidence[name] = raw if name.endswith((".log", ".norito")) else release_runner.strict_json_loads(raw.decode("utf-8"), name)
     validate_request(evidence["request.json"], request["commit"], request["run"], kind=kind)
     require(evidence["request.json"] == request, "Rust evidence replays another request")
     identities = validate_inventory(evidence["processes-before.json"], evidence["processes-after.json"],
-                                    evidence["restarts.json"] if kind == "smoke" else None,
+                                    evidence["restarts.json"] if kind in ("smoke", "cold_one_call") else None,
                                     validator_sha, kind=kind)
+    if kind == "cold_one_call":
+        validate_cold_custody(evidence)
     bundle = validate_certificates(evidence, result, identities)
     validate_artifact_sizes(evidence)
     before, after = validate_states(evidence, height, kind=kind)
@@ -891,7 +1013,7 @@ def validate_run(path: Path, request: dict[str, Any], validator_sha: str,
     require(integer(result["continuous_checks"], 48, 160_000, "total continuous checks") == checks,
             "aggregate continuous coverage mismatch")
     anchors = {validate_finality(evidence[f"finality-{phase}-{peer:02}.json"], result, identities)
-               for phase in (("before", "after") if kind == "smoke" else ("before",)) for peer in range(16)}
+               for phase in (("before", "after") if kind in ("smoke", "cold_one_call") else ("before",)) for peer in range(16)}
     require(len(anchors) == 1, "peers/restarts disagree on finalized block header or committee")
     sources = {validate_transport(evidence[f"finality-before-transport-{peer:02}.json"],
         evidence_raw[f"finality-before-transport-{peer:02}.log"],
@@ -1012,7 +1134,7 @@ def command(arguments: list[str], repo: Path, environment: dict[str, str], direc
 
 
 def build_commands(repo: Path, target: Path) -> dict[str, list[str]]:
-    """Request the Metal smoke capability and its declared native dependencies."""
+    """Request the canonical CPU/ARM SHA3 smoke capability and its declared native dependencies."""
     prefix = [str(repo / "scripts/cargo_fast.sh"), "--no-sccache", "--no-incremental", "--jobs", "4", "--"]
     common = ["--locked", "--offline", "--release"]
     return {
@@ -1051,9 +1173,9 @@ def discover_artifact(log: Path, target: Path) -> Path:
     return result
 
 
-def validate_discovery(output: str) -> None:
+def validate_discovery(output: str, *, kind: str = "smoke") -> None:
     """Require exact ignored-test discovery rather than relying on a substring filter."""
-    require(output.strip().splitlines() == [f"{TEST_NAME}: test", "", "1 test, 0 benchmarks"],
+    require(output.strip().splitlines() == [f"{selected_test(kind)}: test", "", "1 test, 0 benchmarks"],
             "exact ignored smoke test discovery failed")
 
 
@@ -1070,8 +1192,10 @@ def invocation_environment(request_path: Path, evidence: Path, result_path: Path
     return environment
 
 
-def run_campaign(repo: Path, output: Path, target: Path, commit: str) -> dict[str, Any]:
+def run_campaign(repo: Path, output: Path, target: Path, commit: str, *, kind: str = "smoke") -> dict[str, Any]:
     """Build once and run ten fresh serialized positive gates, stopping at the first failure."""
+    require(kind in ("smoke", "cold_one_call"), "use the separate happy-day owner for its campaign")
+    selected = selected_test(kind)
     repo = repo.resolve(strict=True)
     outside_repo(output, repo)
     require(target.is_absolute() and target.resolve() == target, "target directory must be canonical")
@@ -1098,9 +1222,9 @@ def run_campaign(repo: Path, output: Path, target: Path, commit: str) -> dict[st
         integration = discover_artifact(output / "build-integration.log", target)
         binaries = artifact_bindings(validator, integration)
         write_json(output / "artifacts.json", binaries)
-        discovery = command([str(integration), TEST_NAME, "--exact", "--ignored", "--list"],
+        discovery = command([str(integration), selected, "--exact", "--ignored", "--list"],
                             repo, environment, output, "discovery")
-        validate_discovery(read_bytes(output / "discovery.log").decode())
+        validate_discovery(read_bytes(output / "discovery.log").decode(), kind=kind)
         runs = []
         fresh = {name: set() for name in ("request_id", "seed", "invocation_nonce", "network_id", "bundle_id", "identity")}
         for index in range(RUN_COUNT):
@@ -1108,7 +1232,7 @@ def run_campaign(repo: Path, output: Path, target: Path, commit: str) -> dict[st
             directory.mkdir(mode=0o700)
             evidence = directory / "evidence"
             evidence.mkdir(mode=0o700)
-            request = new_request(commit, index)
+            request = new_request(commit, index, kind=kind)
             for name in ("request_id", "seed", "invocation_nonce"):
                 require(request[name] not in fresh[name], f"fresh request collision: {name}")
                 fresh[name].add(request[name])
@@ -1118,16 +1242,16 @@ def run_campaign(repo: Path, output: Path, target: Path, commit: str) -> dict[st
             write_json(directory / "before.json", {"source": seal, "artifacts": binaries})
             run_environment = invocation_environment(directory / "request.json", evidence,
                                                      directory / "rust-result.json", binaries["validator"])
-            receipt = command([str(integration), TEST_NAME, "--exact", "--ignored", "--nocapture", "--test-threads=1"],
+            receipt = command([str(integration), selected, "--exact", "--ignored", "--nocapture", "--test-threads=1"],
                               repo, run_environment, directory, "stdout", check=False)
             post_source, post_binaries = source_seal(repo, commit), artifact_bindings(validator, integration)
             write_json(directory / "after.json", {"source": post_source, "artifacts": post_binaries})
             require(post_source == seal and post_binaries == binaries, "source or executable drift during smoke")
             require(receipt["exit_code"] == 0, f"smoke run {index} failed; all output retained in {directory}")
             output_text = read_bytes(directory / "stdout.log", limit=256 * 1024 * 1024).decode("utf-8")
-            terminal_success(output_text)
+            terminal_success(output_text, kind=kind)
             validate_process_closure(output_text)
-            summary = validate_run(directory, request, binaries["validator"]["sha256"])
+            summary = validate_run(directory, request, binaries["validator"]["sha256"], kind=kind)
             for name in ("network_id", "bundle_id"):
                 identity = canonical(summary[name])
                 require(identity not in fresh[name], f"smoke reused a {name}")
@@ -1138,12 +1262,12 @@ def run_campaign(repo: Path, output: Path, target: Path, commit: str) -> dict[st
                 fresh["identity"].add(identity)
             runs.append({"run": index, "request_id": request["request_id"], "result_sha256": summary["result_sha256"],
                          "command_sha256": sha(canonical(receipt)), "summary": summary})
-        campaign = {"version": 1, "protocol": PROTOCOL, "kind": "smoke_campaign", "runs": runs,
+        campaign = {"version": 1, "protocol": PROTOCOL, "kind": f"{kind}_campaign", "runs": runs,
                     "repo": str(repo), "target": str(target), "source": seal, "artifacts": binaries,
                     "builds": builds, "toolchain": toolchain, "signature_verification": signature, "discovery": discovery,
                     "passed": True, "cryptographic_scope": CRYPTOGRAPHIC_SCOPE}
         write_json(output / "campaign.json", campaign)
-        return validate_campaign(output, expected_commit=commit)
+        return validate_campaign(output, expected_commit=commit, kind=kind)
     except Exception as error:
         write_json(output / "failure.json", {"version": 1, "passed": False, "error": str(error),
                                              "time_ns": time.time_ns()})
@@ -1169,20 +1293,22 @@ def validate_command_record(path: Path, arguments: list[str], *, proving: bool =
     return record
 
 
-def validate_campaign(path: Path | str, *, expected_commit: str | None = None) -> dict[str, Any]:
+def validate_campaign(path: Path | str, *, expected_commit: str | None = None, kind: str = "smoke") -> dict[str, Any]:
     """Read-only positive-gate prerequisite API; reject incomplete, stale, or changed campaigns.
 
     Revalidates the signed checkout and both executable files as well as every
     retained record. It performs no build, network startup, repair, or write.
     Callers must retain the checkout and artifacts until qualification ends.
     """
+    require(kind in ("smoke", "cold_one_call"), "unknown campaign selection")
+    selected = selected_test(kind)
     path = Path(path)
     owner_path(path, directory=True)
     require(not (path / "failure.json").exists(), "campaign retains a failure; it is not qualifying evidence")
     campaign = fields(read_json(path / "campaign.json"), {"version", "protocol", "kind", "runs", "repo", "target",
         "source", "artifacts", "builds", "toolchain", "signature_verification", "discovery", "passed", "cryptographic_scope"}, "campaign")
     require(type(campaign["version"]) is int and campaign["version"] == 1
-            and campaign["protocol"] == PROTOCOL and campaign["kind"] == "smoke_campaign"
+            and campaign["protocol"] == PROTOCOL and campaign["kind"] == f"{kind}_campaign"
             and campaign["passed"] is True and campaign["cryptographic_scope"] == CRYPTOGRAPHIC_SCOPE,
             "campaign is not a current completed smoke gate")
     repo, target = Path(campaign["repo"]), Path(campaign["target"])
@@ -1214,9 +1340,9 @@ def validate_campaign(path: Path | str, *, expected_commit: str | None = None) -
                 "builds overlap or differ from retained commands")
         previous_end = record["finished_ns"]
     integration = binaries["integration"]["path"]
-    discovery = validate_command_record(path / "discovery.json", [integration, TEST_NAME, "--exact", "--ignored", "--list"])
+    discovery = validate_command_record(path / "discovery.json", [integration, selected, "--exact", "--ignored", "--list"])
     require(campaign["discovery"] == discovery and discovery["started_ns"] >= previous_end, "discovery command substituted/overlapping")
-    validate_discovery(read_bytes(path / "discovery.log").decode())
+    validate_discovery(read_bytes(path / "discovery.log").decode(), kind=kind)
     previous_end = discovery["finished_ns"]
     require(isinstance(campaign["runs"], list) and len(campaign["runs"]) == RUN_COUNT, "campaign requires ten complete runs")
     expected_root = {"campaign.json", "source.json", "artifacts.json"}
@@ -1232,7 +1358,7 @@ def validate_campaign(path: Path | str, *, expected_commit: str | None = None) -
         owner_path(directory, directory=True)
         require({entry.name for entry in directory.iterdir()} == {"request.json", "rust-result.json", "stdout.log",
             "stdout.json", "before.json", "after.json", "evidence"}, "extra or missing run artifacts")
-        request = validate_request(read_json(directory / "request.json"), commit, index)
+        request = validate_request(read_json(directory / "request.json"), commit, index, kind=kind)
         require(integer(row["run"], 0, 9, "campaign run") == index
                 and row["request_id"] == request["request_id"], "run order/request substitution")
         for name in ("request_id", "invocation_nonce", "seed"):
@@ -1241,15 +1367,15 @@ def validate_campaign(path: Path | str, *, expected_commit: str | None = None) -
         for phase in ("before", "after"):
             require(read_json(directory / f"{phase}.json") == {"source": seal, "artifacts": binaries},
                     "per-run source/executable seal changed")
-        record = validate_command_record(directory / "stdout.json", [integration, TEST_NAME, "--exact", "--ignored",
+        record = validate_command_record(directory / "stdout.json", [integration, selected, "--exact", "--ignored",
                                         "--nocapture", "--test-threads=1"], proving=True)
         require(record["started_ns"] >= previous_end and row["command_sha256"] == sha(canonical(record)),
                 "smoke runs overlap or command receipt changed")
         previous_end = record["finished_ns"]
         output_text = read_bytes(directory / "stdout.log", limit=256 * 1024 * 1024).decode()
-        terminal_success(output_text)
+        terminal_success(output_text, kind=kind)
         validate_process_closure(output_text)
-        summary = validate_run(directory, request, binaries["validator"]["sha256"])
+        summary = validate_run(directory, request, binaries["validator"]["sha256"], kind=kind)
         require(row["summary"] == summary and row["result_sha256"] == summary["result_sha256"], "run summary changed")
         for name in ("network_id", "bundle_id"):
             key = canonical(summary[name])
@@ -1277,13 +1403,16 @@ def main(argv: list[str] | None = None) -> int:
     validate = commands.add_parser("validate", help="read and revalidate all retained evidence without executing a network")
     validate.add_argument("campaign", type=Path)
     validate.add_argument("--commit", help="required source commit for a later campaign prerequisite")
+    for command_parser in (execute, validate):
+        command_parser.add_argument("--kind", choices=("smoke", "cold_one_call"), default="smoke",
+                                    help="exact prepared or cold one-call campaign; never interchangeable")
     arguments = parser.parse_args(argv)
     try:
         if arguments.action == "run":
-            result = run_campaign(arguments.repo, arguments.output, arguments.target_dir, arguments.commit)
+            result = run_campaign(arguments.repo, arguments.output, arguments.target_dir, arguments.commit, kind=arguments.kind)
         else:
-            result = validate_campaign(arguments.campaign, expected_commit=arguments.commit)
-        print(f"Validated {len(result['runs'])} fresh N=3 smoke runs at signed commit {result['source']['commit']}")
+            result = validate_campaign(arguments.campaign, expected_commit=arguments.commit, kind=arguments.kind)
+        print(f"Validated {len(result['runs'])} fresh N=3 {arguments.kind} runs at signed commit {result['source']['commit']}")
         return 0
     except (OSError, ValueError, KeyError, TypeError, release_runner.RunnerError) as error:
         print(f"Smoke campaign failed: {error}", file=sys.stderr)

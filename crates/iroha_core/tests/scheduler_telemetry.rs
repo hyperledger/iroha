@@ -3,8 +3,7 @@
 //! Checks canonical execution and explicit lane telemetry projections.
 #![allow(unused_imports)]
 use iroha_config::parameters::actual::{
-    LaneCompliance, LaneConfig as RuntimeLaneConfig, NexusEndorsement, NexusFees, NexusRelayWorker,
-    NexusStaking, NexusStorage,
+    LaneCompliance, LaneConfig as RuntimeLaneConfig, NexusEndorsement, NexusStaking, NexusStorage,
 };
 use iroha_core::{
     block::{BlockBuilder, ValidBlock},
@@ -626,9 +625,8 @@ fn nexus_config_diff_counter_and_event_emitted() {
     };
     let nexus = Nexus {
         storage: NexusStorage::default(),
-        relay_worker: NexusRelayWorker::default(),
         staking: NexusStaking::default(),
-        fees: NexusFees::default(),
+        fees: iroha_config::parameters::defaults::nexus::fees::genesis_policy(),
         hf_shared_leases: NexusHfSharedLeases::default(),
         uploaded_models: NexusUploadedModels::default(),
         endorsement: NexusEndorsement::default(),

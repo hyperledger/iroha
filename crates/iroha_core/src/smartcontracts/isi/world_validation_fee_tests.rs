@@ -55,8 +55,9 @@ fn sorafs_provider_owner_transition_uses_canonical_constitutional_parliament_pip
 }
 #[test]
 fn sorafs_provider_governance_proposer_must_be_a_fully_bonded_citizen() {
-    blank_test_state_transaction!(state, block, state_transaction);
-    state_transaction.gov.citizenship_bond_amount = Quantity::from(10_u32);
+    blank_test_state_transaction!(state, block, state_transaction; |state: &mut State| {
+        state.gov.citizenship_bond_amount = Quantity::from(10_u32);
+    });
 
     assert!(
         super::ensure_sorafs_provider_governance_proposer(&ALICE_ID, &state_transaction).is_err(),
@@ -1058,6 +1059,15 @@ fn verified_fee_sponsor_registration_rejects_wrong_policy_da_and_expiry() {
 }
 #[test]
 fn initial_genesis_authority_can_bootstrap_fee_sponsor_lifecycle() {
+    assert_initial_genesis_fee_sponsor_lifecycle(false);
+}
+
+#[test]
+fn initial_genesis_fee_sponsor_funding_uses_authored_nondefault_custody() {
+    assert_initial_genesis_fee_sponsor_lifecycle(true);
+}
+
+fn assert_initial_genesis_fee_sponsor_lifecycle(authored_custody: bool) {
     use iroha_data_model::{
         isi::nexus::{
             ActivateFeeSponsorProgramRevision, CreateFeeSponsorProgram,
@@ -1081,7 +1091,21 @@ fn initial_genesis_authority_can_bootstrap_fee_sponsor_lifecycle() {
     );
     let mut block = state.block(header);
     let mut stx = block.transaction();
-    let custody = stx.nexus.fees.sponsor_vault_custody_account_id.clone();
+    let bootstrap_custody = stx.nexus.fees.sponsor_vault_custody_account_id.clone();
+    let custody = if authored_custody {
+        let key =
+            iroha_crypto::KeyPair::try_from_seed(vec![0x75; 32], iroha_crypto::Algorithm::Ed25519)
+                .expect("deterministic custody test key");
+        AccountId::new(key.public_key().clone())
+    } else {
+        bootstrap_custody.clone()
+    };
+    let mut authored_policy = stx.nexus.fees.clone();
+    authored_policy.sponsor_vault_custody_account_id = custody.clone();
+    if authored_custody {
+        assert_ne!(custody, bootstrap_custody);
+        assert!(stx.world.account(&bootstrap_custody).is_err());
+    }
     for account in [ALICE_ID.clone(), BOB_ID.clone(), custody.clone()] {
         if stx.world.account(&account).is_err() {
             Register::account(Account::new(account))
@@ -1119,6 +1143,11 @@ fn initial_genesis_authority_can_bootstrap_fee_sponsor_lifecycle() {
         .expect("retain prefunded component World only");
     let mut config = original_world_config(state);
     config.genesis_key = iroha_test_samples::BOB_KEYPAIR.clone();
+    config.genesis_parameters.push(Parameter::Custom(
+        authored_policy
+            .into_custom_parameter()
+            .expect("authored sponsor custody policy"),
+    ));
     config.genesis_instructions = vec![
         CreateFeeSponsorProgram {
             program: FeeSponsorProgram::new(program_id.clone(), ALICE_ID.clone()),
@@ -1220,6 +1249,12 @@ fn initial_genesis_authority_can_bootstrap_fee_sponsor_lifecycle() {
     assert_eq!(delta.to_balance_before, Quantity::zero());
     assert_eq!(delta.to_balance_after, Quantity::from(10_u32));
     let stx = original.transaction();
+    if authored_custody {
+        assert!(
+            stx.world.account(&bootstrap_custody).is_err(),
+            "genesis must not require or register the unselected bootstrap custody"
+        );
+    }
     let program = stx
         .world
         .fee_sponsor_programs
@@ -1358,10 +1393,14 @@ fn prospective_fee_sponsor_enrollment_funds_only_exact_self_bootstrap() {
     .expect("funded program activates with exact prospective eligibility");
     let mut nexus = stx.nexus.clone();
     nexus.dataspace_fee_sponsor_program_ids.clear();
-    nexus.fees.fee_asset_id = vault_key.asset_definition_id.to_string();
+    nexus.fees.fee_asset_id = vault_key.asset_definition_id.clone();
     assert_eq!(
-        crate::block::resolve_network_xor_asset_definition(&stx.world, &nexus.fees.fee_asset_id, 0)
-            .expect("completed pin read"),
+        crate::block::resolve_network_xor_asset_definition(
+            &stx.world,
+            &nexus.fees.fee_asset_id.canonical_address(),
+            0
+        )
+        .expect("completed pin read"),
         Some(vault_key.asset_definition_id.clone()),
         "sponsor funding must use the network's exact XOR asset"
     );
@@ -1374,7 +1413,6 @@ fn prospective_fee_sponsor_enrollment_funds_only_exact_self_bootstrap() {
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = "0.001".parse().unwrap();
     nexus.fees.per_gas_unit_fee = "0.00005".parse().unwrap();
-    nexus.fees.settlement_mode = iroha_config::parameters::actual::NexusFeeSettlementMode::Direct;
     let pipeline = iroha_config::parameters::actual::Pipeline::default();
     for (authority, eligible) in [(&beneficiary, true), (&other, false)] {
         let mut payload = TransactionPayload {

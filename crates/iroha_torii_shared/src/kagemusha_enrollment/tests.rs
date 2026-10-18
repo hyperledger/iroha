@@ -7,6 +7,7 @@ fn request_actions_roundtrip_exactly_with_full_original_caps() {
         EnrollmentServiceActionV1::Evidence,
         EnrollmentServiceActionV1::Issue,
         EnrollmentServiceActionV1::Deliver,
+        EnrollmentServiceActionV1::ExpiryProof,
     ] {
         let value = EnrollmentServiceRequestV1 {
             version: 1,
@@ -70,6 +71,7 @@ fn response_roundtrips_each_status_and_keeps_exact_original_boundaries() {
         EnrollmentServiceResponseV1::Pending,
         EnrollmentServiceResponseV1::CredentialReady,
         EnrollmentServiceResponseV1::Credential(vec![2; ENROLLMENT_RESULT_MAX_BYTES_V1]),
+        EnrollmentServiceResponseV1::ExpiryProof(vec![3; ENROLLMENT_EXPIRY_PROOF_MAX_BYTES_V1]),
     ] {
         let original = value.canonical_wire().unwrap();
         assert_eq!(
@@ -85,6 +87,8 @@ fn response_roundtrips_each_status_and_keeps_exact_original_boundaries() {
         EnrollmentServiceResponseV1::Permit(vec![0; 2049]),
         EnrollmentServiceResponseV1::Credential(vec![]),
         EnrollmentServiceResponseV1::Credential(vec![0; ENROLLMENT_RESULT_MAX_BYTES_V1 + 1]),
+        EnrollmentServiceResponseV1::ExpiryProof(vec![]),
+        EnrollmentServiceResponseV1::ExpiryProof(vec![0; ENROLLMENT_EXPIRY_PROOF_MAX_BYTES_V1 + 1]),
     ] {
         assert!(value.canonical_wire().is_err());
     }

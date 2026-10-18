@@ -188,7 +188,7 @@ impl BootstrapObjects {
         GlueChip::assert_constant(region, current.word(), Fp::ONE)?;
         for (actual, expected) in credential
             .object()
-            .identifier(24)?
+            .identifier(23)?
             .iter()
             .zip(&statement.fields()[17..19])
         {

@@ -36,8 +36,9 @@ class KagemushaWalletEnrollmentBindingV1Test {
             hex(key.getValue("public_key_hex").jsonPrimitive.content),
         )
         assertContentEquals(hex(challenge.getValue("digest_hex").jsonPrimitive.content), selected.challengeDigest())
-        // Independently produced by the repository's Python WalletEnrollmentScope.
-        assertContentEquals(hex("a8041c147e4b68874d89e732e91a033c3d5e2cd8a87634537efb61ffb748f892"), selected.enrollmentKeyBinding())
+        // Rust vectors_tests.rs supplies the payer enrollment-id body (challenge digest || key).
+        // Reframed for enrollment-key-binding and independently checked with Python WalletEnrollmentScope.
+        assertContentEquals(hex("3aac630d33df2f64c8bc18e5465630588b8b8cfddf536c5ec2e26cff3765b9c2"), selected.enrollmentKeyBinding())
     }
 
     @Test fun `reject wrong extent version and every zero E1 binding`() {

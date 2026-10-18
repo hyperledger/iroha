@@ -474,3 +474,21 @@ verified original and prepares its exact full reverse payment.
 exposes the same `submit`, `resume` and read-only `recover` boundary. It returns
 `VerifiedPaymentReturn`, retaining both successful receipts. Partial
 returns require a future consensus-owned cumulative allowance.
+
+`AccountClient::private_settlement` accepts already prepared confidential
+settlement materials and owns their durable submission/recovery workflow.
+Genuine native wallet/prover/sealer orchestration belongs to the separate internal
+[`iroha_private_settlement`](../iroha_private_settlement) crate. Construct its
+`OneCallPrivateSettlementOperation::new(account, request, storage, artifacts,
+wallet, verifier)` with an owned `AccountClient`; the native prover is outside
+the base SDK dependency boundary. That operation acquires authenticated context,
+checks caller-held restricted openings and prepares materials for the SDK
+workflow. Callers retain genesis/schema pins, exact private business terms,
+original wallet reservations and the encrypted artifact key. Recovery reopens
+and independently verifies the original context/proofs without invoking the
+wallet or sending transactions; `run` explicitly continues preparation.
+Whole-network one-call qualification remains open.
+The current context transport requires `CanReadAllLedgerData` because its complete
+World hashes disclose unrelated row identities and low-entropy values. A bank's
+selected-dataspace grants do not authorize that response; scoped authenticated
+context proofs remain unfinished.

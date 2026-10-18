@@ -120,15 +120,24 @@ fn codec_refusal_adapter_preserves_all_resource_fields_and_rejects_impostors() {
         },
     ];
     for resource in resources {
-        let error = EvidenceAdmissionError::from(CodecError::Resource(resource));
-        assert!(matches!(&error, EvidenceAdmissionError::Preparation(
-            EvidencePreparationError::DecodeResource(actual)
-        ) if *actual == resource));
-        assert!(admission::retryable(&error));
-        let preparation = EvidencePreparationError::DecodeResource(resource);
-        assert_eq!(preparation.clone(), preparation);
-        assert!(preparation.release_wait().is_none());
+        let error = EvidenceAdmissionError::from(CodecError::from(norito::Error::from(resource)));
+        assert!(matches!(error, EvidenceAdmissionError::Invalid(_)));
+        assert!(!admission::retryable(&error));
     }
+    let captured = with_decode_limits_scope(
+        DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+        || norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(11)),
+    )
+    .unwrap_err();
+    let original = captured.into_local_refusal().unwrap();
+    let error = EvidenceAdmissionError::from(CodecError::Resource(original.clone()));
+    assert!(matches!(&error, EvidenceAdmissionError::Preparation(
+        EvidencePreparationError::DecodeResource(actual)
+    ) if actual == &original));
+    assert!(admission::retryable(&error));
+    let preparation = EvidencePreparationError::DecodeResource(original);
+    assert_eq!(preparation.clone(), preparation);
+    assert!(preparation.release_wait().is_none());
     for error in [
         CodecError::Norito("failed to allocate 2048 bytes while decoding".into()),
         CodecError::TooLarge { len: 101, max: 100 },

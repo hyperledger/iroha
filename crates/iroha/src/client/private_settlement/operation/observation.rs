@@ -230,7 +230,7 @@ impl SettlementLedger {
             .map_err(|_| PrivateSettlementError::Worker)?;
         let client = self.account.client().clone();
         let bundle_id = barrier.manifest.bundle_id;
-        let response = run_worker(permit, move || {
+        let response = run_private_settlement_worker(permit, move || {
             client.private_settlement_bundle_receipt_v1(bundle_id)
         })
         .await?
@@ -373,7 +373,7 @@ impl WorkflowLedger for SettlementLedger {
             let client = self.account.client().clone();
             // Reuse the existing sponsor-authenticated exact private carrier endpoint,
             // including its authenticated identical-carrier acknowledgement behavior.
-            match run_worker(permit, move || {
+            match run_private_settlement_worker(permit, move || {
                 client.submit_private_settlement_bundle_v1(&PrivateSettlementBundleSubmitRequestV1 { transaction })
             }).await {
                 Ok(Ok(_)) => DispatchOutcome::Accepted,

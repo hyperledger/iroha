@@ -1,5 +1,10 @@
 //! Explicit authority declarations for every actual WorldData field.
 
+use iroha_data_model::nexus::{
+    PrivateSettlementNullifierKeyV1, PrivateSettlementOutputKeyV1,
+    PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolKeyV1,
+    PrivateSettlementPoolStateV1,
+};
 pub(in crate::state) mod musubi_availability_policy;
 pub(in crate::state) mod musubi_universal_policy;
 
@@ -206,7 +211,7 @@ classified_owner!(WorldData, check_world_fields, WORLD_FIELDS, readers = WorldRe
     triggers: TriggerSet => ("world.triggers",
         Role::Canonical(Canonical::Owner(crate::smartcontracts::isi::triggers::set::AUTHORITY_FIELDS))), release = triggers;
     executor: Cell<Executor> => ("world.executor",
-        Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:executor-semantic:v1", encoder: "crate::executor::executor_norito::net_state_hash; excludes LoadedExecutor runtime pool", layout: V1_LAYOUT }))), release = executor;
+        Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:executor-semantic:v1", encoder: "crate::executor::executor_norito::encode_state_authority; borrowed raw ExecutorDto excludes LoadedExecutor runtime pool", layout: V1_LAYOUT }))), release = executor;
     executor_data_model: Cell<ExecutorDataModel> => ("world.executor_data_model",
         Role::Canonical(Canonical::Cell(schema::<ExecutorDataModel>()))), release = executor_data_model;
     verifying_keys: Storage< iroha_data_model::proof::VerifyingKeyId, iroha_data_model::proof::VerifyingKeyRecord, > => ("world.verifying_keys",

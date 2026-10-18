@@ -2534,6 +2534,39 @@ def android_native_artifact_targets(
     command_start = source.index(command_marker)
     command_end = source.index("execOperations.exec {", command_start)
     command = source[command_start:command_end]
+    # The shared task has one explicit diagnostic branch. Shipping still uses
+    # its Android default and the original compileNativeLibs packaging chain;
+    # the armv7-only output never becomes another admitted release profile.
+    profile_selection = (
+        r'tools\.hermeticRunner\.toString\(\),\s*"--profile",\s*'
+        r'if \(tools\.diagnosticConfiguration == null\) "android-cargo"\s*'
+        r'else "android-armv7-diagnostic-cargo",'
+    )
+    compile_default = (
+        r'init \{\s*sourceSealPlatform\.convention\("android"\)\s*'
+        r'localIntegration\.convention\(false\)\s*\}'
+    )
+    shipping_task = re.findall(
+        r'(?ms)^val compileNativeLibs = '
+        r'tasks\.register<CompileNativeBridgeTask>\("compileNativeLibs"\) \{\n'
+        r'(.*?)^\}',
+        source,
+    )
+    profile_binding = (
+        'val diagnosticConfiguration = if (armv7Diagnostic) cargoConfiguration else null',
+        'armv7Diagnostic = platform == NativeBridgeBuildContract.armv7DiagnosticPlatform,',
+    )
+    if (
+        len(re.findall(profile_selection, command)) != 1
+        or command.count('"--profile"') != 1
+        or len(re.findall(compile_default, source)) != 1
+        or len(shipping_task) != 1
+        or any(name in shipping_task[0] for name in ("sourceSealPlatform", "localIntegration"))
+        or any(source.count(marker) != 1 for marker in profile_binding)
+    ):
+        raise RuntimeError(
+            f"{ANDROID_NATIVE_BUILD_OWNER}: Android shipping profile routing changed"
+        )
     packages = tuple(re.findall(r'"-p",\s*"([A-Za-z0-9_.-]+)"', command))
     if packages != ("connect_norito_bridge",):
         raise RuntimeError(
@@ -2557,19 +2590,12 @@ def android_native_artifact_targets(
     # Cargo uses the authenticated workspace root lock through the canonical
     # root manifest. --lockfile-path belongs to the source-seal helper only;
     # the hermetic Cargo owner deliberately rejects alternate lock authorities.
-    required_markers = (
-        'tools.hermeticRunner.toString()',
-        '"--profile",\n                        "android-cargo"',
-    )
     cargo_envelope = (
         r'"build",\s*"--locked",\s*"--offline",\s*'
         r'"--jobs",\s*"1",\s*"--manifest-path",\s*'
         r'irohaRoot\.resolve\("Cargo\.toml"\)\.absolutePath'
     )
-    if (
-        any(marker not in command for marker in required_markers)
-        or len(re.findall(cargo_envelope, command)) != 1
-    ):
+    if len(re.findall(cargo_envelope, command)) != 1:
         raise RuntimeError(
             f"{ANDROID_NATIVE_BUILD_OWNER}: Android Cargo envelope is incomplete"
         )
@@ -2609,7 +2635,6 @@ def android_native_artifact_targets(
 
     runner = (repo / ANDROID_HERMETIC_RUNNER).read_text(encoding="utf-8")
     runner_markers = (
-        'if args.profile == "android-cargo":',
         'root_lock, lock_identity = authenticate_regular_file(\n'
         '        "Android root Cargo.lock",\n'
         '        canonical_workspace / "Cargo.lock",',
@@ -2622,7 +2647,9 @@ def android_native_artifact_targets(
         'resolved != authenticated_tools["CARGO"][0]',
     )
     tracked_lock_call = (
-        r'authenticated_files\["Android root Cargo\.lock"\]\s*=\s*'
+        r'(?m)^    if args\.profile in '
+        r'\{"android-cargo", "android-armv7-diagnostic-cargo"\}:\n'
+        r'        authenticated_files\["Android root Cargo\.lock"\] = '
         r'authenticate_android_cargo_arguments\(\s*args\.command\s*\)'
     )
     if (

@@ -1,5 +1,27 @@
-error: decode_fields cannot omit a whole-value validation hook
- --> tests/ui/fail/prepared_record_validation.rs:4:8
-  |
-4 | struct Checked {
-  |        ^^^^^^^
+error[E0271]: type mismatch resolving `<Destination as DecodeField<0, u8>>::Value == u8`
+  --> tests/ui/fail/prepared_record_validation.rs:31:29
+   |
+31 |     requires_actual_value::<Checked>();
+   |                             ^^^^^^^ type mismatch resolving `<Destination as DecodeField<0, u8>>::Value == u8`
+   |
+note: expected this to be `u8`
+  --> tests/ui/fail/prepared_record_validation.rs:21:18
+   |
+21 |     type Value = ();
+   |                  ^^
+note: required for `Checked` to implement `DecodeValueFields<Destination>`
+  --> tests/ui/fail/prepared_record_validation.rs:6:10
+   |
+ 6 | #[derive(norito::DeserializePayload)]
+   |          ^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound introduced in this `derive` macro
+ 7 | #[norito(decode_fields, validate = "Self::validate")]
+ 8 | struct Checked {
+   |        ^^^^^^^
+   = note: associated types for the current `impl` cannot be restricted in `where` clauses
+   = note: associated types for the current `impl` cannot be restricted in `where` clauses
+note: required by a bound in `requires_actual_value`
+  --> tests/ui/fail/prepared_record_validation.rs:30:33
+   |
+30 |     fn requires_actual_value<T: DecodeValueFields<Destination>>() {}
+   |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `requires_actual_value`
+   = note: this error originates in the derive macro `norito::DeserializePayload` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -735,7 +735,7 @@ class IrohaPeerQRScanSessionV1 @JvmOverloads constructor(
     }
 }
 
-private object PeerBase45 {
+internal object PeerBase45 {
     private val alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ \$%*+-./:".toByteArray(Charsets.US_ASCII)
     private val reverse = IntArray(128) { -1 }.also { table ->
         alphabet.forEachIndexed { index, byte -> table[byte.toInt()] = index }

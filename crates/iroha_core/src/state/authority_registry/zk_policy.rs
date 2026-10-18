@@ -235,6 +235,87 @@ impl ZkConsensusPolicyV1 {
     }
 }
 
+/// Borrow the validated policy retained by the original parameter MV owner.
+pub(super) fn borrowed(
+    policy: &iroha_data_model::zk_validity_policy::ZkValidityPolicyV1,
+) -> impl norito::SerializePayload + '_ {
+    use super::policy_borrowed::{Ref, record};
+    record!(
+        policy.proofs.max_verify_batch,
+        record!(
+            Ref(&policy.pipa_r.enabled),
+            Ref(&policy.pipa_r.max_envelope_bytes),
+            Ref(&policy.pipa_r.max_proof_bytes)
+        ),
+        record!(
+            Ref(&policy.stark.enabled),
+            Ref(&policy.stark.max_envelope_bytes),
+            Ref(&policy.stark.max_proof_bytes)
+        ),
+        record!(
+            Ref(&policy.sccp.max_proofs_per_transaction),
+            Ref(&policy.sccp.max_proofs_per_block),
+            Ref(&policy.sccp.max_proof_bytes_per_proof),
+            Ref(&policy.sccp.max_proof_bytes_per_transaction),
+            Ref(&policy.sccp.max_proof_bytes_per_block),
+            Ref(&policy.sccp.max_native_headers_per_transaction),
+            Ref(&policy.sccp.max_native_headers_per_block),
+            Ref(&policy
+                .sccp
+                .max_ethereum_light_client_updates_per_transaction),
+            Ref(&policy.sccp.max_ethereum_light_client_updates_per_block),
+            Ref(&policy.sccp.max_native_header_bytes_per_transaction),
+            Ref(&policy.sccp.max_native_header_bytes_per_block),
+            Ref(&policy.sccp.max_ed25519_signature_checks_per_transaction),
+            Ref(&policy.sccp.max_ed25519_signature_checks_per_block),
+            Ref(&policy.sccp.max_bls_vote_attestations_per_transaction),
+            Ref(&policy.sccp.max_bls_vote_attestations_per_block)
+        ),
+        record!(
+            Ref(&policy.proofs.ballot_history_cap),
+            Ref(&policy.proofs.preverify_max_bytes),
+            Ref(&policy.proofs.preverify_budget_bytes),
+            Ref(&policy.proofs.proof_history_cap),
+            Ref(&policy.proofs.proof_retention_grace_blocks),
+            Ref(&policy.proofs.proof_prune_batch),
+            Ref(&policy.proofs.bridge_proof_max_range_len),
+            Ref(&policy.proofs.bridge_proof_max_past_age_blocks),
+            Ref(&policy.proofs.bridge_proof_max_future_drift_blocks),
+            Ref(&policy.proofs.poseidon_params_id),
+            Ref(&policy.proofs.pedersen_params_id),
+            Ref(&policy.proofs.kaigi_authorization_vk),
+            Ref(&policy.proofs.kaigi_usage_vk)
+        ),
+        record!(
+            Ref(&policy.confidential.max_proof_size_bytes),
+            Ref(&policy.confidential.max_nullifiers_per_tx),
+            Ref(&policy.confidential.max_commitments_per_tx),
+            Ref(&policy.confidential.max_confidential_ops_per_block),
+            Ref(&policy.confidential.max_anchor_age_blocks),
+            Ref(&policy.confidential.max_proof_bytes_block),
+            Ref(&policy.confidential.max_verify_calls_per_tx),
+            Ref(&policy.confidential.max_verify_calls_per_block),
+            Ref(&policy.confidential.max_public_inputs),
+            Ref(&policy.confidential.reorg_depth_bound),
+            Ref(&policy.confidential.policy_transition_delay_blocks),
+            Ref(&policy.confidential.policy_transition_window_blocks),
+            Ref(&policy.confidential.policy_transition_max_per_height),
+            Ref(&policy.confidential.tree_roots_history_len),
+            Ref(&policy.confidential.tree_frontier_checkpoint_interval),
+            Ref(&policy.confidential.registry_max_vk_entries),
+            Ref(&policy.confidential.registry_max_params_entries),
+            Ref(&policy.confidential.registry_max_delta_per_block)
+        ),
+        record!(
+            Ref(&policy.gas.proof_base),
+            Ref(&policy.gas.per_public_input),
+            Ref(&policy.gas.per_proof_byte),
+            Ref(&policy.gas.per_nullifier),
+            Ref(&policy.gas.per_commitment)
+        )
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,6 +326,10 @@ mod tests {
     }
 
     fn frame(config: &Zk) -> Vec<u8> {
+        super::super::policy_borrowed::assert_same_payload(
+            &borrowed(&crate::zk_validity_policy::policy_of(config)),
+            &ZkConsensusPolicyV1::from_actual(config),
+        );
         norito::encode_canonical(&ZkConsensusPolicyV1::from_actual(config)).unwrap()
     }
 

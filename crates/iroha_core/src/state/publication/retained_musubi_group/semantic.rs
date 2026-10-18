@@ -1945,3 +1945,64 @@ impl OriginalMusubiCapture<'_, '_> {
 #[cfg(test)]
 #[path = "production_tests.rs"]
 mod production_tests;
+
+/// Bind complete byte capture to the same validated original Musubi group after
+/// its structural readers have retired back into their original frozen fields.
+/// This observes existing custody only; it neither validates another source nor
+/// constructs a proof, root, reader, writer or publication authority.
+impl StateBlock<'_> {
+    /// Require both checked original images after their temporary readers retire.
+    pub(in crate::state) fn original_musubi_bytes_ready(
+        &self,
+    ) -> Result<(), RetainedMusubiGroupReadError> {
+        let fields = self
+            .fields
+            .as_ref()
+            .ok_or(RetainedMusubiGroupReadError::NotFrozen)?;
+        let publication = self
+            .publication
+            .as_ref()
+            .ok_or(RetainedMusubiGroupReadError::NotFrozen)?;
+        let plan = publication
+            .musubi_group_read
+            .as_ref()
+            .ok_or(RetainedMusubiGroupReadError::Incomplete)?;
+        // These retained publication facts are set only after the original
+        // runtime-catalog and execution authorization checks, final tail writes,
+        // and joint field freeze. Never accept a separately frozen lookalike.
+        if !publication.fields_frozen
+            || publication.world_effects.is_none()
+            || publication.irreversible
+            || publication.published
+            || publication.poisoned
+            || publication.predecessor_generation != Some(plan.generation)
+            || !plan.retired
+            || !plan.complete
+            || plan.data.is_some()
+            || !plan
+                .admission
+                .as_ref()
+                .is_some_and(|owner| owner.as_slice()[0].validated())
+        {
+            return Err(RetainedMusubiGroupReadError::Incomplete);
+        }
+        if !plan
+            .scope
+            .belongs_to(&fields.state_ref.ivm_execution_budget)
+            || plan.generation != fields.state_ref.state_view_generation()
+            || fields
+                .world
+                .musubi_resolver_index_revision
+                .frozen_values()
+                .is_none()
+            || fields
+                .world
+                .musubi_resolver_index_revision
+                .publication_identity()
+                != plan.revision_predecessor
+        {
+            return Err(RetainedMusubiGroupReadError::SourceChanged);
+        }
+        Ok(())
+    }
+}

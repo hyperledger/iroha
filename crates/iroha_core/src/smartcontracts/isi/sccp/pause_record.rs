@@ -39,9 +39,9 @@ pub enum PauseRecordError {
         /// Exact requested size.
         bytes: usize,
     },
-    /// Canonical account cloning failed; logical resource failures remain identifiable.
+    /// Original synchronous account-copy attempt; local refusals retain their counter owner.
     #[error(transparent)]
-    Account(#[from] norito::core::Error),
+    Account(#[from] norito::core::DecodeAttemptError),
 }
 
 #[derive(Default)]
@@ -182,19 +182,21 @@ impl<'a, T> Construction<'a, T> {
     }
     fn account(&mut self, source: &AccountId) -> Result<AccountId, PauseRecordError> {
         let mut failed = None;
-        source.for_each_admission_clone_layout(|layout| {
-            if failed.is_some() {
-                return;
-            }
-            match self.reservation.try_split(layout) {
-                Ok(charge) => failed = self.retain(charge).err(),
-                Err(_) => failed = Some(PauseRecordError::Invalid("account demand changed")),
-            }
+        norito::core::classify_decode_attempt(|| {
+            source.for_each_admission_clone_layout(|layout| {
+                if failed.is_some() {
+                    return;
+                }
+                match self.reservation.try_split(layout) {
+                    Ok(charge) => failed = self.retain(charge).err(),
+                    Err(_) => failed = Some(PauseRecordError::Invalid("account demand changed")),
+                }
+            })
         })?;
         if let Some(error) = failed {
             return Err(error);
         }
-        let account = source.try_clone_for_admission()?;
+        let account = norito::core::classify_decode_attempt(|| source.try_clone_for_admission())?;
         #[cfg(test)]
         construction_checkpoint(ConstructionCheckpoint::NestedAccount);
         Ok(account)
@@ -220,10 +222,12 @@ impl<'a, T> Construction<'a, T> {
 
 fn account_demand(demand: &mut Demand, source: &AccountId) -> Result<(), PauseRecordError> {
     let mut error = None;
-    source.for_each_admission_clone_layout(|layout| {
-        if error.is_none() {
-            error = demand.add(layout).err();
-        }
+    norito::core::classify_decode_attempt(|| {
+        source.for_each_admission_clone_layout(|layout| {
+            if error.is_none() {
+                error = demand.add(layout).err();
+            }
+        })
     })?;
     error.map_or(Ok(()), Err)
 }

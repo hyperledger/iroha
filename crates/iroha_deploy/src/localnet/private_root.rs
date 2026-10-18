@@ -4,7 +4,7 @@ use super::*;
 use crate::managed::{Error, LocalnetPorts, ManagedContext, ManagedPeer, PreparedLocalnet};
 use iroha_data_model::{
     NetworkId,
-    block::consensus::{PrivateRootFeePolicy, SumeragiRootScope},
+    block::consensus::{RootFeePolicy, SumeragiRootScope},
     hijiri::HijiriParametersV1,
     parameter::{Parameter, Parameters},
     sns::{DATASPACE_ALIAS_SUFFIX_ID, NameSelectorV1},
@@ -324,7 +324,9 @@ pub fn verify_retained(
     let expected_gas = localnet_gas_account_id(client.key_pair.public_key())
         .to_i105_for_discriminant(client.account_chain_discriminant)
         .map_err(|_| invalid())?;
-    let expected_fees = private_fee_policy(spec).map_err(|_| invalid())?;
+    let expected_fees =
+        private_fee_policy(spec, &localnet_gas_account_id(client.key_pair.public_key()))
+            .map_err(|_| invalid())?;
     for transaction in block.external_transactions() {
         if transaction.authority() != &client.account {
             return Err(invalid());
@@ -345,10 +347,10 @@ pub fn verify_retained(
             }
             if let Some(set_parameter) = instruction.as_any().downcast_ref::<SetParameter>()
                 && let Parameter::Custom(parameter) = set_parameter.inner()
-                && parameter.id() == &PrivateRootFeePolicy::parameter_id()
+                && parameter.id() == &RootFeePolicy::parameter_id()
             {
-                let policy = PrivateRootFeePolicy::from_custom_parameter(parameter)
-                    .map_err(|_| invalid())?;
+                let policy =
+                    RootFeePolicy::from_custom_parameter(parameter).map_err(|_| invalid())?;
                 if found_fees || policy != expected_fees {
                     return Err(invalid());
                 }
@@ -404,24 +406,10 @@ fn verify_private_credentials(
             )
             .map_err(|_| invalid())?,
         );
-        let genesis_public: iroha_crypto::PublicKey = table
-            .get("genesis")
-            .and_then(|value| value.get("public_key"))
-            .and_then(toml::Value::as_str)
-            .ok_or_else(invalid)?
-            .parse()
-            .map_err(|_| invalid())?;
-        let gas_account = localnet_gas_account_id(&genesis_public)
-            .to_i105_for_discriminant(
-                iroha_config::parameters::defaults::common::chain_discriminant(),
-            )
-            .map_err(|_| invalid())?;
-        let expected = private_fee_configuration(
-            &private_fee_policy(spec).map_err(|_| invalid())?,
-            &gas_account,
-        );
-        if table.get("nexus").and_then(|value| value.get("fees"))
-            != Some(&toml::Value::Table(expected))
+        if table
+            .get("nexus")
+            .and_then(|value| value.get("fees"))
+            .is_some()
         {
             return Err(invalid());
         }
@@ -563,7 +551,7 @@ fn prepare_fresh(
             None,
             LOCALNET_QUEUE_CAPACITY,
         );
-        let configured = private_peer_config(&raw, spec, &api_token, &gas_literal)?;
+        let configured = private_peer_config(&raw, spec, &api_token)?;
         managed_peer_config(&configured, &managed_node_dir(render_root, index))
     };
     let bootstrap = render(
@@ -680,7 +668,6 @@ fn private_peer_config(
     raw: &str,
     spec: &PrivateRootSpec,
     api_token: &str,
-    gas_account: &str,
 ) -> Result<Zeroizing<String>> {
     use toml::{Table, Value};
     let mut root = crate::secret_toml::Table::new(crate::secret_toml::parse_table(
@@ -725,13 +712,6 @@ fn private_peer_config(
         Value::String(spec.dataspace_alias.clone()),
     );
     nexus.insert("routing_policy".into(), Value::Table(routing));
-    nexus.insert(
-        "fees".into(),
-        Value::Table(private_fee_configuration(
-            &private_fee_policy(spec)?,
-            gas_account,
-        )),
-    );
     let torii = root
         .entry("torii")
         .or_insert_with(|| Value::Table(Table::new()))
@@ -745,41 +725,37 @@ fn private_peer_config(
     Ok(Zeroizing::new(toml::to_string(&*root)?))
 }
 
-pub fn private_fee_policy(spec: &PrivateRootSpec) -> Result<PrivateRootFeePolicy> {
-    let policy = PrivateRootFeePolicy {
-        asset_definition_id: AssetDefinitionId::derive_from_components(
-            DomainId::parse_fully_qualified(&format!("app.{}", spec.dataspace_alias))?,
-            "gas".parse()?,
-        ),
+/// Derive the initial signed fee currency from the exact private namespace.
+///
+/// # Errors
+/// Refuses a malformed namespace or asset name.
+pub fn private_fee_asset(spec: &PrivateRootSpec) -> Result<AssetDefinitionId> {
+    Ok(AssetDefinitionId::derive_from_components(
+        DomainId::parse_fully_qualified(&format!("app.{}", spec.dataspace_alias))?,
+        "gas".parse()?,
+    ))
+}
+
+/// Author all private fee terms, including exact local custody, into genesis.
+///
+/// # Errors
+/// Refuses a malformed asset or a policy invalid for this independent root.
+pub fn private_fee_policy(
+    spec: &PrivateRootSpec,
+    gas_account: &AccountId,
+) -> Result<RootFeePolicy> {
+    let policy = RootFeePolicy {
+        fee_asset_id: private_fee_asset(spec)?,
+        fee_sink_account_id: gas_account.clone(),
+        sponsor_vault_custody_account_id: gas_account.clone(),
+        successful_claim_fee_exempt_authorities: BTreeSet::new(),
         base_fee: "0.001".parse()?,
         per_byte_fee: Quantity::zero(),
         per_instruction_fee: "0.001".parse()?,
         per_gas_unit_fee: "0.00005".parse()?,
     };
-    policy.validate()?;
+    policy.validate_for_scope(&spec.scope())?;
     Ok(policy)
-}
-
-fn private_fee_configuration(policy: &PrivateRootFeePolicy, gas_account: &str) -> toml::Table {
-    use toml::Value;
-    // Private execution burns the signed scoped fee. These required node-local sink fields
-    // retain the generated local account, never a public-network treasury or owner credential.
-    [
-        ("fee_asset_id", policy.asset_definition_id.to_string()),
-        ("base_fee", policy.base_fee.to_string()),
-        ("per_byte_fee", policy.per_byte_fee.to_string()),
-        (
-            "per_instruction_fee",
-            policy.per_instruction_fee.to_string(),
-        ),
-        ("per_gas_unit_fee", policy.per_gas_unit_fee.to_string()),
-        ("settlement_mode", "direct".into()),
-        ("fee_sink_account_id", gas_account.into()),
-        ("sponsor_vault_custody_account_id", gas_account.into()),
-    ]
-    .into_iter()
-    .map(|(key, value)| (key.to_owned(), Value::String(value)))
-    .collect()
 }
 
 fn private_genesis(
@@ -803,7 +779,7 @@ fn private_genesis(
     let mut parameters = Parameters::default();
     parameters.set_parameter(localnet_gas_custody_parameter(gas));
     parameters.set_parameter(Parameter::Custom(
-        private_fee_policy(spec)?.into_custom_parameter()?,
+        private_fee_policy(spec, gas)?.into_custom_parameter()?,
     ));
     parameters.set_parameter(Parameter::Custom(
         HijiriParametersV1::first_release_genesis().into_custom_parameter(),
@@ -966,22 +942,18 @@ mod tests {
     #[test]
     fn private_config_has_one_restricted_lane_and_the_canonical_sns_name_hash() {
         let spec = spec();
-        let gas_account = ALICE_ID.to_string();
         let raw = "[pipeline]\n[nexus]\n";
-        let config =
-            private_peer_config(raw, &spec, "private-fixture-token", &gas_account).unwrap();
+        let config = private_peer_config(raw, &spec, "private-fixture-token").unwrap();
         let parsed: toml::Table = config.parse().unwrap();
         let nexus = parsed["nexus"].as_table().unwrap();
-        let policy = private_fee_policy(&spec).unwrap();
-        assert_eq!(
-            nexus["fees"].as_table().unwrap(),
-            &private_fee_configuration(&policy, &gas_account)
-        );
+        let policy = private_fee_policy(&spec, &ALICE_ID).unwrap();
+        assert!(nexus.get("fees").is_none());
+        assert_eq!(policy.fee_sink_account_id, *ALICE_ID);
+        assert_eq!(policy.sponsor_vault_custody_account_id, *ALICE_ID);
+        assert!(policy.successful_claim_fee_exempt_authorities.is_empty());
+        assert_eq!(policy.fee_asset_id, private_fee_asset(&spec).unwrap());
         assert!(!policy.base_fee.is_zero() && !policy.per_gas_unit_fee.is_zero());
-        assert_ne!(
-            policy.asset_definition_id,
-            localnet_xor_asset_definition_id()
-        );
+        assert_ne!(policy.fee_asset_id, localnet_xor_asset_definition_id());
         let dataspaces = nexus["dataspace_catalog"].as_array().unwrap();
         assert_eq!(dataspaces.len(), 1);
         assert!(dataspaces[0].get("id").is_none());
@@ -1223,9 +1195,14 @@ mod tests {
             spec.scope()
         );
         assert_eq!(
-            PrivateRootFeePolicy::from_parameters(&manifest.effective_parameters().unwrap())
-                .unwrap(),
-            Some(private_fee_policy(&spec).unwrap())
+            RootFeePolicy::from_parameters(&manifest.effective_parameters().unwrap()).unwrap(),
+            Some(
+                private_fee_policy(
+                    &spec,
+                    &localnet_gas_account_id(client.key_pair.public_key())
+                )
+                .unwrap()
+            )
         );
         assert!(
             !manifest
@@ -1335,10 +1312,14 @@ mod tests {
             .as_table_mut()
             .unwrap()
             .insert("require_api_token".into(), toml::Value::Boolean(true));
-        table["nexus"]["fees"]
-            .as_table_mut()
-            .unwrap()
-            .insert("base_fee".into(), toml::Value::String("0".into()));
+        table["nexus"].as_table_mut().unwrap().insert(
+            "fees".into(),
+            toml::Value::Table(
+                [("base_fee".into(), toml::Value::String("0".into()))]
+                    .into_iter()
+                    .collect(),
+            ),
+        );
         custody::replace(
             peer_path,
             Zeroizing::new(toml::to_string(&*table).unwrap()).as_bytes(),

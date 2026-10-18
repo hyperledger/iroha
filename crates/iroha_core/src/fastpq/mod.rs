@@ -3052,6 +3052,7 @@ mod tests {
         poseidon_mode: FastpqPoseidonMode,
     ) -> Fastpq {
         Fastpq {
+            producer: iroha_config::parameters::actual::FastpqProducer::default(),
             execution_mode,
             poseidon_mode,
             proof_sidecar_queue_cap:

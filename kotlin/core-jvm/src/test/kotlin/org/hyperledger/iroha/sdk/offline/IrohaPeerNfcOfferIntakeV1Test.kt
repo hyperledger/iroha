@@ -278,6 +278,87 @@ class IrohaPeerNfcOfferIntakeV1Test {
         assertNotNull(IrohaPeerNfcCardEndpointV1.intake(fixtures.BPNG_AID, fixtures.POLICY).intake)
     }
 
+    private val ask by lazy { IrohaPeerAskV1.of(IrohaPeerAskTestVectorsV1.offerAmount, ByteArray(32) { 0x5c }) }
+
+    private fun askingCard(): IrohaPeerNfcCardEndpointV1 = IrohaPeerNfcCardEndpointV1.intake(
+        fixtures.BPNG_AID,
+        IrohaPeerNfcOfferIntakeV1(fixtures.POLICY, IrohaPeerNfcLimitsV1.DEFAULT, session, ask),
+    )
+
+    private fun IrohaPeerNfcCardEndpointV1.readAsk(): IrohaPeerNfcAPDUResponseV1 = send(IrohaPeerNfcCommandV1.GetAsk)
+
+    @Test
+    fun `GET_ASK answers the ask until an offer is bound and changes no state`() {
+        val card = askingCard()
+        val awaiting = card.readIntake()
+        repeat(2) {
+            val response = card.readAsk()
+            assertEquals(IrohaPeerNfcStatusWordV1.SUCCESS, response.statusWord)
+            assertContentEquals(ask.encode(), response.data())
+            assertEquals(ask, IrohaPeerAskV1.decode(response.data()))
+        }
+        assertEquals(awaiting, card.readIntake())
+
+        // While the Offer is still arriving the card keeps asking.
+        card.send(IrohaPeerNfcCommandV1.BeginOffer(session, offerHeader))
+        card.send(write(0, 300))
+        val receiving = card.readIntake()
+        assertEquals(IrohaPeerNfcIntakeStateV1.RECEIVING_OFFER, receiving.state)
+        assertContentEquals(ask.encode(), card.readAsk().data())
+        assertEquals(receiving, card.readIntake())
+
+        // A bound intake (PREPARING_REQUEST, REQUEST_READY) answers 6985 with no data.
+        card.writeAll()
+        card.send(IrohaPeerNfcCommandV1.SubmitOffer(session, offerHash))
+        assertEquals(IrohaPeerNfcIntakeStateV1.PREPARING_REQUEST, card.readIntake().state)
+        val preparing = card.readAsk()
+        assertEquals(IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED, preparing.statusWord)
+        assertEquals(0, preparing.dataLength)
+        card.installRequest(offerHash, fixtures.request.encode())
+        assertEquals(IrohaPeerNfcIntakeStateV1.REQUEST_READY, card.readIntake().state)
+        assertEquals(IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED, card.readAsk().statusWord)
+    }
+
+    @Test
+    fun `GET_ASK resumes after a refused offer and stops once declined`() {
+        val card = askingCard()
+        val corrupted = offerBytes.copyOf().also { it[it.size - 1] = (it[it.size - 1].toInt() xor 1).toByte() }
+        card.send(IrohaPeerNfcCommandV1.BeginOffer(session, offerHeader))
+        card.writeAll(corrupted)
+        assertEquals(
+            IrohaPeerNfcStatusWordV1.SECURITY_STATUS_NOT_SATISFIED,
+            card.send(IrohaPeerNfcCommandV1.SubmitOffer(session, offerHash)).statusWord,
+        )
+        assertEquals(IrohaPeerNfcIntakeStateV1.AWAITING_OFFER, card.readIntake().state)
+        assertContentEquals(ask.encode(), card.readAsk().data())
+
+        card.send(IrohaPeerNfcCommandV1.BeginOffer(session, offerHeader))
+        card.writeAll()
+        card.send(IrohaPeerNfcCommandV1.SubmitOffer(session, offerHash))
+        card.declineRequest(offerHash, 3)
+        assertEquals(IrohaPeerNfcIntakeStateV1.DECLINED, card.readIntake().state)
+        assertEquals(IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED, card.readAsk().statusWord)
+    }
+
+    @Test
+    fun `cards without an ask answer GET_ASK with 6985`() {
+        val plain = card()
+        assertNull(assertNotNull(plain.intake).ask)
+        assertEquals(IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED, plain.readAsk().statusWord)
+        assertEquals(IrohaPeerNfcIntakeStateV1.AWAITING_OFFER, plain.readIntake().state)
+        val direct = IrohaPeerNfcCardEndpointV1.direct(
+            fixtures.BPNG_AID,
+            IrohaPeerNfcReceiverSessionV1(session, fixtures.request.encode()),
+        )
+        assertEquals(IrohaPeerNfcStatusWordV1.CONDITIONS_NOT_SATISFIED, direct.readAsk().statusWord)
+        assertEquals(IrohaPeerNfcIntakeStateV1.REQUEST_READY, direct.readIntake().state)
+
+        // The endpoint factory arms a fresh intake with the ask.
+        val armed = IrohaPeerNfcCardEndpointV1.intake(fixtures.BPNG_AID, fixtures.POLICY, IrohaPeerNfcLimitsV1.DEFAULT, ask)
+        assertEquals(ask, assertNotNull(armed.intake).ask)
+        assertContentEquals(ask.encode(), armed.readAsk().data())
+    }
+
     private fun requestCommands(): List<IrohaPeerNfcCommandV1> {
         val requestHash = fixtures.request.canonicalHash
         val paymentHash = fixtures.payment.wireHash

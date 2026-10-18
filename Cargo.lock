@@ -4538,6 +4538,7 @@ dependencies = [
  "iroha_model_base",
  "iroha_p2p",
  "iroha_primitives",
+ "iroha_private_settlement",
  "iroha_sccp",
  "iroha_service_model",
  "iroha_sumeragi",
@@ -4546,6 +4547,7 @@ dependencies = [
  "iroha_test_samples",
  "iroha_torii",
  "iroha_torii_shared",
+ "iroha_version",
  "irohad_lib",
  "ivm",
  "ivm_abi",
@@ -5422,12 +5424,10 @@ dependencies = [
  "group",
  "iroha_crypto",
  "iroha_data_model",
- "iroha_genesis",
  "iroha_pasta",
  "iroha_plonk",
  "iroha_plonk_gadgets",
  "iroha_plonk_recursion",
- "iroha_sumeragi",
  "norito",
  "rayon",
  "rustix 1.1.4",
@@ -5702,6 +5702,28 @@ dependencies = [
  "quote",
  "syn 2.0.117",
  "trybuild",
+]
+
+[[package]]
+name = "iroha_private_settlement"
+version = "2.0.0-rc.2.0"
+dependencies = [
+ "eyre",
+ "hex",
+ "http",
+ "iroha",
+ "iroha_core_privacy",
+ "iroha_crypto",
+ "iroha_data_model",
+ "iroha_fs",
+ "iroha_sumeragi",
+ "iroha_test_samples",
+ "norito",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "url",
+ "zeroize",
 ]
 
 [[package]]
@@ -7173,6 +7195,7 @@ dependencies = [
  "eframe",
  "hex",
  "iroha_data_model",
+ "iroha_deploy",
  "iroha_test_samples",
  "iroha_torii_shared",
  "mochi-core",

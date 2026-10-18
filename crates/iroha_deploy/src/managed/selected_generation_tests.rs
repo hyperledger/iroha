@@ -250,3 +250,165 @@ fn fresh_and_exact_selected_generations_reach_locked_startup_without_replacement
         require_no_startup(&store, "local");
     }
 }
+
+#[test]
+fn captured_preparation_refuses_changed_peers_before_start_stop_and_reset() {
+    let _resources = crate::managed::native_test_guard();
+    let temporary = tempfile::tempdir().unwrap();
+    let _hooks = ClearHooks;
+    let runtime = runtime(&temporary.path().join("bin"));
+    let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
+    let mut request = runtime.localnet_request("local", Duration::from_secs(30));
+    request.service_profile = crate::localnet::LocalnetServiceProfile::Standard;
+    let original = prepare(&store, &request);
+    store.select("local").unwrap();
+    let selection = store
+        .root
+        .read("active.json", MAX_METADATA)
+        .unwrap()
+        .to_vec();
+    for field in ["peer_endpoint", "peer_config", "peer_log", "peer_count"] {
+        let mut changed = original.clone();
+        match field {
+            "peer_endpoint" => changed.peers[0].torii_url.push('x'),
+            "peer_config" => changed.peers[0].config_path.push("changed"),
+            "peer_log" => changed.peers[0].log_name.push('x'),
+            _ => {
+                changed.peers.pop();
+            }
+        }
+        // The context is unchanged: guards must compare the complete captured preparation.
+        assert_eq!(changed.context, original.context);
+        assert!(
+            matches!(
+                store.ensure_captured(&runtime, &changed, Duration::from_secs(30)),
+                Err(Error::Invalid(message)) if message == "captured managed preparation changed before startup"
+            ),
+            "{field}"
+        );
+        assert!(
+            matches!(store.down_captured(&changed),
+            Err(Error::Invalid(message)) if message == "captured managed generation changed before stop"),
+            "{field}"
+        );
+        assert!(
+            matches!(store.reset_captured(&changed),
+            Err(Error::Invalid(message)) if message == "captured managed generation changed before reset"),
+            "{field}"
+        );
+        assert_eq!(store.prepared("local").unwrap(), original);
+        assert_eq!(
+            &*store.root.read("active.json", MAX_METADATA).unwrap(),
+            &selection
+        );
+        require_no_startup(&store, "local");
+    }
+    let reached = stop_before_startup(&store);
+    require_stopped(store.ensure_captured(&runtime, &original, Duration::from_secs(30)));
+    assert_eq!(reached.borrow_mut().take().unwrap(), original);
+    assert_eq!(
+        store.down_captured(&original).unwrap().context,
+        original.context
+    );
+    assert_eq!(
+        &*store.root.read("active.json", MAX_METADATA).unwrap(),
+        &selection
+    );
+    require_no_startup(&store, "local");
+    store.reset_captured(&original).unwrap();
+    assert!(store.prepared("local").is_err());
+    assert_eq!(
+        &*store.root.read("active.json", MAX_METADATA).unwrap(),
+        &selection
+    );
+}
+
+#[test]
+fn captured_lifecycle_rechecks_generation_under_the_operation_lock() {
+    let _resources = crate::managed::native_test_guard();
+    let temporary = tempfile::tempdir().unwrap();
+    let _hooks = ClearHooks;
+    let runtime = runtime(&temporary.path().join("bin"));
+    let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
+    let mut request = runtime.localnet_request("local", Duration::from_secs(30));
+    request.service_profile = crate::localnet::LocalnetServiceProfile::Standard;
+    let mut captured = prepare(&store, &request);
+    let mut other_request = request.clone();
+    other_request.name = "other".into();
+    let other = prepare(&store, &other_request);
+    store.select("other").unwrap();
+    let selection = store
+        .root
+        .read("active.json", MAX_METADATA)
+        .unwrap()
+        .to_vec();
+    for action in ["start", "stop", "reset"] {
+        let root = store.root().to_path_buf();
+        let replacement_request = request.clone();
+        BEFORE_OPERATION.with(|slot| {
+            *slot.borrow_mut() = Some(Box::new(move || {
+                let store = ManagedStore::open(&root).unwrap();
+                store.reset("local").unwrap();
+                prepare(&store, &replacement_request);
+            }));
+        });
+        let result = match action {
+            "start" => store
+                .ensure_captured(&runtime, &captured, Duration::from_secs(30))
+                .map(|_| ()),
+            "stop" => store.down_captured(&captured).map(|_| ()),
+            _ => store.reset_captured(&captured),
+        };
+        assert!(matches!(result, Err(Error::Invalid(_))), "{action}");
+        let replacement = store.prepared("local").unwrap();
+        assert_ne!(replacement.context.network_id, captured.context.network_id);
+        assert_ne!(replacement.context.account_id, captured.context.account_id);
+        assert_eq!(store.prepared("other").unwrap(), other);
+        assert_eq!(
+            &*store.root.read("active.json", MAX_METADATA).unwrap(),
+            &selection
+        );
+        require_no_startup(&store, "local");
+        captured = replacement;
+    }
+    // Admitting the current target never replaces the independently selected other context.
+    let reached = stop_before_startup(&store);
+    require_stopped(store.ensure_captured(&runtime, &captured, Duration::from_secs(30)));
+    assert_eq!(reached.borrow_mut().take().unwrap(), captured);
+    assert_eq!(
+        store.down_captured(&captured).unwrap().context,
+        captured.context
+    );
+    assert_eq!(store.context(None).unwrap(), other.context);
+    assert_eq!(
+        &*store.root.read("active.json", MAX_METADATA).unwrap(),
+        &selection
+    );
+}
+
+#[test]
+fn captured_startup_never_recreates_a_generation_removed_after_capture() {
+    let _resources = crate::managed::native_test_guard();
+    let temporary = tempfile::tempdir().unwrap();
+    let _hooks = ClearHooks;
+    let runtime = runtime(&temporary.path().join("bin"));
+    let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
+    let mut request = runtime.localnet_request("local", Duration::from_secs(30));
+    request.service_profile = crate::localnet::LocalnetServiceProfile::Standard;
+    let original = prepare(&store, &request);
+    let root = store.root().to_path_buf();
+    BEFORE_OPERATION.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || {
+            ManagedStore::open(&root).unwrap().reset("local").unwrap();
+        }));
+    });
+    assert!(matches!(
+        store.ensure_captured(&runtime, &original, Duration::from_secs(30)),
+        Err(Error::Invalid(message)) if message == "retained managed generation disappeared; refusing to replace its identity"
+    ));
+    assert!(store.prepared("local").is_err());
+    assert!(store.down_captured(&original).is_err());
+    assert!(store.reset_captured(&original).is_err());
+    assert!(matches!(store.context(None), Err(Error::NoSelection)));
+    require_no_startup(&store, "local");
+}

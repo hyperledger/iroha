@@ -15,7 +15,15 @@ struct PrivateSettlementOperationContract {
     auth: PrivateSettlementAuthContract,
 }
 
-const PRIVATE_SETTLEMENT_OPERATION_CONTRACTS: [PrivateSettlementOperationContract; 13] = [
+const PRIVATE_SETTLEMENT_OPERATION_CONTRACTS: [PrivateSettlementOperationContract; 14] = [
+    PrivateSettlementOperationContract {
+        path: "/v1/nexus/private-settlements/context/{height}",
+        method: "post",
+        request: Some("iroha_data_model::nexus::PrivateSettlementContextRequestV1"),
+        success: "200",
+        response: "#/components/schemas/PrivateSettlementContextsProofV1",
+        auth: PrivateSettlementAuthContract::Account,
+    },
     PrivateSettlementOperationContract {
         path: "/v1/nexus/private-settlements/legs/availability-shares",
         method: "post",
@@ -164,7 +172,7 @@ fn private_settlement_openapi_covers_the_exact_catalog_family() {
             (descriptor.path(), method)
         })
         .collect::<BTreeSet<_>>();
-    assert_eq!(catalog.len(), 13);
+    assert_eq!(catalog.len(), 14);
     assert_eq!(documented, catalog);
     assert!(
         !private_settlement::TEST_NETWORK_STATE_COMMITMENT
@@ -211,7 +219,10 @@ fn private_settlement_operations_are_typed_authenticated_and_redacted() {
         assert_eq!(
             operation["x-iroha-tool-effect"].as_str(),
             Some(
-                if contract.method == "get" || contract.path.ends_with("/audit-capsule") {
+                if contract.method == "get"
+                    || contract.path.ends_with("/audit-capsule")
+                    || contract.path.ends_with("/context/{height}")
+                {
                     "read"
                 } else {
                     "write"
@@ -220,10 +231,21 @@ fn private_settlement_operations_are_typed_authenticated_and_redacted() {
         );
         match contract.request {
             Some(request) => {
-                assert_eq!(
-                    operation_request_schema_ref(operation, contract.path),
-                    request
-                );
+                if contract.path.ends_with("/context/{height}") {
+                    let schema =
+                        &operation["requestBody"]["content"]["application/x-norito"]["schema"];
+                    assert_eq!(schema["x-iroha-norito-schema"].as_str(), Some(request));
+                    assert_eq!(schema["maxLength"].as_u64(), Some(65_536));
+                    assert_eq!(
+                        operation["x-iroha-max-response-bytes"].as_u64(),
+                        Some(33_554_432)
+                    );
+                } else {
+                    assert_eq!(
+                        operation_request_schema_ref(operation, contract.path),
+                        request
+                    );
+                }
                 assert_eq!(operation["requestBody"]["required"].as_bool(), Some(true));
             }
             None => assert!(operation.get("requestBody").is_none()),
