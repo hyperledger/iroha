@@ -720,8 +720,6 @@ pub enum EthereumMptRoleV1 {
     Account,
     /// Contract storage slot opening.
     Storage,
-    /// Raw transaction envelope opening.
-    Transaction,
     /// Transaction receipt opening.
     Receipt,
     /// Original signed transaction envelope opening.
