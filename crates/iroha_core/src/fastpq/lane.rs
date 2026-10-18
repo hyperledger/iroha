@@ -430,14 +430,14 @@ fn start_with_options(
         );
     }
     let producer =
-        state.map(|state| producer::Producer::new(state, cfg.producer.clone(), replay_seed));
+        state.map(|state| producer::WorkerProducer::new(state, cfg.producer.clone(), replay_seed));
     start_with_builder(backpressure, producer, external_shutdown, move || {
         build_engine(&cfg)
     })
 }
 fn start_with_builder(
     backpressure: Option<crate::queue::BackpressureHandle>,
-    producer: Option<producer::Producer>,
+    producer: Option<producer::WorkerProducer>,
     external_shutdown: Option<ShutdownSignal>,
     build_engine: impl FnOnce() -> Option<Arc<dyn FastpqProofEngine>> + Send + 'static,
 ) -> Option<(FastpqLaneHandle, tokio::task::JoinHandle<()>)> {
@@ -587,7 +587,7 @@ fn configured_digest_execution(cfg: &Fastpq) -> fastpq_prover::Result<DigestExec
 fn spawn_worker(
     mut rx: mpsc::Receiver<WorkRequest>,
     ready: Arc<AtomicBool>,
-    mut producer: Option<producer::Producer>,
+    mut producer: Option<producer::WorkerProducer>,
     generation_lease: Arc<FastpqLaneGenerationLease>,
     shutdown: ShutdownSignal,
     external_shutdown: Option<ShutdownSignal>,

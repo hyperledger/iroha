@@ -80,18 +80,34 @@ impl<'capture, 'state> WitnessCaptureGuard<'capture, 'state> {
 
     /// Release an unpublished capture on a local owner, without latching a content verdict.
     pub(super) fn abandon(mut self) {
-        self.state.sumeragi_lane_state_seal = self.prior_lane_seal;
+        self.state
+            .fields
+            .as_mut()
+            .expect("original witness owner")
+            .sumeragi_lane_state_seal = self.prior_lane_seal;
         if self.state.execution_output_plan.is_some() {
-            self.state.execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
+            self.state
+                .fields
+                .as_mut()
+                .expect("original witness owner")
+                .execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
         }
         self.state.clear_cached_exec_witness();
         self.finished = true;
     }
 
     fn invalidate(&mut self, error: String) -> String {
-        self.state.sumeragi_lane_state_seal = self.prior_lane_seal;
+        self.state
+            .fields
+            .as_mut()
+            .expect("original witness owner")
+            .sumeragi_lane_state_seal = self.prior_lane_seal;
         if self.state.execution_output_plan.is_some() {
-            self.state.execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
+            self.state
+                .fields
+                .as_mut()
+                .expect("original witness owner")
+                .execution_output_plan = Some(ExecutionOutputPlanState::Poisoned);
         }
         self.state.reject_fastpq_witness_content(error)
     }

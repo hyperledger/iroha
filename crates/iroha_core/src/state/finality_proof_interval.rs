@@ -68,7 +68,10 @@ impl State {
                 &hashes,
                 &self.kura,
             )
-            .with_checkpoints(&self.finality_prefix_checkpoints);
+            .with_checkpoints(
+                &self.finality_prefix_checkpoints,
+                &self.ivm_execution_budget,
+            );
             let retained = build_proof_interval(&source, owner, limits, cancelled)?;
             after_read();
             limits.check(cancelled)?;

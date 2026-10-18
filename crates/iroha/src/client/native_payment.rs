@@ -29,6 +29,8 @@ use std::{
 
 mod carrier;
 mod observation;
+mod session;
+pub use session::NativePaymentSession;
 pub use observation::NativePaymentObservationError;
 use observation::{NativePaymentLedger, OnlinePaymentSource, PaymentSource};
 #[cfg(test)]
@@ -222,6 +224,9 @@ impl AccountClient {
     /// Prepare a durable direct payment with independently selected genesis trust.
     ///
     /// Recreate this handle with the same request and durable storage after restart.
+    /// This cold operation retains up to 64 authenticated decisions, independently
+    /// of the per-call proof-read limit. Use [`Self::native_payment_with_session`] for
+    /// sequential payments sharing an explicitly bounded original prefix.
     /// The verifier must come from independently authenticated signed genesis (or
     /// an independently retained authenticated checkpoint), never the queried node.
     /// # Errors
@@ -232,16 +237,44 @@ impl AccountClient {
         storage: Arc<dyn WorkflowStorage>,
         verifier: SumeragiFinalityVerifier,
     ) -> Result<NativePaymentOperation, NativePaymentError> {
+        // The cold operation uses the existing short-history observation scale.
+        // Retained decisions and each call's proof reads remain independent budgets.
+        let session = NativePaymentSession::new(
+            verifier,
+            std::num::NonZeroUsize::new(64).expect("nonzero local history capacity"),
+        )?;
+        self.native_payment_with_session(request, storage, session)
+    }
+
+    /// Prepare a durable payment sharing an independently authenticated local prefix.
+    ///
+    /// The session retains no endpoint or signer. Every operation binds this exact
+    /// account/network/chain to the original Global genesis owner before creating a
+    /// journal; per-operation transport deadlines and proof-read limits remain intact.
+    /// Retired historical decisions require cold recovery of the same request/storage,
+    /// never a replacement carrier or a remote checkpoint selected as trust.
+    /// # Errors
+    /// Wrong payer/network/chain/root, unavailable local owner, volatile storage, or
+    /// invalid workflow binding. No signing, observation or journal creation precedes
+    /// these original binding checks.
+    pub fn native_payment_with_session(
+        &self,
+        request: NativePaymentRequest,
+        storage: Arc<dyn WorkflowStorage>,
+        session: NativePaymentSession,
+    ) -> Result<NativePaymentOperation, NativePaymentError> {
+        let selected = session.verifier()?;
         if *self.network_id() != request.intent.network_id
             || self.authority() != request.intent.settlement_id.owner()
-            || verifier.initial_epoch().network_id != request.intent.network_id
-            || verifier.root_scope() != SumeragiRootScope::Global
-            || verifier.chain_id() != self.client().chain.as_ref()
+            || selected.initial_epoch().network_id != request.intent.network_id
+            || selected.root_scope() != SumeragiRootScope::Global
+            || selected.chain_id() != self.client().chain.as_ref()
         {
             return Err(NativePaymentError::InvalidRequest(
                 "account, payment and independently selected Global trust root differ",
             ));
         }
+        drop(selected);
         let context = Arc::new(AccountWorkflowContext::new(self.clone())?);
         let driver = Arc::new(NativePaymentDriver {
             account: self.clone(),
@@ -250,7 +283,7 @@ impl AccountClient {
         NativePaymentOperation::create(
             request,
             storage,
-            verifier,
+            session,
             context.clone(),
             context,
             Arc::new(OnlinePaymentSource(self.clone())),
@@ -263,7 +296,7 @@ impl NativePaymentOperation {
     fn create(
         request: NativePaymentRequest,
         storage: Arc<dyn WorkflowStorage>,
-        verifier: SumeragiFinalityVerifier,
+        session: NativePaymentSession,
         account: Arc<dyn WorkflowAccount>,
         dispatch: Arc<dyn crate::workflow::WorkflowLedger>,
         source: Arc<dyn PaymentSource>,
@@ -277,7 +310,7 @@ impl NativePaymentOperation {
         let plan = request.plan()?;
         let account = Arc::new(carrier::NativePaymentAccount::new(account, request.clone()));
         let ledger = Arc::new(NativePaymentLedger::new(
-            request, verifier, dispatch, source,
+            request, session, dispatch, source,
         ));
         let resume_account = Arc::new(carrier::ResumePaymentAccount::new(
             account.binding(),

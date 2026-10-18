@@ -358,7 +358,9 @@ members = [
     "vendor/find_cuda_helper",
     "vendor/cust_raw",
     "vendor/aes",
-    "mochi/*",
+    "mochi/mochi-core",
+    "mochi/mochi-integration",
+    "mochi/mochi-ui-egui",
     "data_model/samples/*",
     "integration_tests",
     "python/iroha_python/iroha_python_rs",
@@ -372,9 +374,6 @@ members = [
     "tools/soradns-resolver",
     "tools/telemetry-schema-diff",
     "tools/kotlin-fixture-gen"
-]
-exclude = [
-    "mochi/fixtures",
 ]
 
 [profile.dev]

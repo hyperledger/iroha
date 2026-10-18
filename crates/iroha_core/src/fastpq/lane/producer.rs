@@ -13,7 +13,7 @@ use crate::{
     state::{State, StateReadOnly, StateViewError},
     sumeragi::finality::{NativeFinalityCursorErrorV1, NativeFinalityCursorV1, ProofError},
 };
-use iroha_allocation::{AllocationRefusal, ChargedBufferError};
+use iroha_allocation::{AllocationRefusal, ChargedBuffer, ChargedBufferError};
 use iroha_config::parameters::actual::FastpqProducer;
 use std::{io::ErrorKind, num::NonZeroU64};
 
@@ -339,6 +339,101 @@ fn missing_transport(error: &SourceReadError) -> bool {
         || matches!(error, SourceReadError::Archive(NativeContextArchiveError::Storage(crate::kura::Error::IO(original, _))) if original.kind() == ErrorKind::NotFound)
 }
 
+/// Original startup inputs retained until the existing State pool admits one slot.
+struct PendingProducer {
+    state: Arc<State>,
+    policy: FastpqProducer,
+    replay_seed: Option<crate::sumeragi::node::NativeReplaySeed>,
+}
+
+/// Stable unique producer backing moved through the worker's blocking task returns.
+///
+/// Native finality and isolated replay retain large inline state. Returning that
+/// state by value repeats its layout in Tokio's result/poll frames while decoding.
+/// This owner moves only the admitted backing handle and bounded startup inputs.
+/// The original pool funds the exact slot before any Producer is constructed;
+/// nested native, replay and proof owners keep their existing separate charges.
+pub(super) struct WorkerProducer {
+    pending: Option<PendingProducer>,
+    retained: Option<ChargedBuffer<Producer>>,
+    poll_interval: std::time::Duration,
+    admission: Option<ChargedBufferError>,
+    stopped: bool,
+}
+impl WorkerProducer {
+    pub(super) fn new(
+        state: Arc<State>,
+        policy: FastpqProducer,
+        replay_seed: Option<crate::sumeragi::node::NativeReplaySeed>,
+    ) -> Self {
+        Self {
+            poll_interval: policy.poll_interval,
+            pending: Some(PendingProducer {
+                state,
+                policy,
+                replay_seed,
+            }),
+            retained: None,
+            admission: None,
+            stopped: false,
+        }
+    }
+
+    pub(super) fn poll_interval(&self) -> std::time::Duration {
+        self.poll_interval
+    }
+
+    // Keep construction's by-value temporaries off the subsequent decode stack.
+    // This frame returns before the retained producer's first attempt begins.
+    #[inline(never)]
+    fn initialize(&mut self) -> Result<(), ChargedBufferError> {
+        if self.retained.is_some() {
+            return Ok(());
+        }
+        let pending = self
+            .pending
+            .as_ref()
+            .expect("original producer startup inputs");
+        let mut retained = ChargedBuffer::new(1, &pending.state.ivm_execution_budget())?;
+        let pending = self
+            .pending
+            .take()
+            .expect("admitted original producer startup inputs");
+        retained.push_reserved(Producer::new(
+            pending.state,
+            pending.policy,
+            pending.replay_seed,
+        ));
+        self.retained = Some(retained);
+        self.admission = None;
+        Ok(())
+    }
+
+    pub(super) fn attempt(
+        &mut self,
+        engine: &Arc<dyn FastpqProofEngine>,
+        generation: u64,
+        shutdown: &ShutdownSignal,
+        external_shutdown: Option<&ShutdownSignal>,
+    ) {
+        if self.stopped || shutdown_requested(shutdown, external_shutdown) {
+            return;
+        }
+        if let Err(error) = self.initialize() {
+            let retryable = buffer_retryable(&error);
+            warn!(retryable, %error, "FASTPQ worker retains original startup inputs pending producer backing");
+            self.stopped = !retryable;
+            self.admission = Some(error);
+            return;
+        }
+        self.retained
+            .as_mut()
+            .expect("one initialized original producer slot")
+            .as_mut_slice()[0]
+            .attempt(engine, generation, shutdown, external_shutdown);
+    }
+}
+
 /// Retained progress of the existing worker, not a second dispatch queue or workflow.
 pub(super) struct Producer {
     state: Arc<State>,
@@ -380,10 +475,6 @@ impl Producer {
             cause: None,
         }
     }
-    pub(super) fn poll_interval(&self) -> std::time::Duration {
-        self.policy.poll_interval
-    }
-
     pub(super) fn attempt(
         &mut self,
         engine: &Arc<dyn FastpqProofEngine>,
@@ -632,8 +723,17 @@ mod tests {
             .set_limit_bytes(2 * 1024 * 1024 * 1024);
         let calls = Arc::new(AtomicUsize::new(0));
         let engine: Arc<dyn FastpqProofEngine> = Arc::new(BusyEngine(Arc::clone(&calls)));
-        let mut producer =
-            Producer::new(Arc::clone(chain.state()), FastpqProducer::default(), None);
+        // Retain the production worker's original charged slot while directly
+        // observing retries. Inline Producer construction retains its large native
+        // replay layout in this test frame throughout the finality decoder call.
+        let mut owner =
+            WorkerProducer::new(Arc::clone(chain.state()), FastpqProducer::default(), None);
+        owner.initialize().expect("original worker backing");
+        assert!(owner.pending.is_none());
+        let retained = owner.retained.as_mut().expect("original producer slot");
+        assert!(retained.belongs_to(&chain.state().ivm_execution_budget()));
+        assert_eq!(retained.as_slice().len(), 1);
+        let producer = &mut retained.as_mut_slice()[0];
         let shutdown = ShutdownSignal::new();
         for _ in 0..256 {
             producer.attempt(&engine, 0, &shutdown, None);
@@ -691,7 +791,7 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let mut policy = FastpqProducer::default();
         policy.poll_interval = std::time::Duration::from_millis(1);
-        let producer = Producer::new(Arc::clone(chain.state()), policy, None);
+        let producer = WorkerProducer::new(Arc::clone(chain.state()), policy, None);
         let (_sender, receiver) = tokio::sync::mpsc::channel(1);
         let shutdown = ShutdownSignal::new();
         let callback_calls = Arc::clone(&calls);
@@ -974,7 +1074,7 @@ mod tests {
                         poll_interval: std::time::Duration::from_millis(1),
                         ..FastpqProducer::default()
                     };
-                    let producer = Producer::new(Arc::clone(chain.state()), policy, Some(seed));
+                    let producer = WorkerProducer::new(Arc::clone(chain.state()), policy, Some(seed));
                     let (_sender, receiver) = tokio::sync::mpsc::channel(1);
                     let shutdown = ShutdownSignal::new();
                     let task = spawn_worker(
@@ -1016,3 +1116,6 @@ pub(crate) fn isolated_replay_retryable_for_test(
 
 #[cfg(test)]
 mod proof_completion_tests;
+
+#[cfg(test)]
+mod worker_tests;

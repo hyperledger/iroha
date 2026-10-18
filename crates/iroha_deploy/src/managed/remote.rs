@@ -375,10 +375,10 @@ pub(super) struct BuildRegistryContext {
 pub(super) fn build_registry_context(
     store: &ManagedStore,
     runtime: &InstalledRuntime,
-    name: &str,
+    prepared: &PreparedLocalnet,
     deadline: Instant,
 ) -> Result<Option<BuildRegistryContext>> {
-    let prepared = store.prepared(name)?;
+    let name = &prepared.context.name;
     let Some(directory) = existing_outer(store, name)? else {
         return Ok(None);
     };
@@ -389,7 +389,7 @@ pub(super) fn build_registry_context(
         .select(&binding.profile.name)
         .map_err(|error| Error::Invalid(error.to_string()))?;
     let binding = bind_installed_profile(&directory, profile, deadline)?;
-    verify_generation_binding(store, name, &binding, &prepared)?;
+    verify_generation_binding(store, name, &binding, prepared)?;
     let bootstrap = authenticate_parent(&release_path(store, name), profile, deadline, false)?;
     if bootstrap.release().network_id != binding.spec.parent_network_id {
         return Err(Error::Invalid(
@@ -402,7 +402,7 @@ pub(super) fn build_registry_context(
     let mut parent = RemoteProvisioning::load_parent_config(
         &directory.path().join("provisioning"),
         &bootstrap,
-        &prepared,
+        prepared,
         &binding.account_alias,
     )
     .map_err(|error| Error::Invalid(error.to_string()))?;
@@ -680,12 +680,12 @@ impl ManagedStore {
         drop(gate);
         remaining(deadline)?;
         let network = self.directory(&request.name)?;
-        store::exchange(&network, "attachment_start")?;
+        store::exchange_until(&network, "attachment_start", deadline)?;
         let mut last = connecting(binding.profile.name.clone());
         loop {
             remaining(deadline).map_err(|_| attachment_deadline(&last))?;
             let status = self
-                .dataspace_status(&request.name)?
+                .dataspace_status_until(&request.name, deadline)?
                 .ok_or_else(|| Error::Invalid("worker has no bound attachment".into()))?;
             if attachment_complete(&status.attachment, deadline)? {
                 return Ok(status);
@@ -708,7 +708,16 @@ impl ManagedStore {
     /// # Errors
     /// Missing generation, unsafe custody, changed child identity or unavailable live owner.
     pub fn dataspace_status(&self, name: &str) -> Result<Option<ManagedDataspaceStatus>> {
-        let local = self.status(name)?;
+        // Standalone observation retains two ordinary I/O allowances, shared across both reads.
+        self.dataspace_status_until(name, Instant::now() + transport::IO_TIMEOUT * 2)
+    }
+
+    fn dataspace_status_until(
+        &self,
+        name: &str,
+        deadline: Instant,
+    ) -> Result<Option<ManagedDataspaceStatus>> {
+        let local = self.status_until(name, deadline)?;
         let Some(directory) = existing_outer(self, name)? else {
             return Ok(None);
         };
@@ -718,12 +727,13 @@ impl ManagedStore {
         if matches!(local.phase, ManagedPhase::Ready | ManagedPhase::Starting) {
             let network = self.directory(name)?;
             let worker: WorkerRecord = decode(&network.read(WORKER, MAX_METADATA)?)?;
-            let response: ManagedDataspaceStatus = transport::request_as(
+            let response: ManagedDataspaceStatus = transport::request_as_until(
                 &network,
                 &ControlRequest {
                     token: worker.token,
                     action: "attachment_status".into(),
                 },
+                deadline,
             )?;
             if response.local.context != local.context
                 || response.attachment.network != binding.profile.name

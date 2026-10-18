@@ -14,7 +14,7 @@ pub struct NativeWalletMetadataV1 {
     pub account_digest: [u8; 32],
     /// Authoritative registered atomic scale.
     pub asset_scale: u32,
-    /// Exact admitted canonical AccountId original, never a caller-selected replacement.
+    /// Exact admitted canonical `AccountId` original, never a caller-selected replacement.
     pub account_original: Vec<u8>,
     /// Exact admitted canonical asset scope original.
     pub asset_original: Vec<u8>,

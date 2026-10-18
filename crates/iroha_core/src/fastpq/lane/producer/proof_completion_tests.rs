@@ -1,6 +1,8 @@
 //! Genuine proof publication and fresh verification after missing-source replay.
 use super::*;
-use crate::sumeragi::{certified_chain::CertifiedChain, test_chain::CertifiedTestChain};
+use crate::sumeragi::{
+    certified_chain::CertifiedChain, node::NativeReplaySeed, test_chain::CertifiedTestChain,
+};
 use iroha_crypto::Hash;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -58,6 +60,7 @@ fn files(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
 
 // This census records only immutable statement-position identities. Both later
 // producer generations must authenticate their source again after the tapes vanish.
+#[inline(never)]
 fn original_positions(chain: &CertifiedTestChain) -> BTreeMap<Hash, (u64, usize)> {
     let mut positions = BTreeMap::new();
     for height in [1, 2] {
@@ -94,7 +97,8 @@ fn original_positions(chain: &CertifiedTestChain) -> BTreeMap<Hash, (u64, usize)
 
 // This is the same default blocking runtime used by the existing worker. Fixture
 // construction's pre-existing larger stack does not wrap replay or proof work.
-async fn tick(mut producer: Producer, engine: Arc<dyn FastpqProofEngine>) -> Producer {
+#[inline(never)]
+async fn tick(mut producer: Box<Producer>, engine: Arc<dyn FastpqProofEngine>) -> Box<Producer> {
     tokio::task::spawn_blocking(move || {
         producer.attempt(&engine, 0, &ShutdownSignal::new(), None);
         assert!(
@@ -108,17 +112,25 @@ async fn tick(mut producer: Producer, engine: Arc<dyn FastpqProofEngine>) -> Pro
     .unwrap()
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn missing_nonempty_h1_h2_complete_real_proofs_and_recover_after_restart_without_traffic() {
-    let _status = crate::status::operator_status_test_guard();
-    let (chain, mut seeds, _) = std::thread::Builder::new()
+// Only fixture construction uses its existing larger stack. Every census,
+// replay, proof and recovery phase runs on the ordinary test or worker stacks.
+#[inline(never)]
+fn original_fixture() -> (Box<CertifiedTestChain>, Vec<NativeReplaySeed>) {
+    std::thread::Builder::new()
         .name("missing-fastpq-proof-fixture".into())
         .stack_size(32 * 1024 * 1024)
-        .spawn(|| crate::sumeragi::node::isolated_replay_source_fixture_for_test(3))
+        .spawn(|| {
+            let (chain, seeds, _) =
+                crate::sumeragi::node::isolated_replay_source_fixture_for_test(3);
+            (Box::new(chain), seeds)
+        })
         .unwrap()
         .join()
-        .unwrap_or_else(|failure| std::panic::resume_unwind(failure));
-    let positions = original_positions(&chain);
+        .unwrap_or_else(|failure| std::panic::resume_unwind(failure))
+}
+
+#[inline(never)]
+fn remove_original_tapes(chain: &CertifiedTestChain) -> BTreeMap<PathBuf, Vec<u8>> {
     let source_root = chain
         .kura()
         .store_root()
@@ -141,28 +153,56 @@ async fn missing_nonempty_h1_h2_complete_real_proofs_and_recover_after_restart_w
             .keys()
             .all(|path| !path.extension().is_some_and(|ext| ext == "producer"))
     );
-    let original_root = chain.state().verify_world_state_accumulator().unwrap();
-    let original_pool_limit = chain.state().ivm_execution_budget().limit_bytes();
-    let original_status = crate::status::lane_scoped_status_fingerprint_for_tests();
-    let original_settlements = format!("{:?}", crate::status::settlement_snapshot());
-    let calls = Arc::new(AtomicUsize::new(0));
-    let produced = Arc::new(AtomicUsize::new(0));
-    let engine: Arc<dyn FastpqProofEngine> = Arc::new(ObservedRealEngine {
-        inner: RealProofEngine {
-            proving: ProvingLimits::default(),
-            verification: ExecutionEffectVerificationLimits::default(),
-        },
-        calls: Arc::clone(&calls),
-        produced: Arc::clone(&produced),
-    });
-    let policy = FastpqProducer {
-        poll_interval: Duration::from_millis(1),
-        ..FastpqProducer::default()
-    };
+    original_files
+}
 
+// Own the same producer on the heap so phase futures transport its pointer,
+// rather than retaining copies of its large State/replay machine on the stack.
+#[inline(never)]
+fn fresh_producer(
+    chain: &CertifiedTestChain,
+    policy: FastpqProducer,
+    seed: Option<NativeReplaySeed>,
+) -> Box<Producer> {
+    Box::new(Producer::new(Arc::clone(chain.state()), policy, seed))
+}
+
+#[inline(never)]
+fn start_idle_worker(
+    producer: WorkerProducer,
+    engine: Arc<dyn FastpqProofEngine>,
+) -> (
+    tokio::sync::mpsc::Sender<WorkRequest>,
+    ShutdownSignal,
+    tokio::task::JoinHandle<()>,
+) {
+    let (sender, receiver) = tokio::sync::mpsc::channel(1);
+    let shutdown = ShutdownSignal::new();
+    let task = spawn_worker(
+        receiver,
+        Arc::new(AtomicBool::new(false)),
+        Some(producer),
+        Arc::new(FastpqLaneGenerationLease { generation: 1 }),
+        shutdown.clone(),
+        None,
+        move || Some(engine),
+    );
+    (sender, shutdown, task)
+}
+
+#[inline(never)]
+async fn discard_unpublished_proof(
+    chain: &CertifiedTestChain,
+    seed: Option<NativeReplaySeed>,
+    policy: FastpqProducer,
+    positions: &BTreeMap<Hash, (u64, usize)>,
+    original_files: &BTreeMap<PathBuf, Vec<u8>>,
+    engine: Arc<dyn FastpqProofEngine>,
+    produced: &AtomicUsize,
+) -> Hash {
     // Crash boundary before immutable publication: drop the genuine output and
     // its in-memory source. Presence of that output must not advance disk progress.
-    let mut first = Producer::new(Arc::clone(chain.state()), policy, seeds.pop());
+    let mut first = fresh_producer(chain, policy, seed);
     for _ in 0..256 {
         first = tick(first, Arc::clone(&engine)).await;
         if first.completed.is_some() {
@@ -194,25 +234,27 @@ async fn missing_nonempty_h1_h2_complete_real_proofs_and_recover_after_restart_w
             .unwrap()
             .is_none()
     );
-    assert_eq!(files(&chain.kura().store_root()), original_files);
+    assert_eq!(&files(&chain.kura().store_root()), original_files);
     drop(first);
     assert_eq!(produced.load(Ordering::SeqCst), 1);
 
+    first_key
+}
+
+#[inline(never)]
+async fn publish_on_idle_worker(
+    chain: &CertifiedTestChain,
+    seed: Option<NativeReplaySeed>,
+    policy: FastpqProducer,
+    positions: &BTreeMap<Hash, (u64, usize)>,
+    original_files: &BTreeMap<PathBuf, Vec<u8>>,
+    engine: Arc<dyn FastpqProofEngine>,
+    produced: &AtomicUsize,
+) -> BTreeMap<PathBuf, Vec<u8>> {
     // Restart uses only its own original startup seed, signed history and existing
     // timer/queue service. The sender stays open but never receives one work item.
-    let producer = Producer::new(Arc::clone(chain.state()), policy, seeds.pop());
-    let (_sender, receiver) = tokio::sync::mpsc::channel(1);
-    let shutdown = ShutdownSignal::new();
-    let worker_engine = Arc::clone(&engine);
-    let task = spawn_worker(
-        receiver,
-        Arc::new(AtomicBool::new(false)),
-        Some(producer),
-        Arc::new(FastpqLaneGenerationLease { generation: 1 }),
-        shutdown.clone(),
-        None,
-        move || Some(worker_engine),
-    );
+    let producer = WorkerProducer::new(Arc::clone(chain.state()), policy, seed);
+    let (_sender, shutdown, task) = start_idle_worker(producer, engine);
     // Preserve the existing missing-tape worker test's bound; no daemon/protocol
     // timeout, thread stack, pool ceiling or proof policy is enlarged for this test.
     let observed = tokio::time::timeout(Duration::from_secs(120), async {
@@ -250,17 +292,72 @@ async fn missing_nonempty_h1_h2_complete_real_proofs_and_recover_after_restart_w
         .map(|(path, bytes)| (path.clone(), bytes.clone()))
         .collect();
     assert_eq!(
-        without_artifacts, original_files,
+        &without_artifacts, original_files,
         "no native tape, block or other live custody was rewritten"
     );
 
+    published
+}
+
+#[inline(never)]
+fn reject_foreign_artifact(
+    chain: &CertifiedTestChain,
+    restarted: &mut Producer,
+    first_key: Hash,
+    key: Hash,
+) {
+    // The bytes are a genuine completed H1 proof. Offering them at an
+    // independently reconstructed H2 position must fail before the cursor
+    // advances. This separate untrusted store never alters live custody.
+    let foreign = Kura::blank_with_fastpq_artifact_policy_for_testing(
+        iroha_config::parameters::defaults::kura::FASTPQ_ARTIFACT_POLICY,
+    );
+    let h1_bytes = chain
+        .kura()
+        .read_fastpq_producer_record(first_key)
+        .unwrap()
+        .unwrap();
+    let receipt = foreign
+        .persist_fastpq_producer_record(key, &h1_bytes)
+        .unwrap();
+    assert!(receipt.is_from(&foreign));
+    assert!(!receipt.is_from(chain.kura()));
+    assert_eq!(receipt.reference().digest(), *Hash::new(&h1_bytes).as_ref());
+    assert_eq!(receipt.reference().byte_len(), h1_bytes.len() as u64);
+    let job = restarted.job.as_mut().unwrap();
+    let original = std::ptr::from_ref(job.source.entry(0).unwrap().effects());
+    assert!(matches!(
+        job.recover_next(
+            &foreign,
+            ProvingLimits::default(),
+            &ExecutionEffectVerificationLimits::default(),
+        ),
+        Err(durable::DurableError::Verification(_))
+    ));
+    assert_eq!(job.next_statement, 0);
+    assert_eq!(
+        std::ptr::from_ref(job.source.entry(0).unwrap().effects()),
+        original
+    );
+}
+
+#[inline(never)]
+async fn verify_after_restart(
+    chain: &CertifiedTestChain,
+    seed: Option<NativeReplaySeed>,
+    policy: FastpqProducer,
+    positions: &BTreeMap<Hash, (u64, usize)>,
+    first_key: Hash,
+    engine: Arc<dyn FastpqProofEngine>,
+    calls: &AtomicUsize,
+) {
     // Restart after publication. The production cursor must rederive source
     // expectations from fresh isolated replay and actually verify every exact
     // artifact. The observed real engine must receive no new proving call.
     let calls_before_recovery = calls.load(Ordering::SeqCst);
     let mut recovered_positions = BTreeSet::new();
     let mut foreign_source_rejected = false;
-    let mut restarted = Producer::new(Arc::clone(chain.state()), policy, seeds.pop());
+    let mut restarted = fresh_producer(chain, policy, seed);
     for _ in 0..256 {
         let before = restarted.job.as_ref().and_then(|job| {
             (job.next_statement < job.source.leaves().len()).then(|| {
@@ -272,39 +369,7 @@ async fn missing_nonempty_h1_h2_complete_real_proofs_and_recover_after_restart_w
             })
         });
         if let Some((key, 2, 0)) = before {
-            // The bytes are a genuine completed H1 proof. Offering them at an
-            // independently reconstructed H2 position must fail before the cursor
-            // advances. This separate untrusted store never alters live custody.
-            let foreign = Kura::blank_with_fastpq_artifact_policy_for_testing(
-                iroha_config::parameters::defaults::kura::FASTPQ_ARTIFACT_POLICY,
-            );
-            let h1_bytes = chain
-                .kura()
-                .read_fastpq_producer_record(first_key)
-                .unwrap()
-                .unwrap();
-            let receipt = foreign
-                .persist_fastpq_producer_record(key, &h1_bytes)
-                .unwrap();
-            assert!(receipt.is_from(&foreign));
-            assert!(!receipt.is_from(chain.kura()));
-            assert_eq!(receipt.reference().digest(), *Hash::new(&h1_bytes).as_ref());
-            assert_eq!(receipt.reference().byte_len(), h1_bytes.len() as u64);
-            let job = restarted.job.as_mut().unwrap();
-            let original = std::ptr::from_ref(job.source.entry(0).unwrap().effects());
-            assert!(matches!(
-                job.recover_next(
-                    &foreign,
-                    ProvingLimits::default(),
-                    &ExecutionEffectVerificationLimits::default(),
-                ),
-                Err(durable::DurableError::Verification(_))
-            ));
-            assert_eq!(job.next_statement, 0);
-            assert_eq!(
-                std::ptr::from_ref(job.source.entry(0).unwrap().effects()),
-                original
-            );
+            reject_foreign_artifact(chain, &mut restarted, first_key, key);
             assert!(!foreign_source_rejected);
             foreign_source_rejected = true;
         }
@@ -341,8 +406,65 @@ async fn missing_nonempty_h1_h2_complete_real_proofs_and_recover_after_restart_w
         positions.keys().copied().collect::<BTreeSet<_>>()
     );
     assert!(foreign_source_rejected);
-    assert!(seeds.is_empty());
     drop(restarted);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn missing_nonempty_h1_h2_complete_real_proofs_and_recover_after_restart_without_traffic() {
+    let _status = crate::status::operator_status_test_guard();
+    let (chain, mut seeds) = original_fixture();
+    let positions = original_positions(&chain);
+    let original_files = remove_original_tapes(&chain);
+    let original_root = chain.state().verify_world_state_accumulator().unwrap();
+    let original_pool_limit = chain.state().ivm_execution_budget().limit_bytes();
+    let original_status = crate::status::lane_scoped_status_fingerprint_for_tests();
+    let original_settlements = format!("{:?}", crate::status::settlement_snapshot());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let produced = Arc::new(AtomicUsize::new(0));
+    let engine: Arc<dyn FastpqProofEngine> = Arc::new(ObservedRealEngine {
+        inner: RealProofEngine {
+            proving: ProvingLimits::default(),
+            verification: ExecutionEffectVerificationLimits::default(),
+        },
+        calls: Arc::clone(&calls),
+        produced: Arc::clone(&produced),
+    });
+    let policy = FastpqProducer {
+        poll_interval: Duration::from_millis(1),
+        ..FastpqProducer::default()
+    };
+
+    let first_key = Box::pin(discard_unpublished_proof(
+        &chain,
+        seeds.pop(),
+        policy,
+        &positions,
+        &original_files,
+        Arc::clone(&engine),
+        &produced,
+    ))
+    .await;
+    let published = Box::pin(publish_on_idle_worker(
+        &chain,
+        seeds.pop(),
+        policy,
+        &positions,
+        &original_files,
+        Arc::clone(&engine),
+        &produced,
+    ))
+    .await;
+    Box::pin(verify_after_restart(
+        &chain,
+        seeds.pop(),
+        policy,
+        &positions,
+        first_key,
+        engine,
+        &calls,
+    ))
+    .await;
+    assert!(seeds.is_empty());
     assert_eq!(
         files(&chain.kura().store_root()),
         published,

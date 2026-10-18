@@ -28,9 +28,9 @@ use crate::{
     circuit::{Inventory, MAX_LANES, RelationShape, SigmaCircuit, SigmaParams},
 };
 
-/// The proof-size gate of the split-lineage recommendation (3.5 KB, from
-/// M7).
-pub const PROOF_BYTES_GATE: usize = 3_500;
+/// The 3,520-byte sigma role cap of the compact Payment envelope.
+/// Transported Omega and the complete Payment have separate bounds.
+pub const PROOF_BYTES_GATE: usize = 3_520;
 
 /// A complete circuit shape: the parameters and `k`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -266,10 +266,21 @@ where
 
 #[cfg(test)]
 mod tests {
+    use iroha_data_model::kagemusha::KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1;
     use iroha_pasta::{Eq, Fp};
 
     use super::*;
     use crate::{circuit::PrefixMode, witness::SigmaRelation};
+
+    #[test]
+    fn proof_gate_matches_the_canonical_wallet_sigma_cap() {
+        assert_eq!(PROOF_BYTES_GATE, 3_520);
+        assert_eq!(PROOF_BYTES_GATE, KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1);
+        assert_eq!(
+            ShapePolicy::default().max_proof_bytes,
+            Some(KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1)
+        );
+    }
 
     #[test]
     fn wallet_recipe_covers_exactly_the_five_monetary_selectors() {
@@ -333,11 +344,11 @@ mod tests {
     }
 
     #[test]
-    fn a_receive_needs_four_lanes_at_k10() {
-        // 67 folded permutations (2,479 lane rows) and the glue rows do not
-        // fit three lanes of 1,024 rows.
+    fn a_receive_needs_three_lanes_at_k10() {
+        // 62 folded permutations and 25 glue rows fit three lanes of
+        // 1,024 rows; one or two lanes cannot hold the layout.
         let relation = RelationShape::new(SigmaRelation::RECEIVE, PrefixMode::Folded);
-        for lanes in [1, 2, 3] {
+        for lanes in [1, 2] {
             let params = SigmaParams::new(relation, lanes, 9).expect("params");
             assert_eq!(
                 SigmaShape::new(params, 10).inventory::<Fp>(),
@@ -345,13 +356,19 @@ mod tests {
                 "{lanes} lanes"
             );
         }
-        let four = SigmaParams::new(relation, 4, 9).expect("params");
-        let inventory = SigmaShape::new(four, 10).inventory::<Fp>().expect("fits");
-        assert_eq!(inventory.permutations(), relation.permutations());
-        assert!(inventory.rows() < 1 << 10);
-        let bytes = SigmaShape::new(four, 10)
-            .proof_length::<Eq>()
-            .expect("length");
-        assert!(bytes > 0 && bytes.is_multiple_of(32), "{bytes}");
+        for lanes in [3, 4] {
+            let params = SigmaParams::new(relation, lanes, 9).expect("params");
+            let shape = SigmaShape::new(params, 10);
+            let inventory = shape.inventory::<Fp>().expect("fits");
+            assert_eq!(inventory.permutations(), relation.permutations());
+            assert!(inventory.rows() < 1 << 10);
+            let bytes = shape.proof_length::<Eq>().expect("length");
+            assert!(bytes > 0 && bytes.is_multiple_of(32), "{bytes}");
+            if lanes == 3 {
+                assert_eq!(inventory.permutations(), 62);
+                assert_eq!(inventory.glue_rows, 25);
+                assert_eq!(bytes, 4_384);
+            }
+        }
     }
 }

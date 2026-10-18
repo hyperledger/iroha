@@ -29,8 +29,8 @@ use crate::{
     },
     kagemusha_wallet_intake_v1::AdmittedWalletV1,
     kagemusha_wallet_preparation_v1::{
-        NativeAdvanceCheckV1, NativeChoicesV1, NativePreparedOperationV1, PreparationV1,
-        PreparedOperationV1,
+        NativeAdvanceCheckV1, NativeChoicesV1, NativePreparedOperationV1, OperationPreparationV1,
+        PreparationV1, PreparedOperationV1,
     },
     kagemusha_wallet_proofs_v1::Error as ProofError,
 };
@@ -203,10 +203,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             request,
             source,
             custody,
-            &self.sources,
-            choices.nonce(),
-            choices.time().as_ref(),
-            self.budget,
+            &OperationPreparationV1 {
+                sources: &self.sources,
+                choices: &choices,
+                budget: self.budget,
+            },
         )
     }
 

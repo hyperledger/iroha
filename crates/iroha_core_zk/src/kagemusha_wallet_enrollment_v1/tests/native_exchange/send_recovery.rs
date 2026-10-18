@@ -1,99 +1,8 @@
 //! Explicit engineering continuation of an already selected Send, never another Load.
-//! The interrupted fixture predated early simulator-key retention for B/C. Only its
-//! deterministic test keys may be restored, after binding each to existing native custody.
+//! Every participant must retain its exact current key, public frames and signed E6;
+//! missing custody is refused without reconstructing keys or enrollment originals.
 
 use super::*;
-use crate::kagemusha_wallet_advance_v1::PreKeyRecordV1;
-
-fn restore_fixture_originals(root: &Path, f: &Fixture, seed: u8) -> (HostDevice, [Vec<u8>; 4]) {
-    assert!(root.is_dir());
-    for name in FRAME_NAMES.into_iter().chain(["simulator-key.norito"]) {
-        assert!(
-            !root.join(name).exists(),
-            "never replace retained originals"
-        );
-    }
-    let device = HostDevice {
-        root: root.to_path_buf(),
-        platform: FakePlatformV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 0),
-    };
-    let provider = device.provider(f.config.scheme.scheme_id());
-    let slots = provider.slots().unwrap();
-    assert_eq!(slots.len(), 1, "exact existing enrolled slot required");
-    let slot = slots[0];
-    let original = provider
-        .credential(&slot, 0)
-        .unwrap()
-        .expect("retained credential");
-    let credential =
-        KagemushaWalletCredentialV1::decode_canonical(&original, &f.config.scheme.scheme_id())
-            .unwrap();
-    let key = signing_key(seed);
-    assert_eq!(
-        public_key(&key),
-        credential.body.payment_key,
-        "existing fixture identity"
-    );
-    // These must already exist. begin() below may only reopen the retained E6 selection.
-    for record in [
-        PreKeyRecordV1::Client,
-        PreKeyRecordV1::Accepted,
-        PreKeyRecordV1::Slot,
-    ] {
-        assert!(provider.prekey_read(&[11; 32], record).unwrap().is_some());
-    }
-    device.platform.with(|state| {
-        state.keys.insert(slot, key);
-    });
-    let mut owner = HostEnrollment::new(provider, f.config.clone())
-        .unwrap_or_else(|(_, error)| panic!("{error}"));
-    let dispatch = PreKeyDispatchV1::decode(
-        &owner
-            .begin(
-                &[11; 32],
-                &norito::encode_canonical(&f.account).unwrap(),
-                &norito::encode_canonical(&f.asset).unwrap(),
-            )
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(dispatch.purpose, KagemushaEnrollmentPermitPurposeV1::Resume);
-    assert!(dispatch.previous_permit.is_some());
-    let retained = owner
-        .retained_result()
-        .unwrap()
-        .expect("existing signed E6 original");
-    let frames = owner.open_originals().unwrap();
-    assert_eq!(owner.retained_result().unwrap(), Some(retained));
-    assert_eq!(frames[0], original);
-    assert_eq!(decode::<AccountId>(&frames[2]), f.account);
-    assert_eq!(decode::<KagemushaWalletAssetScopeV1>(&frames[3]), f.asset);
-    drop(owner);
-    device.platform.with(|state| {
-        assert_eq!(state.generate_calls, 0, "no enrollment or key generation");
-        assert_eq!(state.sign_calls, 0, "no new hardware signature");
-    });
-    device.save_simulator();
-    retain_frames(&device, &frames);
-    (device, frames)
-}
-
-#[test]
-fn deterministic_fixture_restoration_requires_existing_identity_and_e6_originals() {
-    let dir = tempfile::tempdir().unwrap();
-    let f = fixture();
-    let device = HostDevice::create(&dir.path().join("existing"), 89);
-    let frames = device.enroll(&f);
-    let root = device.root.clone();
-    drop(device);
-    assert!(std::panic::catch_unwind(|| restore_fixture_originals(&root, &f, 97)).is_err());
-    assert!(!root.join("simulator-key.norito").exists());
-    let (restored, retained) = restore_fixture_originals(&root, &f, 89);
-    assert_eq!(retained, frames);
-    assert!(std::panic::catch_unwind(|| restore_fixture_originals(&root, &f, 89)).is_err());
-    assert_eq!(restored.platform.with(|state| state.generate_calls), 0);
-    assert_eq!(restored.platform.with(|state| state.sign_calls), 0);
-}
 
 #[test]
 #[ignore = "requires exact retained A selected Send and original B/C engineering custody; never repeats Load, Bootstrap or Send preparation"]
@@ -136,8 +45,8 @@ fn resume_selected_a_send_then_b_to_c_unload_with_restart_and_replay() {
     );
     let f_b = sources.fixture(&setup, 1);
     let f_c = sources.fixture(&setup, 2);
-    let (device_b, frames_b) = restore_fixture_originals(&prior.join("wallet-b"), &f_b, 89);
-    let (device_c, frames_c) = restore_fixture_originals(&prior.join("wallet-c"), &f_c, 97);
+    let (device_b, frames_b) = restore_recorded(&prior.join("wallet-b"), &f_b);
+    let (device_c, frames_c) = restore_recorded(&prior.join("wallet-c"), &f_c);
     let mut b = sources.open(&device_b, &f_b, &frames_b);
     let mut c = sources.open(&device_c, &f_c, &frames_c);
     for wallet in [&mut b, &mut c] {
@@ -183,7 +92,7 @@ fn resume_selected_a_send_then_b_to_c_unload_with_restart_and_replay() {
         "retained_offer_sha256": (sha(&offer)), "retained_request_sha256": (sha(&request)),
         "request_id": (hex::encode([212; 32])), "status_before_resume": "Pending",
         "new_enrollments": 0, "new_loads": 0, "new_setup_signatures": 0,
-        "fixture_key_recovery": "Exact deterministic engineering keys, bound to native retained slot, credential and signed E6 originals; not a production key recovery capability"
+        "retained_custody_recovery": "Exact existing engineering key, public frames, native slot, credential, pre-key selection and signed E5/E6 originals; durable adoption preserves bytes and missing originals are refused without reconstruction"
     });
     publish(
         &output.join("selected-send-continuation.json"),
@@ -293,6 +202,9 @@ fn payment_request_binding_uses_signed_projection_and_rejects_changes() {
 }
 
 fn restore_recorded(root: &Path, f: &Fixture) -> (HostDevice, [Vec<u8>; 4]) {
+    use crate::kagemusha_wallet_advance_v1::{PreKeyRecordV1, kagemusha_wallet_provider_digest_v1};
+
+    assert!(root.is_dir());
     let frames = FRAME_NAMES.map(|name| {
         iroha_fs::read_private(root.join(name), 32768)
             .unwrap()
@@ -304,13 +216,284 @@ fn restore_recorded(root: &Path, f: &Fixture) -> (HostDevice, [Vec<u8>; 4]) {
     assert_eq!(decode::<AccountId>(&frames[2]), f.account);
     assert_eq!(decode::<KagemushaWalletAssetScopeV1>(&frames[3]), f.asset);
     let device = HostDevice::restore(root, &credential);
+    let mut provider = device.provider(f.config.scheme.scheme_id());
+    let slots = provider.slots().unwrap();
+    assert_eq!(slots.len(), 1, "exact existing enrolled slot required");
+    let slot = slots[0];
     assert_eq!(
-        device
-            .platform
-            .with(|state| (state.generate_calls, state.sign_calls)),
-        (0, 0)
+        provider.credential(&slot, 0).unwrap().as_ref(),
+        Some(&frames[0]),
+        "recorded credential must equal existing native custody"
     );
+    device.platform.with(|state| {
+        assert_eq!(state.keys.len(), 1);
+        assert!(
+            state.keys.contains_key(&slot),
+            "recorded key must use retained slot"
+        );
+    });
+    // begin() and the retained-owner reads durably adopt existing originals.
+    // Require every selected original first so a loss cannot create fresh state.
+    let prekeys = [
+        PreKeyRecordV1::Client,
+        PreKeyRecordV1::Accepted,
+        PreKeyRecordV1::Slot,
+        PreKeyRecordV1::Phase,
+    ]
+    .map(|record| {
+        (
+            record,
+            provider
+                .prekey_read(&[11; 32], record)
+                .unwrap()
+                .expect("existing pre-key selection original"),
+        )
+    });
+    let enrollment = provider
+        .enrollment_record(&slot)
+        .unwrap()
+        .expect("existing signed E5 original");
+    let result_key =
+        kagemusha_wallet_provider_digest_v1("enrollment-issuer-result", &enrollment.request);
+    let result = provider
+        .with_archive(&slot, |archive| {
+            archive.read_record(&result_key, RESULT_MAX_BYTES)
+        })
+        .unwrap()
+        .expect("existing signed E6 original");
+    let mut owner = HostEnrollment::new(provider, f.config.clone())
+        .unwrap_or_else(|(_, error)| panic!("{error}"));
+    let dispatch =
+        PreKeyDispatchV1::decode(&owner.begin(&[11; 32], &frames[2], &frames[3]).unwrap()).unwrap();
+    assert_eq!(dispatch.purpose, KagemushaEnrollmentPermitPurposeV1::Resume);
+    assert!(dispatch.previous_permit.is_some());
+    let retained = owner
+        .retained_result()
+        .unwrap()
+        .expect("existing signed E6 original");
+    assert_eq!(retained.as_slice(), result.as_slice());
+    assert_eq!(owner.open_originals().unwrap(), frames);
+    assert_eq!(owner.retained_result().unwrap(), Some(retained));
+    let provider = owner.test_provider();
+    for (record, original) in prekeys {
+        assert_eq!(
+            provider.prekey_read(&[11; 32], record).unwrap(),
+            Some(original)
+        );
+    }
+    assert_eq!(provider.enrollment_record(&slot).unwrap(), Some(enrollment));
+    assert_eq!(
+        provider
+            .with_archive(&slot, |archive| archive
+                .read_record(&result_key, RESULT_MAX_BYTES))
+            .unwrap(),
+        Some(result)
+    );
+    drop(owner);
+    device.platform.with(|state| {
+        assert_eq!(state.generate_calls, 0, "no enrollment or key generation");
+        assert_eq!(state.sign_calls, 0, "no new hardware signature");
+    });
     (device, frames)
+}
+
+fn recorded_fixture(root: &Path, f: &Fixture, seed: u8) -> [Vec<u8>; 4] {
+    let device = HostDevice::create(root, seed);
+    let frames = device.enroll(f);
+    device.save_simulator();
+    retain_frames(&device, &frames);
+    frames
+}
+
+#[test]
+fn current_recorded_b_and_c_reopen_exact_originals_without_regeneration() {
+    let directory = tempfile::tempdir().unwrap();
+    let f = fixture();
+    for (name, seed) in [("wallet-b", 89), ("wallet-c", 97)] {
+        let root = directory.path().join(name);
+        let frames = recorded_fixture(&root, &f, seed);
+        let originals = FRAME_NAMES
+            .into_iter()
+            .chain(["simulator-key.norito"])
+            .map(|name| (name, fs::read(root.join(name)).unwrap()))
+            .collect::<Vec<_>>();
+        for _ in 0..2 {
+            let (device, retained) = restore_recorded(&root, &f);
+            assert_eq!(retained, frames);
+            assert_eq!(
+                device
+                    .platform
+                    .with(|state| (state.generate_calls, state.sign_calls)),
+                (0, 0)
+            );
+            for (name, bytes) in &originals {
+                assert_eq!(fs::read(root.join(name)).unwrap(), *bytes);
+            }
+        }
+    }
+}
+
+#[test]
+fn recorded_recovery_refuses_each_missing_original_without_recreating_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let f = fixture();
+    let root = directory.path().join("wallet-b");
+    let frames = recorded_fixture(&root, &f, 89);
+    for name in FRAME_NAMES.into_iter().chain(["simulator-key.norito"]) {
+        let path = root.join(name);
+        let held = root.join("held-original");
+        fs::rename(&path, &held).unwrap();
+        assert!(
+            std::panic::catch_unwind(|| restore_recorded(&root, &f)).is_err(),
+            "missing {name}"
+        );
+        assert!(!path.exists(), "lost {name} must not be reconstructed");
+        fs::rename(&held, &path).unwrap();
+    }
+    assert_eq!(restore_recorded(&root, &f).1, frames);
+}
+
+#[test]
+fn recorded_recovery_refuses_foreign_key_slot_frames_and_native_identity() {
+    let directory = tempfile::tempdir().unwrap();
+    let f = fixture();
+    let root = directory.path().join("wallet-b");
+    let frames = recorded_fixture(&root, &f, 89);
+    let foreign = directory.path().join("wallet-c");
+    recorded_fixture(&foreign, &f, 97);
+    let key_path = root.join("simulator-key.norito");
+    let key_original = fs::read(&key_path).unwrap();
+    for name in ["simulator-key.norito", "credential.norito"] {
+        let path = root.join(name);
+        let original = fs::read(&path).unwrap();
+        let changed = fs::read(foreign.join(name)).unwrap();
+        fs::write(&path, &changed).unwrap();
+        assert!(std::panic::catch_unwind(|| restore_recorded(&root, &f)).is_err());
+        assert_eq!(fs::read(&path).unwrap(), changed);
+        fs::write(&path, original).unwrap();
+    }
+    let mut key: Vec<([u8; 32], [u8; 32])> = decode(&key_original);
+    key[0].0[0] ^= 1;
+    fs::write(&key_path, norito::encode_canonical(&key).unwrap()).unwrap();
+    assert!(std::panic::catch_unwind(|| restore_recorded(&root, &f)).is_err());
+    fs::write(&key_path, &key_original).unwrap();
+    for (name, changed) in [
+        ("certificates.norito", vec![0]),
+        (
+            "account.norito",
+            norito::encode_canonical(&AccountId::new(
+                KeyPair::from_seed(vec![77; 32], Algorithm::Ed25519)
+                    .public_key()
+                    .clone(),
+            ))
+            .unwrap(),
+        ),
+        ("asset.norito", {
+            let mut asset = f.asset.clone();
+            asset.scale += 1;
+            norito::encode_canonical(&asset).unwrap()
+        }),
+    ] {
+        let path = root.join(name);
+        let original = fs::read(&path).unwrap();
+        fs::write(&path, &changed).unwrap();
+        assert!(
+            std::panic::catch_unwind(|| restore_recorded(&root, &f)).is_err(),
+            "foreign {name}"
+        );
+        assert_eq!(fs::read(&path).unwrap(), changed);
+        fs::write(&path, original).unwrap();
+    }
+    // A mutually matching foreign key and public credential still cannot adopt
+    // another participant's already-selected native slot and enrollment result.
+    for name in FRAME_NAMES.into_iter().chain(["simulator-key.norito"]) {
+        fs::write(root.join(name), fs::read(foreign.join(name)).unwrap()).unwrap();
+    }
+    assert!(std::panic::catch_unwind(|| restore_recorded(&root, &f)).is_err());
+    for (name, original) in FRAME_NAMES.into_iter().zip(&frames) {
+        fs::write(root.join(name), original).unwrap();
+    }
+    fs::write(key_path, key_original).unwrap();
+    assert_eq!(restore_recorded(&root, &f).1, frames);
+}
+
+#[test]
+fn recorded_recovery_refuses_lost_prekey_or_e5_before_enrollment_adoption() {
+    let directory = tempfile::tempdir().unwrap();
+    let f = fixture();
+    let root = directory.path().join("wallet-b");
+    let frames = recorded_fixture(&root, &f, 89);
+    let credential =
+        KagemushaWalletCredentialV1::decode_canonical(&frames[0], &f.config.scheme.scheme_id())
+            .unwrap();
+    let device = HostDevice::restore(&root, &credential);
+    let provider = device.provider(f.config.scheme.scheme_id());
+    let slot = provider.slots().unwrap()[0];
+    drop(provider);
+    let custody = root.join("custody");
+    let mut paths = ["client", "accepted", "slot", "phase"]
+        .map(|role| custody.join(format!("prekey-{}-{role}.norito", hex::encode([11; 32]))))
+        .to_vec();
+    paths.push(
+        custody
+            .join("slots")
+            .join(hex::encode(slot.0))
+            .join("enrollment.norito"),
+    );
+    let originals = paths
+        .iter()
+        .map(|path| fs::read(path).unwrap())
+        .collect::<Vec<_>>();
+    for missing in &paths {
+        let held = root.join("held-enrollment-original");
+        fs::rename(missing, &held).unwrap();
+        assert!(std::panic::catch_unwind(|| restore_recorded(&root, &f)).is_err());
+        assert!(
+            !missing.exists(),
+            "missing enrollment original must remain absent"
+        );
+        for (path, original) in paths.iter().zip(&originals) {
+            if path != missing {
+                assert_eq!(fs::read(path).unwrap(), *original);
+            }
+        }
+        fs::rename(&held, missing).unwrap();
+    }
+    assert_eq!(restore_recorded(&root, &f).1, frames);
+}
+
+#[test]
+fn recorded_recovery_refuses_lost_e6_without_reconstructing_enrollment() {
+    use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_provider_digest_v1;
+
+    let directory = tempfile::tempdir().unwrap();
+    let f = fixture();
+    let root = directory.path().join("wallet-b");
+    let frames = recorded_fixture(&root, &f, 89);
+    let credential =
+        KagemushaWalletCredentialV1::decode_canonical(&frames[0], &f.config.scheme.scheme_id())
+            .unwrap();
+    let device = HostDevice::restore(&root, &credential);
+    let mut provider = device.provider(f.config.scheme.scheme_id());
+    let slot = provider.slots().unwrap()[0];
+    let request = provider.enrollment_record(&slot).unwrap().unwrap().request;
+    let key = kagemusha_wallet_provider_digest_v1("enrollment-issuer-result", &request);
+    provider
+        .with_archive(&slot, |archive| archive.remove_record(&key))
+        .unwrap();
+    drop(provider);
+    assert!(std::panic::catch_unwind(|| restore_recorded(&root, &f)).is_err());
+    let mut provider = device.provider(f.config.scheme.scheme_id());
+    assert!(
+        provider
+            .with_archive(&slot, |archive| archive.read_record(&key, RESULT_MAX_BYTES))
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        provider.credential(&slot, 0).unwrap(),
+        Some(frames[0].clone())
+    );
 }
 
 #[test]
@@ -454,9 +637,6 @@ fn continue_completed_a_send_then_b_to_c_unload_with_restart_and_replay() {
         SendOriginals { offer, payment },
     );
 }
-
-#[path = "send_recovery/fold_diagnostic.rs"]
-mod fold_diagnostic;
 
 #[path = "send_recovery/archive_recovery.rs"]
 mod archive_recovery;

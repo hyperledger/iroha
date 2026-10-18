@@ -417,26 +417,21 @@ fn changed_signature_invalidates_exact_attachment_without_changing_proposal() {
 }
 
 #[test]
-fn state_transaction_cannot_apply_after_output_seal() {
+fn state_transaction_cannot_acquire_after_output_seal() {
     for consensus_only in [false, true] {
         let (state, mut source) = seal_fixture();
         let (mut block, _recording) = recorded_network_block(&state, &source);
         run(&mut block, &source);
         block.seal_execution_outputs(&mut source, metadata).unwrap();
         let fragments = block.committed_fragment_count();
-        let mut transaction = block.transaction();
-        SetKeyValue::account(
-            ALICE_ID.clone(),
-            "after_seal".parse().unwrap(),
-            Json::new(1),
-        )
-        .execute(&ALICE_ID, &mut transaction)
-        .unwrap();
-        if consensus_only {
-            transaction.apply_consensus_effects();
-        } else {
-            transaction.apply();
-        }
+        let refusal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if consensus_only {
+                drop(block.consensus_effects_transaction());
+            } else {
+                drop(block.try_transaction());
+            }
+        }));
+        assert!(refusal.is_err());
         assert!(
             block
                 .world
@@ -447,7 +442,7 @@ fn state_transaction_cannot_apply_after_output_seal() {
                 .is_none()
         );
         assert_eq!(block.committed_fragment_count(), fragments);
-        assert!(block.verify_execution_output_seal(&source).is_err());
+        block.verify_execution_output_seal(&source).unwrap();
         assert!(matches!(
             block.commit().unwrap_err(),
             TransactionsBlockError::ExecutionOutputCapacity
@@ -473,17 +468,16 @@ fn actual_seal_binds_finalizer_world_values_and_refuses_late_durable_changes() {
         .unwrap();
     block.verify_execution_output_seal(&source).unwrap();
     let wire = source.encode_wire().unwrap();
-    block
-        .world
-        .smart_contract_state
-        .insert(key.clone(), vec![2]);
-    assert_eq!(source.encode_wire().unwrap(), wire);
-    assert!(
+    let refusal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         block
-            .verify_execution_output_seal(&source)
-            .unwrap_err()
-            .contains("World values changed")
-    );
+            .world
+            .smart_contract_state
+            .insert(key.clone(), vec![2]);
+    }));
+    assert!(refusal.is_err());
+    assert_eq!(block.world.smart_contract_state.get(&key), Some(&vec![1]));
+    assert_eq!(source.encode_wire().unwrap(), wire);
+    block.verify_execution_output_seal(&source).unwrap();
     assert!(matches!(
         block.commit().unwrap_err(),
         TransactionsBlockError::ExecutionOutputCapacity
@@ -491,33 +485,40 @@ fn actual_seal_binds_finalizer_world_values_and_refuses_late_durable_changes() {
 }
 
 #[test]
-fn seal_verification_uses_values_instead_of_noop_or_rolled_back_touch_history() {
+fn seal_retains_preseal_noop_and_rollback_values_and_refuses_postseal_touches() {
     let (state, mut source) = seal_fixture();
     let (mut block, _recording) = recorded_network_block(&state, &source);
     run(&mut block, &source);
-    block.seal_execution_outputs(&mut source, metadata).unwrap();
+    let original = block.world.net_state_delta().unwrap();
     block
         .world
         .smart_contract_state
         .remove("seal/missing".parse().unwrap());
     {
-        // Exercise the actual low-level rollback; ordinary State transaction
-        // application after sealing remains forbidden by its existing owner.
         let mut tx = block.world.smart_contract_state.transaction();
         tx.insert("seal/aborted".parse().unwrap(), vec![1]);
     }
+    assert_eq!(block.world.net_state_delta().unwrap(), original);
+    block.seal_execution_outputs(&mut source, metadata).unwrap();
     block.verify_execution_output_seal(&source).unwrap();
-    let before = *block.world.soradns_last_publish_ms.get();
-    *block.world.soradns_last_publish_ms.get_mut() = match before {
-        None => Some(1),
-        Some(_) => None,
-    };
-    assert!(
-        block
-            .verify_execution_output_seal(&source)
-            .unwrap_err()
-            .contains("World values changed")
-    );
+    for noop in [true, false] {
+        let refusal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if noop {
+                block
+                    .world
+                    .smart_contract_state
+                    .remove("seal/missing".parse().unwrap());
+            } else {
+                let before = *block.world.soradns_last_publish_ms.get();
+                *block.world.soradns_last_publish_ms.get_mut() = match before {
+                    None => Some(1),
+                    Some(_) => None,
+                };
+            }
+        }));
+        assert!(refusal.is_err());
+        block.verify_execution_output_seal(&source).unwrap();
+    }
     assert!(matches!(
         block.commit().unwrap_err(),
         TransactionsBlockError::ExecutionOutputCapacity
@@ -543,6 +544,54 @@ fn sccp_header_requires_original_completed_seal_and_rejects_later_world_changes(
         block.sealed_sccp_finality_header(&source).unwrap(),
         expected
     );
-    *block.world.sccp_degraded_run.get_mut() = 1;
-    assert!(block.sealed_sccp_finality_header(&source).is_err());
+    let refusal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        *block.world.sccp_degraded_run.get_mut() = 1;
+    }));
+    assert!(refusal.is_err());
+    assert_eq!(
+        block.sealed_sccp_finality_header(&source).unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn sealed_original_output_refuses_direct_mutation_before_and_after_witness_capture() {
+    for capture in [false, true] {
+        let (state, mut source) = seal_fixture();
+        let (mut block, _recording) = recorded_network_block(&state, &source);
+        run(&mut block, &source);
+        block.seal_execution_outputs(&mut source, metadata).unwrap();
+        if capture {
+            block.capture_exec_witness().unwrap();
+        }
+        let original = std::ptr::from_ref(block.fields.as_ref().unwrap());
+        let delta = block.world.net_state_delta().unwrap();
+        let wire = source.encode_wire().unwrap();
+        let fragments = block.committed_fragment_count();
+        let key = "seal/substitution".parse().unwrap();
+        let refusal = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            block.world.smart_contract_state.insert(key, vec![1]);
+        }));
+        assert!(
+            refusal.is_err(),
+            "a sealed original cut must refuse mutable access"
+        );
+        assert_eq!(std::ptr::from_ref(block.fields.as_ref().unwrap()), original);
+        assert_eq!(block.world.net_state_delta().unwrap(), delta);
+        assert_eq!(source.encode_wire().unwrap(), wire);
+        assert_eq!(block.committed_fragment_count(), fragments);
+        block.verify_execution_output_seal(&source).unwrap();
+        if capture {
+            let witness = block
+                .take_exec_witness()
+                .expect("original captured witness remains");
+            block
+                .verify_sumeragi_execution_witness(&source, &witness)
+                .unwrap();
+        }
+        assert!(matches!(
+            block.commit().unwrap_err(),
+            TransactionsBlockError::ExecutionOutputCapacity
+        ));
+    }
 }

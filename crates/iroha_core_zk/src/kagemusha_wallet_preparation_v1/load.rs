@@ -4,7 +4,6 @@
 //! before deriving the state and preserves the exact receipt/certificate originals.
 //! It creates no folded state or permission to spend before the required fold.
 
-use crate::kagemusha_wallet_artifacts_v1::producer_inventory::QualifiedReceiptSourceV1;
 use iroha_data_model::sumeragi_finality::SumeragiCommitVerifierV1;
 
 use super::*;
@@ -12,7 +11,7 @@ use crate::kagemusha_wallet_state_v1::{self as state, finality_read_error};
 
 /// Exact ordinary finality originals and the current recovery-map insertion.
 #[derive(Clone, Copy)]
-pub struct LoadOriginalsV1<'a> {
+pub(super) struct LoadOriginalsV1<'a> {
     /// Canonical original ordinary receipt, including its original online charge.
     pub receipt: &'a [u8],
     /// Canonical native BLS evidence under the independently installed global root.
@@ -106,8 +105,9 @@ fn authenticate_originals(
     Ok((receipt, retained))
 }
 
-// Arithmetic/map derivation only. The public entry point first verifies the exact
-// retained receipt proof and current released source; this helper admits neither.
+// Arithmetic/map derivation only. The internal dispatcher first checks the current
+// released source and exact receipt originals against native BLS finality and the
+// counted event; this helper admits neither source nor receipt authority.
 fn derive(
     credential: &KagemushaWalletCredentialV1,
     before: &KagemushaWalletStateV1,
@@ -144,7 +144,7 @@ fn derive(
         &leaf.key(),
         &authority(leaf.leaf_value())?,
     ))?;
-    let mut state = before.clone();
+    let mut state = *before;
     state.core.sequence = before
         .core
         .sequence
@@ -200,16 +200,17 @@ impl PreparationV1<'_> {
     /// reused/nonempty recovery slot, malformed original, overflow or invalid nonce.
     /// Selected epoch storage/provider errors and missing retained witnesses preserve
     /// their custody classification; they are not proof rejection or proven absence.
-    pub fn prepare_load(
+    pub(super) fn prepare_load(
         &self,
         owner: &AuthenticatedCredentialV1,
         source: &ReleasedStep,
-        finality: &QualifiedReceiptSourceV1,
         custody: &mut crate::kagemusha_wallet_state_v1::PreparationCustodyV1<'_>,
         originals: LoadOriginalsV1<'_>,
-        successor_nonce: [u8; 32],
-        budget: MemoryBudget,
+        context: &OperationPreparationV1<'_>,
     ) -> Result<LoadStepV1, crate::kagemusha_wallet_state_v1::Error> {
+        let finality = context.sources.finality();
+        let successor_nonce = context.choices.nonce();
+        let budget = context.budget;
         dispatch::proof((|| {
             self.credential_owner(owner)?;
             let scheme = self.installed.verifier().scheme();

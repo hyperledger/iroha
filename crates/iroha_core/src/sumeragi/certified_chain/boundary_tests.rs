@@ -607,7 +607,11 @@ fn rotated_away_committee_verifies_from_authenticated_boundaries_with_bounded_au
         let prefix = cursor.as_ref().unwrap();
         assert_eq!(prefix.tip.height(), 14);
         assert_eq!(
-            prefix.authority.material.authorization.authority_generation,
+            prefix
+                .authority
+                .material()
+                .authorization
+                .authority_generation,
             2
         );
         assert!(prefix.schedule.entries().len() <= 3);
@@ -963,7 +967,11 @@ fn pinned_restoration_reuses_full_boundary_verification_and_one_authority_cursor
         let prefix = cursor.as_ref().unwrap();
         assert_eq!(prefix.tip.height(), 14);
         assert_eq!(
-            prefix.authority.material.authorization.authority_generation,
+            prefix
+                .authority
+                .material()
+                .authorization
+                .authority_generation,
             2
         );
         assert!(prefix.schedule.entries().len() <= 3);

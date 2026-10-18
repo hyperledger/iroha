@@ -20,7 +20,7 @@ use super::{
 /// mandatory replace-only, monotone enrollment phase (`enrollment_phase.rs`): created before
 /// the Slot selection and atomically replaced before each effect it witnesses; never removed.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum PreKeyRecordV1 {
+pub enum PreKeyRecordV1 {
     Client,
     Accepted,
     Slot,
@@ -65,7 +65,7 @@ impl PreKeyRecordV1 {
 /// after the attempt's phase binding. Recovery cross-checks its slot against that binding.
 #[derive(norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_enrollment_v1::PreKeySlotV1")]
-pub(crate) struct PreKeySlotSelectionV1 {
+pub struct PreKeySlotSelectionV1 {
     /// Exactly 1.
     pub(crate) version: u16,
     /// Client nonce of the original Fresh dispatch.
@@ -78,7 +78,7 @@ pub(crate) struct PreKeySlotSelectionV1 {
     pub(crate) generation_policy: u8,
 }
 /// A create-new publication or adoption; only an actual Published result is fresh.
-pub(crate) enum PreKeyPublicationV1 {
+pub enum PreKeyPublicationV1 {
     Published,
     Existing(Vec<u8>),
 }

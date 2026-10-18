@@ -604,6 +604,15 @@ fn pending_fee_evidence_fits(
     }
     Ok(true)
 }
+/// Validate and collect the original child view without granting mutation or apply authority.
+pub(crate) fn checked_pending_fee_evidence(
+    stx: &StateTransaction<'_, '_>,
+) -> Result<Vec<iroha_data_model::fee_evidence::FeeEvidenceRecordV1>, ExecutionAttemptError<String>>
+{
+    validate_pending_fee_evidence_budget(stx)?;
+    pending_fee_evidence_records(stx)
+}
+
 /// Capture complete block-owned native fee records after successful application.
 pub(crate) fn capture_fee_evidence(
     block: &mut StateBlock<'_>,
@@ -614,13 +623,8 @@ pub(crate) fn capture_fee_evidence(
         execution_witness::{FEE_EVIDENCE_RECORD_TAG_V1, FEE_EVIDENCE_WITNESS_KEY_V1},
         fee_evidence::FeeEvidenceSnapshotV1,
     };
-    let (height, records) = {
-        let stx = block
-            .consensus_effects_transaction()
-            .map_err(crate::state::WitnessCaptureError::StorageAdmission)?;
-        validate_pending_fee_evidence_budget(&stx)?;
-        (stx.block_height(), pending_fee_evidence_records(&stx)?)
-    };
+    let height = block._curr_block.height().get();
+    let records = block.capture_pending_fee_evidence()?;
     exposure::capture_archive(block, witness)?;
     let mut snapshot = FeeEvidenceSnapshotV1::from_records(height, &records)?;
     snapshot.account_heads_root = head_tree::receipt_head_root(&block.world)?;

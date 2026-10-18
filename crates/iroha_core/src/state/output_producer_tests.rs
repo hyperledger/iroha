@@ -612,7 +612,11 @@ fn local_refusal_rolls_back_and_never_becomes_a_canonical_rejection() {
         Some(ExecutionOutputPlanState::Poisoned)
     ));
     #[cfg(feature = "zk-preverify")]
-    assert!(block.zk_dedup.check_and_insert(&proof()));
+    {
+        // Probe a diagnostic copy; the poisoned original stays immutable.
+        let mut observed = block.zk_dedup.clone();
+        assert!(observed.check_and_insert(&proof()));
+    }
 }
 
 #[test]
@@ -639,7 +643,11 @@ fn unwind_rolls_back_side_channels_and_cannot_reopen_publication() {
         Some(ExecutionOutputPlanState::Poisoned)
     ));
     #[cfg(feature = "zk-preverify")]
-    assert!(block.zk_dedup.check_and_insert(&proof()));
+    {
+        // Probe a diagnostic copy; the poisoned original stays immutable.
+        let mut observed = block.zk_dedup.clone();
+        assert!(observed.check_and_insert(&proof()));
+    }
     assert!(matches!(
         block.commit().unwrap_err(),
         TransactionsBlockError::ExecutionOutputCapacity
@@ -1169,7 +1177,11 @@ fn refused_output_apply_keeps_state_witness_and_auxiliary_rollback_armed() {
         assert!(snapshot.reads.is_empty());
         assert!(snapshot.writes.is_empty());
         #[cfg(feature = "zk-preverify")]
-        assert!(block.zk_dedup.check_and_insert(&proof()));
+        {
+            // Probe a diagnostic copy; the poisoned original stays immutable.
+            let mut observed = block.zk_dedup.clone();
+            assert!(observed.check_and_insert(&proof()));
+        }
     }
 }
 

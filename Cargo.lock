@@ -7196,6 +7196,7 @@ dependencies = [
  "hex",
  "iroha_data_model",
  "iroha_deploy",
+ "iroha_model_base",
  "iroha_test_samples",
  "iroha_torii_shared",
  "mochi-core",

@@ -48,6 +48,26 @@ struct KagemushaNearbyAttemptGate {
   static func requireComplete(_ status: Int32) throws {
     guard status == 1 else { throw Failure.incomplete }
   }
+  /// Read current evidence from the exact Receive. A collected recovery has no retained
+  /// operation output; its permanent credit index supplies the fresh Native original.
+  static func receivedCredit(
+    status: Int32, recovery: Bool, requestID: Data,
+    retainedOutput: (Data) throws -> Void,
+    projection: (Data) throws -> ReceivedCredit
+  ) throws -> Data {
+    guard status == 1 || (recovery && status == 10) else { throw Failure.incomplete }
+    if status == 1 { try retainedOutput(requestID) }
+    let current = try projection(requestID)
+    guard current.isReceiver, !current.isBurned,
+      let original = current.original, !original.isEmpty else { throw Failure.incomplete }
+    return original
+  }
+  /// Adapter projection of Native-authenticated DATA; the gate grants no monetary authority.
+  struct ReceivedCredit {
+    let isReceiver: Bool
+    let isBurned: Bool
+    let original: Data?
+  }
   mutating func credited(status: Int32, arrival: UInt64, admitted: UInt64) throws -> (UInt64, UInt64)? {
     guard !terminal, role == .sender, inboundCount == 4 else { throw Failure.order }
     try Self.requireComplete(status)

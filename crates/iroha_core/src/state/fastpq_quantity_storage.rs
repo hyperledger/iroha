@@ -14,6 +14,7 @@ use mv::{
 };
 
 use iroha_data_model::{
+    Identifiable as _,
     account::AccountId,
     asset::{
         AssetDefinition, AssetDefinitionId, AssetId, AssetValue,
@@ -69,6 +70,30 @@ impl AssetDefinitionMetadataMut<'_> {
 }
 
 impl QuantityStorageTransaction<'_, AssetDefinitionId, AssetDefinition> {
+    /// Initialize one genuinely absent definition with zero supply. This closed
+    /// port cannot replace a lifecycle, change a quantity, or clear an earlier
+    /// raw-write observation; the original registration owner supplies the key.
+    pub(super) fn register_empty_definition(
+        &mut self,
+        key: AssetDefinitionId,
+        definition: AssetDefinition,
+    ) -> Result<(), iroha_data_model::isi::error::InstructionExecutionError> {
+        if definition.id() != &key
+            || !definition.total_quantity().is_zero()
+            || self.inner.get(&key).is_some()
+        {
+            self.raw_write = true;
+            return Err(
+                iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(
+                    "asset-definition registration must initialize its exact absent zero supply"
+                        .into(),
+                ),
+            );
+        }
+        self.inner.insert(key, definition);
+        Ok(())
+    }
+
     /// Lease only mutation methods whose implementations cannot write total quantity.
     pub(super) fn metadata_mut(
         &mut self,
@@ -292,6 +317,83 @@ mod tests {
             before: Quantity::from(before),
             after: Quantity::from(after),
         }
+    }
+
+    #[test]
+    fn registration_initializes_only_original_absent_zero_supply_and_rolls_back() {
+        let (id, mut definition) = definition();
+        definition.total_quantity = Quantity::zero();
+        let storage = Storage::<AssetDefinitionId, AssetDefinition>::default();
+        let mut block = storage.block();
+        {
+            let mut transaction = QuantityStorageTransaction::new(block.transaction());
+            transaction
+                .register_empty_definition(id.clone(), definition.clone())
+                .unwrap();
+            assert!(!transaction.has_raw_write());
+            assert_eq!(transaction.get(&id), Some(&definition));
+        }
+        assert!(
+            block.get(&id).is_none(),
+            "the original transaction owns rollback"
+        );
+        let mut transaction = QuantityStorageTransaction::new(block.transaction());
+        transaction
+            .register_empty_definition(id.clone(), definition.clone())
+            .unwrap();
+        transaction.apply();
+        assert_eq!(block.get(&id), Some(&definition));
+    }
+
+    #[test]
+    fn registration_refuses_foreign_nonzero_and_existing_supply_without_replacement() {
+        for mutation in 0..3 {
+            let (id, mut definition) = definition();
+            let mut storage = Storage::<AssetDefinitionId, AssetDefinition>::default();
+            let original = definition.clone();
+            if mutation == 2 {
+                storage.insert(id.clone(), original.clone());
+            }
+            let mut block = storage.block();
+            let mut transaction = QuantityStorageTransaction::new(block.transaction());
+            if mutation != 1 {
+                definition.total_quantity = Quantity::zero();
+            }
+            let key = if mutation == 0 {
+                AssetDefinitionId::derive_from_components(
+                    DomainId::try_new("foreign-registration", "universal").unwrap(),
+                    "units".parse().unwrap(),
+                )
+            } else {
+                id.clone()
+            };
+            assert!(
+                transaction
+                    .register_empty_definition(key.clone(), definition)
+                    .is_err()
+            );
+            assert!(transaction.has_raw_write());
+            assert_eq!(transaction.get(&id), (mutation == 2).then_some(&original));
+            if mutation == 0 {
+                assert!(transaction.get(&key).is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn authorized_zero_registration_cannot_clear_a_prior_raw_write() {
+        let (id, mut definition) = definition();
+        definition.total_quantity = Quantity::zero();
+        let storage = Storage::<AssetDefinitionId, AssetDefinition>::default();
+        let mut block = storage.block();
+        let mut transaction = QuantityStorageTransaction::new(block.transaction());
+        assert!(transaction.remove(id.clone()).is_none());
+        assert!(transaction.has_raw_write());
+        transaction
+            .register_empty_definition(id.clone(), definition.clone())
+            .unwrap();
+        assert!(transaction.has_raw_write());
+        assert_eq!(transaction.get(&id), Some(&definition));
     }
 
     #[test]

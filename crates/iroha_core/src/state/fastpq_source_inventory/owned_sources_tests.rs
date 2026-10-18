@@ -895,8 +895,17 @@ fn unknown_internal_capture_and_changed_known_capture_refuse_and_latch() {
             _ => "FASTPQ block entry differs from its applied source context",
         };
         assert_eq!(error, expected);
-        block.fastpq_transcripts.clear();
-        block.fastpq_source_captures = crate::fastpq::FastpqSourceCaptureAccumulator::default();
+        for replace in [false, true] {
+            let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if replace {
+                    block.fastpq_source_captures =
+                        crate::fastpq::FastpqSourceCaptureAccumulator::default();
+                } else {
+                    block.fastpq_transcripts.clear();
+                }
+            }));
+            assert!(refused.is_err());
+        }
         assert!(
             block
                 .seal_execution_outputs(&mut source, |block, source, _| seal_metadata(
@@ -982,9 +991,15 @@ fn foreign_proposal_and_frozen_context_refuse_before_digest_mutation() {
         };
         assert_eq!(error, expected);
         assert_eq!(block.fastpq_transcripts, transcripts);
-        block._curr_block = original_header;
-        block.network_id = original_network;
-        block.fastpq_source_context = original_context;
+        for restore in 0..3 {
+            let refused =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match restore {
+                    0 => block._curr_block = original_header,
+                    1 => block.network_id = original_network,
+                    _ => block.fastpq_source_context = original_context.clone(),
+                }));
+            assert!(refused.is_err());
+        }
         assert!(
             block
                 .seal_execution_outputs(&mut source, |block, source, _| seal_metadata(
@@ -1030,20 +1045,98 @@ fn owned_seal_still_rejects_late_applied_capture_after_transcript_drain() {
     assert_eq!(source.fastpq_transcripts().len(), 1);
     assert_eq!(source.fastpq_transcripts()[&call].len(), 1);
     block.verify_execution_output_seal(&source).unwrap();
-    // Simulate a hostile post-drain append directly at the captured-fact boundary;
-    // no test helper can reopen an admitted source transaction after sealing.
-    block.fastpq_source_captures.record(Ok(captured));
-    assert_eq!(
-        block
-            .verified_fastpq_source_inventory_for_capture()
-            .unwrap_err(),
-        "FASTPQ transcript capture was applied after source sealing"
-    );
+    // The completed output owner refuses the attempted append before it can
+    // invalidate the original source. The paired inspection test below reaches
+    // the actual accumulator's applied-after-seal rejection before completion.
+    let archive = source.fastpq_transcripts().clone();
+    super::tests::assert_completed_state_refuses_mutation(|| {
+        block.fastpq_source_captures.record(Ok(captured));
+    });
+    let retained = block
+        .verified_fastpq_source_inventory_for_capture()
+        .unwrap();
+    assert!(Arc::ptr_eq(&retained, &inventory));
     assert_eq!(
         block.fastpq_source_inventory().unwrap().unwrap(),
         inventory.as_ref()
     );
-    assert!(block.verify_execution_output_seal(&source).is_err());
+    assert_eq!(source.fastpq_transcripts(), &archive);
+    assert!(block.fastpq_transcripts.is_empty());
+    block.verify_execution_output_seal(&source).unwrap();
+    assert!(matches!(
+        block.commit().unwrap_err(),
+        TransactionsBlockError::ExecutionOutputCapacity
+    ));
+}
+
+#[test]
+fn inspected_original_capture_latches_late_applied_occurrence_after_source_drain() {
+    let (state, source, _, _) = fixture_with_effects(true, false);
+    let (mut block, _recording) = state
+        .block_with_recorded_pristine_carrier_stage(
+            &source,
+            |_| Ok::<(), String>(()),
+            |error| error,
+        )
+        .unwrap();
+    execute(&mut block, &source);
+    assert_eq!(block.fastpq_transcripts.len(), 1);
+    let call = *block.fastpq_transcripts.keys().next().unwrap();
+    let captured = block.captured_fastpq_transcript_sources().unwrap()[&call];
+    block
+        .inspect_owned_execution_sources_for_test(&source, |original, sources| {
+            original.finalize_fastpq_source_inventory_from(
+                None,
+                |original| original.validate_owned_fastpq_sources(sources),
+                |original, tx_set_hash| {
+                    original.build_owned_fastpq_source_inventory(sources, tx_set_hash)
+                },
+            )?;
+            let inventory = Arc::clone(
+                original
+                    .fastpq_source_inventory
+                    .as_ref()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap(),
+            );
+            let archive = original.drain_transfer_transcripts_with_pending(None);
+            assert_eq!(archive.len(), 1);
+            assert_eq!(archive[&call].len(), 1);
+            assert!(original.fastpq_transcripts.is_empty());
+            assert!(original.fastpq_source_captures.sealed_sources().is_ok());
+            // Inspecting retains the actual producer and capture accumulator,
+            // while withholding every output/publication capability. This reaches
+            // the lower seal invariant without reopening completed State.
+            original.fastpq_source_captures.record(Ok(captured));
+            assert_eq!(
+                original
+                    .fastpq_source_captures
+                    .sealed_sources()
+                    .unwrap_err()
+                    .to_string(),
+                "FASTPQ transcript capture was applied after source sealing"
+            );
+            assert_eq!(
+                original.fastpq_source_inventory().unwrap().unwrap(),
+                inventory.as_ref()
+            );
+            assert_eq!(
+                original
+                    .verified_fastpq_source_inventory_for_capture()
+                    .unwrap_err(),
+                "FASTPQ witness capture refuses a source inspection carrier"
+            );
+            assert!(original.verify_execution_output_publication().is_err());
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        block
+            .verified_fastpq_source_inventory_for_capture()
+            .unwrap_err(),
+        "FASTPQ witness capture refuses a poisoned carrier"
+    );
     assert!(matches!(
         block.commit().unwrap_err(),
         TransactionsBlockError::ExecutionOutputCapacity

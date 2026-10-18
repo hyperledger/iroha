@@ -8,12 +8,12 @@ fn public() -> KagemushaWalletLineagePublicV1 {
     let encoded = signer.verifying_key().to_encoded_point(false);
     KagemushaWalletLineagePublicV1 {
         version: KAGEMUSHA_WALLET_VERSION_V1,
-        scheme_id: core::array::from_fn(|index| index as u8 + 1),
-        relation_id: core::array::from_fn(|index| index as u8 + 33),
+        scheme_id: core::array::from_fn(|index| u8::try_from(index).unwrap() + 1),
+        relation_id: core::array::from_fn(|index| u8::try_from(index).unwrap() + 33),
         head: KagemushaWalletStateCommitmentV1 {
             value: Fp::from(9).to_repr(),
         },
-        wallet_id: core::array::from_fn(|index| index as u8 + 65),
+        wallet_id: core::array::from_fn(|index| u8::try_from(index).unwrap() + 65),
         credential_digest: Fp::from(11).to_repr(),
         payment_key: KagemushaDevicePublicKeyV1::from_sec1_bytes(encoded.as_bytes())
             .expect("canonical test public key"),

@@ -19,231 +19,260 @@ fn allocation_used(operation: impl FnOnce()) -> usize {
 }
 
 fn check_current_claim_identity_refusal(owner_revision: bool) {
-    crate::retail_fee_tests::fixture_block(1_793_451_600_000, |block, policy| {
-        let claimant = account(2);
-        let binding = {
-            let mut seed = block.transaction();
-            let (_, binding) = network_xor_claim_fixture(&mut seed, policy);
-            seed_claim_credit(&mut seed, &binding, &claimant, 100, 200);
-            seed.apply();
-            binding
-        };
-        let lane = binding.validator_lane_id;
-        let credit_key = claimable_key(&binding, &claimant).unwrap();
-        let state_key = state_key(&binding, "State").unwrap();
-        let source = AssetId::new(
-            binding.xor_asset_id.clone(),
-            binding.reward_pool_account_id.clone(),
-        );
-        let before_balance = block.world.assets.get(&source).cloned();
-        let before_credit = block
-            .world
-            .smart_contract_state
-            .get(&credit_key)
-            .unwrap()
-            .clone();
-        let before_state = block
-            .world
-            .smart_contract_state
-            .get(&state_key)
-            .unwrap()
-            .clone();
-        let original_pointer = block
-            .world
-            .smart_contract_state
-            .get(&credit_key)
-            .unwrap()
-            .as_ptr();
-        let marker: StatePath = "fee_claim_unpublished_TESTDATA".parse().unwrap();
-        let mut stx = block.transaction();
-        // A transaction owns its own storage snapshot. Preserve each original source
-        // allocation across refusal, rather than equating it with its parent snapshot.
-        let original_transaction_pointer = stx
-            .world
-            .smart_contract_state
-            .get(&credit_key)
-            .unwrap()
-            .as_ptr();
-        let original_parent_root_pointer = stx
-            .world
-            .smart_contract_state
-            .get_before_transaction(&credit_key)
-            .unwrap()
-            .as_ptr();
-        let plan = fee_reward_claim_plan(&stx.world, stx.block_height(), &claimant, lane)
-            .unwrap()
-            .unwrap();
-        assert_eq!(plan.source_asset, source);
-        assert_eq!(plan.amount, quantity(100, 9).unwrap());
-        let prefix = || {
-            let observed = crate::validation_fee::active_payout_binding_in_world_at_height(
-                &stx.world,
-                stx.block_height(),
-            )
-            .unwrap()
-            .unwrap();
-            assert_eq!(observed, binding);
-            if owner_revision {
-                let original = beneficiary::root_in_world(&stx.world, &binding, &claimant).unwrap();
-                assert_eq!(original, claimant);
-                let key = claimable_key(&binding, &original).unwrap();
-                assert_eq!(
-                    read_from_world::<u128>(&stx.world, &key).unwrap(),
-                    Some(100)
-                );
-                crate::state::validate_network_xor_asset(&stx.world, &binding.xor_asset_id)
-                    .unwrap();
-            }
-        };
-        // The old synthetic Treasury-credit leaf is gone. Target the current immutable
-        // beneficiary alias or revision, after admitting exactly the real claim prefix.
-        let prefix_bytes = allocation_used(prefix);
-        assert!(prefix_bytes > 0);
-        norito::with_decode_limits_scope(limits(prefix_bytes), prefix);
-        let target_refusal = norito::with_decode_limits_scope(limits(prefix_bytes), || {
-            prefix();
-            if owner_revision {
-                beneficiary::owner_in_world(&stx.world, &binding, &claimant).map(|_| ())
-            } else {
-                beneficiary::root_in_world(&stx.world, &binding, &claimant).map(|_| ())
-            }
-        })
-        .unwrap_err();
-        let ExecutionAttemptError::Deferred(target_refusal) = target_refusal else {
-            panic!("the targeted original identity reader must remain deferred");
-        };
-        assert_eq!(
-            target_refusal.reason(),
-            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
-        );
-        assert!(target_refusal.allocation_refusal().is_none());
-        let target_decode = target_refusal
-            .decode_refusal()
-            .expect("the actual beneficiary reader retains its original scope")
-            .clone();
-        let refused = norito::with_decode_limits_scope(limits(prefix_bytes), || {
-            fee_reward_claim_plan(&stx.world, stx.block_height(), &claimant, lane)
-        })
-        .unwrap_err();
-        let ExecutionAttemptError::Deferred(refused) = refused else {
-            panic!("the actual fee claim plan must retain its failed reader");
-        };
-        assert_eq!(
-            refused.reason(),
-            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
-        );
-        assert!(refused.allocation_refusal().is_none());
-        let plan_decode = refused
-            .decode_refusal()
-            .expect("the claim plan retains its actual decoder observer")
-            .clone();
-        assert_ne!(
-            plan_decode, target_decode,
-            "separate real parses have separate original observers"
-        );
-        let restored =
-            crate::execution_attempt::ExecutionDeferred::try_from_vm_error(refused.into_vm_error())
-                .unwrap();
-        assert_eq!(restored.decode_refusal(), Some(&plan_decode));
-        assert!(
-            !stx.is_execution_deferred(),
-            "a read-only plan retains the original error"
-        );
-        assert_eq!(
-            fee_reward_claim_plan(&stx.world, stx.block_height(), &claimant, lane).unwrap(),
-            Some(plan.clone())
-        );
-        assert_eq!(
-            stx.world
-                .smart_contract_state
-                .get(&credit_key)
-                .unwrap()
-                .as_ptr(),
-            original_transaction_pointer,
-            "read-only refusal and retry keep the original current leaf"
-        );
-        stx.world
-            .smart_contract_state
-            .insert(marker.clone(), vec![1]);
-        // The marker insertion may copy a shared tree node and its complete values.
-        // The original parent root remains retained; the subsequent refused claim
-        // must preserve the exact private leaf created by that legitimate edit.
-        let original_private_pointer = stx
-            .world
-            .smart_contract_state
-            .get(&credit_key)
-            .unwrap()
-            .as_ptr();
-        let refused = norito::with_decode_limits_scope(limits(prefix_bytes), || {
-            prepare_fee_reward_claim(&stx, &claimant, lane, &plan)
-        });
-        assert!(refused.is_err());
-        let deferred = stx
-            .borrow_execution_deferral()
-            .expect("connected signed-claim preparation is sticky");
-        assert_eq!(
-            deferred.reason(),
-            ivm::error::ExecutionDeferral::ActiveMemoryCapacity
-        );
-        assert!(deferred.allocation_refusal().is_none());
-        let prepared_decode = deferred
-            .decode_refusal()
-            .expect("signed claim preparation keeps the original identity reader");
-        assert_ne!(prepared_decode, &plan_decode);
-        assert_ne!(prepared_decode, &target_decode);
-        drop(deferred);
-        assert_eq!(
-            stx.world.smart_contract_state.get(&credit_key),
-            Some(&before_credit)
-        );
-        assert_eq!(
-            stx.world.smart_contract_state.get(&state_key),
-            Some(&before_state)
-        );
-        assert_eq!(stx.world.assets.get(&source).cloned(), before_balance);
-        assert_eq!(
-            stx.world
-                .smart_contract_state
-                .get(&credit_key)
-                .unwrap()
-                .as_ptr(),
-            original_private_pointer
-        );
-        assert_eq!(
-            stx.world
-                .smart_contract_state
-                .get_before_transaction(&credit_key)
-                .unwrap()
-                .as_ptr(),
-            original_parent_root_pointer,
-            "the original parent leaf remains owned across the private edit and refusal"
-        );
-        stx.apply();
-        assert!(block.world.smart_contract_state.get(&marker).is_none());
-        assert_eq!(
-            block
+    for apply_refused in [false, true] {
+        crate::retail_fee_tests::fixture_block(1_793_451_600_000, |block, policy| {
+            let claimant = account(2);
+            let binding = {
+                let mut seed = block.transaction();
+                let (_, binding) = network_xor_claim_fixture(&mut seed, policy);
+                seed_claim_credit(&mut seed, &binding, &claimant, 100, 200);
+                seed.apply();
+                binding
+            };
+            let lane = binding.validator_lane_id;
+            let credit_key = claimable_key(&binding, &claimant).unwrap();
+            let state_key = state_key(&binding, "State").unwrap();
+            let source = AssetId::new(
+                binding.xor_asset_id.clone(),
+                binding.reward_pool_account_id.clone(),
+            );
+            let before_balance = block.world.assets.get(&source).cloned();
+            let before_credit = block
                 .world
                 .smart_contract_state
                 .get(&credit_key)
                 .unwrap()
-                .as_ptr(),
-            original_pointer,
-            "the refused transaction preserves its original parent storage owner"
-        );
-        assert_eq!(
-            block.world.smart_contract_state.get(&credit_key),
-            Some(&before_credit)
-        );
-        assert_eq!(
-            block.world.smart_contract_state.get(&state_key),
-            Some(&before_state)
-        );
-        assert_eq!(block.world.assets.get(&source).cloned(), before_balance);
-        let retry = block.transaction();
-        let prepared = prepare_fee_reward_claim(&retry, &claimant, lane, &plan).unwrap();
-        assert_eq!(prepared.plan, plan);
-        assert!(!retry.is_execution_deferred());
-    });
+                .clone();
+            let before_state = block
+                .world
+                .smart_contract_state
+                .get(&state_key)
+                .unwrap()
+                .clone();
+            let original_pointer = block
+                .world
+                .smart_contract_state
+                .get(&credit_key)
+                .unwrap()
+                .as_ptr();
+            let marker: StatePath = "fee_claim_unpublished_TESTDATA".parse().unwrap();
+            let mut stx = block.transaction();
+            // A transaction owns its own storage snapshot. Preserve each original source
+            // allocation across refusal, rather than equating it with its parent snapshot.
+            let original_transaction_pointer = stx
+                .world
+                .smart_contract_state
+                .get(&credit_key)
+                .unwrap()
+                .as_ptr();
+            let original_parent_root_pointer = stx
+                .world
+                .smart_contract_state
+                .get_before_transaction(&credit_key)
+                .unwrap()
+                .as_ptr();
+            let plan = fee_reward_claim_plan(&stx.world, stx.block_height(), &claimant, lane)
+                .unwrap()
+                .unwrap();
+            assert_eq!(plan.source_asset, source);
+            assert_eq!(plan.amount, quantity(100, 9).unwrap());
+            let prefix = || {
+                let observed = crate::validation_fee::active_payout_binding_in_world_at_height(
+                    &stx.world,
+                    stx.block_height(),
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(observed, binding);
+                if owner_revision {
+                    let original =
+                        beneficiary::root_in_world(&stx.world, &binding, &claimant).unwrap();
+                    assert_eq!(original, claimant);
+                    let key = claimable_key(&binding, &original).unwrap();
+                    assert_eq!(
+                        read_from_world::<u128>(&stx.world, &key).unwrap(),
+                        Some(100)
+                    );
+                    crate::state::validate_network_xor_asset(&stx.world, &binding.xor_asset_id)
+                        .unwrap();
+                }
+            };
+            // The old synthetic Treasury-credit leaf is gone. Target the current immutable
+            // beneficiary alias or revision, after admitting exactly the real claim prefix.
+            let prefix_bytes = allocation_used(prefix);
+            assert!(prefix_bytes > 0);
+            norito::with_decode_limits_scope(limits(prefix_bytes), prefix);
+            let target_refusal = norito::with_decode_limits_scope(limits(prefix_bytes), || {
+                prefix();
+                if owner_revision {
+                    beneficiary::owner_in_world(&stx.world, &binding, &claimant).map(|_| ())
+                } else {
+                    beneficiary::root_in_world(&stx.world, &binding, &claimant).map(|_| ())
+                }
+            })
+            .unwrap_err();
+            let ExecutionAttemptError::Deferred(target_refusal) = target_refusal else {
+                panic!("the targeted original identity reader must remain deferred");
+            };
+            assert_eq!(
+                target_refusal.reason(),
+                ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+            );
+            assert!(target_refusal.allocation_refusal().is_none());
+            let target_decode = target_refusal
+                .decode_refusal()
+                .expect("the actual beneficiary reader retains its original scope")
+                .clone();
+            let refused = norito::with_decode_limits_scope(limits(prefix_bytes), || {
+                fee_reward_claim_plan(&stx.world, stx.block_height(), &claimant, lane)
+            })
+            .unwrap_err();
+            let ExecutionAttemptError::Deferred(refused) = refused else {
+                panic!("the actual fee claim plan must retain its failed reader");
+            };
+            assert_eq!(
+                refused.reason(),
+                ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+            );
+            assert!(refused.allocation_refusal().is_none());
+            let plan_decode = refused
+                .decode_refusal()
+                .expect("the claim plan retains its actual decoder observer")
+                .clone();
+            assert_ne!(
+                plan_decode, target_decode,
+                "separate real parses have separate original observers"
+            );
+            let restored = crate::execution_attempt::ExecutionDeferred::try_from_vm_error(
+                refused.into_vm_error(),
+            )
+            .unwrap();
+            assert_eq!(restored.decode_refusal(), Some(&plan_decode));
+            assert!(
+                !stx.is_execution_deferred(),
+                "a read-only plan retains the original error"
+            );
+            assert_eq!(
+                fee_reward_claim_plan(&stx.world, stx.block_height(), &claimant, lane).unwrap(),
+                Some(plan.clone())
+            );
+            assert_eq!(
+                stx.world
+                    .smart_contract_state
+                    .get(&credit_key)
+                    .unwrap()
+                    .as_ptr(),
+                original_transaction_pointer,
+                "read-only refusal and retry keep the original current leaf"
+            );
+            stx.world
+                .smart_contract_state
+                .insert(marker.clone(), vec![1]);
+            // The marker insertion may copy a shared tree node and its complete values.
+            // The original parent root remains retained; the subsequent refused claim
+            // must preserve the exact private leaf created by that legitimate edit.
+            let original_private_pointer = stx
+                .world
+                .smart_contract_state
+                .get(&credit_key)
+                .unwrap()
+                .as_ptr();
+            let refused = norito::with_decode_limits_scope(limits(prefix_bytes), || {
+                prepare_fee_reward_claim(&stx, &claimant, lane, &plan)
+            });
+            assert!(refused.is_err());
+            let deferred = stx
+                .borrow_execution_deferral()
+                .expect("connected signed-claim preparation is sticky");
+            assert_eq!(
+                deferred.reason(),
+                ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+            );
+            assert!(deferred.allocation_refusal().is_none());
+            let prepared_decode = deferred
+                .decode_refusal()
+                .expect("signed claim preparation keeps the original identity reader");
+            assert_ne!(prepared_decode, &plan_decode);
+            assert_ne!(prepared_decode, &target_decode);
+            drop(deferred);
+            assert_eq!(
+                stx.world.smart_contract_state.get(&credit_key),
+                Some(&before_credit)
+            );
+            assert_eq!(
+                stx.world.smart_contract_state.get(&state_key),
+                Some(&before_state)
+            );
+            assert_eq!(stx.world.assets.get(&source).cloned(), before_balance);
+            assert_eq!(
+                stx.world
+                    .smart_contract_state
+                    .get(&credit_key)
+                    .unwrap()
+                    .as_ptr(),
+                original_private_pointer
+            );
+            assert_eq!(
+                stx.world
+                    .smart_contract_state
+                    .get_before_transaction(&credit_key)
+                    .unwrap()
+                    .as_ptr(),
+                original_parent_root_pointer,
+                "the original parent leaf remains owned across the private edit and refusal"
+            );
+            if apply_refused {
+                // Trying to apply a locally deferred transaction retires the whole
+                // execution attempt. It may not acquire another child afterward.
+                stx.apply();
+            } else {
+                // Dropping the refused overlay leaves the same parent available for
+                // an independently admitted retry after the original decode scope ends.
+                drop(stx);
+            }
+            assert!(block.world.smart_contract_state.get(&marker).is_none());
+            assert_eq!(
+                block
+                    .world
+                    .smart_contract_state
+                    .get(&credit_key)
+                    .unwrap()
+                    .as_ptr(),
+                original_pointer,
+                "the refused transaction preserves its original parent storage owner"
+            );
+            assert_eq!(
+                block.world.smart_contract_state.get(&credit_key),
+                Some(&before_credit)
+            );
+            assert_eq!(
+                block.world.smart_contract_state.get(&state_key),
+                Some(&before_state)
+            );
+            assert_eq!(block.world.assets.get(&source).cloned(), before_balance);
+            if apply_refused {
+                let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    drop(block.transaction());
+                }))
+                .expect_err("a refused apply must not reopen the original execution");
+                let message = refused
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| refused.downcast_ref::<String>().map(String::as_str));
+                assert_eq!(
+                    message,
+                    Some("completed execution retains immutable original State")
+                );
+                assert!(block.world.smart_contract_state.get(&marker).is_none());
+                assert_eq!(block.world.assets.get(&source).cloned(), before_balance);
+            } else {
+                let retry = block.transaction();
+                let prepared = prepare_fee_reward_claim(&retry, &claimant, lane, &plan).unwrap();
+                assert_eq!(prepared.plan, plan);
+                assert!(!retry.is_execution_deferred());
+            }
+        });
+    }
 }
 
 #[test]

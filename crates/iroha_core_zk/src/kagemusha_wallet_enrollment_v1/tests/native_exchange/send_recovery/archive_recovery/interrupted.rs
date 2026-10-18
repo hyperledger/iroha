@@ -10,38 +10,6 @@ fn prior_original(root: &Path, manifest: &norito::json::Value, name: &str, field
     )
 }
 
-/// Recover an already committed Archive, never permit a fresh sequence or signature.
-fn retained_archive(
-    wallet: &mut Wallet,
-    sources: &Sources,
-    fixture: &Fixture,
-    frames: &[Vec<u8>; 4],
-    evidence: &[u8],
-    credit_id: [u8; 32],
-) -> Vec<u8> {
-    let before = wallet.snapshot().unwrap();
-    let original = complete(wallet.accept_credited(evidence).unwrap());
-    let package: KagemushaWalletPackageV1 = decode(&original);
-    let credential = KagemushaWalletCredentialV1::decode_canonical(
-        &frames[0],
-        &fixture.config.scheme.scheme_id(),
-    )
-    .unwrap();
-    package.verify(&credential).unwrap();
-    assert!(matches!(package.statement.effect,
-        KagemushaWalletEffectV1::ArchiveSent { credit_id: actual, .. }
-        if actual == credit_id));
-    sources
-        .installed
-        .verifier()
-        .verify_package_proofs(&package, MemoryBudget::DEFAULT)
-        .unwrap();
-    assert_eq!(package.statement.sequence, before.sequence);
-    assert_eq!(package.statement.successor.value, before.head);
-    assert_eq!(wallet.snapshot().unwrap(), before);
-    original
-}
-
 #[test]
 #[ignore = "requires exact retained A Archive fully folded and B Archive checkpoint7; never repeats completed transfers or Archive commits"]
 fn continue_retained_b_archive_then_unload_without_repeating_transfers() {

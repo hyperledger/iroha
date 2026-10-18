@@ -1193,17 +1193,22 @@ fn pinned_known_answers() {
 
 /// The pinned statement digests and credit identifiers of
 /// [`pinned_known_answers`], in [`RELATIONS`] order.
+/// Independently derived with Python integer RP57 and the canonical
+/// 29-core/6-rest/24-Request/26-statement layouts. Complete named preimages
+/// and the sampler stream are retained in
+/// `target/qualification/sigma-current-kat-independent-20261018-1/result.json`
+/// (SHA-256 `0086f81d82266de3599b1a5ddd5ef1328a1b62c6f7344912654e6d7c59e6eecd`).
 const PINNED: [(&str, &str); 3] = [
     (
-        "12a4276bd70cdf2e4b61f10b59f599e45dd22447889b222d206ae4c520cfca0a", // TODO(blacklist-local V2): re-measure
-        "a9de6f9f2c74186b8975dc0ae00e004958989596c0a7f3eae8907682ea110515", // TODO(blacklist-local V2): re-measure
+        "71614bab4806c3f63b97458952e3c5940219f214e71c76ff5aa4d54e7a15090f",
+        "555946148725ef5ca68026fe51c4bb5eb618d24bffb189369eb55b6badccad24",
     ),
     (
-        "9454c0c652d72d11ad70fdde14bed8ea5d696f70d127a675a2641ecdf626fc30", // TODO(blacklist-local V2): re-measure
-        "a9de6f9f2c74186b8975dc0ae00e004958989596c0a7f3eae8907682ea110515", // TODO(blacklist-local V2): re-measure
+        "c17d3d10bb8aa7e96a001050951cc68a721e9d40a74b05290b3f897ef6d8ca2a",
+        "555946148725ef5ca68026fe51c4bb5eb618d24bffb189369eb55b6badccad24",
     ),
     (
-        "2e16593df37b8c8444f3596143068ad3f29556b437515a5bb8d392a1de604925", // TODO(blacklist-local V2): re-measure
-        "1855503b9b3e761aa19c37f36c314933a80f418f45f3214ac79180662bd0e81d", // TODO(blacklist-local V2): re-measure
+        "ab0b60a90d7f6ab183c86cc408155af6478f4eeb8a44e69be3badbc1d04aa628",
+        "85127dd3d85fd8ed6c494c7d8b2de2cee70032a1e57c71ee4f4195d92bbd020e",
     ),
 ];

@@ -208,7 +208,7 @@ fn operation(
     let handle = NativePaymentOperation::create(
         request,
         storage,
-        native.verifier(),
+        NativePaymentSession::new(native.verifier(), std::num::NonZeroUsize::new(64).unwrap()).unwrap(),
         account.clone(),
         account.clone(),
         source,
@@ -1139,3 +1139,5 @@ fn native_payment_error_retains_typed_cause_without_inline_progress_graph() {
     ));
     assert!(progress.is_none());
 }
+
+mod session_tests;

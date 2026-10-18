@@ -6,7 +6,7 @@
 use super::*;
 use crate::kagemusha_wallet_preparation_v1::{
     ArchiveFoldFieldsV1, ArchiveFoldWitnessV1, ArchiveIncomingWitnessV1, FoldedStateV1,
-    PreparationV1, PreparedOperationV1, ReceiveFoldFieldsV1, ReceiveFoldMapsV1,
+    PreparationV1, PreparedOperationV1, ReceiveFoldFieldsV1,
 };
 use crate::kagemusha_wallet_state_v1::{FoldCustodyV1, ReleasedStep};
 use iroha_data_model::kagemusha::kagemusha_wallet_v1::*;
@@ -189,7 +189,7 @@ pub(super) fn receive(
         predecessor,
         monetary,
         public,
-        ReceiveFoldMapsV1 { credit },
+        &credit,
         proposal,
         worker.budget,
     ))?;

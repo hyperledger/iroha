@@ -203,6 +203,11 @@ fn shared_terminal_records_close_fresh_metadata_before_an_epoch_error() {
 
 #[test]
 fn published_handle_copy_omits_only_two_native_censuses_and_keeps_fresh_record_work() {
+    // Isolate the prior handle-copy reduction with literal metadata decoding. Combined
+    // exact-image reuse has its own fresh-byte/native-work tests in metadata_reuse_tests.
+    metadata_reuse_tests::with_original_recipe(published_handle_copy_with_original_metadata);
+}
+fn published_handle_copy_with_original_metadata() {
     let _resources = crate::managed::native_test_guard();
     let (fixture, history) = shared_snapshot_tests::history_with_bodies(2);
     let native = history.current_history().unwrap();

@@ -1135,6 +1135,7 @@ pub(super) fn synthetic_payout_wallet(scheme: KagemushaWalletSchemeV1, chain: St
         indexed: Some(0),
         capsule: custody.status.marker().unwrap().head().unwrap().2,
         steps: IndexRoot::default(),
+        operations: IndexRoot::default(),
         credits: IndexRoot::default(),
         outgoing: IndexRoot::default(),
         folds: IndexRoot::default(),
@@ -1934,6 +1935,27 @@ fn replay_reads_are_bounded_and_retry_never_converts_unavailable_to_unknown() {
         w.archive.reads.load(Ordering::SeqCst) - before_retry <= 260,
         "retry uses one authenticated step path, not a history scan"
     );
+    let operation = first.capsule.body().operation_id;
+    let retained = w.custody.retained.remove(&operation).unwrap();
+    let (result, counters) =
+        crate::kagemusha_wallet_advance_v1::KagemushaWalletStorageCountersV1::observe(|| {
+            w.retry(&operation)
+        });
+    assert_eq!(result.unwrap(), Some(Completion::DeliveryDataLoss));
+    assert_eq!(
+        counters.index_walks, 2,
+        "one operation locator and one authenticated step"
+    );
+    assert!(counters.index_max_depth <= 257);
+    assert!(
+        counters.index_node_loads <= 514,
+        "loss resolution never scans history"
+    );
+    assert_eq!(
+        counters.index_node_saves, 0,
+        "classification must be read-only"
+    );
+    w.custody.retained.insert(operation, retained);
     assert_eq!(w.retry(&[0xa5; 32]).expect("unknown"), None);
     let signatures = w.custody.signatures;
     w.custody.unavailable = true;
@@ -3246,6 +3268,70 @@ fn retry_authenticates_released_before_index_and_preserves_pending_historical_re
         Some(Completion::Pending)
     );
     assert_eq!(w.custody.signatures, signatures);
+}
+
+#[test]
+fn operation_locator_and_step_publish_together_and_reject_colliding_identity() {
+    let mut w = wallet();
+    let boot = bootstrap();
+    w.commit(boot.clone()).unwrap();
+    let next = frozen(
+        Some(&boot),
+        KagemushaWalletEffectV1::Load {
+            load_ordinal: 0,
+            receipt_digest: field(117),
+            amount: 1,
+            online_charge: 0,
+        },
+    );
+    let operation = next.capsule.body().operation_id;
+    let sequence = next.capsule.body().statement.sequence;
+    w.custody.fail_publication = Some(false);
+    assert!(w.commit(next).is_err());
+    let (selected, mut manifest) = w.manifest().unwrap();
+    assert_eq!(manifest.indexed, Some(0));
+    assert!(
+        manifest
+            .operations
+            .get(&mut w.archive, &operation)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        manifest
+            .steps
+            .get(&mut w.archive, &manifest::sequence_key(sequence))
+            .unwrap()
+            .is_none()
+    );
+    let original_operations = manifest.operations;
+    // An operation identity cannot be assigned to two authenticated steps, including
+    // while replaying a released tail whose earlier manifest publication failed.
+    manifest.operations = manifest
+        .operations
+        .set(&mut w.archive, operation, &manifest::sequence_key(0))
+        .unwrap();
+    let collision = w.publish_manifest(selected, &manifest).unwrap();
+    assert!(matches!(
+        w.sync_manifest(),
+        Err(Error::WitnessLost("duplicate committed operation"))
+    ));
+    assert_eq!(w.manifest().unwrap().0, collision);
+    manifest.operations = original_operations;
+    w.publish_manifest(collision, &manifest).unwrap();
+    let (_, manifest) = w.sync_manifest().unwrap();
+    assert_eq!(
+        manifest
+            .operations
+            .get(&mut w.archive, &operation)
+            .unwrap()
+            .unwrap(),
+        manifest::sequence_key(sequence)
+    );
+    assert_eq!(
+        w.step_entry(&manifest, sequence).unwrap().operation,
+        operation
+    );
 }
 
 #[test]

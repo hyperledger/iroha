@@ -457,7 +457,25 @@ fn maximum_production_slot_is_valid_and_overflow_rejects() {
         assigned.tables.advice_assigned(),
         unknown.tables.advice_assigned()
     );
-    assert!(configure(&c).expect("configure").0.degree() <= iroha_plonk_gadgets::MAX_GATE_DEGREE);
+    let (cs, _) = configure(&c).expect("configure");
+    for gate in cs.gates() {
+        for polynomial in gate.polynomials() {
+            assert!(
+                polynomial.degree() <= iroha_plonk_gadgets::MAX_GATE_DEGREE,
+                "gate {}",
+                gate.name()
+            );
+        }
+    }
+    // The configured running-sum lookup has degree-2 inputs and a
+    // degree-1 fixed table, so its norm argument has degree 8.
+    assert_eq!(cs.lookups().len(), 1);
+    let lookup = &cs.lookups()[0];
+    assert_eq!(lookup.width(), 1);
+    assert_eq!(lookup.input_expressions()[0].degree(), 2);
+    assert_eq!(lookup.table_expressions()[0].degree(), 1);
+    assert_eq!(lookup.required_degree(), 8);
+    assert_eq!(cs.degree(), 8);
 }
 
 fn field(value: &Value) -> Fp {

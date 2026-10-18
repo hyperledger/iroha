@@ -8,8 +8,8 @@ use super::retention::{
 use super::*;
 use crate::kagemusha_wallet_preparation_v1::{
     ArchiveFoldFieldsV1, AuthenticatedCredentialV1, BootstrapFoldFieldsV1, ConsumingFoldFieldsV1,
-    LoadFoldFieldsV1, NativeChoicesV1, PreparationV1, PreparedOperationV1, ReceiveFoldFieldsV1,
-    RefreshFoldFieldsV1, RefreshOwnersV1, SendFoldFieldsV1,
+    LoadFoldFieldsV1, NativeChoicesV1, OperationPreparationV1, PreparationV1, PreparedOperationV1,
+    ReceiveFoldFieldsV1, RefreshFoldFieldsV1, RefreshOwnersV1, SendFoldFieldsV1,
 };
 use iroha_kagemusha_proof::{
     a_relation::schedule::compiled::compiled_routes, operation_relation::objects::ObjectKind,
@@ -417,10 +417,11 @@ impl NativeFoldWorkerV1 {
             &step.frozen,
             &source,
             &mut selected,
-            &self.sources,
-            choices.nonce(),
-            choices.time().as_ref(),
-            self.budget,
+            &OperationPreparationV1 {
+                sources: &self.sources,
+                choices: &choices,
+                budget: self.budget,
+            },
         )?;
         prepared.verify_frozen(preparation, &step.frozen, self.budget)?;
         let actual = selected.finish(&step.frozen.capsule.body().successor_state)?;

@@ -113,7 +113,7 @@ fn derived_load_matches_strict_sigma_and_only_changes_the_required_fields() {
     assert_eq!(state.core.next_load, source.before.core.next_load + 1);
     assert_eq!(state.core.sequence, source.before.core.sequence + 1);
     assert_eq!(state.core.load_redeem_recovery_root, source.after_root);
-    let mut restored = state.clone();
+    let mut restored = state;
     restored.core.balance = source.before.core.balance;
     restored.core.next_load = source.before.core.next_load;
     restored.core.sequence = source.before.core.sequence;

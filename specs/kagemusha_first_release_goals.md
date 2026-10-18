@@ -100,9 +100,9 @@ iOS primitive requires an explicit design decision. New external crates, commits
 and the proposed dependency-budget baseline also require the stated owner
 decision. Do not request these decisions before the concrete work is reviewable.
 
-The current iOS monetary-probe notes name an iPhone 17 Pro Max, whereas the
-selected requirement names an iPhone 16 Pro Max. Reconcile actual hardware
-identity before declaring the device population; do not transfer captures
-between them. The four-validator monetary harness also requires an external
+The [device checklist](kagemusha_evidence_gate.md#6-complete-device-exchanges)
+records the selected models and current availability observations. Capture
+actual hardware identity before declaring the device population; do not transfer
+captures between models. The four-validator monetary harness also requires an external
 controller and a catalog built from that campaign's actual emitted genesis;
 starting its ignored test alone cannot complete the campaign.

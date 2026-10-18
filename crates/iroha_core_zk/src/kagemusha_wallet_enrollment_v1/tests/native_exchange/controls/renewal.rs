@@ -215,6 +215,9 @@ fn send_received_balance(
             payment: payment.clone(),
         },
     ));
+    records.push(message_census::record_payment_lineage(
+        output, label, &payment,
+    ));
     let scheme = sources.installed.verifier().scheme();
     let credential =
         KagemushaWalletCredentialV1::decode_canonical(&frames[0], &scheme.scheme_id()).unwrap();
@@ -478,7 +481,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         30,
         &mut id,
         &output,
-        "before-renewal",
+        "daily-straddle",
         &mut records,
     );
     review_refused(&mut b, &device_b, &request30, &frames_a[2]);
@@ -870,6 +873,13 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         &output,
         "retiring-refused-request-offer.norito",
         &offer_for_retired,
+    ));
+    records.push(message_census::record(
+        &output,
+        "retiring-refused-request-offer",
+        KagemushaWalletMessageV1::Offer {
+            offer: decode(&offer_for_retired),
+        },
     ));
 
     // Renew the RECEIVER after Request30 was signed and Payment30 was irrevocably
@@ -1292,6 +1302,16 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         &frames_a[1],
     ));
     records.push(norito::json!({"case":"retiring-preserves-custody","owned_at_retirement":"70","unresolved_payment_at_retirement":"30","later_sends":4,"new_request_refused":true,"same_custody_restart_exact_retirement_retry":true,"final_lifecycle":"Retiring"}));
+    let complete_exchange_roles = [
+        "daily-straddle",
+        "daily-boundary",
+        "monthly-straddle",
+        "monthly-boundary",
+        "both-kinds-next-period",
+    ]
+    .into_iter()
+    .map(|label| message_census::complete_exchange_roles(&records, label))
+    .collect::<Vec<_>>();
     let result = norito::json!({
         "schema":"iroha.kagemusha.native-controls-renewal-rollover-result.v1",
         "source_pins":(source_pins()),"producer_sha256":(sha(&bytes)),
@@ -1305,6 +1325,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         ],
         "payments":5,"received_total":"100","final_owned_atomic":["100","0"],"fee_atomic":"0","burned_atomic":"0",
         "daily_monthly_expected_usage":balances,"records":records,
+        "complete_exchange_roles":complete_exchange_roles,
         "same_custody_restart_exact_payment_retries":true,
         "scope":"Genuine installed native Credential Refresh, Send, Receive including ReceiveRenewed, Retiring and Archive proofs over prior one-Load lineage. Retirement preserves four subsequent Sends and exact original retries; it does not establish ledger load closure or late incoming delivery to a Retiring receiver. Fixture issuer signs replacement credentials; hardware and clock are explicit engineering fixtures. This does not qualify platform attestation, remote renewal service, physical devices, four-validator controls or release readiness."
     });

@@ -283,10 +283,12 @@ pub(super) fn run(
     source: &mut dyn OriginalSourceV1,
     config: ReadConfig,
 ) -> usize {
-    let route = compiled_routes()
-        .into_iter()
-        .next()
-        .expect("complete canonical routes");
+    let route = sigma_route(&compiled_routes(), |route| {
+        qualified.q(route).unwrap().signature_offset()
+    })
+    .expect("complete catalog includes an actual Q_sigma source");
+    assert!(qualified.q(route).unwrap().sigma().is_some());
+    assert_eq!(qualified.q(route).unwrap().signature_offset(), 1);
     assert!(qualified.q(route).unwrap().keys().len() >= 2);
     // Every sigma selector rebuilds from its qualified seal only after these same
     // caps and reads (no strict re-import exists). Canonical Q0/Q1 exercise the two
@@ -303,4 +305,38 @@ pub(super) fn run(
         exercise(*selected, qualified, source, config);
     }
     selections.len()
+}
+
+fn sigma_route(
+    routes: &[OperationRoute],
+    signature_offset: impl Fn(OperationRoute) -> usize,
+) -> Option<OperationRoute> {
+    routes
+        .iter()
+        .copied()
+        .find(|route| signature_offset(*route) == 1)
+}
+
+#[test]
+fn acquisition_route_skips_lean_bootstrap_and_requires_both_q_roles() {
+    use iroha_kagemusha_proof::a_relation::schedule::{
+        compiled::OperationSchedule, proves_own_step_inline,
+    };
+    let routes = compiled_routes();
+    assert_eq!(routes[0].variant, Variant::Bootstrap);
+    let selected = sigma_route(&routes, |route| {
+        usize::from(!proves_own_step_inline(route.variant) || route.incoming.is_some())
+    })
+    .unwrap();
+    assert_eq!(selected.variant, Variant::Receive);
+    assert_ne!(selected, routes[0]);
+    assert_eq!(
+        OperationSchedule::for_variant(selected.variant)
+            .q_partitions()
+            .iter()
+            .flatten()
+            .count(),
+        2
+    );
+    assert!(sigma_route(&routes, |_| 0).is_none());
 }

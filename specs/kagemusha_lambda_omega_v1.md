@@ -581,16 +581,24 @@ instance and feeds its 32-byte canonical encoding to SHA-256.
 **σ byte crossing.** σ is verified in Q (Fq) but its `P_bytes` digest is computed in A (Fp).
 Q decomposes the length-prefixed σ bytes into 31-byte chunks (2–3 cells per byte)
 and exports them as Bounded instances (each < 2^248 < p). The fixed descriptor
-selects the export length: `ceil((4 + |σ|) / 31)`, 107 chunks for the measured
-3,296-byte k12 class and 112 for the measured 3,456-byte k14 class. A checks the
+selects the export length: `ceil((4 + |σ|) / 31)`, 109 chunks for the current
+3,360-byte k12 monetary class and 114 for the 3,520-byte k14 quota class. These
+lengths come from the current descriptors; complete catalog admission remains
+a separate check. A checks the
 same class and length, including the final zero padding. Its estimated Lagrange
-evaluation cost is ≈ 0.43k cells per chunk [E], about 46k–48k cells per σ.
+evaluation cost is ≈ 0.43k cells per chunk [E], about 47k–49k cells per σ.
 
 ### 5.3 Shapes and unit costs
 
+The σ rows use current descriptor lengths. The remaining rows retain historical
+planning shapes and estimates; regenerated norm-product and total-map artifacts
+require their own catalog and resource measurements. Earlier 3,296-byte σ
+timings (0.77–0.78 s on Mac 1t) do not qualify the current shapes.
+
 | Circuit | k | Advice | Local proof bytes [C] | Capacity (cells, 0.83 packing) [E] | Prove, Mac 1t [E] |
 |---|---:|---:|---:|---:|---:|
-| σ | 12 | 5 | 3,296 [M] | — | 0.77–0.78 s [M] |
+| Monetary σ without quotas | 12 | 5 | 3,360 | — | unqualified |
+| Monetary σ with quotas | 14 | 5 | 3,520 | — | unqualified |
 | Q | 16 | 22 | 6,016 | 1.15M | 21–30 s |
 | A | 16 | 32 | 7,424 | 1.67M | 26–36 s |
 | Ω / W | 16 | 11 | 3,648 (+1,088) | 0.58M | 15–21 s |
@@ -609,7 +617,7 @@ historical estimates cannot establish the current G3.6 result.
 | Tree node `P(d, [l, r])` | 2 permutations = 296 [M] |
 | P-256 variable key (complete, low-S, SEC1, soft) | 0.2–0.4M [E]; **threshold 0.30M**; historical retired-engine measurement: 1,466,624 [M, checklist §8] |
 | P-256 fixed key (scheme root) | 0.06–0.15M [E]; **threshold 0.12M** |
-| SHA-256 block, degree 6 | 37–50k [E] (Table8 source estimate 2,304 rows, unmeasured) |
+| SHA-256 block, arithmetic gate degree ≤ 6 | 37–50k [E] (Table8 source estimate 2,304 rows, unmeasured) |
 | FF-CRT multiplication (Fq-in-Fp, Fp-in-Fq, P-256 p and n) | 80–100 [E] |
 | GLV variable-base multiplication, full width | 1.2–1.5k + complete tail [E] |
 | Complete-arithmetic surcharge per verified proof | 10–15k [E] |
@@ -972,21 +980,30 @@ keeps historical arguments and executions at their recorded source scope.
 
 ## 9. Gadget list
 
-Chips go in `iroha_plonk_gadgets` (M3); recursion components in the new workspace crate
-`iroha_plonk_recursion` (M4). Every chip has degree ≤ 6, deterministic witness generation and
-native/in-circuit equality tests against native references (`iroha_pasta`; test-only `p256`
-0.13, `sha2` 0.10 and `num-bigint` 0.4, already in `Cargo.lock`). Vendored halo2 is only a test
-oracle; the `iroha_core_zk` gadgets below are references, never dependencies.
+Chips live in `iroha_plonk_gadgets` (M3); recursion components in
+`iroha_plonk_recursion` (M4). Ordinary chip arithmetic gates have degree ≤ 6
+before selector compression. This is not a bound on complete circuit degree:
+selector compression, norm lookup arguments and an explicit minimum contribute
+to the authenticated descriptor, as specified in [PIPA §2](plonk_ipa_v1.md#2-arithmetization-p-norm-products).
+Current monetary σ and the shared Q leaf have total degree 10; explicit compact
+phase layouts are pinned separately. Quotient geometry and proof bytes use that
+complete degree, never the ordinary arithmetic bound. Witness generation is
+deterministic, with native/in-circuit equality tests against native references
+(`iroha_pasta`; test-only `p256` 0.13, `sha2` 0.10 and `num-bigint` 0.4, already in
+`Cargo.lock`). The temporary vendored prover oracle is retired, including test
+and development dependencies. Captured public vectors and the independent
+standard-library reference verifier retain its checks; the former `iroha_core_zk`
+gadgets listed below are historical design references, never dependencies.
 
 | Gadget (crate::module) | Fields | Cost [E] | Port or learn from | Notes |
 |---|---|---|---|---|
 | FF-CRT chip `iroha_plonk_gadgets::ff` | Fq-in-Fp, Fp-in-Fq, P-256 p and n | 80–100 cells per multiplication; add ≈ 5; inverse = witness + 1 multiplication | `kagemusha_p256_curve_gadget.rs` (3 × 87-bit bound) | 15-bit range table; carry-bound memo |
 | Pasta ECC chip `::ecc` | Pallas-in-Fp (A), Vesta-in-Fq (Q, Ω) | GLV variable base 1.2–1.5k + complete tail; complete add ≈ 12; fixed base 0.5–1.0k; on-curve 3 | M8 double-and-add in `g3_proof_scaling_measurement_tests.rs`; `pasta_dense_msm.rs`; Orchard complete addition | §8 §9.3 rules; lattice KAT |
 | P-256 ECDSA chip `::p256` | Fq (Q) | V ≤ 0.30M, F ≤ 0.12M; soft and hard | `kagemusha_p256_curve_gadget.rs` (joint 2-bit Shamir, low-S, x(R) mod n); RCB complete formulas | per-proof `lookup_any` window table; e = SHA-256 output as a big-endian integer mod n |
-| SHA-256 compression `::sha256` | Fq | ≤ 2,800 rows, ≤ 50k cells per block | `pasta_sha256_table8.rs` (degree 9 → 6) | exactly one block: the 32-byte canonical (little-endian, wire §3.2) encoding of m, loaded as eight big-endian words, then the fixed padding; codec m → bytes with the `< p` canonicity check (≈ 0.1k) |
+| SHA-256 compression `::sha256` | Fq | ≤ 2,800 rows, ≤ 50k cells per block | `pasta_sha256_table8.rs` (ordinary arithmetic gates reduced to degree ≤ 6) | exactly one block: the 32-byte canonical (little-endian, wire §3.2) encoding of m, loaded as eight big-endian words, then the fixed padding; codec m → bytes with the `< p` canonicity check (≈ 0.1k) |
 | Pow5 Fq lane | Fq | 148 per permutation | existing generic `poseidon::pow5` | parity vectors against `RP57_FQ` |
 | IMT chip `::imt` (depth 32) | Fp | insert 39.7k; removal ≈ 39.7k; non-membership 10.0k; membership 9.9k; membership-or-insert ≈ insert | wire §3.2; `iroha_data_model` native trees | shares its path layer with the quota-window and quota-usage array path chips; written slot must be empty; next free index is native (slot `2^32 − 1` valid) |
-| Byte linking `::bytes` | Fp, Fq | 2–3 cells per byte; opaque chunk ≈ 20 | `statement.rs` codecs | `P_bytes` chunks; signed-message transcripts; compressed point ↔ (x, y parity); descriptor-fixed 107/112-chunk σ export |
+| Byte linking `::bytes` | Fp, Fq | 2–3 cells per byte; opaque chunk ≈ 20 | `statement.rs` codecs | `P_bytes` chunks; signed-message transcripts; compressed point ↔ (x, y parity); descriptor-derived σ export (109/114 chunks for current monetary σ) |
 | u128, glue, statement | Fp | existing | `iroha_plonk_gadgets` | — |
 | PIPA-R transcript `iroha_plonk_recursion::transcript` | Fp, Fq | 148 per permutation; ≈ 30 per S6 limb pair; challenge map ≈ 10 | native `kagemusha_poseidon.rs` | 6.2b |
 | Succinct verifier interpreter `::verifier` | Pallas-in-Fp, Vesta-in-Fq | §5.3 | S11 `constraint_terms`, `transcript_schedule` | hard and soft modes; typed instances; one-hot key or carried digest |
@@ -1043,7 +1060,7 @@ tampered and the circuit must become unsatisfiable.
 |---|---|---|
 | G3.1 P-256 variable key | ≤ 0.30M cells and ≤ 14k rows at ≤ 22 advice | 0.30–0.40M: Receive uses the A-split (§5.5); > 0.40M: redesign before M4 (`lookup_any` window tables, precommitted own key) |
 | G3.2 P-256 fixed key | ≤ 0.12M cells | as G3.1 |
-| G3.3 SHA-256 block | ≤ 2,800 rows, ≤ 50k cells, degree ≤ 6 | Q packing is recomputed |
+| G3.3 SHA-256 block | ≤ 2,800 rows, ≤ 50k cells, ordinary arithmetic gate degree ≤ 6 | Q packing is recomputed |
 | G3.4 FF multiplication | ≤ 100 cells; carry-bound memo written | blocks M4 |
 | G3.5 GLV multiplication | ≤ 1.6k cells with the complete tail | verifier budgets are recomputed |
 | G3.6 synthetic Q-shaped proof (22 / 32 / 8 / 3) | ≤ 30 s Mac 1t; ≤ 10 s 4t; peak RSS ≤ 0.75 GiB | time model recalibrated; the leaf is narrowed |
@@ -1092,7 +1109,14 @@ A component verdict qualifies only those measured workloads and cannot establish
 a frozen whole-release candidate. Registry versions remain bound by Cargo.lock.
 
 For each configuration collect three separated blocks of three fresh processes,
-balancing configuration order with a recorded shuffle seed. Retain the first two
+balancing configuration order with a recorded shuffle seed. The predeclared
+schedule must place another configuration between consecutive blocks of the
+same configuration. An exhausted configuration that executes no process cannot
+supply that separation; the retained execution order must establish it. A failed
+launch cannot separate blocks, while a child that ran with invalid calibration
+or environmental readings can. Missing separation prevents qualification of
+the affected configuration without discarding its measurements or hard failures.
+Retain the first two
 proofs of each process and use the slower one for its timing sample. The process
 seed and sample index derive two distinct input-fixture seeds through the pinned
 SplitMix64 mapping. Reports must retain and validate both seeds and their exact

@@ -9,6 +9,7 @@ use crate::{
 };
 use iroha_data_model::prelude::*;
 use iroha_test_samples::{ALICE_ID, ALICE_KEYPAIR, BOB_ID};
+use mv::storage::StorageReadOnly as _;
 use std::{collections::BTreeMap, num::NonZeroUsize, path::Path};
 
 fn store_config(path: &Path) -> config::Kura {
@@ -141,6 +142,62 @@ fn limits() -> SourceReadLimits {
         max_statements: 64,
         max_effects_per_statement: 128,
     }
+}
+
+#[test]
+fn signed_genesis_registration_and_mint_retain_complete_original_supply() {
+    run(|| {
+        use iroha_data_model::fastpq::{FastpqExecutionEffectKindV1, FastpqSourceEffectCoverageV1};
+        use iroha_primitives::numeric::Quantity;
+        let (chain, _seed, asset) = fixture();
+        let mut read = NativeFastpqSourceRead::new(
+            chain.kura().clone(),
+            native(&chain, 1),
+            chain.state().ivm_execution_budget(),
+            limits(),
+        );
+        let source = complete_read(&mut read);
+        assert_eq!(
+            source.manifest().coverage,
+            FastpqSourceEffectCoverageV1::Complete
+        );
+        assert!(!source.leaves().is_empty());
+        let view = chain.state().view();
+        let incarnation = *view
+            .world()
+            .axt_asset_incarnations()
+            .get(asset.definition())
+            .unwrap();
+        let mut mints = Vec::new();
+        for index in 0..source.leaves().len() {
+            let (entry, leaf) = source.entry(index).unwrap();
+            assert_eq!(entry.context.source.height, 1);
+            assert_eq!(leaf.effect_count as usize, entry.effects.len());
+            for effect in &entry.effects {
+                let FastpqExecutionEffectKindV1::Mint(mint) = &effect.kind else {
+                    panic!(
+                        "genesis only registers an empty lifecycle and executes its exact mints"
+                    );
+                };
+                assert_eq!(&mint.balance.asset.definition, asset.definition());
+                assert_eq!(mint.balance.asset.incarnation, incarnation);
+                mints.push(mint);
+            }
+        }
+        assert_eq!(mints.len(), 2);
+        assert_eq!(mints[0].balance.account, *ALICE_ID);
+        assert_eq!(mints[0].amount, Quantity::from(100_u32));
+        assert_eq!(mints[0].balance_before, Quantity::zero());
+        assert_eq!(mints[0].balance_after, Quantity::from(100_u32));
+        assert_eq!(mints[0].supply_before, Quantity::zero());
+        assert_eq!(mints[0].supply_after, Quantity::from(100_u32));
+        assert_eq!(mints[1].balance.account, *BOB_ID);
+        assert_eq!(mints[1].amount, Quantity::from(10_u32));
+        assert_eq!(mints[1].balance_before, Quantity::zero());
+        assert_eq!(mints[1].balance_after, Quantity::from(10_u32));
+        assert_eq!(mints[1].supply_before, Quantity::from(100_u32));
+        assert_eq!(mints[1].supply_after, Quantity::from(110_u32));
+    });
 }
 
 #[test]
@@ -327,6 +384,19 @@ fn isolated_state_configuration_preserves_live_pool_and_process_cache() {
         assert_eq!(state.installed_pipeline().cache_size, 3);
         assert!(retained.belongs_to(&pool));
         drop(state);
+        // Original World/native-tip cells retire through their EBR owner. Keep
+        // the explicit live reservation while collecting only those old cells.
+        let reclaim_deadline = Instant::now() + Duration::from_secs(5);
+        while pool.reserved_bytes() != 128 {
+            assert!(
+                Instant::now() < reclaim_deadline,
+                "original isolated State allocations did not retire: {}",
+                pool.reserved_bytes(),
+            );
+            crossbeam_epoch::pin().flush();
+            std::thread::yield_now();
+        }
+        assert!(retained.belongs_to(&pool));
         drop(retained);
         assert_eq!(pool.reserved_bytes(), 0);
     });

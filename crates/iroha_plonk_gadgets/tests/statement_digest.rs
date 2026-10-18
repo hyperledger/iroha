@@ -13,8 +13,8 @@
 //!   `s mod p`;
 //! - a word of the circuit's own field decomposes only into its canonical
 //!   limbs (the halves of its canonical encoding);
-//! - the tamper suites and the inventory (14 folded blocks; 4 range checks
-//!   per canonical value).
+//! - the tamper suites and the inventory (14 folded blocks; 3 range checks
+//!   plus algebraic high-limb bounds per canonical value).
 
 mod common;
 
@@ -26,6 +26,7 @@ use ff::{Field as _, PrimeField};
 use iroha_pasta::{Fp, Fq, PastaField, poseidon::PoseidonField};
 use iroha_plonk::{
     check::{CheckFailure, CheckMode, check_circuit},
+    cs::Any,
     frontend::{Error, Region, configure, synthesize},
 };
 use iroha_plonk_gadgets::{
@@ -240,14 +241,56 @@ fn foreign_circuit<F: PoseidonField, G: PastaField>(
     )
 }
 
-/// Whether the strict check fails, and only through range lookups.
-fn only_range_failures<F: PoseidonField>(circuit: &GadgetCircuit<F>, public: &[F]) -> bool {
+/// Requires an actual range rejection or the specified nonzero-to-zero
+/// copy rejection from the algebraic high bound, never a synthesis error.
+fn assert_noncanonical_rejection<F: PoseidonField>(
+    circuit: &GadgetCircuit<F>,
+    public: &[F],
+    nonzero_copy: Option<F>,
+) {
     let report = check_circuit(circuit, K, &[public.to_vec()], CheckMode::Strict).expect("check");
-    !report.is_satisfied()
-        && report
+    assert!(!report.is_satisfied(), "{report}");
+    assert!(
+        report
             .failures()
             .iter()
-            .all(|failure| matches!(failure, CheckFailure::LookupInputMissing { .. }))
+            .all(|failure| match (nonzero_copy, failure) {
+                (None, CheckFailure::LookupInputMissing { name, .. }) => name == "running-sum limb",
+                (
+                    Some(expected),
+                    CheckFailure::CopyMismatch {
+                        left,
+                        left_row,
+                        left_value,
+                        right,
+                        right_row,
+                        right_value,
+                    },
+                ) => {
+                    // Glue occupies A0..A3 and constants F0. The high
+                    // limb's copy cycle also includes its public I0[1];
+                    // successor swaps can put a failed edge through it.
+                    [
+                        (left, *left_row, *left_value),
+                        (right, *right_row, *right_value),
+                    ]
+                    .into_iter()
+                    .all(|(column, row, value)| match column.column_type() {
+                        Any::Advice => column.index() < 4,
+                        Any::Fixed => column.index() == 0,
+                        Any::Instance => {
+                            column.index() == 0
+                                && row == 1
+                                && expected == F::from_u128(1 << 127)
+                                && value == expected
+                        }
+                    }) && ((*left_value == expected && *right_value == F::ZERO)
+                        || (*right_value == expected && *left_value == F::ZERO))
+                }
+                _ => false,
+            }),
+        "unexpected rejection of {public:?}: {report}"
+    );
 }
 
 fn non_canonical_limbs_are_unsatisfiable<F: PoseidonField, G: PastaField>() {
@@ -255,16 +298,19 @@ fn non_canonical_limbs_are_unsatisfiable<F: PoseidonField, G: PastaField>() {
     // The modulus itself, the modulus + 5 (whose reduction is 5: `s >= p`
     // passed in place of `s mod p`), a high limb above the modulus's, and a
     // high limb of 2^127.
-    for limbs in [
-        [max_lo + 1, max_hi],
-        [max_lo + 6, max_hi],
-        [0, max_hi + 1],
-        [u128::MAX, max_hi],
-        [0, 1 << 127],
+    for (limbs, nonzero_copy) in [
+        // At the maximum high limb, only the conditional low slack fails.
+        ([max_lo + 1, max_hi], None),
+        ([max_lo + 6, max_hi], None),
+        // at_max = 1 and hi_low = 1: their product cannot equal zero.
+        ([0, max_hi + 1], Some(F::ONE)),
+        ([u128::MAX, max_hi], None),
+        // at_max = 0 and hi_low = 0: hi cannot equal their recomposition.
+        ([0, 1 << 127], Some(F::from_u128(1 << 127))),
     ] {
         assert_eq!(foreign_value_native::<G>(limbs), None);
         let (circuit, public) = foreign_circuit::<F, G>(limbs);
-        assert!(only_range_failures(&circuit, &public), "limbs {limbs:x?}");
+        assert_noncanonical_rejection(&circuit, &public, nonzero_copy);
     }
     // The largest canonical value and a small one are accepted.
     for limbs in [[max_lo, max_hi], foreign_limbs(&G::from(5u64))] {
@@ -355,20 +401,29 @@ fn inventory_14_blocks_and_the_s6_checks() {
         14 * ROWS_PER_PERMUTATION
     );
     assert_eq!(extent(&flags[RANGE_COLUMN]), 0);
-    // A canonical value: four range checks (lo 128, hi 127, the bound of
-    // hi 127, the conditional bound of lo 128) of 16 rows at b = 9.
+    // Canonicality range-checks lo (128 bits), hi_low (126 bits), and the
+    // conditional low-limb slack (128 bits). At b = 9, 128 bits needs 15
+    // limbs plus one shifted-top row, while 126 bits needs exactly 14 rows.
+    // The boolean high bit and its zero product with hi_low use glue rows.
     let (canonical, limbs) = canonical_circuit(-Fp::ONE);
     let flags = assigned(&canonical, K, &limbs);
-    assert_eq!(extent(&flags[RANGE_COLUMN]), 4 * 16);
-    // Every gate of the composite circuit keeps the degree policy, and the
-    // circuit degree (lookups included) is exactly the policy bound.
+    assert_eq!(extent(&flags[RANGE_COLUMN]), 16 + 14 + 16);
+    // Arithmetic gates retain the degree-six policy. The running-sum
+    // input has degree 2 against a fixed degree-1 table; its norm lookup
+    // raises the complete circuit degree to 2 + 2*2 + 2*1 = 8.
     let (cs, _) = configure(&circuit).expect("configure");
     for gate in cs.gates() {
         for poly in gate.polynomials() {
             assert!(poly.degree() <= MAX_GATE_DEGREE, "gate {}", gate.name());
         }
     }
-    assert_eq!(cs.degree(), MAX_GATE_DEGREE);
+    assert_eq!(cs.lookups().len(), 1);
+    let lookup = &cs.lookups()[0];
+    assert_eq!(lookup.width(), 1);
+    assert_eq!(lookup.input_expressions()[0].degree(), 2);
+    assert_eq!(lookup.table_expressions()[0].degree(), 1);
+    assert_eq!(lookup.required_degree(), 8);
+    assert_eq!(cs.degree(), 8);
 }
 
 /// Tampers `cells`; returns those the checker accepted.

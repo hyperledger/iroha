@@ -63,7 +63,7 @@ fn prepared_wire(row: &norito::json::Value, wire: &[u8], setup_sha: &str, target
 }
 
 #[test]
-#[ignore = "requires exact exported software A custody, genuine source admission and network activation-prepared original before H4; never physical-device evidence"]
+#[ignore = "requires exact exported software A custody, genuine source admission and the network activation-prepared original before submission; never physical-device evidence"]
 fn retain_actual_a_activation_before_network_submission() {
     let clock_origin = std::time::Instant::now();
     let output = fresh_output("KAGEMUSHA_NATIVE_ACTIVATION_RETENTION_OUTPUT");

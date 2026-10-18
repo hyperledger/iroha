@@ -216,6 +216,308 @@ fn exact_request_replay_survives_restart_without_reproving_or_resigning() {
     ));
 }
 
+// Structural Send and genuine receipt signature over the existing explicit mock proofs.
+// Its permanent local request mapping exercises replay only, never native Send preparation.
+fn historical_send() -> (Wallet, FrozenTransition, OperationRequestV1) {
+    let mut wallet = prepared_wallet();
+    let boot = bootstrap();
+    let template: KagemushaWalletPaymentV1 = fixture("KagemushaWalletPaymentV1");
+    let mut policy = frozen(
+        Some(&boot),
+        KagemushaWalletEffectV1::RefreshPolicy {
+            update_kind: KagemushaWalletPolicyUpdateKindV1::SchemePolicy,
+            update: template.request.scheme_policy,
+            accepted_time_floor_ms: boot
+                .capsule
+                .body()
+                .successor_state
+                .core
+                .accepted_time_floor_ms,
+        },
+    );
+    let mut body = policy.capsule.body().clone();
+    body.successor_state.core.policy_epoch = template.request.policy_epoch;
+    body.successor_state.rest.scheme_policy = template.request.scheme_policy;
+    rebind_frozen_successor(&mut policy, body);
+    wallet.commit(policy.clone()).unwrap();
+    snapshot_test_fold(&mut wallet);
+    let (_, manifest) = wallet.manifest().unwrap();
+    let source = wallet.indexed_step(&manifest, 1).unwrap();
+    let fold = wallet.read_fold(&source).unwrap().unwrap();
+    let mut send = frozen(Some(&policy), template.send.statement.effect);
+    let mut body = send.capsule.body().clone();
+    body.predecessor_lineage = KagemushaWalletLineageSlotV1::Present {
+        lineage: fold.record.lineage.clone(),
+    };
+    body.statement.lineage_burned_total = fold.record.lineage.public.burned_total;
+    body.statement.lineage_pending_outgoing_root = fold.record.lineage.public.pending_outgoing_root;
+    rebind_frozen_successor(&mut send, body);
+    assert!(matches!(
+        wallet.commit(send.clone()).unwrap(),
+        Completion::Complete(_)
+    ));
+    let request = OperationRequestV1 {
+        request_id: [0xa7; 32],
+        action: OperationActionV1::Send {
+            request: send
+                .capsule
+                .body()
+                .retained_inputs
+                .iter()
+                .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::Request)
+                .unwrap()
+                .bytes
+                .clone(),
+        },
+    };
+    wallet
+        .retain_delivery_test_mapping(
+            NativeIntentV1::user(request.clone()),
+            send.capsule.custody_digest(),
+            send.capsule.receipt_commitment(),
+            send.capsule.body().operation_id,
+        )
+        .unwrap();
+    wallet
+        .commit(frozen(
+            Some(&send),
+            KagemushaWalletEffectV1::Load {
+                load_ordinal: 0,
+                receipt_digest: field(112),
+                amount: 1,
+                online_charge: 0,
+            },
+        ))
+        .unwrap();
+    (wallet, send, request)
+}
+
+#[test]
+fn historical_send_missing_completion_stays_committed_across_restart_and_exact_restore() {
+    let (mut wallet, send, request) = historical_send();
+    let operation = send.capsule.body().operation_id;
+    let original = wallet.custody.retained.remove(&operation).unwrap();
+    let exact = Completion::Complete(original.record.output.clone());
+    let payment =
+        KagemushaWalletPaymentV1::decode_canonical(&original.record.output, &wallet.scheme_id)
+            .unwrap();
+    assert_eq!(payment.send.receipt.operation_id, operation);
+    assert!(!wallet.custody.tombstones.contains_key(&operation));
+    let signatures = wallet.custody.signatures;
+    let preparations = wallet.proofs.preparations.load(Ordering::SeqCst);
+    let proofs = wallet.proofs.preparation_proofs.load(Ordering::SeqCst);
+    let selected = wallet.custody.checkpoint.clone();
+    for _ in 0..2 {
+        wallet = restart(wallet);
+        assert_eq!(
+            wallet.retry(&operation).unwrap(),
+            Some(Completion::DeliveryDataLoss)
+        );
+        assert_eq!(
+            wallet.retry_request(&request.request_id).unwrap(),
+            RequestStatusV1::Outcome(Completion::DeliveryDataLoss)
+        );
+        assert_eq!(
+            wallet.execute(request.clone()).unwrap(),
+            Completion::DeliveryDataLoss
+        );
+        assert_eq!(
+            wallet.commit(send.clone()).unwrap(),
+            Completion::DeliveryDataLoss
+        );
+        assert_eq!(wallet.custody.signatures, signatures);
+        assert_eq!(
+            wallet.proofs.preparations.load(Ordering::SeqCst),
+            preparations
+        );
+        assert_eq!(
+            wallet.proofs.preparation_proofs.load(Ordering::SeqCst),
+            proofs
+        );
+        assert_eq!(wallet.custody.checkpoint, selected);
+    }
+    wallet.custody.retained.insert(operation, original);
+    wallet = restart(wallet);
+    assert_eq!(wallet.retry(&operation).unwrap(), Some(exact.clone()));
+    assert_eq!(
+        wallet.retry_request(&request.request_id).unwrap(),
+        RequestStatusV1::Outcome(exact.clone())
+    );
+    assert_eq!(wallet.execute(request).unwrap(), exact);
+    assert_eq!(wallet.commit(send).unwrap(), exact);
+    assert_eq!(wallet.custody.signatures, signatures);
+    assert_eq!(
+        wallet.proofs.preparations.load(Ordering::SeqCst),
+        preparations
+    );
+    assert_eq!(
+        wallet.proofs.preparation_proofs.load(Ordering::SeqCst),
+        proofs
+    );
+    assert_eq!(wallet.custody.checkpoint, selected);
+}
+
+#[test]
+fn missing_completion_requires_readable_canonical_operation_locator_and_matching_step() {
+    for mutation in 0..5 {
+        let (mut wallet, send, request) = historical_send();
+        let operation = send.capsule.body().operation_id;
+        wallet.custody.retained.remove(&operation).unwrap();
+        let (selected, mut manifest) = wallet.manifest().unwrap();
+        let sequence = send.capsule.body().statement.sequence;
+        if mutation == 4 {
+            manifest.steps = manifest
+                .steps
+                .remove(&mut wallet.archive, &manifest::sequence_key(sequence))
+                .unwrap();
+        } else {
+            let mut locator = manifest::sequence_key(sequence).to_vec();
+            match mutation {
+                0 => {
+                    locator.pop();
+                }
+                1 => locator[0] = 1,
+                2 => locator = manifest::sequence_key(manifest.indexed.unwrap() + 1).to_vec(),
+                3 => locator = manifest::sequence_key(0).to_vec(),
+                _ => unreachable!(),
+            }
+            manifest.operations = manifest
+                .operations
+                .set(&mut wallet.archive, operation, &locator)
+                .unwrap();
+        }
+        wallet.publish_manifest(selected, &manifest).unwrap();
+        let signatures = wallet.custody.signatures;
+        for result in [
+            wallet.retry(&operation),
+            wallet.retry_request(&request.request_id).map(|_| None),
+            wallet.execute(request.clone()).map(Some),
+            wallet.commit(send.clone()).map(Some),
+        ] {
+            assert!(
+                matches!(result, Err(Error::WitnessLost(_))),
+                "mutation {mutation}"
+            );
+        }
+        assert_eq!(wallet.custody.signatures, signatures);
+        assert_eq!(wallet.proofs.preparations.load(Ordering::SeqCst), 0);
+        assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+    }
+
+    let (mut wallet, send, request) = historical_send();
+    let operation = send.capsule.body().operation_id;
+    wallet.custody.retained.remove(&operation).unwrap();
+    let (_, manifest) = wallet.manifest().unwrap();
+    // The source root is unchanged: missing or temporarily unreadable bytes must never be
+    // confused with authenticated absence of this operation from that root.
+    for root in [manifest.operations.0, manifest.steps.0] {
+        wallet.archive.hide_object(root);
+        assert!(matches!(
+            wallet.retry(&operation),
+            Err(Error::WitnessLost(_))
+        ));
+        assert!(matches!(
+            wallet.retry_request(&request.request_id),
+            Err(Error::WitnessLost(_))
+        ));
+        assert!(matches!(
+            wallet.execute(request.clone()),
+            Err(Error::WitnessLost(_))
+        ));
+        assert!(matches!(
+            wallet.commit(send.clone()),
+            Err(Error::WitnessLost(_))
+        ));
+        wallet.archive.reveal_object(root);
+        wallet.archive.hide_object_once(root);
+        assert!(matches!(wallet.retry(&operation), Err(Error::Storage(_))));
+        wallet.archive.hide_object_once(root);
+        assert!(matches!(
+            wallet.retry_request(&request.request_id),
+            Err(Error::Storage(_))
+        ));
+        wallet.archive.hide_object_once(root);
+        assert!(matches!(
+            wallet.execute(request.clone()),
+            Err(Error::Storage(_))
+        ));
+        wallet.archive.hide_object_once(root);
+        assert!(matches!(
+            wallet.commit(send.clone()),
+            Err(Error::Storage(_))
+        ));
+        assert_eq!(
+            wallet.retry(&operation).unwrap(),
+            Some(Completion::DeliveryDataLoss)
+        );
+        let key = ArchiveKey::Object(root);
+        let original = wallet
+            .archive
+            .records
+            .lock()
+            .unwrap()
+            .get(&key)
+            .unwrap()
+            .clone();
+        let mut corrupt = original.clone();
+        corrupt[0] ^= 1;
+        wallet.archive.records.lock().unwrap().insert(key, corrupt);
+        assert!(matches!(
+            wallet.retry(&operation),
+            Err(Error::WitnessLost(_))
+        ));
+        assert!(matches!(
+            wallet.retry_request(&request.request_id),
+            Err(Error::WitnessLost(_))
+        ));
+        assert!(matches!(
+            wallet.execute(request.clone()),
+            Err(Error::WitnessLost(_))
+        ));
+        assert!(matches!(
+            wallet.commit(send.clone()),
+            Err(Error::WitnessLost(_))
+        ));
+        wallet.archive.records.lock().unwrap().insert(key, original);
+    }
+    let mut different = send.clone();
+    different.capsule = send
+        .capsule
+        .body()
+        .clone()
+        .freeze()
+        .unwrap()
+        .seal(field(1))
+        .unwrap();
+    assert_ne!(
+        different.capsule.custody_digest(),
+        send.capsule.custody_digest()
+    );
+    assert_eq!(different.capsule.body().operation_id, operation);
+    assert!(matches!(
+        wallet.commit(different),
+        Err(Error::WitnessLost("committed operation binding"))
+    ));
+    let signatures = wallet.custody.signatures;
+    wallet
+        .retain_delivery_test_mapping(
+            NativeIntentV1::user(request.clone()),
+            field(1),
+            send.capsule.receipt_commitment(),
+            operation,
+        )
+        .unwrap();
+    assert!(matches!(
+        wallet.retry_request(&request.request_id),
+        Err(Error::WitnessLost("committed operation binding"))
+    ));
+    assert!(matches!(
+        wallet.execute(request),
+        Err(Error::WitnessLost("committed operation binding"))
+    ));
+    assert_eq!(wallet.custody.signatures, signatures);
+}
+
 #[test]
 fn request_replay_authenticates_exact_completion_in_each_retained_source_state() {
     for source in ["historical", "current", "released_before_index"] {
@@ -701,6 +1003,22 @@ fn freshness_after_durable_writes_rejects_without_advance_and_keeps_exact_prepar
     assert_eq!(
         wallet.retry_request(&request().request_id).unwrap(),
         RequestStatusV1::Preparing
+    );
+    let (_, manifest) = wallet.manifest().unwrap();
+    let (unselected, _, _) = wallet
+        .prepared_output_mapping(&request().request_id)
+        .unwrap();
+    assert!(
+        manifest
+            .operations
+            .get(&mut wallet.archive, &unselected)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(wallet.retry(&unselected).unwrap(), None);
+    assert_eq!(
+        wallet.retry_request(&[0xba; 32]).unwrap(),
+        RequestStatusV1::Unknown
     );
     let proofs = wallet.proofs.preparation_proofs.load(Ordering::SeqCst);
     let mut wallet = restart(wallet);

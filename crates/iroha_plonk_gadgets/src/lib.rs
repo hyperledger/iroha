@@ -36,8 +36,9 @@
 //!   keys: window lookups, incomplete chains proven exception-free and
 //!   complete joins;
 //! - [`sha256`] (M3): one SHA-256 compression per block on spread-table
-//!   units (degree 5, one lookup), and the codec of a Poseidon digest as the
-//!   32-byte canonical message of one padded block;
+//!   units (arithmetic degree 5, standalone norm lookup degree 8), and the
+//!   codec of a Poseidon digest as the 32-byte canonical message of one
+//!   padded block;
 //! - [`table`] (M3b): the shared lookup table of the Q leaf, through which
 //!   the SHA-256 and P-256 window lookups ride on foreign-field range
 //!   arguments, and its soundness conditions;
@@ -65,7 +66,9 @@
 //! its rows and cells per operation (`tests/`). Ordinary layouts have gate
 //! degree at most [`MAX_GATE_DEGREE`]. Explicit compact phase layouts use at
 //! most [`phase::MAX_COMPACT_GATE_DEGREE`] to share fixed columns; with exact
-//! cosets the quotient cost scales with `d - 1`. The format cap remains nine.
+//! cosets the quotient cost scales with `d - 1`. Complete circuit degree
+//! also includes norm lookup arguments; the first-release format cap is 14
+//! ([`iroha_plonk::cs::descriptor::MAX_DEGREE`]).
 //!
 //! # Layout
 //!
@@ -109,7 +112,8 @@ pub use poseidon::{
 };
 pub use range::{LimbBits, RunningSumChip, RunningSumConfig, UintChip};
 
-/// The largest gate degree any chip of this crate uses.
+/// The largest uncompressed arithmetic gate degree of ordinary chip layouts.
+/// Compact phase layouts and norm lookup arguments have separate degree bounds.
 pub const MAX_GATE_DEGREE: usize = 6;
 
 pub mod word_hash;

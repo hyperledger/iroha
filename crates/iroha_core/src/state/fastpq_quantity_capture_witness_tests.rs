@@ -164,38 +164,43 @@ fn witness_d7_backing_refusal_retains_exact_original_pool_and_manifest() {
 
 #[test]
 fn optional_archive_loss_does_not_change_mandatory_witness_d7() {
-    with_sealed_quantity_source_census(|block, _, _, _| {
-        let expected = block
-            .finalized_quantity_source_for_test()
-            .unwrap()
-            .2
-            .to_vec();
-        // Fault the optional retained-census owner, preserving the separately
-        // completed mandatory journal and its exact D7 bytes.
-        block.fastpq_quantity_candidate.source_census =
-            super::super::fastpq_quantity_capture::QuantitySourceCensusState::Failed;
-        block.fastpq_quantity_candidate.issue = Some(super::super::QuantityCaptureIssue::Capacity);
-        block.capture_exec_witness().unwrap();
-        let witness = block.take_exec_witness().unwrap();
-        assert_eq!(
-            witness
-                .writes
-                .iter()
-                .find(|write| write.key == D7)
+    with_quantity_source_census_before_seal(
+        |block| {
+            assert_eq!(block.fastpq_quantity_candidate.issue, None);
+            // Offer the optional loss before completion; sealing still has to
+            // produce the exact mandatory journal from all three actual sources.
+            block.fastpq_quantity_candidate.source_census = QuantitySourceCensusState::Failed;
+            block.fastpq_quantity_candidate.issue = Some(QuantityCaptureIssue::Capacity);
+        },
+        |block, _, _, _, ()| {
+            let expected = block
+                .finalized_quantity_source_for_test()
                 .unwrap()
-                .value,
-            expected
-        );
-        assert_eq!(
-            witness.manifest().coverage,
-            FastpqSourceEffectCoverageV1::Complete
-        );
-        assert_eq!(
-            witness.quantity_entry(0).err(),
-            Some(super::super::QuantityCaptureIssue::Capacity)
-        );
-        assert!(witness.verify_source_binding().is_ok());
-    });
+                .2
+                .to_vec();
+            block.capture_exec_witness().unwrap();
+            let witness = block.take_exec_witness().unwrap();
+            assert_eq!(witness.source_entries().len(), 3);
+            assert_eq!(
+                witness
+                    .writes
+                    .iter()
+                    .find(|write| write.key == D7)
+                    .unwrap()
+                    .value,
+                expected
+            );
+            assert_eq!(
+                witness.manifest().coverage,
+                FastpqSourceEffectCoverageV1::Complete
+            );
+            assert_eq!(
+                witness.quantity_entry(0).err(),
+                Some(QuantityCaptureIssue::Capacity)
+            );
+            assert!(witness.verify_source_binding().is_ok());
+        },
+    );
 }
 
 fn with_native_wire(with_transfer: bool, action: impl FnOnce(&mut StateBlock<'_>, ExecWitness)) {
@@ -317,12 +322,90 @@ fn conditional_publication_rejects_each_changed_d7_archive_and_transcript_owner(
 
 #[test]
 fn conditional_publication_refuses_context_change_at_last_extraction_boundary() {
-    with_native_wire(true, |block, wire| {
+    use crate::state::native_capture_fixture::{seal_native_source, with_native_capture_source};
+
+    with_native_capture_source(true, |state, mut block, recording, mut source, _| {
+        seal_native_source(&mut block, &mut source).unwrap();
+        let wire = crate::exec_witness::drain_exec_witness();
         let owner = block.retain_quantity_source_witness(wire).unwrap();
-        assert!(owner.verify_current(block).is_ok());
-        block._curr_block.creation_time_ms += 1;
-        assert!(owner.verify_current(block).is_err());
+        let original_header = block._curr_block;
+        let inventory = block
+            .verified_fastpq_source_inventory_for_capture()
+            .unwrap();
+        assert!(owner.verify_current(&block).is_ok());
+        let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            block._curr_block.creation_time_ms += 1;
+        }))
+        .expect_err("completed source must refuse a changed context before mutation");
+        let reason = refused
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| refused.downcast_ref::<String>().map(String::as_str));
+        assert_eq!(
+            reason,
+            Some("completed execution retains immutable original State")
+        );
+        assert_eq!(block._curr_block, original_header);
+        assert!(Arc::ptr_eq(
+            &inventory,
+            &block
+                .verified_fastpq_source_inventory_for_capture()
+                .unwrap()
+        ));
+        assert!(owner.verify_current(&block).is_ok());
         assert!(block.exec_witness.is_none());
+
+        // A caller can offer a different completed original, but cannot rebind
+        // this retained witness to it. Execute the same inputs on the same State
+        // with a changed header before acquisition; do not rewrite a sealed cut.
+        let mut changed_header = source.header();
+        changed_header.creation_time_ms += 1;
+        let mut builder = BlockBuilder::new(changed_header);
+        for entry in source.external_entrypoints_slice() {
+            let iroha_data_model::transaction::TransactionEntrypoint::External(transaction) = entry
+            else {
+                panic!("the genuine fixture contains only signed external inputs")
+            };
+            builder.push_transaction(transaction.clone());
+        }
+        builder.set_execution_context(source.execution_context().cloned());
+        let mut changed_source = builder.build_with_signature(0, ALICE_KEYPAIR.private_key());
+        assert_ne!(source.hash(), changed_source.hash());
+        drop(block);
+        drop(recording);
+        let (mut changed, _recording) = state
+            .block_with_recorded_pristine_carrier_stage(
+                &changed_source,
+                |_| Ok::<(), String>(()),
+                |error| error,
+            )
+            .unwrap();
+        changed
+            .reserve_ordinary_execution_outputs(&changed_source)
+            .unwrap();
+        changed
+            .execute_ordinary_output_plan(&changed_source, None)
+            .unwrap();
+        let rows = changed.retained_execution_outputs_for_test().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].result().is_ok());
+        seal_native_source(&mut changed, &mut changed_source).unwrap();
+        let changed_inventory = changed
+            .verified_fastpq_source_inventory_for_capture()
+            .unwrap();
+        assert_eq!(changed_inventory.source(), inventory.source());
+        assert_eq!(changed_inventory.entries(), inventory.entries());
+        assert!(!Arc::ptr_eq(&changed_inventory, &inventory));
+        assert_eq!(
+            changed._curr_block.creation_time_ms,
+            original_header.creation_time_ms + 1
+        );
+        assert_eq!(
+            owner.verify_current(&changed).unwrap_err(),
+            "mandatory finalized quantity source lost original custody or context"
+        );
+        assert!(changed.exec_witness.is_none());
+        assert!(owner.verify_source_binding().is_ok());
     });
 }
 
@@ -571,43 +654,87 @@ fn genuine_call_and_protocol_source_openings_preserve_native_kind() {
 
 #[test]
 fn optional_archive_pool_refusal_keeps_original_release_owner_through_witness() {
-    with_sealed_quantity_source_census(|block, _, _, _| {
-        let original = block.finalized_quantity_source_for_test().unwrap().0;
-        let pool = block.pipeline_ivm_prepared_cache.execution_budget().clone();
-        let mut registration = crate::unit_test_support::release_registration(&pool);
-        let occupied = pool
-            .try_reserve_bytes(pool.limit_bytes() - pool.reserved_bytes())
-            .unwrap();
-        let issue = QuantityArchiveMap::<u8>::reserve(1, &pool)
-            .err()
-            .expect("actual optional map refusal");
-        let QuantityCaptureIssue::Admission(refusal) = &issue else {
-            panic!("original pool cause erased into optional diagnostic: {issue:?}")
-        };
-        let iroha_allocation::AllocationRefusal::Capacity { release, .. } = refusal else {
-            panic!("occupied original pool, not immutable geometry")
-        };
-        let original_refusal = refusal.clone();
-        let wait = release.clone();
-        let mut task = std::task::Context::from_waker(std::task::Waker::noop());
-        assert!(registration.poll_wait(&wait, &mut task).is_pending());
-        block.fastpq_quantity_candidate.source_census = QuantitySourceCensusState::Failed;
-        block.fastpq_quantity_candidate.issue = Some(issue);
-        drop(occupied);
-        assert!(registration.poll_wait(&wait, &mut task).is_ready());
-        block.capture_exec_witness().unwrap();
-        let witness = block.take_exec_witness().unwrap();
-        assert_eq!(
-            witness.manifest(),
-            &original,
-            "optional refusal cannot alter canonical D7"
-        );
-        assert!(witness.verify_source_binding().is_ok());
-        let retained = witness.admit_quantity_archive().err().unwrap();
-        assert_eq!(retained, QuantityCaptureIssue::Admission(original_refusal));
-        assert_eq!(witness.quantity_entry(0).err(), Some(retained.clone()));
-        assert_eq!(block.fastpq_quantity_candidate.issue, Some(retained));
-    });
+    let mut retained = None;
+    with_quantity_source_census_before_seal(
+        |block| {
+            assert_eq!(block.fastpq_quantity_candidate.issue, None);
+            let pool = block.pipeline_ivm_prepared_cache.execution_budget().clone();
+            let mut registration = crate::unit_test_support::release_registration(&pool);
+            let baseline = pool.reserved_bytes();
+            let occupied = pool
+                .try_reserve_bytes(pool.limit_bytes() - baseline)
+                .unwrap();
+            assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+            let issue = QuantityArchiveMap::<u8>::reserve(1, &pool)
+                .err()
+                .expect("actual optional map refusal");
+            let QuantityCaptureIssue::Admission(refusal) = &issue else {
+                panic!("original pool cause erased into optional diagnostic: {issue:?}")
+            };
+            let iroha_allocation::AllocationRefusal::Capacity {
+                requested_bytes,
+                release,
+                ..
+            } = refusal
+            else {
+                panic!("occupied original pool, not immutable geometry")
+            };
+            let original_refusal = refusal.clone();
+            let wait = release.clone();
+            let mut task = std::task::Context::from_waker(std::task::Waker::noop());
+            assert!(registration.poll_wait(&wait, &mut task).is_pending());
+            drop(occupied);
+            assert_eq!(pool.reserved_bytes(), baseline);
+            // Credits are immediately reusable, but task callbacks remain deferred
+            // until the original State writers retire. Keep this exact observation.
+            assert!(registration.poll_wait(&wait, &mut task).is_pending());
+            let retry = QuantityArchiveMap::<u8>::reserve(1, &pool).unwrap();
+            assert!(retry.belongs_to(&pool));
+            assert_eq!(
+                pool.reserved_bytes(),
+                baseline.checked_add(*requested_bytes).unwrap()
+            );
+            drop(retry);
+            assert_eq!(pool.reserved_bytes(), baseline);
+            assert!(registration.poll_wait(&wait, &mut task).is_pending());
+            block.fastpq_quantity_candidate.source_census = QuantitySourceCensusState::Failed;
+            block.fastpq_quantity_candidate.issue = Some(issue);
+            (pool, registration, wait, original_refusal)
+        },
+        |block, _, _, _, (pool, mut registration, wait, original_refusal)| {
+            let original = block.finalized_quantity_source_for_test().unwrap().0;
+            block.capture_exec_witness().unwrap();
+            let witness = block.take_exec_witness().unwrap();
+            assert_eq!(witness.source_entries().len(), 3);
+            assert_eq!(
+                witness.manifest(),
+                &original,
+                "optional refusal cannot alter canonical D7"
+            );
+            assert!(witness.verify_source_binding().is_ok());
+            let refusal = witness.admit_quantity_archive().err().unwrap();
+            assert_eq!(
+                refusal,
+                QuantityCaptureIssue::Admission(original_refusal.clone())
+            );
+            assert_eq!(witness.quantity_entry(0).err(), Some(refusal.clone()));
+            assert_eq!(block.fastpq_quantity_candidate.issue, Some(refusal));
+            let mut task = std::task::Context::from_waker(std::task::Waker::noop());
+            assert!(registration.poll_wait(&wait, &mut task).is_pending());
+            retained = Some((witness, pool, registration, wait, original_refusal));
+        },
+    );
+    // The normal fixture scope has now dropped its original State and all writers.
+    // The captured witness still retains the same typed refusal and source owner.
+    let (witness, pool, mut registration, wait, original_refusal) = retained.unwrap();
+    assert!(registration.belongs_to(&pool));
+    let mut task = std::task::Context::from_waker(std::task::Waker::noop());
+    assert!(registration.poll_wait(&wait, &mut task).is_ready());
+    assert!(witness.verify_source_binding().is_ok());
+    assert_eq!(
+        witness.admit_quantity_archive().err(),
+        Some(QuantityCaptureIssue::Admission(original_refusal))
+    );
 }
 
 #[test]

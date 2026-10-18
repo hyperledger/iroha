@@ -120,9 +120,16 @@ fn actual_worker_persists_complete_tape_and_recovers_historical_source_after_nex
     let (mut chain, asset) = fixture();
     transfer(&mut chain, &asset, 2_000);
     transfer(&mut chain, &asset, 3_000);
+    let mut canonical = Vec::new();
+    source_file(&chain, 2).read_to_end(&mut canonical).unwrap();
+    let record: SourceRecord = norito::decode_canonical(&canonical).unwrap();
+    assert_eq!(norito::encode_canonical(&record).unwrap(), canonical);
     let pool = AllocationBudget::new(16 * 1024 * 1024);
     let mut read = reader(&chain, 2, &pool);
     let source = complete(&mut read).unwrap();
+    assert_eq!(source.manifest(), &record.manifest);
+    assert_eq!(source.leaves(), record.leaves.as_slice());
+    assert_eq!(source.entry(0).unwrap().0, &record.tapes[0]);
     assert_eq!(source.native().committed().height(), 2);
     assert_eq!(
         source.native().committed().block_hash(),

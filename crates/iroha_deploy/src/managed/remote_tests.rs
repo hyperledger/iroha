@@ -224,13 +224,15 @@ fn ordinary_context_has_no_remote_status_but_incomplete_binding_is_an_error() {
     );
     assert!(
         store
-            .build_registry(&runtime, "local", Instant::now() + MAX_ATTACH)
+            .build_registry(&runtime, &prepared, Instant::now() + MAX_ATTACH)
             .unwrap()
             .is_none()
     );
+    let mut missing = prepared.clone();
+    missing.context.name = "missing".into();
     assert!(
         store
-            .build_registry(&runtime, "missing", Instant::now() + MAX_ATTACH)
+            .build_registry(&runtime, &missing, Instant::now() + MAX_ATTACH)
             .is_err()
     );
     let directory = PrivateDirectory::open_or_create(outer_path(&store, "local")).unwrap();
@@ -238,7 +240,7 @@ fn ordinary_context_has_no_remote_status_but_incomplete_binding_is_an_error() {
     assert!(store.dataspace_status("local").is_err());
     assert!(
         store
-            .build_registry(&runtime, "local", Instant::now() + MAX_ATTACH)
+            .build_registry(&runtime, &prepared, Instant::now() + MAX_ATTACH)
             .is_err()
     );
     assert!(existing_outer(&store, "../other").is_err());
@@ -1402,4 +1404,115 @@ fn administrative_amx_managed_busy_is_before_origin_signing_and_source_repair() 
         b"original source"
     );
     assert!(!directory.path().join("amx-registration").exists());
+}
+
+#[test]
+fn foreground_attachment_status_shares_one_deadline_across_both_native_reads() {
+    let _resources = super::super::native_test_guard();
+    let temporary = tempfile::tempdir().unwrap();
+    let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
+    let networks = PrivateDirectory::open(store.root().join("networks")).unwrap();
+    let network = networks.create_child("private").unwrap();
+    let binary = std::env::current_exe().unwrap();
+    let mut request = LocalnetRequest::private_root(binary.clone(), binary);
+    request.name = "private".into();
+    let spec = super::super::tests::private_spec();
+    let ports = LocalnetPorts::reserve().unwrap();
+    let operation = store::acquire(&network, "operation.lock", "private").unwrap();
+    let retained = generation::prepare(
+        &network,
+        &request,
+        RootKind::Private { spec: spec.clone() },
+        store::pin_binary(&request.launcher).unwrap(),
+        store::pin_binary(&request.daemon).unwrap(),
+        &ports,
+    )
+    .unwrap();
+    drop(operation);
+    let binding = Binding {
+        profile: ProfileBinding::from_profile(&profile(
+            83,
+            1,
+            "https://fixture.example/checkpoint",
+        )),
+        spec,
+        account_alias: "admin".into(),
+        context: Some(retained.prepared.context.clone()),
+    };
+    let binding_image = encode(&binding).unwrap();
+    let attachment = store
+        .publish_attachment(
+            "private",
+            &[("request.lock", b""), (BINDING, &binding_image)],
+        )
+        .unwrap();
+    let _owner = store::acquire(&network, "runtime.lock", "private").unwrap();
+    network
+        .write_atomic(
+            WORKER,
+            &encode(&WorkerRecord {
+                token: "e".repeat(64),
+            })
+            .unwrap(),
+            PublishMode::CreateNew,
+        )
+        .unwrap();
+    let listener = transport::Listener::bind(&network).unwrap();
+    let local = ManagedStatus {
+        context: retained.prepared.context.clone(),
+        phase: ManagedPhase::Ready,
+        running_peers: 4,
+        failure: None,
+    };
+    let mut parent = connecting("fixture".into());
+    parent.stage = ManagedAttachmentPhase::Attached;
+    parent.parent_confirmed = Some(ManagedConfirmedAnchor {
+        parent_height: 13,
+        child: iroha_data_model::private_dataspace::PrivateDataspaceCursor {
+            height: 2,
+            consensus_hash: [1; 32],
+            result: [2; 32],
+        },
+    });
+    let combined = ManagedDataspaceStatus {
+        local: local.clone(),
+        attachment: parent,
+    };
+    let server = std::thread::spawn(move || {
+        for action in ["status", "attachment_status"] {
+            let accepted_before = Instant::now() + Duration::from_secs(5);
+            let mut connection = loop {
+                if let Some(connection) = listener.accept().unwrap() {
+                    break connection;
+                }
+                assert!(Instant::now() < accepted_before);
+                std::thread::sleep(Duration::from_millis(1));
+            };
+            assert_eq!(connection.receive().unwrap().action, action);
+            std::thread::sleep(Duration::from_millis(if action == "status" {
+                200
+            } else {
+                1500
+            }));
+            if action == "status" {
+                connection.reply(&local).unwrap();
+            } else {
+                let _ = connection.reply(&combined);
+            }
+        }
+    });
+    let started = Instant::now();
+    let result = store.dataspace_status_until("private", started + Duration::from_millis(1200));
+    let elapsed = started.elapsed();
+    server.join().unwrap();
+    assert!(
+        result.is_err(),
+        "the second native read must not renew the foreground deadline"
+    );
+    assert!(elapsed < Duration::from_secs(2));
+    assert_eq!(
+        attachment.read(BINDING, MAX_METADATA).unwrap().as_slice(),
+        binding_image
+    );
+    assert_eq!(store.prepared("private").unwrap(), retained.prepared);
 }

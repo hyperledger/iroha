@@ -90,7 +90,7 @@ pub struct KagemushaWalletStorageCountersV1 {
 
 /// Sync classes timed by the durable store.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum SyncClassV1 {
+pub(super) enum SyncClassV1 {
     Staged,
     Publish,
     Dir,
@@ -99,7 +99,7 @@ pub(crate) enum SyncClassV1 {
 
 /// Counted storage events without a duration.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum EventV1 {
+pub enum EventV1 {
     ArchiveGet,
     ArchivePut,
     ArchiveRemove,
@@ -181,7 +181,7 @@ fn bump(field: &mut u64, amount: u64) {
 }
 
 /// Count one storage event on the current thread.
-pub(crate) fn count(event: EventV1) {
+pub fn count(event: EventV1) {
     update(|c| match event {
         EventV1::ArchiveGet => bump(&mut c.archive_gets, 1),
         EventV1::ArchivePut => bump(&mut c.archive_puts, 1),
@@ -211,7 +211,7 @@ pub(crate) fn count(event: EventV1) {
 }
 
 /// Run one sync call, counting it and its monotonic duration whatever its result.
-pub(crate) fn sync<T>(class: SyncClassV1, call: impl FnOnce() -> T) -> T {
+pub(super) fn sync<T>(class: SyncClassV1, call: impl FnOnce() -> T) -> T {
     let started = Instant::now();
     let result = call();
     let nanos = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
@@ -229,7 +229,7 @@ pub(crate) fn sync<T>(class: SyncClassV1, call: impl FnOnce() -> T) -> T {
 }
 
 /// Probe protected storage through `platform`, counting the upcall.
-pub(crate) fn probe_storage<P: super::KagemushaWalletPlatformV1 + ?Sized>(
+pub(super) fn probe_storage<P: super::KagemushaWalletPlatformV1 + ?Sized>(
     platform: &P,
 ) -> Result<(), super::KagemushaWalletUnavailableV1> {
     count(EventV1::StorageProbe);
@@ -238,7 +238,7 @@ pub(crate) fn probe_storage<P: super::KagemushaWalletPlatformV1 + ?Sized>(
 
 /// One persistent index walk; dropping it records the walk and, for a single-path walk, the
 /// number of nodes it loaded as its depth.
-pub(crate) struct IndexWalkV1 {
+pub struct IndexWalkV1 {
     loads: u64,
     path: bool,
 }

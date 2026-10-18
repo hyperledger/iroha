@@ -328,6 +328,20 @@ fn empty_inventory_is_explicit_and_cannot_be_resealed() {
     assert_eq!(block.fastpq_source_inventory().unwrap(), Some(&inventory));
 }
 
+/// Exercise the public mutable projection without granting a private owner escape.
+pub(super) fn assert_completed_state_refuses_mutation(action: impl FnOnce()) {
+    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(action))
+        .expect_err("completed State must refuse mutation before changing its fields");
+    let message = refused
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| refused.downcast_ref::<String>().map(String::as_str));
+    assert_eq!(
+        message,
+        Some("completed execution retains immutable original State")
+    );
+}
+
 #[test]
 fn missing_extra_empty_and_misidentified_transcripts_latch_failure() {
     let _guard = crate::exec_witness::exec_witness_guard();
@@ -362,8 +376,17 @@ fn missing_extra_empty_and_misidentified_transcripts_latch_failure() {
             .finalize_fastpq_source_inventory(&[], &[], &[])
             .unwrap_err();
         assert_eq!(block.fastpq_source_inventory(), Err(error.as_str()));
-        block.fastpq_transcripts.clear();
-        block.fastpq_source_captures = crate::fastpq::FastpqSourceCaptureAccumulator::default();
+        let failed_transcripts = block.fastpq_transcripts.clone();
+        let failed_sources = block.fastpq_source_captures.sources().unwrap().clone();
+        assert_completed_state_refuses_mutation(|| block.fastpq_transcripts.clear());
+        assert_completed_state_refuses_mutation(|| {
+            block.fastpq_source_captures = crate::fastpq::FastpqSourceCaptureAccumulator::default();
+        });
+        assert_eq!(block.fastpq_transcripts, failed_transcripts);
+        assert_eq!(
+            block.fastpq_source_captures.sources().unwrap(),
+            &failed_sources
+        );
         assert!(
             block
                 .finalize_fastpq_source_inventory(&[], &[], &[])
@@ -796,14 +819,25 @@ fn resealing_preserves_latched_result_before_any_digest_mutation() {
         );
         let sealed_result = block.fastpq_source_inventory.clone();
         restored.get_mut(&hash).unwrap()[0].poseidon_preimage_digest = None;
-        block.fastpq_transcripts = restored.clone();
+        let retained_transcripts = if initial_failure {
+            let original = block.fastpq_transcripts.clone();
+            assert_completed_state_refuses_mutation(|| {
+                block.fastpq_transcripts = restored.clone();
+            });
+            original
+        } else {
+            // This component inventory has no completed output owner. Preserve the
+            // direct duplicate-finalization check with an actually changed archive.
+            block.fastpq_transcripts = restored.clone();
+            restored
+        };
         assert!(
             block
                 .finalize_fastpq_source_inventory_with_pending(&[], &[], &[], None)
                 .unwrap_err()
                 .contains("already been finalized")
         );
-        assert_eq!(block.fastpq_transcripts, restored);
+        assert_eq!(block.fastpq_transcripts, retained_transcripts);
         assert_eq!(block.fastpq_source_inventory, sealed_result);
     }
 }

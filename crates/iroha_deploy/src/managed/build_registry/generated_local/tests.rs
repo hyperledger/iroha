@@ -207,7 +207,7 @@ fn managed_factory_selects_published_generated_registry_without_parent_profile_o
     let (config, transport) = store
         .build_registry(
             &runtime,
-            "registry",
+            &retained.prepared,
             Instant::now() + Duration::from_secs(30),
         )
         .unwrap()
@@ -232,5 +232,86 @@ fn managed_factory_selects_published_generated_registry_without_parent_profile_o
     ));
     assert!(!store.root().join("attachments").join("registry").exists());
     assert!(peers.requests.lock().unwrap().is_empty());
+    drop(transport);
+
+    // A real Some transport is created before this mutation. The shared owner must still
+    // close its complete original preparation, and dropping the refused result releases its
+    // registry lock so restoring the original manifest allows the exact same lookup again.
+    let generation = directory.open_child(generation::DIRECTORY).unwrap();
+    let mut changed = manifest_before.clone();
+    changed.prepared.peers[0].log_name = "changed-peer.log".into();
+    assert_eq!(changed.prepared.context, retained.prepared.context);
+    let changed_bytes = crate::managed::encode(&changed).unwrap();
+    let path = generation.path().to_path_buf();
+    let _hook = super::super::tests::on_resolution(move |kind| {
+        assert_eq!(kind, super::super::tests::ResolutionKind::Some);
+        PrivateDirectory::open(path)
+            .unwrap()
+            .write_atomic(
+                crate::managed::MANIFEST,
+                &changed_bytes,
+                PublishMode::Replace,
+            )
+            .unwrap();
+    });
+    let error = store
+        .build_registry(
+            &runtime,
+            &retained.prepared,
+            Instant::now() + Duration::from_secs(30),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(error, crate::managed::Error::Invalid(message) if message ==
+            "selected build registry generation changed")
+    );
+    assert_eq!(store.prepared("registry").unwrap(), changed.prepared);
+    generation
+        .write_atomic(
+            crate::managed::MANIFEST,
+            &original_bytes,
+            PublishMode::Replace,
+        )
+        .unwrap();
+    let (retried, transport) = store
+        .build_registry(
+            &runtime,
+            &retained.prepared,
+            Instant::now() + Duration::from_secs(30),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(retried.network_id, config.network_id);
+    assert_eq!(transport.network_id(), config.network_id);
+    assert_eq!(store.prepared("registry").unwrap(), retained.prepared);
+    assert!(peers.requests.lock().unwrap().is_empty());
+    drop(transport);
+
+    let reached = std::rc::Rc::new(std::cell::Cell::new(false));
+    let observed = reached.clone();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let _expiry = super::super::tests::on_resolution(move |kind| {
+        assert_eq!(kind, super::super::tests::ResolutionKind::Some);
+        observed.set(true);
+        std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+        assert!(Instant::now() >= deadline);
+    });
+    assert!(matches!(
+        store.build_registry(&runtime, &retained.prepared, deadline),
+        Err(crate::managed::Error::NativeDeadline)
+    ));
+    assert!(reached.get(), "the transport reached its closing boundary");
+    let (retried, transport) = store
+        .build_registry(
+            &runtime,
+            &retained.prepared,
+            Instant::now() + Duration::from_secs(30),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(retried.network_id, config.network_id);
+    assert_eq!(transport.network_id(), config.network_id);
+    assert!(peers.requests.lock().unwrap().is_empty());
+    drop(transport);
     peers.finish();
 }

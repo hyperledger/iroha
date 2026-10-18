@@ -91,11 +91,21 @@ pub(super) enum Step {
 }
 
 /// Opaque derivation from the selected source, ready for one actual sigma import.
-pub(crate) struct PreparedOperationV1 {
+pub struct PreparedOperationV1 {
     owner: AuthenticatedCredentialV1,
     predecessor: Option<FoldedStateV1>,
     step: Step,
     send_usage: Option<KagemushaWalletQuotaUsageArrayV1>,
+}
+
+/// Borrowed inputs from the qualified owner and the already decoded durable plan.
+pub struct OperationPreparationV1<'a> {
+    /// Existing complete source owner; its installation is checked during derivation.
+    pub(crate) sources: &'a QualifiedWalletSourcesV1,
+    /// Exact retained nonce and clock choices authenticated against this request and source.
+    pub(crate) choices: &'a NativeChoicesV1,
+    /// The same bounded working-memory budget used by the native owner or fold worker.
+    pub(crate) budget: MemoryBudget,
 }
 
 /// One native derivation, consumed at most once by proving inside the coordinator call
@@ -472,25 +482,19 @@ impl PreparationV1<'_> {
     }
 
     /// Derive a typed operation exclusively from a coordinator-created source view.
-    /// `nonce` and `now` are decoded from the already durable native plan on retries.
+    /// The context borrows choices decoded from the already durable native plan on retries.
     pub(crate) fn prepare_operation(
         &self,
         request: &NativeIntentV1,
         source: &PreparationSourceV1<'_>,
         custody: &mut PreparationCustodyV1<'_>,
-        sources: &QualifiedWalletSourcesV1,
-        nonce: [u8; 32],
-        now: Option<&KagemushaWalletMonotonicReadingV1>,
-        budget: MemoryBudget,
+        context: &OperationPreparationV1<'_>,
     ) -> Result<PreparedOperationV1> {
         self.derive_operation(
             request,
             source,
             custody,
-            sources,
-            nonce,
-            now,
-            budget,
+            context,
             Derivation::BeforeAdvance,
             None,
         )
@@ -504,19 +508,13 @@ impl PreparationV1<'_> {
         frozen: &state::FrozenTransition,
         source: &PreparationSourceV1<'_>,
         custody: &mut PreparationCustodyV1<'_>,
-        sources: &QualifiedWalletSourcesV1,
-        nonce: [u8; 32],
-        now: Option<&KagemushaWalletMonotonicReadingV1>,
-        budget: MemoryBudget,
+        context: &OperationPreparationV1<'_>,
     ) -> Result<PreparedOperationV1> {
         self.derive_operation(
             request,
             source,
             custody,
-            sources,
-            nonce,
-            now,
-            budget,
+            context,
             Derivation::ReleasedFold,
             Some(frozen),
         )
@@ -527,13 +525,15 @@ impl PreparationV1<'_> {
         request: &NativeIntentV1,
         source: &PreparationSourceV1<'_>,
         custody: &mut PreparationCustodyV1<'_>,
-        sources: &QualifiedWalletSourcesV1,
-        nonce: [u8; 32],
-        now: Option<&KagemushaWalletMonotonicReadingV1>,
-        budget: MemoryBudget,
+        context: &OperationPreparationV1<'_>,
         derivation: Derivation,
         frozen: Option<&state::FrozenTransition>,
     ) -> Result<PreparedOperationV1> {
+        let sources = context.sources;
+        let nonce = context.choices.nonce();
+        let observation = context.choices.time();
+        let now = observation.as_ref();
+        let budget = context.budget;
         let scheme = self.installed.verifier().scheme();
         if derivation == Derivation::BeforeAdvance {
             super::derivation_counts::record_before_advance();
@@ -598,15 +598,13 @@ impl PreparationV1<'_> {
                     Step::Load(Box::new(self.prepare_load(
                         &owner,
                         released,
-                        sources.finality(),
                         custody,
                         LoadOriginalsV1 {
                             receipt,
                             finality,
                             insertion: &insertion,
                         },
-                        nonce,
-                        budget,
+                        context,
                     )?))
                 }
                 Action::Send { request: original } => {
@@ -669,12 +667,12 @@ impl PreparationV1<'_> {
                         return Err(state::Error::Invalid("native Send clock choice"));
                     }
                     let usage = custody.maps().quota_usage()?;
-                    send_usage = Some(usage.clone());
+                    send_usage = Some(usage);
                     let step = proof(self.prepare_send(
                         &owner,
                         predecessor.as_ref().ok_or(state::Error::FoldRequired)?,
                         original,
-                        SendControlsV1 {
+                        &SendControlsV1 {
                             anchored: anchored.as_ref(),
                             now,
                             blacklist: blacklist.as_ref(),

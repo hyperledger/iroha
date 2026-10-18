@@ -292,12 +292,12 @@ fn sha256_gate_degree_at_most_six() {
         fp: true,
     });
     let (cs, _) = configure(&circuit).expect("configured");
-    assert_eq!(cs.degree(), 5, "the lookup sets the degree");
-    assert!(cs.degree() <= MAX_GATE_DEGREE);
+    assert_eq!(cs.degree(), 8, "the norm lookup sets the complete degree");
     let mut gate_max = 0;
     for gate in cs.gates() {
         for poly in gate.polynomials() {
             gate_max = gate_max.max(poly.degree());
+            assert!(poly.degree() <= MAX_GATE_DEGREE, "gate {}", gate.name());
         }
     }
     assert_eq!(
@@ -305,7 +305,27 @@ fn sha256_gate_degree_at_most_six() {
         "the carry range x (x-1) (x-2) (x-3) is the highest gate"
     );
     assert_eq!(cs.lookups().len(), 1);
-    assert_eq!(cs.lookups()[0].required_degree(), 5);
+    let lookup = &cs.lookups()[0];
+    // Inputs (tag, q*spread, q*dense) have degrees (1, 2, 2),
+    // while all table columns have degree 1. Norm products require
+    // 2 + 2*2 + 2*1 = 8 without changing the degree-5 arithmetic gates.
+    assert_eq!(
+        lookup
+            .input_expressions()
+            .iter()
+            .map(Expression::degree)
+            .collect::<Vec<_>>(),
+        [1, 2, 2]
+    );
+    assert_eq!(
+        lookup
+            .table_expressions()
+            .iter()
+            .map(Expression::degree)
+            .collect::<Vec<_>>(),
+        [1, 1, 1]
+    );
+    assert_eq!(lookup.required_degree(), 8);
     // Every query is at rotation 0 or 1.
     for (_, rotation) in cs.advice_queries() {
         assert!((0..=1).contains(&rotation.0));
@@ -313,8 +333,8 @@ fn sha256_gate_degree_at_most_six() {
     for (_, rotation) in cs.fixed_queries() {
         assert_eq!(rotation.0, 0);
     }
-    // After selector compression (the key's descriptor) the degree is still
-    // at most six.
+    // Complex lookup selectors stay singletons. Simple-selector compression
+    // packs within degree 7, so the lookup still fixes descriptor degree 8.
     let params = PinnedParams::<Ep>::derive(12).expect("params");
     let pk = keygen_pk(
         &params,
@@ -323,8 +343,8 @@ fn sha256_gate_degree_at_most_six() {
     )
     .expect("proving key");
     let descriptor = pk.binding().descriptor();
-    assert!(usize::from(descriptor.degree) <= MAX_GATE_DEGREE);
-    assert_eq!(descriptor.degree, 5);
+    assert_eq!(usize::from(descriptor.degree), cs.degree());
+    assert_eq!(descriptor.degree, 8);
     println!(
         "SHA256_DESCRIPTOR degree={} advice={} fixed_after_selector_compression={} \
          equality={} lookups={} advice_queries={} fixed_queries={}",
@@ -500,7 +520,18 @@ fn sha256_gate_g3_3_measurement() {
     assert!(measured.cells <= G3_3_MAX_CELLS);
     assert!(compress_rows <= G3_3_MAX_ROWS);
     assert!(compress_cells <= G3_3_MAX_CELLS);
-    assert!(cs.degree() <= MAX_GATE_DEGREE);
+    for gate in cs.gates() {
+        for polynomial in gate.polynomials() {
+            assert!(
+                polynomial.degree() <= MAX_GATE_DEGREE,
+                "gate {}",
+                gate.name()
+            );
+        }
+    }
+    assert_eq!(cs.lookups().len(), 1);
+    assert_eq!(cs.lookups()[0].required_degree(), 8);
+    assert_eq!(cs.degree(), 8);
     assert_eq!(codec_and_block_rows, 2_094);
     assert_eq!(codec_and_block_rows, HASH_DIGEST_ROWS);
 }
@@ -562,10 +593,11 @@ fn round_trip(
     let middle = corrupted.len() / 2;
     corrupted[middle] ^= 1;
     assert!(verify(&public, &corrupted).is_err(), "corrupted proof");
-    // A witness for a wrong digest yields no accepted proof.
-    if let Ok(bad) = prove(&wrong) {
-        assert!(verify(&wrong, &bad).is_err(), "wrong-digest proof");
-    }
+    // Changing the public digest leaves every witness lookup unchanged; the
+    // engine constructs a proof whose false public copy must fail verification.
+    // An unrelated proving error must not count as a successful rejection.
+    let bad = prove(&wrong).expect("wrong public digest preserves the witness lookup inputs");
+    assert!(verify(&wrong, &bad).is_err(), "wrong-digest proof");
     proof.len()
 }
 

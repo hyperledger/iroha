@@ -223,6 +223,13 @@ Successful stop requires the exact requiredStage to have been observed. Public o
 are still restricted campaign evidence, not permission to publish personal metadata.
 No error messages, Throwable causes, tokens, DPoP or private paths enter public records.
 
+After collection of a completed Receive's retained output, `request-status`
+may return `CREDIT_STATUS` (10). Run `credit` for the same Receive request ID:
+fresh native `UNFOLDED` or `CREDITED` evidence satisfies the invocation's
+`received` stage. Raw status 10, burned evidence and exports alone do not.
+This records recovered credit without reconstructing the old receipt or its
+completion time.
+
 ## Remaining execution dependencies
 
 Use the current-candidate disposable local four-validator campaign and its reviewed
@@ -330,6 +337,15 @@ For A → B → C → Unload, use three admitted actor namespaces and their orig
    the Native operation. Export its exact Unload claim/instruction. The independent
    controller signs/submits it, then supplies the actual transaction hash, exact claim
    and ordered real finality. Require Native Unload confirmation for `unloaded`.
+
+Nearby Receive recovery accepts the native `CREDIT_STATUS` result after old
+Receive output collection. It reads fresh covering evidence through
+`receivedCredit(requestId)`, without looking up the collected release. An
+ordinary `COMPLETE` result still records its retained release separately before
+reading fresh credit evidence. Missing, burned or nonreceiver evidence fails the
+diagnostic; only the exact native Credited original enters the acknowledgement.
+Sender recovery remains `COMPLETE`-only. Recovery does not reconstruct the
+original completion time.
 
 Mailbox copying is not physical QR/NFC/Nearby delivery evidence. Run the maintained
 carrier separately when qualifying a carrier. Each command records invocation-local

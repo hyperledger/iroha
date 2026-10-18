@@ -20,7 +20,7 @@ mod evidence;
 mod prepare;
 #[path = "archive/retained.rs"]
 mod retained;
-pub(crate) use prepare::ArchiveStepV1;
+pub use prepare::ArchiveStepV1;
 
 /// Decoder, opening and correction proposals for the exact retained evidence form.
 /// Every proposal is constrained by the mandatory Archive source owners.
@@ -111,7 +111,7 @@ fn removal(
 }
 
 /// Verified original field projection; Q proofs remain mandatory independent inputs.
-pub(crate) struct ArchiveFoldFieldsV1 {
+pub struct ArchiveFoldFieldsV1 {
     pub(crate) state: ArchiveWitness,
     pub(crate) removals: [IndexedRemove<Fp>; 2],
     /// Own retained receipt, the only own signed object Λ consumes.
@@ -140,32 +140,16 @@ impl ArchiveFoldFieldsV1 {
 }
 
 impl PreparationV1<'_> {
-    /// Convert exact retained Payment/Credited originals into either native Archive form.
-    /// The current owner signs this Archive; its historical payer credential is read
-    /// from durable custody and may have an earlier renewal digest. Incoming proof,
-    /// signature and membership verdicts remain soft circuit obligations, including
-    /// every corrected-claim no-op. Every A owner and W continuation of the installed
-    /// schedule remains mandatory; `q` holds every installed Q in order.
+    /// Reconstruct either Archive form before its independent Q proofs exist, from
+    /// exact retained Payment/Credited originals. The current owner signs the Archive;
+    /// its historical payer credential comes from durable custody and may precede a
+    /// renewal. Incoming proof, signature and membership verdicts remain soft circuit
+    /// obligations, including every corrected-claim no-op. Every A owner and W
+    /// continuation of the installed schedule remains mandatory.
     ///
     /// # Errors
     /// Changed source/receipt/credential, missing or duplicate originals, noncanonical
     /// frames, wrong evidence proposal variant, or an invalid core/adjusted removal.
-    #[allow(clippy::too_many_arguments)]
-    pub fn archive_native_inputs(
-        &self,
-        owner: &AuthenticatedCredentialV1,
-        step: &ReleasedStep,
-        predecessor: &FoldedStateV1,
-        public: &KagemushaWalletLineagePublicV1,
-        witness: ArchiveFoldWitnessV1,
-        q: Vec<native::QInput>,
-        budget: MemoryBudget,
-    ) -> Result<native::Inputs, Error> {
-        self.archive_fold_fields(owner, step, predecessor, public, witness, budget)
-            .map(|fields| fields.with_q(q))
-    }
-
-    /// Reconstruct the exact native source before its independent Q proofs exist.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn archive_fold_fields(
         &self,
