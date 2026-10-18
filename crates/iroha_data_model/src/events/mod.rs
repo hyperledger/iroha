@@ -43,24 +43,123 @@ pub use self::model::*;
 ///
 /// Cloning retains this same payload. Its allocation stays private: callers may
 /// borrow the value, but cannot extract an `Arc` or create a weak reference.
-/// This closes sharing identity; it does not itself provide allocation funding.
+/// Funded batches retain their original graph and shell through the last reader.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_data_model::events::SharedDataEvent")]
-pub struct SharedDataEvent(Arc<data::DataEvent>);
+pub struct SharedDataEvent(SharedEventPayload);
+
+#[derive(Clone)]
+enum SharedEventPayload {
+    Owned(Arc<data::DataEvent>),
+    Funded {
+        batch: iroha_allocation::ChargedShared<
+            iroha_allocation::RetainedPayload<Vec<data::DataEvent>>,
+        >,
+        index: usize,
+    },
+}
+impl std::fmt::Debug for SharedEventPayload {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.get().fmt(formatter)
+    }
+}
+impl SharedEventPayload {
+    fn get(&self) -> &data::DataEvent {
+        match self {
+            Self::Owned(event) => event,
+            Self::Funded { batch, index } => &batch.get()[*index],
+        }
+    }
+}
+impl PartialEq for SharedEventPayload {
+    fn eq(&self, other: &Self) -> bool {
+        self.get() == other.get()
+    }
+}
+impl Eq for SharedEventPayload {}
+impl norito::core::SerializePayload for SharedEventPayload {
+    fn serialize(&self, encoder: &mut norito::core::Encoder<'_>) -> Result<(), norito::Error> {
+        let flags = norito::core::effective_decode_flags()
+            .unwrap_or_else(norito::core::default_encode_flags);
+        let _guard = norito::core::DecodeFlagsGuard::enter(flags);
+        norito::core::write_len_prefixed(encoder, self.get())
+    }
+    fn encoded_len_hint(&self) -> Option<usize> {
+        norito::core::SerializePayload::encoded_len_exact(self.get())
+            .or_else(|| norito::core::SerializePayload::encoded_len_hint(self.get()))
+            .and_then(|len| norito::core::len_prefix_len(len).checked_add(len))
+    }
+    fn encoded_len_exact(&self) -> Option<usize> {
+        norito::core::SerializePayload::encoded_len_exact(self.get())
+            .and_then(|len| norito::core::len_prefix_len(len).checked_add(len))
+    }
+}
+impl<'de> norito::core::DeserializePayload<'de> for SharedEventPayload {
+    fn deserialize(archived: &'de norito::core::Archived<Self>) -> Self {
+        Self::try_deserialize(archived).expect("shared data event archive")
+    }
+    fn try_deserialize(archived: &'de norito::core::Archived<Self>) -> Result<Self, norito::Error> {
+        <Arc<data::DataEvent> as norito::core::DeserializePayload>::try_deserialize(archived.cast())
+            .map(Self::Owned)
+    }
+}
+impl norito::NoritoSchema for SharedEventPayload {
+    fn nominal_name() -> String {
+        <Arc<data::DataEvent> as norito::NoritoSchema>::nominal_name()
+    }
+    fn frame_name() -> String {
+        <Arc<data::DataEvent> as norito::NoritoSchema>::frame_name()
+    }
+}
+impl SharedDataEvent {
+    /// Borrow one event from an immutable, originally funded batch without allocating.
+    ///
+    /// Returns `None` for a foreign shell, foreign graph, or invalid index. Equal
+    /// pool limits do not establish identity. The supplied retained payload must
+    /// satisfy its complete allocation-custody contract before this call.
+    pub fn from_funded_batch(
+        batch: &iroha_allocation::ChargedShared<
+            iroha_allocation::RetainedPayload<Vec<data::DataEvent>>,
+        >,
+        index: usize,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Option<Self> {
+        (batch.belongs_to(budget)
+            && iroha_allocation::RetainedPayload::belongs_to(batch, budget)
+            && index < batch.get().len())
+        .then(|| {
+            Self(SharedEventPayload::Funded {
+                batch: batch.clone(),
+                index,
+            })
+        })
+    }
+
+    /// Whether the complete immutable graph and its shared control retain this pool.
+    pub fn belongs_to(&self, budget: &iroha_allocation::AllocationBudget) -> bool {
+        match &self.0 {
+            SharedEventPayload::Owned(_) => false,
+            SharedEventPayload::Funded { batch, .. } => {
+                batch.belongs_to(budget)
+                    && iroha_allocation::RetainedPayload::belongs_to(batch, budget)
+            }
+        }
+    }
+}
 impl Deref for SharedDataEvent {
     type Target = data::DataEvent;
     fn deref(&self) -> &Self::Target {
-        self.0.as_ref()
+        self.0.get()
     }
 }
 impl From<data::DataEvent> for SharedDataEvent {
     fn from(event: data::DataEvent) -> Self {
-        Self(Arc::new(event))
+        Self(SharedEventPayload::Owned(Arc::new(event)))
     }
 }
 impl AsRef<data::DataEvent> for SharedDataEvent {
     fn as_ref(&self) -> &data::DataEvent {
-        self.0.as_ref()
+        self.0.get()
     }
 }
 /// Data-oriented event payloads and filters.
@@ -143,6 +242,55 @@ mod tests {
         DataEvent::Domain(DomainEvent::MetadataInserted(metadata))
     }
     #[test]
+    #[allow(unsafe_code)]
+    fn funded_event_batch_keeps_original_shell_graph_and_canonical_wire() {
+        use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedShared, RetainedPayload};
+        let pool = AllocationBudget::new(1 << 20);
+        let foreign = AllocationBudget::new(1 << 20);
+        let mut ledger = ChargedBuffer::new(1, &pool).unwrap();
+        let mut values = ChargedBuffer::new(1, &pool).unwrap();
+        values.push_reserved(DataEvent::Sccp(
+            crate::sccp::events::SccpEvent::ForgeryOffenderUnslashable(
+                crate::sccp::events::SccpForgeryOffenderUnslashableV1 {
+                    generation: 2,
+                    signer: 1,
+                },
+            ),
+        ));
+        // SAFETY: this scalar event has no children; its exact Vec charge follows it.
+        let (values, charge) = unsafe { values.into_allocation_parts() };
+        ledger.push_reserved(charge);
+        let pointer = values.as_ptr();
+        let payload = unsafe { RetainedPayload::try_new(values, ledger, &pool) }
+            .unwrap_or_else(|_| panic!("original graph"));
+        let mut reservation = pool
+            .try_reserve(ChargedShared::<RetainedPayload<Vec<DataEvent>>>::allocation_layout())
+            .unwrap();
+        let batch = ChargedShared::reserve_from(&mut reservation)
+            .unwrap()
+            .initialize(payload);
+        let used = pool.reserved_bytes();
+        let event = SharedDataEvent::from_funded_batch(&batch, 0, &pool).unwrap();
+        assert!(SharedDataEvent::from_funded_batch(&batch, 0, &foreign).is_none());
+        assert!(SharedDataEvent::from_funded_batch(&batch, 1, &pool).is_none());
+        let wire = norito::to_bytes(&event).unwrap();
+        assert_eq!(
+            wire,
+            norito::to_bytes(&SharedDataEvent::from(event.as_ref().clone())).unwrap()
+        );
+        let decoded: SharedDataEvent = norito::decode_from_bytes(&wire).unwrap();
+        assert_eq!(event, decoded);
+        assert!(!decoded.belongs_to(&pool));
+        let last = event.clone();
+        drop(batch);
+        drop(event);
+        assert!(last.belongs_to(&pool));
+        assert_eq!(std::ptr::from_ref(last.as_ref()), pointer);
+        assert_eq!(pool.reserved_bytes(), used);
+        drop(last);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+    #[test]
     fn shared_data_event_clone_preserves_physical_payload() {
         let original = SharedDataEvent::from(shared_event_fixture());
         let retained = original.clone();
@@ -156,6 +304,11 @@ mod tests {
     #[test]
     fn shared_data_event_closed_sharing_preserves_canonical_codec() {
         let original = SharedDataEvent::from(shared_event_fixture());
+        assert_eq!(
+            norito::to_bytes(&original.0).expect("encode closed shared payload"),
+            norito::to_bytes(&Arc::new(shared_event_fixture())).expect("encode owned payload"),
+            "shared custody preserves the owned-value length prefix"
+        );
         let bytes = norito::to_bytes(&original).expect("encode shared event");
         let decoded: SharedDataEvent =
             norito::decode_from_bytes(&bytes).expect("decode shared event");

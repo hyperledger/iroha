@@ -36,11 +36,10 @@
 //! Production code compiles only the candidate row [`PROOF_ROW_V1`]; there is no row
 //! argument, detection or fallback, and this crate never names the comparator row. Every
 //! scoped context checks that the compiled descriptor digest is
-//! [`ProofProfileIdV1::V1`].
-//!
-//! TODO: integration decision 6 keeps the comparator row behind the proof crate's test and
-//! diagnostic support, excluded from node, wallet and bridge dependency features; the proof
-//! crate still compiles both rows unconditionally, so that split is outstanding there.
+//! [`ProofProfileIdV1::V1`]. This crate depends on the proof crate without its
+//! `diagnostics` feature, so the comparator row (integration decision 6: test and
+//! diagnostic support only) is not compiled into it, nor into the node, wallet and
+//! native-bridge builds that use it.
 //!
 //! # Determinism and secrets
 //!
@@ -106,5 +105,13 @@ mod tests {
         assert_eq!(PARLIAMENT_BALLOT_QUALIFICATION_V1, None);
         assert!(!parliament_ballot_qualified_v1());
         const { assert!(!iroha_parliament_ballot_proof::PROFILE_QUALIFIED) };
+    }
+
+    #[test]
+    fn the_proof_crate_is_built_without_the_comparator_row() {
+        // This crate depends on the proof crate without its `diagnostics` feature, so the
+        // only compiled row is the candidate. Enabling that feature in a build of this crate
+        // (for example with `--all-features`) links the comparator row and fails here.
+        assert_eq!(Row::ALL.as_slice(), [PROOF_ROW_V1].as_slice());
     }
 }

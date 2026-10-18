@@ -74,6 +74,17 @@ impl OriginalPayloadScope {
     }
 }
 
+/// Actual build request identity, before any physical parent or lane read can refuse.
+/// State publication generations are deliberately absent: they do not cancel a request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ProposalReadRequest {
+    pub(super) height: u64,
+    pub(super) view: u64,
+    pub(super) max_bytes: u32,
+    pub(super) exec_budget_ms: u32,
+    pub(super) applied: (u64, Hash32),
+}
+
 /// One original charged payload and selected-input table; shared lends reuse their same backing.
 pub(super) struct CompletedPayload {
     pub(super) scope: OriginalPayloadScope,
@@ -112,6 +123,24 @@ pub(super) fn lease_admission_error(
 }
 
 impl Worker<'_> {
+    pub(super) fn cancel_proposal_reads(&mut self) {
+        drop(self.proposal_reads.take());
+        self.context.lane_blocks.release_cancelled_proposal_reads();
+    }
+
+    pub(super) fn retain_proposal_read_request(&mut self, request: ProposalReadRequest) {
+        if cfg!(all(test, sumeragi_core_mutation = "HC433"))
+            || self
+                .proposal_reads
+                .as_ref()
+                .is_some_and(|(original, _)| *original != request)
+        {
+            self.cancel_proposal_reads();
+        }
+        self.proposal_reads
+            .get_or_insert_with(|| (request, lanes::ProposalReadScope::new()));
+    }
+
     /// Resume a partial or completed job only under its fresh physical parent, exact current lane
     /// proposal and original Queue admission. A transient refusal preserves the paid job.
     pub(super) fn retained_payload_build_is_current(
@@ -401,7 +430,13 @@ mod tests {
             .creation_time()
             .checked_add(cadence)
             .unwrap();
-        let merges = lanes::merge::propose(&view, &*worker.context.lane_blocks, height).unwrap();
+        let merges = lanes::merge::propose(
+            &view,
+            &*worker.context.lane_blocks,
+            height,
+            &mut crate::sumeragi::lanes::ProposalReadScope::new(),
+        )
+        .unwrap();
         let floor = if merges.merges.is_empty() {
             floor
         } else {
@@ -700,8 +735,13 @@ mod tests {
             .unwrap();
         let scope =
             OriginalPayloadScope::capture(&current_view, generation, height, 0, 1 << 20, 100);
-        let merges =
-            lanes::merge::propose(&current_view, &*worker.context.lane_blocks, height).unwrap();
+        let merges = lanes::merge::propose(
+            &current_view,
+            &*worker.context.lane_blocks,
+            height,
+            &mut crate::sumeragi::lanes::ProposalReadScope::new(),
+        )
+        .unwrap();
         let selection = queue
             .begin_pending_payload_selection(state, generation)
             .unwrap();
@@ -1020,8 +1060,13 @@ mod tests {
                 .executed_block(std::num::NonZeroUsize::MIN, |_, _| Ok(()))
                 .unwrap();
             let scope = worker.payload_build.as_ref().unwrap().scope;
-            let merges =
-                lanes::merge::propose(&current_view, &*worker.context.lane_blocks, 2).unwrap();
+            let merges = lanes::merge::propose(
+                &current_view,
+                &*worker.context.lane_blocks,
+                2,
+                &mut crate::sumeragi::lanes::ProposalReadScope::new(),
+            )
+            .unwrap();
             let held = budget.reserved_bytes();
             let release = state.with_held_view_publication_for_reader_test(|release| {
                 let context = &mut Context::from_waker(Waker::noop());
@@ -1400,6 +1445,7 @@ mod tests {
                             &worker.state.view(),
                             &*worker.context.lane_blocks,
                             height,
+                            &mut crate::sumeragi::lanes::ProposalReadScope::new(),
                         )
                         .unwrap();
                         let Some(output) = worker.build(height, 0, 1 << 20, 100).unwrap() else {
@@ -2353,6 +2399,7 @@ mod tests {
                             &worker.state.view(),
                             &*worker.context.lane_blocks,
                             height,
+                            &mut crate::sumeragi::lanes::ProposalReadScope::new(),
                         )
                         .unwrap();
                         let grown = worker.build(height, 0, 1 << 20, 100).unwrap().unwrap();

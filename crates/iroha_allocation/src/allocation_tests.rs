@@ -21,6 +21,24 @@ use std::{
 
 use crate::test_support::without_allocations;
 
+#[test]
+fn reservation_budget_observation_retains_original_identity_without_allocating_or_refunding() {
+    let original = AllocationBudget::new(64);
+    let foreign = AllocationBudget::new(64);
+    let mut reservation = original.try_reserve_bytes(32).unwrap();
+    let captured = without_allocations(|| reservation.allocation_budget());
+    assert!(captured.same_pool(&original));
+    assert!(!captured.same_pool(&foreign));
+    let child = without_allocations(|| reservation.try_partition_bytes(16).unwrap());
+    assert!(child.allocation_budget().same_pool(&captured));
+    assert_eq!(captured.reserved_bytes(), 32);
+    drop(reservation);
+    assert_eq!(captured.reserved_bytes(), 16);
+    drop(child);
+    assert_eq!(captured.reserved_bytes(), 0);
+    assert_eq!(foreign.reserved_bytes(), 0);
+}
+
 #[derive(Default)]
 struct WakeCount(AtomicUsize);
 

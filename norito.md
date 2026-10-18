@@ -134,6 +134,12 @@ In-memory archived handles:
   so a field pointer cannot consume sibling bytes. Missing context, truncated
   scalar ranges, invalid Boolean tags, and invalid Unicode scalar values are
   decode errors.
+- Because markers are byte-aligned and every read is a bounds-checked byte
+  copy, decoders borrow frames, fields, tuple/result/array/heap children and
+  prepared slices in place at any address. No alignment copy or zero padding
+  beyond the logical payload is made or charged, and acceptance of a frame never
+  depends on the input buffer's address. The wire padding rules above are
+  unchanged.
 
 Schema and resource enforcement:
 - Typed decoders must reject payloads whose header schema hash does not match
@@ -260,6 +266,16 @@ flags across its two passes. The tuple prefix runs in the enclosing layout
 context. `ConstVec` retains individually framed byte elements; `SmallVec`
 retains fixed-width element length prefixes.
 
+Buffered frame encoders compute the payload CRC64 once over the finished bytes;
+streaming frame writers batch small serializer writes before each checksum
+update. Bare payloads carry no checksum and compute none. Element-framed
+sequences and arrays of `u8` emit each `[len = 1][byte]` element from a stack
+block instead of a nested measurement per byte, preserving the layout check,
+count allowance and compact-length marker of the per-element path. Their
+decoders accept canonical `[len = 1][byte]` runs in one pass with the same
+checks and charges in the original order; any other input takes the
+per-element decoder and its original rejection. The bytes are unchanged.
+
 `Metadata` projects borrowed entry views into the same element-sequence writer
 as `ConstVec`, preserving its sequence-of-tuples layout without collecting entries.
 The writer derives cardinality from an exact-size iterator, measures and writes
@@ -283,18 +299,8 @@ layout:
 - Each declared element span is authoritative. A zero-length span is valid only
   when that element type's canonical encoding is empty; it is never treated as
   a missing length whose payload can be recovered from following bytes.
-- An optional Metal/CUDA helper, `norito_length_prefixed_sequence_plan`, may
-  compute the spans of large length-prefixed sequences. The helper must pass a
-  startup self-test, and the scalar planner re-verifies every helper plan; a
-  plan is used only when it matches the scalar result exactly. An unavailable
-  backend falls back to the scalar planner for that call. Helper errors,
-  malformed span output, or scalar mismatches fall back and disable that helper
-  for the process. GPU-named helper exports report unavailable or backend
-  failure instead of silently substituting CPU work; the Norito caller owns
-  deterministic scalar fallback.
-- Helper use is performance-only: decoded values, rejection class, ordering,
-  hashes, and emitted bytes must remain identical. Native helper waits are
-  bounded before CPU fallback.
+- Planning is scalar and deterministic. Decoders do not dispatch sequence span
+  planning to GPU helpers.
 
 ### Counted length framing and encode depth
 
@@ -495,12 +501,12 @@ Manual record walks use `framed_byte_array_field` for direct byte-array fields,
 and prepared destinations honor the decoder selected by that field constructor.
 Optional and sequence-element arrays keep the generic element-framed value
 format; raw record-field bytes cannot be passed to that value decoder.
-Archived generic arrays charge each actual element copy once. Their owning
-element decoder also requires `SerializePayload`: partial or unreported child
-access uses the same allocation-free canonical byte comparison as other fields,
-without imposing an additional deserialization lifetime bound. Actual archived
-realignment buffers and owned child storage retain their own allocation charges;
-field, flags, bounds, depth and complete-consumption checks remain active.
+Archived generic arrays decode each element in place without a copy or its
+charge. Their owning element decoder also requires `SerializePayload`: partial or
+unreported child access uses the same allocation-free canonical byte comparison
+as other fields, without imposing an additional deserialization lifetime bound.
+Owned child storage retains its own allocation charges; field, flags, bounds,
+depth and complete-consumption checks remain active.
 
 `ChargedElementSequence` constructs exact span backing from the original finite
 pool during that same sequence walk. It borrows the original input and exposes
@@ -588,9 +594,9 @@ Explicitly unbounded low-level decode scopes remain an internal trusted-data
 concern; public byte-slice framed and exact-slice boundaries retain their
 payload-derived defaults. Reader-based decoding cannot derive a budget from a
 complete frame slice, so untrusted readers must use the explicit-limit reader
-API. A host must choose cumulative budgets with enough headroom for temporary
-alignment copies and container metadata; accounting is intentionally
-conservative and may charge both a declared field body and a temporary copy.
+API. A host must choose cumulative budgets with enough headroom for container
+metadata; accounting is intentionally conservative and may charge a declared
+field body that a decoder then borrows in place.
 
 All public framed, reader, compressed, and bare-value decoders converge on the
 same exact payload boundary. A decoded value must consume the complete
@@ -1185,9 +1191,8 @@ produce the same semantic result as the scalar path or fall back:
   decode mismatch disables the GPU backend and falls back to CPU compression.
   Consensus-critical code must not hash or sign public Norito compressed bytes
   unless that callsite fixes its own compression implementation.
-- JSON Stage-1 output and length-prefixed binary sequence spans are validated
-  against scalar results before use so quote/string state, element ranges, and
-  error ordering remain hardware-independent.
+- JSON Stage-1 output is validated against scalar results before use so
+  quote/string state and error ordering remain hardware-independent.
 
 ## String Encoding
 
@@ -1567,7 +1572,9 @@ The 16-byte frame hash is the first 16 bytes of
 `SHA-256("norito:v1:type-name\0" || NoritoSchema::frame_name())`.
 The historical domain separator remains part of V1; the name bytes now come
 only from an explicit protocol declaration. Rust source paths and compiler
-`type_name` output do not select the active frame identity.
+`type_name` output do not select the active frame identity. Typed readers and
+writers memoize each type's digest per thread, keyed by its monomorphized digest
+function; the memo returns the same bytes, so declared names must be constant.
 
 `#[derive(NoritoSchema)]` requires `#[norito_schema(name = "protocol.name")]`.
 An optional `frame = "protocol.root"` declares a root projection, such as a

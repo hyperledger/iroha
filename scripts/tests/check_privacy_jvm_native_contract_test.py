@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Freeze the fail-closed ABI-29 Kotlin privacy owner and Java consumers."""
+"""Freeze the fail-closed ABI-30 Kotlin privacy owner and Java consumers."""
 
 from __future__ import annotations
 
@@ -141,8 +141,8 @@ class PrivacyJvmNativeContractTests(unittest.TestCase):
     def test_jvm_runner_authenticates_the_only_loadable_bridge(self) -> None:
         source = read("ci/check_privacy_jvm_sdk.sh")
         for marker in (
-            'ABI29_CHECKER="${ROOT_DIR}/scripts/check_native_sdk_artifact.py"',
-            '"${PYTHON_BIN}" -I -S "${ABI29_CHECKER}" verify',
+            'ABI30_CHECKER="${ROOT_DIR}/scripts/check_native_sdk_artifact.py"',
+            '"${PYTHON_BIN}" -I -S "${ABI30_CHECKER}" verify',
             'export IROHA_NATIVE_LIBRARY_PATH="${NATIVE_LIBRARY_DIR}"',
             'export LD_LIBRARY_PATH="${NATIVE_LIBRARY_DIR}"',
             '-Djava.library.path="${NATIVE_LIBRARY_DIR}"',

@@ -821,30 +821,6 @@ def main() -> int:
         "--trusted-release-manifest-verifier-sha256",
         help="Reviewed lowercase SHA256 of the exact native verifier executable.",
     )
-    parser.add_argument(
-        "--timed-ovn-audit-manifest",
-        help="Canonical 301-byte independent timed-OVN official-release audit manifest.",
-    )
-    parser.add_argument(
-        "--timed-ovn-implementation-source-archive",
-        help="Exact implementation source archive reviewed by the timed-OVN auditor.",
-    )
-    parser.add_argument(
-        "--timed-ovn-supported-target-inventory",
-        help="Exact supported-target inventory reviewed by the timed-OVN auditor.",
-    )
-    parser.add_argument(
-        "--timed-ovn-audit-report",
-        help="Independent timed-OVN cryptographic and side-channel audit report.",
-    )
-    parser.add_argument(
-        "--timed-ovn-audit-evidence-archive",
-        help="Exact external measurement/evidence archive committed by the audit manifest.",
-    )
-    parser.add_argument(
-        "--timed-ovn-trusted-reviewer-public-key",
-        help="Raw 32-byte Ed25519 public key independently trusted for the timed-OVN audit.",
-    )
     parser.add_argument("--skip-bundles", action="store_true", help="Skip building tar.zst bundles.")
     parser.add_argument("--skip-images", action="store_true", help="Skip building Docker images.")
     parser.add_argument(
@@ -1062,25 +1038,6 @@ def main() -> int:
             "aggregate signing requires both the complete external signer "
             "contract and the pinned native release-manifest verifier contract"
         )
-    timed_ovn_audit_values = (
-        args.timed_ovn_audit_manifest,
-        args.timed_ovn_implementation_source_archive,
-        args.timed_ovn_supported_target_inventory,
-        args.timed_ovn_audit_report,
-        args.timed_ovn_audit_evidence_archive,
-        args.timed_ovn_trusted_reviewer_public_key,
-    )
-    timed_ovn_audit_value_count = sum(
-        value is not None for value in timed_ovn_audit_values
-    )
-    if timed_ovn_audit_value_count not in (0, len(timed_ovn_audit_values)):
-        raise PipelineError(
-            "the complete timed-OVN official-release audit input set must be supplied together"
-        )
-    if timed_ovn_audit_value_count and not signing_cli_args:
-        raise PipelineError(
-            "timed-OVN official-release audit inputs require the complete signed release corridor"
-        )
     if args.development_allow_unsigned_publish_plan and not args.publish_target:
         raise PipelineError(
             "--development-allow-unsigned-publish-plan requires --publish-target"
@@ -1100,14 +1057,10 @@ def main() -> int:
             "--signing-public-key, and --trusted-signing-fingerprint; use "
             "--development-allow-unsigned-publish-plan only for tests/development"
         )
-    if (
-        args.publish_target
-        and signing_cli_args
-        and timed_ovn_audit_value_count != len(timed_ovn_audit_values)
-    ):
-        raise PipelineError(
-            "production publish plans require the complete independent timed-OVN official-release audit input set"
-        )
+    # TODO(parliament anonymous ballot, P6): production publish plans must require the
+    # complete independent audit input set for the anonymous-ballot relations (registration
+    # and vote proofs; design section 12.2) once its audit-manifest format and native
+    # verifier exist; see the matching TODO in release_manifest_signing.sign_release_manifest.
     if not args.skip_cbdc_rollout_check and args.cbdc_rollout_dir is None:
         raise PipelineError(
             "--cbdc-rollout-dir is required unless "
@@ -1866,8 +1819,7 @@ def main() -> int:
                 f"{aggregate_signature_path} and raw key "
                 f"{aggregate_public_key_path}; verify with "
                 f"{args.release_manifest_verifier} pinned to "
-                f"{args.trusted_release_manifest_verifier_sha256}; timed-OVN "
-                f"audit verification={'enabled' if timed_ovn_audit_value_count else 'candidate-only omitted'}"
+                f"{args.trusted_release_manifest_verifier_sha256}"
             )
         else:
             assert args.external_signer is not None
@@ -1889,36 +1841,6 @@ def main() -> int:
                     aggregate_public_key_path,
                     Path(args.release_manifest_verifier),
                     args.trusted_release_manifest_verifier_sha256,
-                    timed_ovn_audit_manifest_path=(
-                        Path(args.timed_ovn_audit_manifest)
-                        if args.timed_ovn_audit_manifest is not None
-                        else None
-                    ),
-                    timed_ovn_implementation_source_archive_path=(
-                        Path(args.timed_ovn_implementation_source_archive)
-                        if args.timed_ovn_implementation_source_archive is not None
-                        else None
-                    ),
-                    timed_ovn_supported_target_inventory_path=(
-                        Path(args.timed_ovn_supported_target_inventory)
-                        if args.timed_ovn_supported_target_inventory is not None
-                        else None
-                    ),
-                    timed_ovn_audit_report_path=(
-                        Path(args.timed_ovn_audit_report)
-                        if args.timed_ovn_audit_report is not None
-                        else None
-                    ),
-                    timed_ovn_audit_evidence_archive_path=(
-                        Path(args.timed_ovn_audit_evidence_archive)
-                        if args.timed_ovn_audit_evidence_archive is not None
-                        else None
-                    ),
-                    timed_ovn_trusted_reviewer_public_key_path=(
-                        Path(args.timed_ovn_trusted_reviewer_public_key)
-                        if args.timed_ovn_trusted_reviewer_public_key is not None
-                        else None
-                    ),
                 )
                 aggregate_signing_result.update(
                     {

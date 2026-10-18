@@ -3,7 +3,9 @@
 //! Measures the recommended consensus layout (4 data rows, 2 parity rows, 256 KiB rows) for
 //! 1 MiB and 16 MiB payloads on the host SIMD backend and on the scalar fallback. Reconstruction
 //! erases the first two data rows of every stripe, so each stripe inverts a decoding matrix and
-//! decodes two rows, and uses an accept-all row predicate so only codec work is measured.
+//! decodes two rows, and uses an accept-all row predicate so only codec work is measured. The
+//! owned-row `encode_parity` API used by Torii data-availability ingest is measured on one full
+//! stripe of the same layout.
 use criterion::{BenchmarkId, Criterion, Throughput};
 use iroha_allocation::AllocationBudget;
 use iroha_primitives::erasure::rs16::{
@@ -58,6 +60,16 @@ fn bench_backend(c: &mut Criterion, simd: bool) {
             .collect::<Vec<_>>();
         let mut output = vec![0; shape.encoded_bytes()];
         let mut recovered = vec![0; len];
+        shape
+            .reconstruct_into(
+                &received,
+                &mut recovered,
+                &mut output,
+                &mut workspace,
+                |_, _| true,
+            )
+            .expect("reconstruct");
+        assert!(recovered == data && output == encoded, "codec roundtrip");
         let budget = AllocationBudget::new(usize::MAX / 2);
         group.throughput(Throughput::Bytes(len as u64));
         group.bench_function(BenchmarkId::new("encode_into", label), |b| {
@@ -80,7 +92,6 @@ fn bench_backend(c: &mut Criterion, simd: bool) {
                     .expect("reconstruct");
             });
         });
-        assert!(recovered == data && output == encoded, "codec roundtrip");
         group.bench_function(BenchmarkId::new("encode_funded", label), |b| {
             b.iter(|| black_box(encode_funded(shape, black_box(&data), &budget).expect("encode")));
         });
@@ -93,6 +104,14 @@ fn bench_backend(c: &mut Criterion, simd: bool) {
             });
         });
     }
+    let rows = payload(DATA_ROWS * MAXIMUM_ROW)
+        .chunks_exact(MAXIMUM_ROW)
+        .map(|row| rs16::symbols_from_chunk(MAXIMUM_ROW / 2, row))
+        .collect::<Vec<_>>();
+    group.throughput(Throughput::Bytes((DATA_ROWS * MAXIMUM_ROW) as u64));
+    group.bench_function(BenchmarkId::new("encode_parity", "1MiB"), |b| {
+        b.iter(|| black_box(rs16::encode_parity(black_box(&rows), PARITY_ROWS).expect("parity")));
+    });
     group.finish();
 }
 

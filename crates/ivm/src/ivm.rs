@@ -2186,14 +2186,19 @@ impl IVM {
             self.registers.set_tag(rd, tag);
         }
     }
+    #[inline]
     fn memory_privacy_range(addr: u64, len: u64) -> Result<std::ops::Range<u64>, VMError> {
-        let end = addr.checked_add(len).ok_or(VMError::PrivacyViolation)?;
-        Ok(addr..end)
+        // Every store reaches this: build the error only on overflow.
+        match addr.checked_add(len) {
+            Some(end) => Ok(addr..end),
+            None => Err(VMError::PrivacyViolation),
+        }
     }
     /// Return the privacy tag for a scalar memory load.
     ///
     /// A partially overwritten private word is rejected rather than silently
     /// downgrading it to public data or exposing a fragment of the secret.
+    #[inline]
     fn memory_load_privacy_tag(&self, addr: u64, len: u64) -> Result<bool, VMError> {
         if !self.zk_mode {
             return Ok(false);
@@ -4069,7 +4074,9 @@ impl IVM {
                         )?;
                 }
                 self.native_finish_step();
-                drop(pending_register_batch.take());
+                if let Some(batch) = pending_register_batch.take() {
+                    drop(batch);
+                }
                 self.publish_trace_cycles(&invocation_trace, &mut last_logged_cycle)?;
                 // Stop the loop if HALT was executed. When a cycle limit is set we
                 // continue executing even after a failed assertion so the trace
@@ -4101,8 +4108,11 @@ impl IVM {
                 }
                 // Determine the gas cost for this operation and deduct it.
                 // Scale vector op costs by the current logical vector length.
-                let cost = gas::cost_from_parts(fetched.base_gas, wide_op, self.vector_length)
-                    .ok_or(VMError::InvalidOpcode((instr & 0xFFFF) as u16))?;
+                let Some(cost) =
+                    gas::cost_from_parts(fetched.base_gas, wide_op, self.vector_length)
+                else {
+                    return Err(VMError::InvalidOpcode((instr & 0xFFFF) as u16));
+                };
                 if let Some(step) = pending_step.as_mut() {
                     step.priced(cost);
                 }

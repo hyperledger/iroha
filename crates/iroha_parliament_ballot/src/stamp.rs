@@ -150,7 +150,7 @@ impl StampTargetV1 {
     ) -> Result<Self, StampErrorV1> {
         Self::new(
             stamp_payload_digest_v1(authorization, context)?,
-            context.policy.stamp_difficulty_bits,
+            context.policy.binding.stamp_difficulty_bits,
         )
     }
 
@@ -417,7 +417,7 @@ mod tests {
         // At a low test difficulty: the context's policy would refuse it, which is why the
         // data model's check is applied to a copy whose frozen difficulty is lowered.
         let mut easy = context.context().clone();
-        easy.policy.stamp_difficulty_bits = 10;
+        easy.policy.binding.stamp_difficulty_bits = 10;
         let start = AdmissionNonceV1::new([0x42; 32]);
         let mined = mine_stamp_from_v1(&authorization, &easy, start, 1 << 20).expect("mined");
         assert_eq!(

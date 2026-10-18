@@ -316,13 +316,13 @@ fn durable_tip_debug_releases_its_guard_before_formatter_reentry() {
 
     let dir = tempfile::tempdir().unwrap();
     let (_body, _qc, source, budget, crypto) = fixture(1025);
-    let store = Arc::new(open(
+    let store = open(
         dir.path(),
         &source,
         Arc::new(crypto),
         &budget,
         Arc::new(NoFaults),
-    ));
+    );
     let mut output = ReentrantTipFormatter {
         store: Arc::clone(&store),
         output: String::new(),

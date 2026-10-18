@@ -4,12 +4,14 @@ pub mod execution_output;
 pub mod fastpq_source;
 pub mod governance_clock;
 pub mod parliament_ballot;
+pub mod parliament_lifecycle;
 pub use execution_output::ExecutionOutputPolicyV1;
 pub use fastpq_source::{
     FastpqMandatorySourcePolicyV1, FastpqSourceLimitsV1, FastpqSourcePolicyV1,
 };
 pub use governance_clock::GovernanceClockParametersV1;
 pub use parliament_ballot::ParliamentBallotParametersV1;
+pub use parliament_lifecycle::ParliamentLifecycleParametersV1;
 pub mod system;
 pub(crate) use custom::CustomParameters;
 pub use custom::{CustomParameter, CustomParameterId};

@@ -75,7 +75,7 @@ class NativeInventoryTests(unittest.TestCase):
                                                          ('pending_payload_selection_keeps_original_rows_across_unrelated_admissions',
                                                           'pending_payload_lease_keeps_exact_original_custody_across_unrelated_admissions',
                                                           'pending_payload_lease_prefix_keeps_original_backing_and_conservative_expiry',
-                                                          'pending_payload_admission_exhaustion_refuses_before_input_publication')),
+                                                          'pending_payload_admission_exhaustion_refuses_before_input_publication', 'pending_payload_lease_accepts_shared_queue_handles_and_their_copies')),
          'native publication custody': (('sumeragi/executor.rs',
                                          'sumeragi/executor_publication_tests.rs',
                                          'publication_tests',
@@ -132,7 +132,7 @@ class NativeInventoryTests(unittest.TestCase):
     def test_real_checkout_matches_every_reviewed_owner(self):
         names = inventory.validate_native_source_inventory(ROOT)
         self.assertEqual(len(names), sum(len(row[-1]) for row in inventory.NATIVE_CORE_TEST_OWNERS))
-        self.assertEqual(len(names), 561)
+        self.assertEqual(len(names), 574)
 
     def test_authenticated_epoch_schedule_stays_in_exact_boundary_census(self):
         owner, = (row for row in inventory.NATIVE_CORE_TEST_OWNERS
@@ -260,7 +260,7 @@ class NativeInventoryTests(unittest.TestCase):
                  'proof_quota_preflight_is_nonmutating_and_registration_preserves_limits')),
             'native original Queue payload lease custody': (
                 ('queue.rs', 'queue/payload_leases.rs', 'payload_leases', 'queue::payload_leases::tests'),
-                ('pending_payload_lease_uses_original_backing_and_retires_on_expiry_withdrawal_or_foreign_queue', 'pending_payload_selection_cannot_adopt_clear_and_readmission_during_selection', 'pending_payload_lease_retires_on_actual_certified_state_publication', 'pending_payload_lease_preserves_original_capacity_refusal_and_refuses_generation_wrap', 'pending_payload_selection_keeps_original_rows_across_unrelated_admissions', 'pending_payload_lease_keeps_exact_original_custody_across_unrelated_admissions', 'pending_payload_lease_prefix_keeps_original_backing_and_conservative_expiry', 'pending_payload_admission_exhaustion_refuses_before_input_publication')),
+                ('pending_payload_lease_uses_original_backing_and_retires_on_expiry_withdrawal_or_foreign_queue', 'pending_payload_selection_cannot_adopt_clear_and_readmission_during_selection', 'pending_payload_lease_retires_on_actual_certified_state_publication', 'pending_payload_lease_preserves_original_capacity_refusal_and_refuses_generation_wrap', 'pending_payload_selection_keeps_original_rows_across_unrelated_admissions', 'pending_payload_lease_keeps_exact_original_custody_across_unrelated_admissions', 'pending_payload_lease_prefix_keeps_original_backing_and_conservative_expiry', 'pending_payload_admission_exhaustion_refuses_before_input_publication', 'pending_payload_lease_accepts_shared_queue_handles_and_their_copies')),
             'native original Queue resident custody': (
                 ('queue.rs', 'queue/resident_owner_tests.rs', 'resident_owner_tests', 'queue::tests::resident_owner_tests'),
                 ('removed_pending_owner_retains_original_resident_credit_until_last_reader', 'original_queue_shell_refusal_preserves_graph_and_exact_release_then_retries', 'first_queue_resident_ledger_refusal_keeps_original_input_and_retry_pool', 'every_queue_retirement_defers_original_refund_until_its_mutation_fence_releases', 'equal_limit_foreign_state_cannot_replace_original_queue_resident_pool', 'queue_drop_keeps_original_shell_and_ledger_charges_until_detached_last_owner', 'cold_queue_retirement_holds_original_fence_until_first_admission_can_publish')),
@@ -433,7 +433,7 @@ class NativeInventoryTests(unittest.TestCase):
                 ('native_tip_snapshot_scope_is_mandatory_and_objects_are_closed',)),
             'native certified history': (
                 ('sumeragi/certified_chain.rs', 'sumeragi/certified_chain/tests.rs', 'tests', 'sumeragi::certified_chain::tests'),
-                ('current_result_frame_preserves_original_x_and_rejects_scope_time_and_retired_body', 'native_frame_requires_fixed_header_and_exact_block_binding', 'authenticated_scope_rejects_active_non_global_without_redecoding_result', 'original_signed_dataspace_scope_refuses_active_genesis_in_both_prefix_owners')),
+                ('current_result_frame_preserves_original_x_and_rejects_scope_time_and_retired_body', 'native_frame_requires_fixed_header_and_exact_block_binding', 'authenticated_scope_rejects_active_non_global_without_redecoding_result', 'original_signed_dataspace_scope_refuses_active_genesis_in_both_prefix_owners', 'certified_id_streams_exact_preimage_without_heap_allocation')),
             'native frozen epoch schedule': (
                 ('sumeragi/schedule.rs', 'sumeragi/schedule/tests.rs', 'tests', 'sumeragi::schedule::tests'),
                 ('sccp_epoch_floor_applies_even_when_disabled_and_after_genesis_initialization',
@@ -657,6 +657,8 @@ class NativeInventoryTests(unittest.TestCase):
                 'proposal_recovery_kernel_routes_exact_body_to_native_worker_without_control_view',
             )),
             ('native original proposal publication admission', 'sumeragi/executor.rs', 'sumeragi/executor/proposal_publication.rs', 'proposal_publication', 'sumeragi::executor::proposal_publication::tests', (
+                'recovery_decode_handoff_retains_refusals_and_requires_exact_source',
+                'execution_reuses_recovered_proposal_decode_and_keeps_signing_admission',
                 'native_original_proposal_rechecks_clock_after_worker_wait_and_restart',
             )),
             ('native original execution clock admission', 'sumeragi/executor.rs', 'sumeragi/executor/clock_tests.rs', 'clock_tests', 'sumeragi::executor::clock_tests', (
@@ -693,6 +695,7 @@ class NativeInventoryTests(unittest.TestCase):
                 'native_lane_first_prepare_rechecks_pinned_clock_after_execution',
                 'native_lane_first_prepare_admission_binds_original_source_and_retains_its_charge',
                 'native_lane_first_prepare_owner_refusal_preserves_original_decoded_admission',
+                'startup_refusal_observation_borrows_the_original_native_recovery_carrier',
             )),
             ('native original proposal work and captured time', 'sumeragi/payload.rs', 'sumeragi/payload/work_tests.rs', 'work_tests', 'sumeragi::payload::work_tests', (
                 'native_lane_merge_is_work_without_a_direct_network_execution_leaf',

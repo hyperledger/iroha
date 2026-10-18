@@ -744,6 +744,7 @@ fn require_proposal(block: SignedBlock) -> Result<SignedBlock, PayloadError> {
 /// within `max_bytes` of transaction bytes, the on-chain transaction cap and the FASTPQ source
 /// policy's Network input cap less `merges.transactions`. The original view supplies routing,
 /// scheduling and forgery authority; queued rows are neither removed nor granted a receipt.
+/// Candidates are inspected through shared queue handles; only the selected inputs are copied.
 /// Fresh inputs routed to a native lane are selected by that lane; the global
 /// chain selects direct inputs and rescues inputs whose lane has stalled. A rescue is
 /// subject to the same `max_bytes`: a lane input larger than the global budget is skipped.
@@ -777,7 +778,7 @@ pub fn select(
         .unwrap_or(usize::MAX)
         .min(fastpq_inputs)
         .saturating_sub(merges.transactions);
-    let Some(pending) = queue.bounded_pending_snapshot(view, MAX_QUEUE_SCAN) else {
+    let Some(pending) = queue.bounded_pending_inputs(view, MAX_QUEUE_SCAN) else {
         return Ok(Vec::new());
     };
     // The global chain sequences lane 0; transactions routed to a lane reach it through that
@@ -800,7 +801,7 @@ pub fn select(
                 .saturating_mul(cadence),
         )
     });
-    let mut selected = Vec::new();
+    let mut selected: Vec<crate::queue::QueuedTransaction> = Vec::new();
     let mut bytes = 0usize;
     let committed_time_ms = crate::smartcontracts::isi::sccp::hold::committed_time_ms(view)
         .map_err(|error| PayloadError::SignatureCustodyInvariant(error.to_string()))?;
@@ -829,7 +830,7 @@ pub fn select(
         if selected.len() >= max_transactions {
             break;
         }
-        let Some(lane) = inputs.route(&transaction, height)? else {
+        let Some(lane) = inputs.route(transaction.as_accepted(), height)? else {
             continue;
         };
         if routing.has_lanes()
@@ -912,13 +913,13 @@ pub fn select(
                 minimum.max(proposed),
                 selected
                     .iter()
-                    .map(AcceptedTransaction::entrypoint)
+                    .map(|chosen| chosen.entrypoint())
                     .chain(std::iter::once(transaction.entrypoint())),
             )
             .ok_or(PayloadError::TimeOverflow)?;
             let time_ms =
                 u64::try_from(time.as_millis()).map_err(|_| PayloadError::TimeOverflow)?;
-            if !current_sccp_forgery(view, parent, &transaction, time_ms, &budget)? {
+            if !current_sccp_forgery(view, parent, transaction.as_accepted(), time_ms, &budget)? {
                 // A now-genuine/duplicate/expired row spends neither bytes, transaction
                 // count nor SCCP quota. It retains its original Queue custody.
                 continue;
@@ -934,7 +935,11 @@ pub fn select(
     if selected.is_empty() && merges.merges.is_empty() && future_input {
         return Err(PayloadError::ClockAhead);
     }
-    Ok(selected)
+    // The block owns its inputs: copy exactly the selected transactions, once.
+    Ok(selected
+        .iter()
+        .map(|transaction| transaction.as_accepted().clone())
+        .collect())
 }
 
 #[cfg(test)]

@@ -10,6 +10,7 @@
 mod contract_calls;
 pub(crate) mod contract_event;
 mod native_events;
+mod prepared_verifying_key_memo;
 mod tlv_transport;
 
 use super::cache::PreparedContractCache;
@@ -244,6 +245,28 @@ struct AxtIssuerKeyBinding {
 const PUBLIC_INPUT_GAS_BASE_DEFAULT: u64 = ivm::gas::HOST_BYTE_GAS_BASE;
 const PUBLIC_INPUT_GAS_PER_BYTE_DEFAULT: u64 = ivm::gas::SYSCALL_GAS_PER_BYTE;
 const CREATE_NFTS_ALL_GAS: u64 = ivm::gas::HOST_BYTE_GAS_BASE;
+/// Maximum NFT recipients of one `CREATE_NFTS_FOR_ALL_USERS` call.
+///
+/// Every call walks the host account snapshot from its first entry and stops
+/// after this many recipients, so no call can observe a later account.
+pub const CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS: usize = 256;
+/// Snapshot the account identifiers `CREATE_NFTS_FOR_ALL_USERS` can observe.
+///
+/// The syscall reads at most [`CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS`] accounts from
+/// the start of the canonical account order. Copying exactly that prefix keeps
+/// host setup independent of the number of accounts in the World while every
+/// call produces the same recipients as a complete snapshot would.
+pub(crate) fn create_nfts_for_all_recipient_snapshot(
+    world: &impl WorldReadOnly,
+) -> Arc<Vec<AccountId>> {
+    Arc::new(
+        world
+            .accounts_iter()
+            .take(CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS)
+            .map(|entry| entry.id().clone())
+            .collect(),
+    )
+}
 const SMARTCONTRACT_DEPTH_GAS: u64 = ivm::gas::HOST_BYTE_GAS_BASE;
 const AXT_GAS_BASE: u64 = ivm::gas::HOST_BYTE_GAS_BASE;
 const AXT_GAS_PER_BYTE: u64 = ivm::gas::SYSCALL_GAS_PER_BYTE;
@@ -568,6 +591,198 @@ struct ZkRootsSnapshot {
     root_history: Vec<[u8; 32]>,
     commitment_count: usize,
 }
+/// One finalized epoch-boundary pulse that passed every State check of the
+/// `VRF_EPOCH_SEED` projection; only its final threshold signature is unchecked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct VrfEpochSeedCandidate {
+    pulse: iroha_data_model::consensus::FinalizedGlobalThresholdBeaconPulseV1,
+    session: crate::beacon::ValidatedGlobalThresholdBeaconSessionV1,
+    boundary_height: u64,
+}
+/// Candidates of one successor epoch and the seed resolved from them once.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct VrfEpochSeedEntry {
+    candidates: Vec<VrfEpochSeedCandidate>,
+    seed: std::sync::OnceLock<Option<[u8; 32]>>,
+}
+impl VrfEpochSeedEntry {
+    /// Verify this epoch's candidates on first use and return its seed.
+    ///
+    /// Exactly one candidate with a valid final signature projects a seed.
+    /// Conflicting valid candidates leave the epoch absent, as does none.
+    fn seed(&self, epoch: u64) -> Option<[u8; 32]> {
+        *self.seed.get_or_init(|| {
+            let mut verified = self.candidates.iter().filter(|candidate| {
+                crate::beacon::verify_persisted_global_threshold_beacon_pulse_signature_v1(
+                    &candidate.session,
+                    &candidate.pulse,
+                )
+                .is_ok()
+            });
+            let candidate = verified.next()?;
+            if verified.next().is_some() {
+                return None;
+            }
+            Some(
+                crate::beacon::global_threshold_beacon_npos_successor_seed_v1(
+                    &candidate.pulse,
+                    candidate.boundary_height,
+                    epoch,
+                ),
+            )
+        })
+    }
+}
+/// `VRF_EPOCH_SEED` projection of finalized epoch-boundary beacon pulses.
+///
+/// Building it runs every State check against one immutable State. The final
+/// threshold signatures of an epoch's candidates are verified once, on the
+/// first lookup of that epoch: verification is a pure function of the
+/// retained validated session and pulse, so a lookup returns exactly the seed
+/// that eager verification over the same State projects, while invocations
+/// that never read a seed perform no pairing check.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct VrfEpochSeedProjection {
+    epochs: BTreeMap<u64, VrfEpochSeedEntry>,
+}
+impl VrfEpochSeedProjection {
+    /// Scan the finalized pulses of `state` for epochs of `epoch_length` blocks.
+    ///
+    /// Only pulses one block before an exact epoch boundary, at most the
+    /// current height and anchored to the canonical block one height earlier
+    /// are candidates, after the complete persisted-row, slot, network and key
+    /// lifecycle checks of
+    /// [`persisted_global_threshold_beacon_pulse_session_v1`](crate::beacon::persisted_global_threshold_beacon_pulse_session_v1).
+    fn scan(state: &impl StateReadOnly, epoch_length: NonZeroU64) -> Self {
+        let epoch_length = epoch_length.get();
+        let maximum_height = u64::try_from(state.height()).unwrap_or(u64::MAX);
+        let mut epochs: BTreeMap<u64, Vec<VrfEpochSeedCandidate>> = BTreeMap::new();
+        for (_, candidate) in state.world().global_beacon_pulses().iter() {
+            let Some(boundary_height) = candidate.height.checked_add(1) else {
+                continue;
+            };
+            if candidate.height > maximum_height
+                || boundary_height % epoch_length != 0
+                || candidate.finalized_chain_anchor.height.checked_add(1) != Some(candidate.height)
+            {
+                continue;
+            }
+            let Some(anchor_index) = candidate
+                .finalized_chain_anchor
+                .height
+                .checked_sub(1)
+                .and_then(|height| usize::try_from(height).ok())
+            else {
+                continue;
+            };
+            if state.block_hashes().get(anchor_index)
+                != Some(&candidate.finalized_chain_anchor.block_hash)
+            {
+                continue;
+            }
+            let Ok(session) = crate::beacon::persisted_global_threshold_beacon_pulse_session_v1(
+                state.world(),
+                state.network_id(),
+                candidate,
+            ) else {
+                continue;
+            };
+            epochs
+                .entry(boundary_height / epoch_length)
+                .or_default()
+                .push(VrfEpochSeedCandidate {
+                    pulse: *candidate,
+                    session: session.clone(),
+                    boundary_height,
+                });
+        }
+        Self {
+            epochs: epochs
+                .into_iter()
+                .map(|(epoch, candidates)| {
+                    (
+                        epoch,
+                        VrfEpochSeedEntry {
+                            candidates,
+                            seed: std::sync::OnceLock::new(),
+                        },
+                    )
+                })
+                .collect(),
+        }
+    }
+    /// Return the seed projected for `epoch`, verifying its candidates on first use.
+    fn seed(&self, epoch: u64) -> Option<[u8; 32]> {
+        self.epochs.get(&epoch)?.seed(epoch)
+    }
+    #[cfg(test)]
+    /// Install an already resolved seed for an explicitly constructed test host.
+    fn insert_seed(&mut self, epoch: u64, seed: [u8; 32]) {
+        self.epochs.insert(
+            epoch,
+            VrfEpochSeedEntry {
+                candidates: Vec::new(),
+                seed: std::sync::OnceLock::from(Some(seed)),
+            },
+        );
+    }
+    #[cfg(test)]
+    /// Resolve every epoch, yielding the map an eager projection would contain.
+    fn resolved_seeds(&self) -> BTreeMap<u64, [u8; 32]> {
+        self.epochs
+            .keys()
+            .filter_map(|epoch| self.seed(*epoch).map(|seed| (*epoch, seed)))
+            .collect()
+    }
+}
+/// Source of the `VRF_EPOCH_SEED` projection installed in a host.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum VrfEpochSeedSource {
+    /// Pulses scanned from the State passed to hydration.
+    Scanned(VrfEpochSeedProjection),
+    /// Pulses scanned on first use from the immutable query state pinned by
+    /// [`CoreHostImpl::set_query_state_with_vrf_epoch_seeds`].
+    QueryState {
+        epoch_length: NonZeroU64,
+        projection: std::sync::OnceLock<VrfEpochSeedProjection>,
+    },
+}
+impl Default for VrfEpochSeedSource {
+    fn default() -> Self {
+        Self::Scanned(VrfEpochSeedProjection::default())
+    }
+}
+#[cfg(test)]
+impl VrfEpochSeedSource {
+    /// Install an already resolved seed, replacing any deferred source.
+    fn insert(&mut self, epoch: u64, seed: [u8; 32]) {
+        if let Self::QueryState { .. } = self {
+            *self = Self::default();
+        }
+        if let Self::Scanned(projection) = self {
+            projection.insert_seed(epoch, seed);
+        }
+    }
+    /// Whether a scanned projection resolves no epoch.
+    fn is_empty(&self) -> bool {
+        matches!(self, Self::Scanned(projection) if projection.resolved_seeds().is_empty())
+    }
+}
+/// Read the committed NPoS epoch length that `VRF_EPOCH_SEED` projects pulses against.
+///
+/// `None` means the State has no NPoS parameters, so no epoch has a seed.
+///
+/// # Errors
+/// Returns the original execution-attempt error if committed NPoS parameters
+/// cannot be read or validated.
+pub fn vrf_epoch_length_from_state(
+    state: &impl StateReadOnly,
+) -> Result<Option<NonZeroU64>, crate::execution_attempt::ExecutionAttemptError<String>> {
+    Ok(state
+        .world()
+        .sumeragi_npos_parameters()?
+        .map(|params| params.epoch_length_blocks()))
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HostExecutionClass {
     Generic,
@@ -636,7 +851,9 @@ pub struct CoreHostImpl<QS> {
     instruction_queue_encoded_bytes: u64,
     instruction_queue_violation: Option<HostOutputBudgetViolation>,
     fastpq_batch_entries: Option<Vec<TransferAssetBatchEntry>>,
-    // Snapshot of accounts available for simple iteration helpers used by samples.
+    // Canonically ordered account ids walked by `CREATE_NFTS_FOR_ALL_USERS`; state
+    // owners supply only the prefix it can observe
+    // (`create_nfts_for_all_recipient_snapshot`).
     accounts_snapshot: Arc<Vec<AccountId>>,
     // Optional owned contract registry snapshot for nested resolution without a live query view.
     bound_contract_records_by_subject:
@@ -684,9 +901,9 @@ pub struct CoreHostImpl<QS> {
     // Snapshots for state-read syscalls
     zk_roots: BTreeMap<AssetDefinitionId, ZkRootsSnapshot>,
     zk_elections: BTreeMap<String, (u32, bool, Vec<u128>)>,
-    vrf_epoch_seeds: BTreeMap<u64, [u8; 32]>,
-    // Registry snapshot of verifying keys.
-    verifying_keys: BTreeMap<VerifyingKeyId, Arc<VerifyingKeyRecord>>,
+    // `VRF_EPOCH_SEED` projection; signatures and deferred scans resolve on first use.
+    vrf_epoch_seeds: VrfEpochSeedSource,
+    // Validated verifying-key registry indexed by commitment for proof dispatch.
     prepared_verifying_keys: BTreeMap<[u8; 32], PreparedVerifyingKey>,
     // Registry snapshot of public inputs exposed via SYSCALL_GET_PUBLIC_INPUT.
     public_inputs: BTreeMap<Name, PublicInputRecord>,
@@ -712,10 +929,6 @@ pub struct CoreHostImpl<QS> {
     axt_policy_snapshot: Option<AxtPolicySnapshot>,
     // Issuer keys resolved only from committed Space Directory/UAID state.
     axt_issuer_keys: Arc<BTreeMap<DataSpaceId, AxtIssuerKeyBinding>>,
-    // Authoritative definition policies frozen from WSV for state-free AXT runs.
-    axt_asset_policies: Arc<BTreeMap<AssetDefinitionId, AssetBalancePolicy>>,
-    // Exact live asset-definition incarnations frozen from WSV for state-free AXT runs.
-    axt_asset_incarnations: Arc<BTreeMap<AssetDefinitionId, AxtAssetIncarnationV1>>,
     // Slot for which cached AXT proofs were verified.
     axt_proof_cache_slot: Option<u64>,
     // Cache of per-dataspace proofs validated in the current slot.
@@ -757,10 +970,15 @@ const MAX_NESTED_CONTRACT_CALL_DEPTH: usize = 32;
 /// Slot storing a live queryable state reference for a host run.
 pub struct QueryStateSlot<QRef> {
     state: Option<QRef>,
+    // State pinned for the deferred `VRF_EPOCH_SEED` projection.
+    vrf_epoch_seed_state: Option<QRef>,
 }
 impl<QRef> Default for QueryStateSlot<QRef> {
     fn default() -> Self {
-        Self { state: None }
+        Self {
+            state: None,
+            vrf_epoch_seed_state: None,
+        }
     }
 }
 /// Borrowed query-state reference used during IVM query syscalls.
@@ -941,6 +1159,10 @@ pub trait QueryStateAccess {
         Self: 'a;
     /// Fetch the configured query-state reference, if any.
     fn get(&self) -> Option<Self::Ref<'_>>;
+    /// Fetch the state pinned for a deferred `VRF_EPOCH_SEED` projection, if any.
+    fn vrf_epoch_seed_state(&self) -> Option<Self::Ref<'_>> {
+        None
+    }
 }
 impl QueryStateAccess for NoQueryState {
     type Ref<'a>
@@ -961,6 +1183,9 @@ where
         Self: 'a;
     fn get(&self) -> Option<Self::Ref<'_>> {
         self.state
+    }
+    fn vrf_epoch_seed_state(&self) -> Option<Self::Ref<'_>> {
+        self.vrf_epoch_seed_state
     }
 }
 fn map_query_validation_error(
@@ -1297,6 +1522,10 @@ pub struct SubscriptionContext {
 pub trait QueryStateRefOps {
     /// Return the governed smart-contract heap ceiling in bytes.
     fn smart_contract_heap_limit(&self) -> u64;
+    /// Scan finalized epoch-boundary pulses into a `VRF_EPOCH_SEED` projection.
+    ///
+    /// Final threshold signatures are verified only when an epoch is first read.
+    fn vrf_epoch_seed_projection(&self, epoch_length: NonZeroU64) -> VrfEpochSeedProjection;
     /// Parse and canonicalize an account alias literal using the current dataspace catalog.
     ///
     /// # Errors
@@ -1949,6 +2178,16 @@ fn visit_storage_positions(
     Ok(std::ops::ControlFlow::Continue(()))
 }
 impl QueryStateRefOps for QueryStateRef<'_, '_, '_> {
+    fn vrf_epoch_seed_projection(&self, epoch_length: NonZeroU64) -> VrfEpochSeedProjection {
+        match *self {
+            QueryStateRef::View(view) => VrfEpochSeedProjection::scan(view, epoch_length),
+            QueryStateRef::QueryView(view) => VrfEpochSeedProjection::scan(view, epoch_length),
+            QueryStateRef::Block(block) => VrfEpochSeedProjection::scan(block, epoch_length),
+            QueryStateRef::Transaction(transaction) => {
+                VrfEpochSeedProjection::scan(transaction, epoch_length)
+            }
+        }
+    }
     fn smart_contract_heap_limit(&self) -> u64 {
         match *self {
             QueryStateRef::View(view) => view.world().parameters().smart_contract().memory().get(),
@@ -3147,8 +3386,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             zk_verified_tally: Arc::new(VecDeque::new()),
             zk_roots: BTreeMap::new(),
             zk_elections: BTreeMap::new(),
-            vrf_epoch_seeds: BTreeMap::new(),
-            verifying_keys: BTreeMap::new(),
+            vrf_epoch_seeds: VrfEpochSeedSource::default(),
             prepared_verifying_keys: BTreeMap::new(),
             public_inputs: BTreeMap::new(),
             chain_id_bytes: Vec::new(),
@@ -3163,8 +3401,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             zk_last_env_hash_tally: Arc::new(VecDeque::new()),
             axt_policy_snapshot: None,
             axt_issuer_keys: Arc::new(BTreeMap::new()),
-            axt_asset_policies: Arc::new(BTreeMap::new()),
-            axt_asset_incarnations: Arc::new(BTreeMap::new()),
             axt_proof_cache_slot: None,
             axt_proof_cache: Arc::new(BTreeMap::new()),
             last_axt_reject: None,
@@ -3279,8 +3515,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             zk_verified_tally: Arc::new(VecDeque::new()),
             zk_roots: BTreeMap::new(),
             zk_elections: BTreeMap::new(),
-            vrf_epoch_seeds: BTreeMap::new(),
-            verifying_keys: BTreeMap::new(),
+            vrf_epoch_seeds: VrfEpochSeedSource::default(),
             prepared_verifying_keys: BTreeMap::new(),
             public_inputs: BTreeMap::new(),
             chain_id_bytes: Vec::new(),
@@ -3295,8 +3530,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             zk_last_env_hash_tally: Arc::new(VecDeque::new()),
             axt_policy_snapshot: None,
             axt_issuer_keys: Arc::new(BTreeMap::new()),
-            axt_asset_policies: Arc::new(BTreeMap::new()),
-            axt_asset_incarnations: Arc::new(BTreeMap::new()),
             axt_proof_cache_slot: None,
             axt_proof_cache: Arc::new(BTreeMap::new()),
             last_axt_reject: None,
@@ -3365,8 +3598,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             zk_verified_tally: Arc::new(VecDeque::new()),
             zk_roots: BTreeMap::new(),
             zk_elections: BTreeMap::new(),
-            vrf_epoch_seeds: BTreeMap::new(),
-            verifying_keys: BTreeMap::new(),
+            vrf_epoch_seeds: VrfEpochSeedSource::default(),
             prepared_verifying_keys: BTreeMap::new(),
             public_inputs: BTreeMap::new(),
             chain_id_bytes: Vec::new(),
@@ -3381,8 +3613,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             zk_last_env_hash_tally: Arc::new(VecDeque::new()),
             axt_policy_snapshot: None,
             axt_issuer_keys: Arc::new(BTreeMap::new()),
-            axt_asset_policies: Arc::new(BTreeMap::new()),
-            axt_asset_incarnations: Arc::new(BTreeMap::new()),
             axt_proof_cache_slot: None,
             axt_proof_cache: Arc::new(BTreeMap::new()),
             last_axt_reject: None,
@@ -3869,28 +4099,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
                 public_key,
             },
         );
-    }
-    /// Install one registered asset policy into an explicitly constructed test host.
-    ///
-    /// Production hosts obtain this snapshot only through [`Self::hydrate_axt_state`].
-    #[cfg(any(test, feature = "iroha-core-tests"))]
-    pub fn set_axt_asset_policy_for_tests(
-        &mut self,
-        asset_definition_id: AssetDefinitionId,
-        policy: AssetBalancePolicy,
-    ) {
-        Arc::make_mut(&mut self.axt_asset_policies).insert(asset_definition_id, policy);
-    }
-    /// Install one exact asset incarnation into an explicitly constructed test host.
-    ///
-    /// Production hosts obtain this snapshot only through [`Self::hydrate_axt_state`].
-    #[cfg(any(test, feature = "iroha-core-tests"))]
-    pub fn set_axt_asset_incarnation_for_tests(
-        &mut self,
-        asset_definition_id: AssetDefinitionId,
-        incarnation: AxtAssetIncarnationV1,
-    ) {
-        Arc::make_mut(&mut self.axt_asset_incarnations).insert(asset_definition_id, incarnation);
     }
     fn clear_axt_proof_cache(&mut self) {
         for (dsid, entry) in core::mem::take(Arc::make_mut(&mut self.axt_proof_cache)) {
@@ -4464,22 +4672,27 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         &mut self,
         map: BTreeMap<AssetDefinitionId, crate::state::ZkAssetState>,
     ) -> Result<(), ivm::VMError> {
-        self.zk_roots = Self::validated_zk_roots_snapshot(map)?;
+        self.zk_roots = Self::validated_zk_roots_snapshot(&map)?;
         Ok(())
     }
-    fn validated_zk_roots_snapshot(
-        map: BTreeMap<AssetDefinitionId, crate::state::ZkAssetState>,
+    /// Validate confidential trees in place and copy only what `ZK_ROOTS_GET` reads.
+    ///
+    /// The commitment leaves and nullifier sets stay in the World: a root read
+    /// observes the tree profile, the bounded retained root history and the
+    /// commitment count, never an individual leaf.
+    fn validated_zk_roots_snapshot<'a>(
+        entries: impl IntoIterator<Item = (&'a AssetDefinitionId, &'a crate::state::ZkAssetState)>,
     ) -> Result<BTreeMap<AssetDefinitionId, ZkRootsSnapshot>, ivm::VMError> {
         let mut roots = BTreeMap::new();
-        for (asset_id, state) in map {
+        for (asset_id, state) in entries {
             state
                 .validate_tree_metadata()
                 .map_err(|_| ivm::VMError::NoritoInvalid)?;
             roots.insert(
-                asset_id,
+                asset_id.clone(),
                 ZkRootsSnapshot {
                     tree_profile: state.tree_profile,
-                    root_history: state.root_history,
+                    root_history: state.root_history.clone(),
                     commitment_count: state.commitments.len(),
                 },
             );
@@ -4494,6 +4707,13 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
     /// canonical block-anchor verification. Missing or conflicting evidence
     /// leaves that epoch absent so the syscall fails closed with `found=false`.
     ///
+    /// The State checks run here. The final threshold signatures of an epoch's
+    /// candidates are verified on that epoch's first `VRF_EPOCH_SEED` use, which
+    /// observes exactly the seed eager verification would have projected.
+    /// Hosts whose query state stays attached for the run should prefer
+    /// [`CoreHostImpl::set_query_state_with_vrf_epoch_seeds`], which also
+    /// defers the pulse scan.
+    ///
     /// # Errors
     /// Returns the original execution-attempt error if committed NPoS parameters
     /// cannot be read or validated. Invalid or conflicting beacon evidence is
@@ -4502,64 +4722,37 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         &mut self,
         state: &impl StateReadOnly,
     ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<String>> {
-        let Some(epoch_length) = state
-            .world()
-            .sumeragi_npos_parameters()?
-            .map(|params| params.epoch_length_blocks().get())
-        else {
-            self.vrf_epoch_seeds.clear();
-            return Ok(());
-        };
-        let maximum_height = u64::try_from(state.height()).unwrap_or(u64::MAX);
-        let mut projected = BTreeMap::new();
-        let mut conflicted = BTreeSet::new();
-        for (_, candidate) in state.world().global_beacon_pulses().iter() {
-            let Some(boundary_height) = candidate.height.checked_add(1) else {
-                continue;
-            };
-            if candidate.height > maximum_height
-                || boundary_height % epoch_length != 0
-                || candidate.finalized_chain_anchor.height.checked_add(1) != Some(candidate.height)
-            {
-                continue;
-            }
-            let Some(anchor_index) = candidate
-                .finalized_chain_anchor
-                .height
-                .checked_sub(1)
-                .and_then(|height| usize::try_from(height).ok())
-            else {
-                continue;
-            };
-            if state.block_hashes().get(anchor_index)
-                != Some(&candidate.finalized_chain_anchor.block_hash)
-            {
-                continue;
-            }
-            let Ok(pulse) = crate::beacon::verified_persisted_global_threshold_beacon_pulse_v1(
-                state.world(),
-                state.network_id(),
-                candidate,
-            ) else {
-                continue;
-            };
-            let successor_epoch = boundary_height / epoch_length;
-            let seed = crate::beacon::global_threshold_beacon_npos_successor_seed_v1(
-                &pulse,
-                boundary_height,
-                successor_epoch,
-            );
-            if projected.insert(successor_epoch, seed).is_some() {
-                conflicted.insert(successor_epoch);
-            }
-        }
-        for epoch in conflicted {
-            projected.remove(&epoch);
-        }
-        self.vrf_epoch_seeds = projected;
+        let projection = vrf_epoch_length_from_state(state)?
+            .map_or_else(VrfEpochSeedProjection::default, |epoch_length| {
+                VrfEpochSeedProjection::scan(state, epoch_length)
+            });
+        self.vrf_epoch_seeds = VrfEpochSeedSource::Scanned(projection);
         Ok(())
     }
+    /// Return the `VRF_EPOCH_SEED` value of `epoch`, resolving it on first use.
+    fn vrf_epoch_seed(&self, epoch: u64) -> Option<[u8; 32]> {
+        match &self.vrf_epoch_seeds {
+            VrfEpochSeedSource::Scanned(projection) => projection.seed(epoch),
+            VrfEpochSeedSource::QueryState {
+                epoch_length,
+                projection,
+            } => projection
+                .get_or_init(|| {
+                    self.query_state
+                        .vrf_epoch_seed_state()
+                        .map_or_else(VrfEpochSeedProjection::default, |state| {
+                            state.vrf_epoch_seed_projection(*epoch_length)
+                        })
+                })
+                .seed(epoch),
+        }
+    }
     /// Hydrate ZK snapshots (roots, elections, verifying keys) from a world view.
+    ///
+    /// Every registry entry is validated on every hydration. Confidential trees
+    /// are read in place, and verifying keys reuse the process-local
+    /// preparation memo only for a registry pair equal to an already validated
+    /// one, so no World value is deep-copied unless a syscall can observe it.
     ///
     /// # Errors
     /// Returns an error if an election selector or shape, confidential tree, or
@@ -4581,19 +4774,10 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         // otherwise allow an invalid selector to return with partially replaced
         // verifying-key and tree snapshots.
         Self::validate_zk_elections_snapshot(&elections)?;
-        let roots = Self::validated_zk_roots_snapshot(
-            world
-                .zk_assets()
-                .iter()
-                .map(|(asset_id, state)| (asset_id.clone(), state.clone()))
-                .collect(),
-        )?;
-        let vks = world
-            .verifying_keys()
-            .iter()
-            .map(|(id, rec)| (id.clone(), rec.clone()))
-            .collect();
-        self.set_verifying_keys(vks)?;
+        let roots = Self::validated_zk_roots_snapshot(world.zk_assets().iter())?;
+        let prepared_verifying_keys =
+            Self::prepared_verifying_key_index(world.verifying_keys().iter())?;
+        self.prepared_verifying_keys = prepared_verifying_keys;
         self.set_zk_tree_roots_history_len(zk_cfg.tree_roots_history_len);
         self.zk_roots = roots;
         self.zk_elections = elections;
@@ -4639,64 +4823,89 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         &mut self,
         map: BTreeMap<VerifyingKeyId, VerifyingKeyRecord>,
     ) -> Result<(), ivm::VMError> {
-        let mut records = BTreeMap::new();
+        self.prepared_verifying_keys = Self::prepared_verifying_key_index(&map)?;
+        Ok(())
+    }
+    /// Validate a verifying-key registry and index its prepared keys by commitment.
+    ///
+    /// Entries are checked in registry order and the first invalid entry or
+    /// duplicate commitment rejects the complete registry.
+    fn prepared_verifying_key_index<'a>(
+        entries: impl IntoIterator<Item = (&'a VerifyingKeyId, &'a VerifyingKeyRecord)>,
+    ) -> Result<BTreeMap<[u8; 32], PreparedVerifyingKey>, ivm::VMError> {
         let mut prepared_by_commitment = BTreeMap::new();
-        // Early sanity: ensure commitments and backend labels match the
-        // production no-trusted-setup verifier policy.
-        for (id, rec) in map {
-            if !id.is_portable_registry_id() {
-                return Err(ivm::VMError::NoritoInvalid);
-            }
-            let Some(registry_backend_tag) =
-                crate::zk::verifier_backend_registry_tag_v1(id.backend.as_str())
-            else {
-                return Err(ivm::VMError::NoritoInvalid);
-            };
-            if registry_backend_tag != rec.backend {
-                return Err(ivm::VMError::NoritoInvalid);
-            }
-            if rec.commitment.iter().all(|byte| *byte == 0)
-                || rec.public_inputs_schema_hash.iter().all(|byte| *byte == 0)
-            {
-                return Err(ivm::VMError::NoritoInvalid);
-            }
-            if rec.circuit_id.len() > iroha_data_model::zk::OPEN_VERIFY_DEFAULT_MAX_CIRCUIT_ID_BYTES
-                || !iroha_data_model::zk::open_verify_circuit_id_is_portable(&rec.circuit_id)
-                || iroha_data_model::zk::open_verify_circuit_id_uses_reserved_privacy_protocol_namespace_v1(
-                    &rec.circuit_id,
-                )
-            {
-                return Err(ivm::VMError::NoritoInvalid);
-            }
-            let backend_label = Self::backend_label_for_record(&id, &rec);
-            if !Self::production_backend_label_matches_record(&backend_label, rec.backend) {
-                return Err(ivm::VMError::NoritoInvalid);
-            }
-            let material = crate::zk::validate_and_prepare_verifying_key_record_v1(&id, &rec)
-                .map_err(|error| match error {
-                    crate::zk::VerificationAttemptError::Rejected(_) => ivm::VMError::NoritoInvalid,
-                    crate::zk::VerificationAttemptError::Deferred(original) => {
-                        ivm::VMError::VerificationDeferred(original)
-                    }
-                })?;
-            let commitment = rec.commitment;
-            let record = Arc::new(rec);
-            let prepared = PreparedVerifyingKey {
-                record: Arc::clone(&record),
-                backend_label: Arc::from(backend_label),
-                material,
-            };
+        for (id, rec) in entries {
+            let prepared = Self::prepare_verifying_key(id, rec)?;
             if prepared_by_commitment
-                .insert(commitment, prepared)
+                .insert(rec.commitment, prepared)
                 .is_some()
             {
                 return Err(ivm::VMError::NoritoInvalid);
             }
-            records.insert(id, record);
         }
-        self.verifying_keys = records;
-        self.prepared_verifying_keys = prepared_by_commitment;
-        Ok(())
+        Ok(prepared_by_commitment)
+    }
+    /// Validate one registry entry against the production verifier policy and
+    /// prepare its backend material.
+    ///
+    /// A registry pair equal to one this process already validated, including
+    /// every key byte, reuses the memoized result: validation is a pure
+    /// function of that pair, so only the repeated hashing and backend
+    /// preparation are skipped. A pair whose id, metadata or key bytes changed
+    /// is validated again.
+    fn prepare_verifying_key(
+        id: &VerifyingKeyId,
+        rec: &VerifyingKeyRecord,
+    ) -> Result<PreparedVerifyingKey, ivm::VMError> {
+        if let Some(prepared) = prepared_verifying_key_memo::lookup(id, rec) {
+            return Ok(prepared);
+        }
+        // Early sanity: ensure commitments and backend labels match the
+        // production no-trusted-setup verifier policy.
+        if !id.is_portable_registry_id() {
+            return Err(ivm::VMError::NoritoInvalid);
+        }
+        let Some(registry_backend_tag) =
+            crate::zk::verifier_backend_registry_tag_v1(id.backend.as_str())
+        else {
+            return Err(ivm::VMError::NoritoInvalid);
+        };
+        if registry_backend_tag != rec.backend {
+            return Err(ivm::VMError::NoritoInvalid);
+        }
+        if rec.commitment.iter().all(|byte| *byte == 0)
+            || rec.public_inputs_schema_hash.iter().all(|byte| *byte == 0)
+        {
+            return Err(ivm::VMError::NoritoInvalid);
+        }
+        if rec.circuit_id.len() > iroha_data_model::zk::OPEN_VERIFY_DEFAULT_MAX_CIRCUIT_ID_BYTES
+            || !iroha_data_model::zk::open_verify_circuit_id_is_portable(&rec.circuit_id)
+            || iroha_data_model::zk::open_verify_circuit_id_uses_reserved_privacy_protocol_namespace_v1(
+                &rec.circuit_id,
+            )
+        {
+            return Err(ivm::VMError::NoritoInvalid);
+        }
+        let backend_label = Self::backend_label_for_record(id, rec);
+        if !Self::production_backend_label_matches_record(&backend_label, rec.backend) {
+            return Err(ivm::VMError::NoritoInvalid);
+        }
+        let material =
+            crate::zk::validate_and_prepare_verifying_key_record_v1(id, rec).map_err(|error| {
+                match error {
+                    crate::zk::VerificationAttemptError::Rejected(_) => ivm::VMError::NoritoInvalid,
+                    crate::zk::VerificationAttemptError::Deferred(original) => {
+                        ivm::VMError::VerificationDeferred(original)
+                    }
+                }
+            })?;
+        let prepared = PreparedVerifyingKey {
+            record: Arc::new(rec.clone()),
+            backend_label: Arc::from(backend_label),
+            material,
+        };
+        prepared_verifying_key_memo::remember(id, &prepared);
+        Ok(prepared)
     }
     fn backend_label_for_record(id: &VerifyingKeyId, rec: &VerifyingKeyRecord) -> String {
         if let Some(ref vk) = rec.key {
@@ -5770,16 +5979,15 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         CREATE_NFTS_ALL_GAS
     }
     fn create_nfts_for_all_preview(&self) -> (Vec<InstructionBox>, u64) {
-        const MAX_NFTS_PER_CALL: usize = 256;
         let mut instructions = Vec::with_capacity(
             self.accounts_snapshot
                 .len()
-                .min(MAX_NFTS_PER_CALL)
+                .min(CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS)
                 .saturating_mul(2),
         );
         let mut sequence = self.nft_seq;
         for account_id in self.accounts_snapshot.iter() {
-            if instructions.len() / 2 >= MAX_NFTS_PER_CALL {
+            if instructions.len() / 2 >= CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS {
                 break;
             }
             let Some(next_sequence) = sequence.checked_add(1) else {
@@ -6441,11 +6649,14 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             .as_ref()
             .map(|snapshot| snapshot.version)
     }
-    /// Atomically hydrate AXT timing, policy, issuer keys, and asset context.
+    /// Atomically hydrate AXT timing, policy and issuer keys.
     ///
     /// Policy construction and authorization projection complete before the
     /// host is mutated. A successful replacement aborts any active envelope,
     /// because its proofs were admitted under the previous policy or timing.
+    /// Work is proportional to the policy snapshot, never to the World: asset
+    /// balance policies and incarnations are read from the attached query
+    /// state only by the syscalls that need them.
     ///
     /// # Errors
     ///
@@ -6466,17 +6677,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         )?;
         let _current_slot = current_axt_slot_for_state(state)
             .ok_or(AxtPolicySnapshotValidationError::AuthenticatedLedgerTimeUnavailable)?;
-        let asset_policies = state
-            .world()
-            .asset_definitions_iter()
-            .map(|definition| (definition.id.clone(), definition.balance_scope_policy()))
-            .collect();
-        let asset_incarnations = state
-            .world()
-            .axt_asset_incarnations()
-            .iter()
-            .map(|(definition_id, incarnation)| (definition_id.clone(), *incarnation))
-            .collect();
         let mut issuer_keys = BTreeMap::new();
         for binding in &snapshot.entries {
             if binding.policy.manifest_root.iter().all(|byte| *byte == 0) {
@@ -6506,8 +6706,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         self.set_network_id(*state.network_id());
         self.install_validated_axt_policy_snapshot(&snapshot, policy);
         self.axt_issuer_keys = Arc::new(issuer_keys);
-        self.axt_asset_policies = Arc::new(asset_policies);
-        self.axt_asset_incarnations = Arc::new(asset_incarnations);
         self.note_axt_proof_cache_event(AXT_PROOF_CACHE_CLEARED);
         Ok(())
     }
@@ -9198,6 +9396,32 @@ where
             self.current_block_height = Some(block_height);
         }
     }
+    /// Attach the query state and bind `VRF_EPOCH_SEED` to it.
+    ///
+    /// `epoch_length` must be [`vrf_epoch_length_from_state`] of this same
+    /// `state`, read immediately before. The state stays borrowed while the
+    /// host lives, so it cannot change before the first `VRF_EPOCH_SEED` use.
+    /// That use scans the pinned state and verifies only the requested epoch,
+    /// observing exactly the seed [`CoreHostImpl::set_vrf_epoch_seeds_from_state`]
+    /// would install for this state; invocations that never read a seed pay
+    /// for neither the scan nor any signature check.
+    pub fn set_query_state_with_vrf_epoch_seeds<'block, S>(
+        &mut self,
+        state: &'block S,
+        epoch_length: Option<NonZeroU64>,
+    ) where
+        S: QueryStateSource<Ref<'block> = QRef>,
+    {
+        self.set_query_state(state);
+        self.query_state.vrf_epoch_seed_state = Some(state.as_query_state_ref());
+        self.vrf_epoch_seeds = match epoch_length {
+            Some(epoch_length) => VrfEpochSeedSource::QueryState {
+                epoch_length,
+                projection: std::sync::OnceLock::new(),
+            },
+            None => VrfEpochSeedSource::default(),
+        };
+    }
 }
 impl<QS> CoreHostImpl<QS> {
     fn bound_contract_dispatch_identity<R: StateReadOnly>(
@@ -9575,7 +9799,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
             ivm::syscalls::SYSCALL_VRF_EPOCH_SEED => {
                 vm.ensure_public_register(10)?;
                 Some(ivm::vrf::epoch_seed_gas(
-                    self.vrf_epoch_seeds.contains_key(&vm.register(10)),
+                    self.vrf_epoch_seed(vm.register(10)).is_some(),
                 ))
             }
             ivm::syscalls::SYSCALL_ZK_ROOTS_GET
@@ -10881,7 +11105,7 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                 }
                 ivm::syscalls::SYSCALL_VRF_EPOCH_SEED => {
                     let epoch = vm.register(10);
-                    ivm::vrf::publish_epoch_seed(vm, self.vrf_epoch_seeds.get(&epoch))
+                    ivm::vrf::publish_epoch_seed(vm, self.vrf_epoch_seed(epoch).as_ref())
                 }
                 ivm::syscalls::SYSCALL_SORACLOUD_READ_COMMITTED_STATE
                 | ivm::syscalls::SYSCALL_SORACLOUD_EMIT_STATE_MUTATION
@@ -23091,7 +23315,6 @@ seiyaku DurableOwner {
             .is_err(),
             "state hydration must run the strict native registration validator"
         );
-        assert!(host.verifying_keys.is_empty());
         assert!(host.prepared_verifying_keys.is_empty());
     }
     #[cfg(feature = "zk-stark")]
@@ -23129,11 +23352,10 @@ seiyaku DurableOwner {
             .is_err(),
             "state hydration must enforce the STARK consensus parameter floor"
         );
-        assert!(host.verifying_keys.is_empty());
         assert!(host.prepared_verifying_keys.is_empty());
     }
     #[test]
-    fn prepared_vk_index_shares_records_and_caches_ipa_metadata() {
+    fn prepared_vk_index_caches_ipa_metadata_and_revalidates_changed_bytes() {
         let mut host = CoreHost::new(fixture_account("alice"));
         let backend = "pipa-r/pasta";
         let vk_bytes = canonical_confidential_transfer_vk_bytes();
@@ -23149,14 +23371,14 @@ seiyaku DurableOwner {
             "core",
             vk_bytes,
         );
-        host.set_verifying_keys(BTreeMap::from([(id.clone(), rec)]))
+        host.set_verifying_keys(BTreeMap::from([(id.clone(), rec.clone())]))
             .expect("install prepared verifier key");
-        let registry_record = host.verifying_keys.get(&id).expect("registry record");
         let prepared = host
             .prepared_verifying_keys
             .get(&commitment)
-            .expect("commitment index");
-        assert!(Arc::ptr_eq(registry_record, &prepared.record));
+            .expect("commitment index")
+            .clone();
+        assert_eq!(prepared.record.as_ref(), &rec);
         assert_eq!(prepared.backend_label.as_ref(), backend);
         assert_eq!(
             prepared
@@ -23164,6 +23386,29 @@ seiyaku DurableOwner {
                 .as_ref()
                 .and_then(crate::zk::PreparedVerifyingKeyMaterialV1::ipa_k),
             Some(crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_IPA_K)
+        );
+        // Rehydrating the identical registry pair reproduces the prepared entry.
+        let mut rehydrated = CoreHost::new(fixture_account("alice"));
+        rehydrated
+            .set_verifying_keys(BTreeMap::from([(id.clone(), rec.clone())]))
+            .expect("rehydrate the identical verifier key");
+        assert_eq!(
+            rehydrated.prepared_verifying_keys.get(&commitment),
+            Some(&prepared)
+        );
+        // One changed key byte under the same id and commitment is validated
+        // again and rejected, although the original pair was already prepared.
+        let mut tampered = rec;
+        tampered.key.as_mut().expect("inline verifier key").bytes[0] ^= 1;
+        assert!(
+            rehydrated
+                .set_verifying_keys(BTreeMap::from([(id, tampered)]))
+                .is_err()
+        );
+        assert_eq!(
+            rehydrated.prepared_verifying_keys.get(&commitment),
+            Some(&prepared),
+            "a rejected registry leaves the previous index intact"
         );
     }
     #[test]
@@ -23186,7 +23431,13 @@ seiyaku DurableOwner {
         );
         host.set_verifying_keys(BTreeMap::from([(id.clone(), original)]))
             .expect("install original verifier key");
-        let original_record = Arc::clone(host.verifying_keys.get(&id).expect("original record"));
+        let original_record = Arc::clone(
+            &host
+                .prepared_verifying_keys
+                .get(&commitment)
+                .expect("original record")
+                .record,
+        );
         let mut missing_schedule = active_vk_record(
             commitment,
             schema_hash(
@@ -23206,7 +23457,11 @@ seiyaku DurableOwner {
             .is_err()
         );
         assert!(Arc::ptr_eq(
-            host.verifying_keys.get(&id).expect("unchanged record"),
+            &host
+                .prepared_verifying_keys
+                .get(&commitment)
+                .expect("unchanged record")
+                .record,
             &original_record
         ));
         assert_eq!(host.prepared_verifying_keys.len(), 1);
@@ -23238,7 +23493,11 @@ seiyaku DurableOwner {
             .is_err()
         );
         assert!(Arc::ptr_eq(
-            host.verifying_keys.get(&id).expect("still unchanged"),
+            &host
+                .prepared_verifying_keys
+                .get(&commitment)
+                .expect("still unchanged")
+                .record,
             &original_record
         ));
         assert_eq!(host.prepared_verifying_keys.len(), 1);
@@ -23310,7 +23569,6 @@ seiyaku DurableOwner {
                 host.set_verifying_keys(map).is_err(),
                 "Exact12 privacy circuit id {circuit_id:?} must not rehydrate"
             );
-            assert!(host.verifying_keys.is_empty());
             assert!(host.prepared_verifying_keys.is_empty());
         }
         let exact12 = PrivacyProtocolIdV1::ZkAcePqAuthorizationV1.canonical_label();
@@ -23336,7 +23594,6 @@ seiyaku DurableOwner {
                 host.set_verifying_keys(map).is_err(),
                 "{case} non-portable privacy alias {circuit_id:?} must not rehydrate"
             );
-            assert!(host.verifying_keys.is_empty());
             assert!(host.prepared_verifying_keys.is_empty());
         }
         let mut host = CoreHost::new(fixture_account("alice"));
@@ -23355,7 +23612,6 @@ seiyaku DurableOwner {
             .is_err(),
             "a portable but unregistered circuit must not bypass the production circuit registry"
         );
-        assert!(host.verifying_keys.is_empty());
         assert!(host.prepared_verifying_keys.is_empty());
     }
     #[test]
@@ -25326,7 +25582,7 @@ seiyaku DurableOwner {
         );
         rec.key = None;
         let vk_id = VerifyingKeyId::new(backend, "vk");
-        world.verifying_keys.insert(vk_id.clone(), rec);
+        world.verifying_keys.insert(vk_id, rec);
         let kura = Kura::blank_kura_for_testing();
         let query = LiveQueryStore::start_test();
         let state = State::new_for_testing(world, kura, query);
@@ -25337,7 +25593,7 @@ seiyaku DurableOwner {
         host.set_chain_id(&view.chain_id);
         host.set_zk_snapshots_from_world(view.world(), &view.zk)
             .expect("hydrate zk snapshots");
-        assert!(host.verifying_keys.contains_key(&vk_id));
+        assert!(host.prepared_verifying_keys.contains_key(&commitment));
         let mut vm = IVM::new(10_000);
         let req = ivm::zk_verify::VoteGetTallyRequest {
             election_id: "election-1".to_string(),
@@ -25515,7 +25771,6 @@ seiyaku DurableOwner {
 
         let roots_before = host.zk_roots.clone();
         let elections_before = host.zk_elections.clone();
-        let verifying_keys_before = host.verifying_keys.clone();
         let prepared_verifying_keys_before = host.prepared_verifying_keys.clone();
         let roots_history_len_before = host.zk_tree_roots_history_len;
 
@@ -25537,7 +25792,6 @@ seiyaku DurableOwner {
         ));
         assert_eq!(host.zk_roots, roots_before);
         assert_eq!(host.zk_elections, elections_before);
-        assert_eq!(host.verifying_keys, verifying_keys_before);
         assert_eq!(host.prepared_verifying_keys, prepared_verifying_keys_before);
         assert_eq!(host.zk_tree_roots_history_len, roots_history_len_before);
 
@@ -25716,7 +25970,7 @@ seiyaku DurableOwner {
         );
         rec.key = None;
         let vk_id = VerifyingKeyId::new(backend, "vk");
-        world.verifying_keys.insert(vk_id.clone(), rec);
+        world.verifying_keys.insert(vk_id, rec);
         let kura = Kura::blank_kura_for_testing();
         let query = LiveQueryStore::start_test();
         let state = State::new_for_testing(world, kura, query);
@@ -25756,7 +26010,7 @@ seiyaku DurableOwner {
         assert_eq!(options, 2);
         assert!(finalized);
         assert_eq!(tally, vec![1, 2]);
-        assert!(host.verifying_keys.contains_key(&vk_id));
+        assert!(host.prepared_verifying_keys.contains_key(&commitment));
         let mut vm = IVM::new(10_000);
         let req = ivm::zk_verify::RootsGetRequest {
             asset_id: asset_def_id.to_string(),
@@ -26434,6 +26688,9 @@ seiyaku PreparedBoundaryArguments {
 
 #[cfg(test)]
 mod return_resource_tests;
+
+#[cfg(test)]
+mod setup_snapshot_tests;
 
 #[cfg(test)]
 mod native_pipa_r_admission_tests {

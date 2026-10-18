@@ -49,7 +49,7 @@ mod attachments_tests {
         let original_hash = decoded.hash();
         let original_intent = decoded.ordered_intent_digest_v1().expect("intent");
         let mut tampered = decoded;
-        tampered.payload.attachments = Some(
+        tampered.payload_mut().attachments = Some(
             crate::transaction::signed_attachments::SignedAttachmentPlanV1::transaction_proofs(&[
                 attachment(vec![9, 9, 9]),
             ])
@@ -57,7 +57,7 @@ mod attachments_tests {
             .declare(),
         );
         tampered
-            .payload
+            .payload_mut()
             .bind_attachment_statements_v1()
             .expect("bound statements");
         assert_eq!(

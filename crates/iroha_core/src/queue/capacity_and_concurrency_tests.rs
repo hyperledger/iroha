@@ -14,12 +14,10 @@ fn applied_cleanup_releases_exact_fifo_metadata_while_sample_remains_owned() {
         .bounded_pending_snapshot(&state.view(), nonzero!(1_usize))
         .unwrap();
     assert_eq!(sample[0].hash_as_entrypoint(), hash);
-    assert!(queue.queued_tx_enqueued_at_ms.contains_key(&hash));
+    assert!(queue.pending_order.lock().contains_hash(&hash));
     assert_eq!(queue.remove_committed_hashes([hash], None), 1);
     assert_eq!((queue.active_len(), queue.queued_len()), (0, 0));
-    assert!(queue.tx_hashes.is_empty());
-    assert!(queue.queued_age_ring.lock().is_empty());
-    assert!(!queue.queued_tx_enqueued_at_ms.contains_key(&hash));
+    assert!(queue.pending_order.lock().is_empty());
     assert!(!queue.routing_plans.contains_key(&hash));
     drop(sample);
     assert_eq!(queue.remove_committed_hashes([hash], None), 0);
@@ -139,11 +137,12 @@ async fn concurrent_stress_test() {
     }
     get_txs_handle.join().unwrap();
     // Validate the queue state.
-    let array_queue: Vec<_> = core::iter::from_fn(|| queue.tx_hashes.pop()).collect();
-    assert_eq!(array_queue.len(), queue.txs.len());
-    for tx in array_queue {
-        assert!(queue.txs.contains_key(&tx));
+    let fifo = queue.pending_order.lock().entries();
+    assert_eq!(fifo.len(), queue.txs.len());
+    for (_, entry) in fifo {
+        assert!(queue.txs.contains_key(&entry.hash));
     }
+    queue.assert_pressure_counters_consistent_for_tests();
     assert_eq!(queue.vacant_entry_warnings.load(Ordering::Relaxed), 0);
 }
 #[tokio::test]

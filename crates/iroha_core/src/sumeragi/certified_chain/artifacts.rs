@@ -1,7 +1,8 @@
 //! Original-funded bulk certificate fields and resultless proposal bytes for prefix reads.
 //!
-//! Metadata, decoded result/schedule graphs and cryptographic/RS16 scratch retain their own
-//! accounting obligations. This job funds only the exact table, witness and proposal owners.
+//! TODO(S8): metadata, decoded result/schedule graphs and cryptographic/RS16 scratch still
+//! require original-pool custody on SCCP restore. This job funds only the exact table,
+//! witness and proposal owners.
 
 #[cfg(test)]
 use std::io;

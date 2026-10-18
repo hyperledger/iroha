@@ -111,7 +111,7 @@ are rejected.
    `$NORITO_BRIDGE_OUT_DIR/NoritoBridge.xcframework/NoritoBridge.artifacts.json`; the companion
    `$NORITO_BRIDGE_OUT_DIR/NoritoBridge.artifacts.json` path is a stable relative symlink to that file, so
    one atomic XCFramework exchange publishes the binaries and manifest together. The
-   manifest binds exact native bridge ABI 29, the mandatory privacy build recipe,
+   manifest binds exact native bridge ABI 30, the mandatory privacy build recipe,
    source commit and fingerprint, embedded source commit, header digest,
    required-symbol inventory, and per-slice SHA-256 hashes. Ordinary builds embed
    their own commit. An exact mechanical fallback-pin child embeds its parent commit,
@@ -188,7 +188,7 @@ are rejected.
 
    Before releasing its authenticated artifact-publication lock, the builder invokes
    the sole archive owner on the generation it just published. The owner retains a
-   unique source snapshot and re-authenticates the exact ABI-29 inventory,
+   unique source snapshot and re-authenticates the exact ABI-30 inventory,
    recomputes source and tool provenance, verifies each Mach-O architecture and the
    required/forbidden export policy with the sealed Xcode toolchain, sorts entries,
    stores them without host-zlib variance, normalizes modes and ZIP timestamps from
@@ -242,7 +242,7 @@ are rejected.
    `--sdk-scratch` directories outside source. It stages the checked-in
    `scripts/fixtures/swift_release_consumers` executables and uses `swift run
    --configuration release` for both. The public SDK consumer adds no direct
-   native-target references or unsafe linker flags. Both execute ABI-29 native
+   native-target references or unsafe linker flags. Both execute ABI-30 native
    cryptography and Connect key agreement; the SDK also checks canonical JSON,
    BLAKE3 and AEAD. Either build or runtime failure stops the Apple release gate.
 
@@ -298,7 +298,7 @@ application can depend on `IrohaSwift` without unsafe linker flags. Qualify both
 the authenticated ZIP consumer and a separate ordinary SDK dependency in
 Release. The SDK consumer must execute native key generation, public-key
 derivation and directional-key agreement, reject an all-zero peer key, and
-admit exact ABI 29. A library-only build does not establish this execution.
+admit exact ABI 30. A library-only build does not establish this execution.
 
 Publish the immutable `NoritoBridge-v<version>.xcframework.zip` with its
 authenticated manifest/checksum inventory and reviewed package source. Retain
@@ -339,7 +339,7 @@ ignored `target/norito-bridge-local/` directory. Create owned canonical mode-070
 `cargo`, `build`, `artifacts`, and `projections` directories there, and use the first
 three as the explicit Cargo, build, and output roots. Reuse this fixed Cargo lane.
 The builder still performs all five real Apple builds, source/lock/tool seals,
-consumer links, ABI-29 checks and atomic artifact exchange. It does not clean Cargo.
+consumer links, ABI-30 checks and atomic artifact exchange. It does not clean Cargo.
 Select the current root graph explicitly with `--lockfile-path "$PWD/Cargo.lock"`
 for the builder, pin owner and artifact checker. This local-only route retains
 `--locked --offline` and the source/lock identity checks; it never changes the

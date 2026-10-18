@@ -3,10 +3,18 @@
 //!
 //! **Neither row is selected or qualified.** [`Row::Candidate`] is the fast row
 //! `(lambda, tau, w_grind, T_open, d_zk) = (256, 33, 8, 229, 7)` with 704 CRT
-//! gates, the sole integration candidate; [`Row::Comparator`] is the small row
+//! gates, the sole integration candidate; `Row::Comparator` is the small row
 //! `(256, 22, 6, 225, 7)` with 696 gates, a measurement comparator only. A row is
 //! always chosen by the caller: nothing in this crate detects a row from proof
 //! bytes.
+//!
+//! The comparator row is test and diagnostic support (integration decision 6): it
+//! exists only in this crate's own unit tests and in builds with the non-default
+//! `diagnostics` feature, which only the measurement and diagnostic tooling enables
+//! (the comparator examples, the comparator integration tests, the fuzz crate and
+//! the separately built diagnostic drivers). Node, wallet and native-bridge
+//! dependencies never enable it, so production builds compile the candidate row
+//! only and [`Row::ALL`] is `[Row::Candidate]` there.
 //!
 //! A [`Profile`] is the compiled descriptor of one row: the CRT table digest
 //! `T_crt`, the descriptor `DESC`, its digest `D`, the role namespaces `NS_REG`
@@ -15,10 +23,12 @@
 //! tables whenever it is built (there is no global or lazily initialised state)
 //! and pinned by tests to the digest values printed in the record.
 
+#[cfg(any(test, feature = "diagnostics"))]
+use iroha_zkp_vole::params::FAEST_256S;
 use iroha_zkp_vole::{
     crt::{CrtError, codec::encode_words},
     hash::{HashError, Namespace, Xof},
-    params::{D_ZK, FAEST_256F, FAEST_256S, SecurityLevel, VoleParams},
+    params::{D_ZK, FAEST_256F, SecurityLevel, VoleParams},
     proof::{ProofContext, ProofError},
 };
 use thiserror::Error;
@@ -80,11 +90,16 @@ pub enum ProfileError {
 }
 
 /// One of the two experimental parameter rows. Neither is selected or qualified.
+///
+/// The comparator variant is compiled only for this crate's unit tests and with the
+/// `diagnostics` feature; see the module documentation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Row {
     /// The fast row `(256, 33, 8, 229, 7)`, 704 gates: the integration candidate.
     Candidate,
-    /// The small row `(256, 22, 6, 225, 7)`, 696 gates: a measurement comparator.
+    /// The small row `(256, 22, 6, 225, 7)`, 696 gates: a measurement comparator for
+    /// tests and diagnostics, never compiled into production builds.
+    #[cfg(any(test, feature = "diagnostics"))]
     Comparator,
 }
 
@@ -172,14 +187,21 @@ pub struct ProofSegment {
 }
 
 impl Row {
-    /// Both rows.
+    /// Every compiled row: the candidate and, in test and diagnostic builds, the
+    /// comparator.
+    #[cfg(any(test, feature = "diagnostics"))]
     pub const ALL: [Self; 2] = [Self::Candidate, Self::Comparator];
+
+    /// Every compiled row: the candidate only, in production builds.
+    #[cfg(not(any(test, feature = "diagnostics")))]
+    pub const ALL: [Self; 1] = [Self::Candidate];
 
     /// The backend row: the VOLE geometry of FAEST-256f (candidate) or FAEST-256s
     /// (comparator), with the official CRT tables.
     pub const fn vole(self) -> VoleParams {
         match self {
             Self::Candidate => *FAEST_256F.vole(),
+            #[cfg(any(test, feature = "diagnostics"))]
             Self::Comparator => *FAEST_256S.vole(),
         }
     }
@@ -189,7 +211,9 @@ impl Row {
         match (self, role) {
             (Self::Candidate, Role::Registration) => 160_148,
             (Self::Candidate, Role::Vote) => 233_012,
+            #[cfg(any(test, feature = "diagnostics"))]
             (Self::Comparator, Role::Registration) => 109_498,
+            #[cfg(any(test, feature = "diagnostics"))]
             (Self::Comparator, Role::Vote) => 158_074,
         }
     }
@@ -444,6 +468,13 @@ mod tests {
             (53_504, 108_931)
         );
         assert_eq!((Role::Registration.index(), Role::Vote.index()), (0, 1));
+    }
+
+    #[test]
+    fn unit_tests_compile_both_rows() {
+        // Unit tests always see the comparator; production builds see only
+        // `[Row::Candidate]`, which the dependent crates' tests exercise.
+        assert_eq!(Row::ALL, [Row::Candidate, Row::Comparator]);
     }
 
     #[test]

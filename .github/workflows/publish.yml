@@ -120,8 +120,9 @@ jobs:
           esac
           rm -rf -- "$IROHA_GENESIS_BUNDLE_ROOT"
       # Official publication is intentionally absent here. Promotion must use
-      # scripts/run_release_pipeline.py with the complete externally reviewed
-      # timed-OVN audit bundle verified by scripts/release_manifest_signing.py.
+      # scripts/run_release_pipeline.py and scripts/release_manifest_signing.py.
+      # TODO(parliament anonymous ballot, P6): promotion must again require the
+      # complete externally reviewed audit bundle for the anonymous-ballot relations.
 
   candidate-with-profiling:
     needs: release-feature-graph

@@ -499,7 +499,7 @@ fn hashing_order_is_not_circular() {
     );
     let mut tampered = signed.clone();
     tampered
-        .payload
+        .payload_mut()
         .attachments
         .as_mut()
         .expect("attachments")

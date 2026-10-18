@@ -288,10 +288,62 @@ pub fn result_root_v1(
     frame_digest(RESULT_TAG_V1, &[&enc(record)?])
 }
 
+/// `Enc(context)` of one scope's authenticated context, computed once, with the context's
+/// frozen stamp difficulty.
+///
+/// The stamp payload digest frames `Enc(authorization)` before `Enc(context)`, so no hash
+/// midstate of the context can be reused; the reusable part is the canonical context
+/// encoding (up to 163,840 bytes). Core encodes a scope's context once per scope and checks
+/// every stamp of that scope against it with [`stamp_payload_digest_encoded_v1`] and
+/// [`verify_stamp_encoded_v1`]. The only constructor encodes a context, so the bytes are
+/// always exactly `Enc(context)`.
+#[derive(Clone, PartialEq, Eq)]
+pub struct EncodedBallotContextV1 {
+    bytes: Vec<u8>,
+    stamp_difficulty_bits: u8,
+}
+
+impl EncodedBallotContextV1 {
+    /// Encode `context` once.
+    ///
+    /// # Errors
+    /// [`AnonymousBallotCodecErrorV1`] if `Enc(context)` cannot be produced.
+    pub fn new(
+        context: &AuthenticatedBallotContextV1,
+    ) -> Result<Self, AnonymousBallotCodecErrorV1> {
+        Ok(Self {
+            bytes: enc(context)?,
+            stamp_difficulty_bits: context.policy.binding.stamp_difficulty_bits,
+        })
+    }
+
+    /// The exact `Enc(context)` bytes.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Leading zero bits a stamp of this scope needs: the context's frozen difficulty.
+    #[must_use]
+    pub const fn stamp_difficulty_bits(&self) -> u8 {
+        self.stamp_difficulty_bits
+    }
+}
+
+impl core::fmt::Debug for EncodedBallotContextV1 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("EncodedBallotContextV1")
+            .field("bytes", &self.bytes.len())
+            .field("stamp_difficulty_bits", &self.stamp_difficulty_bits)
+            .finish()
+    }
+}
+
 /// `payload_digest = H(Frame("PARL/STAMP-PAYLOAD/v1"; Enc(authorization), Enc(context)))`.
 ///
 /// `context` is the authenticated context of the ballot's scope; it never comes from the
-/// submitter.
+/// submitter. This simple form encodes the context on every call; see
+/// [`stamp_payload_digest_encoded_v1`].
 ///
 /// # Errors
 /// [`AnonymousBallotCodecErrorV1`] if an `Enc` cannot be produced.
@@ -299,9 +351,20 @@ pub fn stamp_payload_digest_v1(
     authorization: &AnonymousBallotAuthorizationV1,
     context: &AuthenticatedBallotContextV1,
 ) -> Result<Digest512, AnonymousBallotCodecErrorV1> {
+    stamp_payload_digest_encoded_v1(authorization, &EncodedBallotContextV1::new(context)?)
+}
+
+/// [`stamp_payload_digest_v1`] with the scope's context encoded once.
+///
+/// # Errors
+/// [`AnonymousBallotCodecErrorV1`] if `Enc(authorization)` cannot be produced.
+pub fn stamp_payload_digest_encoded_v1(
+    authorization: &AnonymousBallotAuthorizationV1,
+    context: &EncodedBallotContextV1,
+) -> Result<Digest512, AnonymousBallotCodecErrorV1> {
     frame_digest(
         STAMP_PAYLOAD_TAG_V1,
-        &[&enc(authorization)?, &enc(context)?],
+        &[&enc(authorization)?, context.as_bytes()],
     )
 }
 
@@ -341,6 +404,9 @@ pub fn stamp_meets_difficulty_v1(work_digest: &Digest512, difficulty_bits: u8) -
 /// Whether the envelope's stamp reaches the context's frozen difficulty: the
 /// authorization payload of `authorization` with `context`, then `nonce`.
 ///
+/// This simple form encodes the context on every call; [`verify_stamp_encoded_v1`] takes
+/// the scope's context encoded once and decides identically.
+///
 /// # Errors
 /// As [`stamp_payload_digest_v1`].
 pub fn verify_stamp_v1(
@@ -348,11 +414,23 @@ pub fn verify_stamp_v1(
     context: &AuthenticatedBallotContextV1,
     nonce: &AdmissionNonceV1,
 ) -> Result<bool, AnonymousBallotCodecErrorV1> {
-    let payload = stamp_payload_digest_v1(authorization, context)?;
+    verify_stamp_encoded_v1(authorization, &EncodedBallotContextV1::new(context)?, nonce)
+}
+
+/// [`verify_stamp_v1`] with the scope's context encoded once.
+///
+/// # Errors
+/// As [`stamp_payload_digest_encoded_v1`].
+pub fn verify_stamp_encoded_v1(
+    authorization: &AnonymousBallotAuthorizationV1,
+    context: &EncodedBallotContextV1,
+    nonce: &AdmissionNonceV1,
+) -> Result<bool, AnonymousBallotCodecErrorV1> {
+    let payload = stamp_payload_digest_encoded_v1(authorization, context)?;
     let work = stamp_work_digest_v1(&payload, nonce)?;
     Ok(stamp_meets_difficulty_v1(
         &work,
-        context.policy.stamp_difficulty_bits,
+        context.stamp_difficulty_bits(),
     ))
 }
 
@@ -715,7 +793,7 @@ mod tests {
         assert_eq!(leading_zero_bits_v1(&Digest512::new(low)), 511);
         // A tiny difficulty is met by some nonce; the stamp covers the proof bytes.
         let mut easy = context.clone();
-        easy.policy.stamp_difficulty_bits = 4;
+        easy.policy.binding.stamp_difficulty_bits = 4;
         let nonce = (0_u8..=255)
             .map(|byte| AdmissionNonceV1::new([byte; 32]))
             .find(|nonce| verify_stamp_v1(&authorization, &easy, nonce).expect("stamp"))
@@ -736,6 +814,44 @@ mod tests {
         assert_ne!(
             stamp_payload_digest_v1(&altered, &easy),
             stamp_payload_digest_v1(&authorization, &easy)
+        );
+    }
+
+    #[test]
+    fn the_encoded_context_form_decides_exactly_as_the_simple_form() {
+        let authorization = envelope(BallotChoiceV1::Nay, 9).authorization();
+        let mut context = context();
+        context.policy.binding.stamp_difficulty_bits = 3;
+        let encoded = EncodedBallotContextV1::new(&context).expect("encoded");
+        assert_eq!(encoded.as_bytes(), &enc(&context).expect("enc")[..]);
+        assert_eq!(encoded.stamp_difficulty_bits(), 3);
+        assert!(format!("{encoded:?}").contains("stamp_difficulty_bits: 3"));
+        assert_eq!(
+            stamp_payload_digest_encoded_v1(&authorization, &encoded),
+            stamp_payload_digest_v1(&authorization, &context)
+        );
+        // Both forms agree on every nonce, accepted or not.
+        let mut accepted = 0;
+        for byte in 0_u8..=255 {
+            let nonce = AdmissionNonceV1::new([byte; 32]);
+            let simple = verify_stamp_v1(&authorization, &context, &nonce).expect("stamp");
+            assert_eq!(
+                verify_stamp_encoded_v1(&authorization, &encoded, &nonce),
+                Ok(simple)
+            );
+            accepted += usize::from(simple);
+        }
+        assert!(accepted > 0 && accepted < 256, "{accepted}");
+        // Another context encodes another payload.
+        let mut other = context;
+        other.policy_hash = Digest512::new([0xab; 64]);
+        assert_ne!(
+            EncodedBallotContextV1::new(&other).expect("encoded"),
+            encoded
+        );
+        assert_ne!(
+            stamp_payload_digest_v1(&authorization, &other),
+            stamp_payload_digest_encoded_v1(&authorization, &encoded)
         );
     }
 

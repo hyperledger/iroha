@@ -272,6 +272,7 @@ fn with_worker_chain_erased(
         schedule,
     );
     let mut worker = Worker {
+        proposal_reads: None,
         payload_build: None,
         signature_decode: None,
         proposal_decode: None,

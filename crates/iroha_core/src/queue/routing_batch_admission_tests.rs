@@ -1,5 +1,5 @@
 #[test]
-fn push_with_gossip_payload_with_state_and_routing_validates_precomputed_plan() {
+fn push_with_lane_with_state_and_routing_plan_validates_precomputed_plan() {
     struct CountingRouter {
         calls: Arc<AtomicUsize>,
     }
@@ -28,13 +28,16 @@ fn push_with_gossip_payload_with_state_and_routing_validates_precomputed_plan() 
     let hash = tx.hash_as_entrypoint();
     let payload = tx.entrypoint_bytes();
     queue
-        .push_with_gossip_payload_with_state_and_routing_plan(
+        .push_with_lane_with_state_and_routing_plan(
             tx,
             state.as_ref(),
             RoutingPlan::single(RoutingDecision::new(LaneId::SINGLE, DataSpaceId::UNIVERSAL)),
-            Some(Arc::clone(&payload)),
         )
         .expect("push with precomputed routing should succeed");
+    assert!(
+        Arc::ptr_eq(&queue.txs.get(&hash).unwrap().entrypoint_bytes(), &payload),
+        "admission retains the accepted canonical frame for gossip"
+    );
     assert!(
         calls.load(Ordering::Relaxed) > 0,
         "precomputed plan admission should validate against current routing"

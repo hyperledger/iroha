@@ -42,7 +42,6 @@ fn resident_prepare(
             checked,
             plan,
             &mut access,
-            None,
             #[cfg(feature = "telemetry")]
             view.telemetry,
         )

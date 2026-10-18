@@ -410,11 +410,11 @@ impl WalkParentLink {
 /// `H(CERTIFIED_BLOCK_ID_TAG ‖ block_hash ‖ R)` as the data model's id type.
 #[must_use]
 pub fn certified_block_id(block_hash: &Hash32, result: &Hash32) -> HeightContextId {
-    let mut bytes = Vec::with_capacity(CERTIFIED_BLOCK_ID_TAG.len() + 64);
-    bytes.extend_from_slice(CERTIFIED_BLOCK_ID_TAG);
-    bytes.extend_from_slice(&block_hash.0);
-    bytes.extend_from_slice(&result.0);
-    HeightContextId(HashOf::from_untyped_unchecked(Hash::new(&bytes)))
+    HeightContextId(HashOf::from_untyped_unchecked(Hash::new_from_chunks(&[
+        CERTIFIED_BLOCK_ID_TAG,
+        &block_hash.0,
+        &result.0,
+    ])))
 }
 
 /// Read the consensus-visible receipt of the block `view` committed at `height` (see the module
@@ -1916,6 +1916,9 @@ pub struct CertifiedPrefix {
 impl CertifiedPrefix {
     /// Construct directly in one exact original-pool slot without a complete prefix on the stack.
     /// All authentication is shared with `new`; admission itself confers no source authority.
+    /// TODO(S8): the slot funds only the outer value. The SCCP restore caller still needs
+    /// original-pool custody for decoded result/schedule graphs, cloned epoch authority,
+    /// validation controls and certificate/cryptographic scratch throughout advancement.
     ///
     /// # Errors
     /// The original pool/allocator refuses the slot, or the same signed genesis and result

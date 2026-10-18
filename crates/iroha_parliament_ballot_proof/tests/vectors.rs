@@ -80,6 +80,7 @@ fn check_proof(vector: &Vector, row: Row, role: Role, proof: &[u8]) {
     }
     let expected: &[u8] = match (row, role) {
         (Row::Candidate, Role::Registration) => include_bytes!("fixtures/reg_fast.proof"),
+        #[cfg(feature = "diagnostics")]
         (Row::Comparator, Role::Registration) => include_bytes!("fixtures/reg_comparator.proof"),
         (Row::Candidate, Role::Vote) => match vector.int("S_u16") {
             3 => include_bytes!("fixtures/vote_S3_i1_fast.proof"),
@@ -87,6 +88,7 @@ fn check_proof(vector: &Vector, row: Row, role: Role, proof: &[u8]) {
             1000 => include_bytes!("fixtures/vote_S1000_i500_fast.proof"),
             _ => panic!("unsupported fixture"),
         },
+        #[cfg(feature = "diagnostics")]
         (Row::Comparator, Role::Vote) => match vector.int("S_u16") {
             3 => include_bytes!("fixtures/vote_S3_i1_comparator.proof"),
             500 => include_bytes!("fixtures/vote_S500_i250_comparator.proof"),
@@ -414,6 +416,7 @@ fn registration_on_the_candidate_row_reproduces_the_prototype() {
     );
 }
 
+#[cfg(feature = "diagnostics")]
 #[test]
 fn registration_on_the_comparator_row_reproduces_the_prototype() {
     registration_vector(
@@ -433,6 +436,7 @@ fn vote_with_three_members_on_the_candidate_row_reproduces_the_prototype() {
     );
 }
 
+#[cfg(feature = "diagnostics")]
 #[test]
 fn vote_with_three_members_on_the_comparator_row_reproduces_the_prototype() {
     vote_vector(
@@ -463,6 +467,7 @@ fn vote_with_five_hundred_members_on_the_candidate_row_reproduces_the_prototype(
     );
 }
 
+#[cfg(feature = "diagnostics")]
 #[test]
 fn vote_with_five_hundred_members_on_the_comparator_row_reproduces_the_prototype() {
     vote_vector(
@@ -473,6 +478,7 @@ fn vote_with_five_hundred_members_on_the_comparator_row_reproduces_the_prototype
     );
 }
 
+#[cfg(feature = "diagnostics")]
 #[test]
 fn vote_with_a_thousand_members_on_the_comparator_row_reproduces_the_prototype() {
     vote_vector(

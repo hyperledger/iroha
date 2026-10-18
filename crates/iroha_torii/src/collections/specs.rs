@@ -133,11 +133,12 @@ pub struct CollectionSpec {
     /// Fields that identify a row uniquely; appended to every ordering so
     /// keyset positions are total.
     pub(crate) identity: &'static [&'static str],
-    /// Rows come in history order (newest first) and cursors carry block
-    /// coordinates (`block_height`, `block_index`, optionally `movement_index`)
-    /// instead of sort keys; this is their count (zero for ordinary rows);
-    /// `sort`, totals and aggregates would need a full history scan and are
-    /// rejected.
+    /// Rows come in history order (newest first) and cursors carry history
+    /// coordinates instead of sort keys: the `identity` fields when declared
+    /// (e.g. `block_height`, `output_index`, `emission_index`), otherwise
+    /// `block_height` and `block_index`. This is their count (zero for
+    /// ordinary rows); `sort`, totals and aggregates would need a full history
+    /// scan and are rejected.
     pub(crate) positioned: usize,
     /// Rows are stored by their `id` and can be streamed in canonical
     /// identifier order from a cursor: the default order and `sort=id` /
@@ -304,10 +305,16 @@ pub static ACCOUNT_ASSETS: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/assets/{definition_id}/holders`
+///
+/// One row per balance partition. `id` is the partition's canonical asset
+/// literal (`<definition>#<account>[#dataspace:<id>]`); rows are stored by it
+/// in the definition's holder index, so the default order is that storage
+/// order (holder account, then scope) and pages seek from the cursor.
 pub static ASSET_HOLDERS: CollectionSpec = CollectionSpec {
     id: "asset_holders",
     tag: 7,
     fields: &[
+        text("id"),
         account("account_id"),
         text("asset"),
         text("asset_alias"),
@@ -315,10 +322,10 @@ pub static ASSET_HOLDERS: CollectionSpec = CollectionSpec {
         number("quantity"),
     ],
     metadata: false,
-    default_sort: &[("account_id", Order::Asc), ("scope", Order::Asc)],
-    identity: &["account_id", "asset", "scope"],
+    default_sort: &[("id", Order::Asc)],
+    identity: &["id"],
     positioned: 0,
-    ordered: false,
+    ordered: true,
 };
 
 /// Committed transaction rows, newest first.
@@ -658,7 +665,15 @@ mod tests {
                 assert_eq!(spec.default_sort, &[("id", Order::Asc)], "{}", spec.id);
             }
             if spec.positioned > 0 {
-                for field in ["block_height", "block_index"] {
+                // A positioned identity names its coordinates; otherwise rows
+                // are positioned by their block coordinates.
+                let coordinates: &[&str] = if spec.identity.is_empty() {
+                    &["block_height", "block_index"]
+                } else {
+                    spec.identity
+                };
+                assert_eq!(coordinates.len(), spec.positioned, "{}", spec.id);
+                for field in coordinates {
                     let field = spec
                         .field(field)
                         .expect("positioned rows carry coordinates");

@@ -879,7 +879,7 @@ impl KagemushaWalletBlacklistBodyV1 {
 /// The list is local only (owner decision 2026-10-17): a wallet installs it as one standalone
 /// canonical frame of at most [`KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1`] bytes
 /// ([`Self::to_canonical_bytes`], [`Self::decode_canonical`]) after verifying it under its
-/// RegulatoryPolicy signer ([`Self::verify`]), replacing a held list only for a higher
+/// `RegulatoryPolicy` signer ([`Self::verify`]), replacing a held list only for a higher
 /// `list_version`. It is never committed in wallet state, proved by any σ, Λ or Ω, or carried
 /// in a peer message. With a list held, the payer refuses to pay a listed receiver account and
 /// the receiver refuses to quote for or accept money from a listed payer account

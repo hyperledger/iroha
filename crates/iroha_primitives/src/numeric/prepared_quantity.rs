@@ -16,6 +16,8 @@ use norito::core::{
 
 use super::*;
 
+mod funded_arithmetic;
+
 /// Inline geometry obtained from the sole canonical numeric field kernel.
 ///
 /// This is non-authorizing scratch. It cannot certify a signed input, source

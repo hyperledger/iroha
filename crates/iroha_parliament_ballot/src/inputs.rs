@@ -573,7 +573,7 @@ mod tests {
             scope
         );
         let mut changed = policy;
-        changed.vote_notice_ms += 1;
+        changed.binding.vote_notice_ms += 1;
         assert_ne!(
             policy_hash_v1(&changed).expect("policy hash"),
             policy_hash_v1(&self::policy()).expect("policy hash")

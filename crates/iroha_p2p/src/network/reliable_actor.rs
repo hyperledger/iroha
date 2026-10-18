@@ -37,6 +37,56 @@ impl From<NetworkActorProgressLease> for NetworkActorLease {
 pub(super) struct PendingWriterFlush {
     pub(super) receiver: tokio::sync::oneshot::Receiver<()>,
 }
+/// Actor-owned channel on which peer writers report settled reliable posts.
+///
+/// It carries at most one source per outstanding writer occurrence, and every
+/// occurrence is owned by a bounded reliable actor lease, so the channel is
+/// bounded by the actor's item geometry even though it never blocks a writer.
+pub(super) type WriterFlushNoticeReceiver = mpsc::UnboundedReceiver<ActorProgressSource>;
+/// Wakes the network actor when one reliable peer-writer occurrence settles.
+///
+/// The peer writer drops this notice right after acknowledging a complete
+/// write and flush, or when it abandons the post (closed connection, cancelled
+/// writer, failed encoding). Either way the actor reconsiders the source at
+/// once instead of waiting for its periodic retry tick. The acknowledgement
+/// itself still travels on the occurrence's oneshot, which remains the only
+/// delivery linearization point; a notice is merely a wake-up hint. A post the
+/// writer refuses to queue is disarmed, so refusal cannot cause a busy loop.
+pub(crate) struct WriterFlushNotice {
+    sender: Option<mpsc::UnboundedSender<ActorProgressSource>>,
+    source: Option<ActorProgressSource>,
+}
+impl WriterFlushNotice {
+    pub(super) fn new(
+        sender: &mpsc::UnboundedSender<ActorProgressSource>,
+        source: ActorProgressSource,
+    ) -> Self {
+        Self {
+            sender: Some(sender.clone()),
+            source: Some(source),
+        }
+    }
+    /// Drop the notice without waking the actor.
+    pub(crate) fn disarm(mut self) {
+        self.sender = None;
+    }
+}
+impl Drop for WriterFlushNotice {
+    fn drop(&mut self) {
+        if let (Some(sender), Some(source)) = (self.sender.take(), self.source.take()) {
+            // A closed actor has nothing left to wake.
+            let _ = sender.send(source);
+        }
+    }
+}
+impl core::fmt::Debug for WriterFlushNotice {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter
+            .debug_struct("WriterFlushNotice")
+            .field("armed", &self.sender.is_some())
+            .finish_non_exhaustive()
+    }
+}
 /// Linearize an exact reply's pending writer flush before a destructive exit.
 ///
 /// Closing the receiver and polling it immediately gives the peer writer and
@@ -361,11 +411,15 @@ impl<T> AdmittedNetworkMessage<T> {
 /// Source-isolated reliable actor backlog.
 ///
 /// The scheduler deliberately stores the admitted owner as one opaque item.
-/// Target cursors (and, once the peer writer exposes them, flush
-/// acknowledgements) therefore remain part of the same retryable ownership
-/// record rather than being duplicated into another queue.
+/// Target cursors and peer-writer flush acknowledgements therefore remain part
+/// of the same retryable ownership record rather than being duplicated into
+/// another queue. Each source keeps its items in admission order; the actor
+/// services a source as a whole, so items behind one awaiting its flush may
+/// still enter the writer, while an item that could not enter the writer holds
+/// every later item of its source back.
 pub(super) struct ReliableActorPending<T> {
     by_source: HashMap<ActorProgressSource, VecDeque<AdmittedNetworkMessage<T>>>,
+    /// Round-robin ring of sources; a member may lag behind an emptied source.
     ready_sources: VecDeque<ActorProgressSource>,
     ready_members: HashSet<ActorProgressSource>,
     len: usize,
@@ -414,55 +468,85 @@ impl<T: message::ClassifyTopic> ReliableActorPending<T> {
             })
             .expect("reliable actor backlog accepts only semantic-progress messages")
     }
-    pub(super) fn push_back(&mut self, message: AdmittedNetworkMessage<T>) {
+    fn schedule(&mut self, source: &ActorProgressSource) {
+        if self.ready_members.insert(source.clone()) {
+            self.ready_sources.push_back(source.clone());
+        }
+    }
+    /// Append one admitted item behind every retained item of its source.
+    pub(super) fn push_back(&mut self, message: AdmittedNetworkMessage<T>) -> ActorProgressSource {
         assert!(
             self.len < self.max_items,
             "reliable actor backlog exceeded its checked admission geometry"
         );
         let source = Self::source(&message);
-        let entries = self.by_source.entry(source.clone()).or_default();
-        entries.push_back(message);
+        self.by_source
+            .entry(source.clone())
+            .or_default()
+            .push_back(message);
         self.len = self
             .len
             .checked_add(1)
             .expect("bounded reliable actor item count cannot overflow");
-        if self.ready_members.insert(source.clone()) {
-            self.ready_sources.push_back(source);
-        }
+        self.schedule(&source);
+        source
     }
-    pub(super) fn pop_front(&mut self) -> Option<(ActorProgressSource, AdmittedNetworkMessage<T>)> {
+    /// Remove every retained item of `source` in admission order.
+    ///
+    /// The source keeps its round-robin rank; [`Self::restore_source`] returns
+    /// the unfinished items to the same position.
+    pub(super) fn take_source(
+        &mut self,
+        source: &ActorProgressSource,
+    ) -> VecDeque<AdmittedNetworkMessage<T>> {
+        let entries = self.by_source.remove(source).unwrap_or_default();
+        self.len = self
+            .len
+            .checked_sub(entries.len())
+            .expect("reliable actor backlog count must match its queues");
+        entries
+    }
+    /// Return the unfinished items of one serviced source, ahead of any item
+    /// admitted for that source in the meantime.
+    pub(super) fn restore_source(
+        &mut self,
+        source: ActorProgressSource,
+        mut entries: VecDeque<AdmittedNetworkMessage<T>>,
+    ) {
+        if entries.is_empty() {
+            return;
+        }
+        debug_assert!(
+            entries.iter().all(|entry| Self::source(entry) == source),
+            "reliable actor retry must preserve its admission source"
+        );
+        let restored = entries.len();
+        assert!(
+            self.len
+                .checked_add(restored)
+                .is_some_and(|len| len <= self.max_items),
+            "reliable actor backlog exceeded its checked admission geometry"
+        );
+        if let Some(newer) = self.by_source.remove(&source) {
+            entries.extend(newer);
+        }
+        self.len += restored;
+        self.by_source.insert(source.clone(), entries);
+        self.schedule(&source);
+    }
+    /// Pop the next source with retained items in round-robin order.
+    pub(super) fn next_ready_source(&mut self) -> Option<ActorProgressSource> {
         while let Some(source) = self.ready_sources.pop_front() {
             self.ready_members.remove(&source);
-            let Some(mut entries) = self.by_source.remove(&source) else {
-                continue;
-            };
-            let Some(message) = entries.pop_front() else {
-                continue;
-            };
-            self.len = self
-                .len
-                .checked_sub(1)
-                .expect("reliable actor backlog count must match its queues");
-            if !entries.is_empty() {
-                self.by_source.insert(source.clone(), entries);
-                self.ready_members.insert(source.clone());
-                self.ready_sources.push_back(source.clone());
+            if self.by_source.contains_key(&source) {
+                return Some(source);
             }
-            return Some((source, message));
         }
         None
     }
-    pub(super) fn retry_back(
-        &mut self,
-        source: ActorProgressSource,
-        message: AdmittedNetworkMessage<T>,
-    ) {
-        assert_eq!(
-            source,
-            Self::source(&message),
-            "reliable actor retry must preserve its admission source"
-        );
-        self.push_back(message);
+    /// Number of sources currently retaining items.
+    pub(super) fn source_count(&self) -> usize {
+        self.by_source.len()
     }
     pub(super) fn len(&self) -> usize {
         self.len
@@ -485,10 +569,12 @@ impl<T: message::ClassifyTopic> ReliableActorPending<T> {
             .len
             .checked_sub(released)
             .expect("released target deliveries must match reliable backlog ownership");
-        self.ready_sources
-            .retain(|source| self.by_source.contains_key(source));
-        self.ready_members
-            .retain(|source| self.by_source.contains_key(source));
+        if released > 0 {
+            self.ready_sources
+                .retain(|source| self.by_source.contains_key(source));
+            self.ready_members
+                .retain(|source| self.by_source.contains_key(source));
+        }
         released
     }
 }

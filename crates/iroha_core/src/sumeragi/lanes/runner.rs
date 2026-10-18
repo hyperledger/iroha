@@ -36,7 +36,7 @@ use iroha_sumeragi::types::Hash32;
 use parking_lot::Mutex;
 
 use super::{
-    executor::{LaneExecutor, LaneRecovery},
+    executor::LaneExecutor,
     global::{AppliedWatch, GlobalAnchors, QueueLaneTransactions, StatelessChecks},
     lane_genesis_result, lane_height_config, lane_instance,
     registry::LaneStores,
@@ -48,7 +48,7 @@ use crate::{
         bodies::{BodyLimits, FileBodyStore},
         crypto::{BlsCrypto, KeyPairSigner, core_key},
         driver::{
-            Driver, DriverConfig, DriverStart, RunningDriver, SharedCrypto, assemble_init,
+            Driver, DriverConfig, DriverStart, RunningDriver, SharedCrypto,
             persist::install_records,
             traits::{
                 BlockStore as _, Frame, LogEntry, Net, Observer, RecordStore as _, SendOutcome,
@@ -118,13 +118,16 @@ struct RunningLane {
     retiring: bool,
 }
 
-type PendingRecovery = LaneRecovery<GlobalAnchors, StatelessChecks, QueueLaneTransactions>;
+mod startup;
+use startup::PendingLane;
+
+type LaneKey = (LaneId, [u8; 32]);
 
 struct Inner {
     inputs: LaneRunnerInputs,
     net: Arc<SharedNet>,
     running: Mutex<BTreeMap<(LaneId, [u8; 32]), RunningLane>>,
-    recovering: Mutex<BTreeMap<(LaneId, [u8; 32]), PendingRecovery>>,
+    starting: Mutex<BTreeMap<LaneKey, PendingLane>>,
     stop: AtomicBool,
     transactions_pending: AtomicBool,
 }
@@ -261,17 +264,10 @@ impl LaneRunner {
     /// # Errors
     /// The thread cannot be spawned.
     pub fn spawn(inputs: LaneRunnerInputs) -> std::io::Result<Self> {
-        let inner = Arc::new(Inner {
-            net: Arc::new(SharedNet(Arc::clone(&inputs.net))),
-            inputs,
-            running: Mutex::new(BTreeMap::new()),
-            recovering: Mutex::new(BTreeMap::new()),
-            stop: AtomicBool::new(false),
-            transactions_pending: AtomicBool::new(false),
-        });
-        inner.reconcile();
+        let mut runner = Self::new(inputs);
+        runner.inner.reconcile();
         let thread = {
-            let inner = Arc::clone(&inner);
+            let inner = Arc::clone(&runner.inner);
             crate::sumeragi::threads::sumeragi_thread_builder("sumeragi-lanes").spawn(
                 move || {
                     while !inner.stop.load(Ordering::Acquire) {
@@ -293,10 +289,22 @@ impl LaneRunner {
                 },
             )?
         };
-        Ok(Self {
-            inner,
-            thread: Some(thread),
-        })
+        runner.thread = Some(thread);
+        Ok(runner)
+    }
+
+    fn new(inputs: LaneRunnerInputs) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                net: Arc::new(SharedNet(Arc::clone(&inputs.net))),
+                inputs,
+                running: Mutex::new(BTreeMap::new()),
+                starting: Mutex::new(BTreeMap::new()),
+                stop: AtomicBool::new(false),
+                transactions_pending: AtomicBool::new(false),
+            }),
+            thread: None,
+        }
     }
 
     /// The running lane instances.
@@ -346,8 +354,28 @@ impl LaneRunner {
     fn stop(&mut self) {
         self.inner.stop.store(true, Ordering::Release);
         self.inner.inputs.watch.wake_runner();
+        let first_starting = std::mem::take(&mut *self.inner.starting.lock());
+        for pending in first_starting.values() {
+            pending.cancel();
+        }
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
+        }
+        // The coordinator may have held one original outside the map when stop
+        // was set. Signal every final owner before joining or refunding any one.
+        let last_starting = std::mem::take(&mut *self.inner.starting.lock());
+        for pending in last_starting.values() {
+            pending.cancel();
+        }
+        for ((lane, _), pending) in first_starting.into_iter().chain(last_starting) {
+            drop(pending);
+            #[cfg(feature = "telemetry")]
+            InstanceMetrics::retire(
+                &self.inner.inputs.state.telemetry,
+                MetricsInstance::Lane(lane),
+            );
+            #[cfg(not(feature = "telemetry"))]
+            let _ = lane;
         }
         let running = std::mem::take(&mut *self.inner.running.lock());
         for (_, lane) in running {
@@ -382,7 +410,10 @@ impl Inner {
     }
 
     /// Stop retired incarnations and start the activated ones.
-    fn reconcile(&self) {
+    fn reconcile(self: &Arc<Self>) {
+        // Cancellation and completion remain observable even after the native
+        // storage latch closes; no pending original is stranded by an early return.
+        self.poll_startups();
         if self
             .inputs
             .state
@@ -400,18 +431,8 @@ impl Inner {
                 view.world().sumeragi_lanes().clone(),
             )
         };
-        self.inputs
-            .state
-            .ivm_execution_budget()
-            .with_deferred_refund_notifications(|_| {
-                self.recovering.lock().retain(|(lane, incarnation), _| {
-                    lanes
-                        .lane(*lane)
-                        .is_some_and(|record| record.incarnation == *incarnation)
-                });
-            });
-        // Reconcile has one owner: startup completes before the runner launches, and
-        // shutdown joins that runner before draining this map. Keep each original
+        // Reconcile has one owner: its initial turn precedes coordinator launch,
+        // and final shutdown joins it before the last map drain. Keep each original
         // retiring driver until its physical joins and original publication finish.
         // Stop-before-start is
         // per LaneId, including a replacement incarnation with a different map key.
@@ -455,13 +476,19 @@ impl Inner {
                 }
             }
         }
-        // Running drivers retain their original publication on their prestarted joiner.
-        // Historical/orphan Ready stores have no such admitted worker: their existing
-        // continuation remains synchronous and must precede idle owner release.
+        // Every admitted write retains its original prestarted joining owner.
+        // Historical owners without a write need no job. Registry reconciliation
+        // only notifies original jobs, then releases idle in-memory owners.
         #[cfg(not(all(test, sumeragi_core_mutation = "HC390")))]
         self.inputs
             .stores
-            .resume_retired_publications(&lanes, |key| !self.running.lock().contains_key(key));
+            .resume_retired_publications(&lanes, |key| {
+                // A startup may already own protocol workers before Ready transfer.
+                // Probe each map separately; neither guard crosses native continuation.
+                let running = self.running.lock().contains_key(key);
+                let starting = self.starting.lock().contains_key(key);
+                !running && !starting
+            });
         // Failed store openings never enter `running` or executor recovery. Reconcile the
         // registry itself so their original funded buffers and disk locks retire as well.
         if cfg!(all(test, sumeragi_core_mutation = "HC349")) {
@@ -481,27 +508,25 @@ impl Inner {
                     .keys()
                     .any(|(lane, _)| *lane == record.lane)
             };
-            if record.active_from > applied || already_running {
+            let already_starting = self
+                .starting
+                .lock()
+                .keys()
+                .any(|(lane, _)| *lane == record.lane);
+            if record.active_from > applied
+                || already_running
+                || already_starting
+                || self.stop.load(Ordering::Acquire)
+            {
                 continue;
             }
-            match self.start_lane(record) {
-                Ok(lane) => {
-                    iroha_logger::info!(
-                        lane = %record.lane,
-                        instance = %hex::encode(lane.instance.0),
-                        "sumeragi: lane instance started"
-                    );
-                    let replaced = { self.running.lock().insert(key, lane) };
-                    debug_assert!(
-                        replaced.is_none(),
-                        "the sole reconciler starts each incarnation once"
-                    );
-                    drop(replaced);
-                }
-                Err(error) => {
-                    iroha_logger::warn!(lane = %record.lane, %error, "sumeragi: lane instance did not start");
-                }
-            }
+            let pending = PendingLane::new(self, key);
+            let replaced = { self.starting.lock().insert(key, pending) };
+            debug_assert!(
+                replaced.is_none(),
+                "the sole reconciler admits each startup generation once"
+            );
+            drop(replaced);
         }
     }
 
@@ -512,173 +537,6 @@ impl Inner {
             ingress.unregister(&lane.instance);
         }
         lane.driver.shutdown();
-    }
-
-    fn start_lane(
-        &self,
-        record: &SumeragiLaneRecord,
-    ) -> Result<RunningLane, crate::execution_attempt::ExecutionAttemptError<String>> {
-        let inputs = &self.inputs;
-        let node_gate = inputs.state.view().kura().native_consensus_gate();
-        let _startup = node_gate
-            .enter()
-            .ok_or_else(|| "canonical storage is closed; restart is required".to_owned())?;
-        let config = lane_height_config(record).map_err(|error| error.to_string())?;
-        for member in &record.committee {
-            inputs
-                .crypto
-                .admit(member.peer.public_key(), &member.pop)
-                .map_err(|error| format!("committee key {}: {error:?}", member.peer))?;
-        }
-        let shared: SharedCrypto = inputs.crypto.clone();
-        let instance = lane_instance(&*shared, &inputs.network, &inputs.chain_id, record);
-        let store = inputs
-            .stores
-            .runtime_store(record.lane, &record.incarnation)
-            .map_err(|error| error.map_rejection(|error| error.to_string()))?;
-        store
-            .bind_global_queue(&inputs.queue)
-            .map_err(|error| error.to_string())?;
-        let key = core_key(inputs.key_pair.public_key()).map_err(|error| error.to_string())?;
-        let custody = inputs
-            .records
-            .log()
-            .map_err(|error| error.to_string())?
-            .iter()
-            .any(|entry| {
-                matches!(entry, LogEntry::Instance { instance, key: logged, .. }
-                    if *instance == inputs.global_instance && *logged == key)
-            });
-        let found = install_records(
-            &*inputs.records,
-            &*shared,
-            &instance,
-            config.epoch.id,
-            &[(key, false)],
-            0,
-            custody,
-            &mut fresh_store_id,
-        )
-        .map_err(|error| error.to_string())?;
-        let genesis = (
-            super::lane_genesis_hash(&inputs.network, record),
-            lane_genesis_result(record),
-        );
-        let tip = store.height();
-        let configs = (tip..=tip.saturating_add(2))
-            .map(|height| {
-                (
-                    height,
-                    iroha_sumeragi::types::ConfigSlot::Ready(config.clone()),
-                )
-            })
-            .collect();
-        let init = assemble_init(
-            &*store,
-            instance,
-            0,
-            genesis,
-            record.params.demotion_window.get(),
-            found,
-            configs,
-            startup_nonce(),
-        )
-        .map_err(|error| error.map_rejection(|completed| completed.to_string()))?;
-        let member = record
-            .committee
-            .iter()
-            .any(|member| member.peer.public_key() == inputs.key_pair.public_key());
-        let transactions = member.then(|| {
-            Arc::new(QueueLaneTransactions::new(
-                record.lane,
-                Arc::clone(&inputs.queue),
-                Arc::clone(&inputs.state),
-                iroha_primitives::time::TimeSource::new_system(),
-            ))
-        });
-        let recovery_key = (record.lane, record.incarnation);
-        let pending = self.recovering.lock().remove(&recovery_key);
-        let recovery = pending.unwrap_or_else(|| {
-            LaneExecutor::begin_recover(
-                record.clone(),
-                config.clone(),
-                instance,
-                Arc::new(GlobalAnchors::new(
-                    Arc::clone(&inputs.state),
-                    Arc::clone(&inputs.watch),
-                )),
-                StatelessChecks::new(inputs.network),
-                transactions,
-                genesis.0,
-                store.clone(),
-                shared.clone(),
-                inputs.state.ivm_execution_budget(),
-                iroha_primitives::time::TimeSource::new_system(),
-            )
-        });
-        let executor = match recovery.complete() {
-            Ok(executor) => executor,
-            Err((recovery, error)) => {
-                if error.kind() == std::io::ErrorKind::WouldBlock {
-                    let replaced = { self.recovering.lock().insert(recovery_key, recovery) };
-                    drop(replaced);
-                }
-                return Err(error.to_string().into());
-            }
-        };
-        let bodies = Arc::new(
-            FileBodyStore::open(
-                &inputs.bodies_dir,
-                &instance,
-                Arc::clone(&shared),
-                BodyLimits::default(),
-                inputs.state.ivm_execution_budget(),
-            )
-            .map_err(|error| error.to_string())?,
-        );
-        let signer = KeyPairSigner::new(&inputs.key_pair).map_err(|error| error.to_string())?;
-        let observer =
-            evidence_observer(Arc::clone(&inputs.state), record.lane, record.incarnation);
-        #[cfg(feature = "telemetry")]
-        let metrics = MetricsInstance::Lane(record.lane);
-        let driver = Driver::new(
-            Arc::clone(&self.net),
-            Arc::clone(&inputs.records),
-            bodies,
-            store,
-            Arc::new(SystemClock::new()),
-            executor,
-            observer,
-        );
-        #[cfg(feature = "telemetry")]
-        let driver =
-            driver.with_metrics(InstanceMetrics::for_node(&inputs.state.telemetry, metrics));
-        let driver = driver
-            .spawn(
-                inputs.driver,
-                DriverStart {
-                    node_gate: inputs.state.view().kura().native_consensus_gate(),
-                    allocation_budget: inputs.state.ivm_execution_budget(),
-                    local: local_params(config.committee.n(), &inputs.local),
-                    init,
-                    signers: vec![Arc::new(signer)],
-                    crypto: shared,
-                },
-            )
-            .map_err(|error| {
-                // A lane that did not start exports no series.
-                #[cfg(feature = "telemetry")]
-                InstanceMetrics::retire(&inputs.state.telemetry, metrics);
-                error.to_string()
-            })?;
-        if let Some(ingress) = &inputs.ingress {
-            ingress.register(instance, Arc::new(driver.handle()));
-        }
-        Ok(RunningLane {
-            instance,
-            driver,
-            retiring: false,
-        })
     }
 }
 
@@ -731,7 +589,7 @@ impl Observer for LaneEvidenceObserver {
 /// Test observation of the actual reconciler's maps without a background polling thread.
 #[cfg(test)]
 pub(super) struct RetirementControl {
-    inner: Inner,
+    runner: LaneRunner,
 }
 
 #[cfg(test)]
@@ -739,30 +597,23 @@ impl RetirementControl {
     /// Bind the real reconciler to its original test inputs without starting a thread.
     pub(super) fn new(inputs: LaneRunnerInputs) -> Self {
         Self {
-            inner: Inner {
-                net: Arc::new(SharedNet(inputs.net.clone())),
-                inputs,
-                running: Mutex::new(BTreeMap::new()),
-                recovering: Mutex::new(BTreeMap::new()),
-                stop: AtomicBool::new(false),
-                transactions_pending: AtomicBool::new(false),
-            },
+            runner: LaneRunner::new(inputs),
         }
     }
 
     /// Probe the actual running-map mutex without waiting on an incorrect lifetime.
     pub(super) fn running_lock_available(&self) -> bool {
-        self.inner.running.try_lock().is_some()
+        self.runner.inner.running.try_lock().is_some()
     }
 
     /// Read the actual map after a successful nonblocking lock observation.
     pub(super) fn running_count(&self) -> usize {
-        self.inner.running.lock().len()
+        self.runner.inner.running.lock().len()
     }
 
     /// Execute the unchanged production reconcile entry point on these inputs.
     pub(super) fn reconcile(&self) {
-        self.inner.reconcile();
+        self.runner.inner.reconcile();
     }
 }
 
@@ -773,11 +624,9 @@ impl RetirementControl {
         self,
         observe: impl FnOnce(&LaneRunner, &dyn Fn() -> bool) -> R,
     ) -> R {
-        let runner = LaneRunner {
-            inner: Arc::new(self.inner),
-            thread: None,
-        };
-        observe(&runner, &|| runner.inner.running.try_lock().is_some())
+        observe(&self.runner, &|| {
+            self.runner.inner.running.try_lock().is_some()
+        })
     }
 }
 
@@ -785,10 +634,7 @@ impl RetirementControl {
 impl LaneRunner {
     /// Own the actual lane coordinator without its automatic polling thread.
     pub(in crate::sumeragi) fn for_retirement_test(inputs: LaneRunnerInputs) -> Self {
-        Self {
-            inner: Arc::new(RetirementControl::new(inputs).inner),
-            thread: None,
-        }
+        Self::new(inputs)
     }
 
     /// Install an already running original driver at the actual topology owner boundary.
@@ -824,5 +670,61 @@ impl LaneRunner {
     /// Count original driver owners, including any retirement that has not physically joined.
     pub(in crate::sumeragi) fn retirement_owner_count_for_test(&self) -> usize {
         self.inner.running.lock().len()
+    }
+}
+
+#[cfg(test)]
+impl LaneRunner {
+    /// Install one original pending generation without consuming its Ready result.
+    pub(in crate::sumeragi) fn install_startup_for_test(
+        &self,
+        key: (LaneId, [u8; 32]),
+        instance: Hash32,
+        original: crate::sumeragi::driver::PendingDriver,
+    ) {
+        let replacement = {
+            self.inner
+                .starting
+                .lock()
+                .insert(key, PendingLane::original_for_test(instance, original))
+        };
+        let occupied = replacement.is_some();
+        drop(replacement);
+        assert!(
+            !occupied,
+            "one original pending generation per test incarnation"
+        );
+    }
+
+    /// Drain the real coalesced wake while the Ready owner is still unexposed.
+    pub(in crate::sumeragi) fn drain_startup_wake_for_test(&self) -> bool {
+        self.inner.drain_transactions();
+        !self.inner.transactions_pending.load(Ordering::Acquire)
+    }
+
+    /// Transfer through the real completion path, then deliver its real queued wake.
+    pub(in crate::sumeragi) fn transfer_startup_for_test(&self) {
+        self.inner.poll_startups();
+        self.inner.drain_transactions();
+    }
+}
+
+#[cfg(test)]
+impl LaneRunner {
+    /// Count exact pending startup owners without consuming their physical completion.
+    pub(in crate::sumeragi) fn startup_owner_count_for_test(&self) -> usize {
+        self.inner.starting.lock().len()
+    }
+}
+
+#[cfg(test)]
+impl LaneRunner {
+    /// Perform final cleanup of a held original startup after the control observation.
+    pub(in crate::sumeragi) fn shutdown_startup_for_test(&self, key: (LaneId, [u8; 32])) {
+        let original = { self.inner.starting.lock().remove(&key) };
+        if let Some(original) = original {
+            original.cancel();
+            drop(original);
+        }
     }
 }

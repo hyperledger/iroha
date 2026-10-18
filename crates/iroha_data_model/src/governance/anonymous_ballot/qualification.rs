@@ -33,10 +33,75 @@ pub const fn parliament_ballot_qualified_v1() -> bool {
     PARLIAMENT_BALLOT_QUALIFICATION_V1.is_some()
 }
 
+/// The exact semantic security tuple of the approved contract (lifecycle decision K3),
+/// `(queries_log2, attack_gates_log2, archive_years, scopes_log2, seats, registrations_log2,
+/// transcripts_per_credential_log2, total_transcripts_log2, statistical_budget_neg_log2)`.
+///
+/// The fields have different semantics and are not interchangeable ceilings: one is the
+/// query ceiling of the proven bound, one an attack-cost lower bound, one the archive
+/// horizon, five are usage ceilings the deployment must stay within, and one is an error
+/// bound.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Encode,
+    Decode,
+    IntoSchema,
+    DeriveJsonSerialize,
+    DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(deny_unknown_fields)]
+#[norito_schema(name = "iroha_data_model::governance::anonymous_ballot::BallotSecurityTupleV1")]
+pub struct BallotSecurityTupleV1 {
+    /// Query ceiling of the proven bound: `log2` of the most quantum oracle queries the
+    /// complete proven bound covers (`64`).
+    pub queries_log2: u16,
+    /// Attack-cost lower bound: `log2` of the fewest elementary gates an attack costs under
+    /// the independent assessment (`128`).
+    pub attack_gates_log2: u16,
+    /// Archive horizon: years for which recorded ballots must stay protected, per network and
+    /// profile instance (`100`).
+    pub archive_years: u16,
+    /// Usage ceiling: `log2` of the most body scopes (`24`).
+    pub scopes_log2: u16,
+    /// Usage ceiling: the most sealed seats of one body (`1000`).
+    pub seats: u16,
+    /// Usage ceiling: `log2` of the most registrations, alternates included (`34`).
+    pub registrations_log2: u16,
+    /// Usage ceiling: `log2` of the most honest prover transcripts per credential (`10`).
+    pub transcripts_per_credential_log2: u16,
+    /// Usage ceiling: `log2` of the most registration and ballot transcripts in total (`44`).
+    pub total_transcripts_log2: u16,
+    /// Error bound: the unconditional statistical bad-event probability is at most
+    /// `2^-statistical_budget_neg_log2` (`128`).
+    pub statistical_budget_neg_log2: u16,
+}
+
+impl BallotSecurityTupleV1 {
+    /// The tuple of the compiled candidate, `(64, 128, 100, 24, 1000, 34, 10, 44, 128)`.
+    pub const CANDIDATE_V1: Self = Self {
+        queries_log2: 64,
+        attack_gates_log2: 128,
+        archive_years: 100,
+        scopes_log2: 24,
+        seats: 1_000,
+        registrations_log2: 34,
+        transcripts_per_credential_log2: 10,
+        total_transcripts_log2: 44,
+        statistical_budget_neg_log2: 128,
+    };
+}
+
 /// The approved security contract restated by the qualification record
-/// (`specs/parliament_ballot_proof_profile.md` §8.8): the numeric ceilings and the digest
-/// of the complete contract statement the owner approved, which restates the weakened
-/// gate-1 and gate-6 readings, the credential assumptions and the complete ledger.
+/// (`specs/parliament_ballot_proof_profile.md` §8.8): the exact semantic tuple and the digest
+/// of the complete approved contract statement.
 #[derive(
     Clone,
     Copy,
@@ -56,26 +121,12 @@ pub const fn parliament_ballot_qualified_v1() -> bool {
 #[norito(deny_unknown_fields)]
 #[norito_schema(name = "iroha_data_model::governance::anonymous_ballot::BallotSecurityContractV1")]
 pub struct BallotSecurityContractV1 {
-    /// SHA3-512 of the exact approved contract statement.
+    /// The exact semantic security tuple.
+    pub tuple: BallotSecurityTupleV1,
+    /// SHA3-512 of the exact approved contract statement, which binds the complete semantic
+    /// contract (the meaning and value of every tuple field, the credential assumptions and
+    /// the complete ledger) and both recorded weakenings (the gate-1 and gate-6 readings).
     pub statement_digest: Digest512,
-    /// `log2` of the quantum-query budget of the complete proven bound (64).
-    pub proven_bound_queries_log2: u16,
-    /// `log2` of the elementary-gate attack cost of the independent assessment (128).
-    pub attack_cost_gates_log2: u16,
-    /// Archive horizon in years per network and profile instance (100).
-    pub archive_horizon_years: u16,
-    /// `log2` of the most body scopes (24).
-    pub body_scopes_log2: u16,
-    /// Most sealed seats per body (1,000).
-    pub sealed_seats_per_body: u16,
-    /// `log2` of the most registrations, alternates included (34).
-    pub registrations_log2: u16,
-    /// `log2` of the most honest prover transcripts per credential (10).
-    pub transcripts_per_credential_log2: u16,
-    /// `log2` of the most registration plus ballot transcripts (44).
-    pub total_transcripts_log2: u16,
-    /// Negated `log2` of the unconditional statistical bad-event budget (128).
-    pub statistical_budget_neg_log2: u16,
 }
 
 /// The qualified envelope of the committed ballot parameters: every committed value must
@@ -138,8 +189,8 @@ impl QualifiedBallotParameterBoundsV1 {
     }
 }
 
-/// A qualified service contract: the finite attempt-latency bound and the digest of its
-/// statement, which covers every permitted retry, Confirmation, successor-clock block,
+/// A qualified service contract: the finite, positive attempt-latency bound and the digest of
+/// its statement, which covers every permitted retry, Confirmation, successor-clock block,
 /// shared-pass delay and clock margin.
 #[derive(
     Clone,
@@ -162,8 +213,17 @@ impl QualifiedBallotParameterBoundsV1 {
 pub struct BallotServiceContractV1 {
     /// SHA3-512 of the exact service-contract statement.
     pub statement_digest: Digest512,
-    /// Qualified bound on one attempt's latency to a terminal outcome, in milliseconds.
+    /// Qualified bound on one attempt's latency to a terminal outcome, in milliseconds:
+    /// positive and finite (`u64::MAX` is refused as an unbounded sentinel).
     pub attempt_latency_ms: u64,
+}
+
+impl BallotServiceContractV1 {
+    /// Whether the latency bound is positive and finite.
+    #[must_use]
+    pub const fn has_finite_positive_latency(&self) -> bool {
+        self.attempt_latency_ms > 0 && self.attempt_latency_ms < u64::MAX
+    }
 }
 
 /// The owner's qualification record (integration decision 0). It authenticates the
@@ -207,8 +267,9 @@ pub struct BallotQualificationRecordV1 {
 
 impl BallotQualificationRecordV1 {
     /// `H(Frame("PARL/QUALIFICATION/v1"; Enc(record)))`, the value
-    /// [`PARLIAMENT_BALLOT_QUALIFICATION_V1`] would name and the owner's detached
-    /// signature would sign.
+    /// [`PARLIAMENT_BALLOT_QUALIFICATION_V1`] would name. The owner's detached Ed25519
+    /// signature signs exactly these 64 digest bytes; signing and keys are outside the data
+    /// model.
     ///
     /// # Errors
     /// [`AnonymousBallotCodecErrorV1`] if `Enc(self)` cannot be produced.
@@ -216,11 +277,22 @@ impl BallotQualificationRecordV1 {
         frame_digest(QUALIFICATION_TAG_V1, &[&enc(self)?])
     }
 
-    /// Whether the record names the profile this build compiles and well-formed parameter
-    /// bounds. Signature and manifest verification belong to release validation.
+    /// Whether the record describes the candidate this build compiles: the V1 profile, the
+    /// exact candidate security tuple ([`BallotSecurityTupleV1::CANDIDATE_V1`]), well-formed
+    /// parameter bounds that contain the default committed parameters, and no service
+    /// contract or one with a positive finite latency. Signature, statement and manifest
+    /// verification belong to release validation.
     #[must_use]
     pub fn matches_compiled_candidate(&self) -> bool {
-        self.profile_id.is_v1() && self.parameter_bounds.is_well_formed()
+        self.profile_id.is_v1()
+            && self.security_contract.tuple == BallotSecurityTupleV1::CANDIDATE_V1
+            && self.parameter_bounds.is_well_formed()
+            && self
+                .parameter_bounds
+                .contains(&ParliamentBallotParametersV1::default())
+            && self
+                .service_contract
+                .is_none_or(|service| service.has_finite_positive_latency())
     }
 }
 
@@ -237,16 +309,8 @@ mod tests {
             implementation_manifest_digest: Digest512::new([2; 64]),
             evidence_manifest_digest: Digest512::new([3; 64]),
             security_contract: BallotSecurityContractV1 {
+                tuple: BallotSecurityTupleV1::CANDIDATE_V1,
                 statement_digest: Digest512::new([4; 64]),
-                proven_bound_queries_log2: 64,
-                attack_cost_gates_log2: 128,
-                archive_horizon_years: 100,
-                body_scopes_log2: 24,
-                sealed_seats_per_body: 1_000,
-                registrations_log2: 34,
-                transcripts_per_credential_log2: 10,
-                total_transcripts_log2: 44,
-                statistical_budget_neg_log2: 128,
             },
             parameter_bounds: QualifiedBallotParameterBoundsV1 {
                 minimum: defaults,
@@ -266,6 +330,34 @@ mod tests {
         // constant may name a record.
         assert_eq!(PARLIAMENT_BALLOT_QUALIFICATION_V1, None);
         assert!(!parliament_ballot_qualified_v1());
+    }
+
+    #[test]
+    fn the_candidate_tuple_is_the_decided_one() {
+        let tuple = BallotSecurityTupleV1::CANDIDATE_V1;
+        assert_eq!(
+            [
+                tuple.queries_log2,
+                tuple.attack_gates_log2,
+                tuple.archive_years,
+                tuple.scopes_log2,
+                tuple.seats,
+                tuple.registrations_log2,
+                tuple.transcripts_per_credential_log2,
+                tuple.total_transcripts_log2,
+                tuple.statistical_budget_neg_log2,
+            ],
+            [64, 128, 100, 24, 1_000, 34, 10, 44, 128]
+        );
+        assert_eq!(
+            decode_enc::<BallotSecurityTupleV1>(&enc(&tuple).expect("enc")),
+            Ok(tuple)
+        );
+        let json = norito::json::to_json(&tuple).expect("json");
+        assert_eq!(
+            norito::json::from_str::<BallotSecurityTupleV1>(&json).expect("json"),
+            tuple
+        );
     }
 
     #[test]
@@ -296,6 +388,13 @@ mod tests {
             decode_enc::<BallotQualificationRecordV1>(&enc(&with_service).expect("enc")),
             Ok(with_service)
         );
+        // The statement digest and every tuple field are bound by the record digest.
+        let mut other_statement = record;
+        other_statement.security_contract.statement_digest = Digest512::new([6; 64]);
+        assert_ne!(other_statement.record_digest(), record.record_digest());
+        let mut other_tuple = record;
+        other_tuple.security_contract.tuple.archive_years = 99;
+        assert_ne!(other_tuple.record_digest(), record.record_digest());
     }
 
     #[test]
@@ -323,5 +422,57 @@ mod tests {
         let mut unstructured = record;
         unstructured.parameter_bounds.minimum.stamp_difficulty_bits = 1;
         assert!(!unstructured.parameter_bounds.is_well_formed());
+        // Well-formed bounds that exclude the defaults are not the candidate's.
+        let mut narrow = record;
+        narrow.parameter_bounds.minimum.stamp_difficulty_bits = 30;
+        narrow.parameter_bounds.maximum.stamp_difficulty_bits = 32;
+        assert!(narrow.parameter_bounds.is_well_formed());
+        assert!(!narrow.matches_compiled_candidate());
+    }
+
+    /// A named change of one tuple field.
+    type TupleChange = (&'static str, fn(&mut BallotSecurityTupleV1));
+
+    #[test]
+    fn every_tuple_field_and_the_service_latency_must_match_the_candidate() {
+        let changes: [TupleChange; 9] = [
+            ("queries_log2", |t| t.queries_log2 = 65),
+            ("attack_gates_log2", |t| t.attack_gates_log2 = 127),
+            ("archive_years", |t| t.archive_years = 101),
+            ("scopes_log2", |t| t.scopes_log2 = 25),
+            ("seats", |t| t.seats = 999),
+            ("registrations_log2", |t| t.registrations_log2 = 35),
+            ("transcripts_per_credential_log2", |t| {
+                t.transcripts_per_credential_log2 = 11;
+            }),
+            ("total_transcripts_log2", |t| t.total_transcripts_log2 = 45),
+            ("statistical_budget_neg_log2", |t| {
+                t.statistical_budget_neg_log2 = 127;
+            }),
+        ];
+        for (field, change) in changes {
+            let mut changed = record();
+            change(&mut changed.security_contract.tuple);
+            assert!(!changed.matches_compiled_candidate(), "{field}");
+        }
+        for (latency, accepted) in [
+            (0, false),
+            (1, true),
+            (30 * 86_400_000, true),
+            (u64::MAX, false),
+        ] {
+            let mut changed = record();
+            changed.service_contract = Some(BallotServiceContractV1 {
+                statement_digest: Digest512::new([5; 64]),
+                attempt_latency_ms: latency,
+            });
+            assert_eq!(changed.matches_compiled_candidate(), accepted, "{latency}");
+            assert_eq!(
+                changed
+                    .service_contract
+                    .is_some_and(|service| service.has_finite_positive_latency()),
+                accepted
+            );
+        }
     }
 }

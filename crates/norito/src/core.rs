@@ -97,9 +97,6 @@ mod payload_decode_tests;
 #[cfg(test)]
 #[path = "core/payload_tests.rs"]
 mod payload_tests;
-#[cfg(test)]
-#[path = "core/perf_probe_tmp_tests.rs"]
-mod perf_probe_tmp_tests;
 pub mod simd_crc64;
 #[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
 pub use simd_crc64::crc64_neon;
@@ -1227,25 +1224,6 @@ fn btreemap_entry_slices<'a>(
     record_slice_access(value_slice, value_slice.len());
     Ok((key_slice, value_slice))
 }
-#[inline]
-#[allow(dead_code)]
-fn safe_read_u64_from_ctx(ptr: *const u8, offset: usize) -> Option<u64> {
-    let (base, total) = payload_ctx()?;
-    let ptr_us = ptr as usize;
-    if ptr_us < base {
-        return None;
-    }
-    let base_offset = ptr_us - base;
-    let off = base_offset.checked_add(offset)?;
-    let slice_end = off.checked_add(8)?;
-    if slice_end > total {
-        return None;
-    }
-    let payload = unsafe { core::slice::from_raw_parts(base as *const u8, total) };
-    let mut lb = [0u8; 8];
-    lb.copy_from_slice(&payload[off..slice_end]);
-    Some(u64::from_le_bytes(lb))
-}
 /// Read a dynamic length header at a given pointer using the current payload context.
 /// Returns (value, bytes_consumed).
 fn read_len_dyn_at_ptr(ptr: *const u8) -> Result<(usize, usize), Error> {
@@ -1534,10 +1512,6 @@ pub struct SequencePlan {
     /// Total bytes consumed from the source sequence payload.
     pub used: usize,
 }
-#[cfg(any(feature = "codec-gpu-metal", feature = "codec-gpu-cuda"))]
-const SEQUENCE_GPU_MIN_BYTES: usize = 1 << 20;
-#[cfg(any(feature = "codec-gpu-metal", feature = "codec-gpu-cuda"))]
-const SEQUENCE_GPU_MIN_ELEMENTS: usize = 4096;
 /// Plan element byte spans for a Norito binary sequence without materializing values.
 ///
 /// The input starts at the sequence count header. Every element carries its own length prefix,
@@ -1555,24 +1529,9 @@ fn plan_binary_sequence_with_count(
     count: usize,
 ) -> Result<SequencePlan, Error> {
     validate_header_flags(flags)?;
-    #[cfg(any(feature = "codec-gpu-metal", feature = "codec-gpu-cuda"))]
-    if !decode_limits_active()
-        && bytes.len() >= SEQUENCE_GPU_MIN_BYTES
-        && count >= SEQUENCE_GPU_MIN_ELEMENTS
-        && let Some(plan) = sequence_gpu::try_plan_binary_sequence(bytes, flags)
-    {
-        note_payload_access(bytes, plan.used);
-        return Ok(plan);
-    }
     let plan = plan_binary_sequence_scalar_with_count(bytes, flags, count)?;
     note_payload_access(bytes, plan.used);
     Ok(plan)
-}
-#[cfg(any(feature = "codec-gpu-metal", feature = "codec-gpu-cuda"))]
-fn plan_binary_sequence_scalar(bytes: &[u8], flags: u8) -> Result<SequencePlan, Error> {
-    validate_header_flags(flags)?;
-    let (count, _) = read_seq_len_slice(bytes)?;
-    plan_binary_sequence_scalar_with_count(bytes, flags, count)
 }
 fn plan_binary_sequence_scalar_with_count(
     bytes: &[u8],
@@ -1641,287 +1600,6 @@ fn validate_current_map_reservation(bytes: &[u8], count: usize) -> Result<(), Er
         return Err(Error::LengthMismatch);
     }
     Ok(())
-}
-#[cfg(any(feature = "codec-gpu-metal", feature = "codec-gpu-cuda"))]
-mod sequence_gpu {
-    use super::{SequencePlan, SequenceSpan, plan_binary_sequence_scalar};
-    use std::{
-        ffi::{c_char, c_int, c_void},
-        path::PathBuf,
-        sync::{Mutex, OnceLock},
-    };
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    struct AbiSpan {
-        start: usize,
-        end: usize,
-    }
-    type SequencePlanHelperFn = unsafe extern "C" fn(
-        input_ptr: *const u8,
-        input_len: usize,
-        flags: u8,
-        out_spans: *mut AbiSpan,
-        out_capacity: usize,
-        out_count: *mut usize,
-        out_used: *mut usize,
-    ) -> i32;
-    const RC_OK: i32 = 0;
-    const RC_INVALID: i32 = 1;
-    const RC_NO_SPACE: i32 = 2;
-    const RC_UNAVAILABLE: i32 = 3;
-    struct SequencePlanLib {
-        handle: *mut c_void,
-        func: SequencePlanHelperFn,
-    }
-    unsafe impl Send for SequencePlanLib {}
-    unsafe impl Sync for SequencePlanLib {}
-    impl Drop for SequencePlanLib {
-        fn drop(&mut self) {
-            unsafe { close_library(self.handle) };
-        }
-    }
-    enum SequencePlanCache {
-        Unknown,
-        Loaded(SequencePlanLib),
-        Disabled,
-    }
-    static SEQUENCE_PLAN_LIB: OnceLock<Mutex<SequencePlanCache>> = OnceLock::new();
-    pub(super) fn try_plan_binary_sequence(bytes: &[u8], flags: u8) -> Option<SequencePlan> {
-        let cache = SEQUENCE_PLAN_LIB.get_or_init(|| Mutex::new(SequencePlanCache::Unknown));
-        let mut guard = cache.lock().expect("sequence GPU cache poisoned");
-        if matches!(*guard, SequencePlanCache::Unknown) {
-            *guard = unsafe { load_sequence_plan_library() }
-                .map(SequencePlanCache::Loaded)
-                .unwrap_or(SequencePlanCache::Disabled);
-        }
-        let SequencePlanCache::Loaded(lib) = &*guard else {
-            return None;
-        };
-        let plan = match unsafe { call_helper(lib.func, bytes, flags) } {
-            HelperOutcome::Planned(plan) => plan,
-            HelperOutcome::InvalidInput => {
-                if plan_binary_sequence_scalar(bytes, flags).is_ok() {
-                    *guard = SequencePlanCache::Disabled;
-                }
-                return None;
-            }
-            HelperOutcome::BackendFailure => {
-                *guard = SequencePlanCache::Disabled;
-                return None;
-            }
-            HelperOutcome::BackendUnavailable => return None,
-        };
-        match plan_binary_sequence_scalar(bytes, flags) {
-            Ok(scalar) if scalar == plan => Some(plan),
-            Ok(_) | Err(_) => {
-                *guard = SequencePlanCache::Disabled;
-                None
-            }
-        }
-    }
-    enum HelperOutcome {
-        Planned(SequencePlan),
-        InvalidInput,
-        BackendUnavailable,
-        BackendFailure,
-    }
-    unsafe fn call_helper(func: SequencePlanHelperFn, bytes: &[u8], flags: u8) -> HelperOutcome {
-        let mut spans: Vec<AbiSpan> = Vec::new();
-        let mut out_count = 0usize;
-        let mut out_used = 0usize;
-        let rc = unsafe {
-            func(
-                bytes.as_ptr(),
-                bytes.len(),
-                flags,
-                spans.as_mut_ptr(),
-                spans.capacity(),
-                &mut out_count,
-                &mut out_used,
-            )
-        };
-        if rc != RC_NO_SPACE {
-            return if rc == RC_OK && out_count == 0 && out_used <= bytes.len() {
-                HelperOutcome::Planned(SequencePlan {
-                    spans: Vec::new(),
-                    used: out_used,
-                })
-            } else if rc == RC_OK || rc == RC_INVALID {
-                HelperOutcome::InvalidInput
-            } else if rc == RC_UNAVAILABLE {
-                HelperOutcome::BackendUnavailable
-            } else {
-                HelperOutcome::BackendFailure
-            };
-        }
-        let declared_count = match super::inspect_seq_len_slice(bytes) {
-            Ok((count, _)) => count,
-            Err(_) => return HelperOutcome::InvalidInput,
-        };
-        if out_count != declared_count
-            || super::check_decode_sequence_length(u64::try_from(out_count).unwrap_or(u64::MAX))
-                .is_err()
-        {
-            return HelperOutcome::BackendFailure;
-        }
-        let allocation_bytes = match out_count.checked_mul(core::mem::size_of::<AbiSpan>()) {
-            Some(bytes) => bytes,
-            None => return HelperOutcome::BackendFailure,
-        };
-        if super::reserve_decode_allocation(allocation_bytes).is_err()
-            || spans.try_reserve(out_count).is_err()
-        {
-            return HelperOutcome::BackendFailure;
-        }
-        let rc = unsafe {
-            func(
-                bytes.as_ptr(),
-                bytes.len(),
-                flags,
-                spans.as_mut_ptr(),
-                spans.capacity(),
-                &mut out_count,
-                &mut out_used,
-            )
-        };
-        if rc != RC_OK || out_count > spans.capacity() || out_used > bytes.len() {
-            return match rc {
-                RC_INVALID => HelperOutcome::InvalidInput,
-                RC_UNAVAILABLE => HelperOutcome::BackendUnavailable,
-                _ => HelperOutcome::BackendFailure,
-            };
-        }
-        unsafe {
-            spans.set_len(out_count);
-        }
-        let spans = spans
-            .into_iter()
-            .map(|span| {
-                if span.start <= span.end && span.end <= bytes.len() {
-                    Some(SequenceSpan {
-                        start: span.start,
-                        end: span.end,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect::<Option<Vec<_>>>();
-        match spans {
-            Some(spans) => HelperOutcome::Planned(SequencePlan {
-                spans,
-                used: out_used,
-            }),
-            None => HelperOutcome::BackendFailure,
-        }
-    }
-    unsafe fn load_sequence_plan_library() -> Option<SequencePlanLib> {
-        #[cfg(unix)]
-        {
-            for path in candidate_paths() {
-                let Some(lib) = (unsafe { load_library_unix(&path) }) else {
-                    continue;
-                };
-                let Some(func) = (unsafe { resolve_symbol(lib) }) else {
-                    unsafe { close_library(lib) };
-                    continue;
-                };
-                if sequence_plan_helper_self_test(func) {
-                    return Some(SequencePlanLib { handle: lib, func });
-                }
-                unsafe { close_library(lib) };
-            }
-        }
-        None
-    }
-    fn sequence_plan_helper_self_test(func: SequencePlanHelperFn) -> bool {
-        let flags = super::header_flags::COMPACT_LEN;
-        let bytes = make_case(flags);
-        let accel = match unsafe { call_helper(func, &bytes, flags) } {
-            HelperOutcome::Planned(plan) => plan,
-            HelperOutcome::InvalidInput
-            | HelperOutcome::BackendUnavailable
-            | HelperOutcome::BackendFailure => return false,
-        };
-        plan_binary_sequence_scalar(&bytes, flags).is_ok_and(|scalar| accel == scalar)
-    }
-    fn make_case(flags: u8) -> Vec<u8> {
-        let _guard = super::DecodeFlagsGuard::enter(flags);
-        let mut out = Vec::new();
-        super::write_seq_len(&mut out, 3).expect("write sequence length");
-        for payload in [&b"a"[..], &[0x55; 130][..], b"tail"] {
-            super::write_len(&mut out, payload.len() as u64).expect("write element length");
-            out.extend_from_slice(payload);
-        }
-        out
-    }
-    fn candidate_paths() -> Vec<PathBuf> {
-        let mut candidates = Vec::new();
-        if let Ok(exe) = std::env::current_exe()
-            && let Some(dir) = exe.parent()
-        {
-            #[cfg(all(feature = "codec-gpu-metal", target_os = "macos"))]
-            {
-                candidates.push(dir.join("libjsonstage1_metal.dylib"));
-                candidates.push(dir.join("../lib/libjsonstage1_metal.dylib"));
-            }
-            #[cfg(feature = "codec-gpu-cuda")]
-            {
-                candidates.push(dir.join("libjsonstage1_cuda.dylib"));
-                candidates.push(dir.join("../lib/libjsonstage1_cuda.dylib"));
-                candidates.push(dir.join("libjsonstage1_cuda.so"));
-                candidates.push(dir.join("../lib/libjsonstage1_cuda.so"));
-            }
-        }
-        candidates
-    }
-    #[cfg(unix)]
-    unsafe extern "C" {
-        fn dlopen(filename: *const c_char, flag: c_int) -> *mut c_void;
-        fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
-        fn dlclose(handle: *mut c_void) -> c_int;
-    }
-    #[cfg(unix)]
-    unsafe fn load_library_unix(path: &std::path::Path) -> Option<*mut c_void> {
-        use std::{ffi::CString, os::unix::ffi::OsStrExt};
-        const RTLD_LAZY: c_int = 1;
-        let bytes = path.as_os_str().as_bytes();
-        if bytes.contains(&0) {
-            return None;
-        }
-        let cpath = CString::new(bytes).ok()?;
-        let handle = unsafe { dlopen(cpath.as_ptr(), RTLD_LAZY) };
-        if handle.is_null() { None } else { Some(handle) }
-    }
-    #[cfg(not(unix))]
-    unsafe fn load_library_unix(_path: &std::path::Path) -> Option<*mut c_void> {
-        None
-    }
-    unsafe fn resolve_symbol(handle: *mut c_void) -> Option<SequencePlanHelperFn> {
-        #[cfg(unix)]
-        {
-            let sym = unsafe { dlsym(handle, c"norito_length_prefixed_sequence_plan".as_ptr()) };
-            if sym.is_null() {
-                return None;
-            }
-            Some(unsafe { std::mem::transmute::<*mut c_void, SequencePlanHelperFn>(sym) })
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = handle;
-            None
-        }
-    }
-    unsafe fn close_library(handle: *mut c_void) {
-        #[cfg(unix)]
-        if !handle.is_null() {
-            let _ = unsafe { dlclose(handle) };
-        }
-        #[cfg(not(unix))]
-        let _ = handle;
-    }
-    #[cfg(test)]
-    include!("core/sequence_plan_helper_tests.rs");
 }
 /// Write a length prefix honoring `COMPACT_LEN`.
 pub fn write_len<W: Write>(writer: &mut W, value: u64) -> std::io::Result<()> {

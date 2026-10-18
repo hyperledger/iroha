@@ -153,7 +153,9 @@ effects remain outside this additional subset.
 ## Remaining certificate terms
 
 Complete production framing, authenticated shared-context mapping, admission
-work stamps and their checks remain gated. A process/64 MiB workspace bound
+work stamps and their checks remain required qualification work. Design section
+12.2 permits their engineering alongside B6; binding production activation
+remains disabled. A process/64 MiB workspace bound
 also needs target-specific stack/provider scratch, compiler spill/copy effects,
 allocator overhead, failure behavior and concurrency scope. Constant-time and
 secret erasure need independent implementation review; verifier inputs are

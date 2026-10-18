@@ -5,15 +5,16 @@
 //! transcript and fixed four-validator, exact-three-signer quorum rules.
 
 use iroha_crypto::{Algorithm, Hash, Signature};
+#[cfg(test)]
+use iroha_data_model::nexus::PRIVATE_SETTLEMENT_BLS_BYTES_V1;
 use iroha_data_model::{
     consensus::ConsensusKeyRole,
     nexus::{
-        AtomicPrivateSettlementV1, PRIVATE_SETTLEMENT_BLS_BYTES_V1,
-        PRIVATE_SETTLEMENT_COMMITTEE_QUORUM_V1, PRIVATE_SETTLEMENT_COMMITTEE_VALIDATORS_V1,
-        PrivateSettlementAuthorityCatalogV1, PrivateSettlementCommitteeAuthorityV1,
-        PrivateSettlementDeltaV1, PrivateSettlementPhaseBodyV1,
-        PrivateSettlementPhaseCertificateV1, PrivateSettlementPhaseV1,
-        PrivateSettlementPhaseVoteV1, PrivateSettlementPrepareBarrierV1,
+        AtomicPrivateSettlementV1, PRIVATE_SETTLEMENT_COMMITTEE_QUORUM_V1,
+        PRIVATE_SETTLEMENT_COMMITTEE_VALIDATORS_V1, PrivateSettlementAuthorityCatalogV1,
+        PrivateSettlementCommitteeAuthorityV1, PrivateSettlementDeltaV1,
+        PrivateSettlementPhaseBodyV1, PrivateSettlementPhaseCertificateV1,
+        PrivateSettlementPhaseV1, PrivateSettlementPhaseVoteV1, PrivateSettlementPrepareBarrierV1,
         PrivateSettlementReceiptV1, PrivateSettlementRouteV1,
     },
     sumeragi_lanes::{SumeragiLaneRecord, SumeragiLaneState},

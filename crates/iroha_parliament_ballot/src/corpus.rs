@@ -13,7 +13,10 @@
 //! `(height, input_index)` order with a fresh nullifier, at most `S` of them, and updates the
 //! root, the nullifier index and the counts together or not at all. [`build_closure_record_v1`]
 //! assembles the closure record from the attempt facts, the anchors and the corpus, decides
-//! the outcome with the data model's decision rule and validates the record.
+//! the outcome with the data model's decision rule and validates the record against the
+//! frozen policy. [`validate_closure_record_v1`] is the complete closure check: the data
+//! model's validation against the frozen policy, and the recomputed `policy_hash`, which only
+//! the proof crate can compute.
 
 use std::collections::BTreeMap;
 
@@ -22,13 +25,16 @@ use iroha_data_model::governance::{
     anonymous_ballot::{
         AnonymousBallotCodecErrorV1, AnonymousBallotCorpusEntryV1, AnonymousBallotCorpusErrorV1,
         BallotChoiceV1, BallotClosureErrorV1, BallotClosureRecordV1, BallotScopeV1,
-        BallotTallyErrorV1, Digest512, NullifierV1, ProofProfileIdV1,
+        BallotTallyErrorV1, Digest512, FrozenBallotPolicyV1, NullifierV1, ProofProfileIdV1,
         digests::{corpus_append_root_v1, corpus_empty_root_v1, corpus_leaf_v1},
     },
     types::ProposalContentId,
 };
 
-use crate::context::ScopedBallotContextV1;
+use crate::{
+    context::ScopedBallotContextV1,
+    inputs::{ProofInputErrorV1, policy_hash_v1},
+};
 
 /// Why an entry cannot be appended to the corpus, or a corpus cannot be restored.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -246,6 +252,39 @@ pub enum ClosureBuildErrorV1 {
     Record(#[from] BallotClosureErrorV1),
 }
 
+/// Why a closure record does not belong to its frozen policy.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ClosureValidationErrorV1 {
+    /// The record fails the data model's validation against the policy.
+    #[error(transparent)]
+    Record(#[from] BallotClosureErrorV1),
+    /// The record's `policy_hash` is not the hash of the policy.
+    #[error("the closure record's policy_hash is not the hash of its frozen policy")]
+    PolicyHash,
+    /// The policy hash could not be computed.
+    #[error(transparent)]
+    Inputs(#[from] ProofInputErrorV1),
+}
+
+/// Check a closure record against its body's frozen ballot policy completely:
+/// [`BallotClosureRecordV1::validate`] (the policy, body role, profile, casting duration,
+/// seat cap, anchors, counts, outcome and narrow flag under the policy's locked tier), then
+/// `policy_hash = SHA3-512(Frame("PARL/POLICY/v1"; P16, Enc(policy)))` recomputed through the
+/// proof crate and compared with the record's.
+///
+/// # Errors
+/// [`ClosureValidationErrorV1`] for the first violated rule.
+pub fn validate_closure_record_v1(
+    record: &BallotClosureRecordV1,
+    policy: &FrozenBallotPolicyV1,
+) -> Result<(), ClosureValidationErrorV1> {
+    record.validate(policy)?;
+    if policy_hash_v1(policy)? != record.policy_hash {
+        return Err(ClosureValidationErrorV1::PolicyHash);
+    }
+    Ok(())
+}
+
 /// `closing_ms = casting_clock_timestamp_ms + casting_window_ms`, checked.
 pub const fn closing_ms_v1(casting_clock_timestamp_ms: u64, casting_window_ms: u64) -> Option<u64> {
     casting_clock_timestamp_ms.checked_add(casting_window_ms)
@@ -254,7 +293,8 @@ pub const fn closing_ms_v1(casting_clock_timestamp_ms: u64, casting_window_ms: u
 /// Assemble the closure record of `context`'s ballot from the attempt facts
 /// (`proposal_content_id` and the seal's registration-mapping digest), the anchors and the
 /// corpus; decide the outcome with the V1 decision rule under the frozen risk tier and
-/// validate the record.
+/// validate the record against the context's frozen policy, whose `policy_hash` the scoped
+/// context has already recomputed.
 ///
 /// # Errors
 /// [`ClosureBuildErrorV1`] for a foreign corpus, an overflowing deadline, or a record that
@@ -270,8 +310,11 @@ pub fn build_closure_record_v1(
         return Err(ClosureBuildErrorV1::ForeignCorpus);
     }
     let policy = context.policy();
-    let closing_ms = closing_ms_v1(anchors.casting_clock_timestamp_ms, policy.casting_window_ms)
-        .ok_or(ClosureBuildErrorV1::ClosingTime)?;
+    let closing_ms = closing_ms_v1(
+        anchors.casting_clock_timestamp_ms,
+        policy.binding.casting_window_ms,
+    )
+    .ok_or(ClosureBuildErrorV1::ClosingTime)?;
     let counts = corpus.counts();
     let body = context.body_context();
     let decision = policy.decision_rule.decide(
@@ -299,7 +342,7 @@ pub fn build_closure_record_v1(
         opening_anchor: anchors.opening,
         casting_clock_height: anchors.casting_clock_height,
         casting_clock_timestamp_ms: anchors.casting_clock_timestamp_ms,
-        casting_window_ms: policy.casting_window_ms,
+        casting_window_ms: policy.binding.casting_window_ms,
         closing_ms,
         closure_anchor: anchors.closure,
         corpus_root: *corpus.root(),
@@ -310,7 +353,7 @@ pub fn build_closure_record_v1(
         outcome: decision.outcome,
         narrow: decision.narrow,
     };
-    record.validate(policy.risk_tier)?;
+    record.validate(policy)?;
     Ok(record)
 }
 
@@ -498,7 +541,11 @@ mod tests {
         assert_eq!(record.scope, *context.scope());
         assert_eq!(record.body_instance_id, *context.body_instance_id());
         assert_eq!(record.registration_mapping_digest, mapping);
-        assert_eq!(record.validate(context.policy().risk_tier), Ok(()));
+        assert_eq!(record.validate(context.policy()), Ok(()));
+        assert_eq!(
+            validate_closure_record_v1(&record, context.policy()),
+            Ok(())
+        );
         // Two ballots of four seats are below max(3, Q) = 3: NoQuorum, not an error.
         let mut low = CorpusAccumulatorV1::new(&context).expect("corpus");
         low.append(&entry(AYE_0, 101, 0)).expect("append");
@@ -548,5 +595,50 @@ mod tests {
         );
         assert_eq!(closing_ms_v1(u64::MAX, 1), None);
         assert_eq!(closing_ms_v1(1, 2), Some(3));
+    }
+
+    #[test]
+    fn closure_validation_recomputes_the_policy_hash() {
+        let context = scoped_context();
+        let corpus = CorpusAccumulatorV1::new(&context).expect("corpus");
+        let record = build_closure_record_v1(
+            &context,
+            proposal_content_id(),
+            Digest512::new([0x04; 64]),
+            &anchors(),
+            &corpus,
+        )
+        .expect("record");
+        assert_eq!(
+            validate_closure_record_v1(&record, context.policy()),
+            Ok(())
+        );
+        // A record naming another policy hash passes the data model's structural check but
+        // not the complete one.
+        let mut other_hash = record;
+        other_hash.policy_hash = Digest512::new([0xee; 64]);
+        assert_eq!(other_hash.validate(context.policy()), Ok(()));
+        assert_eq!(
+            validate_closure_record_v1(&other_hash, context.policy()),
+            Err(ClosureValidationErrorV1::PolicyHash)
+        );
+        // A valid policy of another snapshot hashes differently.
+        let mut other_policy = context.policy().clone();
+        other_policy.lifecycle_policy.enactment_delay_ms += 1;
+        assert_eq!(record.validate(&other_policy), Ok(()));
+        assert_eq!(
+            validate_closure_record_v1(&record, &other_policy),
+            Err(ClosureValidationErrorV1::PolicyHash)
+        );
+        // The structural failures come first.
+        let mut wrong_role = context.policy().clone();
+        wrong_role.body_role =
+            iroha_data_model::governance::types::ParliamentBody::ConfirmationJury;
+        assert_eq!(
+            validate_closure_record_v1(&record, &wrong_role),
+            Err(ClosureValidationErrorV1::Record(
+                BallotClosureErrorV1::PolicyMismatch { field: "body_role" }
+            ))
+        );
     }
 }

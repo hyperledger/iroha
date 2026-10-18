@@ -89,7 +89,7 @@ public enum KagemushaWalletEnrollmentRefusalV1: UInt16, CaseIterable, Sendable {
   ///
   /// Native's closed table decides first; this typed projection must agree with it.
   /// - Throws: ``KagemushaWalletErrorV1/invalidInput`` for zero, unknown and Android-only
-  ///   codes; ``KagemushaWalletErrorV1/bridgeUnavailable`` without the ABI-29 Native table;
+  ///   codes; ``KagemushaWalletErrorV1/bridgeUnavailable`` without the ABI-30 Native table;
   ///   ``KagemushaWalletErrorV1/invalidNativeOutput`` if Native and this projection disagree.
   public init(relayedCode code: UInt16) throws {
     try self.init(relayedCode: code, nativeClass: kagemushaWalletEnrollmentRefusalNativeV1())
@@ -108,7 +108,7 @@ public enum KagemushaWalletEnrollmentRefusalV1: UInt16, CaseIterable, Sendable {
 
 typealias KagemushaWalletEnrollmentRefusalSymbolV1 = @convention(c) (UInt16, UInt8) -> Int32
 
-/// Resolve Native's closed E1 refusal table, a pure ABI-29 lookup without handle or state.
+/// Resolve Native's closed E1 refusal table, a pure ABI-30 lookup without handle or state.
 func kagemushaWalletEnrollmentRefusalNativeV1() throws -> (UInt16, UInt8) -> Int32 {
   guard
     let table = NoritoNativeBridge.shared.resolveNativeSymbol(

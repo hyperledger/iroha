@@ -53003,6 +53003,77 @@ fn explorer_network_metrics_snapshot(
         })
     })
 }
+/// Creation times of recently read canonical blocks, keyed by block hash.
+///
+/// A committed block hash fixes its header, so an entry can never go stale and
+/// is valid for every State that commits that block. Explorer metrics average
+/// the times of the newest blocks; remembering them avoids re-reading every
+/// body of that window on each request.
+struct ExplorerBlockTimes {
+    entries: VecDeque<(HashOf<BlockHeader>, Duration)>,
+}
+impl ExplorerBlockTimes {
+    /// Entries retained; larger than the metrics window so the window stays
+    /// warm while new blocks commit.
+    const CAPACITY: usize = 64;
+    const fn new() -> Self {
+        Self {
+            entries: VecDeque::new(),
+        }
+    }
+    fn get(&self, hash: HashOf<BlockHeader>) -> Option<Duration> {
+        self.entries
+            .iter()
+            .find_map(|(candidate, time)| (*candidate == hash).then_some(*time))
+    }
+    fn remember(&mut self, hash: HashOf<BlockHeader>, time: Duration) {
+        if self.get(hash).is_some() {
+            return;
+        }
+        if self.entries.len() >= Self::CAPACITY {
+            self.entries.pop_front();
+        }
+        self.entries.push_back((hash, time));
+    }
+}
+static EXPLORER_BLOCK_TIMES: std::sync::Mutex<ExplorerBlockTimes> =
+    std::sync::Mutex::new(ExplorerBlockTimes::new());
+fn explorer_block_times() -> std::sync::MutexGuard<'static, ExplorerBlockTimes> {
+    EXPLORER_BLOCK_TIMES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+/// Read one canonical block's creation time from its authenticated body.
+fn read_block_creation_time(
+    state: &CoreState,
+    height: NonZeroUsize,
+    history_budget: &iroha_core::state::CanonicalHistoryReadBudget,
+) -> Result<Duration> {
+    let block = state
+        .read_canonical_history_block(height, history_budget)
+        .map_err(crate::canonical_history::query_attempt_error)?;
+    let time = block.header().creation_time();
+    explorer_block_times().remember(block.hash(), time);
+    Ok(time)
+}
+/// Creation time of the committed block at `height`, remembered by its
+/// committed hash once its body was read.
+fn committed_block_creation_time(
+    state: &CoreState,
+    height: NonZeroUsize,
+    history_budget: &iroha_core::state::CanonicalHistoryReadBudget,
+) -> Result<Duration> {
+    let remembered = u64::try_from(height.get())
+        .ok()
+        .and_then(|height| state.committed_block_hash_at_height(height))
+        .and_then(|hash| explorer_block_times().get(hash));
+    match remembered {
+        Some(time) => Ok(time),
+        None => read_block_creation_time(state, height, history_budget),
+    }
+}
+/// Creation time of the head block, always read from its body: a local read
+/// refusal is reported, never replaced by a remembered time.
 fn latest_block_created_at(
     state: &CoreState,
     height: u64,
@@ -53011,11 +53082,8 @@ fn latest_block_created_at(
     let Some(height) = nonzero_height(height) else {
         return Ok(None);
     };
-    let block = state
-        .read_canonical_history_block(height, history_budget)
-        .map_err(crate::canonical_history::query_attempt_error)?;
     Ok(Some(crate::explorer_history::HistoryTime(
-        block.header().creation_time(),
+        read_block_creation_time(state, height, history_budget)?,
     )))
 }
 fn average_block_time_ms(
@@ -53035,10 +53103,8 @@ fn average_block_time_ms(
         let Some(nonzero_height) = nonzero_height(height) else {
             break;
         };
-        let block = state
-            .read_canonical_history_block(nonzero_height, history_budget)
-            .map_err(crate::canonical_history::query_attempt_error)?;
-        let ts_ms = block.header().creation_time().as_millis();
+        let ts_ms =
+            committed_block_creation_time(state, nonzero_height, history_budget)?.as_millis();
         if let Some(prev) = prev_ts_ms {
             if prev >= ts_ms {
                 deltas.push(prev - ts_ms);
@@ -54286,10 +54352,10 @@ pub async fn handle_v1_explorer_asset_definition_snapshot(
         .unwrap_or(u64::MAX);
     let mut holders: Vec<(AccountId, Quantity)> = Vec::new();
     let mut total_supply = Quantity::zero();
-    for asset in view.world().assets_iter() {
-        if asset.id().definition() != &definition_id
-            || !visibility.allows_asset(view.world(), asset.id())
-        {
+    // The per-definition index visits only this definition's balances; every
+    // later pass orders holders itself, so the visiting order is irrelevant.
+    for asset in view.world().asset_entries_by_definition_iter(&definition_id) {
+        if !visibility.allows_asset(view.world(), asset.id()) {
             continue;
         }
         let balance = asset.value().as_ref();
@@ -55532,6 +55598,23 @@ mod explorer_asset_definition_snapshot_tests {
         )
         .execute(exec_id.account(), &mut stx0)
         .ok();
+        // Another definition's balances never enter this definition's snapshot.
+        let other_def_id: dm::AssetDefinitionId =
+            test_asset_definition_id_from_hex("550e8400e29b41d4a7164466554400de");
+        dm::Register::asset_definition(dm::AssetDefinition::numeric(
+            other_def_id.clone(),
+            asset_definition_display_name(&other_def_id),
+            iroha_data_model::asset::AssetBalancePolicy::Global,
+            None,
+        ))
+        .execute(exec_id.account(), &mut stx0)
+        .expect("register the unrelated definition");
+        dm::Mint::asset_quantity(
+            1_000_u32,
+            dm::AssetId::new(other_def_id.clone(), alice_id.clone()),
+        )
+        .execute(exec_id.account(), &mut stx0)
+        .expect("fund an unrelated holder");
         stx0.apply();
         st_block0.commit_world_overlay_for_testing().expect("seed fixture state");
         let resp = handle_v1_explorer_asset_definition_snapshot(
@@ -57554,6 +57637,8 @@ mod subscription_api_tests {
 app_api_items! {
 #[derive(Clone)]
 struct AssetHolderListItem {
+    /// Canonical balance-partition literal: the holder row identity.
+    partition_id: String,
     canonical_id: String,
     asset: String,
     asset_alias: Option<String>,
@@ -57569,6 +57654,7 @@ fn live_asset_holder_item(
     // `AssetId` uniquely keys `(account, definition, scope)`, so one indexed asset entry is
     // already one holder partition; retaining a second aggregation map cannot combine rows.
     AssetHolderListItem {
+        partition_id: asset_id.canonical_literal(),
         canonical_id: asset_id.account().to_string(),
         asset: asset.to_owned(),
         asset_alias: asset_alias.cloned(),
@@ -57703,11 +57789,13 @@ fn object_row_from_value(value: Value) -> Result<norito::json::Map, Error> {
     }
 }
 fn asset_holder_projection_row_to_query_row(
+    partition_id: String,
     asset: &str,
     asset_alias: Option<&str>,
     row: QueryProjectionAssetHolderRow,
 ) -> norito::json::Map {
     let mut map = norito::json::Map::new();
+    map.insert("id".into(), Value::from(partition_id));
     map.insert("account_id".into(), Value::from(row.account_id));
     map.insert("asset".into(), Value::from(asset.to_owned()));
     map.insert(
@@ -57719,11 +57807,13 @@ fn asset_holder_projection_row_to_query_row(
     map
 }
 fn archived_asset_holder_retained_bytes(
+    partition_id: &str,
     asset: &str,
     asset_alias: Option<&str>,
     row: &QueryProjectionAssetHolderRow,
 ) -> usize {
-    let mut retained = retained_json_text_bytes(asset)
+    let mut retained = retained_json_text_bytes(partition_id)
+        .saturating_add(retained_json_text_bytes(asset))
         .saturating_add(retained_json_text_bytes(&row.account_id))
         .saturating_add(retained_json_text_bytes(&row.scope))
         .saturating_add(retained_json_text_bytes(&row.quantity.to_string()));
@@ -57823,10 +57913,12 @@ async fn asset_holder_projection_query_rows(
             if !visibility.allows_asset(&world, &asset_id) {
                 continue;
             }
+            let partition_id = asset_id.canonical_literal();
             let row_weight = core::mem::size_of::<norito::json::Map>()
                 .saturating_mul(2)
                 .saturating_add(
                     archived_asset_holder_retained_bytes(
+                        &partition_id,
                         &asset_definition_id,
                         row_asset_alias,
                         &row,
@@ -57834,6 +57926,7 @@ async fn asset_holder_projection_query_rows(
                     .saturating_mul(2),
                 );
             let projected = asset_holder_projection_row_to_query_row(
+                partition_id,
                 &asset_definition_id,
                 row_asset_alias,
                 row,
@@ -58265,15 +58358,11 @@ pub mod block {
                     break;
                 }
             }
-            let next = u64::try_from(consumer.next_height().get()).unwrap_or(u64::MAX);
-            // A published height whose body is not readable yet is retried
-            // after a short delay instead of re-polling a completed wait.
-            let published = u64::try_from(state.committed_height()).unwrap_or(u64::MAX) >= next;
+            let next = consumer.next_height();
             let wake = async {
-                if published {
-                    tokio::time::sleep(BLOCK_BODY_RETRY_INTERVAL).await;
-                } else {
-                    state.wait_for_committed_height(next).await;
+                match next_block_wake(state.committed_height(), next) {
+                    BlockWake::Publication(height) => state.wait_for_committed_height(height).await,
+                    BlockWake::BodyRetry => tokio::time::sleep(BLOCK_BODY_RETRY_INTERVAL).await,
                 }
             };
             tokio::pin!(wake);
@@ -58294,6 +58383,24 @@ pub mod block {
                     consumer.stream.ping().await.map_err(block::Error::from)?;
                 }
             }
+        }
+    }
+
+    /// What a block stream waits for before it tries its next height again.
+    #[derive(Debug, PartialEq, Eq)]
+    enum BlockWake {
+        /// State has not published the height yet: sleep until it does.
+        Publication(u64),
+        /// State published the height but Kura could not serve its body yet:
+        /// retry shortly instead of re-polling a completed wait.
+        BodyRetry,
+    }
+
+    fn next_block_wake(committed_height: usize, next: std::num::NonZeroUsize) -> BlockWake {
+        if committed_height >= next.get() {
+            BlockWake::BodyRetry
+        } else {
+            BlockWake::Publication(u64::try_from(next.get()).unwrap_or(u64::MAX))
         }
     }
 
@@ -58367,6 +58474,15 @@ pub mod block {
                 self.revalidations += 1;
                 self.authorized
             }
+        }
+
+        #[test]
+        fn block_stream_sleeps_until_publication_and_retries_unreadable_bodies() {
+            let next = std::num::NonZeroUsize::new(5).unwrap();
+            assert_eq!(next_block_wake(4, next), BlockWake::Publication(5));
+            assert_eq!(next_block_wake(0, next), BlockWake::Publication(5));
+            assert_eq!(next_block_wake(5, next), BlockWake::BodyRetry);
+            assert_eq!(next_block_wake(9, next), BlockWake::BodyRetry);
         }
 
         #[test]

@@ -192,7 +192,7 @@ class ArchiveNoritoXcframeworkTests(unittest.TestCase):
         hashes: dict[str, str] = {}
         self.framework.mkdir()
         for identifier, (platform, architectures, variant) in SLICE_METADATA.items():
-            binary = f"native:{identifier}:abi29".encode()
+            binary = f"native:{identifier}:abi30".encode()
             slice_root = self.framework / identifier
             headers = slice_root / "Headers"
             headers.mkdir(parents=True)

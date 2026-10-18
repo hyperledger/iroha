@@ -24,7 +24,7 @@ mod read_only;
 pub(in crate::sumeragi) use read_only::LaneFrameSource;
 
 use super::{
-    incarnation_instance,
+    ProposalReadScope, incarnation_instance,
     merge::{CommittedLaneBlock, LaneBlockSource},
     store::{FileLaneBlockStore, LaneStoreOpen},
 };
@@ -381,6 +381,17 @@ impl LaneStores {
     /// Certified frames remain on disk for independently authenticated replay.
     pub fn release(&self, lane: LaneId, incarnation: &[u8; 32]) {
         self.with_original_refunds(|| {
+            let original = {
+                let stores = self.stores.lock();
+                match stores.get(&(lane, *incarnation)) {
+                    Some(StoreSlot::Ready(store)) => Some(Arc::clone(store)),
+                    _ => None,
+                }
+            };
+            if let Some(store) = original {
+                store.release_cancelled_reads();
+                drop(store);
+            }
             let retired = {
                 let mut stores = self.stores.lock();
                 if let Some(StoreSlot::Ready(store)) = stores.get(&(lane, *incarnation)) {
@@ -409,9 +420,9 @@ impl LaneStores {
         })
     }
 
-    /// Resume each retired Ready owner's exact admitted publication outside the maps.
-    /// A refusal retains the same Arc and prepared work for the next lifecycle check;
-    /// no caller-supplied body, authority replacement, or history deletion is involved.
+    /// Notify each retired Ready owner's pre-admitted original publication job.
+    /// The same original joiner retains I/O/refusal custody; this scan performs no
+    /// native operation and supplies no replacement body, authority or deletion.
     pub(super) fn resume_retired_publications(
         &self,
         lanes: &SumeragiLaneState,
@@ -447,13 +458,10 @@ impl LaneStores {
             self.with_original_refunds(|| {
                 // The exact driver may still be finishing an admitted backend call.
                 // Check only after dropping the registry map, before touching its store.
-                if (physically_retired(&key)
-                    || cfg!(all(test, sumeragi_core_mutation = "HC395")))
-                    && let Err(error) = store.resume_retired_publication()
-                {
-                    iroha_logger::warn!(lane = %key.0, %error, "sumeragi: original retired lane publication remains pending");
+                if physically_retired(&key) {
+                    store.notify_retired_publication();
                 }
-                // Complete this store's original notifications before another store's I/O.
+                // Complete this notification before selecting another original store.
                 // Its final temporary Arc and every refund leave both maps free.
                 drop(store);
             });
@@ -468,6 +476,9 @@ impl LaneStores {
     /// same opening. Completed ready owners release their lock once readers and original
     /// read, batch or publication work are gone; certified disk frames remain available.
     pub(super) fn release_retired(&self, lanes: &SumeragiLaneState) {
+        // A reconciliation tick cleans cancelled slots but preserves its existing applied-
+        // incarnation retirement decision. Explicit request shutdown may release an idle cache.
+        self.clean_cancelled_proposal_reads(false);
         self.with_original_refunds(|| {
             // A destructor can register another original owner. Bound this pass
             // by its starting size and move one removed owner at a time, without
@@ -514,17 +525,62 @@ impl LaneStores {
             }
         })
     }
+    fn clean_cancelled_proposal_reads(&self, release_idle: bool) {
+        // Cancellation can occur with no running lane driver, including global Worker Drop.
+        // Bound work by the original registry size; callbacks may register later owners.
+        self.with_original_refunds(|| {
+            let count = self.stores.lock().len();
+            let mut after = None;
+            for _ in 0..count {
+                let next = {
+                    let stores = self.stores.lock();
+                    let lower = after.map_or(std::ops::Bound::Unbounded, std::ops::Bound::Excluded);
+                    stores
+                        .range((lower, std::ops::Bound::Unbounded))
+                        .find_map(|(key, slot)| match slot {
+                            StoreSlot::Ready(store) => Some((*key, Arc::clone(store))),
+                            StoreSlot::Opening(_, _) => None,
+                        })
+                };
+                let Some((key, store)) = next else {
+                    break;
+                };
+                after = Some(key);
+                store.release_cancelled_reads();
+                let retired = {
+                    let mut stores = self.stores.lock();
+                    let idle_original = release_idle
+                        && matches!(stores.get(&key), Some(StoreSlot::Ready(original))
+                        if Arc::ptr_eq(original, &store) && Arc::strong_count(original) == 2
+                            && !original.retains_pending_work());
+                    if idle_original {
+                        stores.remove(&key)
+                    } else {
+                        None
+                    }
+                };
+                // Two local Arcs can be the complete ownership set only after every live
+                // driver/joiner/historical call has left. Cache removal does not retire disk.
+                drop(retired);
+                drop(store);
+            }
+        });
+    }
 }
 
 impl LaneBlockSource for LaneStores {
     fn tip(&self, lane: LaneId, incarnation: &[u8; 32]) -> Result<Option<u64>, Attempt<io::Error>> {
-        self.store(lane, incarnation).and_then(|store| {
-            if cfg!(all(test, sumeragi_core_mutation = "HC125")) {
-                // Mutation: report a cached durable tip despite an unfinished original read.
-                return Ok(Some(store.height()));
-            }
-            store.authenticated_height().map(Some)
-        })
+        // Proposal discovery is scoped to the applied incarnation, including its
+        // closing/merge-backlog interval. It creates no independent historical reader.
+        let runtime_owner = !cfg!(all(test, sumeragi_core_mutation = "HC428"));
+        self.store_with_runtime_owner(lane, incarnation, runtime_owner)
+            .and_then(|store| {
+                if cfg!(all(test, sumeragi_core_mutation = "HC125")) {
+                    // Mutation: report a cached durable tip despite an unfinished original read.
+                    return Ok(Some(store.height()));
+                }
+                store.authenticated_height().map(Some)
+            })
     }
 
     fn block(
@@ -534,6 +590,22 @@ impl LaneBlockSource for LaneStores {
         height: u64,
     ) -> Result<Option<CommittedLaneBlock>, Attempt<io::Error>> {
         self.store(lane, incarnation)?.committed_batch(height)
+    }
+
+    fn proposal_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        request: &ProposalReadScope,
+    ) -> Result<Option<CommittedLaneBlock>, Attempt<io::Error>> {
+        request.require_pool(&self.budget)?;
+        self.runtime_store(lane, incarnation)?
+            .proposal_batch(height, request)
+    }
+
+    fn release_cancelled_proposal_reads(&self) {
+        self.clean_cancelled_proposal_reads(true);
     }
 
     fn wait_for(
@@ -552,10 +624,10 @@ impl LaneBlockSource for LaneStores {
 mod tests;
 
 #[cfg(test)]
-pub(in crate::sumeragi) use tests::observe_pending_lane_retirement_for_test;
-
-#[cfg(test)]
-pub(in crate::sumeragi) use tests::{RetiredSyncGate, observe_retired_sync_for_test};
+pub(in crate::sumeragi) use tests::{
+    RetiredSyncGate, observe_retired_sync_for_test,
+    observe_retired_sync_with_restart_cleanup_for_test, observe_shutdown_sync_for_test,
+};
 
 #[cfg(test)]
 #[path = "registry/startup_isolation_tests.rs"]

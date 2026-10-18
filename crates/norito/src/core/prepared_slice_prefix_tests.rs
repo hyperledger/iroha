@@ -143,3 +143,31 @@ fn prepared_prefix_keeps_active_field_and_nesting_budgets() {
         1
     );
 }
+
+#[test]
+fn prepared_slice_borrows_the_caller_payload_without_padding_or_copies() {
+    reset_decode_state();
+    // A short or misaligned payload is used in place; the logical length is the
+    // caller's length, and only a nonzero-footprint type rejects an empty input.
+    let storage = [0_u8, 7, 0xff];
+    for bytes in [&storage[1..], &storage[1..2]] {
+        let prepared = prepare::<u64>(bytes);
+        assert_eq!(prepared.bytes().as_ptr(), bytes.as_ptr());
+        assert_eq!(prepared.bytes(), bytes);
+        assert_eq!(prepared.logical_len(), bytes.len());
+        assert_eq!(
+            core::ptr::from_ref(prepared.archived::<u64>()).cast::<u8>(),
+            bytes.as_ptr()
+        );
+    }
+    assert!(matches!(
+        prepare_decode_from_slice(&[], archived_payload_size::<u64>(), 8),
+        Err(Error::LengthMismatch)
+    ));
+    let empty = prepare::<EmptyPrefix>(&storage[3..]);
+    assert!(empty.bytes().is_empty());
+    assert_eq!(
+        core::ptr::from_ref(empty.archived::<EmptyPrefix>()).cast::<u8>(),
+        empty.bytes().as_ptr()
+    );
+}

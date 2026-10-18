@@ -166,7 +166,12 @@ pub trait RetiredPublication: Send + Sync {
     /// # Errors
     /// Preserves original resource refusal, lock contention, namespace or I/O failure.
     /// Failure retains the same unfinished store owner and never advertises completion.
-    fn resume(&self) -> Result<(), Attempt<io::Error>>;
+    fn resume(&self, owner: &super::OriginalPublicationOwner) -> Result<(), Attempt<io::Error>>;
+    /// Bind exactly once on the already-admitted original joining thread, before appends.
+    ///
+    /// # Errors
+    /// A foreign instance/pool, repeated binding or non-original joining thread.
+    fn bind_owner(&self, owner: super::OriginalPublicationOwner) -> io::Result<()>;
 }
 
 /// The committed chain (Kura in the node): one block and its `CommitQC` per height above

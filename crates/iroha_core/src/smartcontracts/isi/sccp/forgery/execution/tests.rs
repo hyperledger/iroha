@@ -52,10 +52,23 @@ fn authentic_parent_records_exact_g6_id_pending_delay_and_same_child_hold() {
     // Registry DATA only tests the event/hold projection; RegisterRoute remains separately gated.
     let route = sample_route(SccpNetworkV1::EthereumMainnet);
     store::routes::insert(&mut stx, route.network, route).unwrap();
+    let event_pool = stx.sccp_evidence_preparation_budget().clone();
+    let before = event_pool.reserved_bytes();
     let prepared = prepare_execution(&evidence, &stx).unwrap();
+    let event_pointer = prepared.events.as_slice().as_ptr();
+    let event_bytes = prepared.events.allocation_bytes();
+    // Keep record custody explicit while measuring the independent event refund;
+    // MV retirement is allowed to retain its published generations until reclamation.
+    let retained_record = prepared.record.clone();
     let id = prepared.evidence_id;
     let original = prepared.record.canonical_projection();
     publish(prepared, &mut stx).unwrap();
+    let EventBox::Data(retained_event) = &stx.world.external_event_buf[0] else {
+        panic!("published original data event");
+    };
+    let retained_event = retained_event.clone();
+    assert!(retained_event.belongs_to(&event_pool));
+    assert_eq!(std::ptr::from_ref(retained_event.as_ref()), event_pointer);
     let retained = stx
         .world
         .consensus_evidence
@@ -105,6 +118,18 @@ fn authentic_parent_records_exact_g6_id_pending_delay_and_same_child_hold() {
     assert_eq!(block.world.sccp_forgery_offences.len(), 3);
     // The component block is intentionally discarded: this does not forge an output seal.
     drop(block);
+    assert!(
+        event_pool.reserved_bytes() > before,
+        "last event reader survives rollback"
+    );
+    assert_eq!(std::ptr::from_ref(retained_event.as_ref()), event_pointer);
+    let before_last_reader = event_pool.reserved_bytes();
+    drop(retained_event);
+    assert_eq!(
+        event_pool.reserved_bytes(),
+        before_last_reader - event_bytes
+    );
+    drop(retained_record);
     let view = chain.state().view();
     assert!(view.world().consensus_evidence().is_empty());
     assert!(view.world().sccp_forgery_offences().is_empty());
@@ -178,13 +203,16 @@ fn unslashable_signer_is_reported_without_inventing_member_or_penalty() {
         header.height().get(),
         &record,
         1 << 2,
+        stx.sccp_evidence_preparation_budget(),
     )
     .unwrap();
     assert!(
-        matches!(&events[0], SccpEvent::ForgeryOffenderUnslashable(e) if e.generation == 1 && e.signer == 2)
+        matches!(&events.as_slice()[0], DataEvent::Sccp(SccpEvent::ForgeryOffenderUnslashable(e)) if e.generation == 1 && e.signer == 2)
     );
-    assert!(matches!(&events[1], SccpEvent::ForgeryEvidenceRecorded(e) if e.offenders.len() == 2));
-    assert_eq!(events.len(), 2);
+    assert!(
+        matches!(&events.as_slice()[1], DataEvent::Sccp(SccpEvent::ForgeryEvidenceRecorded(e)) if e.offenders.len() == 2)
+    );
+    assert_eq!(events.as_slice().len(), 2);
     assert!(stx.world.consensus_evidence.is_empty());
     assert!(stx.world.sccp_forgery_offences.is_empty());
     assert_eq!(store::forgery_max_generation(&*stx.world), None);
@@ -380,20 +408,46 @@ fn permanent_storage_refusal_is_sticky_and_does_not_publish_record_or_events() {
 #[test]
 fn exact_local_refusal_survives_instruction_mapping_and_protocol_error_does_not_poison() {
     let state = blank_state();
-    let mut block = state.block(crate::smartcontracts::isi::sccp::test_support::header(2));
-    let mut stx = block.transaction();
-    let _ = ForgeryExecutionError::EvidenceDuplicate.into_instruction_error(&mut stx);
-    assert!(stx.require_storage_admission().is_ok());
     let pool = AllocationBudget::new(1);
     let held = pool.try_reserve_bytes(1).unwrap();
     let original = pool.try_reserve_bytes(1).unwrap_err();
     assert!(matches!(&original, AllocationRefusal::Capacity { .. }));
-    let error = EvidencePreparationError::Admission(original.clone());
-    let _ = ForgeryExecutionError::Preparation(error.clone()).into_instruction_error(&mut stx);
-    assert_eq!(
-        stx.require_storage_admission(),
-        Err(StateStorageAdmissionError::SccpEvidence(error))
-    );
+    for error in [
+        EvidencePreparationError::Admission(original.clone()),
+        EvidencePreparationError::Allocator {
+            requested_bytes: 73,
+        },
+    ] {
+        let mut block = state.block(crate::smartcontracts::isi::sccp::test_support::header(2));
+        let mut stx = block.transaction();
+        let _ = ForgeryExecutionError::EvidenceDuplicate.into_instruction_error(&mut stx);
+        assert!(stx.require_storage_admission().is_ok());
+        let source = error.clone();
+        let mut projected = None;
+        let allocations = crate::test_allocations::allocations_during(|| {
+            projected =
+                Some(ForgeryExecutionError::Preparation(source).into_instruction_error(&mut stx));
+        });
+        assert_eq!(
+            allocations, 0,
+            "local SCCP refusal cannot allocate a replacement diagnostic"
+        );
+        assert!(matches!(
+            projected,
+            Some(InstructionExecutionError::InvariantViolation(message)) if message.is_empty()
+        ));
+        let expects_release_wait = matches!(&error, EvidencePreparationError::Admission(_));
+        let expected = StateStorageAdmissionError::SccpEvidence(error);
+        let retained = stx.require_storage_admission().unwrap_err();
+        assert_eq!(retained, expected);
+        assert_eq!(
+            retained.release_wait().is_some(),
+            expects_release_wait,
+            "physical allocator refusal must not invent a capacity release wait"
+        );
+        drop(stx);
+        assert_eq!(block.require_storage_admission(), Err(expected));
+    }
     drop(held);
 }
 
@@ -476,6 +530,11 @@ fn genuine_prepared_publication_late_map_refusal_discards_first_offence_and_max(
     let mut block = chain.state().block(header);
     let mut stx = block.transaction_for_callback_testing();
     let mut prepared = prepare_execution(&evidence, &stx).unwrap();
+    let event_pool = stx.sccp_evidence_preparation_budget().clone();
+    let event_bytes = prepared.events.allocation_bytes();
+    let event_pointer = prepared.events.as_slice().as_ptr();
+    let retained_event = prepared.events.iter().next().unwrap();
+    let retained_record = prepared.record.clone();
     let id = prepared.evidence_id;
     let first = prepared.keys.iter_mut().find_map(Option::take).unwrap();
     assert!(store::forgery_offences::insert_new(&mut stx, first, id).unwrap());
@@ -518,4 +577,14 @@ fn genuine_prepared_publication_late_map_refusal_discards_first_offence_and_max(
     assert!(view.world().sccp_forgery_offences().is_empty());
     assert!(view.world().consensus_evidence().is_empty());
     assert_eq!(store::forgery_max_generation(view.world()), None);
+    assert!(retained_event.belongs_to(&event_pool));
+    assert_eq!(std::ptr::from_ref(retained_event.as_ref()), event_pointer);
+    let before_last_reader = event_pool.reserved_bytes();
+    drop(retained_event);
+    assert_eq!(
+        event_pool.reserved_bytes(),
+        before_last_reader - event_bytes,
+        "late publication refusal retains the event graph until its last reader"
+    );
+    drop(retained_record);
 }

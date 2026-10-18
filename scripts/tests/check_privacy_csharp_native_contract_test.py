@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Freeze the fail-closed ABI-29 C# privacy test and workflow contract."""
+"""Freeze the fail-closed ABI-30 C# privacy test and workflow contract."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ class PrivacyCsharpNativeContractTests(unittest.TestCase):
         self.assertIn(
             "Assert.True(\n"
             "            PrivacyNative.IsAvailable(),\n"
-            "            \"ABI-29 connect_norito_bridge with exact-12 fixture "
+            "            \"ABI-30 connect_norito_bridge with exact-12 fixture "
             "symbols is required.\");",
             preflight,
         )
@@ -62,7 +62,7 @@ class PrivacyCsharpNativeContractTests(unittest.TestCase):
         self.assertIn(
             "Assert.True(\n"
             "            PrivacyNative.IsAvailable(),\n"
-            "            \"ABI-29 connect_norito_bridge with compiled-profile "
+            "            \"ABI-30 connect_norito_bridge with compiled-profile "
             "catalog symbols is required.\");",
             catalog_preflight,
         )
@@ -97,7 +97,7 @@ class PrivacyCsharpNativeContractTests(unittest.TestCase):
             "PRIVACY_CSHARP_NATIVE_ARTIFACT",
             "PRIVACY_CSHARP_NATIVE_MANIFEST",
             "scripts/check_native_sdk_artifact.py",
-            '"${PYTHON_BIN}" -I -B "${ABI29_ARTIFACT_CHECKER}" verify',
+            '"${PYTHON_BIN}" -I -B "${ABI30_ARTIFACT_CHECKER}" verify',
             '--artifact "${PRIVACY_CSHARP_NATIVE_ARTIFACT}"',
             '--manifest "${PRIVACY_CSHARP_NATIVE_MANIFEST}"',
             '--source-root "${ROOT_DIR}"',

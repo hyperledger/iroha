@@ -268,7 +268,6 @@ impl CompactShape {
                             .copied()
                             .zip(rows.iter().flatten().copied()),
                         output,
-                        false,
                         backend,
                     );
                 }
@@ -290,7 +289,6 @@ impl CompactShape {
                             .copied()
                             .zip(data.chunks_exact(row_bytes)),
                         output,
-                        false,
                         backend,
                     ),
                 }
@@ -353,7 +351,6 @@ fn encode_parity_rows(
                 .copied()
                 .zip(data.chunks_exact(row_bytes)),
             output,
-            false,
             backend,
         );
     }
@@ -511,6 +508,63 @@ mod tests {
                             .is_err()
                     );
                 }
+            }
+        }
+    }
+    /// Pseudo-random shapes, lengths and per-stripe erasure patterns: every backend encodes the
+    /// reference codeword and reconstructs the payload from any tolerated erasures.
+    #[test]
+    fn random_shapes_lengths_and_erasures_match_reference_on_every_backend() {
+        let mut state = 0xA076_1D64_78BD_642F_u64;
+        let mut next = |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % bound as u64).expect("bounded")
+        };
+        for _ in 0..64 {
+            let (k, m) = (1 + next(8), 1 + next(8));
+            let row = [2, 4, 6, 30, 64, 128, 1000][next(7)];
+            let len = 1 + next(3 * k * row);
+            let payload = pinned_payload(k, m, row, len);
+            let shape = CompactShape::new(len, k, m, row).unwrap();
+            let codeword = reference::compact_encode(&payload, k, m, row);
+            let mut workspace = vec![0x7777; shape.workspace_words()];
+            let n = k + m;
+            let mut lost = vec![false; shape.chunk_count()];
+            for stripe in 0..shape.stripe_count() {
+                for _ in 0..next(m + 1) {
+                    lost[stripe * n + next(n)] = true;
+                }
+            }
+            let received = (0..shape.chunk_count())
+                .map(|index| (!lost[index]).then(|| &codeword[shape.chunk_range(index).unwrap()]))
+                .collect::<Vec<_>>();
+            for backend in host_backends() {
+                let mut encoded = vec![0x33; shape.encoded_bytes()];
+                shape
+                    .encode_with_backend(&payload, &mut encoded, &mut workspace, backend)
+                    .unwrap();
+                assert!(
+                    encoded == codeword,
+                    "{backend:?} {k}+{m} row {row} len {len}"
+                );
+                let mut recovered = vec![0x33; len];
+                let mut regenerated = vec![0x33; shape.encoded_bytes()];
+                shape
+                    .reconstruct_with_backend(
+                        &received,
+                        &mut recovered,
+                        &mut regenerated,
+                        &mut workspace,
+                        |index, row| row == &codeword[shape.chunk_range(index).unwrap()],
+                        backend,
+                    )
+                    .unwrap();
+                assert!(
+                    recovered == payload && regenerated == codeword,
+                    "{backend:?} {k}+{m} row {row} len {len} lost {lost:?}"
+                );
             }
         }
     }

@@ -25,8 +25,8 @@ qualification record. ``check`` additionally revalidates the retained input,
 stage, qualifying CLI/source/target identity, account-signed service status,
 manifest hashes, and all four routed identities without submitting a mutation
 or ping.
-``citizens`` acts for the genesis citizens (invitation responses,
-endorsements and timed-OVN ballots) through their generated client configs.
+``citizens`` acts for the genesis citizens (invitation responses and
+endorsements) through their generated client configs.
 The generated network lives in one marked directory and is replaced on the
 next ``up``.  There is no release authority, promotion state, evidence bundle,
 soak, or rollback workflow.
@@ -2647,9 +2647,8 @@ def generate_network(
 # appends each citizen's account, bond plus fee float and ``RegisterCitizen``
 # to the unsigned genesis; ``kagami genesis sign`` then re-binds and re-signs
 # genesis. This script refuses a network whose profile or citizens cannot seat
-# every body, and acts for the citizens (invitation responses, endorsements and
-# timed-OVN ballots) through ``iroha gov parliament`` with each citizen's own
-# generated client config.
+# every body, and acts for the citizens (invitation responses and endorsements)
+# through ``iroha gov parliament`` with each citizen's own generated client config.
 # TODO(ws42): run the SCCP Parliament driver (`iroha sccp governance drive`)
 # for the devnet.
 # ---------------------------------------------------------------------------
@@ -2688,7 +2687,6 @@ PARLIAMENT_BODIES = (
     "policy-jury",
     "confirmation-jury",
 )
-PARLIAMENT_BALLOT_CHOICES = ("approve", "reject", "abstain")
 # Citizens act only through `iroha gov parliament` (specs/sccp.md §4.14.5 Tooling);
 # each helper proves the compiled CLI exposes the documented command and options
 # before acting, so a build without them fails with one clear error.
@@ -2700,30 +2698,6 @@ PARLIAMENT_CITIZEN_COMMANDS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] 
     "endorse": (
         ("gov", "parliament", "endorse"),
         ("--governance-attempt-id", "--body-instance-id", "--result-root"),
-    ),
-    "ballot-anchor": (("gov", "parliament", "ballot", "anchor"), ("--height",)),
-    "ballot-register": (
-        ("gov", "parliament", "ballot", "register"),
-        (
-            "--ballot-attempt-id",
-            "--key-file",
-            "--state-file",
-            "--trusted-checkpoint-height",
-            "--trusted-checkpoint-context-id",
-        ),
-    ),
-    "ballot-cast": (
-        ("gov", "parliament", "ballot", "cast"),
-        ("--ballot-attempt-id", "--choice", "--key-file", "--state-file", "--record-out"),
-    ),
-    "ballot-relay": (
-        ("gov", "parliament", "ballot", "relay"),
-        ("--ballot-attempt-id", "--record"),
-    ),
-    "ballot-dropout": (("gov", "parliament", "ballot", "dropout"), ("--ballot-attempt-id",)),
-    "ballot-status": (
-        ("gov", "parliament", "ballot", "status"),
-        ("--governance-attempt-id", "--ballot-attempt-id"),
     ),
 }
 _LOWER_HEX32_RE = re.compile(r"[0-9a-f]{64}")
@@ -2750,9 +2724,6 @@ class ParliamentSeatingProfile:
     public_bodies: tuple[tuple[str, int], ...]
     policy_jury_size: int
     confirmation_jury_size: int
-    max_corpus_entries: int
-    registration_phase_blocks: int
-    survivor_freeze_phase_blocks: int
     citizenship_bond: Fraction
     faucet_amount: Fraction | None
     faucet_adaptive: tuple[int, int, int] | None
@@ -2804,9 +2775,6 @@ def parliament_seating_profile(config: dict[str, Any], label: str) -> Parliament
     gov = config.get("gov")
     if not isinstance(gov, dict):
         fail(f"{label} has no [gov] seating profile")
-    timed_ovn = gov.get("parliament_timed_ovn")
-    if not isinstance(timed_ovn, dict):
-        fail(f"{label} has no [gov.parliament_timed_ovn] seating profile")
     escrow = gov.get("citizenship_escrow_account")
     if escrow is not None and (not isinstance(escrow, str) or not escrow):
         fail(f"{label} [gov] citizenship_escrow_account must be an account literal")
@@ -2835,15 +2803,6 @@ def parliament_seating_profile(config: dict[str, Any], label: str) -> Parliament
         policy_jury_size=_seating_integer(gov, "policy_jury_size", f"{label} [gov]"),
         confirmation_jury_size=_seating_integer(
             gov, "confirmation_jury_size", f"{label} [gov]"
-        ),
-        max_corpus_entries=_seating_integer(
-            timed_ovn, "max_corpus_entries", f"{label} [gov.parliament_timed_ovn]"
-        ),
-        registration_phase_blocks=_seating_integer(
-            timed_ovn, "registration_phase_blocks", f"{label} [gov.parliament_timed_ovn]"
-        ),
-        survivor_freeze_phase_blocks=_seating_integer(
-            timed_ovn, "survivor_freeze_phase_blocks", f"{label} [gov.parliament_timed_ovn]"
         ),
         citizenship_bond=_seating_decimal(gov, "citizenship_bond_amount", f"{label} [gov]"),
         faucet_amount=faucet_amount,
@@ -2881,19 +2840,6 @@ def parliament_seating_failures(
         PARLIAMENT_HIDDEN_BALLOT_ANONYMITY
     ):
         failures.append("hidden_ballot_anonymity: juries need at least 3 seats")
-    if profile.max_corpus_entries < max(
-        profile.policy_jury_size, profile.confirmation_jury_size
-    ):
-        failures.append(
-            "corpus_covers_juries: max_corpus_entries is below the largest jury"
-        )
-    if (
-        profile.registration_phase_blocks <= profile.max_corpus_entries
-        or profile.survivor_freeze_phase_blocks < profile.max_corpus_entries
-    ):
-        failures.append(
-            "windows_cover_corpus: a timed-OVN window is shorter than max_corpus_entries"
-        )
     if profile.faucet_amount is not None:
         reach = profile.faucet_amount * PARLIAMENT_BOND_FAUCET_CLAIMS
         if profile.citizenship_bond < reach:
@@ -3134,9 +3080,6 @@ def parliament_citizens(target: Path) -> list[dict[str, Any]]:
                 "index": entry["index"],
                 "account_id": entry["account_id"],
                 "client_config": directory / client,
-                "ballot_key_file": directory / f"{stem}.ballot.key",
-                "ballot_state_file": directory / f"{stem}.ballot-state.json",
-                "ballot_record_stem": directory / stem,
             }
         )
     return citizens
@@ -3294,213 +3237,6 @@ def endorse_public_finding(
         ],
         run,
         target,
-    )
-
-
-def ballot_trust_anchor(
-    target: Path,
-    iroha: Path,
-    citizen: dict[str, Any],
-    run: Runner,
-    request: Request,
-    *,
-    height: int | None = None,
-) -> tuple[int, str]:
-    """Return the finality anchor that initializes a citizen's ballot state file.
-
-    Every devnet peer is operator-owned, so the devnet's own Torii is the independent
-    source the ballot commands ask for; public Taira citizens pin an anchor they
-    compare against a source they trust.
-    """
-
-    if height is None:
-        height = read_height(bundle_torii_roots(target)[0], request)
-    if type(height) is not int or height < 1:
-        fail("ballot trust-anchor height must be a positive block height")
-    subcommands = require_citizen_command(iroha, "ballot-anchor", run)
-    completed = run(
-        [*_citizen_command(iroha, citizen, subcommands), "--height", str(height)],
-        cwd=target,
-        timeout=60,
-    )
-    anchor = _last_json_line(completed)
-    context_id = anchor.get("context_id") if isinstance(anchor, dict) else None
-    if (
-        not isinstance(anchor, dict)
-        or anchor.get("height") != height
-        or not isinstance(context_id, str)
-        or _LOWER_HEX32_RE.fullmatch(context_id) is None
-    ):
-        fail(f"`iroha gov parliament ballot anchor` returned no exact anchor at height {height}")
-    return height, context_id
-
-
-def register_ballot_keys(
-    target: Path,
-    iroha: Path,
-    run: Runner,
-    request: Request,
-    *,
-    ballot_attempt_id: str,
-    anchor_height: int | None = None,
-    indices: Sequence[int] | None = None,
-) -> list[dict[str, Any]]:
-    """Register each selected citizen's timed-OVN ballot keys, generating key files once."""
-
-    _require_lower_hex32(ballot_attempt_id, "ballot attempt id")
-    subcommands = require_citizen_command(iroha, "ballot-register", run)
-    selected = _select_citizens(parliament_citizens(target), indices)
-    fresh = [citizen for citizen in selected if not citizen["ballot_state_file"].exists()]
-    # One anchor initializes every new state file; existing state files keep theirs.
-    anchor = (
-        ballot_trust_anchor(target, iroha, fresh[0], run, request, height=anchor_height)
-        if fresh
-        else None
-    )
-
-    def build(citizen: dict[str, Any]) -> list[str]:
-        command = [
-            *_citizen_command(iroha, citizen, subcommands),
-            "--ballot-attempt-id",
-            ballot_attempt_id,
-            "--key-file",
-            str(citizen["ballot_key_file"]),
-            "--state-file",
-            str(citizen["ballot_state_file"]),
-        ]
-        if anchor is not None and citizen in fresh:
-            command += [
-                "--trusted-checkpoint-height",
-                str(anchor[0]),
-                "--trusted-checkpoint-context-id",
-                anchor[1],
-            ]
-        return command
-
-    return _act_for_citizens(selected, build, run, target)
-
-
-def cast_ballots(
-    target: Path,
-    iroha: Path,
-    run: Runner,
-    *,
-    ballot_attempt_id: str,
-    choice: str,
-    indices: Sequence[int] | None = None,
-) -> dict[str, Any]:
-    """Cast each selected citizen's ballot, then relay the records cast out of order.
-
-    The ballot corpus accepts survivors strictly in frozen order. Each ``cast`` writes
-    its public record before it submits, so records of citizens whose predecessors had
-    not cast yet are relayed together once every selected citizen has cast.
-    """
-
-    _require_lower_hex32(ballot_attempt_id, "ballot attempt id")
-    if choice not in PARLIAMENT_BALLOT_CHOICES:
-        fail(f"ballot choice must be one of {', '.join(PARLIAMENT_BALLOT_CHOICES)}")
-    cast = require_citizen_command(iroha, "ballot-cast", run)
-    relay = require_citizen_command(iroha, "ballot-relay", run)
-    selected = _select_citizens(parliament_citizens(target), indices)
-
-    def record(citizen: dict[str, Any]) -> Path:
-        stem = citizen["ballot_record_stem"]
-        return stem.with_name(f"{stem.name}.ballot-{ballot_attempt_id}.record")
-
-    results = _act_for_citizens(
-        selected,
-        lambda citizen: [
-            *_citizen_command(iroha, citizen, cast),
-            "--ballot-attempt-id",
-            ballot_attempt_id,
-            "--choice",
-            choice,
-            "--key-file",
-            str(citizen["ballot_key_file"]),
-            "--state-file",
-            str(citizen["ballot_state_file"]),
-            "--record-out",
-            str(record(citizen)),
-        ],
-        run,
-        target,
-    )
-    report: dict[str, Any] = {"results": results, "relay": None}
-    records = [record(citizen) for citizen in selected if record(citizen).is_file()]
-    if records and any(not result["ok"] for result in results):
-        # Any funded account may relay public records; prefer one that just submitted.
-        relayer = next(
-            (citizen for citizen, result in zip(selected, results) if result["ok"]),
-            selected[0],
-        )
-        command = [
-            *_citizen_command(iroha, relayer, relay),
-            "--ballot-attempt-id",
-            ballot_attempt_id,
-        ]
-        for path in records:
-            command += ["--record", str(path)]
-        try:
-            run(command, cwd=target, timeout=180)
-        except DevnetError as error:
-            report["relay"] = {"ok": False, "records": len(records), "detail": str(error)[-512:]}
-        else:
-            report["relay"] = {"ok": True, "records": len(records)}
-    return report
-
-
-def drop_out_of_ballot(
-    target: Path,
-    iroha: Path,
-    run: Runner,
-    *,
-    ballot_attempt_id: str,
-    indices: Sequence[int] | None = None,
-) -> list[dict[str, Any]]:
-    """Record each selected citizen's authenticated dropout before the survivor freeze."""
-
-    _require_lower_hex32(ballot_attempt_id, "ballot attempt id")
-    subcommands = require_citizen_command(iroha, "ballot-dropout", run)
-    return _act_for_citizens(
-        _select_citizens(parliament_citizens(target), indices),
-        lambda citizen: [
-            *_citizen_command(iroha, citizen, subcommands),
-            "--ballot-attempt-id",
-            ballot_attempt_id,
-        ],
-        run,
-        target,
-    )
-
-
-def ballot_status(
-    target: Path,
-    iroha: Path,
-    run: Runner,
-    *,
-    governance_attempt_id: str,
-    ballot_attempt_id: str | None = None,
-    indices: Sequence[int] | None = None,
-) -> list[dict[str, Any]]:
-    """Read each selected citizen's part in the active hidden ballots of one attempt."""
-
-    _require_lower_hex32(governance_attempt_id, "governance attempt id")
-    if ballot_attempt_id is not None:
-        _require_lower_hex32(ballot_attempt_id, "ballot attempt id")
-    subcommands = require_citizen_command(iroha, "ballot-status", run)
-
-    def build(citizen: dict[str, Any]) -> list[str]:
-        command = [
-            *_citizen_command(iroha, citizen, subcommands),
-            "--governance-attempt-id",
-            governance_attempt_id,
-        ]
-        if ballot_attempt_id is not None:
-            command += ["--ballot-attempt-id", ballot_attempt_id]
-        return command
-
-    return _act_for_citizens(
-        _select_citizens(parliament_citizens(target), indices), build, run, target
     )
 
 
@@ -9195,7 +8931,6 @@ def citizens(
     args: argparse.Namespace,
     *,
     run: Runner = run_command,
-    request: Request = http_request,
 ) -> dict[str, Any]:
     """Act for the devnet's genesis citizens in one Parliament attempt."""
 
@@ -9227,7 +8962,7 @@ def citizens(
             accept=args.decision == "accept",
             indices=args.citizen,
         )
-    elif args.action == "endorse":
+    else:
         report["results"] = endorse_public_finding(
             target,
             iroha,
@@ -9235,44 +8970,6 @@ def citizens(
             governance_attempt_id=args.governance_attempt_id,
             body_instance_id=args.body_instance_id,
             result_root=args.result_root,
-            indices=args.citizen,
-        )
-    elif args.action == "ballot-register":
-        report["results"] = register_ballot_keys(
-            target,
-            iroha,
-            run,
-            request,
-            ballot_attempt_id=args.ballot_attempt_id,
-            anchor_height=args.anchor_height,
-            indices=args.citizen,
-        )
-    elif args.action == "ballot-cast":
-        report.update(
-            cast_ballots(
-                target,
-                iroha,
-                run,
-                ballot_attempt_id=args.ballot_attempt_id,
-                choice=args.choice,
-                indices=args.citizen,
-            )
-        )
-    elif args.action == "ballot-dropout":
-        report["results"] = drop_out_of_ballot(
-            target,
-            iroha,
-            run,
-            ballot_attempt_id=args.ballot_attempt_id,
-            indices=args.citizen,
-        )
-    else:
-        report["results"] = ballot_status(
-            target,
-            iroha,
-            run,
-            governance_attempt_id=args.governance_attempt_id,
-            ballot_attempt_id=args.ballot_attempt_id,
             indices=args.citizen,
         )
     return report
@@ -9374,21 +9071,6 @@ def parser() -> argparse.ArgumentParser:
     endorse.add_argument("--governance-attempt-id", required=True)
     endorse.add_argument("--body-instance-id", required=True)
     endorse.add_argument("--result-root", required=True)
-    register = citizen_action("ballot-register", "register timed-OVN ballot keys")
-    register.add_argument("--ballot-attempt-id", required=True)
-    register.add_argument(
-        "--anchor-height",
-        type=int,
-        help="trusted finality anchor height for new ballot state files (default: current height)",
-    )
-    cast = citizen_action("ballot-cast", "cast timed-OVN ballots, relaying out-of-order records")
-    cast.add_argument("--ballot-attempt-id", required=True)
-    cast.add_argument("--choice", required=True, choices=PARLIAMENT_BALLOT_CHOICES)
-    dropout = citizen_action("ballot-dropout", "record timed-OVN ballot dropouts")
-    dropout.add_argument("--ballot-attempt-id", required=True)
-    status = citizen_action("ballot-status", "read each citizen's timed-OVN ballot status")
-    status.add_argument("--governance-attempt-id", required=True)
-    status.add_argument("--ballot-attempt-id")
     citizens_parser.set_defaults(handler=citizens)
     return result
 

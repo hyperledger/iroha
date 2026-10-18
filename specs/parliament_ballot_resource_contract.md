@@ -207,5 +207,6 @@ policy value is silently chosen here.
 
 The cryptographic proof, primitive/resource premises, independent assessments,
 owner acknowledgements, exact production envelope accounting and named phone
-qualification remain required. Production schemas, Core integration and
-activation stay gated by the original design.
+qualification remain required. Design section 12.2 authorizes production-schema
+and Core integration engineering alongside qualification; binding production
+activation remains disabled until all qualification requirements hold.

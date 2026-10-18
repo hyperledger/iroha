@@ -27,7 +27,7 @@ use iroha_data_model::{
 use iroha_model_base::topology::LaneId;
 use iroha_sumeragi::types::Hash32;
 
-use super::{LaneBatch, lane_policy, routing::GLOBAL_LANE};
+use super::{LaneBatch, ProposalReadScope, lane_policy, routing::GLOBAL_LANE};
 pub use crate::sumeragi::payload::MergeProposal;
 use crate::{
     state::{
@@ -71,6 +71,23 @@ pub trait LaneBlockSource: Send + Sync {
         incarnation: &[u8; 32],
         height: u64,
     ) -> Result<Option<CommittedLaneBlock>, Attempt<std::io::Error>>;
+    /// Read local proposal work under the exact caller-owned request. A refusal keeps that
+    /// request's original job; actual historical readers use `block` independently.
+    ///
+    /// # Errors
+    /// Storage, authentication, original-pool refusal or another live request owns the slot.
+    fn proposal_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        request: &ProposalReadScope,
+    ) -> Result<Option<CommittedLaneBlock>, Attempt<std::io::Error>>;
+    /// Finish bounded cancellation cleanup after the original proposal owner is dropped.
+    /// Implementations may release only cancelled proposal interest, never historical work.
+    /// This lifecycle hook performs no native I/O and does not wait for a read lock.
+    fn release_cancelled_proposal_reads(&self);
+
     /// Block until the committed tip reaches `height` or `timeout` passes; whether it did.
     ///
     /// # Errors
@@ -104,6 +121,16 @@ impl LaneBlockSource for NoLanes {
     ) -> Result<Option<CommittedLaneBlock>, Attempt<std::io::Error>> {
         Ok(None)
     }
+    fn proposal_block(
+        &self,
+        _: LaneId,
+        _: &[u8; 32],
+        _: u64,
+        _: &ProposalReadScope,
+    ) -> Result<Option<CommittedLaneBlock>, Attempt<std::io::Error>> {
+        Ok(None)
+    }
+    fn release_cancelled_proposal_reads(&self) {}
     fn wait_for(
         &self,
         _lane: LaneId,
@@ -547,6 +574,7 @@ pub fn propose<V: StateReadOnly>(
     view: &V,
     source: &dyn LaneBlockSource,
     height: u64,
+    request: &mut ProposalReadScope,
 ) -> Result<MergeProposal, Attempt<std::io::Error>> {
     let Some(policy) = lane_policy(view.world()).map_err(|reason| {
         if cfg!(all(test, sumeragi_core_mutation = "HC51")) {
@@ -568,6 +596,7 @@ pub fn propose<V: StateReadOnly>(
     if active.is_empty() {
         return Ok(MergeProposal::default());
     }
+    request.admit(&view.execution_budget())?;
     let start = usize::try_from(height % u64::try_from(active.len()).unwrap_or(1)).unwrap_or(0);
     let mut used = 0usize;
     let mut time_floor_ms = 0u64;
@@ -586,7 +615,9 @@ pub fn propose<V: StateReadOnly>(
         );
         let mut end = None;
         for lane_height in from..=last {
-            let Some(block) = source.block(record.lane, &record.incarnation, lane_height)? else {
+            let Some(block) =
+                source.proposal_block(record.lane, &record.incarnation, lane_height, request)?
+            else {
                 break;
             };
             let fresh = block

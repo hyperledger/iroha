@@ -1910,13 +1910,29 @@ impl Quantity {
         other_multiplier: u64,
     ) -> Ordering {
         let common_scale = self.scale().max(other.scale());
-        let lhs = self.mantissa().inner()
-            * UnboundedBigInt::from(self_multiplier)
-            * UnboundedBigInt::from(10_u8).pow(common_scale - self.scale());
-        let rhs = other.mantissa().inner()
-            * UnboundedBigInt::from(other_multiplier)
-            * UnboundedBigInt::from(10_u8).pow(common_scale - other.scale());
-        lhs.cmp(&rhs)
+        // Alignment needs at most 605 bits; multiplying by a u64 needs at most
+        // 669 bits. Eleven inline limbs cover the complete comparison domain,
+        // including products which cannot themselves be canonical quantities.
+        let product = |quantity: &Self, multiplier: u64| {
+            let aligned = aligned_quantity_sum_limbs(quantity, common_scale)
+                .expect("canonical quantity alignment fits ten limbs");
+            let mut result = [0_u64; QUANTITY_SUM_RELATION_LIMBS + 1];
+            let mut carry = 0_u128;
+            for (limb, source) in result.iter_mut().zip(aligned) {
+                let value = u128::from(source) * u128::from(multiplier) + carry;
+                *limb = u64::try_from(value & u128::from(u64::MAX))
+                    .expect("masked product limb fits u64");
+                carry = value >> 64;
+            }
+            // (2^64 - 1)^2 + (2^64 - 1) < 2^128, so the carry is below 2^64.
+            result[QUANTITY_SUM_RELATION_LIMBS] =
+                u64::try_from(carry).expect("final product carry fits one limb");
+            result
+        };
+        product(self, self_multiplier)
+            .iter()
+            .rev()
+            .cmp(product(other, other_multiplier).iter().rev())
     }
     /// Divide a quantity by a decimal factor exactly.
     ///
@@ -1969,7 +1985,7 @@ impl PartialOrd for Quantity {
 }
 impl Ord for Quantity {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.0.cmp(&other.0)
+        self.cmp_mul_u64(1, other, 1)
     }
 }
 impl core::fmt::Display for Quantity {

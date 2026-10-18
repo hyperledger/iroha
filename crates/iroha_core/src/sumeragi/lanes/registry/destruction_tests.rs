@@ -90,10 +90,19 @@ fn final_authority_destruction_control(opening: bool, explicit_release: bool) {
     });
     fixture.publish();
     let original = fs::read(fixture.path()).unwrap();
-    let baseline = fixture.stores.budget.reserved_bytes();
+    // The completed publisher has joined, but its original notification control
+    // remains in this Ready store until final physical owner release.
+    let publication_control = crate::sumeragi::driver::PublicationSession::retained_bytes();
+    let baseline = fixture
+        .stores
+        .budget
+        .reserved_bytes()
+        .checked_sub(publication_control)
+        .unwrap();
     let ceiling = fixture.stores.budget.limit_bytes();
     if opening {
         fixture.stores.release(LANE, &INCARNATION);
+        assert_eq!(fixture.stores.budget.reserved_bytes(), baseline);
         fixture
             .stores
             .budget
@@ -115,6 +124,10 @@ fn final_authority_destruction_control(opening: bool, explicit_release: bool) {
             baseline + original.len()
         );
     } else {
+        assert_eq!(
+            fixture.stores.budget.reserved_bytes(),
+            baseline + publication_control
+        );
         assert!(matches!(
             fixture.stores.stores.lock().get(&(LANE, INCARNATION)),
             Some(StoreSlot::Ready(_))

@@ -7,16 +7,22 @@ fn gossip_batch_returns_routing_metadata() {
     let queue = Queue::test(config_factory(), &time_source);
     let tx = accepted_tx_by_someone(&time_source);
     let hash = tx.hash_as_entrypoint();
+    let expected_payload = ncore::to_bytes(tx.entrypoint()).expect("encode transaction entrypoint");
     queue
         .push(tx, state.view())
         .expect("enqueue accepted transaction");
     let batch = queue.gossip_batch(1, &state.view());
     assert_eq!(batch.len(), 1);
     let entry = &batch[0];
-    assert_eq!(entry.tx.hash_as_entrypoint(), hash);
-    let expected_payload =
-        ncore::to_bytes(entry.tx.entrypoint()).expect("encode transaction entrypoint");
+    assert_eq!(entry.hash, hash);
     assert_eq!(entry.payload.as_slice(), expected_payload.as_slice());
+    assert!(
+        Arc::ptr_eq(
+            &entry.payload,
+            &queue.txs.get(&hash).unwrap().entrypoint_bytes()
+        ),
+        "gossip carries the queue's own canonical frame without copying the transaction"
+    );
     assert_eq!(entry.routing.lane_id, LaneId::SINGLE);
     assert_eq!(entry.routing.dataspace_id, DataSpaceId::UNIVERSAL);
 }
@@ -193,7 +199,7 @@ fn gossip_skips_an_unavailable_ordinary_route_without_blocking_later_input() {
         None,
     );
     assert_eq!(batch.len(), 1);
-    assert_eq!(batch[0].tx.hash_as_entrypoint(), second_hash);
+    assert_eq!(batch[0].hash, second_hash);
     assert!(queue.contains_entrypoint_hash(first_hash));
     assert!(!queue.accepted_work_validation_faulted());
     let retried = queue.gossip_batch_inner(
@@ -203,5 +209,5 @@ fn gossip_skips_an_unavailable_ordinary_route_without_blocking_later_input() {
         None,
     );
     assert_eq!(retried.len(), 1);
-    assert_eq!(retried[0].tx.hash_as_entrypoint(), first_hash);
+    assert_eq!(retried[0].hash, first_hash);
 }

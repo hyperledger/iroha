@@ -152,6 +152,7 @@ fn candidate_registration_accepts_the_second_valid_counter() {
     );
 }
 
+#[cfg(feature = "diagnostics")]
 #[test]
 fn comparator_registration_accepts_the_second_valid_counter() {
     let statement = common::reg_case(Row::Comparator).statement;
@@ -184,6 +185,7 @@ fn candidate_vote_accepts_the_second_valid_counter() {
     );
 }
 
+#[cfg(feature = "diagnostics")]
 #[test]
 fn comparator_vote_accepts_the_second_valid_counter() {
     let statement = common::vote_case(Row::Comparator, 3, 1).statement;

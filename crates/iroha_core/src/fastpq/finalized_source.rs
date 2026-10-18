@@ -117,13 +117,6 @@ impl FinalizedFastpqSource {
         self.witness.pool()
     }
     /// Complete mandatory D7 manifest carried by the authenticated ordinary write.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "TODO: connect durable complete-effect artifact admission before dispatch; retain the authenticated original witness and its admitted archive"
-        )
-    )]
     pub(crate) fn manifest(&self) -> &FastpqOrdinarySourceStatementManifestV1 {
         self.witness.manifest()
     }

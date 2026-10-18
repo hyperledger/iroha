@@ -366,9 +366,17 @@ fn sccp_penalty_rejects_action_tuple_and_identity_substitution_before_movement()
 #[test]
 fn sccp_penalty_later_sink_failure_rolls_back_slash_and_applied_marker() {
     let (state, key, validator) = sccp_penalty_fixture(1);
-    let (actions, _) = PenaltyApplier::new(&state, None)
+    let original_pool = state.stake_index_budget().clone();
+    let before_index = original_pool.reserved_bytes();
+    let (actions, index) = PenaltyApplier::new(&state, None)
         .derive_npos_penalty_actions(&penalty_header(2))
         .unwrap();
+    let held_index = original_pool.reserved_bytes();
+    assert!(held_index > before_index);
+    let original_keys = index.share_keys(LaneId::SINGLE, &validator).as_ptr();
+    let original_exposure =
+        std::ptr::from_ref(index.total_exposure(LaneId::SINGLE, &validator).unwrap());
+    let moved_index = index;
     let (definition, _, _) = penalty_staking_ids();
     let mut block = state
         .consensus_effects_probe_block(penalty_header(2))
@@ -408,11 +416,25 @@ fn sccp_penalty_later_sink_failure_rolls_back_slash_and_applied_marker() {
         block
             .world
             .public_lane_validators
-            .get(&(LaneId::SINGLE, validator))
+            .get(&(LaneId::SINGLE, validator.clone()))
             .unwrap()
             .total_stake,
         Quantity::from(10_000_u64)
     );
+    assert_eq!(original_pool.reserved_bytes(), held_index);
+    assert_eq!(
+        moved_index.share_keys(LaneId::SINGLE, &validator).as_ptr(),
+        original_keys,
+        "late slash rollback retains the original admitted share-key backing"
+    );
+    assert!(std::ptr::eq(
+        moved_index
+            .total_exposure(LaneId::SINGLE, &validator)
+            .unwrap(),
+        original_exposure
+    ));
+    drop(moved_index);
+    assert_eq!(original_pool.reserved_bytes(), before_index);
 }
 
 #[test]

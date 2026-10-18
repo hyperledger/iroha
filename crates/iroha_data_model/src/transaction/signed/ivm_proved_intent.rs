@@ -435,7 +435,7 @@ mod tests {
                 .expect("payload intent")
         );
         let mut tampered = signed.clone();
-        mutate_first_attachment(&mut tampered.payload, |attachment| {
+        mutate_first_attachment(tampered.payload_mut(), |attachment| {
             attachment.proof.bytes = vec![9, 8, 7];
             attachment.envelope_hash = Some(Hash::new(&attachment.proof.bytes).into());
         });

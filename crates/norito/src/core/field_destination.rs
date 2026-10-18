@@ -215,8 +215,8 @@ impl<T> CanonicalField<'_, T> {
     }
     /// Run a prepared type decoder inside the same logical field/depth context.
     ///
-    /// Unlike owned decoding this does not create an alignment copy or call an
-    /// untrusted archived decoder. The supplied operation must consume/check the
+    /// Unlike owned decoding this does not call an untrusted archived decoder;
+    /// both borrow the field in place. The supplied operation must consume/check the
     /// complete field and use its prepared storage. Fixed byte arrays keep the
     /// existing raw-field behavior and do not acquire an extra depth or budget.
     pub fn with_payload<R, E>(

@@ -39,7 +39,6 @@ enum NativeBridgeError: Error, Equatable {
     case detachedTransactionSignature
     case canonicalJSON
     case invalidDetachedTransactionOutput
-    case parliamentTimedOvnWallet
     case unknown(Int32)
 
     static func fromStatus(_ status: Int32) -> NativeBridgeError? {
@@ -81,7 +80,6 @@ enum NativeBridgeError: Error, Equatable {
         case -501: return .detachedTransactionScaffold
         case -502: return .detachedTransactionSignature
         case -503: return .canonicalJSON
-        case -505: return .parliamentTimedOvnWallet
         default: return .unknown(status)
         }
     }

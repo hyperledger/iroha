@@ -476,7 +476,6 @@ mod model {
     /// transaction is signed and before it can be processed any further, the transaction must be
     /// accepted by an `Iroha` peer. The peer verifies the signature and checks the limits.
     #[derive(
-        Debug,
         Clone,
         PartialEq,
         Eq,
@@ -500,6 +499,10 @@ mod model {
         pub(super) payload: TransactionPayload,
         /// Optional bundle of multisig signatures when the authority uses a multisig controller.
         pub(super) multisig_signatures: Option<MultisigSignatures>,
+        /// Memoized canonical identity of [`Self::payload`]; never encoded or compared.
+        #[norito(skip)]
+        #[codec(skip)]
+        pub(super) entrypoint_hash: EntrypointHashMemo,
     }
     /// Structure that represents the initial state of a transaction before the transaction receives any signatures.
     #[derive(Debug, Clone)]
@@ -740,6 +743,7 @@ impl<'a> norito::core::DecodeFromSlice<'a> for model::SignedTransaction {
                 signature,
                 payload,
                 multisig_signatures,
+                entrypoint_hash: EntrypointHashMemo::default(),
             },
             offset,
         ))
@@ -1478,6 +1482,63 @@ impl TransactionPayload {
         }
     }
 }
+/// Memoized canonical identity of one signed payload.
+///
+/// The identity is a pure function of the payload, so a transaction computes
+/// it at most once however many pipeline stages ask for it. The memo carries no
+/// information of its own: it is excluded from the codec, JSON and schema, it
+/// compares equal to every other memo, a clone keeps the computed value (the
+/// payload is cloned too), and every method that replaces payload content
+/// resets it. Code in this module that writes `payload` fields directly must
+/// reset it as well (tests go through `payload_mut`).
+#[derive(Default)]
+struct EntrypointHashMemo(std::sync::OnceLock<HashOf<TransactionEntrypoint>>);
+impl EntrypointHashMemo {
+    fn get_or_try_compute(
+        &self,
+        compute: impl FnOnce() -> Result<HashOf<TransactionEntrypoint>, norito::Error>,
+    ) -> Result<HashOf<TransactionEntrypoint>, norito::Error> {
+        if let Some(hash) = self.0.get() {
+            return Ok(*hash);
+        }
+        let hash = compute()?;
+        Ok(*self.0.get_or_init(|| hash))
+    }
+}
+impl Clone for EntrypointHashMemo {
+    fn clone(&self) -> Self {
+        let memo = Self::default();
+        if let Some(hash) = self.0.get() {
+            let _ = memo.0.set(*hash);
+        }
+        memo
+    }
+}
+impl PartialEq for EntrypointHashMemo {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl Eq for EntrypointHashMemo {}
+impl PartialOrd for EntrypointHashMemo {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for EntrypointHashMemo {
+    fn cmp(&self, _: &Self) -> core::cmp::Ordering {
+        core::cmp::Ordering::Equal
+    }
+}
+impl core::fmt::Debug for SignedTransaction {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SignedTransaction")
+            .field("signature", &self.signature)
+            .field("payload", &self.payload)
+            .field("multisig_signatures", &self.multisig_signatures)
+            .finish()
+    }
+}
 impl SignedTransaction {
     /// Derive the privacy intent from the canonical signed payload.
     ///
@@ -1550,7 +1611,16 @@ impl SignedTransaction {
     #[must_use]
     pub fn with_authority(mut self, authority: AccountId) -> Self {
         self.payload.authority = authority;
+        self.entrypoint_hash = EntrypointHashMemo::default();
         self
+    }
+    /// Mutable payload for tests that tamper with a signed transaction.
+    ///
+    /// Direct field writes would leave the memoized identity stale; this resets it.
+    #[cfg(test)]
+    fn payload_mut(&mut self) -> &mut TransactionPayload {
+        self.entrypoint_hash = EntrypointHashMemo::default();
+        &mut self.payload
     }
     /// Return the required signature-bound transaction lifetime.
     ///
@@ -1663,8 +1733,10 @@ impl SignedTransaction {
     /// # Errors
     /// Returns the original codec failure without producing a partial transaction identity.
     pub fn try_hash_as_entrypoint(&self) -> Result<HashOf<TransactionEntrypoint>, norito::Error> {
-        let entry_hash = HashOf::try_new(&ExternalEntrypointRef(self.payload()))?;
-        Ok(HashOf::from_untyped_unchecked(Hash::from(entry_hash)))
+        self.entrypoint_hash.get_or_try_compute(|| {
+            let entry_hash = HashOf::try_new(&ExternalEntrypointRef(self.payload()))?;
+            Ok(HashOf::from_untyped_unchecked(Hash::from(entry_hash)))
+        })
     }
     /// Injects a set of fictitious instructions into the transaction payload for testing.
     ///
@@ -1698,6 +1770,7 @@ impl SignedTransaction {
                 Self::apply_fault_injection_overlay(&mut self.payload.metadata, additions);
             }
         }
+        self.entrypoint_hash = EntrypointHashMemo::default();
     }
     #[cfg(feature = "fault_injection")]
     pub(crate) fn fault_injection_overlay(metadata: &Metadata) -> Option<Vec<String>> {
@@ -2553,6 +2626,7 @@ impl TransactionBuilder {
             signature: TransactionSignature(SignatureOf::from_signature(signature)),
             payload: self.payload,
             multisig_signatures: self.multisig_signatures,
+            entrypoint_hash: EntrypointHashMemo::default(),
         }
     }
     /// Try to sign transaction with provided key pair.
@@ -2584,6 +2658,7 @@ impl TransactionBuilder {
             signature,
             payload,
             multisig_signatures: self.multisig_signatures,
+            entrypoint_hash: EntrypointHashMemo::default(),
         })
     }
     /// Sign transaction with provided key pair.
@@ -2625,6 +2700,7 @@ impl TransactionBuilder {
             signature: TransactionSignature(primary_signature),
             payload,
             multisig_signatures: Some(bundle),
+            entrypoint_hash: EntrypointHashMemo::default(),
         })
     }
     /// Sign a transaction whose authority uses a multisig controller.

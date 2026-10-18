@@ -15,7 +15,7 @@ TEST_VENV_OVERRIDE="${PRIVACY_PYTHON_SDK_TEST_VENV:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQUIREMENTS_LOCKFILE="${ROOT_DIR}/python/iroha_python/requirements-ci.lock"
 CHECKOUT_NATIVE_DIR="${ROOT_DIR}/python"
-ABI29_CHECKER="${ROOT_DIR}/scripts/check_native_sdk_artifact.py"
+ABI30_CHECKER="${ROOT_DIR}/scripts/check_native_sdk_artifact.py"
 WHEEL_PATH=""
 WHEEL_SEAL=""
 SDK_WHEEL_PATH=""
@@ -1161,17 +1161,17 @@ case "${INSTALLED_NATIVE_PATH}" in
 esac
 assert_privacy_sdk_inputs_unchanged
 
-NATIVE_ABI29_MANIFEST="${PRIVATE_CARGO_WRAPPER_DIR}/python-native-abi29.json"
-"${VENV_DIR}/bin/python" -I -S "${ABI29_CHECKER}" record \
+NATIVE_ABI30_MANIFEST="${PRIVATE_CARGO_WRAPPER_DIR}/python-native-abi30.json"
+"${VENV_DIR}/bin/python" -I -S "${ABI30_CHECKER}" record \
   --artifact "${INSTALLED_NATIVE_PATH}" \
-  --manifest "${NATIVE_ABI29_MANIFEST}" \
+  --manifest "${NATIVE_ABI30_MANIFEST}" \
   --source-root "${ROOT_DIR}" \
   --python "${VENV_DIR}/bin/python" \
   --sdk python \
   --target "${AUTHENTICATED_RUST_HOST_TRIPLE}-py312"
-"${VENV_DIR}/bin/python" -I -S "${ABI29_CHECKER}" verify \
+"${VENV_DIR}/bin/python" -I -S "${ABI30_CHECKER}" verify \
   --artifact "${INSTALLED_NATIVE_PATH}" \
-  --manifest "${NATIVE_ABI29_MANIFEST}" \
+  --manifest "${NATIVE_ABI30_MANIFEST}" \
   --source-root "${ROOT_DIR}" \
   --python "${VENV_DIR}/bin/python"
 assert_privacy_sdk_inputs_unchanged
@@ -1198,9 +1198,9 @@ PYTEST_STATUS=0
   "${ROOT_DIR}/scripts/tests/check_privacy_python_witness_boundary_test.py" || PYTEST_STATUS=$?
 assert_privacy_sdk_inputs_unchanged
 
-"${VENV_DIR}/bin/python" -I -S "${ABI29_CHECKER}" verify \
+"${VENV_DIR}/bin/python" -I -S "${ABI30_CHECKER}" verify \
   --artifact "${INSTALLED_NATIVE_PATH}" \
-  --manifest "${NATIVE_ABI29_MANIFEST}" \
+  --manifest "${NATIVE_ABI30_MANIFEST}" \
   --source-root "${ROOT_DIR}" \
   --python "${VENV_DIR}/bin/python"
 assert_privacy_sdk_inputs_unchanged
@@ -1215,7 +1215,7 @@ if [[ -n "${EVIDENCE_OUTPUT}" ]]; then
     --native "${INSTALLED_NATIVE_PATH}" \
     --native-wheel "${WHEEL_PATH}" --native-wheel-seal "${WHEEL_SEAL}" \
     --sdk-wheel "${SDK_WHEEL_PATH}" --sdk-wheel-seal "${SDK_WHEEL_SEAL}" \
-    --manifest "${NATIVE_ABI29_MANIFEST}" --source-pin "${SOURCE_BEFORE_PIN}" \
+    --manifest "${NATIVE_ABI30_MANIFEST}" --source-pin "${SOURCE_BEFORE_PIN}" \
     --tests "${NATIVE_TEST_XML}" --test-exit "${PYTEST_STATUS}" \
     --cargo-audit "${PRIVATE_CARGO_AUDIT_PATH}"
 fi

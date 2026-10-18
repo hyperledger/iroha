@@ -506,12 +506,14 @@ def test_retired_abi23_manifest_and_schema_are_rejected() -> None:
     }
     MODULE.validate_manifest(manifest)
     for field, retired, expected in (
-        ("bridge_abi_version", 23, "must be exactly 29"),
-        ("bridge_abi_version", 24, "must be exactly 29"),
-        ("bridge_abi_version", 25, "must be exactly 29"),
-        ("bridge_abi_version", 26, "must be exactly 29"),
-        ("bridge_abi_version", 27, "must be exactly 29"),
-        ("bridge_abi_version", 28, "must be exactly 29"),
+        ("bridge_abi_version", 23, "must be exactly 30"),
+        ("bridge_abi_version", 24, "must be exactly 30"),
+        ("bridge_abi_version", 25, "must be exactly 30"),
+        ("bridge_abi_version", 26, "must be exactly 30"),
+        ("bridge_abi_version", 27, "must be exactly 30"),
+        ("bridge_abi_version", 28, "must be exactly 30"),
+        ("bridge_abi_version", 29, "must be exactly 30"),
+        ("schema", "iroha.native-sdk-abi29-artifact.v1", "schema is unsupported"),
         ("schema", "iroha.native-sdk-abi28-artifact.v1", "schema is unsupported"),
         ("schema", "iroha.native-sdk-abi27-artifact.v1", "schema is unsupported"),
         ("schema", "iroha.native-sdk-abi26-artifact.v1", "schema is unsupported"),

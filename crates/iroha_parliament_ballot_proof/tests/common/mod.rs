@@ -110,6 +110,7 @@ impl Vector {
 pub fn row_label(row: Row) -> &'static str {
     match row {
         Row::Candidate => "fast",
+        #[cfg(feature = "diagnostics")]
         Row::Comparator => "comparator",
     }
 }
