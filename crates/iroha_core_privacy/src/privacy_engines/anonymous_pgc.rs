@@ -1346,13 +1346,13 @@ mod tests {
         let mut trailing = bytes;
         trailing.push(0);
         assert!(PgcKeyPossessionProofV1::decode_exact(&trailing).is_err());
-        let mut unknown = proof.clone();
+        let mut unknown = proof;
         unknown.version += 1;
         assert!(matches!(
             PgcKeyPossessionProofV1::decode_exact(&unknown.encode()),
             Err(AnonymousPgcError::UnsupportedProofVersion { .. })
         ));
-        let mut noncanonical = proof.clone();
+        let mut noncanonical = proof;
         noncanonical.response = CanonicalScalarV1::from_unchecked_bytes(
             hex::decode("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551")
                 .expect("order")
@@ -1360,7 +1360,7 @@ mod tests {
                 .expect("32 bytes"),
         );
         assert!(PgcKeyPossessionProofV1::decode_exact(&noncanonical.encode()).is_err());
-        let mut identity_announcement = proof.clone();
+        let mut identity_announcement = proof;
         identity_announcement.announcement = CompressedPointV1::from_unchecked_bytes([0; 33]);
         assert!(PgcKeyPossessionProofV1::decode_exact(&identity_announcement.encode()).is_err());
         let mut mutated_response = proof;
@@ -1587,16 +1587,16 @@ mod tests {
     #[test]
     fn opening_proof_decoder_rejects_versions_points_and_scalars() {
         let (_, _, _, _, proof) = fixture();
-        let mut unknown = proof.clone();
+        let mut unknown = proof;
         unknown.version += 1;
         assert!(matches!(
             PgcCiphertextOpeningProofV1::decode_exact(&unknown.encode()),
             Err(AnonymousPgcError::UnsupportedProofVersion { .. })
         ));
-        let mut malformed_left = proof.clone();
+        let mut malformed_left = proof;
         malformed_left.announcement_left = CompressedPointV1::from_unchecked_bytes([0; 33]);
         assert!(PgcCiphertextOpeningProofV1::decode_exact(&malformed_left.encode()).is_err());
-        let mut malformed_right = proof.clone();
+        let mut malformed_right = proof;
         malformed_right.announcement_right = CompressedPointV1::from_unchecked_bytes([0; 33]);
         assert!(PgcCiphertextOpeningProofV1::decode_exact(&malformed_right.encode()).is_err());
         let order: [u8; 32] =
@@ -1604,7 +1604,7 @@ mod tests {
                 .expect("order")
                 .try_into()
                 .expect("32 bytes");
-        let mut noncanonical_randomness = proof.clone();
+        let mut noncanonical_randomness = proof;
         noncanonical_randomness.randomness_response =
             CanonicalScalarV1::from_unchecked_bytes(order);
         assert!(
@@ -1641,13 +1641,13 @@ mod tests {
         )
         .expect("wrong");
         assert!(verify_ciphertext_opening(&wrong_ciphertext, &proof).is_err());
-        let mut changed = proof.clone();
+        let mut changed = proof;
         changed.announcement_left = proof.announcement_right;
         assert!(verify_ciphertext_opening(&statement, &changed).is_err());
-        let mut changed = proof.clone();
+        let mut changed = proof;
         changed.announcement_right = proof.announcement_left;
         assert!(verify_ciphertext_opening(&statement, &changed).is_err());
-        let mut changed = proof.clone();
+        let mut changed = proof;
         changed.randomness_response = CanonicalScalarV1::from_scalar(
             proof
                 .randomness_response

@@ -294,9 +294,9 @@ fn actor_semantic_sources_map_every_admission_class() {
     let expected = [
         Some(C::Safety),
         Some(C::Lane),
-        Some(C::Bulk),
+        Some(C::Payload),
         None,
-        Some(C::Bulk),
+        Some(C::BlockSync),
         None,
     ];
     for (fixture, expected) in AdmissionFixture::all().into_iter().zip(expected) {
@@ -317,14 +317,14 @@ fn actor_waiters_give_every_class_the_full_per_source_envelope() {
     );
     assert_eq!(
         limits.into_iter().sum::<usize>(),
-        3 * RELIABLE_PROGRESS_WAITERS_PER_SOURCE
+        4 * RELIABLE_PROGRESS_WAITERS_PER_SOURCE
     );
     assert!(
         C::ALL
             .into_iter()
             .all(|class| limits[class.index()] == RELIABLE_PROGRESS_WAITERS_PER_SOURCE)
     );
-    let total = 4 * 3 * RELIABLE_PROGRESS_WAITERS_PER_SOURCE;
+    let total = 4 * 4 * RELIABLE_PROGRESS_WAITERS_PER_SOURCE;
     assert!(
         NetworkActorProgressBudget::new_classed(ActorProgressByteLimits::uniform(1024), 4, total)
             .is_some()

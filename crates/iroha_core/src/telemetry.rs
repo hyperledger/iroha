@@ -5925,10 +5925,7 @@ impl Actor {
         // Domains are registered by users: export a bounded label set, and
         // count each domain from the account-scope index instead of visiting
         // its accounts.
-        for domain in world_view
-            .domains_iter()
-            .take(ACCOUNTS_GAUGE_MAX_DOMAINS)
-        {
+        for domain in world_view.domains_iter().take(ACCOUNTS_GAUGE_MAX_DOMAINS) {
             match self
                 .metrics
                 .accounts

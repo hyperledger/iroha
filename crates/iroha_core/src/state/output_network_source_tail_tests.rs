@@ -26,7 +26,7 @@ fn intrinsic_body_rejection_keeps_only_pipeline_gas_transfer_under_the_original_
             &iroha_config::parameters::defaults::nexus::fees::fee_asset_id(),
         )
         .expect("canonical network XOR fee asset");
-        let mut state = fixture_with_fee_asset(65_536, None, Some(asset.clone()));
+        let state = fixture_with_fee_asset(65_536, None, Some(asset.clone()));
         {
             let mut fees = state.nexus_snapshot().fees;
             fees.base_fee = Quantity::zero();
@@ -302,7 +302,7 @@ fn transfer_mint_transfer_keeps_one_accounted_entry_before_d7_relation_activatio
             &iroha_config::parameters::defaults::nexus::fees::fee_asset_id(),
         )
         .expect("canonical network XOR fee asset");
-        let mut state = fixture_with_fee_asset(65_536, None, Some(asset.clone()));
+        let state = fixture_with_fee_asset(65_536, None, Some(asset.clone()));
         {
             let mut fees = state.nexus_snapshot().fees;
             fees.base_fee = Quantity::zero();

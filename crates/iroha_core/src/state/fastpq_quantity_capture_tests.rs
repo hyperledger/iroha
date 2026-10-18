@@ -31,7 +31,7 @@ fn fixture_with_bob_balance(
     definition: AssetDefinitionId,
     bob_balance: Option<Quantity>,
 ) -> (State, AssetId, AssetId) {
-    let mut state = State::new_for_testing(
+    let state = State::new_for_testing(
         World::default(),
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
@@ -912,7 +912,7 @@ fn sponsored_burn_fixture() -> (
         &iroha_config::parameters::defaults::nexus::fees::fee_asset_id(),
     )
     .unwrap();
-    let (mut state, alice, custody) = fixture_with_asset_definition(fee_asset);
+    let (state, alice, custody) = fixture_with_asset_definition(fee_asset);
     let instruction = InstructionBox::from(Log::new(Level::INFO, "sponsored burn".into()));
     let wire_id = iroha_data_model::isi::instruction_wire_id(&instruction)
         .unwrap()
@@ -1127,7 +1127,7 @@ fn actual_signed_sponsor_debit_captures_exact_custody_balance_and_supply() {
 
 #[test]
 fn sponsor_business_capability_without_original_signed_source_cannot_capture() {
-    let (mut state, custody, program_id, instruction) = sponsored_burn_fixture();
+    let (state, custody, program_id, instruction) = sponsored_burn_fixture();
     {
         let mut fees = state.nexus_snapshot().fees;
         fees.base_fee = Quantity::zero();
@@ -3155,7 +3155,7 @@ fn account_removal_without_balance_does_not_invent_a_zero_burn() {
 /// Original setup precedes the authentic signed genesis, including each lifecycle
 /// and derived index. The source under test is a real signed native instruction.
 fn retirement_fixture() -> (State, DomainId, Vec<AssetId>, AssetDefinitionId, AssetId) {
-    let mut state = State::new_for_testing(
+    let state = State::new_for_testing(
         World::default(),
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),

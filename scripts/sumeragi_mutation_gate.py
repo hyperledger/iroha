@@ -1378,17 +1378,17 @@ CORE_MUTATIONS = [
           ])),
 
     m("HC399", "Root fee policy: permit post-genesis currency or sponsor custody replacement",
-      ["executor::settlement_replay_tests::paid_root_fee_identity_updates_are_rejected_without_replacing_committed_custody"],
+      ["executor::settlement_replay::tests::paid_root_fee_identity_updates_are_rejected_without_replacing_committed_custody"],
       causes=(ExpectedFailure("paid policy update must retain immutable currency and sponsor custody", "crates/iroha_core/src/executor/settlement_replay_tests.rs"),)),
     m("HC398", "Root fee policy: permit duplicate original genesis policy slots",
       ["block::valid::native_genesis_policy_tests::native_h1_rejects_missing_or_duplicate_original_root_fee_slots"],
       causes=(ExpectedFailure("native H1 must refuse missing or duplicate original root fee slots", "crates/iroha_core/src/block/native_genesis_policy.rs"),)),
 
     m("HC397", "Root fee policy: refresh execution charges from same-block parameter writes",
-      ["executor::settlement_replay_tests::committed_fee_update_uses_predecessor_for_entire_block_and_survives_replay"],
+      ["executor::settlement_replay::tests::committed_fee_update_uses_predecessor_for_entire_block_and_survives_replay"],
       causes=(ExpectedFailure("every transaction in the policy-update block must use predecessor fees", "crates/iroha_core/src/executor/settlement_replay_tests.rs"),)),
     m("HC396", "Root fee policy: retain process-local monetary schedule instead of committed projection",
-      ["executor::settlement_replay_tests::committed_global_fee_policy_prevents_local_schedule_rejecting_payment", "executor::settlement_replay_tests::committed_global_fee_policy_prevents_local_schedule_changing_paid_receipt"],
+      ["executor::settlement_replay::tests::committed_global_fee_policy_prevents_local_schedule_rejecting_payment", "executor::settlement_replay::tests::committed_global_fee_policy_prevents_local_schedule_changing_paid_receipt"],
       causes=(ExpectedFailure("a node-local schedule cannot reject the same authorized payment", "crates/iroha_core/src/executor/settlement_replay_tests.rs"), ExpectedFailure("the exact same input must publish the same monetary receipt", "crates/iroha_core/src/executor/settlement_replay_tests.rs"))),
 
     m("HC352", "Geometry claim release: wake original watch callbacks under physical publication owners",
@@ -1412,9 +1412,9 @@ CORE_MUTATIONS = [
           'crates/iroha_core/src/kura/tests/15_remaining_physical_writer_tests.rs') for _ in range(4))),
 
     m("HC358", "Retained FASTPQ artifacts: notify original physical waiters beneath sibling storage fences",
-      ['kura::fastpq_artifact_store::original_release_tests::original_artifact_persist_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_exact_retry_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_quota_refusal_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_content_conflict_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_refusals_retain_exact_errors_and_bytes', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_partial_refusals_retain_exact_storage_errors', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_unwind_notifies_after_each_acquired_prefix'],
+      ['kura::fastpq_artifact_store::original_release_tests::original_artifact_persist_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_exact_retry_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_quota_refusal_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_content_conflict_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_refusals_retain_exact_errors_and_bytes', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_partial_refusals_retain_exact_storage_errors', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_unwind_notifies_after_each_acquired_prefix', 'kura::fastpq_artifact_store::original_release_tests::original_producer_read_success_and_absence_notify_after_storage_fences'],
       causes=tuple(ExpectedFailure('original FASTPQ artifact notice must wait for every storage fence',
-          'crates/iroha_core/src/kura/fastpq_artifact_release_tests.rs') for _ in range(8))),
+          'crates/iroha_core/src/kura/fastpq_artifact_release_tests.rs') for _ in range(9))),
 
     m("HC359", "Queued diagnostics: notify original physical waiters before outer fences and retry queues retire",
       ['kura::original_queued_sidecar_release_tests::original_direct_pipeline_success_notifies_after_outer_prune', 'kura::original_queued_sidecar_release_tests::original_direct_pipeline_io_refusal_retains_exact_bytes', 'kura::original_queued_sidecar_release_tests::original_queued_pipeline_writer_notifies_after_outer_prune', 'kura::original_queued_sidecar_release_tests::original_queued_fastpq_writer_notifies_after_attachment_publication', 'kura::original_queued_sidecar_release_tests::original_queued_fastpq_retry_and_exhaustion_finalize_before_notice', 'kura::original_queued_sidecar_release_tests::original_queued_fastpq_hash_refusal_retains_exact_bytes', 'kura::original_queued_sidecar_release_tests::original_standalone_fastpq_flush_notifies_after_retry_queue_finalizes', 'kura::original_queued_sidecar_release_tests::original_queued_sidecar_unwind_notifies_after_each_acquired_prefix'],
@@ -1557,6 +1557,21 @@ CORE_MUTATIONS = [
     m("HC395", "Lane shutdown: resume original publication while its retiring driver remains owned",
       ["sumeragi::driver::tests::threaded::retirement_tests::pending_publication_waits_for_its_original_retiring_driver"],
       causes=(ExpectedFailure("a still-owned retiring driver must exclude its original pending publication from lifecycle continuation",
+          "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
+
+    m("HC403", "Read-only lane source: retain initial absence as a corrupt committed restore job",
+      ["sumeragi::lanes::store::tests::read_only_missing_frame_preserves_not_found_and_reopens_after_publication"],
+      causes=(ExpectedFailure("read-only absent frame must remain NotFound before any retained restore job",
+          "crates/iroha_core/src/sumeragi/lanes/store/tests.rs"),)),
+
+    m("HC415", "Lane registry retirement: destroy the final original authority beneath the registry map guard",
+      ['sumeragi::lanes::registry::tests::destruction_tests::explicit_ready_retirement_destroys_original_authority_after_registry_unlock', 'sumeragi::lanes::registry::tests::destruction_tests::applied_ready_retirement_destroys_original_authority_after_registry_unlock', 'sumeragi::lanes::registry::tests::destruction_tests::explicit_opening_retirement_destroys_original_authority_after_registry_unlock', 'sumeragi::lanes::registry::tests::destruction_tests::applied_opening_retirement_destroys_original_authority_after_registry_unlock'],
+      causes=tuple(ExpectedFailure("final original lane authority destructor must run after registry unlock",
+          'crates/iroha_core/src/sumeragi/lanes/registry/destruction_tests.rs') for _ in range(4))),
+
+    m("HC414", "Retired lane publication: omit its original joiner continuation capability",
+      ["sumeragi::driver::tests::threaded::retirement_tests::retired_directory_sync_does_not_block_other_lane_transaction_delivery"],
+      causes=(ExpectedFailure("original retired SyncDir must not block another lane's actual transaction wake and commit",
           "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
 
     m("HC365", "Retail idle maintenance: omit original native receipt-purpose admission",

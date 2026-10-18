@@ -100,6 +100,9 @@ pub struct LaneStores {
     budget: AllocationBudget,
     authorities: Arc<dyn LaneStoreAuthorities>,
     stores: Mutex<BTreeMap<(LaneId, [u8; 32]), StoreSlot>>,
+    // Native I/O observation only; genuine authority and recovery validation remain unchanged.
+    #[cfg(test)]
+    opening_faults: Option<(Hash32, Arc<dyn crate::sumeragi::records::Faults>)>,
 }
 
 impl core::fmt::Debug for LaneStores {
@@ -134,6 +137,8 @@ impl LaneStores {
             budget,
             authorities,
             stores: Mutex::new(BTreeMap::new()),
+            #[cfg(test)]
+            opening_faults: None,
         }
     }
 
@@ -332,6 +337,20 @@ impl LaneStores {
         opening: &StoreOpening,
         original: &mut Option<LaneStoreOpen>,
     ) -> Result<Arc<FileLaneBlockStore>, Attempt<io::Error>> {
+        #[cfg(test)]
+        if original.is_none()
+            && let Some((instance, faults)) = &self.opening_faults
+            && *instance == opening.instance
+        {
+            *original = Some(FileLaneBlockStore::begin_open_with_faults(
+                &self.root,
+                &opening.instance,
+                Arc::clone(&self.crypto),
+                self.budget.clone(),
+                Arc::clone(&opening.schedule),
+                Arc::clone(faults),
+            )?);
+        }
         if original.is_none() {
             *original = Some(FileLaneBlockStore::begin_open(
                 &self.root,
@@ -362,22 +381,31 @@ impl LaneStores {
     /// Certified frames remain on disk for independently authenticated replay.
     pub fn release(&self, lane: LaneId, incarnation: &[u8; 32]) {
         self.with_original_refunds(|| {
-            let mut stores = self.stores.lock();
-            if let Some(StoreSlot::Ready(store)) = stores.get(&(lane, *incarnation)) {
-                // The registry lock excludes another registry acquisition. Returned reader Arcs
-                // pin the owner before either store mutex is acquired; pending work also pins it.
-                if Arc::strong_count(store) > 1 || store.retains_pending_work() {
+            let retired = {
+                let mut stores = self.stores.lock();
+                if let Some(StoreSlot::Ready(store)) = stores.get(&(lane, *incarnation)) {
+                    // Reader Arcs and original pending work retain this exact owner.
+                    if Arc::strong_count(store) > 1 || store.retains_pending_work() {
+                        return;
+                    }
+                }
+                if matches!(
+                    stores.get(&(lane, *incarnation)),
+                    Some(StoreSlot::Opening(opening, historical))
+                        if *historical || Arc::strong_count(opening) > 1
+                ) {
                     return;
                 }
-            }
-            if matches!(
-                stores.get(&(lane, *incarnation)),
-                Some(StoreSlot::Opening(opening, historical))
-                    if *historical || Arc::strong_count(opening) > 1
-            ) {
-                return;
-            }
-            stores.remove(&(lane, *incarnation));
+                stores.remove(&(lane, *incarnation))
+            };
+            // Refund deferral cannot postpone arbitrary final authority/backend
+            // destructors. Drop the original owner only after releasing the map.
+            #[cfg(all(
+                test,
+                any(sumeragi_core_mutation = "HC348", sumeragi_core_mutation = "HC415")
+            ))]
+            let _original_map = self.stores.lock();
+            drop(retired);
         })
     }
 
@@ -441,24 +469,49 @@ impl LaneStores {
     /// read, batch or publication work are gone; certified disk frames remain available.
     pub(super) fn release_retired(&self, lanes: &SumeragiLaneState) {
         self.with_original_refunds(|| {
-            self.stores.lock().retain(|(lane, incarnation), slot| {
-                if lanes
-                    .lane(*lane)
-                    .is_some_and(|record| record.incarnation == *incarnation)
-                {
-                    return true;
-                }
-                match slot {
-                    StoreSlot::Opening(opening, historical) => {
-                        *historical || Arc::strong_count(opening) > 1
-                    }
-                    StoreSlot::Ready(store) => {
-                        Arc::strong_count(store) > 1
-                            || store.retains_pending_work()
-                            || cfg!(all(test, sumeragi_core_mutation = "HC122"))
-                    }
-                }
-            });
+            // A destructor can register another original owner. Bound this pass
+            // by its starting size and move one removed owner at a time, without
+            // a separately allocated retirement list or callbacks under the map.
+            let owner_count = self.stores.lock().len();
+            let mut after = None;
+            for _ in 0..owner_count {
+                let next = {
+                    let mut stores = self.stores.lock();
+                    let lower = after.map_or(std::ops::Bound::Unbounded, std::ops::Bound::Excluded);
+                    let key = stores
+                        .range((lower, std::ops::Bound::Unbounded))
+                        .next()
+                        .map(|(key, _)| *key);
+                    key.map(|key| {
+                        let keep = lanes
+                            .lane(key.0)
+                            .is_some_and(|record| record.incarnation == key.1)
+                            || match stores
+                                .get(&key)
+                                .expect("original entry under the same map guard")
+                            {
+                                StoreSlot::Opening(opening, historical) => {
+                                    *historical || Arc::strong_count(opening) > 1
+                                }
+                                StoreSlot::Ready(store) => {
+                                    Arc::strong_count(store) > 1
+                                        || store.retains_pending_work()
+                                        || cfg!(all(test, sumeragi_core_mutation = "HC122"))
+                                }
+                            };
+                        let retired = if keep { None } else { stores.remove(&key) };
+                        (key, retired)
+                    })
+                };
+                let Some((key, retired)) = next else { break };
+                after = Some(key);
+                #[cfg(all(
+                    test,
+                    any(sumeragi_core_mutation = "HC348", sumeragi_core_mutation = "HC415")
+                ))]
+                let _original_map = self.stores.lock();
+                drop(retired);
+            }
         })
     }
 }
@@ -503,3 +556,12 @@ pub(in crate::sumeragi) use tests::observe_pending_lane_retirement_for_test;
 
 #[cfg(test)]
 pub(in crate::sumeragi) use tests::{RetiredSyncGate, observe_retired_sync_for_test};
+
+#[cfg(test)]
+#[path = "registry/startup_isolation_tests.rs"]
+mod startup_isolation_tests;
+
+#[cfg(test)]
+pub(in crate::sumeragi) use startup_isolation_tests::{
+    StartupSyncGate, observe_startup_sync_for_test,
+};

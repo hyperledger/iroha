@@ -47,7 +47,9 @@ pub enum NativePaymentObservationError {
     /// The local session retired history required to authenticate this original payment.
     /// Recover with the same request/storage and an independently pinned cold verifier;
     /// this is neither ledger absence nor rejection and authorizes no replacement carrier.
-    #[error("native payment history at {requested_height} was retired; oldest verifiable height is {oldest_verifiable_height}")]
+    #[error(
+        "native payment history at {requested_height} was retired; oldest verifiable height is {oldest_verifiable_height}"
+    )]
     HistoryUnavailable {
         /// Original payment's required certified height.
         requested_height: u64,

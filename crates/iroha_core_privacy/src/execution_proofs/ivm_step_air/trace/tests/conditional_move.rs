@@ -256,7 +256,7 @@ fn conditional_moves_keep_public_tags_and_reject_private_condition_source_and_re
             let mut recorder = DiagnosticStepRecorder::try_new(128, &budget).unwrap();
             let _outcome =
                 vm.run_with_host_diagnostic_steps(&mut DefaultHost::default(), &mut recorder);
-            let record = recorder.records()[0].clone();
+            let record = recorder.records()[0];
             assert_eq!(record.outcome, DiagnosticStepOutcome::Completed);
             assert!(
                 record

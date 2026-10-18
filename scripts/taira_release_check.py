@@ -2211,6 +2211,7 @@ CORE_NATIVE_CONNECTION_STAGES = (
         'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_refusals_retain_exact_errors_and_bytes',
         'kura::fastpq_artifact_store::original_release_tests::original_artifact_partial_refusals_retain_exact_storage_errors',
         'kura::fastpq_artifact_store::original_release_tests::original_artifact_unwind_notifies_after_each_acquired_prefix',
+        'kura::fastpq_artifact_store::original_release_tests::original_producer_read_success_and_absence_notify_after_storage_fences',
         'kura::original_queued_sidecar_release_tests::original_direct_pipeline_success_notifies_after_outer_prune',
         'kura::original_queued_sidecar_release_tests::original_direct_pipeline_io_refusal_retains_exact_bytes',
         'kura::original_queued_sidecar_release_tests::original_queued_pipeline_writer_notifies_after_outer_prune',

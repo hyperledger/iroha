@@ -433,14 +433,31 @@ job, including failed store openings that never started a driver. Their original
 buffers and exclusive locks are released; outstanding authenticated readers keep their
 ready-store ownership until finished. Historical openings after retirement keep their own
 recovery progress across subsequent lifecycle checks. This owner cleanup does not delete
-certified frames. A retired driver's already-admitted pending publication stays with its
-original store and is retried by lifecycle reconciliation before idle owner release. The
-retry accepts no new body or certificate, retains the original owner on refusal, and runs
-outside registry/running maps with a nonblocking state-mutex probe. Materialized frames do
-not advance the durable tip before their original synchronization succeeds. Native I/O may
-still delay the lifecycle reconciler, its transaction wakeups, later starts and shutdown;
-it does not hold another instance's map lock. Each pass attempts at most the initial
-registry owner count; new historical owners may continue on the next lifecycle check.
+certified frames. A retired running driver's already-admitted publication stays with its
+exact store and original allocation pool. Before any worker starts, that pool admits one fixed
+completion control and one release registration for the driver's original joiner. After
+physically joining the original workers, the same joiner continues the pending write;
+no new worker, replacement body, certificate or authority is admitted. The move-only
+refusal stays on that thread: actual capacity release enables its retry, and source-less
+failures use the configured local backoff. The lifecycle retains the original driver,
+excludes it from delivery/status, and prevents a new incarnation of the same lane from
+starting until both joins and publication complete. A failed handoff or joiner unwind
+retains the original store and does not advertise successful retirement.
+
+Every continuation keeps the original nonblocking state-mutex probe and runs outside
+registry/running maps. Materialized frames do not advance the durable tip before their
+original synchronization succeeds. Final shutdown cancels further retries and joins
+original work, including any native syscall already in progress. It does not clear an
+unfinished store write or claim it durable: the registry retains that original pending
+owner. Process exit does not make unflushed in-memory work recoverable; startup continues
+to authenticate only available durable artifacts through the existing recovery path.
+
+Historical/orphan Ready stores without an admitted driver still use synchronous registry
+continuation. Their I/O, historical opening and lane startup may delay lifecycle wakeups,
+starts or final shutdown; asynchronous ownership of those paths remains open. Each registry
+pass attempts at most its initial owner count, and new historical owners continue on a
+subsequent lifecycle check. No additional history-deletion authority follows from runtime
+owner retirement.
 
 The registry map only selects or publishes a per-key owner. Directory establishment,
 prefix authentication, RS16 restoration and native synchronization run outside that shared

@@ -35,8 +35,8 @@ use iroha_data_model::{
         ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1, AtomicPrivateSettlementV1,
         PRIVATE_SETTLEMENT_INPUT_SLOTS_V1, PRIVATE_SETTLEMENT_OUTPUT_SLOTS_V1,
         PrivateSettlementAuditApprovalV1, PrivateSettlementAuditPolicyV1, PrivateSettlementDeltaV1,
-        PrivateSettlementLegPayloadV1, PrivateSettlementPoolGovernanceLifecycleV1,
-        PrivateSettlementRouteV1, validate_private_settlement_audit_approvals_v1,
+        PrivateSettlementLegPayloadV1, PrivateSettlementRouteV1,
+        validate_private_settlement_audit_approvals_v1,
     },
     privacy::{
         PRIVACY_IVM_PRIVATE_ENCRYPTED_OUTPUT_BYTES_V1, PrivacyCommitmentV1,
@@ -45,7 +45,6 @@ use iroha_data_model::{
     },
 };
 use norito::codec::{Decode, Encode};
-use norito::derive::{JsonDeserialize, JsonSerialize};
 use std::{collections::BTreeSet, convert::TryFrom as _};
 use thiserror::Error;
 
@@ -91,18 +90,6 @@ fn settlement_namespace_v1(
             program_id,
         }),
     ))
-}
-
-/// Native state validation/mutation for the single Model-owned canonical record.
-pub(crate) trait PrivateSettlementPoolGovernanceRevisionExtV1: Sized {
-    fn validate_fields(&self) -> Result<(), PrivateSettlementStateErrorV1>;
-}
-
-impl PrivateSettlementPoolGovernanceRevisionExtV1 for PrivateSettlementPoolGovernanceRevisionV1 {
-    fn validate_fields(&self) -> Result<(), PrivateSettlementStateErrorV1> {
-        self.validate_public_fields()
-            .map_err(|_| PrivateSettlementStateErrorV1::PoolGovernance)
-    }
 }
 
 /// Native state validation/mutation for the single Model-owned canonical record.

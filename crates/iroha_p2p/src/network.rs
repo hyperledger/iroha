@@ -597,7 +597,7 @@ impl<T: Encode> RelayMessage<T> {
         frame.try_sign_in_place(key_pair)?;
         Ok(frame)
     }
-    #[cfg(any(test, feature = "test-fixtures"))]
+    #[cfg(test)]
     pub(crate) fn new_signed(key_pair: &KeyPair, target: RelayTarget, ttl: u8, payload: T) -> Self {
         Self::try_new(key_pair, target, ttl, payload)
             .expect("a validated local P2P key pair must sign relay-origin material")
@@ -3726,7 +3726,8 @@ impl NetworkActorAdmittedTicketIdentity {
         projection.push(match self.source.class {
             ActorProgressClass::Safety => 1,
             ActorProgressClass::Lane => 2,
-            ActorProgressClass::Bulk => 3,
+            ActorProgressClass::Payload => 3,
+            ActorProgressClass::BlockSync => 4,
         });
         Hash::new_from_chunks(&[DOMAIN, projection.as_slice()])
     }
@@ -6781,7 +6782,7 @@ struct TransportQueueGeometry {
     safety_reserve_bytes: usize,
     /// Per-authenticated-peer reserve used by every reliable high/progress frame.
     progress_reserve_bytes: usize,
-    /// Exact per-source actor limits for safety, lane, and bulk progress.
+    /// Exact per-source actor limits for safety, lane, payload, and block-sync progress.
     actor_progress_bytes: ActorProgressByteLimits,
 }
 /// Deferred ownership limits measured before transport tasks are spawned.
@@ -6863,11 +6864,14 @@ fn validate_transport_queue_geometry<E: Enc>(
         crate::frame_queue_charge_for::<E>(topic_caps.control).ok_or(Error::FrameTooLarge)?;
     let lane_reserve_bytes = safety_reserve_bytes
         .max(crate::frame_queue_charge_for::<E>(topic_caps.consensus).ok_or(Error::FrameTooLarge)?);
-    let bulk_reserve_bytes =
+    let payload_reserve_bytes =
+        crate::frame_queue_charge_for::<E>(topic_caps.block_sync).ok_or(Error::FrameTooLarge)?;
+    let block_sync_reserve_bytes =
         crate::frame_queue_charge_for::<E>(topic_caps.block_sync).ok_or(Error::FrameTooLarge)?;
     let progress_reserve_bytes = safety_reserve_bytes
         .max(lane_reserve_bytes)
-        .max(bulk_reserve_bytes);
+        .max(payload_reserve_bytes)
+        .max(block_sync_reserve_bytes);
     let deferred_minimum = safety_reserve_bytes
         .checked_add(max_topic_charge)
         .ok_or_else(|| {
@@ -6903,7 +6907,8 @@ fn validate_transport_queue_geometry<E: Enc>(
         actor_progress_bytes: ActorProgressByteLimits {
             safety: safety_reserve_bytes,
             lane: lane_reserve_bytes,
-            bulk: bulk_reserve_bytes,
+            payload: payload_reserve_bytes,
+            block_sync: block_sync_reserve_bytes,
         },
     })
 }
@@ -8245,11 +8250,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             && reply_flush_ack.is_none()
             && reply_writer_timeout_attempt.is_none()
         {
-            match self.network_actor_progress_budget.try_reserve_unqueued(
-                wire_bytes,
-                &source,
-                &authority,
-            ) {
+            match self
+                .network_actor_progress_budget
+                .try_reserve_unqueued(wire_bytes, &source, &authority)
+            {
                 UnqueuedReservation::CancelledMembership => return Ok(None),
                 UnqueuedReservation::Ready(lease) => {
                     let admitted = AdmittedNetworkMessage::new_targeted_post(
@@ -9757,7 +9761,8 @@ mod accept_stream_tests {
                 actor_progress_bytes: ActorProgressByteLimits {
                     safety,
                     lane,
-                    bulk: max_ordinary,
+                    payload: max_ordinary,
+                    block_sync: max_ordinary,
                 },
             }
         );

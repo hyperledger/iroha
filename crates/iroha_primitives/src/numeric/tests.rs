@@ -2293,13 +2293,21 @@ fn small_add_and_subtract_match_the_unbounded_path_and_its_observed_work() {
                     let mut calls = 0_usize;
                     let actual = observed_combine(lhs, rhs, subtract, &mut |_| {
                         calls += 1;
-                        if calls > refuse_at { Err(refuse_at) } else { Ok(()) }
+                        if calls > refuse_at {
+                            Err(refuse_at)
+                        } else {
+                            Ok(())
+                        }
                     });
                     let actual_calls = calls;
                     calls = 0;
                     let expected = unbounded_combine_observed(lhs, rhs, subtract, &mut |_| {
                         calls += 1;
-                        if calls > refuse_at { Err(refuse_at) } else { Ok(()) }
+                        if calls > refuse_at {
+                            Err(refuse_at)
+                        } else {
+                            Ok(())
+                        }
                     });
                     assert_eq!((actual, actual_calls), (expected, calls), "{context}");
                 }
@@ -2313,8 +2321,9 @@ fn small_comparison_matches_unbounded_alignment() {
     for lhs in &operands {
         for rhs in &operands {
             let target_scale = lhs.scale.max(rhs.scale);
-            let expected = scale_unbounded(lhs.mantissa.inner(), target_scale - lhs.scale)
-                .cmp(&scale_unbounded(rhs.mantissa.inner(), target_scale - rhs.scale));
+            let expected = scale_unbounded(lhs.mantissa.inner(), target_scale - lhs.scale).cmp(
+                &scale_unbounded(rhs.mantissa.inner(), target_scale - rhs.scale),
+            );
             assert_eq!(lhs.cmp(rhs), expected, "{lhs:?} vs {rhs:?}");
         }
     }
@@ -2329,8 +2338,14 @@ fn small_combination_engages_only_when_every_intermediate_fits_i128() {
     );
     let maximum = Numeric::new(i128::MAX, 0);
     assert!(
-        small_decimal_combine_observed(&maximum, &Numeric::one(), 0, SmallCombine::Add, &mut ignore)
-            .is_none(),
+        small_decimal_combine_observed(
+            &maximum,
+            &Numeric::one(),
+            0,
+            SmallCombine::Add,
+            &mut ignore
+        )
+        .is_none(),
         "an overflowing sum must use the unbounded path"
     );
     let unaligned = Numeric::new(i128::MAX / 10 + 1, 0);
@@ -2348,7 +2363,13 @@ fn small_combination_engages_only_when_every_intermediate_fits_i128() {
     );
     let wide = Numeric::new(signed_maximum(), 0);
     assert!(
-        small_decimal_combine_observed(&wide, &Numeric::one(), 0, SmallCombine::Subtract, &mut ignore)
-            .is_none()
+        small_decimal_combine_observed(
+            &wide,
+            &Numeric::one(),
+            0,
+            SmallCombine::Subtract,
+            &mut ignore
+        )
+        .is_none()
     );
 }

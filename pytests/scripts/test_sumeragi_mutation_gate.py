@@ -8979,7 +8979,7 @@ def test_durable_publication_notifications_outlive_outer_storage_writers():
 
 
 def test_fastpq_artifact_notifications_outlive_all_original_storage_fences():
-    names = ['kura::fastpq_artifact_store::original_release_tests::original_artifact_persist_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_exact_retry_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_quota_refusal_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_content_conflict_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_refusals_retain_exact_errors_and_bytes', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_partial_refusals_retain_exact_storage_errors', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_unwind_notifies_after_each_acquired_prefix']
+    names = ['kura::fastpq_artifact_store::original_release_tests::original_artifact_persist_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_exact_retry_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_quota_refusal_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_content_conflict_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_refusals_retain_exact_errors_and_bytes', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_partial_refusals_retain_exact_storage_errors', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_unwind_notifies_after_each_acquired_prefix', 'kura::fastpq_artifact_store::original_release_tests::original_producer_read_success_and_absence_notify_after_storage_fences']
     rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC358"]
     assert rule.tests == tuple(names)
     assert rule.causes == tuple(gate.ExpectedFailure(
@@ -8993,14 +8993,26 @@ def test_fastpq_artifact_notifications_outlive_all_original_storage_fences():
               if re.search(r'sumeragi_core_mutation\s*=\s*"HC358"', path.read_text())}
     assert owners == {"kura/fastpq_artifact_store.rs"}
     source = (ROOT / 'crates/iroha_core/src/kura/fastpq_artifact_store.rs').read_text()
-    persisted = source[source.index("pub fn persist_fastpq_artifact("):source.index("pub fn read_fastpq_artifact(")]
-    recovered = source[source.index("pub fn read_fastpq_artifact("):source.index("fn validate_fastpq_artifact_limits(")]
-    for implementation in (persisted, recovered):
+    persisted = named_rust_function(source, "persist_fastpq_object")
+    recovered = named_rust_function(source, "read_fastpq_artifact")
+    producer_read = named_rust_function(source, "read_fastpq_producer_record")
+    for wrapper in ("persist_fastpq_artifact", "persist_fastpq_producer_record", "persist_fastpq_source_record"):
+        assert "self.persist_fastpq_object(" in named_rust_function(source, wrapper)
+    for implementation in (persisted, recovered, producer_read):
         first_guard = implementation.index("let _prune_guard =")
-        for field, batch in (("prune_lock", "prune_releases"), ("canonical_chain_lock", "canonical_releases"),
-                             ("sidecar_lock", "sidecar_releases")):
+        for field, batch, guard in (("prune_lock", "prune_releases", "_prune_guard"),
+                                    ("canonical_chain_lock", "canonical_releases", "_canonical_guard"),
+                                    ("sidecar_lock", "sidecar_releases", "_sidecar_guard")):
             assert implementation.index("self." + field + ".defer_notifications()") < first_guard
             assert batch + ".lock()" in implementation
+            assert re.search(
+                re.escape('#[cfg(not(all(test, sumeragi_core_mutation = "HC358")))]')
+                + r"\s*" + re.escape(f"let {guard} = {batch}.lock();"), implementation
+            )
+            assert re.search(
+                re.escape('#[cfg(all(test, sumeragi_core_mutation = "HC358"))]')
+                + r"\s*" + re.escape(f"let {guard} = self.{field}.lock();"), implementation
+            )
         assert "ensure_prune_recovery_not_required()?" in implementation
         assert "durable_mutation_authorized()?" in implementation
     assert persisted.index("self.lane_geometry_lock.defer_notifications()") < persisted.index("let _prune_guard =")
@@ -9015,6 +9027,37 @@ def test_fastpq_artifact_notifications_outlive_all_original_storage_fences():
                        "Error::FastpqArtifactQuota", "FASTPQ content address contains different bytes",
                        "FASTPQ artifact reference is absent", "FASTPQ artifact content or exact length differs from reference"):
         assert obligation in controls
+    quota = named_rust_function(controls, "original_artifact_quota_refusal_notifies_after_storage_fences")
+    compact_quota = re.sub(r"\s+", "", quota)
+    assert "letkura=fixture(1);" in compact_quota
+    assert 'kura.persist_fastpq_artifact(b"retained").unwrap()' in compact_quota
+    assert 'observe_original_release(&kura,3,||kura.persist_fastpq_artifact(b"additional"))' in compact_quota
+    assert (
+        "assert!(matches!(result,Err(Error::FastpqArtifactQuota{"
+        "stable_count:1,retained_bytes:8,incoming_bytes:10,maximum_records:1,maximum_bytes:256,})));"
+    ) in compact_quota
+    assert "assert_eq!(inventory(&kura),before);" in compact_quota
+    assert (
+        "returnErr(Error::FastpqArtifactQuota{stable_count:inventory.stable_count,"
+        "retained_bytes:inventory.total_bytes,incoming_bytes:reference.byte_len,"
+        "maximum_records:limits.max_artifacts.get(),maximum_bytes:limits.max_total_bytes.get(),});"
+    ) in re.sub(r"\s+", "", persisted)
+    producer_control = named_rust_function(
+        controls, "original_producer_read_success_and_absence_notify_after_storage_fences"
+    )
+    for obligation in (
+        "assert!(missing.is_none());", "assert!(inventory(&kura).is_empty());",
+        "observe_original_release(&kura, 3, || kura.read_fastpq_producer_record(key))",
+        "observe_original_release(&kura, 3, || kura.read_fastpq_producer_record(selected))",
+        "(key, Some(bytes.to_vec()))", '(Hash::new(b"absent producer position"), None)',
+        "assert_eq!(read, expected);", "assert_eq!(inventory(&kura), before);",
+    ):
+        assert obligation in producer_control
+    for control in (
+        "original_artifact_partial_refusals_retain_exact_storage_errors",
+        "original_artifact_unwind_notifies_after_each_acquired_prefix",
+    ):
+        assert 'for operation in ["persist", "artifact-read", "producer-read"]' in named_rust_function(controls, control)
     assert "stack_size" not in controls and "RUST_MIN_STACK" not in controls
     selected = (ROOT / "scripts/taira_release_check.py").read_text()
     for name in names:
@@ -10469,3 +10512,136 @@ def test_lane_shutdown_kills_require_normal_complete_causal_failure(monkeypatch,
     assert result["verdict"] == verdict, result
     if defect == "none":
         assert result["named"]["causal_failures"] == dict.fromkeys(rule.tests, True)
+
+
+def test_retired_publication_mutation_preserves_original_capability_and_acknowledged_turn():
+    identifier = "HC414"
+    owner = "crates/iroha_core/src/sumeragi/lanes/store.rs"
+    source = "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"
+    control = "sumeragi::driver::tests::threaded::retirement_tests::retired_directory_sync_does_not_block_other_lane_transaction_delivery"
+    cause = "original retired SyncDir must not block another lane's actual transaction wake and commit"
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[identifier]
+    assert rule.tests == (control,) and not rule.scenarios
+    assert rule.causes == (gate.ExpectedFailure(cause, source),)
+    assert gate.has_switch(identifier, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch(identifier, **family)
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(ROOT).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"HC414"', path.read_text())}
+    assert owners == {owner}
+    code = (ROOT / owner).read_text()
+    assert code.count('sumeragi_core_mutation = "HC414"') == 2
+    capability = named_rust_function(code, "retired_publication")
+    compact = re.sub(r"\s+", "", capability)
+    assert compact.endswith('{#[cfg(all(test,sumeragi_core_mutation="HC414"))]{None}'
+                            '#[cfg(not(all(test,sumeragi_core_mutation="HC414")))]{Some(self)}}')
+    assert "impl BlockStore for FileLaneBlockStore" in code
+    body = named_rust_function((ROOT / source).read_text(), control.rsplit("::", 1)[-1])
+    assert "std::sync::mpsc::sync_channel(1)" in body
+    requested = "requested_turn.swap(false, Ordering::AcqRel)"
+    driven = "runner.drive_retirement_for_test();"
+    acknowledged = "acknowledge_turn.send(())"
+    assert body.index(requested) < body.index(driven) < body.index(acknowledged)
+    assert re.search(r"if acknowledge\s*\{\s*let _ = acknowledge_turn\.send\(\(\)\);\s*\}", body)
+    assert body.index("b.fakes.exec.add_tx(2);") < body.index("runner.handle().transactions_available();") < body.index("requested_turn.store(true, Ordering::Release);")
+    assert re.search(r"turn_observed \|= observed_turn\.try_recv\(\)\.is_ok\(\);\s*turn_observed\s*&& b_handle", body)
+    assert "status.committed_height >= 1" in body
+    assert "b.fakes.exec.state.lock().txs.is_empty()" in body
+    assert "observed_within(Duration::from_secs(1)" in body
+    assert body.index("fixture.gate.release();") < body.index("lifecycle.join()") < body.index("joined.unwrap();") < body.index(json.dumps(cause))
+    assert body.count("StopRetiredSyncOnDrop {") == 2
+    assert re.search(r"assert_eq!\(\s*tip_while_held, 0,", body)
+    assert '"the same original publication must finish and retire after SyncDir resumes"' in body
+    fixture = named_rust_function((ROOT / "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs").read_text(), "observe_retired_sync_for_test")
+    assert "Arc::strong_count(&store)" in fixture
+    assert "assert_eq!(body, fixture.body);" in fixture
+    assert "assert_eq!(certificate, fixture.qc);" in fixture
+    spec_rows = re.findall(r"^\| HC414 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(spec_rows) == 1 and control.rsplit("::", 1)[-1] in spec_rows[0]
+    build = (ROOT / "crates/iroha_core/build.rs").read_text()
+    guard = (root / "mutation_guard.rs").read_text()
+    assert 'env::var_os("CARGO_FEATURE_MUTATION_TESTING").is_none()' in build
+    assert 'mentions(Path::new("src"), &needle)' in build
+    assert '#[cfg(all(feature = "mutation-testing", not(test)))]' in guard
+    assert "compile_error!" in guard
+    assert "mod mutation_guard;" in (root / "lib.rs").read_text()
+
+
+@pytest.mark.parametrize("defect", ["none", "unrelated", "wrong-source", "missing-terminal", "one-passes", "abort", "timeout"])
+def test_retired_publication_kill_requires_complete_exact_causal_terminal(monkeypatch, tmp_path, defect):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC414"]
+    rows = [(name, "ok" if defect == "one-passes" else "FAILED") for name in rule.tests]
+    if defect == "missing-terminal":
+        rows.pop()
+    code, output = causal_control_output(rule, rows)
+    expected = rule.causes[0]
+    if defect == "unrelated":
+        output = output.replace(expected.cause, "unrelated setup refusal", 1)
+    elif defect == "wrong-source":
+        output = output.replace(expected.source + ':123:', 'foreign.rs:123:', 1)
+    elif defect == "abort":
+        code = -6
+    elif defect == "timeout":
+        code = None
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    verdict = "killed_by_test" if defect == "none" else "survived" if defect == "one-passes" else "error"
+    assert result["verdict"] == verdict, result
+    if defect == "none":
+        assert result["named"]["causal_failures"] == dict.fromkeys(rule.tests, True)
+
+
+@pytest.mark.parametrize("verdict", ["ok", "FAILED", "missing"])
+def test_retired_publication_baseline_requires_its_original_complete_control(monkeypatch, tmp_path, verdict):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC414"]
+    rows = [] if verdict == "missing" else [(name, verdict) for name in rule.tests]
+    code, output = causal_control_output(rule, rows)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate_baseline(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, [rule])
+    assert result["verdict"] == ("pass" if verdict == "ok" else "fail"), result
+    assert result["named"]["steps"][0]["filters"] == list(rule.tests)
+
+
+def test_lane_registry_final_destructor_mutation_has_exact_native_owners():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC415"]
+    source = "crates/iroha_core/src/sumeragi/lanes/registry/destruction_tests.rs"
+    controls = (ROOT / source).read_text()
+    names = re.findall(r"#\[test\]\s+fn (\w+)\(", controls)
+    assert len(names) == len(set(names)) == 4
+    assert rule.tests == tuple("sumeragi::lanes::registry::tests::destruction_tests::" + name for name in names)
+    assert rule.causes == (gate.ExpectedFailure("final original lane authority destructor must run after registry unlock", source),) * 4
+    assert not rule.scenarios and gate.has_switch("HC415", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch("HC415", **family)
+    registry = (ROOT / "crates/iroha_core/src/sumeragi/lanes/registry.rs").read_text()
+    assert registry.count('sumeragi_core_mutation = "HC415"') == 2
+    for name in ("release", "release_retired"):
+        drop_owner = named_rust_function(registry, name)
+        compact = re.sub(r"\s+", "", drop_owner)
+        compact = re.sub(r",(?=\))", "", compact)
+        assert '#[cfg(all(test,any(sumeragi_core_mutation="HC348",sumeragi_core_mutation="HC415")))]' in compact
+        assert drop_owner.index("let _original_map = self.stores.lock();") < drop_owner.index("drop(retired);")
+    assert "fixture.stores.stores.try_lock()" in controls
+    assert "impl Drop for DestructionSchedule" in controls
+    assert controls.index("drop(guard);") < controls.index("fixture.stores.release(LANE, &INCARNATION);")
+    assert "baseline + original.len()" in controls
+    assert '"final original lane authority can reenter the released registry"' in controls
+    assert "fs::read(fixture.path()).unwrap(), original" in controls
+
+
+def test_read_only_absent_frame_mutation_preserves_exact_native_cause():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC403"]
+    owner = "crates/iroha_core/src/sumeragi/lanes/store/tests.rs"
+    assert rule.tests == ("sumeragi::lanes::store::tests::read_only_missing_frame_preserves_not_found_and_reopens_after_publication",)
+    assert rule.causes == (gate.ExpectedFailure("read-only absent frame must remain NotFound before any retained restore job", owner),)
+    assert gate.has_switch("HC403", core=True) and not rule.scenarios
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch("HC403", **family)
+    source = (ROOT / "crates/iroha_core/src/sumeragi/lanes/store/read.rs").read_text()
+    assert source.count('sumeragi_core_mutation = "HC403"') == 1
+    assert '#[cfg(not(all(test, sumeragi_core_mutation = "HC403")))]' in source
+    assert '"committed lane frame disappeared"' in source

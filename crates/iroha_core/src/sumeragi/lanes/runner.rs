@@ -412,7 +412,8 @@ impl Inner {
             });
         // Reconcile has one owner: startup completes before the runner launches, and
         // shutdown joins that runner before draining this map. Keep each original
-        // retiring driver until all its physical joins finish. Stop-before-start is
+        // retiring driver until its physical joins and original publication finish.
+        // Stop-before-start is
         // per LaneId, including a replacement incarnation with a different map key.
         // Every poll, owner drop and join runs outside the observation lock.
         let retired = self
@@ -454,8 +455,9 @@ impl Inner {
                 }
             }
         }
-        // Driver shutdown retires its append retry scheduler, not its admitted publication.
-        // Finish that exact retained store work before considering idle owner release.
+        // Running drivers retain their original publication on their prestarted joiner.
+        // Historical/orphan Ready stores have no such admitted worker: their existing
+        // continuation remains synchronous and must precede idle owner release.
         #[cfg(not(all(test, sumeragi_core_mutation = "HC390")))]
         self.inputs
             .stores

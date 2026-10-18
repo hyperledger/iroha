@@ -2454,7 +2454,11 @@ const SMALL_DECIMAL_POWERS: [i128; MAX_DECIMAL_SCALE as usize + 1] = {
 };
 /// [`logical_limbs`] of the same conceptual integer held in `i128`.
 fn small_logical_limbs(value: i128) -> u16 {
-    if value.unsigned_abs() >> 64 == 0 { 1 } else { 2 }
+    if value.unsigned_abs() >> 64 == 0 {
+        1
+    } else {
+        2
+    }
 }
 /// Mantissa aligned to `target_scale`, when the aligned value fits `i128`.
 fn small_aligned_mantissa(value: &Numeric, target_scale: u32) -> Option<i128> {

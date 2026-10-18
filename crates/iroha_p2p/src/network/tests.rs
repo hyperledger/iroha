@@ -199,7 +199,10 @@ fn reliable_progress_class_matches_actor_reservations_exactly() {
             expected.map(|class| match class {
                 ReliableProgressClass::Safety => ActorProgressClass::Safety,
                 ReliableProgressClass::Lane => ActorProgressClass::Lane,
-                ReliableProgressClass::Bulk => ActorProgressClass::Bulk,
+                ReliableProgressClass::Bulk if topic == Topic::BlockSync => {
+                    ActorProgressClass::BlockSync
+                }
+                ReliableProgressClass::Bulk => ActorProgressClass::Payload,
             })
         );
     }
@@ -2398,6 +2401,16 @@ fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurren
     assert!(!first_identity.same_ticket_identity(other_source.identity()));
     assert!(!first_identity.same_ticket_identity(other_payload.identity()));
     let mut foreign_budget_only = first_identity.clone();
+    for class in ActorProgressClass::ALL {
+        let mut changed_class = first_identity.clone();
+        changed_class.ticket.source.class = class;
+        assert_eq!(
+            first_identity.process_local_writer_occurrence_identity_hash()
+                == changed_class.process_local_writer_occurrence_identity_hash(),
+            first_identity.ticket.source.class == class,
+            "the writer occurrence must retain its exact actor scheduling class"
+        );
+    }
     foreign_budget_only.ticket.budget = NetworkActorProgressBudget::new(1, 1, 1)
         .expect("foreign identity budget geometry must be valid");
     assert!(foreign_budget_only.is_bound_to_delivery(&first_route));

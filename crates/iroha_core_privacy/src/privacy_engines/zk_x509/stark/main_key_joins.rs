@@ -279,7 +279,7 @@ mod tests {
             }
         }
         let mut actual = fresh();
-        let mut serial = actual.clone();
+        let mut serial = actual;
         let actual_values =
             MainKeyJoinPlanV1::exact_challenges_v1(&mut actual, DOMAIN_V1, BLOCKS_V1).unwrap();
         let serial_values: Vec<_> = (0..BLOCKS_V1)

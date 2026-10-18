@@ -220,9 +220,8 @@ impl NativeInstructionTable {
         for registration in registrations {
             match entries.last_mut() {
                 Some((known, native)) if *known == registration.type_id => {
-                    native.initial_admission = native
-                        .initial_admission
-                        .or(registration.initial_admission);
+                    native.initial_admission =
+                        native.initial_admission.or(registration.initial_admission);
                 }
                 _ => entries.push((
                     registration.type_id,
@@ -901,7 +900,9 @@ mod registry_dispatch_tests {
         assert_eq!(NATIVE_INSTRUCTIONS.0.len(), distinct.len());
         assert!(
             NATIVE_INSTRUCTIONS
-                .get(&InstructionBox::from(CustomInstruction::new("unregistered")))
+                .get(&InstructionBox::from(CustomInstruction::new(
+                    "unregistered"
+                )))
                 .is_none(),
             "custom instructions have no native handler"
         );
@@ -938,7 +939,9 @@ mod registry_dispatch_tests {
             Some(Some(InitialNativeInstructionAdmission::CoreAuthorized))
         );
         assert_eq!(
-            table.get_type(second).map(|native| native.initial_admission),
+            table
+                .get_type(second)
+                .map(|native| native.initial_admission),
             Some(Some(InitialNativeInstructionAdmission::Closed))
         );
         assert!(table.get_type(core::any::TypeId::of::<u32>()).is_none());

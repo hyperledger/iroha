@@ -2947,7 +2947,7 @@ mod tests {
         trace.fixed.copy_sigma[0][0] = 0;
         assert!(validate_private_note_base_trace_v1(&value.statement, &trace).is_err());
         trace.fixed.copy_sigma[0][0] = original;
-        let original = trace.fixed.rows[0].clone();
+        let original = trace.fixed.rows[0];
         trace.fixed.rows[0] = PrivateNoteFixedRowV1::Padding;
         assert!(validate_private_note_base_trace_v1(&value.statement, &trace).is_err());
         trace.fixed.rows[0] = original;

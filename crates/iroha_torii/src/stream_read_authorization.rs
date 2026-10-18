@@ -34,8 +34,7 @@ use crate::{
 };
 
 /// Result of a read that may need canonical event history.
-pub(crate) type EventHistoryResult<T> =
-    Result<T, ExecutionAttemptError<iroha_core::kura::Error>>;
+pub(crate) type EventHistoryResult<T> = Result<T, ExecutionAttemptError<iroha_core::kura::Error>>;
 
 /// Authorization owned by exactly one long-lived stream.
 pub(crate) trait StreamAuthorization: Send + 'static {
@@ -511,7 +510,10 @@ mod tests {
             visibility: DataspaceReadVisibility::all_for_tests(),
         };
         assert!(decision.is_current_at(4, decided_at));
-        assert!(!decision.is_current_at(5, decided_at), "a commit may revoke");
+        assert!(
+            !decision.is_current_at(5, decided_at),
+            "a commit may revoke"
+        );
         assert!(
             !decision.is_current_at(4, decided_at + STREAM_AUTHORIZATION_CHECK_INTERVAL),
             "a decision never outlives one authorization interval"

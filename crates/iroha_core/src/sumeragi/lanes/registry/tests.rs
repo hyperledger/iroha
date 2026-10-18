@@ -2510,3 +2510,6 @@ fn isolated_frame_source_reads_authenticated_frame_without_acquiring_live_writer
 
 #[path = "destruction_tests.rs"]
 mod destruction_tests;
+
+#[path = "read_only_destruction_tests.rs"]
+mod read_only_destruction_tests;
