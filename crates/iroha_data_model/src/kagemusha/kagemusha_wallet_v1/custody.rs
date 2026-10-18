@@ -573,10 +573,7 @@ pub enum KagemushaWalletRetainedInputRoleV1 {
     /// Canonical charge quote consumed by Load or Unload.
     #[codec(index = 5)]
     ChargeQuote,
-    /// Exact update custody consumed by `RefreshPolicy`: Blacklist carries the
-    /// bounded native complete-original archive reference; other fixed kinds
-    /// carry the complete inline signed update. Native restores and authenticates
-    /// the full blacklist before using it; the reference is not an issuer verdict.
+    /// Exact update custody consumed by `RefreshPolicy`: the complete inline signed update.
     #[codec(index = 6)]
     PolicyUpdate,
     /// Canonical certificate set the operation needed.
@@ -1373,7 +1370,7 @@ impl KagemushaWalletCompletionRecordV1 {
     /// as the capsule's kind, its embedded receipt equals the record's, its statement, Ω(pred)
     /// and σ are the capsule's, its receipt binds the capsule's Payment digest, and its
     /// receipt-free parts rebuild the capsule's output descriptor. A Send output is the
-    /// compact Payment, whose carried payment key and credential digest must be this
+    /// compact Payment, whose predecessor payment key and credential digest must be this
     /// credential's. Returns the released package's digests.
     ///
     /// # Errors
@@ -1395,8 +1392,14 @@ impl KagemushaWalletCompletionRecordV1 {
         let package = if capsule.kind == KagemushaWalletOperationKindV1::Send {
             let payment =
                 KagemushaWalletPaymentV1::decode_canonical(&self.output, &capsule.scheme_id)?;
-            if payment.payer_payment_key != credential.body.payment_key
-                || payment.payer_credential_digest != credential.credential_digest()
+            let omega = &payment
+                .send
+                .lineage
+                .lineage()
+                .ok_or_else(|| invalid_v1("lineage.slot"))?
+                .public;
+            if omega.payment_key != credential.body.payment_key
+                || omega.credential_digest != credential.credential_digest()
             {
                 return Err(invalid_v1("completion.credential"));
             }

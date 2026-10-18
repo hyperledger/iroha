@@ -1,12 +1,12 @@
 //! Envelope sizes of the split-lineage layouts (§8, design §7).
 //!
 //! Every case uses structurally valid objects and is checked against its complete-frame
-//! bound. The sample lengths cover the current 3,456-byte maximum Send proof and 4,800-byte
+//! bound. The sample lengths cover the current 3,520-byte maximum Send proof and 4,800-byte
 //! three-terminal Omega transport. The bytes themselves are stand-ins: these tests qualify
 //! encoding overhead and exact size limits, not cryptographic proof acceptance or frozen keys.
 //! Receive uses the same conservative 3,456-byte sample. The credit-status opening has exactly
 //! 32 siblings, so its complete envelope has a fixed overhead plus the Omega proof length.
-//! The signed blacklist is downloaded online and has no peer-envelope case here.
+//! The signed blacklist is local only and has no peer-envelope case here.
 
 use super::{
     messages::messages_tests::MessageFixture,
@@ -15,7 +15,7 @@ use super::{
 };
 
 /// Structural sample covering the currently measured largest Send proof.
-const SAMPLE_SIGMA_SEND_BYTES: usize = 3_456;
+const SAMPLE_SIGMA_SEND_BYTES: usize = KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1;
 /// Structural sample of the currently measured three-terminal Omega transport.
 const SAMPLE_OMEGA_PROOF_BYTES: usize = 4_800;
 /// Conservative Receive proof sample; acceptance remains a native-verifier obligation.
@@ -124,7 +124,7 @@ fn measure(f: &MessageFixture) -> Sizes {
     let request = f.request(true);
     let payment = f.payment_with(true, omega, sigma);
     assert!(
-        payment.request.body.fee > 0,
+        payment.signed_request().unwrap().body.fee > 0,
         "the largest Request carries a fee"
     );
     assert_eq!(request.certificates.len(), 2);

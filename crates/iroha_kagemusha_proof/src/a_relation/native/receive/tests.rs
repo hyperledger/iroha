@@ -3,6 +3,7 @@
 use super::*;
 use crate::a_relation::native::support::{select_pallas, select_vesta};
 use crate::a_relation::schedule::OperationTask;
+use iroha_pasta::PastaAffine;
 use iroha_plonk_recursion::K;
 
 #[test]
@@ -45,7 +46,7 @@ fn incoming() -> IncomingWitness {
         pallas: AccumulatorT::new(*p.g(), *p.challenges()).unwrap(),
         vesta: AccumulatorT::new(*v.g(), *v.challenges()).unwrap(),
         opening: p.clone(),
-        results: [true; 5],
+        results: [true; 4],
         modes: [IncomingMode::Accept; 4],
         pallas_corrections: [*p.g(); 2],
         vesta_correction: *v.g(),
@@ -55,7 +56,7 @@ fn incoming() -> IncomingWitness {
 #[test]
 fn every_result_and_mode_pattern_obeys_exact_non_discretionary_burn_rule() {
     let mut input = incoming();
-    for mask in 0..32 {
+    for mask in 0..16 {
         input.results = core::array::from_fn(|i| mask & (1 << i) != 0);
         for code in 0..81 {
             let mut code = code;
@@ -217,7 +218,7 @@ fn exact_original_digest_distinguishes_lengths_tails_and_every_signed_limb() {
     objects[4] = vec![7; 320 + 3712 + 1088];
     objects[5] = vec![11; 3296];
     let original = object_commitments(&specs, &objects).unwrap();
-    for slot in 0..11 {
+    for slot in 0..9 {
         for mutation in [0, objects[slot].len() / 2, objects[slot].len() - 1] {
             let mut bad = objects.clone();
             bad[slot][mutation] ^= 1;
@@ -236,7 +237,7 @@ fn exact_original_digest_distinguishes_lengths_tails_and_every_signed_limb() {
         assert_ne!(changed[slot][1], original[slot][1]);
         assert_ne!(changed[slot][2], original[slot][2]);
     }
-    for slot in [0, 1, 2, 6, 7, 8, 9, 10] {
+    for slot in [0, 1, 2, 6, 7, 8] {
         let mut bad = objects.clone();
         bad[slot].pop();
         assert_eq!(object_commitments(&specs, &bad), Err(Error::Input));
@@ -244,7 +245,7 @@ fn exact_original_digest_distinguishes_lengths_tails_and_every_signed_limb() {
 }
 
 #[test]
-fn mandatory_owner_schedule_keeps_own_sigma_before_its_later_q_verification() {
+fn mandatory_owner_schedule_proves_the_step_inline_beside_the_predecessor() {
     let tasks =
         crate::a_relation::schedule::compiled::OperationSchedule::for_variant(Variant::Receive)
             .tasks()
@@ -253,20 +254,26 @@ fn mandatory_owner_schedule_keeps_own_sigma_before_its_later_q_verification() {
     assert_eq!(
         tasks[0],
         [
-            OperationTask::ReceiveOwnProof,
             OperationTask::ReceiveConsumedEffects,
-            OperationTask::ReceiveCreditEffects
+            OperationTask::ReceiveTransition
         ]
     );
     assert_eq!(tasks[5], [OperationTask::ReceiveAuthorization]);
-    assert_eq!(tasks[9], [OperationTask::ReceiveEffects]);
+    assert_eq!(
+        tasks[6],
+        [
+            OperationTask::ReceiveSignatures,
+            OperationTask::ReceiveCreditEffects
+        ]
+    );
+    assert_eq!(tasks[8], [OperationTask::ReceiveEffects]);
     let mut flat = tasks
         .into_iter()
         .flatten()
         .map(|t| t as u32)
         .collect::<Vec<_>>();
     flat.sort_unstable();
-    assert_eq!(flat, [11, 12, 13, 14, 15, 16, 17, 18, 23, 36, 37]);
+    assert_eq!(flat, [11, 12, 13, 14, 16, 18, 23, 36, 37, 46]);
     assert_eq!((INTERNAL_RANGE_BUSES, TERMINAL_RANGE_BUSES), (4, 3));
 }
 
@@ -288,17 +295,17 @@ fn native_terminal_matches_current_catalog_profile_and_internal_is_exactly_disti
 
 #[test]
 fn every_admitted_joint_split_and_one_byte_over_boundary_is_exact() {
-    let bound = 320 + PAYMENT_PROOF_BUDGET;
+    let bound = PAYMENT_RAW_PROOF_BUDGET;
     assert_eq!(check_payment_original_sizes(0, 0), Ok(()));
     for sigma in 0..=MAX_SIGMA_RAW_BYTES {
-        let omega = bound - sigma;
+        let omega = (bound - sigma).min(MAX_OMEGA_RAW_BYTES);
         assert_eq!(check_payment_original_sizes(omega, sigma), Ok(()));
         assert_eq!(
             check_payment_original_sizes(omega + 1, sigma),
             Err(Error::Input)
         );
         assert_eq!(
-            check_payment_original_sizes(omega, sigma + 1),
+            check_payment_original_sizes(MAX_OMEGA_RAW_BYTES, MAX_SIGMA_RAW_BYTES + 1),
             Err(Error::Input)
         );
     }

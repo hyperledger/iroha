@@ -59,6 +59,8 @@ pub enum Error {
     Source,
     /// An imported column does not commit to its original VK point.
     Commitment,
+    /// The mandatory public masking predicate failed.
+    Masking(crate::keys::masking::Error),
     /// Native circuit, descriptor, FFT, MSM or key assembly failure.
     Key(KeyError),
 }
@@ -71,11 +73,21 @@ impl fmt::Display for Error {
             Self::Encoding => f.write_str("noncanonical proving-key artifact"),
             Self::Source => f.write_str("proving-key artifact differs from installed circuit"),
             Self::Commitment => f.write_str("proving-key artifact commitment differs"),
+            Self::Masking(error) => write!(f, "proving-key artifact: {error}"),
             Self::Key(error) => write!(f, "proving-key artifact: {error}"),
         }
     }
 }
 impl std::error::Error for Error {}
+impl From<crate::keys::masking::Error> for Error {
+    fn from(error: crate::keys::masking::Error) -> Self {
+        match error {
+            crate::keys::masking::Error::Cancelled => Self::Cancelled,
+            error => Self::Masking(error),
+        }
+    }
+}
+
 impl From<KeyError> for Error {
     fn from(error: KeyError) -> Self {
         if error.is_cancelled() {
@@ -335,6 +347,65 @@ impl<C: PastaCurve> ProvingKey<C> {
         config: ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Self, Error> {
+        Self::from_artifact_with_masking_v2(
+            original,
+            binding,
+            params,
+            circuit,
+            config,
+            cancellation,
+            false,
+        )
+    }
+
+    /// Strictly admit original material and its complete public masking predicate.
+    /// This preserves source, parameter, copy, selector and every VK commitment
+    /// check, and additionally checks all rotated tail support and opening pivots.
+    /// No source capability is returned on a masking failure.
+    /// # Errors
+    /// Ordinary strict import, public masking/resource or cancellation failure.
+    pub fn from_masked_artifact_v2<Ci: Circuit<C::ScalarExt>>(
+        original: &[u8],
+        binding: &DescriptorBinding,
+        params: &PinnedParams<C>,
+        circuit: &Ci,
+        config: ReadConfig,
+    ) -> Result<Self, Error> {
+        Self::from_masked_artifact_v2_cancellable(original, binding, params, circuit, config, None)
+    }
+
+    /// Strict masked-source admission with cooperative cancellation.
+    /// # Errors
+    /// As [`Self::from_masked_artifact_v2`], without a partial key or capability.
+    pub fn from_masked_artifact_v2_cancellable<Ci: Circuit<C::ScalarExt>>(
+        original: &[u8],
+        binding: &DescriptorBinding,
+        params: &PinnedParams<C>,
+        circuit: &Ci,
+        config: ReadConfig,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Self, Error> {
+        Self::from_artifact_with_masking_v2(
+            original,
+            binding,
+            params,
+            circuit,
+            config,
+            cancellation,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn from_artifact_with_masking_v2<Ci: Circuit<C::ScalarExt>>(
+        original: &[u8],
+        binding: &DescriptorBinding,
+        params: &PinnedParams<C>,
+        circuit: &Ci,
+        config: ReadConfig,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+        require_masking: bool,
+    ) -> Result<Self, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         let vk_bytes = bounded_dimensions(original, binding, config)?;
         if params.k() != u32::from(binding.descriptor().k) {
@@ -354,6 +425,7 @@ impl<C: PastaCurve> ProvingKey<C> {
             source_digest,
             config,
             cancellation,
+            require_masking,
         )
     }
 }
@@ -390,6 +462,65 @@ impl<C: PastaCurve> SourceBoundVerifyingKeyV2<C> {
         config: ReadConfig,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Self, Error> {
+        Self::from_artifact_with_masking_v2(
+            original,
+            binding,
+            params,
+            circuit,
+            config,
+            cancellation,
+            false,
+        )
+    }
+
+    /// Strictly admit original material and its complete public masking predicate.
+    /// This preserves source, parameter, copy, selector and every VK commitment
+    /// check, and additionally checks all rotated tail support and opening pivots.
+    /// No source capability is returned on a masking failure.
+    /// # Errors
+    /// Ordinary strict import, public masking/resource or cancellation failure.
+    pub fn from_masked_artifact_v2<Ci: Circuit<C::ScalarExt>>(
+        original: &[u8],
+        binding: &DescriptorBinding,
+        params: &PinnedParams<C>,
+        circuit: &Ci,
+        config: ReadConfig,
+    ) -> Result<Self, Error> {
+        Self::from_masked_artifact_v2_cancellable(original, binding, params, circuit, config, None)
+    }
+
+    /// Strict masked-source admission with cooperative cancellation.
+    /// # Errors
+    /// As [`Self::from_masked_artifact_v2`], without a partial key or capability.
+    pub fn from_masked_artifact_v2_cancellable<Ci: Circuit<C::ScalarExt>>(
+        original: &[u8],
+        binding: &DescriptorBinding,
+        params: &PinnedParams<C>,
+        circuit: &Ci,
+        config: ReadConfig,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<Self, Error> {
+        Self::from_artifact_with_masking_v2(
+            original,
+            binding,
+            params,
+            circuit,
+            config,
+            cancellation,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn from_artifact_with_masking_v2<Ci: Circuit<C::ScalarExt>>(
+        original: &[u8],
+        binding: &DescriptorBinding,
+        params: &PinnedParams<C>,
+        circuit: &Ci,
+        config: ReadConfig,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+        require_masking: bool,
+    ) -> Result<Self, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation)?;
         let vk_bytes = bounded_dimensions(original, binding, config)?;
         if params.k() != u32::from(binding.descriptor().k) {
@@ -409,6 +540,7 @@ impl<C: PastaCurve> SourceBoundVerifyingKeyV2<C> {
             source_digest,
             config,
             cancellation,
+            require_masking,
         )
     }
 }

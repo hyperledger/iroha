@@ -1,5 +1,16 @@
 # The surviving salted-fold law: exact barrier and a narrower target
 
+**Historical antecedent.** The source law below is the deterministic
+salt-only fold identified by its retained source pins. It does not describe
+the selected 33-coin committed-mask construction: that construction opens D,
+masks L/R with W and subtracts their exact gamma contribution. The lossless
+public-carrier observation remains a conditional mathematical tool, but the
+specific salt-support law and old create_fold signature cannot be substituted
+for the new joint law. Neither this notice nor the new source equations prove
+selected-source privacy. The [recursion transfer
+boundary](../../specs/kagemusha_recursion_soundness_v1.md#retained-arguments-and-selected-source-transfer)
+keeps the required common experiment and concrete refinement obligations explicit.
+
 This is a construction-coupled reduction, not a proof of fixed-RP57 fold
 privacy. It uses one unchanged deterministic RP57 implementation F everywhere.
 The selected recursive Fiat–Shamir premise in

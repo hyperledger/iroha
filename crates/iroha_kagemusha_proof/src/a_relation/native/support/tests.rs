@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::{a_relation::context::ContextObjectCells, q_sigma::SigmaClass};
+use iroha_pasta::PastaAffine;
 use iroha_pasta::PastaField;
 use iroha_plonk::{
     ProverConfig, ProverRandomness, Witness,
@@ -53,7 +54,7 @@ impl<F: PastaField> Circuit<F> for Constant<F> {
         layouter.constrain_instance(word.cell(), public, 0)
     }
 }
-fn sigma_plan(k: u32, paired: bool) -> QSigmaPlan {
+fn sigma_plan(k: u32, own: bool, incoming: bool) -> QSigmaPlan {
     let params = PinnedParams::<Eq>::derive(k).unwrap();
     let (binding, key) = keygen_vk_with_binding_v2(
         &params,
@@ -62,14 +63,17 @@ fn sigma_plan(k: u32, paired: bool) -> QSigmaPlan {
     )
     .unwrap();
     let verifier = VerifierPlan::new(binding.clone(), params).unwrap();
-    let own = SigmaClass::new(
-        verifier.clone(),
-        vec![(0, key.kagemusha_digest(&binding).unwrap())],
-    )
-    .unwrap();
     // Metadata-only test catalogs: these values never authorize a source proof.
-    let incoming = paired.then(|| SigmaClass::new(verifier, vec![(1, Fq::from(73))]).unwrap());
-    QSigmaPlan::new(own, incoming, &PinnedParams::derive(16).unwrap()).unwrap()
+    let incoming =
+        incoming.then(|| SigmaClass::new(verifier.clone(), vec![(1, Fq::from(73))]).unwrap());
+    let fold = PinnedParams::derive(16).unwrap();
+    if own {
+        let own =
+            SigmaClass::new(verifier, vec![(0, key.kagemusha_digest(&binding).unwrap())]).unwrap();
+        QSigmaPlan::new(own, incoming, &fold).unwrap()
+    } else {
+        QSigmaPlan::incoming_only(incoming.unwrap(), &fold).unwrap()
+    }
 }
 fn vesta_claim(source_k: u32) -> FoldInput<Eq> {
     let point = iroha_plonk::transcript::decode_point::<Eq>(
@@ -80,8 +84,15 @@ fn vesta_claim(source_k: u32) -> FoldInput<Eq> {
 }
 #[test]
 fn q_parts_require_exact_plan_lengths_source_and_normalized_challenges() {
-    for (k, paired) in [(12, false), (14, false), (12, true)] {
-        let plan = sigma_plan(k, paired);
+    // Own only, own with incoming, and the lean incoming-only program.
+    for (k, own, paired) in [
+        (12, true, false),
+        (14, true, false),
+        (12, true, true),
+        (12, false, true),
+        (14, false, true),
+    ] {
+        let plan = sigma_plan(k, own, paired);
         let claim = vesta_claim(plan.part_source_k());
         let (x, y) = claim.g().coordinates().unwrap();
         let mut columns: Vec<_> = plan.instance_lengths().map(|n| vec![Fq::ZERO; n]).into();
@@ -94,6 +105,17 @@ fn q_parts_require_exact_plan_lengths_source_and_normalized_challenges() {
         columns[3][0] = Fq::ONE;
         columns[4][0] = Fq::from(u64::from(plan.part_source_k()));
         assert_eq!(q_sigma_part(&columns, &plan).unwrap(), claim);
+        // Without an own sigma the verdict row is the incoming soft result.
+        let mut soft = columns.clone();
+        soft[3][0] = Fq::ZERO;
+        assert_eq!(q_sigma_part(&soft, &plan).is_ok(), !own);
+        let mut identity_columns = columns.clone();
+        identity_columns[1] = vec![Fq::ZERO; 2];
+        let identity = iroha_plonk::transcript::decode_generator::<Eq>(&[0; 32]).unwrap();
+        let identity_part = q_sigma_part(&identity_columns, &plan).unwrap();
+        assert_eq!(*identity_part.g(), identity);
+        assert_eq!(identity_part.challenges(), claim.challenges());
+        assert_eq!(identity_part.source_k(), claim.source_k());
         for column in 0..5 {
             for extend in [false, true] {
                 let mut bad = columns.clone();
@@ -106,6 +128,9 @@ fn q_parts_require_exact_plan_lengths_source_and_normalized_challenges() {
             }
         }
         for mutation in 0..6 {
+            if mutation == 1 && !own {
+                continue;
+            }
             let mut bad = columns.clone();
             match mutation {
                 0 => {
@@ -113,14 +138,14 @@ fn q_parts_require_exact_plan_lengths_source_and_normalized_challenges() {
                 }
                 1 => bad[3][0] = Fq::ZERO,
                 2 => bad[4][0] += Fq::ONE,
-                3 => bad[1] = vec![Fq::ZERO; 2],
+                3 => bad[1] = vec![Fq::ZERO, Fq::ONE],
                 4 => bad[0][plan.challenge_range().end - 1] = Fq::ZERO,
                 _ => bad[0][plan.challenge_range().start] = if paired { Fq::ZERO } else { Fq::ONE },
             }
             assert_eq!(
                 q_sigma_part(&bad, &plan),
                 Err(Error::Input),
-                "source={k} paired={paired} mutation={mutation}"
+                "source={k} own={own} paired={paired} mutation={mutation}"
             );
         }
     }
@@ -330,7 +355,7 @@ fn native_modes_claim_words_and_terminal_frames_preserve_exact_fields() {
     let short = FoldInput::from_opening(point, &[Fq::ONE; 12]).unwrap();
     assert!(push_pallas(&mut vec![], &short).is_err());
     let v = vesta_claim(16);
-    assert_eq!(vesta_words(&v).unwrap().len(), 20);
+    assert_eq!(vesta_words(&v).len(), 20);
     let acc = AccumulatorT::new(*v.g(), *v.challenges()).unwrap();
     let columns = omega_instances(Fp::from(43), &acc).unwrap();
     assert_eq!(columns.iter().map(Vec::len).collect::<Vec<_>>(), [1, 2, 16]);
@@ -339,7 +364,7 @@ fn native_modes_claim_words_and_terminal_frames_preserve_exact_fields() {
     let internal = internal_public(&PinnedParams::derive(16).unwrap(), Fp::from(47), &v).unwrap();
     assert_eq!(internal.len(), 69);
     assert_eq!(internal[..2], [Fp::from(47), Fp::from(16)]);
-    assert_eq!(internal[2..22], vesta_words(&v).unwrap());
+    assert_eq!(internal[2..22], vesta_words(&v));
     assert_eq!(internal[22..42], internal[42..62]);
     assert_eq!(internal[62..65], [Fp::ZERO, Fp::ONE, Fp::ZERO]);
     assert_eq!(internal[65..], internal[22..26]);
@@ -436,7 +461,7 @@ fn stage_links_bind_fixed_ordinal_context_and_every_current_claim_limb() {
     use crate::a_relation::{AProofPlan, QProofPlan};
     use iroha_plonk_recursion::obligation::ledger::Variant;
     let params = PinnedParams::<Ep>::derive(16).unwrap();
-    let sigma = sigma_plan(12, false);
+    let sigma = sigma_plan(12, true, false);
     let (binding, key) = keygen_vk_with_binding_v2(
         &params,
         &StageMetadata(sigma.instance_lengths().to_vec()),

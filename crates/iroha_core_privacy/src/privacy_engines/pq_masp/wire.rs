@@ -36,7 +36,7 @@ pub const ML_DSA_65_SIGNATURE_BYTES_V1: usize = 3_309;
 pub const ML_KEM_768_PUBLIC_KEY_BYTES_V1: usize = 1_184;
 /// Exact canonical ML-KEM-768 ciphertext length.
 pub const ML_KEM_768_CIPHERTEXT_BYTES_V1: usize = 1_088;
-/// Exact XChaCha20 nonce length.
+/// Exact `XChaCha20` nonce length.
 pub const XCHACHA20_NONCE_BYTES_V1: usize = 24;
 const POLY1305_TAG_BYTES_V1: usize = 16;
 const PQ_MASP_NOTE_PLAINTEXT_BYTES_V1: usize = 4 + 16 + 6 * 32;
@@ -57,9 +57,9 @@ pub const PQ_MASP_MAX_STARK_PROOF_BYTES_V1: usize =
 ///
 /// Keep this descriptor beside the codec: the compiled governance profile commits to these bytes
 /// and must not describe a stale or alternate wallet layout.
-pub(crate) const PQ_MASP_WALLET_CIPHERTEXT_SCHEMA_V1: &[u8] = b"typed-output:recipient-id32+encapsulation-digest32+output-commitment32+ciphertext[PQE1+mlkem768-ciphertext1088+nonce24+xchacha20poly1305[PQN1+value-u128be+authorization-key-digest32+recipient-id32+nullifier-key-digest32+rho32+blinding32+memo-digest32]+tag16]|mlkem768-domain-kdf|aad:domain+asset-definition-id-u64be-length+norito+pool-id32+output-commitment32+recipient-id32+encapsulation-digest32";
-pub(crate) const AUTHORIZATION_MAGIC_V1: &[u8; 4] = b"PQA1";
-pub(crate) const ENCRYPTED_OUTPUT_MAGIC_V1: &[u8; 4] = b"PQE1";
+pub const PQ_MASP_WALLET_CIPHERTEXT_SCHEMA_V1: &[u8] = b"typed-output:recipient-id32+encapsulation-digest32+output-commitment32+ciphertext[PQE1+mlkem768-ciphertext1088+nonce24+xchacha20poly1305[PQN1+value-u128be+authorization-key-digest32+recipient-id32+nullifier-key-digest32+rho32+blinding32+memo-digest32]+tag16]|mlkem768-domain-kdf|aad:domain+asset-definition-id-u64be-length+norito+pool-id32+output-commitment32+recipient-id32+encapsulation-digest32";
+pub const AUTHORIZATION_MAGIC_V1: &[u8; 4] = b"PQA1";
+pub const ENCRYPTED_OUTPUT_MAGIC_V1: &[u8; 4] = b"PQE1";
 const NOTE_PLAINTEXT_MAGIC_V1: &[u8; 4] = b"PQN1";
 const AUTHORIZATION_CONTEXT_V1: &[u8] = b"pq-masp-stark-v1";
 const AUTHORIZATION_MESSAGE_DOMAIN_V1: &[u8] = b"iroha:privacy:pq-masp:authorization-message:v1";
@@ -74,18 +74,18 @@ const NOTE_KDF_LABEL_V1: &str = "mlkem768-xchacha20poly1305-note-v1";
 const NOTE_ENCAPSULATION_PERSONALIZATION_V1: &[u8] =
     b"iroha:privacy:pq-masp:mlkem768-encapsulation:v1";
 /// SHA-256 of the encrypted-output KAT using the canonical `pq-masp-stark-v1` KDF namespace.
-pub(crate) const PQ_MASP_ENCRYPTED_OUTPUT_KAT_SHA256_V1: [u8; 32] = [
+pub const PQ_MASP_ENCRYPTED_OUTPUT_KAT_SHA256_V1: [u8; 32] = [
     0xa4, 0xe1, 0xb4, 0xe6, 0x33, 0x4c, 0x08, 0xb7, 0xce, 0x95, 0x71, 0x37, 0x4d, 0xf2, 0x2f, 0xb3,
     0x9e, 0x31, 0xdd, 0x82, 0xe9, 0xc0, 0x23, 0x45, 0x1b, 0x0e, 0x46, 0xa6, 0xd9, 0x1c, 0xc2, 0xe2,
 ];
 /// SHA-256 of the consensus-bound PQA1 KAT using the canonical `pq-masp-stark-v1` context.
-pub(crate) const PQ_MASP_AUTHORIZATION_WIRE_KAT_SHA256_V1: [u8; 32] = [
+pub const PQ_MASP_AUTHORIZATION_WIRE_KAT_SHA256_V1: [u8; 32] = [
     0x8d, 0x9d, 0x52, 0x81, 0x1f, 0xe7, 0xaf, 0x05, 0x56, 0xd2, 0x60, 0xa8, 0x53, 0xfc, 0xa5, 0x21,
     0x39, 0x82, 0xf6, 0x37, 0x18, 0x79, 0xba, 0x09, 0x47, 0x40, 0x9f, 0xb3, 0xfd, 0x27, 0x41, 0x77,
 ];
 /// Exact decoded ML-DSA authorization wrapper.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct PqMaspAuthorizationProofRefV1<'a> {
+pub struct PqMaspAuthorizationProofRefV1<'a> {
     /// Canonical ML-DSA-65 public key.
     pub(crate) public_key: &'a [u8],
     /// Canonical ML-DSA-65 detached signature.
@@ -256,7 +256,7 @@ fn validate_stark_proof_size_v1(stark_proof: &[u8]) -> Result<(), PqMaspWireErro
     Ok(())
 }
 /// Decode exactly one ML-DSA-65 authorization and inner STARK proof.
-pub(crate) fn decode_pq_masp_authorization_proof_v1(
+pub fn decode_pq_masp_authorization_proof_v1(
     bytes: &[u8],
 ) -> Result<PqMaspAuthorizationProofRefV1<'_>, PqMaspWireErrorV1> {
     if bytes.len() < PQ_MASP_AUTHORIZATION_HEADER_BYTES_V1
@@ -326,7 +326,7 @@ fn encode_authorization_proof_v1(
     Ok(bytes)
 }
 /// Sign a statement, consensus binding, and exact inner STARK with ML-DSA-65.
-pub(crate) fn authorize_pq_masp_stark_proof_v1(
+pub fn authorize_pq_masp_stark_proof_v1(
     statement_digest: PrivacyStatementDigestV1,
     consensus_binding_digest: PrivacyNativeConsensusBindingDigestV1,
     expected_key_digest: PrivacyAuthorizationKeyDigestV1,
@@ -357,7 +357,7 @@ pub(crate) fn authorize_pq_masp_stark_proof_v1(
     encode_authorization_proof_v1(&public_key, signature.as_bytes(), stark_proof)
 }
 /// Verify the ML-DSA-65 wrapper and return the exact inner STARK proof.
-pub(crate) fn verify_pq_masp_authorization_v1<'a>(
+pub fn verify_pq_masp_authorization_v1<'a>(
     statement_digest: PrivacyStatementDigestV1,
     consensus_binding_digest: PrivacyNativeConsensusBindingDigestV1,
     expected_key_digest: PrivacyAuthorizationKeyDigestV1,
@@ -533,7 +533,7 @@ pub fn validate_pq_masp_encrypted_output_v1(
     parse_encrypted_output_v1(output).map(|_| ())
 }
 /// Encrypt one fixed-width PQ-MASP note for an ML-KEM-768 recipient.
-pub(crate) fn encrypt_pq_masp_note_v1(
+pub fn encrypt_pq_masp_note_v1(
     statement: &PqMaspStarkStatementV1,
     note: &PqMaspNotePlaintextV1,
     recipient_public_key: &[u8],

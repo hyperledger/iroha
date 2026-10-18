@@ -268,6 +268,7 @@ export {
   canonicalRequestSignatureMessage,
   buildCanonicalRequestHeaders,
   buildCanonicalJsonRequest,
+  withCanonicalReadRetry,
 } from "./canonicalRequest.js";
 export {
   BOOTLE_LANTERN_ISSUANCE_AUTHORIZE_PATH_V1,
@@ -365,6 +366,10 @@ export {
   buildTransactionPayload,
   signQuotedTransactionPayload,
   quoteAndSignTransaction,
+  transactionPayloadSigningHash,
+  finalizeSignedTransaction,
+  prepareExternalSignerTransactionPayload,
+  feePaymentFromQuote,
   buildRegisterPinManifestInstruction,
   buildRegisterPinManifestTransaction,
   buildIvmProvedTransactionPayload,
@@ -532,11 +537,69 @@ export {
   buildCreateElectionInstruction,
   buildSubmitBallotInstruction,
   buildFinalizeElectionInstruction,
+  buildGrantSettlementConsentInstruction,
+  buildGrantAssetDefinitionAliasScopeInstruction,
+  buildSetAssetDefinitionKeyValueInstruction,
+  buildOpenConditionalEscrowInstruction,
+  buildAttestEscrowConditionInstruction,
+  buildExpireConditionalEscrowInstruction,
+  buildRepoInitiateInstruction,
+  buildRepoReverseInstruction,
   normalizeAccountId,
   normalizeAssetId,
   normalizeAssetHoldingId,
   normalizeRwaId,
 } from "./instructionBuilders.js";
+export {
+  generateAssetDefinitionId,
+  assetDefinitionIdFromSeed,
+  newEscrowId,
+  newSettlementId,
+  newRepoAgreementId,
+} from "./settlementIdentifiers.js";
+export {
+  buildSettleAtomicInstruction,
+  canonicalSettleAtomicInstruction,
+  settleAtomicIntentHash,
+  repoIntentHashes,
+} from "./settlementIntents.js";
+export { planDomainLease, SNS_DOMAIN_SUFFIX_ID } from "./domainLease.js";
+export { claimFaucet, faucetPowChallenge, faucetPowDigest } from "./accountFaucet.js";
+export {
+  BOND_CASHFLOW_KINDS,
+  BOND_COUPON_FREQUENCIES,
+  BOND_DAY_COUNTS,
+  BOND_MAX_CASHFLOWS,
+  BOND_MAX_PAYMENT_GRACE_MS,
+  BOND_RECORDING_PAGE_ENTRIES,
+  bondHolderPayment,
+  bondVaultAccountId,
+  buildBondSchedule,
+  buildCallBondInstruction,
+  buildClaimBondCashflowInstruction,
+  buildCloseBondCashflowInstruction,
+  buildDeclareBondDefaultInstruction,
+  buildFundBondCashflowInstruction,
+  buildRecordBondCashflowInstruction,
+  buildRegisterBondInstruction,
+  buildReplaceBondPayingAgentInstruction,
+  buildRetireBondTreasuryUnitsInstruction,
+  validateBondTerms,
+} from "./bond.js";
+export {
+  BOND_ENTITLEMENT_PAGE_MAX_ITEMS,
+  BOND_RECORD_PAGE_MAX_ITEMS,
+} from "./bondRecords.js";
+export {
+  reviewTransactionPayload,
+  sanitizeReviewText,
+  TRANSACTION_REVIEW_MAX_INSTRUCTIONS,
+  TRANSACTION_REVIEW_SCHEMA,
+} from "./transactionReview.js";
+export {
+  discoverNetworkIdentity,
+  NetworkIdentityMismatchError,
+} from "./networkIdentityDiscovery.js";
 export {
   resolveToriiClientConfig,
   extractToriiFeatureConfig,
@@ -649,7 +712,7 @@ export { buildCanonicalMultisigContractCall } from "./multisigContractCall.js";
 
 export { ConfidentialProver, ConfidentialProverError, computeConfidentialRoot, defaultConfidentialDiversifier, confidentialChangeToInput } from "./confidentialProofBuilders.js";
 
-export { inspectAccountViaNativeTransport } from "./nativeAccountInspection.js";
+export { inspectAccountViaNativeTransport, inspectToriiAccountIdentityViaNativeTransport } from "./nativeAccountInspection.js";
 export { requestNativeMultisigViaTransport, inspectNativeMultisigPrepareViaTransport, inspectNativeMultisigSignedViaTransport, queryNativeMultisigFinalityViaTransport, queryNativeMultisigProposalFinalityViaTransport } from "./nativeMultisigTransport.js";
 
 export { deriveMultisigProposalId } from "./multisigOccurrence.js";

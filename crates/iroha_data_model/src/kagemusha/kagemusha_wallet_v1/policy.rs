@@ -3,8 +3,10 @@
 //!
 //! Every object here is signed by a RegulatoryPolicy-role key, except the time anchor, which
 //! is signed by a TimeAnchor-role key. A control is active only when the credential permits it
-//! and the held scheme policy enables it; with every control off, no clock condition, list or
-//! quota blocks payment. Policies never undo completed credit (§7).
+//! and the held scheme policy enables it; with every control off, no clock condition or quota
+//! blocks payment. A wallet's blacklist is local only: it blocks listed counterparties natively
+//! ([`kagemusha_wallet_local_block_v1`]) and is never committed, proved or sent to a peer.
+//! Policies never undo completed credit (§7).
 
 use core::cmp::Ordering;
 
@@ -15,7 +17,7 @@ use super::{
     KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1, KAGEMUSHA_WALLET_CHARGE_QUOTE_MAX_BYTES_V1,
     KAGEMUSHA_WALLET_FEE_SCHEDULE_MAX_BYTES_V1, KAGEMUSHA_WALLET_QUOTA_SHARE_MAX_BYTES_V1,
     KAGEMUSHA_WALLET_SCHEME_POLICY_MAX_BYTES_V1, KAGEMUSHA_WALLET_TIME_ANCHOR_MAX_BYTES_V1,
-    WalletResult, WalletVersionsV1, decode_frame_v1,
+    KagemushaWalletValidationErrorV1, WalletResult, WalletVersionsV1, decode_frame_v1,
     digest::WalletFieldItemsV1,
     digest::{
         KagemushaWalletObjectDigestDomainV1 as ObjectDomain, KagemushaWalletSignerOutputV1,
@@ -25,25 +27,22 @@ use super::{
     },
     encode_frame_v1,
     identity::{
-        KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1, KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1,
-        KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1, KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1,
-        KagemushaWalletCredentialV1, KagemushaWalletSchemeV1, KagemushaWalletSignerCertificateV1,
-        KagemushaWalletSignerRoleV1,
+        KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1, KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1,
+        KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1, KagemushaWalletCredentialV1,
+        KagemushaWalletSchemeV1, KagemushaWalletSignerCertificateV1, KagemushaWalletSignerRoleV1,
     },
-    invalid_v1, is_zero_v1,
+    invalid_v1,
     keys::KagemushaDeviceSignatureV1,
     overflow_v1,
     poseidon::{
         KAGEMUSHA_WALLET_BLACKLIST_LEAF_DOMAIN_V1, KAGEMUSHA_WALLET_BLACKLIST_NODE_DOMAIN_V1,
         KAGEMUSHA_WALLET_QUOTA_NODE_DOMAIN_V1, KAGEMUSHA_WALLET_QUOTA_WINDOW_DOMAIN_V1,
-        KagemushaWalletIndexedInsertV1, KagemushaWalletIndexedLeafV1,
-        KagemushaWalletIndexedOpeningV1, kagemusha_wallet_integer_cmp_v1, poseidon_items_v1,
+        kagemusha_wallet_integer_cmp_v1, poseidon_items_v1,
     },
     require_canonical_field_v1, require_nonzero_field_v1, require_nonzero_v1, require_scheme_v1,
     require_version_v1,
     state::{
-        KagemushaWalletBlacklistHistoryLeafV1, KagemushaWalletEffectV1,
-        KagemushaWalletPolicyUpdateKindV1, KagemushaWalletQuotaOpeningV1,
+        KagemushaWalletEffectV1, KagemushaWalletPolicyUpdateKindV1, KagemushaWalletQuotaOpeningV1,
         KagemushaWalletQuotaUsageArrayV1, KagemushaWalletQuotaUsageLeafV1,
         KagemushaWalletStateCoreV1, KagemushaWalletStateRestV1, KagemushaWalletStateV1,
         quota_tree_levels_v1, quota_tree_opening_v1,
@@ -74,10 +73,6 @@ pub const KAGEMUSHA_WALLET_BLACKLIST_ENTRIES_MAX_V1: u32 = KAGEMUSHA_WALLET_BLAC
 pub const KAGEMUSHA_WALLET_BLACKLIST_SENTINEL_LOW_V1: [u8; 32] = [0x00; 32];
 /// Upper sentinel of the gap sequence; never a valid entry.
 pub const KAGEMUSHA_WALLET_BLACKLIST_SENTINEL_HIGH_V1: [u8; 32] = [0xff; 32];
-/// Exact transcript bytes of one retained blacklist gap opening: `lower || upper || LE32
-/// leaf_index || 16 siblings` (580).
-pub const KAGEMUSHA_WALLET_BLACKLIST_GAP_OPENING_TRANSCRIPT_BYTES_V1: usize =
-    2 * 32 + 4 + KAGEMUSHA_WALLET_BLACKLIST_TREE_DEPTH_V1 * 32;
 /// Fixed depth of the quota windows tree and of the quota-usage array.
 pub const KAGEMUSHA_WALLET_QUOTA_TREE_DEPTH_V1: usize = 6;
 /// Window slots of one quota share.
@@ -783,114 +778,6 @@ pub fn kagemusha_wallet_blacklist_root_v1(
         .ok_or_else(|| invalid_v1("blacklist.entries"))
 }
 
-/// Non-membership opening of one account: the gap leaf `(lower, upper)` with
-/// `lower < account < upper` in limb order and its sibling path (§7, design §6.3).
-///
-/// This is a native helper and in-circuit witness; it is never transmitted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct KagemushaWalletBlacklistGapOpeningV1 {
-    /// Gap leaf index, below [`KAGEMUSHA_WALLET_BLACKLIST_LEAVES_V1`].
-    pub leaf_index: u32,
-    /// Lower sentinel or entry of the gap.
-    pub lower: [u8; 32],
-    /// Upper entry or sentinel of the gap.
-    pub upper: [u8; 32],
-    /// Sibling σ-field values from the leaf level upward.
-    pub siblings: [[u8; 32]; KAGEMUSHA_WALLET_BLACKLIST_TREE_DEPTH_V1],
-}
-
-impl KagemushaWalletBlacklistGapOpeningV1 {
-    /// Recompute the Poseidon tree root along the sibling path.
-    ///
-    /// # Errors
-    ///
-    /// Rejects a leaf index outside the tree and a noncanonical sibling.
-    pub fn root(&self) -> WalletResult<[u8; 32]> {
-        if self.leaf_index >= KAGEMUSHA_WALLET_BLACKLIST_LEAVES_V1 {
-            return Err(invalid_v1("blacklist.leaf_index"));
-        }
-        let mut node = kagemusha_wallet_blacklist_leaf_v1(&self.lower, &self.upper);
-        let mut position = self.leaf_index;
-        for sibling in &self.siblings {
-            node = if position & 1 == 0 {
-                kagemusha_wallet_blacklist_node_v1(&node, sibling)?
-            } else {
-                kagemusha_wallet_blacklist_node_v1(sibling, &node)?
-            };
-            position >>= 1;
-        }
-        Ok(node)
-    }
-
-    /// Exact retained transcript (580 bytes, owner answer B6): `lower || upper || LE32
-    /// leaf_index || siblings`, height 0 first. The receiver retains it with each Request it
-    /// issues under an enforced list, for its Receive and any `σ_recv` re-proof.
-    #[must_use]
-    pub fn transcript(&self) -> Vec<u8> {
-        let mut transcript = WalletTranscriptV1::with_capacity(
-            KAGEMUSHA_WALLET_BLACKLIST_GAP_OPENING_TRANSCRIPT_BYTES_V1,
-        )
-        .digest(&self.lower)
-        .digest(&self.upper)
-        .u32(self.leaf_index);
-        for sibling in &self.siblings {
-            transcript = transcript.digest(sibling);
-        }
-        transcript.finish()
-    }
-
-    /// Parse one retained transcript ([`Self::transcript`]).
-    ///
-    /// # Errors
-    ///
-    /// Rejects another length, a leaf index outside the tree and a noncanonical sibling.
-    pub fn from_transcript(bytes: &[u8]) -> WalletResult<Self> {
-        if bytes.len() != KAGEMUSHA_WALLET_BLACKLIST_GAP_OPENING_TRANSCRIPT_BYTES_V1 {
-            return Err(invalid_v1("blacklist_gap.transcript"));
-        }
-        let mut lower = [0_u8; 32];
-        let mut upper = [0_u8; 32];
-        let mut index = [0_u8; 4];
-        lower.copy_from_slice(&bytes[..32]);
-        upper.copy_from_slice(&bytes[32..64]);
-        index.copy_from_slice(&bytes[64..68]);
-        let leaf_index = u32::from_le_bytes(index);
-        if leaf_index >= KAGEMUSHA_WALLET_BLACKLIST_LEAVES_V1 {
-            return Err(invalid_v1("blacklist.leaf_index"));
-        }
-        let mut siblings = [[0_u8; 32]; KAGEMUSHA_WALLET_BLACKLIST_TREE_DEPTH_V1];
-        for (sibling, chunk) in siblings.iter_mut().zip(bytes[68..].chunks_exact(32)) {
-            sibling.copy_from_slice(chunk);
-            require_canonical_field_v1("blacklist_gap.sibling", sibling)?;
-        }
-        Ok(Self {
-            leaf_index,
-            lower,
-            upper,
-            siblings,
-        })
-    }
-
-    /// Verify that `account_digest` lies strictly inside this gap of the tree `entries_root`, in
-    /// limb order.
-    ///
-    /// # Errors
-    ///
-    /// Rejects an account outside the gap (a listed account or a sentinel) and a path that
-    /// does not reach `entries_root`.
-    pub fn verify(&self, entries_root: &[u8; 32], account_digest: &[u8; 32]) -> WalletResult<()> {
-        if kagemusha_wallet_integer_cmp_v1(&self.lower, account_digest) != Ordering::Less
-            || kagemusha_wallet_integer_cmp_v1(account_digest, &self.upper) != Ordering::Less
-        {
-            return Err(invalid_v1("blacklist.listed"));
-        }
-        if self.root()? != *entries_root {
-            return Err(invalid_v1("blacklist.opening"));
-        }
-        Ok(())
-    }
-}
-
 /// Body of a blacklist, signed by a RegulatoryPolicy-role key under `kgwblst1`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
@@ -989,15 +876,16 @@ impl KagemushaWalletBlacklistBodyV1 {
 /// Complete signed blacklist with its entries strictly ascending in limb order (§7, owner
 /// answer A4).
 ///
-/// The list is not a peer message: a wallet downloads it only while online, from the issuer
-/// or ledger, as one standalone canonical frame of at most
-/// [`KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1`] bytes ([`Self::to_canonical_bytes`],
-/// [`Self::decode_canonical`]), and peers never relay it. Offline, the wallet applies the held
-/// list through `RefreshPolicy` and proves a counterparty's non-membership with a local
-/// [`KagemushaWalletBlacklistGapOpeningV1`]: the payer proves the receiver's account absent
-/// from its own committed list, and the receiver the payer's (owner answer A5). Lists are best
-/// effort: different phones can and will hold different lists, each enforces only its own, and
-/// a later list never invalidates a completed payment.
+/// The list is local only (owner decision 2026-10-17): a wallet installs it as one standalone
+/// canonical frame of at most [`KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1`] bytes
+/// ([`Self::to_canonical_bytes`], [`Self::decode_canonical`]) after verifying it under its
+/// RegulatoryPolicy signer ([`Self::verify`]), replacing a held list only for a higher
+/// `list_version`. It is never committed in wallet state, proved by any σ, Λ or Ω, or carried
+/// in a peer message. With a list held, the payer refuses to pay a listed receiver account and
+/// the receiver refuses to quote for or accept money from a listed payer account
+/// ([`kagemusha_wallet_local_block_v1`]). Lists are best effort: different phones can and will
+/// hold different lists, each enforces only its own, and a later list never invalidates a
+/// completed payment.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletBlacklistV1"
@@ -1055,53 +943,6 @@ impl KagemushaWalletBlacklistV1 {
                 kagemusha_wallet_integer_cmp_v1(&entry.account_digest, account_digest)
             })
             .is_ok()
-    }
-
-    /// Non-membership opening of `account_digest`.
-    ///
-    /// # Errors
-    ///
-    /// Rejects a listed or sentinel-valued account and invalid entries.
-    pub fn gap_opening(
-        &self,
-        account_digest: &[u8; 32],
-    ) -> WalletResult<KagemushaWalletBlacklistGapOpeningV1> {
-        if *account_digest == KAGEMUSHA_WALLET_BLACKLIST_SENTINEL_LOW_V1
-            || *account_digest == KAGEMUSHA_WALLET_BLACKLIST_SENTINEL_HIGH_V1
-        {
-            return Err(invalid_v1("blacklist.account_digest"));
-        }
-        let index = self.entries.partition_point(|entry| {
-            kagemusha_wallet_integer_cmp_v1(&entry.account_digest, account_digest) == Ordering::Less
-        });
-        let upper = self
-            .entries
-            .get(index)
-            .map_or(KAGEMUSHA_WALLET_BLACKLIST_SENTINEL_HIGH_V1, |entry| {
-                entry.account_digest
-            });
-        if upper == *account_digest {
-            return Err(invalid_v1("blacklist.listed"));
-        }
-        let lower = index
-            .checked_sub(1)
-            .and_then(|previous| self.entries.get(previous))
-            .map_or(KAGEMUSHA_WALLET_BLACKLIST_SENTINEL_LOW_V1, |entry| {
-                entry.account_digest
-            });
-        let (levels, padding) = blacklist_levels_v1(&self.entries)?;
-        let mut siblings = [[0; 32]; KAGEMUSHA_WALLET_BLACKLIST_TREE_DEPTH_V1];
-        let mut position = index;
-        for ((sibling, level), pad) in siblings.iter_mut().zip(&levels).zip(&padding) {
-            *sibling = level.get(position ^ 1).copied().unwrap_or(*pad);
-            position >>= 1;
-        }
-        Ok(KagemushaWalletBlacklistGapOpeningV1 {
-            leaf_index: u32::try_from(index).map_err(|_| overflow_v1("blacklist.leaf_index"))?,
-            lower,
-            upper,
-            siblings,
-        })
     }
 
     /// Validate the list's self-contained rules: body, signature encoding, entries and root.
@@ -1163,6 +1004,25 @@ impl KagemushaWalletBlacklistV1 {
         list.validate()?;
         Ok(list)
     }
+}
+
+/// Local blacklist block (owner decision 2026-10-17): refuse a counterparty whose
+/// `account_digest` the wallet's held, authenticated `list` contains. With no list held nothing
+/// is refused. The payer calls it on the Request's receiver account before Send, the receiver on
+/// the payer account before it issues a Request and again before it accepts a Payment.
+///
+/// # Errors
+///
+/// [`KagemushaWalletValidationErrorV1::BlockedAccount`] when `list` contains `account_digest`.
+pub fn kagemusha_wallet_local_block_v1(
+    list: Option<&KagemushaWalletBlacklistV1>,
+    field: &'static str,
+    account_digest: &[u8; 32],
+) -> WalletResult<()> {
+    if list.is_some_and(|list| list.contains(account_digest)) {
+        return Err(KagemushaWalletValidationErrorV1::BlockedAccount { field });
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------
@@ -2438,15 +2298,6 @@ pub enum KagemushaWalletPolicyUpdateV1<'a> {
         /// Signed scheme policy.
         policy: &'a KagemushaWalletSchemePolicyV1,
     },
-    /// Newer blacklist and its insertion into the blacklist history (owner answer B6).
-    Blacklist {
-        /// Complete signed blacklist.
-        list: &'a KagemushaWalletBlacklistV1,
-        /// Insertion witness of `(list_version, entries_root)` against the predecessor's
-        /// `blacklist_history_root`, from the native history store
-        /// ([`super::KagemushaWalletBlacklistHistoryLeafV1::insert_into`]).
-        history: &'a KagemushaWalletIndexedInsertV1,
-    },
     /// Newer quota share and the predecessor's quota-usage array (owner answers B4, B5).
     QuotaShare {
         /// Signed quota share.
@@ -2469,7 +2320,6 @@ impl KagemushaWalletPolicyUpdateV1<'_> {
         match self {
             Self::Credential { .. } => KagemushaWalletPolicyUpdateKindV1::Credential,
             Self::SchemePolicy { .. } => KagemushaWalletPolicyUpdateKindV1::SchemePolicy,
-            Self::Blacklist { .. } => KagemushaWalletPolicyUpdateKindV1::Blacklist,
             Self::QuotaShare { .. } => KagemushaWalletPolicyUpdateKindV1::QuotaShare,
             Self::TimeAnchor { .. } => KagemushaWalletPolicyUpdateKindV1::TimeAnchor,
         }
@@ -2479,10 +2329,9 @@ impl KagemushaWalletPolicyUpdateV1<'_> {
 /// Successor policy fields of one `RefreshPolicy` transition.
 ///
 /// `core` and `rest` are the predecessor's with the update applied to the policy fields
-/// (credential digest, enabled controls, policy epoch, blacklist version, root and issue time,
-/// quota windows root, share expiry and usage root, lease and accepted-time floor in the core;
-/// scheme policy, fee schedule, blacklist, quota share, time anchor and blacklist-history root
-/// in the rest). Sequence, balance, ordinals, chains, the indexed map roots and nonce are
+/// (credential digest, enabled controls, policy epoch, quota windows root, share expiry and
+/// usage root, lease and accepted-time floor in the core; scheme policy, fee schedule, quota
+/// share and time anchor in the rest). Sequence, balance, ordinals, chains, the indexed map roots and nonce are
 /// unchanged: the transition owner advances them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KagemushaWalletPolicyRefreshV1 {
@@ -2502,12 +2351,11 @@ pub struct KagemushaWalletPolicyRefreshV1 {
 impl KagemushaWalletStateV1 {
     /// Apply one authenticated policy update (§7, design C5 and C6; owner answers B4 to B8).
     ///
-    /// Epochs, list versions and share ids strictly increase; a time anchor must differ from
-    /// the committed one, so no two transitions share an operation ID; a replacement
-    /// credential must be the exact successor of the current one; the new floor is
-    /// `F = max(old floor, t)` with `t` the update's signed time (the old floor for a scheme
-    /// policy). A Blacklist update also inserts `(list_version, entries_root)` into the
-    /// blacklist history. A `QuotaShare` update requires every window to be longer than
+    /// Epochs and share ids strictly increase; a time anchor must differ from the committed
+    /// one, so no two transitions share an operation ID; a replacement credential must be the
+    /// exact successor of the current one; the new floor is `F = max(old floor, t)` with `t` the
+    /// update's signed time (the old floor for a scheme policy). A `QuotaShare` update requires
+    /// every window to be longer than
     /// `time_anchor_max_response_ms`, sets `quota_share_expires_at_ms` to the share's expiry and
     /// rebuilds the quota-usage array from the predecessor's
     /// ([`KagemushaWalletQuotaUsageArrayV1::rebuild_for_share`]); every other update keeps
@@ -2516,10 +2364,9 @@ impl KagemushaWalletStateV1 {
     /// # Errors
     ///
     /// Rejects an invalid state or update, an update for another scheme, asset or wallet, a
-    /// non-increasing epoch, version or share id, the already committed time anchor, an
-    /// invalid replacement credential, a history insertion that is not the new list's pair
-    /// under the predecessor's history root, a usage array other than the predecessor's, and
-    /// what the quota-usage rebuild rejects.
+    /// non-increasing epoch or share id, the already committed time anchor, an invalid
+    /// replacement credential, a usage array other than the predecessor's, and what the
+    /// quota-usage rebuild rejects.
     pub fn refresh_policy(
         &self,
         update: KagemushaWalletPolicyUpdateV1<'_>,
@@ -2562,33 +2409,6 @@ impl KagemushaWalletStateV1 {
                     scheme_policy.body.enabled_controls & old_rest.permitted_controls;
                 rest.fee_schedule = scheme_policy.body.fee_schedule;
                 (rest.scheme_policy, old_core.accepted_time_floor_ms)
-            }
-            KagemushaWalletPolicyUpdateV1::Blacklist { list, history } => {
-                list.validate()?;
-                require_scheme_v1(
-                    "blacklist.scheme_id",
-                    &list.body.scheme_id,
-                    &old_core.scheme_id,
-                )?;
-                if list.body.list_version <= old_core.blacklist_version {
-                    return Err(invalid_v1("blacklist.list_version"));
-                }
-                let entry = KagemushaWalletBlacklistHistoryLeafV1 {
-                    list_version: list.body.list_version,
-                    entries_root: list.body.entries_root,
-                };
-                rest.blacklist_history_root = history
-                    .verify(
-                        &old_rest.blacklist_history_root,
-                        &entry.key(),
-                        &entry.leaf_value()?,
-                    )
-                    .map_err(|_| invalid_v1("blacklist_history.insert"))?;
-                rest.blacklist = list.blacklist_digest();
-                core.blacklist_version = list.body.list_version;
-                core.blacklist_root = list.body.entries_root;
-                core.blacklist_issued_at_ms = list.body.issued_at_ms;
-                (rest.blacklist, list.body.issued_at_ms)
             }
             KagemushaWalletPolicyUpdateV1::QuotaShare { share, usage } => {
                 share.validate()?;
@@ -2719,148 +2539,6 @@ impl KagemushaWalletStateV1 {
         Ok(())
     }
 
-    /// Whether this state enforces its committed blacklist: the BLACKLIST control is enabled
-    /// and a list is held (`blacklist_version ≥ 1`). With version 0 no account is refused and no
-    /// age rule applies (owner answer A5).
-    #[must_use]
-    pub const fn enforces_blacklist(&self) -> bool {
-        self.is_active(KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1) && self.core.blacklist_version != 0
-    }
-
-    /// The receiver blacklist decision a Request issued from this head records (owner answer
-    /// B6): the committed `(blacklist_version, blacklist_root)` while the state enforces its
-    /// list ([`Self::enforces_blacklist`]), and `(0, 0)` otherwise.
-    #[must_use]
-    pub const fn request_blacklist_decision(&self) -> (u64, [u8; 32]) {
-        if self.enforces_blacklist() {
-            (self.core.blacklist_version, self.core.blacklist_root)
-        } else {
-            (0, [0; 32])
-        }
-    }
-
-    /// Committed list of an enforcing state: `list` must be the held one.
-    fn committed_blacklist<'a>(
-        &self,
-        list: Option<&'a KagemushaWalletBlacklistV1>,
-    ) -> WalletResult<&'a KagemushaWalletBlacklistV1> {
-        let list = list.ok_or_else(|| invalid_v1("blacklist.missing"))?;
-        if list.blacklist_digest() != self.rest.blacklist {
-            return Err(invalid_v1("state.rest.blacklist"));
-        }
-        Ok(list)
-    }
-
-    /// Non-membership of `account_digest` in the committed list, as a verified gap opening
-    /// against the head-committed `blacklist_root`.
-    fn blacklist_gap(
-        &self,
-        list: &KagemushaWalletBlacklistV1,
-        account_digest: &[u8; 32],
-    ) -> WalletResult<KagemushaWalletBlacklistGapOpeningV1> {
-        let opening = list.gap_opening(account_digest)?;
-        opening.verify(&self.core.blacklist_root, account_digest)?;
-        Ok(opening)
-    }
-
-    /// Payer-side blacklist part of the Send pre-check (§7, design C6, owner answer A5): the
-    /// payer's own committed list must not contain the receiver's account.
-    ///
-    /// Enforced only while [`Self::enforces_blacklist`]; returns the gap opening that witnesses
-    /// non-membership (which `σ_send` proves), or `None` when no list is enforced. The list
-    /// issue time and maximum age are core fields, so `σ_send` enforces the age rule too (owner
-    /// answer Q5); the age rule applies to Send only.
-    ///
-    /// # Errors
-    ///
-    /// Rejects a missing or uncommitted list, a list older than the list-age rule (checked
-    /// subtraction; underflow rejects), and a listed receiver.
-    pub(super) fn check_send_blacklist(
-        &self,
-        list: Option<&KagemushaWalletBlacklistV1>,
-        receiver_account_digest: &[u8; 32],
-        interval: &KagemushaWalletTimeIntervalV1,
-    ) -> WalletResult<Option<KagemushaWalletBlacklistGapOpeningV1>> {
-        if !self.enforces_blacklist() {
-            return Ok(None);
-        }
-        let list = self.committed_blacklist(list)?;
-        let max_age_ms = self.core.blacklist_max_age_ms;
-        if max_age_ms > 0 {
-            let age_ms = interval
-                .upper_ms
-                .checked_sub(self.core.blacklist_issued_at_ms)
-                .ok_or_else(|| overflow_v1("blacklist.age"))?;
-            if age_ms > max_age_ms {
-                return Err(invalid_v1("blacklist.age"));
-            }
-        }
-        self.blacklist_gap(list, receiver_account_digest).map(Some)
-    }
-
-    /// Receiver-side blacklist part of the Request rule (§7; owner answers A5 and B6): the
-    /// receiver's own committed list must not contain the payer's account when it issues a
-    /// Request. This is the only time the receiver's list is judged; Receive checks the decision
-    /// the Request recorded ([`Self::check_recorded_blacklist`]).
-    ///
-    /// Enforced only while [`Self::enforces_blacklist`]; no list-age rule applies. Returns the
-    /// gap opening that witnesses non-membership, or `None` when no list is enforced.
-    ///
-    /// # Errors
-    ///
-    /// Rejects a missing or uncommitted list and a listed payer.
-    pub(super) fn check_request_blacklist(
-        &self,
-        list: Option<&KagemushaWalletBlacklistV1>,
-        payer_account_digest: &[u8; 32],
-    ) -> WalletResult<Option<KagemushaWalletBlacklistGapOpeningV1>> {
-        if !self.enforces_blacklist() {
-            return Ok(None);
-        }
-        let list = self.committed_blacklist(list)?;
-        self.blacklist_gap(list, payer_account_digest).map(Some)
-    }
-
-    /// Receive rule against the blacklist decision a Request recorded (§3.4; owner answer B6,
-    /// technical decision Q9), run on the head that receives.
-    ///
-    /// A recorded `(0, 0)` needs no check. For a nonzero `(version, root)`, `proof` must carry
-    /// the authenticated history lookup of `version` against this head's
-    /// `blacklist_history_root`, finding exactly `root`, and the gap opening retained with the
-    /// Request, showing `payer_account_digest` absent from `root`. The head's current list and
-    /// controls neither excuse the check nor add one.
-    ///
-    /// # Errors
-    ///
-    /// Rejects an inconsistent recorded pair, a missing proof for a nonzero pair, a history
-    /// lookup of another version or root or that does not open under this head's history root,
-    /// and a gap opening that does not show the payer absent from the recorded root.
-    pub(super) fn check_recorded_blacklist(
-        &self,
-        version: u64,
-        root: &[u8; 32],
-        payer_account_digest: &[u8; 32],
-        proof: Option<&KagemushaWalletRecordedBlacklistProofV1>,
-    ) -> WalletResult<()> {
-        if (version == 0) != is_zero_v1(root) {
-            return Err(invalid_v1("request.receiver_blacklist"));
-        }
-        if version == 0 {
-            return Ok(());
-        }
-        let proof = proof.ok_or_else(|| invalid_v1("blacklist.recorded"))?;
-        KagemushaWalletBlacklistHistoryLeafV1 {
-            list_version: version,
-            entries_root: *root,
-        }
-        .verify_membership(
-            &self.rest.blacklist_history_root,
-            &proof.history_leaf,
-            &proof.history_opening,
-        )?;
-        proof.gap.verify(root, payer_account_digest)
-    }
-
     /// Quota part of the Send pre-check for gross `amount + fee` (§§3.3, 7; owner answers B5,
     /// B7 and B8, technical decision Q7).
     ///
@@ -2934,20 +2612,6 @@ impl KagemushaWalletStateV1 {
         }
         Ok((charges, next_usage))
     }
-}
-
-/// Native proof of a Request's recorded receiver blacklist decision at Receive (§3.4; owner
-/// answer B6, technical decision Q9): the history lookup of the recorded version in the
-/// receiving head's blacklist history and the gap opening the receiver retained with the
-/// Request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct KagemushaWalletRecordedBlacklistProofV1 {
-    /// Blacklist-history leaf of the recorded version.
-    pub history_leaf: KagemushaWalletIndexedLeafV1,
-    /// Opening of that leaf against the receiving head's `blacklist_history_root`.
-    pub history_opening: KagemushaWalletIndexedOpeningV1,
-    /// Gap opening of the payer's account in the recorded root, retained with the Request.
-    pub gap: KagemushaWalletBlacklistGapOpeningV1,
 }
 
 // ---------------------------------------------------------------------------------------

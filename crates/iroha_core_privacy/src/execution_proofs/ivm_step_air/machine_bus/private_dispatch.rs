@@ -645,7 +645,7 @@ fn append_control_residues<'a>(
         out.push(p[RETURN_REGISTER][BEFORE + i].sub(limb(row, 8, i)));
         let immediate = weighted(&|_, w| {
             if matches!(role(w), Some(Role::Store | Role::Load)) {
-                constant_limb(i64::from(wide::imm8(w)) as u64, i)
+                constant_limb(i64::cast_unsigned(i64::from(wide::imm8(w))), i)
             } else {
                 F::ZERO
             }

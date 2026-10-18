@@ -9,6 +9,7 @@ as its explicit replay position.
 | --- | --- | --- |
 | `GET /v1/events/sse` | UTF-8 JSON Server-Sent Events | none; live events after subscription only |
 | `GET /v1/contracts/events/sse` | UTF-8 JSON Server-Sent Events | none; payload `event_id` is for deduplication only |
+| `GET /v1/accounts/{account_id}/history/sse` | UTF-8 JSON Server-Sent Events | none; read the first history page after the stream opens and deduplicate by row `id` |
 | `GET /v1/events/ws` | framed Norito WebSocket | none; live events after subscription only |
 | `GET /v1/blocks/stream` | framed Norito WebSocket | required non-zero start height in `BlockSubscriptionRequest` |
 
@@ -85,6 +86,21 @@ not emit it as an SSE `id:` field. Duplicate committed/applied notifications for
 the same block height are suppressed within a connection; projected events are
 emitted in committed block/transaction order.
 
+`/v1/accounts/{account_id}/history/sse` emits `event: movement` plus one JSON
+`data:` field per account-history row: exactly the row that
+`/v1/accounts/{account_id}/history` returns for that (block height, block
+index, movement index) position under the caller's current dataspace
+visibility (see [Account-history stream](collection_queries.md#account-history-stream)).
+The stream follows the canonical successors of the committed State published
+at admission and wakes on State publication, so every later height is
+projected exactly once and rows are emitted oldest first. The optional
+`filter` query parameter uses the account-history collection grammar; `limit`,
+`cursor`, `sort`, `select`, `aggregate` and `include_total` are rejected with
+`400`. No SSE `id:` field is emitted. A height backlog beyond the history
+serving limit ends the stream with the terminal `stream_lagged`, a height that
+cannot be read ends it with `stream_history_unavailable`, and a query-memory
+refusal ends it with `stream_history_capacity`.
+
 An idle SSE connection receives this comment at most every 15 seconds:
 
 ```text
@@ -109,7 +125,7 @@ Both are terminal and set `dropped_messages` to `null`.
 
 ## SSE resume and reconnect
 
-Neither canonical SSE route retains a replay log. Any presence of
+None of the canonical SSE routes retains a replay log. Any presence of
 `Last-Event-ID`, including an empty or repeated field, fails establishment with
 HTTP `400`, `X-Iroha-Stream-Error: stream_resume_unsupported`, and a native
 `text/event-stream` `stream_error` body. This is intentional: silently ignoring
@@ -120,6 +136,12 @@ a gap. There is no atomic snapshot-to-SSE handoff in `/v1`. Authorized global
 readers that need complete, ordered ledger history may use
 `/v1/blocks/stream` from a known height and derive the relevant committed
 events. Other callers use the dataspace-filtered Explorer summaries.
+
+The account-history stream is the exception for its own rows: it starts at
+the first height after the State published at admission, so a client that
+opens it and, once it is open, reads the first page of
+`/v1/accounts/{account_id}/history` sees every row exactly once after
+deduplicating by row `id`. Do the same after every reconnect.
 
 Explorer block, transaction, and instruction streams suppress repeated or
 stale block heights within one connection, so paired committed/applied

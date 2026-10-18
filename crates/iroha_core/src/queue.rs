@@ -5981,11 +5981,13 @@ pub mod tests {
             &lane_catalog,
         )
         .expect("initialize authenticated future-created autoscale Kura");
+        let constructor_world = world_with_test_domains();
         let mut state = State::try_new(
-            crate::state::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
-            world_with_test_domains(),
+            constructor_world
+                .sccp_committee_generations
+                .allocation_budget()
+                .clone(),
+            constructor_world,
             kura,
             LiveQueryStore::start_test(),
             #[cfg(feature = "telemetry")]

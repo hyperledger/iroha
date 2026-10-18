@@ -515,7 +515,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
     ///
     /// The embedding app calls this from trusted native initialization, using independently
     /// deployed pins and authenticated genesis. It authenticates the complete signed verifier
-    /// pack, inventory, all 52 source routes and every original proving key before retaining
+    /// pack, inventory, all 22 source routes and every original proving key before retaining
     /// a runtime. Missing deployment material is unavailable, never a default trust root.
     /// # Errors
     /// Invalid signatures, mismatched native configuration, incomplete source graphs or I/O.

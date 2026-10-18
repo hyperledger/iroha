@@ -6,8 +6,7 @@
 //! at that precise native endpoint. No private product is inverted.
 
 /// Independent supplemental batching after both complete DEEP records.
-pub(crate) const CA_EXTRA_MIX_LABEL_V1: &[u8] =
-    b"iroha:privacy:zk-x509:ca-original-auxiliary-deep-mix:v1";
+pub const CA_EXTRA_MIX_LABEL_V1: &[u8] = b"iroha:privacy:zk-x509:ca-original-auxiliary-deep-mix:v1";
 
 use super::super::accumulator_air::ZK_X509_CA_ACCUMULATOR_NONPADDING_ROWS_V1;
 use super::super::sha_call_bus_stark::{
@@ -18,11 +17,11 @@ use super::*;
 use crate::privacy_engines::transparent_stark::GOLDILOCKS_GENERATOR_V1;
 
 /// One quotient for every CA source/digest lane and root-SPKI lane.
-pub(crate) const CA_MAIN_LINK_COUNT_V1: usize = 108;
+pub const CA_MAIN_LINK_COUNT_V1: usize = 108;
 /// The three physical SHA segments each need two families and four lanes.
-pub(crate) const CA_MAIN_EXTRA_OPENINGS_V1: usize = 24;
+pub const CA_MAIN_EXTRA_OPENINGS_V1: usize = 24;
 /// Each native CA row/column translation is distinct within its column.
-pub(crate) const CA_EXTRA_OPENINGS_V1: usize = 108;
+pub const CA_EXTRA_OPENINGS_V1: usize = 108;
 const MAIN_LOG_V1: u8 = 19;
 const MAIN_ROWS_V1: usize = 1 << MAIN_LOG_V1;
 const CA_TO_MAIN_STRIDE_V1: usize = 1 << (MAIN_LOG_V1 - ZK_X509_CA_ACCUMULATOR_TRACE_LOG2_V1);
@@ -31,7 +30,7 @@ const DESCRIPTOR_V1: &[u8] = b"13-required-ca-calls:source+digest:4-independent-
 
 /// Original MAIN auxiliary owner and its local column, never caller-selected.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum MainCaColumnV1 {
+pub enum MainCaColumnV1 {
     /// One of the original four physical SHA registrations.
     Sha {
         /// Physical segment identifier.
@@ -47,7 +46,7 @@ pub(crate) enum MainCaColumnV1 {
 }
 /// A separately authenticated evaluation of an original MAIN auxiliary column.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct MainCaExtraOpeningV1 {
+pub struct MainCaExtraOpeningV1 {
     /// Original owner and local auxiliary column.
     pub(crate) column: MainCaColumnV1,
     /// Native-root multiplier applied to the shared DEEP point.
@@ -55,7 +54,7 @@ pub(crate) struct MainCaExtraOpeningV1 {
 }
 /// A separately authenticated evaluation of an original CA auxiliary column.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct CaExtraOpeningV1 {
+pub struct CaExtraOpeningV1 {
     /// Original CA auxiliary column.
     pub(crate) column: u16,
     /// Native-root multiplier applied to the shared DEEP point.
@@ -63,7 +62,7 @@ pub(crate) struct CaExtraOpeningV1 {
 }
 /// Public quotient coordinates. The optional start is absent only for root SPKI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct CaMainLinkV1 {
+pub struct CaMainLinkV1 {
     /// Original MAIN auxiliary owner evaluated at the shared point.
     pub(crate) main: MainCaColumnV1,
     /// Index of the separately authenticated MAIN start opening.
@@ -78,7 +77,7 @@ pub(crate) struct CaMainLinkV1 {
 
 /// The closed source plan contains only public topology and challenge constants.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CaMainPrivateLinkPlanV1 {
+pub struct CaMainPrivateLinkPlanV1 {
     links: [CaMainLinkV1; CA_MAIN_LINK_COUNT_V1],
     main_openings: [MainCaExtraOpeningV1; CA_MAIN_EXTRA_OPENINGS_V1],
     ca_openings: [CaExtraOpeningV1; CA_EXTRA_OPENINGS_V1],

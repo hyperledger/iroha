@@ -255,12 +255,13 @@ fn structured_tampers_are_rejected_with_typed_reasons() {
                 setup.verify(&instances, &tampered)
             };
             if *point {
-                assert_eq!(
-                    replace(&[0; 32]),
-                    Err(VerifyError::Transcript(TranscriptError::IdentityPoint)),
-                    "message {index}"
-                );
                 let last = suffix && index + 1 == kinds.len();
+                let zero_error = if last {
+                    VerifyError::Ipa(IpaError::FoldedGeneratorMismatch)
+                } else {
+                    VerifyError::Transcript(TranscriptError::IdentityPoint)
+                };
+                assert_eq!(replace(&[0; 32]), Err(zero_error), "message {index}");
                 let other = replace(&generator);
                 if last {
                     assert_eq!(
@@ -655,6 +656,8 @@ where
     // This is the actual API used by recursive consumers, including native
     // operation source preparation. The final unabsorbed suffix can solve its
     // succinct equation, but cannot change any earlier transcript challenge.
+    let memo_before = setup.params.verification_memo_sizes();
+    let reads_before = proof_reads_for_test();
     let pending = accumulate_generator(
         &setup.params,
         binding,
@@ -664,6 +667,20 @@ where
         BUDGET,
     )
     .expect("a solved false opening remains an undecided obligation");
+    assert_eq!(proof_reads_for_test() - reads_before, 1);
+    assert_eq!(setup.params.verification_memo_sizes(), memo_before);
+    let replay = accumulate_generator(
+        &setup.params,
+        binding,
+        vk,
+        &false_statement,
+        &forged,
+        BUDGET,
+    )
+    .expect("succinct-only miss remains correctable on replay");
+    assert_eq!(replay, pending);
+    assert_eq!(proof_reads_for_test() - reads_before, 2);
+    assert_eq!(setup.params.verification_memo_sizes(), memo_before);
     assert_eq!(pending.g(), &solved);
     assert_eq!(pending.challenges(), challenges);
     assert!(pending.decide(&setup.params, BUDGET).is_err());

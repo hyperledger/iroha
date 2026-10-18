@@ -5211,7 +5211,7 @@ mod tests {
                     250,
                     1000,
                     1,
-                    iroha_data_model::repo::RepoGovernance::with_defaults(1_000, 60),
+                    iroha_data_model::repo::RepoGovernance::new(1_000, 60, false),
                     None,
                 );
                 tx.world.insert_repo_agreement_entry(agreement);
@@ -7548,7 +7548,7 @@ mod tests {
                 250,
                 1_000,
                 1,
-                iroha_data_model::repo::RepoGovernance::with_defaults(1_000, 60),
+                iroha_data_model::repo::RepoGovernance::new(1_000, 60, false),
                 None,
             ));
         let err = Unregister::asset_definition(asset_definition_id.clone())

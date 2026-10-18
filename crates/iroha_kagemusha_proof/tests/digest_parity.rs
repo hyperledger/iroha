@@ -4,20 +4,18 @@
 //! - the native reference (`iroha_pasta::poseidon::hash_with_domain`)
 //!   reproduces every `kagemusha_v1_poseidon` vector of
 //!   `fixtures/native_prover/kats_v1.json` on both fields;
-//! - spec section 3.2 shared vectors: the domains, the 33-element core and
-//!   8-element rest (also of the `controlled_state` vector, whose elements
+//! - spec section 3.2 shared vectors: the domains, the 29-element core and
+//!   6-element rest (also of the `controlled_state` vector, whose elements
 //!   are all distinct and named), the rest digest and head commitment,
-//!   `credit_id` over the 26-element Request body (both account digests
+//!   `credit_id` over the 24-element Request body (both account digests
 //!   included), both chain appends and the 26-element statements that the
 //!   G1 data model publishes in `fixtures/kagemusha/wallet_v1_vectors.json`
 //!   are reproduced by this crate's native encodings, and its circuits
 //!   compute the same commitment, `credit_id` and chain values in circuit;
-//! - the trees the controls open: the limb-ordered blacklist gap tree (its
-//!   leaf, node, root and gap opening), the quota-window leaf, node and
-//!   root, and the indexed tree (empty root, insertions, openings and the
+//! - the trees the controls open: the quota-window leaf, node and root,
+//!   and the indexed tree (empty root, insertions, openings and the
 //!   wallet-map transitions), plus the fixed64 quota-usage array are reproduced natively, and in circuit by a
-//!   `sigma_recv` with the blacklist bit, a `sigma_send` with the blacklist
-//!   control and a quota `sigma_send` against the vectored share and usage;
+//!   quota `sigma_send` against the vectored share and usage;
 //! - every digest the relation computes in circuit (predecessor, successor,
 //!   credit identifier, chain, statement) equals the native reference, for
 //!   many witnesses, every relation shape and both fields, and does not
@@ -30,14 +28,14 @@ mod common;
 use common::{RELATIONS, folded, in_circuit_digests, relation_shapes, repo_root, smallest_shape};
 use ff::PrimeField;
 use iroha_kagemusha_proof::{
-    BlacklistGap, CONTROL_BLACKLIST, CONTROL_QUOTAS, Controls, CoreState, Identity, MapRoots,
-    Mutation, PrefixMode, QuotaWitness, ReceiveInputs, RelationShape, RequestBody, RequestTerms,
-    SendInputs, SigmaParams, SigmaRelation, SigmaShape, StateRest, StateV1, StepInputs,
-    StepRelation, StepWitness, limb_bits_for, sample_witness,
+    CONTROL_QUOTAS, Controls, CoreState, Identity, MapRoots, Mutation, PrefixMode, QuotaWitness,
+    ReceiveInputs, RelationShape, RequestBody, RequestTerms, SendInputs, SigmaParams,
+    SigmaRelation, SigmaShape, StateRest, StateV1, StepInputs, StepRelation, StepWitness,
+    limb_bits_for, sample_witness,
     tree::{
-        BLACKLIST_LEAF_DOMAIN, BLACKLIST_NODE_DOMAIN, BlacklistTree, INDEXED_LEAF_DOMAIN,
-        INDEXED_NODE_DOMAIN, IndexedLeaf, IndexedTree, QUOTA_NODE_DOMAIN, QUOTA_WINDOW_DOMAIN,
-        QuotaUsageTree, QuotaWindow, QuotaWindowTree, blacklist_leaf, indexed_empty, path_root,
+        INDEXED_LEAF_DOMAIN, INDEXED_NODE_DOMAIN, IndexedLeaf, IndexedTree, QUOTA_NODE_DOMAIN,
+        QUOTA_WINDOW_DOMAIN, QuotaUsageTree, QuotaWindow, QuotaWindowTree, indexed_empty,
+        path_root,
     },
     witness::{
         CORE_DOMAIN, CORE_FIELDS, CREDIT_DOMAIN, LineageInputs, RECEIVE_CHAIN_DOMAIN,
@@ -216,16 +214,12 @@ fn core_of(items: &Items<'_>) -> CoreState<Fp> {
             enabled: items.u32(21),
             quota_windows_root: items.field(22),
             quota_share_expires_at_ms: items.u64(23),
-            time_anchor_max_response_ms: items.u64(28),
-            blacklist_version: items.u64(24),
-            blacklist_root: items.field(25),
-            blacklist_issued_at_ms: items.u64(26),
-            blacklist_max_age_ms: items.u64(27),
-            lease_expires_at_ms: items.u64(29),
+            time_anchor_max_response_ms: items.u64(24),
+            lease_expires_at_ms: items.u64(25),
         },
-        policy_epoch: items.u64(30),
-        accepted_time_floor_ms: items.u64(31),
-        state_nonce: items.field(32),
+        policy_epoch: items.u64(26),
+        accepted_time_floor_ms: items.u64(27),
+        state_nonce: items.field(28),
     }
 }
 
@@ -235,15 +229,13 @@ fn rest_of(items: &Items<'_>) -> StateRest {
         permitted_controls: items.u32(0),
         scheme_policy: items.0[1],
         fee_schedule: items.0[2],
-        blacklist: items.0[3],
-        quota_share: items.0[4],
-        quota_share_id: items.u64(5),
-        time_anchor: items.0[6],
-        blacklist_history_root: items.0[7],
+        quota_share: items.0[3],
+        quota_share_id: items.u64(4),
+        time_anchor: items.0[5],
     }
 }
 
-/// The Request body of the 28 `credit_id` items (request-body order:
+/// The Request body of the 24 `credit_id` items (request-body order:
 /// version; scheme, asset, payer wallet, payer account, receiver wallet,
 /// receiver account; send ordinal; receiver credential; amount; fee
 /// schedule; fee; policy epoch; scheme policy; receiver accepted time;
@@ -266,10 +258,8 @@ fn request_of(items: &Items<'_>) -> RequestBody {
             policy_epoch: items.u64(18),
             scheme_policy: items.0[19],
             request_time: items.u64(20),
-            receiver_blacklist_version: items.u64(21),
-            receiver_blacklist_root: items.0[22],
-            certificates: items.0[23],
-            nonce: items.digest(24),
+            certificates: items.0[21],
+            nonce: items.digest(22),
         },
     }
 }
@@ -350,7 +340,6 @@ fn receive_witness(vectors: &G1Vectors) -> StepWitness<Fp> {
             receiver_credential_digest: request.receiver_credential_digest,
             request: request.terms,
             successor_consumed_credit: Fp::from(7_u64),
-            blacklist: BlacklistGap::unused(),
         })),
     }
 }
@@ -400,7 +389,6 @@ fn send_witness(vectors: &G1Vectors) -> StepWitness<Fp> {
             },
             successor_pending_outgoing: Fp::from(13_u64),
             successor_fee_claim: Fp::from(15_u64),
-            blacklist: BlacklistGap::unused(),
             quota: Box::new(QuotaWitness::unused()),
         })),
     }
@@ -472,7 +460,7 @@ fn native_encodings_reproduce_the_g1_vectors() {
     assert_eq!(encode(&state.rest.fields::<Fp>()), vectors.rest_items);
     assert_eq!(state.rest.digest::<Fp>(), vectors.rest_digest);
     assert_eq!(state.commitment(), vectors.commitment);
-    // credit_id over the 28 Request elements: one element.
+    // credit_id over the 24 Request elements: one element.
     assert_eq!(
         encode(&vectors.request.fields::<Fp>()),
         vectors.request_items
@@ -601,10 +589,6 @@ fn controlled_state() -> (StateV1<Fp>, Value) {
                 quota_windows_root: named_field(core, "quota_windows_root"),
                 quota_share_expires_at_ms: u64_of("quota_share_expires_at_ms"),
                 time_anchor_max_response_ms: u64_of("time_anchor_max_response_ms"),
-                blacklist_version: u64_of("blacklist_version"),
-                blacklist_root: named_field(core, "blacklist_root"),
-                blacklist_issued_at_ms: u64_of("blacklist_issued_at_ms"),
-                blacklist_max_age_ms: u64_of("blacklist_max_age_ms"),
                 lease_expires_at_ms: u64_of("lease_expires_at_ms"),
             },
             policy_epoch: u64_of("policy_epoch"),
@@ -615,11 +599,9 @@ fn controlled_state() -> (StateV1<Fp>, Value) {
             permitted_controls: u32::try_from(named_int(rest, "permitted_controls")).expect("mask"),
             scheme_policy: named_bytes(rest, "scheme_policy"),
             fee_schedule: named_bytes(rest, "fee_schedule"),
-            blacklist: named_bytes(rest, "blacklist"),
             quota_share: named_bytes(rest, "quota_share"),
             quota_share_id: u64::try_from(named_int(rest, "quota_share_id")).expect("u64 field"),
             time_anchor: named_bytes(rest, "time_anchor"),
-            blacklist_history_root: named_bytes(rest, "blacklist_history_root"),
         },
     };
     (state, vector)
@@ -628,9 +610,8 @@ fn controlled_state() -> (StateV1<Fp>, Value) {
 /// Every core and rest position of the G1 commitment preimage holds the
 /// field this crate's encoding puts there, natively and in circuit: the
 /// controlled vector has no two equal elements, so a swapped, dropped or
-/// shifted field (for example the blacklist issue time and maximum age, the
-/// one load/redeem recovery root, or scheme and asset) changes the
-/// commitment.
+/// shifted field (for example the response bound and lease expiry, the one
+/// load/redeem recovery root, or scheme and asset) changes the commitment.
 #[test]
 fn the_controlled_state_pins_every_commitment_position() {
     let (state, vector) = controlled_state();
@@ -650,11 +631,9 @@ fn the_controlled_state_pins_every_commitment_position() {
     assert_eq!(state.commitment(), commitment);
 
     // The circuits open the same commitment: a `sigma_recv` from the
-    // controlled state (Retiring, every control enabled, so the Receive
-    // relation with the blacklist bit) under a Request quoted with another
-    // receiver credential digest (owner answer Q8). The controlled state's
-    // list root is a stand-in, so no gap opening exists; the commitment the
-    // circuit opens is the vector's all the same.
+    // controlled state (Retiring, every control enabled; Receive has its one
+    // relation) under a Request quoted with another receiver credential
+    // digest (owner answer Q8).
     let identity = state.core.identity;
     let terms = RequestTerms {
         amount: 5,
@@ -663,8 +642,6 @@ fn the_controlled_state_pins_every_commitment_position() {
         policy_epoch: 3,
         scheme_policy: [0x1d; 32],
         request_time: 4,
-        receiver_blacklist_version: state.core.controls.blacklist_version,
-        receiver_blacklist_root: state.core.controls.blacklist_root.to_repr(),
         certificates: [0x1e; 32],
         nonce: [0x5f; 32],
     };
@@ -680,7 +657,6 @@ fn the_controlled_state_pins_every_commitment_position() {
             receiver_credential_digest: [0x1b; 32],
             request: terms,
             successor_consumed_credit: Fp::from(19_u64),
-            blacklist: BlacklistGap::unused(),
         })),
     };
     assert_ne!(
@@ -688,12 +664,9 @@ fn the_controlled_state_pins_every_commitment_position() {
         identity.credential_digest
     );
     assert_eq!(witness.request_body().receiver_wallet, identity.wallet_id);
-    let relation = SigmaRelation::receive(CONTROL_BLACKLIST);
+    let relation = SigmaRelation::RECEIVE;
     let native = witness.evaluate(relation);
-    assert_eq!(
-        native.violations,
-        vec![iroha_kagemusha_proof::Violation::BlacklistListed]
-    );
+    assert!(native.is_honest(), "{:?}", native.violations);
     assert_eq!(native.digests.predecessor, commitment);
     for prefix in [PrefixMode::Folded, PrefixMode::Absorbed] {
         let shape = smallest_shape(RelationShape::new(relation, prefix));
@@ -740,7 +713,7 @@ fn the_packing_rule_and_large_input_digests_reproduce_the_g1_vectors() {
     let fixture = wallet_vectors();
     let poseidon = at(&fixture, &["poseidon"]);
     let kats = at(poseidon, &["kats"]).as_array().expect("kats");
-    assert_eq!(kats.len(), 60);
+    assert_eq!(kats.len(), 59);
     let one_two_three = [1_u64, 2, 3].map(Fp::from).to_vec();
     for kat in kats {
         let label = at(kat, &["domain"]).as_str().expect("domain");
@@ -839,119 +812,6 @@ fn leaf_opening_of(value: &Value) -> (IndexedLeaf<Fp>, u32, Vec<Fp>) {
         field_at(value, &["root_hex"])
     );
     (leaf, slot, siblings)
-}
-
-/// The limb-ordered blacklist gap tree of the vectors (owner answer A4): the
-/// entries sort by limb order, not unsigned byte order; the gap leaf, node,
-/// root and gap opening are this crate's.
-#[test]
-fn the_blacklist_tree_reproduces_the_g1_vectors() {
-    let fixture = wallet_vectors();
-    let blacklist = at(&fixture, &["poseidon", "blacklist"]);
-    let entries = items_at(blacklist, &["entries"]);
-    let unsigned = items_at(blacklist, &["entries_in_unsigned_byte_order"]);
-    assert_ne!(entries, unsigned, "the vectors separate the two orders");
-    let tree = BlacklistTree::new(unsigned).expect("tree");
-    assert_eq!(tree.entries(), entries.as_slice());
-    let root: Fp = tree.root();
-    assert_eq!(root, field_at(blacklist, &["entries_root_hex"]));
-    let leaf = at(blacklist, &["leaf_0"]);
-    assert_eq!(
-        domain_of(at(leaf, &["domain"]).as_str().expect("domain")),
-        BLACKLIST_LEAF_DOMAIN
-    );
-    let first: Fp = blacklist_leaf(&[0; 32], &entries[0]);
-    assert_eq!(first, field_at(leaf, &["digest_hex"]));
-    let node = at(blacklist, &["node_0_1"]);
-    let children = fields_at(node, &["items"]);
-    assert_eq!(children[0], first);
-    assert_eq!(children[1], blacklist_leaf(&entries[0], &entries[1]));
-    assert_eq!(
-        hash_with_domain(BLACKLIST_NODE_DOMAIN, &children),
-        field_at(node, &["digest_hex"])
-    );
-    let gap = at(blacklist, &["gap_opening"]);
-    let account = bytes_at(gap, &["account_digest_hex"]);
-    let opening: BlacklistGap<Fp> = tree.gap(&account).expect("absent account");
-    assert_eq!(
-        u64::from(opening.leaf_index),
-        at(gap, &["leaf_index"]).as_u64().expect("index")
-    );
-    assert_eq!(opening.lower, bytes_at(gap, &["lower_hex"]));
-    assert_eq!(opening.upper, bytes_at(gap, &["upper_hex"]));
-    assert_eq!(opening.siblings.to_vec(), fields_at(gap, &["siblings"]));
-    assert!(opening.proves_absent(&field_at(gap, &["root_hex"]), &account));
-    // Every listed entry has no gap opening.
-    for entry in &entries {
-        assert!(tree.gap::<Fp>(entry).is_none());
-    }
-}
-
-/// The vectored gap opening, in circuit: a `sigma_recv` with the blacklist
-/// bit whose payer is the vectored account and a `sigma_send` with the
-/// blacklist control whose receiver is, both against the vectored root.
-#[test]
-fn the_vectored_gap_opening_holds_in_circuit() {
-    let fixture = wallet_vectors();
-    let gap = at(&fixture, &["poseidon", "blacklist", "gap_opening"]);
-    let account = bytes_at(gap, &["account_digest_hex"]);
-    let root = field_at(gap, &["root_hex"]);
-    let entries = items_at(&fixture, &["poseidon", "blacklist", "entries"]);
-    let opening: BlacklistGap<Fp> = BlacklistTree::new(entries)
-        .expect("tree")
-        .gap(&account)
-        .expect("absent");
-    let vectors = g1_vectors();
-    let hold = |witness: &mut StepWitness<Fp>| {
-        let controls = &mut witness.predecessor.core.controls;
-        controls.enabled = CONTROL_BLACKLIST;
-        controls.blacklist_version = 1;
-        controls.blacklist_root = root;
-    };
-    let mut receive = receive_witness(&vectors);
-    hold(&mut receive);
-    if let StepInputs::Receive(inputs) = &mut receive.inputs {
-        inputs.payer_account_digest = account;
-        inputs.request.receiver_blacklist_version = 1;
-        inputs.request.receiver_blacklist_root = root.to_repr();
-        inputs.blacklist = opening;
-    }
-    let mut send = send_witness(&vectors);
-    hold(&mut send);
-    if let StepInputs::Send(inputs) = &mut send.inputs {
-        inputs.receiver_account_digest = account;
-        inputs.blacklist = opening;
-        // A list issued at the accepted upper time, under no age rule.
-        send.predecessor.core.controls.blacklist_issued_at_ms = inputs.accepted_upper;
-        send.predecessor.core.controls.blacklist_max_age_ms = 0;
-    }
-    for (relation, witness) in [
-        (SigmaRelation::receive(CONTROL_BLACKLIST), receive),
-        (SigmaRelation::send(CONTROL_BLACKLIST), send),
-    ] {
-        assert!(
-            witness.evaluate(relation).is_honest(),
-            "{}",
-            relation.label()
-        );
-        let shape = smallest_shape(RelationShape::new(relation, PrefixMode::Folded));
-        assert!(
-            common::check_witness(&shape, &witness).is_satisfied(),
-            "{}",
-            relation.label()
-        );
-        // The same opening under another root is refused.
-        let mut moved = witness.clone();
-        match &mut moved.inputs {
-            StepInputs::Send(_) => {
-                moved.predecessor.core.controls.blacklist_root += Fp::from(1_u64)
-            }
-            StepInputs::Receive(receive) => {
-                receive.request.receiver_blacklist_root = (root + Fp::from(1_u64)).to_repr()
-            }
-        }
-        assert!(!common::check_witness(&shape, &moved).is_satisfied());
-    }
 }
 
 /// The quota-window leaf, empty slot, node and root of the vectored share.
@@ -1261,15 +1121,15 @@ fn parity_on<F: PoseidonField>(seeds: core::ops::Range<u64>) -> usize {
 
 #[test]
 fn in_circuit_digests_equal_the_native_reference_on_both_fields() {
-    assert_eq!(parity_on::<Fp>(0..2), 10 * 2 * 3);
-    assert_eq!(parity_on::<Fq>(2..3), 10 * 3);
+    assert_eq!(parity_on::<Fp>(0..2), 6 * 2 * 3);
+    assert_eq!(parity_on::<Fq>(2..3), 6 * 3);
 }
 
 #[test]
 #[ignore = "more witnesses; run in release"]
 fn in_circuit_digests_equal_the_native_reference_on_many_witnesses() {
-    assert_eq!(parity_on::<Fp>(0..16), 10 * 16 * 3);
-    assert_eq!(parity_on::<Fq>(0..16), 10 * 16 * 3);
+    assert_eq!(parity_on::<Fp>(0..16), 6 * 16 * 3);
+    assert_eq!(parity_on::<Fq>(0..16), 6 * 16 * 3);
 }
 
 #[test]
@@ -1333,25 +1193,17 @@ fn pinned_known_answers() {
 
 /// The pinned statement digests and credit identifiers of
 /// [`pinned_known_answers`], in [`RELATIONS`] order.
-const PINNED: [(&str, &str); 5] = [
+const PINNED: [(&str, &str); 3] = [
     (
-        "12a4276bd70cdf2e4b61f10b59f599e45dd22447889b222d206ae4c520cfca0a",
-        "a9de6f9f2c74186b8975dc0ae00e004958989596c0a7f3eae8907682ea110515",
+        "12a4276bd70cdf2e4b61f10b59f599e45dd22447889b222d206ae4c520cfca0a", // TODO(blacklist-local V2): re-measure
+        "a9de6f9f2c74186b8975dc0ae00e004958989596c0a7f3eae8907682ea110515", // TODO(blacklist-local V2): re-measure
     ),
     (
-        "264eb00b2ea2cbbfae8d52962ab55cdca5e7d2ddace5edaa2764cdba53b20311",
-        "5bfaeed4d47de7aa4152b2f1a4c89ef46e252c70dc81b31a1ace269e58dfc116",
+        "9454c0c652d72d11ad70fdde14bed8ea5d696f70d127a675a2641ecdf626fc30", // TODO(blacklist-local V2): re-measure
+        "a9de6f9f2c74186b8975dc0ae00e004958989596c0a7f3eae8907682ea110515", // TODO(blacklist-local V2): re-measure
     ),
     (
-        "9454c0c652d72d11ad70fdde14bed8ea5d696f70d127a675a2641ecdf626fc30",
-        "a9de6f9f2c74186b8975dc0ae00e004958989596c0a7f3eae8907682ea110515",
-    ),
-    (
-        "2e16593df37b8c8444f3596143068ad3f29556b437515a5bb8d392a1de604925",
-        "1855503b9b3e761aa19c37f36c314933a80f418f45f3214ac79180662bd0e81d",
-    ),
-    (
-        "a3c429c7931ecd964e3f6e095b8dfc0400e0145f5dce10829ecc78dbd161be22",
-        "bcdcc424b5e5b6ffa24851e71c114a396b2897b52c12604ee9ed868e1d812738",
+        "2e16593df37b8c8444f3596143068ad3f29556b437515a5bb8d392a1de604925", // TODO(blacklist-local V2): re-measure
+        "1855503b9b3e761aa19c37f36c314933a80f418f45f3214ac79180662bd0e81d", // TODO(blacklist-local V2): re-measure
     ),
 ];

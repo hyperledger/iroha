@@ -356,6 +356,7 @@ fn native_singular_query_access(query: &SingularQueryBox) -> NativeQueryAccess {
         | SingularQueryBox::FindDomainById(_) => NativeQueryAccess::Registered,
         SingularQueryBox::FindProofRecordById(_)
         | SingularQueryBox::FindAssetEscrowById(_)
+        | SingularQueryBox::FindBondById(_)
         | SingularQueryBox::FindTriggerById(_)
         | SingularQueryBox::FindTwitterBindingByHash(_)
         | SingularQueryBox::FindOracleDisputeById(_)
@@ -456,6 +457,13 @@ fn native_iterable_query_access(
     }
     if let Some(payload) = payload_for!(iroha_data_model::repo::RepoAgreement, RepoAgreement) {
         if any_exact!(payload; data_model_query::repo::FindRepoAgreements) {
+            return Ok(NativeQueryAccess::AllLedger);
+        }
+        return Err(invalid_native_iterable_query());
+    }
+    // Bond records carry every investor's record-date holdings.
+    if let Some(payload) = payload_for!(iroha_data_model::bond::BondRecord, BondRecord) {
+        if any_exact!(payload; data_model_query::bond::prelude::FindBonds) {
             return Ok(NativeQueryAccess::AllLedger);
         }
         return Err(invalid_native_iterable_query());
@@ -11138,6 +11146,8 @@ mod tests {
     include!("executor_sorafs_provider_governance_tests.rs");
     include!("executor_sorafs_pop_registry_tests.rs");
     include!("executor_asset_lock_admission_tests.rs");
+    include!("executor_conditional_escrow_repo_admission_tests.rs");
+    include!("executor_bond_admission_tests.rs");
     macro_rules! concrete_instruction_box {
         ($instruction_ty:ty, $instruction:expr) => {{
             const TEST_WIRE_ID: &str = "iroha.test.concrete_instruction.v1";

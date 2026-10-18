@@ -7,7 +7,7 @@
 fn scalar_reference_v1(
     material: &ZkX509Rfc5280StarkBaseMaterialV1,
     der_challenges: ZkX509DerStarkChallengesV1,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
     column: usize,
     sha_union: &ZkX509ShaUnionCentersV1,
 ) -> Result<Vec<F>, ZkX509Rfc5280StarkErrorV1> {
@@ -333,7 +333,7 @@ fn rfc_auxiliary_batch_matches_independent_scalar_for_all_280_columns() {
     let provider = ZkX509Rfc5280StarkColumnProviderV1::with_centers_v1(
         &material,
         der,
-        challenges,
+        &challenges,
         ZkX509ShaUnionCentersV1::identity_fixture_v1(),
     )
     .unwrap();
@@ -352,7 +352,7 @@ fn rfc_auxiliary_batch_matches_independent_scalar_for_all_280_columns() {
         drop(targets);
         for (offset, actual) in batch.iter().enumerate() {
             let reference = PrivateTableV1::new(
-                scalar_reference_v1(&material, der, challenges, first + offset, &centers).unwrap(),
+                scalar_reference_v1(&material, der, &challenges, first + offset, &centers).unwrap(),
                 zeroize_fields_v1,
             );
             assert_eq!(
@@ -380,7 +380,7 @@ fn rfc_auxiliary_batch_matches_independent_scalar_for_all_280_columns() {
         drop(targets);
         for (offset, actual) in batch.iter().enumerate() {
             let reference = PrivateTableV1::new(
-                scalar_reference_v1(&material, der, challenges, first + offset, &centers).unwrap(),
+                scalar_reference_v1(&material, der, &challenges, first + offset, &centers).unwrap(),
                 zeroize_fields_v1,
             );
             assert_eq!(
@@ -398,7 +398,7 @@ fn rfc_auxiliary_batch_matches_independent_scalar_for_all_280_columns() {
 fn numeric_scalar_reference_v1(
     rows: usize,
     offset: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
     mut event_at: impl FnMut(
         usize,
     ) -> Result<numeric::NumericLookupEventV1<F>, ZkX509Rfc5280StarkErrorV1>,
@@ -513,12 +513,12 @@ fn rfc_private_inverse_window_matches_full_maximum_material_and_reports_both_cos
                 let started = std::time::Instant::now();
                 if window {
                     aux_replay::inverse_window_tests::fill_columns_v1(
-                        &material, der, challenges, first, &mut refs, &centers,
+                        &material, der, &challenges, first, &mut refs, &centers,
                     )
                     .unwrap();
                 } else {
                     aux_replay::fill_scalar_columns_for_testing_v1(
-                        &material, der, challenges, first, &mut refs, &centers,
+                        &material, der, &challenges, first, &mut refs, &centers,
                     )
                     .unwrap();
                 }
@@ -539,7 +539,7 @@ fn rfc_private_inverse_window_matches_full_maximum_material_and_reports_both_cos
             if round == 0 {
                 for (offset, column) in candidate.iter().enumerate() {
                     let reference = PrivateTableV1::new(
-                        scalar_reference_v1(&material, der, challenges, first + offset, &centers)
+                        scalar_reference_v1(&material, der, &challenges, first + offset, &centers)
                             .unwrap(),
                         zeroize_fields_v1,
                     );

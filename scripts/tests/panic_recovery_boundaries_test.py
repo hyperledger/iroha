@@ -78,6 +78,8 @@ def test_daemon_recoverable_workers_have_no_bare_blocking(relative: str) -> None
         "crates/iroha_core/src/executor_fastpq_rejection_tail/sponsored_alias_tests.rs",
         "crates/iroha_core/src/executor/resource_return_tests.rs",
         "crates/iroha_core/src/executor_asset_lock_admission_tests.rs",
+        "crates/iroha_core/src/executor_conditional_escrow_repo_admission_tests.rs",
+        "crates/iroha_core/src/executor_bond_admission_tests.rs",
         "crates/iroha_core/src/executor/root_scope.rs",
         "crates/iroha_core/src/executor/root_scope/tests.rs",
         "crates/iroha_core/src/executor_dpn_domain_enrollment_tests.rs",

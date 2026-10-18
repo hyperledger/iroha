@@ -34,7 +34,7 @@ pub struct WalletArtifactOriginalsV1 {
 }
 
 impl WalletArtifactOriginalsV1 {
-    /// Whole canonical `VerifierPackV1` original, with all sixteen sigma keys and Omega.
+    /// Whole canonical `VerifierPackV1` original, with all eleven sigma keys and Omega.
     pub fn verifier_pack(&self) -> &[u8] {
         &self.verifier_pack
     }

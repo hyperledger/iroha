@@ -18,9 +18,9 @@ use super::{
 /// Fixed native stage kind; no transported kind selects a circuit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CheckpointKind {
-    /// One of the four original A proof stages.
+    /// One of the two original A proof stages.
     A,
-    /// One of the three original W continuations.
+    /// The one original W continuation.
     W,
 }
 impl CheckpointKind {
@@ -513,11 +513,12 @@ mod tests {
     fn canonical_payload_metadata_cannot_select_another_stage_key_or_length() {
         // Original codec checks only. These labelled stand-in proof/claim bytes
         // are never passed to Session restore or treated as acceptance evidence.
-        let layout = CheckpointLayout::new(CheckpointKind::A, 2, [1; 32], [2; 32], 32).unwrap();
+        // The lean schedule's terminal A2 (stage 1); stage 0 is the other valid A stage.
+        let layout = CheckpointLayout::new(CheckpointKind::A, 1, [1; 32], [2; 32], 32).unwrap();
         let payload = || Payload {
             version: 1,
             kind: 0,
-            stage: 2,
+            stage: 1,
             descriptor_digest: [1; 32],
             verifying_key_digest: [2; 32],
             source_context: [3; 32],
@@ -531,7 +532,7 @@ mod tests {
             match mutation {
                 0 => changed.version = 2,
                 1 => changed.kind = 1,
-                2 => changed.stage = 3,
+                2 => changed.stage = 0,
                 3 => changed.descriptor_digest[0] ^= 1,
                 4 => changed.verifying_key_digest[0] ^= 1,
                 _ => {

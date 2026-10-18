@@ -44,7 +44,7 @@ fn refused_wallet_close_keeps_the_real_id_and_blocks_stale_calls_until_actual_jo
                 .is_some_and(|actual| Arc::ptr_eq(actual, &owner))
         );
         assert_eq!(
-            with_wallet_owner(Arc::clone(&owner), false, |wallet| wallet.resume())
+            with_wallet_owner(Arc::clone(&owner), Priority::None, |wallet| wallet.resume())
                 .unwrap_err()
                 .status,
             CLOSED
@@ -67,7 +67,7 @@ fn close_retains_platform_owner_while_an_accepted_call_finishes_and_blocks_new_c
     let calling = {
         let owner = Arc::clone(&owner);
         std::thread::spawn(move || {
-            with_wallet_owner(owner, false, |_| {
+            with_wallet_owner(owner, Priority::None, |_| {
                 entered_send.send(()).unwrap();
                 resume_receive.recv().unwrap();
                 Ok(())
@@ -94,7 +94,7 @@ fn close_retains_platform_owner_while_an_accepted_call_finishes_and_blocks_new_c
     );
     assert_eq!(drops.load(Ordering::SeqCst), 0);
     assert_eq!(
-        with_wallet_owner(Arc::clone(&owner), false, |_| Ok(()))
+        with_wallet_owner(Arc::clone(&owner), Priority::None, |_| Ok(()))
             .unwrap_err()
             .status,
         CLOSED

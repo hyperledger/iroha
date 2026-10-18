@@ -124,6 +124,9 @@ impl RepoCollateralLeg {
     }
 }
 /// Governance knobs captured with each agreement.
+///
+/// Every field is part of the consented proposal and therefore of both repo
+/// consent hashes. There are no defaults: early repayment is an explicit term.
 #[derive(
     Copy,
     Debug,
@@ -140,6 +143,7 @@ impl RepoCollateralLeg {
     JsonDeserialize,
 )]
 #[getset(get_copy = "pub")]
+#[norito(deny_unknown_fields)]
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_data_model::repo::RepoGovernance")]
 pub struct RepoGovernance {
@@ -147,13 +151,23 @@ pub struct RepoGovernance {
     pub haircut_bps: u16,
     /// Cadence (seconds) between mandatory margin checks.
     pub margin_frequency_secs: u64,
+    /// Whether the initiator (cash borrower) may settle before maturity.
+    ///
+    /// Early repayment pays interest accrued only to the committed block time.
+    /// At or after maturity every recorded participant may settle regardless.
+    pub allow_early_repayment: bool,
 }
 impl RepoGovernance {
-    /// Governance defaults used when configuration omits explicit values.
-    pub fn with_defaults(haircut_bps: u16, margin_frequency_secs: u64) -> Self {
+    /// Construct the complete explicit governance terms of one proposal.
+    pub const fn new(
+        haircut_bps: u16,
+        margin_frequency_secs: u64,
+        allow_early_repayment: bool,
+    ) -> Self {
         Self {
             haircut_bps,
             margin_frequency_secs,
+            allow_early_repayment,
         }
     }
     /// Return the cadence between margin checks in milliseconds.
@@ -213,7 +227,10 @@ pub struct RepoAgreement {
     pub last_margin_check_timestamp_ms: u64,
     /// Governance parameters applied to the agreement.
     pub governance: RepoGovernance,
-    /// Agreed settlement timestamp once this one-shot agreement is closed.
+    /// Effective settlement timestamp once this one-shot agreement is closed.
+    ///
+    /// This is the recorded maturity for a settlement at or after maturity, or
+    /// the committed block time of an opted-in early repayment.
     ///
     /// A settled agreement remains on-chain as a tombstone so its identifier can never be replayed.
     pub settlement_timestamp_ms: Option<u64>,
@@ -256,14 +273,23 @@ impl RepoAgreement {
     pub fn is_active(&self) -> bool {
         self.settlement_timestamp_ms.is_none()
     }
-    /// Close this agreement at its pre-agreed maturity.
+    /// Return the effective settlement timestamp for a settlement attempted at `at_timestamp_ms`.
     ///
-    /// Returns `false` when the agreement was already settled.
-    pub fn settle(&mut self) -> bool {
+    /// Interest never accrues past maturity, so a late settlement is effective
+    /// at the recorded maturity and an early repayment at its own block time.
+    pub fn effective_settlement_timestamp_ms(&self, at_timestamp_ms: u64) -> u64 {
+        at_timestamp_ms.min(self.maturity_timestamp_ms)
+    }
+    /// Close this agreement at the effective settlement time for `at_timestamp_ms`.
+    ///
+    /// Records [`Self::effective_settlement_timestamp_ms`]. Returns `false`
+    /// when the agreement was already settled.
+    pub fn settle(&mut self, at_timestamp_ms: u64) -> bool {
         if !self.is_active() {
             return false;
         }
-        self.settlement_timestamp_ms = Some(self.maturity_timestamp_ms);
+        self.settlement_timestamp_ms =
+            Some(self.effective_settlement_timestamp_ms(at_timestamp_ms));
         true
     }
     /// Compute the next margin check timestamp after the provided moment.
@@ -385,7 +411,7 @@ mod tests {
             250,
             initiated_ms + 86_400_000,
             initiated_ms,
-            RepoGovernance::with_defaults(1_500, margin_frequency_secs),
+            RepoGovernance::new(1_500, margin_frequency_secs, false),
             None,
         )
     }
@@ -435,11 +461,58 @@ mod tests {
     fn settlement_status_is_one_way() {
         let mut agreement = sample_agreement(10_000, 60);
         assert!(agreement.is_active());
-        assert!(agreement.settle());
+        assert!(agreement.settle(90_000_000));
         assert!(!agreement.is_active());
         assert_eq!(agreement.settlement_timestamp_ms(), &Some(86_410_000));
-        assert!(!agreement.settle());
+        assert!(!agreement.settle(86_410_000));
         assert_eq!(agreement.settlement_timestamp_ms(), &Some(86_410_000));
+    }
+    #[test]
+    fn settlement_records_the_effective_timestamp() {
+        let agreement = sample_agreement(10_000, 60);
+        assert_eq!(agreement.effective_settlement_timestamp_ms(20_000), 20_000);
+        assert_eq!(
+            agreement.effective_settlement_timestamp_ms(86_410_000),
+            86_410_000
+        );
+        assert_eq!(
+            agreement.effective_settlement_timestamp_ms(u64::MAX),
+            86_410_000
+        );
+        let mut early = agreement.clone();
+        assert!(early.settle(20_000));
+        assert_eq!(early.settlement_timestamp_ms(), &Some(20_000));
+        let mut late = agreement;
+        assert!(late.settle(99_000_000));
+        assert_eq!(late.settlement_timestamp_ms(), &Some(86_410_000));
+    }
+    #[test]
+    fn governance_constructor_and_json_require_every_explicit_term() {
+        let governance = RepoGovernance::new(250, 3_600, true);
+        assert_eq!(governance.haircut_bps(), 250);
+        assert_eq!(governance.margin_frequency_secs(), 3_600);
+        assert!(governance.allow_early_repayment());
+        let json = norito::json::to_json(&governance).expect("governance JSON");
+        assert_eq!(
+            json,
+            r#"{"haircut_bps":250,"margin_frequency_secs":3600,"allow_early_repayment":true}"#
+        );
+        assert_eq!(
+            norito::json::from_str::<RepoGovernance>(&json).expect("governance JSON decode"),
+            governance
+        );
+        assert!(
+            norito::json::from_str::<RepoGovernance>(
+                r#"{"haircut_bps":250,"margin_frequency_secs":3600}"#
+            )
+            .is_err(),
+            "early repayment must be explicit"
+        );
+        let bytes = governance.encode();
+        assert_eq!(
+            RepoGovernance::decode(&mut bytes.as_slice()).expect("governance decode"),
+            governance
+        );
     }
     #[test]
     fn negative_numeric_payloads_cannot_decode_as_repo_leg_quantities() {

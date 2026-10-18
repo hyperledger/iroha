@@ -219,7 +219,7 @@ fn main_p256_log8_verifier_covers_five_buses_with_exact_local_air_parity() {
         p256_main_provider_post_base_fixture_v1(),
     )
     .expect("closed log8 verifier source");
-    assert!(core::ptr::eq(source.fixed, &fixed));
+    assert!(core::ptr::eq(source.fixed, &raw const fixed));
     assert_eq!(source.registrations.len(), P256_SIGNATURE_COUNT_V1);
     let base = [F::ZERO; P256_SCALAR_BIT_BUS_STARK_BASE_WIDTH_V1];
     let aux = [F::ZERO; P256_SCALAR_BIT_BUS_STARK_AUX_WIDTH_V1];

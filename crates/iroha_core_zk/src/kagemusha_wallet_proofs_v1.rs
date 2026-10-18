@@ -15,11 +15,12 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use ff::PrimeField;
 use iroha_data_model::kagemusha::kagemusha_wallet_v1::*;
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, PastaCurve, msm::MemoryBudget};
+use iroha_pasta::{Ep, Eq, Fp, Fq, PastaCurve, msm::MemoryBudget};
 use iroha_plonk::{
     DescriptorBinding, Protocol, VerifyingKey,
     cs::{CurveV1, InstanceModeV1, InstanceType, ProofSuffixV1, TranscriptV2},
     pcs::ipa::PinnedParams,
+    transcript::generator_coordinates,
     verifier::verify_full_cancellable,
 };
 use iroha_plonk_recursion::{ACCUMULATOR_BYTES, AccumulatorT, K};
@@ -27,6 +28,8 @@ use iroha_plonk_recursion::{ACCUMULATOR_BYTES, AccumulatorT, K};
 mod cancellation;
 pub(crate) mod randomness;
 pub(crate) use cancellation::NativeProofError;
+pub mod verification_counts;
+pub use verification_counts::KagemushaWalletVerificationCountsV1;
 
 /// Native artifact/proof admission failure. No failure selects or modifies wallet state.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -59,6 +62,10 @@ pub enum Error {
     /// Canonical transport, proof equation or complete accumulator decide failed.
     #[error("wallet proof rejected")]
     Proof,
+    /// The wallet's local blacklist lists the counterparty account in this field. Refused
+    /// before any mutation: nothing was debited, issued or credited.
+    #[error("`{0}` is on the local blacklist")]
+    Blocked(&'static str),
 }
 
 impl Error {
@@ -142,7 +149,7 @@ impl RuntimeBindings {
 pub struct StepArtifact<'a> {
     /// Exact allowlist operation tag.
     pub kind: KagemushaWalletOperationKindV1,
-    /// Send control mask or Request-recorded Receive blacklist selector.
+    /// Send control mask; zero for every other operation.
     pub enabled_controls: u32,
     /// Canonical V2 descriptor.
     pub descriptor: &'a [u8],
@@ -314,12 +321,7 @@ fn capsule_selector(
             }
             // The quoted credential may precede a renewal. Stable wallet/account/asset/key
             // bindings above apply; current credential-digest equality would strand it.
-            let mask = if body.receiver_blacklist_version == 0 {
-                0
-            } else {
-                KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1
-            };
-            Ok((kind, mask))
+            Ok((kind, 0))
         }
         _ => Ok((kind, 0)),
     }
@@ -490,8 +492,7 @@ impl ArtifactSet {
 
     /// Verify a package's sigma and carried Omega using its canonical selector.
     ///
-    /// Receive selection requires its exact Request, including the historical blacklist
-    /// decision. This method verifies proofs; receipt/current credential/object and actual
+    /// This method verifies proofs; receipt/current credential/object and actual
     /// state/map checks remain mandatory in the transition owner before monetary mutation.
     ///
     /// # Errors
@@ -499,10 +500,9 @@ impl ArtifactSet {
     pub fn verify_package_proofs(
         &self,
         package: &KagemushaWalletPackageV1,
-        request: Option<&KagemushaWalletRequestBodyV1>,
         budget: MemoryBudget,
     ) -> Result<(), Error> {
-        self.verify_package_proofs_cancellable(package, request, budget, None)
+        self.verify_package_proofs_cancellable(package, budget, None)
     }
 
     /// Perform the same complete verification with a caller-owned cancellation signal.
@@ -511,14 +511,13 @@ impl ArtifactSet {
     pub fn verify_package_proofs_cancellable(
         &self,
         package: &KagemushaWalletPackageV1,
-        request: Option<&KagemushaWalletRequestBodyV1>,
         budget: MemoryBudget,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<(), Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         authority(package.statement.validate_for_scheme(&self.scheme))?;
-        authority(self.allowlist.check_package(package, request))?;
-        let (kind, mask) = authority(package.verifying_key_selector(request))?;
+        authority(self.allowlist.check_package(package))?;
+        let (kind, mask) = package.verifying_key_selector();
         self.verify_step_proof_cancellable(
             &package.statement,
             &package.step_proof,
@@ -536,9 +535,9 @@ impl ArtifactSet {
     /// Verify receipt-free pre-Advance capsule sigma and its required predecessor Omega.
     ///
     /// The immutable installed scheme/allowlist choose every key and exact proof length.
-    /// Send and Receive use the unique retained canonical signed Request; Receive selects
-    /// its historical blacklist decision and keeps the stable current wallet/account/key
-    /// bindings across renewal. No caller supplies a Request body, mask or future Receipt.
+    /// Send and Receive use the unique retained canonical signed Request; Receive keeps the
+    /// stable current wallet/account/key bindings across renewal. No caller supplies a
+    /// Request body, mask or future Receipt.
     ///
     /// This is proof verification, not operation admission. The Native transition owner
     /// still authenticates the current credential's issuer, all consumed originals, actual
@@ -658,6 +657,7 @@ impl ArtifactSet {
         budget: MemoryBudget,
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<(), Error> {
+        verification_counts::record_lineage();
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         authority(self.allowlist.check_lineage(lineage))?;
         if lineage.public.scheme_id != self.scheme.scheme_id()
@@ -671,7 +671,7 @@ impl ArtifactSet {
             self.allowlist.lineage_verifying_key_digest,
             &pallas,
         )?;
-        let (x, y) = Option::<(Fq, Fq)>::from(vesta.g().coordinates()).ok_or(Error::Proof)?;
+        let (x, y) = generator_coordinates::<Eq>(vesta.g());
         let mut challenges = Vec::with_capacity(K);
         for value in vesta.challenges() {
             challenges
@@ -773,7 +773,7 @@ fn lineage_digest(
 ) -> Result<[u8; 32], Error> {
     let mut fields = Vec::with_capacity(52);
     fields.extend(lineage_public_fields(public, omega_key_digest)?.map(|field| field.to_repr()));
-    let (x, y) = Option::<(Fp, Fp)>::from(pallas.g().coordinates()).ok_or(Error::Proof)?;
+    let (x, y) = generator_coordinates::<Ep>(pallas.g());
     fields.extend([x.to_repr(), y.to_repr()]);
     for challenge in pallas.challenges() {
         fields.extend(limbs(&challenge.to_repr()));

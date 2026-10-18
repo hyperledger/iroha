@@ -82,17 +82,13 @@ fn build_state_with_accounts(n: usize) -> State {
         let account = Account::new(acc_id.clone()).build(&acc_id);
         accounts.push(account);
     }
-    State::try_new(
-        iroha_allocation::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+    State::new(
         World::with([domain], accounts, []),
         kura,
         query_handle,
         #[cfg(feature = "telemetry")]
         <_>::default(),
     )
-    .expect("benchmark State startup must validate")
 }
 fn bench_find_accounts_small(c: &mut Criterion) {
     let state = build_state_with_accounts(1_000);
@@ -299,17 +295,13 @@ fn build_state_for_typed_core_query_pages() -> (State, AccountId, [u64; 5]) {
             .expect("typed query benchmark NFT id");
         nfts.push(Nft::new(nft_id, Metadata::default()).build(&authority));
     }
-    let state = State::try_new(
-        iroha_allocation::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+    let state = State::new(
         World::with_assets(domains, accounts, asset_definitions, assets, nfts),
         kura,
         query_handle.clone(),
         #[cfg(feature = "telemetry")]
         <_>::default(),
-    )
-    .expect("benchmark State startup must validate");
+    );
     let raw_query_response_bytes = TYPED_CORE_QUERY_FAMILIES.map(|family| {
         u64::try_from(
             norito::to_bytes(&raw_core_query_response(
@@ -774,17 +766,13 @@ fn bench_snapshot_sorted_asset_defs_first_batch(c: &mut Criterion) {
         defs.push(ad);
     }
     let world = World::with([domain], [Account::new(auth.clone()).build(&auth)], defs);
-    let state = State::try_new(
-        iroha_allocation::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+    let state = State::new(
         world,
         kura,
         query_handle.clone(),
         #[cfg(feature = "telemetry")]
         <_>::default(),
-    )
-    .expect("benchmark State startup must validate");
+    );
     // Params with sorting by metadata key rank
     let mut params = iroha_data_model::query::parameters::QueryParams::default();
     params.sorting =
@@ -944,17 +932,13 @@ fn build_state_with_assets(n_accounts: usize, assets_per_account: usize) -> Stat
         }
         accounts.push(account);
     }
-    State::try_new(
-        iroha_allocation::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+    State::new(
         World::with_assets([domain], accounts, definitions, assets, []),
         kura,
         query_handle,
         #[cfg(feature = "telemetry")]
         <_>::default(),
     )
-    .expect("benchmark State startup must validate")
 }
 fn bench_find_assets_iter(c: &mut Criterion) {
     let state = build_state_with_assets(5_000, 2);
@@ -1049,17 +1033,13 @@ fn build_state_with_domains(n: usize) -> State {
         let id = DomainId::try_new(format!("d{}", i), "universal").expect("domain id");
         domains.push(Domain::new(id).build(&authority_id));
     }
-    State::try_new(
-        iroha_allocation::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+    State::new(
         World::with(domains, [], []),
         kura,
         query_handle,
         #[cfg(feature = "telemetry")]
         <_>::default(),
     )
-    .expect("benchmark State startup must validate")
 }
 fn bench_find_domains_iter(c: &mut Criterion) {
     let state = build_state_with_domains(5_000);
@@ -1110,17 +1090,13 @@ fn build_state_with_asset_definitions(n: usize) -> State {
             .build(&authority_id),
         );
     }
-    State::try_new(
-        iroha_allocation::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+    State::new(
         World::with_assets([domain], [owner], defs, [], []),
         kura,
         query_handle,
         #[cfg(feature = "telemetry")]
         <_>::default(),
     )
-    .expect("benchmark State startup must validate")
 }
 fn bench_find_asset_defs_iter(c: &mut Criterion) {
     let state = build_state_with_asset_definitions(10_000);

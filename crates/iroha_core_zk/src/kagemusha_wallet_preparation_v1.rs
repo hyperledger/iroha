@@ -72,8 +72,12 @@ mod freeze;
 
 #[path = "kagemusha_wallet_preparation_v1/dispatch.rs"]
 mod dispatch;
-pub use dispatch::NativeAdvanceCheckV1;
 pub(crate) use dispatch::PreparedOperationV1;
+pub use dispatch::{NativeAdvanceCheckV1, NativePreparedOperationV1};
+
+#[path = "kagemusha_wallet_preparation_v1/derivation_counts.rs"]
+mod derivation_counts;
+pub use derivation_counts::KagemushaWalletDerivationCountsV1;
 
 #[path = "kagemusha_wallet_preparation_v1/choices.rs"]
 mod choices;
@@ -84,7 +88,10 @@ pub(crate) use choices::NativeChoicesV1;
 mod tests;
 
 fn authority<T>(value: Result<T, KagemushaWalletValidationErrorV1>) -> Result<T, Error> {
-    value.map_err(|_| Error::Authority)
+    value.map_err(|error| match error {
+        KagemushaWalletValidationErrorV1::BlockedAccount { field } => Error::Blocked(field),
+        _ => Error::Authority,
+    })
 }
 
 // Decoder observers enclose only the original read/authentication. Pure semantic
@@ -249,13 +256,11 @@ impl FoldedStateV1 {
     }
 }
 
-/// Typed post-Advance Bootstrap inputs for the existing sigma/Q/A/W producer chain.
-/// Q proofs and all installed proving material remain separate mandatory inputs.
+/// Typed post-Advance Bootstrap inputs for the unsplit signature-Q/A producer.
+/// The Q proof and all installed proving material remain separate mandatory inputs.
 pub(crate) struct BootstrapFieldsV1 {
     /// Original state/public/statement fields in the compiled sigma's exact order.
     pub(crate) state: BootstrapWitness,
-    /// Actual original sigma bytes from the selected capsule.
-    pub(crate) sigma: Vec<u8>,
     /// Enrollment certificate, current credential, own retained receipt.
     pub(crate) objects: [Vec<u8>; 3],
 }
@@ -264,22 +269,24 @@ pub(crate) struct BootstrapFieldsV1 {
 pub(crate) struct LoadFieldsV1 {
     /// Exact compiled Load witness.
     pub(crate) state: LoadWitness,
-    /// Actual original sigma bytes from the selected capsule.
-    pub(crate) sigma: Vec<u8>,
     /// Exact canonical ordinary receipt transcript committed by ledger execution.
     pub(crate) receipt: [u8; 282],
-    /// Own Advance receipt, Enrollment certificate and current credential.
-    pub(crate) objects: [Vec<u8>; 3],
+    /// Own Advance receipt, the only signed object Λ_load consumes.
+    pub(crate) objects: [Vec<u8>; 1],
+    /// The authenticated current credential, read natively only for the payment key
+    /// that the own-receipt signature leaf verifies under; Λ carries it by continuity.
+    pub(crate) credential: Vec<u8>,
 }
 
 /// Typed post-Advance Unload/Retiring fields for their actual consuming sigma relation.
 pub(crate) struct ConsumingFieldsV1 {
     /// Exact compiled consuming witness; its operation is fixed by the calling producer.
     pub(crate) state: ConsumingWitness,
-    /// Actual original sigma bytes from the selected capsule.
-    pub(crate) sigma: Vec<u8>,
-    /// Current credential, Enrollment certificate, own retained receipt.
-    pub(crate) objects: [Vec<u8>; 3],
+    /// Own retained receipt, the only signed object Λ consumes.
+    pub(crate) objects: [Vec<u8>; 1],
+    /// The authenticated current credential, read natively only for the payment key
+    /// that the own-receipt signature leaf verifies under; Λ carries it by continuity.
+    pub(crate) credential: Vec<u8>,
 }
 
 impl<'a> PreparationV1<'a> {
@@ -654,7 +661,6 @@ impl<'a> PreparationV1<'a> {
                 lineage: state.lineage,
                 statement: self.statement_fields(owner, &capsule.body().statement)?,
             },
-            sigma: capsule.body().step_proof.bytes.clone(),
             objects: [
                 owner.certificate_tape.clone(),
                 owner.credential_tape.clone(),
@@ -665,7 +671,7 @@ impl<'a> PreparationV1<'a> {
 
     /// Convert retained ordinary receipt originals and own signed fields. Native
     /// verified BLS finality before Advance; the producer verifies the receipt-bound
-    /// Advance signature and every state transition in the four Load stages.
+    /// Advance signature and the state transition in the two lean Load stages.
     /// # Errors
     /// Another operation, missing/ambiguous original, noncanonical fields, changed
     /// receipt terms or source digest.
@@ -710,13 +716,9 @@ impl<'a> PreparationV1<'a> {
                 successor,
                 statement,
             },
-            sigma: capsule.body().step_proof.bytes.clone(),
             receipt: dispatch::proof(authority(ordinary.transcript()))?,
-            objects: [
-                receipt,
-                owner.certificate_tape.clone(),
-                owner.credential_tape.clone(),
-            ],
+            objects: [receipt],
+            credential: owner.credential_tape.clone(),
         })
     }
 
@@ -747,12 +749,8 @@ impl<'a> PreparationV1<'a> {
                 successor,
                 statement,
             },
-            sigma: step.frozen.capsule.body().step_proof.bytes.clone(),
-            objects: [
-                owner.credential_tape.clone(),
-                owner.certificate_tape.clone(),
-                receipt,
-            ],
+            objects: [receipt],
+            credential: owner.credential_tape.clone(),
         })
     }
 }

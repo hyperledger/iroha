@@ -1,7 +1,7 @@
 //! Source-selected originals for nonmonetary setup and native direct time exchanges.
 //!
 //! These indexes grant no monetary authority. Requests are made available to transport only
-//! after their exact signed bytes and historical gap are durably selected. Clock tokens are
+//! after their exact signed bytes are durably selected. Clock tokens are
 //! native, single-use and intentionally not serializable: restart requires a new exchange.
 
 use rand::rand_core::TryRngCore as _;
@@ -62,36 +62,18 @@ impl DirectTimeExchangeV1 {
     }
 }
 
-pub(super) fn retain_request<A: ObjectStore>(
+pub(super) fn retain_request<A: ObjectWorkspace>(
     store: &mut A,
     index: IndexRoot,
     request: &KagemushaWalletRequestV1,
-    gap: Option<&KagemushaWalletBlacklistGapOpeningV1>,
 ) -> Result<IndexRoot, Error> {
     valid(request.validate())?;
-    if (request.body.receiver_blacklist_version != 0) != gap.is_some() {
-        return Err(Error::Invalid("issued Request gap presence"));
-    }
-    if let Some(gap) = gap {
-        valid(gap.verify(
-            &request.body.receiver_blacklist_root,
-            &request.body.payer_account_digest,
-        ))?;
-    }
     let bytes = archive::encode(request)?;
     if bytes.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
         return Err(Error::Invalid("issued Request size"));
     }
     let record = IssuedRequestCustodyV1 {
-        request: store.write_object(&bytes, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?,
-        gap: gap
-            .map(|opening| {
-                store.write_object(
-                    &opening.transcript(),
-                    KAGEMUSHA_WALLET_BLACKLIST_GAP_OPENING_TRANSCRIPT_BYTES_V1,
-                )
-            })
-            .transpose()?,
+        request: store.stage_object(&bytes, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?,
     };
     let value = archive::encode(&record)?;
     let key = request.request_digest();
@@ -104,12 +86,12 @@ pub(super) fn retain_request<A: ObjectStore>(
     index.set(store, key, &value)
 }
 
-fn retain_anchor<A: ObjectStore>(
+fn retain_anchor<A: ObjectWorkspace>(
     store: &mut A,
     index: IndexRoot,
     anchored: &KagemushaWalletAnchoredTimeV1,
 ) -> Result<IndexRoot, Error> {
-    let address = store.write_object(&archive::encode(anchored)?, ANCHOR_CUSTODY_MAX_BYTES)?;
+    let address = store.stage_object(&archive::encode(anchored)?, ANCHOR_CUSTODY_MAX_BYTES)?;
     let key = anchored.anchor.time_anchor_digest();
     if let Some(previous) = index.get(store, &key)? {
         if previous != address {

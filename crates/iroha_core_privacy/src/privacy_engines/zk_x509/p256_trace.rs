@@ -55,7 +55,7 @@ const ONE_BE_V1: [u8; 32] = [
 /// Canonical value-bus binding for one selected point.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct P256BoundWindowTraceV1 {
+pub struct P256BoundWindowTraceV1 {
     /// Verifier-positioned U1/U2 selector trace.
     pub(crate) trace: P256WindowTraceV1,
     /// Candidate coordinate IDs, ordered candidate then x/y/z.
@@ -68,7 +68,7 @@ pub(crate) struct P256BoundWindowTraceV1 {
 /// Origin of a word reduced modulo the scalar-field order.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256ReductionSourceV1 {
+pub enum P256ReductionSourceV1 {
     /// Exact 32-byte SHA-256 digest; bound by the SHA/byte-I/O lanes.
     Digest {
         /// Exact unreduced word.
@@ -85,7 +85,7 @@ pub(crate) enum P256ReductionSourceV1 {
 /// One exact reduction and its value-bus endpoints.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct P256BoundReductionTraceV1 {
+pub struct P256BoundReductionTraceV1 {
     /// Digest word or assigned base coordinate.
     pub(crate) source: P256ReductionSourceV1,
     /// Canonical scalar result ID.
@@ -96,7 +96,7 @@ pub(crate) struct P256BoundReductionTraceV1 {
 /// One wallet-only low-s comparison bound to a scalar ID.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct P256BoundLowSTraceV1 {
+pub struct P256BoundLowSTraceV1 {
     /// Scalar constrained by the comparison.
     pub(crate) scalar: P256ValueIdV1,
     /// Exact comparison trace.
@@ -104,7 +104,7 @@ pub(crate) struct P256BoundLowSTraceV1 {
 }
 /// Canonical resolved IDs retained from the generic ECDSA composition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ResolvedEcdsaAssignedV1 {
+pub struct P256ResolvedEcdsaAssignedV1 {
     /// Constrained affine public key.
     pub(crate) public_key: P256ProjectiveValueV1<P256ValueIdV1>,
     /// Canonical signature scalar r.
@@ -126,7 +126,7 @@ pub(crate) struct P256ResolvedEcdsaAssignedV1 {
 }
 /// Verifier-owned topology for one four-bit selector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256BoundWindowTopologyV1 {
+pub struct P256BoundWindowTopologyV1 {
     /// Candidate coordinate IDs, ordered candidate then x/y/z.
     pub(crate) candidates: [[P256ValueIdV1; 3]; 16],
     /// Selected output x/y/z IDs.
@@ -136,7 +136,7 @@ pub(crate) struct P256BoundWindowTopologyV1 {
 }
 /// Value-free origin of one scalar reduction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256ReductionSourceTopologyV1 {
+pub enum P256ReductionSourceTopologyV1 {
     /// Exact digest word supplied by the surrounding SHA relation.
     Digest,
     /// Arithmetic-produced base coordinate.
@@ -147,7 +147,7 @@ pub(crate) enum P256ReductionSourceTopologyV1 {
 }
 /// Verifier-owned reduction topology.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256BoundReductionTopologyV1 {
+pub struct P256BoundReductionTopologyV1 {
     /// Digest or arithmetic-coordinate source.
     pub(crate) source: P256ReductionSourceTopologyV1,
     /// Canonical scalar output.
@@ -155,7 +155,7 @@ pub(crate) struct P256BoundReductionTopologyV1 {
 }
 /// Complete value-free topology for one role-separated ECDSA equation.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct P256EcdsaTopologyV1 {
+pub struct P256EcdsaTopologyV1 {
     /// Verifier-selected signature role.
     pub(crate) role: P256EcdsaRoleV1,
     /// Canonical initial writers.
@@ -178,7 +178,7 @@ pub(crate) struct P256EcdsaTopologyV1 {
 /// Final one-signature witness material before aggregate column streaming.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct P256EcdsaTraceMaterialV1 {
+pub struct P256EcdsaTraceMaterialV1 {
     /// Signature role fixed by the surrounding relation.
     pub(crate) role: P256EcdsaRoleV1,
     /// Canonical initial writers.
@@ -2146,7 +2146,7 @@ impl P256EcdsaCircuitV1 for P256TraceCompilerV1 {
 }
 /// Independently compile the exact value-free verifier topology for one
 /// role-separated ECDSA equation.
-pub(crate) fn compile_p256_ecdsa_topology_v1(
+pub fn compile_p256_ecdsa_topology_v1(
     role: P256EcdsaRoleV1,
 ) -> Result<P256EcdsaTopologyV1, P256TraceCompilerErrorV1> {
     let mut compiler = P256TopologyCompilerV1::default();
@@ -2161,7 +2161,7 @@ pub(crate) fn compile_p256_ecdsa_topology_v1(
 }
 /// Compile one complete role-separated ECDSA witness into native AIR material.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn compile_p256_ecdsa_trace_material_v1(
+pub fn compile_p256_ecdsa_trace_material_v1(
     role: P256EcdsaRoleV1,
     witness: P256EcdsaWitnessV1,
 ) -> Result<P256EcdsaTraceMaterialV1, P256TraceCompilerErrorV1> {
@@ -2225,7 +2225,7 @@ mod tests {
     fn owned_material_erasure_clears_private_words_and_nested_trace_rows() {
         use super::super::private_table::inspection::observe_v1;
         let material = valid_material_v1();
-        let (_, observed) = observe_v1(|| drop(material));
+        let ((), observed) = observe_v1(|| drop(material));
         assert!(
             observed
                 .iter()

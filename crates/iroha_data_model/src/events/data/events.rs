@@ -141,6 +141,9 @@ mod model {
         /// authenticated execution-result event commitment and its `CommitQC`.
         #[codec(index = 24)]
         KagemushaLoadCommitted(super::kagemusha::KagemushaLoadCommittedV1),
+        /// Native bond-servicing kernel events.
+        #[codec(index = 25)]
+        Bond(super::bond::BondEvent),
     }
 }
 

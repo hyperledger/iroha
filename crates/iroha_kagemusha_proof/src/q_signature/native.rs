@@ -310,7 +310,7 @@ impl QSignatureProver {
     pub fn prove(
         &self,
         witnesses: &[SignatureWitness],
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<QSignatureProof, QSignatureError> {
         self.view().prove(witnesses, randomness, config)
@@ -380,7 +380,7 @@ impl<'a> QSignatureProverView<'a> {
     pub fn prove(
         &self,
         witnesses: &[SignatureWitness],
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<QSignatureProof, QSignatureError> {
         iroha_pasta::CancellationToken::checkpoint(config.cancellation)
@@ -402,6 +402,8 @@ impl<'a> QSignatureProverView<'a> {
             let witness =
                 Witness::from_circuit_cancellable(&key, &circuit, &instances, config.cancellation)
                     .map_err(QSignatureError::Prover)?;
+            #[cfg(test)]
+            crate::proof_entry_probe::reached();
             create_proof_owned(self.params, &key, witness, randomness, config)
                 .map_err(QSignatureError::Prover)?
         };

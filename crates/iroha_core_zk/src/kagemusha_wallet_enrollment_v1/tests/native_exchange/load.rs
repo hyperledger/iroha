@@ -159,6 +159,7 @@ struct Inputs {
     receipt_bytes: Vec<u8>,
     blocks: Vec<VerifiedSumeragiBlock>,
     activation_proofs: Vec<Vec<u8>>,
+    activation_bytes: Vec<u8>,
     event: MerkleProof<EventBox>,
     capture_sha256: String,
     target_sha256: String,
@@ -443,6 +444,7 @@ fn inputs(genesis: &SumeragiFinalityVerifier, installation: InstallationV1) -> I
         receipt_bytes,
         blocks,
         activation_proofs,
+        activation_bytes: target_originals["activation.norito"].clone(),
         event,
         capture_sha256: sha(&capture_bytes),
         target_sha256: sha(&target_bytes),
@@ -450,56 +452,167 @@ fn inputs(genesis: &SumeragiFinalityVerifier, installation: InstallationV1) -> I
     }
 }
 
-fn activation_signed_wire<'a, I>(mut transactions: I) -> Vec<u8>
+fn activation_signed_wire<'a, I>(
+    transactions: I,
+    scheme: &[u8; 32],
+    account_digest: &[u8; 32],
+    original: &[u8],
+) -> Vec<u8>
 where
     I: Iterator<Item = &'a iroha_data_model::transaction::SignedTransaction>,
 {
-    let transaction = transactions
-        .next()
-        .expect("H4 requires its sole Activate transaction");
-    assert!(
-        transactions.next().is_none(),
-        "H4 must contain only Activate; Install is at H3"
-    );
-    transaction.encode_wire_v1().unwrap()
+    use iroha_data_model::transaction::Executable;
+
+    let mut selected = None;
+    for transaction in transactions {
+        let Executable::Instructions(instructions) = transaction.instructions() else {
+            continue;
+        };
+        let [instruction] = instructions.as_ref() else {
+            continue;
+        };
+        let Some(instruction) = instruction
+            .as_any()
+            .downcast_ref::<KagemushaWalletLedgerV1>()
+        else {
+            continue;
+        };
+        if instruction.scheme != *scheme
+            || !matches!(&instruction.action, KagemushaWalletLedgerActionV1::Activate(bytes) if bytes == original)
+            || kagemusha_wallet_account_digest_v1(transaction.authority()).unwrap()
+                != *account_digest
+        {
+            continue;
+        }
+        assert!(
+            selected.replace(transaction).is_none(),
+            "ambiguous exact retained Activate attempts"
+        );
+    }
+    // Select an existing signed original from the already verified block. Native
+    // intake still verifies its exact account authority, signature, network, inner
+    // bytes and successful certified execution. Installation may precede this block.
+    selected
+        .expect("exact retained sole-instruction Activate is absent")
+        .encode_wire_v1()
+        .unwrap()
 }
 
 #[test]
-fn activation_wire_selects_one_transaction_and_refuses_retired_two_entry_layout() {
-    use iroha_data_model::transaction::{FeePaymentIntent, TransactionBuilder};
-    let keys = iroha_crypto::KeyPair::from_seed(vec![41; 32], iroha_crypto::Algorithm::Ed25519);
-    let authority = iroha_data_model::account::AccountId::new(keys.public_key().clone());
+fn activation_wire_selects_exact_original_without_block_shape_assumptions() {
+    use iroha_data_model::{
+        isi::InstructionBox,
+        transaction::{FeePaymentIntent, TransactionBuilder},
+    };
     let network = iroha_data_model::NetworkId::from_genesis_hash(
         iroha_crypto::HashOf::from_untyped_unchecked(iroha_crypto::Hash::new(
             b"activation wire test",
         )),
     );
-    let transaction = TransactionBuilder::new(
-        network,
-        authority,
-        FeePaymentIntent::authority(Vec::new(), None),
-    )
-    .with_instructions([iroha_data_model::isi::Log::new(
-        iroha_data_model::Level::INFO,
-        "selector test".into(),
-    )])
-    .sign(keys.private_key());
-    assert_eq!(
-        activation_signed_wire([&transaction].into_iter()),
-        transaction.encode_wire_v1().unwrap()
+    let sign = |seed: u8, at: u64, instructions: Vec<InstructionBox>| {
+        let keys =
+            iroha_crypto::KeyPair::from_seed(vec![seed; 32], iroha_crypto::Algorithm::Ed25519);
+        let authority = iroha_data_model::account::AccountId::new(keys.public_key().clone());
+        let mut builder = TransactionBuilder::new(
+            network.clone(),
+            authority,
+            FeePaymentIntent::authority(Vec::new(), None),
+        );
+        builder.set_creation_time(std::time::Duration::from_millis(at));
+        builder
+            .with_instructions(instructions)
+            .sign(keys.private_key())
+    };
+    // Typed inner DATA exercises selection only. Real signatures are retained;
+    // genuine activation originals and finality remain mandatory in the native owner.
+    let scheme = [1; 32];
+    let original = vec![5];
+    let install = KagemushaWalletLedgerV1::new(
+        scheme,
+        KagemushaWalletLedgerActionV1::InstallVerifierPack {
+            asset: [2; 32],
+            manifest_digest: [3; 32],
+            pack: vec![4],
+        },
     );
-    assert!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| activation_signed_wire(
-            std::iter::empty()
-        )))
-        .is_err()
+    let activate = KagemushaWalletLedgerV1::new(
+        scheme,
+        KagemushaWalletLedgerActionV1::Activate(original.clone()),
     );
-    assert!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| activation_signed_wire(
-            [&transaction, &transaction].into_iter()
-        )))
-        .is_err()
+    let installation = sign(95, 1, vec![install.clone().into()]);
+    let activation = sign(41, 1, vec![activate.clone().into()]);
+    let account = kagemusha_wallet_account_digest_v1(activation.authority()).unwrap();
+    let fresh_attempt = sign(41, 2, vec![activate.clone().into()]);
+    assert_ne!(
+        activation.encode_wire_v1().unwrap(),
+        fresh_attempt.encode_wire_v1().unwrap()
     );
+    let foreign = sign(
+        41,
+        1,
+        vec![
+            iroha_data_model::isi::Log::new(
+                iroha_data_model::Level::INFO,
+                "foreign instruction".into(),
+            )
+            .into(),
+        ],
+    );
+    let combined = sign(41, 1, vec![install.into(), activate.clone().into()]);
+    let wrong_scheme = sign(
+        41,
+        1,
+        vec![
+            KagemushaWalletLedgerV1::new(
+                [9; 32],
+                KagemushaWalletLedgerActionV1::Activate(original.clone()),
+            )
+            .into(),
+        ],
+    );
+    let wrong_original = sign(
+        41,
+        1,
+        vec![
+            KagemushaWalletLedgerV1::new(scheme, KagemushaWalletLedgerActionV1::Activate(vec![6]))
+                .into(),
+        ],
+    );
+    let wrong_owner = sign(42, 1, vec![activate.into()]);
+    for accepted in [
+        vec![&activation],
+        vec![&installation, &activation],
+        vec![&activation, &installation],
+        vec![&foreign, &installation, &activation, &foreign],
+        vec![&wrong_scheme, &wrong_original, &wrong_owner, &activation],
+    ] {
+        assert_eq!(
+            activation_signed_wire(accepted.into_iter(), &scheme, &account, &original),
+            activation.encode_wire_v1().unwrap()
+        );
+    }
+    for rejected in [
+        vec![],
+        vec![&installation],
+        vec![&foreign],
+        vec![&wrong_scheme],
+        vec![&wrong_original],
+        vec![&wrong_owner],
+        vec![&combined],
+        vec![&installation, &foreign],
+        vec![&activation, &activation],
+        vec![&activation, &fresh_attempt],
+    ] {
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| activation_signed_wire(
+                rejected.into_iter(),
+                &scheme,
+                &account,
+                &original,
+            )))
+            .is_err()
+        );
+    }
 }
 
 // Confirm the exact already-executed Activate before the first native Load. No
@@ -523,9 +636,15 @@ pub(super) fn confirm_existing_activation(
         .iter()
         .find(|block| block.height() == 4)
         .unwrap();
-    // Registration and Install are already certified at H3. H4 contains only Activate.
-    // Native intake independently checks the exact A authority, signature and inner original.
-    let signed = activation_signed_wire(activation.block().external_transactions());
+    // The actual certified prefix establishes installation before Activate. Select
+    // the retained target original without assuming a transaction count or position.
+    // Native intake still authenticates authority, signature and successful execution.
+    let signed = activation_signed_wire(
+        activation.block().external_transactions(),
+        &input.receipt.scheme_id,
+        &input.receipt.payer_account_digest,
+        &input.activation_bytes,
+    );
     assert_eq!(
         wallet.retain_activation_attempt(&signed).unwrap(),
         Progress::NotStarted

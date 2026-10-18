@@ -48,6 +48,12 @@
 //! each block extends the previous one: its core header binds the parent's block hash and `R`,
 //! and its iroha header the parent's iroha hash.
 //!
+//! **Resumable proof production.** The finite proof producer retains a bounded node-local
+//! ladder of completed prefixes (frame identity, schedule, authority and source fence at a
+//! height). A later walk re-reads that exact pinned frame and continues from it, so a proof
+//! costs work proportional to its distance from the nearest retained height rather than
+//! to its height. Ordinary reads keep their own constant-size cursor and genesis restart.
+//!
 //! **Restoration.** `CertifiedChain::from_pinned` runs this same verifier before a State exists,
 //! against an explicit network, configured chain instance and exact committed hash cut. It
 //! accepts no World authority. Each body is checked against the cut before its prefix is
@@ -101,9 +107,11 @@ const MAX_PROPOSAL_BYTES: usize = 64 * 1024 * 1024;
 mod amx_initialization;
 mod artifacts;
 mod native_acquisition;
+mod prefix_checkpoints;
 mod query_reader;
 pub(crate) use amx_initialization::AmxChainInitialization;
 pub(crate) use native_acquisition::NativeCarrierAcquisition;
+pub(crate) use prefix_checkpoints::{FinalityPrefixCheckpoints, PrefixCheckpoint};
 mod terminal_selection;
 pub(crate) use artifacts::PrefixArtifacts;
 pub(super) use artifacts::{PrefixArtifactsError, PrefixArtifactsRead};

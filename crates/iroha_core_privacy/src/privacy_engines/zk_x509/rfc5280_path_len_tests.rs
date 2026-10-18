@@ -1,4 +1,4 @@
-//! Canonical-u32, source provenance and adversarial row controls for BasicConstraints.
+//! Canonical-u32, source provenance and adversarial row controls for `BasicConstraints`.
 use super::*;
 
 const BOUNDARIES: [u32; 19] = [
@@ -368,8 +368,8 @@ fn genuine_sources_bind_signed_parent_nodes_and_complete_byte_queries() {
             let table = material.base_row(source_ordinal).unwrap();
             for lane in 0..4 {
                 assert_eq!(
-                    node_query_factor_v1(&rows[0], &fixed[0], lane, challenges),
-                    serial_node_lookup_factor_v1(&table, lane, challenges)
+                    node_query_factor_v1(&rows[0], &fixed[0], lane, &challenges),
+                    serial_node_lookup_factor_v1(&table, lane, &challenges)
                 );
             }
             assert_eq!(
@@ -410,14 +410,14 @@ fn canonical_comparison_frame_matches_independent_encoder_and_clears_on_drop() {
                 .iter()
                 .all(|byte| *byte == 0)
         );
-        let (_, observations) = inspection::observe_v1(|| drop(frame));
+        let ((), observations) = inspection::observe_v1(|| drop(frame));
         assert_eq!(
             observations.iter().map(|item| item.cells).sum::<usize>(),
             ROWS_PER_SLOT + 1
         );
         assert!(observations.iter().all(|item| item.nonzero_after == 0));
     }
-    let (_, observations) = inspection::observe_v1(|| {
+    let ((), observations) = inspection::observe_v1(|| {
         let fail = || -> Result<(), ()> {
             let _frame = CanonicalFrame::new(Some(u32::MAX));
             Err(())

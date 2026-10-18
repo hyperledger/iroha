@@ -5,7 +5,7 @@
 //!
 //! 1. draws `s` (`n` coefficients) and subtracts `s(x)` from `s_0`, so
 //!    `s(x) = 0`; draws the blind of `S = Commit(s)`; writes `S`;
-//! 2. squeezes `xi` and `z`;
+//! 2. squeezes and maps `xi` with `nz`, then squeezes raw `z`;
 //! 3. opens `p' = p + xi s - p'(x)` (so `p'(x) = 0`) with blind
 //!    `r + xi r_s`;
 //! 4. for each of `k` rounds writes `L_j = <p'_hi, G'_lo> + <p'_hi, b_lo> z U +
@@ -48,8 +48,7 @@ use crate::transcript::TranscriptWrite;
 /// # Errors
 ///
 /// [`IpaError::LengthMismatch`] unless `poly.len() == n`;
-/// [`IpaError::ZeroChallenge`] if a round challenge is zero (probability
-/// about `k / 2^254`); [`IpaError::Msm`] when an MSM does not fit `budget`;
+/// [`IpaError::Msm`] when an MSM does not fit `budget`;
 /// [`IpaError::Transcript`] if a written point is the identity (negligible).
 // The single-letter names follow the BGH19 and spec section 9.2 notation.
 #[allow(clippy::many_single_char_names)]
@@ -73,7 +72,7 @@ where
 /// Creates the same opening and returns its generator obligation.
 ///
 /// # Errors
-/// As [`create_proof`], including a degenerate folded generator.
+/// As [`create_proof`]. The folded generator may be identity.
 // The names follow the BGH19 equations, as in `create_proof`.
 #[allow(clippy::many_single_char_names)]
 pub fn create_proof_with_claim<C, T, R>(
@@ -142,7 +141,7 @@ where
     .to_affine();
     transcript.write_point(&s_commitment)?;
 
-    let xi = transcript.squeeze_challenge();
+    let xi = crate::transcript::pipa_r::nonzero_challenge(transcript.squeeze_challenge());
     let z = transcript.squeeze_challenge();
 
     // p' = p + xi s - p'(x), so p'(x) = 0.
@@ -191,10 +190,10 @@ where
         transcript.write_point(&l_j)?;
         transcript.write_point(&r_j)?;
 
-        let u_j = transcript.squeeze_challenge();
+        let u_j = crate::transcript::pipa_r::nonzero_challenge(transcript.squeeze_challenge());
         challenges.push(u_j);
         let u_j_inv =
-            Option::<C::ScalarExt>::from(u_j.invert()).ok_or(IpaError::ZeroChallenge { round })?;
+            Option::<C::ScalarExt>::from(u_j.invert()).expect("total nonzero round challenge");
 
         let (p_lo, p_hi) = p_prime.split_at_mut(half);
         for (lo, hi) in p_lo.iter_mut().zip(p_hi.iter()) {
@@ -261,13 +260,15 @@ mod tests {
             .expect("point")
         };
         replay.write_point(&decode(0)).expect("S");
-        let _xi = replay.squeeze_challenge();
+        let _xi = crate::transcript::pipa_r::nonzero_challenge(replay.squeeze_challenge());
         let _z = replay.squeeze_challenge();
         let mut u = Vec::new();
         for round in 0..3 {
             replay.write_point(&decode(1 + 2 * round)).expect("L");
             replay.write_point(&decode(2 + 2 * round)).expect("R");
-            u.push(replay.squeeze_challenge());
+            u.push(crate::transcript::pipa_r::nonzero_challenge(
+                replay.squeeze_challenge(),
+            ));
         }
         let s = fold_scalars(&u, Fq::ONE);
         let expected = iroha_pasta::msm::msm_naive::<Ep>(&s, params.g()).to_affine();

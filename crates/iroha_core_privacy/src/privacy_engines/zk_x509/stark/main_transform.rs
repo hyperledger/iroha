@@ -393,7 +393,7 @@ mod tests {
                 let mut evaluator = MainTraceCosetEvaluatorV1 {
                     evaluation_rows: 64,
                     device_columns,
-                    receipt: Default::default(),
+                    receipt: MainTransformReceiptV1::default(),
                 };
                 let (output, erased) = inspection::observe_v1(|| {
                     evaluator
@@ -435,12 +435,12 @@ mod tests {
     fn failed_and_unwinding_dispatch_erase_the_actual_word_allocations() {
         let columns = columns_v1(3);
         for unwind in [false, true] {
-            let (_, observations) = inspection::observe_v1(|| {
+            let ((), observations) = inspection::observe_v1(|| {
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let mut evaluator = MainTraceCosetEvaluatorV1 {
                         evaluation_rows: 64,
                         device_columns: 2,
-                        receipt: Default::default(),
+                        receipt: MainTransformReceiptV1::default(),
                     };
                     evaluator.evaluate_with_v1(&columns, 4, 6, |batch, _| {
                         batch[0][0] = 999;
@@ -476,7 +476,7 @@ mod tests {
         let mut evaluator = MainTraceCosetEvaluatorV1 {
             evaluation_rows: 64,
             device_columns: 2,
-            receipt: Default::default(),
+            receipt: MainTransformReceiptV1::default(),
         };
         let mut columns = columns_v1(3);
         let mut calls = 0;
@@ -528,7 +528,7 @@ mod tests {
                     let mut evaluator = MainTraceCosetEvaluatorV1 {
                         evaluation_rows: 64,
                         device_columns,
-                        receipt: Default::default(),
+                        receipt: MainTransformReceiptV1::default(),
                     };
                     let actual = evaluator
                         .evaluate_selected_with_v1(
@@ -561,7 +561,7 @@ mod tests {
         let mut evaluator = MainTraceCosetEvaluatorV1 {
             evaluation_rows: 64,
             device_columns: 1,
-            receipt: Default::default(),
+            receipt: MainTransformReceiptV1::default(),
         };
         let result = evaluator.evaluate_selected_with_v1(&columns, 4, 6, Some(&[0]), |batch, _| {
             batch[0][63] = GOLDILOCKS_MODULUS_V1;
@@ -626,7 +626,7 @@ mod tests {
                 let mut cpu = MainTraceCosetEvaluatorV1 {
                     evaluation_rows: rows,
                     device_columns: 0,
-                    receipt: Default::default(),
+                    receipt: MainTransformReceiptV1::default(),
                 };
                 let pruned = cpu
                     .evaluate_selected_v1(&columns, native, common, &selected)

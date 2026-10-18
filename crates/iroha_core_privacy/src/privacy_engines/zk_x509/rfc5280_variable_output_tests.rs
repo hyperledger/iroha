@@ -205,7 +205,7 @@ fn variable_output_constructors_and_multiplicities_read_original_der_at_both_dep
                 for offset in 0..if length_row { 8 } else { capacity } {
                     let mut row = [F::ZERO; ZK_X509_RFC5280_STARK_BASE_WIDTH_V1];
                     row[BASE_VALUE] = F(if length_row {
-                        (length as u64).to_be_bytes()[offset] as u64
+                        u64::from((length as u64).to_be_bytes()[offset])
                     } else if offset < length {
                         trace.documents[usize::from(node.unwrap().document)].bytes[start + offset]
                             .value
@@ -368,7 +368,7 @@ fn variable_output_coherent_shadow_products_cannot_preserve_authenticated_der_bo
                     after,
                     &fixed,
                     der_challenges_v1(),
-                    challenges_v1(),
+                    &challenges_v1(),
                 )
                 .unwrap()
             };
@@ -425,14 +425,14 @@ fn variable_output_coherent_shadow_products_cannot_preserve_authenticated_der_bo
                         output_role_index_v1(entry.role),
                         false,
                         lane,
-                        challenges_v1()
+                        &challenges_v1()
                     ),
                     output_role_product_factor_v1(
                         &consumer,
                         output_role_index_v1(entry.role),
                         true,
                         lane,
-                        challenges_v1()
+                        &challenges_v1()
                     )
                 );
             }
@@ -497,7 +497,7 @@ fn variable_output_big_endian_length_boundary_255_256_257_preserves_every_byte()
         node.content_end = node.start + length as u16;
         assert!(node.content_end > node.content_start);
         let bytes = [0, 0, 0, 0, 0, 0, (length / 256) as u8, (length % 256) as u8];
-        let mut rows = [[F::ZERO; ZK_X509_RFC5280_STARK_BASE_WIDTH_V1]; 8];
+        let mut rows = vec![[F::ZERO; ZK_X509_RFC5280_STARK_BASE_WIDTH_V1]; 8];
         for (offset, row) in rows.iter_mut().enumerate() {
             row[BASE_VALUE] = F(u64::from(bytes[offset]));
             variable_output::populate_row(row, &trace, Some(&node), 0, true, offset).unwrap();

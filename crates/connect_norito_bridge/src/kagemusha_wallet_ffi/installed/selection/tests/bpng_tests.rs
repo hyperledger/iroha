@@ -927,7 +927,8 @@ fn bpng_null_financial_selection_authenticates_base_then_returns_unavailable_wit
                 originals_root: b"",
                 registration_source: b"",
             },
-            selected
+            selected,
+            OpeningMetricsV1::start()
         ),
         Err(Failure {
             status: ARTIFACTS_UNAVAILABLE,
@@ -965,7 +966,8 @@ fn bpng_financial_pin_and_original_tuple_refuse_downgrade_and_partial_offers() {
                 originals_root: b"",
                 registration_source: b"",
             },
-            selected
+            selected,
+            OpeningMetricsV1::start()
         ),
         Err(Failure {
             status: INVALID,

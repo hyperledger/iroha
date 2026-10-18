@@ -1,6 +1,6 @@
 # PIPA-v1: Pasta PLONKish/IPA proof format and verifier
 
-Status: first draft (task T14), 2026-10-04. Owner: `crates/iroha_plonk` (arithmetization, keys,
+Status: selected first-release construction; candidate validation pending. Owner: `crates/iroha_plonk` (arithmetization, keys,
 transcripts, prover, verifier) on `crates/iroha_pasta` (fields, curves, hash-to-curve, MSM, fold,
 FFT, `ParamsIpa`, RP57 Poseidon).
 
@@ -8,6 +8,14 @@ PIPA-v1 is the only Pasta PLONK/IPA format of the first release; there is no fal
 The retired independent prover survives only as captured public reference data. Native unit
 tests and an independent standard-library verifier retain its correctness checks; no second
 prover dependency or shipping compatibility decoder remains.
+
+The norm-product equations, total challenge maps, scoped full-group generator
+encoding and fresh-only prover ownership below describe the selected C12
+construction. Historical `[V]` captures establish only their recorded source
+and equations. They do not qualify this changed construction: its exact native
+goldens, descriptors, installed catalog and composed native/circuit execution
+must be rebuilt and checked together. Protocol version remains 1; the Rust
+descriptor schema names V1/V2 do not authorize a retired protocol fallback.
 
 Markers:
 
@@ -29,13 +37,14 @@ Markers:
   the usable rows. Row `u` is `l_last`, and rows `u+1..n` are `l_blind`. Rotation `r` reads row
   `(i + r) mod n` and is evaluated at `omega^r x`.
 - **Counts.** `n_a` is the number of advice columns and `m` of equality columns;
-  `n_z = ceil(m / (d-2))` is the number of permutation sets and `n_l` of lookups. `q_a`, `q_f` and
+  `n_z = ceil(m / floor((d-2)/2))` is the number of permutation sets and `n_l` of lookups. `q_a`, `q_f` and
   `q_i` count advice, fixed and instance queries, `n_s` counts opening point sets and `n_sel`
   original selectors.
 - **Names.** Params points are `g[i]`, `g_lagrange[i]`, `W` and `U`; the IPA challenges are
   `u_0..u_{k-1}`.
-- **Bounds.** `1 <= k <= 28` and `3 <= d <= 9`. The `d` bound is the format cap. Ordinary standalone gadget chips
-  target `d <= 6`; the explicitly measured compact recursive layout uses up to degree 9. Each count is at most 65,535, the descriptor
+- **Bounds.** `1 <= k <= 28` and `4 <= d <= 14`. These are format bounds, not a
+  measured layout or byte-budget result for any particular relation. Each admitted
+  relation pins its exact degree and layout. Each count is at most 65,535, the descriptor
   frame at most 16 MiB and the expression stack at most 1,024. Node policy may be stricter but
   never looser; admitted native relations pin their exact domain exponent and descriptor. All size arithmetic is checked, and an
   overflow is a rejection.
@@ -43,7 +52,7 @@ Markers:
   IPA and halo2 permuted lookups only. Unsupported: KZG, shuffle, the Keccak transcript, the
   vendored Hybrid instance mode and multi-circuit proofs.
 
-## 2. Arithmetization [V]
+## 2. Arithmetization [P: norm products]
 
 **Queries and gates.** A query is `(column, rotation: i32)`. Each column kind (fixed, advice,
 instance) has an ordered query table in which a pair occurs once, because halo2 interns them.
@@ -54,7 +63,8 @@ Expressions are trees over `Constant`, `Fixed(q)`, `Advice(q)`, `Instance(q)`, `
 and 1 for a query or virtual selector; a `Product` adds degrees and a `Sum` takes the maximum.
 Every gate has at least one polynomial, each of degree `<= d`.
 
-**Selector compression.** This is an exact port of halo2's `compress_selectors::plan`.
+**Selector compression.** The ordered packing algorithm follows
+`compress_selectors::plan`, with the selected native degree budget below.
 
 - A simple selector may appear only as a factor, at most once per gate polynomial, and never in a
   lookup.
@@ -65,7 +75,7 @@ Every gate has at least one polynomial, each of degree `<= d`.
 If `compress_selectors = 0`, selector `s` becomes fixed column `first + s`, holding 1 on active
 rows and queried at rotation 0, appended in selector order.
 
-If `compress_selectors = 1`, the plan runs with `D = d`:
+If `compress_selectors = 1`, the plan runs with `D = min(d, max(7, max_s deg(s)))`:
 
 1. Each selector with `deg = 0` becomes a singleton combination, in index order.
 2. Simple selectors `i` and `j < i` are excluded from each other (`excl[i][j]`) when they share an
@@ -87,7 +97,9 @@ Substitution rebuilds every gate and lookup expression node for node.
 advice columns. `n >= b + 3` is required. The masks are `l_0`, `l_last = l_u` and
 `l_blind = sum_{i=u+1}^{n-1} l_i`, with `l_i(x) = omega^i (x^n - 1) / (n (x - omega^i))`.
 
-**Permutation.** Equality columns are taken in `enable_equality` order. With `ch = d - 2`, set `s`
+**Permutation.** Write `N(t) = t^2 - 5`. Five is nonsquare in both Pasta
+scalar fields, so every evaluated norm factor is nonzero. Equality columns are
+taken in `enable_equality` order. With `ch = floor((d - 2)/2)`, set `s`
 covers columns `[s*ch, min((s+1)*ch, m))`. Then `sigma_j(omega^i) = DELTA^{j'} omega^{i'}` for
 `(j', i') = mapping(j, i)`.
 
@@ -98,28 +110,32 @@ relabelled, and `mapping[l]` and `mapping[r]` are swapped.
 Constraints, in order (none when `m = 0`):
 
 1. `l_0 (1 - z_0(x))`;
-2. `l_last (z_{n_z-1}(x)^2 - z_{n_z-1}(x))`;
+2. `l_last (z_{n_z-1}(x) - 1)`;
 3. for `s >= 1`, `l_0 (z_s(x) - z_{s-1}(omega^{-(b+1)} x))`;
 4. for each set, with `j` the global column index and `v_j` its rotation-0 evaluation:
 
 ```text
-(1 - l_last - l_blind) * ( z_s(omega x) * prod_j (v_j + beta*sigma_j(x) + gamma)
-                         - z_s(x) * prod_j (v_j + beta*DELTA^j*x + gamma) )
+(1 - l_last - l_blind) * ( z_s(omega x) * prod_j N(v_j + beta*sigma_j(x) + gamma)
+                         - z_s(x) * prod_j N(v_j + beta*DELTA^j*x + gamma) )
 ```
 
-**Lookup (halo2 permuted).** A lookup has inputs `a_0..a_{w-1}` and tables `s_0..s_{w-1}`,
+Here `N(a)=a²−5` is nonzero in both admitted Pasta fields. Each factor is the
+norm factor; scalar evaluation, quotient construction and recursive checks use
+this same polynomial without fallback.
+
+**Lookup (norm permuted).** A lookup has inputs `a_0..a_{w-1}` and tables `s_0..s_{w-1}`,
 `w >= 1`. They compress as `A = fold(acc * theta + a_i)`, so `a_0` carries `theta^{w-1}`, and `S`
 likewise. The prover commits `A'` and `S'`, then `z`.
 
 Constraints, in order:
 
 1. `l_0 (1 - z)`;
-2. `l_last (z^2 - z)`;
-3. `(1 - l_last - l_blind) (z(omega x)(A'+beta)(S'+gamma) - z(A+beta)(S+gamma))`;
+2. `l_last (z - 1)`;
+3. `(1 - l_last - l_blind) (z(omega x)N(A'+beta)N(S'+gamma) - z N(A+beta)N(S+gamma))`;
 4. `l_0 (A' - S')`;
 5. `(1 - l_last - l_blind)(A' - S')(A' - A'(omega^{-1} x))`.
 
-The required degree is `max(4, 2 + max(1, deg a) + max(1, deg s))`.
+The required degree is `max(6, 2 + 2*(max(1, deg a) + max(1, deg s)))`.
 
 The permutation is the vendored one. The usable rows of `A` are grouped by value, in ascending
 canonical-integer order. Group `g` (value `v`, count `c`) emits `(v, v)`, then `c - 1` leftovers
@@ -127,7 +143,7 @@ from the slice `[start_g - g, end_g - g - 1)`. Leftovers are the sorted usable t
 repeat their predecessor or are absent from the input. An input missing from the table is a prover
 error.
 
-**Degree and vanishing.** `d = max(3, lookup degrees, gate degrees, minimum_degree)`.
+**Degree and vanishing.** `d = max(4, lookup degrees, gate degrees, minimum_degree)`.
 `h = (sum_j y^{N-1-j} c_j(X)) / (X^n - 1)` runs over the `N` constraints in order: gate
 polynomials, then permutation items 1-4, then lookups.
 
@@ -137,7 +153,7 @@ evaluation over exactly `d - 1` cosets is internal and yields the same `h`.
 
 ## 3. Parameters and the params digest
 
-`ParamsIpa<C>` is the transparent derivation of `crates/iroha_pasta/src/params.rs` **[V]**:
+`ParamsIpa<C>` is the transparent derivation of `crates/iroha_pasta/src/params.rs`:
 
 - `g[i] = hash_to_curve("Halo2-Parameters", 0x00 || u32_le(i))`;
 - `W` and `U` hash the messages `[0x01]` and `[0x02]`;
@@ -145,7 +161,7 @@ evaluation over exactly `d - 1` cosets is internal and yields the same `h`.
 
 Its bytes are `u32_le(k) || g || g_lagrange || W || U`.
 
-**[P]** `params_digest(C, k) = SHA-256(params bytes)`.
+`params_digest(C, k) = SHA-256(params bytes)`.
 
 - Every verifier compiles the table `PINNED_PARAMS_V1[(curve, k)]`, seeded from
   `fixtures/native_prover/kats_v1.json` (`params_ipa[*].sha256`, `k = 6..16`). CI recomputes each
@@ -155,7 +171,7 @@ Its bytes are `u32_le(k) || g || g_lagrange || W || U`.
 - Signatures on params artifacts help provers only; they never authorize verifier inputs.
 - `g[0..2^j)` is equal for every `k >= j`, so accumulators of different `k` share a prefix of `g`.
 
-## 4. CircuitDescriptorV1 [P]
+## 4. CircuitDescriptorV1
 
 The descriptor is the canonical, source-level statement of everything the verifier evaluates (hash
 what you verify).
@@ -181,7 +197,7 @@ included. The schema is frozen: any change is a new type and version.
 | `instance_mode` | enum `{Committed, Direct}` | 6.3 |
 | `proof_suffix` | enum `{None, FoldedGenerator}` | section 11 |
 | `degree`, `blinding_factors` | `u8`, `u16` | `d`, `b` |
-| `permutation_chunk_len`, `quotient_pieces` | `u8`, `u8` | `d - 2`, `d - 1` |
+| `permutation_chunk_len`, `quotient_pieces` | `u8`, `u8` | `floor((d - 2)/2)`, `d - 1` |
 | `lookup_kind` | enum `{Halo2Permuted}` | |
 | `num_fixed_columns`, `num_advice_columns` | `u32` | fixed count after substitution |
 | `instance_lengths` | `Vec<u32>` | exact length of each instance column |
@@ -228,10 +244,11 @@ Registry obligation (M2): a PIPA-v1 VK record carries `D`, or its digest, beside
 `hash_vk` covers both. It uses new `pipa-v1` backend labels and circuit IDs; a vendored-halo2
 label never names a PIPA-v1 proof.
 
-### 4.1 CircuitDescriptorV2 and PIPA-R [P]
+### 4.1 Typed descriptor schema and PIPA-R
 
-PIPA-R uses canonical schema `iroha.plonk.pipa.circuit_descriptor.v2` while
-`protocol_version` remains 1. It has the V1 fields in the same semantic order,
+The current PIPA-R implementation uses Rust type `CircuitDescriptorV2` and canonical
+schema `iroha.plonk.pipa.circuit_descriptor.v2`; these are source/schema identifiers,
+while the only protocol version is `protocol_version = 1`. It has the V1 fields in the same semantic order,
 with `transcript: TranscriptV2`, followed after `lookups` by
 `instance_types: Vec<InstanceType>`. The transcript enum adds
 `KagemushaPoseidonRp57Base`; this profile requires Direct instances and the
@@ -242,7 +259,7 @@ FoldedGenerator suffix. There is exactly one type per instance column:
 - `Bits(b)`: additionally strictly below `2^b`, for `0 <= b <= 253`, code `2+b`.
   Bits(0) admits only zero; wider declarations are invalid descriptors.
 
-The V1 validation rules still apply to the common arithmetization. A shared
+The validation rules in §4 apply to the common arithmetization. A shared
 `ProtocolDescriptor` is an internal representation, not another wire encoding.
 Admission uses explicit V1 or V2 constructors/decoders; a failed decode never
 tries another profile. KAGEMUSHA consumers are re-keyed to PIPA-R and reject
@@ -260,7 +277,7 @@ never reduces one through the other field. V2 retained scalar profiles use
 the V2 domains with their scalar-field representation and typed frame.
 These distinct profiles are explicit protocols, not fallback decoders.
 
-## 5. Verifying key bytes (0x02) [V]
+## 5. Verifying key bytes (0x02)
 
 ```text
 0x02 || u32_le(k) || u8 compress (0 or 1) || u32_le(F_c)
@@ -272,7 +289,7 @@ The length is `10 + 32(F_c + m) + [compress] n_sel ceil(n/8)`, and bit `i` of bi
 row `8j + i`. Commitments are `sum_i v_i g_lagrange[i] + W`, since the vendored `Blind::default()`
 is one.
 
-**[P]** Decoding against `D` is stricter than the vendored `read_checked`:
+Decoding against `D` is stricter than the vendored `read_checked`:
 
 - `k`, `compress` and `F_c` must equal `D`;
 - points must be canonical, on the curve and not `O`;
@@ -284,7 +301,7 @@ must reproduce `D.selectors`.
 
 ## 6. Transcripts
 
-### 6.1 BLAKE2b Challenge255 [V]
+### 6.1 BLAKE2b Challenge255
 
 The transcript is one BLAKE2b state with a 64-byte output, personalization `"Halo2-Transcript"`
 and no key. Each operation updates it as follows:
@@ -298,7 +315,7 @@ and no key. Each operation updates it as follows:
 
 KATs: `kats_v1.json` `blake2b_transcript`.
 
-### 6.2 KAGEMUSHA Poseidon RP57 [V], injective absorption [P]
+### 6.2 KAGEMUSHA Poseidon RP57, injective absorption
 
 The sponge is `iroha_pasta::poseidon::Sponge` over `F`: width 3, rate 2, `x^5`, `R_F = 8`,
 `R_P = 57`, MDS 0, starting from `[2^64, 0, 0]`.
@@ -310,15 +327,17 @@ The sponge is `iroha_pasta::poseidon::Sponge` over `F`: width 3, rate 2, `x^5`, 
 - `common_point` rejects `O`.
 - Proof bytes and `read_*` are as in 6.1.
 
-A point `(x, y)` with canonical integer coordinates is buffered as:
+The current scalar-field profile buffers a point `(x, y)` with canonical integer
+coordinates as `[x mod |F|, [x >= |F|] + 2 (y mod 2)]`. Since `|B| < 2|F|`, `x` is
+recoverable, and `(x, y mod 2)` fixes the point. The encoding is injective and
+costs two elements. The M4 format memo may replace it only with another
+injective encoding.
 
-- **Oracle mode:** `[x mod |F|, y mod |F|]`. This is snark-verifier `fe_to_fe`, which is not
-  injective on Vesta (`q > p`).
-- **Production:** `[x mod |F|, [x >= |F|] + 2 (y mod 2)]`. Since `|B| < 2|F|`, `x` is recoverable,
-  and `(x, y mod 2)` fixes the point. The encoding is injective and costs the same two elements.
-  The M4 format memo may replace it only with another injective encoding.
-
-KATs: `kats_v1.json` `poseidon_transcript` retains the oracle-mode vectors.
+Historical primitive KATs retain `[x mod |F|, y mod |F|]`, the snark-verifier
+`fe_to_fe` encoding, which is not injective on Vesta (`q > p`). These vectors
+remain in `kats_v1.json` `poseidon_transcript`; their reference absorption
+helpers are confined to `cfg(test)` primitive tests and cannot select a proof
+protocol or replay mode.
 `iroha_plonk::transcript::kat_tests::production_poseidon_and_prelude_vectors` pins
 production injective-absorption challenges for the Pallas and Vesta fixture points,
 checking the transcript against a raw sponge with the coordinate encoding computed
@@ -327,7 +346,7 @@ independently. It also pins the Pallas instance-frame prelude (`repr =
 in the retained native and `x86_64-apple-darwin` release suites; this is vector and
 encoding coverage, not a Fiat-Shamir soundness argument.
 
-### 6.2b PIPA-R base-field RP57 [P]
+### 6.2b PIPA-R base-field RP57
 
 The RP57 sponge runs over B, starts at `[2^64, 0, 0]`, and first buffers the
 native element `B::from(u64::from_le_bytes(*b"pipa-rb1"))`. Padding and state
@@ -342,7 +361,20 @@ For sponge output w, the scalar challenge is w for Pallas, and `w-p` if
 `w >= p` else w for Vesta. Both are full-width; no short challenge or byte
 reduction is substituted. The Vesta map has only the statistical bias caused
 by `q-p`; its boundary cases are pinned in `fq_to_fp_challenge_map_kat`.
-Zero/degenerate challenge rejection follows the existing protocol equations.
+After this conversion, apply the role maps to the existing squeeze positions:
+`nz(a) = 1` for `a = 0`, and `a` otherwise; `x = 5*nz(a)^2`,
+`x_3 = 25*nz(a)^4`, and `xi` and each actual IPA round use `nz(a)`.
+No additional squeeze or rejection sampling is introduced. Other roles keep
+their original converted value; the closed raw-first-Theta certificate retains
+the base-field word before conversion. Normalization padding stays exactly zero.
+
+The evaluation challenge is nonsquare; the multiopening challenge is square but
+not a fourth power. Supported domain rotations are fourth powers, so the latter
+cannot equal a rotated evaluation challenge or a domain point. These maps are
+not uniform scalar samples. Their maximum scalar preimage counts are 3, 5 and 2
+respectively; bounds must use the corresponding pushforward distribution, with
+the base-to-scalar map's multiplicity as well. Statistical distance of the base
+conversion cannot be reused as distance of these role outputs from uniform.
 
 Native KATs for both curves, profile/type mutations and proof/schedule parity
 are in `crates/iroha_plonk/src/pipa_r_tests.rs`. The constrained duplex state
@@ -353,9 +385,10 @@ establish those properties.
 
 ### 6.3 Prelude and instance modes
 
-The prelude has three steps:
+The V1 scalar-field prelude has three steps:
 
-1. `common_scalar(transcript_repr)`, using the vendored value in oracle mode.
+1. `common_scalar(transcript_repr)`, derived from the admitted descriptor digest
+   and exact verifying-key bytes (sections 4 and 5), with no caller override.
 2. **[P]** The instance frame: `common_scalar` of `F::from(u64::from_le_bytes(*b"pipainst"))`,
    then of the column count, then of each `instance_lengths[c]`.
 3. The instances, by mode.
@@ -367,10 +400,10 @@ The prelude has three steps:
   `I_c(omega^r x) = sum_{j < len_c} v_{c,j} l_{j-r}(x)` (indices mod `n`). Nothing is committed or
   opened.
 
-**[P]** Both modes require the column count and every length to equal `D`. The vendored verifier
+Both modes require the column count and every length to equal `D`. The vendored verifier
 checks lengths only in Committed mode and absorbs none.
 
-For V2 the frame is key representation, `pipainst`, column count, all column
+For the typed descriptor the frame is key representation, `pipainst`, column count, all column
 lengths, then all column type codes, before the instance values. PIPA-R
 absorbs the representation and framing integers as native base-field
 elements; the actual instance values use §6.2b scalar encoding. Both prover
@@ -378,31 +411,39 @@ and verifier reject any value outside its descriptor type. Mixed-type public
 statements use homogeneous columns (Ω has lengths 1, 2 and 16), rather than
 silently mixing encodings inside a column.
 
-### 6.4 Historical reference framing (unit tests only)
+### 6.4 Current native captures and historical primitive evidence
 
-Native unit tests retain four historical reference choices solely to replay
-independently captured fixtures:
+Proof construction and verification use only the descriptor-bound native
+framing in sections 6.2 and 6.3. There is no proof override or historical replay
+mode that injects a captured key representation, substitutes `fe_to_fe` point
+absorption or omits the instance frame. Historical primitive transcript KATs
+retain their test-only reference absorption and prelude helpers; they do not
+provide an alternate proof implementation. Caller-seeded randomness remains
+confined to unit tests, and the public-API compile-fail test keeps fixed-seed
+proving unavailable to normal library consumers. The source retirement guard
+rejects the removed proof and key-override entry points; ordinary proof-binding
+tests cover changes to the admitted descriptor and exact key bytes.
 
-- The captured `transcript_repr` is the original `Halo2-Verify-Key` BLAKE2b of
-  the length-prefixed key `Debug` rendering.
-- Point absorption uses `fe_to_fe`.
-- The transcript omits the instance frame.
-- The prover accepts a fixed synthetic seed to reproduce the original proof.
+The selected `captured_goldens` unit owner reconstructs native witnesses,
+descriptors, keys and proofs and compares them with an exact native-generated
+corpus. Its maintained exporter,
+`captured_goldens::export::export_current_native_corpora`, produces the 42-case
+Sigma/Wide golden matrix and eight-case succinct matrix. The separate
+`native_reference_capture::export_current_reference_corpus` produces the
+46-case full-proof reference matrix and ten parameter sets at k6 through k10
+on both curves. Both exporters use ordinary descriptor-bound proof framing;
+their bytes are regression inputs, not an independent prover oracle. See the
+[fixture capture instructions](../fixtures/native_prover/README.md) and
+[independent reference instructions](../fixtures/native_prover/reference_verifier/README.md)
+for source custody, replay and verification requirements. Actual current-source
+capture and complete independent verification remain pending.
 
-These hooks are compiled only under `cfg(test)` in `iroha_plonk`. There is no
-external oracle cfg, Cargo feature, shipping-root assertion or alternate
-production implementation. Public-API compile-fail tests keep fixed-seed
-proving and historical verification unavailable to normal library consumers.
-
-The native Sigma/Wide frontend circuits regenerate every witness, descriptor,
-key and proof against `fixtures/native_prover/golden_sources_v1.json`: 42
-independent cases cover both Pasta curves, both historical transcript
-profiles, Sigma k6/k9/k11 and Wide k8/k10 with two seeds, plus both Wide k13
-cases. Each case runs at 1, 2, 4 and 7 workers, verifies its proof and rejects
-changed proof bytes, truncation, suffix extension and changed public values.
-The frozen original 20 Blake2b proof hashes remain unchanged. Captured
-transcript and succinct-verifier tests, native mutation cases and the
-independent standard-library full verifier remain separate checks.
+The retained ancestor's 42 independent Sigma/Wide captures and 20 original
+BLAKE2b hashes belong to its earlier equations and role maps. They cannot
+supply new expected bytes or a passing result for the selected source. The
+corpora, reference consumers and actual native runs must be reconciled and
+retained together; none is regenerated or qualified by this specification
+update.
 
 `native_prover_parity.yml` runs the native arithmetic/proof suites and public-API
 checks on ARM and x86 instruction targets, plus independent proof and Poseidon
@@ -449,10 +490,13 @@ The exact length depends only on `D`:
 
 Decoding:
 
-- **[P]** Any other length, trailing bytes included, is rejected with `ProofLength`.
+- Any other length, trailing bytes included, is rejected with `ProofLength`.
 - A scalar must be `< |F|` (`NonCanonicalScalar`).
 - A point needs `x < |B|` with `x^3 + 5` square, and the sign bit selects `y` (`InvalidPoint`).
-- `O` is rejected (`IdentityPoint`).
+- Ordinary proof points reject `O` (`IdentityPoint`). Only the final
+  `FoldedGenerator` suffix uses the scoped full-group codec: zero32 is `O`,
+  equivalent to the canonical coordinate pair `(0,0)`. Other points remain
+  canonical finite curve points; the ordinary decoder is unchanged.
 - Every count, including the number of `h` pieces, comes from `D`, never from the proof.
 
 ## 8. Verifier checklist
@@ -463,14 +507,15 @@ verifier never panics.
 1. Validate `D`, derive the params or check their pinned digest, and decode the VK.
 2. Compute `transcript_repr`, and check the instance shapes and the exact proof length.
 3. Run the prelude, then read and squeeze rows 1-6.
-4. **[P]** Reject `x = 0` and `x^n = 1` with `DegenerateChallenge`; the vendored verifier panics
-   on `x^n = 1`.
+4. Apply the evaluation role map of section 6.2b. The retained `x = 0` and
+   `x^n = 1` checks are defensive; neither is reachable from that total map.
 5. Read rows 7-11, or compute the Direct instance evaluations. Compute `l_0`, `l_last` and
    `l_blind`.
 6. Fold the constraints in section 2 order, `E = fold(acc * y + c_j)`, by interpreting the
    constraint-term table (S11); then `expected_h = E / (x^n - 1)` and `H = sum_i x^{n i} H_i`.
-7. Multiopen (9.1): reject if `x_3` equals a query point.
-8. IPA (9.2): reject if any `u_j = 0`.
+7. Multiopen (9.1): use the multiopening role map; its image is disjoint from
+   every rotated evaluation query point. Retain the denominator checks.
+8. IPA (9.2): map `xi` and actual `u_j` through `nz`; retain nonzero checks.
 9. `verify_full` accepts iff the equation below holds, with `G'_0 = <s, g>`. A `FoldedGenerator`
    suffix must also equal `G'_0`. `accumulate_succinct` follows section 11 instead and never
    accepts.
@@ -511,7 +556,7 @@ P_open   = x_4^{n_s} q'       + sum_t x_4^{n_s-1-t} Q_t
 v        = x_4^{n_s} msm_eval + sum_t x_4^{n_s-1-t} qv_t
 ```
 
-### 9.2 BGH19 IPA [V]
+### 9.2 BGH19 IPA
 
 This follows the vendored `poly/ipa/commitment`. The prover folds `g` with `iroha_pasta::fold` and
 returns `G'_0`.
@@ -524,7 +569,7 @@ s_i    = prod_j u_j^{bit_{k-1-j}(i)}        (u_0 pairs with the top index bit)
 
 ## 10. Prover obligations
 
-**BlindingScheduleV1 [V].** The prover consumes one RNG stream on the calling thread. Each draw is
+**BlindingScheduleV1.** The prover consumes one RNG stream on the calling thread. Each draw is
 `F::random`: eight `next_u64` words `w_i`, reduced as `sum w_i 2^{64i} mod |F|`. The order is:
 
 1. advice rows `u..n`, column by column, then one blind per advice column;
@@ -537,30 +582,27 @@ s_i    = prod_j u_j^{bit_{k-1-j}(i)}        (u_0 pairs with the top index bit)
 8. the `n` coefficients of the IPA `s` polynomial and its blind, then, for each round, the
    randomness of `L_j` and of `R_j`.
 
-The thread count changes no draw and no output byte.
+For the same supplied test stream, the thread count changes no draw and no output byte.
+Separate production attempts draw fresh entropy and need not reproduce proof bytes.
 
-**ProverRandomness [P].** Randomness is an opaque value with exactly three sources:
+**ProverRandomness [P].** The public owner has exactly two constructors:
+`os()` and `hedged()`. Both draw 32 fresh OS bytes for each proof and key a
+ChaCha20 stream. Hedging additionally binds the exact statement and usable
+witness digests. Entropy failure is an error, with no deterministic fallback or
+internal retry. There is no production recovery-seed constructor.
 
-- the OS CSPRNG;
-- a hedged derivation over fresh entropy, the witness digest and the statement. It protects
-  against a weak or repeating OS generator that still returns bytes; a failing one is an error;
-- a caller-held secret recovery seed, such as a wallet's. The prover computes
-  `context = BLAKE2b(32, "PIPA-v1-Recovery", statement || witness)`, draws 32 bytes `r` from the
-  stream the caller's derivation returns for `context`, and proves with
-  `ChaCha20(BLAKE2b(32, "PIPA-v1-RecovKey", r || context))`. The binding happens inside the
-  prover, so a derivation that ignores the context cannot make two witnesses share blinds.
-  Secrecy still needs a secret seed: with a public derivation the blinds are a public function of
-  the witness.
-
-Fixed seeds exist only under `cfg(test)` or in oracle mode, and no seed crosses FFI. Two witnesses
-proved under one recovery seed get unrelated blinds (named test:
-`a_constant_recovery_derivation_still_separates_witnesses`). Proving keys are local caches, not an
-interchange format.
+Fixed streams are private to this crate's `cfg(test)` owners. Restoring a proof
+means verifying and reusing its exact retained original bytes, not regenerating
+its randomness. Private seed, proof, field and fold-tape allocations use their
+designated clearing owners; this is an allocation-lifetime contract, not a
+guarantee that the process, operating system or physical storage retains no copy.
+Proving keys are local caches, not an interchange format.
 
 ## 11. Accumulation
 
 **Encoding.** `AccumulatorV1 = transcript_repr || u8 curve || u8 k || G || u_0..u_{k-1}`, which is
-`66 + 32k` bytes. It decodes canonically: `G != O`, every `u_j != 0`, and no trailing bytes.
+`66 + 32k` bytes. `G` uses the scoped full-group codec, every actual `u_j != 0`,
+and trailing bytes are rejected. Admitting `G = O` does not discharge its decide equation.
 
 **Succinct accumulation.** `accumulate_succinct` requires the `FoldedGenerator` suffix. It runs
 steps 1-8, decodes `G` from the suffix, and checks step 9 with `G` in place of `<s, g>`; the MSM
@@ -581,10 +623,14 @@ succinct accumulation and is rejected by `decide`, `batch_decide`, `verify_full`
 **Acceptance.** `decide` accepts iff `G = <s(u), g[0..2^k)>`. Only `verify_full`, `batch_verify`,
 `decide` and `batch_decide` accept.
 
-**Absorption.** A consumer absorbs `transcript_repr`, `G` and every `u_j` before any challenge
-that depends on them. An appended `G` is never trusted until it is decided.
+**Binding.** A consumer binds `transcript_repr`, canonical scoped `G` and every
+`u_j` before a challenge depends on them. The KAGEMUSHA committed-mask fold
+performs this through its private input digest and opened commitment D; its
+terminal projection additionally requires the closed same-frame certificate
+described in the [recursion argument](kagemusha_recursion_soundness_v1.md#what-an-accumulation-fold-proves).
+An appended `G` is never trusted until it is decided.
 
-**[P] Deterministic batch weights** replace the vendored `OsRng`. They are derived only after
+**Deterministic batch weights** replace the vendored `OsRng`. They are derived only after
 every item is fixed:
 
 ```text
@@ -625,11 +671,13 @@ error, the oracle model and unbounded lineage depth (BCMS20 ePrint 2020/499; BCL
   encodings:
   - foreign scalars are `(lo < 2^128, hi < 2^127)` with `lo + 2^128 hi < modulus`, never
     `s mod |F|`;
-  - points are canonical limbs, checked on-curve and non-identity.
+  - ordinary points are canonical finite curve points; scoped generator claims
+    additionally permit exactly `(0,0)` for identity, bound to zero32.
 
   Each such value is bound into a digest absorbed before the folding challenge, and its cells
   count in the recursion gates. The constraint checker must find these unsatisfiable: absorbing
-  `pt` while binding `pt' != pt`; passing `s >= p` as `s mod p`; an identity source.
+  `pt` while binding `pt' != pt`; passing `s >= p` as `s mod p`; identity in an
+  ordinary point role, or an alternate encoding of a scoped generator.
 - **S7 Zero-knowledge budget.** For every witness polynomial (advice, `A'`, `S'`, lookup `z`,
   permutation `z_s`), the number of distinct query rotations plus one for `x_3` is `<= b - 1`. The
   masks formula guarantees it; the check catches mis-ports, and new witness types such as LogUp
@@ -638,8 +686,9 @@ error, the oracle model and unbounded lineage depth (BCMS20 ePrint 2020/499; BCL
 - **S9 Binding and decoding.**
   - Only the decoded `D` is evaluated, and `transcript_repr` is absorbed first.
   - Every input decodes canonically with an exact length.
-  - `O` is rejected everywhere, including a verifier-computed instance commitment.
-  - The degenerate challenges of section 8 are rejected.
+  - `O` is rejected in ordinary point roles, including a verifier-computed
+    instance commitment; the scoped generator exception is exact.
+  - Total role maps and defensive checks follow section 8.
 - **S10 Verdict determinism.** Architecture, threads, features, `asm`, budgets and `iroha_config`
   never change a verdict. Limits stop or slow work but never reject a valid proof. Every verifier
   MSM runs `msm_complete`: the instance commitments, the opening and batch equations, `G'_0`,
@@ -648,8 +697,10 @@ error, the oracle model and unbounded lineage depth (BCMS20 ePrint 2020/499; BCL
   incomplete-formula path, so prover-chosen bases never meet an exceptional case, and the budget
   only narrows its window. The batch-affine `iroha_pasta::msm::msm_public` stays prover-only until
   it is audited and differentially qualified for consensus.
-- **S11 One acceptance predicate.** In-circuit verifiers implement sections 6-9 under these rules
-  and report malformed input as unsatisfiable, never as a panic. Every adversarial case runs
+- **S11 One acceptance predicate.** In-circuit verifiers implement sections 6-9 under these rules.
+  Hard owners require validity; soft owners return a constrained false verdict for
+  malformed originals while retaining their exact byte binding. Neither panics or
+  treats a selected valid dummy as the original. Every adversarial case runs
   through both the in-circuit and the native verifier. Both walk the same declarative tables,
   derived from `D` alone:
   - `Protocol::constraint_terms()`: the section 2 fold. The native verifier folds by interpreting
@@ -663,29 +714,53 @@ error, the oracle model and unbounded lineage depth (BCMS20 ePrint 2020/499; BCL
 
 ## 13. Zero-knowledge argument (summary)
 
-- **Witness polynomials.** Each has at least `b` fresh random rows and reveals at most `b - 1`
-  evaluations (S7). Commitments carry random blinds, so the revealed values are uniform given the
-  statement (the halo2 argument).
-- **The quotient `h`.** It is never opened alone. Its pieces are blinded, and `R` shares the point
-  set `{x}`, so `q(x_3)` masks `h(x_3)`.
-- **The opening.** The BGH19 `s` polynomial and the `L_j`/`R_j` randomness hide it.
-- **Exact cosets.** They leave `h` unchanged.
-- **`G'_0`.** It is a public function of the challenges and params, so a simulator can compute it.
-- **The transport wrap.** Its public deferred values are functions of a transcript of hiding
-  commitments, so they reveal nothing beyond the inner statement. They are deterministic per inner
-  proof, so each use needs a fresh inner proof to stay unlinkable.
+The sole candidate uses norm copy/lookup factors, total role maps and canonical
+full-group G. The complete fixed-function local law is in
+[kagemusha_local_zk_v1.md](kagemusha_local_zk_v1.md). It preserves the exact IPA
+rank-collapse branch: c=0 on collapse and uniform otherwise, with a unique final
+blind under nonzero W. It never programs a concrete RP57 gate or claims seeded
+ChaCha coins are statistically uniform. Ideal masks and the actual computational
+coin conversion are distinct statements.
 
-The transport-wrap argument here concerns hiding PIPA proofs. KAGEMUSHA also exports
-accumulators from private non-hiding PIPA-AS folds; their joint distribution with
-Omega needs the separate [C12 composition argument](kagemusha_recursion_soundness_v1.md#composition-keys-and-disclosure).
-The polynomial blinding budget alone does not establish that argument.
+The final unabsorbed G and undecided accumulator carriers admit identity as
+zero32/(0,0). All ordinary absorbed points remain finite. Complete generator
+MSM decisions remain mandatory; syntax, identity or a succinct equation alone
+never decides the claim. Native/circuit scoped codecs and every carrier must
+agree. Soundness cannot use an unqualified finite-point assumption at G.
 
-TODO (M4): a formal memo on the wrap's deferred values, LogUp and endoscalar options before
-adoption.
+KAGEMUSHA strict original admission uses
+`SourceBoundVerifyingKeyV2::from_masked_artifact_v2` (and the corresponding full
+PK constructor). The sole `iroha_plonk::keys::masking` owner checks actual
+reconstructed fixed/sigma rows, all rotated gate/lookup dependencies on fresh
+advice tail cells, zero fixed tail and uncopied tail labels, S7 rank, each mixed
+group's final private coefficient-one slot and quotient/R order. Canonical
+source, selector, copy, parameter and every original VK commitment check remain
+mandatory. Masking, bounded symbolic-work/capture and cancellation failures
+return explicit errors before source authority escapes. This is catalog/source
+admission; it changes no native or in-circuit proof-verification equation.
+
+The offline compiler and the shared strict KAGEMUSHA admission dispatch use
+this constructor. Thus an independently supplied original cannot bypass the
+predicate on the strict built-in profile export path. The full-catalog checker
+binds captured rows to the same actual originals and delegates to this owner;
+there is no second test-only mask acceptance algorithm. In a setup-before-pins
+experiment, real and simulated constructors retain the same public admission
+failure, so successful admitted catalogs satisfy this predicate without a
+simulator-only abort. Current artifact regeneration and source qualification
+still require their actual candidate checks.
+
+The [C12 logical setup and causal composition](kagemusha_c12_composition_v1.md)
+combines this local law with the joint P/V fold law, original checkpoints,
+retries and publication in one honest raw-oracle setup-before-pins experiment.
+Its conditional theorem retains setup and cryptographic refusals, uses unchanged
+RP57, and requires each reached frame's matching valid source and exact private
+originals. The selected recursive soundness heuristic supplies no privacy axiom.
+The stated setup-instantiation and concrete-coin assumptions remain explicit;
+current catalog, native/circuit and physical-device qualification remain open.
 
 ## 14. Historical reference and production deviation registry
 
-**[V]** Native reference tests enforce captured byte identity for:
+**[V]** The retained baseline records captured byte identity for:
 
 - parameter and key bytes, with native generation at 1, 2, 4 and 7 workers;
 - selector compression and permutation key generation;
@@ -699,13 +774,17 @@ natively: their circuits were deleted with the old `iroha_core_zk` KAGEMUSHA cod
 Their pinned values stay in `fixtures/native_prover/kats_v1.json`. The native KAGEMUSHA relations
 in `iroha_kagemusha_proof` need their own goldens once their artifact set is frozen (G3).
 
-Every verdict difference from the captured original verifier is a stricter
-rejection listed below and covered by native mutation tests. Historical
+The table below records the baseline's deviations. The selected norm equations,
+role maps, scoped generator identity and fresh-only ownership additionally change
+the construction; they are not a claim of stricter-only acceptance or byte parity
+with that baseline. Its independent reference and golden consumers need coherent
+successor fixtures and actual execution before qualifying the selected source. Historical
 captures retain the original verdicts and challenges; normal native verification
 rejects malformed public input and noncanonical or extended proof encodings.
 The original augmented wrapper already required exact length, while the raw
 succinct reader accepted a valid prefix with trailing bytes and could panic on
-malformed statements. The frozen succinct corpus preserves those observations.
+malformed statements. The retained ancestor succinct capture preserves those
+historical observations.
 These individual reference checks do not establish equality with the distinct
 PIPA-AS accumulation transcript or discharge the recursive composition memo.
 
@@ -730,15 +809,20 @@ PIPA-AS accumulation transcript or discharge the recursive composition memo.
 The owners are `iroha_pasta`, `iroha_plonk` and the retained independent reference
 verifiers. Every check has a named test that asserts its typed rejection.
 
-- **Native reference replay.** Captured independent goldens are re-proved natively at 1, 2, 4 and 7 threads, on the Blake2b
-  path and on the KAGEMUSHA path. VK and params bytes match, and native keygen is checked at the
-  same thread counts. Verdicts match on the tamper corpora of both paths, apart from registered
-  deviations. The deleted `iroha_core_zk` KAGEMUSHA goldens are not re-proved (section 14).
+- **Current native corpus conformance.** The 42-case golden and eight-case succinct
+  matrices must be freshly proved with ordinary native framing and replayed at
+  1, 2, 4 and 7 threads on the Blake2b and KAGEMUSHA paths. VK and params bytes
+  must match, and native keygen is checked at the same thread counts. Preserve
+  the tamper-corpus assertions on both paths and the baseline verdicts with their
+  registered deviations. These obligations require current-source execution;
+  ancestor proof bytes do not establish conformance to the selected equations.
+  The deleted `iroha_core_zk` KAGEMUSHA goldens are not re-proved (section 14).
 - **Malicious prover.** The harness rewrites one message, recomputes every later message and
   challenge, and expects one specific reason. Its cases:
   - equal advice commitments with different evaluations (S1, S3);
   - a wrong Direct length and an inconsistent `g_lagrange`;
-  - identity points, trailing bytes and injected degenerate challenges;
+  - identity in ordinary point roles, trailing bytes, raw zero/exceptional map inputs,
+    and identity G requiring complete generator decision;
   - `G` substituted after its challenge (a suffix solved from the equation);
   - cancelling invalid accumulators and a swapped history;
   - forged lookup permutations: an input missing from its table with sorted `A'`/`S'`, with
@@ -771,17 +855,22 @@ verifiers. Every check has a named test that asserts its typed rejection.
 
 Open items:
 
-- The independently derived standard-library Python reference lives in
+- The standard-library Python reference lives in
   `fixtures/native_prover/reference_verifier`, with adversarial tests in
   `pytests/scripts/native_prover_reference_test.py`. It implements complete individual
   proof verification and generator `decide` for the existing pins at k6 through k10,
-  both curves, Blake2b and scalar RP57, and the V2 base-field RP57 profile. The frozen
-  46-proof matrix is checked by an isolated standard-library command and regenerated
-  in memory by a genuine Rust oracle test. Parser/type/identity mutations and false
-  succinct claims that preserve the soft IPA equation exercise full rejection.
-  Keep this reference and its frozen inputs after M7. Its documented scope excludes
+  both curves, Blake2b and scalar RP57, and the V2 base-field RP57 profile. Its
+  selected equations use the current norm products, total challenge roles and
+  scoped-generator rule, with one descriptor-bound API and no transcript override.
+  Genuine current-source generation of the 46-proof matrix by the native exporter
+  in section 6.4 and its complete isolated standard-library verification remain
+  pending. The adversarial suite also consumes the eight-case succinct corpus;
+  both corpora must match the current reader and its scalar squeeze tapes and
+  mapped rounds. Parser/type/identity mutations and false succinct claims that
+  preserve the soft IPA equation must still exercise full rejection. Keep this
+  reference and its frozen current inputs after M7. Its documented scope excludes
   batch weights, encoded accumulators, k16 and recursive PIPA-AS; it is not a
   production fallback decoder or full-release qualification.
 - TODO: `PINNED_PARAMS_V1` beyond `k = 16`.
 - TODO: Fiat-Shamir soundness memos (target and hash-query bound) before any format option: LogUp,
-  128-bit endoscalar challenges or a base-field transcript.
+  128-bit endoscalar challenges. The selected base-field RP57 profile already needs its own current soundness accounting.

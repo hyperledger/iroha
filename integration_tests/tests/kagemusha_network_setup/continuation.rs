@@ -27,7 +27,7 @@ const ORIGINAL_MAX: usize = 16 << 20;
 fn hash(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
-fn digest(value: &norito::json::Value) -> Result<[u8; 32]> {
+pub(super) fn digest(value: &norito::json::Value) -> Result<[u8; 32]> {
     let text = value
         .as_str()
         .ok_or_else(|| eyre!("digest string required"))?;
@@ -61,7 +61,11 @@ fn private_directory(path: &Path) -> Result<()> {
 }
 
 // These are bounded DATA originals. Their digests do not grant network or wallet authority.
-fn read_original(path: &Path, maximum: usize, expected: Option<&str>) -> Result<Vec<u8>> {
+pub(super) fn read_original(
+    path: &Path,
+    maximum: usize,
+    expected: Option<&str>,
+) -> Result<Vec<u8>> {
     ensure!(path.is_absolute(), "absolute selected original required");
     if let Some(expected) = expected {
         ensure!(
@@ -183,7 +187,7 @@ fn original(
     );
     Ok(bytes)
 }
-fn selected(
+pub(super) fn selected(
     command: &norito::json::Value,
     name: &str,
     maximum: usize,
@@ -259,10 +263,13 @@ fn prefix(network: &Network, through: u64) -> Result<Vec<SumeragiFinalityProof>>
                 ensure!(qc.signers.count_ones() == 3, "exact quorum required");
             }
             if !reference.is_empty() {
-                ensure!(
-                    proof.block_wire == reference[usize::try_from(height - 1)?].block_wire,
-                    "peers disagree on canonical certified block"
-                );
+                // Each peer's prefix is independently verified above. Honest peers may
+                // retain different exact-quorum witnesses for this same header and R.
+                finality::same_four_validator_decision(
+                    &verifier,
+                    &proof,
+                    &reference[usize::try_from(height - 1)?],
+                )?;
             }
             current.push(proof);
         }
@@ -397,38 +404,26 @@ fn balances(network: &Network, expected: [u128; 4]) -> Result<Vec<norito::json::
     let mut snapshots = Vec::new();
     for peer in network.peers() {
         let client = peer.client();
-        let assets = client.client().query(FindAssets::new()).execute_all()?;
-        let selected = assets
-            .iter()
-            .filter(|a| a.id().definition() == &definition_id())
-            .collect::<Vec<_>>();
+        let selected = collections::holders(&client)?;
         let total = selected
-            .iter()
-            .try_fold(Quantity::zero(), |sum, a| sum.checked_add(a.value()))
+            .values()
+            .try_fold(Quantity::zero(), |sum, amount| sum.checked_add(amount))
             .map_err(|error| eyre!("balance overflow: {error}"))?;
         ensure!(total == quantity(), "all-bucket conservation failed");
         for (seed, amount) in [41, 42, 43, 95].into_iter().zip(expected) {
-            let id = AssetId::of(definition_id(), account(seed));
             let actual = selected
-                .iter()
-                .find(|asset| asset.id() == &id)
-                .map_or_else(Quantity::zero, |asset| asset.value().clone());
+                .get(&account(seed))
+                .cloned()
+                .unwrap_or_else(Quantity::zero);
             ensure!(
                 actual == Quantity::from_canonical_numeric(Numeric::new(amount, SCALE))?,
                 "wrong role balance {seed}"
             );
         }
-        let definitions = client
+        let definition = client
             .client()
-            .query(FindAssetDefinitions::new())
-            .execute_all()?;
-        ensure!(
-            definitions
-                .iter()
-                .find(|d| d.id() == &definition_id())
-                .is_some_and(|d| d.total_quantity() == &quantity()),
-            "supply changed"
-        );
+            .query_single(FindAssetDefinitionById::new(definition_id()))?;
+        ensure!(definition.total_quantity() == &quantity(), "supply changed");
         snapshots.push(norito::json!({"peer": (peer.id().to_string()), "balances_atomic": (expected.map(|v| v.to_string()).to_vec()), "all_bucket_total_atomic": (SUPPLY.to_string())}));
     }
     Ok(snapshots)
@@ -513,6 +508,7 @@ fn wait_command(
                         activation::require_command(&value, phase)?
                     }
                     "settlement" => settlement::require_command(&value)?,
+                    "fee-settlement" => fee::require_command(&value)?,
                     _ => (),
                 }
                 publish(root, &format!("{phase}-accepted.json"), &bytes)?;
@@ -528,6 +524,10 @@ fn wait_command(
 
 #[path = "continuation/activation.rs"]
 mod activation;
+#[path = "continuation/fee.rs"]
+mod fee;
+#[path = "continuation/finality.rs"]
+mod finality;
 #[path = "continuation/funding.rs"]
 mod funding;
 #[path = "continuation/issuer.rs"]
@@ -538,7 +538,7 @@ mod registration;
 mod settlement;
 
 #[test]
-#[ignore = "owns four actual validators through fresh-anchor catalog, genuine native ABC, settlement and retained-C confirmation; explicit controller required"]
+#[ignore = "owns four actual validators through retained-genesis catalog, genuine native ABC, settlement and retained-C confirmation; explicit controller required"]
 fn execute_four_validator_monetary_continuation() -> Result<()> {
     init_instruction_registry();
     let root = PathBuf::from(
@@ -549,13 +549,13 @@ fn execute_four_validator_monetary_continuation() -> Result<()> {
     private_directory(&root)?;
     let deadline = Instant::now() + Duration::from_secs(7 * 24 * 60 * 60);
     let (network, rt) = sandbox::start_network_blocking_or_skip(
-        network_builder(),
+        retained::network_builder()?,
         stringify!(execute_four_validator_monetary_continuation),
     )?
     .ok_or_else(|| eyre!("qualification cannot skip"))?;
     let result = (|| -> Result<()> {
         wait_for_committed(&network, 1, network.sync_timeout(), &[])?;
-        fund_fee_successor(&network)?;
+        let _genesis_dkg = retained::provision(&network, &rt, &root)?;
         export(&network, &root.join("setup"))?;
         let setup_sha = hash(&fs::read(root.join("setup/setup.json"))?);
         let ready = norito::json::to_vec(

@@ -83,6 +83,10 @@ class Curve:
         require(y < self.base and (y & 1) == parity, 'point sign')
         return (x, y, 1)
 
+    def decode_generator(self, raw: bytes) -> Point:
+        """Decode a scoped full-group claim; ordinary proof points stay finite."""
+        return self.decode(raw, identity=True)
+
     def affine(self, point: Point) -> tuple[int, int]:
         """Normalize a nonidentity Jacobian point."""
         x, y, z = point

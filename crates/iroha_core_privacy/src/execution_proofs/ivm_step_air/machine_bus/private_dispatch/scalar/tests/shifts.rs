@@ -16,7 +16,7 @@ fn expected(opcode: u8, left: u64, amount: u64) -> u64 {
     match opcode {
         wide::arithmetic::SLL => left << amount,
         wide::arithmetic::SRL => left >> amount,
-        wide::arithmetic::SRA => ((left as i64) >> amount) as u64,
+        wide::arithmetic::SRA => i64::cast_unsigned(u64::cast_signed(left) >> amount),
         wide::arithmetic::ROTL | wide::arithmetic::ROTL_IMM => left.rotate_left(amount),
         wide::arithmetic::ROTR | wide::arithmetic::ROTR_IMM => left.rotate_right(amount),
         _ => panic!("shift fixture opcode"),
@@ -127,7 +127,7 @@ fn native_private_shift_register_amounts_tags_aliases_and_zero_match() {
         0,
         1,
         u64::MAX,
-        i64::MIN as u64,
+        i64::cast_unsigned(i64::MIN),
         0xaaaa_5555_8000_0001,
         0x1234_5678_9abc_def0,
     ];
@@ -163,7 +163,7 @@ fn native_private_rotate_immediates_are_unsigned_and_never_read_raw_byte_registe
     for opcode in IMMEDIATE_OPS {
         for raw in 0..=u8::MAX {
             for tag in [false, true] {
-                let instruction = enc::encode_ri(opcode, 4, 2, raw as i8);
+                let instruction = enc::encode_ri(opcode, 4, 2, u8::cast_signed(raw));
                 let (program, fixture) =
                     checked_native(instruction, &[(2, 0x8000_1234_5678_9abc, tag)]);
                 assert_eq!(right_immediate(instruction), Some(u64::from(raw)));
@@ -178,7 +178,7 @@ fn native_private_rotate_immediates_are_unsigned_and_never_read_raw_byte_registe
                         &mut signed,
                         instruction,
                         0x8000_1234_5678_9abc,
-                        i64::from(raw as i8) as u64,
+                        i64::cast_unsigned(i64::from(u8::cast_signed(raw))),
                     );
                     assert!(!signed.accepts(&program));
                 }
@@ -187,7 +187,7 @@ fn native_private_rotate_immediates_are_unsigned_and_never_read_raw_byte_registe
         for raw in [0, 2, 4, 128, 255] {
             for rd in [0, 2, raw] {
                 checked_native(
-                    enc::encode_ri(opcode, rd, 2, raw as i8),
+                    enc::encode_ri(opcode, rd, 2, u8::cast_signed(raw)),
                     &[(2, u64::MAX, true)],
                 );
             }

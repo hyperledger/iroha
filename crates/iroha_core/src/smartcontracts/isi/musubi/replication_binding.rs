@@ -14,34 +14,38 @@ pub fn validate_replication_order_archive_binding<'world>(
     replication_order: &iroha_data_model::sorafs::pin_registry::ReplicationOrderId,
     world: &'world impl MusubiSourceReadOnly,
 ) -> Result<&'world MusubiReplicationOrderLocationLifecycleV1, ParseError> {
-    try_validate_replication_order_archive_binding(archive, replication_order, world)
+    try_validate_replication_order_archive_binding::<_, ()>(archive, replication_order, world)
         .map_err(ReadFailure::into_predicate)
 }
 
 /// Run the same predicate while preserving an original physical read refusal.
-pub(crate) fn try_validate_replication_order_archive_binding<'world, W: MusubiRead>(
+pub(crate) fn try_validate_replication_order_archive_binding<
+    'world,
+    W: MusubiEvidenceRead<Q>,
+    Q: Default,
+>(
     archive: &MusubiArchiveRecordV1,
     replication_order: &iroha_data_model::sorafs::pin_registry::ReplicationOrderId,
     world: &'world W,
 ) -> Result<&'world MusubiReplicationOrderLocationLifecycleV1, ReadFailure<W::Error, ParseError>> {
-    ReplicationBindingValidation::new().advance(archive, replication_order, world)
+    ReplicationBindingValidation::<Q>::new().advance(archive, replication_order, world)
 }
 
 /// Retains the successful archive predicate across the original binding lookup refusal.
-pub(crate) struct ReplicationBindingValidation {
-    queries: [LookupCursor; 1],
+pub(crate) struct ReplicationBindingValidation<Q> {
+    queries: [Q; 1],
     archive_validated: bool,
 }
-impl ReplicationBindingValidation {
+impl<Q: Default> ReplicationBindingValidation<Q> {
     /// Begin one unchanged original archive/order binding check.
     pub(crate) fn new() -> Self {
         Self {
             archive_validated: false,
-            queries: [LookupCursor::new(); 1],
+            queries: [Q::default()],
         }
     }
     /// Return the actual borrowed lifecycle after the same checks, retaining progress.
-    pub(crate) fn advance<'world, W: MusubiRead>(
+    pub(crate) fn advance<'world, W: MusubiEvidenceRead<Q>>(
         &mut self,
         archive: &MusubiArchiveRecordV1,
         replication_order: &iroha_data_model::sorafs::pin_registry::ReplicationOrderId,

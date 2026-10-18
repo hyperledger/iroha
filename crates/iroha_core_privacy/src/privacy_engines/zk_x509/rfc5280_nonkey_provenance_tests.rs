@@ -32,7 +32,7 @@ fn nonkey_output_shadow_bytes_reject_without_changing_authenticated_byte_endpoin
                     after,
                     &fixed,
                     der_challenges_v1(),
-                    challenges_v1(),
+                    &challenges_v1(),
                 )
                 .unwrap()
             };
@@ -81,14 +81,14 @@ fn nonkey_output_shadow_bytes_reject_without_changing_authenticated_byte_endpoin
                         output_role_index_v1(role),
                         false,
                         lane,
-                        challenges_v1()
+                        &challenges_v1()
                     ),
                     output_role_product_factor_v1(
                         &consumer,
                         output_role_index_v1(role),
                         true,
                         lane,
-                        challenges_v1()
+                        &challenges_v1()
                     )
                 );
             }

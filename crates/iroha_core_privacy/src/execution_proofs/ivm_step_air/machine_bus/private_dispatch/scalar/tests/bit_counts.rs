@@ -187,7 +187,7 @@ fn private_bit_count_six_gas_one_cycle_and_unconditional_prefixes_are_bound() {
     );
     let padding = ScalarFixture(Fixture::padding());
     assert!(padding.accepts(&program));
-    for original in [fixture, padding] {
+    for original in [&fixture, &padding] {
         for i in 0..64 {
             let mut changed = original.clone();
             changed.0.row[SCALAR + COUNT + i] = changed.0.row[SCALAR + COUNT + i].add(F::ONE);

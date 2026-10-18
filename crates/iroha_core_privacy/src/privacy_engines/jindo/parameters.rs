@@ -4,9 +4,9 @@
 //! floating-point search: every prime, dimension and integer bound is compiled below.
 use super::JINDO_MAX_BATCH_SIZE_V1;
 use iroha_data_model::privacy::IROHA_JINDO_OUTER_COMMITMENT_RANK_V1;
-/// Exact rounded-discrete-Gaussian width for ΠAgg.
+/// Exact rounded-discrete-Gaussian width for `ΠAgg`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum JindoGaussianWidthV1 {
+pub enum JindoGaussianWidthV1 {
     /// Aggregation mask sampled before the signed-monomial `alpha` challenge.
     AggregateMask,
 }
@@ -26,7 +26,7 @@ impl JindoGaussianWidthV1 {
 }
 /// Exact compiled Jindo parameter tuple.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct JindoParametersV1 {
+pub struct JindoParametersV1 {
     pub(crate) batch_size: usize,
     pub(crate) split: usize,
     pub(crate) rows: usize,
@@ -44,7 +44,7 @@ pub(crate) struct JindoParametersV1 {
     pub(crate) max_rejection_attempts: usize,
 }
 /// The only native Jindo parameter profile compiled for the first release.
-pub(crate) const JINDO_PARAMETERS_V1: JindoParametersV1 = JindoParametersV1 {
+pub const JINDO_PARAMETERS_V1: JindoParametersV1 = JindoParametersV1 {
     batch_size: JINDO_MAX_BATCH_SIZE_V1,
     split: 1,
     rows: 2,

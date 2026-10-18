@@ -22610,12 +22610,16 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
     @available(iOS 15.0, macOS 12.0, *)
     private func serverSentEventStream<Event: Sendable>(
         request: @escaping @Sendable () throws -> URLRequest,
+        opened: Event? = nil,
         parse: @escaping @Sendable ([String]) throws -> Event?
     ) -> AsyncThrowingStream<Event, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     let bytes = try await openEventStream(request())
+                    if let opened {
+                        continuation.yield(opened)
+                    }
 
                     var buffer: [String] = []
                     var lineAccumulator = Data()
@@ -22691,6 +22695,69 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
     @available(iOS 15.0, macOS 12.0, *)
     public func streamEvents(filterText: String) -> AsyncThrowingStream<ToriiEventMessage<ToriiEvent>, Error> {
         eventStream(filter: .text(filterText))
+    }
+
+    /// Live movements of `accountId` (`GET /v1/accounts/{account_id}/history/sse`):
+    /// every account-history row of each height published after the stream
+    /// opens, oldest first, exactly as `accountHistory(of:)` returns them.
+    ///
+    /// The first element is `.opened`. The feed is live-only: after `.opened`,
+    /// read the first page of `accountHistory(of:)` and deduplicate by row
+    /// `id`, which leaves no gap. `filter` narrows rows with the
+    /// account-history collection grammar. The stream ends by throwing on a
+    /// terminal `stream_error` (for example `stream_lagged`), a transport
+    /// failure or a malformed frame; callers reconnect and read history again.
+    ///
+    /// ```swift
+    /// for try await event in torii.streamAccountHistory(accountId: account) {
+    ///     switch event {
+    ///     case .opened: try await refreshFirstHistoryPage()
+    ///     case let .movement(row): showPending(row)
+    ///     }
+    /// }
+    /// ```
+    @available(iOS 15.0, macOS 12.0, *)
+    public func streamAccountHistory(accountId: String,
+                                     filter: ToriiFilter? = nil) -> AsyncThrowingStream<ToriiAccountHistoryStreamEvent, Error> {
+        serverSentEventStream(
+            request: { try self.makeAccountHistoryStreamRequest(accountId: accountId, filter: filter) },
+            opened: .opened,
+            parse: { lines in
+                try self.parseAccountHistoryMovement(from: lines).map(ToriiAccountHistoryStreamEvent.movement)
+            }
+        )
+    }
+
+    private func makeAccountHistoryStreamRequest(accountId: String, filter: ToriiFilter?) throws -> URLRequest {
+        var queryItems: [URLQueryItem]?
+        if let filter {
+            let clause = ToriiFilterClause.expression(filter)
+            do {
+                try clause.validate(parameter: "filter")
+                queryItems = [URLQueryItem(name: "filter", value: try clause.transmittableText(parameter: "filter"))]
+            } catch let error as ToriiListQueryError {
+                throw ToriiClientError.invalidQuery(error)
+            }
+        }
+        return try makeDataspaceVisibleRequest(
+            path: try collectionPath(for: .account(accountId, suffix: "history/sse")),
+            queryItems: queryItems,
+            headers: ["Accept": "text/event-stream"]
+        )
+    }
+
+    private func parseAccountHistoryMovement(from lines: [String]) throws -> ToriiAccountHistoryRow? {
+        guard let parsed = try parseServerSentEvent(from: lines) else {
+            return nil
+        }
+        try throwIfTerminalStreamError(parsed, context: "account-history SSE")
+        guard parsed.eventName == "movement", let payload = parsed.data else {
+            return nil
+        }
+        guard let data = payload.data(using: .utf8) else {
+            throw ToriiClientError.invalidPayload("SSE payload is not valid UTF-8.")
+        }
+        return try decodeJSON(ToriiAccountHistoryRow.self, from: data)
     }
 
     @available(iOS 15.0, macOS 12.0, *)
@@ -23209,6 +23276,42 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
         return try ToriiKagemushaWalletLoadIssuanceOriginalV1(
             selection: selection, payerAccountID: canonicalAuth.accountId, networkID: network,
             expectedURL: request.url, response: response, bytes: data)
+    }
+
+    /// Fetch both independent Load originals concurrently with their existing exact-route
+    /// signatures, bounds and owner checks. A failed or cancelled pair cancels and drains
+    /// its sibling; a partial result is never returned or retained.
+    public func getKagemushaWalletLoadOriginalsV1(
+        selection: ToriiKagemushaWalletLoadSelectionV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+        requireCurrentOwner: @escaping @Sendable () async throws -> Void
+    ) async throws -> ToriiKagemushaWalletLoadOriginalsV1 {
+        try Task.checkCancellation()
+        try await requireCurrentOwner()
+        return try await withThrowingTaskGroup(of: ToriiKagemushaWalletLoadReadPartV1.self) { group in
+            group.addTask {
+                .issuance(try await self.getKagemushaWalletLoadIssuanceOriginalV1(
+                    selection: selection, canonicalAuth: canonicalAuth, requireCurrentOwner: requireCurrentOwner))
+            }
+            group.addTask {
+                .finality(try await self.getKagemushaWalletLoadFinalityOriginalV1(
+                    selection: selection, canonicalAuth: canonicalAuth, requireCurrentOwner: requireCurrentOwner))
+            }
+            defer { group.cancelAll() }
+            var issuance: ToriiKagemushaWalletLoadIssuanceOriginalV1?
+            var finality: Data?
+            for try await part in group {
+                switch part {
+                case .issuance(let original): issuance = original
+                case .finality(let original): finality = original
+                }
+            }
+            try Task.checkCancellation()
+            try await requireCurrentOwner()
+            try Task.checkCancellation()
+            guard let issuance, let finality else { throw ToriiClientError.invalidResponse }
+            return ToriiKagemushaWalletLoadOriginalsV1(issuance: issuance, finalityOriginal: finality)
+        }
     }
 
     /// Receive one native BLS certificate and exact Load event inclusion from the payer route.

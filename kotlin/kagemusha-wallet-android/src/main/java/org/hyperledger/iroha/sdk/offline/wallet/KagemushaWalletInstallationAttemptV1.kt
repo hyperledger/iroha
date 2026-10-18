@@ -26,7 +26,9 @@ class KagemushaWalletInstallationAttemptV1 private constructor(
         KagemushaWalletInstalledRuntimeV1.requireNoUnreleasedAdmissions()
         val actual=pointer.takeIf{it!=0L}?:throw KagemushaWalletExceptionV1(-2)
         val retainedPlatform=checkNotNull(platform)
-        val result=try{KagemushaWalletInstalledRuntimeNativeV1.registerInstallation(actual)}
+        val result=try{KagemushaWalletNativeWorkerV1.shared.run {
+            KagemushaWalletInstalledRuntimeNativeV1.registerInstallation(actual)
+        }}
         catch(_:LinkageError){throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.BRIDGE_UNAVAILABLE)}
         // Negative i32 refusal retains exact opaque pointer. Only positive ID consumed Native's box.
         val handle=installationRuntimeHandle(result)
@@ -68,14 +70,16 @@ class KagemushaWalletInstallationAttemptV1 private constructor(
             val attempt=KagemushaWalletInstallationAttemptV1(platform)
             val frames=originals.frames()
             val result=try {
-                if(KagemushaWalletNativeV1.revision()!=1)throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.BRIDGE_UNAVAILABLE)
+                if(KagemushaWalletNativeCallsV1.revision()!=1)throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.BRIDGE_UNAVAILABLE)
                 // Resolve both consuming JNI methods before loading any owner. Documented NULL
                 // input must return INVALID and creates no registry/custody/provider operation.
                 if(KagemushaWalletInstalledRuntimeNativeV1.registerInstallation(0L)!=-1L ||
                     KagemushaWalletInstalledRuntimeNativeV1.closeInstallation(0L)!=-1)
                     throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.BRIDGE_UNAVAILABLE)
-                KagemushaWalletInstalledRuntimeNativeV1.beginInstallation(platform,
-                    frames[0],frames[1],frames[2],frames[3],frames[4],frames[5],frames[6],frames[7])
+                KagemushaWalletNativeWorkerV1.shared.run {
+                    KagemushaWalletInstalledRuntimeNativeV1.beginInstallation(platform,
+                        frames[0],frames[1],frames[2],frames[3],frames[4],frames[5],frames[6],frames[7])
+                }
             }catch(_:LinkageError){throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.BRIDGE_UNAVAILABLE)}
             attempt.pointer=installationAttemptPointerV1(result)
             return attempt

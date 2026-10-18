@@ -12,7 +12,7 @@ use super::*;
 pub struct MusubiPublicationInstallation {
     /// Exact original genesis-derived network.
     pub network_id: Option<NetworkId>,
-    /// Exact nonzero seed ProviderId as 64 lowercase hexadecimal characters.
+    /// Exact nonzero seed `ProviderId` as 64 lowercase hexadecimal characters.
     pub seed_provider_hex: Option<String>,
     /// Canonical provider-owner account, independently checked by native receipt validation.
     pub ingress_broker: Option<String>,
@@ -30,7 +30,7 @@ pub struct MusubiPublicationInstallation {
     pub tls_private_key_file: Option<WithOrigin<PathBuf>>,
     /// Original DER trust root, without global trust-store modification.
     pub tls_root_certificate_file: Option<WithOrigin<PathBuf>>,
-    /// Per-discovery budget in milliseconds, default 30 seconds and bounded to 1..=120_000.
+    /// Per-discovery budget in milliseconds, default 30 seconds and bounded to `1..=120_000`.
     /// Independent of caller request timeouts and the paid-pin authorization interval.
     pub readback_request_timeout_ms: Option<u64>,
     /// New-operation interval, at most one hour and additionally capped by signed caller expiry.

@@ -8,7 +8,8 @@ use super::*;
 use crate::kagemusha_wallet_advance_v1::{
     KagemushaWalletCopyStateV1, KagemushaWalletCustodyDirV1, KagemushaWalletDurableMarkerV1,
     KagemushaWalletMarkerPublicationV1, KagemushaWalletMarkerRecordV1, KagemushaWalletSimFaultV1,
-    KagemushaWalletSimFsV1, KagemushaWalletSimPowerLossV1, kagemusha_wallet_publish_marker_v1,
+    KagemushaWalletSimFsV1, KagemushaWalletSimPowerLossV1,
+    KagemushaWalletStorageCountersV1 as Counters, kagemusha_wallet_publish_marker_v1,
     test_support::{
         BOOT_A, BOOT_B, SimStoreV1, WalletFixtureV1, bootstrap_capsule, completion_for,
         prepared_slot, wallet_fixture,
@@ -274,6 +275,149 @@ fn wallet_advance_v1_completion_stage_replaces_invalid_unreleased_copies() {
     .expect("stage");
     assert!(!staged.adopted);
     assert_eq!(staged.record, record);
+}
+
+#[test]
+fn wallet_advance_v1_completion_stage_removes_only_invalid_copies() {
+    // Both copies absent (every fresh Advance): no removal and no removal sync, only the
+    // paired create-new publication with its single directory sync.
+    let f = wallet_fixture(0x3a);
+    let s = selected(&f);
+    let record = completion_for(&f, &s.capsule, 0x0d);
+    let (staged, fresh) = Counters::observe(|| {
+        kagemusha_wallet_stage_completion_v1(
+            &s.store,
+            &s.capability,
+            &Ok(BOOT_A),
+            &record,
+            &f.wallet_id(),
+        )
+    });
+    assert!(!staged.expect("stage").adopted);
+    assert_eq!(
+        (
+            fresh.removals,
+            fresh.dir_syncs,
+            fresh.staged_syncs,
+            fresh.publish_syncs,
+            fresh.fsync_class_calls()
+        ),
+        (0, 0, 2, 1, 3)
+    );
+    // One invalid never-released copy: exactly that copy is removed durably first.
+    let g = wallet_fixture(0x3b);
+    let t = selected(&g);
+    let names = kagemusha_wallet_completion_names_v1(&t.capsule.body().operation_id);
+    t.store.write_new(&dir(&g), &names[1], b"torn");
+    let record = completion_for(&g, &t.capsule, 0x0d);
+    let (staged, invalid) = Counters::observe(|| {
+        kagemusha_wallet_stage_completion_v1(
+            &t.store,
+            &t.capability,
+            &Ok(BOOT_A),
+            &record,
+            &g.wallet_id(),
+        )
+    });
+    assert_eq!(staged.expect("stage").record, record);
+    assert_eq!((invalid.removals, invalid.dir_syncs), (1, 1));
+}
+
+#[test]
+fn wallet_advance_v1_completion_stage_after_unsynced_removal_keeps_one_record() {
+    // An invalid never-released copy whose earlier removal is still unsynced reads as absent
+    // and is not removed again: the fresh pair's directory sync makes that removal durable
+    // before any Released marker. A fault at any step, power loss (which may resurrect the
+    // invalid copy) and a retry with another record leave exactly one record in both copies,
+    // and a record whose staging succeeded is never replaced.
+    let f = wallet_fixture(0x3c);
+    let s = selected(&f);
+    let names = kagemusha_wallet_completion_names_v1(&s.capsule.body().operation_id);
+    assert_eq!(
+        s.store.write_new(&dir(&f), &names[0], b"torn"),
+        crate::kagemusha_wallet_advance_v1::KagemushaWalletPublishOutcomeV1::Published
+    );
+    crate::kagemusha_wallet_advance_v1::KagemushaWalletFsV1::unlink(
+        &s.fs,
+        &dir(&f),
+        names[0].as_str(),
+    )
+    .expect("unsynced removal");
+    assert!(s.fs.pending_dir_ops() > 0);
+    let first = completion_for(&f, &s.capsule, 0x0e);
+    let second = completion_for(&f, &s.capsule, 0x0f);
+    let probe = s.fs.fork();
+    let start = probe.steps();
+    let (staged, c) = Counters::observe(|| {
+        kagemusha_wallet_stage_completion_v1(
+            &KagemushaWalletDurableStoreV1::new(probe.clone()),
+            &s.capability,
+            &Ok(BOOT_A),
+            &first,
+            &f.wallet_id(),
+        )
+    });
+    staged.expect("fault-free");
+    assert_eq!(c.removals, 0, "an absent copy is not removed again");
+    let mut cases = 0;
+    for step in 0..probe.steps() - start {
+        for fault in [
+            KagemushaWalletSimFaultV1::Error,
+            KagemushaWalletSimFaultV1::PartialWrite,
+            KagemushaWalletSimFaultV1::LostWriteback,
+            KagemushaWalletSimFaultV1::CrashBefore,
+            KagemushaWalletSimFaultV1::CrashAfter,
+        ] {
+            for seed in 0..4_u64 {
+                let fs = s.fs.fork();
+                fs.inject(fs.steps() + step, fault);
+                let store = KagemushaWalletDurableStoreV1::new(fs.clone());
+                let outcome = kagemusha_wallet_stage_completion_v1(
+                    &store,
+                    &s.capability,
+                    &Ok(BOOT_A),
+                    &first,
+                    &f.wallet_id(),
+                );
+                fs.power_loss(if seed == 0 {
+                    KagemushaWalletSimPowerLossV1::DropUnsynced
+                } else {
+                    KagemushaWalletSimPowerLossV1::Seeded(seed)
+                });
+                store.remove_staging(&dir(&f)).expect("staging");
+                let retried = kagemusha_wallet_stage_completion_v1(
+                    &store,
+                    &s.capability,
+                    &Ok(BOOT_B),
+                    &second,
+                    &f.wallet_id(),
+                )
+                .expect("retry");
+                if outcome.is_ok() {
+                    assert!(
+                        retried.adopted,
+                        "a staged record is never replaced: step {step} {fault:?}"
+                    );
+                    assert_eq!(retried.record, first);
+                }
+                assert!(retried.record == first || retried.record == second);
+                let pair = kagemusha_wallet_load_completion_v1::<_, Record>(
+                    &store,
+                    &f.slot,
+                    &expectation(&s),
+                    &f.wallet_id(),
+                )
+                .expect("load")
+                .expect("record");
+                assert_eq!(pair.value(), &retried.record);
+                for copy in KagemushaWalletCopyV1::BOTH {
+                    assert_eq!(pair.state(copy), KagemushaWalletCopyStateV1::Valid);
+                }
+                cases += 1;
+            }
+        }
+    }
+    assert!(cases > 0);
 }
 
 #[test]

@@ -1,4 +1,4 @@
-//! Fixed operation-task partitions and the canonical sixteen sigma selectors.
+//! Fixed operation-task partitions and the canonical eleven sigma selectors.
 
 use ff::Field;
 use iroha_pasta::Fp;
@@ -8,24 +8,34 @@ use iroha_plonk_recursion::obligation::ledger::Variant;
 
 /// Global sigma selector order from the wire's sorted `(operation_tag, mask)` set.
 /// Refresh kinds share the one constrained tag7 union key.
-pub const SIGMA_SELECTORS: [(u8, u8); 16] = [
+pub const SIGMA_SELECTORS: [(u8, u8); 11] = [
     (1, 0),
     (2, 0),
     (3, 0),
     (3, 1),
     (3, 2),
     (3, 3),
-    (3, 4),
-    (3, 5),
-    (3, 6),
-    (3, 7),
     (4, 0),
-    (4, 1),
     (5, 0),
     (6, 0),
     (7, 0),
     (8, 0),
 ];
+
+/// Whether Λ proves this variant's own step relation directly (lean lineage), so
+/// its route verifies no own sigma. Without an incoming sigma the route has no
+/// `Q_sigma` and its part slot is the pinned trivial filler; Receive and
+/// `ArchiveReceive` keep an incoming-only `Q_sigma`. The payment-path sigma still
+/// exists for the variant; Λ does not verify it. Refresh keeps its own sigma.
+pub const fn proves_own_step_inline(variant: Variant) -> bool {
+    !matches!(
+        variant,
+        Variant::RefreshCredential
+            | Variant::RefreshSchemePolicy
+            | Variant::RefreshQuotaShare
+            | Variant::RefreshTimeAnchor
+    )
+}
 
 /// Find the unique global selector; undefined operation/mask pairs are rejected.
 pub fn sigma_selector(operation_tag: u8, mask: u8) -> Option<u8> {
@@ -36,8 +46,7 @@ pub fn sigma_selector(operation_tag: u8, mask: u8) -> Option<u8> {
 }
 
 /// Constrain the global index from the exact owning selector mask cells.
-/// Send passes its opened enabled-controls mask; Receive passes the boolean
-/// derived from the Request's recorded blacklist version. Other tags require0.
+/// Send passes its opened enabled-controls mask; every other tag requires 0.
 ///
 /// # Errors
 /// Undefined fixed operation tag or layout failure. Invalid masks are unsatisfiable.
@@ -49,12 +58,8 @@ pub fn constrain_sigma_selector(
 ) -> Result<Word<Fp>, Error> {
     match operation_tag {
         3 => {
-            uint.range_check::<3>(region, mask)?;
+            uint.range_check::<2>(region, mask)?;
             uint.glue().add_constant(region, mask, Fp::from(2))
-        }
-        4 => {
-            uint.range_check::<1>(region, mask)?;
-            uint.glue().add_constant(region, mask, Fp::from(10))
         }
         _ => {
             let index = sigma_selector(operation_tag, 0).ok_or(Error::Synthesis)?;
@@ -83,12 +88,8 @@ pub enum OperationTask {
     SendPending = 6,
     /// Send conditional fee insertion and untouched maps/burned total.
     SendFeeAndCarry = 7,
-    /// Mandatory current credential and Enrollment certificate re-verification on Load.
-    LoadCurrentAuthorization = 8,
-    /// Send own receipt, current credential and Enrollment certificate.
+    /// Send own receipt under the predecessor payment key.
     SendAuthorization = 9,
-    /// Exact public lineage/transport/sigma tape bound to the own receipt.
-    SendProof = 10,
     /// Incoming Omega, sigma and transported-claim decoder verdicts on Receive.
     ReceiveProofs = 11,
     /// Exact incoming Payment, Request, payer and receipt body bindings.
@@ -97,22 +98,16 @@ pub enum OperationTask {
     ReceiveSignatures = 13,
     /// Authenticated consumed-credit search and its nonmembership verdict.
     ReceiveNonmembership = 14,
-    /// Request-recorded blacklist history and exact sigma-key selection.
-    ReceiveBlacklist = 15,
-    /// Hard own receipt, current credential and Enrollment certificate.
+    /// Hard own receipt under the predecessor payment key.
     ReceiveAuthorization = 16,
-    /// Exact own sigma bytes bound to the Receive receipt proof digest.
-    ReceiveOwnProof = 17,
     /// OQ-3 consumed map, immutable credit record and adjusted burn accounting.
     ReceiveEffects = 18,
     /// Unload's exact redeem-map insertion and value conservation.
     UnloadRecovery = 19,
     /// Retiring's lifecycle transition and adjusted-field synchronization.
     RetiringState = 20,
-    /// Unload/Retiring own receipt, current credential and Enrollment certificate.
+    /// Unload/Retiring own receipt under the predecessor payment key.
     UnloadAuthorization = 21,
-    /// Unload/Retiring exact predecessor Omega and own sigma receipt binding.
-    UnloadProof = 22,
     /// Exact original Omega-plus-sigma consuming digest and both raw commitments.
     ReceiveProofDigest = 23,
     /// Policy update's exact state effects and credential renewal continuity.
@@ -121,8 +116,6 @@ pub enum OperationTask {
     RefreshUpdateAuthorization = 25,
     /// Mandatory predecessor current credential and direct Enrollment certificate.
     RefreshCurrentAuthorization = 26,
-    /// New blacklist version/root insertion into permanent history.
-    RefreshBlacklist = 27,
     /// Exact fixed64 ordering, interval and charge-preserving matching rules.
     RefreshQuotaMerge = 28,
     /// Exact held Payment sources and pending descriptor, independent of evidence validity.
@@ -133,10 +126,8 @@ pub enum OperationTask {
     ArchiveProofs = 31,
     /// Incoming evidence receipt signature under the Request's quoted receiver key.
     ArchiveSignatures = 32,
-    /// Hard own receipt, current credential and direct Enrollment certificate.
+    /// Hard own receipt under the predecessor payment key.
     ArchiveAuthorization = 33,
-    /// Exact own sigma tape and its sigma-only receipt digest.
-    ArchiveOwnProof = 34,
     /// Terminal evidence iff/no-op rule and exact incoming mode closure.
     ArchiveEffects = 35,
     /// Exact OQ-3 consumed-credit map update under the complete Receive verdict.
@@ -155,6 +146,12 @@ pub enum OperationTask {
     ArchiveCorePending = 43,
     /// Hard adjusted pending path with the complete committed evidence verdict.
     ArchiveLineagePending = 44,
+    /// Send's own step relation proved inline: balance, ordinals, Request binding, epoch
+    /// and accepted-time window, chain append and every enabled control.
+    SendTransition = 45,
+    /// Receive's own step relation proved inline: Request binding, receive chain append,
+    /// receive sequence and the credited balance, beside the hard predecessor.
+    ReceiveTransition = 46,
 }
 impl OperationTask {
     /// Stable context-schema code, not an operation's wire tag.
@@ -166,53 +163,34 @@ impl OperationTask {
     pub const fn required(variant: Variant) -> &'static [Self] {
         match variant {
             Variant::Bootstrap => &[Self::BootstrapState, Self::BootstrapAuthorization],
-            Variant::Load => &[
-                Self::LoadRecovery,
-                Self::LoadReceipt,
-                Self::LoadCurrentAuthorization,
-            ],
+            Variant::Load => &[Self::LoadRecovery, Self::LoadReceipt],
             Variant::Send => &[
                 Self::SendObjects,
                 Self::SendPending,
                 Self::SendFeeAndCarry,
                 Self::SendAuthorization,
-                Self::SendProof,
+                Self::SendTransition,
             ],
             Variant::Receive | Variant::ReceiveRenewed => &[
                 Self::ReceiveProofs,
                 Self::ReceiveObjects,
                 Self::ReceiveSignatures,
                 Self::ReceiveNonmembership,
-                Self::ReceiveBlacklist,
                 Self::ReceiveAuthorization,
-                Self::ReceiveOwnProof,
                 Self::ReceiveEffects,
                 Self::ReceiveProofDigest,
                 Self::ReceiveConsumedEffects,
                 Self::ReceiveCreditEffects,
+                Self::ReceiveTransition,
             ],
-            Variant::Unload => &[
-                Self::UnloadRecovery,
-                Self::UnloadAuthorization,
-                Self::UnloadProof,
-            ],
-            Variant::Retiring => &[
-                Self::RetiringState,
-                Self::UnloadAuthorization,
-                Self::UnloadProof,
-            ],
+            Variant::Unload => &[Self::UnloadRecovery, Self::UnloadAuthorization],
+            Variant::Retiring => &[Self::RetiringState, Self::UnloadAuthorization],
             Variant::RefreshCredential
             | Variant::RefreshSchemePolicy
             | Variant::RefreshTimeAnchor => &[
                 Self::RefreshEffects,
                 Self::RefreshUpdateAuthorization,
                 Self::RefreshCurrentAuthorization,
-            ],
-            Variant::RefreshBlacklist => &[
-                Self::RefreshEffects,
-                Self::RefreshUpdateAuthorization,
-                Self::RefreshCurrentAuthorization,
-                Self::RefreshBlacklist,
             ],
             Variant::RefreshQuotaShare => &[
                 Self::RefreshEffects,
@@ -229,7 +207,6 @@ impl OperationTask {
                 Self::ArchiveProofs,
                 Self::ArchiveSignatures,
                 Self::ArchiveAuthorization,
-                Self::ArchiveOwnProof,
                 Self::ArchiveEffects,
                 Self::ArchiveRetainedProofs,
                 Self::ArchiveCorePending,
@@ -258,7 +235,7 @@ impl OperationTask {
 mod tests {
     use super::*;
     #[test]
-    fn canonical_selectors_exhaust_all_sixteen_without_aliases() {
+    fn canonical_selectors_exhaust_all_eleven_without_aliases() {
         for (i, &(tag, mask)) in SIGMA_SELECTORS.iter().enumerate() {
             assert_eq!(sigma_selector(tag, mask), Some(u8::try_from(i).unwrap()));
         }
@@ -271,19 +248,23 @@ mod tests {
             }
         }
         assert_eq!(sigma_selector(2, 0), Some(1));
-        assert_eq!(sigma_selector(7, 0), Some(14));
+        assert_eq!(sigma_selector(3, 3), Some(5));
+        assert_eq!(sigma_selector(4, 0), Some(6));
+        assert_eq!(sigma_selector(4, 1), None);
+        assert_eq!(sigma_selector(3, 4), None);
+        assert_eq!(sigma_selector(7, 0), Some(9));
     }
     #[test]
     fn operation_partitions_require_every_task_once_and_reject_relabelling() {
         use OperationTask::{
-            SendAuthorization, SendFeeAndCarry, SendObjects, SendPending, SendProof,
+            SendAuthorization, SendFeeAndCarry, SendObjects, SendPending, SendTransition,
         };
         let honest = vec![
             vec![SendObjects],
             vec![SendPending],
             vec![SendFeeAndCarry],
             vec![SendAuthorization],
-            vec![SendProof],
+            vec![SendTransition],
         ];
         assert!(OperationTask::validate(Variant::Send, &honest).is_ok());
         for i in 0..5 {
@@ -320,7 +301,7 @@ mod circuit_tests {
     };
     #[derive(Clone)]
     struct Selectors {
-        masks: [Fp; 16],
+        masks: [Fp; 11],
         known: bool,
     }
     #[derive(Clone, Debug)]
@@ -345,7 +326,7 @@ mod circuit_tests {
             let glue = GlueConfig::configure(meta, columns, constants);
             let column = meta.advice_column();
             let range = RunningSumConfig::configure(meta, column, LimbBits::new(4).unwrap());
-            let public = meta.instance_column(16);
+            let public = meta.instance_column(11);
             meta.enable_equality(public);
             Config {
                 glue,
@@ -391,7 +372,7 @@ mod circuit_tests {
             masks: SIGMA_SELECTORS.map(|(_, mask)| Fp::from(u64::from(mask))),
             known: true,
         };
-        let public = (0..16).map(Fp::from).collect::<Vec<_>>();
+        let public = (0..11).map(Fp::from).collect::<Vec<_>>();
         assert!(
             check_circuit(
                 &circuit,
@@ -404,9 +385,9 @@ mod circuit_tests {
         );
         for (i, value) in [
             (0, Fp::ONE),
-            (2, Fp::from(8)),
+            (2, Fp::from(4)),
             (10, Fp::from(2)),
-            (14, Fp::ONE),
+            (6, Fp::ONE),
             (9, -Fp::ONE),
         ] {
             let mut wrong = circuit.clone();

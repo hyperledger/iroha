@@ -23,9 +23,13 @@ and Android payment-key adapters sign exactly the 32-byte message of §1. The Du
 State Provider binds the operation-dependent `proof_digest` (§3.2) and signs the 32-byte
 Poseidon message of §1. The shared Rust state owner assembles these objects and retains
 their custody through the provider; native step relations consume the corresponding G1
-layout. The bridge carries native coordinator operations, while foreign open fails closed
-until the authenticated proof-artifact loader is connected. Ledger instructions, Torii
-routes and physical-phone qualification remain open. The owner answers of 2026-10-05 (proposal
+layout. The native bridge opens a wallet only after authenticating its installation,
+verifier pack, producer inventory and exact original source graph. The closed ledger
+instruction family and account-authenticated Torii receipt/finality routes are
+implemented. Qualification of their combined monetary flow on four validators and
+the selected physical phones remains open; the
+[verification checklist](kagemusha_evidence_gate.md) records that distinction.
+The owner answers of 2026-10-05 (proposal
 revision 2026-10-05) are implemented: the data model depends on `iroha_pasta` and
 computes every Poseidon value natively (`credit_id`, the state commitment, chains, map,
 blacklist, quota-window and credit-digest trees and openings, and the packed-byte
@@ -36,12 +40,11 @@ roots, credit-digest roots and openings are computed.
 **Third set (2026-10-05, B1–B8; proposal revision 2026-10-05).** This record now fixes
 the third set as the canonical G1 layout: every digest a relation recomputes is `P`, so the
 object digests, the certificate-set, package, statement, operation and nullifier digests
-leave the SHA-256 role table (B1, §§1, 3.2); the Request records the receiver blacklist
-version and root used at issuance, Receive checks only that recorded list, and the
-wallet keeps a blacklist history in the rest (B6, §§3.2, 3.4); the quota-usage map is a
+leave the SHA-256 role table (B1, §§1, 3.2); the quota-usage map is a
 depth-6 array aligned with the window slots and charged in place (B5, §3.3); the quota
 share expiry and the maximum anchor response time are core fields, and σ_send enforces
-the expiry and the Send time span (B7, B8, §3.3). The data model, shared vectors and Kotlin/Swift consumers implement this layout.
+the expiry and the Send time span (B7, B8, §3.3). The owner decision of 2026-10-17
+replaces B6: the account blacklist is local-only (§3.3). The data model, shared vectors and Kotlin/Swift consumers implement this layout.
 Proof-relation integration and qualification remain separate G3 work; §7 records open items.
 
 Notation: `‖` is concatenation; `LE16`…`LE128` are little-endian unsigned
@@ -118,7 +121,7 @@ SHA-256 roles do not exist):
 | Signed body | Signing domain `d` | Transcript bytes | Signer | Object digest |
 |---|---|---:|---|---|
 | certificate (§3.1) | `kgwcert1` | 108 | scheme root | `P(kgwocrt1, ·)` |
-| credential (§3.1) | `kgwcred1` | 476 | Enrollment | `P(kgwocrd1, ·)` |
+| credential (§3.1) | `kgwcred1` | 468 | Enrollment | `P(kgwocrd1, ·)` |
 | renewal challenge (§3.1) | `kgwrnch1` | 130 | payment key | none |
 | renewal key binding (§3.1) | `kgwrnkb1` | 163 | payment key | none |
 | artifact manifest (§3.1) | `kgwartf1` | 290 | Artifact | `H("artifact-manifest", m ‖ sig)` |
@@ -131,7 +134,7 @@ SHA-256 roles do not exist):
 | charge quote (§3.3) | `kgwchgq1` | 219 | RegulatoryPolicy | `P(kgwochg1, ·)` |
 | offer (§3.4) | `kgwoffr1` | 194 | payer payment key | none |
 | session control (§3.4, when signed) | `kgwsctl1` | 197 | session payment key | none |
-| request (§3.4) | `kgwrqst1` | 458 | receiver payment key | `P(kgworeq1, ·)` |
+| request (§3.4) | `kgwrqst1` | 418 | receiver payment key | `P(kgworeq1, ·)` |
 | ledger control (§3.6) | `kgwlctl1` | 211 | payment key | none |
 
 SHA-256 role table (all 21 labels of `KagemushaWalletDigestRoleV1`). `H` remains only for
@@ -149,7 +152,7 @@ and the local custody records (B1):
 | `account` | complete canonical Norito frame of the domainless `AccountId` | var | ledger boundary; the ledger derives it from the `AccountId` |
 | `enrollment-challenge` | §3.1 | 194 | platform-attestation challenge, used only by the issuer |
 | `app-policy` | NEW [typed app identity](kagemusha_wallet_enrollment_policy_v1.md) | ≤431 Android, ≤294 Apple | fixed initial selection; no approval implied; the Android arm changes at the proposal §9.1 cutover |
-| `enrollment-policy` | NEW [typed platform/regulator/lifetime policy](kagemusha_wallet_enrollment_policy_v1.md) | 174–572 Android, 167 Apple | selected issuer inputs; no approval implied; the Android arm changes at the proposal §9.1 cutover |
+| `enrollment-policy` | NEW [typed platform/regulator/lifetime policy](kagemusha_wallet_enrollment_policy_v1.md) | 166–564 Android, 159 Apple | selected issuer inputs; no approval implied; the Android arm changes at the proposal §9.1 cutover |
 | `enrollment-id`, `enrollment-key-binding` | `challenge_digest ‖ payment_key` | 97 | enrollment transcript; App Attest client data |
 | `wallet-id` | `scheme_id ‖ asset_digest ‖ payment_key ‖ enrollment_id` | 161 | fixed identity; carried, never recomputed in a relation |
 | `artifact-manifest` | `m ‖ sig` of the signed artifact manifest | 96 | artifact digest |
@@ -232,10 +235,10 @@ Canonical bytes are one complete `norito::encode_canonical` frame ([Norito](../n
 | Envelope, Request, Payment, Credited, PolicyData and Lineage | 10,000 |
 | `kgm1:` text, session / message | 2,736 / 13,339 |
 | Nested payer credential of an Offer (complete frame) | ≤ 1,024 |
-| σ bytes and Ω transport-proof bytes | ≥ 1; the exact lengths of the frozen verifying-key allowlist (§3.1), with Ω + the largest σ_send ≤ 10,000 − F_payment (8,277 with the measured F_payment = 1,723, §4) and Ω ≤ 7,812 = 10,000 − F_status (F_status = 2,188, §4; a derived envelope bound, unchanged by the third set); until it freezes only the carrying frame |
+| σ bytes and Ω transport-proof bytes | ≥ 1, with exact source-specific lengths in the verifying-key allowlist (§3.1); every σ ≤ 3,520 and Ω ≤ 5,086. The independent Payment joint bound is Ω + σ_send ≤ 8,606 = 10,000 − F_payment (F_payment = 1,394, §4). The Receive 9,321-byte and Status 7,812-byte envelope budgets do not relax these role caps. |
 | Map and credit-digest opening siblings | exactly 32 (§3.2) |
 | Quota-usage array and quota-window openings | exactly 6 siblings (§3.3) |
-| Verifying-key allowlist entries | 8..=16 (one per operation; Send also per enabled-controls mask; Receive also for a Request-recorded blacklist decision) |
+| Verifying-key allowlist entries | 8..=11 (one per operation; Send also per enabled-controls mask) |
 | Certificates per set | ≤ 3 |
 | Blacklist entries | ≤ 65,535 |
 | Quota windows per share | 1..=64 |
@@ -268,9 +271,9 @@ Type names omit the `KagemushaWallet` prefix. `LoadReceiptV1` has the canonical
 `iroha_data_model::isi::kagemusha_wallet` namespace; the other wallet frames use
 `iroha_data_model::kagemusha::kagemusha_wallet_v1`. The blacklist cap is
 `65,536 × 34 + 512`: each canonical entry takes 34 bytes. The blacklist is not a
-peer message: a wallet downloads it only while online, from the issuer or ledger,
-as this standalone frame, and peers never relay it, so its size does not bear on
-the envelope bounds. The package cap applies where a completion record's output is
+peer message: the app obtains it online as this standalone frame for a local
+install (§3.3), and peers never relay it, so its size does not bear on the
+envelope bounds. The package cap applies where a completion record's output is
 decoded as a package. The fold record carries one Ω, so it takes the Lineage
 message bound.
 
@@ -291,7 +294,7 @@ is the body's fields in the order shown.
 |---|---|---|
 | Scheme (`scheme`) | `LE16 version ‖ network_id ‖ scheme_root_key(key) ‖ relation_id ‖ provider_contract` | `scheme_id = H("scheme", ·)`. `network_id` is the raw genesis `NetworkId`, carries the Iroha hash marker (last byte odd) and is not the marked zero `00…01`; `relation_id` nonzero; `provider_contract` is the V1 constant. Decoding requires the recomputed `scheme_id`. The root key signs certificates only. |
 | Relation (`relation`) | `LE16 1 ‖ eq_protocol_digest ‖ ep_protocol_digest ‖ native_profile_digest ‖ verifying_key_set_digest ‖ artifact_inventory_digest` | Gives `relation_id`, fixed for the scheme's lifetime: one scheme-level identity that every statement and Ω carries. `verifying_key_set_digest` is the `verifying-key-set` digest of the verifying-key allowlist (below). |
-| Verifying-key allowlist (`verifying-key-set`) | `LE16 version ‖ LE32 n ‖ n × (tag kind ‖ LE32 enabled_controls ‖ verifying_key_digest ‖ LE32 proof_bytes) ‖ lineage_verifying_key_digest ‖ LE32 lineage_proof_bytes` | Frame `{version, steps: [{kind, enabled_controls, verifying_key_digest, proof_bytes}], lineage_verifying_key_digest, lineage_proof_bytes}`. One σ entry per selector, strictly ascending by `(tag, mask)`, at most 16: every operation with mask 0, Send also once per supported enabled-controls mask (defined bits only), and Receive also once with mask 1 (BLACKLIST) exactly when some Send mask has bit 0; digests nonzero; lengths at least 1, σ at most 10,000, and Receive `proof_bytes` at most 9,321 (`10,000 − F_receive`, the complete Credited::Receive envelope budget; §4). `lineage_proof_bytes` plus the largest Send `proof_bytes` is at most `10,000 − F_payment` (R9; 8,277 with the B6 Request fields, §4), and `lineage_proof_bytes` is at most 7,812 (the Credited bound with the fixed opening, a derived envelope bound; §2, §4). A consumer selects σ's entry by the package's operation tag; for Send also by its mask (`Ω.enabled_controls`), and for Receive by the decision its Request records: selector `(Receive, 1)` iff `receiver_blacklist_version ≠ 0` (§3.4), whatever the receiver's current enabled-controls bits, so verifying a Receive package takes its Request. It requires σ and Ω(pred) to have exactly the listed lengths. The frame decodes only against a manifest body whose `verifying_key_set_digest` it recomputes. |
+| Verifying-key allowlist (`verifying-key-set`) | `LE16 version ‖ LE32 n ‖ n × (tag kind ‖ LE32 enabled_controls ‖ verifying_key_digest ‖ LE32 proof_bytes) ‖ lineage_verifying_key_digest ‖ LE32 lineage_proof_bytes` | Frame `{version, steps: [{kind, enabled_controls, verifying_key_digest, proof_bytes}], lineage_verifying_key_digest, lineage_proof_bytes}`. One σ entry per selector, strictly ascending by `(tag, mask)`, at most 11: every operation with mask 0, and Send also once per supported nonzero enabled-controls mask (defined bits only, so masks 1..3); every other kind has only mask 0; digests nonzero; lengths at least 1 and σ at most 3,520, including the Receive selector. The complete Credited::Receive envelope budget is independently 9,321 (`10,000 − F_receive`; §4). `lineage_proof_bytes` plus the largest Send `proof_bytes` is at most `10,000 − F_payment` (R9; 8,606 with the single-owner Payment frame, §4), and `lineage_proof_bytes` is at most 5,086. The Credited::Status envelope separately permits at most 7,812 bytes with its fixed opening (§2, §4); that spare capacity cannot enlarge the Ω role cap. A consumer selects σ's entry by the package's operation tag and, for Send, also by its mask (`Ω.enabled_controls`). It requires σ and Ω(pred) to have exactly the listed lengths. The frame decodes only against a manifest body whose `verifying_key_set_digest` it recomputes. |
 | Provider contract | see §1 | Constant `ac0c9bdca39a5a00385214934f0299da60d5ff1425aa270c535a462247a9fa1e`. |
 | Asset scope (`asset-scope`) | `LE16 version ‖ asset UUID (16) ‖ asset_incarnation ‖ LE32 scale` | Frame `{version, asset: AssetDefinitionId, asset_incarnation, scale}`. UUIDv4 asset, valid `AxtAssetIncarnationV1`, `scale ≤ 28`. Gives `asset_digest`. |
 | Signer certificate (signed under `kgwcert1`) | `LE16 version ‖ scheme_id ‖ tag role ‖ key ‖ LE64 serial` | Signed by the scheme root. Roles: Enrollment 1, RegulatoryPolicy 3, TimeAnchor 4, Artifact 5. Tag 2 is invalid. Fixed depth one; no validity period or revocation is evaluated offline; the consumer requires the role it needs. Its digest `P(kgwocrt1, ·)` (§1) is what every `*_certificate` field names, a canonical σ-field value. |
@@ -301,8 +304,8 @@ is the body's fields in the order shown.
 | Enrollment platform evidence (E5, frame only) | `PlatformEvidenceV1`: Android `{certificates: [der]}`; Apple `{key_id, attestation, key_binding_assertion}` | Wallet-to-issuer exchange only; no ledger instruction, validation rule or state decodes it. The exact originals the phone sends in E5, carried as canonical bytes inside the account-signed request, within the §2 bounds. Android carries the KeyMint chain only: no token or other field. Apple `key_id` is nonzero. The arm must match the selected enrollment policy's platform. The issuer admits the evidence under the [enrollment policy](kagemusha_wallet_enrollment_policy_v1.md) rules. The Android arm changes at the proposal §9.1 cutover. |
 | Issuer-retained evidence (E6, frame only) | `IssuerEvidenceV1`: Android `{certificates: [der]}`; Apple `{attestation, key_binding_assertion}` | Issuer-to-wallet exchange only. The issuer returns, byte for byte, the E5 originals it verified; the credential's evidence digest is recomputed from them before delivery and again at the wallet's E6 intake. It adds no issuer-acquired item. The Android arm changes at the proposal §9.1 cutover. |
 | Evidence record (inline, 56) | `digest ‖ LE64 time_ms ‖ LE32 facts ‖ LE32 os_patch_level ‖ LE32 vendor_patch_level ‖ LE32 boot_patch_level` | Fact bits below; `digest` nonzero. |
-| Regulatory policy (inline, 20) | `LE32 permitted_controls ‖ LE64 blacklist_max_age_ms ‖ LE64 time_anchor_max_response_ms` | Controls: bit 0 BLACKLIST, 1 QUOTAS, 2 ATTESTATION_LEASE; others zero. `blacklist_max_age_ms > 0` requires bit 0. `time_anchor_max_response_ms > 0` iff bit 1, bit 2 or `blacklist_max_age_ms > 0`. The policy is fixed for the incarnation; with bit 1 every quota window a wallet installs is longer than `time_anchor_max_response_ms` (B8, §3.3). |
-| Credential (signed under `kgwcred1`) | `LE16 version ‖ scheme_id ‖ asset_digest ‖ wallet_id ‖ account_digest ‖ payment_key(key) ‖ provider_contract ‖ tag evidence_kind ‖ enrollment_evidence(56) ‖ fresh_evidence(56) ‖ app_policy ‖ regulatory_policy(20) ‖ enrollment_id ‖ LE64 issued_at_ms ‖ LE32 renewal_sequence ‖ LE64 lease_expires_at_ms ‖ issuer_certificate` | Enrollment-role signer. Nonzero bindings; V1 provider contract even without a scheme; `wallet_id` recomputes. Renewal 0 requires `fresh_evidence = enrollment_evidence`; later renewals require `fresh.time_ms ≥ enrollment.time_ms`. `lease_expires_at_ms ≠ 0` iff the lease is permitted. A replacement changes only `fresh_evidence`, `issued_at_ms`, `lease_expires_at_ms` and `issuer_certificate`, and `renewal_sequence` is the predecessor's plus one. |
+| Regulatory policy (inline, 12) | `LE32 permitted_controls ‖ LE64 time_anchor_max_response_ms` | Controls: bit 0 QUOTAS, 1 ATTESTATION_LEASE; others zero. `time_anchor_max_response_ms > 0` iff bit 0 or bit 1. The policy is fixed for the incarnation; with bit 0 every quota window a wallet installs is longer than `time_anchor_max_response_ms` (B8, §3.3). |
+| Credential (signed under `kgwcred1`) | `LE16 version ‖ scheme_id ‖ asset_digest ‖ wallet_id ‖ account_digest ‖ payment_key(key) ‖ provider_contract ‖ tag evidence_kind ‖ enrollment_evidence(56) ‖ fresh_evidence(56) ‖ app_policy ‖ regulatory_policy(12) ‖ enrollment_id ‖ LE64 issued_at_ms ‖ LE32 renewal_sequence ‖ LE64 lease_expires_at_ms ‖ issuer_certificate` | Enrollment-role signer. Nonzero bindings; V1 provider contract even without a scheme; `wallet_id` recomputes. Renewal 0 requires `fresh_evidence = enrollment_evidence`; later renewals require `fresh.time_ms ≥ enrollment.time_ms`. `lease_expires_at_ms ≠ 0` iff the lease is permitted. A replacement changes only `fresh_evidence`, `issued_at_ms`, `lease_expires_at_ms` and `issuer_certificate`, and `renewal_sequence` is the predecessor's plus one. |
 | Renewal transcripts | renewal challenge and `renewal-assertion`: `LE16 1 ‖ scheme_id ‖ wallet_id ‖ credential_digest ‖ challenge`; renewal key binding: `LE16 1 ‖ scheme_id ‖ wallet_id ‖ challenge ‖ new_attested_key` | The payment key signs the renewal challenge under `kgwrnch1` (possession) and, on Android, the key binding under `kgwrnkb1` (§1). The App Attest renewal assertion's client data is `H("renewal-assertion", ·)`. |
 | Renewal request (frame only) | `{version, scheme_id, wallet_id, credential_digest, challenge, possession_signature, evidence}` | Evidence: Android 1 `{new_attested_key, key_binding_signature, chain: [{der}]}` or Apple 2 `{assertion}` within the §2 bounds, on the credential's platform. Issuer verification of the chain or assertion is TODO(G5). |
 | Artifact manifest (signed under `kgwartf1`) | `LE16 version ‖ network_id ‖ relation_id ‖ eq_protocol_digest ‖ ep_protocol_digest ‖ native_profile_digest ‖ verifying_key_set_digest ‖ artifact_inventory_digest ‖ provider_contract ‖ signer_certificate` | Artifact-role signer. Bindings nonzero; `relation_id` recomputes from the five bindings; network, relation and provider contract equal the scheme's. |
@@ -374,9 +377,9 @@ never rewritten to obtain a matching hash. The decoder admits exactly one
 uncompressed canonical frame under payload-derived allocation limits; it
 never retries another schema or profile.
 
-The installed pack requires the complete sixteen-selector catalog, in this
-order: `(1,0), (2,0), (3,0), (3,1), (3,2), (3,3), (3,4), (3,5), (3,6),
-(3,7), (4,0), (4,1), (5,0), (6,0), (7,0), (8,0)`, followed by one Ω artifact.
+The installed pack requires the complete eleven-selector catalog, in this
+order: `(1,0), (2,0), (3,0), (3,1), (3,2), (3,3), (4,0), (5,0), (6,0),
+(7,0), (8,0)`, followed by one Ω artifact.
 The general model allowlist permits a supported control subset; this complete
 native installation rejects such a subset. Each selector must also occupy
 the same position in the manifest-bound allowlist. A descriptor is at most
@@ -413,8 +416,8 @@ The Eq/Ep protocol body is, in order:
   Fp integer in Fq; one subtraction Fq→Fp); Ep is `02 00` (low128/high127
   Fq scalar pair in Fp; identity Fp→Fq).
 
-The sole native artifact-profile body starts `LE16 1 ‖ LE32 16`,
-then the sixteen `(u8 operation_tag ‖ LE32 mask)` selectors above. It then
+The sole native artifact-profile body starts `LE16 1 ‖ LE32 11`,
+then the eleven `(u8 operation_tag ‖ LE32 mask)` selectors above. It then
 carries `frame(sigma_policy) ‖ frame(omega_policy)`, where each policy is a
 canonical Norito `iroha.core_zk.kagemusha.wallet.descriptor_policy.v1` frame
 with ordered fields `{version: u16, curve: CurveV1, min_k: u8, max_k: u8,
@@ -424,17 +427,22 @@ instance_types: Vec<InstanceType>}`. Both use version1,
 `KagemushaPoseidonRp57Base`, `Direct`, `FoldedGenerator`. Sigma uses Vesta,
 k12..16, lengths `[1]`, types `[Bounded]`; Omega uses Pallas, k16 only,
 lengths `[1,2,16]`, types `[Bounded,Field,Bounded]`. The body continues with
-`LE32 33 ‖ LE32 8 ‖ LE32 26 ‖ LE32 18 ‖ LE32 52 ‖ LE32 16 ‖ LE32 544 ‖
-LE32 1088 ‖ "kgwomg_1" ‖ 01 02 03 04`. These bind current core/rest/statement,
+`LE32 29 ‖ LE32 6 ‖ LE32 26 ‖ LE32 18 ‖ LE32 52 ‖ LE32 16 ‖ LE32 544 ‖
+LE32 1120 ‖ "kgwomg_1" ‖ 01 02 03 04`. These bind current core/rest/statement,
 lineage public and D_A element counts, accumulator rounds, claim and fold-body
 sizes, D_A domain, and the mandatory sigma opening, Omega opening, Pallas
 claim decision and Vesta claim decision. The decision codes are fixed native
-requirements; no caller supplies verdict bits. It ends with
+requirements; no caller supplies verdict bits. The fold-body count is 1,120
+bytes: commitment `D`, sixteen masked `L`/`R` pairs, `c` and the unabsorbed
+`G` suffix. The corresponding local private witness additionally retains 33
+canonical scalars (1,056 bytes), for 2,176 bytes under its clearing private owner.
+Those private coins are not Payment, public lineage or FoldRecord fields.
+The profile ends with
 `frame(compiled_operation_schedules) ‖ frame(compiled_sigma_sources) ‖ frame(compiled_omega_layout)`.
-The sigma source frame is `LE16(1) ‖ LE32(16)` followed, in selector order,
+The sigma source frame is `LE16(1) ‖ LE32(11)` followed, in selector order,
 by `kind:u8 ‖ mask:LE32 ‖ family:u8 ‖ k:u8 ‖ lanes:u8 ‖ limb_bits:u8 ‖ prefix:u8`.
 Monetary sources use family1, one lane, folded prefix1 and `k - 1` range limbs;
-quota-enabled Send uses k14, other Send masks and both Receive selectors use k12.
+quota-enabled Send uses k14, other Send masks and the Receive selector use k12.
 The six typed administrative sources use family0/k12 with zero lane/limb/prefix fields.
 The Omega layout frame is emitted by `omega::native::compiled_policy_transcript`:
 `ASCII "iroha-kagemusha-omega-layout-v1\0"`, followed by the LE32 words
@@ -447,15 +455,15 @@ These fixed recipes are reconstructed by strict original imports, either in the
 independent complete-profile generator or during ordinary strict installation.
 Signed metadata alone cannot select another layout or confer producer readiness.
 The canonical Norito operation policy is generated by
-`a_relation::schedule::compiled` from the same fourteen fixed Q/task partitions
-used by native producers, plus all 52 logical own/incoming-selector routes.
+`a_relation::schedule::compiled` from the same thirteen fixed Q/task partitions
+used by native producers, plus all 22 logical own/incoming-selector routes.
 No finality leaf policy or finality proving graph is part of the profile.
 Concrete operation graph/child-key and complete context-schema reconstruction
 remain mandatory at source installation. There is no retired profile fallback.
 
 The inventory body is `LE16 1 ‖ eq_protocol_digest ‖ ep_protocol_digest ‖
 native_profile_digest ‖ LE32 len(allowlist_original) ‖
-SHA256(allowlist_original) ‖ LE32 17`, then each artifact in catalog order.
+SHA256(allowlist_original) ‖ LE32 12`, then each artifact in catalog order.
 A sigma entry starts `u8 role=1 ‖ u8 operation_tag ‖ LE32 mask`; the final
 Omega entry starts `u8 role=2 ‖ u8 operation_tag=0 ‖ LE32 mask=0`.
 Each entry continues `u8 curve_tag ‖ u8 k ‖ LE32 descriptor_bytes ‖
@@ -465,7 +473,7 @@ The descriptor digest is its native V2-domain BLAKE2b value; the VK digest is
 its complete native base-field `P_B(kgwvkey1; …)` value. Proof bytes come from
 the actual descriptor; Omega includes both 544-byte transported claims.
 Each actual key digest and length must equal its signed allowlist entry.
-After the seventeenth entry, the body appends the mandatory nonzero
+After the twelfth entry, the body appends the mandatory nonzero
 `H(producer-catalog, canonical_producer_inventory)` commitment. Both the
 verifier-only view and full producer inventory use this same signed identity.
 Scheme/certificate/manifest originals are excluded from the inventory body:
@@ -477,7 +485,7 @@ is provisioned independently of received wallet objects.
 The producer preimage is the canonical
 `iroha.core_zk.kagemusha.wallet.producer_inventory.v1` object implemented in
 `kagemusha_wallet_artifacts_v1::producer_inventory`. It binds the compiled native
-profile, exact descriptor/VK/PK lengths and SHA-256 references, all sixteen sigma
+profile, exact descriptor/VK/PK lengths and SHA-256 references, all eleven sigma
 entries, every required logical route, ordered Q/A/W source identities and full
 context words, deduplicated terminal descriptor/VK identities, the sole Omega
 original. The installed scheme and native genesis bind the network separately. Its
@@ -559,13 +567,12 @@ object-digest domains are in §1, and the others are:
 | `kgwload1` | load value (load/redeem map) | `kgwpay_1` | Payment digest (`P_bytes`) |
 | `kgwrdm_1` | redeem value (load/redeem map) | `kgwlin_1` | lineage digest over the Ω bytes (`P_bytes`) |
 | `kgwfee_1` | fee-claim value | `kgwcopn1` | credit-opening digest (`P_bytes`) |
-| `kgwbhst1` | blacklist-history value | `kgwcsts1` | credit-status digest (`P_bytes`) |
-| `kgwcset1` | certificate-set digest (§3.1) | `kgwcrdd1` | credited digest (`P_bytes`) |
-| `kgwpkg_1` | package digest | `kgwopid1` | `operation_id` |
-| `kgwnull1` | unload nullifier | | |
+| `kgwcset1` | certificate-set digest (§3.1) | `kgwcsts1` | credit-status digest (`P_bytes`) |
+| `kgwpkg_1` | package digest | `kgwcrdd1` | credited digest (`P_bytes`) |
+| `kgwnull1` | unload nullifier | `kgwopid1` | `operation_id` |
 
 **Indexed map trees.** The consumed-credit, pending-outgoing, load/redeem
-recovery, fee-claim and blacklist-history maps and the lineage-level credit-digest tree
+recovery and fee-claim maps and the lineage-level credit-digest tree
 are each a depth-32 Poseidon indexed Merkle tree (the quota-usage map is the one
 exception, a fixed array, §3.3):
 
@@ -613,14 +620,12 @@ exception, a fixed array, §3.3):
 
 Map keys and operations: `credit_id` keys the consumed-credit, pending-outgoing and
 fee-claim maps and the credit-digest tree; `kind · 2^128 + ordinal` (Load 1, Redeem 2)
-keys the one load/redeem recovery map; the blacklist `list_version` keys the
-blacklist-history map. Pending-outgoing entries are inserted by Send and removed by
-ArchiveSent (relink the predecessor, then clear the slot; never reuse a slot);
-blacklist-history entries are inserted by RefreshPolicy(Blacklist); every other map and
-the credit-digest tree are insert-only. The credit-digest tree is membership-or-insert:
-`burned` is fixed at the first insertion of a `credit_id`, and an existing key keeps its
-`(payment_digest, burned)` even when they differ from a later Receive's proposed
-insertion. A duplicate `credit_id` carrying another Payment digest therefore shows the
+keys the one load/redeem recovery map. Pending-outgoing entries are inserted by Send and
+removed by ArchiveSent (relink the predecessor, then clear the slot; never reuse a slot);
+every other map and the credit-digest tree are insert-only. The credit-digest tree is
+membership-or-insert: `burned` is fixed at the first insertion of a `credit_id`, and an
+existing key keeps its `(payment_digest, burned)` even when they differ from a later
+Receive's proposed insertion. A duplicate `credit_id` carrying another Payment digest therefore shows the
 original leaf, which does not match the second Payment, so native ArchiveSent rejects it
 and `Λ_archive` takes its no-op branch. The data model builds roots and openings
 natively.
@@ -629,42 +634,39 @@ natively.
 capsule. Its frame is `{version, core, rest}`.
 
 - The *core* holds every field a step proof reads, changes or carries. Frame and
-  element order (33 elements): `lifecycle` (Active 1, Retiring 2), `scheme_id` (2),
+  element order (29 elements): `lifecycle` (Active 1, Retiring 2), `scheme_id` (2),
   `asset_digest` (2), `wallet_id` (2), `credential_digest`, `balance`,
   `burned_total`, `sequence`, `next_send`, `next_load`, `next_redeem` (`u128` each),
   `send_chain`, `recv_chain`, `consumed_credit_root`, `pending_outgoing_root`,
   `load_redeem_recovery_root`, `fee_claim_root`, `quota_usage_root`, `LE32
   enabled_controls`, `quota_windows_root`, `LE64 quota_share_expires_at_ms`, `LE64
-  blacklist_version`, `blacklist_root`, `LE64 blacklist_issued_at_ms`, `LE64
-  blacklist_max_age_ms`, `LE64 time_anchor_max_response_ms`, `LE64
-  lease_expires_at_ms`, `LE64 policy_epoch`, `LE64 accepted_time_floor_ms`,
-  `state_nonce`. `blacklist_max_age_ms` and `time_anchor_max_response_ms` are the
-  credential regulatory policy's, held in the core so that σ_send enforces the list-age
-  rule and the Send time span (B8); `quota_share_expires_at_ms` is the held quota share's
+  time_anchor_max_response_ms`, `LE64 lease_expires_at_ms`, `LE64 policy_epoch`,
+  `LE64 accepted_time_floor_ms`, `state_nonce`. `time_anchor_max_response_ms` is the
+  credential regulatory policy's, held in the core so that σ_send enforces the Send
+  time span (B8); `quota_share_expires_at_ms` is the held quota share's
   `expires_at_ms`, held in the core so that σ_send enforces the share expiry (B7).
   `time_anchor_max_response_ms` and `quota_share_expires_at_ms` are bound to their
   authenticated source (the credential at Bootstrap, the installed
   share at RefreshPolicy(QuotaShare)) and no other transition changes them.
-- The *rest* is opened only by the lineage relation. Frame and element order (8
+- The *rest* is opened only by the lineage relation. Frame and element order (6
   elements): `LE32 permitted_controls` (the rest of the regulatory policy),
-  `scheme_policy`, `fee_schedule`, `blacklist`, `quota_share`, `LE64 quota_share_id`,
-  `time_anchor` (the object digests of the held policy objects, one element each) and
-  `blacklist_history_root` (§3.3, B6).
+  `scheme_policy`, `fee_schedule`, `quota_share`, `LE64 quota_share_id` and
+  `time_anchor` (the object digests of the held policy objects, one element each).
 - The commitment is one σ-field value:
   `P(kgwcore1, core elements ‖ P(kgwrest1, rest elements))`. Its transcript is the
   32-byte encoding; all-zero is only the Bootstrap predecessor.
 - Rules: nonzero identities; the four indexed map roots of the core, the quota-usage
-  array root, `blacklist_history_root` and `state_nonce` are nonzero canonical values;
-  chains and the blacklist and quota-windows roots are canonical (zero is the empty chain
+  array root and `state_nonce` are nonzero canonical values;
+  chains and the quota-windows root are canonical (zero is the empty chain
   or "none held"); the regulatory policy reassembled from the core and rest is valid and
-  `enabled_controls` ⊆ its permitted controls. A scheme policy, blacklist or quota share
-  is held exactly when its digest, its epoch, version or share id, and its root (if any)
+  `enabled_controls` ⊆ its permitted controls. A scheme policy or quota share
+  is held exactly when its digest, its epoch or share id, and its root (if any)
   are all nonzero; without a scheme policy, `enabled_controls` and `fee_schedule` are
-  zero; an unheld blacklist has a zero issue time; `quota_share_expires_at_ms` is nonzero
+  zero; `quota_share_expires_at_ms` is nonzero
   iff a quota share is held, and the quota-usage root is the array aligned with the held
   windows (§3.3); `lease_expires_at_ms ≠ 0` iff the lease is permitted. Bootstrap state
   has zero balance, `burned_total`, ordinals, sequence and chains, the empty-tree root for
-  every indexed map (the blacklist history included), the all-padding quota-usage array
+  every indexed map, the all-padding quota-usage array
   root, and zero policy fields except the credential's regulatory policy and lease.
 - The spendable value is `balance − burned_total` with the lineage-adjusted
   `burned_total` of the Ω recorded for the head, whose `head` must equal the state's
@@ -681,7 +683,6 @@ Payment digest):
 | load (load/redeem map) | `kgwload1` | `1 · 2^128 + ordinal` | `ordinal`, `receipt_digest`, `amount` (3) |
 | redeem (load/redeem map) | `kgwrdm_1` | `2 · 2^128 + ordinal` | `ordinal`, `nullifier`, `amount`, `online_charge` (4) |
 | fee claim | `kgwfee_1` | `credit_id` | `credit_id`, `fee`, `fee_schedule_digest` (3) |
-| blacklist history (rest) | `kgwbhst1` | `list_version` | `list_version`, `entries_root` (2) |
 | quota usage (array leaf, not an indexed map, §3.3) | `kgwquse1` | window slot | `window_kind` tag, `window_start_ms`, `window_end_ms`, `used` (4) |
 | `send_chain` append | `kgwschn1` | — | `[send_chain]` ‖ the pending-outgoing elements (8) |
 | `recv_chain` append | `kgwrchn1` | — | `[recv_chain]` ‖ `credit_id`, `payer_wallet_id` (2), `amount` (5) |
@@ -703,7 +704,7 @@ predecessor's lineage proof):
 | 7 | RefreshPolicy | `tag update_kind ‖ update ‖ LE64 accepted_time_floor_ms` (41) | 3 | `update` | no |
 | 8 | Retiring | none (0) | 0 | the element 0 | yes |
 
-Update kinds: Credential 1, SchemePolicy 2, Blacklist 3, QuotaShare 4, TimeAnchor 5;
+Update kinds: Credential 1, SchemePolicy 2, QuotaShare 3, TimeAnchor 4;
 `update` is the applied object's digest (a `P` value). Effect rules: nonzero digests;
 `credit_id`, `receipt_digest`, `request`, `credited`, `nullifier`, `charge_quote` and `update`
 nonzero canonical σ-field values (`charge_quote` zero when absent); Send, Receive and
@@ -720,9 +721,8 @@ carries no Payment digest. `ArchiveSent` uses the Credited digest, a `P_bytes` v
   lineage_pending_outgoing_root ‖ predecessor ‖ successor ‖ effect`. Its digest
   `statement_digest` is the σ statement digest below, which the receipt, the package,
   the output descriptor and CreditStatus bind. Lifecycle, sequence and `next_load` are
-  the successor's; `enabled_controls` is the predecessor's mask (σ_send enforces it; a
-  σ_recv's blacklist check follows its Request's recorded decision, §3.4). For Send,
-  Unload and Retiring the lineage fields are Ω(pred)'s `burned_total` and
+  the successor's; `enabled_controls` is the predecessor's mask (σ_send enforces it).
+  For Send, Unload and Retiring the lineage fields are Ω(pred)'s `burned_total` and
   pending-outgoing root (the root nonzero);
   every other kind has zero lineage fields. Bootstrap alone has sequence 0, a zero
   predecessor, Active, `next_load` 0 and an empty mask; every other statement has a
@@ -794,10 +794,9 @@ carries no Payment digest. `ArchiveSent` uses the Credited digest, a `P_bytes` v
   defined only after the receipt verifies (under the credential, which must also
   carry Ω's wallet and payment key, or under Ω for a consumer without the
   credential); `receipt_digest` is the receipt's object digest `P(kgworcp1, ·)` (§1).
-  σ's verifying key is selected from the verifying-key allowlist by the operation tag,
-  for Send also by the mask and for Receive also by its Request's recorded blacklist
-  version (§3.1), so a Receive package is checked together with its Request; the
-  allowlist also checks σ's and Ω's exact lengths.
+  σ's verifying key is selected from the verifying-key allowlist by the operation tag
+  and, for Send, also by the mask (§3.1); the allowlist also checks σ's and Ω's exact
+  lengths.
 
 ### 3.3 Policy objects
 
@@ -809,7 +808,7 @@ RegulatoryPolicy-role key except the time anchor (TimeAnchor role). Each body's
 |---|---|---|
 | Scheme policy (`kgwspol1`) | `LE16 version ‖ scheme_id ‖ asset_digest ‖ LE64 policy_epoch ‖ LE32 enabled_controls ‖ fee_schedule ‖ signer_certificate` | `policy_epoch ≥ 1` (0 is the implicit default); defined control bits only; zero `fee_schedule` means no fee. |
 | Fee schedule (`kgwfsch1`) | `LE16 version ‖ scheme_id ‖ asset_digest ‖ LE64 schedule_id ‖ beneficiary_account_digest ‖ LE32 basis_points ‖ LE128 fixed ‖ LE128 minimum ‖ LE128 maximum ‖ tag rounding ‖ signer_certificate` | Rounding Down 1, Up 2; `basis_points ≤ 10,000`; `maximum ≥ minimum`. For `a = 10,000·q + r`, `fee(a) = clamp(fixed + q·bp + ⌊r·bp / 10,000⌋ (+1 if Up and r·bp mod 10,000 ≠ 0), minimum, maximum)`; an unclamped `u128` overflow rejects. |
-| Blacklist (`kgwblst1`) | `LE16 version ‖ scheme_id ‖ LE64 list_version ‖ LE64 issued_at_ms ‖ LE32 entry_count ‖ entries_root ‖ signer_certificate` | Frame `{body, signature, entries: [{account_digest}]}`. `list_version ≥ 1`; `entries_root` a nonzero canonical σ-field value; entries strictly ascending in limb order (below), never `00…00` or `FF…FF`; count and root recompute. Downloaded only online, from the issuer or ledger, as one standalone frame; never a peer message. |
+| Blacklist (`kgwblst1`) | `LE16 version ‖ scheme_id ‖ LE64 list_version ‖ LE64 issued_at_ms ‖ LE32 entry_count ‖ entries_root ‖ signer_certificate` | Frame `{body, signature, entries: [{account_digest}]}`. `list_version ≥ 1`; `entries_root` a nonzero canonical σ-field value; entries strictly ascending in limb order (below), never `00…00` or `FF…FF`; count and root recompute. A local-only object: the app obtains it online as one standalone frame and installs it locally (Local blacklist, below); it is never relayed and never part of a peer message. |
 | Quota share (`kgwqshr1`) | `LE16 version ‖ scheme_id ‖ asset_digest ‖ wallet_id ‖ LE64 share_id ‖ LE64 issued_at_ms ‖ LE64 expires_at_ms ‖ windows_root ‖ LE32 window_count ‖ signer_certificate` | Frame `{body, windows, signature}` (windows before the signature). `share_id ≥ 1`; `windows_root` a nonzero canonical σ-field value; `issued < expires`; each window has `start < end` within `[issued, expires]`; windows strictly sorted by `(kind, start)`, never overlapping within a kind; count and root recompute. Installing it (RefreshPolicy, below) also requires every window to be longer than the wallet's `time_anchor_max_response_ms` (B8). |
 | Time anchor (`kgwtanc1`) | `LE16 version ‖ scheme_id ‖ wallet_id ‖ nonce ‖ LE64 issuer_time_ms ‖ signer_certificate` | Answers one wallet nonce. |
 | Charge quote (`kgwchgq1`) | `LE16 version ‖ scheme_id ‖ asset_digest ‖ wallet_id ‖ tag kind ‖ LE128 ordinal ‖ LE128 net_amount ‖ LE128 online_charge ‖ beneficiary_account_digest ‖ LE64 issued_at_ms ‖ signer_certificate` | Kinds Load 1, Unload 2. `online_charge > 0`. Load: the ledger debit `net_amount + online_charge` fits `u128`. Unload: `net_amount > 0` and the payout `net_amount − online_charge` does not underflow. |
@@ -817,40 +816,30 @@ RegulatoryPolicy-role key except the time anchor (TimeAnchor role). Each body's
 - **Blacklist order.** An account digest `a` orders by its limb integer
   `int(a) = hi · 2^128 + lo`, where `lo` and `hi` are its two σ limbs (bytes 0–15 and
   16–31, each little-endian), so `int(a)` is the 32 bytes read as one little-endian
-  integer. Entries, sentinels, gap leaves and openings follow this order: `x < y` iff
+  integer. Entries, sentinels and gap leaves follow this order: `x < y` iff
   `hi(x) < hi(y)`, or `hi(x) = hi(y)` and `lo(x) < lo(y)`. `00…00` and `FF…FF` are the
   least and greatest values.
 - **Blacklist tree.** A Poseidon tree of fixed depth 16 over 65,536 gap leaves. With
   sentinels `s_0 = 00…00`, entries `s_1…s_n` in limb order and `s_{n+1} = FF…FF`,
   leaf `i ≤ n` is `P(kgwblkl1, limbs(s_i) ‖ limbs(s_{i+1}))` (four elements); unused
   leaves are the leaf of `FF…FF ‖ FF…FF`; a node is `P(kgwblkn1, [left, right])`; the
-  root is one σ-field value. Non-membership of `x` is one gap leaf with
-  `lower < x < upper` in limb order and its 16 siblings, a local witness that is never
-  transmitted.
-- **Blacklist enforcement.** A wallet enforces only its own committed list,
-  and only while its BLACKLIST control is enabled and it holds a list
-  (`blacklist_version ≥ 1`); with version 0 it refuses no account and applies no age
-  rule. The payer's list must not contain the Request's `receiver_account_digest` (Send
-  rule, §3.4; σ_send). The receiver's list is judged only when it issues a Request (B6):
-  the Request records the version and root of the list it enforced, `(0, 0)` when it
-  enforced none, and its list must not contain the Request's `payer_account_digest`
-  (Request rule, §3.4). Receive checks the payer against that recorded list only (Receive
-  rule, §3.4; σ_recv), so a list the receiver commits later neither refuses nor admits a
-  Payment under an earlier Request. The maximum-age rule (Time, below) applies to Send
-  only. Lists are best effort: phones hold different lists, nothing requires them to
-  agree, and a later list never invalidates a completed payment.
-- **Blacklist history** (B6). The rest's `blacklist_history_root` is a depth-32 indexed
-  map (§3.2) from `list_version` to `P(kgwbhst1, [list_version, entries_root])`, the
-  empty tree at Bootstrap; every RefreshPolicy(Blacklist) inserts the new list's pair,
-  and no other transition changes it. For a Request's nonzero recorded pair, the head
-  that receives the Payment looks up the recorded version in its history (natively at
-  Receive and in `Λ_recv`): an authenticated opening against that head's history root,
-  either the version's leaf or its low-leaf non-membership opening, is always required;
-  the recorded decision holds iff the leaf is present with the recorded root, and fails
-  only on proven absence or an authenticated different root. This proves that this
-  wallet committed that list before the Receive; it does not prove that the list was the
-  latest one held when the Request was signed, and a recorded `(0, 0)` carries no proof
-  (an open owner question, §7).
+  root is the list's `entries_root`, one σ-field value, computed natively only.
+- **Local blacklist.** A wallet holds at most one list in local custody. Installing a
+  list is not a wallet operation (no Advance, receipt, state change, fold or lineage
+  proof) and has no retry identity: the native wallet verifies the certificate set for
+  the scheme, the RegulatoryPolicy role, the signature, the scheme match, the entry order,
+  the count and `entries_root`, retains only the exact list frame (selected by its archive
+  digest in the protected manifest), and replaces a held list only when `list_version`
+  strictly increases; reinstalling the held list is idempotent. An install is refused when
+  it would leave too little storage for one more operation. While a list is held, the payer refuses a Send whose Request's
+  `receiver_account_digest` the list contains (Send rule, §3.4); the receiver refuses to
+  issue a Request when it contains the Offer credential's `account_digest` (Request rule,
+  §3.4) and refuses a Payment, before any mutation, when it contains the Request's
+  `payer_account_digest` (Receive rule, §3.4). With no list held, no account is refused.
+  The list, its version and its root enter no state, statement, σ, Λ, Ω, Request,
+  Payment, Credited, PolicyData or other peer message. Lists are best effort: phones hold
+  different lists, nothing requires them to agree, and a later list never invalidates a
+  completed payment. No list distribution path exists.
 - **Quota tree.** A window is `kind` (Daily 1, Monthly 2), `start_ms`, `end_ms` and
   `limit` (half-open `[start, end)`); its leaf is `P(kgwqwin1, [tag kind, start_ms,
   end_ms, limit])`, an empty slot is the leaf of four zero elements, and the root is a
@@ -875,11 +864,10 @@ RegulatoryPolicy-role key except the time anchor (TimeAnchor role). Each body's
   same-boot anchor refuses Send. A deadline (lease expiry, quota share expiry) has
   passed iff `U ≥ deadline`; both deadlines are core fields, so σ_send enforces them:
   `U < lease_expires_at_ms` while the lease control is enabled, and `U <
-  quota_share_expires_at_ms` while the quota control is enabled (B7). Blacklist age is
-  `U − blacklist_issued_at_ms`; both it and the maximum age are core fields, so σ_send
-  enforces the maximum-age rule (§3.2). *Send time span* (B8): while the quota control
-  is enabled, `U − L ≤ time_anchor_max_response_ms`, natively (a valid same-boot anchor
-  implies it) and in σ_send; because every installed window is longer than that bound,
+  quota_share_expires_at_ms` while the quota control is enabled (B7). *Send time span*
+  (B8): while the quota control is enabled, `U − L ≤ time_anchor_max_response_ms`,
+  natively (a valid same-boot anchor implies it) and in σ_send; because every
+  installed window is longer than that bound,
   an accepted interval touches at most two windows of each kind, which are σ_send's two
   charge candidates per kind. A quota window is touched iff `start ≤ U` and `L < end`;
   every touched window needs `used + amount + fee ≤ limit`, each window kind the share
@@ -892,12 +880,11 @@ RegulatoryPolicy-role key except the time anchor (TimeAnchor role). Each body's
   preserves the root. Distinct in-place updates commute, so the successor
   `quota_usage_root` does not depend on that order, and σ_send's successor root and the
   native store agree.
-- **RefreshPolicy.** One signed update per transition. Epochs, list versions and
-  share ids strictly increase; a time anchor must differ from the held one. The new
+- **RefreshPolicy.** One signed update per transition. Epochs and share ids strictly
+  increase; a time anchor must differ from the held one. The new
   floor is `F = max(old floor, t)`, where `t` is the credential's `issued_at_ms`, the
-  old floor for a scheme policy, the list's or share's `issued_at_ms`, or the anchor's
-  `issuer_time_ms`. A Blacklist update also inserts `(list_version, entries_root)` into
-  the blacklist history (B6). A QuotaShare update requires every new window to be longer
+  old floor for a scheme policy, the share's `issued_at_ms`, or the anchor's
+  `issuer_time_ms`. A QuotaShare update requires every new window to be longer
   than `time_anchor_max_response_ms` (B8), sets `quota_share_expires_at_ms` to the
   share's `expires_at_ms` (B7) and rebuilds the quota-usage array for the new windows,
   checking only the 64 slots of the old array and the 64 of the new share (B4, B5),
@@ -920,20 +907,44 @@ RegulatoryPolicy-role key except the time anchor (TimeAnchor role). Each body's
 
 The envelope frame is `{version, message}`; message tags are Offer 1, Request 2,
 Payment 3, Credited 4, SessionControl 5, PolicyData 6 and Lineage 7. The scheme
-checked at decode is the body scheme (Offer, Request), the carried Request's scheme
+checked at decode is the body scheme (Offer, Request), the Send statement's scheme
 (Payment), Ω's scheme (Lineage) or the message's own field.
 
 | Message | Frame and transcript | Interoperability rules |
 |---|---|---|
 | Offer | `{body, payer_credential, certificates, signature}`; offer body (signed under `kgwoffr1`) = `LE16 version ‖ scheme_id ‖ asset_digest ‖ payer_wallet_id ‖ payer_credential_digest ‖ LE128 next_send ‖ LE128 amount ‖ session_nonce` | Payer payment key signs. Body matches the credential's scheme, asset, wallet and digest; the credential frame is at most 1,024 bytes; `amount > 0`; certificates exactly the payer issuer. No debit or credit authority; a delivery retry also opens with an Offer, so the receiver holds the payer credential. |
 | Lineage | `{version, lineage: Ω}` | Unsigned and sent only after an authenticated Offer. The receiver rate-limits it and checks Ω's scheme, `wallet_id`, credential digest and `payment_key` against the Offer's credential; a Payment whose Ω(pred) has the same `lineage_digest` reuses that verification. |
-| Request | `{body, receiver_credential, fee_schedule, certificates, signature}`; request body (signed under `kgwrqst1`, 458) = `LE16 version ‖ scheme_id ‖ asset_digest ‖ payer_wallet_id ‖ payer_account_digest ‖ receiver_wallet_id ‖ receiver_account_digest ‖ LE128 send_ordinal ‖ receiver_credential_digest ‖ LE128 amount ‖ fee_schedule ‖ LE128 fee ‖ LE64 policy_epoch ‖ scheme_policy ‖ LE64 receiver_accepted_time_ms ‖ LE64 receiver_blacklist_version ‖ receiver_blacklist_root ‖ certificates ‖ nonce` | Receiver payment key signs. Slot None 0 or Present 1 `{schedule}`. `amount > 0`; payer ≠ receiver wallet; `amount + fee` fits; `policy_epoch = 0` iff `scheme_policy` zero. `receiver_credential_digest`, `fee_schedule`, `scheme_policy` and `certificates` are canonical σ-field values (`P` digests, zero where absent). `receiver_blacklist_version` and `receiver_blacklist_root` record the receiver's blacklist decision for this Request (B6, Request rule below): `(0, 0)` means no enforcement for this Request (control off or no list held); version 0 iff root 0, and a nonzero root is a canonical σ-field value. Both account digests are nonzero: `receiver_account_digest` equals the carried receiver credential's `account_digest`, and `payer_account_digest` equals the payer credential's (checked by the receiver against the Offer's credential before it signs, and by the payer against its own before Send). None requires zero `fee_schedule` and `fee`; Present requires the digest, the Request's scheme and asset, and `fee = fee(amount)`. Certificates exactly the receiver issuer (Enrollment) plus the fee signer (RegulatoryPolicy) when present; their set digest is `body.certificates`. `credit_id = P(kgwcrdt1, ·)` over the 26 request-body elements in transcript order (version; scheme, asset, payer wallet, payer account, receiver wallet, receiver account (2 each); `send_ordinal`; receiver credential; `amount`; fee schedule; `fee`; `policy_epoch`; scheme policy; `receiver_accepted_time_ms`; `receiver_blacklist_version`; `receiver_blacklist_root`; certificates; nonce (2)), one canonical σ-field value, so the recorded blacklist decision is bound wherever `credit_id` is. `request_digest = P(kgworeq1, [m, r_lo, r_hi, s_lo, s_hi])` (§1). |
-| Payment | `{version, request: {body, signature}, payer_payment_key, payer_credential_digest, send: Package}`; `payment` (163) = `LE16 version ‖ request_digest ‖ payer_payment_key(key) ‖ payer_credential_digest ‖ package_digest`; the Payment digest is `P_bytes(kgwpay_1, payment)`, one canonical σ-field value. `request_digest` and `package_digest` are `P` values in the same 32-byte slots. Given canonical decoding and recomputed subordinate digests, this transcript binds every field of the Payment frame transitively: the Request body and signature through `request_digest`, and the statement, Ω(pred), σ_send and τ_send through `package_digest` and its `proof_digest` | The compact layout: the receiver's credential, fee schedule and certificates are bound by digest in the Request body, and the payer's credential and certificates travel in the Offer. Structurally (no `payment_digest` without it): `send` is a Send package carrying Ω(pred) that passes the consumer checks with τ verified under `Ω.payment_key`; the Request payer is `Ω.wallet_id`; the carried key and credential digest are Ω's; the effect's credit, receiver, ordinal, amount, fee and `request` equal the Request's, `accepted_lower_ms ≥ receiver_accepted_time_ms`, the statement's scheme and asset are the Request's; `Ω.policy_epoch ≥` the Request's. At Receive: the carried Request is the receiver's held one, which verifies in full; the receiver's current credential is matched by the Request's receiver wallet and its receiver credential's payment key, never by credential digest, so a Request signed before a renewal stays receivable; the Offer's payer credential verifies under the scheme, is the Request's payer with a key other than the receiver's, matches the carried digest and key, and has the Request's `payer_account_digest`; the Request's recorded blacklist decision holds (Receive rule, below), whatever the receiver's current list and controls; the statement's relation is the scheme's. σ_send and Ω(pred) with its decide are the proof owner's. |
-| Credited | `{version, scheme_id, evidence}`; the credited transcript (99) is `LE16 version ‖ tag evidence ‖ credit_id ‖ payment_digest ‖ evidence digest`, and the Credited digest is `P_bytes(kgwcrdd1, ·)` | Evidence Receive 1 `{package}` (status *credited, unfolded*; evidence digest = its package digest) or Status 2 `{status: CreditStatus}` (status *credited* or *burned*; evidence digest = its credit-status digest). `scheme_id` is the evidence statement's scheme. The payer verifies it against its scheme, held Request and retained Payment: in both forms the evidence statement names the payer's scheme and relation identity (rejected before the `ArchiveSent` mutation, as `Λ_archive` rejects it); Receive form, a Receive package (no Ω) whose effect credit, payer wallet and amount match, whose receipt binds the Payment digest, whose scheme and asset are the Request's, whose σ_recv verifies under the key selected by the Request's recorded blacklist version (§3.1), and whose τ verifies under the Request's receiver credential; Status form, Ω(h)'s `wallet_id` and `payment_key` equal the Request's receiver wallet and its receiver credential's key (credential digests are not compared, so a receiver that renewed after the Request still matches) and the opening names this credit and Payment digest. `ArchiveSent` also requires the retained Payment's pending-outgoing leaf. |
+| Request | `{body, receiver_credential, fee_schedule, certificates, signature}`; request body (signed under `kgwrqst1`, 418) = `LE16 version ‖ scheme_id ‖ asset_digest ‖ payer_wallet_id ‖ payer_account_digest ‖ receiver_wallet_id ‖ receiver_account_digest ‖ LE128 send_ordinal ‖ receiver_credential_digest ‖ LE128 amount ‖ fee_schedule ‖ LE128 fee ‖ LE64 policy_epoch ‖ scheme_policy ‖ LE64 receiver_accepted_time_ms ‖ certificates ‖ nonce` | Receiver payment key signs. Slot None 0 or Present 1 `{schedule}`. `amount > 0`; payer ≠ receiver wallet; `amount + fee` fits; `policy_epoch = 0` iff `scheme_policy` zero. `receiver_credential_digest`, `fee_schedule`, `scheme_policy` and `certificates` are canonical σ-field values (`P` digests, zero where absent). Both account digests are nonzero: `receiver_account_digest` equals the carried receiver credential's `account_digest`, and `payer_account_digest` equals the payer credential's (checked by the receiver against the Offer's credential before it signs, and by the payer against its own before Send). None requires zero `fee_schedule` and `fee`; Present requires the digest, the Request's scheme and asset, and `fee = fee(amount)`. Certificates exactly the receiver issuer (Enrollment) plus the fee signer (RegulatoryPolicy) when present; their set digest is `body.certificates`. `credit_id = P(kgwcrdt1, ·)` over the 24 request-body elements in transcript order (version; scheme, asset, payer wallet, payer account, receiver wallet, receiver account (2 each); `send_ordinal`; receiver credential; `amount`; fee schedule; `fee`; `policy_epoch`; scheme policy; `receiver_accepted_time_ms`; certificates; nonce (2)), one canonical σ-field value. `request_digest = P(kgworeq1, [m, r_lo, r_hi, s_lo, s_hi])` (§1). |
+| Payment | `{version, request: PaymentRequest, send: Package}`; `PaymentRequest` carries only the unique Request fields and its signature (below); `payment` (163) = `LE16 version ‖ request_digest ‖ payer_payment_key(key) ‖ payer_credential_digest ‖ package_digest`; the Payment digest is `P_bytes(kgwpay_1, payment)`, one canonical σ-field value. `request_digest` and `package_digest` are `P` values in the same 32-byte slots. Given canonical decoding and recomputed subordinate digests, this transcript binds every field of the Payment frame transitively: the Request body and signature through `request_digest`, and the statement, Ω(pred), σ_send and τ_send through `package_digest` and its `proof_digest` | The compact layout: the receiver's credential, fee schedule and certificates are bound by digest in the Request body, and the payer's credential and certificates travel in the Offer. Structurally (no `payment_digest` without it): `send` is a Send package carrying Ω(pred) that passes the consumer checks with τ verified under `Ω.payment_key`; the reconstructed Request payer is `Ω.wallet_id`; the payer key and credential digest are read from Ω; the effect's credit, receiver, ordinal, amount, fee and `request` equal the Request's, `accepted_lower_ms ≥ receiver_accepted_time_ms`, the statement's scheme and asset are the Request's; `Ω.policy_epoch ≥` the Request's. At Receive: the carried Request is the receiver's held one, which verifies in full; the receiver's current credential is matched by the Request's receiver wallet and its receiver credential's payment key, never by credential digest, so a Request signed before a renewal stays receivable; the Offer's payer credential verifies under the scheme, is the Request's payer with a key other than the receiver's, matches Ω's credential digest and key, and has the Request's `payer_account_digest`; the receiver's local blacklist, when one is held, does not contain that `payer_account_digest` (Receive rule, below); the statement's relation is the scheme's. σ_send and Ω(pred) with its decide are the proof owner's. |
+| Credited | `{version, scheme_id, evidence}`; the credited transcript (99) is `LE16 version ‖ tag evidence ‖ credit_id ‖ payment_digest ‖ evidence digest`, and the Credited digest is `P_bytes(kgwcrdd1, ·)` | Evidence Receive 1 `{package}` (status *credited, unfolded*; evidence digest = its package digest) or Status 2 `{status: CreditStatus}` (status *credited* or *burned*; evidence digest = its credit-status digest). `scheme_id` is the evidence statement's scheme. The payer verifies it against its scheme, held Request and retained Payment: in both forms the evidence statement names the payer's scheme and relation identity (rejected before the `ArchiveSent` mutation, as `Λ_archive` rejects it); Receive form, a Receive package (no Ω) whose effect credit, payer wallet and amount match, whose receipt binds the Payment digest, whose scheme and asset are the Request's, whose σ_recv verifies under the Receive key (§3.1), and whose τ verifies under the Request's receiver credential; Status form, Ω(h)'s `wallet_id` and `payment_key` equal the Request's receiver wallet and its receiver credential's key (credential digests are not compared, so a receiver that renewed after the Request still matches) and the opening names this credit and Payment digest. `ArchiveSent` also requires the retained Payment's pending-outgoing leaf. |
 | CreditStatus (inside Credited) | `{version, statement, proof_digest, receipt, lineage: Ω(h), opening}`; the credit-status transcript (162) is `LE16 version ‖ statement_digest ‖ proof_digest ‖ receipt_digest ‖ lineage_digest ‖ opening_digest`, and its digest is `P_bytes(kgwcsts1, ·)` | Read-only evidence from a folded receiver head `h`, carrying no σ and no Ω(pred): the statement's successor is `Ω(h).head`; scheme, relation, credential digest and lifecycle equal Ω's; τ(h) verifies under Ω(h)'s key over the carried statement and nonzero `proof_digest`, with its own capsule commitment and Payment digest. The opening recomputes `Ω(h).credit_digest_root` natively. The decide of Ω(h) is the proof owner's (TODO(G3)). Only a membership opening is evidence; a non-membership (low-leaf) opening is not. |
 | Credit opening (inside CreditStatus) | `{credit_id, payment_digest, burned: bool, next_key, slot: u32, siblings: bytes}`; the credit-opening transcript (1,125) is `credit_id ‖ payment_digest ‖ u8 burned ‖ next_key ‖ LE32 slot ‖ siblings`, and the opening digest is `P_bytes(kgwcopn1, ·)` | The leaf opening (§3.2) of `credit_id` in the credit-digest tree: the leaf `P(kgwimlf1, [credit_id, P(kgwcdig1, [credit_id, payment_digest, burned]), next_key])` at `slot`, with exactly 32 siblings as 1,024 concatenated canonical bytes in increasing height. `credit_id` and `payment_digest` are nonzero canonical σ-field values; `next_key` is zero or a canonical value above `credit_id`; `slot ≥ 1`. |
 | SessionControl | `{version, scheme_id, asset_digest, sender_wallet_id, peer_wallet_id, session_nonce, kind, LE16 reason, credit_id, auth}`; session-control body (signed under `kgwsctl1`) = all fields except `auth`, kind as a tag | Kinds SetupDeclined 1, UnsupportedScheme 2, ReceiveDeferred 3, Close 4; auth Unsigned 0 or Signed 1 `{signature}`. Scheme, asset and nonce nonzero; sender nonzero except UnsupportedScheme; peer zero (unknown) or not the sender; opaque `reason` only for SetupDeclined and ReceiveDeferred; `credit_id` nonzero iff ReceiveDeferred. `credit_id` is a canonical σ-field value. Unsigned only for UnsupportedScheme and for SetupDeclined before the sender's own Offer or Request; otherwise signed by the payment key of that session's Offer or Request credential. Invalid controls are dropped. |
 | PolicyData | `{version, scheme_id, asset_digest, item}` | Items SchemePolicy 1, FeeSchedule 2, Certificates 3 (non-empty); tag 4 is unused, because the blacklist is never peer-carried (§3.3). Item scheme equals `scheme_id`; scheme policy and fee schedule asset equal `asset_digest`. Signers are selected by certificate digest. |
+
+
+The `PaymentRequest` frame has these ten fields in order:
+`payer_account_digest`, `receiver_account_digest`, `receiver_credential_digest`,
+`fee_schedule`, `policy_epoch`, `scheme_policy`, `receiver_accepted_time_ms`,
+`certificates`, `nonce`, `signature`. The other eight signed Request body fields have
+a single wire owner:
+
+| Reconstructed Request field | Payment field |
+|---|---|
+| `version` | `version` |
+| `scheme_id`, `asset_digest` | `send.statement.scheme_id`, `send.statement.asset_digest` |
+| `payer_wallet_id` | `send.lineage.public.wallet_id` |
+| `receiver_wallet_id`, `send_ordinal`, `amount`, `fee` | The corresponding fields of `send.statement.effect.Send` |
+
+This projection preserves the exact Request signing transcript, credit identifier,
+Request digest and Payment digest transcript. The payer key and credential digest in
+the Payment digest come from Ω(pred). Assembly validates the full signed Request and
+payer credential, requires that the reconstructed signed Request equals that full
+input, and verifies the Send package. A changed input is rejected before compaction.
+The structural `signed_request()` reconstruction does not verify proof authority or
+repair malformed represented values: native and circuit consumers still verify the
+reconstructed Request, package, receipt and incoming proofs at their existing
+acceptance boundaries. Only this single-owner V1 frame is decoded.
 
 - **Unknown scheme.** A receiver may decode an Offer envelope through the per-kind
   bound without the scheme check, validate only its body, and reply with an
@@ -943,38 +954,31 @@ checked at decode is the body scheme (Offer, Request), the carried Request's sch
   spendable, epoch, time and enabled-control parts, see the σ status in §7). It
   authenticates its inputs against the payer's head, derives one accepted interval
   `[L, U]` (§3.3, Time), applies every part below and returns σ_send's control
-  witnesses (gap opening, window segments and quota-usage openings against the
-  head-committed roots); the partial checks are not separate entry points. The
+  witnesses (window segments and quota-usage openings against the head-committed
+  roots); the partial checks are not separate entry points. The
   Request names the payer's wallet and `next_send`; the Ω is the one recorded for the
   payer's head (its `head` is the payer state's computed commitment, and wallet,
   credential and key are the payer's); payer `policy_epoch ≥` the Request's, with an
   equal `scheme_policy` at equal epochs; `fee_schedule` equals the payer's held
   schedule; payer and receiver keys differ; `balance − Ω.burned_total ≥ amount + fee`;
   `payer_account_digest` is the payer credential's and `receiver_account_digest` the
-  Request receiver credential's; with the payer's blacklist enforced (§3.3),
-  `receiver_account_digest` has a gap opening in the payer's committed list and the
-  list-age rule holds; with the lease enabled, `U < lease_expires_at_ms`; with the quota
+  Request receiver credential's; while the payer holds a local blacklist (§3.3), the
+  list does not contain `receiver_account_digest` (native only, at Send preparation
+  and again at commit, before the irreversible debit); with the lease enabled,
+  `U < lease_expires_at_ms`; with the quota
   control enabled, `U < quota_share_expires_at_ms`, the Send time span and the quota
   charges (§3.3, Time).
 - **Request rule** (receiver, native, before it signs a Request): the Offer
   is authenticated; `payer_account_digest` is the Offer credential's and
-  `receiver_account_digest` the receiver's own credential's. With the receiver's
-  blacklist enforced (§3.3), the body records the committed `(blacklist_version,
-  blacklist_root)`, `payer_account_digest` must have a gap opening in that list, and the
-  receiver retains that gap opening (580 raw bytes: the two limb-ordered bounds, `LE32`
-  leaf index and 16 siblings) with the issued Request for its Receive and any σ_recv
-  re-proof; otherwise the body records `(0, 0)`. A listed payer gets no Request (the
-  receiver may send SetupDeclined).
+  `receiver_account_digest` the receiver's own credential's. While the receiver holds a
+  local blacklist (§3.3), the list does not contain `payer_account_digest`; a listed
+  payer gets no Request, and the receiver replies SetupDeclined.
 - **Receive rule** (receiver, native, before mutation; one Receive preparation path
-  with the full Payment verification): when the Request records a nonzero
-  `(receiver_blacklist_version, receiver_blacklist_root)`, the history lookup of the head
-  it receives on finds that pair (§3.3, Blacklist history) and the gap opening retained
-  with the Request shows `payer_account_digest` absent from the recorded root; σ_recv,
-  selected by that nonzero version, proves the same absence against the recorded root.
-  A recorded `(0, 0)` needs no check, and σ_recv's mask-0 relation constrains the recorded
-  pair to `(0, 0)`. The receiver's list and controls at Receive neither excuse a
-  recorded check nor add one, so a newer receiver list never strands a committed
-  Payment. A Payment that fails this rule changes no state.
+  with the full Payment verification): while the receiver holds a local blacklist
+  (§3.3), the list does not contain the Request's `payer_account_digest`. The check uses
+  the list held at Receive, which may be newer than the one held when the Request was
+  signed. A Payment that fails this rule changes no state; it is not a monetary refusal,
+  and the payer keeps the exact Payment bytes for later delivery.
 
 ### 3.5 Custody objects (local, never transmitted)
 
@@ -1019,9 +1023,9 @@ carries one byte.
 |---|---|---|
 | Marker (`marker` over the frame) | `{version, scheme_id, asset_digest, wallet_id, payment_key, LE128 generation, state}`; state Enrollment 1 `{challenge_digest, enrollment_id}`, Head 2 `{LE128 sequence, operation_id, head, capsule_digest, predecessor_capsule_digest}`, Terminal 3 `{reason, last_capsule_digest}` | Reasons Abandoned 1, CustodyDeleted 2. Generation 0 iff Enrollment, whose `enrollment_id` and `wallet_id` recompute. Head: complete `head`; zero predecessor capsule iff sequence 0. Terminal: zero last capsule iff Abandoned. Successors raise the generation by one: Enrollment → Head (sequence 0) or Terminal Abandoned; Head → Head (sequence + 1, linked capsule) or Terminal CustodyDeleted (last = capsule). The Bootstrap `enrollment_marker` is the generation-0 marker digest. |
 | Output descriptor | `{kind, digest}` | `digest = H("output", ·)` over the statement digest, `proof_digest` (a nonzero canonical σ-field value) and, for Receive, the Payment digest the receipt binds (a canonical σ-field value): receipt-free, so the capsule freezes before the receipt. Every other kind input is bound by the statement. |
-| Recovery body (`capsule-body` over the frame) | `{version, scheme_id, wallet_id, operation_id, kind, predecessor_capsule_digest, successor_state, statement, predecessor_lineage, step_proof, payment_digest, map_openings: [bytes], retained_inputs: [{role, bytes}], output}` | Retained roles: Request 1, Payment 2, Credited 3, LoadReceipt 4, ChargeQuote 5, PolicyUpdate 6, CertificateSet 7, Credential 8, LoadFinality 9, QuotaRefreshWitness 10. State and statement agree on scheme, wallet, credential, asset, lifecycle, sequence and `next_load`; kind, effect kind and output kind agree; `operation_id` recomputes; zero predecessor capsule iff sequence 0; `predecessor_lineage` (the Ω recorded at fold time) is present exactly for Send, Unload and Retiring, passes the consumer checks for this wallet, and the successor's `burned_total` is its `burned_total`; the successor state's computed commitment is the statement's successor; `payment_digest` is a canonical σ-field value, nonzero exactly for Receive; the output rebuilds for every kind. Retained inputs are non-empty, and the fold witnesses (every consumed input `Λ` verifies for the step, proposal §4.1) are retained: Receive needs Request, Payment, CertificateSet and Credential; ArchiveSent Request, Payment, Credited, the historical payer Credential and its CertificateSet; Send the Request (the Payment binds its fee schedule only by digest); Load LoadReceipt and LoadFinality (the ordinary receipt, native BLS certificate and counted event path; epoch authority is retained separately in Native custody); RefreshPolicy PolicyUpdate and CertificateSet, plus exactly one QuotaRefreshWitness for QuotaShare and none for the other update kinds. The body freezes before an independent opening is sampled; the receipt signs the resulting `capsule_commitment`, as defined below. Each map opening is one §3.2 opening transcript, a leaf opening (1,124 bytes) or an empty-slot opening (1,028 bytes) with exactly 32 canonical siblings and a valid leaf; any other bytes are rejected. Which openings each kind retains is TODO(G3); the vectored Receive capsule retains its consumed-credit insertion witness (the low leaf's opening and the written slot's empty-slot opening). Third set: blacklist-history openings (a Receive's membership of a nonzero recorded pair, a Blacklist refresh's insertion) are ordinary depth-32 openings of this kind. A QuotaShare refresh retains the complete typed predecessor usage array below; its actual predecessor authenticates the array root before the native transition derives every successor slot. Remaining σ witnesses (depth-6 quota openings, depth-16 gap openings) are not indexed-map openings; the coordinator reconstructs them from its authenticated source snapshot, issued Request custody, and retained native intent/choices. The source snapshot retains all 64 quota slots and exact complete policy originals; it is rechecked before Advance and during folding. |
+| Recovery body (`capsule-body` over the frame) | `{version, scheme_id, wallet_id, operation_id, kind, predecessor_capsule_digest, successor_state, statement, predecessor_lineage, step_proof, payment_digest, map_openings: [bytes], retained_inputs: [{role, bytes}], output}` | Retained roles: Request 1, Payment 2, Credited 3, LoadReceipt 4, ChargeQuote 5, PolicyUpdate 6, CertificateSet 7, Credential 8, LoadFinality 9, QuotaRefreshWitness 10. State and statement agree on scheme, wallet, credential, asset, lifecycle, sequence and `next_load`; kind, effect kind and output kind agree; `operation_id` recomputes; zero predecessor capsule iff sequence 0; `predecessor_lineage` (the Ω recorded at fold time) is present exactly for Send, Unload and Retiring, passes the consumer checks for this wallet, and the successor's `burned_total` is its `burned_total`; the successor state's computed commitment is the statement's successor; `payment_digest` is a canonical σ-field value, nonzero exactly for Receive; the output rebuilds for every kind. Retained inputs are non-empty, and the fold witnesses (every consumed input `Λ` verifies for the step, proposal §4.1) are retained: Receive needs Request, Payment, CertificateSet and Credential; ArchiveSent Request, Payment, Credited, the historical payer Credential and its CertificateSet; Send the Request (the Payment binds its fee schedule only by digest); Load LoadReceipt and LoadFinality (the ordinary receipt, native BLS certificate and counted event path; epoch authority is retained separately in Native custody); RefreshPolicy PolicyUpdate and CertificateSet, plus exactly one QuotaRefreshWitness for QuotaShare and none for the other update kinds. The body freezes before an independent opening is sampled; the receipt signs the resulting `capsule_commitment`, as defined below. Each map opening is one §3.2 opening transcript, a leaf opening (1,124 bytes) or an empty-slot opening (1,028 bytes) with exactly 32 canonical siblings and a valid leaf; any other bytes are rejected. Which openings each kind retains is TODO(G3); the vectored Receive capsule retains its consumed-credit insertion witness (the low leaf's opening and the written slot's empty-slot opening). A QuotaShare refresh retains the complete typed predecessor usage array below; its actual predecessor authenticates the array root before the native transition derives every successor slot. Remaining σ witnesses (depth-6 quota openings) are not indexed-map openings; the coordinator reconstructs them from its authenticated source snapshot and retained native intent/choices. The source snapshot retains all 64 quota slots and exact complete policy originals; it is rechecked before Advance and during folding. |
 | Recovery capsule (`capsule` over W) | `{body_frame: bytes, opening: [u8;32]}` | `body_frame` is the exact complete canonical RecoveryBodyV1 frame B; `opening` is canonical little-endian Fp r, including zero. This sole first-release wrapper has no duplicate point or cached commitment and no body-only decoder. W is bounded as a whole before sampling/signing; its body also passes its own bound and all rules above. Validate B and r, recompute the public commitment below, and authenticate all private links with `H("capsule", W)`. |
-| Monetary restart witness (local retained input, Native required for Send and Receive) | `{version, predecessor_capsule_digest, manifest_digest, statement_digest, enrollment, send: Option<SendSources>, receive: Option<ReceiveSources>}` | Exactly one role11 frame ≤65,536 bytes, version1. Exactly one typed branch agrees with Send or Receive. The exact certificate, installation, predecessor capsule and statement are reauthenticated before restore. SendSources retains the optional original anchored-time frame and optional same-boot monotonic observation, the complete signed quota share, all64 original predecessor usage slots, and an opaque exact full-Blacklist archive reference when held. Complete lists are published and read back in the coordinator's actual immutable archive; the reference alone grants no issuer or current-state authority. ReceiveSources retains the original recorded-history/gap pair and actual source-selected history lookup opening. Permanent credit insertion paths are obtained only from the actual credit tree after predecessor Ω full verification; no future credit value or root is retained at preparation. The Native restore reruns the existing hard Send/Receive checks and compares the exact successor state and statement; the capsule/receipt bind every retained byte. |
+| Monetary restart witness (local retained input, Native required for Send and Receive) | `{version, predecessor_capsule_digest, manifest_digest, statement_digest, enrollment, send: Option<SendSources>, receive: Option<ReceiveSources>}` | Exactly one role11 frame ≤65,536 bytes, version1. Exactly one typed branch agrees with Send or Receive. The exact certificate, installation, predecessor capsule and statement are reauthenticated before restore. SendSources retains the optional original anchored-time frame and optional same-boot monotonic observation, the complete signed quota share and all64 original predecessor usage slots. ReceiveSources is empty: Receive restores from its retained Request, Payment, payer credential and certificate originals. Permanent credit insertion paths are obtained only from the actual credit tree after predecessor Ω full verification; no future credit value or root is retained at preparation. The Native restore reruns the existing hard Send/Receive checks and compares the exact successor state and statement; the capsule/receipt bind every retained byte. |
 | Quota refresh witness (local retained input) | `{version, predecessor_usage: [Option<QuotaUsageLeaf>; 64]}` | Complete frame ≤8,192 bytes; version 1. Every occupied leaf is `{window_kind, window_start_ms, window_end_ms, used}`. Occupied slots form a strictly ordered prefix by `(kind, start)` with valid nonoverlapping windows per kind; every remaining slot is `None`. The named role selects this type, never its byte length. The private capsule hash and signed capsule commitment bind the exact frame; canonical decoding alone grants no predecessor-root or policy authority. |
 | Completion record (`completion` over the frame) | `{version, wallet_id, operation_id, capsule_digest, receipt, output: bytes}` | Decoded against the expected wallet. `output` is the canonical compact Payment for Send, whose payer key and credential digest are the wallet's, and the canonical Package frame otherwise. Its receipt equals the record's; its statement, Ω(pred), σ and receipt Payment digest are the capsule's; its receipt-free parts rebuild the capsule's output descriptor; the private `capsule_digest` equals the authenticated wrapper hash, while the receipt verifies over that same wrapper's recomputed `capsule_commitment`. Exact output bytes and all other joins remain required. After W is collected, an operation retry reads the canonical Payment or Package selected by its explicit frame schema, treats the embedded sequence only as a locator, and authenticates the exact completion frame and its private/public capsule identifiers against the permanent StepEntry selected by the protected manifest. It neither scans history nor trusts the decoded sequence as authority. |
 | Fold record (`fold` over the frame) | `{version, scheme_id, wallet_id, LE128 first_sequence, LE128 sequence, head, capsule_digest, lineage: Ω}` | The self-verified Ω of one folded head covering the run `first_sequence..=sequence`. Nonzero identities and capsule digest; complete `head`; Ω valid with this scheme, wallet and head; `first_sequence ≤ sequence`. |
@@ -1065,31 +1069,39 @@ successful inclusion.
 
 ## 4. Measured sizes
 
-Structurally valid complete envelopes, printed by `size_tests.rs`. The Payment and Request
-carry a fee schedule and two Request certificates. The current size test uses a 3,456-byte
-σ_send sample, the largest measured revision-4 Send proof, and a 4,800-byte Ω sample,
-the measured three-terminal compact transport. Receive uses a conservative 3,456-byte
-sample. The proof bytes are stand-ins: these tests establish encoding overhead and exact
-bounds, not cryptographic acceptance or a completed Payment. The fresh release size suite
-passes 2/2 (`target/qualification/payment-current-encoding-size.log`). The accepted ordinary
+Structurally valid complete envelopes are printed by `size_tests.rs`. The Request
+carries a fee schedule and two certificates; Payment binds these dependencies by
+digest. The codec samples use 3,520-byte σ_send, 4,800-byte Ω and 3,456-byte σ_recv
+stand-ins. These establish encoding overhead and exact bounds, not cryptographic
+acceptance or a completed Payment. The source fixes the 1,394-byte overhead;
+size tests must be rerun on the final composed candidate. Cryptographic and
+physical-device qualification remain open. The accepted ordinary
 transaction/finality Load relation and complete proof catalog still require qualification (G3).
-`F_payment` = 1,723 bytes and the joint proof budget is 8,277 bytes
+`F_payment` = 1,394 bytes and the joint proof budget is 8,606 bytes
 (`KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1`, `KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1`).
 `F_receive` = 679 bytes and the `σ_recv` budget is 9,321 bytes
 (`KAGEMUSHA_WALLET_CREDITED_RECEIVE_FIXED_BYTES_V1`,
-`KAGEMUSHA_WALLET_CREDITED_RECEIVE_PROOF_BUDGET_V1`). Both Receive selectors must fit
-this complete-envelope budget; their frozen keys still select exact proof lengths.
-`F_status` = 2,188 bytes and the Ω cap is 7,812 bytes
+`KAGEMUSHA_WALLET_CREDITED_RECEIVE_PROOF_BUDGET_V1`). The Receive selector must fit
+this complete-envelope budget; its frozen key still selects an exact proof length.
+`F_status` = 2,188 bytes and its envelope-derived Ω budget is 7,812 bytes
 (`KAGEMUSHA_WALLET_CREDITED_STATUS_FIXED_BYTES_V1`, `KAGEMUSHA_WALLET_LINEAGE_PROOF_CAP_V1`).
-The size tests and verifying-key allowlist pin these constants for Ω and σ lengths of
-128 to 9,999 bytes each.
+The size tests pin complete-frame arithmetic over proof lengths from 128 to
+9,999 bytes; that arithmetic does not grant proof authority. The source catalog
+separately caps every σ at 3,520 bytes and the Ω transport at 5,086 bytes
+(`KAGEMUSHA_WALLET_SIGMA_PROOF_CAP_V1`, `KAGEMUSHA_WALLET_OMEGA_PROOF_CAP_V1`).
+The allowlist requires both role bounds and its exact source-specific lengths.
+Payment structural admission checks each role and the independent 8,606-byte
+joint bound before native verification; neither role can borrow unused capacity.
+The internal Ω input tape adds its 320-byte public prefix, giving a 5,406-byte
+individual raw cap and an independent 8,926-byte joint raw budget. These input
+limits do not enlarge the wire envelope or replace the complete proof decisions.
 
-| Envelope | Bytes / bound | Fixed overhead | Largest fitting proof |
+| Envelope | Bytes / bound | Fixed overhead | Envelope-derived proof budget |
 |---|---:|---|---|
-| Offer (credential frame 618 / 1,024) | 1,104 / 2,048 | — | — |
+| Offer (credential frame 609 / 1,024) | 1,095 / 2,048 | — | — |
 | SessionControl (signed ReceiveDeferred) | 338 / 2,048 | — | — |
-| Request (fee schedule, 2 certificates) | 1,843 / 10,000 | — | — |
-| Payment (σ_send 3,456; Ω proof 4,800) | 9,979 / 10,000 | 1,723 + Ω proof + σ_send | Ω proof 4,821 with the selected σ_send; Ω proof + σ_send 8,277 |
+| Request (fee schedule, 2 certificates) | 1,792 / 10,000 | — | — |
+| Payment (σ_send 3,520; Ω proof 4,800) | 9,714 / 10,000 | 1,394 + Ω proof + σ_send | Ω proof 5,086 with the selected σ_send; Ω proof + σ_send 8,606 |
 | Credited::Receive (σ_recv 3,456 sample) | 4,135 / 10,000 | 679 + σ_recv | σ_recv 9,321 |
 | Credited::Status (Ω(h) proof 4,800, 32 siblings; CreditStatus frame 6,933) | 6,988 / 10,000 | 2,188 + Ω(h) proof | Ω(h) proof 7,812 |
 | Lineage (Ω proof 4,800) | 5,213 / 10,000 | 413 + Ω proof | — |
@@ -1099,9 +1111,9 @@ Other measured frames: the largest Android renewal request (8 certificates total
 66,021 of 73,728 bytes; a 64-window quota share is 2,941 bytes; the full
 65,535-entry blacklist, an online download rather than an envelope, is 2,228,433 of
 2,228,736 bytes. Vector frames with 48-byte stand-in σ and Ω proofs: envelopes
-Payment 1,816, Credited::Receive 725, Credited::Status 2,235 and Lineage 460;
-standalone scheme 208, certificate 222, credential 618, verifying-key allowlist (10
-entries) 581, Payment 1,805 and fold record 616. Recovery bodies retain their
+Payment 1,487, Credited::Receive 725, Credited::Status 2,235 and Lineage 460;
+standalone scheme 208, certificate 222, credential 609, verifying-key allowlist (10
+entries) 581, Payment 1,476 and fold record 616. Recovery bodies retain their
 complete consumed-credit insertion openings inside the selected wrapper. The canonical quota-refresh witness
 is 2,805 bytes with all 64 usage slots occupied and 181 bytes with all slots empty,
 under its 8,192-byte cap. The maintained Rust generator emits a Receive recovery
@@ -1112,14 +1124,14 @@ stand-in step proofs and fit the unchanged 524,288-byte cap. Consumer readback,
 negative cap checks and native32/SDK qualification remain pending. These private
 frame measurements do not qualify a native proof or a payment envelope.
 
-**Canonical framing.** The B6 Request transcript is 458 bytes, including the blacklist
-version and root. Tests measure Request 1,843 bytes, `F_payment` 1,723 bytes and the
-joint budget `|Ω| + |σ_send| ≤ 8,277` bytes. B1 changes no field width,
-and B5, B7 and B8 change only private state, so `F_status` (2,188 bytes) and the Ω cap
-(7,812 bytes) stay. With a 4,800-byte Ω transport, σ_send must be at most 3,477 bytes;
-the measured 3,456-byte Send shape leaves 21 bytes in the complete envelope. The fixed64
-quota implementation has real k14 proofs at that size. Every admitted Send mask, both
-Receive variants and the complete uniform Ω catalog must retain their exact measured
+**Canonical framing.** The Request transcript is 418 bytes. Tests measure Request
+1,792 bytes, `F_payment` 1,394 bytes and the joint budget `|Ω| + |σ_send| ≤ 8,606`
+bytes. B1 changes no field width,
+and B5, B7 and B8 change only private state, so `F_status` (2,188 bytes) and
+its 7,812-byte envelope budget stay. The source caps remain 3,520 bytes for σ and
+5,086 bytes for Ω even when a particular envelope has spare room. The 4,800-byte Ω
+and 3,520-byte σ stand-ins leave 286 bytes in the complete envelope. Every admitted Send mask, the
+Receive selector and the complete uniform Ω catalog must retain their exact measured
 descriptors before artifact freeze. The ordinary-transaction/finality Load migration does
 not add a Payment evidence trail or relax the 10,000-byte bound.
 
@@ -1133,17 +1145,17 @@ accepted; `floor(n/2) + 1`, `r` or `s` zero or `n` rejected), nine envelope vect
 (header fields, padding, CRC, canonical bytes, `kgm1:` text and bound), the frame
 identities and caps, pinned object frames, the enum tag table, and:
 
-- `field_encodings`: the modulus, the element, Poseidon and packing rules, the 60
-  Poseidon domains (34 general domains, 16 signing domains and 10 object-digest domains), the element lists
+- `field_encodings`: the modulus, the element, Poseidon and packing rules, the 59
+  Poseidon domains (33 general domains, 16 signing domains and 10 object-digest domains), the element lists
   of every map value and the credit-digest value, a `send_chain` append from the empty
   chain and a `recv_chain` append with their chain values, a Send and a Receive
   statement with their σ digests, a Receive successor state's core and rest elements,
   rest digest and commitment, and the same for a `controlled_state` (Retiring, every
-  control enabled, every policy object held) whose 33 core and 8 rest elements are
+  control enabled, every policy object held) whose 29 core and 6 rest elements are
   pairwise distinct, with every field's value by name, so that each consumer binds every
   element position to its field;
 - `poseidon`: one `P` known-answer vector per domain (over `[1, 2, 3]`), the `P_bytes`
-  packing at lengths 0, 1, 30, 31, 32, 62 and 63, `credit_id` with its 26 elements, both
+  packing at lengths 0, 1, 30, 31, 32, 62 and 63, `credit_id` with its 24 elements, both
   `proof_digest` domains, the Payment, lineage, credit-opening, credit-status and
   credited digests and the signed message of each signed body (bodies, element counts,
   digests), every map value with its key, the indexed tree (the empty slot, the sentinel
@@ -1152,7 +1164,7 @@ identities and caps, pinned object frames, the enum tag table, and:
   non-membership openings through the sentinel, through an interior low leaf and above
   the largest key, a pending-outgoing removal with the next
   free slot), the `CreditStatus` credit-digest opening, the blacklist
-  leaf, node, root and a gap opening over entries whose unsigned byte order differs
+  leaf, node and root over entries whose unsigned byte order differs
   from their limb order, the quota-window leaf, empty slot, node and root, and the
   verifying-key allowlist transcript and digest.
 
@@ -1175,26 +1187,25 @@ the 16 signing domains with their transcript lengths, verify every signature vec
 its pinned 32-byte message `m` after the low-S rule (and reject it over the transcript),
 validate envelope headers and per-kind bounds, and round-trip `kgm1:` text. They
 re-derive the element lists (statements, state core and rest with the named
-`controlled_state` positions, chains, map values and the 26-element `credit_id` with
-both Request account digests and the recorded blacklist pair), the `P_bytes` packing and element counts of every
+`controlled_state` positions, chains, map values and the 24-element `credit_id` with
+both Request account digests), the `P_bytes` packing and element counts of every
 large-input digest and signing message, the depth-32 indexed-tree openings (sorted
 links, low-leaf brackets, fixed 32 siblings, empty subtrees and transcripts), the
 CreditStatus opening, the limb-ordered blacklist and the verifying-key allowlist with
 its manifest binding and every vectored σ and Ω length. Typed SDK decoding of message
 bodies is TODO(G4). Neither SDK recomputes `P` values; `iroha_kagemusha_proof`
-(`tests/digest_parity.rs`: statements, state, chains, `credit_id`, the indexed, blacklist
+(`tests/digest_parity.rs`: statements, state, chains, `credit_id`, the indexed
 and quota-window trees) and `iroha_plonk_gadgets` (`tests/statement_digest.rs`, and the
 byte-linking tests of `src/bytes` for the packing, every large-input digest and every
 signing message) reproduce them natively and in circuit.
 
 **Canonical third-set coverage.** The vectors carry 21 SHA-256 role
-vectors (the consumers reject retired roles), 60 Poseidon domains (34 general,
+vectors (the consumers reject retired roles), 59 Poseidon domains (33 general,
 16 signing and 10 signed-object domains), every object, certificate-set, package, operation and
-nullifier digest as a `P` vector, the 26-element statement and `credit_id` (with the
-recorded blacklist pair), the 33-element core and 8-element rest with their named
-positions, the new map-value element counts, the quota-usage padding leaf and
-all-padding root with an in-place charge and a refresh rebuild, and a blacklist-history
-insertion and membership opening.
+nullifier digest as a `P` vector, the 26-element statement and the 24-element
+`credit_id`, the 29-element core and 6-element rest with their named
+positions, the new map-value element counts, and the quota-usage padding leaf and
+all-padding root with an in-place charge and a refresh rebuild.
 
 ## 6. Carriers
 
@@ -1265,69 +1276,148 @@ per pair from parity, quarantines a stream on a conflicting duplicate or an inva
 message, bounds active streams (3) and frames before the header (12 frames, 3,072 bytes
 per stream), and decodes only a complete message.
 
-**NFC.** ISO/IEC 7816 application `F0504B45504B524E464301`, proprietary class `0x80`,
-chunks of at most 4,096 bytes and messages of at most 14,196 bytes (84-byte header
-plus the maximum Request carrier). Payment and Credited retain their 10,084-byte
-transport bound (84-byte header plus their 10,000-byte envelope).
-One session carries the receiver-hosted Request, the payer's Payment (begun, written in
-contiguous chunks and committed) and the receiver's durable acknowledgement, which is
-the Credited envelope. The receiver exposes Credited only after the Payment is durably
-admitted; a resumed or retried session must present the byte-identical Payment. The
-Kotlin carrier also requires the Payment to carry exactly the hosted Request's signed
-body and signature, and Credited to name that Request's scheme
-(`KagemushaWalletWireV1.requireExchangeBinding`); the Credited evidence itself is checked
-by the wallet's typed decoder (TODO(G4)). TODO(G4): Offer and SessionControl
-over NFC; until then the receiver obtains the Offer over another carrier before it
-builds the Request.
+**NFC.** The receiver's phone is the card (host card emulation) and the payer's phone is
+the reader. Commands use the proprietary class `0x80`, chunks of at most 4,096 bytes and
+messages of at most 14,196 bytes (84-byte header plus the maximum Request carrier). Payment
+and Credited retain their 10,084-byte transport bound (84-byte header plus their
+10,000-byte envelope); an Offer is at most 2,132 bytes. A normal payment uses one
+continuous hold: Offer, Request, exact transaction review and hardware confirmation,
+Payment, Credited and acknowledgement confirmation all share the active reader/card
+connection. Keep the connection active through approval and durable wallet work;
+do not signal completion or ask the payer to remove and re-present the phone between
+these phases. A new contact is recovery after interruption, never a required payment step.
+
+- *Application identifier.* An application selects its card by the ISO/IEC 7816-4
+  application identifier (5–16 bytes) it registered with the platform: on iOS the HCE
+  entitlement `com.apple.developer.nfc.hce.iso7816.select-identifier-prefixes` and the
+  reader's `com.apple.developer.nfc.readersession.iso7816.select-identifiers`, on Android
+  the `HostApduService` aid-filter. Both phones of an exchange use the same identifier.
+  An application without its own registration uses the protocol identifier
+  `F0504B45504B524E464301`. The identifier only routes the card; it grants no authority.
+- *Framing.* Commands are ISO/IEC 7816-4 APDUs in canonical form: the short case whenever
+  Lc ≤ 255 and Le ≤ 256, the extended case otherwise; other encodings are rejected. SELECT
+  is `00 A4 04 00 ‖ Lc ‖ AID ‖ 00`; a card answers its own identifier with `9000` and any
+  other with `6A82`. Every other command is `80 ‖ INS ‖ 00 00` with the data and Le below.
+- *Commands.* `s` is the 16-byte session identifier chosen by the card, `h_r` the
+  Request's canonical hash and `w_r`, `w_o`, `w_p`, `w_a` the wire hashes of the Request,
+  Offer, Payment and acknowledgement; offsets are BE32.
+
+  | INS | Command | Data | Le | Response |
+  |---|---|---|---|---|
+  | `30` | GET_INTAKE | — | 68 | `IOI1` |
+  | `31` | BEGIN_OFFER | `s ‖` Offer IPM1 header (84) | — | — |
+  | `32` | WRITE_OFFER | `s ‖ w_o ‖ offset ‖` 1..4,096 bytes | — | — |
+  | `33` | SUBMIT_OFFER | `s ‖ w_o` | — | — |
+  | `10` | GET_INFO | — | 98 | `INF1` |
+  | `11` | READ_REQUEST | `s ‖ h_r ‖ offset` | 1..4,096 | Request bytes |
+  | `20` | BEGIN_PAYMENT | `s ‖ h_r ‖` Payment IPM1 header (84) | — | — |
+  | `21` | WRITE | `s ‖ w_p ‖ offset ‖` 1..4,096 bytes | — | — |
+  | `22` | COMMIT | `s ‖ h_r ‖ w_p` | — | — |
+  | `23` | READ_ACK | `s ‖ w_p ‖ offset` | 1..4,096 | acknowledgement bytes |
+  | `24` | CONFIRM_ACK | `s ‖ w_p ‖ w_a` | — | — |
+  | `25` | GET_STATUS | `s ‖ h_r` | 174 | `NST1` |
+
+- *Records* (fixed length, big-endian, absent values zero-filled):
+  - `IOI1` (68): `"IOI1" ‖ 1 ‖ state ‖ BE16 profile ‖ s ‖ BE32 offer_length ‖
+    BE32 received_offer_bytes ‖ w_o ‖ BE16 max_write_chunk ‖ BE16 reason`. States:
+    awaiting-offer 1, receiving-offer 2, preparing-request 3, request-ready 4, declined 5.
+    The Offer fields are zero while awaiting an Offer and when the card hosts a Request
+    built from an Offer that arrived over another carrier; `reason` is nonzero exactly
+    when declined.
+  - `INF1` (98): `"INF1" ‖ 1 ‖ phase ‖ BE16 profile ‖ flags ‖ 0 ‖ s ‖ BE32 request_length ‖
+    h_r ‖ w_r ‖ BE16 max_read_chunk ‖ BE16 max_write_chunk`.
+  - `NST1` (174): `"NST1" ‖ 1 ‖ phase ‖ BE16 profile ‖ flags ‖ 0 ‖ s ‖ h_r ‖ w_r ‖
+    BE16 payment_profile ‖ BE32 payment_length ‖ BE32 received_payment_bytes ‖ w_p ‖
+    BE16 ack_profile ‖ BE32 ack_length ‖ w_a ‖ BE16 max_read_chunk ‖ BE16 max_write_chunk`.
+  - Phases: request-ready 1, payment-receiving 2, acknowledgement-ready 3, complete 4.
+    Flags: idempotent writes `0x01` (always set) and durable acknowledgement `0x02` (set
+    exactly in phases 3 and 4).
+- *Status words.* `9000` success; `6A82` another identifier; `6985` wrong state, a
+  conflicting replay or a Request that is not ready; `6982` a continuity, hash, profile or
+  IPM1 failure; `6581` the receiver could not persist; `6700` length; `6A80` malformed
+  data; `6D00` and `6E00` an unknown instruction or class.
+- *Offer to Request.* A card started without a Request awaits the payer's Offer.
+  The reader reads `IOI1`, sends BEGIN_OFFER, writes contiguous chunks (an overlapping
+  replay must be byte-identical) and submits. Before SUBMIT_OFFER a different header
+  replaces an unfinished Offer; afterwards the intake is bound to that Offer, the same
+  Offer's commands are idempotent and any other answers `6985`. The card decodes the
+  complete Offer, enters preparing-request and hands the Offer to the receiver's wallet,
+  which signs a Request bound to it under the Request rule or declines with a reason. The
+  reader polls GET_INTAKE until request-ready, then reads `INF1` and the Request. Request
+  commands before request-ready answer `6985`.
+- *Payment to Credited.* While holding the phones together, the payer reviews the exact
+  Request and confirms through the hardware-backed authentication prompt. The wallet
+  retains the exact Payment with the Request identity and continues on the same connection:
+  BEGIN_PAYMENT, contiguous WRITEs, COMMIT, READ_ACK and CONFIRM_ACK, resumed from
+  GET_STATUS after any loss. Approval cancellation sends no Payment; once the wallet has
+  created a Payment, interruption can only resume its exact bytes to the bound receiver.
+  The receiver durably admits the Payment header at
+  BEGIN_PAYMENT and answers COMMIT only after it has ingested the Payment and persisted
+  the Credited acknowledgement, which it exposes only then. A bounded retry of a receiver
+  persistence failure stays on the same connection and resumes from GET_STATUS with the
+  saved checkpoint; it never reruns approval or creates a replacement Payment. A resumed or retried session
+  presents the byte-identical Payment. The Payment must carry exactly the hosted Request's
+  signed body and signature, and Credited must name that Request's scheme
+  (`KagemushaWalletWireV1.requireExchangeBinding`); the Credited evidence itself is
+  checked by the wallet's typed decoder (TODO(G4)). TODO(G4): SessionControl and Lineage
+  over NFC.
 
 **Nearby and Petal.** A Nearby session (service `org.hyperledger.iroha.kagemusha.transfer.v1`)
 authenticates both devices and then carries complete IPM1 messages of at most 32,704
 bytes in encrypted, per-direction sequenced records; the Kotlin session opens a record
 only to a verified IPM1 message of its profile. Petal Stream ([petal_stream.md](petal_stream.md))
-carries the encoded IPM1 message with the IPM1 kind as its `kind` byte. Transport
-encryption and checksums never replace the wallet's verification.
+carries the encoded IPM1 message with the IPM1 kind as its `kind` byte. A receiver that
+advertises before it holds a Request binds its discovery context and session to a fresh
+random 32-byte value in place of the Request hash; the Offer, Request, Payment and Credited
+then all travel inside the authenticated session. Transport encryption and checksums never
+replace the wallet's verification.
+
+**Account check code.** Before approving a Send, the payer compares the receiving account's
+check code with the receiver, aloud or on both screens. The payer's wallet derives it from
+the reviewed `receiver_account_digest`; the receiver's wallet derives it from its own account
+original, so both read `H("account", original)` of the same canonical AccountId frame. The
+code is that digest's first four bytes as a big-endian unsigned 32-bit integer, reduced
+modulo 10^8 and written as eight zero-padded decimal digits in two groups of four separated
+by one space (U+0020): a digest beginning `00 01 02 03` gives `0006 6051`. Every wallet
+renders exactly this text, and decimal digits read aloud the same way in every language. The
+code is display DATA: it authenticates nothing, and the wallet still binds the Payment to the
+full reviewed account. Kotlin and Swift `KagemushaWalletAccountCheckCodeV1` implement it
+against `fixtures/kagemusha/wallet_account_check_code_v1.json`.
 
 ## 7. Open items
 
-- TODO(G4): Offer and SessionControl over the NFC carrier (§6).
+- TODO(G4): SessionControl and Lineage over the NFC carrier (§6).
 - TODO(G4): nested version fields remain with the typed wallet decoder; carriers check
   only the message's own top-level version and the decode-time scheme field's length (§6).
-- TODO(G3): the PIPA-v1 σ layout, the Ω transport-proof layout, their exact lengths
-  and the frozen verifying keys. Once the artifacts freeze, the verifying-key allowlist
-  (§3.1) carries them; its validation requires Ω proof + largest σ_send ≤ 10,000 −
-  F_payment (8,277 bytes with the B6 Request fields; R9) and Ω proof ≤ 7,812 bytes. Until
-  then σ and Ω are bounded only by their frames, and the vectors' allowlist is a
-  labelled stand-in. The quota σ_send with the B5 usage array is unmeasured: if it
-  exceeds 8,277 − |Ω| (3,541 bytes at the Λ/Ω estimate of 4,736), Λ/Ω contingent
-  question C-1 applies.
-- TODO(G3): the in-circuit signature check over the 32-byte Poseidon message, the
-  indexed map trees in circuit (Λ) and the capsule's retained openings are open.
-  The installed verifier inventory preimage is defined in §3.1.1; the complete
-  producer inventory remains open.
-- TODO(G3): qualify the canonical B1/B5–B8 proof relations and frozen artifacts against
-  the current native objects: 26-element statements and credit IDs, 33-element core,
-  8-element rest, quota-usage array, Request blacklist history and quota/time checks.
+- TODO(G3): qualify the complete admitted PIPA-v1 σ and Ω transport artifact set,
+  its exact proof lengths and the selected verifying keys. The verifying-key allowlist
+  (§3.1) carries their identities; its validation requires Ω proof + largest σ_send ≤ 10,000 −
+  F_payment (8,606 bytes with the single-owner Payment frame; R9), each σ ≤ 3,520 bytes
+  and Ω transport ≤ 5,086 bytes. These source capacities are stricter than the
+  9,321-byte Receive and 7,812-byte Status envelope budgets. The vectors' allowlist
+  remains a labelled stand-in until exact artifacts are admitted. Every admitted Send mask and the complete Ω construction must be measured
+  together against this joint budget after the final descriptor and capacity changes.
+  A stand-in byte sample or an earlier descriptor does not qualify the candidate.
+- The P-256 Q signature relation verifies the SHA-256 hash of the 32-byte
+  Poseidon signing message. The operation relations implement indexed-map
+  predicates and effects; recovery capsules retain their selected openings.
+  The native producer inventory commits all σ originals, compiled operation
+  routes, terminal A identities and the sole Ω original. These implementations
+  do not replace qualification of the admitted keys, genuine operation
+  compositions and adversarial mutations on one coherent candidate.
+- TODO(G3): qualify the canonical B1, B5, B7 and B8 proof relations and frozen artifacts
+  against the current native objects: 26-element statements, 24-element credit IDs,
+  29-element core, 6-element rest, quota-usage array and quota/time checks.
   The data model, vectors, size constants and Kotlin/Swift structural consumers use
   this layout and reject superseded roles and Request encodings.
 - Closed by the third set (2026-10-05): the quota share expiry in σ (B7), two charge
   candidates per kind (B8), the quota charge order (B5; §3.3, Time), the Payment
   transcript digest (kept: it binds the frame transitively, §3.4), the indexed-tree
-  slot rule and removal (kept, §3.2), the Receive selector (now the Request's recorded
-  decision, §3.1), the Ω cap of 7,812 bytes (kept as a derived envelope bound, §2), the
-  receiver list at Receive (B6, §3.4), the `H` statement and object digests (B1, §1),
+  slot rule and removal (kept, §3.2), the Ω cap of 7,812 bytes (kept as a derived
+  envelope bound, §2), the `H` statement and object digests (B1, §1),
   the Λ/Ω OQ-1 to OQ-4 text deltas (applied here and in the proposal) and the one-byte
-  R9 overrun of the pre-B5 quota σ_send (superseded by the B5 shape and the B6 budget,
-  above).
-- Open owner question (B6, receiver-list semantics): `Λ_recv` proves only that a
-  nonzero recorded `(version, root)` was committed by this wallet before the Receive
-  (blacklist-history membership, §3.3); it cannot prove that the list was the latest
-  one held when the Request was signed, and a recorded `(0, 0)` carries no proof.
-  Under proposal §2.1 the released wallet records its current decision, but a modified
-  receiver wallet holding the payment key could cite an older committed list or `(0,
-  0)`. May `Λ` accept any historically committed Request-list snapshot, including a
-  no-enforcement decision (this record's construction), or must it prove the latest
-  decision at issuance, which needs a Request state transition or a trusted
-  latest-state signer?
+  R9 overrun of the pre-B5 quota σ_send (superseded by the B5 shape and the joint
+  budget, above).
 - Open owner question (B4/B5, quota renewal contract): a QuotaShare refresh refuses a
   share that drops a charged key whose window has not ended by the new floor, or that
   introduces an absent key starting before the new floor, except at the first
@@ -1345,13 +1435,15 @@ encryption and checksums never replace the wallet's verification.
   credential check relies on the issuer signature for that binding. Keep these `H`, or
   move them to `P` (a `P` `wallet_id` is one element and changes the Request,
   `credit_id`, chain, map-value, effect, operation and core element lists)?
-- TODO(owner), kept as is: a Send capsule retains the Request message (§8);
-  `Λ_load` and `Λ_unload` do not verify ChargeQuote signatures; a Retiring wallet's
-  refusal to issue Requests is wallet behaviour (TODO(G4)).
+- A Send capsule retains the Request message (§8); `Λ_load` and `Λ_unload` do not
+  verify ChargeQuote signatures. The native setup owner refuses new Requests
+  from a Retiring wallet and retains exact prior setup retries. These are
+  wallet behavior, separate from the lineage relation.
 - NEW first-release G5 preimages: [typed app/enrollment policy contract](kagemusha_wallet_enrollment_policy_v1.md). These domains and lifetime rules are new decisions, not owner-answer evidence or a mapping of existing opaque digests. Native policy approval/issuer admission and foreign policy carriers remain coordinated G5 work; issuer verification of renewal evidence remains TODO(G5).
 - TODO(G4/G6): JavaScript, Python and C# consumers when their wire copies migrate.
-- TODO(G6): the ledger instruction family; TODO(G3/G6): the release install path
-  carrying the artifact manifest.
+- TODO(G3/G6): qualify the implemented ledger instruction family and native
+  installation path with matching manifest, catalog, keys and SDK artifacts
+  through four-validator monetary execution and physical-device flows.
 
 ## Native Load epoch synchronization bridge
 
@@ -1433,25 +1525,6 @@ simulated-provider tests of this boundary.
 
 - The full blacklist cap is 2,228,736 bytes, not the design's 2,228,224, which
   would reject a maximum list (2,228,433 bytes). SDKs take the cap from the vectors.
-- A Blacklist Refresh uses retained PolicyUpdate role 6 for one native local
-  `BlacklistOriginalReferenceV1` frame, bounded at 512 bytes: `{version: u16 = 1,
-  scheme_id: bytes32, original_digest: bytes32, original_bytes: u32}`. The fixed
-  Blacklist update kind selects this exact codec; other update kinds retain their
-  exact inline originals. There is no inline-list fallback, header substitute or
-  length-based dispatch. `original_digest` is the existing domain-separated
-  immutable archive-object digest of every byte of the complete standalone list.
-  The actual coordinator archive publishes and checks exact readback before
-  proving/Advance, and Native resolves the original again before the existing
-  issuer-role signature, entry/root and state-effect checks. Missing/corrupt
-  selected objects are custody loss; unavailable storage remains retryable. This
-  local reference changes neither the full list cap nor any financial relation.
-  The source-selected manifest keeps a bounded immutable index keyed by the signed
-  blacklist object digest, retaining the full original reference and the exact
-  CertificateSet original in archive objects across old Refresh-capsule collection.
-  Current lookup derives its selector from the released current state and rechecks
-  the entire custody marker and manifest selection after reading both originals;
-  it authenticates the RegulatoryPolicy issuer and the current version/root/time
-  joins without scanning permanent history or accepting a foreign caller selector.
 - The marker terminal reason, output descriptor kind and retained-input role are
   Norito enums, not `u8` fields: their frames carry 4-byte tags, and the `marker`,
   `capsule` and `completion` digests cover those frames.

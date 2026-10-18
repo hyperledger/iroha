@@ -216,7 +216,7 @@ def configured_policy(value: dict, platform: str) -> ConfiguredWalletEnrollmentP
     require(any(scheme) and any(asset), "empty private policy binding")
     regulator = value["regulatory_policy"]
     require(type(regulator) is dict and set(regulator) == {
-        "permitted_controls", "blacklist_max_age_ms", "time_anchor_max_response_ms"}, "invalid regulator projection")
+        "permitted_controls", "time_anchor_max_response_ms"}, "invalid regulator projection")
     selected_regulator = RegulatoryPolicyV1(**regulator)
     require(type(value["challenge_lifetime_ms"]) is int and 0 < value["challenge_lifetime_ms"] < (1 << 64),
             "invalid private challenge lifetime")

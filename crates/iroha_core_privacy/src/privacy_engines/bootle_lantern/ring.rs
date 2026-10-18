@@ -499,8 +499,8 @@ impl ProofPolynomialV1 {
     #[must_use]
     pub fn centered_coefficient(&self, index: usize) -> i64 {
         let residue = self.coefficients[index];
-        let non_negative = residue as i64;
-        let negative = non_negative - PROOF_MODULUS_V1 as i64;
+        let non_negative = u64::cast_signed(residue);
+        let negative = non_negative - u64::cast_signed(PROOF_MODULUS_V1);
         select_i64(
             non_negative,
             negative,
@@ -515,7 +515,7 @@ impl ProofPolynomialV1 {
             .enumerate()
             .map(|(index, _)| {
                 let coefficient = i128::from(self.centered_coefficient(index));
-                (coefficient * coefficient) as u128
+                i128::cast_unsigned(coefficient * coefficient)
             })
             .sum()
     }
@@ -988,15 +988,15 @@ mod tests {
         for value in [
             i64::MIN,
             i64::MIN + 1,
-            -(PROOF_MODULUS_V1 as i64) - 1,
-            -(PROOF_MODULUS_V1 as i64),
-            -(PROOF_MODULUS_V1 as i64) + 1,
+            -u64::cast_signed(PROOF_MODULUS_V1) - 1,
+            -u64::cast_signed(PROOF_MODULUS_V1),
+            -u64::cast_signed(PROOF_MODULUS_V1) + 1,
             -1,
             0,
             1,
-            PROOF_MODULUS_V1 as i64 - 1,
-            PROOF_MODULUS_V1 as i64,
-            PROOF_MODULUS_V1 as i64 + 1,
+            u64::cast_signed(PROOF_MODULUS_V1) - 1,
+            u64::cast_signed(PROOF_MODULUS_V1),
+            u64::cast_signed(PROOF_MODULUS_V1) + 1,
             i64::MAX - 1,
             i64::MAX,
         ] {

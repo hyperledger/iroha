@@ -21,7 +21,7 @@ fn semantic_growth_preserves_values_and_clears_displaced_cells() {
         value: 0xab,
     });
     let original = cells[0];
-    let (_, observations) = observe_v1(|| {
+    let ((), observations) = observe_v1(|| {
         let capacity = cells.capacity();
         reserve_private_semantic_v1(&mut cells, capacity + 1, zeroize_source_cells_v1).unwrap();
         assert_eq!(cells.as_slice(), &[original]);

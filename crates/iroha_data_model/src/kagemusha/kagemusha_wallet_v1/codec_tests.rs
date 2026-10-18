@@ -139,11 +139,19 @@ fn kagemusha_wallet_v1_errors_display_and_convert() {
             domain: KagemushaWalletSigningDomainV1::Credential,
         },
         KagemushaWalletValidationErrorV1::ArithmeticOverflow { field: "count" },
+        KagemushaWalletValidationErrorV1::BlockedAccount {
+            field: "request.payer_account_digest",
+        },
     ];
     let rendered: Vec<String> = errors.iter().map(ToString::to_string).collect();
     assert!(rendered[1].contains("11") && rendered[1].contains("10"));
     assert!(rendered[2].contains("scheme.version") && rendered[2].contains('2'));
     assert!(rendered[5].contains("kgwcred1"));
+    assert_eq!(
+        rendered[7],
+        "KAGEMUSHA wallet V1 `request.payer_account_digest` is on the local blacklist"
+    );
+    assert!(std::error::Error::source(&errors[7]).is_none());
     for (index, text) in rendered.iter().enumerate() {
         assert!(text.contains("KAGEMUSHA wallet V1"), "{index}: {text}");
     }
@@ -215,9 +223,8 @@ fn kagemusha_wallet_v1_field_guards() {
 #[test]
 fn kagemusha_wallet_v1_frames_are_bounded_before_decoding() {
     let value = KagemushaWalletRegulatoryPolicyV1 {
-        permitted_controls: KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1,
-        blacklist_max_age_ms: 0,
-        time_anchor_max_response_ms: 0,
+        permitted_controls: KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1,
+        time_anchor_max_response_ms: 5_000,
     };
     let frame = encode_frame_v1(&value, 4_096).expect("encode");
     assert_eq!(frame, norito::encode_canonical(&value).expect("canonical"));

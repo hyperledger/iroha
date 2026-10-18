@@ -10,12 +10,15 @@ mod poly;
 mod sampler;
 use super::{DEGREE, LOG_DEGREE, Preimage, Trapdoor, comm};
 use zeroize::Zeroizing;
-pub(super) const PREIMAGE_COEFFICIENT_SAMPLES: u32 = 2 * DEGREE as u32;
+pub(super) const PREIMAGE_COEFFICIENT_SAMPLES: u32 = {
+    assert!(DEGREE == (1_usize << LOG_DEGREE));
+    2_u32 << LOG_DEGREE
+};
 pub(super) const MAX_PROPOSALS_PER_COEFFICIENT: u32 = sampler::MAX_PROPOSALS_PER_COEFFICIENT;
 pub(super) const TOTAL_GAUSSIAN_PROPOSAL_BUDGET: u32 =
     PREIMAGE_COEFFICIENT_SAMPLES * MAX_PROPOSALS_PER_COEFFICIENT;
 // 1 / 12289, rounded exactly as in the pinned Falcon implementation.
-const INV_Q: flr::FLR = flr::FLR::scaled(6_004_310_871_091_074, -66);
+const INV_Q: flr::Flr = flr::Flr::scaled(6_004_310_871_091_074, -66);
 pub(super) fn sample_preimage_from_seed(
     trapdoor: &Trapdoor,
     target: &[u16; DEGREE],
@@ -39,15 +42,15 @@ pub(super) fn sample_preimage_from_seed(
     {
         return None;
     }
-    let mut basis = Zeroizing::new(vec![flr::FLR::ZERO; 4 * DEGREE]);
+    let mut basis = Zeroizing::new(vec![flr::Flr::ZERO; 4 * DEGREE]);
     compute_basis(
-        &**trapdoor.f,
-        &**trapdoor.g,
-        &**trapdoor.capital_f,
-        &**trapdoor.capital_g,
+        &trapdoor.f,
+        &trapdoor.g,
+        &trapdoor.capital_f,
+        &trapdoor.capital_g,
         &mut basis,
     );
-    let mut work = Zeroizing::new(vec![flr::FLR::ZERO; 9 * DEGREE]);
+    let mut work = Zeroizing::new(vec![flr::Flr::ZERO; 9 * DEGREE]);
     // Compute the Gram matrix G = B*adj(B), keeping b11 and b01 for the
     // target transformation. Layout: g00 | g01 | g11 | b11 | b01.
     {
@@ -86,7 +89,7 @@ pub(super) fn sample_preimage_from_seed(
         let (target_zero, rest) = rest.split_at_mut(DEGREE);
         let (target_one, _) = rest.split_at_mut(DEGREE);
         for (destination, source) in target_zero.iter_mut().zip(target.iter().copied()) {
-            *destination = flr::FLR::from_i32(i32::from(source));
+            *destination = flr::Flr::from_i32(i32::from(source));
         }
         poly::FFT(LOG_DEGREE, target_zero);
         target_one.copy_from_slice(target_zero);
@@ -150,14 +153,14 @@ pub(super) fn sample_preimage_from_seed(
         second[index] = second_coefficient;
         for coefficient in [first_coefficient, second_coefficient] {
             let coefficient = i64::from(coefficient);
-            norm_squared = norm_squared.checked_add((coefficient * coefficient) as u64)?;
+            norm_squared = norm_squared.checked_add((coefficient * coefficient).cast_unsigned())?;
         }
     }
     let norm_squared = u32::try_from(norm_squared).ok()?;
     if norm_squared > super::SIGNATURE_NORM_SQUARED_BOUND {
         return None;
     }
-    if !preimage_equation_holds(target, &**trapdoor.h, &**first, &**second) {
+    if !preimage_equation_holds(target, &trapdoor.h, &first, &second) {
         return None;
     }
     Some(Preimage {
@@ -198,7 +201,7 @@ pub(super) fn preimage_equation_holds(
         .zip(target.iter().copied())
         .all(|(actual, expected)| actual.rem_euclid(modulus) == i64::from(expected))
 }
-fn compute_basis(f: &[i8], g: &[i8], capital_f: &[i8], capital_g: &[i8], basis: &mut [flr::FLR]) {
+fn compute_basis(f: &[i8], g: &[i8], capital_f: &[i8], capital_g: &[i8], basis: &mut [flr::Flr]) {
     let (b00, rest) = basis.split_at_mut(DEGREE);
     let (b01, rest) = rest.split_at_mut(DEGREE);
     let (b10, rest) = rest.split_at_mut(DEGREE);
@@ -220,23 +223,23 @@ pub(super) fn sampler_exhausts_with_zero_budget_for_test(
     target: &[u16; DEGREE],
     seed: &[u8; 56],
 ) -> bool {
-    let mut basis = Zeroizing::new(vec![flr::FLR::ZERO; 4 * DEGREE]);
+    let mut basis = Zeroizing::new(vec![flr::Flr::ZERO; 4 * DEGREE]);
     compute_basis(
-        &**trapdoor.f,
-        &**trapdoor.g,
-        &**trapdoor.capital_f,
-        &**trapdoor.capital_g,
+        &trapdoor.f,
+        &trapdoor.g,
+        &trapdoor.capital_f,
+        &trapdoor.capital_g,
         &mut basis,
     );
     let mut sampler = sampler::Sampler::<comm::chacha::ChaCha20Prng>::new(LOG_DEGREE, seed, 0);
-    let mut t0 = vec![flr::FLR::ZERO; DEGREE];
-    let mut t1 = vec![flr::FLR::ZERO; DEGREE];
-    let mut g00 = vec![flr::FLR::ONE; DEGREE];
-    let mut g01 = vec![flr::FLR::ZERO; DEGREE];
-    let mut g11 = vec![flr::FLR::ONE; DEGREE];
-    let mut temporary = vec![flr::FLR::ZERO; 4 * DEGREE];
+    let mut t0 = vec![flr::Flr::ZERO; DEGREE];
+    let mut t1 = vec![flr::Flr::ZERO; DEGREE];
+    let mut g00 = vec![flr::Flr::ONE; DEGREE];
+    let mut g01 = vec![flr::Flr::ZERO; DEGREE];
+    let mut g11 = vec![flr::Flr::ONE; DEGREE];
+    let mut temporary = vec![flr::Flr::ZERO; 4 * DEGREE];
     for (destination, source) in t0.iter_mut().zip(target.iter().copied()) {
-        *destination = flr::FLR::from_i32(i32::from(source));
+        *destination = flr::Flr::from_i32(i32::from(source));
     }
     !sampler.ffsamp_fft(
         &mut t0,

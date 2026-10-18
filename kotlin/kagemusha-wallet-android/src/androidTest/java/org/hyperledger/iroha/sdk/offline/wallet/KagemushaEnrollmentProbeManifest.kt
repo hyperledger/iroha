@@ -23,7 +23,8 @@ internal class EnrollmentProbeCommand(row: JsonObject) {
             "abandon-expired" -> setOf("proof")
             else -> null
         }
-        if (expected == null) KagemushaMonetaryProbeManifest.validate(action, input.keys)
+        if (action in KagemushaNearbyProbeManifest.schemas) KagemushaNearbyProbeManifest.validate(action, input.keys)
+        else if (expected == null) KagemushaMonetaryProbeManifest.validate(action, input.keys)
         else probeRequire(input.keys == expected)
         pins = input.members.mapValues { (_, value) ->
             EnrollmentProbePin(value as? JsonObject ?: throw EnrollmentProbeFailure("input")) }

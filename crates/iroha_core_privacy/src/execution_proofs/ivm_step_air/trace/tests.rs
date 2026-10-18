@@ -282,7 +282,7 @@ fn scalar_segment_all_families_immediates_aliases_zero_register_and_full_amounts
             (0, 0),
             (0, 1),
             (u64::MAX, 0),
-            (i64::MIN as u64, i64::MAX as u64),
+            (i64::cast_unsigned(i64::MIN), i64::MAX as u64),
         ] {
             let (segment, records) = recorded(
                 &[
@@ -389,7 +389,7 @@ fn scalar_segment_self_consistent_false_results_gas_and_branch_targets_fail() {
             enc::encode_ri(wide::arithmetic::ADDI, 8, 0, 1),
         ],
         1,
-        &[(6, i64::MIN as u64), (7, i64::MAX as u64)],
+        &[(6, i64::cast_unsigned(i64::MIN)), (7, i64::MAX as u64)],
         1_000,
     );
     records[0].after.pc -= 4;
@@ -755,7 +755,7 @@ fn comparison_mix() -> (ScalarSegment, Vec<DiagnosticStepRecord>) {
     recorded(
         &body,
         9,
-        &[(6, i64::MIN as u64), (7, i64::MAX as u64)],
+        &[(6, i64::cast_unsigned(i64::MIN)), (7, i64::MAX as u64)],
         u64::MAX,
     )
 }
@@ -763,9 +763,9 @@ fn comparison_mix() -> (ScalarSegment, Vec<DiagnosticStepRecord>) {
 #[test]
 fn scalar_comparisons_match_interpreter_extrema_equalities_and_all_register_shapes() {
     let extrema = [
-        (i64::MIN as u64, i64::MAX as u64),
-        (i64::MAX as u64, i64::MIN as u64),
-        (i64::MIN as u64, i64::MIN as u64),
+        (i64::cast_unsigned(i64::MIN), i64::MAX as u64),
+        (i64::MAX as u64, i64::cast_unsigned(i64::MIN)),
+        (i64::cast_unsigned(i64::MIN), i64::cast_unsigned(i64::MIN)),
         (i64::MAX as u64, i64::MAX as u64),
         (u64::MAX, 0),
         (0, u64::MAX),
@@ -810,7 +810,7 @@ fn scalar_comparisons_match_interpreter_extrema_equalities_and_all_register_shap
             let (segment, records) = recorded(
                 &[enc::encode_rr(opcode, rd, left, right)],
                 1,
-                &[(6, i64::MIN as u64), (7, i64::MAX as u64)],
+                &[(6, i64::cast_unsigned(i64::MIN)), (7, i64::MAX as u64)],
                 1_000,
             );
             assert_rows(&segment, &segment.witness_rows(&records).unwrap());
@@ -825,7 +825,7 @@ fn scalar_comparison_results_control_and_high_halves_cannot_be_forged() {
         let (segment, records) = recorded(
             &[enc::encode_rr(opcode, 6, 6, 7)],
             1,
-            &[(6, i64::MIN as u64), (7, i64::MAX as u64)],
+            &[(6, i64::cast_unsigned(i64::MIN)), (7, i64::MAX as u64)],
             1_000,
         );
         let actual = records[0].after.registers[6];
@@ -877,7 +877,7 @@ fn scalar_comparisons_mixed_with_branches_keep_degree_four_and_the_same_native_e
     assert_eq!(segment.after.registers[9], 0);
     assert_eq!(segment.after.registers[20], 0);
     assert_eq!(segment.after.registers[21], 1);
-    assert_eq!(segment.after.registers[6], i64::MIN as u64);
+    assert_eq!(segment.after.registers[6], i64::cast_unsigned(i64::MIN));
     assert_eq!(segment.after.registers[7], i64::MAX as u64);
     assert_eq!(segment.base_width_v1(), 1_356);
     assert_eq!(segment.profile_constraint_count_v1(), 3_369);
@@ -959,7 +959,7 @@ fn scalar_comparison_modes_reject_every_interior_profile_column_mutation() {
         let (segment, records) = recorded(
             &body,
             3,
-            &[(6, i64::MIN as u64), (7, i64::MAX as u64)],
+            &[(6, i64::cast_unsigned(i64::MIN)), (7, i64::MAX as u64)],
             1_000,
         );
         let rows = segment.witness_rows(&records).unwrap();

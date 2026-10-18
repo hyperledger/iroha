@@ -29,7 +29,7 @@ fn division_interior_rows_and_all_shared_columns_are_bound_for_success_and_both_
             (0xffff_ffff_0000_0001, 7, 1_000),
             (17, 0, 11),
             (17, 0, 10),
-            (i64::MIN as u64, u64::MAX, 1_000),
+            (i64::cast_unsigned(i64::MIN), u64::MAX, 1_000),
         ] {
             let body = [
                 enc::encode_ri(wide::arithmetic::ADDI, 24, 24, 0),
@@ -109,7 +109,7 @@ fn adjusted_quotient_and_remainder_cannot_bypass_strict_remainder_bound() {
 #[test]
 fn coherent_signed_results_false_sources_high_products_and_carries_fail_division_air() {
     for kind in [0, 2] {
-        let (segment, records) = single(kind, (-17_i64) as u64, 5, 1_000);
+        let (segment, records) = single(kind, i64::cast_unsigned(-17_i64), 5, 1_000);
         let result = segment.after.registers[8].wrapping_neg();
         let (changed, mut rows) = forged_destination(&segment, &records, result);
         let (offset, borrows, sign) = if kind == 0 {
@@ -171,7 +171,7 @@ fn coherent_signed_results_false_sources_high_products_and_carries_fail_division
 fn false_zero_overflow_gas_predicates_and_trap_workspaces_fail_even_with_changed_outcomes() {
     for (kind, a, b, gas) in [
         (0, 17, 0, 10),
-        (2, i64::MIN as u64, u64::MAX, 10),
+        (2, i64::cast_unsigned(i64::MIN), u64::MAX, 10),
         (1, 17, 5, 9),
         (1, 17, 0xffff_ffff_0000_0001, 10),
     ] {

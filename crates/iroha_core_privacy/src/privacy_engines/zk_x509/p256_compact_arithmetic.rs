@@ -169,7 +169,7 @@ impl CompactOperationV1 {
                 u64::from(value.c_borrow[slot + 1])
             }
         } else {
-            let encoded = (value.carries[coefficient] + CARRY_BIAS) as u64;
+            let encoded = i64::cast_unsigned(value.carries[coefficient] + CARRY_BIAS);
             if column == CARRY {
                 encoded
             } else {
@@ -184,7 +184,7 @@ impl CompactOperationV1 {
 ///
 /// The caller retains the source trace until construction succeeds and must
 /// account for both allocations during that overlap. Spare allocation is cleared.
-pub(crate) struct P256CompactArithmeticTraceV1 {
+pub struct P256CompactArithmeticTraceV1 {
     operations: ClearingVecV1<CompactOperationV1>,
 }
 
@@ -505,8 +505,8 @@ mod tests {
         use crate::privacy_engines::zk_x509::private_table::{allocation_inspection, inspection};
         let raw = boundary_trace();
         for unwind in [false, true] {
-            let (_, live) = inspection::observe_v1(|| {
-                let (_, allocations) = allocation_inspection::observe_v1(|| {
+            let ((), live) = inspection::observe_v1(|| {
+                let ((), allocations) = allocation_inspection::observe_v1(|| {
                     let constructed = core::cell::Cell::new(false);
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         let compact =

@@ -55,7 +55,9 @@ fn queue_defaults_allow_two_times_legacy_soak_capacity() {
 }
 #[test]
 fn quic_datagrams_default_fail_closed() {
-    assert!(!network::QUIC_DATAGRAMS_ENABLED);
+    const {
+        assert!(!network::QUIC_DATAGRAMS_ENABLED);
+    };
 }
 #[test]
 fn oracle_custody_defaults_are_public_only_and_not_legacy_seeded() {

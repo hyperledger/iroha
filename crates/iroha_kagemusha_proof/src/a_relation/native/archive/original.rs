@@ -218,7 +218,7 @@ impl Plan {
         binding: &DescriptorBinding,
         key: &VerifyingKey<Eq>,
     ) -> Result<WCircuit, Error> {
-        if stage >= A_STAGE_COUNT - 1
+        if stage >= self.context().stage_count().saturating_sub(1)
             || binding
                 != &crate::a_relation::native::artifact::source_descriptor::<StageCircuit>(
                     INTERNAL_RANGE_BUSES,
@@ -242,7 +242,7 @@ impl Plan {
                 instances: vec![Fp::ZERO; 69],
                 proof: vec![0; length],
                 length: u32::try_from(length).map_err(|_| Error::Artifact)?,
-                fold: [0; 1120],
+                fold: crate::private_fold::PrivateFoldBytes::unknown(),
             },
         )
         .map_err(|_| Error::Artifact)?
@@ -260,7 +260,7 @@ impl Plan {
         stage: usize,
         previous: Option<WKey>,
     ) -> Result<StageCircuit, Error> {
-        if stage >= A_STAGE_COUNT || (stage == 0) != previous.is_none() {
+        if stage >= self.context().stage_count() || (stage == 0) != previous.is_none() {
             return Err(Error::Artifact);
         }
         let source = Prepared::unknown_source(self)?;
@@ -287,7 +287,7 @@ impl Plan {
                 source,
                 continuation,
                 pallas: pallas.clone(),
-                fold: vec![0; 1120],
+                fold: crate::private_fold::PrivateFoldBytes::unknown(),
                 known: false,
             },
         })

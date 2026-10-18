@@ -5,8 +5,8 @@ use super::*;
 fn checked(instruction: u32, inputs: &[(usize, u64, bool)]) -> (Program, ScalarFixture) {
     let (program, fixture) = native(instruction, inputs);
     let p = &fixture.0.packets.fields;
-    let left = packet::half(&p[SCALAR_LEFT], BEFORE, 0) as i64;
-    let right = packet::half(&p[SCALAR_RIGHT], BEFORE, 0) as i64;
+    let left = u64::cast_signed(packet::half(&p[SCALAR_LEFT], BEFORE, 0));
+    let right = u64::cast_signed(packet::half(&p[SCALAR_RIGHT], BEFORE, 0));
     let expected = ((i128::from(left) + i128::from(right)) / 2) as u64;
     assert_eq!(ivm::gas::cost_of(instruction), Some(2));
     assert_eq!(
@@ -59,21 +59,31 @@ fn native_private_mean_signed_extremes_rounding_tags_aliases_and_zero_match() {
         (-65536, 65535),
         (65535, 65536),
         (-(1 << 32), (1 << 32) - 1),
-        (0x5555_5555_5555_5555, 0xaaaa_aaaa_aaaa_aaaa_u64 as i64),
+        (
+            0x5555_5555_5555_5555,
+            u64::cast_signed(0xaaaa_aaaa_aaaa_aaaa_u64),
+        ),
     ] {
         for (a, b) in [(a, b), (b, a)] {
             for tag in [false, true] {
                 for (rd, rs1, rs2) in [(4, 2, 3), (2, 2, 3), (3, 2, 3), (2, 2, 2), (0, 2, 3)] {
                     checked(
                         enc::encode_rr(wide::arithmetic::MEAN, rd, rs1, rs2),
-                        &[(2, a as u64, tag), (3, b as u64, tag), (4, 91, !tag)],
+                        &[
+                            (2, i64::cast_unsigned(a), tag),
+                            (3, i64::cast_unsigned(b), tag),
+                            (4, 91, !tag),
+                        ],
                     );
                 }
             }
             for (rd, rs1, rs2) in [(4, 0, 3), (4, 2, 0), (0, 0, 0)] {
                 checked(
                     enc::encode_rr(wide::arithmetic::MEAN, rd, rs1, rs2),
-                    &[(2, a as u64, false), (3, b as u64, false)],
+                    &[
+                        (2, i64::cast_unsigned(a), false),
+                        (3, i64::cast_unsigned(b), false),
+                    ],
                 );
             }
         }
@@ -96,24 +106,32 @@ fn private_mean_rejects_wrapped_sum_floor_unsigned_and_false_original_sources() 
         (-3, 0),
         (i64::MIN, i64::MAX),
     ] {
-        let (program, fixture) = checked(opcode, &[(2, a as u64, true), (3, b as u64, true)]);
+        let (program, fixture) = checked(
+            opcode,
+            &[
+                (2, i64::cast_unsigned(a), true),
+                (3, i64::cast_unsigned(b), true),
+            ],
+        );
         let sum = i128::from(a) + i128::from(b);
         let correct = (sum / 2) as u64;
         for wrong in [
             correct.wrapping_add(1),
             (sum >> 1) as u64,
-            (a.wrapping_add(b) / 2) as u64,
-            (((a as u64 as u128) + (b as u64 as u128)) / 2) as u64,
+            i64::cast_unsigned(a.wrapping_add(b) / 2),
+            ((u128::from(i64::cast_unsigned(a)) + u128::from(i64::cast_unsigned(b))) / 2) as u64,
         ] {
             if wrong == correct {
                 continue;
             }
             // Rebuild the result's digits and carries coherently for a different
             // legitimate signed sum. The original ADD/source bits remain fixed.
-            let signed = wrong as i64;
+            let signed = u64::cast_signed(wrong);
             let mut forged = fixture.clone();
-            forged.0.row[SCALAR + MEAN..SCALAR + SHIFT]
-                .copy_from_slice(&mean::result_witness(signed as u64, signed as u64));
+            forged.0.row[SCALAR + MEAN..SCALAR + SHIFT].copy_from_slice(&mean::result_witness(
+                i64::cast_unsigned(signed),
+                i64::cast_unsigned(signed),
+            ));
             set_destination(&mut forged, wrong);
             assert!(!forged.accepts(&program));
         }
@@ -141,7 +159,10 @@ fn private_mean_rejects_wrapped_sum_floor_unsigned_and_false_original_sources() 
 #[test]
 fn private_mean_binds_two_gas_three_cycles_and_native_last_attempt_boundary() {
     let instruction = enc::encode_rr(wide::arithmetic::MEAN, 4, 2, 3);
-    let inputs = [(2, i64::MIN as u64, true), (3, i64::MAX as u64, true)];
+    let inputs = [
+        (2, i64::cast_unsigned(i64::MIN), true),
+        (3, i64::MAX as u64, true),
+    ];
     let (program, fixture) = checked(instruction, &inputs);
     let p = &fixture.0.packets.fields;
     let gas = packet::half(&p[GAS_DEBIT], BEFORE, 0);
@@ -218,7 +239,7 @@ fn private_mean_preserves_mixed_instruction_continuity_and_inactive_bank() {
     ];
     let (program, recorder, _) = shifts::capture(
         &instructions,
-        &[(2, (-3_i64) as u64, true), (3, 0, true)],
+        &[(2, i64::cast_unsigned(-3_i64), true), (3, 0, true)],
         100,
         32,
     );

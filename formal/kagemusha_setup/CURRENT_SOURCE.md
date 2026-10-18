@@ -1,5 +1,15 @@
 # Current compact source and the setup experiment
 
+**Version scope.** "Current" in this retained review means the exact source
+inventory and commits recorded below. The selected C12 proposal additionally
+changes norm products, role maps, mask admission and committed-fold ownership.
+The public-source sufficiency lemma still requires its exact finalized tables,
+descriptor, source-synthesis and custody premises; this prose does not establish
+those joins for a new catalog. Its conditional common raw-oracle setup theorem
+is distinct from the unestablished concrete installed-BLAKE2b and
+physical-storage refinement. Retain the manifests and old execution receipts
+unchanged; selected-source admission and fresh native validation are separate.
+
 The source refresh reviewed eight previously pinned bodies against their exact
 Git preimages. It changes the package's source-consistency boundary, not the
 authority of its private parameter experiment. Embedded parameters remain pinned

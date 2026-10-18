@@ -99,21 +99,18 @@ impl<F: PastaField> Circuit<F> for CircuitUnderTest<F> {
     }
 }
 
-fn cases<F: PastaField>() {
+fn cases<F: PastaField>(k: u32) {
     let mut meta = ConstraintSystem::<F>::default();
     let _ = CircuitUnderTest::<F>::configure(&mut meta);
-    assert_eq!(meta.degree(), 9);
+    assert_eq!(meta.degree(), 14);
     assert_eq!(meta.lookups().len(), 1);
-    let end = meta.usable_rows(16).unwrap() - 1;
+    let end = meta.usable_rows(k).unwrap() - 1;
     for phase in [
         SecondaryPhase::Glue,
         SecondaryPhase::Poseidon,
         SecondaryPhase::PairedPoseidon,
     ] {
-        for bits in [81, 87, 93, 128] {
-            if bits == 93 && phase != SecondaryPhase::Glue {
-                continue;
-            }
+        for bits in [8, 18, 66, 68, 81, 87, 93, 128] {
             let limit = F::from(2).pow_vartime([bits as u64]);
             let honest = CircuitUnderTest {
                 phase,
@@ -125,14 +122,14 @@ fn cases<F: PastaField>() {
                 conflict: 0,
             };
             let public = [vec![limit - F::ONE]];
-            let report = check_circuit(&honest, 16, &public, CheckMode::Strict).unwrap();
+            let report = check_circuit(&honest, k, &public, CheckMode::Strict).unwrap();
             assert!(
                 report.is_satisfied(),
                 "{phase:?}/{bits}: {:?}",
                 report.failures().first()
             );
-            let known = synthesize(&honest, 16, Some(&public)).unwrap();
-            let unknown = synthesize(&honest.without_witnesses(), 16, None).unwrap();
+            let known = synthesize(&honest, k, Some(&public)).unwrap();
+            let unknown = synthesize(&honest.without_witnesses(), k, None).unwrap();
             assert_eq!(known.tables.fixed(), unknown.tables.fixed());
             assert_eq!(known.tables.permutation(), unknown.tables.permutation());
             assert_eq!(
@@ -146,7 +143,7 @@ fn cases<F: PastaField>() {
                     if *present {
                         let report = crate::tamper::check_tampered(
                             &honest,
-                            16,
+                            k,
                             &public,
                             Some(crate::tamper::Tamper {
                                 column,
@@ -168,7 +165,7 @@ fn cases<F: PastaField>() {
                     ..honest.clone()
                 };
                 assert!(
-                    !check_circuit(&bad, 16, &[vec![value]], CheckMode::Strict)
+                    !check_circuit(&bad, k, &[vec![value]], CheckMode::Strict)
                         .unwrap()
                         .is_satisfied()
                 );
@@ -179,7 +176,7 @@ fn cases<F: PastaField>() {
                 ..honest.clone()
             };
             assert!(
-                check_circuit(&boundary, 16, &public, CheckMode::Strict)
+                check_circuit(&boundary, k, &public, CheckMode::Strict)
                     .unwrap()
                     .is_satisfied()
             );
@@ -189,7 +186,7 @@ fn cases<F: PastaField>() {
                         start: boundary.start + 1,
                         ..boundary
                     },
-                    16,
+                    k,
                     Some(&public)
                 )
                 .is_err()
@@ -199,7 +196,7 @@ fn cases<F: PastaField>() {
                 ..honest.clone()
             };
             assert!(
-                check_circuit(&at_zero, 16, &public, CheckMode::Strict)
+                check_circuit(&at_zero, k, &public, CheckMode::Strict)
                     .unwrap()
                     .is_satisfied()
             );
@@ -207,14 +204,14 @@ fn cases<F: PastaField>() {
                 bits: 86,
                 ..honest.clone()
             };
-            assert!(synthesize(&unsupported, 16, Some(&public)).is_err());
+            assert!(synthesize(&unsupported, k, Some(&public)).is_err());
             let zero = CircuitUnderTest {
                 value: Value::known(F::ZERO),
                 forced: false,
                 ..honest
             };
             assert!(
-                check_circuit(&zero, 16, &[vec![F::ZERO]], CheckMode::Strict)
+                check_circuit(&zero, k, &[vec![F::ZERO]], CheckMode::Strict)
                     .unwrap()
                     .is_satisfied()
             );
@@ -224,11 +221,11 @@ fn cases<F: PastaField>() {
 
 #[test]
 fn secondary_exact_bounds_all_cells_and_shape_fp() {
-    cases::<Fp>();
+    cases::<Fp>(16);
 }
 #[test]
 fn secondary_exact_bounds_all_cells_and_shape_fq() {
-    cases::<Fq>();
+    cases::<Fq>(16);
 }
 
 #[test]
@@ -310,53 +307,64 @@ fn secondary_native_proof_binds_exact_range_both_curves() {
     native::<iroha_pasta::Eq>();
 }
 
-fn forged_glue_top<F: PastaField>() {
-    for bits in [81_usize, 93] {
-        let circuit = CircuitUnderTest {
-            phase: SecondaryPhase::Glue,
-            bits,
-            value: Value::known(F::ZERO),
-            start: 0,
-            end: 65_529,
-            forced: false,
-            conflict: 0,
-        };
-        let limbs = bits.div_ceil(12);
-        let mut tampers = (0..limbs)
-            .map(|row| crate::tamper::Tamper {
-                column: 4,
-                row,
-                delta: F::from(2).pow_vartime([(bits - 12 * row) as u64]),
-            })
-            .collect::<Vec<_>>();
-        // Coordinate every running state and the forged high digit. Without
-        // the dedicated one-bit top gate this is a satisfying82/94-bit alias,
-        // even though the honest witness masks that digit to one bit.
-        tampers.push(crate::tamper::Tamper {
-            column: 7,
-            row: limbs - 1,
-            delta: F::from(2),
-        });
-        let report = crate::tamper::check_tampers(
-            &circuit,
-            16,
-            &[vec![F::from(2).pow_vartime([bits as u64])]],
-            &tampers,
-        )
-        .unwrap();
-        assert!(!report.is_satisfied());
-        assert!(
-            report
-                .failures()
-                .iter()
-                .any(|failure| format!("{failure:?}").contains("secondary exact small digits"))
-        );
+fn forged_top<F: PastaField>() {
+    for phase in [
+        SecondaryPhase::Glue,
+        SecondaryPhase::Poseidon,
+        SecondaryPhase::PairedPoseidon,
+    ] {
+        for bits in [8usize, 18, 66, 68, 81, 87, 93, 128] {
+            let c = CircuitUnderTest {
+                phase,
+                bits,
+                value: Value::known(F::ZERO),
+                start: 0,
+                end: 65529,
+                forced: false,
+                conflict: 0,
+            };
+            let limbs = bits.div_ceil(15);
+            let top = (bits - 1) % 15 + 1;
+            let mut tampers = (0..limbs)
+                .map(|row| crate::tamper::Tamper {
+                    column: 4,
+                    row,
+                    delta: F::from(2).pow_vartime([(bits - 15 * row) as u64]),
+                })
+                .collect::<Vec<_>>();
+            let (column, bit) = match (phase, top) {
+                (_, 3) => (5, 3),
+                (SecondaryPhase::Glue, 8) => (6, 2),
+                (_, 8) => (2, 2),
+                (SecondaryPhase::Glue, 12) => (7, 3),
+                (_, 6 | 12) => (9, 3),
+                _ => unreachable!(),
+            };
+            tampers.push(crate::tamper::Tamper {
+                column,
+                row: limbs - 1,
+                delta: F::from(1 << bit),
+            });
+            let r = crate::tamper::check_tampers(
+                &c,
+                16,
+                &[vec![F::from(2).pow_vartime([bits as u64])]],
+                &tampers,
+            )
+            .unwrap();
+            assert!(!r.is_satisfied(), "{phase:?}/{bits}");
+            assert!(
+                r.failures()
+                    .iter()
+                    .any(|f| format!("{f:?}").contains("secondary exact small digits"))
+            );
+        }
     }
 }
 #[test]
-fn secondary_coordinated_top81_and_top93_overflow_both_fields() {
-    forged_glue_top::<Fp>();
-    forged_glue_top::<Fq>();
+fn secondary_coordinated_overflow_all_top_codes_both_fields() {
+    forged_top::<Fp>();
+    forged_top::<Fq>();
 }
 
 #[test]
@@ -384,4 +392,25 @@ fn secondary_guards_reject_earlier_and_later_advice_and_fixed_collisions() {
             ));
         }
     }
+}
+
+fn undersized_table<F: PastaField>() {
+    let circuit = CircuitUnderTest::<F> {
+        phase: SecondaryPhase::Glue,
+        bits: 8,
+        value: Value::known(F::ONE),
+        start: 8,
+        end: 1017,
+        forced: false,
+        conflict: 0,
+    };
+    assert!(matches!(
+        synthesize(&circuit, 10, Some(&[vec![F::ONE]])),
+        Err(Error::RowOutOfRange { .. })
+    ));
+}
+#[test]
+fn secondary_full_table_rejects_undersized_domain_both_fields() {
+    undersized_table::<Fp>();
+    undersized_table::<Fq>();
 }

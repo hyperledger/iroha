@@ -167,7 +167,11 @@ fn resume_selected_a_send_then_b_to_c_unload_with_restart_and_replay() {
             request: request.clone(),
         },
     );
-    assert_eq!(a.execute(send.clone()).unwrap(), Completion::Pending);
+    assert_eq!(
+        derived(|| a.execute(send.clone()).unwrap()),
+        (Completion::Pending, 0),
+        "a selected Send is never derived again"
+    );
     assert_eq!(device_a.platform.with(|state| state.sign_calls), 0);
     let evidence = norito::json!({
         "schema": "iroha.kagemusha.selected-send-continuation.v1",
@@ -226,11 +230,14 @@ fn resume_selected_a_send_then_b_to_c_unload_with_restart_and_replay() {
 fn require_payment_request(payment: &KagemushaWalletPaymentV1, original: &[u8]) {
     let request: KagemushaWalletRequestV1 = decode(original);
     assert_eq!(
-        payment.request,
+        payment.signed_request().unwrap(),
         request.signed(),
         "exact receiver-signed Request body and signature"
     );
-    assert_eq!(payment.request.request_digest(), request.request_digest());
+    assert_eq!(
+        payment.signed_request().unwrap().request_digest(),
+        request.request_digest()
+    );
 }
 
 #[test]
@@ -276,7 +283,9 @@ fn payment_request_binding_uses_signed_projection_and_rejects_changes() {
     );
     require_payment_request(&payment, original);
     let mut changed = payment.clone();
-    changed.request.body.amount += 1;
+    if let KagemushaWalletEffectV1::Send { amount, .. } = &mut changed.send.statement.effect {
+        *amount += 1;
+    }
     assert!(std::panic::catch_unwind(|| require_payment_request(&changed, original)).is_err());
     changed = payment;
     changed.request.signature = KagemushaDeviceSignatureV1::from_raw_bytes(&[1; 64]).unwrap();

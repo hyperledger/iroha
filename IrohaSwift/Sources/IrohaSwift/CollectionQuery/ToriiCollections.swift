@@ -764,10 +764,13 @@ public struct ToriiRepoAgreement: ToriiIdentifiedRow, Equatable {
     public struct Governance: Decodable, Sendable, Equatable {
         public let haircutBps: UInt16?
         public let marginFrequencySecs: UInt64?
+        /// Whether the initiator may repay before maturity with interest accrued to the block time.
+        public let allowEarlyRepayment: Bool?
 
         private enum CodingKeys: String, CodingKey {
             case haircutBps = "haircut_bps"
             case marginFrequencySecs = "margin_frequency_secs"
+            case allowEarlyRepayment = "allow_early_repayment"
         }
     }
 
@@ -825,6 +828,7 @@ public struct ToriiRepoAgreement: ToriiIdentifiedRow, Equatable {
         public static let settlementTimestampMs = ToriiField("settlement_timestamp_ms")
         public static let governanceHaircutBps = ToriiField("governance.haircut_bps")
         public static let governanceMarginFrequencySecs = ToriiField("governance.margin_frequency_secs")
+        public static let governanceAllowEarlyRepayment = ToriiField("governance.allow_early_repayment")
     }
 }
 
@@ -898,6 +902,16 @@ public struct ToriiSubscriptionRow: ToriiIdentifiedRow, Equatable {
 }
 
 /// One account movement and its committed ledger position.
+/// One element of `ToriiClient.streamAccountHistory(accountId:filter:)`.
+public enum ToriiAccountHistoryStreamEvent: Sendable, Equatable {
+    /// The connection is established. Movements committed before this point
+    /// must be read from `accountHistory(of:)`; deduplicate by row `id`.
+    case opened
+    /// One new movement, oldest first by block height, block index and
+    /// movement index.
+    case movement(ToriiAccountHistoryRow)
+}
+
 public struct ToriiAccountHistoryRow: ToriiIdentifiedRow, Equatable {
     public let id: String
     public let blockHeight: UInt64

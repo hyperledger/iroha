@@ -14,8 +14,12 @@ use jni::{
     objects::{GlobalRef, JByteArray, JObject, JObjectArray, JValue},
 };
 
-/// Retains one Kotlin platform object; each upcall attaches its own worker thread/local frame.
-/// The callback exposes no public arbitrary-sign method and receives only G2 typed messages.
+/// Retains one Kotlin platform object. Each upcall gets the calling thread's JNI environment:
+/// a Kotlin thread is already attached, and a Rust-owned thread (the background fold worker)
+/// is attached once as a daemon on its first upcall and detached when it exits. No environment
+/// or reply is kept between upcalls: each runs inside its own local frame and leaves no Java
+/// exception pending. The callback exposes no public arbitrary-sign method and receives only
+/// G2 typed messages.
 pub struct AndroidPlatform {
     vm: JavaVM,
     object: GlobalRef,
@@ -55,6 +59,11 @@ impl AndroidPlatform {
         }
         result.map_err(|_| Failure::code(INVALID))
     }
+    /// The calling thread's environment; never stored. Attaching as a daemon never blocks VM
+    /// shutdown while the fold worker is parked, and repeated upcalls reuse the attachment.
+    fn env(&self) -> jni::errors::Result<JNIEnv<'_>> {
+        self.vm.attach_current_thread_as_daemon()
+    }
     fn call(
         &self,
         operation: i32,
@@ -63,7 +72,7 @@ impl AndroidPlatform {
         auxiliary: i32,
         bound: usize,
     ) -> (PlatformReply, Vec<u8>) {
-        let Ok(mut env) = self.vm.attach_current_thread() else {
+        let Ok(mut env) = self.env() else {
             return (
                 PlatformReply {
                     tag: u32::MAX,
@@ -85,7 +94,8 @@ impl AndroidPlatform {
             let bytes = env.convert_byte_array(&bytes)?;
             Ok((PlatformReply { tag: tag as u32, reason: reason as u32, code, length: bytes.len() }, bytes))
         });
-        match result {
+        // The attachment outlives this upcall: no exception may stay pending for the next one.
+        match result.and_then(|value| no_pending_exception(&mut env).map(|()| value)) {
             Ok(value) => value,
             Err(_) => {
                 let _ = env.exception_clear();
@@ -118,6 +128,13 @@ impl AndroidPlatform {
         Ok(path)
     }
 }
+// A successful upcall that still has a pending Java exception fails closed (cleared by caller).
+fn no_pending_exception(env: &mut JNIEnv<'_>) -> jni::errors::Result<()> {
+    if env.exception_check()? {
+        return Err(jni::errors::Error::JavaException);
+    }
+    Ok(())
+}
 impl Platform for AndroidPlatform {
     fn key_probe(&self, slot: &Slot) -> Probe<PublicKey> {
         let (reply, bytes) = self.call(0, Some(slot), &[], 0, 65);
@@ -130,7 +147,7 @@ impl Platform for AndroidPlatform {
         }
     }
     fn key_attestation_chain(&self, slot: &Slot) -> Probe<Vec<Vec<u8>>> {
-        let Ok(mut env) = self.vm.attach_current_thread() else {
+        let Ok(mut env) = self.env() else {
             return Probe::Unavailable(U::Platform(0));
         };
         let answer = env.with_local_frame(32, |env| -> jni::errors::Result<(PlatformReply,Vec<Vec<u8>>)> {
@@ -158,7 +175,7 @@ impl Platform for AndroidPlatform {
             }
             Ok((PlatformReply {tag:tag as u32,reason:reason as u32,code,length:0},chain))
         });
-        match answer {
+        match answer.and_then(|value| no_pending_exception(&mut env).map(|()| value)) {
             Ok((reply, chain)) => match reply.tag {
                 0 => Probe::Present(chain),
                 1 if chain.is_empty() => Probe::Absent,

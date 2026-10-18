@@ -345,9 +345,10 @@ fn actor_waiters_give_every_class_the_full_per_source_envelope() {
 #[test]
 fn shipping_default_geometry_funds_every_admission_class() {
     use super::{
-        NetworkActorProgressBudget, OutboundFrameQueueLimits, TopicFrameCaps,
-        inbound_source_credit_capacity, network_actor_progress_target_capacity,
-        network_actor_progress_waiter_capacity, validate_transport_queue_geometry,
+        DeferredSendLimits, NetworkActorProgressBudget, OutboundFrameQueueLimits, TopicFrameCaps,
+        TransportChannelCapacities, inbound_source_credit_capacity,
+        network_actor_progress_target_capacity, network_actor_progress_waiter_capacity,
+        validate_transport_queue_geometry,
     };
     use iroha_config::parameters::defaults::network as d;
     use iroha_crypto::encryption::ChaCha20Poly1305 as Cipher;
@@ -369,13 +370,17 @@ fn shipping_default_geometry_funds_every_admission_class() {
         caps,
         high,
         low,
-        d::DEFERRED_SEND_MAX_BYTES_TOTAL,
-        d::DEFERRED_SEND_MAX_BYTES_PER_PEER,
-        d::DEFERRED_SEND_MAX_PER_PEER,
-        d::P2P_QUEUE_CAP_HIGH.get(),
-        d::P2P_QUEUE_CAP_LOW.get(),
-        d::P2P_POST_QUEUE_CAP.get(),
-        d::P2P_SUBSCRIBER_QUEUE_CAP.get(),
+        DeferredSendLimits {
+            total_bytes: d::DEFERRED_SEND_MAX_BYTES_TOTAL,
+            per_peer_bytes: d::DEFERRED_SEND_MAX_BYTES_PER_PEER,
+            per_peer_frames: d::DEFERRED_SEND_MAX_PER_PEER,
+        },
+        TransportChannelCapacities {
+            high: d::P2P_QUEUE_CAP_HIGH.get(),
+            low: d::P2P_QUEUE_CAP_LOW.get(),
+            post: d::P2P_POST_QUEUE_CAP.get(),
+            subscriber: d::P2P_SUBSCRIBER_QUEUE_CAP.get(),
+        },
     )
     .unwrap();
     let maxima = caps

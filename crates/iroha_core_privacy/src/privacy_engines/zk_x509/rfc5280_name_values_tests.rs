@@ -13,7 +13,7 @@ fn name_value_accepts(mode: u16, bytes: &[u8]) -> bool {
 
 #[test]
 fn name_values_transition_matches_independent_unicode_and_printable_policy() {
-    for code in 0..=0x10ffff {
+    for code in 0..=0x0010_ffff {
         let Some(character) = char::from_u32(code) else {
             continue;
         };
@@ -179,12 +179,12 @@ fn name_values_actual_complete_census_binds_bytes_nodes_oid_and_profile_at_both_
                     .unwrap();
                 for lane in 0..4 {
                     assert_eq!(
-                        profile_topology_source_factor_v1(&node, lane, challenges_v1()),
-                        profile_topology_query_factor_v1(&row, lane, challenges_v1())
+                        profile_topology_source_factor_v1(&node, lane, &challenges_v1()),
+                        profile_topology_query_factor_v1(&row, lane, &challenges_v1())
                     );
                     assert_eq!(
-                        normalized_copy_factor_v1(&oid, lane, challenges_v1()),
-                        normalized_copy_factor_v1(&row, lane, challenges_v1())
+                        normalized_copy_factor_v1(&oid, lane, &challenges_v1()),
+                        normalized_copy_factor_v1(&row, lane, &challenges_v1())
                     );
                 }
             }
@@ -223,7 +223,7 @@ fn name_values_constructor_rejects_original_country_control_tag_length_and_oid_c
             0 => {
                 changed.documents[document].bytes[usize::from(node.content_start)]
                     .value
-                    .value = F(b'a' as u64)
+                    .value = F(u64::from(b'a'))
             }
             1 => {
                 changed.documents[document].bytes[usize::from(node.content_start)]
@@ -305,10 +305,10 @@ fn name_values_boundaries_metadata_and_coherent_byte_node_oid_shadows_are_reject
     // A different valid uppercase byte preserves all local DFA equations and
     // every surrounding witness, but cannot match the original source byte.
     let mut shadow = row;
-    shadow[BASE_VALUE] = if row[BASE_VALUE] == F(b'X' as u64) {
-        F(b'Y' as u64)
+    shadow[BASE_VALUE] = if row[BASE_VALUE] == F(u64::from(b'X')) {
+        F(u64::from(b'Y'))
     } else {
-        F(b'X' as u64)
+        F(u64::from(b'X'))
     };
     let shadow_byte = shadow[BASE_VALUE].0 as u8;
     write_u8_bits_v1(&mut shadow, BASE_BYTE_BITS, shadow_byte);
@@ -324,30 +324,30 @@ fn name_values_boundaries_metadata_and_coherent_byte_node_oid_shadows_are_reject
                 row[BASE_ADDRESS],
                 row[BASE_VALUE],
                 lane,
-                challenges_v1()
+                &challenges_v1()
             ),
             serial_byte_lookup_factor_v1(
                 shadow[BASE_DOCUMENT],
                 shadow[BASE_ADDRESS],
                 shadow[BASE_VALUE],
                 lane,
-                challenges_v1()
+                &challenges_v1()
             )
         );
         for column in [BASE_NODE, BASE_H, BASE_TAG_CLASS] {
             let mut changed = row;
             changed[column] = changed[column].add(F::ONE);
             assert_ne!(
-                profile_topology_query_factor_v1(&row, lane, challenges_v1()),
-                profile_topology_query_factor_v1(&changed, lane, challenges_v1())
+                profile_topology_query_factor_v1(&row, lane, &challenges_v1()),
+                profile_topology_query_factor_v1(&changed, lane, &challenges_v1())
             );
         }
         let mut changed = row;
         changed[BASE_G] = changed[BASE_G].add(F::ONE);
         populate_degree_normalization_helpers_v1(&mut changed, &fixed);
         assert_ne!(
-            normalized_copy_factor_v1(&row, lane, challenges_v1()),
-            normalized_copy_factor_v1(&changed, lane, challenges_v1())
+            normalized_copy_factor_v1(&row, lane, &challenges_v1()),
+            normalized_copy_factor_v1(&changed, lane, &challenges_v1())
         );
     }
 }

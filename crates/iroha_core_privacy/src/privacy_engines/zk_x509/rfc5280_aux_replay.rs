@@ -42,7 +42,7 @@ impl ColumnStateV1 {
         context: &RowContextV1,
         last: bool,
         der_challenges: ZkX509DerStarkChallengesV1,
-        challenges: ZkX509Rfc5280StarkChallengesV1,
+        challenges: &ZkX509Rfc5280StarkChallengesV1,
         sha_union: &ZkX509ShaUnionCentersV1,
     ) -> Result<F, ZkX509Rfc5280StarkErrorV1> {
         self.step_with_inverse_v1(
@@ -62,7 +62,7 @@ impl ColumnStateV1 {
         context: &RowContextV1,
         last: bool,
         der_challenges: ZkX509DerStarkChallengesV1,
-        challenges: ZkX509Rfc5280StarkChallengesV1,
+        challenges: &ZkX509Rfc5280StarkChallengesV1,
         sha_union: &ZkX509ShaUnionCentersV1,
         inverse: &mut impl FnMut(F, F) -> (F, F),
     ) -> Result<F, ZkX509Rfc5280StarkErrorV1> {
@@ -95,7 +95,7 @@ impl ColumnStateV1 {
             if gate == F::ONE {
                 self.product = self.product.mul(product_relation_factor_v1(
                     relation,
-                    &row,
+                    row,
                     lane,
                     der_challenges,
                 )?);
@@ -110,7 +110,7 @@ impl ColumnStateV1 {
                 .mul(fixed[output_role_fixed_selector_column_v1(role_index, consumer)]);
             if gate == F::ONE {
                 self.product = self.product.mul(output_role_product_factor_v1(
-                    &row, role_index, consumer, lane, challenges,
+                    row, role_index, consumer, lane, challenges,
                 ));
             } else if gate != F::ZERO {
                 return Err(ZkX509Rfc5280StarkErrorV1::TerminalClaim);
@@ -130,7 +130,7 @@ impl ColumnStateV1 {
             if gate == F::ONE {
                 self.product = self
                     .product
-                    .mul(normalized_copy_factor_v1(&row, lane, challenges));
+                    .mul(normalized_copy_factor_v1(row, lane, challenges));
             }
             let value = if after_column { self.product } else { before };
 
@@ -163,18 +163,18 @@ impl ColumnStateV1 {
         if let Some((kind, lane)) = profile_lookup_aux_column_descriptor_v1(column) {
             let table_gate = row[BASE_PROFILE_TABLE_ACTIVE];
             let table_factor = fixed[FIX_PROFILE_TABLE]
-                .mul(profile_byte_factor_v1(&row, lane, challenges))
+                .mul(profile_byte_factor_v1(row, lane, challenges))
                 .add(
                     fixed[ZkX509Rfc5280StarkFamilyV1::SourceNode as usize]
-                        .mul(profile_topology_source_factor_v1(&row, lane, challenges)),
+                        .mul(profile_topology_source_factor_v1(row, lane, challenges)),
                 );
             let multiplicity = row[BASE_PROFILE_TABLE_MULTIPLICITY];
             let query_gate = context
                 .family_gate_v1(ZkX509Rfc5280StarkFamilyV1::FixedByte)
                 .add(context.family_gate_v1(ZkX509Rfc5280StarkFamilyV1::NameValue));
-            let query_factor = profile_byte_factor_v1(&row, lane, challenges);
+            let query_factor = profile_byte_factor_v1(row, lane, challenges);
             let topology_query_gate = row[BASE_PROFILE_TOPOLOGY_QUERY_ACTIVE];
-            let topology_query_factor = profile_topology_query_factor_v1(&row, lane, challenges);
+            let topology_query_factor = profile_topology_query_factor_v1(row, lane, challenges);
             let (table_zero, table_inverse) = inverse(table_gate, table_factor);
             let (query_zero, query_inverse) = inverse(query_gate, query_factor);
             let (topology_query_zero, topology_query_inverse) =
@@ -210,16 +210,16 @@ impl ColumnStateV1 {
                     (
                         source_node_gate,
                         row[BASE_ACTIVE].mul(fixed[FIX_SOURCE_NODE_NON_ROOT]),
-                        grammar_parent_table_factor_v1(&row, lookup.lane, challenges),
-                        grammar_parent_query_factor_v1(&row, lookup.lane, challenges),
+                        grammar_parent_table_factor_v1(row, lookup.lane, challenges),
+                        grammar_parent_query_factor_v1(row, lookup.lane, challenges),
                         row[BASE_D],
                     )
                 } else {
                     (
                         row[BASE_ACTIVE].mul(fixed[FIX_GRAMMAR_RULE_TABLE]),
                         source_node_gate,
-                        grammar_rule_table_factor_v1(&fixed, lookup.lane, challenges),
-                        grammar_rule_query_factor_v1(&row, lookup.lane, challenges),
+                        grammar_rule_table_factor_v1(fixed, lookup.lane, challenges),
+                        grammar_rule_query_factor_v1(row, lookup.lane, challenges),
                         row[BASE_A],
                     )
                 };
@@ -258,14 +258,14 @@ impl ColumnStateV1 {
 
         let query_gate = if lookup.node {
             serial_gate
-                .add(output_source_node_query_gate_v1(&row, &fixed))
-                .add(path_len::node_query_gate(&row, &fixed))
-                .add(copy_census::node_query_gate(&row, &fixed))
+                .add(output_source_node_query_gate_v1(row, fixed))
+                .add(path_len::node_query_gate(row, fixed))
+                .add(copy_census::node_query_gate(row, fixed))
         } else {
             row[BASE_SERIAL_BYTE_QUERY_ACTIVE]
         };
         let table_factor = if lookup.node {
-            serial_node_lookup_factor_v1(&row, lookup.lane, challenges)
+            serial_node_lookup_factor_v1(row, lookup.lane, challenges)
         } else {
             serial_byte_lookup_factor_v1(
                 row[BASE_DOCUMENT],
@@ -276,7 +276,7 @@ impl ColumnStateV1 {
             )
         };
         let query_factor = if lookup.node {
-            node_query_factor_v1(&row, &fixed, lookup.lane, challenges)
+            node_query_factor_v1(row, fixed, lookup.lane, challenges)
         } else {
             serial_byte_lookup_factor_v1(
                 row[BASE_DOCUMENT],
@@ -376,7 +376,7 @@ pub(super) const fn scratch_payload_bytes_v1() -> usize {
 pub(super) fn fill_columns_v1(
     material: &ZkX509Rfc5280StarkBaseMaterialV1,
     der_challenges: ZkX509DerStarkChallengesV1,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
     first: usize,
     outputs: &mut [&mut [F]],
     sha_union: &ZkX509ShaUnionCentersV1,
@@ -396,7 +396,7 @@ pub(super) fn fill_columns_v1(
 pub(super) fn fill_scalar_columns_for_testing_v1(
     material: &ZkX509Rfc5280StarkBaseMaterialV1,
     der_challenges: ZkX509DerStarkChallengesV1,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
     first: usize,
     outputs: &mut [&mut [F]],
     sha_union: &ZkX509ShaUnionCentersV1,
@@ -429,7 +429,7 @@ fn fill_with_v1(
     first: usize,
     outputs: &mut [&mut [F]],
     der_challenges: ZkX509DerStarkChallengesV1,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
     sha_union: &ZkX509ShaUnionCentersV1,
     mut row_at: impl FnMut(usize) -> Result<RowContextV1, ZkX509Rfc5280StarkErrorV1>,
 ) -> Result<(), ZkX509Rfc5280StarkErrorV1> {
@@ -535,7 +535,7 @@ mod tests {
             let challenges = challenges_v1();
             let centers = ZkX509ShaUnionCentersV1::identity_fixture_v1();
             let claims =
-                compile_zk_x509_rfc5280_stark_terminal_claims_v1(material, der, challenges)
+                compile_zk_x509_rfc5280_stark_terminal_claims_v1(material, der, &challenges)
                     .unwrap();
             let mut states: [ColumnStateV1; ZK_X509_RFC5280_STARK_AUX_WIDTH_V1] =
                 core::array::from_fn(|_| ColumnStateV1::new_v1());
@@ -597,7 +597,7 @@ mod tests {
                                 &context,
                                 index == last,
                                 der,
-                                challenges,
+                                &challenges,
                                 &centers,
                                 &mut inverse,
                             )
@@ -622,7 +622,7 @@ mod tests {
                         &aux,
                         &prev.fixed,
                         der,
-                        challenges,
+                        &challenges,
                         claims,
                     )
                     .unwrap();
@@ -643,7 +643,7 @@ mod tests {
                 &first_aux,
                 &context.fixed,
                 der,
-                challenges,
+                &challenges,
                 claims,
             )
             .unwrap();
@@ -878,7 +878,7 @@ mod tests {
                     first,
                     &mut outputs,
                     der_v1(),
-                    challenges_v1(),
+                    &challenges_v1(),
                     &centers,
                     |_| panic!("invalid geometry must not read source")
                 )
@@ -925,7 +925,7 @@ mod tests {
                         0,
                         &mut outputs,
                         der_v1(),
-                        challenges_v1(),
+                        &challenges_v1(),
                         &centers,
                         |index| {
                             calls += 1;
@@ -966,13 +966,13 @@ mod tests {
         let mut columns = vec![vec![F::ZERO; 4]; 8];
         let mut outputs: Vec<_> = columns.iter_mut().map(Vec::as_mut_slice).collect();
         let mut calls = 0;
-        let (_, observed) = inspection::observe_v1(|| {
+        let ((), observed) = inspection::observe_v1(|| {
             fill_with_v1(
                 4,
                 0,
                 &mut outputs,
                 der_v1(),
-                challenges_v1(),
+                &challenges_v1(),
                 &centers,
                 |_| {
                     calls += 1;
@@ -1007,7 +1007,7 @@ mod tests {
                 first,
                 &mut outputs,
                 der_v1(),
-                challenges_v1(),
+                &challenges_v1(),
                 &centers,
                 |_| panic!("constant centers need no row reconstruction"),
             )
@@ -1078,7 +1078,7 @@ mod tests {
                     first,
                     &mut outputs,
                     der_v1(),
-                    challenges_v1(),
+                    &challenges_v1(),
                     &centers,
                     |_| Ok(row_v1()),
                 )
@@ -1148,7 +1148,7 @@ mod tests {
                     first,
                     &mut outputs,
                     der_v1(),
-                    challenges,
+                    &challenges,
                     &centers,
                     |index| Ok(numeric_context_v1(index, value)),
                 )
@@ -1179,7 +1179,7 @@ mod tests {
                         column,
                         &mut [&mut output],
                         der_v1(),
-                        challenges,
+                        &challenges,
                         &centers,
                         |index| Ok(numeric_context_v1(index, value))
                     ),
@@ -1200,7 +1200,7 @@ mod tests {
                 AUX_OUTPUT_ROLE_PRODUCTS,
                 &mut outputs,
                 der_v1(),
-                challenges_v1(),
+                &challenges_v1(),
                 &centers,
                 |index| {
                     let mut context = row_v1();
@@ -1276,17 +1276,17 @@ mod tests {
             // These table-only rows have multiplicity3 and no query. Compute
             // the old ordinary lookup equation directly, outside step_v1.
             let factor_at = |context: &RowContextV1| match family {
-                0 => profile_byte_factor_v1(&context.base, lane, challenges),
-                1 => grammar_parent_table_factor_v1(&context.base, lane, challenges),
-                2 => grammar_rule_table_factor_v1(&context.fixed, lane, challenges),
+                0 => profile_byte_factor_v1(&context.base, lane, &challenges),
+                1 => grammar_parent_table_factor_v1(&context.base, lane, &challenges),
+                2 => grammar_rule_table_factor_v1(&context.fixed, lane, &challenges),
                 3 => serial_byte_lookup_factor_v1(
                     context.base[BASE_DOCUMENT],
                     context.base[BASE_ADDRESS],
                     context.base[BASE_VALUE],
                     lane,
-                    challenges,
+                    &challenges,
                 ),
-                4 => serial_node_lookup_factor_v1(&context.base, lane, challenges),
+                4 => serial_node_lookup_factor_v1(&context.base, lane, &challenges),
                 _ => unreachable!(),
             };
             for singular in [false, true] {
@@ -1314,7 +1314,7 @@ mod tests {
                     let mut state = ColumnStateV1::new_v1();
                     state.sums = [F(17), F(19)];
                     assert_eq!(
-                        state.step_v1(column, &context, last, der_v1(), challenges, &centers),
+                        state.step_v1(column, &context, last, der_v1(), &challenges, &centers),
                         Ok(expected),
                         "column{column} singular{singular} last{last}"
                     );

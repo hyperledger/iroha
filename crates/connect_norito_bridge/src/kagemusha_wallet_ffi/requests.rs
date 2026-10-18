@@ -29,15 +29,28 @@ pub(crate) fn bounds(selector: u32) -> Result<[usize; 3]> {
     })
 }
 
+/// One admitted execute input. Selector 5 installs a local blacklist: it is no wallet
+/// operation and has no Advance, proof or retry identity, so its identity field is all zero.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Call {
+    /// A wallet operation under its nonzero retry identity.
+    Operation(state::OperationRequestV1),
+    /// Authenticate a signed list and install it in local custody.
+    InstallBlacklist {
+        list: Vec<u8>,
+        certificates: Vec<u8>,
+    },
+}
+
 pub(crate) fn request(
     id: &[u8],
     selector: u32,
     amount: u128,
     originals: [&[u8]; 3],
-) -> Result<state::OperationRequestV1> {
+) -> Result<Call> {
     let request_id: [u8; 32] = id.try_into().map_err(|_| Failure::code(INVALID))?;
     let limits = bounds(selector)?;
-    if request_id == [0; 32]
+    if (request_id == [0; 32]) != (selector == 5)
         || (selector != 8 && amount != 0)
         || originals
             .iter()
@@ -67,17 +80,22 @@ pub(crate) fn request(
             payer_credential: second.to_vec(),
             certificates: third.to_vec(),
         },
-        3..=7 => A::Refresh {
+        3 | 4 | 6 | 7 => A::Refresh {
             kind: match selector {
                 3 => K::Credential,
                 4 => K::SchemePolicy,
-                5 => K::Blacklist,
                 6 => K::TimeAnchor,
                 _ => K::QuotaShare,
             },
             update: first.to_vec(),
             certificates: second.to_vec(),
         },
+        5 => {
+            return Ok(Call::InstallBlacklist {
+                list: first.to_vec(),
+                certificates: second.to_vec(),
+            });
+        }
         8 => {
             if amount == 0 || first.is_empty() != second.is_empty() {
                 return Err(Failure::code(INVALID));
@@ -94,7 +112,10 @@ pub(crate) fn request(
         10 => receive_offer::action(first, second)?,
         _ => return Err(Failure::code(INVALID)),
     };
-    Ok(state::OperationRequestV1 { request_id, action })
+    Ok(Call::Operation(state::OperationRequestV1 {
+        request_id,
+        action,
+    }))
 }
 
 #[cfg(test)]
@@ -108,36 +129,42 @@ mod tests {
             let originals = limits.map(|limit| if limit == 0 { vec![] } else { vec![7] });
             let refs = originals.each_ref().map(Vec::as_slice);
             let amount = if selector == 8 { u128::MAX } else { 0 };
-            let admitted = request(&[1; 32], selector, amount, refs).unwrap();
-            assert_eq!(admitted.request_id, [1; 32]);
+            // The local list install alone carries an all-zero identity.
+            let (id, other) = if selector == 5 {
+                ([0; 32], [1; 32])
+            } else {
+                ([1; 32], [0; 32])
+            };
+            let admitted = request(&id, selector, amount, refs).unwrap();
+            if let Call::Operation(admitted) = &admitted {
+                assert_eq!(admitted.request_id, [1; 32]);
+            }
             if selector == 8 {
                 assert!(matches!(
-                    admitted.action,
-                    state::OperationActionV1::Unload {
-                        amount: u128::MAX,
+                    admitted,
+                    Call::Operation(state::OperationRequestV1 {
+                        action: state::OperationActionV1::Unload {
+                            amount: u128::MAX,
+                            ..
+                        },
                         ..
-                    }
+                    })
                 ));
             }
             for index in 0..3 {
                 let mut changed = originals.clone();
                 changed[index] = vec![0; limits[index] + 1];
                 assert_eq!(
-                    request(
-                        &[1; 32],
-                        selector,
-                        amount,
-                        changed.each_ref().map(Vec::as_slice)
-                    )
-                    .unwrap_err()
-                    .status,
+                    request(&id, selector, amount, changed.each_ref().map(Vec::as_slice))
+                        .unwrap_err()
+                        .status,
                     INVALID
                 );
             }
-            assert!(request(&[0; 32], selector, amount, refs).is_err());
-            assert!(request(&[1; 31], selector, amount, refs).is_err());
+            assert!(request(&other, selector, amount, refs).is_err());
+            assert!(request(&id[..31], selector, amount, refs).is_err());
             if selector != 8 {
-                assert!(request(&[1; 32], selector, 1, refs).is_err());
+                assert!(request(&id, selector, 1, refs).is_err());
             }
         }
         assert_eq!(bounds(10).unwrap(), [10_000, 10_000, 0]);
@@ -147,5 +174,36 @@ mod tests {
         assert!(request(&[1; 32], 8, 1, [&[1], &[], &[]]).is_err());
         assert!(request(&[1; 32], 8, 1, [&[], &[1], &[]]).is_err());
         assert!(request(&[1; 32], 8, 1, [&[]; 3]).is_ok());
+    }
+
+    #[test]
+    fn selector_five_installs_a_local_list_and_never_refreshes_policy() {
+        assert_eq!(
+            request(&[0; 32], 5, 0, [&[7], &[8], &[]]).unwrap(),
+            Call::InstallBlacklist {
+                list: vec![7],
+                certificates: vec![8],
+            }
+        );
+        assert!(request(&[1; 32], 5, 0, [&[7], &[8], &[]]).is_err());
+        assert!(request(&[0; 32], 5, 0, [&[7], &[], &[]]).is_err());
+        for (selector, kind) in [
+            (3, KagemushaWalletPolicyUpdateKindV1::Credential),
+            (4, KagemushaWalletPolicyUpdateKindV1::SchemePolicy),
+            (6, KagemushaWalletPolicyUpdateKindV1::TimeAnchor),
+            (7, KagemushaWalletPolicyUpdateKindV1::QuotaShare),
+        ] {
+            assert_eq!(
+                request(&[1; 32], selector, 0, [&[7], &[8], &[]]).unwrap(),
+                Call::Operation(state::OperationRequestV1 {
+                    request_id: [1; 32],
+                    action: state::OperationActionV1::Refresh {
+                        kind,
+                        update: vec![7],
+                        certificates: vec![8],
+                    },
+                })
+            );
+        }
     }
 }

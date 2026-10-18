@@ -1,32 +1,49 @@
 //! Frame/transport codec and recursive fold cancellation tests. Fabricated proof carriers
 //! establish no operation admission; the cancellation case refuses before fold inputs.
 use super::*;
+use iroha_pasta::PastaAffine;
 use iroha_plonk_recursion::PALLAS_TRIVIAL_GENERATOR;
 
 #[test]
 fn terminal_fold_preserves_cancellation_at_recursive_boundary() {
+    // This source-owned configuration is used by the actual closed terminal
+    // wrapper. The direct recursion call below reaches its cancellation cut
+    // without fabricating a verified terminal-frame authority.
     let params = PinnedParams::<Eq>::derive(1).unwrap();
     let cancellation = iroha_pasta::CancellationToken::new();
+    let inputs = vec![opening(); 4];
+    let tape = || {
+        iroha_plonk_recursion::FoldTape::<Eq>::try_fill::<core::convert::Infallible>(|coin| {
+            *coin = Fp::ONE;
+            Ok(())
+        })
+        .unwrap()
+    };
     for token in [None, Some(&cancellation)] {
-        assert_eq!(
-            fold_terminal_slots(&params, &[], [0; 32], MemoryBudget::default(), token).err(),
-            Some(Error::Proof)
-        );
+        let config = terminal_fold_config(MemoryBudget::default(), token);
+        assert!(matches!(
+            iroha_plonk_recursion::create_fold(
+                &params,
+                &inputs,
+                tape(),
+                iroha_plonk_recursion::FoldPurpose::SigmaBatch,
+                &config
+            ),
+            Err(iroha_plonk_recursion::Error::Parameters(_))
+        ));
     }
+    let config = terminal_fold_config(MemoryBudget::default(), Some(&cancellation));
     cancellation.cancel();
-    // The real fold checks its cancellation token before the deliberately short
-    // parameter set. Losing that token would report Proof instead of Cancelled.
-    assert_eq!(
-        fold_terminal_slots(
+    assert!(matches!(
+        iroha_plonk_recursion::create_fold(
             &params,
-            &[],
-            [0; 32],
-            MemoryBudget::default(),
-            Some(&cancellation)
-        )
-        .err(),
-        Some(Error::Cancelled)
-    );
+            &inputs,
+            tape(),
+            iroha_plonk_recursion::FoldPurpose::SigmaBatch,
+            &config
+        ),
+        Err(iroha_plonk_recursion::Error::Cancelled)
+    ));
 }
 
 fn frame() -> [Fp; 69] {
@@ -111,7 +128,10 @@ fn foreign_coordinate_codec_rejects_integer_and_modulus_aliases() {
         foreign_coordinate(&[Fp::from_u128(u128::MAX); 2]),
         Err(Error::Input)
     );
-    assert_eq!(point(&[Fp::ZERO; 4]), Err(Error::Input));
+    assert_eq!(
+        point(&[Fp::ZERO, Fp::ZERO, Fp::ONE, Fp::ZERO]),
+        Err(Error::Input)
+    );
 }
 
 #[test]
@@ -183,4 +203,37 @@ fn rebuild_failure_preserves_cancellation_and_refuses_source_authority() {
     ] {
         assert_eq!(rebuild_error(&error), Error::Artifact);
     }
+}
+
+#[test]
+fn identity_generator_frame_roundtrips_and_keeps_correction_distinctness() {
+    let identity = iroha_plonk::transcript::decode_generator::<Eq>(&[0; 32]).unwrap();
+    assert_eq!(point(&[Fp::ZERO; 4]).unwrap(), identity);
+    let mut public = frame();
+    public[2..6].fill(Fp::ZERO);
+    public[22..26].fill(Fp::ZERO);
+    public[42..46].fill(Fp::ZERO);
+    let inputs = terminal_fold_inputs(&public, opening()).unwrap();
+    assert_eq!(*inputs[0].g(), identity);
+    assert_eq!(*inputs[2].g(), identity);
+    // A correction to identity is allowed only when it changes the original G.
+    public[63] = Fp::ZERO;
+    public[64] = Fp::ONE;
+    public[65..].fill(Fp::ZERO);
+    assert_eq!(
+        terminal_fold_inputs(&public, opening()).unwrap_err(),
+        Error::Input
+    );
+    let finite = frame();
+    public[42..46].copy_from_slice(&finite[42..46]);
+    let corrected = terminal_fold_inputs(&public, opening()).unwrap();
+    assert_eq!(*corrected[3].g(), identity);
+    // Syntax never establishes the generator decision: this normalized identity is false.
+    let params = PinnedParams::<Eq>::derive(16).unwrap();
+    let false_claim = AccumulatorT::<Eq>::new(identity, [Fp::ONE; K]).unwrap();
+    assert!(
+        false_claim
+            .decide(&params, MemoryBudget::default())
+            .is_err()
+    );
 }

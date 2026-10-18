@@ -26,11 +26,23 @@ fn send_terminal(source: &send_chain::AuthenticatedSend) -> Terminal<'_> {
 fn forged_succinct_fold_requires_a_distinct_same_challenges_correction() {
     let params = PinnedParams::<Eq>::derive(16).unwrap();
     let honest = AccumulatorT::trivial(&params, MemoryBudget::DEFAULT).unwrap();
-    let inputs = [honest.as_input(), honest.as_input()];
-    let proof = forged_fold(&params, &inputs);
-    let original =
-        iroha_plonk_recursion::verify_fold(&params, &inputs, &proof, &FoldConfig::default())
-            .unwrap();
+    let inputs = [honest.as_input(), honest.as_input(), honest.as_input()];
+    let proof = forged_fold(&params, &inputs, FoldPurpose::SigmaBatch, |tape| {
+        iroha_plonk_recursion::accumulation::input_digest(
+            &params,
+            &inputs,
+            tape,
+            FoldPurpose::SigmaBatch,
+        )
+    });
+    let original = iroha_plonk_recursion::verify_fold(
+        &params,
+        &inputs,
+        &proof,
+        FoldPurpose::SigmaBatch,
+        &FoldConfig::default(),
+    )
+    .unwrap();
     assert!(original.decide(&params, MemoryBudget::DEFAULT).is_err());
     let correction = deciding_correction(&params, &original);
     assert_ne!(&correction, original.g());
@@ -90,7 +102,7 @@ fn catalog_roundtrip(include_send: bool, fixture: &LoadFixture) -> Option<Compac
         return None;
     }
 
-    let initial_send = send_chain::run_send_from_load(&load, PROFILE, Some(2), false);
+    let initial_send = send_chain::run_send_from_load(&load, PROFILE, false);
     assert_eq!(
         initial_send.binding, bootstrap.binding,
         "Send must share the exact admitted A descriptor"
@@ -103,7 +115,7 @@ fn catalog_roundtrip(include_send: bool, fixture: &LoadFixture) -> Option<Compac
         &initial_root.binding,
     );
     let load = rebuild_bootstrap_load(&program, bootstrap, &initial_load, fixture);
-    let send = send_chain::run_send_from_load(&load, PROFILE, Some(2), false);
+    let send = send_chain::run_send_from_load(&load, PROFILE, false);
     assert_eq!(send.binding, initial_send.binding);
     assert_eq!(send.key.to_bytes(), initial_send.key.to_bytes());
     assert_eq!(send.state.lineage[17], program.digest());
@@ -146,7 +158,7 @@ pub fn compact_bootstrap_load_send_catalog_rebinds_every_proof_and_key(fixture: 
         send.key.kagemusha_digest(&send.binding).unwrap()
     );
     assert_eq!(send.source.maps.witness.after.core, send.source.state.core);
-    assert_eq!(send.source.context.stage_count(), 5);
+    assert_eq!(send.source.context.stage_count(), 3);
     assert_eq!(send.source.predecessor_omega.len(), 5120);
     assert_eq!(send.source.sigma.len(), 3296);
 }
@@ -157,9 +169,9 @@ pub fn compact_predecessor_native_send_preserves_every_installed_stage_and_origi
     fixture: &LoadFixture,
 ) {
     let payer = compact_payer_load(fixture);
-    let terminal = send_chain::run_send_from_load(&payer, PROFILE, Some(2), true);
+    let terminal = send_chain::run_send_from_load(&payer, PROFILE, true);
     assert_eq!(terminal.state.lineage[17], payer.source.state.lineage[17]);
     eprintln!(
-        "NATIVE_SEND_INSTALLED_DIFFERENTIAL all_five_a_four_w=true original_replay=true compact_predecessor=true mask=0 full_catalog=false"
+        "NATIVE_SEND_INSTALLED_DIFFERENTIAL lean_three_a_two_w=true original_replay=true compact_predecessor=true mask=0 full_catalog=false"
     );
 }

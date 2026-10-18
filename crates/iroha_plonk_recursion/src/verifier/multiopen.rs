@@ -23,6 +23,48 @@ impl<C: PastaCurve> VerifierChip<C> {
         let scaled = self.scale_point(region, point, scalar)?;
         self.ecc.add(region, sum, &scaled)
     }
+    // This helper consumes the private transcript reader, whose X is the
+    // constrained nonzero map. It must not accept an arbitrary scalar X.
+    fn rotated_opening_points(
+        &mut self,
+        region: &mut Region<'_, C::Base>,
+        read: &Read<C>,
+        k: u32,
+        rotations: &[i32],
+        valid: &mut Bit<C::Base>,
+    ) -> Result<Vec<Scalar<C>>, Error> {
+        let x = read.challenge(Challenge::X)?;
+        let omega = iroha_plonk::protocol::omega::<C::ScalarExt>(k).ok_or(Error::Synthesis)?;
+        let omega_inverse = Option::<C::ScalarExt>::from(omega.invert()).ok_or(Error::Synthesis)?;
+        let factors = rotations
+            .iter()
+            .map(|rotation| {
+                if *rotation >= 0 { omega } else { omega_inverse }
+                    .pow_vartime([u64::from(rotation.unsigned_abs())])
+            })
+            .collect::<Vec<_>>();
+        let mut points = Vec::with_capacity(factors.len());
+        for factor in &factors {
+            let factor = self.constant(region, *factor)?;
+            points.push(self.mul(region, &x, &factor)?);
+        }
+        // Equality is checked on actual field coefficients, so negative and
+        // congruent rotations (r and r + 2^k) retain the same collision verdict.
+        // Every point above is constrained to nonzero X times its coefficient;
+        // therefore two points coincide exactly when their coefficients do.
+        let distinct = factors
+            .iter()
+            .enumerate()
+            .all(|(i, factor)| factors[..i].iter().all(|other| factor != other));
+        let distinct_cell = self.glue.boolean(region, Value::known(distinct))?;
+        self.glue.enforce_constant(
+            region,
+            distinct_cell.word(),
+            C::Base::from(u64::from(distinct)),
+        )?;
+        self.combine(region, valid, &distinct_cell)?;
+        Ok(points)
+    }
     fn interpolate(
         &mut self,
         region: &mut Region<'_, C::Base>,
@@ -70,24 +112,8 @@ impl<C: PastaCurve> VerifierChip<C> {
         if evaluations.len() != opening.queries().len() {
             return Err(Error::Synthesis);
         }
-        let x = read.challenge(Challenge::X)?;
-        let omega = iroha_plonk::protocol::omega::<C::ScalarExt>(plan.params.k())
-            .ok_or(Error::Synthesis)?;
-        let omega_inverse = Option::<C::ScalarExt>::from(omega.invert()).ok_or(Error::Synthesis)?;
-        let mut points = Vec::new();
-        for rotation in opening.rotations() {
-            let factor = if *rotation >= 0 { omega } else { omega_inverse }
-                .pow_vartime([u64::from(rotation.unsigned_abs())]);
-            let factor = self.constant(region, factor)?;
-            points.push(self.mul(region, &x, &factor)?);
-        }
-        for i in 0..points.len() {
-            for j in 0..i {
-                let difference = self.sub(region, &points[i], &points[j])?;
-                let distinct = self.nonzero(region, &difference)?;
-                self.combine(region, valid, &distinct)?;
-            }
-        }
+        let points =
+            self.rotated_opening_points(region, read, plan.params.k(), opening.rotations(), valid)?;
         let zero = self.constant(region, C::ScalarExt::ZERO)?;
         let one = self.constant(region, C::ScalarExt::ONE)?;
         let mut slot_evals: Vec<Vec<Scalar<C>>> = opening
@@ -191,7 +217,11 @@ impl<C: PastaCurve> VerifierChip<C> {
                 let difference = self.sub(region, &x3, point)?;
                 denominator = self.mul(region, &denominator, &difference)?;
             }
-            let inverse = self.inverse(region, &denominator, valid)?;
+            // Reader-owned X3 is square/nonquartic, while every rotated
+            // reader-owned X is nonsquare (all admitted roots are fourth
+            // powers). Thus this product is nonzero for every transcript.
+            // Keep its complete multiplicative inverse equation.
+            let inverse = self.arithmetic.ff.inverse(region, &denominator)?;
             let interpolated =
                 self.interpolate(region, &set_points, &set_evals[index], &x3, valid)?;
             let q_eval = read.scalar(ProofMessage::PointSetEval(index))?;
@@ -208,6 +238,7 @@ impl<C: PastaCurve> VerifierChip<C> {
             value = self.mul(region, &value, &x4)?;
             value = self.add(region, &value, q_eval)?;
         }
+        // Xi is the reader-owned canonical nz challenge.
         // P + xi*S + sum(u^-1 L + u R) - v*g0 - c*b*z*U - f*W - c*G.
         combined = self.add_scaled(
             region,
@@ -219,7 +250,9 @@ impl<C: PastaCurve> VerifierChip<C> {
         let mut power = x3;
         for round in (0..plan.params.k() as usize).rev() {
             let challenge = read.challenge(Challenge::Round(round))?;
-            let inverse = self.inverse(region, &challenge, valid)?;
+            // The private reader constrained this exact actual round to nz(a).
+            // Keep generic denominator inverses guarded; this path cannot be zero.
+            let inverse = self.arithmetic.ff.inverse(region, &challenge)?;
             let left = read.point(ProofMessage::IpaRound {
                 round,
                 side: RoundSide::Left,
@@ -233,8 +266,11 @@ impl<C: PastaCurve> VerifierChip<C> {
             let term = self.mul(region, &challenge, &power)?;
             let term = self.add(region, &one, &term)?;
             b = self.mul(region, &b, &term)?;
-            power = self.mul(region, &power, &power)?;
+            if round != 0 {
+                power = self.mul(region, &power, &power)?;
+            }
         }
+        // X3 is the exact reader-owned square/nonquartic map, outside H.
         let c = read.scalar(ProofMessage::IpaC)?;
         let f = read.scalar(ProofMessage::IpaF)?;
         let mut u_scalar = self.mul(region, &c, &b)?;
@@ -254,3 +290,6 @@ impl<C: PastaCurve> VerifierChip<C> {
         EccChip::<C>::is_identity(&mut self.glue, region, &combined)
     }
 }
+
+#[cfg(test)]
+mod tests;

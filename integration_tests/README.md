@@ -435,16 +435,25 @@ same-candidate `TEST_NETWORK_BIN_IROHAD` and `TEST_NETWORK_BIN_IROHA`, set
 `IROHA_TEST_REQUIRE_NETWORK=1` and `IROHA_TEST_SKIP_BUILD=1`, and supply a new absolute
 `KAGEMUSHA_REAL_NETWORK_CAMPAIGN` under checkout-local `target/qualification`. Keep
 test-network and temporary directories under `target`; select the exact ignored test
-with `--exact --ignored --nocapture --test-threads=1`. The owner creates fresh canonical
-signed genesis with current chain parameters. Retired genesis layouts cannot be used
-as catalog inputs. This disposable engineering network does not deploy to production.
+with `--exact --ignored --nocapture --test-threads=1`. By default the owner creates
+fresh canonical signed genesis with current chain parameters. To use the maintained
+engineering originals, set `KAGEMUSHA_RETAINED_NETWORK_INPUTS` to a pinned selection
+with schema `iroha.kagemusha.retained-four-validator-inputs.v1` and exact
+`signed_genesis:{path,sha256}` and `manifest:{path,sha256}` fields. The retained
+constructor verifies the original signatures, policy and all four validator owners
+without re-signing genesis. It completes native beacon provisioning at H2–H5 before
+exporting readiness; registration follows that authenticated predecessor height.
+The asset incarnation uses its lifecycle ordinal, independently of its instruction
+position. Retired genesis layouts cannot be used as catalog inputs. This disposable
+engineering network does not deploy to production.
 
 After `ready.json`, publish `registration-command.json` with schema
 `iroha.kagemusha.real-network-command.v1`, phase `registration`, the exact
 `setup_sha256`, `previous_sha256` of `ready.json`, canonical nonzero `scheme_id` and
 `manifest_digest`, and `verifier_pack` containing its absolute `path` and `sha256`.
 The native pack is independently admitted before Register/Install. `registered.json`
-binds genuine H3 finality and `registration/package/registration-source.norito`,
+binds genuine finality at its recorded `certified_height` and
+`registration/package/registration-source.norito`,
 which the existing native registration publisher verifies before sealing. Enrollment
 can obtain its registration authority before activation. This stage issues no
 credential or mobile admission.
@@ -463,7 +472,7 @@ The owner stops and restarts only that peer using its existing config layers,
 keys, genesis and stores, with the selected issuer subtree appended. The other
 three validators remain running. Normal native startup authenticates the issuer
 journal, signer, worker and transport dependencies. `issuer-ready.json` appears
-only after actual Torii startup and all four validators' unchanged H3 finality are
+only after actual Torii startup and all four validators' unchanged registration finality are
 verified. This is startup evidence, not an enrollment or eligibility verdict.
 Missing or failed startup retains partial state without a fallback issuer. The
 owner retains this exact selection through the final full-network restart.
@@ -501,8 +510,10 @@ schema, phase `activation-retained`, `setup_sha256`,
 `retention:{path,sha256}` selecting the device-produced original. Those are its
 only fields. The owner validates the closed receipt and exact wire hash/extent,
 retains it, rechecks its original signed bytes, campaign deadline, explicit abort,
-and unchanged H3, then submits the already-signed transaction unchanged. It never
-re-signs while waiting. Activation executes at H4 and funded Load at H5.
+and unchanged registration height, then submits the already-signed transaction
+unchanged. It never re-signs while waiting. Activation executes immediately after
+registration, and funded Load immediately after activation; `funded.json` records
+all three certified heights.
 `funded.json` binds prepared, acknowledgment, retention, and signed-wire hashes.
 This observed controller DATA is not a signature, a finality certificate, or a
 physical-device qualification verdict. The software native-exchange caller uses the explicit ignored test
@@ -519,7 +530,7 @@ reopens the same owner before emitting `activation-retained.json`. Its separate
 `component-scope.json` declares software custody, no new payment signatures and
 no physical qualification. The controller retains this scope record and the
 actual successful test result; it must never treat this receipt as a phone
-observation. Retaining only after H4 does not satisfy the handshake.
+observation. Retaining only after activation commits does not satisfy the handshake.
 
 `settlement-command.json` binds `funded.json` and has exactly `schema`, `phase`,
 `setup_sha256`, `previous_sha256`, `exchange`, `target`, `verifier_pack`, and

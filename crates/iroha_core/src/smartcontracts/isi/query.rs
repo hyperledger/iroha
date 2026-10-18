@@ -764,6 +764,18 @@ impl SortableQueryOutput for RepoAgreement {
         self.id().cmp(other.id())
     }
 }
+impl SortableQueryOutput for iroha_data_model::bond::BondRecord {
+    type TiebreakKey = iroha_data_model::bond::BondId;
+    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<&Json> {
+        None
+    }
+    fn tiebreak_key(&self) -> Self::TiebreakKey {
+        self.id.clone()
+    }
+    fn bounded_tiebreak_key_len(&self, limit: u64) -> Result<u64, Error> {
+        bounded_bare_encoded_len(&self.id, limit)
+    }
+}
 impl SortableQueryOutput for AssetEscrowRecord {
     type TiebreakKey = iroha_data_model::escrow::EscrowId;
     fn get_metadata_sorting_key(&self, _key: &Name) -> Option<&Json> {
@@ -836,6 +848,7 @@ impl ExecuteSingularQuery for SingularQueryBox {
             FindGameSessionById,
             FindExecutionProofVerificationById,
             FindAssetEscrowById,
+            FindBondById,
             FindTriggerById,
             FindTwitterBindingByHash,
             FindOracleFeedById,

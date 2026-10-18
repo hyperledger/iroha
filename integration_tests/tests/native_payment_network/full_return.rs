@@ -177,6 +177,7 @@ fn paid_full_return_preserves_original_and_recovers_both_at_final_tip_without_ne
                     quantity: 250_000_u32.into(),
                 }])
                 .map_err(|error| eyre!(error))?,
+                AtomicSettlementEscrows::empty(),
                 NonZeroU64::new(101).unwrap(),
                 Metadata::default(),
             ),

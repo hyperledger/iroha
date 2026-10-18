@@ -124,8 +124,7 @@ class WorkerTests(unittest.TestCase):
             "openssl_path": str(self.openssl), "openssl_sha256": hashlib.sha256(self.openssl.read_bytes()).hexdigest(),
             "store_directory": str(directory), "policy": {"app_id": "TEAMID.example.app",
                 "scheme_id_hex": policy.enrollment.scheme_id.hex(), "asset_digest_hex": policy.enrollment.asset_digest.hex(),
-                "regulatory_policy": {"permitted_controls": 0, "blacklist_max_age_ms": 0,
-                                      "time_anchor_max_response_ms": 0},
+                "regulatory_policy": {"permitted_controls": 0, "time_anchor_max_response_ms": 0},
                 "challenge_lifetime_ms": challenge_lifetime_ms, "attestation_lease_lifetime_ms": 0,
                 "root_base64": base64.b64encode(root).decode(), "root_sha256": hashlib.sha256(root).hexdigest()}})
         directory_fd = os.open(directory, os.O_RDONLY)
@@ -482,7 +481,7 @@ class WorkerTests(unittest.TestCase):
                            lambda v: v["policy"].update({"root_base64": "eA=="}),
                            lambda v: v["policy"].update({"attestation_lease_lifetime_ms": True}),
                            lambda v: v["policy"].update({"challenge_lifetime_ms": 600001}),
-                           lambda v: v["policy"]["regulatory_policy"].update({"permitted_controls": 8})):
+                           lambda v: v["policy"]["regulatory_policy"].update({"permitted_controls": 4})):
                 value = json.loads(json.dumps(source)); change(value)
                 with self.subTest(value=value["policy"].get("app_id")), self.assertRaises(AttestationRejected):
                     open_owner(encode(value))
@@ -1079,7 +1078,7 @@ class AndroidIntegratedWorkerTests(unittest.TestCase):
             "openssl_path": str(self.openssl), "openssl_sha256": hashlib.sha256(self.openssl.read_bytes()).hexdigest(),
             "store_directory": str(directory), "policy": {"scheme_id_hex": policy.enrollment.scheme_id.hex(),
                 "asset_digest_hex": policy.enrollment.asset_digest.hex(), "regulatory_policy": {
-                    "permitted_controls": 0, "blacklist_max_age_ms": 0, "time_anchor_max_response_ms": 0},
+                    "permitted_controls": 0, "time_anchor_max_response_ms": 0},
                 "challenge_lifetime_ms": 120000, "attestation_lease_lifetime_ms": 0,
                 "package_name": PACKAGE, "minimum_package_version": 7, "app_signer_sha256": [SIGNER.hex()],
                 "roots": [{"family": "google_rsa", "spki_sha256": spki_sha256(root).hex(),

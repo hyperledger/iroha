@@ -248,7 +248,7 @@ impl Schedule {
             clocks,
         })
     }
-    fn scans(self) -> impl ExactSizeIterator<Item = return_copyback::Schedule> {
+    fn scans(&self) -> impl ExactSizeIterator<Item = return_copyback::Schedule> {
         return_copyback::schedules(
             self.vm,
             [
@@ -357,7 +357,7 @@ pub(super) enum EvaluationError<E> {
 fn append_control_residues<'a>(
     out: &mut impl Sink,
     program: &private_dispatch::Program,
-    schedule: Schedule,
+    schedule: &Schedule,
     witness: Witness<'_>,
     packets: &'a OriginalPackets,
 ) -> private_dispatch::Decoded<'a> {
@@ -416,7 +416,7 @@ fn append_control_residues<'a>(
 }
 
 fn evaluate_scan<E>(
-    schedule: Schedule,
+    schedule: &Schedule,
     decoded: &private_dispatch::Decoded<'_>,
     packets: &OriginalPackets,
     scratch: &mut Scratch,
@@ -450,7 +450,7 @@ fn evaluate_scan<E>(
 /// This does not authenticate rows outside the window or initialize an invocation.
 pub(super) fn evaluate<E>(
     program: &private_dispatch::Program,
-    schedule: Schedule,
+    schedule: &Schedule,
     witness: Witness<'_>,
     packets: &OriginalPackets,
     history: &private_history::View<'_>,

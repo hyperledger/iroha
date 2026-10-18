@@ -126,11 +126,7 @@ impl SecondaryPlan {
             let mut placements = BTreeMap::<usize, Vec<usize>>::new();
             for (radix, start, end) in &segments {
                 let mut row = *start;
-                let order: &[usize] = if *radix == 15 {
-                    &[128, 87, 81]
-                } else {
-                    &[93, 81, 128, 87]
-                };
+                let order: &[usize] = &[128, 81, 93, 87, 66, 68, 18, 8];
                 while row < *end {
                     let bits = order.iter().copied().find(|bits| {
                         let rows = bits.div_ceil(*radix);
@@ -185,9 +181,10 @@ impl SecondaryPlan {
                                     1
                                 } else {
                                     match bits {
-                                        81 | 93 => 0,
+                                        66 | 81 => 0,
                                         87 => 2,
-                                        128 => 3,
+                                        8 | 68 | 128 => 3,
+                                        18 | 93 => 4,
                                         _ => return Err(Error::Synthesis),
                                     }
                                 };

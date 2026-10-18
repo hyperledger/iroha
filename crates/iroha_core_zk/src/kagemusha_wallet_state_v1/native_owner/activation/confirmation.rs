@@ -333,7 +333,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         &mut self,
         signed_wire: &[u8],
     ) -> Result<LedgerProgressV1, Error> {
-        let _payment = self.scheduler.payment();
         self.clean_activation_cursor(signed_wire)?;
         let (root, manifest) = self.sync_manifest()?;
         let address = manifest

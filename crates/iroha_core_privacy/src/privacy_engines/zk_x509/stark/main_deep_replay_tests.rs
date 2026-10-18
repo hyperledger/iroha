@@ -206,10 +206,7 @@ fn power_and_weighted_allocations_clear_live_cells_on_success_error_and_unwind()
 #[ignore = "optimized eight-column native19 DEEP arithmetic diagnostic; run --release"]
 fn native19_eight_column_deep_grouping_parity_and_timing() {
     use std::time::Instant;
-    assert!(
-        !cfg!(debug_assertions),
-        "run this diagnostic with --release"
-    );
+    crate::test_support::require_no_debug_assertions("run this diagnostic with --release");
     let length = (1 << 19) + MASK_DEGREE + 1;
     let points = [
         extension(113),

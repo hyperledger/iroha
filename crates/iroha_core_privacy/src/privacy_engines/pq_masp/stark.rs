@@ -87,7 +87,7 @@ pub(super) const PQ_MASP_PROFILE_CONSTRAINT_DEGREE_V1: u8 =
     PROOF_MANAGED_NOTE_MAX_CONSTRAINT_DEGREE_V1;
 const PROFILE_AUX_VM_CARRY_BRIDGE: usize = 0;
 /// Relation-local descriptor combined with the shared proof-driver geometry.
-pub(crate) const PQ_MASP_STARK_PROFILE_DESCRIPTOR_V1: &[u8] = b"pq-masp-stark-v1:relation=proof-managed-note:wire=PQA1-outer+PQS1-inner-v1:trace=2^14:base=556:profile-aux=1:profile-fixed=122:profile-constraints=1372:constraint-degree=4:max-inner-proof=9431915:sha256-wide-air:public-digest=sha3-384-opaque48(canonical-statement,PrivacyNativeConsensusBindingDigestV1):tree-depth=32:authorization=ML-DSA-65(statement-digest+native-consensus-binding-digest-v1+inner-proof-digest):encryption=ML-KEM-768+XChaCha20Poly1305:value=u128-checked:fee=separate:legacy=unrepresentable:governance=typed-lifecycle";
+pub const PQ_MASP_STARK_PROFILE_DESCRIPTOR_V1: &[u8] = b"pq-masp-stark-v1:relation=proof-managed-note:wire=PQA1-outer+PQS1-inner-v1:trace=2^14:base=556:profile-aux=1:profile-fixed=122:profile-constraints=1372:constraint-degree=4:max-inner-proof=9431915:sha256-wide-air:public-digest=sha3-384-opaque48(canonical-statement,PrivacyNativeConsensusBindingDigestV1):tree-depth=32:authorization=ML-DSA-65(statement-digest+native-consensus-binding-digest-v1+inner-proof-digest):encryption=ML-KEM-768+XChaCha20Poly1305:value=u128-checked:fee=separate:legacy=unrepresentable:governance=typed-lifecycle";
 const PQ_MASP_PARAMETERS_V1: aggregate::AggregateStarkParametersV1 =
     aggregate::AggregateStarkParametersV1 {
         proof_magic: *b"PQS1",
@@ -107,7 +107,7 @@ const PQ_MASP_PARAMETERS_V1: aggregate::AggregateStarkParametersV1 =
         maximum_aux_columns_per_instance: NOTE_COPY_AUX_WIDTH_V1 + PQ_MASP_PROFILE_AUX_WIDTH_V1,
         maximum_proof_bytes: super::wire::PQ_MASP_MAX_STARK_PROOF_BYTES_V1,
     };
-pub(crate) const PQ_MASP_DOMAINS_V1: aggregate::AggregateStarkDomainsV1 =
+pub const PQ_MASP_DOMAINS_V1: aggregate::AggregateStarkDomainsV1 =
     aggregate::AggregateStarkDomainsV1 {
         digest_context: TransparentStarkDigestContextV1::new(
             PrivacyProtocolIdV1::PqMaspStarkV1,
@@ -140,7 +140,7 @@ fn pq_masp_protocol_v1() -> ProofManagedNoteStarkProtocolV1 {
     }
 }
 /// Validate the complete compiled proof-system and relation profile.
-pub(crate) fn validate_pq_masp_stark_profile_v1() -> Result<(), ProofManagedNoteStarkErrorV1> {
+pub fn validate_pq_masp_stark_profile_v1() -> Result<(), ProofManagedNoteStarkErrorV1> {
     pq_masp_protocol_v1().validate()?;
     validate_reserved_vm_row_contract_v1()
 }
@@ -617,7 +617,7 @@ pub(super) fn prove_pq_masp_stark_v1_with_rng<R: TryRngCore>(
     ))
 }
 /// Verify the exact PQ-MASP proof against the statement and consensus binding.
-pub(crate) fn verify_pq_masp_stark_v1(
+pub fn verify_pq_masp_stark_v1(
     statement: &PqMaspStarkStatementV1,
     consensus_binding: &PrivacyNativeConsensusBindingV1,
     consensus_limits: &PrivacyConsensusLimitsV1,
@@ -822,7 +822,7 @@ mod tests {
         .expect("zero rows have the compiled profile shape");
         assert_eq!(residues.len(), PQ_MASP_PROFILE_CONSTRAINT_COUNT_V1);
         let profile_digest = crate::privacy_engines::proof_managed_note_stark::proof_managed_note_stark_profile_digest_v1(
-            PQ_MASP_DOMAINS_V1,
+            &PQ_MASP_DOMAINS_V1,
             PQ_MASP_STARK_PROFILE_DESCRIPTOR_V1,
         )
         .expect("profile digest");

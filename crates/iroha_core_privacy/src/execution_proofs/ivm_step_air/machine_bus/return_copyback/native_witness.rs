@@ -76,14 +76,15 @@ pub(in super::super) fn fill(
         let left = cell * 16 + half as u64 * 8;
         let mut borrow = 0_i64;
         for limb in 0..5 {
-            let difference =
-                ((left >> (limb * 8)) & 255) as i64 - ((end >> (limb * 8)) & 255) as i64 - borrow;
+            let difference = u64::cast_signed((left >> (limb * 8)) & 255)
+                - u64::cast_signed((end >> (limb * 8)) & 255)
+                - borrow;
             borrow = i64::from(difference < 0);
             bits(
                 &mut bank[limb * 8..(limb + 1) * 8],
                 difference.rem_euclid(256) as u64,
             );
-            bank[40 + limb] = F(borrow as u64);
+            bank[40 + limb] = F(i64::cast_unsigned(borrow));
         }
     }
     Ok(())

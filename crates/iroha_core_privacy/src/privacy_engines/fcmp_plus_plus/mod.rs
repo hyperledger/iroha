@@ -231,6 +231,10 @@ pub fn fcmp_compiled_profile_digest_v1() -> [u8; 32] {
 ///
 /// This is the shared validation boundary for O/I/C output components and the public O~/I~/R/C~/L
 /// relation. It rejects identity, small-order, non-canonical, and off-curve encodings.
+///
+/// # Errors
+/// Returns an encoding error for an off-curve, non-canonical or non-torsion-free point,
+/// or an identity error for the identity point.
 pub fn validate_fcmp_edwards_point_v1(
     point: [u8; FCMP_POINT_BYTES_V1],
 ) -> Result<(), FcmpNativeErrorV1> {
@@ -288,6 +292,10 @@ std::thread_local! {
 }
 impl FcmpOutputTupleV1 {
     /// Construct one strict FCMP++ `(O, I, C)` output tuple.
+    ///
+    /// # Errors
+    /// Returns an error if any component is not a canonical, torsion-free,
+    /// non-identity Edwards point.
     pub fn new(
         output_key: [u8; FCMP_POINT_BYTES_V1],
         linking_tag_generator: [u8; FCMP_POINT_BYTES_V1],
@@ -303,6 +311,10 @@ impl FcmpOutputTupleV1 {
         })
     }
     /// Decode exactly 96 canonical bytes.
+    ///
+    /// # Errors
+    /// Returns an error if the input length differs from the tuple width or any
+    /// decoded component fails the point checks in [`Self::new`].
     pub fn decode(bytes: &[u8]) -> Result<Self, FcmpNativeErrorV1> {
         if bytes.len() != FCMP_OUTPUT_TUPLE_BYTES_V1 {
             return Err(FcmpNativeErrorV1::OutputTupleLength {
@@ -387,6 +399,10 @@ pub struct FcmpTreeRootV1 {
 }
 impl FcmpTreeRootV1 {
     /// Validate a root against the curve selected by layer parity.
+    ///
+    /// # Errors
+    /// Returns an error if the layer count is outside the compiled range or the
+    /// point is not a canonical, non-identity point on the selected curve.
     pub fn new(layers: u8, point: [u8; FCMP_POINT_BYTES_V1]) -> Result<Self, FcmpNativeErrorV1> {
         validate_layer_count(layers)?;
         match curve_for_layers(layers) {

@@ -33,7 +33,7 @@ pub(super) fn witness(left: u64, right: u64, gas: u64) -> ([F; absolute::WIDTH],
 
 /// Candidate signed-MEAN result; both callers constrain the original source bits.
 pub(in super::super) fn result_witness(left: u64, right: u64) -> [F; WIDTH] {
-    let sum = i128::from(left as i64) + i128::from(right as i64);
+    let sum = i128::from(u64::cast_signed(left)) + i128::from(u64::cast_signed(right));
     let result = (sum / 2) as u64;
     let floor = (sum >> 1) as u64;
     let low_sum = left.wrapping_add(right);

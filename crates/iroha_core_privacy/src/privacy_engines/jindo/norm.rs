@@ -11,7 +11,7 @@ use super::{
 ///
 /// The ceiling itself is `26_726_985_705_641_897_984`, the exact integer
 /// represented by the selected parameter-search binary64 value.
-pub(crate) const JINDO_RESPONSE_NORM_SQUARED_BOUND_V1: [u64; 4] = [
+pub const JINDO_RESPONSE_NORM_SQUARED_BOUND_V1: [u64; 4] = [
     0x916f_f826_f100_0000,
     0x1967_4b2b_1d7c_fdc7,
     0x0000_0000_0000_0002,
@@ -20,7 +20,7 @@ pub(crate) const JINDO_RESPONSE_NORM_SQUARED_BOUND_V1: [u64; 4] = [
 /// Square of the exact pinned outer-relation norm ceiling.
 ///
 /// The ceiling itself is `4_811_910_842_327_350_272`.
-pub(crate) const JINDO_DECOMPOSED_NORM_SQUARED_BOUND_V1: [u64; 4] = [
+pub const JINDO_DECOMPOSED_NORM_SQUARED_BOUND_V1: [u64; 4] = [
     0x613e_e842_e210_0000,
     0x116b_644b_ffff_ff5b,
     0x0000_0000_0000_0000,
@@ -72,7 +72,7 @@ fn square_u128(value: u128) -> [u64; 4] {
     }
     product
 }
-pub(crate) fn two_norm_squared_is_below_v1(
+pub fn two_norm_squared_is_below_v1(
     polynomials: &[JindoRnsPolynomialV1],
     moduli: [JindoPrimeModulusV1; 2],
     bound_squared: [u64; 4],

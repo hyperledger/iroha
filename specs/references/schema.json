@@ -640,8 +640,8 @@
         "type": "SortedVec<AccountId>"
       },
       {
-        "name": "invalidated_multisig_proposal_hashes",
-        "type": "Vec<HashOf<Vec<InstructionBox>>>"
+        "name": "invalidated_multisig_proposal_ids",
+        "type": "Vec<Array<u8, 32>>"
       },
       {
         "name": "proposed_by",
@@ -2022,6 +2022,10 @@
       {
         "name": "intent_hash",
         "type": "Hash"
+      },
+      {
+        "name": "escrow_ids",
+        "type": "Vec<EscrowId>"
       }
     ]
   },
@@ -3083,6 +3087,636 @@
     ]
   },
   "BlockSubscriptionRequest": "NonZero<u64>",
+  "BondCallTerms": {
+    "Struct": [
+      {
+        "name": "first_call_date_ms",
+        "type": "u64"
+      },
+      {
+        "name": "price_bps",
+        "type": "u32"
+      },
+      {
+        "name": "notice_ms",
+        "type": "u64"
+      }
+    ]
+  },
+  "BondCalled": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "call_date_ms",
+        "type": "u64"
+      },
+      {
+        "name": "redemption_index",
+        "type": "u16"
+      }
+    ]
+  },
+  "BondCashflowClaimed": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "holder",
+        "type": "AccountId"
+      },
+      {
+        "name": "units",
+        "type": "Quantity"
+      },
+      {
+        "name": "amount",
+        "type": "Quantity"
+      }
+    ]
+  },
+  "BondCashflowClosed": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "unclaimed_holders",
+        "type": "u32"
+      },
+      {
+        "name": "unclaimed_amount",
+        "type": "Quantity"
+      }
+    ]
+  },
+  "BondCashflowFunded": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "amount",
+        "type": "Quantity"
+      }
+    ]
+  },
+  "BondCashflowKind": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Coupon"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Redemption"
+      }
+    ]
+  },
+  "BondCashflowRecorded": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "kind",
+        "type": "BondCashflowKind"
+      },
+      {
+        "name": "holders",
+        "type": "u32"
+      },
+      {
+        "name": "entitled_units",
+        "type": "Quantity"
+      },
+      {
+        "name": "amount_due",
+        "type": "Quantity"
+      }
+    ]
+  },
+  "BondCashflowState": {
+    "Struct": [
+      {
+        "name": "terms",
+        "type": "BondCashflowTerms"
+      },
+      {
+        "name": "status",
+        "type": "BondCashflowStatus"
+      },
+      {
+        "name": "recording",
+        "type": "Option<BondRecordingCursor>"
+      },
+      {
+        "name": "holders",
+        "type": "u32"
+      },
+      {
+        "name": "claimed_holders",
+        "type": "u32"
+      },
+      {
+        "name": "entitled_units",
+        "type": "Quantity"
+      },
+      {
+        "name": "amount_due",
+        "type": "Quantity"
+      },
+      {
+        "name": "funded",
+        "type": "Quantity"
+      },
+      {
+        "name": "paid",
+        "type": "Quantity"
+      },
+      {
+        "name": "recorded_at_ms",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "funded_at_ms",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "closed_at_ms",
+        "type": "Option<u64>"
+      },
+      {
+        "name": "evidence_sha256",
+        "type": "Option<Array<u8, 32>>"
+      }
+    ]
+  },
+  "BondCashflowStatus": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Scheduled"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Recording"
+      },
+      {
+        "discriminant": 2,
+        "tag": "Recorded"
+      },
+      {
+        "discriminant": 3,
+        "tag": "Funded"
+      },
+      {
+        "discriminant": 4,
+        "tag": "Closed"
+      },
+      {
+        "discriminant": 5,
+        "tag": "Defaulted"
+      },
+      {
+        "discriminant": 6,
+        "tag": "Cancelled"
+      }
+    ]
+  },
+  "BondCashflowTerms": {
+    "Struct": [
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "kind",
+        "type": "BondCashflowKind"
+      },
+      {
+        "name": "record_date_ms",
+        "type": "u64"
+      },
+      {
+        "name": "payment_date_ms",
+        "type": "u64"
+      },
+      {
+        "name": "amount_per_unit",
+        "type": "Quantity"
+      }
+    ]
+  },
+  "BondDayCount": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "ActActIcma"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Thirty360"
+      },
+      {
+        "discriminant": 2,
+        "tag": "Act360"
+      },
+      {
+        "discriminant": 3,
+        "tag": "Act365Fixed"
+      }
+    ]
+  },
+  "BondDefaulted": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "evidence_sha256",
+        "type": "Array<u8, 32>"
+      }
+    ]
+  },
+  "BondEvent": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Registered",
+        "type": "BondRegistered"
+      },
+      {
+        "discriminant": 1,
+        "tag": "CashflowRecorded",
+        "type": "BondCashflowRecorded"
+      },
+      {
+        "discriminant": 2,
+        "tag": "CashflowFunded",
+        "type": "BondCashflowFunded"
+      },
+      {
+        "discriminant": 3,
+        "tag": "CashflowClaimed",
+        "type": "BondCashflowClaimed"
+      },
+      {
+        "discriminant": 4,
+        "tag": "CashflowClosed",
+        "type": "BondCashflowClosed"
+      },
+      {
+        "discriminant": 5,
+        "tag": "Called",
+        "type": "BondCalled"
+      },
+      {
+        "discriminant": 6,
+        "tag": "Defaulted",
+        "type": "BondDefaulted"
+      },
+      {
+        "discriminant": 7,
+        "tag": "PayingAgentReplaced",
+        "type": "BondPayingAgentReplaced"
+      },
+      {
+        "discriminant": 8,
+        "tag": "TreasuryUnitsRetired",
+        "type": "BondTreasuryUnitsRetired"
+      }
+    ]
+  },
+  "BondIdentifiers": {
+    "Struct": [
+      {
+        "name": "isin",
+        "type": "Option<String>"
+      },
+      {
+        "name": "cfi",
+        "type": "Option<String>"
+      },
+      {
+        "name": "issuer_lei",
+        "type": "Option<String>"
+      },
+      {
+        "name": "bdt_version",
+        "type": "String"
+      },
+      {
+        "name": "bdt_document_sha256",
+        "type": "Option<Array<u8, 32>>"
+      }
+    ]
+  },
+  "BondInstructionBox": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Register",
+        "type": "RegisterBond"
+      },
+      {
+        "discriminant": 1,
+        "tag": "RecordCashflow",
+        "type": "RecordBondCashflow"
+      },
+      {
+        "discriminant": 2,
+        "tag": "FundCashflow",
+        "type": "FundBondCashflow"
+      },
+      {
+        "discriminant": 3,
+        "tag": "ClaimCashflow",
+        "type": "ClaimBondCashflow"
+      },
+      {
+        "discriminant": 4,
+        "tag": "CloseCashflow",
+        "type": "CloseBondCashflow"
+      },
+      {
+        "discriminant": 5,
+        "tag": "Call",
+        "type": "CallBond"
+      },
+      {
+        "discriminant": 6,
+        "tag": "DeclareDefault",
+        "type": "DeclareBondDefault"
+      },
+      {
+        "discriminant": 7,
+        "tag": "ReplacePayingAgent",
+        "type": "ReplaceBondPayingAgent"
+      },
+      {
+        "discriminant": 8,
+        "tag": "RetireTreasuryUnits",
+        "type": "RetireBondTreasuryUnits"
+      }
+    ]
+  },
+  "BondLifecycle": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Active"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Called"
+      },
+      {
+        "discriminant": 2,
+        "tag": "Matured"
+      },
+      {
+        "discriminant": 3,
+        "tag": "Defaulted"
+      }
+    ]
+  },
+  "BondPayingAgentReplaced": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "previous",
+        "type": "AccountId"
+      },
+      {
+        "name": "paying_agent",
+        "type": "AccountId"
+      }
+    ]
+  },
+  "BondRecord": {
+    "Struct": [
+      {
+        "name": "id",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "vault",
+        "type": "AccountId"
+      },
+      {
+        "name": "terms",
+        "type": "BondTerms"
+      },
+      {
+        "name": "state",
+        "type": "BondState"
+      }
+    ]
+  },
+  "BondRecordingCursor": {
+    "Struct": [
+      {
+        "name": "phase",
+        "type": "BondRecordingPhase"
+      },
+      {
+        "name": "after_asset",
+        "type": "Option<AssetId>"
+      },
+      {
+        "name": "after_escrow",
+        "type": "Option<EscrowId>"
+      }
+    ]
+  },
+  "BondRecordingPhase": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "Holders"
+      },
+      {
+        "discriminant": 1,
+        "tag": "Escrows"
+      }
+    ]
+  },
+  "BondRegistered": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "issuer",
+        "type": "AccountId"
+      },
+      {
+        "name": "paying_agent",
+        "type": "AccountId"
+      },
+      {
+        "name": "outstanding_units",
+        "type": "Quantity"
+      },
+      {
+        "name": "cashflows",
+        "type": "u16"
+      }
+    ]
+  },
+  "BondState": {
+    "Struct": [
+      {
+        "name": "lifecycle",
+        "type": "BondLifecycle"
+      },
+      {
+        "name": "outstanding_units",
+        "type": "Quantity"
+      },
+      {
+        "name": "redeemed_units",
+        "type": "Quantity"
+      },
+      {
+        "name": "retired_units",
+        "type": "Quantity"
+      },
+      {
+        "name": "transfers_frozen",
+        "type": "bool"
+      },
+      {
+        "name": "cashflows",
+        "type": "Vec<BondCashflowState>"
+      }
+    ]
+  },
+  "BondTerms": {
+    "Struct": [
+      {
+        "name": "issuer",
+        "type": "AccountId"
+      },
+      {
+        "name": "paying_agent",
+        "type": "AccountId"
+      },
+      {
+        "name": "payment_asset",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "denomination",
+        "type": "Quantity"
+      },
+      {
+        "name": "coupon_rate_bps",
+        "type": "u32"
+      },
+      {
+        "name": "coupon_frequency",
+        "type": "u8"
+      },
+      {
+        "name": "day_count",
+        "type": "BondDayCount"
+      },
+      {
+        "name": "issue_date_ms",
+        "type": "u64"
+      },
+      {
+        "name": "maturity_date_ms",
+        "type": "u64"
+      },
+      {
+        "name": "redemption_price_bps",
+        "type": "u32"
+      },
+      {
+        "name": "payment_grace_ms",
+        "type": "u64"
+      },
+      {
+        "name": "call",
+        "type": "Option<BondCallTerms>"
+      },
+      {
+        "name": "cashflows",
+        "type": "Vec<BondCashflowTerms>"
+      },
+      {
+        "name": "identifiers",
+        "type": "BondIdentifiers"
+      },
+      {
+        "name": "terms_sha256",
+        "type": "Array<u8, 32>"
+      }
+    ]
+  },
+  "BondTreasuryUnitsRetired": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "issuer",
+        "type": "AccountId"
+      },
+      {
+        "name": "quantity",
+        "type": "Quantity"
+      },
+      {
+        "name": "outstanding_units",
+        "type": "Quantity"
+      },
+      {
+        "name": "retired_units",
+        "type": "Quantity"
+      },
+      {
+        "name": "cancelled_cashflows",
+        "type": "u16"
+      }
+    ]
+  },
   "BridgeEvent": {
     "Enum": [
       {
@@ -3282,6 +3916,18 @@
       {
         "name": "wire_schema_hash",
         "type": "String"
+      }
+    ]
+  },
+  "CallBond": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "call_date_ms",
+        "type": "u64"
       }
     ]
   },
@@ -3747,6 +4393,22 @@
       }
     ]
   },
+  "CertifiedTransactionInclusionV1": {
+    "Struct": [
+      {
+        "name": "entry_proof",
+        "type": "MerkleProof<TransactionEntrypoint>"
+      },
+      {
+        "name": "output",
+        "type": "ExecutionOutputV1"
+      },
+      {
+        "name": "output_proof",
+        "type": "MerkleProof<ExecutionOutputV1>"
+      }
+    ]
+  },
   "ChainId": "String",
   "ChainParamsRecord": {
     "Struct": [
@@ -3872,6 +4534,22 @@
       }
     ]
   },
+  "ClaimBondCashflow": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "holder",
+        "type": "AccountId"
+      }
+    ]
+  },
   "ClassRentRate": {
     "Struct": [
       {
@@ -3881,6 +4559,18 @@
       {
         "name": "rent_per_gib_month",
         "type": "XorQuantity"
+      }
+    ]
+  },
+  "CloseBondCashflow": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
       }
     ]
   },
@@ -5411,6 +6101,11 @@
         "discriminant": 24,
         "tag": "KagemushaLoadCommitted",
         "type": "KagemushaLoadCommittedV1"
+      },
+      {
+        "discriminant": 25,
+        "tag": "Bond",
+        "type": "BondEvent"
       }
     ]
   },
@@ -5549,6 +6244,11 @@
         "discriminant": 26,
         "tag": "KagemushaLoadCommitted",
         "type": "Option<Array<u8, 32>>"
+      },
+      {
+        "discriminant": 27,
+        "tag": "Bond",
+        "type": "Option<AssetDefinitionId>"
       }
     ]
   },
@@ -5562,6 +6262,22 @@
       {
         "name": "instructions",
         "type": "ExecutionStep"
+      }
+    ]
+  },
+  "DeclareBondDefault": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "evidence_sha256",
+        "type": "Array<u8, 32>"
       }
     ]
   },
@@ -8805,6 +9521,14 @@
       }
     ]
   },
+  "FindBondById": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
   "FindContractManifestByArtifactId": {
     "Struct": [
       {
@@ -9184,6 +9908,11 @@
         "discriminant": 59,
         "tag": "SettlementReceipt",
         "type": "SettlementId"
+      },
+      {
+        "discriminant": 60,
+        "tag": "Bond",
+        "type": "AssetDefinitionId"
       }
     ]
   },
@@ -10044,6 +10773,22 @@
       {
         "discriminant": 3,
         "tag": "critical"
+      }
+    ]
+  },
+  "FundBondCashflow": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      },
+      {
+        "name": "source",
+        "type": "AssetId"
       }
     ]
   },
@@ -12340,6 +13085,26 @@
       }
     ]
   },
+  "KagemushaWalletLedgerFinalityV1": {
+    "Struct": [
+      {
+        "name": "version",
+        "type": "u16"
+      },
+      {
+        "name": "entrypoint_hash",
+        "type": "HashOf<TransactionEntrypoint>"
+      },
+      {
+        "name": "certificate",
+        "type": "SumeragiCommitCertificateV1"
+      },
+      {
+        "name": "inclusion",
+        "type": "CertifiedTransactionInclusionV1"
+      }
+    ]
+  },
   "KagemushaWalletLedgerKeyV1": "Array<u8, 97>",
   "KagemushaWalletLedgerV1": {
     "Struct": [
@@ -14126,6 +14891,10 @@
         "type": "AccountId"
       },
       {
+        "name": "proposal_id",
+        "type": "MultisigProposalId"
+      },
+      {
         "name": "instructions_hash",
         "type": "HashOf<Vec<InstructionBox>>"
       }
@@ -14136,6 +14905,10 @@
       {
         "name": "account",
         "type": "AccountId"
+      },
+      {
+        "name": "proposal_id",
+        "type": "MultisigProposalId"
       },
       {
         "name": "instructions_hash",
@@ -14208,8 +14981,26 @@
       }
     ]
   },
+  "MultisigProposalId": "Array<u8, 32>",
+  "MultisigProposalNonce": "Array<u8, 32>",
   "MultisigProposalValue": {
     "Struct": [
+      {
+        "name": "network_id",
+        "type": "HashOf<BlockHeader>"
+      },
+      {
+        "name": "proposal_nonce",
+        "type": "MultisigProposalNonce"
+      },
+      {
+        "name": "proposal_id",
+        "type": "MultisigProposalId"
+      },
+      {
+        "name": "transaction_ttl_ms",
+        "type": "Option<NonZero<u64>>"
+      },
       {
         "name": "instructions",
         "type": "Vec<InstructionBox>"
@@ -14225,10 +15016,6 @@
       {
         "name": "approvals",
         "type": "SortedVec<AccountId>"
-      },
-      {
-        "name": "is_relayed",
-        "type": "Option<bool>"
       }
     ]
   },
@@ -14237,6 +15024,10 @@
       {
         "name": "account",
         "type": "AccountId"
+      },
+      {
+        "name": "proposal_nonce",
+        "type": "MultisigProposalNonce"
       },
       {
         "name": "instructions",
@@ -17541,6 +18332,12 @@
   },
   "Option<BlockStatus>": {
     "Option": "BlockStatus"
+  },
+  "Option<BondCallTerms>": {
+    "Option": "BondCallTerms"
+  },
+  "Option<BondRecordingCursor>": {
+    "Option": "BondRecordingCursor"
   },
   "Option<BridgeProofRecord>": {
     "Option": "BridgeProofRecord"
@@ -22719,6 +23516,11 @@
         "discriminant": 45,
         "tag": "FeeSponsorProgramId",
         "type": "Vec<FeeSponsorProgramId>"
+      },
+      {
+        "discriminant": 46,
+        "tag": "BondRecord",
+        "type": "Vec<BondRecord>"
       }
     ]
   },
@@ -22832,6 +23634,18 @@
       }
     ]
   },
+  "RecordBondCashflow": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "index",
+        "type": "u16"
+      }
+    ]
+  },
   "RecoveryGuardian": {
     "Struct": [
       {
@@ -22841,6 +23655,18 @@
       {
         "name": "weight",
         "type": "u16"
+      }
+    ]
+  },
+  "RegisterBond": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "terms",
+        "type": "BondTerms"
       }
     ]
   },
@@ -23312,6 +24138,18 @@
       }
     ]
   },
+  "ReplaceBondPayingAgent": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "paying_agent",
+        "type": "AccountId"
+      }
+    ]
+  },
   "ReplicationOrderId": "Array<u8, 32>",
   "RepoAccountEvent": {
     "Enum": [
@@ -23529,6 +24367,10 @@
       {
         "name": "margin_frequency_secs",
         "type": "u64"
+      },
+      {
+        "name": "allow_early_repayment",
+        "type": "bool"
       }
     ]
   },
@@ -24486,6 +25328,18 @@
       }
     ]
   },
+  "RetireBondTreasuryUnits": {
+    "Struct": [
+      {
+        "name": "bond",
+        "type": "AssetDefinitionId"
+      },
+      {
+        "name": "quantity",
+        "type": "Quantity"
+      }
+    ]
+  },
   "RiskClass": {
     "Enum": [
       {
@@ -25298,6 +26152,71 @@
         "discriminant": 28,
         "tag": "revision_quarantined",
         "type": "SccpRevisionQuarantinedV1"
+      },
+      {
+        "discriminant": 29,
+        "tag": "reconciliation_opened",
+        "type": "SccpReconciliationOpenedV1"
+      },
+      {
+        "discriminant": 30,
+        "tag": "forged_mint_proven",
+        "type": "SccpForgedMintProvenV1"
+      },
+      {
+        "discriminant": 31,
+        "tag": "reconciliation_settled",
+        "type": "SccpReconciliationSettledV1"
+      },
+      {
+        "discriminant": 32,
+        "tag": "reconciled_claim_settled",
+        "type": "SccpReconciledClaimSettledV1"
+      },
+      {
+        "discriminant": 33,
+        "tag": "inbound_stranded",
+        "type": "SccpInboundStrandedV1"
+      },
+      {
+        "discriminant": 34,
+        "tag": "pause_panel_seated",
+        "type": "SccpPausePanelSeatedV1"
+      },
+      {
+        "discriminant": 35,
+        "tag": "pause_panel_unavailable",
+        "type": "SccpPausePanelUnavailableV1"
+      },
+      {
+        "discriminant": 36,
+        "tag": "pause_panel_seat_accepted",
+        "type": "SccpPausePanelSeatAcceptedV1"
+      },
+      {
+        "discriminant": 37,
+        "tag": "fast_pause_endorsed",
+        "type": "SccpFastPauseEndorsedV1"
+      },
+      {
+        "discriminant": 38,
+        "tag": "fast_pause_no_result",
+        "type": "SccpFastPauseNoResultV1"
+      },
+      {
+        "discriminant": 39,
+        "tag": "fast_pause_enacted",
+        "type": "SccpFastPauseEnactedV1"
+      },
+      {
+        "discriminant": 40,
+        "tag": "fast_pause_retained",
+        "type": "SccpFastPauseRetainedV1"
+      },
+      {
+        "discriminant": 41,
+        "tag": "fast_pause_cleared",
+        "type": "SccpFastPauseClearedV1"
       }
     ]
   },
@@ -25431,10 +26350,131 @@
         {
           "mask": 268435456,
           "name": "RevisionQuarantined"
+        },
+        {
+          "mask": 536870912,
+          "name": "ReconciliationOpened"
+        },
+        {
+          "mask": 1073741824,
+          "name": "ForgedMintProven"
+        },
+        {
+          "mask": 2147483648,
+          "name": "ReconciliationSettled"
+        },
+        {
+          "mask": 4294967296,
+          "name": "ReconciledClaimSettled"
+        },
+        {
+          "mask": 8589934592,
+          "name": "InboundStranded"
+        },
+        {
+          "mask": 17179869184,
+          "name": "PausePanelSeated"
+        },
+        {
+          "mask": 34359738368,
+          "name": "PausePanelUnavailable"
+        },
+        {
+          "mask": 68719476736,
+          "name": "PausePanelSeatAccepted"
+        },
+        {
+          "mask": 137438953472,
+          "name": "FastPauseEndorsed"
+        },
+        {
+          "mask": 274877906944,
+          "name": "FastPauseNoResult"
+        },
+        {
+          "mask": 549755813888,
+          "name": "FastPauseEnacted"
+        },
+        {
+          "mask": 1099511627776,
+          "name": "FastPauseRetained"
+        },
+        {
+          "mask": 2199023255552,
+          "name": "FastPauseCleared"
         }
       ],
-      "repr": "u32"
+      "repr": "u64"
     }
+  },
+  "SccpFastPauseCertificateId": "Array<u8, 32>",
+  "SccpFastPauseClearedReasonV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "lifted"
+      }
+    ]
+  },
+  "SccpFastPauseClearedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "part",
+        "type": "SccpFastPausePartV1"
+      },
+      {
+        "name": "reason",
+        "type": "SccpFastPauseClearedReasonV1"
+      }
+    ]
+  },
+  "SccpFastPauseEnactedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "certificate_id",
+        "type": "SccpFastPauseCertificateId"
+      },
+      {
+        "name": "until_ms",
+        "type": "u64"
+      },
+      {
+        "name": "renewal",
+        "type": "bool"
+      }
+    ]
+  },
+  "SccpFastPauseEndorsedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "panel_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "endorser",
+        "type": "AccountId"
+      },
+      {
+        "name": "incident_digest",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "count",
+        "type": "u32"
+      }
+    ]
   },
   "SccpFastPauseLapsedV1": {
     "Struct": [
@@ -25449,6 +26489,107 @@
       {
         "name": "until_ms",
         "type": "u64"
+      }
+    ]
+  },
+  "SccpFastPauseNoResultReasonV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "expired"
+      },
+      {
+        "discriminant": 1,
+        "tag": "panel_changed"
+      },
+      {
+        "discriminant": 2,
+        "tag": "insufficient_eligible_endorsements"
+      },
+      {
+        "discriminant": 3,
+        "tag": "head_changed"
+      },
+      {
+        "discriminant": 4,
+        "tag": "suspended"
+      },
+      {
+        "discriminant": 5,
+        "tag": "renewal_window_closed"
+      },
+      {
+        "discriminant": 6,
+        "tag": "no_live_revision"
+      },
+      {
+        "discriminant": 7,
+        "tag": "control_capacity"
+      },
+      {
+        "discriminant": 8,
+        "tag": "counter_exhausted"
+      }
+    ]
+  },
+  "SccpFastPauseNoResultV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "panel_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "reason",
+        "type": "SccpFastPauseNoResultReasonV1"
+      }
+    ]
+  },
+  "SccpFastPausePartV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "taira"
+      },
+      {
+        "discriminant": 1,
+        "tag": "destination",
+        "type": "SccpFastPausePartV1::Destination"
+      }
+    ]
+  },
+  "SccpFastPausePartV1::Destination": {
+    "Struct": [
+      {
+        "name": "revision",
+        "type": "u32"
+      }
+    ]
+  },
+  "SccpFastPauseRetainedReasonV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "ballot_opened_before_or_at_enactment"
+      }
+    ]
+  },
+  "SccpFastPauseRetainedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "part",
+        "type": "SccpFastPausePartV1"
+      },
+      {
+        "name": "reason",
+        "type": "SccpFastPauseRetainedReasonV1"
       }
     ]
   },
@@ -25489,6 +26630,26 @@
       {
         "name": "reason",
         "type": "SccpFinalityDegradedReasonV1"
+      }
+    ]
+  },
+  "SccpForgedMintProvenV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "revision",
+        "type": "u32"
+      },
+      {
+        "name": "message_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "amount",
+        "type": "u128"
       }
     ]
   },
@@ -25644,6 +26805,21 @@
       {
         "discriminant": 3,
         "tag": "parameters"
+      },
+      {
+        "discriminant": 5,
+        "tag": "forgery_hold",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "discriminant": 6,
+        "tag": "fast_hold",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "discriminant": 7,
+        "tag": "fast_pause_control",
+        "type": "SccpNetworkV1"
       }
     ]
   },
@@ -25756,6 +26932,30 @@
       {
         "name": "fee",
         "type": "u128"
+      }
+    ]
+  },
+  "SccpInboundStrandedV1": {
+    "Struct": [
+      {
+        "name": "message_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "revision",
+        "type": "u32"
+      },
+      {
+        "name": "amount",
+        "type": "u128"
+      },
+      {
+        "name": "reason",
+        "type": "SccpBounceReasonV1"
       }
     ]
   },
@@ -25993,6 +27193,82 @@
       }
     ]
   },
+  "SccpPausePanelSeatAcceptedV1": {
+    "Struct": [
+      {
+        "name": "panel_seq",
+        "type": "u64"
+      },
+      {
+        "name": "member",
+        "type": "AccountId"
+      }
+    ]
+  },
+  "SccpPausePanelSeatedV1": {
+    "Struct": [
+      {
+        "name": "panel_seq",
+        "type": "u64"
+      },
+      {
+        "name": "pulse_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "primary_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "backup_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "seated_height",
+        "type": "u64"
+      },
+      {
+        "name": "seated_at_ms",
+        "type": "u64"
+      },
+      {
+        "name": "accept_until_ms",
+        "type": "u64"
+      },
+      {
+        "name": "term_ends_at_ms",
+        "type": "u64"
+      },
+      {
+        "name": "drawn_count",
+        "type": "u32"
+      }
+    ]
+  },
+  "SccpPausePanelUnavailableReasonV1": {
+    "Enum": [
+      {
+        "discriminant": 0,
+        "tag": "insufficient_candidates"
+      },
+      {
+        "discriminant": 1,
+        "tag": "snapshot_too_large"
+      }
+    ]
+  },
+  "SccpPausePanelUnavailableV1": {
+    "Struct": [
+      {
+        "name": "pulse_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "reason",
+        "type": "SccpPausePanelUnavailableReasonV1"
+      }
+    ]
+  },
   "SccpRecipientRegisteredV1": {
     "Struct": [
       {
@@ -26006,6 +27282,70 @@
       {
         "name": "message_id",
         "type": "Option<Array<u8, 32>>"
+      }
+    ]
+  },
+  "SccpReconciledClaimSettledV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "revision",
+        "type": "u32"
+      },
+      {
+        "name": "message_id",
+        "type": "Array<u8, 32>"
+      },
+      {
+        "name": "amount",
+        "type": "u128"
+      },
+      {
+        "name": "payout",
+        "type": "u128"
+      }
+    ]
+  },
+  "SccpReconciliationOpenedV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "revision",
+        "type": "u32"
+      },
+      {
+        "name": "opened_at_ms",
+        "type": "u64"
+      },
+      {
+        "name": "closes_at_ms",
+        "type": "u64"
+      }
+    ]
+  },
+  "SccpReconciliationSettledV1": {
+    "Struct": [
+      {
+        "name": "network",
+        "type": "SccpNetworkV1"
+      },
+      {
+        "name": "revision",
+        "type": "u32"
+      },
+      {
+        "name": "backing",
+        "type": "u128"
+      },
+      {
+        "name": "forged_supply",
+        "type": "u128"
       }
     ]
   },
@@ -27249,6 +28589,11 @@
         "discriminant": 101,
         "tag": "FindAssetDefinitionDirectHome",
         "type": "FindAssetDefinitionDirectHome"
+      },
+      {
+        "discriminant": 102,
+        "tag": "FindBondById",
+        "type": "FindBondById"
       }
     ]
   },
@@ -27748,6 +29093,11 @@
         "discriminant": 98,
         "tag": "AssetDefinitionDirectHome",
         "type": "AssetDefinitionDirectHomeV1"
+      },
+      {
+        "discriminant": 99,
+        "tag": "BondRecord",
+        "type": "BondRecord"
       }
     ]
   },
@@ -33301,6 +34651,15 @@
   "Vec<BlockHeader>": {
     "Vec": "BlockHeader"
   },
+  "Vec<BondCashflowState>": {
+    "Vec": "BondCashflowState"
+  },
+  "Vec<BondCashflowTerms>": {
+    "Vec": "BondCashflowTerms"
+  },
+  "Vec<BondRecord>": {
+    "Vec": "BondRecord"
+  },
   "Vec<CheckpointDecision>": {
     "Vec": "CheckpointDecision"
   },
@@ -33396,6 +34755,9 @@
   },
   "Vec<EntrypointValueTypeNodeV1>": {
     "Vec": "EntrypointValueTypeNodeV1"
+  },
+  "Vec<EscrowId>": {
+    "Vec": "EscrowId"
   },
   "Vec<EventFilterBox>": {
     "Vec": "EventFilterBox"
@@ -33501,9 +34863,6 @@
   },
   "Vec<HashOf<TransactionResult>>": {
     "Vec": "HashOf<TransactionResult>"
-  },
-  "Vec<HashOf<Vec<InstructionBox>>>": {
-    "Vec": "HashOf<Vec<InstructionBox>>"
   },
   "Vec<InitialProviderAdmissionV1>": {
     "Vec": "InitialProviderAdmissionV1"

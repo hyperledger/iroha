@@ -39,7 +39,7 @@ pub(super) struct MainCaDeepContributionV1<'a> {
 
 /// Original MAIN composition and FRI-mask roots waiting for the CA checkpoint.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct MainAwaitingJointPointV1<'a> {
+pub struct MainAwaitingJointPointV1<'a> {
     phase: ZkX509MainCompositionPhaseV1<'a>,
     ca_plan: main_ca_links::MainCaPrivatePlanV1,
     ca_originals: main_ca_links::MainCaOriginalAuxiliaryV1,
@@ -53,7 +53,7 @@ pub(crate) struct MainAwaitingJointPointV1<'a> {
 
 /// MAIN's complete local DEEP record and 24 translated original openings.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct MainAwaitingJointOpeningsV1<'a> {
+pub struct MainAwaitingJointOpeningsV1<'a> {
     oracles: MainAwaitingJointPointV1<'a>,
     point: E,
     deep: aggregate::AggregateDeepProofV1,
@@ -172,7 +172,7 @@ impl<'a> ZkX509MainCompositionPhaseV1<'a> {
         let commitment_timer = PhaseTimerV1::start_v1(PhaseV1::CompositionCommitment);
         let composition_roots = vec![
             aggregate::streaming_composition_commitment_v1(
-                main_domains_v1(proof_instance),
+                &main_domains_v1(proof_instance),
                 0,
                 &composition.evaluations[0],
                 &[],
@@ -183,7 +183,7 @@ impl<'a> ZkX509MainCompositionPhaseV1<'a> {
         aggregate::absorb_composition_roots_v1(
             &mut self.transcript,
             AGGREGATE_PARAMETERS_V1,
-            main_domains_v1(proof_instance),
+            &main_domains_v1(proof_instance),
             &composition_roots,
         )
         .map_err(map_aggregate_error_v1)?;
@@ -193,7 +193,7 @@ impl<'a> ZkX509MainCompositionPhaseV1<'a> {
         composition_timer.complete_v1();
         let fri_masks = aggregate::build_fri_mask_oracles_v1(
             AGGREGATE_PARAMETERS_V1,
-            main_domains_v1(proof_instance),
+            &main_domains_v1(proof_instance),
             &shared,
             rng,
         )
@@ -205,7 +205,7 @@ impl<'a> ZkX509MainCompositionPhaseV1<'a> {
         aggregate::absorb_fri_mask_roots_v1(
             &mut self.transcript,
             AGGREGATE_PARAMETERS_V1,
-            main_domains_v1(proof_instance),
+            &main_domains_v1(proof_instance),
             &fri_mask_roots,
         )
         .map_err(map_aggregate_error_v1)?;
@@ -416,7 +416,7 @@ pub(super) struct MainCaOpenedContributionV1<'a> {
 }
 
 /// Canonically decoded MAIN proof at the same two-oracle checkpoint as prover.
-pub(crate) struct MainJointVerifierOraclesV1<'a> {
+pub struct MainJointVerifierOraclesV1<'a> {
     statement: &'a IrohaZkX509StarkP256StatementV1,
     rfc_statement: &'a ZkX509Rfc5280StatementV1,
     binding: ZkX509CredentialPreAuxBindingV1,
@@ -437,7 +437,7 @@ pub(crate) struct MainJointVerifierOraclesV1<'a> {
 
 /// The normal original DEEP/key records have entered the local transcript;
 /// neither FRI nor a translated opening is accepted before the paired bind.
-pub(crate) struct MainJointVerifierDeepV1<'a> {
+pub struct MainJointVerifierDeepV1<'a> {
     oracles: MainJointVerifierOraclesV1<'a>,
     point: E,
     openings: Option<JointOriginalOpeningsV1>,
@@ -492,7 +492,7 @@ impl<'a> MainJointVerifierOraclesV1<'a> {
         )?;
         aggregate::absorb_base_roots_v1(
             &mut transcript,
-            main_domains_v1(proof_instance),
+            &main_domains_v1(proof_instance),
             &proof.aggregate.trace_groups,
         )
         .map_err(map_aggregate_error_v1)?;
@@ -500,7 +500,7 @@ impl<'a> MainJointVerifierOraclesV1<'a> {
             .map_err(map_credential_pre_aux_error_v1)?;
         aggregate::absorb_aux_roots_v1(
             &mut transcript,
-            main_domains_v1(proof_instance),
+            &main_domains_v1(proof_instance),
             &proof.aggregate.trace_groups,
         )
         .map_err(map_aggregate_error_v1)?;
@@ -531,14 +531,14 @@ impl<'a> MainJointVerifierOraclesV1<'a> {
         aggregate::absorb_composition_roots_v1(
             &mut transcript,
             AGGREGATE_PARAMETERS_V1,
-            main_domains_v1(proof_instance),
+            &main_domains_v1(proof_instance),
             &proof.aggregate.composition_roots,
         )
         .map_err(map_aggregate_error_v1)?;
         aggregate::absorb_fri_mask_roots_v1(
             &mut transcript,
             AGGREGATE_PARAMETERS_V1,
-            main_domains_v1(proof_instance),
+            &main_domains_v1(proof_instance),
             &proof.aggregate.fri_mask_roots,
         )
         .map_err(map_aggregate_error_v1)?;
@@ -662,7 +662,7 @@ impl MainJointVerifierDeepV1<'_> {
         let (fri_betas, terminals) = aggregate::verify_fri_commitments_v1(
             &stage.proof.aggregate,
             AGGREGATE_PARAMETERS_V1,
-            main_domains_v1(proof_instance),
+            &main_domains_v1(proof_instance),
             &shared,
             &mut stage.transcript,
         )
@@ -679,7 +679,7 @@ impl MainJointVerifierDeepV1<'_> {
         aggregate::verify_all_merkle_openings_v1(
             &stage.proof.aggregate,
             AGGREGATE_PARAMETERS_V1,
-            main_domains_v1(proof_instance),
+            &main_domains_v1(proof_instance),
             &shared,
             &indices,
         )
@@ -747,7 +747,7 @@ impl MainJointVerifierDeepV1<'_> {
 
 /// Public roots used only to reconstruct the paired transcript. Neither this
 /// decode nor the returned binding constitutes acceptance of either subproof.
-pub(crate) fn main_joint_auxiliary_from_proofs_v1(
+pub fn main_joint_auxiliary_from_proofs_v1(
     binding: ZkX509CredentialPreAuxBindingV1,
     main: &[u8],
     ca: &[u8],
@@ -768,7 +768,7 @@ pub(crate) fn main_joint_auxiliary_from_proofs_v1(
 /// Complete both original subproofs using one shared point and paired openings.
 /// Calling this function never changes the production activation policy.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn finish_joint_main_ca_v1<R: TryRngCore>(
+pub fn finish_joint_main_ca_v1<R: TryRngCore>(
     main: ZkX509MainCompositionPhaseV1<'_>,
     ca: CaAwaitingMainAuxiliaryV1,
     rng: &mut R,

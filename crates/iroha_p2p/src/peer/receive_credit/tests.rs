@@ -484,31 +484,39 @@ async fn real_partial_duplex_grants_other_classes_past_blocked_body_then_service
     );
     let caps = crate::network::TopicFrameCaps::uniform(1024);
     let mut sa = CreditStream::<Cipher, Fixture>::new(
-        Box::new(ra),
-        Box::new(wa),
-        pa.bind(b.id()).unwrap(),
+        negotiation::OwnedTransport {
+            read: Box::new(ra),
+            write: Box::new(wa),
+            source: pa.bind(b.id()).unwrap(),
+        },
         ba,
         cipher.clone(),
         b,
         100,
-        caps,
-        [1024; CLASS_COUNT],
-        limits,
-        Duration::from_secs(20),
+        stream::CreditStreamConfig {
+            caps,
+            maximum: [1024; CLASS_COUNT],
+            limits,
+            idle_timeout: Duration::from_secs(20),
+        },
     )
     .unwrap();
     let mut sb = CreditStream::<Cipher, Fixture>::new(
-        Box::new(rb),
-        Box::new(wb),
-        pb.bind(a.id()).unwrap(),
+        negotiation::OwnedTransport {
+            read: Box::new(rb),
+            write: Box::new(wb),
+            source: pb.bind(a.id()).unwrap(),
+        },
         bb,
         cipher,
         a,
         101,
-        caps,
-        [1024; CLASS_COUNT],
-        limits,
-        Duration::from_secs(20),
+        stream::CreditStreamConfig {
+            caps,
+            maximum: [1024; CLASS_COUNT],
+            limits,
+            idle_timeout: Duration::from_secs(20),
+        },
     )
     .unwrap();
     let mut first_ack = enqueue(&mut sa, Fixture::Payload(1));

@@ -65,7 +65,7 @@ fn bootstrap_initial_state_and_rehashed_invalid_states() {
     assert_eq!(lanes.len(), 5);
     let (cs, _) = configure::<Fp, BootstrapCircuit>(&circuit).unwrap();
     assert_eq!(cs.instance_lengths(), &[1]);
-    for index in (core_index::BALANCE..=core_index::BLACKLIST_ISSUED_AT).chain([
+    for index in (core_index::BALANCE..=core_index::QUOTA_SHARE_EXPIRY).chain([
         core_index::POLICY_EPOCH,
         core_index::TIME_FLOOR,
         core_index::STATE_NONCE,
@@ -84,7 +84,7 @@ fn bootstrap_initial_state_and_rehashed_invalid_states() {
             "rehashed core {index}"
         );
     }
-    for index in 1..8 {
+    for index in 1..6 {
         let mut wrong = witness;
         wrong.rest[index] += Fp::ONE;
         bootstrap::rebind(&mut wrong);
@@ -119,7 +119,7 @@ fn native_bootstrap_sigma_proof_and_complete_opening() {
         &params,
         &key,
         Witness::from_circuit(&key, &circuit, &instances).unwrap(),
-        common::recovery(188),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -185,7 +185,7 @@ fn rebind_load(w: &mut iroha_kagemusha_proof::admin_sigma::LoadWitness) {
         state.lineage[6..8].copy_from_slice(&state.core[5..7]);
         state.lineage[8] = state.core[7];
         state.lineage[13] = state.core[0]
-            + Fp::from(256) * state.core[30]
+            + Fp::from(256) * state.core[26]
             + Fp::from(2).pow_vartime([72]) * state.core[21];
     }
     w.statement[3..7].copy_from_slice(&w.successor.core[1..5]);
@@ -231,7 +231,7 @@ fn load_sigma_constrains_value_continuity_and_exact_changes() {
             .count()
     );
     assert_eq!(lanes.len(), 5);
-    for index in 0..33 {
+    for index in 0..29 {
         if [core_index::STATE_NONCE, core_index::LOAD_REDEEM_ROOT].contains(&index) {
             continue;
         }
@@ -245,7 +245,7 @@ fn load_sigma_constrains_value_continuity_and_exact_changes() {
             "rehashed Load core{index}"
         );
     }
-    for index in 0..8 {
+    for index in 0..6 {
         let mut wrong = witness;
         wrong.successor.rest[index] += Fp::ONE;
         rebind_load(&mut wrong);
@@ -281,7 +281,7 @@ fn native_load_sigma_proof_and_complete_opening() {
         &params,
         &key,
         Witness::from_circuit(&key, &circuit, &instances).unwrap(),
-        common::recovery(189),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -402,7 +402,11 @@ fn installed_admin_sigma_originals_prove_bootstrap_and_reject_rehashed_value() {
     assert_eq!(installed.binding(), key.binding());
     assert_eq!(installed.verifying_key().to_bytes(), key.vk().to_bytes());
     let proof = installed
-        .prove(&witness, common::recovery(201), ProverConfig::default())
+        .prove(
+            &witness,
+            common::fresh_randomness(),
+            ProverConfig::default(),
+        )
         .unwrap();
     check_imported_admin_proof(
         installed.params(),
@@ -415,7 +419,7 @@ fn installed_admin_sigma_originals_prove_bootstrap_and_reject_rehashed_value() {
     bootstrap::rebind(&mut wrong);
     assert!(
         installed
-            .prove(&wrong, common::recovery(202), ProverConfig::default())
+            .prove(&wrong, common::fresh_randomness(), ProverConfig::default())
             .is_err()
     );
 }
@@ -456,7 +460,11 @@ fn installed_admin_sigma_originals_prove_load_and_reject_rehashed_value() {
     assert_eq!(installed.binding(), key.binding());
     assert_eq!(installed.verifying_key().to_bytes(), key.vk().to_bytes());
     let proof = installed
-        .prove(&witness, common::recovery(203), ProverConfig::default())
+        .prove(
+            &witness,
+            common::fresh_randomness(),
+            ProverConfig::default(),
+        )
         .unwrap();
     check_imported_admin_proof(
         installed.params(),
@@ -469,7 +477,7 @@ fn installed_admin_sigma_originals_prove_load_and_reject_rehashed_value() {
     rebind_load(&mut wrong);
     assert!(
         installed
-            .prove(&wrong, common::recovery(204), ProverConfig::default())
+            .prove(&wrong, common::fresh_randomness(), ProverConfig::default())
             .is_err()
     );
 }
@@ -718,4 +726,181 @@ fn installed_admin_sigma_originals_reject_cross_operation_profile_and_original_m
             );
         }
     }
+}
+
+/// D5: a qualified wallet rebuilds an administrative σ key from the seal that
+/// admission minted, as Q/A/W/Ω do, instead of importing the original again. Under
+/// the shared descriptor only the owner's own compiled operation rebuilds, as the
+/// exact original key that proves for the installed verifier. Another operation's
+/// source is `Source`; other parameters or cancellation return no key.
+#[test]
+fn sealed_admin_sigma_sources_rebuild_only_their_own_compiled_operation() {
+    use iroha_kagemusha_proof::admin_sigma::{
+        ConsumingWitness, LoadCircuit, RetiringCircuit, StateWitness, UnloadCircuit,
+        native::{AdminSigmaError, BootstrapProver, LoadProver, RetiringProver, UnloadProver},
+    };
+    use iroha_pasta::{CancellationToken, Eq};
+    use iroha_plonk::{
+        KeyError, ProvingKey,
+        keys::{CosetCachePolicy, RebuildError, SourceBoundVerifyingKeyV2, SourceBoundViewV2},
+        pcs::ipa::PinnedParams,
+    };
+    fn admit(
+        operation: usize,
+        params: &PinnedParams<Eq>,
+        key: &ProvingKey<Eq>,
+        original: &[u8],
+    ) -> SourceBoundVerifyingKeyV2<Eq> {
+        let args = (
+            params,
+            key.binding().encoded(),
+            key.vk().to_bytes(),
+            original,
+            admin_read_config(original),
+        );
+        macro_rules! admit {
+            ($owner:ty) => {
+                <$owner>::admit_original_artifact_cancellable(
+                    args.0, args.1, args.2, args.3, args.4, None,
+                )
+            };
+        }
+        let admitted = match operation {
+            0 => admit!(BootstrapProver),
+            1 => admit!(LoadProver),
+            2 => admit!(UnloadProver),
+            3 => admit!(RetiringProver),
+            _ => unreachable!("fixed test operation"),
+        };
+        admitted.unwrap()
+    }
+    fn rebuild(
+        operation: usize,
+        params: PinnedParams<Eq>,
+        view: SourceBoundViewV2<'_, Eq>,
+    ) -> Result<Vec<u8>, AdminSigmaError> {
+        macro_rules! rebuild {
+            ($owner:ty) => {
+                <$owner>::from_source_view_cancellable(
+                    params,
+                    view,
+                    CosetCachePolicy::OnDemand,
+                    None,
+                )
+                .map(|owner| owner.proving_key().artifact_bytes_v2().unwrap())
+            };
+        }
+        match operation {
+            0 => rebuild!(BootstrapProver),
+            1 => rebuild!(LoadProver),
+            2 => rebuild!(UnloadProver),
+            3 => rebuild!(RetiringProver),
+            _ => unreachable!("fixed test operation"),
+        }
+    }
+    let params = common::vesta_params(BOOTSTRAP_K);
+    let before = bootstrap::witness();
+    let blank = ConsumingWitness {
+        predecessor: StateWitness::from(&before),
+        successor: StateWitness::from(&before),
+        statement: before.statement,
+    };
+    let mut key_config = KeygenConfigV2::pipa_r(BootstrapCircuit::instance_types().to_vec());
+    // Keep the common descriptor explicit, so only the fixed operation source differs.
+    key_config.compress_selectors = false;
+    let keys = [
+        keygen_pk_v2(
+            &params,
+            &BootstrapCircuit::new(&before).without_witnesses(),
+            &key_config,
+        )
+        .unwrap(),
+        keygen_pk_v2(
+            &params,
+            &LoadCircuit::new(&load_witness()).without_witnesses(),
+            &key_config,
+        )
+        .unwrap(),
+        keygen_pk_v2(
+            &params,
+            &UnloadCircuit::new(&blank).without_witnesses(),
+            &key_config,
+        )
+        .unwrap(),
+        keygen_pk_v2(
+            &params,
+            &RetiringCircuit::new(&blank).without_witnesses(),
+            &key_config,
+        )
+        .unwrap(),
+    ];
+    for (source, key) in keys.iter().enumerate() {
+        assert_eq!(
+            key.binding(),
+            keys[0].binding(),
+            "same administrative descriptor"
+        );
+        let original = key.artifact_bytes_v2().unwrap();
+        let admitted = admit(source, &params, key, &original);
+        for target in 0..keys.len() {
+            let result = rebuild(target, params.clone(), admitted.view());
+            if target == source {
+                assert_eq!(
+                    result.unwrap(),
+                    original,
+                    "operation {source} rebuilds exactly its original"
+                );
+            } else {
+                assert!(
+                    matches!(result, Err(AdminSigmaError::Rebuild(RebuildError::Source))),
+                    "seal {source} under compiled operation {target}"
+                );
+            }
+        }
+    }
+    let original = keys[0].artifact_bytes_v2().unwrap();
+    let admitted = admit(0, &params, &keys[0], &original);
+    assert!(matches!(
+        BootstrapProver::from_source_view_cancellable(
+            common::vesta_params(11),
+            admitted.view(),
+            CosetCachePolicy::OnDemand,
+            None,
+        ),
+        Err(AdminSigmaError::Parameters)
+    ));
+    let cancelled = CancellationToken::new();
+    cancelled.cancel();
+    assert!(
+        BootstrapProver::from_source_view_cancellable(
+            params.clone(),
+            admitted.view(),
+            CosetCachePolicy::OnDemand,
+            Some(&cancelled),
+        )
+        .is_err_and(|error| error.is_cancelled())
+    );
+    // Cancellation inside the rebuild stays cancellation; a refused source never is.
+    assert!(AdminSigmaError::Rebuild(RebuildError::Key(KeyError::Cancelled)).is_cancelled());
+    assert!(!AdminSigmaError::Rebuild(RebuildError::Profile).is_cancelled());
+    assert!(!AdminSigmaError::Rebuild(RebuildError::Source).is_cancelled());
+    let rebuilt = BootstrapProver::from_source_view_cancellable(
+        params,
+        admitted.view(),
+        CosetCachePolicy::OnDemand,
+        None,
+    )
+    .unwrap();
+    assert_eq!(rebuilt.binding(), keys[0].binding());
+    assert_eq!(rebuilt.verifying_key().to_bytes(), keys[0].vk().to_bytes());
+    let proof = rebuilt
+        .prove(&before, common::fresh_randomness(), ProverConfig::default())
+        .unwrap();
+    // The installed verifier is the original key's descriptor and VK.
+    check_imported_admin_proof(
+        rebuilt.params(),
+        &keys[0],
+        &BootstrapCircuit::new(&before).instances(),
+        &proof,
+    );
 }

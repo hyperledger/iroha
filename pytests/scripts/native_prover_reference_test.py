@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -15,10 +16,17 @@ from reference_verifier.codec import Cursor, crc64
 from reference_verifier.curve import Curve, IDENTITY
 from reference_verifier.descriptor import Descriptor
 from reference_verifier.parameters import Parameters, decide, seed_parameters_k6
-from reference_verifier.verify import verify_captured_oracle
+from reference_verifier.verify import verify
 
 DOCUMENT = json.loads((ROOT / 'fixtures/native_prover/succinct_v1.json').read_text())
-CASES = [case for case in DOCUMENT['cases'] if case['k'] == 6]
+assert DOCUMENT['format'] == 'iroha.native_prover.succinct.v1', 'current native corpus required'
+assert len(DOCUMENT['cases']) == 8
+assert {(c['curve'], c['family'], c['k'], c['seed_byte']) for c in DOCUMENT['cases']} == {
+    (curve, family, k, seed) for curve in ('ep', 'eq')
+    for family, k in [('Sigma', 6), ('Wide', 8)] for seed in (42, 43)
+}, 'exact native succinct matrix'
+ALL_CASES = DOCUMENT['cases']
+CASES = [case for case in ALL_CASES if case['k'] == 6]
 
 
 @pytest.fixture(scope='module')
@@ -27,32 +35,52 @@ def parameter_bytes():
     return {curve: seed_parameters_k6(Curve(tag)) for curve, tag in [('ep', 0), ('eq', 1)]}
 
 
+@pytest.fixture(scope='module')
+def succinct_parameter_bytes(parameter_bytes):
+    """All eight cases use complete pinned params; k6 is independently reconstructed."""
+    return {(case['curve'], case['k']): (
+        parameter_bytes[case['curve']] if case['k'] == 6 else
+        bytes.fromhex(REFERENCE['parameters'][f"{case['curve']}/{case['k']}"]))
+        for case in ALL_CASES}
+
+
 def scalar(text):
     """Decode a fixture's explicit canonical byte spelling."""
     return int.from_bytes(bytes.fromhex(text), 'little')
 
 
 def inputs(case, params):
-    """The reference's byte inputs, without a native module or verifier result."""
+    """The reference's byte inputs, without an overridable transcript binding."""
+    d = Descriptor.decode(bytes.fromhex(case['descriptor']), 1)
+    assert d.curve.name == case['curve'] and d['k'] == case['k']
+    assert d['transcript'] == 1 and d['instance_mode'] == 0
+    assert d['proof_suffix'] == 1 and d['selectors'][0] == 0
+    recorded_repr = bytes.fromhex(case['transcript_repr'])
+    assert len(recorded_repr) == 32 and scalar(case['transcript_repr']) == d.repr(bytes.fromhex(case['verifying_key']))
     return dict(descriptor=bytes.fromhex(case['descriptor']),
                 key=bytes.fromhex(case['verifying_key']), parameter_bytes=params,
                 instances=[[scalar(v) for v in column] for column in case['instances']],
-                proof=bytes.fromhex(case['proof']), transcript_repr=scalar(case['transcript_repr']))
+                proof=bytes.fromhex(case['proof']), version=1)
 
 
-@pytest.mark.parametrize('case', CASES, ids=lambda c: f"{c['curve']}-{c['seed_byte']}")
-def test_full_genuine_sigma_and_every_challenge(case, parameter_bytes):
-    result = verify_captured_oracle(**inputs(case, parameter_bytes[case['curve']]))
+@pytest.mark.parametrize('case', ALL_CASES, ids=lambda c: f"{c['curve']}-{c['family']}-{c['seed_byte']}")
+def test_full_genuine_sigma_and_wide_and_every_challenge(case, succinct_parameter_bytes):
+    result = verify(**inputs(case, succinct_parameter_bytes[(case['curve'], case['k'])]))
     curve = Curve(0 if case['curve'] == 'ep' else 1)
     assert result.challenges == tuple(map(scalar, case['challenges']))
     assert result.rounds == tuple(map(scalar, case['u']))
     assert curve.encode(result.generator).hex() == case['g']
+    assert hashlib.sha256(bytes.fromhex(case['proof'])).hexdigest() == case['proof_sha256']
+    tape = (b''.join(raw.to_bytes(32, 'little') for raw in result.challenges)
+            + curve.encode(result.generator)
+            + b''.join(value.to_bytes(32, 'little') for value in result.rounds))
+    assert hashlib.sha256(tape).hexdigest() == case['tape_sha256']
 
 
-@pytest.mark.parametrize('case', CASES, ids=lambda c: f"{c['curve']}-{c['seed_byte']}")
+@pytest.mark.parametrize('case', ALL_CASES, ids=lambda c: f"{c['curve']}-{c['family']}-{c['seed_byte']}")
 @pytest.mark.parametrize('mutation', ['instance', 'proof', 'suffix', 'trailing', 'truncated', 'key'])
-def test_complete_proof_mutations_reject(case, mutation, parameter_bytes):
-    args = inputs(case, parameter_bytes[case['curve']])
+def test_complete_proof_mutations_reject(case, mutation, succinct_parameter_bytes):
+    args = inputs(case, succinct_parameter_bytes[(case['curve'], case['k'])])
     curve = Curve(0 if case['curve'] == 'ep' else 1)
     if mutation == 'instance':
         args['instances'][0][0] = (args['instances'][0][0] + 1) % curve.scalar
@@ -67,7 +95,7 @@ def test_complete_proof_mutations_reject(case, mutation, parameter_bytes):
     else:
         key = bytearray(args['key']); key[10:42] = args['proof'][:32]; args['key'] = bytes(key)
     with pytest.raises(InvalidProof):
-        verify_captured_oracle(**args)
+        verify(**args)
 
 
 @pytest.mark.parametrize('tag', [0, 1])
@@ -77,7 +105,9 @@ def test_decide_admits_only_pinned_bytes_and_canonical_claim(tag, parameter_byte
     case = next(c for c in CASES if c['curve'] == curve.name)
     point, rounds = bytes.fromhex(case['g']), list(map(scalar, case['u']))
     assert curve.encode(decide(raw, tag, 6, point, rounds)) == point
-    for malformed in [bytes(32), b'', point + b'\0', (0, 0, curve.base),
+    with pytest.raises(InvalidProof, match='generator decision'):
+        decide(raw, tag, 6, bytes(32), rounds)
+    for malformed in [b'', point + b'\0', (0, 0, curve.base),
                       curve.base.to_bytes(32, 'little')]:
         with pytest.raises(InvalidProof):
             decide(raw, tag, 6, malformed, rounds)
@@ -161,28 +191,29 @@ def test_exact_instance_shape_and_scalar_types(shape, parameter_bytes):
     args = inputs(CASES[0], parameter_bytes[CASES[0]['curve']])
     args['instances'] = shape
     with pytest.raises(InvalidProof):
-        verify_captured_oracle(**args)
+        verify(**args)
 
 
 def test_wrong_curve_and_parameter_exponent_reject(parameter_bytes):
     case = CASES[0]
     args = inputs(case, parameter_bytes['eq' if case['curve'] == 'ep' else 'ep'])
     with pytest.raises(InvalidProof, match='unpinned'):
-        verify_captured_oracle(**args)
+        verify(**args)
     point, rounds = bytes.fromhex(case['g']), list(map(scalar, case['u']))
     with pytest.raises(InvalidProof):
         decide(parameter_bytes[case['curve']], 1 if case['curve'] == 'ep' else 0, 6, point, rounds)
     with pytest.raises(InvalidProof, match='parameter framing'):
         decide(parameter_bytes[case['curve']], 0 if case['curve'] == 'ep' else 1, 7, point, rounds)
 
-@pytest.mark.parametrize('alias', [True, 1.0, None, '1'])
-def test_historical_oracle_binding_requires_a_canonical_integer(alias, parameter_bytes):
+@pytest.mark.parametrize('override', [True, 1.0, None, '1', 0])
+def test_reference_api_has_no_transcript_override(override, parameter_bytes):
     args = inputs(CASES[0], parameter_bytes[CASES[0]['curve']])
-    args['transcript_repr'] = alias
-    with pytest.raises(InvalidProof):
-        verify_captured_oracle(**args)
+    args['transcript_repr'] = override
+    with pytest.raises(TypeError):
+        verify(**args)
 
 REFERENCE = json.loads((ROOT / 'fixtures/native_prover/reference_v1.json').read_text())
+assert REFERENCE['format'] == 'iroha.native_prover.reference.v1', 'current native reference46 required'
 PROFILES = ('v1/blake/Committed/false', 'v1/poseidon/Direct/true',
             'v2/blake/Direct/field', 'v2/poseidon/Committed/field',
             'v2/base/Direct/field', 'v2/base/k6/bounded-or-field', 'v2/base/k6/bits4')
@@ -310,7 +341,8 @@ def test_false_generator_preserves_soft_equation_but_full_decision_rejects(case)
     c, f = scalar(proof[-96:-64].hex()), scalar(proof[-64:-32].hex())
     changed_c = (c + 1) % m
     assert changed_c != 0
-    b, power = 1, genuine.challenges[7]  # x3 from the specified multiopen transcript.
+    from reference_verifier.transcript import multiopening_challenge
+    b, power = 1, multiopening_challenge(genuine.challenges[7], m)  # Mapped x3.
     for u in reversed(genuine.rounds):
         b = b * (1 + u * power) % m
         power = power * power % m

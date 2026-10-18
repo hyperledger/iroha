@@ -35,9 +35,13 @@
 
 use core::{fmt, marker::PhantomData};
 
-use ff::PrimeField;
+use ff::{Field, PrimeField};
 use group::{GroupEncoding, prime::PrimeCurveAffine};
-use iroha_pasta::{PastaCurve, poseidon::PoseidonField};
+use iroha_pasta::{PastaAffine, PastaCurve, poseidon::PoseidonField};
+use zeroize::Zeroizing;
+
+mod proof_buffer;
+use proof_buffer::ProofBuffer;
 
 #[cfg(test)]
 use crate::cs::TranscriptV1;
@@ -127,6 +131,42 @@ pub fn decode_point<C: PastaCurve>(
         return Err(TranscriptError::IdentityPoint);
     }
     Ok(point)
+}
+
+/// Decodes the canonical full-group G of an undecided generator claim.
+/// Only the all-zero word represents identity. Ordinary proof points must use
+/// [`decode_point`], which continues to reject identity.
+/// # Errors
+/// [`TranscriptError::InvalidPoint`] for every malformed nonzero point encoding.
+pub fn decode_generator<C: PastaCurve>(
+    bytes: &[u8; MESSAGE_BYTES],
+) -> Result<C::AffineExt, TranscriptError> {
+    if *bytes == [0; MESSAGE_BYTES] {
+        Ok(C::AffineExt::identity())
+    } else {
+        decode_point::<C>(bytes)
+    }
+}
+
+/// Canonical coordinates of an undecided generator claim, with identity (0,0).
+/// Five is nonsquare in both Pasta base fields, so no finite point has x=0.
+#[must_use]
+pub fn generator_coordinates<C: PastaCurve>(point: &C::AffineExt) -> (C::Base, C::Base) {
+    Option::from(point.coordinates()).unwrap_or((C::Base::ZERO, C::Base::ZERO))
+}
+
+/// Decodes canonical field coordinates of an undecided generator claim.
+/// Exactly (0,0) represents identity; every other pair must lie on the curve.
+/// # Errors
+/// [`TranscriptError::InvalidPoint`] for a non-curve coordinate pair.
+pub fn generator_from_coordinates<C: PastaCurve>(
+    x: C::Base,
+    y: C::Base,
+) -> Result<C::AffineExt, TranscriptError> {
+    if bool::from(x.is_zero()) && bool::from(y.is_zero()) {
+        return Ok(C::AffineExt::identity());
+    }
+    Option::<C::AffineExt>::from(C::AffineExt::from_xy(x, y)).ok_or(TranscriptError::InvalidPoint)
 }
 
 /// The compressed encoding of a point (32 zero bytes for the identity).
@@ -244,11 +284,11 @@ pub trait TranscriptRead<C: PastaCurve>: Transcript<C> {
     fn read_scalar(&mut self) -> Result<C::ScalarExt, TranscriptError>;
 }
 
-/// A prover transcript writing into an owned proof buffer.
-#[derive(Clone, Debug)]
+/// A prover transcript with a clearing buffer and redacted diagnostics.
+#[derive(Clone)]
 pub struct TranscriptWriter<C: PastaCurve, H> {
     hash: H,
-    proof: Vec<u8>,
+    proof: ProofBuffer,
     _curve: PhantomData<C>,
 }
 
@@ -258,7 +298,7 @@ impl<C: PastaCurve, H: TranscriptHash<C>> TranscriptWriter<C, H> {
     pub fn new(hash: H) -> Self {
         Self {
             hash,
-            proof: Vec::new(),
+            proof: ProofBuffer::new(),
             _curve: PhantomData,
         }
     }
@@ -266,27 +306,26 @@ impl<C: PastaCurve, H: TranscriptHash<C>> TranscriptWriter<C, H> {
     /// The proof bytes written so far.
     #[must_use]
     pub fn proof(&self) -> &[u8] {
-        &self.proof
+        self.proof.as_slice()
     }
 
-    /// Appends a point that is not absorbed (the `FoldedGenerator` suffix of
-    /// spec section 7, row 17).
-    ///
-    /// # Errors
-    ///
-    /// [`TranscriptError::IdentityPoint`] for the identity.
-    pub fn append_unabsorbed_point(&mut self, point: &C::AffineExt) -> Result<(), TranscriptError> {
-        if bool::from(point.is_identity()) {
-            return Err(TranscriptError::IdentityPoint);
-        }
-        self.proof.extend_from_slice(&encode_point::<C>(point));
-        Ok(())
+    /// Appends a canonical full-group G without absorbing it.
+    /// This sole suffix is an undecided generator claim, including identity.
+    pub fn append_unabsorbed_generator(&mut self, point: &C::AffineExt) {
+        let encoded = Zeroizing::new(encode_point::<C>(point));
+        self.proof.append(encoded.as_ref());
     }
 
     /// Finishes the transcript and returns the proof bytes.
     #[must_use]
     pub fn finish(self) -> Vec<u8> {
-        self.proof
+        self.proof.finish()
+    }
+}
+
+impl<C: PastaCurve, H> fmt::Debug for TranscriptWriter<C, H> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("TranscriptWriter { private: [REDACTED] }")
     }
 }
 
@@ -314,13 +353,15 @@ impl<C: PastaCurve, H: TranscriptHash<C>> Transcript<C> for TranscriptWriter<C, 
 impl<C: PastaCurve, H: TranscriptHash<C>> TranscriptWrite<C> for TranscriptWriter<C, H> {
     fn write_point(&mut self, point: &C::AffineExt) -> Result<(), TranscriptError> {
         self.hash.absorb_point(point)?;
-        self.proof.extend_from_slice(&encode_point::<C>(point));
+        let encoded = Zeroizing::new(encode_point::<C>(point));
+        self.proof.append(encoded.as_ref());
         Ok(())
     }
 
     fn write_scalar(&mut self, scalar: &C::ScalarExt) {
         self.hash.absorb_scalar(scalar);
-        self.proof.extend_from_slice(&scalar.to_repr());
+        let encoded = Zeroizing::new(scalar.to_repr());
+        self.proof.append(encoded.as_ref());
     }
 }
 
@@ -383,14 +424,12 @@ impl<'a, C: PastaCurve, H: TranscriptHash<C>> TranscriptReader<'a, C, H> {
         Ok(message)
     }
 
-    /// Reads a point that is not absorbed (the `FoldedGenerator` suffix).
-    ///
+    /// Reads the canonical full-group G without absorbing it.
     /// # Errors
-    ///
-    /// As [`TranscriptRead::read_point`].
-    pub fn read_unabsorbed_point(&mut self) -> Result<C::AffineExt, TranscriptError> {
+    /// Truncation or an invalid canonical generator encoding.
+    pub fn read_unabsorbed_generator(&mut self) -> Result<C::AffineExt, TranscriptError> {
         let message = self.next_message()?;
-        decode_point::<C>(&message)
+        decode_generator::<C>(&message)
     }
 
     /// Finishes reading: every byte must have been consumed.
@@ -445,6 +484,26 @@ impl<C: PastaCurve, H: TranscriptHash<C>> TranscriptRead<C> for TranscriptReader
         let scalar = decode_scalar::<C::ScalarExt>(&message)?;
         self.hash.absorb_scalar(&scalar);
         Ok(scalar)
+    }
+}
+
+impl<C: PastaCurve> TranscriptReader<'_, C, DescriptorHash<C>> {
+    /// Records the first base-field squeeze without adding another squeeze.
+    pub(crate) fn squeeze_challenge_with_raw(&mut self) -> (C::ScalarExt, Option<C::Base>) {
+        let (challenge, raw) = match &mut self.hash {
+            DescriptorHash::BasePoseidon(hash) => {
+                #[cfg(test)]
+                recording::note(crate::protocol::HashOperation::Squeeze);
+                let raw = hash.squeeze_raw();
+                (pipa_r::challenge_from_base::<C>(&raw), Some(raw))
+            }
+            hash => (hash.squeeze(), None),
+        };
+        #[cfg(test)]
+        if let Some(challenges) = &mut self.challenges {
+            challenges.push(challenge);
+        }
+        (challenge, raw)
     }
 }
 
@@ -682,9 +741,7 @@ mod tests {
         let first = writer.squeeze_challenge();
         writer.write_scalar(&Fq::from(9));
         let second = writer.squeeze_challenge();
-        writer
-            .append_unabsorbed_point(&point)
-            .expect("finite point");
+        writer.append_unabsorbed_generator(&point);
         assert_eq!(writer.proof().len(), 3 * MESSAGE_BYTES);
         let mut proof = writer.finish();
 
@@ -695,7 +752,7 @@ mod tests {
         assert_eq!(reader.read_scalar(), Ok(Fq::from(9)));
         assert_eq!(reader.squeeze_challenge(), second);
         assert_eq!(reader.remaining(), MESSAGE_BYTES);
-        assert_eq!(reader.read_unabsorbed_point(), Ok(point));
+        assert_eq!(reader.read_unabsorbed_generator(), Ok(point));
         assert_eq!(reader.finish(), Ok(()));
 
         proof.push(0);
@@ -703,7 +760,7 @@ mod tests {
         reader.common_scalar(&Fq::from(3));
         reader.read_point().expect("point");
         reader.read_scalar().expect("scalar");
-        reader.read_unabsorbed_point().expect("suffix");
+        reader.read_unabsorbed_generator().expect("suffix");
         assert_eq!(
             reader.finish(),
             Err(TranscriptError::TrailingBytes { remaining: 1 })
@@ -714,7 +771,7 @@ mod tests {
     }
 
     #[test]
-    fn identity_is_never_absorbed_or_appended() {
+    fn identity_is_only_allowed_as_unabsorbed_generator() {
         let mut writer = PallasWriter::new(Blake2bHash::new());
         assert_eq!(
             writer.write_point(&EpAffine::identity()),
@@ -724,11 +781,9 @@ mod tests {
             writer.common_point(&EpAffine::identity()),
             Err(TranscriptError::IdentityPoint)
         );
-        assert_eq!(
-            writer.append_unabsorbed_point(&EpAffine::identity()),
-            Err(TranscriptError::IdentityPoint)
-        );
         assert!(writer.proof().is_empty());
+        writer.append_unabsorbed_generator(&EpAffine::identity());
+        assert_eq!(writer.proof(), &[0; 32]);
         let mut poseidon = TranscriptWriter::<Eq, PoseidonHash<Eq>>::new(PoseidonHash::new());
         assert_eq!(
             poseidon.write_point(&EqAffine::identity()),
@@ -809,3 +864,6 @@ mod tests {
         assert_eq!(count_scalar::<Fp>(65_535), Fp::from(65_535));
     }
 }
+
+#[cfg(test)]
+mod total_tests;

@@ -7,7 +7,7 @@ use std::io;
 use super::*;
 use crate::kagemusha_wallet_advance_v1::{
     KagemushaWalletCustodyDirV1, KagemushaWalletEntryNameV1, KagemushaWalletPublishOutcomeV1,
-    KagemushaWalletRemoveOutcomeV1,
+    KagemushaWalletRemoveOutcomeV1, KagemushaWalletStorageCountersV1,
 };
 
 type SimStore = KagemushaWalletDurableStoreV1<KagemushaWalletSimFsV1>;
@@ -126,10 +126,21 @@ fn matrix<T: std::fmt::Debug>(
     op: &dyn Fn(&SimStore) -> T,
     invariant: &dyn Fn(&CaseV1<'_, T>),
 ) -> usize {
+    matrix_where(base, faults, &|_| true, op, invariant)
+}
+
+/// [`matrix`] over the steps of the fault-free trace that `select` accepts.
+fn matrix_where<T: std::fmt::Debug>(
+    base: &KagemushaWalletSimFsV1,
+    faults: &[KagemushaWalletSimFaultV1],
+    select: &dyn Fn(u64) -> bool,
+    op: &dyn Fn(&SimStore) -> T,
+    invariant: &dyn Fn(&CaseV1<'_, T>),
+) -> usize {
     let steps = u64::try_from(fault_free_trace(base, op).len()).expect("steps");
     assert!(steps > 0, "primitive takes at least one step");
     let mut cases = 0;
-    for step in 0..steps {
+    for step in (0..steps).filter(|step| select(*step)) {
         for &fault in faults {
             let fs = base.fork();
             fs.inject(fs.steps() + step, fault);
@@ -878,6 +889,696 @@ fn wallet_advance_v1_sim_fork_and_crash_semantics() {
     );
 }
 
+// ---------------------------------------------------------------------------------------
+// Batch publication (ML W1)
+// ---------------------------------------------------------------------------------------
+
+/// Staged files per chunk in the batch matrices: three records (six copies) cross a chunk
+/// boundary.
+const LIVE: usize = 4;
+
+/// Batch names, each with the exact bytes it is to hold.
+type BatchNamesV1 = Vec<(KagemushaWalletEntryNameV1, Vec<u8>)>;
+
+/// Both copies of `records` archive records, in record order. Every copy has its own bytes,
+/// so a name that holds another name's bytes is detected.
+fn batch_names(records: usize) -> BatchNamesV1 {
+    (0..records)
+        .flat_map(|record| {
+            [format!("w-{record:02}.rec"), format!("w-{record:02}.rec.r")]
+                .map(|copy| (name(&copy), format!("bytes of {copy}").into_bytes()))
+        })
+        .collect()
+}
+
+/// Entries publishing `names`, with the action `action` chooses for each index.
+fn batch_entries(
+    names: &[(KagemushaWalletEntryNameV1, Vec<u8>)],
+    action: impl Fn(usize) -> KagemushaWalletBatchActionV1,
+) -> Vec<KagemushaWalletBatchEntryV1<'_>> {
+    names
+        .iter()
+        .enumerate()
+        .map(|(index, (entry_name, bytes))| KagemushaWalletBatchEntryV1 {
+            name: entry_name,
+            bytes: bytes.as_slice(),
+            action: action(index),
+        })
+        .collect()
+}
+
+/// Publish every name of `names` create-new, [`LIVE`] staged files per chunk.
+fn publish_new(
+    store: &SimStore,
+    names: &[(KagemushaWalletEntryNameV1, Vec<u8>)],
+) -> KagemushaWalletPublishOutcomeV1 {
+    store.publish_batch_chunked(
+        &dir(),
+        &batch_entries(names, |_| KagemushaWalletBatchActionV1::New),
+        LIVE,
+    )
+}
+
+/// Index of the first rename in a batch trace.
+fn first_rename(trace: &[KagemushaWalletSimStepV1]) -> u64 {
+    let index = trace
+        .iter()
+        .position(|step| {
+            matches!(
+                step,
+                KagemushaWalletSimStepV1::RenameNoReplace | KagemushaWalletSimStepV1::RenameReplace
+            )
+        })
+        .expect("a batch renames");
+    u64::try_from(index).expect("index")
+}
+
+/// Every visible entry of `d` is a batch name holding exactly its bytes, or a staging file:
+/// no name is torn or foreign.
+fn check_absent_or_exact(
+    fs: &KagemushaWalletSimFsV1,
+    names: &[(KagemushaWalletEntryNameV1, Vec<u8>)],
+    label: &str,
+) {
+    for entry in fs.visible_names(&dir()) {
+        assert!(
+            names
+                .iter()
+                .any(|(entry_name, _)| entry_name.as_str() == entry)
+                || kagemusha_wallet_is_staging_name_v1(&entry),
+            "unexpected entry {entry} at {label}"
+        );
+    }
+    for (entry_name, bytes) in names {
+        let value = fs.visible_file(&dir(), entry_name.as_str());
+        assert!(
+            value.is_none() || value.as_deref() == Some(bytes.as_slice()),
+            "torn or foreign {} at {label}",
+            entry_name.as_str()
+        );
+    }
+}
+
+/// No batch name is visible.
+fn check_none_published(
+    fs: &KagemushaWalletSimFsV1,
+    names: &[(KagemushaWalletEntryNameV1, Vec<u8>)],
+    label: &str,
+) {
+    for (entry_name, _) in names {
+        assert_eq!(
+            fs.visible_file(&dir(), entry_name.as_str()),
+            None,
+            "unpublished {} visible at {label}",
+            entry_name.as_str()
+        );
+    }
+}
+
+/// The caller's retry after it reconciled, run on a copy of `fs`: a visible name that holds
+/// exactly its bytes is adopted on a fresh inode and an absent one is created. The retry
+/// publishes every name, and the result survives power loss exactly.
+fn check_retry_publishes(
+    fs: &KagemushaWalletSimFsV1,
+    names: &[(KagemushaWalletEntryNameV1, Vec<u8>)],
+    label: &str,
+) {
+    let fs = fs.fork();
+    fs.restart();
+    fs.clear_faults();
+    let before: Vec<Option<u64>> = names
+        .iter()
+        .map(|(entry_name, _)| fs.inode_of(&dir(), entry_name.as_str()))
+        .collect();
+    let retry = batch_entries(names, |index| {
+        let (entry_name, bytes) = &names[index];
+        match fs.visible_file(&dir(), entry_name.as_str()) {
+            None => KagemushaWalletBatchActionV1::New,
+            Some(value) if value == *bytes => KagemushaWalletBatchActionV1::Replace,
+            Some(_) => panic!(
+                "torn or foreign {} before the retry at {label}",
+                entry_name.as_str()
+            ),
+        }
+    });
+    assert_eq!(
+        store(&fs).publish_batch_chunked(&dir(), &retry, LIVE),
+        KagemushaWalletPublishOutcomeV1::Published,
+        "retry at {label}"
+    );
+    for ((entry_name, _), before) in names.iter().zip(before) {
+        if before.is_some() {
+            assert_ne!(
+                fs.inode_of(&dir(), entry_name.as_str()),
+                before,
+                "{} adopted on a fresh inode at {label}",
+                entry_name.as_str()
+            );
+        }
+    }
+    fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+    for (entry_name, bytes) in names {
+        assert_eq!(
+            fs.visible_file(&dir(), entry_name.as_str()).as_deref(),
+            Some(bytes.as_slice()),
+            "retried {} durable at {label}",
+            entry_name.as_str()
+        );
+    }
+}
+
+#[test]
+fn wallet_advance_v1_store_batch_syncs_every_copy_then_renames_then_syncs_the_directory_once() {
+    use KagemushaWalletSimStepV1 as Step;
+    // 35 records are 70 copies: two production chunks.
+    for records in [1_usize, 3, 35] {
+        let names = batch_names(records);
+        let fs = base();
+        let start = fs.steps();
+        let (outcome, c) = KagemushaWalletStorageCountersV1::observe(|| {
+            store(&fs).publish_batch(
+                &dir(),
+                &batch_entries(&names, |_| KagemushaWalletBatchActionV1::New),
+            )
+        });
+        assert_eq!(outcome, KagemushaWalletPublishOutcomeV1::Published);
+        let mut expected = Vec::new();
+        for chunk in names.chunks(KAGEMUSHA_WALLET_BATCH_LIVE_STAGED_V1) {
+            for _ in chunk {
+                expected.extend([Step::CreateNew, Step::Write, Step::SyncFile]);
+            }
+            expected.extend(chunk.iter().map(|_| Step::RenameNoReplace));
+        }
+        expected.push(Step::SyncDir);
+        assert_eq!(fs.trace_since(start), expected, "{records} records");
+        let copies = u64::try_from(names.len()).expect("copies");
+        assert_eq!(
+            (
+                c.batch_publishes,
+                c.batch_names,
+                c.write_new,
+                c.rewrite_same,
+                c.reads,
+                c.staged_syncs,
+                c.publish_syncs,
+                c.dir_syncs,
+                c.file_syncs,
+                c.fsync_class_calls(),
+            ),
+            (1, copies, copies, 0, 0, copies, 1, 0, 0, copies + 1),
+            "{records} records: a data sync per copy and one directory sync"
+        );
+        fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+        for (entry_name, bytes) in &names {
+            assert_eq!(
+                fs.visible_file(&dir(), entry_name.as_str()).as_deref(),
+                Some(bytes.as_slice())
+            );
+        }
+        // The same copies published one name at a time: a data and a directory sync each.
+        let single = base();
+        let ((), one_by_one) = KagemushaWalletStorageCountersV1::observe(|| {
+            for (entry_name, bytes) in &names {
+                assert_eq!(
+                    store(&single).write_new(&dir(), entry_name, bytes),
+                    KagemushaWalletPublishOutcomeV1::Published
+                );
+            }
+        });
+        assert_eq!(one_by_one.fsync_class_calls(), 2 * copies);
+    }
+}
+
+#[test]
+fn wallet_advance_v1_store_batch_fault_before_a_rename_is_not_published_and_names_no_file() {
+    let names = batch_names(3);
+    let base = base();
+    let first = first_rename(&fault_free_trace(&base, &|store| {
+        publish_new(store, &names)
+    }));
+    assert_eq!(first, 3 * 4, "the first chunk stages four copies first");
+    let cases = matrix_where(
+        &base,
+        &FAULTS,
+        &|step| step < first,
+        &|store| publish_new(store, &names),
+        &|case| {
+            let label = case.label();
+            check_none_published(case.fs, &names, &label);
+            only_names(case, &[]);
+            if case.observed() {
+                assert!(
+                    matches!(
+                        case.outcome,
+                        KagemushaWalletPublishOutcomeV1::NotPublished(_)
+                    ),
+                    "{:?} at {label}",
+                    case.outcome
+                );
+                if case.moment == Moment::Immediate {
+                    assert!(
+                        case.fs.visible_names(&dir()).is_empty(),
+                        "staged files discarded at {label}"
+                    );
+                }
+            }
+            check_retry_publishes(case.fs, &names, &label);
+        },
+    );
+    assert_eq!(
+        u64::try_from(cases).expect("cases"),
+        first * u64::try_from(FAULTS.len()).expect("faults") * (3 + SEEDS)
+    );
+}
+
+#[test]
+fn wallet_advance_v1_store_batch_fault_after_a_rename_is_uncertain_for_every_record() {
+    let names = batch_names(3);
+    let base = base();
+    let first = first_rename(&fault_free_trace(&base, &|store| {
+        publish_new(store, &names)
+    }));
+    let cases = matrix_where(
+        &base,
+        &FAULTS,
+        &|step| step >= first,
+        &|store| publish_new(store, &names),
+        &|case| {
+            let label = case.label();
+            check_absent_or_exact(case.fs, &names, &label);
+            if case.observed() {
+                match case.outcome {
+                    KagemushaWalletPublishOutcomeV1::Uncertain(_) => {}
+                    // Only the first rename can refuse definitively: nothing is renamed then.
+                    KagemushaWalletPublishOutcomeV1::NotPublished(_) if case.step == first => {
+                        check_none_published(case.fs, &names, &label);
+                    }
+                    other => panic!("{other:?} at {label}"),
+                }
+            }
+            check_retry_publishes(case.fs, &names, &label);
+        },
+    );
+    assert!(cases > 0);
+}
+
+#[test]
+fn wallet_advance_v1_store_batch_lost_writeback_is_never_published() {
+    use KagemushaWalletSimStepV1 as Step;
+    let names = batch_names(3);
+    let base = base();
+    let trace = fault_free_trace(&base, &|store| publish_new(store, &names));
+    let first = first_rename(&trace);
+    let mut syncs = 0;
+    for (step, kind) in (0_u64..).zip(&trace) {
+        if !matches!(kind, Step::SyncFile | Step::SyncDir) {
+            continue;
+        }
+        syncs += 1;
+        let label = format!("lost writeback at step {step} ({kind:?})");
+        let fs = base.fork();
+        fs.inject(fs.steps() + step, KagemushaWalletSimFaultV1::LostWriteback);
+        let outcome = publish_new(&store(&fs), &names);
+        assert!(!fs.crashed(), "{label}");
+        match outcome {
+            KagemushaWalletPublishOutcomeV1::NotPublished(_) => {
+                assert!(step < first, "{label}");
+                check_none_published(&fs, &names, &label);
+            }
+            KagemushaWalletPublishOutcomeV1::Uncertain(_) => assert!(step > first, "{label}"),
+            KagemushaWalletPublishOutcomeV1::Published => panic!("{label} was published"),
+        }
+        if *kind == Step::SyncDir {
+            // The lost directory writeback dropped every rename; a later sync is vacuous.
+            let vacuous = fs.fork();
+            assert_eq!(store(&vacuous).sync_dir(&dir()), Ok(()));
+            vacuous.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+            check_none_published(&vacuous, &names, &label);
+        }
+        let lost = fs.fork();
+        lost.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+        check_absent_or_exact(&lost, &names, &label);
+        check_retry_publishes(&fs, &names, &label);
+        check_retry_publishes(&lost, &names, &label);
+    }
+    assert_eq!(
+        syncs,
+        names.len() + 1,
+        "a data sync per copy and one directory sync"
+    );
+}
+
+#[test]
+fn wallet_advance_v1_store_batch_power_loss_subsets_leave_each_name_absent_or_exact() {
+    for records in [1_usize, 3] {
+        let names = batch_names(records);
+        let base = base();
+        let trace = fault_free_trace(&base, &|store| publish_new(store, &names));
+        assert_eq!(trace.last(), Some(&KagemushaWalletSimStepV1::SyncDir));
+        let last = u64::try_from(trace.len()).expect("steps") - 1;
+        // A crash before step `s` leaves the state of a crash after step `s - 1`.
+        let crashes = std::iter::once((0, KagemushaWalletSimFaultV1::CrashBefore))
+            .chain((0..=last).map(|step| (step, KagemushaWalletSimFaultV1::CrashAfter)));
+        let mut models = 0_usize;
+        for (step, fault) in crashes {
+            let crashed = base.fork();
+            crashed.inject(crashed.steps() + step, fault);
+            assert_ne!(
+                publish_new(&store(&crashed), &names),
+                KagemushaWalletPublishOutcomeV1::Published
+            );
+            assert!(crashed.crashed());
+            // A link and a rename per copy at most: every subset is enumerated.
+            let pending = crashed.pending_dir_ops();
+            assert!(pending <= 2 * names.len(), "{pending} pending operations");
+            let mut power: Vec<KagemushaWalletSimPowerLossV1> = (0..1_u64 << pending)
+                .map(|mask| KagemushaWalletSimPowerLossV1::Subset { mask, seed: mask })
+                .collect();
+            power.push(KagemushaWalletSimPowerLossV1::DropUnsynced);
+            power.extend((0..SEEDS).map(KagemushaWalletSimPowerLossV1::Seeded));
+            for model in power {
+                let label = format!("{records} records, {fault:?} at step {step}, {model:?}");
+                let view = crashed.fork();
+                view.power_loss(model);
+                check_absent_or_exact(&view, &names, &label);
+                if model == KagemushaWalletSimPowerLossV1::DropUnsynced {
+                    // Only the completed directory sync makes the batch durable.
+                    let durable = step == last && fault == KagemushaWalletSimFaultV1::CrashAfter;
+                    for (entry_name, bytes) in &names {
+                        assert_eq!(
+                            view.visible_file(&dir(), entry_name.as_str()).as_deref(),
+                            durable.then_some(bytes.as_slice()),
+                            "{} at {label}",
+                            entry_name.as_str()
+                        );
+                    }
+                }
+                check_retry_publishes(&view, &names, &label);
+                models += 1;
+            }
+        }
+        assert!(models > usize::try_from(last).expect("steps"));
+    }
+}
+
+#[test]
+fn wallet_advance_v1_store_batch_replace_adopts_on_a_fresh_inode() {
+    use KagemushaWalletSimStepV1 as Step;
+    let names = batch_names(3);
+    // The first chunk replaces four durable copies; the second creates two new ones.
+    let replaced = 4;
+    let base = base();
+    for (entry_name, bytes) in &names[..replaced] {
+        assert_eq!(
+            store(&base).write_new(&dir(), entry_name, bytes),
+            KagemushaWalletPublishOutcomeV1::Published
+        );
+    }
+    let action = move |index: usize| {
+        if index < replaced {
+            KagemushaWalletBatchActionV1::Replace
+        } else {
+            KagemushaWalletBatchActionV1::New
+        }
+    };
+    let inodes: Vec<Option<u64>> = names[..replaced]
+        .iter()
+        .map(|(entry_name, _)| base.inode_of(&dir(), entry_name.as_str()))
+        .collect();
+    let fs = base.fork();
+    let start = fs.steps();
+    let (outcome, c) = KagemushaWalletStorageCountersV1::observe(|| {
+        store(&fs).publish_batch_chunked(&dir(), &batch_entries(&names, action), LIVE)
+    });
+    assert_eq!(outcome, KagemushaWalletPublishOutcomeV1::Published);
+    let trace = fs.trace_since(start);
+    let steps = |kind: Step| trace.iter().filter(|step| **step == kind).count();
+    assert_eq!(
+        (
+            steps(Step::Read),
+            steps(Step::RenameReplace),
+            steps(Step::RenameNoReplace),
+            steps(Step::SyncFile),
+            steps(Step::SyncDir),
+        ),
+        (0, replaced, names.len() - replaced, names.len(), 1)
+    );
+    assert_eq!(
+        (
+            c.batch_names,
+            c.rewrite_same,
+            c.write_new,
+            c.reads,
+            c.fsync_class_calls()
+        ),
+        (6, 4, 2, 0, 7)
+    );
+    for ((entry_name, _), inode) in names[..replaced].iter().zip(&inodes) {
+        assert_ne!(
+            fs.inode_of(&dir(), entry_name.as_str()),
+            *inode,
+            "fresh inode"
+        );
+    }
+    fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+    for (entry_name, bytes) in &names {
+        assert_eq!(
+            fs.visible_file(&dir(), entry_name.as_str()).as_deref(),
+            Some(bytes.as_slice())
+        );
+    }
+    // A replaced name holds its exact bytes at every step, fault and moment: never absent.
+    matrix(
+        &base,
+        &FAULTS,
+        &|store| store.publish_batch_chunked(&dir(), &batch_entries(&names, action), LIVE),
+        &|case| {
+            let label = case.label();
+            check_absent_or_exact(case.fs, &names, &label);
+            for (entry_name, bytes) in &names[..replaced] {
+                assert_eq!(
+                    case.file(entry_name.as_str()).as_deref(),
+                    Some(bytes.as_slice()),
+                    "replaced {} at {label}",
+                    entry_name.as_str()
+                );
+            }
+            if case.observed() {
+                assert_ne!(
+                    *case.outcome,
+                    KagemushaWalletPublishOutcomeV1::Published,
+                    "{label}"
+                );
+            }
+            check_retry_publishes(case.fs, &names, &label);
+        },
+    );
+}
+
+#[test]
+fn wallet_advance_v1_store_batch_chunks_bound_live_staged_files() {
+    use KagemushaWalletSimStepV1 as Step;
+    assert_eq!(KAGEMUSHA_WALLET_BATCH_LIVE_STAGED_V1, 64);
+    // Staged files created and neither renamed nor discarded: at the end, and at most.
+    let live_staged = |trace: &[Step]| {
+        let (mut live, mut most) = (0_usize, 0_usize);
+        for step in trace {
+            match step {
+                Step::CreateNew => {
+                    live += 1;
+                    most = most.max(live);
+                }
+                Step::RenameNoReplace | Step::RenameReplace | Step::Unlink => {
+                    live = live
+                        .checked_sub(1)
+                        .expect("a staged file to rename or discard");
+                }
+                _ => {}
+            }
+        }
+        (live, most)
+    };
+    for (records, live, chunks) in [
+        (5_usize, LIVE, vec![4_usize, 4, 2]),
+        (35, KAGEMUSHA_WALLET_BATCH_LIVE_STAGED_V1, vec![64, 6]),
+    ] {
+        let names = batch_names(records);
+        let entries = batch_entries(&names, |_| KagemushaWalletBatchActionV1::New);
+        let fs = base();
+        let start = fs.steps();
+        let outcome = if live == KAGEMUSHA_WALLET_BATCH_LIVE_STAGED_V1 {
+            store(&fs).publish_batch(&dir(), &entries)
+        } else {
+            store(&fs).publish_batch_chunked(&dir(), &entries, live)
+        };
+        assert_eq!(outcome, KagemushaWalletPublishOutcomeV1::Published);
+        let trace = fs.trace_since(start);
+        assert_eq!(
+            live_staged(trace.as_slice()),
+            (0, live),
+            "{records} records"
+        );
+        let mut expected = Vec::new();
+        for chunk in chunks {
+            for _ in 0..chunk {
+                expected.extend([Step::CreateNew, Step::Write, Step::SyncFile]);
+            }
+            expected.extend((0..chunk).map(|_| Step::RenameNoReplace));
+        }
+        expected.push(Step::SyncDir);
+        assert_eq!(trace, expected, "{records} records");
+    }
+    // A failure inside any chunk discards every staged file it still holds.
+    let names = batch_names(5);
+    let base = base();
+    let trace = fault_free_trace(&base, &|store| publish_new(store, &names));
+    for (step, kind) in (0_u64..).zip(&trace) {
+        if *kind != Step::SyncFile {
+            continue;
+        }
+        let fs = base.fork();
+        let start = fs.steps();
+        fs.inject(start + step, KagemushaWalletSimFaultV1::Error);
+        assert_ne!(
+            publish_new(&store(&fs), &names),
+            KagemushaWalletPublishOutcomeV1::Published
+        );
+        let (left, most) = live_staged(fs.trace_since(start).as_slice());
+        assert_eq!(
+            left, 0,
+            "step {step}: every staged file is renamed or discarded"
+        );
+        assert!(most <= LIVE, "step {step}");
+        assert!(
+            !fs.visible_names(&dir())
+                .iter()
+                .any(|entry| kagemusha_wallet_is_staging_name_v1(entry)),
+            "step {step}: no staging residue"
+        );
+    }
+}
+
+#[test]
+fn wallet_advance_v1_store_batch_refuses_repeated_names_and_an_empty_batch_takes_no_step() {
+    let fs = base();
+    let start = fs.steps();
+    let (outcome, c) =
+        KagemushaWalletStorageCountersV1::observe(|| store(&fs).publish_batch(&dir(), &[]));
+    assert_eq!(outcome, KagemushaWalletPublishOutcomeV1::Published);
+    assert_eq!(c, KagemushaWalletStorageCountersV1::default());
+    let repeated_name = name("f");
+    let repeated = [
+        KagemushaWalletBatchEntryV1 {
+            name: &repeated_name,
+            bytes: BYTES,
+            action: KagemushaWalletBatchActionV1::New,
+        },
+        KagemushaWalletBatchEntryV1 {
+            name: &repeated_name,
+            bytes: OTHER,
+            action: KagemushaWalletBatchActionV1::Replace,
+        },
+    ];
+    let (outcome, c) =
+        KagemushaWalletStorageCountersV1::observe(|| store(&fs).publish_batch(&dir(), &repeated));
+    assert_eq!(
+        outcome,
+        KagemushaWalletPublishOutcomeV1::NotPublished(KagemushaWalletNotPublishedV1::Failed(
+            KagemushaWalletUnavailableV1::Io(0)
+        ))
+    );
+    assert_eq!(c, KagemushaWalletStorageCountersV1::default());
+    assert!(fs.trace_since(start).is_empty(), "no filesystem step");
+    assert!(fs.visible_names(&dir()).is_empty());
+}
+
+#[test]
+fn wallet_advance_v1_store_batch_create_new_never_replaces() {
+    let base = base_with_file(OTHER);
+    let (occupied, fresh) = (name("f"), name("g"));
+    let alone = [KagemushaWalletBatchEntryV1 {
+        name: &occupied,
+        bytes: BYTES,
+        action: KagemushaWalletBatchActionV1::New,
+    }];
+    let fs = base.fork();
+    assert_eq!(
+        store(&fs).publish_batch(&dir(), &alone),
+        KagemushaWalletPublishOutcomeV1::NotPublished(
+            KagemushaWalletNotPublishedV1::DestinationExists
+        )
+    );
+    assert_eq!(fs.visible_names(&dir()), ["f"]);
+    assert_eq!(fs.visible_file(&dir(), "f").as_deref(), Some(OTHER));
+    // After an earlier rename the same refusal leaves the batch uncertain.
+    let after = [
+        KagemushaWalletBatchEntryV1 {
+            name: &fresh,
+            bytes: BYTES,
+            action: KagemushaWalletBatchActionV1::New,
+        },
+        alone[0],
+    ];
+    let fs = base.fork();
+    assert!(matches!(
+        store(&fs).publish_batch(&dir(), &after),
+        KagemushaWalletPublishOutcomeV1::Uncertain(_)
+    ));
+    assert_eq!(fs.visible_names(&dir()), ["f", "g"]);
+    assert_eq!(fs.visible_file(&dir(), "f").as_deref(), Some(OTHER));
+    matrix(
+        &base,
+        &FAULTS,
+        &|store| store.publish_batch(&dir(), &after),
+        &|case| {
+            assert_eq!(case.file("f").as_deref(), Some(OTHER), "{}", case.label());
+            let created = case.file("g");
+            assert!(
+                created.is_none() || created.as_deref() == Some(BYTES),
+                "{}",
+                case.label()
+            );
+            if case.observed() {
+                assert_ne!(
+                    *case.outcome,
+                    KagemushaWalletPublishOutcomeV1::Published,
+                    "{}",
+                    case.label()
+                );
+            }
+            only_names(case, &["f", "g"]);
+        },
+    );
+}
+
+#[test]
+fn wallet_advance_v1_store_batch_noreplace_unsupported_is_not_published() {
+    let names = batch_names(1);
+    let fs = base();
+    fs.set_noreplace_supported(false);
+    assert_eq!(
+        publish_new(&store(&fs), &names),
+        KagemushaWalletPublishOutcomeV1::NotPublished(
+            KagemushaWalletNotPublishedV1::NoReplaceUnsupported
+        )
+    );
+    assert!(fs.visible_names(&dir()).is_empty());
+    // Fresh-inode adoption needs only a replacing rename.
+    fs.set_noreplace_supported(true);
+    assert_eq!(
+        publish_new(&store(&fs), &names),
+        KagemushaWalletPublishOutcomeV1::Published
+    );
+    fs.set_noreplace_supported(false);
+    assert_eq!(
+        store(&fs).publish_batch(
+            &dir(),
+            &batch_entries(&names, |_| KagemushaWalletBatchActionV1::Replace)
+        ),
+        KagemushaWalletPublishOutcomeV1::Published
+    );
+}
+
 #[cfg(unix)]
 mod std_fs {
     use super::*;
@@ -909,6 +1610,184 @@ mod std_fs {
             KagemushaWalletPublishOutcomeV1::Published
         );
         (temp, store)
+    }
+
+    fn deep_cached_store(
+        depth: usize,
+    ) -> (
+        tempfile::TempDir,
+        KagemushaWalletDurableStoreV1<KagemushaWalletStdFsV1>,
+        KagemushaWalletCustodyDirV1,
+        Vec<std::path::PathBuf>,
+    ) {
+        assert!(depth > 0);
+        let (temp, store) = std_store();
+        let mut selected = dir();
+        let mut path = temp.path().join("root");
+        let mut ancestors = vec![path.clone()];
+        path.push("d");
+        ancestors.push(path.clone());
+        for level in 1..depth {
+            let child = name(&format!("level-{level:02}"));
+            assert_eq!(
+                store.create_dir(&selected, &child),
+                KagemushaWalletPublishOutcomeV1::Published
+            );
+            selected = selected.child(&child);
+            path.push(format!("level-{level:02}"));
+            ancestors.push(path.clone());
+        }
+        assert_eq!(
+            store.write_new(&selected, &name("f"), BYTES),
+            KagemushaWalletPublishOutcomeV1::Published
+        );
+        assert_eq!(
+            store.read(&selected, &name("f"), 1024),
+            KagemushaWalletReadV1::Present(BYTES.to_vec())
+        );
+        (temp, store, selected, ancestors)
+    }
+
+    #[test]
+    fn wallet_advance_v1_std_fs_deep_cached_reads_reject_each_replaced_ancestor() {
+        use std::os::unix::fs::{PermissionsExt as _, symlink};
+        for position in 0..5 {
+            let (temp, store, selected, ancestors) = deep_cached_store(4);
+            let original = &ancestors[position];
+            let displaced = temp.path().join("displaced-original");
+            std::fs::rename(original, &displaced).unwrap();
+            assert!(
+                matches!(
+                    store.read(&selected, &name("missing"), 0),
+                    KagemushaWalletReadV1::Unavailable(_)
+                ),
+                "a vanished cached ancestor is not leaf absence: {position}"
+            );
+            for path in &ancestors[position..] {
+                std::fs::create_dir(path).unwrap();
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            let leaf = ancestors.last().unwrap();
+            std::fs::write(leaf.join("f"), OTHER).unwrap();
+            std::fs::set_permissions(leaf.join("f"), std::fs::Permissions::from_mode(0o600))
+                .unwrap();
+            assert!(
+                matches!(
+                    store.read(&selected, &name("f"), 1024),
+                    KagemushaWalletReadV1::Unavailable(_)
+                ),
+                "same-name replacement cannot be adopted: {position}"
+            );
+            assert!(matches!(
+                store.list(&selected),
+                KagemushaWalletProbeV1::Unavailable(_)
+            ));
+            assert!(matches!(
+                store.write_new(&selected, &name("intruder"), OTHER),
+                KagemushaWalletPublishOutcomeV1::NotPublished(_)
+            ));
+            assert!(!leaf.join("intruder").exists());
+            std::fs::remove_dir_all(original).unwrap();
+            symlink(&displaced, original).unwrap();
+            assert!(
+                matches!(
+                    store.read(&selected, &name("f"), 1024),
+                    KagemushaWalletReadV1::Unavailable(_)
+                ),
+                "even a link to the retained inode must be refused: {position}"
+            );
+            std::fs::remove_file(original).unwrap();
+            std::fs::rename(&displaced, original).unwrap();
+            assert_eq!(
+                store.read(&selected, &name("f"), 1024),
+                KagemushaWalletReadV1::Present(BYTES.to_vec())
+            );
+        }
+    }
+
+    #[test]
+    fn wallet_advance_v1_std_fs_deep_cached_reads_recheck_each_ancestor_mode() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let (_temp, store, selected, ancestors) = deep_cached_store(4);
+        for path in ancestors {
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o770)).unwrap();
+            assert!(matches!(
+                store.read(&selected, &name("f"), 1024),
+                KagemushaWalletReadV1::Unavailable(_)
+            ));
+            assert!(matches!(
+                store.read(&selected, &name("missing"), 0),
+                KagemushaWalletReadV1::Unavailable(_)
+            ));
+            assert!(matches!(
+                store.list(&selected),
+                KagemushaWalletProbeV1::Unavailable(_)
+            ));
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            assert_eq!(
+                store.read(&selected, &name("f"), 1024),
+                KagemushaWalletReadV1::Present(BYTES.to_vec())
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn wallet_advance_v1_std_fs_deep_cached_reads_recheck_each_ancestor_acl() {
+        let (_temp, store, selected, ancestors) = deep_cached_store(4);
+        for path in ancestors {
+            assert!(
+                std::process::Command::new("chmod")
+                    .args(["+a", "everyone allow add_file"])
+                    .arg(&path)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            assert!(matches!(
+                store.read(&selected, &name("f"), 1024),
+                KagemushaWalletReadV1::Unavailable(_)
+            ));
+            assert!(matches!(
+                store.read(&selected, &name("missing"), 0),
+                KagemushaWalletReadV1::Unavailable(_)
+            ));
+            assert!(
+                std::process::Command::new("chmod")
+                    .arg("-N")
+                    .arg(&path)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+            assert_eq!(
+                store.read(&selected, &name("f"), 1024),
+                KagemushaWalletReadV1::Present(BYTES.to_vec())
+            );
+        }
+    }
+
+    /// A bounded host comparison only; wall-clock samples do not assert phone latency.
+    #[test]
+    #[ignore = "host filesystem microbenchmark, run explicitly before and after the same source change"]
+    fn wallet_advance_v1_std_fs_deep_read_profile() {
+        const ITERATIONS: usize = 128;
+        for depth in [1, 3, 8] {
+            let (_temp, store, selected, _ancestors) = deep_cached_store(depth);
+            for sample in 0..5 {
+                let start = std::time::Instant::now();
+                for _ in 0..ITERATIONS {
+                    assert_eq!(
+                        store.read(&selected, &name("f"), 1024),
+                        KagemushaWalletReadV1::Present(BYTES.to_vec())
+                    );
+                }
+                eprintln!(
+                    "WALLET_FS_DEEP_READ depth={depth} sample={sample} iterations={ITERATIONS} elapsed_ns={}",
+                    start.elapsed().as_nanos()
+                );
+            }
+        }
     }
 
     #[test]
@@ -1041,6 +1920,82 @@ mod std_fs {
     }
 
     #[test]
+    fn wallet_advance_v1_std_fs_batch_publication_retains_each_staged_original() {
+        use std::os::unix::fs::MetadataExt as _;
+        let (temp, store) = std_store();
+        let path = temp.path().join("root").join("d");
+        let inode = |entry: &KagemushaWalletEntryNameV1| {
+            std::fs::symlink_metadata(path.join(entry.as_str()))
+                .expect("published name")
+                .ino()
+        };
+        // Seventy copies cross one production chunk of retained staged originals.
+        let names = batch_names(35);
+        let (outcome, c) = KagemushaWalletStorageCountersV1::observe(|| {
+            store.publish_batch(
+                &dir(),
+                &batch_entries(&names, |_| KagemushaWalletBatchActionV1::New),
+            )
+        });
+        assert_eq!(outcome, KagemushaWalletPublishOutcomeV1::Published);
+        assert_eq!(
+            (
+                c.batch_publishes,
+                c.batch_names,
+                c.staged_syncs,
+                c.publish_syncs,
+                c.fsync_class_calls()
+            ),
+            (1, 70, 70, 1, 71)
+        );
+        for (entry_name, bytes) in &names {
+            assert_eq!(
+                store.read(&dir(), entry_name, bytes.len()),
+                KagemushaWalletReadV1::Present(bytes.clone())
+            );
+        }
+        // The exact retry adopts every copy on a fresh inode.
+        let before: Vec<u64> = names
+            .iter()
+            .map(|(entry_name, _)| inode(entry_name))
+            .collect();
+        assert_eq!(
+            store.publish_batch(
+                &dir(),
+                &batch_entries(&names, |_| KagemushaWalletBatchActionV1::Replace)
+            ),
+            KagemushaWalletPublishOutcomeV1::Published
+        );
+        for ((entry_name, bytes), before) in names.iter().zip(before) {
+            assert_eq!(
+                store.read(&dir(), entry_name, bytes.len()),
+                KagemushaWalletReadV1::Present(bytes.clone())
+            );
+            assert_ne!(inode(entry_name), before, "{}", entry_name.as_str());
+        }
+        // Create-new never replaces, and no staging file remains.
+        let (occupied, kept) = &names[0];
+        assert_eq!(
+            store.publish_batch(
+                &dir(),
+                &[KagemushaWalletBatchEntryV1 {
+                    name: occupied,
+                    bytes: OTHER,
+                    action: KagemushaWalletBatchActionV1::New,
+                }]
+            ),
+            KagemushaWalletPublishOutcomeV1::NotPublished(
+                KagemushaWalletNotPublishedV1::DestinationExists
+            )
+        );
+        assert_eq!(
+            store.read(&dir(), occupied, kept.len()),
+            KagemushaWalletReadV1::Present(kept.clone())
+        );
+        assert_eq!(store.remove_staging(&dir()), Ok(0));
+    }
+
+    #[test]
     fn wallet_advance_v1_std_fs_listing_and_reads_fail_closed() {
         let (temp, store) = std_store();
         let path = temp.path().join("root").join("d");
@@ -1150,6 +2105,76 @@ mod std_fs {
             store.list(&dir()),
             KagemushaWalletProbeV1::Unavailable(_)
         ));
+    }
+
+    // On Android run under the disposable app UID with TMPDIR selected from its
+    // private Context directory. Separate opens must contend even within one process.
+    #[cfg(any(target_os = "android", target_os = "linux", target_vendor = "apple"))]
+    #[test]
+    fn wallet_advance_v1_std_fs_lock_matches_kernel_flock_and_preserves_inode() {
+        use rustix::fs::{FlockOperation::NonBlockingLockExclusive, flock};
+        use std::os::unix::fs::MetadataExt as _;
+
+        #[cfg(target_os = "android")]
+        assert_ne!(rustix::process::geteuid().as_raw(), 0, "use the app UID");
+        let (temp, store) = std_store();
+        let root = temp.path().join("root");
+        let other = KagemushaWalletDurableStoreV1::new(
+            KagemushaWalletStdFsV1::open(&root).expect("independent owner"),
+        );
+        let held = store.lock_exclusive().expect("wallet kernel lock");
+        let before = std::fs::symlink_metadata(root.join("lock")).unwrap();
+        let directory = iroha_fs::PrivateDirectory::open(&root).unwrap();
+        let competing = directory.open_ownership_lock("lock").unwrap();
+        assert_eq!(
+            flock(&competing, NonBlockingLockExclusive),
+            Err(rustix::io::Errno::WOULDBLOCK)
+        );
+        assert_eq!(
+            other.lock_exclusive().err(),
+            Some(KagemushaWalletUnavailableV1::Busy)
+        );
+        assert_eq!(
+            store.lock_exclusive().err(),
+            Some(KagemushaWalletUnavailableV1::Busy)
+        );
+        drop(held);
+        flock(&competing, NonBlockingLockExclusive).expect("guard drop releases the kernel lock");
+        assert_eq!(
+            other.lock_exclusive().err(),
+            Some(KagemushaWalletUnavailableV1::Busy)
+        );
+        drop(competing);
+        let acquired = other
+            .lock_exclusive()
+            .expect("external descriptor drop releases the lock");
+        assert_eq!(
+            store.lock_exclusive().err(),
+            Some(KagemushaWalletUnavailableV1::Busy)
+        );
+        drop(acquired);
+        let _reacquired = store.lock_exclusive().expect("wallet can acquire again");
+        let after = std::fs::symlink_metadata(root.join("lock")).unwrap();
+        assert_eq!(
+            (
+                before.dev(),
+                before.ino(),
+                before.uid(),
+                before.gid(),
+                before.mode(),
+                before.nlink()
+            ),
+            (
+                after.dev(),
+                after.ino(),
+                after.uid(),
+                after.gid(),
+                after.mode(),
+                after.nlink()
+            )
+        );
+        assert_eq!(after.mode() & 0o7777, 0o600);
+        assert_eq!(after.nlink(), 1);
     }
 
     #[test]
@@ -1481,4 +2506,164 @@ fn simulated_staging_entropy_faults_are_separate_and_resettable() {
     fs.inject_staging_name_error(0, io::ErrorKind::Other);
     fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
     assert!(fs.staging_name().is_ok());
+}
+
+#[test]
+fn wallet_advance_v1_store_retirement_retry_after_lost_writeback_fault_matrix() {
+    let fs = base_with_file(BYTES);
+    let retire =
+        |store: &SimStore| store.retain_retired_files(&dir(), &[(&name("f"), &name("grave-new"))]);
+    let trace = fault_free_trace(&fs, &retire);
+    let first_sync = trace
+        .iter()
+        .position(|step| *step == KagemushaWalletSimStepV1::SyncDir)
+        .expect("retirement sync");
+    fs.inject(
+        fs.steps() + first_sync as u64,
+        KagemushaWalletSimFaultV1::LostWriteback,
+    );
+    assert!(matches!(
+        retire(&store(&fs)),
+        KagemushaWalletRemoveOutcomeV1::Uncertain(_)
+    ));
+    assert_eq!(fs.visible_file(&dir(), "f"), None);
+    assert_eq!(fs.visible_file(&dir(), "grave-new").as_deref(), Some(BYTES));
+    fs.restart();
+    // A retry in the same boot must reissue the exact move. Exercise another fault at
+    // every step, including both directory syncs, before restart or power loss.
+    matrix(&fs, &FAULTS, &retire, &|case| {
+        let original = case.file("f");
+        let grave = case.file("grave-new");
+        assert!(
+            original.is_none() || original.as_deref() == Some(BYTES),
+            "original bytes: {}",
+            case.label()
+        );
+        assert!(
+            grave.is_none() || grave.as_deref() == Some(BYTES),
+            "retained bytes: {}",
+            case.label()
+        );
+        if case.observed() && *case.outcome == KagemushaWalletRemoveOutcomeV1::Removed {
+            assert_eq!(
+                original,
+                None,
+                "completed retirement resurrected: {}",
+                case.label()
+            );
+        }
+    });
+    assert_eq!(retire(&store(&fs)), KagemushaWalletRemoveOutcomeV1::Removed);
+    fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+    assert_eq!(fs.visible_file(&dir(), "f"), None);
+}
+
+#[test]
+fn wallet_advance_v1_store_completed_retirement_cleanup_never_restores_original() {
+    let fs = base_with_file(BYTES);
+    let retire = |store: &SimStore| {
+        store.retain_retired_files(&dir(), &[(&name("f"), &name("grave-complete"))])
+    };
+    assert_eq!(retire(&store(&fs)), KagemushaWalletRemoveOutcomeV1::Removed);
+    // The archive publishes its durable Complete journal before selecting this cleanup.
+    // This primitive test starts from the already-durable original absence.
+    let reap = |store: &SimStore| store.reap_retired_files(&dir(), &[&name("grave-complete")]);
+    let trace = fault_free_trace(&fs, &reap);
+    let last_sync = trace
+        .iter()
+        .rposition(|step| *step == KagemushaWalletSimStepV1::SyncDir)
+        .expect("grave cleanup sync");
+    fs.inject(
+        fs.steps() + last_sync as u64,
+        KagemushaWalletSimFaultV1::LostWriteback,
+    );
+    assert_eq!(reap(&store(&fs)), KagemushaWalletRemoveOutcomeV1::Removed);
+    fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+    assert_eq!(fs.visible_file(&dir(), "f"), None);
+    assert_eq!(
+        fs.visible_file(&dir(), "grave-complete").as_deref(),
+        Some(BYTES)
+    );
+    // The provider selects this garbage-only operation after durable Complete.
+    // Its own later failure or crash may retain garbage, but must never relink f.
+    matrix(
+        &fs,
+        &FAULTS,
+        &|store| store.reap_retired_files(&dir(), &[&name("grave-complete")]),
+        &|case| {
+            assert_eq!(
+                case.file("f"),
+                None,
+                "cleanup resurrected original: {}",
+                case.label()
+            );
+            let grave = case.file("grave-complete");
+            assert!(
+                grave.is_none() || grave.as_deref() == Some(BYTES),
+                "{}",
+                case.label()
+            );
+        },
+    );
+}
+
+#[test]
+fn wallet_advance_v1_store_retirement_never_replaces_an_existing_grave() {
+    let fs = base_with_file(BYTES);
+    assert_eq!(
+        store(&fs).write_new(&dir(), &name("grave-old"), OTHER),
+        KagemushaWalletPublishOutcomeV1::Published
+    );
+    assert!(matches!(
+        store(&fs).retain_retired_files(&dir(), &[(&name("f"), &name("grave-old"))]),
+        KagemushaWalletRemoveOutcomeV1::NotRemoved(_)
+    ));
+    for power_loss in [false, true] {
+        let view = fs.fork();
+        if power_loss {
+            view.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+        }
+        assert_eq!(view.visible_file(&dir(), "f").as_deref(), Some(BYTES));
+        assert_eq!(
+            view.visible_file(&dir(), "grave-old").as_deref(),
+            Some(OTHER)
+        );
+    }
+}
+
+#[test]
+fn wallet_advance_v1_store_remove_dir_retry_after_lost_writeback_is_durable() {
+    let fs = base();
+    assert_eq!(
+        store(&fs).create_dir(&dir(), &name("empty")),
+        KagemushaWalletPublishOutcomeV1::Published
+    );
+    let remove = |store: &SimStore| store.remove_dir(&dir(), &name("empty"));
+    let trace = fault_free_trace(&fs, &remove);
+    let sync = trace
+        .iter()
+        .position(|step| *step == KagemushaWalletSimStepV1::SyncDir)
+        .expect("directory removal sync");
+    fs.inject(
+        fs.steps() + sync as u64,
+        KagemushaWalletSimFaultV1::LostWriteback,
+    );
+    assert!(matches!(
+        remove(&store(&fs)),
+        KagemushaWalletRemoveOutcomeV1::Uncertain(_)
+    ));
+    fs.restart();
+    assert!(!fs.visible_dir(&dir().child(&name("empty"))));
+    matrix(&fs, &FAULTS, &remove, &|case| {
+        if case.observed() && *case.outcome == KagemushaWalletRemoveOutcomeV1::Removed {
+            assert!(
+                !case.fs.visible_dir(&dir().child(&name("empty"))),
+                "directory resurrected: {}",
+                case.label()
+            );
+        }
+    });
+    assert_eq!(remove(&store(&fs)), KagemushaWalletRemoveOutcomeV1::Removed);
+    fs.power_loss(KagemushaWalletSimPowerLossV1::DropUnsynced);
+    assert!(!fs.visible_dir(&dir().child(&name("empty"))));
 }

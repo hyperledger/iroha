@@ -243,7 +243,7 @@ impl Plan {
                 instances: vec![Fp::ZERO; 69],
                 proof: vec![0; length],
                 length: u32::try_from(length).map_err(|_| Error::Artifact)?,
-                fold: [0; 1120],
+                fold: crate::private_fold::PrivateFoldBytes::unknown(),
             },
         )
         .map_err(|_| Error::Artifact)?
@@ -289,7 +289,7 @@ impl Plan {
                 source,
                 continuation,
                 pallas,
-                fold: vec![0; 1120],
+                fold: crate::private_fold::PrivateFoldBytes::unknown(),
                 known: false,
             },
         })
@@ -307,8 +307,8 @@ fn unknown_source(plan: &Plan) -> Result<Arc<Source>, Error> {
     let v = AccumulatorT::<Eq>::new(EqAffine::generator(), [Fp::ONE; 16])
         .map_err(|_| Error::Artifact)?;
     let state = StateWitness {
-        core: [Fp::ZERO; 33],
-        rest: [Fp::ZERO; 8],
+        core: [Fp::ZERO; 29],
+        rest: [Fp::ZERO; 6],
         lineage: [Fp::ZERO; 18],
     };
     let insertion = IndexedInsert {
@@ -326,8 +326,8 @@ fn unknown_source(plan: &Plan) -> Result<Arc<Source>, Error> {
         vesta: v.clone(),
         opening: p.as_input(),
     };
-    let mut q = Vec::with_capacity(3);
-    for index in 0..3 {
+    let mut q = Vec::with_capacity(operation.q_count());
+    for index in 0..operation.q_count() {
         let fixed = operation.q(index).ok_or(Error::Artifact)?;
         let verifier = fixed.verifier();
         q.push(QSource {
@@ -366,23 +366,14 @@ fn unknown_source(plan: &Plan) -> Result<Arc<Source>, Error> {
                 statement: [Fp::ZERO; 26],
                 consumed: insertion,
                 credit: insertion,
-                blacklist: insertion,
                 insert: false,
             },
             send: SendStatement {
                 statement: [Fp::ZERO; 26],
             },
-            sigma: vec![
-                0;
-                operation
-                    .sigma
-                    .class(0)
-                    .ok_or(Error::Artifact)?
-                    .verifier()
-                    .proof_length()
-            ],
+            step: None,
             incoming_sigma: vec![],
-            sigma_plan: operation.sigma.clone(),
+            sigma_plan: operation.sigma_plan().map_err(|_| Error::Artifact)?.clone(),
             part: v.as_input(),
         },
         predecessor: head.clone(),
@@ -396,7 +387,7 @@ fn unknown_source(plan: &Plan) -> Result<Arc<Source>, Error> {
         incoming: vec![],
         params: plan.pallas.clone(),
         vparams: plan.vesta.clone(),
-        results: [false; 5],
+        results: [false; 4],
         modes: [IncomingMode::Trivial; 4],
         public_valid: false,
         pallas_corrections: [*p.g(); 2],

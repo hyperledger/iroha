@@ -11,7 +11,7 @@ use iroha_data_model::execution_proofs::{RaceInputFrameV1, RaceReplayV1, RaceTra
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
 
-/// Export the closed RaceV1 track/player catalog as an integer-only JSON program.
+/// Export the closed `RaceV1` track/player catalog as an integer-only JSON program.
 ///
 /// This is a presentation runtime export, not an installable verifier program. Native proof
 /// admission always selects a compiled, immutable relation. All arithmetic is within 2^50,

@@ -8,7 +8,7 @@ fn full_scalar_bits_and_sixteen_bit_indexes_join_without_memory_or_tag_events() 
     let mut literals = vec![37; 257];
     literals[0] = 0;
     literals[1] = i64::MAX as u64;
-    literals[2] = i64::MIN as u64;
+    literals[2] = i64::cast_unsigned(i64::MIN);
     literals[255] = u64::MAX;
     literals[256] = 0x0123_4567_89ab_cdef;
     let indexes = [0, 1, 2, 255, 256];
@@ -53,7 +53,7 @@ fn different_original_literal_artifact_cannot_authorize_the_same_packets() {
     let body = [enc::encode_literal(wide::memory::LDI64, 4, 0)];
     let (native, budget) = native(artifact_with_literals(&body, 0, &[u64::MAX]));
     let instructions = Instructions::new(&native, &root(&native), &budget).unwrap();
-    let changed = artifact_with_literals(&body, 0, &[i64::MIN as u64]);
+    let changed = artifact_with_literals(&body, 0, &[i64::cast_unsigned(i64::MIN)]);
     assert_eq!(native.artifact().code_offset(), changed.code_offset());
     assert_ne!(native.artifact().code_hash(), changed.code_hash());
     let wrong = private_dispatch::Program::new(changed).unwrap();
@@ -159,7 +159,11 @@ fn maximum_load_profile_uses_the_same_bounded_stack_and_backing() {
     let mut body = vec![enc::encode_ri(wide::memory::LOAD64, 4, 31, -8); 60];
     body[0] = enc::encode_literal(wide::memory::LDI64, 4, 0);
     body[1] = enc::encode_store(wide::memory::STORE64, 31, 4, -8);
-    let (native, budget) = native(artifact_with_literals(&body, 16, &[i64::MIN as u64]));
+    let (native, budget) = native(artifact_with_literals(
+        &body,
+        16,
+        &[i64::cast_unsigned(i64::MIN)],
+    ));
     std::thread::Builder::new()
         .stack_size(256 * 1024)
         .spawn(move || {

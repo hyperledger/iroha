@@ -224,7 +224,18 @@ for module in ['core-jvm','client-android','kagemusha-wallet-android']:
     def required_quality_tasks():
         return [":core-jvm:test", ":client-android:testDebugUnitTest",
                 ":client-android:testDebugHostNative",
-                ":kagemusha-wallet-android:testDebugUnitTest"]
+                ":kagemusha-wallet-android:testDebugUnitTest",
+                ":kagemusha-wallet-android:testDebugHostNative"]
+
+    def test_mobile_workflow_and_quickstart_keep_both_host_native_owners(self):
+        workflow = (ROOT / ".github/workflows/mobile_sdk_artifacts.yml").read_text()
+        quality = workflow.split("      - name: Test, lint, publish, and build Android SDK artifacts", 1)[1]
+        quality = quality.split("      - name: Collect canonical Kotlin runtime SBOMs", 1)[0]
+        quickstart = (ROOT / "AGENTS.md").read_text().split("- Android consumers of host JNI:", 1)[1].split("\n", 1)[0]
+        for module in ["client-android", "kagemusha-wallet-android"]:
+            task = f":{module}:testDebugHostNative"
+            self.assertEqual(quality.count(task), 1)
+            self.assertEqual(quickstart.count(task), 1)
 
     def retain_actual_sbom_process_boundary(self):
         # Execute the real SBOM shell and publisher; only Gradle, collection and

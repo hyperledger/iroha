@@ -6,8 +6,6 @@
 use super::*;
 use crate::{
     a_relation::QProofPlan,
-    admin_sigma::LoadCircuit,
-    q_sigma::{QSigmaCircuit, QSigmaPlan, QSigmaWitness, SigmaClass, SigmaSlotWitness},
     q_signature::{QSignatureCircuit, SignatureSlot, SignatureWitness},
 };
 use iroha_plonk::{
@@ -45,85 +43,14 @@ fn original_plan() -> Plan {
     .unwrap();
     let predecessor_key = predecessor.vk().clone();
     let predecessor = VerifierPlan::new(predecessor.binding().clone(), pallas.clone()).unwrap();
-    let state = StateWitness {
-        core: [Fp::ZERO; 33],
-        rest: [Fp::ZERO; 8],
-        lineage: [Fp::ZERO; 18],
-    };
-    let sigma = LoadCircuit::new(&LoadWitness {
-        predecessor: state,
-        successor: state,
-        statement: [Fp::ZERO; 26],
-    })
-    .without_witnesses();
-    let sigma_params = PinnedParams::<Eq>::derive(12).unwrap();
-    let sigma_key = keygen_pk_v2(
-        &sigma_params,
-        &sigma,
-        &KeygenConfigV2::pipa_r(LoadCircuit::instance_types().to_vec()),
-    )
-    .unwrap();
-    let class = SigmaClass::new(
-        VerifierPlan::new(sigma_key.binding().clone(), sigma_params).unwrap(),
-        vec![(
-            super::super::super::schedule::sigma_selector(2, 0).unwrap(),
-            sigma_key
-                .vk()
-                .kagemusha_digest(sigma_key.binding())
-                .unwrap(),
-        )],
-    )
-    .unwrap();
-    let sigma_plan = QSigmaPlan::new(class, None, &vesta).unwrap();
-    let length = sigma_plan.class(0).unwrap().verifier().proof_length();
-    let q_sigma = QSigmaCircuit::new(
-        sigma_plan.clone(),
-        QSigmaWitness {
-            own: SigmaSlotWitness {
-                key: sigma_key.vk().clone(),
-                statement: Fp::ZERO,
-                proof: vec![0; length],
-                length: u32::try_from(length).unwrap(),
-            },
-            incoming: None,
-        },
-    )
-    .unwrap()
-    .with_serialized_foreign(2)
-    .unwrap()
-    .without_witnesses();
-    let sigma_q = keygen_pk_v2(
-        &pallas,
-        &q_sigma,
-        &KeygenConfigV2::pipa_r(QSigmaPlan::instance_types().to_vec()),
-    )
-    .unwrap();
-    let mut q = vec![
-        QProofPlan::new(
-            VerifierPlan::new(sigma_q.binding().clone(), pallas.clone()).unwrap(),
-            sigma_q.vk().clone(),
-        )
-        .unwrap(),
-    ];
+    // Lean lineage: the only Q is the own-receipt signature leaf.
     let policy = OwnPolicy::new([31, 32], Affine::GENERATOR).unwrap();
-    let signatures = [
-        QSignaturePlan::new(vec![SignatureSlot {
-            mode: VerifyMode::Hard,
-            key: SignatureKey::Variable,
-        }])
-        .unwrap(),
-        QSignaturePlan::new(vec![
-            SignatureSlot {
-                mode: VerifyMode::Hard,
-                key: SignatureKey::Variable,
-            },
-            SignatureSlot {
-                mode: VerifyMode::Hard,
-                key: SignatureKey::Fixed(policy.root),
-            },
-        ])
-        .unwrap(),
-    ];
+    let signatures = [QSignaturePlan::new(vec![SignatureSlot {
+        mode: VerifyMode::Hard,
+        key: SignatureKey::Variable,
+    }])
+    .unwrap()];
+    let mut q = Vec::new();
     for schema in &signatures {
         let circuit = QSignatureCircuit::new(
             schema.clone(),
@@ -152,8 +79,7 @@ fn original_plan() -> Plan {
             .unwrap(),
         );
     }
-    let operation =
-        AProofPlan::new(Variant::Load, sigma_plan, q, Some(predecessor), &pallas).unwrap();
+    let operation = AProofPlan::inline(Variant::Load, q, Some(predecessor), &pallas).unwrap();
     Plan::new(
         operation,
         policy,
@@ -167,7 +93,7 @@ fn original_plan() -> Plan {
 
 #[test]
 #[ignore = "imports all actual Load and wrapper source tables at k16; run optimized explicitly"]
-fn four_a_three_w_original_sources_qualify_at_k16() {
+fn two_a_one_w_original_sources_qualify_at_k16() {
     struct Original {
         d: Vec<u8>,
         v: Vec<u8>,
@@ -181,7 +107,7 @@ fn four_a_three_w_original_sources_qualify_at_k16() {
         }
     }
     let plan = original_plan();
-    assert_eq!(plan.context.stage_count(), 4);
+    assert_eq!(plan.context.stage_count(), 2);
     assert!(plan.source_circuit(A_STAGE_COUNT, None).is_err());
     assert!(plan.source_circuit(usize::MAX, None).is_err());
     assert!(plan.source_circuit(1, None).is_err());
@@ -260,9 +186,9 @@ fn four_a_three_w_original_sources_qualify_at_k16() {
     )
     .unwrap();
     let descriptors = imported.descriptors();
-    assert_eq!(descriptors.len(), 7);
+    assert_eq!(descriptors.len(), 3);
     // The exported order must retain each exact installed owner, including stages whose
-    // descriptors have equal bytes, and finish at A4 without a trailing wrapper.
+    // descriptors have equal bytes, and finish at A2 without a trailing wrapper.
     for (stage, original) in a.iter().enumerate() {
         assert!(core::ptr::eq(
             descriptors[2 * stage],
@@ -305,5 +231,5 @@ fn four_a_three_w_original_sources_qualify_at_k16() {
     )
     .unwrap();
     // Metadata can describe originals, but only source reconstruction can qualify them.
-    assert!(changed.import_a(2, &a[2].p, config).is_err());
+    assert!(changed.import_a(1, &a[1].p, config).is_err());
 }

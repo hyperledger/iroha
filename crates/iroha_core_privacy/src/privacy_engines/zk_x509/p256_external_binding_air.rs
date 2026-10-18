@@ -46,27 +46,27 @@ use crate::privacy_engines::transparent_stark::GoldilocksFieldV1 as F;
 use p256::{ProjectivePoint, Scalar, elliptic_curve::sec1::ToEncodedPoint as _};
 use thiserror::Error;
 /// Pointwise equalities packed into one physical row.
-pub(crate) const P256_EXTERNAL_BINDINGS_PER_ROW_V1: usize = 3;
+pub const P256_EXTERNAL_BINDINGS_PER_ROW_V1: usize = 3;
 /// Canonical initial values emitted by the one-signature compiler.
-pub(crate) const P256_EXTERNAL_INITIAL_VALUES_V1: usize = 850;
+pub const P256_EXTERNAL_INITIAL_VALUES_V1: usize = 850;
 /// Verifier-owned constant initial values.
-pub(crate) const P256_EXTERNAL_CONSTANT_INITIAL_VALUES_V1: usize = 457;
+pub const P256_EXTERNAL_CONSTANT_INITIAL_VALUES_V1: usize = 457;
 /// Input initial values with an explicit external or auxiliary owner.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) const P256_EXTERNAL_INPUT_INITIAL_VALUES_V1: usize = 393;
+pub const P256_EXTERNAL_INPUT_INITIAL_VALUES_V1: usize = 393;
 /// Window candidate limbs bound across all 128 selectors.
-pub(crate) const P256_EXTERNAL_WINDOW_CANDIDATE_BINDINGS_V1: usize =
+pub const P256_EXTERNAL_WINDOW_CANDIDATE_BINDINGS_V1: usize =
     128 * 16 * 3 * P256_VALUE_BUS_LIMBS_V1;
 /// Selected-output limbs bound across all 128 selectors.
-pub(crate) const P256_EXTERNAL_WINDOW_OUTPUT_BINDINGS_V1: usize = 128 * 3 * P256_VALUE_BUS_LIMBS_V1;
+pub const P256_EXTERNAL_WINDOW_OUTPUT_BINDINGS_V1: usize = 128 * 3 * P256_VALUE_BUS_LIMBS_V1;
 /// Both reduced scalar outputs.
-pub(crate) const P256_EXTERNAL_REDUCTION_OUTPUT_BINDINGS_V1: usize = 2 * P256_REDUCTION_ROWS_V1;
+pub const P256_EXTERNAL_REDUCTION_OUTPUT_BINDINGS_V1: usize = 2 * P256_REDUCTION_ROWS_V1;
 /// Base-coordinate source of the result-x reduction.
-pub(crate) const P256_EXTERNAL_RESULT_X_SOURCE_BINDINGS_V1: usize = P256_REDUCTION_ROWS_V1;
+pub const P256_EXTERNAL_RESULT_X_SOURCE_BINDINGS_V1: usize = P256_REDUCTION_ROWS_V1;
 /// Wallet-only low-s scalar bindings.
-pub(crate) const P256_EXTERNAL_LOW_S_BINDINGS_V1: usize = P256_REDUCTION_ROWS_V1;
+pub const P256_EXTERNAL_LOW_S_BINDINGS_V1: usize = P256_REDUCTION_ROWS_V1;
 /// All fixed constant writer limbs.
-pub(crate) const P256_EXTERNAL_CONSTANT_BINDINGS_V1: usize =
+pub const P256_EXTERNAL_CONSTANT_BINDINGS_V1: usize =
     P256_EXTERNAL_CONSTANT_INITIAL_VALUES_V1 * P256_VALUE_BUS_LIMBS_V1;
 const P256_EXTERNAL_BASE_BINDINGS_V1: usize = P256_EXTERNAL_WINDOW_CANDIDATE_BINDINGS_V1
     + P256_EXTERNAL_WINDOW_OUTPUT_BINDINGS_V1
@@ -89,17 +89,17 @@ const P256_EXTERNAL_WALLET_ROWS_V1: usize =
     P256_EXTERNAL_WALLET_BINDINGS_V1.div_ceil(P256_EXTERNAL_BINDINGS_PER_ROW_V1);
 const P256_EXTERNAL_ARITHMETIC_OPERATIONS_V1: usize = P256_TWO_SCALAR_ARITHMETIC_OPERATIONS_V1 + 18;
 /// Bytes in the canonical `(Qx,Qy,r,s,digest)` tuple.
-pub(crate) const P256_INPUT_SELECTION_BYTES_V1: usize = 5 * 32;
+pub const P256_INPUT_SELECTION_BYTES_V1: usize = 5 * 32;
 /// Verifier-fixed byte region, disjoint from all existing external equality rows.
-pub(crate) const P256_INPUT_SELECTION_ROW_START_V1: usize = 40_960;
+pub const P256_INPUT_SELECTION_ROW_START_V1: usize = 40_960;
 /// One row after the byte region: the private activity selector is constrained here.
-pub(crate) const P256_INPUT_SELECTION_SELECTOR_ROW_V1: usize =
+pub const P256_INPUT_SELECTION_SELECTOR_ROW_V1: usize =
     P256_INPUT_SELECTION_ROW_START_V1 + P256_INPUT_SELECTION_BYTES_V1;
 const _: () = assert!(P256_EXTERNAL_WALLET_ROWS_V1 < P256_INPUT_SELECTION_ROW_START_V1);
 const _: () = assert!(P256_INPUT_SELECTION_SELECTOR_ROW_V1 < 1 << 16);
 
 /// Compiler-owned value writer for each selected coordinate; digest uses the reduction WORD.
-pub(crate) fn p256_selected_input_writer_id_v1(
+pub fn p256_selected_input_writer_id_v1(
     word: usize,
 ) -> Result<Option<P256ValueIdV1>, P256ExternalBindingErrorV1> {
     match word {
@@ -113,7 +113,7 @@ pub(crate) fn p256_selected_input_writer_id_v1(
 }
 
 /// Canonical big-endian byte coordinate used by both native providers and fixed preprocessing.
-pub(crate) fn p256_input_selection_byte_v1(
+pub fn p256_input_selection_byte_v1(
     witness: &P256EcdsaWitnessV1,
     byte: usize,
 ) -> Result<u8, P256ExternalBindingErrorV1> {
@@ -178,41 +178,40 @@ const THREE_BE_V1: [u8; 32] = [
 /// P-256 generator as the public key and the valid `(d, k) = (1, 1)` signature of SHA-256(empty).
 /// It is selected only when the RFC adapter's certificate-slot selector is zero.
 #[cfg(test)]
-pub(crate) const ZK_X509_P256_OPTIONAL_CERTIFICATE_DUMMY_DOMAIN_V1: &[u8] =
+pub const ZK_X509_P256_OPTIONAL_CERTIFICATE_DUMMY_DOMAIN_V1: &[u8] =
     b"iroha.zk-x509.p256.optional-certificate-dummy.v1";
 /// SHA-256(empty), which is also the canonical inactive SHA-call digest.
-pub(crate) const ZK_X509_P256_OPTIONAL_CERTIFICATE_DUMMY_DIGEST_V1: [u8; 32] = [
+pub const ZK_X509_P256_OPTIONAL_CERTIFICATE_DUMMY_DIGEST_V1: [u8; 32] = [
     0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14, 0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f, 0xb9, 0x24,
     0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c, 0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55,
 ];
 /// Verifier-owned valid P-256 tuple used by the inactive optional slot.
-pub(crate) const ZK_X509_P256_OPTIONAL_CERTIFICATE_DUMMY_V1: P256EcdsaWitnessV1 =
-    P256EcdsaWitnessV1 {
-        // Standard P-256 generator.
-        public_key_x_be: [
-            0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47, 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4,
-            0x40, 0xf2, 0x77, 0x03, 0x7d, 0x81, 0x2d, 0xeb, 0x33, 0xa0, 0xf4, 0xa1, 0x39, 0x45,
-            0xd8, 0x98, 0xc2, 0x96,
-        ],
-        public_key_y_be: [
-            0x4f, 0xe3, 0x42, 0xe2, 0xfe, 0x1a, 0x7f, 0x9b, 0x8e, 0xe7, 0xeb, 0x4a, 0x7c, 0x0f,
-            0x9e, 0x16, 0x2b, 0xce, 0x33, 0x57, 0x6b, 0x31, 0x5e, 0xce, 0xcb, 0xb6, 0x40, 0x68,
-            0x37, 0xbf, 0x51, 0xf5,
-        ],
-        // r = x(G), because the public nonce is k = 1.
-        r_be: [
-            0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47, 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4,
-            0x40, 0xf2, 0x77, 0x03, 0x7d, 0x81, 0x2d, 0xeb, 0x33, 0xa0, 0xf4, 0xa1, 0x39, 0x45,
-            0xd8, 0x98, 0xc2, 0x96,
-        ],
-        // s = SHA256(empty) + r mod n for the public key d = 1.
-        s_be: [
-            0x4e, 0xc8, 0x96, 0x36, 0x7a, 0x28, 0x5e, 0x5b, 0x93, 0xb8, 0xdb, 0xad, 0xfd, 0x13,
-            0xfa, 0x16, 0xe1, 0xca, 0xc4, 0xb7, 0xeb, 0x6f, 0x28, 0x68, 0xa5, 0x7d, 0x07, 0x9e,
-            0x54, 0x88, 0x55, 0x9a,
-        ],
-        digest_be: ZK_X509_P256_OPTIONAL_CERTIFICATE_DUMMY_DIGEST_V1,
-    };
+pub const ZK_X509_P256_OPTIONAL_CERTIFICATE_DUMMY_V1: P256EcdsaWitnessV1 = P256EcdsaWitnessV1 {
+    // Standard P-256 generator.
+    public_key_x_be: [
+        0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47, 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40,
+        0xf2, 0x77, 0x03, 0x7d, 0x81, 0x2d, 0xeb, 0x33, 0xa0, 0xf4, 0xa1, 0x39, 0x45, 0xd8, 0x98,
+        0xc2, 0x96,
+    ],
+    public_key_y_be: [
+        0x4f, 0xe3, 0x42, 0xe2, 0xfe, 0x1a, 0x7f, 0x9b, 0x8e, 0xe7, 0xeb, 0x4a, 0x7c, 0x0f, 0x9e,
+        0x16, 0x2b, 0xce, 0x33, 0x57, 0x6b, 0x31, 0x5e, 0xce, 0xcb, 0xb6, 0x40, 0x68, 0x37, 0xbf,
+        0x51, 0xf5,
+    ],
+    // r = x(G), because the public nonce is k = 1.
+    r_be: [
+        0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47, 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40,
+        0xf2, 0x77, 0x03, 0x7d, 0x81, 0x2d, 0xeb, 0x33, 0xa0, 0xf4, 0xa1, 0x39, 0x45, 0xd8, 0x98,
+        0xc2, 0x96,
+    ],
+    // s = SHA256(empty) + r mod n for the public key d = 1.
+    s_be: [
+        0x4e, 0xc8, 0x96, 0x36, 0x7a, 0x28, 0x5e, 0x5b, 0x93, 0xb8, 0xdb, 0xad, 0xfd, 0x13, 0xfa,
+        0x16, 0xe1, 0xca, 0xc4, 0xb7, 0xeb, 0x6f, 0x28, 0x68, 0xa5, 0x7d, 0x07, 0x9e, 0x54, 0x88,
+        0x55, 0x9a,
+    ],
+    digest_be: ZK_X509_P256_OPTIONAL_CERTIFICATE_DUMMY_DIGEST_V1,
+};
 const _: () = assert!(P256_EXTERNAL_WINDOW_CANDIDATE_BINDINGS_V1 == 98_304);
 const _: () = assert!(P256_EXTERNAL_WINDOW_OUTPUT_BINDINGS_V1 == 6_144);
 const _: () = assert!(P256_EXTERNAL_CERTIFICATE_BINDINGS_V1 == 111_808);
@@ -235,7 +234,7 @@ const _: () = assert!(NORMALIZATION_OPERATION_START_V1 + 3 == 14_828);
 const _: () = assert!(P256_EXTERNAL_ARITHMETIC_OPERATIONS_V1 == 14_828);
 /// Which one-subtraction reduction owns an external binding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256ExternalReductionV1 {
+pub enum P256ExternalReductionV1 {
     /// SHA-256 digest reduced modulo the scalar order.
     Digest,
     /// Normalized result x-coordinate reduced modulo the scalar order.
@@ -243,7 +242,7 @@ pub(crate) enum P256ExternalReductionV1 {
 }
 /// Typed byte word that remains for the cross-chip byte-I/O adapter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256UnresolvedByteIoKindV1 {
+pub enum P256UnresolvedByteIoKindV1 {
     /// Affine public-key x-coordinate.
     PublicKeyX,
     /// Affine public-key y-coordinate.
@@ -266,7 +265,7 @@ pub(crate) enum P256UnresolvedByteIoKindV1 {
 )]
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256UnresolvedByteIoSourceV1 {
+pub enum P256UnresolvedByteIoSourceV1 {
     /// One canonical value-bus writer.
     ValueWriter {
         /// Fixed SSA value ID.
@@ -283,7 +282,7 @@ pub(crate) enum P256UnresolvedByteIoSourceV1 {
 /// One typed byte-I/O endpoint that is intentionally unresolved here.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256UnresolvedByteIoEndpointV1 {
+pub struct P256UnresolvedByteIoEndpointV1 {
     /// Semantic byte word.
     pub(crate) kind: P256UnresolvedByteIoKindV1,
     /// Already-committed source that a byte adapter must consume.
@@ -292,14 +291,14 @@ pub(crate) struct P256UnresolvedByteIoEndpointV1 {
 /// Exact Qx, Qy, r, s, and digest manifest in verifier-fixed order.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256UnresolvedByteIoManifestV1 {
+pub struct P256UnresolvedByteIoManifestV1 {
     /// Five unresolved endpoints in the order documented above.
     pub(crate) endpoints: [P256UnresolvedByteIoEndpointV1; 5],
 }
 /// The only three input writers that are internal inverse witnesses.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256InverseAuxiliaryManifestV1 {
+pub struct P256InverseAuxiliaryManifestV1 {
     /// Inverse used to prove r is nonzero.
     pub(crate) r_inverse: P256ValueIdV1,
     /// Inverse used to prove s is nonzero.
@@ -309,7 +308,7 @@ pub(crate) struct P256InverseAuxiliaryManifestV1 {
 }
 /// Verifier-regenerated identity for one packed equality slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256ExternalBindingFixedAccessV1 {
+pub enum P256ExternalBindingFixedAccessV1 {
     /// Canonical zero padding.
     Inactive,
     /// One table-candidate coordinate limb.
@@ -366,7 +365,7 @@ pub(crate) enum P256ExternalBindingFixedAccessV1 {
 /// Dynamic endpoints must participate in the cross-trace product. Constant endpoints are instead
 /// constrained directly in the sink AIR against the compiler-owned value carried here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256ExternalBindingCrossExternalSourceV1 {
+pub enum P256ExternalBindingCrossExternalSourceV1 {
     /// One unique window, reduction, result-x, or low-s source cell.
     Dynamic {
         /// Contiguous verifier-owned address in the role-specific dynamic external-source schedule.
@@ -380,7 +379,7 @@ pub(crate) enum P256ExternalBindingCrossExternalSourceV1 {
 }
 /// Exact writer and external source identities for one active binding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ExternalBindingCrossSourceV1 {
+pub struct P256ExternalBindingCrossSourceV1 {
     /// Verifier-regenerated logical binding address.
     pub(crate) fixed: P256ExternalBindingFixedAccessV1,
     /// Canonical SSA writer ID.
@@ -393,7 +392,7 @@ pub(crate) struct P256ExternalBindingCrossSourceV1 {
 /// Three deterministic pointwise equalities.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ExternalBindingRowV1 {
+pub struct P256ExternalBindingRowV1 {
     /// Verifier-regenerated addresses.
     pub(crate) fixed: [P256ExternalBindingFixedAccessV1; P256_EXTERNAL_BINDINGS_PER_ROW_V1],
     /// Copies of unique value-bus writer cells.
@@ -404,7 +403,7 @@ pub(crate) struct P256ExternalBindingRowV1 {
 /// Complete deterministic binding trace and its two ownership manifests.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct P256ExternalBindingTraceV1 {
+pub struct P256ExternalBindingTraceV1 {
     /// Verifier-fixed ECDSA role.
     pub(crate) role: P256EcdsaRoleV1,
     /// Exactly 37,275 wallet rows or 37,270 certificate rows.
@@ -515,7 +514,7 @@ pub enum P256ExternalBindingErrorV1 {
 /// `selected` is the tuple compiled by the ordinary, ungated P-256 chip.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) struct P256OptionalCertificateSelectionV1 {
+pub struct P256OptionalCertificateSelectionV1 {
     /// RFC-derived Boolean selector: zero for depth two, one for depth three.
     pub(crate) active: F,
     /// Exact tuple emitted by RFC/SHA byte I/O before dummy selection.
@@ -590,7 +589,7 @@ impl P256OptionalCertificateSelectionV1 {
 }
 /// Select the exact tuple consumed by the fixed optional P-256 instance.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn select_zk_x509_optional_certificate_p256_witness_v1(
+pub fn select_zk_x509_optional_certificate_p256_witness_v1(
     active: u8,
     real: P256EcdsaWitnessV1,
 ) -> Result<P256OptionalCertificateSelectionV1, P256ExternalBindingErrorV1> {
@@ -608,21 +607,21 @@ pub(crate) fn select_zk_x509_optional_certificate_p256_witness_v1(
     Ok(selection)
 }
 /// Number of active equalities for one verifier-fixed role.
-pub(crate) const fn p256_external_binding_active_equalities_v1(role: P256EcdsaRoleV1) -> usize {
+pub const fn p256_external_binding_active_equalities_v1(role: P256EcdsaRoleV1) -> usize {
     match role {
         P256EcdsaRoleV1::CertificateOrCrl => P256_EXTERNAL_CERTIFICATE_BINDINGS_V1,
         P256EcdsaRoleV1::WalletOwnership => P256_EXTERNAL_WALLET_BINDINGS_V1,
     }
 }
 /// Number of three-equality physical rows for one verifier-fixed role.
-pub(crate) const fn p256_external_binding_rows_v1(role: P256EcdsaRoleV1) -> usize {
+pub const fn p256_external_binding_rows_v1(role: P256EcdsaRoleV1) -> usize {
     match role {
         P256EcdsaRoleV1::CertificateOrCrl => P256_EXTERNAL_CERTIFICATE_ROWS_V1,
         P256EcdsaRoleV1::WalletOwnership => P256_EXTERNAL_WALLET_ROWS_V1,
     }
 }
 /// Number of nonconstant external cells that enter the cross-trace product.
-pub(crate) const fn p256_external_binding_dynamic_sources_v1(role: P256EcdsaRoleV1) -> usize {
+pub const fn p256_external_binding_dynamic_sources_v1(role: P256EcdsaRoleV1) -> usize {
     match role {
         P256EcdsaRoleV1::CertificateOrCrl => P256_EXTERNAL_CERTIFICATE_DYNAMIC_SOURCES_V1,
         P256EcdsaRoleV1::WalletOwnership => P256_EXTERNAL_WALLET_DYNAMIC_SOURCES_V1,
@@ -633,7 +632,7 @@ pub(crate) const fn p256_external_binding_dynamic_sources_v1(role: P256EcdsaRole
 /// The result has exactly three slots per physical binding row, including canonical `None` padding.
 /// It depends only on the first-release topology and fixed P-256 constants; no witness, value-bus
 /// row, or proof metadata is consulted.
-pub(crate) fn compile_zk_x509_p256_external_cross_sources_v1(
+pub fn compile_zk_x509_p256_external_cross_sources_v1(
     role: P256EcdsaRoleV1,
 ) -> Result<
     Vec<[Option<P256ExternalBindingCrossSourceV1>; P256_EXTERNAL_BINDINGS_PER_ROW_V1]>,
@@ -932,7 +931,7 @@ fn build_external_binding_from_execution_endpoint_v1(
 /// the production constructor used by MAIN; it does not rebuild the value bus
 /// and cannot depend on any post-X5B1 product accumulator.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_zk_x509_p256_external_binding_trace_v1(
+pub fn build_zk_x509_p256_external_binding_trace_v1(
     material: &P256EcdsaTraceMaterialV1,
     value_bus: &P256ValueBusBaseSourceV1,
 ) -> Result<P256ExternalBindingTraceV1, P256ExternalBindingErrorV1> {
@@ -1102,7 +1101,7 @@ fn p256_byte_io_witness_v1(
 /// traces.  Every active slot copies both sources and constrains equality.
 /// Inactive slots additionally constrain both committed copies to zero.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn evaluate_zk_x509_p256_external_binding_row_constraints_v1(
+pub fn evaluate_zk_x509_p256_external_binding_row_constraints_v1(
     fixed: [P256ExternalBindingFixedAccessV1; P256_EXTERNAL_BINDINGS_PER_ROW_V1],
     row: &P256ExternalBindingRowV1,
     writer_sources: [F; P256_EXTERNAL_BINDINGS_PER_ROW_V1],
@@ -2119,7 +2118,7 @@ mod tests {
             }],
             zeroize_expected_bindings_v1,
         );
-        let (_, observed) = observe_v1(|| drop(rows));
+        let ((), observed) = observe_v1(|| drop(rows));
         assert_eq!(
             observed
                 .iter()
@@ -2623,7 +2622,7 @@ mod tests {
     }
     #[test]
     fn production_base_source_path_matches_projection_binds_once_and_zeroizes_recursively() {
-        let (_, observations) = super::super::private_table::inspection::observe_v1(production_base_source_path_matches_projection_binds_once_and_zeroizes_recursively_body_v1);
+        let ((), observations) = super::super::private_table::inspection::observe_v1(production_base_source_path_matches_projection_binds_once_and_zeroizes_recursively_body_v1);
         assert!(observations.iter().any(|item| item.nonzero_before > 0));
         assert!(observations.iter().all(|item| item.nonzero_after == 0));
     }

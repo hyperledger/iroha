@@ -8,7 +8,7 @@ use crate::a_relation::{
     AProofPlan, LineagePublicCells, ProofMessageCells, VestaClaimCells, verify_predecessor,
 };
 use ff::{Field, PrimeField};
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain};
+use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
     DescriptorBinding, VerifyingKey,
     check::{CheckMode, check_circuit},
@@ -21,7 +21,7 @@ use iroha_plonk::{
         Circuit, Error, Layouter, Region, SimpleFloorPlanner, Synthesized, Value, synthesize,
     },
     pcs::ipa::PinnedParams,
-    transcript::TranscriptRepr,
+    transcript::{TranscriptRepr, generator_coordinates},
     verifier::{accumulate_generator, verify_full},
 };
 use iroha_plonk_gadgets::{Word, bytes::element::LeElement, statement::foreign_limbs};
@@ -116,7 +116,8 @@ impl Circuit<Fp> for HardBoundary {
                 next[17] += self.successor_digest_delta;
                 let next = self.words(&mut chip, &mut r, &next)?;
                 let next = LineagePublicCells::constrain(&mut chip.uint(), &mut r, &next)?;
-                let point = chip.witness_point(&mut r, self.value(Ep::from(*self.pallas.g())))?;
+                let point =
+                    chip.witness_generator(&mut r, self.value(Ep::from(*self.pallas.g())))?;
                 let challenges = self
                     .pallas
                     .challenges()
@@ -127,8 +128,7 @@ impl Circuit<Fp> for HardBoundary {
                     .map_err(|_| Error::Synthesis)?;
                 let pallas =
                     FoldInputCells::from_normalized(&mut chip, &mut r, K, point, challenges)?;
-                let (x, y) = Option::<(Fq, Fq)>::from(self.vesta.g().coordinates())
-                    .ok_or(Error::Synthesis)?;
+                let (x, y) = generator_coordinates::<Eq>(self.vesta.g());
                 let coords = [
                     self.scalar(&mut chip, &mut r, x)?,
                     self.scalar(&mut chip, &mut r, y)?,
@@ -249,14 +249,14 @@ fn actual_omega_hard_predecessor_matches_native_and_witnessless_layout() {
     let digest = key.kagemusha_digest(&binding).unwrap();
     assert_eq!(public[17], digest);
     let mut words = public.to_vec();
-    let (x, y) = Option::<(Fp, Fp)>::from(pallas.g().coordinates()).unwrap();
+    let (x, y) = generator_coordinates::<Ep>(pallas.g());
     words.extend([x, y]);
     for u in pallas.challenges() {
         words.extend(foreign_limbs(u).map(Fp::from_u128));
     }
     assert_eq!(words.len(), 52);
     let digest_a = hash_with_domain(crate::a_relation::LINEAGE_DOMAIN, &words);
-    let (x, y) = Option::<(Fq, Fq)>::from(vesta.g().coordinates()).unwrap();
+    let (x, y) = generator_coordinates::<Eq>(vesta.g());
     let to_fq = |word: Fp| Option::<Fq>::from(Fq::from_repr(word.to_repr())).unwrap();
     let instances = [
         vec![to_fq(digest_a)],
@@ -287,7 +287,7 @@ fn actual_omega_hard_predecessor_matches_native_and_witnessless_layout() {
     let opening = FoldInput::from_opening(*claim.g(), claim.challenges()).unwrap();
     opening.decide(&p, MemoryBudget::DEFAULT).unwrap();
     assert_eq!(opening.source_k(), K);
-    let (x, y) = Option::<(Fp, Fp)>::from(opening.g().coordinates()).unwrap();
+    let (x, y) = generator_coordinates::<Ep>(opening.g());
     let mut expected = vec![digest, Fp::from(u64::from(K)), x, y];
     for u in opening.challenges() {
         expected.extend(foreign_limbs(u).map(Fp::from_u128));
@@ -441,4 +441,15 @@ fn actual_omega_hard_predecessor_matches_native_and_witnessless_layout() {
         "k":16,"generated_proofs":0,"descriptor_sha256":(hex(&descriptor_sha)),"key_sha256":(hex(&key_sha)),
         "fixture_manifest_sha256":(hex(&expected_manifest)),"wrapper_descriptor_digest":(hex(known_descriptor.digest()))
     })).unwrap());
+}
+
+#[test]
+fn hard_fixture_coordinate_adaptation_preserves_identity() {
+    let p = iroha_plonk::transcript::decode_generator::<Ep>(&[0; 32]).unwrap();
+    let v = iroha_plonk::transcript::decode_generator::<Eq>(&[0; 32]).unwrap();
+    assert_eq!(generator_coordinates::<Ep>(&p), (Fp::ZERO, Fp::ZERO));
+    assert_eq!(generator_coordinates::<Eq>(&v), (Fq::ZERO, Fq::ZERO));
+    // These are representation checks, not a claim that an identity fixture decides.
+    assert_eq!(iroha_plonk::transcript::encode_point::<Ep>(&p), [0; 32]);
+    assert_eq!(iroha_plonk::transcript::encode_point::<Eq>(&v), [0; 32]);
 }

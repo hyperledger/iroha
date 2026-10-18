@@ -97,6 +97,83 @@ mod cross_scope_permission_tests {
         assert!(allowed(&subject, read));
     }
 
+
+    #[test]
+    fn cross_dataspace_domain_permission_delegation_stays_exact() {
+        let operator = checked_account_id();
+        let holder = checked_account_id();
+        let home = DomainId::try_new("retail", "home").unwrap();
+        let target = DataSpaceId::UNIVERSAL;
+        let leaf = |dataspace, domain| -> Permission {
+            executor_permission::nexus::CanPublishSpaceDirectoryManifestForAccountDomain {
+                dataspace,
+                domain,
+            }
+            .into()
+        };
+        let exact = leaf(target, home.clone());
+        let root: Permission =
+            executor_permission::nexus::CanPublishSpaceDirectoryManifest { dataspace: target }
+                .into();
+        let mut world = World::with(
+            [],
+            [
+                Account::new(operator.clone()).build(&operator),
+                Account::new(holder.clone()).build(&holder),
+            ],
+            [],
+        );
+        world
+            .account_permissions
+            .insert(operator.clone(), BTreeSet::from([root.clone()]));
+        world
+            .account_permissions
+            .insert(holder.clone(), BTreeSet::from([exact.clone()]));
+        let state = state_for_testing(world);
+        let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 0, 0));
+        let tx = block.transaction();
+        let allowed = |authority: &AccountId, permission: Permission| {
+            initial_permission_delegation_allowed(&tx, authority, &permission).unwrap()
+        };
+        assert!(
+            allowed(&operator, exact.clone()),
+            "target operator may issue scoped leaf"
+        );
+        assert!(
+            allowed(&holder, exact),
+            "existing exact-token redelegation remains allowed"
+        );
+        assert!(!allowed(
+            &holder,
+            leaf(target, DomainId::try_new("other", "home").unwrap())
+        ));
+        assert!(!allowed(
+            &holder,
+            leaf(target, DomainId::try_new("retail", "other").unwrap())
+        ));
+        let other_target = leaf(DataSpaceId::new(7), home);
+        assert!(
+            !allowed(&holder, other_target.clone()),
+            "holder cannot widen target"
+        );
+        assert!(
+            !allowed(&operator, other_target),
+            "DS0 root cannot issue another target's leaf"
+        );
+        assert!(!allowed(&holder, root), "leaf cannot derive wide root");
+        assert!(
+            !allowed(
+                &holder,
+                executor_permission::nexus::CanPublishSpaceDirectoryManifestForUaid {
+                    dataspace: target,
+                    uaid: UniversalAccountId::from_hash(Hash::new(b"unrelated-uaid")),
+                }
+                .into()
+            ),
+            "domain leaf cannot derive per-UAID authority"
+        );
+    }
+
     #[test]
     fn alias_selector_and_manifest_delegation_stay_exact() {
         let owner = checked_account_id();

@@ -7,7 +7,7 @@
 //! SIMD dispatch are deliberately outside this module.
 //!
 //! This is used as the concrete `[1 | h]` issuer specialization pinned by
-//! LaZeR, not as an implementation of the full BLNS security reduction.
+//! `LaZeR`, not as an implementation of the full BLNS security reduction.
 #![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 mod comm;
 #[cfg(test)]
@@ -20,16 +20,16 @@ pub(super) const DEGREE: usize = 512;
 pub(super) const LOG_DEGREE: u32 = 9;
 pub(super) const MODULUS: u16 = 12_289;
 pub(super) const SIGNATURE_NORM_SQUARED_BOUND: u32 = 34_034_726;
-pub(crate) const BOOTLE_LANTERN_FALCON512_DEFAULT_KEYGEN_CANDIDATES_V1: u32 = 4_096;
-pub(crate) const BOOTLE_LANTERN_FALCON512_KEYGEN_PARITY_ATTEMPTS_V1: u32 =
+pub const BOOTLE_LANTERN_FALCON512_DEFAULT_KEYGEN_CANDIDATES_V1: u32 = 4_096;
+pub const BOOTLE_LANTERN_FALCON512_KEYGEN_PARITY_ATTEMPTS_V1: u32 =
     kgen::MAX_PARITY_ATTEMPTS_PER_POLYNOMIAL;
-pub(crate) const BOOTLE_LANTERN_FALCON512_PREIMAGE_PROPOSALS_PER_COEFFICIENT_V1: u32 =
+pub const BOOTLE_LANTERN_FALCON512_PREIMAGE_PROPOSALS_PER_COEFFICIENT_V1: u32 =
     sign::MAX_PROPOSALS_PER_COEFFICIENT;
-pub(crate) const BOOTLE_LANTERN_FALCON512_PREIMAGE_TOTAL_PROPOSALS_V1: u32 =
+pub const BOOTLE_LANTERN_FALCON512_PREIMAGE_TOTAL_PROPOSALS_V1: u32 =
     sign::TOTAL_GAUSSIAN_PROPOSAL_BUDGET;
-pub(crate) const BOOTLE_LANTERN_FALCON512_MAPPING_DESCRIPTOR_V1: &[u8] = b"falcon512-ntru-r512-as-r64-rank8-interleaved|H_i[j]=h[8*j+i]|join(v)[i+8*j]=v_i[j]|B[r,c]=H_(r-c)-or-Y*H_(r-c+8)|R512:Z_12289[X]/(X^512+1)|R64:Z_12289[Y]/(Y^64+1),Y=X^8";
-pub(crate) const BOOTLE_LANTERN_FALCON512_PROFILE_DESCRIPTOR_V1: &[u8] = b"lazer-falcon512-concrete-specialization-v1|not-full-blns-main-reduction|one-Falcon-512-NTRU-key|q=12289|degree=512|public=[1|h]|equations:fG-gF=q;f*h=g;s1+h*s2=target|mapping=falcon512-ntru-r512-as-r64-rank8-interleaved|keygen-candidates=4096|parity-attempts=128|preimage-prng=Falcon-ChaCha20-56-byte-word-major-8-block|preimage-proposals-per-coefficient=256|preimage-total-proposals=262144|signature-norm2<=34034726|self-check:exact-equation+norm";
-pub(crate) const BOOTLE_LANTERN_FALCON512_IMPLEMENTATION_PROVENANCE_V1: &[u8] = b"rust-fn-dsa-v0.3-workspace@daf14859b5aa3f8d75c42966ba7de83e6eb59997|license=Unlicense|modules=fn-dsa-comm(mq,shake,ChaCha20-PRNG),fn-dsa-kgen(fxp,gauss,mp31,ntru,poly,vect,zint31),fn-dsa-sign(flr-emulated,poly,sampler)|deltas=scalar-only-no-unsafe-no-SIMD;bounded-keygen-and-gaussian-proposals;raw-trapdoor-output;arbitrary-R512-target;both-preimage-halves;mandatory-equation-and-norm-self-check";
+pub const BOOTLE_LANTERN_FALCON512_MAPPING_DESCRIPTOR_V1: &[u8] = b"falcon512-ntru-r512-as-r64-rank8-interleaved|H_i[j]=h[8*j+i]|join(v)[i+8*j]=v_i[j]|B[r,c]=H_(r-c)-or-Y*H_(r-c+8)|R512:Z_12289[X]/(X^512+1)|R64:Z_12289[Y]/(Y^64+1),Y=X^8";
+pub const BOOTLE_LANTERN_FALCON512_PROFILE_DESCRIPTOR_V1: &[u8] = b"lazer-falcon512-concrete-specialization-v1|not-full-blns-main-reduction|one-Falcon-512-NTRU-key|q=12289|degree=512|public=[1|h]|equations:fG-gF=q;f*h=g;s1+h*s2=target|mapping=falcon512-ntru-r512-as-r64-rank8-interleaved|keygen-candidates=4096|parity-attempts=128|preimage-prng=Falcon-ChaCha20-56-byte-word-major-8-block|preimage-proposals-per-coefficient=256|preimage-total-proposals=262144|signature-norm2<=34034726|self-check:exact-equation+norm";
+pub const BOOTLE_LANTERN_FALCON512_IMPLEMENTATION_PROVENANCE_V1: &[u8] = b"rust-fn-dsa-v0.3-workspace@daf14859b5aa3f8d75c42966ba7de83e6eb59997|license=Unlicense|modules=fn-dsa-comm(mq,shake,ChaCha20-PRNG),fn-dsa-kgen(fxp,gauss,mp31,ntru,poly,vect,zint31),fn-dsa-sign(flr-emulated,poly,sampler)|deltas=scalar-only-no-unsafe-no-SIMD;bounded-keygen-and-gaussian-proposals;raw-trapdoor-output;arbitrary-R512-target;both-preimage-halves;mandatory-equation-and-norm-self-check";
 /// A generated Falcon-512 NTRU trapdoor and its public multiplier.
 pub(super) struct Trapdoor {
     pub(super) f: Zeroizing<Box<[i8]>>,
@@ -97,7 +97,11 @@ mod tests {
             &**trapdoor.capital_f,
             &**trapdoor.capital_g,
         ] {
-            encoded.extend(polynomial.iter().map(|coefficient| *coefficient as u8));
+            encoded.extend(
+                polynomial
+                    .iter()
+                    .map(|coefficient| coefficient.cast_unsigned()),
+            );
         }
         assert_eq!(encoded.len(), 2_048);
         assert_eq!(

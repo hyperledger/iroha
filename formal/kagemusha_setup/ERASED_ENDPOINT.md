@@ -76,10 +76,10 @@ recursive-FS privacy axiom appears in the proof.
 
 ## Exact limits and a necessary counterexample
 
-The theorem does not apply to `Session::restore_transport` with the old genuine
-session. That function explicitly requires supplied P/V to equal the session's
-retained P/V. Passing independently replaced claims to that old session is
-rejected. Replacements must live in the proved erased endpoint/publication
+The theorem does not apply to reusing the old genuine session. A session has no
+transport-restore entry point: it proves only from the P/V it retained at
+preparation, so independently replaced claims cannot be passed to that old
+session. Replacements must live in the proved erased endpoint/publication
 kernel; they cannot be implemented by patching already selected source objects.
 The existing source-scoped publication/continuation reductions and their custody
 costs are needed to connect that kernel to actual wallet states.

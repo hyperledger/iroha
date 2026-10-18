@@ -59,7 +59,7 @@ fn project_rows_v1<const WIDTH: usize>(
 }
 
 /// Fill up to eight adjacent base columns without allocating private backing.
-pub(crate) fn fill_zk_x509_der_stark_native_base_columns_v1(
+pub fn fill_zk_x509_der_stark_native_base_columns_v1(
     base: &ZkX509DerStarkBaseV1,
     first: usize,
     targets: &mut [&mut [F]],
@@ -70,7 +70,7 @@ pub(crate) fn fill_zk_x509_der_stark_native_base_columns_v1(
 }
 
 /// Fill up to eight adjacent auxiliary columns, retaining original padding checks.
-pub(crate) fn fill_zk_x509_der_stark_native_aux_columns_v1(
+pub fn fill_zk_x509_der_stark_native_aux_columns_v1(
     trace: &ZkX509DerStarkTraceV1,
     first: usize,
     targets: &mut [&mut [F]],

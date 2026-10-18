@@ -61,14 +61,14 @@ fn name_policy_actual_complete_census_binds_original_instances_and_unique_keys()
                             .unwrap();
                         for lane in 0..4 {
                             assert_eq!(
-                                profile_topology_source_factor_v1(&node, lane, challenges_v1()),
-                                profile_topology_query_factor_v1(&row, lane, challenges_v1())
+                                profile_topology_source_factor_v1(&node, lane, &challenges_v1()),
+                                profile_topology_query_factor_v1(&row, lane, &challenges_v1())
                             );
                             let mut changed = row;
                             changed[BASE_H] = changed[BASE_H].add(F(1024));
                             assert_ne!(
-                                profile_topology_source_factor_v1(&node, lane, challenges_v1()),
-                                profile_topology_query_factor_v1(&changed, lane, challenges_v1())
+                                profile_topology_source_factor_v1(&node, lane, &challenges_v1()),
+                                profile_topology_query_factor_v1(&changed, lane, &challenges_v1())
                             );
                         }
                         if row[BASE_ROLE] == F(9) {

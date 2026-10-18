@@ -11,13 +11,14 @@ import {
 } from "./norito.js";
 import { ensureCanonicalAccountId, normalizeAccountAliasLiteral, normalizeAccountId, normalizeAssetDefinitionId, normalizeAssetId, normalizeAssetHoldingId, normalizeRwaId } from "./normalizers.js";
 import { MultisigSpec, MultisigSpecBuilder } from "./multisig.js";
+import { normalizeSettlementId } from "./settlementId.js";
 
 
 import {
   createValidationError,
   ValidationErrorCode,
 } from "./validationError.js";
-import { canonicalizeDomainIdLabel } from "./domainId.js";
+import { canonicalizeDomainId, canonicalizeDomainIdLabel } from "./domainId.js";
 
 import { parseCanonicalContractAddress } from "./contractAddress.js";
 import { stringifyStrictLosslessIntegerJson } from "./strictLosslessJson.js";
@@ -26,6 +27,17 @@ export {
   buildBindRetailIdentityV1InstructionJson,
   buildRetailMonetaryMovementV1InstructionJson,
 } from "./retailDailyLimitInstructions.js";
+export {
+  buildCallBondInstruction,
+  buildClaimBondCashflowInstruction,
+  buildCloseBondCashflowInstruction,
+  buildDeclareBondDefaultInstruction,
+  buildFundBondCashflowInstruction,
+  buildRecordBondCashflowInstruction,
+  buildRegisterBondInstruction,
+  buildReplaceBondPayingAgentInstruction,
+  buildRetireBondTreasuryUnitsInstruction,
+} from "./bond.js";
 import { KOTODAMA_V1_DYNAMIC_ACCESS_MAX_KEYS, isCanonicalKotodamaDynamicAccessBaseKey, isKotodamaV1DynamicAccessBoundKind, isKotodamaV1StateMapKeyTypeName, kotodamaV1StateMapKeyTypeName } from "./kotodamaIdentifiers.js";
 import {
   KotodamaQuantity,
@@ -43,6 +55,7 @@ import {
 } from "./proofAttachment.js";
 import {
   assertAllowedFields,
+  assertCanonicalIrohaName,
   assertExactNonBlankString,
   assertExactFields,
   assertString,
@@ -5337,6 +5350,432 @@ export function buildFinalizeElectionInstruction(options) {
   return {
     zk: {
       FinalizeElection: payload,
+    },
+  };
+}
+
+
+// Settlement consent, conditional escrow, atomic settlement and repo lifecycle.
+//
+// These builders return the strict JSON envelopes admitted by the native codec.
+// Ordering, consent hashes and every executor invariant stay native-owned.
+
+const CONDITIONAL_ESCROW_MAX_CONDITIONS_V1 = 64;
+const CONDITIONAL_ESCROW_MAX_EVIDENCE_HASHES_V1 = 64;
+const CONDITIONAL_ESCROW_MAX_TEXT_BYTES_V1 = 1024;
+const U16_MAX = 0xffff;
+
+function exactHashLiteral(value, name) {
+  const literal = assertString(value, name);
+  if (parseHashLiteral(literal, name) !== literal) {
+    fail(
+      V_CODE_INVALID_HEX,
+      `${name} must be a canonical uppercase hash literal with its marker bit set`,
+      name,
+    );
+  }
+  return literal;
+}
+
+function optionalHashLiteral(value, name) {
+  return value === undefined || value === null ? null : exactHashLiteral(value, name);
+}
+
+function asBoundedInteger(value, name, maximum) {
+  const integer = asNonNegativeInteger(value, name);
+  if (integer > maximum) {
+    fail(V_CODE_VALUE_OUT_OF_RANGE, `${name} must not exceed ${maximum}`, name);
+  }
+  return integer;
+}
+
+function evidenceHashList(value, name) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    fail(V_CODE_INVALID_OBJECT, `${name}${TEXT_MUST_BE_AN}array of hash literals`, name);
+  }
+  if (value.length > CONDITIONAL_ESCROW_MAX_EVIDENCE_HASHES_V1) {
+    fail(V_CODE_VALUE_OUT_OF_RANGE, `${name} may contain at most 64 hashes`, name);
+  }
+  return value.map((entry, index) => exactHashLiteral(entry, `${name}[${index}]`));
+}
+
+function settlementName(value, name) {
+  try {
+    return assertCanonicalIrohaName(value, name);
+  } catch (error) {
+    fail(V_CODE_INVALID_STRING, error.message, name);
+  }
+}
+
+/**
+ * Map an attested or expected conditional-escrow value to its tagged native JSON.
+ * Booleans are `Bool`, strings are `Text`, and bigint or `KotodamaQuantity`
+ * values are `Quantity`. `{ quantity }`, `{ text }` or `{ bool }` select a kind explicitly.
+ */
+function conditionalEscrowValue(value, name) {
+  if (typeof value === "boolean") return { kind: "Bool", value };
+  if (typeof value === "string") {
+    const bytes = Buffer.byteLength(value, "utf8");
+    if (bytes === 0 || bytes > CONDITIONAL_ESCROW_MAX_TEXT_BYTES_V1) {
+      fail(V_CODE_INVALID_STRING, `${name} text must contain 1..=1024 UTF-8 bytes`, name);
+    }
+    assertWellFormedUtf16(value, name);
+    return { kind: "Text", value };
+  }
+  if (typeof value === "bigint" || value instanceof KotodamaQuantity) {
+    return { kind: "Quantity", value: asQuantity(value, name) };
+  }
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    const keys = Object.keys(value);
+    if (keys.length === 1 && keys[0] === "quantity") {
+      return { kind: "Quantity", value: asQuantity(value.quantity, `${name}.quantity`) };
+    }
+    if (keys.length === 1 && keys[0] === "text" && typeof value.text === "string") {
+      return conditionalEscrowValue(value.text, `${name}.text`);
+    }
+    if (keys.length === 1 && keys[0] === "bool" && typeof value.bool === "boolean") {
+      return { kind: "Bool", value: value.bool };
+    }
+  }
+  fail(
+    V_CODE_INVALID_JSON_VALUE,
+    `${name} must be a boolean, text, bigint/KotodamaQuantity, or exactly one of { quantity }, { text }, { bool }`,
+    name,
+  );
+}
+
+const ORACLE_CONDITION_FIELDS = new Set(["id", "attestor", "equals", "quantityAtMost", "sequence"]);
+const WITHIN_CONDITION_FIELDS = new Set(["id", "withinMs"]);
+
+/**
+ * Normalize ordered conditional-escrow conditions.
+ *
+ * Oracle conditions `{ id, attestor, equals | quantityAtMost, sequence? }` get
+ * sequences 1..n in array order unless every oracle condition names one; a
+ * `{ id, withinMs }` entry is the single optional ledger-time window.
+ */
+function conditionalEscrowConditions(value, name) {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > CONDITIONAL_ESCROW_MAX_CONDITIONS_V1
+  ) {
+    fail(V_CODE_INVALID_OBJECT, `${name} must contain 1..=64 conditions`, name);
+  }
+  const ids = new Set();
+  let withinCount = 0;
+  let nextSequence = 1;
+  const explicit = [];
+  const conditions = value.map((entry, index) => {
+    const path = `${name}[${index}]`;
+    const source = assertPlainObject(entry, path);
+    const id = settlementName(source.id, `${path}.id`);
+    if (ids.has(id)) {
+      fail(V_CODE_INVALID_OBJECT, `${path}.id duplicates condition ${id}`, `${path}.id`);
+    }
+    ids.add(id);
+    if (Object.prototype.hasOwnProperty.call(source, "withinMs")) {
+      assertAllowedFields(source, WITHIN_CONDITION_FIELDS, path);
+      withinCount += 1;
+      if (withinCount > 1) {
+        fail(V_CODE_INVALID_OBJECT, `${name} may contain at most one withinMs window`, path);
+      }
+      return {
+        kind: "Within",
+        value: { id, duration_ms: asPositiveInteger(source.withinMs, `${path}.withinMs`) },
+      };
+    }
+    assertAllowedFields(source, ORACLE_CONDITION_FIELDS, path);
+    const hasEquals = Object.prototype.hasOwnProperty.call(source, "equals");
+    const hasAtMost = Object.prototype.hasOwnProperty.call(source, "quantityAtMost");
+    if (hasEquals === hasAtMost) {
+      fail(V_CODE_INVALID_OBJECT, `${path} must set exactly one of equals or quantityAtMost`, path);
+    }
+    const predicate = hasEquals
+      ? { kind: "Equals", value: conditionalEscrowValue(source.equals, `${path}.equals`) }
+      : { kind: "QuantityAtMost", value: asQuantity(source.quantityAtMost, `${path}.quantityAtMost`) };
+    const sequence = source.sequence === undefined
+      ? nextSequence
+      : asBoundedInteger(source.sequence, `${path}.sequence`, UINT32_MAX);
+    explicit.push(source.sequence !== undefined);
+    nextSequence += 1;
+    return {
+      kind: "Oracle",
+      value: {
+        id,
+        attestor: normalizeAccountId(source.attestor, `${path}.attestor`),
+        predicate,
+        sequence,
+      },
+    };
+  });
+  const sequences = conditions
+    .filter((condition) => condition.kind === "Oracle")
+    .map((condition) => condition.value.sequence);
+  if (sequences.length === 0) {
+    fail(V_CODE_INVALID_OBJECT, `${name} must contain at least one oracle condition`, name);
+  }
+  if (explicit.some(Boolean) && !explicit.every(Boolean)) {
+    fail(V_CODE_INVALID_OBJECT, `${name} must name every oracle sequence or none`, name);
+  }
+  const sorted = [...sequences].sort((left, right) => left - right);
+  if (sorted.some((sequence, index) => sequence !== index + 1)) {
+    fail(V_CODE_INVALID_OBJECT, `${name} oracle sequences must be contiguous from 1`, name);
+  }
+  return conditions;
+}
+
+/**
+ * Build a `Grant::Permission(CanExecuteSettlement)` consent.
+ *
+ * The owner of `debitedAssetHoldingId` signs this grant; `grantee` is the
+ * account that later submits the settlement (or repo) instruction.
+ * `settlementId` is the exact owner-qualified identifier of that instruction:
+ * the atomic settlement's `{ owner, reference }`, or a repo's
+ * `repoIntentHashes(instruction).settlementId` (`{ owner: initiator, reference: agreementId }`).
+ * @param {{ grantee: string, debitedAssetHoldingId: string, settlementId: { owner: string, reference: string }, intentHash: string }} options
+ * @returns {{Grant: {Permission: {object: {name: "CanExecuteSettlement", payload: {debited_asset: string, settlement_id: { owner: string, reference: string }, intent_hash: string}}, destination: string}}}}
+ */
+export function buildGrantSettlementConsentInstruction(options) {
+  const context = "grantSettlementConsent";
+  const source = assertPlainObject(options, context);
+  assertExactFields(source, ["grantee", "debitedAssetHoldingId", "settlementId", "intentHash"], context);
+  return {
+    Grant: {
+      Permission: {
+        object: {
+          name: "CanExecuteSettlement",
+          payload: {
+            debited_asset: normalizeAssetHoldingId(
+              source.debitedAssetHoldingId,
+              `${context}.debitedAssetHoldingId`,
+            ),
+            settlement_id: normalizeSettlementId(source.settlementId, `${context}.settlementId`),
+            intent_hash: exactHashLiteral(source.intentHash, `${context}.intentHash`),
+          },
+        },
+        destination: normalizeAccountId(source.grantee, `${context}.grantee`),
+      },
+    },
+  };
+}
+
+/**
+ * Build a domain-scoped `Grant::Permission(CanManageAssetDefinitionAlias)`.
+ *
+ * Under the Initial executor the current domain owner may grant this to any
+ * account, including itself; it is required before binding `<name>#<domain>`
+ * asset-definition aliases.
+ * @param {{ grantee: string, domainId: string }} options
+ */
+export function buildGrantAssetDefinitionAliasScopeInstruction(options) {
+  const context = "grantAssetDefinitionAliasScope";
+  const source = assertPlainObject(options, context);
+  assertExactFields(source, ["grantee", "domainId"], context);
+  let domain;
+  try {
+    domain = canonicalizeDomainId(source.domainId, `${context}.domainId`);
+  } catch (error) {
+    fail(V_CODE_INVALID_STRING, error.message, `${context}.domainId`);
+  }
+  return {
+    Grant: {
+      Permission: {
+        object: {
+          name: "CanManageAssetDefinitionAlias",
+          payload: { scope: { scope: "domain", value: domain } },
+        },
+        destination: normalizeAccountId(source.grantee, `${context}.grantee`),
+      },
+    },
+  };
+}
+
+/**
+ * Build a `SetKeyValue::AssetDefinition` metadata instruction.
+ * @param {{ assetDefinitionId: string, key: string, value: any }} options
+ * @returns {{SetKeyValue: {AssetDefinition: {object: string, key: string, value: any}}}}
+ */
+export function buildSetAssetDefinitionKeyValueInstruction(options) {
+  const context = "setAssetDefinitionKeyValue";
+  const source = assertPlainObject(options, context);
+  assertExactFields(source, ["assetDefinitionId", "key", "value"], context);
+  return {
+    SetKeyValue: {
+      AssetDefinition: {
+        object: normalizeAssetDefinitionId(source.assetDefinitionId, `${context}.assetDefinitionId`),
+        key: settlementName(source.key, `${context}.key`),
+        value: normalizeJsonValue(source.value, `${context}.value`),
+      },
+    },
+  };
+}
+
+const OPEN_CONDITIONAL_ESCROW_FIELDS = new Set([
+  "escrowId",
+  "assetDefinitionId",
+  "beneficiary",
+  "amount",
+  "conditions",
+  "expiresAtMs",
+  "evidenceHashes",
+]);
+
+/**
+ * Build an `OpenConditionalEscrow` instruction locking the signer's global balance.
+ * @param {object} options
+ * @returns {{OpenConditionalEscrow: object}}
+ */
+export function buildOpenConditionalEscrowInstruction(options) {
+  const context = "openConditionalEscrow";
+  const source = assertPlainObject(options, context);
+  assertAllowedFields(source, OPEN_CONDITIONAL_ESCROW_FIELDS, context);
+  return {
+    OpenConditionalEscrow: {
+      escrow_id: exactHashLiteral(source.escrowId, `${context}.escrowId`),
+      asset_definition: normalizeAssetDefinitionId(
+        source.assetDefinitionId,
+        `${context}.assetDefinitionId`,
+      ),
+      beneficiary: normalizeAccountId(source.beneficiary, `${context}.beneficiary`),
+      amount: asPositiveQuantity(source.amount, `${context}.amount`),
+      conditions: conditionalEscrowConditions(source.conditions, `${context}.conditions`),
+      expires_at_ms: asPositiveInteger(source.expiresAtMs, `${context}.expiresAtMs`),
+      evidence_hashes: evidenceHashList(source.evidenceHashes, `${context}.evidenceHashes`),
+    },
+  };
+}
+
+/**
+ * Build an `AttestEscrowCondition` instruction for the next ordered oracle condition.
+ * @param {{ escrowId: string, conditionId: string, value: boolean|string|bigint|object, evidenceHash?: string|null }} options
+ */
+export function buildAttestEscrowConditionInstruction(options) {
+  const context = "attestEscrowCondition";
+  const source = assertPlainObject(options, context);
+  assertAllowedFields(source, new Set(["escrowId", "conditionId", "value", "evidenceHash"]), context);
+  return {
+    AttestEscrowCondition: {
+      escrow_id: exactHashLiteral(source.escrowId, `${context}.escrowId`),
+      condition_id: settlementName(source.conditionId, `${context}.conditionId`),
+      value: conditionalEscrowValue(source.value, `${context}.value`),
+      evidence_hash: optionalHashLiteral(source.evidenceHash, `${context}.evidenceHash`),
+    },
+  };
+}
+
+/**
+ * Build an `ExpireConditionalEscrow` refund instruction (callable after expiry).
+ * @param {{ escrowId: string }} options
+ */
+export function buildExpireConditionalEscrowInstruction(options) {
+  const context = "expireConditionalEscrow";
+  const source = assertPlainObject(options, context);
+  assertExactFields(source, ["escrowId"], context);
+  return {
+    ExpireConditionalEscrow: {
+      escrow_id: exactHashLiteral(source.escrowId, `${context}.escrowId`),
+    },
+  };
+}
+
+/**
+ * Normalize repo governance terms; every term is part of both consent hashes.
+ * @param {{ haircutBps: number, marginFrequencySecs: number|bigint|string, allowEarlyRepayment: boolean }} value
+ */
+function repoGovernance(value, name) {
+  const source = assertPlainObject(value, name);
+  assertExactFields(source, ["haircutBps", "marginFrequencySecs", "allowEarlyRepayment"], name);
+  if (typeof source.allowEarlyRepayment !== "boolean") {
+    fail(V_CODE_INVALID_OBJECT, `${name}.allowEarlyRepayment${TEXT_MUST_BE_A}boolean`, `${name}.allowEarlyRepayment`);
+  }
+  return {
+    haircut_bps: asBoundedInteger(source.haircutBps, `${name}.haircutBps`, U16_MAX),
+    margin_frequency_secs: asNonNegativeInteger(
+      source.marginFrequencySecs,
+      `${name}.marginFrequencySecs`,
+    ),
+    allow_early_repayment: source.allowEarlyRepayment,
+  };
+}
+
+function repoLeg(value, name, withMetadata) {
+  const source = assertPlainObject(value, name);
+  assertAllowedFields(
+    source,
+    new Set(withMetadata ? ["assetDefinitionId", "quantity", "metadata"] : ["assetDefinitionId", "quantity"]),
+    name,
+  );
+  const leg = {
+    asset_definition_id: normalizeAssetDefinitionId(source.assetDefinitionId, `${name}.assetDefinitionId`),
+    quantity: asPositiveQuantity(source.quantity, `${name}.quantity`),
+  };
+  return withMetadata ? { ...leg, metadata: normalizeMetadata(source.metadata) } : leg;
+}
+
+const REPO_INITIATE_FIELDS = new Set([
+  "agreementId",
+  "initiator",
+  "counterparty",
+  "custodian",
+  "cashLeg",
+  "collateralLeg",
+  "rateBps",
+  "maturityTimestampMs",
+  "governance",
+]);
+
+/**
+ * Build a `Repo::Initiate` instruction (`RepoIsi`) signed by `initiator`.
+ *
+ * Before submission the counterparty grants the initiator `CanExecuteSettlement`
+ * for its cash bucket with `repoIntentHashes(instruction).initiation`, and the
+ * collateral holder (custodian, else counterparty) grants it for the collateral
+ * bucket with `.maturity`; both use the repo's owner-qualified settlement id
+ * `{ owner: initiator, reference: agreementId }` (`repoIntentHashes(...).settlementId`). With
+ * `governance.allowEarlyRepayment` the initiator may reverse before maturity.
+ * @param {object} options
+ * @returns {{Repo: {Initiate: object}}}
+ */
+export function buildRepoInitiateInstruction(options) {
+  const context = "repoInitiate";
+  const source = assertPlainObject(options, context);
+  assertAllowedFields(source, REPO_INITIATE_FIELDS, context);
+  return {
+    Repo: {
+      Initiate: {
+        agreement_id: settlementName(source.agreementId, `${context}.agreementId`),
+        initiator: normalizeAccountId(source.initiator, `${context}.initiator`),
+        counterparty: normalizeAccountId(source.counterparty, `${context}.counterparty`),
+        custodian: source.custodian === undefined || source.custodian === null
+          ? null
+          : normalizeAccountId(source.custodian, `${context}.custodian`),
+        cash_leg: repoLeg(source.cashLeg, `${context}.cashLeg`, false),
+        collateral_leg: repoLeg(source.collateralLeg, `${context}.collateralLeg`, true),
+        rate_bps: asBoundedInteger(source.rateBps, `${context}.rateBps`, U16_MAX),
+        maturity_timestamp_ms: asPositiveInteger(
+          source.maturityTimestampMs,
+          `${context}.maturityTimestampMs`,
+        ),
+        governance: repoGovernance(source.governance, `${context}.governance`),
+      },
+    },
+  };
+}
+
+/**
+ * Build a `Repo::Reverse` instruction settling an agreement at its maturity.
+ * @param {{ agreementId: string }} options
+ * @returns {{Repo: {Reverse: {agreement_id: string}}}}
+ */
+export function buildRepoReverseInstruction(options) {
+  const context = "repoReverse";
+  const source = assertPlainObject(options, context);
+  assertExactFields(source, ["agreementId"], context);
+  return {
+    Repo: {
+      Reverse: { agreement_id: settlementName(source.agreementId, `${context}.agreementId`) },
     },
   };
 }

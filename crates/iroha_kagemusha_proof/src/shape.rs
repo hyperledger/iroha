@@ -153,8 +153,7 @@ pub fn limb_bits_for(k: u32) -> usize {
 }
 
 /// The fixed one-lane monetary source admitted by the native wallet profile.
-/// Quota-enabled Send uses k14; the other Send masks and both Receive selectors
-/// use k12. Every source uses folded prefixes and `k - 1`-bit range limbs.
+/// Quota-enabled Send uses k14; the other Send masks and Receive use k12. Every source uses folded prefixes and `k - 1`-bit range limbs.
 /// This selects a compiled recipe; it does not generate or qualify a key.
 ///
 /// # Errors
@@ -273,10 +272,10 @@ mod tests {
     use crate::{circuit::PrefixMode, witness::SigmaRelation};
 
     #[test]
-    fn wallet_recipe_covers_exactly_the_ten_monetary_selectors() {
-        for relation in (0..8)
+    fn wallet_recipe_covers_exactly_the_five_monetary_selectors() {
+        for relation in (0..4)
             .map(SigmaRelation::send)
-            .chain((0..2).map(SigmaRelation::receive))
+            .chain(core::iter::once(SigmaRelation::RECEIVE))
         {
             let shape = wallet_monetary_shape(relation).unwrap();
             assert_eq!(
@@ -294,11 +293,7 @@ mod tests {
                 RelationShape::new(relation, PrefixMode::Folded)
             );
         }
-        for relation in [
-            SigmaRelation::send(8),
-            SigmaRelation::receive(2),
-            SigmaRelation::receive(7),
-        ] {
+        for relation in [SigmaRelation::send(4), SigmaRelation::send(8)] {
             assert_eq!(
                 wallet_monetary_shape(relation),
                 Err(crate::circuit::ParamsError::Relation(relation))

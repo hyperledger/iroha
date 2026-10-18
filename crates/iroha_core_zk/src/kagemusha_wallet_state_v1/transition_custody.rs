@@ -8,7 +8,7 @@ use super::{
 #[derive(Clone)]
 pub(super) struct PreparedTransitionV1 {
     pub(super) request: NativeIntentV1,
-    pub(super) native: Vec<u8>,
+    pub(super) native: std::sync::Arc<PrivateArchiveBytes>,
     pub(super) source: [u8; 32],
     pub(super) draft: SourceCustodyV1,
 }

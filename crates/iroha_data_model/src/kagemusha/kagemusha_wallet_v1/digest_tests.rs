@@ -60,7 +60,7 @@ const OBJECT_DOMAINS: [(&str, &str); 10] = [
 /// Signing domains in declaration order with their exact transcript lengths (wire record §1).
 const SIGNING_DOMAINS: [(&str, usize); 16] = [
     ("kgwcert1", 108),
-    ("kgwcred1", 476),
+    ("kgwcred1", 468),
     ("kgwrnch1", 130),
     ("kgwrnkb1", 163),
     ("kgwartf1", 290),
@@ -73,7 +73,7 @@ const SIGNING_DOMAINS: [(&str, usize); 16] = [
     ("kgwchgq1", 219),
     ("kgwoffr1", 194),
     ("kgwsctl1", 197),
-    ("kgwrqst1", 458),
+    ("kgwrqst1", 418),
     ("kgwlctl1", 211),
 ];
 
@@ -291,7 +291,7 @@ fn kagemusha_wallet_v1_signing_domains_are_pinned_and_distinct() {
     for domain in KagemushaWalletObjectDigestDomainV1::ALL {
         assert!(words.insert(domain.domain()), "{}", domain.as_str());
     }
-    assert_eq!(words.len(), 60);
+    assert_eq!(words.len(), 59);
 }
 
 #[test]
@@ -341,7 +341,7 @@ fn kagemusha_wallet_v1_object_digest_domains_are_pinned_and_distinct() {
     for (name, word) in KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1 {
         assert!(words.insert(word), "{name}");
     }
-    assert_eq!(words.len(), 10 + 16 + 34);
+    assert_eq!(words.len(), 10 + 16 + 33);
 }
 
 #[test]

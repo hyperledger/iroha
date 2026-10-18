@@ -490,6 +490,7 @@ fn expected_read_operation(method: &str, path: &str) -> bool {
             && matches!(
                 path,
                 "/v1/accounts/query"
+                    | "/v1/accounts/inspect"
                     | "/v1/accounts/{account_id}/assets/query"
                     | "/v1/assets/{definition_id}/holders/query"
                     | "/v1/transactions/query"

@@ -7,6 +7,8 @@ use iroha_macro::FromVariant;
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 use std::{format, string::String, vec, vec::Vec};
+/// Native bond-servicing kernel events.
+pub mod bond;
 pub mod escrow;
 mod events;
 mod filters;
@@ -28,6 +30,7 @@ pub mod verifying_keys;
 /// Exports common structs and enums from this module.
 pub mod prelude {
     pub use super::{
+        bond::prelude::*,
         escrow::prelude::*,
         events::prelude::*,
         filters::prelude::*,

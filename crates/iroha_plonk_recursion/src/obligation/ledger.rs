@@ -32,8 +32,6 @@ pub enum Variant {
     RefreshCredential,
     /// Scheme policy replacement.
     RefreshSchemePolicy,
-    /// Blacklist history insertion.
-    RefreshBlacklist,
     /// Fixed 64-slot quota usage rebuild.
     RefreshQuotaShare,
     /// Accepted-time anchor update.
@@ -42,7 +40,7 @@ pub enum Variant {
 
 impl Variant {
     /// Every unsplit variant; A-split context relations need their own ledger.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 13] = [
         Self::Bootstrap,
         Self::Load,
         Self::Send,
@@ -54,7 +52,6 @@ impl Variant {
         Self::Retiring,
         Self::RefreshCredential,
         Self::RefreshSchemePolicy,
-        Self::RefreshBlacklist,
         Self::RefreshQuotaShare,
         Self::RefreshTimeAnchor,
     ];
@@ -164,16 +161,23 @@ impl Ledger {
     /// Builds the Lambda §2.3 ledger in canonical fold-input order.
     /// Descriptor-derived k values and Q count are fixed at key generation.
     ///
+    /// `own_sigma_k` is `None` when A proves the own step relation directly
+    /// (lean lineage): no own sigma verifier exists, so there is no
+    /// [`Obligation::OwnSigma`]. Without an incoming sigma the part slot is the
+    /// pinned Vesta `ACC_TRIV`, like an absent predecessor or incoming slot. A
+    /// variant that folds an incoming sigma keeps `F_V^Q` over the incoming
+    /// claim and the pinned padding input, and its part stays the k16 fold.
+    ///
     /// # Errors
     /// A variant/descriptor mismatch or unsupported sigma shape.
     /// Conditional A-split contexts are deliberately separate plans.
     pub fn new(
         variant: Variant,
         q_leaves: NonZeroU16,
-        own_sigma_k: u8,
+        own_sigma_k: Option<u8>,
         incoming_sigma_k: Option<u8>,
     ) -> Result<Self, LedgerError> {
-        if !matches!(own_sigma_k, 12 | 14)
+        if own_sigma_k.is_some_and(|k| !matches!(k, 12 | 14))
             || incoming_sigma_k.is_some_and(|k| !matches!(k, 12 | 14))
         {
             return Err(LedgerError::SigmaShape);
@@ -191,55 +195,63 @@ impl Ledger {
         }
         let base = variant == Variant::Bootstrap;
         let mut slots = Vec::new();
-        let mut claim = |id, destination, source_k, gated| {
+        let mut slot = |source, destination, source_k, gated| {
             slots.push(Slot {
-                source: Source::Claim(id),
+                source,
                 destination,
                 source_k,
                 gated,
             });
         };
+        let claim = Source::Claim;
         let sigma_destination = if incoming_sigma {
             Destination::SigmaFold
         } else {
             Destination::SigmaForward
         };
-        claim(Obligation::OwnSigma, sigma_destination, own_sigma_k, false);
+        if let Some(k) = own_sigma_k {
+            slot(claim(Obligation::OwnSigma), sigma_destination, k, false);
+        }
         if let Some(k) = incoming_sigma_k {
-            claim(Obligation::IncomingSigma, Destination::SigmaFold, k, true);
+            slot(
+                claim(Obligation::IncomingSigma),
+                Destination::SigmaFold,
+                k,
+                true,
+            );
         }
         // F_P order follows §2.2: predecessor, incoming, then ordered Qs.
         if !base {
-            claim(
-                Obligation::PredecessorPallas,
+            slot(
+                claim(Obligation::PredecessorPallas),
                 Destination::PallasFold,
                 16,
                 false,
             );
-            claim(
-                Obligation::PredecessorOpening,
+            slot(
+                claim(Obligation::PredecessorOpening),
                 Destination::PallasFold,
                 16,
                 false,
             );
         }
         if incoming_omega {
-            claim(
-                Obligation::IncomingPallas,
+            slot(
+                claim(Obligation::IncomingPallas),
                 Destination::PallasFold,
                 16,
                 true,
             );
-            claim(
-                Obligation::IncomingOpening,
+            slot(
+                claim(Obligation::IncomingOpening),
                 Destination::PallasFold,
                 16,
                 true,
             );
         }
         for index in 0..q_leaves.get() {
-            claim(
-                Obligation::QOpening(index),
+            slot(
+                claim(Obligation::QOpening(index)),
                 if base && q_leaves.get() == 1 {
                     Destination::PallasForward
                 } else {
@@ -249,28 +261,43 @@ impl Ledger {
                 false,
             );
         }
-        claim(
-            Obligation::SigmaPart,
-            Destination::VestaFold,
-            if incoming_sigma { 16 } else { own_sigma_k },
-            false,
-        );
-        claim(
-            Obligation::AggregatorOpening,
+        match (own_sigma_k, incoming_sigma) {
+            (_, true) => slot(
+                claim(Obligation::SigmaPart),
+                Destination::VestaFold,
+                16,
+                false,
+            ),
+            (Some(k), false) => slot(
+                claim(Obligation::SigmaPart),
+                Destination::VestaFold,
+                k,
+                false,
+            ),
+            // No sigma verifier at all: the part slot is an explicit pinned filler.
+            (None, false) => slot(Source::VestaTrivial, Destination::VestaFold, 16, false),
+        }
+        slot(
+            claim(Obligation::AggregatorOpening),
             Destination::VestaFold,
             16,
             false,
         );
         if !base {
-            claim(
-                Obligation::PredecessorVesta,
+            slot(
+                claim(Obligation::PredecessorVesta),
                 Destination::VestaFold,
                 16,
                 false,
             );
         }
         if incoming_omega {
-            claim(Obligation::IncomingVesta, Destination::VestaFold, 16, true);
+            slot(
+                claim(Obligation::IncomingVesta),
+                Destination::VestaFold,
+                16,
+                true,
+            );
         }
         // One Omega descriptor/key consumes four slots for every variant:
         // part, A opening, predecessor, incoming. Absent claims are explicit

@@ -13,6 +13,8 @@ mod native_load_tests;
 #[path = "a_receive_recursive.rs"]
 pub mod receive_chain;
 
+mod common;
+
 use ff::{Field, PrimeField};
 use iroha_kagemusha_proof::{
     omega::native::{Output, terminal_fold_inputs},
@@ -20,7 +22,7 @@ use iroha_kagemusha_proof::{
     q_sigma::native::IncomingMode,
     tree::{INDEXED_DEPTH, INDEXED_NODE_DOMAIN, IndexedLeaf, path_root},
 };
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain};
+use iroha_pasta::{Ep, Eq, Fp, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{DescriptorBinding, VerifyingKey, verifier::verify_full};
 use iroha_plonk_recursion::{FoldConfig, create_fold, verify_fold};
 use receive_chain::compact_catalog::{self, Terminal};
@@ -119,14 +121,33 @@ pub(crate) fn wrap_receive(
     // Dropping the fourth obligation changes the actual fold statement even if
     // another slot happens to contain equal bytes. The canonical native producer
     // independently derives and decides all four slots before proving.
-    let (fold, _) = create_fold(
-        &params,
-        &slots,
-        Fq::from(917).to_repr(),
-        &FoldConfig::default(),
+    let plan = iroha_plonk_recursion::terminal::TerminalPlan::new(
+        source.binding.encoded(),
+        &[source.key.to_bytes().to_vec()],
+        params.clone(),
     )
     .unwrap();
-    assert!(verify_fold(&params, &slots[..3], &fold, &FoldConfig::default()).is_err());
+    let frame = plan
+        .read(
+            0,
+            std::slice::from_ref(&terminal.instances),
+            &terminal.proof,
+            &FoldConfig::default(),
+        )
+        .unwrap();
+    let (fold, _) = frame
+        .create(common::public_fixture_tape(917), &FoldConfig::default())
+        .unwrap();
+    assert!(
+        verify_fold(
+            &params,
+            &slots[..3],
+            &fold,
+            iroha_plonk_recursion::FoldPurpose::WrapperVesta,
+            &FoldConfig::default()
+        )
+        .is_err()
+    );
     for index in [42, 46, 62, 63, 64, 65] {
         let mut changed = terminal.instances.clone();
         changed[index] += Fp::ONE;
@@ -213,7 +234,7 @@ pub(crate) fn wrap_receive(
 /// No funded source or Load trust is needed to prove the malformed-input burn.
 /// Both Bootstrap and Receive are rebuilt under one final two-terminal key.
 #[test]
-#[ignore = "genuine immutable Bootstrap+Receive catalog, all10A9W and final native Omega; run optimized"]
+#[ignore = "genuine immutable Bootstrap+Receive catalog, all9A8W and final native Omega; run optimized"]
 fn bootstrap_only_invalid_sigma_burn_closes_all_four_outer_obligations() {
     let (seed, initial_program, initial_receiver) =
         compact_catalog::compact_bootstrap_catalog_seed();
@@ -239,7 +260,7 @@ fn bootstrap_only_invalid_sigma_burn_closes_all_four_outer_obligations() {
     );
     assert_eq!(result.source.terminal.incoming_mode, IncomingMode::Trivial);
     eprintln!(
-        "BOOTSTRAP_ONLY_INVALID_SIGMA_RECEIVE_OMEGA full10A9W=true canonical_custody_all19=true original_sigma_soft_false=true no_Load_trust=true adjusted_spendable_zero=true terminal_omega=true immutable_catalog_size=2 full_catalog=false release_qualified=false"
+        "BOOTSTRAP_ONLY_INVALID_SIGMA_RECEIVE_OMEGA full9A8W=true canonical_custody_all17=true original_sigma_soft_false=true no_Load_trust=true adjusted_spendable_zero=true terminal_omega=true immutable_catalog_size=2 full_catalog=false release_qualified=false"
     );
 }
 
@@ -266,7 +287,7 @@ fn four_slot_selection_never_deduplicates_equal_claims() {
     let params = iroha_plonk::pcs::ipa::PinnedParams::<Eq>::derive(16).unwrap();
     let trivial =
         iroha_plonk_recursion::AccumulatorT::trivial(&params, MemoryBudget::DEFAULT).unwrap();
-    let (x, y) = trivial.g().coordinates().unwrap();
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(trivial.g());
     let coordinates: Vec<_> = [x, y]
         .into_iter()
         .flat_map(|value| iroha_plonk_gadgets::statement::foreign_limbs(&value).map(Fp::from_u128))
@@ -281,13 +302,16 @@ fn four_slot_selection_never_deduplicates_equal_claims() {
     frame[65..69].copy_from_slice(&coordinates);
     let inputs = terminal_fold_inputs(&frame, trivial.as_input()).unwrap();
     assert_eq!(inputs, core::array::from_fn(|_| trivial.as_input()));
-    let (fold, result) = create_fold(
-        &params,
-        &inputs,
-        Fq::from(919).to_repr(),
-        &FoldConfig::default(),
-    )
-    .unwrap();
-    result.decide(&params, MemoryBudget::DEFAULT).unwrap();
-    assert!(verify_fold(&params, &inputs[..3], &fold, &FoldConfig::default()).is_err());
+    // Four parsed slots remain four even when their values coincide. A caller
+    // still cannot create a WrapperVesta fold without the opaque verified frame.
+    assert!(matches!(
+        create_fold(
+            &params,
+            &inputs,
+            common::public_fixture_tape(919),
+            iroha_plonk_recursion::FoldPurpose::WrapperVesta,
+            &FoldConfig::default(),
+        ),
+        Err(iroha_plonk_recursion::Error::Purpose)
+    ));
 }

@@ -1,21 +1,20 @@
 //! Shared helpers of the step-relation tests: the M7 relation-check cases,
 //! the relation shapes, strict constraint checks, in-circuit digests, key
-//! caches, deterministic prover randomness and the forged-witness builder.
+//! caches, fresh prover randomness and the forged-witness builder.
 
 #![allow(dead_code)]
 
 use std::{
     collections::BTreeMap,
-    convert::Infallible,
     path::PathBuf,
     sync::{Mutex, OnceLock},
 };
 
 use ff::Field;
 use iroha_kagemusha_proof::{
-    CONTROL_ATTESTATION_LEASE, CONTROL_BLACKLIST, CONTROL_QUOTAS, CONTROLS_DEFINED, Mutation,
-    PrefixMode, RelationShape, ShapePolicy, SigmaCircuit, SigmaProver, SigmaRelation, SigmaShape,
-    StepDigests, StepPublic, StepWitness, select_shape,
+    CONTROL_ATTESTATION_LEASE, CONTROL_QUOTAS, CONTROLS_DEFINED, Mutation, PrefixMode,
+    RelationShape, ShapePolicy, SigmaCircuit, SigmaProver, SigmaRelation, SigmaShape, StepDigests,
+    StepPublic, StepWitness, select_shape,
 };
 use iroha_pasta::{Eq, Fp, PastaCurve, poseidon::PoseidonField};
 use iroha_plonk::{
@@ -25,56 +24,37 @@ use iroha_plonk::{
     frontend::{Assembly, SingleChipLayouter, configure, synthesize},
     pcs::ipa::PinnedParams,
 };
-use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
 
-/// `sigma_send` with the blacklist control.
-pub const SEND_BLACKLIST: SigmaRelation = SigmaRelation::send(CONTROL_BLACKLIST);
 /// `sigma_send` with the attestation-lease control.
 pub const SEND_LEASE: SigmaRelation = SigmaRelation::send(CONTROL_ATTESTATION_LEASE);
 /// `sigma_send` with the quota control.
 pub const SEND_QUOTAS: SigmaRelation = SigmaRelation::send(CONTROL_QUOTAS);
 /// `sigma_send` with every control (the full mask).
 pub const SEND_EVERY: SigmaRelation = SigmaRelation::send(CONTROLS_DEFINED);
-/// `sigma_recv` with the blacklist bit.
-pub const RECEIVE_BLACKLIST: SigmaRelation = SigmaRelation::receive(CONTROL_BLACKLIST);
 
 /// The relations of the k12 class under test: `sigma_send` without a
-/// control, with the blacklist control and with the lease control, and
-/// `sigma_recv` without and with the blacklist bit. The quota relations
-/// (`tests/controls.rs`) are a k12-k14 class.
-pub const RELATIONS: [SigmaRelation; 5] = [
-    SigmaRelation::SEND,
-    SEND_BLACKLIST,
-    SEND_LEASE,
-    SigmaRelation::RECEIVE,
-    RECEIVE_BLACKLIST,
-];
+/// control and with the lease control, and `sigma_recv`. The quota
+/// relations (`tests/controls.rs`) are a k12-k14 class.
+pub const RELATIONS: [SigmaRelation; 3] = [SigmaRelation::SEND, SEND_LEASE, SigmaRelation::RECEIVE];
 
 /// The relation checks whose rejection is a range check: each relation
 /// accepts an honest witness; `sigma_send` rejects an overdraft, a balance
 /// that covers `amount + fee` only while ignoring the lineage
 /// `burned_total`, a newer Request policy epoch and an accepted time below
-/// the floor; with the blacklist control it rejects a list older than the
-/// maximum age or issued after the accepted upper time; with the lease
-/// control a Send at the lease expiry; `sigma_recv` rejects a `u128`
-/// overflow, also with the blacklist bit. (The M7 relation checks plus the
-/// `burned_total`, blacklist-age and lease cases.)
-pub const RELATION_CASES: [(SigmaRelation, Mutation, bool); 15] = [
+/// the floor; with the lease control a Send at the lease expiry;
+/// `sigma_recv` rejects a `u128` overflow. (The M7 relation checks plus the
+/// `burned_total` and lease cases.)
+pub const RELATION_CASES: [(SigmaRelation, Mutation, bool); 10] = [
     (SigmaRelation::SEND, Mutation::None, true),
     (SigmaRelation::SEND, Mutation::Overdraft, false),
     (SigmaRelation::SEND, Mutation::Burned, false),
     (SigmaRelation::SEND, Mutation::StaleEpoch, false),
     (SigmaRelation::SEND, Mutation::EarlyTime, false),
-    (SEND_BLACKLIST, Mutation::None, true),
-    (SEND_BLACKLIST, Mutation::StaleBlacklist, false),
-    (SEND_BLACKLIST, Mutation::FutureBlacklist, false),
     (SEND_LEASE, Mutation::None, true),
     (SEND_LEASE, Mutation::LeaseExpired, false),
     (SEND_LEASE, Mutation::Overdraft, false),
     (SigmaRelation::RECEIVE, Mutation::None, true),
     (SigmaRelation::RECEIVE, Mutation::Overflow, false),
-    (RECEIVE_BLACKLIST, Mutation::None, true),
-    (RECEIVE_BLACKLIST, Mutation::Overflow, false),
 ];
 
 /// The relation-check cases over every relation shape (both prefix modes).
@@ -82,7 +62,7 @@ pub const RELATION_CHECK_CASES: usize = 2 * RELATION_CASES.len();
 
 /// The shape `(k, lanes)` the selector picks at the smallest `k` (every
 /// relation; `tests/shapes.rs` checks it).
-pub const SMALLEST_SHAPE: (u32, usize) = (10, 4);
+pub const SMALLEST_SHAPE: (u32, usize) = (10, 4); // TODO(blacklist-local V2): re-measure
 /// The shape `(k, lanes)` the selector picks within the 3.5 KB budget
 /// (every relation; `tests/shapes.rs` checks it).
 pub const BUDGET_SHAPE: (u32, usize) = (12, 1);
@@ -201,11 +181,9 @@ pub fn in_circuit_digests<F: PoseidonField>(
     digests.expect("known digests")
 }
 
-/// A deterministic recovery stream (tests only: the derivation is public).
-pub fn recovery(seed: u8) -> ProverRandomness<'static> {
-    ProverRandomness::recovery(move |_context: &[u8; 32]| {
-        Ok::<_, Infallible>(ChaCha20Rng::from_seed([seed; 32]))
-    })
+/// Fresh OS-backed hedged randomness for each proving attempt.
+pub fn fresh_randomness() -> ProverRandomness {
+    ProverRandomness::hedged()
 }
 
 /// Vesta parameters, derived once per `k`.
@@ -363,4 +341,35 @@ pub fn case_label(relation: RelationShape, mutation: Mutation) -> String {
 /// A Vesta witness of the relation-check grid.
 pub fn check_witness_of(relation: SigmaRelation, mutation: Mutation) -> StepWitness<Fp> {
     iroha_kagemusha_proof::sample_witness(CHECK_SEED, relation, mutation)
+}
+
+/// Explicit public scalar specimen for fold relation tests, never private entropy.
+/// Every independent tape has the selected first value and incrementing public DATA.
+/// Actual proof randomness still comes from the fresh OS-backed owner above.
+pub fn public_fixture_tape<C: PastaCurve>(first: u64) -> iroha_plonk_recursion::FoldTape<C> {
+    let mut next = first;
+    iroha_plonk_recursion::FoldTape::try_fill::<core::convert::Infallible>(|coin| {
+        *coin = C::ScalarExt::from(next);
+        next += 1;
+        Ok(())
+    })
+    .expect("public scalar specimen")
+}
+
+/// Copy a single public diagnostic mutation directly into a guarded byte owner.
+pub fn mutated_private_fold(
+    original: &iroha_kagemusha_proof::private_fold::PrivateFoldBytes,
+    index: usize,
+) -> iroha_kagemusha_proof::private_fold::PrivateFoldBytes {
+    assert!(index < original.len());
+    let bytes = iroha_plonk_recursion::PrivateWitnessBytes::try_write::<std::io::Error>(
+        original.len(),
+        |writer| {
+            writer.write_all(&original[..index])?;
+            writer.write_all(&[original[index] ^ 1])?;
+            writer.write_all(&original[index + 1..])
+        },
+    )
+    .expect("exact public mutation extent");
+    iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(bytes)
 }

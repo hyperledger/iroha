@@ -78,6 +78,29 @@ impl<F: PastaField> CanonicalS6<F> {
             proved_upper_bound: modulus,
         })
     }
+    /// Assigns a private canonical Pasta scalar under the declared field owner.
+    /// Every input limb and modulus bound is constrained; witness types alone
+    /// confer no proof authority.
+    ///
+    /// # Errors
+    /// Returns layout or assignment errors while constraining the scalar limbs.
+    pub fn assign_value<G: PastaField>(
+        uint: &mut UintChip<'_, F>,
+        region: &mut Region<'_, F>,
+        value: iroha_plonk::frontend::Value<G>,
+    ) -> Result<Self, Error> {
+        let scalar = crate::statement::assign_foreign_scalar::<F, G>(
+            uint,
+            region,
+            value.map(|v| crate::statement::foreign_limbs(&v)),
+        )?;
+        Ok(Self {
+            lo: scalar.lo().clone(),
+            hi: scalar.hi().clone(),
+            modulus: Self::field_modulus::<G>(),
+            proved_upper_bound: Self::field_modulus::<G>(),
+        })
+    }
     /// Canonically decomposes one native word and retains that modulus proof.
     ///
     /// # Errors
@@ -95,6 +118,91 @@ impl<F: PastaField> CanonicalS6<F> {
             proved_upper_bound: Self::field_modulus::<F>(),
         })
     }
+    /// Maps a canonical Fq integer to Fp by its exact conditional subtraction.
+    /// The already-proved input bound and comparison prove both output limb
+    /// bounds and canonicality; no caller-provided selector is accepted.
+    /// # Errors
+    /// A different native/input modulus or layout failure.
+    pub fn reduce_fq_to_fp(
+        self,
+        uint: &mut UintChip<'_, F>,
+        region: &mut Region<'_, F>,
+    ) -> Result<Self, Error> {
+        let p = ForeignModulus::PASTA_FP;
+        let q = ForeignModulus::PASTA_FQ;
+        let p0 = p.nat().low_u128();
+        let q0 = q.nat().low_u128();
+        let high = 1_u128 << 126;
+        if Self::field_modulus::<F>() != q
+            || self.modulus != q
+            || p.nat().shr(128).low_u128() != high
+            || q.nat().shr(128).low_u128() != high
+            || p0 >= q0
+        {
+            return Err(Error::Synthesis);
+        }
+        let high_cell = uint.glue().constant(region, F::from_u128(high))?;
+        let at_high = uint.glue().is_equal(region, self.hi.word(), &high_cell)?;
+        let last_low = uint.constant::<128>(region, p0 - 1)?;
+        let lo_above = uint.lt(region, &last_low, &self.lo)?;
+        let subtract = uint.glue().and(region, &at_high, &lo_above)?;
+        // If subtract=1: high input limb=2^126 and low>=p0, by
+        // canonical w<q and exact w>=p. Subtraction has no borrow.
+        // Otherwise these are the original canonical w<p limbs.
+        let lo = uint.glue().linear(
+            region,
+            &[
+                (F::ONE, self.lo.word()),
+                (-F::from_u128(p0), subtract.word()),
+            ],
+            F::ZERO,
+        )?;
+        let hi = uint.glue().linear(
+            region,
+            &[
+                (F::ONE, self.hi.word()),
+                (-F::from_u128(high), subtract.word()),
+            ],
+            F::ZERO,
+        )?;
+        Ok(Self {
+            lo: Uint::new(lo),
+            hi: Uint::new(hi),
+            modulus: p,
+            proved_upper_bound: p,
+        })
+    }
+
+    /// Maps canonical zero to one while retaining the exact modulus certificate.
+    /// The limb sum is below 2^129, so its native-field zero test is an exact
+    /// integer zero test. Only zero changes; the new low limb is then one.
+    /// # Errors
+    /// A bound that does not admit one, or a layout failure.
+    pub fn nonzero_or_one(
+        self,
+        uint: &mut UintChip<'_, F>,
+        region: &mut Region<'_, F>,
+    ) -> Result<Self, Error> {
+        if self.proved_upper_bound.nat().cmp_vartime(&Nat::ONE) != core::cmp::Ordering::Greater {
+            return Err(Error::Synthesis);
+        }
+        let sum = uint.glue().linear(
+            region,
+            &[(F::ONE, self.lo.word()), (F::ONE, self.hi.word())],
+            F::ZERO,
+        )?;
+        let zero = uint.glue().is_zero(region, &sum)?;
+        let lo = uint.glue().linear(
+            region,
+            &[(F::ONE, self.lo.word()), (F::ONE, zero.word())],
+            F::ZERO,
+        )?;
+        Ok(Self {
+            lo: Uint::new(lo),
+            ..self
+        })
+    }
+
     /// Changes the declared modulus while retaining the tightest hard-proved
     /// bound. A smaller modulus adds a comparison only when the retained proof
     /// does not already imply it. The exact constrained limb cells are retained.
@@ -276,3 +384,6 @@ impl<F: PastaField> FfChip<F> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod nz_tests;

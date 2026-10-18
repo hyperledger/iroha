@@ -193,6 +193,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
             apple_returned: None,
         })
     }
+    /// Test-only access to the actual provider while this enrollment keeps its selection.
+    #[cfg(test)]
+    pub(crate) fn test_provider(&mut self) -> &mut KagemushaWalletProviderV1<F, P> {
+        &mut self.provider
+    }
+
     /// Release this opaque enrollment owner to the native artifact loader/open path.
     /// No account admission or Bootstrap authority transfers with this method.
     pub fn into_provider(self) -> KagemushaWalletProviderV1<F, P> {

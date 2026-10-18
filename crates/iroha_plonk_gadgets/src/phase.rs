@@ -14,7 +14,7 @@ use iroha_plonk::{
 };
 
 /// Highest gate degree in the shared phase layout, including phase enables.
-pub const MAX_COMPACT_GATE_DEGREE: usize = 9;
+pub const MAX_COMPACT_GATE_DEGREE: usize = 10;
 
 /// Eight shared fixed columns: two phase bits and six coefficient payloads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

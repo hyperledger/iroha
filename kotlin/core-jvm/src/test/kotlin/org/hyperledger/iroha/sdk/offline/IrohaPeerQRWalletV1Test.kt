@@ -129,7 +129,8 @@ class IrohaPeerQRWalletV1Test {
             }
             val schemePath = when (kind) {
                 KagemushaWalletMessageKindV1.OFFER, KagemushaWalletMessageKindV1.REQUEST -> listOf(0, 1)
-                KagemushaWalletMessageKindV1.PAYMENT, KagemushaWalletMessageKindV1.LINEAGE -> listOf(1, 0, 1)
+                KagemushaWalletMessageKindV1.PAYMENT -> listOf(2, 1, 1)
+                KagemushaWalletMessageKindV1.LINEAGE -> listOf(1, 0, 1)
                 else -> listOf(1)
             }
             for ((label, path, bytes) in listOf(
@@ -173,9 +174,12 @@ class IrohaPeerQRWalletV1Test {
             val vector = vectors().getValue("envelopes").jsonArray.map { it.jsonObject }
                 .first { it.getValue("tag").jsonPrimitive.int == kind.wireTag }
             val fields = recordFields(envelopeMessage(hex(vector.getValue("canonical_hex").jsonPrimitive.content))).toMutableList()
-            val last = fields.last()
+            // Keep Payment proof-bearing Send fields exact; its unique Request field is opaque here.
+            val paddingIndex = if (kind == KagemushaWalletMessageKindV1.PAYMENT) 1 else fields.lastIndex
+            val last = fields[paddingIndex]
             val overhead = NoritoHeader.HEADER_LENGTH + KagemushaWalletWireV1.ENVELOPE_PADDING_BYTES
-            val prefixBytes = fields.dropLast(1).sumOf { Varint.encode(it.size.toLong()).size + it.size }
+            val prefixBytes = fields.filterIndexed { index, _ -> index != paddingIndex }
+                .sumOf { Varint.encode(it.size.toLong()).size + it.size }
             var padding = 0
             while (true) {
                 val lastLength = last.size + padding
@@ -186,7 +190,7 @@ class IrohaPeerQRWalletV1Test {
                 check(total < frameLength) { "no envelope of exactly $frameLength bytes" }
                 padding += 1
             }
-            fields[fields.lastIndex] = last + ByteArray(padding) { 0x5a }
+            fields[paddingIndex] = last + ByteArray(padding) { 0x5a }
             return envelopeWithMessage(kind, encodeRecord(fields))
         }
 

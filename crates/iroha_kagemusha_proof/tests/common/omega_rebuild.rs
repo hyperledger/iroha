@@ -6,61 +6,6 @@ use super::*;
 use iroha_kagemusha_proof::omega::native::{Error, Input, Layout, Program, Prover};
 use iroha_pasta::CancellationToken;
 use iroha_plonk::keys::{CosetCachePolicy, pk::artifact::ReadConfig};
-use rand_chacha::{
-    ChaCha20Rng,
-    rand_core::{CryptoRng, Error as RngError, RngCore, SeedableRng},
-};
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicUsize, Ordering},
-};
-
-#[derive(Default)]
-struct RecoveryLog {
-    contexts: Mutex<Vec<[u8; 32]>>,
-    bytes: AtomicUsize,
-}
-struct RecordedRng {
-    stream: ChaCha20Rng,
-    log: Arc<RecoveryLog>,
-}
-impl RngCore for RecordedRng {
-    fn next_u32(&mut self) -> u32 {
-        self.log.bytes.fetch_add(4, Ordering::SeqCst);
-        self.stream.next_u32()
-    }
-    fn next_u64(&mut self) -> u64 {
-        self.log.bytes.fetch_add(8, Ordering::SeqCst);
-        self.stream.next_u64()
-    }
-    fn fill_bytes(&mut self, bytes: &mut [u8]) {
-        self.log.bytes.fetch_add(bytes.len(), Ordering::SeqCst);
-        self.stream.fill_bytes(bytes);
-    }
-    fn try_fill_bytes(&mut self, bytes: &mut [u8]) -> Result<(), RngError> {
-        self.log.bytes.fetch_add(bytes.len(), Ordering::SeqCst);
-        self.stream.try_fill_bytes(bytes)
-    }
-}
-impl CryptoRng for RecordedRng {}
-
-fn recovery(log: Arc<RecoveryLog>, cancel: Option<CancellationToken>) -> ProverRandomness<'static> {
-    ProverRandomness::recovery(move |context: &[u8; 32]| {
-        log.contexts.lock().unwrap().push(*context);
-        if let Some(token) = cancel {
-            // This happens only after the actual PK rebuild and witness construction.
-            // The next native cancellation checkpoint must stop the proof attempt.
-            token.cancel();
-        }
-        Ok::<_, ()>(RecordedRng {
-            stream: ChaCha20Rng::from_seed([0x63; 32]),
-            log,
-        })
-    })
-}
-fn contexts(log: &RecoveryLog) -> Vec<[u8; 32]> {
-    log.contexts.lock().unwrap().clone()
-}
 fn read_config(original: &[u8]) -> ReadConfig {
     ReadConfig {
         maximum_bytes: original.len(),
@@ -117,13 +62,12 @@ fn actual_bootstrap_omega_rebuild_preserves_proof_restore_and_cancellation() {
     drop(blank);
 
     // Baseline is the actual engine with a freshly generated exact-source PK.
-    // Public deterministic recovery coins are confined to this ignored test.
-    let direct_log = Arc::new(RecoveryLog::default());
+    // The producer uses fresh entropy; this exact original is retained for restore.
     let direct = create_proof_owned_with_claim(
         &params,
         &key,
         Witness::from_circuit(&key, &circuit, &public).unwrap(),
-        recovery(direct_log.clone(), None),
+        ProverRandomness::hedged(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -150,8 +94,6 @@ fn actual_bootstrap_omega_rebuild_preserves_proof_restore_and_cancellation() {
     folded_vesta
         .decide(&vesta_params, MemoryBudget::DEFAULT)
         .unwrap();
-    assert_eq!(contexts(&direct_log).len(), 1);
-    assert_eq!(direct_log.bytes.load(Ordering::SeqCst), 32);
 
     let token = CancellationToken::new();
     token.cancel();
@@ -258,15 +200,14 @@ fn actual_bootstrap_omega_rebuild_preserves_proof_restore_and_cancellation() {
     let session = owner
         .prepare(
             input(&artifact),
-            Fq::from(101).to_repr(),
+            diagnostic_omega_tape(),
             MemoryBudget::DEFAULT,
         )
         .unwrap();
-    let never = Arc::new(RecoveryLog::default());
     assert_eq!(
         session
             .prove(
-                recovery(never.clone(), None),
+                ProverRandomness::hedged(),
                 ProverConfig {
                     cancellation: Some(&token),
                     ..ProverConfig::default()
@@ -275,115 +216,186 @@ fn actual_bootstrap_omega_rebuild_preserves_proof_restore_and_cancellation() {
             .err(),
         Some(Error::Cancelled)
     );
-    assert!(contexts(&never).is_empty());
-    assert_eq!(never.bytes.load(Ordering::SeqCst), 0);
 
-    // A cancelled attempt after rebuilding/assigning owns no returned output.
-    // A fresh attempt must work with the same metadata after lexical PK cleanup.
-    let during = CancellationToken::new();
-    let cancelled_log = Arc::new(RecoveryLog::default());
-    assert_eq!(
-        session
-            .prove(
-                recovery(cancelled_log.clone(), Some(during.clone())),
-                ProverConfig {
-                    cancellation: Some(&during),
-                    ..ProverConfig::default()
-                },
-            )
-            .err(),
-        Some(Error::Cancelled)
-    );
-    assert_eq!(contexts(&cancelled_log), contexts(&direct_log));
-    assert_eq!(cancelled_log.bytes.load(Ordering::SeqCst), 32);
-
-    let rebuilt_log = Arc::new(RecoveryLog::default());
     let rebuilt = session
-        .prove(recovery(rebuilt_log.clone(), None), ProverConfig::default())
+        .prove(ProverRandomness::hedged(), ProverConfig::default())
         .unwrap();
-    assert_eq!(contexts(&rebuilt_log), contexts(&direct_log));
-    assert_eq!(rebuilt_log.bytes.load(Ordering::SeqCst), 32);
-    assert_eq!(rebuilt.proof, direct.proof);
+    assert_ne!(rebuilt.proof, direct.proof, "fresh attempt entropy");
     assert_eq!(rebuilt.instances, public);
     assert_eq!(rebuilt.pallas, artifact.source.pallas);
     assert_eq!(rebuilt.vesta, folded_vesta);
-    assert_eq!(rebuilt.opening.g(), direct.opening.g());
-    assert_eq!(rebuilt.opening.challenges(), direct.opening.challenges());
     let transport = rebuilt.transport();
     let mut direct_transport = direct.proof.clone();
     direct_transport.extend_from_slice(&artifact.source.pallas.to_bytes());
     direct_transport.extend_from_slice(&folded_vesta.to_bytes());
-    assert_eq!(transport, direct_transport);
+    assert_ne!(transport, direct_transport);
     assert_eq!(rebuilt.proof.len(), expected_proof_bytes);
     assert_eq!(
         transport.len(),
         expected_proof_bytes + 2 * iroha_plonk_recursion::ACCUMULATOR_BYTES
     );
-    let restored = session
-        .restore_transport(&transport, MemoryBudget::DEFAULT)
-        .unwrap();
-    assert_eq!(restored.transport(), transport);
-    assert_eq!(restored.proof, rebuilt.proof);
-    assert_eq!(restored.instances, rebuilt.instances);
-    assert_eq!(restored.pallas, rebuilt.pallas);
-    assert_eq!(restored.vesta, rebuilt.vesta);
-    assert_eq!(restored.opening, rebuilt.opening);
+    // Transport acceptance is the installed verifier's complete lineage verification
+    // (`kagemusha_wallet_proofs_v1::verify_lineage`), which replaced the prover-session
+    // restore. This mirrors its checks on the exact transport: the exact length split, two
+    // canonical claims, the context D_A that binds acc_P (D_A is a hash over the source
+    // public fields and acc_P, so a different acc_P yields a different context), full
+    // verification of Omega under the instances that bind the carried Vesta claim, then both
+    // complete decides on independent owners. The corruption cases of the deleted restore are
+    // checked at that boundary.
+    let installed_pallas = PinnedParams::<Ep>::derive(16).unwrap();
+    let installed_vesta = PinnedParams::<Eq>::derive(16).unwrap();
+    let verify_transport = |bytes: &[u8], cancellation: Option<&CancellationToken>| {
+        let accumulator = iroha_plonk_recursion::ACCUMULATOR_BYTES;
+        if bytes.len() != expected_proof_bytes + 2 * accumulator {
+            return Err("length");
+        }
+        let (proof, claims) = bytes.split_at(expected_proof_bytes);
+        let (pallas, vesta) = claims.split_at(accumulator);
+        let pallas = AccumulatorT::<Ep>::from_bytes(pallas).map_err(|_| "Pallas claim")?;
+        let vesta = AccumulatorT::<Eq>::from_bytes(vesta).map_err(|_| "Vesta claim")?;
+        if pallas != artifact.source.pallas {
+            return Err("context");
+        }
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(vesta.g());
+        let instances = vec![
+            public[0].clone(),
+            vec![x, y],
+            vesta
+                .challenges()
+                .iter()
+                .map(|value| Fq::from_repr(value.to_repr()).unwrap())
+                .collect(),
+        ];
+        iroha_plonk::verifier::verify_full_cancellable(
+            &installed_pallas,
+            &artifact.binding,
+            &artifact.key,
+            &instances,
+            proof,
+            MemoryBudget::DEFAULT,
+            cancellation,
+        )
+        .map_err(|error| {
+            if error.is_cancelled() {
+                "cancelled"
+            } else {
+                "Omega"
+            }
+        })?;
+        pallas
+            .decide_cancellable(&installed_pallas, MemoryBudget::DEFAULT, cancellation)
+            .map_err(|_| "Pallas decide")?;
+        vesta
+            .decide_cancellable(&installed_vesta, MemoryBudget::DEFAULT, cancellation)
+            .map_err(|_| "Vesta decide")?;
+        Ok(())
+    };
+    assert_eq!(verify_transport(&transport, Some(&token)), Err("cancelled"));
+    assert_eq!(verify_transport(&transport, None), Ok(()));
+    assert_eq!(verify_transport(&transport, None), Ok(()));
+    assert_eq!(verify_transport(&transport, Some(&token)), Err("cancelled"));
     assert_eq!(
-        session
-            .restore_transport(&restored.transport(), MemoryBudget::DEFAULT)
-            .unwrap()
-            .transport(),
-        transport
-    );
-    assert_eq!(
-        session
-            .restore_transport_cancellable(&transport, MemoryBudget::DEFAULT, Some(&token))
-            .err(),
-        Some(Error::Cancelled)
-    );
-    assert_eq!(
-        session
-            .restore_transport(&transport[..transport.len() - 1], MemoryBudget::DEFAULT)
-            .err(),
-        Some(Error::Input)
+        verify_transport(&transport[..transport.len() - 1], None),
+        Err("length")
     );
     let mut trailing = transport.clone();
     trailing.push(0);
-    assert_eq!(
-        session
-            .restore_transport(&trailing, MemoryBudget::DEFAULT)
-            .err(),
-        Some(Error::Input)
-    );
-    // Canonical but foreign P and V must fail the prepared-source equality check
-    // independently, before either can be treated as an accepted carried claim.
-    for (offset, point) in [
+    assert_eq!(verify_transport(&trailing, None), Err("length"));
+    // Canonical but foreign P and V are refused: P by its context binding, V by the Omega
+    // instances that bind it (and its own decide).
+    for (offset, point, refusal) in [
         (
             expected_proof_bytes,
             iroha_plonk::transcript::encode_point::<Ep>(&(-*rebuilt.pallas.g())),
+            "context",
         ),
         (
             expected_proof_bytes + iroha_plonk_recursion::ACCUMULATOR_BYTES,
             iroha_plonk::transcript::encode_point::<Eq>(&(-*rebuilt.vesta.g())),
+            "Omega",
         ),
     ] {
         let mut foreign = transport.clone();
         assert_ne!(&foreign[offset..offset + 32], point.as_slice());
         foreign[offset..offset + 32].copy_from_slice(&point);
-        assert_eq!(
-            session
-                .restore_transport(&foreign, MemoryBudget::DEFAULT)
-                .err(),
-            Some(Error::Input)
+        assert_eq!(verify_transport(&foreign, None), Err(refusal));
+    }
+    for index in [0, expected_proof_bytes / 2, expected_proof_bytes - 1] {
+        let mut corrupt = transport.clone();
+        corrupt[index] ^= 1;
+        assert!(
+            verify_transport(&corrupt, None).is_err(),
+            "proof byte {index}"
         );
     }
-    let mut corrupt = transport.clone();
-    corrupt[0] ^= 1;
-    assert!(
-        session
-            .restore_transport(&corrupt, MemoryBudget::DEFAULT)
-            .is_err()
-    );
+    // The exact transport is still accepted after every refusal (nothing negative is kept).
+    assert_eq!(verify_transport(&transport, None), Ok(()));
+    // Observe both genuine originals with the one-read full verifier. This is
+    // exact source parity; Core's installed boundary owns lineage authorization.
+    for (retained, proof, instances, p, v, g, challenges) in [
+        (
+            direct_transport.as_slice(),
+            direct.proof.as_slice(),
+            &public,
+            &artifact.source.pallas,
+            &folded_vesta,
+            direct.opening.g(),
+            direct.opening.challenges(),
+        ),
+        (
+            transport.as_slice(),
+            rebuilt.proof.as_slice(),
+            &rebuilt.instances,
+            &rebuilt.pallas,
+            &rebuilt.vesta,
+            rebuilt.opening.g(),
+            &rebuilt.opening.challenges()[..],
+        ),
+    ] {
+        for _ in 0..2 {
+            let (observed_proof, claims) = retained.split_at(expected_proof_bytes);
+            let (observed_p, observed_v) =
+                claims.split_at(iroha_plonk_recursion::ACCUMULATOR_BYTES);
+            let observed_p =
+                iroha_plonk_recursion::AccumulatorT::<Ep>::from_bytes(observed_p).unwrap();
+            let observed_v =
+                iroha_plonk_recursion::AccumulatorT::<Eq>::from_bytes(observed_v).unwrap();
+            assert_eq!(observed_proof, proof);
+            assert_eq!(&observed_p, p);
+            assert_eq!(&observed_v, v);
+            let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(observed_v.g());
+            let observed_instances = vec![
+                public[0].clone(),
+                vec![x, y],
+                observed_v
+                    .challenges()
+                    .iter()
+                    .map(|u| Fq::from_repr(u.to_repr()).unwrap())
+                    .collect(),
+            ];
+            assert_eq!(&observed_instances, instances);
+            let opening = iroha_plonk::verifier::verify_full_opening_cancellable(
+                &params,
+                &binding,
+                &verifier,
+                &observed_instances,
+                observed_proof,
+                MemoryBudget::DEFAULT,
+                None,
+            )
+            .unwrap();
+            assert_eq!(opening.g(), g);
+            assert_eq!(opening.challenges(), challenges);
+            observed_p.decide(&params, MemoryBudget::DEFAULT).unwrap();
+            observed_v
+                .decide(&vesta_params, MemoryBudget::DEFAULT)
+                .unwrap();
+            let mut observed = observed_proof.to_vec();
+            observed.extend_from_slice(&observed_p.to_bytes());
+            observed.extend_from_slice(&observed_v.to_bytes());
+            assert_eq!(observed, retained);
+        }
+    }
     assert_eq!(
         owner
             .verifying_key()
@@ -393,11 +405,9 @@ fn actual_bootstrap_omega_rebuild_preserves_proof_restore_and_cancellation() {
     );
     assert_eq!(owner.binding(), &artifact.binding);
     assert_eq!(owner.verifying_key().to_bytes(), artifact.key.to_bytes());
-    assert_eq!(contexts(&rebuilt_log), contexts(&direct_log));
-    assert_eq!(rebuilt_log.bytes.load(Ordering::SeqCst), 32);
-    // Restores have no randomness argument and the production call graph has no
-    // rebuild edge. These checks do not claim an allocator/RSS observation.
+    // Owner entry/cancellation is measured in the private Omega unit. These retained
+    // original observations do not replace the deferred installed-verifier M1 test.
     eprintln!(
-        "OMEGA_METADATA_REBUILD_PARITY complete_additional_outer_proofs=2 cancelled_after_rebuild=1 exact_proof_bytes=true exact_transport_bytes=true recovery_context_and_32_bytes_equal=true transport_restore_exact=true full_catalog=false release_qualified=false"
+        "OMEGA_METADATA_REBUILD_PARITY complete_additional_outer_proofs=2 late_cancel_coverage=omega_boundary_unit fresh_proofs_distinct=true retained_original_bytes_exact=true original_read_replays=4 producer_entry_coverage=omega_boundary_unit installed_replay_coverage=core_native_exchange full_catalog=false release_qualified=false"
     );
 }

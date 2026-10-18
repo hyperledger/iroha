@@ -2,10 +2,15 @@
 use iroha_config::parameters::{actual::ComputeEconomics, defaults, user};
 use iroha_config_base::{read::ConfigReader, toml::TomlSource};
 use iroha_data_model::compute::{
-    ComputeGovernanceError, ComputePriceRiskClass, ComputePriceWeights,
+    ComputeGovernanceError, ComputePriceDeltaBounds, ComputePriceRiskClass, ComputePriceWeights,
+    ComputeSponsorPolicy,
 };
 use iroha_model_base::name::Name;
-use std::{collections::BTreeMap, num::NonZeroU64, str::FromStr};
+use std::{
+    collections::BTreeMap,
+    num::{NonZeroU16, NonZeroU64},
+    str::FromStr,
+};
 fn default_price_families() -> BTreeMap<Name, ComputePriceWeights> {
     defaults::compute::price_families()
 }
@@ -327,4 +332,183 @@ default = { class = "Balanced" }
         .read_and_complete::<user::ComputeEconomics>()
         .expect_err("object-valued risk classes must be rejected");
     assert!(!format!("{error:?}").contains("missing field"));
+}
+
+#[test]
+fn price_update_keeps_full_width_bounds_and_original_family_on_refusal() {
+    let family: Name = "default".parse().unwrap();
+    let cases: [(u64, u64, u16, Option<u128>); 12] = [
+        (1, 4_097, 1_500, Some(40_960_000)),
+        (1, 4_097, u16::MAX, Some(40_960_000)),
+        (
+            1,
+            u64::MAX,
+            u16::MAX,
+            Some((u128::from(u64::MAX) - 1) * 10_000),
+        ),
+        (u64::MAX / 2, u64::MAX, 1_500, Some(10_000)),
+        (u64::MAX, 1, 9_998, Some(9_999)),
+        (u64::MAX, 1, 9_999, None),
+        (u64::MAX - 1, u64::MAX, 1, None),
+        (10_000, 11_500, 1_500, None),
+        (10_000, 11_501, 1_500, Some(1_501)),
+        (10_000, 75_535, u16::MAX, None),
+        (10_000, 75_536, u16::MAX, Some(65_536)),
+        (u64::MAX, u64::MAX, 1, None),
+    ];
+    for component in ["cycles", "egress"] {
+        for &(original, proposed, maximum, rejected_delta) in &cases {
+            let current = ComputePriceWeights {
+                cycles_per_unit: NonZeroU64::new(original).unwrap(),
+                egress_bytes_per_unit: NonZeroU64::new(original).unwrap(),
+                unit_label: "cu".to_owned(),
+            };
+            let mut updated = current.clone();
+            match component {
+                "cycles" => updated.cycles_per_unit = NonZeroU64::new(proposed).unwrap(),
+                "egress" => updated.egress_bytes_per_unit = NonZeroU64::new(proposed).unwrap(),
+                _ => unreachable!("fixed components"),
+            }
+            let bounds = ComputePriceDeltaBounds {
+                max_cycles_delta_bps: NonZeroU16::new(maximum).unwrap(),
+                max_egress_delta_bps: NonZeroU16::new(maximum).unwrap(),
+            };
+            let expected = rejected_delta.map_or(Ok(()), |delta_bps| {
+                Err(match component {
+                    "cycles" => ComputeGovernanceError::CyclesDeltaExceeded {
+                        family: family.clone(),
+                        delta_bps,
+                        max_bps: maximum,
+                    },
+                    "egress" => ComputeGovernanceError::EgressDeltaExceeded {
+                        family: family.clone(),
+                        delta_bps,
+                        max_bps: maximum,
+                    },
+                    _ => unreachable!("fixed components"),
+                })
+            });
+            let mut economics = default_economics();
+            economics.price_family_baseline = BTreeMap::from([(family.clone(), current.clone())]);
+            economics.price_risk_classes =
+                BTreeMap::from([(family.clone(), ComputePriceRiskClass::Balanced)]);
+            economics.price_bounds = BTreeMap::from([(ComputePriceRiskClass::Balanced, bounds)]);
+            let mut families = BTreeMap::from([(family.clone(), current)]);
+            let original_families = families.clone();
+            assert_eq!(
+                economics.apply_price_update(&family, updated.clone(), &mut families),
+                expected,
+                "configuration must retain the full-width {component} bound for {original} -> {proposed}",
+            );
+            if rejected_delta.is_some() {
+                assert_eq!(
+                    families, original_families,
+                    "refusal must not replace any original family"
+                );
+            } else {
+                assert_eq!(families, BTreeMap::from([(family.clone(), updated)]));
+            }
+        }
+    }
+}
+
+#[test]
+fn price_update_refusals_keep_lookup_and_label_precedence() {
+    let family: Name = "default".parse().unwrap();
+    let absent: Name = "absent".parse().unwrap();
+    let mut economics = default_economics();
+    let mut families = default_price_families();
+    let original = families.clone();
+    let mut updated = ComputePriceWeights {
+        cycles_per_unit: NonZeroU64::MAX,
+        egress_bytes_per_unit: NonZeroU64::MAX,
+        unit_label: "changed".to_owned(),
+    };
+    assert_eq!(
+        economics.apply_price_update(&absent, updated.clone(), &mut families),
+        Err(ComputeGovernanceError::UnknownPriceFamily { family: absent }),
+    );
+    assert_eq!(families, original);
+    economics.price_risk_classes.clear();
+    assert_eq!(
+        economics.apply_price_update(&family, updated.clone(), &mut families),
+        Err(ComputeGovernanceError::MissingRiskClass {
+            family: family.clone()
+        }),
+    );
+    assert_eq!(families, original);
+    economics
+        .price_risk_classes
+        .insert(family.clone(), ComputePriceRiskClass::Balanced);
+    economics.price_bounds.clear();
+    assert_eq!(
+        economics.apply_price_update(&family, updated.clone(), &mut families),
+        Err(ComputeGovernanceError::MissingRiskBounds {
+            class: ComputePriceRiskClass::Balanced
+        }),
+    );
+    assert_eq!(families, original);
+    economics.price_bounds.insert(
+        ComputePriceRiskClass::Balanced,
+        ComputePriceDeltaBounds {
+            max_cycles_delta_bps: NonZeroU16::MAX,
+            max_egress_delta_bps: NonZeroU16::MAX,
+        },
+    );
+    assert_eq!(
+        economics.apply_price_update(&family, updated.clone(), &mut families),
+        Err(ComputeGovernanceError::UnitLabelChanged {
+            family: family.clone(),
+            from: original[&family].unit_label.clone(),
+            to: updated.unit_label.clone(),
+        }),
+    );
+    assert_eq!(families, original);
+    updated.unit_label = original[&family].unit_label.clone();
+    assert!(matches!(
+        economics.apply_price_update(&family, updated, &mut families),
+        Err(ComputeGovernanceError::CyclesDeltaExceeded { .. }),
+    ));
+    assert_eq!(families, original);
+}
+
+#[test]
+fn sponsor_caps_keep_exact_daily_total_and_per_call_precedence() {
+    let cases = [
+        (u64::MAX, u64::MAX, 0, u64::MAX, None),
+        (u64::MAX, u64::MAX, 1, u64::MAX - 1, None),
+        (
+            u64::MAX,
+            u64::MAX,
+            1,
+            u64::MAX,
+            Some((u128::from(u64::MAX) + 1, u64::MAX)),
+        ),
+        (
+            u64::MAX,
+            u64::MAX,
+            u64::MAX,
+            u64::MAX,
+            Some((2 * u128::from(u64::MAX), u64::MAX)),
+        ),
+        (2, u64::MAX, 3, u64::MAX, Some((3, 2))),
+        (10, 20, 8, 12, None),
+        (10, 20, 8, 13, Some((21, 20))),
+    ];
+    for (per_call, daily, requested, consumed, refused) in cases {
+        let policy = ComputeSponsorPolicy {
+            max_cu_per_call: NonZeroU64::new(per_call).unwrap(),
+            max_daily_cu: NonZeroU64::new(daily).unwrap(),
+        };
+        let expected = refused.map_or(Ok(()), |(requested, limit)| {
+            Err(ComputeGovernanceError::SponsorCapExceeded { requested, limit })
+        });
+        let mut economics = default_economics();
+        economics.sponsor_policy = policy;
+        assert_eq!(
+            economics.validate_sponsor_allocation_with_usage(requested, consumed),
+            expected,
+            "configuration must enforce the same exact sponsor sum"
+        );
+    }
 }

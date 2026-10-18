@@ -43,7 +43,7 @@ impl OriginalAdmission {
         cancellation: Option<&CancellationToken>,
     ) -> Result<SourceBoundVerifyingKeyV2<C>, Error> {
         match self {
-            Self::Strict => SourceBoundVerifyingKeyV2::from_artifact_v2_cancellable(
+            Self::Strict => SourceBoundVerifyingKeyV2::from_masked_artifact_v2_cancellable(
                 original,
                 binding,
                 params,

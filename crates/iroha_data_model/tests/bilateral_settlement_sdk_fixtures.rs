@@ -55,7 +55,7 @@ fn fixture_text() -> String {
         RepoCollateralLeg::new(asset(BOND), 1100_u32),
         250,
         1_735_086_400_000,
-        RepoGovernance::with_defaults(1500, 86_400),
+        RepoGovernance::new(1500, 86_400, false),
     );
     let reverse = ReverseRepoIsi::new("daily_repo".parse().unwrap());
     let dvp_intent = hex::encode(dvp.intent_hash().as_ref());

@@ -1,4 +1,10 @@
-//! Mandatory Archive receipt, current credential and direct root authorization.
+//! Mandatory Archive own receipt and the merged signature leaf (lean lineage).
+//!
+//! The own receipt is the only own signed object Λ consumes. It is hard-verified
+//! under the predecessor payment key in slot 0 of the merged signature leaf;
+//! slot 1 is the soft incoming receipt, owned by the Signatures task in the same
+//! stage. The credential digest and payment key are carried by continuity, so the
+//! current credential and its Enrollment certificate are not re-verified.
 
 use ff::Field;
 use iroha_pasta::{Ep, Fp};
@@ -6,71 +12,70 @@ use iroha_plonk::frontend::{Error, Region, Value};
 use iroha_plonk_gadgets::{GlueChip, UintChip, bytes::tape::BytesChip, p256::VerifyMode};
 use iroha_plonk_recursion::{obligation::ledger::Variant, verifier::VerifierChip};
 
-use super::{require_task, require_variant};
+use super::{require_task, require_variant, signature_q};
 use crate::{
     a_relation::{
-        SigmaBindingCells, SignatureQCells, bounded_word,
+        SignatureProofCells, SignatureQCells,
         context::{ContextInputs, ContextObjectCells, ContextObjectSpec, ContextPlan},
-        own::{CurrentAuthorization, OwnPolicy, authenticate_current},
-        schedule::{OperationTask, sigma_selector},
+        own::OwnPolicy,
+        schedule::OperationTask,
     },
-    operation_relation::{
-        map_effects::MapState,
-        objects::{
-            ObjectKind, SignedObjectCells,
-            receipt::{self, ReceiptContext},
-        },
+    operation_relation::objects::{
+        ObjectKind, SignedObjectCells,
+        receipt::{self, ReceiptContext},
     },
     q_signature::{QSignaturePlan, SignatureKey, SignatureSlot},
 };
 
-const KINDS: [ObjectKind; 3] = [
-    ObjectKind::Credential,
-    ObjectKind::Certificate,
-    ObjectKind::Receipt,
-];
+const KINDS: [ObjectKind; 1] = [ObjectKind::Receipt];
 
-/// Exact current credential, direct Enrollment certificate and own receipt.
-/// These are the hard tags1..3 prefix of every Archive split context.
+/// Exact own receipt, the hard tag1 prefix of every Archive split context.
 #[derive(Clone, Debug)]
 pub struct ArchiveAuthorizationObjects {
     variant: Variant,
-    objects: [SignedObjectCells; 3],
-    context: [ContextObjectCells; 3],
+    objects: [SignedObjectCells; 1],
+    context: [ContextObjectCells; 1],
 }
 
 impl ArchiveAuthorizationObjects {
-    /// Fixed own2V1F and incoming1V signature-Q schemas, in Q1/Q2 order.
-    /// The incoming receipt is soft; the three own signatures always remain hard.
+    /// The merged signature-Q schema, in slot order: the own receipt hard under
+    /// the predecessor payment key, then the incoming receipt soft under the
+    /// Request's quoted receiver key. Both Archive variants share it; incoming
+    /// evidence can never soft-fail the own slot.
     /// # Errors
-    /// Invalid fixed scheme-root key.
-    pub fn signature_schemas(policy: OwnPolicy) -> Result<[QSignaturePlan; 2], Error> {
-        Ok([
-            QSignaturePlan::new(vec![
-                SignatureSlot {
-                    mode: VerifyMode::Hard,
-                    key: SignatureKey::Variable,
-                },
-                SignatureSlot {
-                    mode: VerifyMode::Hard,
-                    key: SignatureKey::Variable,
-                },
-                SignatureSlot {
-                    mode: VerifyMode::Hard,
-                    key: SignatureKey::Fixed(policy.root),
-                },
-            ])?,
-            QSignaturePlan::new(vec![SignatureSlot {
+    /// Impossible fixed schema.
+    pub fn signature_schema() -> Result<QSignaturePlan, Error> {
+        QSignaturePlan::new(vec![
+            SignatureSlot {
+                mode: VerifyMode::Hard,
+                key: SignatureKey::Variable,
+            },
+            SignatureSlot {
                 mode: VerifyMode::Soft,
                 key: SignatureKey::Variable,
-            }])?,
+            },
         ])
     }
 
-    /// Fixed tags1..3; every original signature is included in its tape.
+    /// Check extracted merged-leaf slots against the fixed schema, slot by slot.
+    /// Both owners of the leaf run this check, so neither can read a bundle of
+    /// another shape or let the soft slot stand in for the hard one.
+    pub(super) fn require_signature_slots(slots: &[SignatureProofCells]) -> Result<(), Error> {
+        let schema = Self::signature_schema()?;
+        if slots.len() != schema.slots().len()
+            || slots.iter().zip(schema.slots()).any(|(actual, expected)| {
+                actual.mode() != expected.mode || actual.key_policy() != expected.key
+            })
+        {
+            return Err(Error::Synthesis);
+        }
+        Ok(())
+    }
+
+    /// Fixed tag1; the original signature is included in its tape.
     /// # Errors
     /// Impossible fixed-size conversion.
-    pub fn context_specs() -> Result<[ContextObjectSpec; 3], Error> {
+    pub fn context_specs() -> Result<[ContextObjectSpec; 1], Error> {
         KINDS
             .into_iter()
             .enumerate()
@@ -86,15 +91,15 @@ impl ArchiveAuthorizationObjects {
             .map_err(|_| Error::Synthesis)
     }
 
-    /// Parse hard own objects from the identical original tapes committed in `D_ctx`.
+    /// Parse the hard own receipt from the identical original tape committed in `D_ctx`.
     /// # Errors
-    /// Non-Archive variant, wrong fixed tape size or malformed own object.
+    /// Non-Archive variant, wrong fixed tape size or malformed own receipt.
     pub fn decode(
         chip: &mut VerifierChip<Ep>,
         bytes: &mut BytesChip<Fp>,
         region: &mut Region<'_, Fp>,
         variant: Variant,
-        sources: [&[Value<u8>]; 3],
+        sources: [&[Value<u8>]; 1],
     ) -> Result<Self, Error> {
         require_variant(variant)?;
         let mut objects = Vec::new();
@@ -131,7 +136,7 @@ impl ArchiveAuthorizationObjects {
     }
 
     /// Same-tape prefix retained by every recursive continuation.
-    pub const fn context(&self) -> &[ContextObjectCells; 3] {
+    pub const fn context(&self) -> &[ContextObjectCells; 1] {
         &self.context
     }
 
@@ -144,7 +149,7 @@ impl ArchiveAuthorizationObjects {
         let specs = Self::context_specs()?;
         if input.own_statement.variant() != self.variant
             || plan.operation().frame().variant() != self.variant
-            || plan.object_specs().get(..3) != Some(specs.as_slice())
+            || plan.object_specs().get(..1) != Some(specs.as_slice())
             || input.objects.len() != plan.object_specs().len()
         {
             return Err(Error::Synthesis);
@@ -161,11 +166,11 @@ impl ArchiveAuthorizationObjects {
         Ok(())
     }
 
-    /// Hard-authenticate the current credential, its direct certificate and own receipt.
-    /// Q1 must be verified at this task's stage; the recursive ledger still owns
-    /// its deferred opening. Incoming evidence cannot gate any of these checks.
+    /// Hard-authenticate the own receipt on slot 0 of the merged signature leaf.
+    /// The leaf must be verified at this task's stage; the recursive ledger still
+    /// owns its deferred opening. Its soft incoming slot cannot gate this check.
     /// # Errors
-    /// Wrong owner/schema/root/Q identity or unsatisfiable own authorization.
+    /// Wrong owner/schema/Q identity or unsatisfiable own authorization.
     pub fn constrain_current(
         &self,
         chip: &mut VerifierChip<Ep>,
@@ -178,43 +183,25 @@ impl ArchiveAuthorizationObjects {
         require_task(plan, stage, OperationTask::ArchiveAuthorization)?;
         self.bind_context(region, plan, input)?;
         let (policy, bundle) = policy_and_bundle;
-        let [schema, _] = Self::signature_schemas(policy)?;
+        let index = signature_q(self.variant)?;
         let slots = bundle.slots();
+        Self::require_signature_slots(slots)?;
         if !plan
             .q_partition(usize::try_from(stage).map_err(|_| Error::BoundsFailure)?)
-            .is_some_and(|q| q.contains(&1))
-            || slots.len() != schema.slots().len()
-            || slots.iter().zip(schema.slots()).any(|(actual, expected)| {
-                actual.mode() != expected.mode || actual.key_policy() != expected.key
-            })
+            .is_some_and(|q| q.contains(&index))
         {
             return Err(Error::Synthesis);
         }
         bundle.bind_context(
             region,
             plan.operation(),
-            1,
-            input.q_instances.get(1).ok_or(Error::Synthesis)?,
+            index,
+            input.q_instances.get(index).ok_or(Error::Synthesis)?,
         )?;
         let predecessor = input.predecessor.ok_or(Error::Synthesis)?;
-        authenticate_current(
-            chip,
-            region,
-            policy,
-            CurrentAuthorization {
-                credential: &self.objects[0],
-                certificate: &self.objects[1],
-                credential_proof: &slots[1],
-                certificate_proof: &slots[2],
-                current: MapState {
-                    state: predecessor.state,
-                    lineage: predecessor.public,
-                },
-                statement: input.own_statement,
-            },
-        )?;
+        // The payment key is carried by continuity from the predecessor lineage.
         let key = core::array::from_fn(|i| predecessor.public.fields()[9 + i].clone());
-        let valid = self.objects[2].bind_signature(region, &slots[0], &key)?;
+        let valid = self.objects[0].bind_signature(region, &slots[0], &key)?;
         GlueChip::assert_constant(region, valid.word(), Fp::ONE)?;
         let wallet = core::array::from_fn(|i| predecessor.public.fields()[6 + i].clone());
         let provider = policy.provider(chip, region)?;
@@ -224,63 +211,18 @@ impl ArchiveAuthorizationObjects {
             &mut UintChip::new(lanes.glue, lanes.range),
             lanes.hash,
             region,
-            &self.objects[2],
+            &self.objects[0],
             &ReceiptContext {
                 wallet: &wallet,
                 provider: &provider,
                 statement: input.own_statement,
-                // ArchiveOwnProof independently binds this same committed field.
-                proof_digest: self.objects[2].word(9)?,
+                // Λ proves the own step directly, so this sigma-only digest names
+                // the sigma_archive carrier Λ does not consume; it is the signed
+                // body's own, and `receipt::bind` keeps it nonzero.
+                proof_digest: self.objects[0].word(9)?,
                 payment_digest: &zero,
             },
         )?;
         GlueChip::assert_constant(region, valid.word(), Fp::ONE)
-    }
-
-    /// Bind the exact own sigma, canonical tag5 selector and sigma-only receipt digest.
-    /// Q0 is hard-verified at its unique fixed owner; these public exports are
-    /// retained in the same context even if this task executes at another stage.
-    /// # Errors
-    /// Wrong owner, sigma class, source shape or unsatisfied original-byte binding.
-    pub fn constrain_own_proof(
-        &self,
-        chip: &mut VerifierChip<Ep>,
-        region: &mut Region<'_, Fp>,
-        plan: &ContextPlan,
-        stage: u32,
-        input: &ContextInputs<'_>,
-        sigma: &SigmaBindingCells,
-    ) -> Result<(), Error> {
-        require_task(plan, stage, OperationTask::ArchiveOwnProof)?;
-        self.bind_context(region, plan, input)?;
-        let statement = sigma.hard_statement()?;
-        for (a, b) in statement.fields().iter().zip(input.own_statement.fields()) {
-            GlueChip::assert_equal(region, a, b)?;
-        }
-        let selector = Fp::from(u64::from(sigma_selector(5, 0).ok_or(Error::Synthesis)?));
-        GlueChip::assert_constant(region, sigma.key_index(), selector)?;
-        let columns = input.q_instances.first().ok_or(Error::Synthesis)?;
-        let sigma_plan = &plan.operation().sigma;
-        if columns.len() != 5
-            || columns
-                .iter()
-                .zip(sigma_plan.instance_lengths())
-                .any(|(c, n)| c.len() != n)
-        {
-            return Err(Error::Synthesis);
-        }
-        let digest = bounded_word(chip, region, &columns[0][0])?;
-        GlueChip::assert_equal(region, &digest, statement.digest())?;
-        let index = bounded_word(chip, region, &columns[2][0])?;
-        GlueChip::assert_constant(region, &index, selector)?;
-        let chunks = sigma_plan.chunk_range(0).ok_or(Error::Synthesis)?;
-        if chunks.len() != sigma.proof_chunks().len() {
-            return Err(Error::Synthesis);
-        }
-        for (i, expected) in chunks.zip(sigma.proof_chunks()) {
-            let actual = bounded_word(chip, region, &columns[0][i])?;
-            GlueChip::assert_equal(region, &actual, expected)?;
-        }
-        GlueChip::assert_equal(region, self.objects[2].word(9)?, sigma.step_digest()?)
     }
 }

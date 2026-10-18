@@ -8,7 +8,7 @@
 use super::*;
 use crate::state::deserialize::{
     musubi_rejection::ProjectionCut,
-    musubi_source_read::{LookupCursor, MusubiRead, ReadFailure},
+    musubi_source_read::{LookupCursor, MusubiEvidenceRead, MusubiRead, ReadFailure},
     musubi_source_work::{self, SourceValidationError, SourceWorkLimits},
 };
 use std::cell::Cell;
@@ -65,8 +65,97 @@ impl FrozenMusubiCut<'_> {
         operation(&mut work.used, self.limit)
     }
 }
-impl MusubiRead for FrozenMusubiCut<'_> {
+impl MusubiEvidenceRead<LookupCursor> for FrozenMusubiCut<'_> {
     type Error = RetainedMusubiGroupReadError;
+    fn musubi_locations_by_replication_order_get(
+        &self,
+        key: &ReplicationOrderId,
+    ) -> Result<Option<&MusubiReplicationOrderLocationReferenceV1>, Self::Error> {
+        self.musubi_locations_by_replication_order_len()?;
+        let table = self
+            .data
+            .musubi_locations_by_replication_order
+            .as_ref()
+            .ok_or(Self::Error::Incomplete)?;
+        self.with_work(|work, limit| match self.image {
+            OriginalMusubiImage::Current => table.current_lookup(key, work, limit),
+            OriginalMusubiImage::Predecessor => table.predecessor_lookup(key, work, limit),
+        })
+        .map(|row| row.map(|(_, value)| value))
+        .map_err(|original| Self::Error::Field {
+            field: "musubi_locations_by_replication_order",
+            original,
+        })
+    }
+    fn musubi_locations_by_replication_order_get_retained(
+        &self,
+        key: &ReplicationOrderId,
+        query: &mut LookupCursor,
+    ) -> Result<Option<&MusubiReplicationOrderLocationReferenceV1>, Self::Error> {
+        self.musubi_locations_by_replication_order_len()?;
+        let table = self
+            .data
+            .musubi_locations_by_replication_order
+            .as_ref()
+            .ok_or(Self::Error::Incomplete)?;
+        self.with_work(|work, limit| match self.image {
+            OriginalMusubiImage::Current => table.current_lookup_retained(key, query, work, limit),
+            OriginalMusubiImage::Predecessor => {
+                table.predecessor_lookup_retained(key, query, work, limit)
+            }
+        })
+        .map(|row| row.map(|(_, value)| value))
+        .map_err(|original| Self::Error::Field {
+            field: "musubi_locations_by_replication_order",
+            original,
+        })
+    }
+    fn musubi_provider_bundle_attestations_get(
+        &self,
+        key: &MusubiProviderBundleAttestationKeyV1,
+    ) -> Result<Option<&MusubiProviderBundleAttestationRecordV1>, Self::Error> {
+        self.musubi_provider_bundle_attestations_len()?;
+        let table = self
+            .data
+            .musubi_provider_bundle_attestations
+            .as_ref()
+            .ok_or(Self::Error::Incomplete)?;
+        self.with_work(|work, limit| match self.image {
+            OriginalMusubiImage::Current => table.current_lookup(key, work, limit),
+            OriginalMusubiImage::Predecessor => table.predecessor_lookup(key, work, limit),
+        })
+        .map(|row| row.map(|(_, value)| value))
+        .map_err(|original| Self::Error::Field {
+            field: "musubi_provider_bundle_attestations",
+            original,
+        })
+    }
+    fn musubi_provider_bundle_attestations_get_retained(
+        &self,
+        key: &MusubiProviderBundleAttestationKeyV1,
+        query: &mut LookupCursor,
+    ) -> Result<Option<&MusubiProviderBundleAttestationRecordV1>, Self::Error> {
+        self.musubi_provider_bundle_attestations_len()?;
+        let table = self
+            .data
+            .musubi_provider_bundle_attestations
+            .as_ref()
+            .ok_or(Self::Error::Incomplete)?;
+        self.with_work(|work, limit| match self.image {
+            OriginalMusubiImage::Current => table.current_lookup_retained(key, query, work, limit),
+            OriginalMusubiImage::Predecessor => {
+                table.predecessor_lookup_retained(key, query, work, limit)
+            }
+        })
+        .map(|row| row.map(|(_, value)| value))
+        .map_err(|original| Self::Error::Field {
+            field: "musubi_provider_bundle_attestations",
+            original,
+        })
+    }
+}
+
+impl MusubiRead for FrozenMusubiCut<'_> {
     fn musubi_archives_len(&self) -> Result<usize, Self::Error> {
         let table = self
             .data
@@ -418,49 +507,6 @@ impl MusubiRead for FrozenMusubiCut<'_> {
         }
         Ok(count)
     }
-    fn musubi_locations_by_replication_order_get(
-        &self,
-        key: &ReplicationOrderId,
-    ) -> Result<Option<&MusubiReplicationOrderLocationReferenceV1>, Self::Error> {
-        self.musubi_locations_by_replication_order_len()?;
-        let table = self
-            .data
-            .musubi_locations_by_replication_order
-            .as_ref()
-            .ok_or(Self::Error::Incomplete)?;
-        self.with_work(|work, limit| match self.image {
-            OriginalMusubiImage::Current => table.current_lookup(key, work, limit),
-            OriginalMusubiImage::Predecessor => table.predecessor_lookup(key, work, limit),
-        })
-        .map(|row| row.map(|(_, value)| value))
-        .map_err(|original| Self::Error::Field {
-            field: "musubi_locations_by_replication_order",
-            original,
-        })
-    }
-    fn musubi_locations_by_replication_order_get_retained(
-        &self,
-        key: &ReplicationOrderId,
-        query: &mut LookupCursor,
-    ) -> Result<Option<&MusubiReplicationOrderLocationReferenceV1>, Self::Error> {
-        self.musubi_locations_by_replication_order_len()?;
-        let table = self
-            .data
-            .musubi_locations_by_replication_order
-            .as_ref()
-            .ok_or(Self::Error::Incomplete)?;
-        self.with_work(|work, limit| match self.image {
-            OriginalMusubiImage::Current => table.current_lookup_retained(key, query, work, limit),
-            OriginalMusubiImage::Predecessor => {
-                table.predecessor_lookup_retained(key, query, work, limit)
-            }
-        })
-        .map(|row| row.map(|(_, value)| value))
-        .map_err(|original| Self::Error::Field {
-            field: "musubi_locations_by_replication_order",
-            original,
-        })
-    }
     fn musubi_packages_len(&self) -> Result<usize, Self::Error> {
         let table = self
             .data
@@ -593,49 +639,6 @@ impl MusubiRead for FrozenMusubiCut<'_> {
                 original,
             })
         }))
-    }
-    fn musubi_provider_bundle_attestations_get(
-        &self,
-        key: &MusubiProviderBundleAttestationKeyV1,
-    ) -> Result<Option<&MusubiProviderBundleAttestationRecordV1>, Self::Error> {
-        self.musubi_provider_bundle_attestations_len()?;
-        let table = self
-            .data
-            .musubi_provider_bundle_attestations
-            .as_ref()
-            .ok_or(Self::Error::Incomplete)?;
-        self.with_work(|work, limit| match self.image {
-            OriginalMusubiImage::Current => table.current_lookup(key, work, limit),
-            OriginalMusubiImage::Predecessor => table.predecessor_lookup(key, work, limit),
-        })
-        .map(|row| row.map(|(_, value)| value))
-        .map_err(|original| Self::Error::Field {
-            field: "musubi_provider_bundle_attestations",
-            original,
-        })
-    }
-    fn musubi_provider_bundle_attestations_get_retained(
-        &self,
-        key: &MusubiProviderBundleAttestationKeyV1,
-        query: &mut LookupCursor,
-    ) -> Result<Option<&MusubiProviderBundleAttestationRecordV1>, Self::Error> {
-        self.musubi_provider_bundle_attestations_len()?;
-        let table = self
-            .data
-            .musubi_provider_bundle_attestations
-            .as_ref()
-            .ok_or(Self::Error::Incomplete)?;
-        self.with_work(|work, limit| match self.image {
-            OriginalMusubiImage::Current => table.current_lookup_retained(key, query, work, limit),
-            OriginalMusubiImage::Predecessor => {
-                table.predecessor_lookup_retained(key, query, work, limit)
-            }
-        })
-        .map(|row| row.map(|(_, value)| value))
-        .map_err(|original| Self::Error::Field {
-            field: "musubi_provider_bundle_attestations",
-            original,
-        })
     }
     fn musubi_public_directory_len(&self) -> Result<usize, Self::Error> {
         let table = self
@@ -1149,8 +1152,9 @@ impl UniversalSource for FrozenMusubiCut<'_> {
     }
 }
 
+#[cfg(test)]
 impl OriginalMusubiRows<'_> {
-    /// Run the same bounded semantic graph on one original frozen image.
+    /// Independently check one original frozen image with the same semantic graph.
     /// The enclosing owner checks the actual State, paired maps and revision
     /// before/after this call. Local refusal retains all original descriptors
     /// and cumulative native work; it cannot authorize a semantic output.

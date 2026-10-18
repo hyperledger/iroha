@@ -36,33 +36,33 @@ use crate::privacy_engines::transparent_stark::{
 use std::sync::Arc;
 use thiserror::Error;
 /// Number of independently sampled grand-product lanes.
-pub(crate) const P256_VALUE_BUS_LANES_V1: usize = 4;
+pub const P256_VALUE_BUS_LANES_V1: usize = 4;
 /// `beta`, id, limb, read/write, modulus, value kind, and value.
-pub(crate) const P256_VALUE_BUS_TUPLE_TERMS_V1: usize = 7;
+pub const P256_VALUE_BUS_TUPLE_TERMS_V1: usize = 7;
 /// Little-endian 16-bit limbs in one P-256 field element.
-pub(crate) const P256_VALUE_BUS_LIMBS_V1: usize = 16;
+pub const P256_VALUE_BUS_LIMBS_V1: usize = 16;
 /// Consecutive product factors supported by one packed physical AIR row.
-pub(crate) const P256_VALUE_BUS_FACTORS_PER_PACKED_ROW_V1: usize = 2;
+pub const P256_VALUE_BUS_FACTORS_PER_PACKED_ROW_V1: usize = 2;
 /// Fixed logical bus rows in every arithmetic or assertion segment.
-pub(crate) const P256_VALUE_BUS_SEGMENT_ROWS_V1: usize = 64;
+pub const P256_VALUE_BUS_SEGMENT_ROWS_V1: usize = 64;
 /// Canonical first-release native domain for either P-256 value-bus endpoint.
-pub(crate) const P256_VALUE_BUS_STARK_TRACE_SIZE_V1: usize = 1 << 19;
+pub const P256_VALUE_BUS_STARK_TRACE_SIZE_V1: usize = 1 << 19;
 /// Numeric aggregate base width: two limbs and their little-endian bits.
-pub(crate) const P256_VALUE_BUS_STARK_BASE_WIDTH_V1: usize =
+pub const P256_VALUE_BUS_STARK_BASE_WIDTH_V1: usize =
     P256_VALUE_BUS_FACTORS_PER_PACKED_ROW_V1 * (1 + P256_VALUE_BUS_LIMBS_V1);
 /// Four products before, between, and after the two factors.
-pub(crate) const P256_VALUE_BUS_STARK_AUX_WIDTH_V1: usize =
+pub const P256_VALUE_BUS_STARK_AUX_WIDTH_V1: usize =
     (P256_VALUE_BUS_FACTORS_PER_PACKED_ROW_V1 + 1) * P256_VALUE_BUS_LANES_V1;
 /// Numeric verifier preprocessing width.
-pub(crate) const P256_VALUE_BUS_STARK_FIXED_WIDTH_V1: usize =
+pub const P256_VALUE_BUS_STARK_FIXED_WIDTH_V1: usize =
     P256_VALUE_BUS_FACTORS_PER_PACKED_ROW_V1 * 10 + 2;
 /// Exact residue inventory for one opened aggregate row.
-pub(crate) const P256_VALUE_BUS_STARK_CONSTRAINT_COUNT_V1: usize =
+pub const P256_VALUE_BUS_STARK_CONSTRAINT_COUNT_V1: usize =
     P256_VALUE_BUS_FACTORS_PER_PACKED_ROW_V1 * 41 + 2 * P256_VALUE_BUS_LANES_V1;
 /// Maximum total degree of the numeric adapter.
-pub(crate) const P256_VALUE_BUS_STARK_CONSTRAINT_DEGREE_V1: u8 = 2;
+pub const P256_VALUE_BUS_STARK_CONSTRAINT_DEGREE_V1: u8 = 2;
 /// Unambiguous transcript labels for all 28 challenge coordinates.
-pub(crate) const P256_VALUE_BUS_CHALLENGE_LABELS_V1: [[&[u8]; P256_VALUE_BUS_TUPLE_TERMS_V1];
+pub const P256_VALUE_BUS_CHALLENGE_LABELS_V1: [[&[u8]; P256_VALUE_BUS_TUPLE_TERMS_V1];
     P256_VALUE_BUS_LANES_V1] = [
     [
         b"zk-x509-p256-value-bus-lane0-beta-v1",
@@ -108,10 +108,10 @@ const _: () = assert!(P256_VALUE_BUS_STARK_FIXED_WIDTH_V1 == 22);
 const _: () = assert!(P256_VALUE_BUS_STARK_CONSTRAINT_COUNT_V1 == 90);
 /// Verifier-assigned SSA value identifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct P256ValueIdV1(pub(crate) u32);
+pub struct P256ValueIdV1(pub(crate) u32);
 /// Origin of an initial SSA value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256InitialValueKindV1 {
+pub enum P256InitialValueKindV1 {
     /// Private or public circuit input supplied by the surrounding relation.
     Input,
     /// Verifier-fixed constant supplied by the surrounding relation.
@@ -120,7 +120,7 @@ pub(crate) enum P256InitialValueKindV1 {
 /// One arithmetic operation linked to fixed SSA operand/result identifiers.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256LinkedOperationV1 {
+pub struct P256LinkedOperationV1 {
     /// First operand read.
     pub(crate) a: P256ValueIdV1,
     /// Second operand read.
@@ -133,7 +133,7 @@ pub(crate) struct P256LinkedOperationV1 {
 /// One initial value written in an operation's sixteen spare coefficient rows.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256InitialValueBindingV1 {
+pub struct P256InitialValueBindingV1 {
     /// Sequential verifier-assigned identifier.
     pub(crate) id: P256ValueIdV1,
     /// Field in which the integer is canonical.
@@ -148,7 +148,7 @@ pub(crate) struct P256InitialValueBindingV1 {
 /// Witness bytes are deliberately absent. Fixed preprocessing accepts this
 /// type instead of [`P256InitialValueBindingV1`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256InitialValueTopologyV1 {
+pub struct P256InitialValueTopologyV1 {
     /// Sequential canonical value identifier.
     pub(crate) id: P256ValueIdV1,
     /// Coordinate or scalar modulus.
@@ -160,7 +160,7 @@ pub(crate) struct P256InitialValueTopologyV1 {
 ///
 /// Operand and result values are committed elsewhere and never enter this topology object.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256LinkedOperationTopologyV1 {
+pub struct P256LinkedOperationTopologyV1 {
     /// First existing operand.
     pub(crate) a: P256ValueIdV1,
     /// Second existing operand.
@@ -174,7 +174,7 @@ pub(crate) struct P256LinkedOperationTopologyV1 {
 }
 /// Explicit equality between two already-written values in the same modulus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256EqualityBindingV1 {
+pub struct P256EqualityBindingV1 {
     /// First existing value.
     pub(crate) left: P256ValueIdV1,
     /// Second existing value.
@@ -182,7 +182,7 @@ pub(crate) struct P256EqualityBindingV1 {
 }
 /// Equality bridge for a canonical scalar-field bit and base-field bit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256BooleanBridgeBindingV1 {
+pub struct P256BooleanBridgeBindingV1 {
     /// Existing scalar-field value constrained to zero or one.
     pub(crate) scalar_bit: P256ValueIdV1,
     /// Existing base-field value constrained to the same zero or one.
@@ -190,7 +190,7 @@ pub(crate) struct P256BooleanBridgeBindingV1 {
 }
 /// Value origin included in every active permutation tuple.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256ValueKindV1 {
+pub enum P256ValueKindV1 {
     /// Surrounding-relation input.
     Input,
     /// Verifier-fixed constant.
@@ -200,7 +200,7 @@ pub(crate) enum P256ValueKindV1 {
 }
 /// Memory access direction included in every active permutation tuple.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256ValueAccessKindV1 {
+pub enum P256ValueAccessKindV1 {
     /// The unique writer for one value limb.
     Write,
     /// A use of an already-written value limb.
@@ -209,7 +209,7 @@ pub(crate) enum P256ValueAccessKindV1 {
 /// Verifier-regenerated address for one logical bus row.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256ValueBusFixedAccessV1 {
+pub enum P256ValueBusFixedAccessV1 {
     /// Canonical product-identity padding.
     Inactive,
     /// One addressed 16-bit memory access.
@@ -229,7 +229,7 @@ pub(crate) enum P256ValueBusFixedAccessV1 {
 /// One challenged product row.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ValueBusRowV1 {
+pub struct P256ValueBusRowV1 {
     /// Verifier-regenerated address or inactive selector.
     pub(crate) fixed: P256ValueBusFixedAccessV1,
     /// Addressed 16-bit limb.
@@ -244,7 +244,7 @@ pub(crate) struct P256ValueBusRowV1 {
 /// One fixed-size physical segment with explicit product boundaries.
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct P256ValueBusSegmentV1 {
+pub struct P256ValueBusSegmentV1 {
     /// Sequential verifier-fixed segment index.
     pub(crate) index: u32,
     /// Products entering this segment.
@@ -257,7 +257,7 @@ pub(crate) struct P256ValueBusSegmentV1 {
 /// Product endpoint.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256ValueBusEndpointV1 {
+pub enum P256ValueBusEndpointV1 {
     /// Arithmetic and assertion accesses in fixed execution order.
     Execution,
     /// The same accesses verifier-sorted by id, limb, and writer-first.
@@ -266,7 +266,7 @@ pub(crate) enum P256ValueBusEndpointV1 {
 /// One endpoint's segmented product trace.
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct P256ValueBusEndpointTraceV1 {
+pub struct P256ValueBusEndpointTraceV1 {
     /// Execution or sorted endpoint.
     pub(crate) endpoint: P256ValueBusEndpointV1,
     /// Arithmetic segments, equality segments, then Boolean-bridge segments.
@@ -275,7 +275,7 @@ pub(crate) struct P256ValueBusEndpointTraceV1 {
 /// Complete differential memory-bus trace.
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct P256ValueBusTraceV1 {
+pub struct P256ValueBusTraceV1 {
     /// Source-bound execution accesses.
     pub(crate) execution: P256ValueBusEndpointTraceV1,
     /// Verifier-sorted accesses used for writer/read adjacency.
@@ -288,7 +288,7 @@ pub(crate) struct P256ValueBusTraceV1 {
 /// and nothing challenge dependent can exist before X5B1.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ValueBusBaseCellV1 {
+pub struct P256ValueBusBaseCellV1 {
     /// Verifier-owned address and access direction.
     pub(crate) fixed: P256ValueBusFixedAccessV1,
     /// Addressed field cell. Active cells must be canonical 16-bit integers
@@ -305,7 +305,7 @@ impl AsMut<[F]> for P256ValueBusBaseCellV1 {
 /// One challenge-independent execution or writer-first endpoint.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct P256ValueBusBaseEndpointTraceV1 {
+pub struct P256ValueBusBaseEndpointTraceV1 {
     /// Execution or sorted endpoint identity.
     pub(crate) endpoint: P256ValueBusEndpointV1,
     /// Exact logical factor rows, including canonical 64-row segment padding.
@@ -543,13 +543,13 @@ impl Drop for P256ValueBusBaseMaterialV1 {
 }
 /// One tuple-compression lane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ValueBusLaneChallengesV1 {
+pub struct P256ValueBusLaneChallengesV1 {
     /// `beta` followed by six tuple coefficients.
     pub(crate) terms: [F; P256_VALUE_BUS_TUPLE_TERMS_V1],
 }
 /// Four independently sampled tuple products.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ValueBusChallengesV1 {
+pub struct P256ValueBusChallengesV1 {
     /// Independent lanes.
     pub(crate) lanes: [P256ValueBusLaneChallengesV1; P256_VALUE_BUS_LANES_V1],
 }
@@ -574,7 +574,7 @@ impl P256ValueBusChallengesV1 {
 }
 /// Value-bus topology, source, range, or algebraic failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
-pub(crate) enum P256ValueBusErrorV1 {
+pub enum P256ValueBusErrorV1 {
     /// A post-base operation was attempted before binding or a one-shot phase
     /// transition was reused.
     #[cfg(any(test, feature = "privacy-release-evidence"))]
@@ -618,7 +618,7 @@ pub(crate) enum P256ValueBusErrorV1 {
     Resource,
 }
 /// Derive bus challenges only after execution and sorted base traces commit.
-pub(crate) fn derive_zk_x509_p256_value_bus_challenges_v1(
+pub fn derive_zk_x509_p256_value_bus_challenges_v1(
     transcript: &mut TransparentTranscriptV1,
 ) -> Result<P256ValueBusChallengesV1, TransparentStarkErrorV1> {
     let mut lanes = [P256ValueBusLaneChallengesV1 {
@@ -633,7 +633,7 @@ pub(crate) fn derive_zk_x509_p256_value_bus_challenges_v1(
 }
 /// Build both endpoints and fail closed unless the completed bus validates.
 #[cfg(test)]
-pub(crate) fn build_zk_x509_p256_value_bus_trace_v1(
+pub fn build_zk_x509_p256_value_bus_trace_v1(
     initial_values: &[P256InitialValueBindingV1],
     linked_operations: &[P256LinkedOperationV1],
     equalities: &[P256EqualityBindingV1],
@@ -720,7 +720,7 @@ fn p256_value_bus_writer_location_v1(
 /// trace. Production cross-chip consumers must use [`p256_value_bus_base_writer_limb_cell_v1`] so
 /// no challenge-dependent material is needed before the joint MAIN base roots are committed.
 #[cfg(test)]
-pub(crate) fn p256_value_bus_writer_limb_cell_v1(
+pub fn p256_value_bus_writer_limb_cell_v1(
     trace: &P256ValueBusTraceV1,
     initial_value_count: usize,
     id: P256ValueIdV1,
@@ -761,7 +761,7 @@ pub(crate) fn p256_value_bus_writer_limb_cell_v1(
 /// endpoint is never searched and no challenged product column participates,
 /// so external-binding base construction can finish before X5B1.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn p256_value_bus_base_writer_limb_cell_v1(
+pub fn p256_value_bus_base_writer_limb_cell_v1(
     endpoint: &P256ValueBusBaseEndpointTraceV1,
     initial_value_count: usize,
     id: P256ValueIdV1,
@@ -803,7 +803,7 @@ pub(crate) fn p256_value_bus_base_writer_limb_cell_v1(
 /// verifier-fixed access and its committed value. The cross-trace AIR consumes the corresponding
 /// opened `value` column directly; this native locator is not a verification oracle.
 #[cfg(test)]
-pub(crate) fn p256_value_bus_execution_source_cell_v1(
+pub fn p256_value_bus_execution_source_cell_v1(
     trace: &P256ValueBusTraceV1,
     ordinal: usize,
 ) -> Result<(P256ValueBusFixedAccessV1, F), P256ValueBusErrorV1> {
@@ -836,7 +836,7 @@ pub(crate) fn p256_value_bus_execution_source_cell_v1(
 /// Cross-writer products consume this projection after X5B1; they never
 /// depend on a value-bus trace that already contains challenged products.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn p256_value_bus_base_execution_source_cell_v1(
+pub fn p256_value_bus_base_execution_source_cell_v1(
     endpoint: &P256ValueBusBaseEndpointTraceV1,
     ordinal: usize,
 ) -> Result<(P256ValueBusFixedAccessV1, F), P256ValueBusErrorV1> {
@@ -969,7 +969,7 @@ impl P256ValueBusEndpointTraceV1 {
 }
 /// Low-degree constraints for one range-checked product transition.
 #[cfg(test)]
-pub(crate) fn evaluate_zk_x509_p256_value_bus_row_constraints_v1(
+pub fn evaluate_zk_x509_p256_value_bus_row_constraints_v1(
     fixed: P256ValueBusFixedAccessV1,
     row: &P256ValueBusRowV1,
     expected_before: [F; P256_VALUE_BUS_LANES_V1],
@@ -998,7 +998,7 @@ pub(crate) fn evaluate_zk_x509_p256_value_bus_row_constraints_v1(
 }
 /// Four terminal constraints equating execution and sorted products.
 #[cfg(test)]
-pub(crate) fn evaluate_zk_x509_p256_value_bus_terminal_constraints_v1(
+pub fn evaluate_zk_x509_p256_value_bus_terminal_constraints_v1(
     execution: &P256ValueBusEndpointTraceV1,
     sorted: &P256ValueBusEndpointTraceV1,
 ) -> Result<[F; P256_VALUE_BUS_LANES_V1], P256ValueBusErrorV1> {
@@ -1983,7 +1983,7 @@ const _: () = assert!(STARK_FIXED_ZERO + 1 == STARK_FIXED_SLOT_WIDTH);
 const _: () = assert!(STARK_FIXED_CONTINUATION + 1 == P256_VALUE_BUS_STARK_FIXED_WIDTH_V1);
 /// Numeric aggregate endpoint selected entirely by verifier registration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256ValueBusStarkEndpointV1 {
+pub enum P256ValueBusStarkEndpointV1 {
     /// Source-bound execution order.
     Execution,
     /// Writer-first address order.
@@ -2001,7 +2001,7 @@ struct P256ValueBusStarkMetadataV1 {
 /// not to the million-row native domain. Sorted rows are located through
 /// per-value prefix counts; no sorted witness address table is retained.
 #[derive(Clone, Debug)]
-pub(crate) struct P256ValueBusStarkFixedProviderV1 {
+pub struct P256ValueBusStarkFixedProviderV1 {
     endpoint: P256ValueBusStarkEndpointV1,
     initial_values: Vec<P256InitialValueTopologyV1>,
     linked_operations: Vec<P256LinkedOperationTopologyV1>,
@@ -2397,7 +2397,7 @@ impl P256ValueBusStarkFixedProviderV1 {
 /// Challenge-independent committed base-row provider.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct P256ValueBusStarkBaseRowProviderV1<'a> {
+pub struct P256ValueBusStarkBaseRowProviderV1<'a> {
     endpoint: &'a P256ValueBusBaseEndpointTraceV1,
     packed_rows: usize,
     trace_size: usize,
@@ -2473,7 +2473,7 @@ impl<'a> P256ValueBusStarkBaseRowProviderV1<'a> {
 /// Construction is private to [`P256ValueBusBoundSourceV1`], so raw challenges cannot create an
 /// auxiliary stream before the X5B1 phase transition.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256ValueBusStarkAuxSourceV1<'a> {
+pub struct P256ValueBusStarkAuxSourceV1<'a> {
     endpoint: &'a P256ValueBusBaseEndpointTraceV1,
     challenges: P256ValueBusChallengesV1,
     terminal: [F; P256_VALUE_BUS_LANES_V1],
@@ -2587,7 +2587,7 @@ fn compute_base_endpoint_terminal_v1(
 /// Charges the temporary arithmetic matrix, copied operations, four full event
 /// tables, four compact endpoint/sort tables, and compact topology overhead.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn p256_value_source_scratch_forecast_v1(
+pub fn p256_value_source_scratch_forecast_v1(
     role: P256EcdsaRoleV1,
 ) -> Result<usize, P256ValueBusErrorV1> {
     use super::{
@@ -2620,7 +2620,7 @@ pub(crate) fn p256_value_source_scratch_forecast_v1(
 /// Forecast the canonical retained value source before any private matrix is built.
 /// Only the compact, value-free verifier topology and fixed providers are allocated.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn p256_value_source_allocation_forecast_v1(
+pub fn p256_value_source_allocation_forecast_v1(
     role: P256EcdsaRoleV1,
 ) -> Result<usize, P256ValueBusErrorV1> {
     use super::allocation_payload::{p256_topology_v1, sum_v1};
@@ -2658,7 +2658,7 @@ pub(crate) fn p256_value_source_allocation_forecast_v1(
 /// Binding is poison-on-attempt: the sole transition is consumed before any fallible validation. A
 /// malformed base source therefore cannot be retried with a different transcript token.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256ValueBusBaseSourceV1 {
+pub struct P256ValueBusBaseSourceV1 {
     material: Option<Arc<P256ValueBusBaseMaterialV1>>,
     execution_fixed: Option<Arc<P256ValueBusStarkFixedProviderV1>>,
     sorted_fixed: Option<Arc<P256ValueBusStarkFixedProviderV1>>,
@@ -2867,7 +2867,7 @@ impl Drop for P256ValueBusBaseSourceV1 {
 /// It retains the base commitment material for constraint and cross-source projection, while
 /// challenge-dependent products are exposed only through replay objects minted here.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256ValueBusBoundSourceV1 {
+pub struct P256ValueBusBoundSourceV1 {
     material: Option<Arc<P256ValueBusBaseMaterialV1>>,
     execution_fixed: Option<Arc<P256ValueBusStarkFixedProviderV1>>,
     sorted_fixed: Option<Arc<P256ValueBusStarkFixedProviderV1>>,
@@ -3047,7 +3047,7 @@ impl Drop for P256ValueBusBoundSourceV1 {
 /// Constant-memory committed base/aux row provider for one completed endpoint.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct P256ValueBusStarkRowProviderV1<'a> {
+pub struct P256ValueBusStarkRowProviderV1<'a> {
     endpoint: &'a P256ValueBusEndpointTraceV1,
     logical_factor_rows: usize,
     packed_rows: usize,
@@ -3210,7 +3210,7 @@ impl<'a> P256ValueBusStarkRowProviderV1<'a> {
     }
 }
 /// Project both committed limb cells used by packed writer/copy products.
-pub(crate) fn p256_value_bus_opened_values_v1<A: PolynomialAirFieldV1>(
+pub fn p256_value_bus_opened_values_v1<A: PolynomialAirFieldV1>(
     base: &[A; P256_VALUE_BUS_STARK_BASE_WIDTH_V1],
 ) -> [A; P256_VALUE_BUS_FACTORS_PER_PACKED_ROW_V1] {
     core::array::from_fn(|slot| base[stark_base_offset_v1(slot) + STARK_BASE_VALUE])
@@ -3220,7 +3220,7 @@ pub(crate) fn p256_value_bus_opened_values_v1<A: PolynomialAirFieldV1>(
 /// All topology, endpoint ordering, adjacency, assertion, and boundary selectors are numeric
 /// verifier preprocessing. No proof cell is decoded as an enum or native row index.
 #[cfg(test)]
-pub(crate) fn evaluate_p256_value_bus_stark_residues_v1(
+pub fn evaluate_p256_value_bus_stark_residues_v1(
     current: &[F; P256_VALUE_BUS_STARK_BASE_WIDTH_V1],
     next: &[F; P256_VALUE_BUS_STARK_BASE_WIDTH_V1],
     current_aux: &[F; P256_VALUE_BUS_STARK_AUX_WIDTH_V1],
@@ -3238,7 +3238,7 @@ pub(crate) fn evaluate_p256_value_bus_stark_residues_v1(
     )
 }
 /// Shared numeric value-bus polynomial over the base or extension field.
-pub(crate) fn evaluate_p256_value_bus_stark_residues_over_field_v1<A: PolynomialAirFieldV1>(
+pub fn evaluate_p256_value_bus_stark_residues_over_field_v1<A: PolynomialAirFieldV1>(
     current: &[A; P256_VALUE_BUS_STARK_BASE_WIDTH_V1],
     next: &[A; P256_VALUE_BUS_STARK_BASE_WIDTH_V1],
     current_aux: &[A; P256_VALUE_BUS_STARK_AUX_WIDTH_V1],
@@ -3323,14 +3323,14 @@ pub(crate) fn evaluate_p256_value_bus_stark_residues_over_field_v1<A: Polynomial
     Ok(residues)
 }
 /// Canonical auxiliary columns carrying the value product after all row factors.
-pub(crate) fn p256_value_bus_terminal_columns_v1() -> [usize; P256_VALUE_BUS_LANES_V1] {
+pub fn p256_value_bus_terminal_columns_v1() -> [usize; P256_VALUE_BUS_LANES_V1] {
     core::array::from_fn(|lane| {
         stark_aux_product_offset_v1(P256_VALUE_BUS_FACTORS_PER_PACKED_ROW_V1) + lane
     })
 }
 /// Project the terminal product from one verifier-fixed native-row opening.
 #[cfg(test)]
-pub(crate) fn p256_value_bus_stark_opened_terminal_v1<A: PolynomialAirFieldV1>(
+pub fn p256_value_bus_stark_opened_terminal_v1<A: PolynomialAirFieldV1>(
     aux: &[A; P256_VALUE_BUS_STARK_AUX_WIDTH_V1],
 ) -> [A; P256_VALUE_BUS_LANES_V1] {
     core::array::from_fn(|lane| {
@@ -3339,7 +3339,7 @@ pub(crate) fn p256_value_bus_stark_opened_terminal_v1<A: PolynomialAirFieldV1>(
 }
 /// Terminal equality over verifier-fixed final native-row openings.
 #[cfg(test)]
-pub(crate) fn evaluate_p256_value_bus_stark_terminal_openings_v1(
+pub fn evaluate_p256_value_bus_stark_terminal_openings_v1(
     execution: &[F; P256_VALUE_BUS_STARK_AUX_WIDTH_V1],
     sorted: &[F; P256_VALUE_BUS_STARK_AUX_WIDTH_V1],
 ) -> [F; P256_VALUE_BUS_LANES_V1] {
@@ -3349,7 +3349,7 @@ pub(crate) fn evaluate_p256_value_bus_stark_terminal_openings_v1(
 }
 /// Verifier-preprocessed selector for the final shared native-domain row.
 #[cfg(test)]
-pub(crate) fn p256_value_bus_stark_last_domain_selector_v1<A: PolynomialAirFieldV1>(
+pub fn p256_value_bus_stark_last_domain_selector_v1<A: PolynomialAirFieldV1>(
     fixed: &[A; P256_VALUE_BUS_STARK_FIXED_WIDTH_V1],
 ) -> A {
     A::ONE.sub(fixed[STARK_FIXED_CONTINUATION])
@@ -3359,7 +3359,7 @@ pub(crate) fn p256_value_bus_stark_last_domain_selector_v1<A: PolynomialAirField
 /// This is the aggregate-quotient form; the ungated helper above is reserved
 /// for an explicitly verifier-fixed final-row opening.
 #[cfg(test)]
-pub(crate) fn evaluate_p256_value_bus_stark_terminal_opened_rows_v1(
+pub fn evaluate_p256_value_bus_stark_terminal_opened_rows_v1(
     last_domain_selector: F,
     execution: &[F; P256_VALUE_BUS_STARK_AUX_WIDTH_V1],
     sorted: &[F; P256_VALUE_BUS_STARK_AUX_WIDTH_V1],
@@ -3411,7 +3411,7 @@ mod tests {
                 .any(|item| item.cells == 1 && item.nonzero_before == 1)
         );
         assert!(observed.iter().all(|item| item.nonzero_after == 0));
-        let (_, observed) = observe_v1(|| {
+        let ((), observed) = observe_v1(|| {
             drop(execution);
             drop(sorted);
         });
@@ -5611,7 +5611,7 @@ mod tests {
     }
     #[test]
     fn phased_private_material_zeroizes_recursively() {
-        let (_, observations) = super::super::private_table::inspection::observe_v1(
+        let ((), observations) = super::super::private_table::inspection::observe_v1(
             phased_private_material_zeroizes_recursively_body_v1,
         );
         assert!(observations.iter().any(|item| item.nonzero_before > 0));

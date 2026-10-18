@@ -5,6 +5,7 @@ use super::*;
 #[path = "manifest/blacklists.rs"]
 mod blacklists;
 use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_checkpoint_digest_v1 as manifest_digest;
+pub(super) use blacklists::LocalBlacklistV1;
 
 #[derive(Debug, Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::Manifest")]
@@ -19,7 +20,7 @@ pub(super) struct Manifest {
     pub folds: IndexRoot,
     pub claims: IndexRoot,
     pub preparations: IndexRoot,
-    pub blacklists: IndexRoot,
+    pub blacklist: Option<LocalBlacklistV1>,
     pub capsule_plans: IndexRoot,
     pub capsule_sources: IndexRoot,
     pub issued_requests: IndexRoot,
@@ -67,7 +68,7 @@ impl Manifest {
             folds: IndexRoot::default(),
             claims: IndexRoot::default(),
             preparations: IndexRoot::default(),
-            blacklists: IndexRoot::default(),
+            blacklist: None,
             capsule_plans: IndexRoot::default(),
             capsule_sources: IndexRoot::default(),
             issued_requests: IndexRoot::default(),
@@ -364,7 +365,6 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 )?;
             }
             self.retain_fee_claim(&mut manifest, &step)?;
-            self.retain_blacklist_source(&mut manifest, &step)?;
             digest = c.body().predecessor_capsule_digest;
             head = c.body().statement.predecessor;
             if current == 0 {

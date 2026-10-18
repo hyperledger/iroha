@@ -1,4 +1,5 @@
-//! Genuine Unload sigma/signature-Q originals and oversized predecessor rejection.
+//! Genuine Unload sigma leaf and own-receipt signature-Q originals, and oversized
+//! predecessor rejection (lean lineage: Λ proves the transition, so no `Q_sigma`).
 //!
 //! The leaf fixture is a local arithmetic witness, not an admitted loaded head.
 //! A complete native Unload proof/restoration positive must use an authenticated
@@ -18,16 +19,13 @@ mod common;
 
 use ff::{Field, PrimeField};
 use iroha_kagemusha_proof::{
-    a_relation::{
-        AProofPlan, QProofPlan, native::consuming, own::OwnPolicy, schedule::sigma_selector,
-    },
+    a_relation::{AProofPlan, QProofPlan, native::consuming, own::OwnPolicy},
     admin_sigma::{ConsumingWitness, StateWitness, UnloadCircuit},
     operation_relation::{administrative::NULLIFIER_DOMAIN, objects::ObjectKind},
-    q_sigma::{QSigmaPlan, SigmaClass, SigmaSlotWitness, native::QSigmaProver},
     q_signature::{QSignatureCircuit, QSignaturePlan},
     witness::{CORE_DOMAIN, REST_DOMAIN, core_index as core},
 };
-use iroha_pasta::{Ep, Eq, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain};
+use iroha_pasta::{Ep, Eq, Fp, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{
     ProverConfig, Witness,
     check::{CheckMode, check_circuit},
@@ -35,10 +33,10 @@ use iroha_plonk::{
     frontend::{Circuit, synthesize},
     keys::{KeygenConfigV2, keygen_pk_v2},
     pcs::ipa::PinnedParams,
-    verifier::{accumulate_generator, verify_full},
+    verifier::verify_full,
 };
 use iroha_plonk_gadgets::{bytes::p_bytes_native, statement::STATEMENT_DOMAIN};
-use iroha_plonk_recursion::{FoldConfig, obligation::ledger::Variant, verifier::VerifierPlan};
+use iroha_plonk_recursion::{obligation::ledger::Variant, verifier::VerifierPlan};
 
 fn rebind(w: &mut ConsumingWitness) {
     for state in [&mut w.predecessor, &mut w.successor] {
@@ -122,7 +120,7 @@ fn frame(raw: &[u8]) -> Vec<u8> {
 }
 
 #[test]
-#[ignore = "real k12 Unload/Q_sigma/hard2V1F Q and complete oversized Bootstrap predecessor rejection; run optimized"]
+#[ignore = "real k12 Unload sigma, hard 1V own-receipt Q and complete oversized Bootstrap predecessor rejection; run optimized"]
 fn genuine_unload_sources_reject_an_oversized_predecessor() {
     let budget = MemoryBudget::DEFAULT;
     let witness = witness(false);
@@ -152,7 +150,7 @@ fn genuine_unload_sources_reject_an_oversized_predecessor() {
         &leaf_params,
         &leaf_key,
         Witness::from_circuit(&leaf_key, &leaf, &public).unwrap(),
-        common::recovery(221),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -189,72 +187,6 @@ fn genuine_unload_sources_reject_an_oversized_predecessor() {
     }
     let params = PinnedParams::<Ep>::derive(16).unwrap();
     let vparams = PinnedParams::<Eq>::derive(16).unwrap();
-    let selector = sigma_selector(6, 0).unwrap();
-    assert_eq!(selector, 13);
-    let sigma_plan = QSigmaPlan::new(
-        SigmaClass::new(
-            VerifierPlan::new(leaf_key.binding().clone(), leaf_params).unwrap(),
-            vec![(
-                selector,
-                leaf_key.vk().kagemusha_digest(leaf_key.binding()).unwrap(),
-            )],
-        )
-        .unwrap(),
-        None,
-        &vparams,
-    )
-    .unwrap();
-    let prepared = sigma_plan
-        .prepare(
-            SigmaSlotWitness {
-                key: leaf_key.vk().clone(),
-                statement: public[0][0],
-                proof: leaf_output.proof.clone(),
-                length: leaf_output.proof.len().try_into().unwrap(),
-            },
-            None,
-            &vparams,
-            Fq::from(131),
-            &FoldConfig::default(),
-        )
-        .unwrap();
-    let q = QSigmaProver::keygen_serialized_foreign(&prepared, params.clone(), 4).unwrap();
-    let qproof = q
-        .prove(&prepared, common::recovery(222), ProverConfig::default())
-        .unwrap();
-    verify_full(
-        &params,
-        q.binding(),
-        q.verifying_key(),
-        &qproof.instances,
-        &qproof.bytes,
-        budget,
-    )
-    .unwrap();
-    let qopening = accumulate_generator(
-        &params,
-        q.binding(),
-        q.verifying_key(),
-        &qproof.instances,
-        &qproof.bytes,
-        budget,
-    )
-    .unwrap();
-    qopening.decide(&params, budget).unwrap();
-    qproof.part.decide(&vparams, budget).unwrap();
-    let mut wrong_selector = qproof.instances.clone();
-    wrong_selector[2][0] = Fq::from(15);
-    assert!(
-        verify_full(
-            &params,
-            q.binding(),
-            q.verifying_key(),
-            &wrong_selector,
-            &qproof.bytes,
-            budget
-        )
-        .is_err()
-    );
     let rooted = bootstrap_outer::rooted_bootstrap_omega(false);
     verify_full(
         &params,
@@ -267,11 +199,14 @@ fn genuine_unload_sources_reject_an_oversized_predecessor() {
     .unwrap();
     rooted.source.pallas.decide(&params, budget).unwrap();
     rooted.vesta.decide(&vparams, budget).unwrap();
-    assert!(rooted.proof.len() + 1_088 > consuming::OMEGA_TRANSPORT_CAP);
+    assert!(
+        rooted.proof.len() + 1_088
+            > iroha_kagemusha_proof::a_relation::receive::OMEGA_TRANSPORT_CAP
+    );
     // The genuine Bootstrap predecessor is not a funded Unload predecessor.
     // This original is retained solely to prove the actual descriptor-size gate
     // rejects a real outer proof instead of fabricating a compact replacement.
-    let (initial, certificate, credential) = bootstrap_objects::enrollment();
+    let (initial, _, _) = bootstrap_objects::enrollment();
     assert_eq!(
         initial.core[core::CREDENTIAL],
         witness.predecessor.core[core::CREDENTIAL]
@@ -339,19 +274,12 @@ fn genuine_unload_sources_reject_an_oversized_predecessor() {
     body.extend(Fp::ZERO.to_repr());
     let receipt = bootstrap_objects::sign(ObjectKind::Receipt, body, 29, 59);
     let policy = OwnPolicy::new([31, 32], bootstrap_objects::key(23)).unwrap();
+    // The credential and certificate are carried by continuity; only the own
+    // receipt is verified, under the predecessor's payment key.
     let schema =
-        iroha_kagemusha_proof::a_relation::unload::UnloadStagePlan::signature_schema(policy)
-            .unwrap();
-    let signatures = QSignatureCircuit::new(
-        schema.clone(),
-        vec![
-            receipt.signature,
-            credential.signature,
-            certificate.signature,
-        ],
-    )
-    .unwrap();
-    let instances = signatures.instances(&[true; 3]).unwrap();
+        iroha_kagemusha_proof::a_relation::unload::UnloadStagePlan::signature_schema().unwrap();
+    let signatures = QSignatureCircuit::new(schema.clone(), vec![receipt.signature]).unwrap();
+    let instances = signatures.instances(&[true]).unwrap();
     let signature_key = keygen_pk_v2(
         &params,
         &signatures,
@@ -362,7 +290,7 @@ fn genuine_unload_sources_reject_an_oversized_predecessor() {
         &params,
         &signature_key,
         Witness::from_circuit(&signature_key, &signatures, &instances).unwrap(),
-        common::recovery(223),
+        common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
@@ -389,15 +317,9 @@ fn genuine_unload_sources_reject_an_oversized_predecessor() {
         )
         .is_err()
     );
-    let operation = AProofPlan::new(
+    let operation = AProofPlan::inline(
         Variant::Unload,
-        sigma_plan,
         vec![
-            QProofPlan::new(
-                VerifierPlan::new(q.binding().clone(), params.clone()).unwrap(),
-                q.verifying_key().clone(),
-            )
-            .unwrap(),
             QProofPlan::new(
                 VerifierPlan::new(signature_key.binding().clone(), params.clone()).unwrap(),
                 signature_key.vk().clone(),

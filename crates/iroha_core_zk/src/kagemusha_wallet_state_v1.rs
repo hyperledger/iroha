@@ -11,15 +11,17 @@
 //! SDKs should own I/O and call this shared state machine rather than reproduce its rules.
 //!
 //! Archive storage must share the provider's non-backup custody root and exclusive lifetime.
-//! [`ProviderArchive`] and [`AdvanceHandle`] share one exclusive provider. Every archive call
-//! uses its protected-data bracket; fixed manifests bind index roots in source-selected
-//! metadata generations and the existing iOS rollback anchor. [`FsArchive`] is a low-level
+//! [`ProviderArchive`] and [`AdvanceHandle`] share one exclusive provider. Archive calls between
+//! two custody calls share one protected-data bracket (an archive phase: one reconcile, then a
+//! storage probe after every call that touches storage); fixed manifests bind index roots in
+//! source-selected metadata generations and the existing iOS rollback anchor. [`FsArchive`] is a low-level
 //! standalone store for tests/diagnostics and does not itself provide those brackets.
 //! No archive record grants monetary authority independently of Advance.
 //!
 //! Collection records a source-selected intent before deleting historical witness objects.
 //! A newer verified Ω supplies coverage; Send additionally needs pending-map nonmembership.
 //! Earned-fee Payments have separate custody until their exact finalized payout is verified.
+use crate::kagemusha_wallet_archive_bytes_v1::PrivateArchiveBytes;
 // TODO(G3/G4): qualify the installed full-catalog native owner through wallet/SDK delivery and
 // the complete custody/proof lifetime on stock phones. Run relations remain artifact-dependent.
 // Persistent replay metadata and unreachable immutable index nodes remain retained; a future
@@ -44,6 +46,7 @@ mod credit_tree;
 mod custody;
 mod fee_claims;
 mod fold_custody;
+mod fold_metrics;
 mod folding;
 mod index;
 mod lifecycle;
@@ -52,7 +55,6 @@ mod map_custody;
 mod map_tree;
 mod native_owner;
 mod native_worker;
-mod policy_custody;
 pub use native_owner::{
     ActivationFinalityProgressV1, LEDGER_INSTRUCTION_MAX_BYTES_V1, LEDGER_PROOF_MAX_BYTES_V1,
     LedgerProgressV1, NativeEpochProgressV1, NativeInstallationConfigV1, NativeOpenErrorV1,
@@ -77,8 +79,14 @@ pub use custody::{
 };
 pub use fee_claims::{FEE_CLAIM_MAX_BYTES_V1, FinalizedPayoutEvidence, RetainedFeeClaim};
 pub use fold_custody::FoldCustodyV1;
-pub use folding::{FoldStatus, LineageCache};
-pub use index::{IndexRoot, ObjectStore};
+pub use fold_metrics::{
+    FOLD_METRICS_RECORDS_V1, FOLD_METRICS_SCHEMA_V1, FoldCallClassV1, FoldCancelCauseV1,
+    FoldCountsV1, FoldMetricsV1, FoldObserverV1, FoldOutcomeV1, FoldPhaseV1, FoldStageV1,
+    FoldSubProofV1,
+};
+pub use folding::{FoldJobV1, FoldStatus, FoldTurnStatusV1, LineageCache, ProvedFoldV1};
+pub use index::{IndexRoot, ObjectStore, ObjectWorkspace};
+mod object_workspace;
 pub(crate) use lifecycle::ArchiveIntentV1;
 pub use lifecycle::{
     ChargeOriginalsV1, CreditProjectionV1, NativeIntentV1, NativePreparation, OperationActionV1,
@@ -87,11 +95,10 @@ pub use lifecycle::{
 };
 pub use map_custody::{PreparationMapV1, PreparationMapsV1};
 pub(crate) use native_worker::NativeFoldWorkerV1;
-pub(crate) use policy_custody::{
-    BlacklistOriginalReferenceV1, publish_blacklist_original, verify_policy_update_original,
-};
+#[cfg(test)]
+pub(crate) use native_worker::{FoldRetentionCountsV1, perturb_retained_key_for_test};
 pub use preparation_custody::{PreparationCustodyV1, PreparationOriginalV1};
-pub use scheduling::{Cancellation, PaymentGuard, Scheduler};
+pub use scheduling::{Cancellation, FoldRetentionV1, PaymentGuard, Scheduler};
 pub use session_custody::DirectTimeExchangeV1;
 pub use snapshot::{Snapshot, SnapshotFold};
 pub use transition_custody::TransitionCustodyV1;
@@ -156,6 +163,10 @@ pub enum Error {
     /// freeing memory. Never a device verdict.
     #[error("not enough memory for this operation")]
     NotEnoughMemory,
+    /// The wallet's local blacklist lists the counterparty account in this field. Refused
+    /// before any mutation: nothing was debited, issued or credited, and no Request was issued.
+    #[error("`{0}` is on the local blacklist")]
+    Blocked(&'static str),
 }
 
 /// Preserve the original attempt classification before projecting completed invalid input.
@@ -200,7 +211,10 @@ pub(crate) fn finality_read_error(
 }
 
 fn valid<T>(result: Result<T, KagemushaWalletValidationErrorV1>) -> Result<T, Error> {
-    result.map_err(|_| Error::Invalid("G1 validation"))
+    result.map_err(|error| match error {
+        KagemushaWalletValidationErrorV1::BlockedAccount { field } => Error::Blocked(field),
+        _ => Error::Invalid("G1 validation"),
+    })
 }
 
 /// Immutable pre-signing inputs, including the credential needed to resume assembly.
@@ -372,22 +386,50 @@ pub trait NativeProofs {
         cancellation: Option<&Cancellation>,
     ) -> Result<(), Error>;
 
-    /// Compute exactly the next sub-proof of one released transition. `checkpoints` holds
-    /// every prior original checkpoint in authenticated schedule order, after the coordinator
-    /// checked its exact layout and durable source chain. Genuine native restoration must
-    /// rederive each prior A/W source in order; the latest proof alone cannot supply that source.
-    /// Poll cancellation at every task boundary and release proof workspaces before returning.
+    /// Prepare exactly the next sub-proof of one released transition under the wallet owner:
+    /// owner replay and input assembly from `custody`, and revalidation of the selected
+    /// stage's proving originals. `checkpoints` holds every prior original checkpoint in
+    /// authenticated schedule order, after the coordinator checked its exact layout and
+    /// durable source chain. The returned job owns every input and holds no custody, archive
+    /// or original-store handle, so it proves after the wallet owner is released.
+    ///
+    /// `retained` is what the previous sub-proof of this owner's scheduler left after its
+    /// checkpoint publication. An implementation may resume it only when it belongs to the
+    /// same durable inputs, which this call reads from `witness`, `predecessor` and `custody`,
+    /// and only when the payloads it restored are a byte-exact prefix of `checkpoints`. Any
+    /// other value, or none, is dropped and this same call prepares cold; a mismatch is never
+    /// an error. It grants nothing: every key import and native check still runs.
     ///
     /// # Errors
     /// Return `Cancelled` on preemption; reject unavailable/invalid relation inputs.
-    fn fold_next(
+    fn fold_prepare(
         &self,
         witness: &ReleasedStep,
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
-        checkpoints: &[Vec<u8>],
+        checkpoints: Vec<PrivateArchiveBytes>,
         custody: Option<&mut FoldCustodyV1<'_>>,
+        retained: Option<FoldRetentionV1>,
         cancellation: &Cancellation,
-    ) -> Result<FoldProgress, Error>;
+    ) -> Result<Box<dyn NativeFoldJobV1>, Error>;
+}
+
+/// The owned native work of one prepared sub-proof, proved without the wallet owner.
+pub trait NativeFoldJobV1 {
+    /// Compute the sub-proof. Genuine native restoration must rederive each prior A/W source
+    /// in order; the latest proof alone cannot supply that source. Poll cancellation at every
+    /// task boundary and release proof workspaces before returning.
+    ///
+    /// With a checkpoint, the job may also return what the next sub-proof of the same step
+    /// can resume: only state restored strictly from durable bytes and inputs derived from
+    /// the same originals, never anything this proof produced. The scheduler keeps it only if
+    /// that checkpoint is published and no payment, inactivity or close intervened.
+    ///
+    /// # Errors
+    /// Return `Cancelled` on preemption; reject unavailable/invalid relation inputs.
+    fn prove(
+        self: Box<Self>,
+        cancellation: &Cancellation,
+    ) -> Result<(FoldProgress, Option<FoldRetentionV1>), Error>;
 }
 
 /// One authenticated released transition; inputs and output remain byte-exact.
@@ -424,10 +466,10 @@ impl CheckpointLayout {
 }
 
 /// One sub-proof result, checked against the authenticated native stage's exact layout.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum FoldProgress {
     /// Persist this result before asking for the next sub-proof.
-    Checkpoint(Vec<u8>),
+    Checkpoint(PrivateArchiveBytes),
     /// Final Ω. A Receive's burn result determines its first credit-digest leaf.
     Complete {
         /// Candidate lineage, verified natively before it becomes folded.
@@ -468,7 +510,7 @@ pub struct ConsumedCredit {
     pub sequence: u128,
 }
 
-#[derive(Debug, Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
+#[derive(Debug, norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::Checkpoint")]
 struct Checkpoint {
     layout: CheckpointLayout,
@@ -476,7 +518,7 @@ struct Checkpoint {
     predecessor_fold: [u8; 32],
     previous: [u8; 32],
     ordinal: u32,
-    proof: Vec<u8>,
+    proof: PrivateArchiveBytes,
 }
 
 #[derive(Debug, Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
@@ -701,7 +743,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 if credit.payment_digest != c.body().payment_digest
                     || identity.payment != credit.payment_digest
                     || identity.credit_id != credit_id
-                    || payment.request.body.amount != credit.amount
+                    || valid(payment.signed_request())?.body.amount != credit.amount
                 {
                     return Err(Error::CreditConflict);
                 }
@@ -771,6 +813,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                     manifest.issued_requests,
                     manifest.direct_anchors,
                     manifest.finality_epochs,
+                    manifest.blacklist.clone(),
                 )
             })
             .transpose()?;

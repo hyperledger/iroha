@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Run the independent full PIPA reference with only Python's standard library.
 
-It verifies genuine frozen full proofs, never calls Rust/native code, and keeps
-historical oracle framing explicit and separate from production verification.
+It verifies genuine current native full proofs without Rust/native execution.
+Historical corpora remain evidence only; no oracle framing or fallback is accepted.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from reference_verifier import InvalidProof, require
-from reference_verifier.verify import verify, verify_captured_oracle
+from reference_verifier.verify import verify
 from reference_verifier.descriptor import Descriptor
 
 
@@ -23,7 +23,7 @@ def expected_names():
     for curve in ('ep', 'eq'):
         for profile in ('blake', 'poseidon'):
             for k in (6, 8):
-                names.add(f'{curve}/oracle/{profile}/{k}')
+                names.add(f'{curve}/native/{profile}/{k}')
             for mode in ('Committed', 'Direct'):
                 for compression in ('false', 'true'):
                     names.add(f'{curve}/v1/{profile}/{mode}/{compression}')
@@ -39,14 +39,20 @@ def case_identity(case):
     """Bind every required matrix label to the decoded descriptor, not its name alone."""
     require(type(case['descriptor_version']) is int and type(case['k']) is int and
             type(case['curve']) is str and type(case['name']) is str, 'canonical reference metadata')
+    require(case['name'] in expected_names(), 'reference label')
+    require('oracle_repr' not in case, 'no transcript override')
     d = Descriptor.decode(bytes.fromhex(case['descriptor']), case['descriptor_version'])
     require(case['curve'] == d.curve.name and case['k'] == d['k'], 'reference curve/domain identity')
     parts = case['name'].split('/')
     require(parts[0] == d.curve.name, 'reference curve label')
     profile = ('blake', 'poseidon', 'base')[d['transcript']]
     mode = ('Committed', 'Direct')[d['instance_mode']]
-    if parts[1] == 'oracle':
-        require(d.version == 1 and parts[2:] == [profile, str(d['k'])], 'oracle profile label')
+    require(len(parts) in (4, 5), 'reference label shape')
+    if parts[1] == 'native':
+        require(d.version == 1 and d['k'] in (6, 8) and
+                parts[2:] == [profile, str(d['k'])] and d['transcript'] in (0, 1) and
+                d['instance_mode'] == 0 and d['selectors'][0] == 0 and
+                d['proof_suffix'] == d['transcript'], 'native profile label')
     elif parts[1] == 'v1':
         require(d.version == 1 and d['k'] == 6 and
                 parts[2:] == [profile, mode, str(bool(d['selectors'][0])).lower()] and
@@ -64,7 +70,7 @@ def case_identity(case):
 
 def check(document):
     """Verify every exact case and enforce the complete positive matrix."""
-    require(document['format'] == 'iroha.pipa.reference.v1', 'reference fixture format')
+    require(document['format'] == 'iroha.native_prover.reference.v1', 'reference fixture format')
     cases = document['cases']
     require(isinstance(cases, list) and len(cases) == len(expected_names()), 'reference case count')
     require({case['name'] for case in cases} == expected_names(), 'reference case identities')
@@ -79,12 +85,8 @@ def check(document):
                       parameter_bytes=bytes.fromhex(parameters[f"{case['curve']}/{case['k']}"]),
                       instances=[[int.from_bytes(bytes.fromhex(value), 'little') for value in column]
                                  for column in case['instances']], proof=proof)
-        if '/oracle/' in case['name']:
-            require(case['descriptor_version'] == 1 and 'oracle_repr' in case, 'explicit oracle case')
-            verify_captured_oracle(**common, transcript_repr=int.from_bytes(bytes.fromhex(case['oracle_repr']), 'little'))
-        else:
-            require('oracle_repr' not in case, 'no production transcript override')
-            verify(**common, version=case['descriptor_version'])
+        require('oracle_repr' not in case, 'no transcript override')
+        verify(**common, version=case['descriptor_version'])
     return len(cases)
 
 

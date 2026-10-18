@@ -215,7 +215,6 @@ impl PreparationV1<'_> {
 
     /// Freeze a prepared Send or Receive with its actual installed sigma proof.
     /// Supply the exact opaque predecessor fold for Send and no fold for Receive.
-    /// The recorded Request selects Receive's blacklist verifier, including after renewal.
     ///
     /// # Errors
     /// Foreign installation/owner/fold, invalid proof, altered source, or invalid capsule.
@@ -312,7 +311,6 @@ impl PreparationV1<'_> {
         proof: KagemushaWalletStepProofV1,
         budget: MemoryBudget,
     ) -> Result<PreparedRecoveryV1, Error> {
-        let (retained, openings) = step.originals();
         self.freeze(
             owner,
             CapsuleFields {
@@ -322,8 +320,8 @@ impl PreparationV1<'_> {
                 statement: step.statement(),
                 predecessor: None,
                 payment: [0; 32],
-                openings: openings.to_vec(),
-                retained: retained.to_vec(),
+                openings: Vec::new(),
+                retained: step.originals().to_vec(),
             },
             proof,
             budget,

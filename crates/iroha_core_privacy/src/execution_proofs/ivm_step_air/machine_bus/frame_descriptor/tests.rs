@@ -136,8 +136,8 @@ impl Fixture {
             let mut carry = 0_i64;
             for limb_index in 0..4 {
                 let value = if operation == 0 {
-                    limb(&row, SP, limb_index).0 as i64
-                        - limb(&row, FRAME, limb_index).0 as i64
+                    u64::cast_signed(limb(&row, SP, limb_index).0)
+                        - u64::cast_signed(limb(&row, FRAME, limb_index).0)
                         - carry
                 } else {
                     let (base, count) = if operation == 1 {
@@ -146,8 +146,8 @@ impl Fixture {
                         (RESULT, RESULT_COUNT)
                     };
                     let addend = values[count].wrapping_mul(8);
-                    limb(&row, base, limb_index).0 as i64
-                        + ((addend >> (16 * limb_index)) & 0xffff) as i64
+                    u64::cast_signed(limb(&row, base, limb_index).0)
+                        + u64::cast_signed((addend >> (16 * limb_index)) & 0xffff)
                         + carry
                 };
                 carry = if operation == 0 {
@@ -155,7 +155,7 @@ impl Fixture {
                 } else {
                     value >> 16
                 };
-                row[CARRIES + operation * 4 + limb_index] = F(carry as u64);
+                row[CARRIES + operation * 4 + limb_index] = F(i64::cast_unsigned(carry));
             }
         }
         for index in 0..16 {
@@ -164,15 +164,16 @@ impl Fixture {
                 [COMPARISONS + index * COMPARE_WIDTH..COMPARISONS + (index + 1) * COMPARE_WIDTH];
             let mut borrow = 0_i64;
             for limb_index in 0..4 {
-                let difference = pack(&left[limb_index * 16..(limb_index + 1) * 16]).0 as i64
-                    - pack(&right[limb_index * 16..(limb_index + 1) * 16]).0 as i64
-                    - borrow;
+                let difference =
+                    u64::cast_signed(pack(&left[limb_index * 16..(limb_index + 1) * 16]).0)
+                        - u64::cast_signed(pack(&right[limb_index * 16..(limb_index + 1) * 16]).0)
+                        - borrow;
                 borrow = i64::from(difference < 0);
                 set_bits(
                     &mut bank[limb_index * 16..(limb_index + 1) * 16],
                     difference.rem_euclid(1 << 16) as u64,
                 );
-                bank[64 + limb_index] = F(borrow as u64);
+                bank[64 + limb_index] = F(i64::cast_unsigned(borrow));
             }
         }
         row[ARGUMENT_NONZERO] = F(u64::from(values[ARGUMENT_COUNT] != 0));

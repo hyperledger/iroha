@@ -3,6 +3,80 @@
 use super::*;
 
 #[test]
+fn account_inspection_contract_is_public_bounded_and_syntax_only() {
+    use iroha_torii_shared::route_catalog::{AdmissionPolicy, AuthenticationPolicy};
+    let descriptor = route_catalog::application_api::ACCOUNTS_INSPECT_POST;
+    assert_eq!(descriptor.admission(), AdmissionPolicy::Public);
+    assert_eq!(
+        descriptor.authentication(),
+        AuthenticationPolicy::ToriiDefault
+    );
+    assert!(descriptor.requires_private_no_store());
+    let document = canonical_document();
+    let operation = &document["paths"][descriptor.path()]["post"];
+    assert_eq!(
+        operation["x-iroha-route-auth"],
+        route_auth_metadata(descriptor)
+    );
+    assert_eq!(operation["x-iroha-tool-effect"].as_str(), Some("read"));
+    assert_eq!(
+        operation["requestBody"]["content"]
+            .as_object()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].as_str(),
+        Some("#/components/schemas/AccountInspectionResponseV1")
+    );
+    for schema in ["AccountInspectionRequestV1", "AccountInspectionResponseV1"] {
+        assert_eq!(
+            document["components"]["schemas"][schema]["additionalProperties"].as_bool(),
+            Some(false)
+        );
+        for field in ["exists", "permissions", "balance", "private_key"] {
+            assert!(
+                document["components"]["schemas"][schema]["properties"]
+                    .get(field)
+                    .is_none()
+            );
+        }
+    }
+}
+
+#[test]
+fn explorer_transaction_proof_contract_is_selective_and_dataspace_visible() {
+    use iroha_torii_shared::route_catalog::{AdmissionPolicy, AuthenticationPolicy};
+    let descriptor = route_catalog::application_api::EXPLORER_TRANSACTIONS_BY_HASH_PROOF_GET;
+    assert_eq!(descriptor.admission(), AdmissionPolicy::DataspaceVisible);
+    assert_eq!(
+        descriptor.authentication(),
+        AuthenticationPolicy::OptionalCanonicalAccountSignature
+    );
+    assert!(descriptor.projections().openapi());
+    assert!(descriptor.projections().sdk());
+    assert!(descriptor.requires_private_no_store());
+    let document = canonical_document();
+    let operation = &document["paths"][descriptor.path()]["get"];
+    assert_eq!(
+        operation["x-iroha-route-auth"],
+        route_auth_metadata(descriptor)
+    );
+    assert_eq!(
+        operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].as_str(),
+        Some("#/components/schemas/ExplorerTransactionProof")
+    );
+    let schema = &document["components"]["schemas"]["ExplorerTransactionProof"];
+    assert_eq!(schema["additionalProperties"].as_bool(), Some(false));
+    assert!(schema["properties"].get("block_wire").is_none());
+    let certificate = &document["components"]["schemas"]["ExplorerTransactionProofCertificate"];
+    assert_eq!(certificate["properties"].as_object().unwrap().len(), 3);
+    assert!(certificate["properties"].get("availability").is_none());
+    assert!(operation["responses"].get("404").is_some());
+}
+
+#[test]
 fn static_authority_is_the_complete_catalog_projection_with_exact_effects() {
     fn method_name(method: CatalogHttpMethod) -> &'static str {
         match method {
@@ -689,7 +763,11 @@ fn soracloud_status_documents_only_the_canonical_routing_count() {
 fn canonical_stream_operations_publish_fail_closed_contract() {
     let document = generate_spec();
     let paths = document["paths"].as_object().expect("paths");
-    for path in ["/v1/events/sse", "/v1/contracts/events/sse"] {
+    for path in [
+        "/v1/events/sse",
+        "/v1/contracts/events/sse",
+        "/v1/accounts/{account_id}/history/sse",
+    ] {
         let get = paths[path]["get"].as_object().expect("SSE GET operation");
         assert_eq!(
             get.get("x-iroha-replay-supported").and_then(Value::as_bool),

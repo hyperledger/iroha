@@ -13,9 +13,7 @@ fn musubi_universal_authority_is_revision_only_after_exact_source_checks() {
     let (world, release, _, selector) = seeded_musubi_publication_snapshot();
     musubi_universal::validate_musubi_universal_projection_cuts(
         &world,
-        &iroha_allocation::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+        world.sccp_committee_generations.allocation_budget(),
     )
     .expect("seeded current and predecessor universal rows are exact");
     let resolver = world
@@ -134,9 +132,7 @@ fn musubi_universal_source_substitution_fails_on_current_and_predecessor() {
     mutation.commit();
     let error = musubi_universal::validate_musubi_universal_projection_cuts(
         &world,
-        &iroha_allocation::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+        world.sccp_committee_generations.allocation_budget(),
     )
     .expect_err("current resolver substitution must fail");
     assert!(
@@ -149,9 +145,7 @@ fn musubi_universal_source_substitution_fails_on_current_and_predecessor() {
     repair.commit();
     let error = musubi_universal::validate_musubi_universal_projection_cuts(
         &world,
-        &iroha_allocation::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+        world.sccp_committee_generations.allocation_budget(),
     )
     .expect_err("repairing current resolver cannot hide stale predecessor");
     assert!(
@@ -177,9 +171,7 @@ fn musubi_universal_source_substitution_fails_on_current_and_predecessor() {
     mutation.commit();
     let error = musubi_universal::validate_musubi_universal_projection_cuts(
         &world,
-        &iroha_allocation::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+        world.sccp_committee_generations.allocation_budget(),
     )
     .expect_err("current directory substitution must fail");
     assert!(
@@ -192,9 +184,7 @@ fn musubi_universal_source_substitution_fails_on_current_and_predecessor() {
     repair.commit();
     let error = musubi_universal::validate_musubi_universal_projection_cuts(
         &world,
-        &iroha_allocation::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+        world.sccp_committee_generations.allocation_budget(),
     )
     .expect_err("repairing current directory cannot hide stale predecessor");
     assert!(

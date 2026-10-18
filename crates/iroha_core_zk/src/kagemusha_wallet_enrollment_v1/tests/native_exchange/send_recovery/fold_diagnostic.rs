@@ -91,7 +91,11 @@ fn diagnose_retained_a_send_fold_once_without_monetary_replay() {
         Some(sha(&payment).as_str())
     );
     let decoded: KagemushaWalletPaymentV1 = decode(&payment);
-    assert_eq!(decoded.request.body.fee, 0, "retained zero-fee Send");
+    assert_eq!(
+        decoded.signed_request().unwrap().body.fee,
+        0,
+        "retained zero-fee Send"
+    );
     let before = wallet.snapshot().unwrap();
     assert_eq!(
         prior_selection["target_sha256"].as_str(),
@@ -122,7 +126,7 @@ fn diagnose_retained_a_send_fold_once_without_monetary_replay() {
         "previous_continuation_sha256": (sha(&previous_bytes)),
         "target_sha256": (sha(&target_bytes)),
         "payment_sha256": (sha(&payment)),
-        "retained_fee": (decoded.request.body.fee),
+        "retained_fee": (decoded.signed_request().unwrap().body.fee),
         "consumer_binary_sha256": (executable_hash()),
         "consumer_source_sha256": (env_pin("KAGEMUSHA_NATIVE_SOURCE_SHA256")),
         "snapshot_before": (format!("{before:?}")),

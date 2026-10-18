@@ -539,7 +539,8 @@ pub(super) fn build_native_iso_payment_intent(
     recipient: AccountId,
 ) -> Result<iroha_data_model::isi::SettleAtomic, MsgError> {
     use iroha_data_model::isi::{
-        AtomicSettlementMovement, AtomicSettlementMovements, SettleAtomic, SettlementId,
+        AtomicSettlementEscrows, AtomicSettlementMovement, AtomicSettlementMovements, SettleAtomic,
+        SettlementId,
     };
     use std::num::NonZeroU64;
     // Existing UETR is the payer's reference. Message envelope IDs and terms never replace it.
@@ -602,7 +603,14 @@ pub(super) fn build_native_iso_payment_intent(
         quantity,
     }])
     .map_err(|_| MsgError::ValidationFailed)?;
-    let intent = SettleAtomic::new(network_id, id, movements, expiry, Metadata::default());
+    let intent = SettleAtomic::new(
+        network_id,
+        id,
+        movements,
+        AtomicSettlementEscrows::empty(),
+        expiry,
+        Metadata::default(),
+    );
     intent.validate().map_err(|_| MsgError::ValidationFailed)?;
     Ok(intent)
 }

@@ -355,3 +355,287 @@ private extension String {
         try XCTUnwrap(UInt64(self))
     }
 }
+
+extension ToriiKagemushaWalletLoadIssuanceV1Tests {
+    func testPairedLoadStartsBothExactSignedRequestsBeforeEitherResponse() async throws {
+        let selected = try selection(), signer = try auth()
+        let transport = PairedLoadTransportV1(), client = transport.client(network: network)
+        defer { transport.close() }
+        let (task, completion) = pairedReadTask { try await client.getKagemushaWalletLoadOriginalsV1(
+            selection: selected, canonicalAuth: signer, requireCurrentOwner: {}) }
+        defer { task.cancel() }
+        await fulfillment(of: [transport.bothStarted], timeout: 3)
+        guard transport.requests.count == 2 else {
+            task.cancel(); transport.close()
+            _ = try? await task.value
+            XCTFail("Both requests must be dispatched before either response is released")
+            return
+        }
+        let requests = transport.requests
+        XCTAssertEqual(Set(requests.compactMap { $0.url?.path }), [selected.path, selected.path + "/finality"])
+        let publicKey = try Curve25519.Signing.PrivateKey(rawRepresentation: seed).publicKey
+        for request in requests {
+            XCTAssertEqual(request.httpMethod, "GET"); XCTAssertNil(request.httpBody)
+            let signature = try XCTUnwrap(Data(base64Encoded: XCTUnwrap(request.value(forHTTPHeaderField: ToriiCanonicalRequest.headerSignature))))
+            let stamp = try XCTUnwrap(UInt64(XCTUnwrap(request.value(forHTTPHeaderField: ToriiCanonicalRequest.headerTimestampMs))))
+            let nonce = try XCTUnwrap(request.value(forHTTPHeaderField: ToriiCanonicalRequest.headerNonce))
+            let message = try ToriiCanonicalRequest.signatureMessage(networkId: network, method: "GET",
+                url: XCTUnwrap(request.url), timestampMs: stamp, nonce: nonce)
+            XCTAssertTrue(publicKey.isValidSignature(signature, for: message))
+        }
+        XCTAssertEqual(Set(requests.compactMap { $0.value(forHTTPHeaderField: ToriiCanonicalRequest.headerNonce) }).count, 2)
+        transport.finish(issuance: Data([1, 2]), finality: Data([3, 4]))
+        await boundedPairCompletion(task, completion: completion, transport: transport)
+        let result = try await task.value
+        XCTAssertEqual(result.issuance.canonicalResponseOriginal, Data([1, 2]))
+        XCTAssertEqual(result.finalityOriginal, Data([3, 4]))
+        XCTAssertEqual(result.issuance.selection, selected)
+        XCTAssertEqual(result.issuance.payerAccountID, signer.accountId)
+        XCTAssertEqual(result.issuance.networkID, network)
+    }
+
+    func testPairedLoadFailureCancelsAndDrainsOtherReadWithoutPartialResult() async throws {
+        for failedFinality in [false, true] {
+            let transport = PairedLoadTransportV1(), client = transport.client(network: network)
+            defer { transport.close() }
+            let selected = try selection(), signer = try auth()
+            let (task, completion) = pairedReadTask { try await client.getKagemushaWalletLoadOriginalsV1(
+                selection: selected, canonicalAuth: signer, requireCurrentOwner: {}) }
+            defer { task.cancel() }
+            await fulfillment(of: [transport.bothStarted], timeout: 3)
+            guard transport.requests.count == 2 else {
+                task.cancel(); transport.close()
+                _ = try? await task.value
+                XCTFail("Both requests must be dispatched before either response is released")
+                return
+            }
+            transport.fail(finality: failedFinality)
+            await boundedPairCompletion(task, completion: completion, transport: transport, stops: [transport.oneStopped])
+            do { _ = try await task.value; XCTFail("A failed pair cannot return a partial original") }
+            catch let failure as ToriiClientError { XCTAssertEqual(failure.status, 503) }
+            XCTAssertTrue(transport.stoppedPaths.contains(failedFinality ? selected.path : selected.path + "/finality"))
+        }
+    }
+
+    func testPairedLoadCallerCancellationStopsBothReads() async throws {
+        let transport = PairedLoadTransportV1(), client = transport.client(network: network)
+        defer { transport.close() }
+        let selected = try selection(), signer = try auth()
+        let (task, completion) = pairedReadTask { try await client.getKagemushaWalletLoadOriginalsV1(
+            selection: selected, canonicalAuth: signer, requireCurrentOwner: {}) }
+        await fulfillment(of: [transport.bothStarted], timeout: 3)
+        guard transport.requests.count == 2 else {
+            task.cancel(); transport.close()
+            _ = try? await task.value
+            XCTFail("Both requests must be dispatched before either response is released")
+            return
+        }
+        task.cancel()
+        await boundedPairCompletion(task, completion: completion, transport: transport, stops: [transport.bothStopped])
+        do { _ = try await task.value; XCTFail("Cancellation cannot return Load originals") }
+        catch { XCTAssertTrue(error is CancellationError || (error as? URLError)?.code == .cancelled) }
+        XCTAssertEqual(Set(transport.stoppedPaths), [selected.path, selected.path + "/finality"])
+    }
+
+    func testPairedLoadOwnerChangeBeforeRepliesRejectsBothOriginals() async throws {
+        actor Owner {
+            enum Failure: Error { case changed }
+            var current = true
+            func retire() { current = false }
+            func check() throws { if !current { throw Failure.changed } }
+        }
+        let owner = Owner(), transport = PairedLoadTransportV1(), client = transport.client(network: network)
+        defer { transport.close() }
+        let selected = try selection(), signer = try auth()
+        let (task, completion) = pairedReadTask { try await client.getKagemushaWalletLoadOriginalsV1(
+            selection: selected, canonicalAuth: signer, requireCurrentOwner: { try await owner.check() }) }
+        defer { task.cancel() }
+        await fulfillment(of: [transport.bothStarted], timeout: 3)
+        guard transport.requests.count == 2 else {
+            task.cancel(); transport.close()
+            _ = try? await task.value
+            XCTFail("Both requests must be dispatched before either response is released")
+            return
+        }
+        await owner.retire()
+        transport.finish(issuance: Data([1]), finality: Data([2]))
+        await boundedPairCompletion(task, completion: completion, transport: transport)
+        do { _ = try await task.value; XCTFail("Retired ownership cannot release transport DATA") }
+        catch Owner.Failure.changed { }
+    }
+
+    func testPairedLoadCancellationDuringFinalOwnerCheckCannotReleaseData() async throws {
+        let transport = PairedLoadTransportV1(), client = transport.client(network: network)
+        defer { transport.close() }
+        let selected = try selection(), signer = try auth()
+        let entered = expectation(description: "Final owner check is suspended")
+        let owner = PairedLoadFinalOwnerGateV1(entered: entered)
+        let (task, completion) = pairedReadTask {
+            await owner.selectParent(withUnsafeCurrentTask { $0?.hashValue })
+            return try await client.getKagemushaWalletLoadOriginalsV1(
+                selection: selected, canonicalAuth: signer,
+                requireCurrentOwner: { await owner.check(withUnsafeCurrentTask { $0?.hashValue }) })
+        }
+        defer { task.cancel() }
+        await fulfillment(of: [transport.bothStarted], timeout: 3)
+        guard transport.requests.count == 2 else {
+            task.cancel(); transport.close(); await owner.release()
+            _ = try? await task.value
+            XCTFail("Both requests must start before replies")
+            return
+        }
+        transport.finish(issuance: Data([1]), finality: Data([2]))
+        await fulfillment(of: [entered], timeout: 3)
+        task.cancel()
+        await owner.release()
+        await boundedPairCompletion(task, completion: completion, transport: transport)
+        do { _ = try await task.value; XCTFail("Cancellation during final owner check cannot release DATA") }
+        catch is CancellationError { }
+    }
+
+    private func pairedReadTask(_ body: @escaping @Sendable () async throws -> ToriiKagemushaWalletLoadOriginalsV1)
+        -> (Task<ToriiKagemushaWalletLoadOriginalsV1, Error>, PairedLoadCompletionV1) {
+        let completion = PairedLoadCompletionV1()
+        let task = Task { defer { completion.finish() }; return try await body() }
+        return (task, completion)
+    }
+
+    private func boundedPairCompletion(_ task: Task<ToriiKagemushaWalletLoadOriginalsV1, Error>,
+                                       completion: PairedLoadCompletionV1, transport: PairedLoadTransportV1,
+                                       stops: [XCTestExpectation] = []) async {
+        // Observe bounded completion/cancellation before awaiting task.value. If a regression
+        // strands a sibling, invalidate the fixture session and drain it during cleanup.
+        await fulfillment(of: [completion.done] + stops, timeout: 3)
+        if !completion.finished { task.cancel(); transport.close() }
+    }
+
+    func testPairedLoadKeepsBothEndpointResponseBounds() async throws {
+        for oversizedFinality in [false, true] {
+            let transport = PairedLoadTransportV1(), client = transport.client(network: network)
+            defer { transport.close() }
+            let selected = try selection(), signer = try auth()
+            let (task, completion) = pairedReadTask { try await client.getKagemushaWalletLoadOriginalsV1(
+                selection: selected, canonicalAuth: signer, requireCurrentOwner: {}) }
+            defer { task.cancel() }
+            await fulfillment(of: [transport.bothStarted], timeout: 3)
+            guard transport.requests.count == 2 else {
+                task.cancel(); transport.close()
+                _ = try? await task.value
+                XCTFail("Both requests must be dispatched before either response is released")
+                return
+            }
+            transport.finish(issuance: Data(repeating: 1, count: oversizedFinality ? 1 : 64 * 1024 + 1),
+                finality: Data(repeating: 2, count: oversizedFinality ? 256 * 1024 + 1 : 1))
+            await boundedPairCompletion(task, completion: completion, transport: transport)
+            do { _ = try await task.value; XCTFail("The pair cannot weaken an endpoint's byte bound") }
+            catch is ToriiClientError { }
+        }
+    }
+}
+
+/// Asynchronous transport latch: it observes both dispatched requests before any reply.
+/// No fixture sleeps, network service, Native proof or monetary operation is used.
+private final class PairedLoadTransportV1: @unchecked Sendable {
+    let bothStarted = XCTestExpectation(description: "Both independent Load requests started")
+    let oneStopped = XCTestExpectation(description: "One sibling request stopped")
+    let bothStopped = XCTestExpectation(description: "Both requests stopped")
+    private let lock = NSLock()
+    private let host = "paired-load-\(UUID().uuidString.lowercased()).example.test"
+    private var active: [String: PairedLoadURLProtocolV1] = [:]
+    private var observed: [URLRequest] = []
+    private var stopped: Set<String> = []
+    private var expectedSiblingStop: String?
+    private var session: URLSession?
+    var requests: [URLRequest] { lock.lock(); defer { lock.unlock() }; return observed }
+    var stoppedPaths: [String] { lock.lock(); defer { lock.unlock() }; return Array(stopped) }
+    func client(network: NetworkId) -> ToriiClient {
+        PairedLoadURLProtocolV1.install(host: host, owner: self)
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [PairedLoadURLProtocolV1.self]
+        let session = URLSession(configuration: config)
+        self.session = session
+        return ToriiClient(baseURL: URL(string: "https://\(host)")!, session: session,
+            localSigningContext: .init(networkId: network))
+    }
+    func start(_ source: PairedLoadURLProtocolV1) {
+        let path = source.request.url!.path
+        lock.lock(); active[path] = source; observed.append(source.request); let count = observed.count; lock.unlock()
+        if count == 2 { bothStarted.fulfill() }
+    }
+    func stop(_ source: PairedLoadURLProtocolV1) {
+        let path = source.request.url!.path
+        lock.lock(); let inserted = stopped.insert(path).inserted; let count = stopped.count
+        let expected = expectedSiblingStop.map { $0 == path } ?? (count == 1); lock.unlock()
+        if inserted, expected { oneStopped.fulfill() }
+        if inserted, count == 2 { bothStopped.fulfill() }
+    }
+    func finish(issuance: Data, finality: Data) {
+        lock.lock(); let sources = Array(active.values); lock.unlock()
+        for source in sources { source.finish(status: 200, data: source.request.url!.path.hasSuffix("/finality") ? finality : issuance) }
+    }
+    func fail(finality: Bool) {
+        lock.lock()
+        let source = active.values.first { $0.request.url!.path.hasSuffix("/finality") == finality }
+        expectedSiblingStop = active.keys.first { $0.hasSuffix("/finality") != finality }
+        lock.unlock()
+        source?.finish(status: 503, data: Data())
+    }
+    func close() { session?.invalidateAndCancel(); PairedLoadURLProtocolV1.remove(host: host) }
+}
+
+private final class PairedLoadURLProtocolV1: URLProtocol {
+    private static let lock = NSLock()
+    private static var owners: [String: PairedLoadTransportV1] = [:]
+    private weak var owner: PairedLoadTransportV1?
+    static func install(host: String, owner: PairedLoadTransportV1) {
+        lock.lock(); defer { lock.unlock() }; owners[host] = owner
+    }
+    static func remove(host: String) { lock.lock(); defer { lock.unlock() }; owners[host] = nil }
+    override class func canInit(with request: URLRequest) -> Bool {
+        lock.lock(); defer { lock.unlock() }; return owners[request.url?.host ?? ""] != nil
+    }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.lock.lock(); let owner = Self.owners[request.url?.host ?? ""]; Self.lock.unlock()
+        self.owner = owner; owner?.start(self)
+    }
+    override func stopLoading() { owner?.stop(self) }
+    func finish(status: Int, data: Data) {
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil,
+            headerFields: ["Content-Type": "application/x-norito", "Content-Length": String(data.count)])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if !data.isEmpty { client?.urlProtocol(self, didLoad: data) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+}
+
+private final class PairedLoadCompletionV1: @unchecked Sendable {
+    let done = XCTestExpectation(description: "Paired Load task completed")
+    private let lock = NSLock()
+    private var completed = false
+    var finished: Bool { lock.lock(); defer { lock.unlock() }; return completed }
+    func finish() { lock.lock(); completed = true; lock.unlock(); done.fulfill() }
+}
+
+/// Holds only the parent's second owner check, after both child reads have completed.
+/// Child task owner checks remain immediate; no wall-clock timing selects the final fence.
+private actor PairedLoadFinalOwnerGateV1 {
+    let entered: XCTestExpectation
+    private var parent: Int?
+    private var parentChecks = 0
+    private var released = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    init(entered: XCTestExpectation) { self.entered = entered }
+    func selectParent(_ identity: Int?) { parent = identity }
+    func check(_ identity: Int?) async {
+        guard let parent, identity == parent else { return }
+        parentChecks += 1
+        guard parentChecks == 2 else { return }
+        entered.fulfill()
+        if !released { await withCheckedContinuation { continuation = $0 } }
+    }
+    func release() {
+        released = true
+        let pending = continuation; continuation = nil; pending?.resume()
+    }
+}

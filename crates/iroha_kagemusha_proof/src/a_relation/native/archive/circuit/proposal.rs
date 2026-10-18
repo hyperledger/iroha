@@ -17,14 +17,16 @@ use std::sync::Mutex;
 pub struct PredicateInputs {
     /// Exact before/after state and tag5 statement.
     pub state: ArchiveWitness,
-    /// Current Credential, certificate and own Receipt originals.
-    pub own: [Vec<u8>; 3],
+    /// Own Receipt original.
+    pub own: Vec<u8>,
     /// Exact retained Send Payment and its four signed objects.
     pub retained: RetainedPayment,
     /// Original evidence, including total Status decoder proposals.
     pub evidence: Evidence,
-    /// Original incoming Receipt signature for the single soft Q2 slot.
-    pub signature: SignatureWitness,
+    /// Merged signature-leaf witnesses in slot order: the own Receipt under the
+    /// predecessor payment key (hard), then the incoming Receipt under the
+    /// Request's quoted receiver key (soft).
+    pub signatures: [SignatureWitness; 2],
     /// Fully source-verified predecessor Pallas claim.
     pub predecessor_pallas: AccumulatorT<Ep>,
     /// Fully source-verified predecessor Vesta claim.
@@ -138,13 +140,14 @@ impl Circuit<Fp> for Proposal {
                     None
                 };
                 // Exact native signature instances only. No Q proof/capability is fabricated.
+                // The hard own slot must verify natively before the soft slot is read.
                 let schema = self
                     .plan
                     .stage()
-                    .signature_schema(2)
+                    .signature_schema(self.plan.stage().signature_q())
                     .ok_or(Error::Synthesis)?;
                 let signature = schema
-                    .native_instances(std::slice::from_ref(&source.signature))
+                    .native_instances(&source.signatures)
                     .map_err(|_| Error::Synthesis)?;
                 let signature = signature
                     .iter()
@@ -156,7 +159,7 @@ impl Circuit<Fp> for Proposal {
                     })
                     .collect::<Result<Vec<Vec<_>>, _>>()?;
                 // The real installed incoming selector is bound directly to the
-                // held Request by the shared predicate, without a synthetic Q0 frame.
+                // held Request by the shared predicate, without a synthetic Q_sigma frame.
                 let incoming_selector = source
                     .incoming_selector
                     .map(|selector| {

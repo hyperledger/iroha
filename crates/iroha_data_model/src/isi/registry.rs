@@ -7,10 +7,10 @@ mod native_capture;
 use crate::{
     isi::{
         InstructionRegistry, account_recovery, alias_setup, asset_alias, asset_transfer_control,
-        bridge, confidential, consensus_keys, content, contract_alias, defi, endorsement, escrow,
-        game, identifier, kaigi, ministry, musubi, nexus, nft_market, oracle, privacy, ram_lfe,
-        repo, runtime_upgrade, rwa, sccp, settlement, smart_contract_code, social, soracloud,
-        soradns, sorafs, space_directory,
+        bond, bridge, confidential, consensus_keys, content, contract_alias, defi, endorsement,
+        escrow, game, identifier, kaigi, ministry, musubi, nexus, nft_market, oracle, privacy,
+        ram_lfe, repo, runtime_upgrade, rwa, sccp, settlement, smart_contract_code, social,
+        soracloud, soradns, sorafs, space_directory,
         transparent::{
             AddSignatory, InvalidInstruction, RemoveAssetKeyValue, RemoveSignatory,
             SetAccountQuorum, SetAssetKeyValue,
@@ -373,11 +373,11 @@ mod tests {
     }
     #[test]
     fn source_has_one_bounded_typed_codec_registration_inventory() {
-        const EXPECTED_SOURCE_TYPED_CODEC_REGISTRARS: usize = 393;
+        const EXPECTED_SOURCE_TYPED_CODEC_REGISTRARS: usize = 398;
         #[cfg(feature = "governance")]
-        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 393;
+        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 398;
         #[cfg(not(feature = "governance"))]
-        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 375;
+        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 380;
         let registry_source = include_str!("registry.rs");
         let production = registry_source
             .split("\n#[cfg(test)]\nmod tests")
@@ -427,9 +427,9 @@ mod tests {
         use sha2::{Digest, Sha256};
         #[cfg(feature = "governance")]
         const EXPECTED_WITH_GOVERNANCE_SHA256: &str =
-            "34a96c3a658eacd0da2bad59541b9d085f22a88ef49ce8ea6b238b2c8bbd7a4f";
+            "88dd49eeb628986a9bffa72295f7b93361f3a24d0e4cabac2c8c9a4c8aed81e2";
         const EXPECTED_WITHOUT_GOVERNANCE_SHA256: &str =
-            "e743e0d12b8ba3d21107671af4a2e1c57edd123983d156e65a92084f8728ff24";
+            "ce87d1ad585969a8eaef30032a316d6da5806bb99f9732f5c77a2290163e1a2d";
         let assignment_digest = |entries: Vec<&wire_ids::BuiltInWireId>| {
             let mut assignments = entries
                 .into_iter()

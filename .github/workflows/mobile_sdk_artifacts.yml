@@ -563,6 +563,7 @@ jobs:
             :client-android:testDebugHostNative \
             :client-android:lintRelease \
             :kagemusha-wallet-android:testDebugUnitTest \
+            :kagemusha-wallet-android:testDebugHostNative \
             :kagemusha-wallet-android:lintRelease \
             :core-jvm:cyclonedxDirectBom \
             :client-android:cyclonedxDirectBom \

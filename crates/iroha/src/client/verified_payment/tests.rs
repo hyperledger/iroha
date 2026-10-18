@@ -14,8 +14,8 @@ use iroha_data_model::{
         output_budget::ExecutionOutputLimits,
     },
     isi::{
-        AtomicSettlementMovement, AtomicSettlementMovements, InstructionBox, Log,
-        SettlementInstructionBox,
+        AtomicSettlementEscrows, AtomicSettlementMovement, AtomicSettlementMovements,
+        InstructionBox, Log, SettlementInstructionBox,
     },
     level::Level,
     nexus::{AxtPolicySnapshot, FeeDebitSource},
@@ -87,6 +87,7 @@ fn fixture_with_transaction_network(
             quantity: Quantity::from(250_000_u32),
         }])
         .unwrap(),
+        AtomicSettlementEscrows::empty(),
         NonZeroU64::new(100).unwrap(),
         metadata,
     );

@@ -1,6 +1,8 @@
 //! Immutable, incarnation-bound archive records over the provider filesystem interface.
 
+use crate::kagemusha_wallet_archive_bytes_v1::PrivateArchiveBytes;
 use std::io;
+use zeroize::Zeroizing;
 
 use super::Error;
 use crate::kagemusha_wallet_advance_v1::{
@@ -14,6 +16,7 @@ use crate::kagemusha_wallet_advance_v1::{
 pub(super) const METADATA_BOUND: usize = 1024;
 
 /// Immutable archive identity. Checkpoint order is part of the name and encoded binding.
+/// Variant order defines the provider's current persistent record-key schema.
 #[derive(
     Debug,
     Clone,
@@ -50,6 +53,8 @@ pub enum ArchiveKey {
     Fold(u128),
     /// Separate exact Payment retained until its earned fee has a finalized payout.
     FeeClaim([u8; 32]),
+    /// Validated pre-proof intake batch; retained until its plan is durably selected.
+    PreparationDraft([u8; 32]),
 }
 
 impl ArchiveKey {
@@ -57,6 +62,7 @@ impl ArchiveKey {
         match self {
             Self::BootstrapPreparation => "bootstrap-preparation.arc".into(),
             Self::BootstrapFrozen => "bootstrap-frozen.arc".into(),
+            Self::PreparationDraft(request) => format!("i-{}.arc", hex::encode(request)),
             Self::Capsule(digest) => format!("c-{}.arc", hex::encode(digest)),
             Self::SourceCustody(digest) => format!("s-{}.arc", hex::encode(digest)),
             Self::Object(digest) => format!("o-{}.arc", hex::encode(digest)),
@@ -82,7 +88,24 @@ pub trait ArchiveStore {
     ///
     /// # Errors
     /// Storage failure, conflicting copies, malformed record or wrong binding.
-    fn get(&mut self, key: ArchiveKey, max_bytes: usize) -> Result<Option<Vec<u8>>, Error>;
+    fn get(
+        &mut self,
+        key: ArchiveKey,
+        max_bytes: usize,
+    ) -> Result<Option<PrivateArchiveBytes>, Error>;
+    /// Read the content-addressed object `ArchiveKey::Object(digest)`, authenticated as by
+    /// [`Self::get`]. An implementation that also binds the content to `digest` may accept the
+    /// first redundant copy passing every check, failing closed on any other first copy.
+    ///
+    /// # Errors
+    /// As [`Self::get`].
+    fn get_object(
+        &mut self,
+        digest: [u8; 32],
+        max_bytes: usize,
+    ) -> Result<Option<PrivateArchiveBytes>, Error> {
+        self.get(ArchiveKey::Object(digest), max_bytes)
+    }
     /// Publish one immutable record, or adopt exactly matching existing bytes durably.
     ///
     /// # Errors
@@ -104,7 +127,7 @@ pub(super) struct Envelope {
     pub(super) wallet_id: [u8; 32],
     pub(super) key: ArchiveKey,
     pub(super) content_digest: [u8; 32],
-    pub(super) content: Vec<u8>,
+    pub(super) content: PrivateArchiveBytes,
 }
 
 /// Redundant immutable archive below `slots/<slot>/archive/`.
@@ -150,7 +173,7 @@ impl<F: Fs> FsArchive<F> {
         name: &str,
         key: ArchiveKey,
         max_bytes: usize,
-    ) -> Result<Option<Vec<u8>>, Error> {
+    ) -> Result<Option<PrivateArchiveBytes>, Error> {
         let bytes = match self.fs.read(
             &self.directory,
             name,
@@ -158,7 +181,7 @@ impl<F: Fs> FsArchive<F> {
                 .checked_add(METADATA_BOUND)
                 .ok_or(Error::Invalid("archive size overflow"))?,
         ) {
-            Ok(bytes) => bytes,
+            Ok(bytes) => Zeroizing::new(bytes),
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(Error::Storage(e)),
         };
@@ -180,7 +203,8 @@ impl<F: Fs> FsArchive<F> {
     fn publish(&self, name: &str, bytes: &[u8]) -> Result<(), Error> {
         let replace = match self.fs.read(&self.directory, name, bytes.len()) {
             Ok(existing) => {
-                if existing != bytes {
+                let existing = Zeroizing::new(existing);
+                if existing.as_slice() != bytes {
                     return Err(Error::WitnessLost("immutable archive conflict"));
                 }
                 // Fresh inode adoption is required after an uncertain/lost writeback. Merely
@@ -246,12 +270,16 @@ impl<F: Fs> ArchiveStore for FsArchive<F> {
         (self.scheme_id, self.wallet_id)
     }
 
-    fn get(&mut self, key: ArchiveKey, max_bytes: usize) -> Result<Option<Vec<u8>>, Error> {
+    fn get(
+        &mut self,
+        key: ArchiveKey,
+        max_bytes: usize,
+    ) -> Result<Option<PrivateArchiveBytes>, Error> {
         let name = key.name();
         let first = self.read_copy(&name, key, max_bytes);
         let second = self.read_copy(&format!("{name}.r"), key, max_bytes);
         match (first, second) {
-            (Ok(Some(a)), Ok(Some(b))) if a != b => {
+            (Ok(Some(a)), Ok(Some(b))) if a.as_slice() != b.as_slice() => {
                 Err(Error::WitnessLost("archive copies conflict"))
             }
             (Ok(Some(a)), _) | (_, Ok(Some(a))) => Ok(Some(a)),
@@ -267,9 +295,13 @@ impl<F: Fs> ArchiveStore for FsArchive<F> {
             wallet_id: self.wallet_id,
             key,
             content_digest: digest("wallet-archive-content", bytes),
-            content: bytes.to_vec(),
+            content: PrivateArchiveBytes::copy_from(bytes)?,
         };
-        let bytes = encode(&envelope)?;
+        let bytes = PrivateArchiveBytes::encode(&envelope)
+            .map_err(|_| Error::Invalid("private archive encoding"))?;
+        // The encoded clearing frame now owns the complete content. Release the
+        // copied payload before publish may read an existing immutable copy.
+        drop(envelope);
         let name = key.name();
         self.publish(&name, &bytes)?;
         self.publish(&format!("{name}.r"), &bytes)?;
@@ -282,6 +314,8 @@ fn parse_key(name: &str) -> Option<ArchiveKey> {
         ArchiveKey::BootstrapPreparation
     } else if name == "bootstrap-frozen.arc" {
         ArchiveKey::BootstrapFrozen
+    } else if let Some(raw) = name.strip_prefix("i-").and_then(|s| s.strip_suffix(".arc")) {
+        ArchiveKey::PreparationDraft(hex::decode(raw).ok()?.try_into().ok()?)
     } else if let Some(raw) = name.strip_prefix("c-").and_then(|s| s.strip_suffix(".arc")) {
         ArchiveKey::Capsule(hex::decode(raw).ok()?.try_into().ok()?)
     } else if let Some(raw) = name.strip_prefix("s-").and_then(|s| s.strip_suffix(".arc")) {
@@ -326,14 +360,14 @@ where
 impl<A: ArchiveStore> super::ObjectStore for A {
     fn read_object(&mut self, expected: &[u8; 32], max_bytes: usize) -> Result<Vec<u8>, Error> {
         let bytes = self
-            .get(ArchiveKey::Object(*expected), max_bytes)?
+            .get_object(*expected, max_bytes)?
             .ok_or(Error::WitnessLost("index object"))?;
         if crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(&bytes)
             != *expected
         {
             return Err(Error::WitnessLost("index object digest"));
         }
-        Ok(bytes)
+        Ok(bytes.as_slice().to_vec())
     }
     fn write_object(&mut self, bytes: &[u8], max_bytes: usize) -> Result<[u8; 32], Error> {
         if bytes.len() > max_bytes {

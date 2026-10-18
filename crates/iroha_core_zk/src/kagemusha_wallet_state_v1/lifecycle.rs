@@ -13,6 +13,10 @@ pub use request::{ChargeOriginalsV1, OperationActionV1, OperationRequestV1, REQU
 
 mod dispatch;
 pub use dispatch::CreditProjectionV1;
+pub(super) use dispatch::intake::{
+    BATCH_BYTES as INTAKE_BATCH_BYTES, DRAFT_BYTES as INTAKE_DRAFT_BYTES,
+    DRAFT_OBJECTS as INTAKE_DRAFT_OBJECTS,
+};
 mod intent;
 pub(crate) use intent::ArchiveIntentV1;
 pub use intent::NativeIntentV1;
@@ -59,7 +63,13 @@ impl PreparationSourceV1<'_> {
 /// from the same exclusive native owner. No foreign callback supplies any of these values.
 /// This trait does not install a provider or grant authority to structural validation.
 pub trait NativePreparation: NativeProofs {
-    /// Select and canonically encode all native choices needed to reproduce this request.
+    /// One native derivation retained only inside the coordinator call that made it.
+    /// The coordinator consumes it at most once through `prove_preparation`; it is never
+    /// stored, persisted, shared or reused by another call, and grants no Advance authority.
+    type Prepared;
+
+    /// Select and canonically encode all native choices needed to reproduce this request,
+    /// and return the derivation made from those exact bytes for proving in this call.
     /// No payment receipt may be signed or Advance performed here. Include the fresh nonce,
     /// original time observation, local map witnesses and exact retained objects in the plan.
     /// The coordinator durably publishes it before invoking `prove_preparation`.
@@ -71,11 +81,13 @@ pub trait NativePreparation: NativeProofs {
         request: &NativeIntentV1,
         source: &PreparationSourceV1<'_>,
         custody: &mut PreparationCustodyV1<'_>,
-    ) -> Result<Vec<u8>, Error>;
+    ) -> Result<(Vec<u8>, Self::Prepared), Error>;
 
-    /// Decode and validate a bounded canonical plan against this exact request/source.
-    /// This runs on both fresh plans and restart reads, before proving. The opaque bytes use
-    /// the installed operation's fixed native schema, never a caller-selected recipe.
+    /// Decode and validate a bounded canonical plan against this exact request/source on
+    /// fresh custody, and return its derivation for proving in this call. This runs on
+    /// restart reads, recovered batches and speculative or retried entries; never on a plan
+    /// made in this call. The opaque bytes use the installed operation's fixed native schema,
+    /// never a caller-selected recipe.
     ///
     /// # Errors
     /// Reject noncanonical, foreign, incomplete or changed local choices and source bindings.
@@ -85,20 +97,23 @@ pub trait NativePreparation: NativeProofs {
         source: &PreparationSourceV1<'_>,
         custody: &mut PreparationCustodyV1<'_>,
         plan: &[u8],
-    ) -> Result<(), Error>;
+    ) -> Result<Self::Prepared, Error>;
 
     /// Produce the exact sigma and frozen transition from an already durable native plan.
-    /// Reuse the existing `PreparationV1` relations. Do not resample nonce/time, reselect
-    /// originals or sign a payment receipt. The existing coordinator verifies this result
-    /// in full and performs the sole irreversible Advance after durable capsule retention.
+    /// Consume a derivation made in this call from these exact plan bytes; never derive
+    /// again and take no custody. Reuse the existing `PreparationV1` relations. Do not
+    /// resample nonce/time, reselect originals or sign a payment receipt. The existing
+    /// coordinator verifies this result in full and performs the sole irreversible Advance
+    /// after durable capsule retention.
     ///
     /// # Errors
-    /// Refuse missing original proving artifacts, invalid witnesses or proof failures.
+    /// Refuse a derivation bound to other plan bytes, source or installation, missing
+    /// original proving artifacts, invalid witnesses or proof failures.
     fn prove_preparation(
         &self,
         request: &NativeIntentV1,
         source: &PreparationSourceV1<'_>,
-        custody: &mut PreparationCustodyV1<'_>,
+        prepared: Self::Prepared,
         plan: &[u8],
     ) -> Result<FrozenTransition, Error>;
 }

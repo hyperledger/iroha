@@ -20,51 +20,7 @@
 //! Storage/WSV integration is intentionally limited to proof records and
 //! verifying-key registry ISIs; consensus-critical state and policies live in
 //! `iroha_core`'s `smartcontracts::isi` and related modules.
-#![allow(clippy::many_single_char_names)]
 #![allow(unexpected_cfgs)]
-// Nested `if` blocks remain intentional for readability/instrumentation; Clippy's
-// `collapsible_if` lint would force let-chains that obscure the control flow.
-#![allow(clippy::collapsible_if)]
-#![allow(
-    clippy::cast_lossless,
-    clippy::cloned_instead_of_copied,
-    clippy::clone_on_copy,
-    clippy::collapsible_else_if,
-    clippy::doc_markdown,
-    clippy::explicit_iter_loop,
-    clippy::identity_op,
-    clippy::if_not_else,
-    clippy::if_same_then_else,
-    clippy::ignored_unit_patterns,
-    clippy::iter_overeager_cloned,
-    clippy::iter_with_drain,
-    clippy::large_enum_variant,
-    clippy::map_unwrap_or,
-    clippy::match_same_arms,
-    clippy::missing_const_for_thread_local,
-    clippy::needless_borrows_for_generic_args,
-    clippy::needless_continue,
-    clippy::needless_pass_by_value,
-    clippy::needless_return,
-    clippy::option_if_let_else,
-    clippy::ptr_arg,
-    clippy::question_mark,
-    clippy::redundant_closure_for_method_calls,
-    clippy::redundant_pub_crate,
-    clippy::result_large_err,
-    clippy::return_self_not_must_use,
-    clippy::single_match_else,
-    clippy::struct_excessive_bools,
-    clippy::struct_field_names,
-    clippy::too_many_arguments,
-    clippy::too_many_lines,
-    clippy::type_complexity,
-    clippy::unnecessary_wraps,
-    clippy::unused_self,
-    clippy::useless_conversion,
-    clippy::useless_let_if_seq
-)]
-#![cfg_attr(test, allow(clippy::large_stack_arrays))]
 /// Native STARK/FRI verifier under `zk-stark` (`stark/fri/*`).
 #[cfg(feature = "zk-stark")]
 pub mod stark;
@@ -88,6 +44,7 @@ pub use verification::{ProofRelation, ProofVerificationError, VerifiedProof, ver
 #[cfg(test)]
 pub(crate) mod frame_test_support;
 pub mod kagemusha_wallet_advance_v1;
+pub mod kagemusha_wallet_archive_bytes_v1;
 /// Complete installed wallet verifier inventory and native artifact identity owner.
 pub mod kagemusha_wallet_artifacts_v1;
 /// Design §5.3 runtime capacity check: storage and memory bounds from installed relations.

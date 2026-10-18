@@ -906,6 +906,8 @@ mod explorer {
         Blocks(crate::collection_list::ListArgs),
         /// Read the bounded Transactions Explorer feed.
         Transactions(crate::collection_list::ListArgs),
+        /// Read node-supplied selective evidence; does not independently verify finality
+        TransactionProof(TransactionProof),
         /// Read the bounded TransactionsLatest Explorer feed.
         TransactionsLatest(crate::collection_list::ListArgs),
         /// Read the bounded Instructions Explorer feed.
@@ -913,9 +915,35 @@ mod explorer {
         /// Read the bounded InstructionsLatest Explorer feed.
         InstructionsLatest(crate::collection_list::ListArgs),
     }
+    /// Arguments of the authenticated, read-only selective evidence request.
+    #[derive(clap::Args, Debug)]
+    pub struct TransactionProof {
+        /// Canonical transaction entrypoint hash literal (hash:UPPERCASE_HEX#CHECKSUM)
+        #[arg(short('H'), long, value_parser = parse_proof_hash)]
+        pub hash: HashOf<TransactionEntrypoint>,
+    }
+    fn parse_proof_hash(
+        literal: &str,
+    ) -> std::result::Result<HashOf<TransactionEntrypoint>, String> {
+        if literal.len() > 128 {
+            return Err("transaction hash literal exceeds its size bound".to_owned());
+        }
+        // Delegate syntax, marker and checksum admission to the native hash JSON codec.
+        norito::json::from_value(norito::json::Value::String(literal.to_owned()))
+            .map_err(|error| format!("expected canonical transaction hash literal: {error}"))
+    }
+    impl Run for TransactionProof {
+        fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
+            let evidence = context
+                .client_from_config()?
+                .get_explorer_transaction_proof(self.hash)?;
+            context.print_data(&evidence)
+        }
+    }
     impl Run for Command {
         fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
             let (collection, args) = match self {
+                Self::TransactionProof(args) => return args.run(context),
                 Self::Accounts(args) => (iroha::collections::Collection::ExplorerAccounts, args),
                 Self::Domains(args) => (iroha::collections::Collection::ExplorerDomains, args),
                 Self::AssetDefinitions(args) => (
@@ -5818,7 +5846,6 @@ mod parameter {
         }
     }
 }
-#[allow(clippy::large_enum_variant)]
 mod trigger {
     use super::*;
     use clap::ValueEnum;
@@ -7104,7 +7131,8 @@ mod repo {
     pub enum Command {
         /// Initiate or roll a repo agreement between two counterparties
         Initiate(Initiate),
-        /// Unwind an active repo agreement (reverse repo leg)
+        /// Settle an active repo agreement (reverse repo leg): at or after maturity by
+        /// any participant, or earlier by the initiator when early repayment was agreed
         Unwind(Unwind),
         /// List repo agreements (`/v1/repo/agreements`) with filter, sort, projection and paging
         List(crate::collection_list::ListArgs),
@@ -7177,6 +7205,10 @@ mod repo {
         /// Cadence between margin checks, in seconds (0 disables margining)
         #[arg(long)]
         pub margin_frequency_secs: u64,
+        /// Allow the initiator (cash borrower) to repay before maturity, paying
+        /// interest accrued to the committed block time. Bound into both consents.
+        #[arg(long)]
+        pub allow_early_repayment: bool,
     }
     impl Initiate {
         fn run<C: RunContext>(self, context: &mut C) -> Result<()> {
@@ -7200,8 +7232,11 @@ mod repo {
                 quantity: self.collateral_quantity,
                 metadata: Metadata::default(),
             };
-            let governance =
-                RepoGovernance::with_defaults(self.haircut_bps, self.margin_frequency_secs);
+            let governance = RepoGovernance::new(
+                self.haircut_bps,
+                self.margin_frequency_secs,
+                self.allow_early_repayment,
+            );
             let instruction = RepoIsi::new(
                 self.agreement_id,
                 initiator,
@@ -7221,7 +7256,8 @@ mod repo {
     }
     #[derive(clap::Args, Debug)]
     pub struct Unwind {
-        /// Stable identifier to settle at maturity as any recorded participant
+        /// Stable identifier to settle; any participant at or after maturity, or the
+        /// initiator earlier when the agreement allows early repayment
         #[arg(long)]
         pub agreement_id: RepoAgreementId,
     }
@@ -7231,7 +7267,7 @@ mod repo {
             let instruction: RepoInstructionBox = instruction.into();
             context
                 .finish([InstructionBox::from(instruction)])
-                .wrap_err("Failed to settle repo agreement at maturity")
+                .wrap_err("Failed to settle repo agreement")
         }
     }
     #[derive(clap::Args, Debug)]

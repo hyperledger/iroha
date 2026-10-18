@@ -1599,6 +1599,14 @@ impl<'s> Worker<'s> {
             // A different authenticated candidate explicitly retires the old original owners.
             self.signature_decode = None;
         }
+        if self.signature_decode.is_none() {
+            // Recovery already paid for this exact graph. Transfer its custody, then
+            // recheck ordinary execution authority below; signing admission is retained.
+            self.signature_decode = self
+                .proposal_decode
+                .as_mut()
+                .and_then(|original| original.take_execution_decode(block, block_hash));
+        }
         if let Some(attempt) = &self.signature_decode {
             if attempt.source != *block {
                 return Err(PublicationError::RecoveryRequired(
@@ -2429,8 +2437,7 @@ impl<'s> Worker<'s> {
     fn discard(&mut self, height: u64, keep: &[Hash32]) {
         self.retire_completed_payload(height);
         if self.proposal_decode.as_ref().is_some_and(|original| {
-            original.decode.source.header().height == height
-                && !keep.contains(&original.decode.block_hash)
+            original.source.header().height == height && !keep.contains(&original.block_hash)
         }) {
             self.proposal_decode = None;
         }

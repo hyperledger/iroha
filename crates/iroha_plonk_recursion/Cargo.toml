@@ -20,6 +20,8 @@ iroha_plonk = { workspace = true }
 iroha_plonk_gadgets = { workspace = true }
 ff = "0.13.1"
 group = "0.13"
+# Clearing owners for private masks and retained witness bytes.
+zeroize = { workspace = true }
 
 [dev-dependencies]
 sha2 = "0.10.9"

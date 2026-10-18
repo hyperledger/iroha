@@ -8,7 +8,7 @@ fn base_batch_projects_rows_and_clears_on_error_and_unwind() {
     for width in 1..=8 {
         let mut columns = vec![vec![F(97); 8]; width];
         let mut next = 0;
-        let (_, observations) = inspection::observe_v1(|| {
+        let ((), observations) = inspection::observe_v1(|| {
             let mut targets = columns
                 .iter_mut()
                 .map(Vec::as_mut_slice)

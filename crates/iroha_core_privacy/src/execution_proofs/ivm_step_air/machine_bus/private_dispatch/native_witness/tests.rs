@@ -28,11 +28,10 @@ fn native_subset_rejects_coherent_shared_calls_and_nonroot_returns() {
         append_subset_residues(&mut residues, &program, &fixture.row, &fixture.packets);
         assert!(residues.iter().any(|value| *value != F::ZERO));
     }
-    for fixture in [
-        Fixture::new(&program, 2, false, 0),
-        Fixture::new(&program, 3, true, 0),
-        Fixture::padding(),
-    ] {
+    for selection in [Some((2, false)), Some((3, true)), None] {
+        let fixture = selection.map_or_else(Fixture::padding, |(slot, root)| {
+            Fixture::new(&program, slot, root, 0)
+        });
         assert!(fixture.accepts(&program));
         let mut residues = Vec::new();
         append_subset_residues(&mut residues, &program, &fixture.row, &fixture.packets);

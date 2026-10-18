@@ -43,7 +43,9 @@ use attestation_records::load_location_provider_attestations;
 mod current_providers;
 mod pin_outbox;
 mod replication_binding;
-use crate::state::deserialize::musubi_source_read::{LookupCursor, MusubiRead, ReadFailure};
+use crate::state::deserialize::musubi_source_read::{
+    LookupCursor, MusubiEvidenceRead, MusubiRead, ReadFailure,
+};
 pub(crate) use current_providers::{CurrentProviderValidation, current_location_providers};
 pub(crate) use pin_outbox::{PinOutboxOperationOrigin, capture_pin_outbox_operation_origin};
 pub(crate) use replication_binding::validate_replication_order_archive_binding;

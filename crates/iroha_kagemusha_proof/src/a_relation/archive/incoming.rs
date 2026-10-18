@@ -1,14 +1,19 @@
 //! Original held receiver identity and the soft incoming receipt signature.
+//!
+//! The incoming receipt is soft slot 1 of the merged signature leaf, whose hard
+//! slot 0 is the own receipt owned by Authorization in the same stage.
 
 use ff::Field;
 use iroha_pasta::{Ep, Fp};
 use iroha_plonk::frontend::{Error, Region, Value};
-use iroha_plonk_gadgets::{Bit, GlueChip, UintChip, bytes::tape::BytesChip, p256::VerifyMode};
+use iroha_plonk_gadgets::{Bit, GlueChip, UintChip, bytes::tape::BytesChip};
 use iroha_plonk_recursion::verifier::VerifierChip;
 
 use super::{
+    authorization::ArchiveAuthorizationObjects,
     require_task,
     results::{ArchiveResultClaims, ArchiveResultTag},
+    signature_q,
 };
 use crate::{
     a_relation::{
@@ -19,10 +24,12 @@ use crate::{
     operation_relation::objects::{
         ObjectKind, SignedObjectCells, credential::CredentialCells, request::RequestCells,
     },
-    q_signature::{QSignaturePlan, SignatureKey},
+    q_signature::QSignaturePlan,
 };
 
-const SLOTS: [usize; 3] = [3, 6, 12];
+const SLOTS: [usize; 3] = [1, 4, 10];
+// The incoming receipt's slot in the merged signature leaf, after the own receipt.
+const SIGNATURE_SLOT: usize = 1;
 const KINDS: [ObjectKind; 3] = [
     ObjectKind::Request,
     ObjectKind::Credential,
@@ -41,7 +48,7 @@ pub struct ArchiveIncomingObjects {
 }
 
 impl ArchiveIncomingObjects {
-    /// Exact tags4/7/13 and fixed signed-transcript sizes.
+    /// Exact tags2/5/11 and fixed signed-transcript sizes.
     /// # Errors
     /// Impossible fixed-size conversion.
     pub fn context_specs() -> Result<[ContextObjectSpec; 3], Error> {
@@ -120,7 +127,7 @@ impl ArchiveIncomingObjects {
         })
     }
 
-    /// Exact retained Request, including its recorded blacklist and receiver quote.
+    /// Exact retained Request, including its receiver quote.
     pub const fn request(&self) -> &RequestCells {
         &self.request
     }
@@ -132,7 +139,7 @@ impl ArchiveIncomingObjects {
     pub const fn receipt(&self) -> &SignedObjectCells {
         &self.receipt
     }
-    /// Three commitments placed at fixed slots3,6,12 respectively.
+    /// Three commitments placed at fixed slots1,4,10 respectively.
     pub const fn context(&self) -> &[ContextObjectCells; 3] {
         &self.context
     }
@@ -176,9 +183,10 @@ impl ArchiveIncomingObjects {
         Ok(())
     }
 
-    /// Bind the sole incoming soft signature to Q2 and the retained receiver key.
-    /// Q2 must be hard-verified by this exact stage; its deferred opening remains
-    /// mandatory in the recursive ledger even when the receipt verdict is false.
+    /// Bind the incoming soft slot of the merged signature leaf to the retained
+    /// receiver key. The leaf must be hard-verified by this exact stage; its
+    /// deferred opening remains mandatory in the recursive ledger even when the
+    /// receipt verdict is false.
     /// # Errors
     /// Wrong owner/Q/schema/key, substituted source, missing result or layout.
     pub fn constrain_signature(
@@ -191,9 +199,10 @@ impl ArchiveIncomingObjects {
         bundle: &SignatureQCells,
     ) -> Result<(), Error> {
         require_task(plan, stage, OperationTask::ArchiveSignatures)?;
+        let index = signature_q(plan.operation().frame().variant())?;
         if !plan
             .q_partition(usize::try_from(stage).map_err(|_| Error::BoundsFailure)?)
-            .is_some_and(|q| q.contains(&2))
+            .is_some_and(|q| q.contains(&index))
         {
             return Err(Error::Synthesis);
         }
@@ -208,8 +217,8 @@ impl ArchiveIncomingObjects {
         )
     }
 
-    // Native preparation shares the exact receipt, held key and Q2 bindings.
-    // The owning stage separately hard-verifies Q2 and binds the proposed bit.
+    // Native preparation shares the exact receipt, held key and merged-leaf bindings.
+    // The owning stage separately hard-verifies the leaf and binds the proposed bit.
     pub(crate) fn derive_signature(
         &self,
         region: &mut Region<'_, Fp>,
@@ -218,17 +227,18 @@ impl ArchiveIncomingObjects {
         bundle: &SignatureQCells,
     ) -> Result<Bit<Fp>, Error> {
         self.bind_context(region, plan, input)?;
+        let index = signature_q(plan.operation().frame().variant())?;
         bundle.bind_context(
             region,
             plan.operation(),
-            2,
-            input.q_instances.get(2).ok_or(Error::Synthesis)?,
+            index,
+            input.q_instances.get(index).ok_or(Error::Synthesis)?,
         )?;
         self.bind_signature_slot(region, bundle.slots())
     }
 
     // Q-free projection of genuine native signature exports, with no sigma frame.
-    // The staged adapter above still binds every original object and Q2 context.
+    // The staged adapter above still binds every original object and the leaf's context.
     pub(crate) fn signature_projection(
         &self,
         chip: &mut VerifierChip<Ep>,
@@ -237,24 +247,23 @@ impl ArchiveIncomingObjects {
         schema: &QSignaturePlan,
         instances: &[Vec<iroha_plonk_recursion::codec::ScalarCells<Ep>>],
     ) -> Result<Bit<Fp>, Error> {
+        let index = signature_q(operation.frame().variant())?;
         let projection = crate::a_relation::signature::project_signature_q(
-            chip, region, operation, 2, schema, instances,
+            chip, region, operation, index, schema, instances,
         )?;
-        projection.bind_context(region, operation, 2, instances)?;
+        projection.bind_context(region, operation, index, instances)?;
         self.bind_signature_slot(region, projection.slots())
     }
 
+    // Only the soft incoming slot binds here; the hard own slot belongs to the
+    // Authorization owner of the same leaf.
     fn bind_signature_slot(
         &self,
         region: &mut Region<'_, Fp>,
         slots: &[crate::a_relation::signature::SignatureProofCells],
     ) -> Result<Bit<Fp>, Error> {
-        let [slot] = slots else {
-            return Err(Error::Synthesis);
-        };
-        if slot.mode() != VerifyMode::Soft || slot.key_policy() != SignatureKey::Variable {
-            return Err(Error::Synthesis);
-        }
+        ArchiveAuthorizationObjects::require_signature_slots(slots)?;
+        let slot = slots.get(SIGNATURE_SLOT).ok_or(Error::Synthesis)?;
         self.receipt
             .bind_signature(region, slot, self.receiver.payment_key()?)
     }

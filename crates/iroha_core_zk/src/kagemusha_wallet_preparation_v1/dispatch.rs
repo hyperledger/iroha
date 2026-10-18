@@ -22,6 +22,7 @@ pub(super) fn proof<T>(result: core::result::Result<T, Error>) -> Result<T> {
         Error::DecodeResource(original) => state::Error::DecodeResource(original),
         Error::Unavailable => state::Error::ArtifactsUnavailable("native operation artifact"),
         Error::Cancelled => state::Error::Cancelled,
+        Error::Blocked(field) => state::Error::Blocked(field),
         Error::Entropy => {
             crate::kagemusha_wallet_advance_v1::KagemushaWalletProviderErrorV1::Unavailable(
                 crate::kagemusha_wallet_advance_v1::KagemushaWalletUnavailableV1::Platform(0),
@@ -33,7 +34,10 @@ pub(super) fn proof<T>(result: core::result::Result<T, Error>) -> Result<T> {
 }
 
 fn model<T>(result: core::result::Result<T, KagemushaWalletValidationErrorV1>) -> Result<T> {
-    result.map_err(|_| state::Error::Invalid("native operation original"))
+    result.map_err(|error| match error {
+        KagemushaWalletValidationErrorV1::BlockedAccount { field } => state::Error::Blocked(field),
+        _ => state::Error::Invalid("native operation original"),
+    })
 }
 fn read_model_original<T>(
     read: impl FnOnce() -> core::result::Result<T, KagemushaWalletValidationErrorV1>,
@@ -94,6 +98,85 @@ pub(crate) struct PreparedOperationV1 {
     send_usage: Option<KagemushaWalletQuotaUsageArrayV1>,
 }
 
+/// One native derivation, consumed at most once by proving inside the coordinator call
+/// that made it. It binds the exact native plan bytes, source capsule and installed verifier
+/// manifest it was derived from. It has no clone, codec or `Send`, so no review, slot,
+/// worker, process or later call can retain it, and it grants no Advance authority: commit
+/// always derives again from the durable plan.
+///
+/// ```
+/// use iroha_core_zk::kagemusha_wallet_preparation_v1::NativePreparedOperationV1;
+/// fn needs_send<T: Send>(_: T) {}
+/// fn consume(token: NativePreparedOperationV1) { drop(token); }
+/// ```
+/// ```compile_fail,E0599
+/// use iroha_core_zk::kagemusha_wallet_preparation_v1::NativePreparedOperationV1;
+/// fn needs_send<T: Send>(_: T) {}
+/// fn consume(token: NativePreparedOperationV1) { drop(token.clone()); }
+/// ```
+/// ```compile_fail,E0277
+/// use iroha_core_zk::kagemusha_wallet_preparation_v1::NativePreparedOperationV1;
+/// fn needs_send<T: Send>(_: T) {}
+/// fn consume(token: NativePreparedOperationV1) { needs_send(token); }
+/// ```
+/// ```compile_fail,E0382
+/// use iroha_core_zk::kagemusha_wallet_preparation_v1::NativePreparedOperationV1;
+/// fn needs_send<T: Send>(_: T) {}
+/// fn consume(token: NativePreparedOperationV1) { drop(token); drop(token); }
+/// ```
+pub struct NativePreparedOperationV1 {
+    prepared: PreparedOperationV1,
+    binding: PreparedBindingV1,
+    _call: core::marker::PhantomData<*const ()>,
+}
+
+#[derive(PartialEq, Eq)]
+struct PreparedBindingV1 {
+    plan: [u8; 32],
+    source: [u8; 32],
+    manifest: [u8; 32],
+}
+
+impl PreparedBindingV1 {
+    fn new(plan: &[u8], source: [u8; 32], manifest: [u8; 32]) -> Self {
+        Self {
+            plan: crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(
+                plan,
+            ),
+            source,
+            manifest,
+        }
+    }
+}
+
+impl NativePreparedOperationV1 {
+    pub(crate) fn new(
+        prepared: PreparedOperationV1,
+        plan: &[u8],
+        source: [u8; 32],
+        manifest: [u8; 32],
+    ) -> Self {
+        Self {
+            prepared,
+            binding: PreparedBindingV1::new(plan, source, manifest),
+            _call: core::marker::PhantomData,
+        }
+    }
+
+    /// Release the derivation only for the exact plan, source and installation it bound.
+    pub(crate) fn redeem(
+        self,
+        plan: &[u8],
+        source: [u8; 32],
+        manifest: [u8; 32],
+    ) -> Result<PreparedOperationV1> {
+        if self.binding != PreparedBindingV1::new(plan, source, manifest) {
+            return Err(state::Error::WitnessLost("prepared operation binding"));
+        }
+        Ok(self.prepared)
+    }
+}
+
 /// Move-only check of already verified inputs, consumed at the final Advance boundary.
 /// Private construction prevents foreign callers from authorizing a timed Send.
 pub struct NativeAdvanceCheckV1 {
@@ -105,7 +188,6 @@ struct SendAdvanceCheck {
     state: KagemushaWalletStateV1,
     omega: KagemushaWalletLineagePublicV1,
     anchor: Option<KagemushaWalletAnchoredTimeV1>,
-    blacklist: Option<KagemushaWalletBlacklistV1>,
     share: Option<KagemushaWalletQuotaShareV1>,
     usage: KagemushaWalletQuotaUsageArrayV1,
     charges: Vec<KagemushaWalletQuotaChargeV1>,
@@ -130,7 +212,9 @@ impl NativeAdvanceCheckV1 {
             omega: &send.omega,
             anchored: send.anchor.as_ref(),
             now: Some(&now),
-            blacklist: send.blacklist.as_ref(),
+            // This commit's derivation applied the local blacklist under the same exclusive
+            // owner; this recheck covers the time-dependent controls only.
+            blacklist: None,
             quota_share: send.share.as_ref(),
             quota_usage: &send.usage,
         }))?;
@@ -157,19 +241,19 @@ impl PreparedOperationV1 {
         use KagemushaWalletOperationKindV1 as K;
         Ok(match &self.step {
             Step::Load(_) => 1,
-            Step::Archive(_) => 12,
+            Step::Archive(_) => 7,
             Step::Monetary(s) => match s.statement().effect.kind() {
                 K::Send => {
                     2 + u8::try_from(s.relation().enabled_controls())
                         .map_err(|_| state::Error::Invalid("Send control selector"))?
                 }
-                K::Receive => 10 + u8::from(s.request().body.receiver_blacklist_version != 0),
+                K::Receive => 6,
                 _ => return Err(state::Error::Invalid("monetary selector")),
             },
-            Step::Refresh(_) => 14,
+            Step::Refresh(_) => 9,
             Step::Consuming(s) => match s.statement().effect.kind() {
-                K::Unload => 13,
-                K::Retiring => 15,
+                K::Unload => 8,
+                K::Retiring => 10,
                 _ => return Err(state::Error::Invalid("consuming selector")),
             },
         })
@@ -199,14 +283,6 @@ impl PreparedOperationV1 {
             return Ok(NativeAdvanceCheckV1::without_time());
         }
         let scheme = preparation.installed.verifier().scheme();
-        let blacklist = if before.enforces_blacklist() {
-            let original = required_original(custody, Original::Blacklist)?;
-            Some(read_model_original(|| {
-                KagemushaWalletBlacklistV1::decode_canonical(&original, &scheme.scheme_id())
-            })?)
-        } else {
-            None
-        };
         let share = if before.is_active(KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1) {
             let original = required_original(custody, Original::QuotaShare)?;
             Some(read_model_original(|| {
@@ -232,7 +308,6 @@ impl PreparedOperationV1 {
                 state: *before,
                 omega: predecessor.lineage().public,
                 anchor: custody.anchored_time()?,
-                blacklist,
                 share,
                 usage: *usage,
                 charges: original.quota_charges.clone(),
@@ -241,7 +316,8 @@ impl PreparedOperationV1 {
         })
     }
 
-    /// Import one strict original, prove the exact derived witness, and fully verify
+    /// Rebuild the selected σ key from its qualified admission seal after revalidating
+    /// its exact signed originals, prove the exact derived witness, and fully verify
     /// the frozen capsule. This performs no signing or publication.
     pub(crate) fn prove(
         &self,
@@ -460,6 +536,7 @@ impl PreparationV1<'_> {
     ) -> Result<PreparedOperationV1> {
         let scheme = self.installed.verifier().scheme();
         if derivation == Derivation::BeforeAdvance {
+            super::derivation_counts::record_before_advance();
             request.validate(scheme)?;
         }
         if sources.installation()
@@ -566,16 +643,11 @@ impl PreparationV1<'_> {
                             model(leaf.leaf_value())?,
                         )?)
                     };
-                    let blacklist = if before.enforces_blacklist() {
-                        let original = required_original(custody, Original::Blacklist)?;
-                        Some(read_model_original(|| {
-                            KagemushaWalletBlacklistV1::decode_canonical(
-                                &original,
-                                &scheme.scheme_id(),
-                            )
-                        })?)
-                    } else {
-                        None
+                    // The payer's local block applies before the irreversible debit only; a fold
+                    // replays a committed Send without it.
+                    let blacklist = match derivation {
+                        Derivation::BeforeAdvance => custody.local_blacklist()?,
+                        Derivation::ReleasedFold => None,
                     };
                     let share = if before.is_active(KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1) {
                         let original = required_original(custody, Original::QuotaShare)?;
@@ -656,8 +728,10 @@ impl PreparationV1<'_> {
                             Ok((request.request_digest(), original.bytes.as_slice()))
                         })
                         .transpose()?;
-                    let digest = frozen_request
-                        .map_or_else(|| decoded.request.request_digest(), |(digest, _)| digest);
+                    let digest = match frozen_request {
+                        Some((digest, _)) => digest,
+                        None => model(decoded.signed_request())?.request_digest(),
+                    };
                     let request_original = custody.issued_request(&digest)?;
                     if frozen_request.is_some_and(|(_, bytes)| bytes != request_original) {
                         return Err(state::Error::WitnessLost(
@@ -669,22 +743,6 @@ impl PreparationV1<'_> {
                     if request.request_digest() != digest {
                         return Err(state::Error::WitnessLost("issued Request identity"));
                     }
-                    let recorded = if request.body.receiver_blacklist_version == 0 {
-                        None
-                    } else {
-                        let key = kagemusha_wallet_field_from_u128_v1(u128::from(
-                            request.body.receiver_blacklist_version,
-                        ));
-                        let (history_leaf, history_opening) =
-                            custody.maps().membership(Map::BlacklistHistory, &key)?;
-                        Some(KagemushaWalletRecordedBlacklistProofV1 {
-                            history_leaf,
-                            history_opening,
-                            gap: custody
-                                .issued_request_gap(&digest)?
-                                .ok_or(state::Error::WitnessLost("issued Request payer gap"))?,
-                        })
-                    };
                     let leaf = KagemushaWalletConsumedCreditLeafV1 {
                         credit_id: request.credit_id(),
                         amount: request.body.amount,
@@ -700,6 +758,8 @@ impl PreparationV1<'_> {
                         model(leaf.leaf_value())?,
                     )?;
                     let step = match derivation {
+                        // The receiver's local block applies before acceptance only; a fold
+                        // replays a committed Receive without it.
                         Derivation::BeforeAdvance => self.prepare_receive(
                             &owner,
                             released,
@@ -707,7 +767,7 @@ impl PreparationV1<'_> {
                             payment,
                             payer_credential,
                             certificates,
-                            recorded.as_ref(),
+                            custody.local_blacklist()?.as_ref(),
                             &ReceiveMapsV1 { consumed },
                             nonce,
                             budget,
@@ -719,7 +779,6 @@ impl PreparationV1<'_> {
                             payment,
                             payer_credential,
                             certificates,
-                            recorded.as_ref(),
                             &ReceiveMapsV1 { consumed },
                             nonce,
                             budget,
@@ -737,28 +796,6 @@ impl PreparationV1<'_> {
                     } else {
                         None
                     };
-                    let mut openings = Vec::new();
-                    if *kind == KagemushaWalletPolicyUpdateKindV1::Blacklist {
-                        let list = read_model_original(|| {
-                            KagemushaWalletBlacklistV1::decode_canonical(
-                                update,
-                                &scheme.scheme_id(),
-                            )
-                        })?;
-                        let leaf = KagemushaWalletBlacklistHistoryLeafV1 {
-                            list_version: list.body.list_version,
-                            entries_root: list.body.entries_root,
-                        };
-                        let insertion = custody.maps().insert(
-                            Map::BlacklistHistory,
-                            leaf.key(),
-                            model(leaf.leaf_value())?,
-                        )?;
-                        openings = vec![
-                            insertion.low_opening.leaf_transcript(&insertion.low),
-                            insertion.slot_opening.empty_transcript(),
-                        ];
-                    }
                     let quota = if *kind == KagemushaWalletPolicyUpdateKindV1::QuotaShare {
                         Some(model(
                             model(KagemushaWalletQuotaRefreshWitnessV1::from_usage(
@@ -780,7 +817,6 @@ impl PreparationV1<'_> {
                             kind: *kind,
                             update,
                             certificates,
-                            openings: &openings,
                             quota: quota.as_deref(),
                         },
                         nonce,
@@ -791,7 +827,6 @@ impl PreparationV1<'_> {
                             Original::CurrentCredential
                         }
                         KagemushaWalletPolicyUpdateKindV1::SchemePolicy => Original::SchemePolicy,
-                        KagemushaWalletPolicyUpdateKindV1::Blacklist => Original::Blacklist,
                         KagemushaWalletPolicyUpdateKindV1::QuotaShare => Original::QuotaShare,
                         KagemushaWalletPolicyUpdateKindV1::TimeAnchor => Original::TimeAnchor,
                     };
@@ -894,6 +929,20 @@ impl PreparationV1<'_> {
 #[cfg(test)]
 mod error_tests {
     use super::*;
+
+    #[test]
+    fn prepared_binding_changes_with_plan_bytes_source_and_installation() {
+        let bound = PreparedBindingV1::new(b"exact choices", [1; 32], [2; 32]);
+        assert!(bound == PreparedBindingV1::new(b"exact choices", [1; 32], [2; 32]));
+        for changed in [
+            PreparedBindingV1::new(b"exact choiceS", [1; 32], [2; 32]),
+            PreparedBindingV1::new(b"exact choices ", [1; 32], [2; 32]),
+            PreparedBindingV1::new(b"exact choices", [3; 32], [2; 32]),
+            PreparedBindingV1::new(b"exact choices", [1; 32], [3; 32]),
+        ] {
+            assert!(bound != changed);
+        }
+    }
 
     #[test]
     fn proof_mapping_keeps_original_read_refusal_and_semantic_verdicts() {

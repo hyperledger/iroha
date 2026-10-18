@@ -64,7 +64,7 @@ impl Circuit<Fp> for Projection {
                     self.source
                         .assign_archive_object_claims(&mut chip, &mut region, &values)?;
                 if self.truncate {
-                    objects.truncate(10);
+                    objects.truncate(8);
                 }
                 Ok(
                     ArchiveRetainedProofs::from_context(&mut region, &self.projected, &objects)?
@@ -84,7 +84,7 @@ impl Circuit<Fp> for Projection {
 
 impl Projection {
     fn public(&self) -> Vec<Vec<Fp>> {
-        vec![self.claims[9..11].iter().flatten().copied().collect()]
+        vec![self.claims[7..9].iter().flatten().copied().collect()]
     }
 
     fn accepts(&self, public: &[Vec<Fp>]) -> bool {
@@ -112,7 +112,7 @@ fn committed_proof_projection_copies_all_words_and_requires_same_digest_and_sche
                 ]
             })
             .collect::<Vec<_>>();
-        claims[10][0] = claims[9][0];
+        claims[8][0] = claims[7][0];
         let honest = Projection {
             projected: source.clone(),
             source,
@@ -127,7 +127,7 @@ fn committed_proof_projection_copies_all_words_and_requires_same_digest_and_sche
             assert!(!honest.accepts(&public), "unbound projected word {word}");
         }
         let mut changed = honest.clone();
-        changed.claims[10][0] += Fp::ONE;
+        changed.claims[8][0] += Fp::ONE;
         assert!(
             !changed.accepts(&changed.public()),
             "distinct consuming digests"
@@ -136,11 +136,12 @@ fn committed_proof_projection_copies_all_words_and_requires_same_digest_and_sche
         missing.truncate = true;
         assert!(synthesize(&missing, 16, None).is_err());
         let mut specs = honest.source.object_specs().to_vec();
-        specs[9].tag += 100;
+        specs[7].tag += 100;
         let mut foreign = honest.clone();
+        // Q-only metadata partition: the predecessor-first stage, then every Q.
+        let partition = vec![vec![], (0..operation.q_count()).collect()];
         foreign.projected =
-            ContextPlan::with_schedule(operation, vec![vec![0], vec![1], vec![2]], Some(0), specs)
-                .unwrap();
+            ContextPlan::with_schedule(operation, partition, Some(0), specs).unwrap();
         assert!(
             synthesize(&foreign, 16, None).is_err(),
             "foreign proof slot schema"

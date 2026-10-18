@@ -1,10 +1,11 @@
-//! Native Archive originals and the complete shared source plan.
+//! Native Archive originals and the complete shared source plan (lean lineage).
 //!
 //! Both evidence forms use the mandatory Archive owners and full envelope domains.
-//! Decoded soft fields and result bits are proposals, never native acceptance
-//! certificates. Only the compiled owners can authenticate them.
-//! The fixed producer imports one original key at a time and retains canonical
-//! source-bound A/W checkpoints.
+//! A proves the own step inline, so no own sigma or current credential enters the
+//! native inputs: the own receipt is the only own signed object. Decoded soft
+//! fields and result bits are proposals, never native acceptance certificates.
+//! Only the compiled owners can authenticate them. The fixed producer imports one
+//! original key at a time and retains canonical source-bound A/W checkpoints.
 //! TODO: qualify both complete evidence chains and final Omega before installing
 //! terminal artifacts or admitting this producer to a monetary wallet provider.
 
@@ -16,7 +17,8 @@ mod prepare;
 pub use prepare::Prepared;
 mod session;
 pub use session::{
-    ACheckpoint, CheckpointKind, CheckpointLayout, Prover, Session, Terminal, WCheckpoint,
+    ACheckpoint, CheckpointKind, CheckpointLayout, Prover, RetainedSession, Session, Terminal,
+    WCheckpoint,
 };
 
 use iroha_pasta::{Ep, EpAffine, Eq, EqAffine, Fp, Fq};
@@ -31,18 +33,19 @@ use crate::{
         },
         context::ContextPlan,
         own::OwnPolicy,
-        receive::{MAX_OMEGA_RAW_BYTES, MAX_SIGMA_RAW_BYTES},
+        receive::{MAX_OMEGA_RAW_BYTES, MAX_SIGMA_RAW_BYTES, PAYMENT_RAW_PROOF_BUDGET},
         schedule::sigma_selector,
     },
     admin_sigma::ArchiveWitness,
-    q_sigma::native::IncomingMode,
+    q_sigma::{QSigmaPlan, native::IncomingMode},
     tree::IndexedRemove,
 };
 
-/// Ten original-source/Q stages separated by nine authenticated continuations.
-pub const A_STAGE_COUNT: usize = 10;
-/// Number of internal wrappers in the complete source schedule.
-pub const W_STAGE_COUNT: usize = A_STAGE_COUNT - 1;
+/// `ArchiveReceive` original-source/Q stages, joined by eight authenticated
+/// continuations; one stage verifies the incoming-only `Q_sigma`.
+pub const RECEIVE_A_STAGE_COUNT: usize = 9;
+/// `ArchiveStatus` has no `Q_sigma`: eight stages and seven continuations.
+pub const STATUS_A_STAGE_COUNT: usize = 8;
 /// Fixed internal source profile; each exact key is pinned by its W continuation.
 pub const INTERNAL_RANGE_BUSES: usize = 4;
 /// Fixed terminal source profile shared with the common Omega catalog.
@@ -209,18 +212,17 @@ pub struct Inputs {
     pub state: ArchiveWitness,
     /// Core relink/clear and adjusted-lineage relink/clear paths, in that order.
     pub removals: [IndexedRemove<Fp>; 2],
-    /// Current Credential, direct Enrollment certificate and own Receipt.
-    pub own: [Vec<u8>; 3],
-    /// Original hard own sigma, also exported by Q0.
-    pub sigma: Vec<u8>,
+    /// Own Receipt, hard-verified under the predecessor payment key.
+    pub own: Vec<u8>,
     /// Exact locally retained Send Payment.
     pub retained: RetainedPayment,
     /// Incoming complete evidence, including malformed soft originals.
     pub evidence: Evidence,
     /// Proposed Proofs, Evidence and Signatures bits. These grant no authority.
     pub results: [bool; 3],
-    /// Q0 sigma, Q1 current authorization and Q2 incoming receipt signatures.
-    pub q: [QInput; 3],
+    /// Every installed Q in order: `ArchiveReceive`'s incoming-only `Q_sigma`,
+    /// then the merged signature leaf (own receipt hard, incoming receipt soft).
+    pub q: Vec<QInput>,
     /// Actual hard predecessor under the same installed common Omega key.
     pub predecessor: PredecessorInput,
 }
@@ -235,7 +237,9 @@ pub struct Plan {
     vesta: PinnedParams<Eq>,
 }
 impl Plan {
-    /// Pin all source capacities, owners, sigma classes and the common Omega key.
+    /// Pin all source capacities, owners, the incoming sigma class and the common
+    /// Omega key. The plan must prove the own step inline: no own sigma, and an
+    /// incoming-only `Q_sigma` exactly for `ArchiveReceive`.
     /// Metadata construction neither authenticates an artifact nor proves a stage.
     /// # Errors
     /// Wrong variant, Q/part/sigma profile, continuity key or envelope capacity.
@@ -246,38 +250,31 @@ impl Plan {
         pallas: PinnedParams<Ep>,
         vesta: PinnedParams<Eq>,
     ) -> Result<Self, Error> {
-        let receive = match operation.frame().variant() {
-            Variant::ArchiveReceive => true,
-            Variant::ArchiveStatus => false,
+        let (receive, stages) = match operation.frame().variant() {
+            Variant::ArchiveReceive => (true, RECEIVE_A_STAGE_COUNT),
+            Variant::ArchiveStatus => (false, STATUS_A_STAGE_COUNT),
             _ => return Err(Error::Artifact),
         };
-        if operation.q_count() != 3
+        if operation.q_count() != 1 + usize::from(receive)
             || !operation.frame().has_predecessor()
             || operation.frame().has_incoming() == receive
-            || operation.sigma.slot_count() != 1 + usize::from(receive)
-            || operation.frame().part_source_k() != if receive { 16 } else { 12 }
+            || !operation.is_inline()
+            || operation.has_incoming_sigma() != receive
+            || operation.frame().part_source_k() != 16
         {
             return Err(Error::Artifact);
         }
         pallas.require_k(16).map_err(|_| Error::Artifact)?;
         vesta.require_k(16).map_err(|_| Error::Artifact)?;
-        let own = operation.sigma.class(0).ok_or(Error::Artifact)?;
-        if own.verifier().binding().descriptor().k != 12
-            || own
-                .selector_key_digest(sigma_selector(5, 0).ok_or(Error::Artifact)?)
-                .is_none()
-        {
-            return Err(Error::Artifact);
-        }
         if receive {
-            let incoming = operation.sigma.class(1).ok_or(Error::Artifact)?;
+            let incoming = operation
+                .sigma_class(QSigmaPlan::INCOMING)
+                .ok_or(Error::Artifact)?;
             if !matches!(incoming.verifier().binding().descriptor().k, 12 | 14)
                 || incoming.verifier().proof_length() > MAX_RECEIVE_SIGMA_RAW_BYTES
-                || [0, 1].into_iter().all(|selector| {
-                    sigma_selector(4, selector)
-                        .and_then(|index| incoming.selector_key_digest(index))
-                        .is_none()
-                })
+                || sigma_selector(4, 0)
+                    .and_then(|index| incoming.selector_key_digest(index))
+                    .is_none()
             {
                 return Err(Error::Artifact);
             }
@@ -305,6 +302,9 @@ impl Plan {
             .kagemusha_digest(predecessor.binding())
             .map_err(|_| Error::Artifact)?;
         let stage = ArchiveStagePlan::full(operation, policy).map_err(|_| Error::Artifact)?;
+        if stage.context().stage_count() != stages {
+            return Err(Error::Artifact);
+        }
         Ok(Self {
             stage,
             policy,
@@ -343,7 +343,7 @@ impl Plan {
     /// In particular, a bounded incoming length mismatch remains an input to the
     /// total verifier. The retained Payment joint bound is unconditional.
     /// # Errors
-    /// Wrong evidence class, fixed transcript size, own proof shape or envelope bound.
+    /// Wrong evidence class, fixed transcript size or envelope bound.
     pub fn validate_original_shapes(&self, input: &Inputs) -> Result<(), Error> {
         let specs = self.context().object_specs();
         let exact = |slot: usize, bytes: &[u8]| {
@@ -353,26 +353,12 @@ impl Plan {
                 Err(Error::Input)
             }
         };
-        for (i, raw) in input.own.iter().enumerate() {
-            exact(i, raw)?;
-        }
+        exact(0, &input.own)?;
         for (i, raw) in input.retained.signed.iter().enumerate() {
-            exact(i + 3, raw)?;
+            exact(i + 1, raw)?;
         }
-        exact(7, &input.retained.payment)?;
+        exact(5, &input.retained.payment)?;
         check_retained_sizes(input.retained.omega.len(), input.retained.sigma.len())?;
-        if input.sigma.len()
-            != self
-                .context()
-                .operation()
-                .sigma
-                .class(0)
-                .ok_or(Error::Artifact)?
-                .verifier()
-                .proof_length()
-        {
-            return Err(Error::Input);
-        }
         match (
             &input.evidence,
             self.context().operation().frame().variant(),
@@ -386,8 +372,8 @@ impl Plan {
                 },
                 Variant::ArchiveReceive,
             ) => {
-                exact(12, receipt)?;
-                exact(15, credited)?;
+                exact(10, receipt)?;
+                exact(13, credited)?;
                 if sigma.len() > MAX_RECEIVE_SIGMA_RAW_BYTES {
                     return Err(Error::Input);
                 }
@@ -403,10 +389,10 @@ impl Plan {
                 },
                 Variant::ArchiveStatus,
             ) => {
-                exact(12, receipt)?;
-                exact(15, credited)?;
-                exact(16, status)?;
-                exact(17, credit_opening)?;
+                exact(10, receipt)?;
+                exact(13, credited)?;
+                exact(14, status)?;
+                exact(15, credit_opening)?;
                 if omega.len() > MAX_STATUS_OMEGA_RAW_BYTES {
                     return Err(Error::Input);
                 }
@@ -422,7 +408,7 @@ fn check_retained_sizes(omega: usize, sigma: usize) -> Result<(), Error> {
         || sigma > MAX_SIGMA_RAW_BYTES
         || omega
             .checked_add(sigma)
-            .is_none_or(|sum| sum > MAX_OMEGA_RAW_BYTES)
+            .is_none_or(|sum| sum > PAYMENT_RAW_PROOF_BUDGET)
     {
         return Err(Error::Input);
     }
@@ -434,14 +420,14 @@ mod tests {
     use super::*;
     #[test]
     fn retained_original_envelope_is_joint_inclusive_and_overflow_safe() {
-        assert_eq!(check_retained_sizes(320, 8277), Ok(()));
-        assert_eq!(check_retained_sizes(8597, 0), Ok(()));
+        assert_eq!(check_retained_sizes(5406, 3520), Ok(()));
+        assert_eq!(check_retained_sizes(5406, 0), Ok(()));
         assert_eq!(check_retained_sizes(0, 0), Ok(()));
         for (omega, sigma) in [
-            (321, 8277),
-            (8597, 1),
-            (8598, 0),
-            (0, 8278),
+            (5407, 3520),
+            (5406, 3521),
+            (5407, 0),
+            (0, 3521),
             (usize::MAX, 1),
         ] {
             assert_eq!(check_retained_sizes(omega, sigma), Err(Error::Input));

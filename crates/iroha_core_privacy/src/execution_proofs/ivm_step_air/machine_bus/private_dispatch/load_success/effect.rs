@@ -249,15 +249,15 @@ pub(super) fn witness(address: u64, selected: bool, policies: [u64; 3], mask: u1
         let (a, b) = operands(&row, i, s);
         let mut borrow = 0i64;
         for j in 0..4 {
-            let value = pack(&a[j * 16..(j + 1) * 16]).0 as i64
-                - pack(&b[j * 16..(j + 1) * 16]).0 as i64
+            let value = u64::cast_signed(pack(&a[j * 16..(j + 1) * 16]).0)
+                - u64::cast_signed(pack(&b[j * 16..(j + 1) * 16]).0)
                 - borrow;
             borrow = i64::from(value < 0);
             for k in 0..16 {
                 row[COMPARES + i * 68 + j * 16 + k] =
                     F((value.rem_euclid(1 << 16) as u64 >> k) & 1);
             }
-            row[COMPARES + i * 68 + 64 + j] = F(borrow as u64);
+            row[COMPARES + i * 68 + 64 + j] = F(i64::cast_unsigned(borrow));
         }
     }
     let mut carry = 0;

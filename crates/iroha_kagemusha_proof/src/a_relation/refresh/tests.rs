@@ -77,7 +77,7 @@ fn operation(variant: Variant, schemas: &[QSignaturePlan; 2]) -> AProofPlan {
         vec![InstanceType::Bounded],
     );
     let sigma = QSigmaPlan::new(
-        SigmaClass::new(leaf, vec![(14, Fq::from(19))]).unwrap(),
+        SigmaClass::new(leaf, vec![(9, Fq::from(19))]).unwrap(),
         None,
         &v,
     )
@@ -108,10 +108,9 @@ fn operation(variant: Variant, schemas: &[QSignaturePlan; 2]) -> AProofPlan {
     AProofPlan::new(variant, sigma, leaves, Some(omega), &p).unwrap()
 }
 
-const VARIANTS: [Variant; 5] = [
+const VARIANTS: [Variant; 4] = [
     Variant::RefreshCredential,
     Variant::RefreshSchemePolicy,
-    Variant::RefreshBlacklist,
     Variant::RefreshQuotaShare,
     Variant::RefreshTimeAnchor,
 ];
@@ -121,9 +120,6 @@ fn tasks(variant: Variant) -> Vec<Vec<OperationTask>> {
         vec![OperationTask::RefreshUpdateAuthorization],
         vec![OperationTask::RefreshCurrentAuthorization],
     ];
-    if variant == Variant::RefreshBlacklist {
-        out.push(vec![OperationTask::RefreshBlacklist]);
-    }
     if variant == Variant::RefreshQuotaShare {
         out.extend(
             [
@@ -153,7 +149,6 @@ fn every_refresh_kind_pins_its_exact_original_shape_and_all_five_signature_slots
     for (variant, update) in VARIANTS.into_iter().zip([
         ObjectKind::Credential,
         ObjectKind::SchemePolicy,
-        ObjectKind::Blacklist,
         ObjectKind::QuotaShare,
         ObjectKind::TimeAnchor,
     ]) {

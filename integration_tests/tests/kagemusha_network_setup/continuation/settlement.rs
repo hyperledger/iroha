@@ -1,13 +1,16 @@
-//! Genuine C claim through ordinary four-validator Unload and exact retained retries.
+//! Genuine C claim through ordinary four-validator policy refusal, Unload and exact retries.
 use super::*;
 use iroha_data_model::{
     ValidationFail,
-    isi::error::InstructionExecutionError,
+    isi::error::{AssetTransferAdmissionError, InstructionExecutionError},
     transaction::{TransactionResult, error::TransactionRejectionReason},
 };
 use iroha_torii_shared::PipelineTransactionStatusResponse;
 
-fn state_rejection(
+#[path = "settlement/policy.rs"]
+pub(super) mod policy;
+
+pub(super) fn state_rejection(
     transaction: HashOf<SignedTransaction>,
     response: Option<&PipelineTransactionStatusResponse>,
 ) -> Result<Option<u64>> {
@@ -45,13 +48,16 @@ fn claim_failure<'a>(
             reason,
             TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
                 InstructionExecutionError::InvariantViolation(_)
+                    | InstructionExecutionError::AssetTransferAdmission(
+                        AssetTransferAdmissionError::OutgoingDisabled(_)
+                    )
             ))
         ),
-        "unrelated execution failure cannot qualify invalid-claim rejection"
+        "unrelated execution failure cannot qualify the selected claim or policy rejection"
     );
     ensure!(
         reason == expected,
-        "certified failure differs from the exact invalid claim"
+        "certified failure differs from the exact selected rejection"
     );
     Ok(reason)
 }
@@ -71,7 +77,7 @@ fn canonical_observation<T: norito::NoritoSerialize>(
     publish(output, name, &bytes)
 }
 
-fn failed_execution(
+pub(super) fn failed_execution(
     verified: &VerifiedSumeragiBlock,
     network: &Network,
     signed: &SignedTransaction,
@@ -134,6 +140,7 @@ fn refused(
     seed: u8,
     signed: SignedTransaction,
     expected: &TransactionRejectionReason,
+    expected_balances: [u128; 4],
     name: &str,
 ) -> Result<norito::json::Value> {
     let before = committed_height(network)?;
@@ -156,7 +163,7 @@ fn refused(
     let client = running_peer(network)?.client_for(&account(seed), key(seed).private_key().clone());
     let error = client
         .submit_transaction_and_wait(&signed)
-        .expect_err("foreign Unload must not succeed");
+        .expect_err("selected Unload must be refused");
     ensure!(
         error
             .downcast_ref::<iroha::client::TransactionDispatchOutcomeUnknownError>()
@@ -197,7 +204,7 @@ fn refused(
     for proof in history {
         let verified = verifier.verify(&proof)?;
         if let Some(committed) = failed_execution(&verified, network, &signed, expected)? {
-            ensure!(committed_failure.is_none(), "duplicate foreign transaction");
+            ensure!(committed_failure.is_none(), "duplicate refused transaction");
             committed_failure = Some(verified.height());
             originals.push(canonical_observation(
                 output,
@@ -219,13 +226,21 @@ fn refused(
             .all(|height| Some(*height) == committed_failure),
         "state rejection does not match native-certified failure"
     );
-    let snapshots = balances(network, [900, 0, 100, 0])?;
+    let snapshots = balances(network, expected_balances)?;
     let qualified = committed_failure.is_some();
+    // A valid claim refused by committed policy is not a cryptographic negative.
+    let adversarial_qualified = qualified
+        && matches!(
+            expected,
+            TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
+                InstructionExecutionError::InvariantViolation(_)
+            ))
+        );
     let observation = norito::json::to_vec(&norito::json!({
         "name":name, "phase":"submitted", "transaction_hash_hex":(hex::encode(signed.hash().as_ref())),
         "height_before":before, "height_after":after, "committed_failure_height":committed_failure,
         "originals":originals, "peer_statuses":statuses, "balances":snapshots,
-        "authoritative_rejection_observed":qualified, "adversarial_input_rejection_qualified":qualified,
+        "authoritative_rejection_observed":qualified, "adversarial_input_rejection_qualified":adversarial_qualified,
         "scope":"Certified exact execution reason qualifies rejection. Redacted pre-route errors remain observations; their local canonical decoder failure is recorded separately and never creates network authority."
     }))?;
     ensure!(
@@ -425,6 +440,9 @@ pub(super) fn run(
     let output = root.join("settlement");
     private_directory(&output)?;
     let instruction = KagemushaWalletLedgerV1::new(scheme_id, Action::Unload(claim_bytes.clone()));
+    // The exact genuine claim must survive an authoritative policy refusal without
+    // consuming its payout key. Availability changes use the ordinary asset owner.
+    let policy_retry = policy::before_payout(network, &output, &instruction, 43, [900, 0, 0, 100])?;
     let (transaction, settled_height) = submit(
         network,
         43,
@@ -432,6 +450,11 @@ pub(super) fn run(
         &output,
         "unload-signed-transaction.norito",
     )?;
+    ensure!(
+        policy_retry["refused_transaction_hash_hex"].as_str()
+            != Some(hex::encode(transaction.hash().as_ref()).as_str()),
+        "successful claim retry must have a fresh signed transaction identity"
+    );
     let settled_balances = balances(network, [900, 0, 100, 0])?;
     let client = running_peer(network)?.client_for(&account(43), key(43).private_key().clone());
     // Exact transport retry may return the already applied outcome without a block.
@@ -473,6 +496,7 @@ pub(super) fn run(
             43,
             transaction,
             &expected_account,
+            [900, 0, 100, 0],
             "foreign-account",
         )?,
         Err(error) => {
@@ -537,6 +561,7 @@ pub(super) fn run(
                 ],
             )?,
             &expected_proof,
+            [900, 0, 100, 0],
             "bad-sigma",
         )?;
         let fields = observation
@@ -587,8 +612,8 @@ pub(super) fn run(
         "target_sha256":(exchange["target_sha256"].clone()), "receipt_sha256":(funded["receipt_sha256"].clone()), "exchange_sha256":(hash(&exchange_bytes)), "claim_sha256":(hash(&claim_bytes)),
         "settlement_height":settled_height, "last_certified_height":through, "settlement_transaction_hash_hex":(hex::encode(transaction.hash().as_ref())), "settlement_block_hash_hex":(settled_hash.ok_or_else(|| eyre!("settlement absent"))?),
         "genuine_installed_proof_verified":true, "adversarial_selection":(command["adversarial"].clone()), "adversarial_qualified":adversarial_qualified, "native_proof_rejection_qualified":native_proof_rejection_qualified, "account_specific_network_rejection_qualified":account_specific_network_rejection_qualified, "account_binding_model_refusal":true, "instruction_retry_height":instruction_retry_height, "exact_transaction_retry_returned_original":true,
-        "settled_balances":settled_balances, "foreign_account_observation":foreign_account, "altered_proof_observation":altered_proof,
-        "originals":originals, "scope":"Actual four-validator settlement and replay of the genuine installed-verifier-checked C claim. Native proof-negative coverage is qualified only by an explicitly selected software fixture and certified rejection. An omitted fixture is unqualified. Account binding is checked locally; redacted pre-route refusal does not qualify account-specific network evidence. Same native C confirmation and node-store restart follow separately."
+        "settled_balances":settled_balances, "policy_retry":policy_retry, "foreign_account_observation":foreign_account, "altered_proof_observation":altered_proof,
+        "originals":originals, "scope":"Actual four-validator settlement and replay of the genuine installed-verifier-checked C claim after certified reserve-outgoing policy refusal and ordinary re-enablement of the exact same claim. Native proof-negative coverage is qualified only by an explicitly selected software fixture and certified rejection. An omitted fixture is unqualified. Account binding is checked locally; redacted pre-route refusal does not qualify account-specific network evidence. Same native C confirmation and node-store restart follow separately."
     }))?;
     ensure!(
         result.len() <= 16 << 10,

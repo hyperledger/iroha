@@ -76,20 +76,15 @@ struct Source {
     capsule: KagemushaWalletRecoveryBodyV1,
     certificate: KagemushaWalletSignerCertificateV1,
     signing: SigningKey,
-    complete_blacklist: Option<Vec<u8>>,
 }
 
 impl Source {
     fn complete_original(&self) -> &[u8] {
-        if let Some(original) = &self.complete_blacklist {
-            original
-        } else {
-            self.capsule
-                .retained_inputs
-                .iter()
-                .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::PolicyUpdate)
-                .map_or(&[], |input| input.bytes.as_slice())
-        }
+        self.capsule
+            .retained_inputs
+            .iter()
+            .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::PolicyUpdate)
+            .map_or(&[], |input| input.bytes.as_slice())
     }
 
     fn originals(&self) -> RefreshOriginalsV1<'_> {
@@ -106,7 +101,6 @@ impl Source {
                 KagemushaWalletRetainedInputRoleV1::CertificateSet,
             )
             .unwrap(),
-            openings: &self.capsule.map_openings,
             quota: self
                 .capsule
                 .retained_inputs
@@ -166,7 +160,6 @@ impl Source {
             capsule,
             certificate,
             signing,
-            complete_blacklist: None,
         }
     }
 
@@ -176,25 +169,12 @@ impl Source {
             update: digest,
             accepted_time_floor_ms: self.state.core.accepted_time_floor_ms.max(signed_time),
         };
-        let retained = if kind == Kind::Blacklist {
-            let reference =
-                crate::kagemusha_wallet_state_v1::BlacklistOriginalReferenceV1::for_original(
-                    &self.scheme.scheme_id(),
-                    &original,
-                )
-                .unwrap()
-                .to_canonical_bytes()
-                .unwrap();
-            self.complete_blacklist = Some(original);
-            reference
-        } else {
-            original
-        };
+        // Every signed policy update is retained inline as its exact complete original.
         self.capsule
             .retained_inputs
             .push(KagemushaWalletRetainedInputV1 {
                 role: KagemushaWalletRetainedInputRoleV1::PolicyUpdate,
-                bytes: retained,
+                bytes: original,
             });
     }
 
@@ -230,7 +210,7 @@ impl Source {
             scheme_id: source.scheme.scheme_id(),
             asset_digest: source.current.body.asset_digest,
             policy_epoch: 1,
-            enabled_controls: 7,
+            enabled_controls: KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1,
             fee_schedule: [0; 32],
             signer_certificate: source.certificate.certificate_digest(),
         };
@@ -338,44 +318,6 @@ impl Source {
         source
     }
 
-    fn blacklist() -> Self {
-        let mut source = Self::new(Kind::Blacklist);
-        let body = KagemushaWalletBlacklistBodyV1 {
-            version: 1,
-            scheme_id: source.scheme.scheme_id(),
-            list_version: 1,
-            issued_at_ms: 109,
-            entry_count: 0,
-            entries_root: kagemusha_wallet_blacklist_root_v1(&[]).unwrap(),
-            signer_certificate: source.certificate.certificate_digest(),
-        };
-        let update = KagemushaWalletBlacklistV1::sign(
-            body,
-            vec![],
-            &source.certificate,
-            sign(&source.signing, &body.signing_message()),
-        )
-        .unwrap();
-        let entry = KagemushaWalletBlacklistHistoryLeafV1 {
-            list_version: body.list_version,
-            entries_root: body.entries_root,
-        };
-        let mut tree = KagemushaWalletIndexedTreeV1::new();
-        assert_eq!(tree.root(), source.state.rest.blacklist_history_root);
-        let history = entry.insert_into(&mut tree).unwrap();
-        source.capsule.map_openings = vec![
-            history.low_opening.leaf_transcript(&history.low),
-            history.slot_opening.empty_transcript(),
-        ];
-        source.install(
-            Kind::Blacklist,
-            update.blacklist_digest(),
-            body.issued_at_ms,
-            update.to_canonical_bytes().unwrap(),
-        );
-        source
-    }
-
     fn decode(&self) -> Result<DecodedRefresh, Error> {
         decode_update(
             &self.scheme,
@@ -445,7 +387,6 @@ fn signed_renewal_keeps_distinct_old_and_new_credential_custody() {
     ] {
         assert_eq!(value, Fp::ZERO);
     }
-    assert!(decoded.blacklist.is_none());
 }
 
 #[test]
@@ -537,7 +478,6 @@ fn all_available_updates_have_exact_typed_projections_and_preserve_other_fields(
         Source::credential(),
         Source::policy(),
         Source::anchor(),
-        Source::blacklist(),
         Source::quota(),
     ] {
         let decoded = source.decode().unwrap();
@@ -586,13 +526,6 @@ fn all_available_updates_have_exact_typed_projections_and_preserve_other_fields(
                 source.current.credential_digest()
             );
         }
-        if decoded.projection.kind == RefreshKind::Blacklist {
-            assert!(decoded.blacklist.is_some());
-            assert_ne!(
-                decoded.rest.blacklist_history_root,
-                source.state.rest.blacklist_history_root
-            );
-        }
     }
 }
 
@@ -602,7 +535,6 @@ fn original_role_signature_effect_and_map_substitutions_fail() {
         Source::credential(),
         Source::policy(),
         Source::anchor(),
-        Source::blacklist(),
         Source::quota(),
     ] {
         let originals = source.capsule.retained_inputs.clone();
@@ -629,12 +561,10 @@ fn original_role_signature_effect_and_map_substitutions_fail() {
         *accepted_time_floor_ms += 1;
         assert!(source.decode().is_err());
         source.capsule.statement.effect = effect;
+        // No Refresh retains a map opening.
         source.capsule.map_openings.push(vec![0]);
         assert!(source.decode().is_err());
     }
-    let mut blacklist = Source::blacklist();
-    blacklist.capsule.map_openings[1][4] ^= 1;
-    assert!(blacklist.decode().is_err());
     let mut policy = Source::policy();
     policy.successor = Source::credential().successor;
     assert!(policy.decode().is_err());
@@ -770,13 +700,12 @@ fn quota_custody_root_originals_and_typed_role_substitutions_fail() {
 }
 
 #[test]
-fn pre_advance_refresh_uses_signed_originals_and_all_five_real_sigma_relations() {
+fn pre_advance_refresh_uses_signed_originals_and_all_four_real_sigma_relations() {
     use iroha_kagemusha_proof::admin_sigma::RefreshCircuit;
     use iroha_plonk::check::{CheckMode, check_circuit};
     for source in [
         Source::credential(),
         Source::policy(),
-        Source::blacklist(),
         Source::quota(),
         Source::anchor(),
     ] {
@@ -878,22 +807,9 @@ fn pre_advance_refresh_rejects_extra_missing_or_changed_custody() {
             .is_err()
         );
     }
-    let blacklist = Source::blacklist();
-    let mut originals = policy.originals();
-    originals.openings = blacklist.originals().openings;
-    assert!(
-        decode_originals(
-            &policy.scheme,
-            &policy.current,
-            &policy.successor,
-            &policy.state,
-            originals,
-        )
-        .is_err()
-    );
     let mut original = policy.originals().update.to_vec();
     original.push(0);
-    originals = policy.originals();
+    let mut originals = policy.originals();
     originals.update = &original;
     assert!(
         decode_originals(
@@ -922,23 +838,3 @@ fn pre_advance_refresh_rejects_extra_missing_or_changed_custody() {
 
 #[path = "installed_tests.rs"]
 mod installed_tests;
-
-#[test]
-fn blacklist_reference_binds_full_original_and_rejects_inline_or_changed_complete_update() {
-    let mut source = Source::blacklist();
-    source.decode().unwrap();
-    let complete = source.complete_original().to_vec();
-    let retained = source.original().clone();
-    assert_ne!(retained, complete);
-    assert!(retained.len() <= 512);
-    *source.original() = complete.clone();
-    assert!(source.decode().is_err(), "no old inline Blacklist fallback");
-    *source.original() = retained;
-    source.complete_blacklist.as_mut().unwrap().push(0);
-    assert!(
-        source.decode().is_err(),
-        "complete original remains exact despite a valid reference frame"
-    );
-    source.complete_blacklist = Some(complete);
-    source.decode().unwrap();
-}

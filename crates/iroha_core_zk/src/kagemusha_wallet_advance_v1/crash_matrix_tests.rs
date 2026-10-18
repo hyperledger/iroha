@@ -987,7 +987,7 @@ fn all_names(device: &DeviceV1) -> Vec<String> {
 /// Seeds of the independent-survival model when a crash point has 12 or more unsynced
 /// directory operations (fewer are enumerated exhaustively). Developers may raise it with
 /// `KAGEMUSHA_WALLET_CRASH_SEEDS`; test-only, never read outside tests.
-fn survival_seeds() -> u64 {
+pub(super) fn survival_seeds() -> u64 {
     std::env::var("KAGEMUSHA_WALLET_CRASH_SEEDS")
         .ok()
         .and_then(|seeds| seeds.parse().ok())

@@ -23,7 +23,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             .ok_or(Error::Invalid("unknown Unload request"))?;
         let original = self
             .archive
-            .read_object(&entry.request, REQUEST_MAX_BYTES)?;
+            .read_object(&entry.retained_request()?, REQUEST_MAX_BYTES)?;
         let (scheme, _) = self.proofs.ledger_scope()?;
         let intent = NativeIntentV1::decode(&original, &scheme)?;
         intent
@@ -69,7 +69,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             .ok_or(Error::WitnessLost("Unload plan mapping"))?;
         let plan: Plan = archive::decode(&self.archive.read_object(&plan_address, PLAN_BOUND)?)?;
         plan.require(&self.scheme_id, &self.wallet_id, &intent, &original)?;
-        if plan.request_object != entry.request
+        if Some(plan.request_object) != entry.request
             || manifest
                 .capsule_plans
                 .get(&mut self.archive, &capsule)?

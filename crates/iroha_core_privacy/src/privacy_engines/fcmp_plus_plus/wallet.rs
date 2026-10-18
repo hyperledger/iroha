@@ -766,10 +766,13 @@ mod tests {
     #[test]
     fn wallet_note_accessors_borrow_exact_storage_and_opening_preserves_it() {
         let (_, _, note, _) = fixture();
-        assert!(core::ptr::eq(note.spend_x(), &note.spend_x));
-        assert!(core::ptr::eq(note.output_y(), &note.output_y));
-        assert!(core::ptr::eq(note.amount(), &note.amount));
-        assert!(core::ptr::eq(note.commitment_mask(), &note.commitment_mask));
+        assert!(core::ptr::eq(note.spend_x(), &raw const note.spend_x));
+        assert!(core::ptr::eq(note.output_y(), &raw const note.output_y));
+        assert!(core::ptr::eq(note.amount(), &raw const note.amount));
+        assert!(core::ptr::eq(
+            note.commitment_mask(),
+            &raw const note.commitment_mask
+        ));
         let opening = note.commitment_opening().expect("borrowed note opening");
         assert_eq!(opening.amount(), note.amount());
         let opening_mask = opening.commitment_mask();

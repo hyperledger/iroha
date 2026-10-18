@@ -497,3 +497,6 @@ fn nested_preparation_refusals_keep_original_owner_and_semantic_fallbacks() {
         StateError::Invalid("review destination account original")
     ));
 }
+
+#[path = "tests/credential_source.rs"]
+mod credential_source;

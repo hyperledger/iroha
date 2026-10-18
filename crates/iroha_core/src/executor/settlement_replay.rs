@@ -42,6 +42,10 @@ pub(crate) fn reject_committed_direct_payment(
     let [movement] = atomic.movements().as_slice() else {
         return Ok(());
     };
+    // Escrow legs open retained conditional escrows, so such an intent is composite.
+    if !atomic.escrows().as_slice().is_empty() {
+        return Ok(());
+    }
     if atomic.network_id() != &state.network_id
         || atomic.settlement_id().owner() != transaction.authority()
         || movement.source.account() != transaction.authority()

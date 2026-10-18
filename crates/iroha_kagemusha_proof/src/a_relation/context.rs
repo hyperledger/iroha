@@ -5,10 +5,13 @@ use super::results::{
 };
 use super::schedule::OperationTask;
 use super::{AProofPlan, LineagePublicCells, ProofMessageCells, VerifiedQCells, VestaClaimCells};
-use crate::operation_relation::{
-    incoming_statement::{IncomingStatementCells, StatementView},
-    state::StateCells,
-    statement::StatementCells,
+use crate::{
+    operation_relation::{
+        incoming_statement::{IncomingStatementCells, StatementView},
+        state::StateCells,
+        statement::StatementCells,
+    },
+    q_sigma::QSigmaPlan,
 };
 use ff::{Field, PrimeField};
 use iroha_pasta::{Ep, Fp};
@@ -22,11 +25,10 @@ use iroha_plonk_gadgets::{
         tape::{ByteOrder, ByteRun, SegmentSpec},
         variable::ActiveBytes,
     },
-    ecc::NonIdentityPoint,
 };
 use iroha_plonk_recursion::{
     accumulation_circuit::{FoldInputCells, FoldSource},
-    codec::ScalarCells,
+    codec::{GeneratorPoint, ScalarCells},
     obligation::{ModeCells, ledger::Variant},
     verifier::VerifierChip,
 };
@@ -316,7 +318,7 @@ impl ContextObjectCells {
 /// State opening plus the exact public lineage prefix used by a split half.
 #[derive(Clone, Copy, Debug)]
 pub struct ContextState<'a> {
-    /// Constrained 33-word core and 8-word rest opening.
+    /// Constrained 29-word core and 6-word rest opening.
     pub state: &'a StateCells,
     /// Corresponding public lineage header.
     pub public: &'a LineagePublicCells,
@@ -375,7 +377,7 @@ pub struct ContextInputs<'a> {
     /// Global incoming modes: transported P, Omega opening, V, then sigma.
     pub modes: &'a [ModeCells<Fp>],
     /// Native corrections for incoming P and Omega opening, in that order.
-    pub pallas_corrections: &'a [NonIdentityPoint<Fp>],
+    pub pallas_corrections: &'a [GeneratorPoint<Fp>],
     /// Canonical foreign correction for incoming V, when present. Incoming
     /// sigma correction coordinates belong solely to the hard Q relation.
     pub vesta_corrections: &'a [[ScalarCells<Ep>; 2]],
@@ -414,7 +416,7 @@ impl ContextPlan {
         values: &[[Value<Fp>; 3]],
     ) -> Result<Vec<ContextObjectCells>, Error> {
         if self.receive_results.is_none()
-            || self.objects.len() != 11
+            || self.objects.len() != 9
             || values.len() != self.objects.len()
         {
             return Err(Error::Synthesis);
@@ -489,7 +491,7 @@ impl ContextPlan {
     /// Retain proposed Archive source commitments under its complete owner plan.
     ///
     /// This is only a context assignment, never evidence of byte provenance.
-    /// The fixed Archive dispatcher requires the current authorization,
+    /// The fixed Archive dispatcher requires the own receipt authorization,
     /// retained Payment, original proof, evidence and signature owners to
     /// recompute each category before terminal mode and map closure. Every
     /// continuation binds these same proposed triples through `D_ctx`.
@@ -506,8 +508,8 @@ impl ContextPlan {
         use iroha_plonk_recursion::obligation::ledger::Variant;
         let variant = self.operation.frame().variant();
         let expected_count = match variant {
-            Variant::ArchiveReceive => 17,
-            Variant::ArchiveStatus => 19,
+            Variant::ArchiveReceive => 15,
+            Variant::ArchiveStatus => 17,
             _ => return Err(Error::Synthesis),
         };
         if self.objects.len() != expected_count
@@ -515,9 +517,9 @@ impl ContextPlan {
             || self.objects
                 != ArchiveStagePlan::context_specs(
                     variant,
-                    self.objects[9].capacity as usize,
-                    self.objects[10].capacity as usize,
-                    self.objects[13].capacity as usize,
+                    self.objects[7].capacity as usize,
+                    self.objects[8].capacity as usize,
+                    self.objects[11].capacity as usize,
                 )?
         {
             return Err(Error::Synthesis);
@@ -592,11 +594,13 @@ impl ContextPlan {
     /// Pin every ordered Q partition and the hard predecessor's exact stage.
     /// Every Q appears exactly once, and only the last stage can emit a lineage.
     /// Stage0 needs a real Pallas obligation: Q or the hard predecessor pair.
-    /// Incoming mode-selected Pallas claims belong to the last stage.
+    /// Incoming mode-selected Pallas claims belong to the last stage. A single
+    /// stage is the unsplit terminal A: it has no W, no stage digest and no
+    /// continuation, and closes directly.
     ///
     /// # Errors
-    /// Fewer than two stages, missing/duplicate/reordered Q indices, invalid
-    /// predecessor stage, empty first obligation set, or bad object schema.
+    /// No stage, missing/duplicate/reordered Q indices, invalid predecessor
+    /// stage, empty first obligation set, or bad object schema.
     pub fn with_schedule(
         operation: AProofPlan,
         stage_q: Vec<Vec<usize>>,
@@ -634,7 +638,7 @@ impl ContextPlan {
         objects: Vec<ContextObjectSpec>,
         stage_tasks: Vec<Vec<OperationTask>>,
     ) -> Result<Self, Error> {
-        if stage_q.len() < 2
+        if stage_q.is_empty()
             || predecessor_stage.is_some() != operation.frame().has_predecessor()
             || predecessor_stage.is_some_and(|i| i >= stage_q.len())
             || (stage_q[0].is_empty() && predecessor_stage != Some(0))
@@ -739,7 +743,7 @@ impl ContextPlan {
             ]);
             constants.extend([
                 Fp::from(u64::from_le_bytes(RECEIVE_RESULTS_DOMAIN)),
-                Fp::from(5),
+                Fp::from(4),
             ]);
             for (tag, owner) in plan.schema() {
                 constants.extend([Fp::from(u64::from(tag)), Fp::from(u64::from(owner))]);
@@ -750,18 +754,18 @@ impl ContextPlan {
             ]);
             // Receive's deferred opening is interpreted only under these
             // exact fixed proof programs; the carried key is bound by public18.
+            // Receive proves its own step in A, so the list is Omega and the
+            // incoming sigma class; the Q_sigma key above fixes which roles exist.
             constants.push(Fp::from(u64::from_le_bytes(*b"kgwrcls1")));
+            if !operation.has_incoming_sigma() {
+                return Err(Error::Synthesis);
+            }
             for binding in std::iter::once(operation.omega().ok_or(Error::Synthesis)?.binding())
                 .chain(
-                    (0..2)
-                        .map(|slot| {
-                            operation
-                                .sigma
-                                .class(slot)
-                                .map(|class| class.verifier().binding())
-                        })
-                        .collect::<Option<Vec<_>>>()
-                        .ok_or(Error::Synthesis)?,
+                    [QSigmaPlan::OWN, QSigmaPlan::INCOMING]
+                        .into_iter()
+                        .filter_map(|role| operation.sigma_class(role))
+                        .map(|class| class.verifier().binding()),
                 )
             {
                 constants.push(Fp::from(u64::from(binding.descriptor().k)));
@@ -831,7 +835,7 @@ impl ContextPlan {
     /// Exact fixed global incoming-mode count in the root context.
     pub fn mode_count(&self) -> usize {
         3 * usize::from(self.operation.frame().has_incoming())
-            + usize::from(self.operation.sigma.slot_count() == 2)
+            + usize::from(self.operation.has_incoming_sigma())
     }
     /// Recompute the complete immutable operation context, excluding stage claims.
     /// The consumer must additionally bind the appropriate verified Q partition
@@ -845,7 +849,7 @@ impl ContextPlan {
         region: &mut Region<'_, Fp>,
         input: &ContextInputs<'_>,
     ) -> Result<Word<Fp>, Error> {
-        let incoming_sigma = self.operation.sigma.slot_count() == 2;
+        let incoming_sigma = self.operation.has_incoming_sigma();
         let incoming_omega = self.operation.frame().has_incoming();
         if input.own_statement.variant() != self.operation.frame().variant()
             || input.predecessor.is_some() != self.operation.frame().has_predecessor()
@@ -1024,7 +1028,7 @@ impl ContextPlan {
                 Ok(IncomingProofBinding::Messages(proof.clone()))
             }
             (ContextIncomingProof::ReceiveActive, Some(_))
-                if self.objects.len() == 11 && input.objects.len() == 11 =>
+                if self.objects.len() == 9 && input.objects.len() == 9 =>
             {
                 Ok(IncomingProofBinding::ReceiveActive(
                     input.objects[4].commitment_words(),

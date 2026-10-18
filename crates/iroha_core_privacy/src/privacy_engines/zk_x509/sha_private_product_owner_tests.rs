@@ -87,7 +87,7 @@ fn actual_sha_binding_error_clears_private_recurrence_owners_and_keeps_borrowed_
             word,
             Some(consumer),
             challenges(),
-            rfc_challenges(),
+            &rfc_challenges(),
             &initial,
         )
     });

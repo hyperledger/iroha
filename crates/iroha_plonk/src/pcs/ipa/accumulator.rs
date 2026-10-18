@@ -14,7 +14,7 @@
 //!
 //! `66 + 32k` bytes; the curve byte is [`CURVE_BYTE_PALLAS`] or
 //! [`CURVE_BYTE_VESTA`]; `1 <= k <= 28`. Decoding is canonical: every scalar
-//! is below the modulus, `G` is a canonical non-identity point, every
+//! is below the modulus, `G` is a canonical full-group point, every
 //! `u_j != 0`, and no bytes follow.
 //!
 //! # Deterministic batch weights
@@ -42,12 +42,12 @@ use core::fmt;
 use ff::{Field, FromUniformBytes, PrimeField};
 use iroha_pasta::{PastaCurve, PastaField, msm::MemoryBudget};
 
-use super::{IpaError, PinnedParams, commit::msm_complete, fold_scalars, verifier};
+use super::{IpaError, PinnedParams, commit::msm_complete, fold_scalars};
 use crate::{
     cs::{CurveV1, constraint_system::MAX_K, descriptor::blake2b_personal},
     pcs::curve_v1,
     transcript::{
-        MESSAGE_BYTES, Transcript, TranscriptError, decode_point, decode_scalar, encode_point,
+        MESSAGE_BYTES, Transcript, TranscriptError, decode_generator, decode_scalar, encode_point,
     },
 };
 
@@ -240,7 +240,7 @@ impl<C: PastaCurve> PendingAccumulator<C> {
     ///
     /// [`AccumulatorError::Length`], [`AccumulatorError::UnsupportedK`],
     /// [`AccumulatorError::CurveMismatch`], [`AccumulatorError::Encoding`]
-    /// (non-canonical scalars, an invalid or identity `G`) or
+    /// (non-canonical scalars, an invalid `G`) or
     /// [`AccumulatorError::ZeroChallenge`].
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, AccumulatorError> {
         let header = bytes
@@ -273,7 +273,7 @@ impl<C: PastaCurve> PendingAccumulator<C> {
             });
         }
         let transcript_repr = decode_scalar::<C::ScalarExt>(&message(0))?;
-        let g = decode_point::<C>(&message(34))?;
+        let g = decode_generator::<C>(&message(34))?;
         let mut challenges = Vec::with_capacity(usize::from(k));
         for round in 0..usize::from(k) {
             let challenge = decode_scalar::<C::ScalarExt>(&message(
@@ -321,13 +321,16 @@ impl<C: PastaCurve> PendingAccumulator<C> {
         params: &PinnedParams<C>,
         budget: MemoryBudget,
     ) -> Result<(), AccumulatorError> {
+        crate::verification_counters::record_decide();
         params.require_k(self.k)?;
-        let expected = verifier::folded_generator_of(params, &self.challenges, budget);
-        if expected.to_affine() == self.g {
-            Ok(())
-        } else {
-            Err(AccumulatorError::Rejected)
-        }
+        params
+            .decide_folded_generator_cancellable(&self.challenges, &self.g, budget, None)
+            .map_err(|error| match error {
+                IpaError::ParamsTooSmall { needed, available } => {
+                    AccumulatorError::ParamsTooSmall { needed, available }
+                }
+                _ => AccumulatorError::Rejected,
+            })
     }
 }
 
@@ -412,6 +415,7 @@ pub fn batch_decide<C: PastaCurve>(
     params: &PinnedParams<C>,
     budget: MemoryBudget,
 ) -> Result<(), AccumulatorError> {
+    crate::verification_counters::record_batch();
     let digests: Vec<[u8; 64]> = accumulators
         .iter()
         .map(|accumulator| batch_item_digest(BATCH_KIND_ACCUMULATOR, &accumulator.to_bytes()))
@@ -454,6 +458,7 @@ fn decide_weighted<C: PastaCurve>(
     }
     scalars.extend(combined.iter().map(|value| -*value));
     bases.extend_from_slice(&g[..combined.len()]);
+    crate::verification_counters::record_generator_msm(combined.len());
     if bool::from(msm_complete::<C>(&scalars, &bases, budget).is_identity()) {
         Ok(())
     } else {
@@ -470,7 +475,8 @@ pub(crate) fn honest_accumulator<C: PastaCurve>(
     transcript_repr: C::ScalarExt,
 ) -> PendingAccumulator<C> {
     let k = u32::try_from(challenges.len()).expect("k fits u32");
-    let g = verifier::folded_generator_of(params, &challenges, MemoryBudget::DEFAULT).to_affine();
+    let g = super::verifier::folded_generator_of(params, &challenges, MemoryBudget::DEFAULT)
+        .to_affine();
     PendingAccumulator::new(transcript_repr, k, g, challenges)
 }
 
@@ -545,9 +551,15 @@ mod tests {
         );
         let mut bad = bytes.clone();
         bad[34..66].fill(0);
-        assert_eq!(
-            PendingAccumulator::<Eq>::from_bytes(&bad),
-            Err(AccumulatorError::Encoding(TranscriptError::IdentityPoint))
+        let identity = PendingAccumulator::<Eq>::from_bytes(&bad).expect("canonical full-group G");
+        assert_eq!(identity.to_bytes(), bad);
+        assert!(
+            identity
+                .decide(
+                    &PinnedParams::<Eq>::derive(3).unwrap(),
+                    MemoryBudget::DEFAULT
+                )
+                .is_err()
         );
         let mut bad = bytes.clone();
         bad[34..66].fill(0);

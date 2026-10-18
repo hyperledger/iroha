@@ -1,4 +1,4 @@
-//! Verifier-owned RFC key bytes joined to real P256 and ByteMemory columns.
+//! Verifier-owned RFC key bytes joined to real P256 and `ByteMemory` columns.
 //!
 //! A native-root power map joins a complete consecutive byte block with one
 //! quotient. Derived target evaluations are separately bound to the original
@@ -297,7 +297,7 @@ mod tests {
             let points = (0..count)
                 .map(|j| {
                     b.scale
-                        .mul(b.start.mul(b.step.pow(j as u128)).pow(power as u128))
+                        .mul(b.start.mul(b.step.pow(j as u128)).pow(u128::from(power)))
                 })
                 .collect::<Vec<_>>();
             for changed in 0..count {
@@ -404,7 +404,7 @@ mod tests {
         }
         assert_eq!((2 + 5) * (QUERY_COUNT + 4), 980);
         assert_eq!((2 + 6) * (QUERY_COUNT + 4), 1120);
-        assert!((2 + 6) * (QUERY_COUNT + 4) <= MASK_DEGREE + 1);
+        const { assert!((2 + 6) * (QUERY_COUNT + 4) <= MASK_DEGREE + 1) };
         let old_admitted = E::from_base(goldilocks_primitive_root_v1(24).unwrap());
         assert!(
             aggregate::deep_point_is_admissible_v1(old_admitted, AGGREGATE_PARAMETERS_V1, &shared)
@@ -452,7 +452,7 @@ mod tests {
         for block in &mut plan.blocks[..KEY_OPENINGS_V1] {
             block.target = concentrated;
         }
-        assert!((2 + KEY_OPENINGS_V1) * (QUERY_COUNT + 4) > MASK_DEGREE + 1);
+        const { assert!((2 + KEY_OPENINGS_V1) * (QUERY_COUNT + 4) > MASK_DEGREE + 1) };
         assert!(plan.check_mask_query_closure_v1().is_err());
     }
 
@@ -528,7 +528,7 @@ mod tests {
         assert_eq!(8 * ((1 << 16) + MASK_DEGREE) - 64, 538_744);
         assert_eq!(2 * ((1 << 18) + MASK_DEGREE) - 65, 527_853);
         assert_eq!(2 * ((1 << 18) + MASK_DEGREE) - 1, 527_917);
-        assert!(8 * ((1 << 16) + MASK_DEGREE) + 1 < 589_687);
+        const { assert!(8 * ((1 << 16) + MASK_DEGREE) + 1 < 589_687) };
         assert_eq!(MainKeyJoinPlanV1::PRIVATE_BYTES_V1, 99_391_016);
         assert_eq!(MainKeyJoinPlanV1::public_owner_charge_v1(), 8_388_608);
         assert_eq!(KEY_OPENINGS_V1 * core::mem::size_of::<E>(), 352);

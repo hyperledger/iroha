@@ -278,28 +278,28 @@ mod tests {
                     .any(|window| window == stale_geometry)
             );
         }
-        let private_geometry = proof_managed_note_stark_geometry_digest_v1(PRIVATE_NOTE_DOMAINS_V1)
+        let private_geometry = proof_managed_note_stark_geometry_digest_v1(&PRIVATE_NOTE_DOMAINS_V1)
             .expect("private-note geometry digest");
-        let masp_geometry = proof_managed_note_stark_geometry_digest_v1(PQ_MASP_DOMAINS_V1)
+        let masp_geometry = proof_managed_note_stark_geometry_digest_v1(&PQ_MASP_DOMAINS_V1)
             .expect("PQ-MASP geometry digest");
         assert_ne!(private_geometry, masp_geometry);
-        assert_ne!(private_geometry, Default::default());
-        assert_ne!(masp_geometry, Default::default());
+        assert_ne!(private_geometry, crate::privacy_engines::transparent_stark::PrivacyOuterDigestV1::default());
+        assert_ne!(masp_geometry, crate::privacy_engines::transparent_stark::PrivacyOuterDigestV1::default());
         assert_ne!(
             proof_managed_note_stark_profile_digest_v1(
-                PRIVATE_NOTE_DOMAINS_V1,
+                &PRIVATE_NOTE_DOMAINS_V1,
                 IVM_PRIVATE_NOTE_STARK_PROFILE_DESCRIPTOR_V1,
             )
             .expect("private-note profile digest"),
-            Default::default(),
+            crate::privacy_engines::transparent_stark::PrivacyOuterDigestV1::default(),
         );
         assert_ne!(
             proof_managed_note_stark_profile_digest_v1(
-                PQ_MASP_DOMAINS_V1,
+                &PQ_MASP_DOMAINS_V1,
                 PQ_MASP_STARK_PROFILE_DESCRIPTOR_V1,
             )
             .expect("PQ-MASP profile digest"),
-            Default::default(),
+            crate::privacy_engines::transparent_stark::PrivacyOuterDigestV1::default(),
         );
         assert!(
             IVM_PRIVATE_NOTE_MAX_PROOF_BYTES_V1
@@ -1215,7 +1215,7 @@ mod tests {
             compiled_privacy_profile_v1(protocol_id),
             Err(CompiledPrivacyProfileErrorV1::EngineUnavailable { protocol_id })
         );
-        assert!(!ZK_ACE_FULL_ENGINE_AVAILABLE_V1);
+        const { assert!(!ZK_ACE_FULL_ENGINE_AVAILABLE_V1) };
         assert!(!ZK_ACE_QROM_CERTIFICATION_BLOCKER_V1.is_empty());
         assert_eq!(ZK_ACE_PRIVACY_MAX_PROOF_BYTES_V1, 2_131_222);
     }

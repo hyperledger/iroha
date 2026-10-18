@@ -57,7 +57,7 @@ pub enum QualifiedOperationOwnerV1 {
     Load(Box<load::Prover>),
     /// One exact Send control mask.
     Send(Box<send::Prover>),
-    /// Ordinary or renewed Receive under exact own/incoming sigma classes.
+    /// Ordinary or renewed Receive under its exact incoming sigma class.
     /// Same-program aliases share this immutable source owner only within one
     /// authenticated batch, after each alias revalidates its exact originals.
     Receive(Arc<receive::Prover>),
@@ -113,9 +113,9 @@ fn source<T, E>(result: Result<T, E>) -> Result<T, OperationQualificationErrorV1
     result.map_err(|_| OperationQualificationErrorV1::Source)
 }
 fn metadata<C: PastaCurve>(
-    original: ArtifactOriginalV1,
+    original: DecodedVerifierOriginal,
 ) -> Result<KeyArtifact<C>, OperationQualificationErrorV1> {
-    let binding = source(DescriptorBinding::decode_v2(&original.descriptor))?;
+    let binding = source(original.binding)?;
     let key = source(VerifyingKey::read(&original.verifying_key, &binding))?;
     source(KeyArtifact::new(binding, key))
 }
@@ -184,8 +184,9 @@ impl Plan {
             Self::Receive(p) => QualifiedOperationOwnerV1::Receive(Arc::new(source(
                 receive::Prover::from_artifacts(p, source(a.try_into())?, source(w.try_into())?),
             )?)),
+            // Archive's stage count follows its evidence variant (nine or eight A stages).
             Self::Archive(p) => QualifiedOperationOwnerV1::Archive(Box::new(source(
-                archive::Prover::from_artifacts(p, source(a.try_into())?, source(w.try_into())?),
+                archive::Prover::from_artifacts(p, a, w),
             )?)),
             Self::Consuming(p) => QualifiedOperationOwnerV1::Consuming(Box::new(source(
                 consuming::Prover::from_artifacts(p, source(a.try_into())?, source(w.try_into())?),
@@ -265,7 +266,6 @@ pub(super) fn plan_with_parameters(
         }
         Variant::RefreshCredential
         | Variant::RefreshSchemePolicy
-        | Variant::RefreshBlacklist
         | Variant::RefreshTimeAnchor
         | Variant::RefreshQuotaShare => Plan::Refresh(source(refresh::Plan::new(
             operation, policy, key, pallas, vesta,
@@ -316,13 +316,25 @@ fn a_plan_with_parameters(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let predecessor = source(VerifierPlan::new(omega.binding().clone(), pallas.clone()))?;
-    source(AProofPlan::new(
-        variant,
-        recipe.sigma().clone(),
-        keys,
-        Some(predecessor),
-        pallas,
-    ))
+    match recipe.sigma() {
+        Some(sigma) if sigma.has_own() => source(AProofPlan::new(
+            variant,
+            sigma.clone(),
+            keys,
+            Some(predecessor),
+            pallas,
+        )),
+        // A proves the own step directly (lean lineage); a route that consumes an
+        // incoming sigma keeps an incoming-only Q_sigma.
+        Some(sigma) => source(AProofPlan::inline_with_incoming(
+            variant,
+            sigma.clone(),
+            keys,
+            Some(predecessor),
+            pallas,
+        )),
+        None => source(AProofPlan::inline(variant, keys, Some(predecessor), pallas)),
+    }
 }
 
 fn import_error(
@@ -348,14 +360,9 @@ impl QualifiedOperationOwnerV1 {
         iroha_pasta::CancellationToken::checkpoint(cancellation)
             .map_err(|_| OperationQualificationErrorV1::Cancelled)?;
         match self {
+            // Bootstrap is one unsplit terminal A: stage 0 is its only stage.
             Self::Bootstrap(p) => match stage {
-                0 => p.prover().import_first_builtin_cancellable(
-                    original,
-                    config,
-                    member,
-                    cancellation,
-                ),
-                1 => p.prover().import_terminal_builtin_cancellable(
+                0 => p.prover().import_terminal_builtin_cancellable(
                     original,
                     config,
                     member,
@@ -395,14 +402,8 @@ impl QualifiedOperationOwnerV1 {
         iroha_pasta::CancellationToken::checkpoint(cancellation)
             .map_err(|_| OperationQualificationErrorV1::Cancelled)?;
         match self {
-            Self::Bootstrap(p) => {
-                if stage != 0 {
-                    return Err(OperationQualificationErrorV1::W(stage));
-                }
-                p.prover()
-                    .import_wrapper_builtin_cancellable(original, config, member, cancellation)
-                    .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage)))
-            }
+            // Bootstrap is one unsplit terminal A: it has no W stage.
+            Self::Bootstrap(_) => Err(OperationQualificationErrorV1::W(stage)),
             Self::Load(p) => p
                 .import_w_builtin_cancellable(stage, original, config, member, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
@@ -433,11 +434,9 @@ impl QualifiedOperationOwnerV1 {
         iroha_pasta::CancellationToken::checkpoint(cancellation)
             .map_err(|_| OperationQualificationErrorV1::Cancelled)?;
         match self {
+            // Bootstrap is one unsplit terminal A: stage 0 is its only stage.
             Self::Bootstrap(p) => match stage {
                 0 => p
-                    .prover()
-                    .import_first_cancellable(original, config, cancellation),
-                1 => p
                     .prover()
                     .import_terminal_cancellable(original, config, cancellation),
                 _ => return Err(OperationQualificationErrorV1::A(stage)),
@@ -473,14 +472,8 @@ impl QualifiedOperationOwnerV1 {
         iroha_pasta::CancellationToken::checkpoint(cancellation)
             .map_err(|_| OperationQualificationErrorV1::Cancelled)?;
         match self {
-            Self::Bootstrap(p) => {
-                if stage != 0 {
-                    return Err(OperationQualificationErrorV1::W(stage));
-                }
-                p.prover()
-                    .import_wrapper_cancellable(original, config, cancellation)
-                    .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage)))
-            }
+            // Bootstrap is one unsplit terminal A: it has no W stage.
+            Self::Bootstrap(_) => Err(OperationQualificationErrorV1::W(stage)),
             Self::Load(p) => p
                 .import_w_cancellable(stage, original, config, cancellation)
                 .map_err(|error| import_error(error, OperationQualificationErrorV1::W(stage))),
@@ -526,9 +519,12 @@ impl AuthenticatedProducerInventoryV1 {
             originals,
             config,
             super::builtin::Admission::Strict,
+            &DescriptorMemo::default(),
         )
     }
 
+    // `descriptors` belongs to the calling qualification and is dropped with it.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn qualify_operation_route_with_admission(
         &self,
         installed: &InstalledVerifierPackV1,
@@ -537,6 +533,7 @@ impl AuthenticatedProducerInventoryV1 {
         originals: &mut dyn OriginalSourceV1,
         config: ReadConfig,
         admission: super::builtin::Admission<'_>,
+        descriptors: &DescriptorMemo,
     ) -> Result<QualifiedOperationRouteV1, OperationQualificationErrorV1> {
         let identity = (
             installed.verifier().scheme().scheme_id(),
@@ -563,10 +560,13 @@ impl AuthenticatedProducerInventoryV1 {
                 config,
                 route_index,
                 admission,
+                descriptors,
             )?;
-            let terminal = metadata(
-                self.read_verifier_original(*record.a.last().ok_or(Error::Inventory)?, originals)?,
-            )?;
+            let terminal = metadata(self.read_verifier_metadata(
+                *record.a.last().ok_or(Error::Inventory)?,
+                originals,
+                descriptors,
+            )?)?;
             let stage_memory = owner.stage_memory_bytes();
             return Ok(QualifiedOperationRouteV1 {
                 installation: identity,
@@ -580,7 +580,8 @@ impl AuthenticatedProducerInventoryV1 {
                 stage_memory,
             });
         }
-        let omega = metadata(self.read_verifier_original(self.inventory.omega, originals)?)?;
+        let omega =
+            metadata(self.read_verifier_metadata(self.inventory.omega, originals, descriptors)?)?;
         let plan = plan_with_parameters(
             route,
             SourceScopeV1::from_scheme(installed.verifier().scheme())?,
@@ -604,12 +605,12 @@ impl AuthenticatedProducerInventoryV1 {
         let a = record
             .a
             .iter()
-            .map(|index| metadata(self.read_verifier_original(*index, originals)?))
+            .map(|index| metadata(self.read_verifier_metadata(*index, originals, descriptors)?))
             .collect::<Result<Vec<_>, OperationQualificationErrorV1>>()?;
         let w = record
             .w
             .iter()
-            .map(|index| metadata(self.read_verifier_original(*index, originals)?))
+            .map(|index| metadata(self.read_verifier_metadata(*index, originals, descriptors)?))
             .collect::<Result<Vec<_>, OperationQualificationErrorV1>>()?;
         let terminal = a.last().ok_or(Error::Inventory)?.clone();
         let stage_memory = peak_proving_memory(&a)?.max(peak_proving_memory(&w)?);
@@ -713,10 +714,9 @@ impl QualifiedOperationRouteV1 {
     ) -> Result<iroha_plonk::keys::SourceBoundViewV2<'_, Ep>, OperationQualificationErrorV1> {
         iroha_pasta::CancellationToken::checkpoint(cancellation)
             .map_err(|_| OperationQualificationErrorV1::Cancelled)?;
-        if let QualifiedOperationOwnerV1::Bootstrap(p) = &self.owner {
-            return p
-                .bind_w(stage, expected_member, cancellation)
-                .map_err(Into::into);
+        // Bootstrap is one unsplit terminal A: it has no W stage.
+        if let QualifiedOperationOwnerV1::Bootstrap(_) = &self.owner {
+            return Err(OperationQualificationErrorV1::W(stage));
         }
         let seal = self
             .w_seals
@@ -775,7 +775,7 @@ mod tests {
             let mut changed = record.clone();
             changed.own_class.clear();
             assert!(require_route(&changed, route).is_err());
-            for selector in 0..16 {
+            for selector in 0..11 {
                 if !compiled_routes()
                     .iter()
                     .any(|r| r.variant == route.variant && r.own == selector)

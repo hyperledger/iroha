@@ -1,10 +1,13 @@
 //! Fixed native Receive and renewed-Receive A/W composition.
 //!
-//! Installed artifacts pin the complete owner schedule. Incoming decoded values,
-//! five result bits and correction points are witness proposals: the mandatory
-//! producers derive them from the exact original tapes and bind one common
-//! context. Native preparation verifies every hard predecessor/Q proof and all
-//! selected deciding claims; it never replaces a soft failure with acceptance.
+//! Installed artifacts pin the complete owner schedule. A proves the own Receive
+//! step inline from the prepared step witness (lean lineage); Q0 verifies only the
+//! incoming Send sigma, and Q1 is the merged signature leaf with the hard own
+//! receipt first. Incoming decoded values, four result bits and correction points
+//! are witness proposals: the mandatory producers derive them from the exact
+//! original tapes and bind one common context. Native preparation verifies every
+//! hard predecessor/Q proof and all selected deciding claims; it never replaces a
+//! soft failure with acceptance.
 
 mod circuit;
 pub use circuit::PredicateInputs;
@@ -15,7 +18,8 @@ mod tests;
 
 pub use circuit::StageCircuit;
 pub use session::{
-    ACheckpoint, CheckpointKind, CheckpointLayout, Prover, Session, Terminal, WCheckpoint,
+    ACheckpoint, CheckpointKind, CheckpointLayout, Prover, RetainedSession, Session, Terminal,
+    WCheckpoint,
 };
 
 use core::fmt;
@@ -23,7 +27,7 @@ use std::sync::Arc;
 
 use ff::{Field, PrimeField};
 use iroha_pasta::{
-    Ep, EpAffine, Eq, EqAffine, Fp, Fq, PastaAffine, msm::MemoryBudget, poseidon::hash_with_domain,
+    Ep, EpAffine, Eq, EqAffine, Fp, Fq, msm::MemoryBudget, poseidon::hash_with_domain,
 };
 use iroha_plonk::{DescriptorBinding, VerifyingKey, cs::InstanceType, pcs::ipa::PinnedParams};
 use iroha_plonk_gadgets::{bytes::p_bytes_native, statement::foreign_limbs};
@@ -44,13 +48,16 @@ use crate::{
         context::{ContextObjectSpec, ContextPlan},
         own::OwnPolicy,
         receive::{
-            MAX_OMEGA_RAW_BYTES, MAX_SIGMA_RAW_BYTES, PAYMENT_PROOF_BUDGET, ReceiveStagePlan,
+            MAX_OMEGA_RAW_BYTES, MAX_SIGMA_RAW_BYTES, PAYMENT_PROOF_BUDGET,
+            PAYMENT_RAW_PROOF_BUDGET, ReceiveStagePlan,
         },
     },
     admin_sigma::StateWitness,
+    circuit::{PrefixMode, RelationShape},
     operation_relation::objects::ObjectKind,
     q_sigma::{QSigmaPlan, native::IncomingMode},
     tree::IndexedInsert,
+    witness::{NativeStep, SigmaRelation, StepWitness},
 };
 use circuit::Stage;
 
@@ -58,12 +65,12 @@ use circuit::Stage;
 pub const INTERNAL_RANGE_BUSES: usize = 4;
 /// The operation terminal uses the common tagged-three catalog layout.
 pub const TERMINAL_RANGE_BUSES: usize = 3;
-/// Ten A stages separated by nine authenticated W continuations.
-pub const A_STAGE_COUNT: usize = 10;
+/// Nine A stages separated by eight authenticated W continuations.
+pub const A_STAGE_COUNT: usize = 9;
 /// Exact internal wrapper count for the fixed Receive owner sequence.
 pub const W_STAGE_COUNT: usize = A_STAGE_COUNT - 1;
 /// Maximum combined original Omega/public and sigma bytes within Payment.
-pub const MAX_PAYMENT_ORIGINAL_BYTES: usize = 320 + PAYMENT_PROOF_BUDGET;
+pub const MAX_PAYMENT_ORIGINAL_BYTES: usize = PAYMENT_RAW_PROOF_BUDGET;
 
 /// Native source/artifact/proof error. No failure changes monetary state.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -160,8 +167,6 @@ pub struct Transition {
     pub consumed: IndexedInsert<Fp>,
     /// Credit-record insertion route.
     pub credit: IndexedInsert<Fp>,
-    /// Recorded-blacklist history search route; only its low opening is consumed.
-    pub blacklist: IndexedInsert<Fp>,
     /// The OQ-3 insertion flag, derived again by terminal Effects.
     pub insert: bool,
 }
@@ -182,8 +187,8 @@ pub struct IncomingWitness {
     pub vesta: AccumulatorT<Eq>,
     /// Actual soft-Omega verifier opening, or its fixed safe dummy on failure.
     pub opening: FoldInput<Ep>,
-    /// Five proposed fixed-order owner results.
-    pub results: [bool; 5],
+    /// Four proposed fixed-order owner results.
+    pub results: [bool; 4],
     /// Original-P, Omega-opening, original-V, incoming-sigma modes.
     pub modes: [IncomingMode; 4],
     /// Proposed corrected commitments for original-P and Omega-opening slots.
@@ -199,20 +204,21 @@ pub struct Inputs {
     pub transition: Transition,
     /// Original incoming Send statement26.
     pub incoming_statement: [Fp; 26],
-    /// Exact own hard sigma tape.
-    pub sigma: Vec<u8>,
+    /// The prepared Receive step witness that A1 proves the relation of.
+    pub step: StepWitness<Fp>,
     /// Request, payer Credential, Send Receipt, Payment, raw Omega, raw sigma,
-    /// current Credential, certificate, own Receipt, quoted Credential, certificate.
-    pub objects: [Vec<u8>; 11],
-    /// Q0 sigma, Q1 hard authorization, Q2 original incoming signatures.
-    pub q: [QInput; 3],
+    /// own Receipt, quoted Credential, quoted certificate.
+    pub objects: [Vec<u8>; 9],
+    /// Q0 incoming-only sigma, Q1 merged signatures (own receipt hard, then the
+    /// original incoming slots soft).
+    pub q: [QInput; 2],
     /// Actual receiver predecessor.
     pub predecessor: PredecessorInput,
     /// Source-bound soft decoder/results and obligation proposals.
     pub incoming: IncomingWitness,
 }
 
-/// Immutable complete ten-stage Receive metadata, pinned by artifact installation.
+/// Immutable complete nine-stage Receive metadata, pinned by artifact installation.
 #[derive(Clone, Debug)]
 pub struct Plan {
     stage: ReceiveStagePlan,
@@ -235,20 +241,21 @@ impl Plan {
         let variant = operation.frame().variant();
         if !matches!(variant, Variant::Receive | Variant::ReceiveRenewed)
             || operation.frame().part_source_k() != 16
-            || operation.q_count() != 3
-            || operation.sigma.slot_count() != 2
+            || operation.q_count() != 2
+            || !operation.is_inline()
+            || operation.sigma_slots() != 1
             || !operation.frame().has_predecessor()
             || !operation.frame().has_incoming()
         {
             return Err(Error::Artifact);
         }
-        for slot in 0..2 {
-            let class = operation.sigma.class(slot).ok_or(Error::Artifact)?;
-            if !matches!(class.verifier().binding().descriptor().k, 12 | 14)
-                || class.verifier().proof_length() > MAX_SIGMA_RAW_BYTES
-            {
-                return Err(Error::Artifact);
-            }
+        let class = operation
+            .sigma_class(QSigmaPlan::INCOMING)
+            .ok_or(Error::Artifact)?;
+        if !matches!(class.verifier().binding().descriptor().k, 12 | 14)
+            || class.verifier().proof_length() > MAX_SIGMA_RAW_BYTES
+        {
+            return Err(Error::Artifact);
         }
         let incoming =
             crate::a_relation::incoming_transport::IncomingTransportPlan::new(&operation)
@@ -259,8 +266,7 @@ impl Plan {
         validate_transport_profile(
             incoming.payload_length().map_err(|_| Error::Artifact)?,
             operation
-                .sigma
-                .class(1)
+                .sigma_class(QSigmaPlan::INCOMING)
                 .ok_or(Error::Artifact)?
                 .verifier()
                 .proof_length(),
@@ -327,17 +333,8 @@ impl Plan {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         let program = self.context().operation();
         let omega = program.omega().ok_or(Error::Artifact)?;
-        let sigma = &program.sigma;
+        let sigma = program.sigma_plan().map_err(|_| Error::Artifact)?;
         check_payment_original_sizes(input.objects[4].len(), input.objects[5].len())?;
-        if input.sigma.len()
-            != sigma
-                .class(0)
-                .ok_or(Error::Artifact)?
-                .verifier()
-                .proof_length()
-        {
-            return Err(Error::Input);
-        }
         let specs = self.context().object_specs();
         for (index, raw) in input.objects.iter().enumerate() {
             if !matches!(index, 4 | 5)
@@ -347,18 +344,26 @@ impl Plan {
                 return Err(Error::Input);
             }
         }
-        support::check_hard_own_tapes(
-            [&input.objects[6], &input.objects[7], &input.objects[8]],
-            &input.q[1].instances,
+        support::check_hard_own_receipt_slot(
+            &input.objects[6],
+            &input.q[ReceiveStagePlan::SIGNATURE_Q].instances,
+            self.stage
+                .signature_schema(ReceiveStagePlan::SIGNATURE_Q)
+                .ok_or(Error::Artifact)?
+                .slots()
+                .len(),
             core::array::from_fn(|i| input.transition.before.lineage[9 + i]),
-            [self.policy.root.x, self.policy.root.y],
         )?;
-        support::check_own_sigma_tape(
-            &input.q[0].instances,
-            sigma.chunk_range(0).ok_or(Error::Artifact)?,
-            &input.transition.statement,
-            &input.sigma,
-        )?;
+        // The step witness must evaluate, rule for rule, to the exact statement Advance
+        // committed; A1 then proves that relation inline.
+        if input.step.relation() != SigmaRelation::RECEIVE.step() || !input.step.canonical_digests()
+        {
+            return Err(Error::Input);
+        }
+        let native = input.step.evaluate(SigmaRelation::RECEIVE);
+        if !native.violations.is_empty() || native.statement != input.transition.statement {
+            return Err(Error::Input);
+        }
         let pallas =
             AccumulatorT::from_bytes(&input.predecessor.pallas).map_err(|_| Error::Input)?;
         let vesta = AccumulatorT::from_bytes(&input.predecessor.vesta).map_err(|_| Error::Input)?;
@@ -426,7 +431,7 @@ impl Plan {
             vesta,
             opening,
         };
-        let mut q = Vec::with_capacity(3);
+        let mut q = Vec::with_capacity(2);
         for (index, source) in input.q.into_iter().enumerate() {
             let fixed = program.q(index).ok_or(Error::Artifact)?;
             iroha_plonk::verifier::verify_full_cancellable(
@@ -461,7 +466,7 @@ impl Plan {
                 opening,
             });
         }
-        let part = q_sigma_part(&q[0].instances, &program.sigma)?;
+        let part = q_sigma_part(&q[0].instances, sigma)?;
         part.decide_cancellable(&self.vesta, budget, cancellation)
             .map_err(|error| {
                 if error.is_cancelled() {
@@ -502,8 +507,8 @@ impl Plan {
         let commitments = object_commitments(specs, &input.objects)?;
         let incoming_head = Head {
             state: StateWitness {
-                core: [Fp::ZERO; 33],
-                rest: [Fp::ZERO; 8],
+                core: [Fp::ZERO; 29],
+                rest: [Fp::ZERO; 6],
                 lineage: input.incoming.public,
             },
             key: self.predecessor_key.clone(),
@@ -518,7 +523,7 @@ impl Plan {
                 send: SendStatement {
                     statement: input.incoming_statement,
                 },
-                sigma: input.sigma,
+                step: Some((input.step, native)),
                 incoming_sigma: input.objects[5].clone(),
                 sigma_plan: sigma.clone(),
                 part,
@@ -572,10 +577,17 @@ struct SendStatement {
 struct Own {
     witness: Transition,
     send: SendStatement,
-    sigma: Vec<u8>,
+    /// The step witness and its native evaluation, absent for a blank source.
+    step: Option<(StepWitness<Fp>, NativeStep<Fp>)>,
     incoming_sigma: Vec<u8>,
     sigma_plan: QSigmaPlan,
     part: FoldInput<Eq>,
+}
+impl Own {
+    /// The σ_recv relation A1 proves inline, with absorbed prefixes.
+    fn shape() -> RelationShape {
+        RelationShape::new(SigmaRelation::RECEIVE, PrefixMode::Absorbed)
+    }
 }
 struct Source {
     own: Own,
@@ -585,12 +597,12 @@ struct Source {
     plan: ReceiveStagePlan,
     policy: OwnPolicy,
     variant: Variant,
-    objects: [Vec<u8>; 11],
+    objects: [Vec<u8>; 9],
     commitments: Vec<[Fp; 3]>,
     incoming: Vec<u8>,
     params: PinnedParams<Ep>,
     vparams: PinnedParams<Eq>,
-    results: [bool; 5],
+    results: [bool; 4],
     modes: [IncomingMode; 4],
     public_valid: bool,
     pallas_corrections: [EpAffine; 2],
@@ -610,14 +622,19 @@ pub struct Prepared {
     source: Arc<Source>,
 }
 impl Prepared {
-    fn first(&self, salt: Fp, config: &FoldConfig) -> Result<Stage, Error> {
+    fn first(
+        &self,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
+        config: &FoldConfig,
+    ) -> Result<Stage, Error> {
         let (fold, pallas) = create_fold(
             &self.plan.pallas,
             &[
                 self.source.predecessor.pallas.as_input(),
                 self.source.predecessor.opening.clone(),
             ],
-            salt.to_repr(),
+            tape,
+            iroha_plonk_recursion::FoldPurpose::AInitial,
             config,
         )
         .map_err(|error| {
@@ -644,7 +661,7 @@ impl Prepared {
             source: self.source.clone(),
             continuation: None,
             pallas: pallas.clone(),
-            fold: fold.to_bytes().to_vec(),
+            fold: crate::private_fold::PrivateFoldBytes::from_fold(fold),
             known: true,
         })
     }
@@ -653,10 +670,10 @@ impl Prepared {
     /// A failed two-input predecessor fold or public-frame conversion.
     pub fn first_circuit(
         &self,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         config: &FoldConfig,
     ) -> Result<(StageCircuit, Vec<Fp>), Error> {
-        let inner = self.first(salt, config)?;
+        let inner = self.first(tape, config)?;
         let public = stage_public(&inner)?;
         Ok((StageCircuit { inner }, public))
     }
@@ -682,7 +699,7 @@ pub fn check_payment_original_sizes(omega: usize, sigma: usize) -> Result<(), Er
         || sigma > MAX_SIGMA_RAW_BYTES
         || omega
             .checked_add(sigma)
-            .is_none_or(|total| total > 320 + PAYMENT_PROOF_BUDGET)
+            .is_none_or(|total| total > PAYMENT_RAW_PROOF_BUDGET)
     {
         return Err(Error::Input);
     }
@@ -711,9 +728,9 @@ fn validate_modes(input: &IncomingWitness) -> Result<(), Error> {
 
 fn object_commitments(
     specs: &[ContextObjectSpec],
-    objects: &[Vec<u8>; 11],
+    objects: &[Vec<u8>; 9],
 ) -> Result<Vec<[Fp; 3]>, Error> {
-    if specs.len() != 11 {
+    if specs.len() != 9 {
         return Err(Error::Artifact);
     }
     let kinds = [
@@ -723,8 +740,6 @@ fn object_commitments(
         None,
         None,
         None,
-        Some(ObjectKind::Credential),
-        Some(ObjectKind::Certificate),
         Some(ObjectKind::Receipt),
         Some(ObjectKind::Credential),
         Some(ObjectKind::Certificate),
@@ -764,14 +779,14 @@ fn context_digest(source: &Source) -> Result<Fp, Error> {
     words.extend(before.rest);
     words.extend(before.lineage);
     push_pallas(&mut words, &source.predecessor.pallas.as_input())?;
-    words.extend(vesta_words(&source.predecessor.vesta.as_input())?);
+    words.extend(vesta_words(&source.predecessor.vesta.as_input()));
     words.extend(after.core);
     words.extend(after.rest);
     words.extend(after.lineage);
     words.extend(source.incoming_head.state.lineage);
     words.push(Fp::from(u64::from(source.public_valid)));
     push_pallas(&mut words, &source.incoming_head.pallas.as_input())?;
-    words.extend(vesta_words(&source.incoming_head.vesta.as_input())?);
+    words.extend(vesta_words(&source.incoming_head.vesta.as_input()));
     for q in &source.q {
         let types = q
             .plan
@@ -803,11 +818,10 @@ fn context_digest(source: &Source) -> Result<Fp, Error> {
         words.extend(mode_words(mode));
     }
     for point in source.pallas_corrections {
-        let (x, y) = Option::<(Fp, Fp)>::from(point.coordinates()).ok_or(Error::Input)?;
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<Ep>(&point);
         words.extend([x, y]);
     }
-    let (x, y) =
-        Option::<(Fq, Fq)>::from(source.vesta_correction.coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(&source.vesta_correction);
     for v in [x, y] {
         words.extend(foreign_limbs(&v).map(Fp::from_u128));
     }
@@ -840,12 +854,11 @@ fn stage_public(c: &Stage) -> Result<Vec<Fp>, Error> {
         terminal_digest(&c.source.own.witness.after.lineage, &c.pallas.as_input())?,
         Fp::from(16),
     ];
-    words.extend(vesta_words(&continuation.vesta.as_input())?);
-    words.extend(vesta_words(&c.source.predecessor.vesta.as_input())?);
-    words.extend(vesta_words(&c.source.incoming_head.vesta.as_input())?);
+    words.extend(vesta_words(&continuation.vesta.as_input()));
+    words.extend(vesta_words(&c.source.predecessor.vesta.as_input()));
+    words.extend(vesta_words(&c.source.incoming_head.vesta.as_input()));
     words.extend(c.source.mode_words(2));
-    let (x, y) =
-        Option::<(Fq, Fq)>::from(c.source.vesta_correction.coordinates()).ok_or(Error::Input)?;
+    let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(&c.source.vesta_correction);
     for v in [x, y] {
         words.extend(foreign_limbs(&v).map(Fp::from_u128));
     }

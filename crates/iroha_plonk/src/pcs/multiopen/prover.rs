@@ -180,7 +180,7 @@ where
 /// Creates the same opening and returns its generator obligation.
 ///
 /// # Errors
-/// As [`create_proof`], including a degenerate folded generator.
+/// As [`create_proof`]. The undecided folded generator may be identity.
 pub fn create_proof_with_claim<C, T, R>(
     params: &ParamsIpa<C>,
     plan: &OpeningPlan,
@@ -257,7 +257,8 @@ where
     .to_affine();
     transcript.write_point(&q_prime_commitment)?;
 
-    let x_3 = transcript.squeeze_challenge();
+    let x_3 = crate::transcript::pipa_r::multiopening_challenge(transcript.squeeze_challenge());
+    super::regularity::validate_challenge(params.k(), x_3, points)?;
     for set in 0..plan.sets().len() {
         CancellationToken::checkpoint(cancellation)?;
         let (q, _) = reconstruct_cancellable(plan, polys, set, x_1, n, cancellation)?;

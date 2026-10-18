@@ -27,9 +27,9 @@ const HOLDER_PROOF_PURPOSE_V1: &[u8] = b"blind-request-proof-v1";
 const ISSUER_TAG_PURPOSE_V1: &[u8] = b"credential-tag-v1";
 const ISSUER_PREIMAGE_PURPOSE_V1: &[u8] = b"falcon-preimage-coins-v1";
 /// Canonical master-root and fixed-purpose substream policy.
-pub(crate) const BOOTLE_LANTERN_ISSUANCE_RANDOMNESS_DESCRIPTOR_V1: &[u8] = b"master:one-health-checked-fixed64-source-block-per-operation|split:SHAKE256(frame(root-domain)+frame(operation)+frame(purpose)+frame(context-digest32)+frame(master64))->key64|expand:SHAKE256(frame(stream-domain)+frame(key64)+frame(counter-u64be))->block64|counter:checked-u64|holder:authorization-digest->{credential-mask,blind-request-proof}|issuer:request-digest->{credential-tag,falcon-preimage-coins}|closed-purpose-enum:no-caller-selected-labels|chunk-invariant-reservoir64|zeroize-root+keys+reservoirs:v1";
+pub const BOOTLE_LANTERN_ISSUANCE_RANDOMNESS_DESCRIPTOR_V1: &[u8] = b"master:one-health-checked-fixed64-source-block-per-operation|split:SHAKE256(frame(root-domain)+frame(operation)+frame(purpose)+frame(context-digest32)+frame(master64))->key64|expand:SHAKE256(frame(stream-domain)+frame(key64)+frame(counter-u64be))->block64|counter:checked-u64|holder:authorization-digest->{credential-mask,blind-request-proof}|issuer:request-digest->{credential-tag,falcon-preimage-coins}|closed-purpose-enum:no-caller-selected-labels|chunk-invariant-reservoir64|zeroize-root+keys+reservoirs:v1";
 /// A single health-checked root consumed to construct one closed stream pair.
-pub(crate) struct BootleLanternIssuanceRandomnessRootV1 {
+pub struct BootleLanternIssuanceRandomnessRootV1 {
     root: Zeroizing<[u8; MASTER_ROOT_BYTES_V1]>,
 }
 impl core::fmt::Debug for BootleLanternIssuanceRandomnessRootV1 {
@@ -97,7 +97,7 @@ impl BootleLanternIssuanceRandomnessRootV1 {
     }
 }
 /// Deterministic cryptographic RNG for one fixed issuance purpose.
-pub(crate) struct BootleLanternPurposeRngV1 {
+pub struct BootleLanternPurposeRngV1 {
     key: Zeroizing<[u8; STREAM_KEY_BYTES_V1]>,
     reservoir: Zeroizing<[u8; STREAM_BLOCK_BYTES_V1]>,
     cursor: usize,

@@ -1,4 +1,4 @@
-//! Runtime-only enrollment selection on one of the four retained validators after H3.
+//! Runtime-only enrollment selection on one of the four retained validators after its authenticated registration.
 //!
 //! The controller supplies private configuration, never a credential or startup verdict.
 //! Native configuration parsing and serving startup authenticate the actual dependencies.
@@ -215,8 +215,8 @@ pub(super) fn run(
     ensure!(
         network.peers().len() == 4
             && network.peers().iter().all(NetworkPeer::is_running)
-            && committed_height(network)? == 3,
-        "same four live validators at registration H3 required"
+            && committed_height(network)? == registered.height,
+        "same four live validators at the authenticated registration height required"
     );
     let peer_index = command["peer_index"].as_u64().unwrap() as usize;
     let configuration = PathBuf::from(command["configuration"]["path"].as_str().unwrap());
@@ -241,7 +241,7 @@ pub(super) fn run(
     let identity = peer.id();
     let store = peer.kura_store_dir();
     let genesis = network.native_genesis_provisioning_bundle()?.signed_wire;
-    let history = prefix(network, 3)?
+    let history = prefix(network, registered.height)?
         .into_iter()
         .map(|proof| proof.block_wire)
         .collect::<Vec<_>>();
@@ -269,17 +269,17 @@ pub(super) fn run(
     })
     .map_err(|_| eyre!("issuer startup timed out"))?
     .map_err(|_| eyre!("issuer startup failed; inspect private node logs"))?;
-    wait_for_committed(network, 3, network.sync_timeout(), &[])?;
+    wait_for_committed(network, registered.height, network.sync_timeout(), &[])?;
     ensure!(
         peer.id() == identity
             && peer.kura_store_dir() == store
             && network.peers().iter().all(NetworkPeer::is_running)
             && network.native_genesis_provisioning_bundle()?.signed_wire == genesis
-            && committed_height(network)? == 3,
+            && committed_height(network)? == registered.height,
         "issuer restart changed the retained network identity, stores or height"
     );
     ensure!(
-        prefix(network, 3)?
+        prefix(network, registered.height)?
             .into_iter()
             .map(|proof| proof.block_wire)
             .collect::<Vec<_>>()
@@ -291,8 +291,8 @@ pub(super) fn run(
         "schema": "iroha.kagemusha.network-issuer-ready.v1", "setup_sha256": setup_sha,
         "registered_sha256": (hash(&registered.summary)), "configuration_sha256": (selected.configuration_sha.clone()),
         "peer_index": peer_index, "peer_id": (identity.to_string()), "torii_url": (peer.torii_url()),
-        "certified_height": 3, "signed_genesis_sha256": (hash(&genesis)),
-        "scope": "One retained validator restarted with the exact private issuer configuration; native Torii startup and unchanged H3 history checked. No credential, physical enrollment or latency result is asserted."
+        "certified_height": (registered.height), "signed_genesis_sha256": (hash(&genesis)),
+        "scope": "One retained validator restarted with the exact private issuer configuration; native Torii startup and unchanged registered history checked. No credential, physical enrollment or latency result is asserted."
     }))?;
     publish(root, "issuer-ready.json", &selected.summary)?;
     File::open(root)?.sync_all()?;

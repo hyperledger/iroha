@@ -1431,7 +1431,7 @@ whatever their order.
 | L4 | **Exit is never blocked.** `ExitPublicLaneValidator` is unchanged. A validator leaves the committee at the next election; only the release of its stake waits. |
 | L5 | **Destination-progress gate.** In the post-execution hook, after pruning, Core visits at most 64 retained, ended generations with `dest_cleared_lc = None`, in ascending order through the committed pending-generation index (so previously cleared history is not traversed), and sets `dest_cleared_lc = lc(h)` iff, for every network that has a non-`Retired` route revision, the network's active inbound light client has a finalized checkpoint with `source_time_ms > deadline_ms(g)`; it then emits `SccpGenerationDestinationCleared { generation, lc }`. A network with such a revision but no active light client blocks the clearance. With no such network, as before launch, clearance is immediate. |
 
-The index is derived from generation records, updated in the same transaction when a generation ends or clears, and rebuilt from both current and exact predecessor records on snapshot restore. It has no independent authority.
+The index is derived from generation records, updated in the same transaction when a generation ends or clears, and rebuilt from both current and exact predecessor records on snapshot restore. It has no independent authority. Its keyed insertions and deletions are bound by the canonical SCCP write set and the merge execution witness.
 
 **Why L5.** A destination accepts `g` while its own block time is at most
 `deadline_ms(g)`, and that time is chosen by the destination's proposers. After
@@ -1698,7 +1698,9 @@ sccp_pending_refund_amount: (SccpNetworkV1, u32) → u128
 The accounting record is fixed-size. Permanent proof ids and their authenticated
 amounts occupy a separate admitted map, so adding one proof or settling one claim
 never clones the revision's proof history. An ordered deadline index is derived
-from the exact current and undo records. Restore checks each cut's proof sum,
+from the exact current and undo records. Its keyed insertions and deletions are
+bound by the canonical SCCP write set and the merge execution witness. Restore
+checks each cut's proof sum,
 pending-refund sum, quarantine binding and open-window supply bound before
 publishing any field. The read API returns the scalar accounting record.
 

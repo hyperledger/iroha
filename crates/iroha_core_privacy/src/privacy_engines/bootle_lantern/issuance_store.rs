@@ -1764,7 +1764,7 @@ fn acquire_file_store_writer_lock_v1(
         .write(true)
         .create(true)
         .truncate(false)
-        .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+        .custom_flags(u32::cast_signed(rustix::fs::OFlags::NOFOLLOW.bits()))
         .mode(0o600);
     let file = options
         .open(&path)
@@ -1916,7 +1916,7 @@ fn open_record_file_v1(
     }
     let file = OpenOptions::new()
         .read(true)
-        .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32)
+        .custom_flags(u32::cast_signed(rustix::fs::OFlags::NOFOLLOW.bits()))
         .open(path)
         .map_err(|_| BootleLanternIssuanceStoreErrorV1::Corrupt)?;
     let opened_metadata = file

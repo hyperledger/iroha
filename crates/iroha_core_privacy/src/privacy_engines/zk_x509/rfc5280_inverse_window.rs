@@ -134,7 +134,7 @@ pub(super) fn step_window_v1(
     context: &RowContextV1,
     last: bool,
     der: ZkX509DerStarkChallengesV1,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
     centers: &ZkX509ShaUnionCentersV1,
 ) -> Result<(), ZkX509Rfc5280StarkErrorV1> {
     let mut window = InverseWindowV1::new_v1();
@@ -188,7 +188,7 @@ pub(super) fn step_window_v1(
 pub(in super::super) fn fill_columns_v1(
     material: &ZkX509Rfc5280StarkBaseMaterialV1,
     der_challenges: ZkX509DerStarkChallengesV1,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
     first: usize,
     outputs: &mut [&mut [F]],
     sha_union: &ZkX509ShaUnionCentersV1,
@@ -220,7 +220,7 @@ pub(super) fn fill_with_v1(
     first: usize,
     outputs: &mut [&mut [F]],
     der_challenges: ZkX509DerStarkChallengesV1,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
     sha_union: &ZkX509ShaUnionCentersV1,
     mut row_at: impl FnMut(usize) -> Result<RowContextV1, ZkX509Rfc5280StarkErrorV1>,
 ) -> Result<(), ZkX509Rfc5280StarkErrorV1> {

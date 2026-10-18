@@ -10,8 +10,8 @@ fn event(before: u64, after: u64, write: bool) -> Event {
         generation: 3,
         index: 9,
         write,
-        before: (before as u128).to_le_bytes(),
-        after: (after as u128).to_le_bytes(),
+        before: u128::from(before).to_le_bytes(),
+        after: u128::from(after).to_le_bytes(),
         before_private: 0,
         after_private: 0,
     }

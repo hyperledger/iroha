@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
-"""Verify versioned static assets consumed by Rust at compile time."""
+"""Verify versioned static assets consumed by direct Rust literal includes.
+
+This source inventory counts literal include_bytes!/include_str! invocations in
+const, static and local expressions. It does not expand macros or generated
+source, resolve macro aliases, or guess paths from concat!/env! expressions.
+Those unexpanded forms are outside this literal-asset qualification. Manifest
+assets still require exactly one direct consumer and an explicit byte length.
+"""
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import hashlib
 import json
 import re
@@ -13,6 +21,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+
+_LEXICAL_SPEC = importlib.util.spec_from_file_location(
+    "iroha_static_asset_rust_lexical_index", Path(__file__).with_name("zk_rust_lexical_index.py")
+)
+assert _LEXICAL_SPEC is not None and _LEXICAL_SPEC.loader is not None
+RUST_LEXICAL = importlib.util.module_from_spec(_LEXICAL_SPEC)
+sys.modules[_LEXICAL_SPEC.name] = RUST_LEXICAL
+_LEXICAL_SPEC.loader.exec_module(RUST_LEXICAL)
 
 MANIFEST_PATHS = (
     Path(
@@ -49,16 +65,13 @@ CURRENT_INCLUDE_CONSUMER_MANIFESTS = frozenset(
 CONST_DECLARATION_RE = re.compile(
     r"\bconst\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*:"
 )
-INCLUDE_BYTES_RE = re.compile(
-    r"(?:pub(?:\([^)]*\))?\s+)?const\s+"
-    r"[A-Za-z_][A-Za-z0-9_]*\s*:\s*&\s*\[\s*u8\s*;\s*"
-    r"(?P<length>[0-9_]+)\s*\]\s*=\s*include_bytes!\(\s*"
-    r'"(?P<path>[^"\r\n]+)"\s*\)',
-    re.MULTILINE,
+INCLUDE_CALL_RE = re.compile(
+    r"(?<![\w])(?:r#)?(?P<macro>include_bytes|include_str)\s*!\s*(?P<opening>[([{])"
 )
-INCLUDE_STR_RE = re.compile(
-    r'include_str!\(\s*"(?P<path>[^"\r\n]+)"\s*\)',
-    re.MULTILINE,
+BYTE_INCLUDE_OWNER_RE = re.compile(
+    r"\bconst\s+[A-Za-z_][A-Za-z0-9_]*\s*:\s*&\s*"
+    r"(?:'static\s*)?\[\s*u8\s*;\s*(?P<length>[0-9][0-9_]*)\s*\]\s*=\s*"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*\s*::\s*)*(?:r#)?(?P<macro>include_bytes)\s*!"
 )
 MANIFEST_FIELDS = frozenset(
     {
@@ -250,7 +263,109 @@ def _crate_root(path: Path, repository_root: Path) -> Path:
     raise AssetError(f"asset manifest is not inside a Cargo package: {path}")
 
 
+def _skip_space(masked: str, position: int) -> int:
+    """Skip whitespace and comments already blanked by the Rust lexical mask."""
+    while position < len(masked) and masked[position].isspace():
+        position += 1
+    return position
+
+
+def _ordinary_include_path(token: str, context: str) -> str:
+    """Decode Rust string escapes without Python/JSON escape reinterpretation."""
+    result: list[str] = []
+    position = 1
+    end = len(token) - 1
+    escapes = {"n": "\n", "r": "\r", "t": "\t", "0": "\0", "\\": "\\", '"': '"', "'": "'"}
+    while position < end:
+        character = token[position]
+        position += 1
+        if character != "\\":
+            result.append(character)
+            continue
+        if position >= end:
+            raise AssetError(f"{context}: unterminated string escape")
+        escaped = token[position]
+        position += 1
+        if escaped in escapes:
+            result.append(escapes[escaped])
+        elif escaped == "x":
+            digits = token[position:position + 2]
+            if len(digits) != 2 or re.fullmatch(r"[0-7][0-9A-Fa-f]", digits) is None:
+                raise AssetError(f"{context}: invalid Rust ASCII escape")
+            result.append(chr(int(digits, 16)))
+            position += 2
+        elif escaped == "u":
+            match = re.match(r"\{([0-9A-Fa-f][0-9A-Fa-f_]*)\}", token[position:end])
+            if match is None:
+                raise AssetError(f"{context}: invalid Rust Unicode escape")
+            digits = match.group(1).replace("_", "")
+            if len(digits) > 6:
+                raise AssetError(f"{context}: invalid Rust Unicode scalar")
+            value = int(digits, 16)
+            if value > 0x10FFFF or 0xD800 <= value <= 0xDFFF:
+                raise AssetError(f"{context}: invalid Rust Unicode scalar")
+            result.append(chr(value))
+            position += match.end()
+        elif escaped == "\n":
+            while position < end and token[position] in " \t\r\n":
+                position += 1
+        else:
+            raise AssetError(f"{context}: unsupported Rust string escape")
+    return "".join(result)
+
+
+def _literal_include_path(
+    source: str, masked: str, invocation: re.Match[str], context: str
+) -> str | None:
+    """Read a direct string literal; macro-expanded expressions are out of scope.
+
+    This lexical check does not expand concat!/env!, resolve macro aliases or
+    count macro expansion instances. Nonliteral arguments are never guessed or
+    admitted as authenticated literal-asset consumers.
+    """
+    position = _skip_space(masked, invocation.end())
+    raw = re.compile(r'r(?P<hashes>#*)"').match(source, position)
+    if raw is not None:
+        terminator = '"' + raw.group("hashes")
+        closing = source.find(terminator, raw.end())
+        if closing < 0:
+            raise AssetError(f"{context}: unterminated raw include path")
+        path = source[raw.end():closing]
+        end = closing + len(terminator)
+    elif position < len(source) and source[position] == '"':
+        end = position + 1
+        while end < len(source):
+            if source[end] == "\\":
+                end += 2
+            elif source[end] == '"':
+                end += 1
+                break
+            else:
+                end += 1
+        else:
+            raise AssetError(f"{context}: unterminated include path")
+        path = _ordinary_include_path(source[position:end], context)
+    else:
+        return None
+    tail = _skip_space(masked, end)
+    if tail < len(masked) and masked[tail] == ",":
+        tail = _skip_space(masked, tail + 1)
+    expected = {"(": ")", "[": "]", "{": "}"}[invocation.group("opening")]
+    if tail >= len(masked) or masked[tail] != expected:
+        raise AssetError(f"{context}: include path must be one complete string literal")
+    if not path or "\0" in path:
+        raise AssetError(f"{context}: include path is empty or contains NUL")
+    return path
+
+
 def _include_consumers(crate_root: Path) -> dict[Path, list[IncludeConsumer]]:
+    """Find every direct literal include, including local and static consumers.
+
+    Only a directly assigned typed byte-array const supplies a declared length;
+    other byte includes still count toward ownership and cannot replace that
+    length admission. Comments and string examples are excluded. Macro expansion
+    and generated source are outside this literal-source inventory.
+    """
     consumers: dict[Path, list[IncludeConsumer]] = {}
     sources = list((crate_root / "src").rglob("*.rs"))
     build_script = crate_root / "build.rs"
@@ -260,16 +375,20 @@ def _include_consumers(crate_root: Path) -> dict[Path, list[IncludeConsumer]]:
         if source.is_symlink() or not source.is_file():
             continue
         text = source.read_text(encoding="utf-8")
-        for match in INCLUDE_BYTES_RE.finditer(text):
-            included = (source.parent / match.group("path")).resolve()
-            length = int(match.group("length").replace("_", ""))
+        masked = RUST_LEXICAL.mask(text)
+        declared_lengths = {
+            match.start("macro"): int(match.group("length").replace("_", ""))
+            for match in BYTE_INCLUDE_OWNER_RE.finditer(masked)
+        }
+        for invocation in INCLUDE_CALL_RE.finditer(masked):
+            context = f"{source}:{text.count(chr(10), 0, invocation.start()) + 1}"
+            path = _literal_include_path(text, masked, invocation, context)
+            if path is None:
+                continue  # Explicit nonliteral/macro-expansion scope above.
+            included = (source.parent / path).resolve()
+            macro = invocation.group("macro")
             consumers.setdefault(included, []).append(
-                IncludeConsumer(source, "include_bytes", length)
-            )
-        for match in INCLUDE_STR_RE.finditer(text):
-            included = (source.parent / match.group("path")).resolve()
-            consumers.setdefault(included, []).append(
-                IncludeConsumer(source, "include_str", None)
+                IncludeConsumer(source, macro, declared_lengths.get(invocation.start("macro")))
             )
     return consumers
 

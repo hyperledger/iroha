@@ -606,8 +606,11 @@ signature is ECDSA-P256-SHA256 over the 32-byte Poseidon message of its body, wh
 the native core computes; the SDK checks it only as a canonical σ-field value.
 Only `artifactManifestDigest` hashes a signed object with SHA-256. Circuit-visible
 object, package, statement, operation and nullifier digests use the canonical
-60-domain Poseidon table. Requests bind the recorded receiver blacklist; quota
-usage is a depth-6 array.
+59-domain Poseidon table. Quota usage is a depth-6 array. A signed blacklist is
+local-only: `KagemushaWalletV1.installBlacklist` stores it on the phone (a replacement's
+version must increase), and Native then refuses to pay a listed receiver and to request or
+accept money from a listed payer with `KagemushaWalletExceptionV1.BLOCKED` (-15). No proof,
+wallet state or peer message carries it.
 `KagemushaP256Codec` is the P-256 device-key boundary: uncompressed SEC1 public keys
 and fixed-width low-S `r || s` signatures. The Android payment key
 (`kagemusha-wallet-android`) is a `DIGEST_SHA256` KeyMint key that signs exactly the
@@ -620,6 +623,24 @@ monetary authority. Public wire size and verification work are independent of
 balance history; no hop, input, origin, ancestry, fan-in, or proof-depth limit is
 encoded.
 
+NFC runs canonical ISO/IEC 7816-4 APDUs under one application identifier
+(`IrohaPeerNfcApplicationIdentifierV1`, 5–16 bytes) that both phones register; an
+application without its own uses `PROTOCOL` (`F0504B45504B524E464301`, the aid-filter of the
+`client-android` template `res/xml/iroha_peer_nfc_v1_aids.xml`). The receiver's phone is the
+card: an `IrohaPeerAsyncHostApduServiceV1` subclass, whose `applicationIdentifier` matches its
+aid-filter, routes commands to an `IrohaPeerNfcCardApduBridgeV1` around
+`IrohaPeerNfcCardEndpointV1.intake`. Its callbacks sign the Request for the payer's Offer,
+durably admit the Payment header and, at COMMIT, ingest the Payment and persist the Credited
+acknowledgement. The payer's phone keeps one `IrohaPeerIsoDepTransceiverV1` connected for
+`IrohaPeerNfcOfferExchangeV1.run` (Offer in, Request out), exact transaction review and
+hardware confirmation. It then persists
+`IrohaPeerNfcRequestReadV1.senderCheckpoint(payment).encode()` (`ISC1`) and continues with
+`IrohaPeerNfcReaderExchangeV1.run` with that checkpoint (Payment in, Credited out, resumable
+after any lost response) before closing the connection. The normal flow completes in one
+hold; reconnecting is only recovery after interrupted contact. A Nearby receiver that
+advertises before it holds a Request uses
+`IrohaPeerNearbyDiscoveryContextV1.freshReceiver`.
+
 `KagemushaWalletAccountOriginalV1` encodes and renders the bounded complete
 canonical Norito `AccountId` frame used by `KagemushaWalletV1.reviewSend`.
 Supply both the receiver's original Request and destination account frame;
@@ -627,6 +648,11 @@ Native authenticates their binding before returning a review. Display the
 reviewed account under the application's independently selected network and
 bind local confirmation to the whole returned review, including its account
 tail. Encoding or rendering account DATA does not authorize a payment.
+
+`KagemushaWalletAccountCheckCodeV1` renders the eight-digit check code (`0006 6051`)
+that payer and receiver compare before a Send: `forAccountDigest` for the reviewed
+receiver account digest, `forAccountOriginal` or `forAccountId` for the wallet's own
+account. Swift wallets render the same text for the same account (wire record §6).
 
 ### KAGEMUSHA enrollment transport
 
@@ -836,11 +862,11 @@ follow the SSE specification: an event cut off by the end of the stream is
 discarded and lines are bounded. `ToriiEventStreamOptions.timeout` bounds the
 idle time between bytes (default 45 seconds, above Torii's 15-second heartbeat);
 a stream has no total lifetime. The
-canonical `/v1/events/sse` and `/v1/contracts/events/sse` feeds are live-only
-and have no replay log. `ToriiEventStreamClient` therefore rejects every case
-variant of `Last-Event-ID` before dispatch for exactly those two paths; custom
-streams that provide replay may still receive the header through
-`ToriiEventStreamOptions`.
+canonical `/v1/events/sse`, `/v1/contracts/events/sse` and
+`/v1/accounts/{account_id}/history/sse` feeds are live-only and have no replay
+log. `ToriiEventStreamClient` therefore rejects every case variant of
+`Last-Event-ID` before dispatch for exactly those paths; custom streams that
+provide replay may still receive the header through `ToriiEventStreamOptions`.
 
 Raw listeners receive terminal `event: stream_error` frames. Call
 `ServerSentEvent.terminalStreamError()` before application-event projection to
@@ -848,8 +874,18 @@ obtain a strict `ToriiStreamException` containing the stable code, server
 message, optional unsigned dropped-message count, replay flag, and raw JSON.
 Malformed or schema-expanded terminal envelopes fail closed as
 `ToriiStreamProtocolException`; they must not be filtered as unrelated events.
-A reconnect to either canonical feed starts a new live subscription and can
-have a gap.
+A reconnect to `/v1/events/sse` or `/v1/contracts/events/sse` starts a new
+live subscription and can have a gap.
+
+`streamAccountHistory(accountId, filter, listener)` follows one account's
+history: every account-history row of each height published after the stream
+opens arrives oldest first as an `AccountHistoryRow`, and the history
+collection `filter` (for example `Filter.field("direction").eq("incoming")`)
+narrows them. The stream starts at the first height after admission, so reading
+the first history page in `AccountHistoryStreamListener.onOpen` and
+deduplicating by row id is gap-free. `accountHistorySubscription(...)` returns a
+reconnecting `ToriiEventStreamSubscription.Builder` that calls `onOpen` for
+every connection.
 
 ### Native privacy bridge
 

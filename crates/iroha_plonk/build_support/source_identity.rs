@@ -51,6 +51,14 @@ fn package_roots(entries: &BTreeMap<String, Entry>) -> BTreeSet<String> {
         .collect()
 }
 
+// Classify known formats without normalizing the exact path used by the census.
+// A dotfile with no extension and any unknown extension remain unknown formats.
+fn has_extension(name: &str, extension: &str) -> bool {
+    Path::new(name)
+        .extension()
+        .is_some_and(|value| value.eq_ignore_ascii_case(extension))
+}
+
 fn selected(name: &str, packages: &BTreeSet<String>) -> bool {
     if name == SWIFT_OUTPUT_LINK
         || EXTERNAL_INPUTS.contains(&name)
@@ -67,11 +75,10 @@ fn selected(name: &str, packages: &BTreeSet<String>) -> bool {
     if name == OPTIONAL_DOCS || CLIENT_ROOTS.iter().any(|prefix| name.starts_with(prefix)) {
         return false;
     }
-    // Only Markdown prose in documentation owners is omitted. Unknown formats,
-    // scripts, configuration, fixtures, tests and assets remain inputs by default.
-    // Suffix rules are byte-exact, including dotfiles; case folding or extension
-    // parsing would change source membership.
-    !(name.as_bytes().ends_with(b".md")
+    // Only Markdown prose (including mixed-case extensions) in documentation owners
+    // is omitted. Unknown formats, scripts, configuration, fixtures, tests and assets
+    // remain inputs by default.
+    !(has_extension(name, "md")
         && (!name.contains('/') || name.starts_with("docs/") || name.starts_with("specs/")))
 }
 
@@ -194,11 +201,11 @@ fn restore_references(
     packages: &BTreeSet<String>,
     entries: &mut BTreeMap<String, Entry>,
 ) -> Result<(), String> {
-    // Keep the same byte-exact Rust suffix for initial and restored sources,
-    // including a file named `.rs`.
+    // Classify initial and restored Rust sources consistently while preserving
+    // exact path spelling in the source identity.
     let mut pending: Vec<_> = entries
         .keys()
-        .filter(|name| name.as_bytes().ends_with(b".rs"))
+        .filter(|name| has_extension(name, "rs"))
         .cloned()
         .collect();
     let mut visited = BTreeSet::new();
@@ -254,7 +261,15 @@ fn restore_references(
                 }
             }
             for candidate in candidates {
-                if entries.contains_key(&candidate) || selected(&candidate, packages) {
+                if entries.contains_key(&candidate) {
+                    continue;
+                }
+                if selected(&candidate, packages) {
+                    // Deleted tracked inputs are absent from the current census,
+                    // but a surviving source must not reference their old paths.
+                    if all.contains_key(&candidate) && tracked_input_absent(root, &candidate)? {
+                        return Err("missing referenced source input".to_owned());
+                    }
                     continue;
                 }
                 let entry = if let Some(entry) = all.get(&candidate) {
@@ -273,7 +288,7 @@ fn restore_references(
                         continue;
                     }
                 };
-                if candidate.as_bytes().ends_with(b".rs") {
+                if has_extension(&candidate, "rs") {
                     pending.push(candidate.clone());
                 }
                 entries.insert(candidate, entry);
@@ -307,6 +322,30 @@ fn relative_name(bytes: &[u8]) -> Result<String, String> {
         return Err("noncanonical source path".to_owned());
     }
     Ok(name.to_owned())
+}
+
+fn tracked_input_absent(root: &Path, name: &str) -> Result<bool, String> {
+    let path = root.join(name);
+    match fs::symlink_metadata(&path) {
+        Ok(_) => return Ok(false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(_) => return Err("unreadable source input".to_owned()),
+    }
+    // An absent path beneath a dangling or redirected ancestor is not a source
+    // deletion. Preserve the regular-directory boundary even for removed trees.
+    for parent in path
+        .ancestors()
+        .skip(1)
+        .take_while(|parent| *parent != root)
+    {
+        match fs::symlink_metadata(parent) {
+            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => (),
+            Ok(_) => return Err("source parent traverses a symlink or changed kind".to_owned()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(_) => return Err("unreadable source parent".to_owned()),
+        }
+    }
+    Ok(true)
 }
 
 fn inventory(root: &Path) -> Result<BTreeMap<String, Entry>, String> {
@@ -351,9 +390,26 @@ fn inventory(root: &Path) -> Result<BTreeMap<String, Entry>, String> {
             return Err("duplicate source inventory path".to_owned());
         }
     }
+    // Git's cached inventory still names intentional, unstaged deletions. Bind
+    // the files that actually exist, just as for an already staged deletion,
+    // while retaining old paths for the surviving-source reference check below.
+    let mut all = entries.clone();
+    for (name, entry) in &all {
+        if !matches!(entry, Entry::DocsGitlink(_))
+            && !matches!(name.as_str(), "Cargo.toml" | "Cargo.lock" | GENERATED)
+            && !EXTERNAL_INPUTS.contains(&name.as_str())
+            && tracked_input_absent(root, name)?
+        {
+            entries.remove(name);
+        }
+    }
     required_source_roots(root, &mut entries)?;
     let packages = package_roots(&entries);
-    let all = entries.clone();
+    all.extend(
+        entries
+            .iter()
+            .map(|(name, entry)| (name.clone(), entry.clone())),
+    );
     entries.retain(|name, _| selected(name, &packages));
     restore_references(root, &all, &packages, &mut entries)?;
     if entries.is_empty() {

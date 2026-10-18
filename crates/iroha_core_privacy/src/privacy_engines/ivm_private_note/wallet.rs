@@ -431,7 +431,7 @@ fn decrypt_note_material_v1(
 /// spending secret. The caller first derives `expected_commitment` under its
 /// governed profile, then this function proves the envelope decrypts to the
 /// exact expected note and one-time recipient key.
-pub(crate) fn validate_ivm_private_wallet_encryption_opening_v1(
+pub fn validate_ivm_private_wallet_encryption_opening_v1(
     pool_id: PrivacyPoolIdV1,
     program_id: PrivacyProgramIdV1,
     expected_note: &PrivateNotePlaintextV1,

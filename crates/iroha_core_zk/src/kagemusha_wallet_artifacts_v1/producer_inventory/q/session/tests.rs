@@ -146,9 +146,11 @@ pub(crate) fn assert_signature_reuse_controls(
         )
         .unwrap();
         assert_eq!(plans.len(), q.signatures().len());
+        // A lean route has no own Q_sigma: its signature leaves start at Q0.
+        let offset = q.signature_offset();
         for (index, plan) in plans.iter().enumerate() {
             assert_eq!(plan.slots(), q.signatures()[index].slots());
-            let member = record.q[index + 1];
+            let member = record.q[index + offset];
             let original = inventory.member(member).unwrap();
             let before = admitted.entries.len();
             let mut observed = Observed {
@@ -159,7 +161,7 @@ pub(crate) fn assert_signature_reuse_controls(
             let (key, seal) = admitted
                 .qualify(&inputs, member, plan, &mut observed)
                 .unwrap();
-            same_key(&key, &q.keys()[index + 1]);
+            same_key(&key, &q.keys()[index + offset]);
             seal.bind(member, &key, None).unwrap();
             assert_eq!(
                 observed.opens,
@@ -178,9 +180,9 @@ pub(crate) fn assert_signature_reuse_controls(
             cases += 1;
         }
     }
-    assert_eq!(references, 57);
+    assert_eq!(references, 26);
     assert_eq!(admitted.entries.len(), 6);
-    assert_eq!(hits, 51);
+    assert_eq!(hits, 20);
 
     let member = admitted.entries[0].member;
     let plan = admitted.entries[0].plan.clone();
@@ -461,7 +463,7 @@ pub(crate) fn assert_signature_reuse_controls(
     cases
 }
 
-/// Exercise every compiled signature role, including the 51 same-source hits.
+/// Exercise every compiled signature role, including the 20 same-source hits.
 /// All entries originate from the real typed compiled-member importer.
 pub(crate) fn assert_builtin_signature_reuse_controls(
     qualified: &QualifiedWalletSourcesV1,
@@ -491,12 +493,13 @@ pub(crate) fn assert_builtin_signature_reuse_controls(
             .position(|index| usize::try_from(*index).unwrap() == program)
             .unwrap();
         let q = qualified.q(routes[route]).unwrap();
+        let offset = q.signature_offset();
         for (index, plan) in q.signatures().iter().enumerate() {
-            let stage = u32::try_from(index + 1).unwrap();
+            let stage = u32::try_from(index + offset).unwrap();
             let compiled = profile
                 .member(&[2, u32::try_from(program).unwrap(), stage])
                 .unwrap();
-            let member = record.q[index + 1];
+            let member = record.q[index + offset];
             let original = inventory.member(member).unwrap();
             let before = admitted.entries.len();
             let mut observed = Observed {
@@ -507,11 +510,11 @@ pub(crate) fn assert_builtin_signature_reuse_controls(
             let (key, seal) = admitted
                 .qualify_with_member(&inputs, member, plan, &mut observed, Some(compiled))
                 .unwrap();
-            same_key(&key, &q.keys()[index + 1]);
+            same_key(&key, &q.keys()[index + offset]);
             assert!(
                 seal.seal(member)
                     .unwrap()
-                    .same_source(q.seals[index + 1].seal(member).unwrap())
+                    .same_source(q.seals[index + offset].seal(member).unwrap())
             );
             assert_eq!(
                 observed.opens,
@@ -527,9 +530,9 @@ pub(crate) fn assert_builtin_signature_reuse_controls(
             cases += 1;
         }
     }
-    assert_eq!(cases, 57);
+    assert_eq!(cases, 26);
     assert_eq!(admitted.entries.len(), 6);
-    assert_eq!(hits, 51);
+    assert_eq!(hits, 20);
 
     let member = admitted.entries[0].member;
     let plan = admitted.entries[0].plan.clone();

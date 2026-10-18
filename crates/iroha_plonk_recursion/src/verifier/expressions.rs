@@ -211,6 +211,7 @@ impl<C: PastaCurve> VerifierChip<C> {
         term: ConstraintTerm,
     ) -> Result<Scalar<C>, Error> {
         let one = self.constant(region, C::ScalarExt::ONE)?;
+
         let perm = |set, at| evals.read.scalar(ProofMessage::PermutationEval { set, at });
         match term {
             ConstraintTerm::Gate { polynomial } => {
@@ -231,8 +232,7 @@ impl<C: PastaCurve> VerifierChip<C> {
                     protocol.shape().permutation_sets - 1,
                     PermutationAt::Current,
                 )?;
-                let square = self.mul(region, &last, &last)?;
-                let difference = self.sub(region, &square, &last)?;
+                let difference = self.sub(region, &last, &one)?;
                 self.mul(region, &evals.last, &difference)
             }
             ConstraintTerm::PermutationLink { set } => {
@@ -265,9 +265,19 @@ impl<C: PastaCurve> VerifierChip<C> {
                     let beta_sigma = self.mul(region, &evals.beta, &sigma)?;
                     let left_factor = self.add(region, &value, &beta_sigma)?;
                     let left_factor = self.add(region, &left_factor, &evals.gamma)?;
+                    let left_factor = self.arithmetic.norm(
+                        &mut UintChip::new(&mut self.glue, &mut self.range),
+                        region,
+                        &left_factor,
+                    )?;
                     left = self.mul(region, &left, &left_factor)?;
                     let right_factor = self.add(region, &value, &delta)?;
                     let right_factor = self.add(region, &right_factor, &evals.gamma)?;
+                    let right_factor = self.arithmetic.norm(
+                        &mut UintChip::new(&mut self.glue, &mut self.range),
+                        region,
+                        &right_factor,
+                    )?;
                     right = self.mul(region, &right, &right_factor)?;
                     delta = self.mul(region, &delta, &delta_step)?;
                 }
@@ -285,8 +295,7 @@ impl<C: PastaCurve> VerifierChip<C> {
                         self.mul(region, &evals.first, &difference)
                     }
                     LookupConstraint::Last => {
-                        let square = self.mul(region, &product, &product)?;
-                        let difference = self.sub(region, &square, &product)?;
+                        let difference = self.sub(region, &product, &one)?;
                         self.mul(region, &evals.last, &difference)
                     }
                     LookupConstraint::Product => {
@@ -294,12 +303,32 @@ impl<C: PastaCurve> VerifierChip<C> {
                         let original_input = self.compress(region, &argument.inputs, evals)?;
                         let original_table = self.compress(region, &argument.tables, evals)?;
                         let input_factor = self.add(region, &input, &evals.beta)?;
+                        let input_factor = self.arithmetic.norm(
+                            &mut UintChip::new(&mut self.glue, &mut self.range),
+                            region,
+                            &input_factor,
+                        )?;
                         let table_factor = self.add(region, &table, &evals.gamma)?;
+                        let table_factor = self.arithmetic.norm(
+                            &mut UintChip::new(&mut self.glue, &mut self.range),
+                            region,
+                            &table_factor,
+                        )?;
                         let left =
                             self.mul(region, &value(LookupAt::ProductNext)?, &input_factor)?;
                         let left = self.mul(region, &left, &table_factor)?;
                         let input_factor = self.add(region, &original_input, &evals.beta)?;
+                        let input_factor = self.arithmetic.norm(
+                            &mut UintChip::new(&mut self.glue, &mut self.range),
+                            region,
+                            &input_factor,
+                        )?;
                         let table_factor = self.add(region, &original_table, &evals.gamma)?;
+                        let table_factor = self.arithmetic.norm(
+                            &mut UintChip::new(&mut self.glue, &mut self.range),
+                            region,
+                            &table_factor,
+                        )?;
                         let right = self.mul(region, &product, &input_factor)?;
                         let right = self.mul(region, &right, &table_factor)?;
                         let difference = self.sub(region, &left, &right)?;
@@ -326,7 +355,6 @@ impl<C: PastaCurve> VerifierChip<C> {
         k: u32,
         index: usize,
         x: &Scalar<C>,
-        vanishing_nonzero: &Bit<C::Base>,
         cache: &mut std::collections::BTreeMap<usize, Scalar<C>>,
     ) -> Result<Scalar<C>, Error> {
         if let Some(value) = cache.get(&index) {
@@ -335,27 +363,12 @@ impl<C: PastaCurve> VerifierChip<C> {
         let omega = iroha_plonk::protocol::omega::<C::ScalarExt>(k).ok_or(Error::Synthesis)?;
         let power = self.constant(region, omega.pow_vartime([index as u64]))?;
         let denominator = self.sub(region, x, &power)?;
-        // The caller binds guard = [x^n != 1]. Every omega^i is an nth
-        // root of unity, so a true guard proves this denominator nonzero.
-        // A false guard forces inverse=0, making even 0/0 total while the
-        // global verifier verdict remains false. This narrowly replaces
-        // repeated canonical zero tests, not the generic inverse predicate.
-        let one = self.constant(region, C::ScalarExt::ONE)?;
-        let zero = self.constant(region, C::ScalarExt::ZERO)?;
-        let numerator = self.arithmetic.select(
-            &mut UintChip::new(&mut self.glue, &mut self.range),
-            region,
-            vanishing_nonzero,
-            &one,
-            &zero,
-        )?;
-        let inverse = self.arithmetic.ff.div(region, &numerator, &denominator)?;
-        for limb in inverse.limbs() {
-            let selected =
-                self.glue
-                    .select_constant(region, vanishing_nonzero, limb, C::Base::ZERO)?;
-            GlueChip::assert_equal(region, limb, &selected)?;
-        }
+        // The reader owns X = 5*nz(a)^2 after canonical base-to-scalar
+        // conversion. Five is nonsquare in either Pasta scalar field, while
+        // every admitted (k <= 28) domain root is a fourth power. Thus this
+        // denominator is nonzero even for malformed proof contents. Retain
+        // the inverse equation; no generic inverse guard is removed.
+        let inverse = self.arithmetic.ff.inverse(region, &denominator)?;
         let value = self.mul(region, &power, &inverse)?;
         cache.insert(index, value.clone());
         Ok(value)
@@ -366,26 +379,19 @@ impl<C: PastaCurve> VerifierChip<C> {
         plan: &VerifierPlan<C>,
         read: &Read<C>,
         instance_values: &[Vec<Scalar<C>>],
-        valid: &mut Bit<C::Base>,
     ) -> Result<(Vec<Scalar<C>>, Scalar<C>), Error> {
         let protocol = &plan.protocol;
         let shape = protocol.shape();
         let descriptor = plan.binding.descriptor();
         let x = read.challenge(Challenge::X)?;
         let xn = self.pow(region, &x, shape.n as u64)?;
-        let nonzero = self.nonzero(region, &x)?;
-        self.combine(region, valid, &nonzero)?;
+        // X is the exact reader-owned 5*nz(a)^2 map: nonzero outside H.
         let one = self.constant(region, C::ScalarExt::ONE)?;
         let denominator = self.sub(region, &xn, &one)?;
-        let (vanishing_inverse, vanishing_nonzero) = self.arithmetic.inverse(
-            &mut UintChip::new(&mut self.glue, &mut self.range),
-            region,
-            &denominator,
-        )?;
-        self.combine(region, valid, &vanishing_nonzero)?;
-        // L_i(x) = common * omega^i/(x-omega^i). The denominator validity
-        // guard follows from the separately checked x^n-1 nonzero bit. Its
-        // false branch forces all weights to zero and the verdict false.
+        // The same mapped-X coset fact makes x^n - 1 nonzero pointwise.
+        // This division still constrains denominator * inverse = 1.
+        let vanishing_inverse = self.arithmetic.ff.inverse(region, &denominator)?;
+        // L_i(x) = common * omega^i/(x-omega^i).
         let inv_n = self.constant(
             region,
             C::ScalarExt::TWO_INV.pow_vartime([u64::from(shape.k)]),
@@ -407,14 +413,7 @@ impl<C: PastaCurve> VerifierChip<C> {
                     .rem_euclid(i64::try_from(shape.n).map_err(|_| Error::BoundsFailure)?),
                 )
                 .map_err(|_| Error::BoundsFailure)?;
-                let weight = self.lagrange_weight(
-                    region,
-                    shape.k,
-                    index,
-                    &x,
-                    &vanishing_nonzero,
-                    &mut basis,
-                )?;
+                let weight = self.lagrange_weight(region, shape.k, index, &x, &mut basis)?;
                 pairs.push((input.clone(), weight));
             }
             let mut value = self.constant(region, C::ScalarExt::ZERO)?;
@@ -432,21 +431,13 @@ impl<C: PastaCurve> VerifierChip<C> {
             }
             instances.push(self.mul(region, &common, &value)?);
         }
-        let first = self.lagrange_weight(region, shape.k, 0, &x, &vanishing_nonzero, &mut basis)?;
+        let first = self.lagrange_weight(region, shape.k, 0, &x, &mut basis)?;
         let first = self.mul(region, &common, &first)?;
-        let last = self.lagrange_weight(
-            region,
-            shape.k,
-            shape.usable_rows,
-            &x,
-            &vanishing_nonzero,
-            &mut basis,
-        )?;
+        let last = self.lagrange_weight(region, shape.k, shape.usable_rows, &x, &mut basis)?;
         let last = self.mul(region, &common, &last)?;
         let mut blind = self.constant(region, C::ScalarExt::ZERO)?;
         for index in shape.usable_rows + 1..shape.n {
-            let value =
-                self.lagrange_weight(region, shape.k, index, &x, &vanishing_nonzero, &mut basis)?;
+            let value = self.lagrange_weight(region, shape.k, index, &x, &mut basis)?;
             blind = self.add(region, &blind, &value)?;
         }
         let blind = self.mul(region, &common, &blind)?;

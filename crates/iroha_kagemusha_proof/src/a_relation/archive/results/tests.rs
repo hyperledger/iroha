@@ -12,7 +12,7 @@ use iroha_plonk_recursion::{codec::ScalarCells, verifier::VerifierConfig};
 
 fn groups() -> Vec<Vec<OperationTask>> {
     vec![
-        vec![OperationTask::ArchiveOwnProof],
+        vec![],
         vec![OperationTask::ArchiveProofs],
         vec![
             OperationTask::ArchiveRetainedPayment,
@@ -161,7 +161,7 @@ impl Circuit<Fp> for Claims {
                 } else {
                     Ep::from(point)
                 };
-                let point = chip.constant_point(&mut r, &point)?;
+                let point = chip.constant_generator(&mut r, &point)?;
                 let challenges = (0..16)
                     .map(|i| {
                         let v = |x| {
@@ -351,7 +351,7 @@ impl Circuit<Fp> for MapVerdict {
                         &iroha_plonk_recursion::PALLAS_TRIVIAL_GENERATOR,
                     )
                     .map_err(|_| Error::Synthesis)?;
-                    let point = chip.constant_point(&mut region, &Ep::from(point))?;
+                    let point = chip.constant_generator(&mut region, &Ep::from(point))?;
                     let one = chip.uint().glue().constant(&mut region, Fp::ONE)?;
                     let challenge =
                         ScalarCells::from_native_word(&mut chip.uint(), &mut region, &one)?;

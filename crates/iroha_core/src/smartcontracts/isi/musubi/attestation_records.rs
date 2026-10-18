@@ -43,12 +43,16 @@ pub fn load_location_provider_attestations<'world>(
     location: &MusubiArchiveLocationV1,
     world: &'world impl MusubiSourceReadOnly,
 ) -> Result<LocationProviderAttestations<'world>, ParseError> {
-    try_load_location_provider_attestations(archive, location, world)
+    try_load_location_provider_attestations::<_, ()>(archive, location, world)
         .map_err(ReadFailure::into_predicate)
 }
 
 /// Run the same predicate while preserving an original physical read refusal.
-pub(crate) fn try_load_location_provider_attestations<'world, W: MusubiRead>(
+pub(crate) fn try_load_location_provider_attestations<
+    'world,
+    W: MusubiEvidenceRead<Q>,
+    Q: Default,
+>(
     archive: &MusubiArchiveRecordV1,
     location: &MusubiArchiveLocationV1,
     world: &'world W,
@@ -57,15 +61,20 @@ pub(crate) fn try_load_location_provider_attestations<'world, W: MusubiRead>(
         records: [None; MUSUBI_MAX_LOCATION_PROVIDERS_V1],
         len: location.providers.len(),
     };
-    ProviderAttestationValidation::new().advance(archive, location, world, |index, record| {
-        records.records[index] = Some(record);
-    })?;
+    ProviderAttestationValidation::<Q>::new().advance(
+        archive,
+        location,
+        world,
+        |index, record| {
+            records.records[index] = Some(record);
+        },
+    )?;
     Ok(records)
 }
 
 /// Original immutable-location verification cursor; verified signatures never repeat on retry.
-pub(crate) struct ProviderAttestationValidation {
-    queries: [LookupCursor; 1],
+pub(crate) struct ProviderAttestationValidation<Q> {
+    queries: [Q; 1],
     initialized: bool,
     next: usize,
     references: [MusubiProviderBundleAttestationRefV1; MUSUBI_MAX_LOCATION_PROVIDERS_V1],
@@ -73,12 +82,12 @@ pub(crate) struct ProviderAttestationValidation {
     complete: bool,
     rejected: Option<ParseError>,
 }
-impl ProviderAttestationValidation {
+impl<Q: Default> ProviderAttestationValidation<Q> {
     /// Begin without reading or allocating. The enclosing original owner pins the source.
     pub(crate) fn new() -> Self {
         Self {
             initialized: false,
-            queries: [LookupCursor::new(); 1],
+            queries: [Q::default()],
             next: 0,
             references: [MusubiProviderBundleAttestationRefV1 {
                 provider_id: ProviderId::new([0; 32]),
@@ -91,7 +100,7 @@ impl ProviderAttestationValidation {
     }
     /// Complete the same predicate, preserving each original source refusal.
     /// The private source owner must use one unchanged archive/location on every retry.
-    pub(crate) fn advance<'world, W: MusubiRead>(
+    pub(crate) fn advance<'world, W: MusubiEvidenceRead<Q>>(
         &mut self,
         archive: &MusubiArchiveRecordV1,
         location: &MusubiArchiveLocationV1,
@@ -110,7 +119,7 @@ impl ProviderAttestationValidation {
         }
         result
     }
-    fn advance_inner<'world, W: MusubiRead>(
+    fn advance_inner<'world, W: MusubiEvidenceRead<Q>>(
         &mut self,
         archive: &MusubiArchiveRecordV1,
         location: &MusubiArchiveLocationV1,
@@ -183,7 +192,7 @@ impl ProviderAttestationValidation {
             self.references[index] = record.attestation.reference();
             verified(index, record);
             self.next += 1;
-            self.queries[0].reset();
+            self.queries[0] = Q::default();
         }
         let set_digest = musubi_provider_bundle_attestation_set_digest_v1(
             archive.archive_id,

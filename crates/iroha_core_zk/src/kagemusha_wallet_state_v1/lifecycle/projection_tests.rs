@@ -115,7 +115,7 @@ fn receive_projection_wallet(burn: bool) -> (Wallet, FrozenTransition, [u8; 32])
     let receiver = request.receiver_credential.clone();
     assert_ne!(
         receiver.body.wallet_id,
-        payment.request.body.payer_wallet_id
+        payment.signed_request().unwrap().body.payer_wallet_id
     );
     let mut wallet = wallet();
     wallet.wallet_id = receiver.body.wallet_id;
@@ -295,7 +295,7 @@ fn payer_projection_wallet(
         .0;
     let anchor = archive::encode(&credited).unwrap();
     let descriptor = KagemushaWalletPendingOutgoingLeafV1 {
-        credit_id: payment.request.body.credit_id(),
+        credit_id: payment.signed_request().unwrap().body.credit_id(),
         receiver_wallet_id: request.body.receiver_wallet_id,
         send_ordinal: request.body.send_ordinal,
         amount: request.body.amount,

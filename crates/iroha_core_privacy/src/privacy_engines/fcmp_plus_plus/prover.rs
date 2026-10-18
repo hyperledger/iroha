@@ -1072,7 +1072,7 @@ impl FcmpProverInputV1 {
         let linking_spend =
             secret_edwards_scalar_product_v1(&self.rerandomization.linking, &self.spend_x);
         let key_image_left = secret_edwards_product_v1(&linking_tilde, &self.spend_x);
-        let key_image_right = secret_edwards_product_v1(&generator_u(), &*linking_spend);
+        let key_image_right = secret_edwards_product_v1(&generator_u(), &linking_spend);
         let key_image = Zeroizing::new(&*key_image_left - &*key_image_right);
         let output_key_tilde = prover_secret_edwards_encoding_v1(&output_key_tilde);
         let linking_tilde = prover_secret_edwards_encoding_v1(&linking_tilde);
@@ -1467,7 +1467,7 @@ fn fcmp_fixture_secret_helios_encoding_v1(
 /// one output, and one layer. Secret-bearing typed witnesses are returned only
 /// inside tests or the non-shipping release-evidence feature.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn fcmp_release_fixture_v1(
+pub fn fcmp_release_fixture_v1(
     maximum: bool,
 ) -> Result<
     (

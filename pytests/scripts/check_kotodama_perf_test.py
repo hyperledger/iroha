@@ -1104,6 +1104,10 @@ class KotodamaPerfGateTests(unittest.TestCase):
             )
         )
         self.assertIn("--bench queries -- typed_core_query_", base_step)
+        self.assertIn(
+            "-p iroha_core --features bench,iroha-core-tests --bench queries",
+            base_step,
+        )
 
         candidate_marker = "      - name: Measure candidate revision\n"
         self.assertEqual(workflow.count(candidate_marker), 1)
@@ -1121,6 +1125,10 @@ class KotodamaPerfGateTests(unittest.TestCase):
             )
         )
         self.assertIn("--bench queries -- typed_core_query_", candidate_step)
+        self.assertIn(
+            "-p iroha_core --features bench,iroha-core-tests --bench queries",
+            candidate_step,
+        )
         self.assertNotIn("KOTODAMA_BASE_FILTER", workflow)
 
         enforcement_marker = "      - name: Enforce five-percent ceiling\n"

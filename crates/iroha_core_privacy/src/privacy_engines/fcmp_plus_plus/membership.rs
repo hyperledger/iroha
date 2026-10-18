@@ -625,7 +625,7 @@ pub(super) fn verify_fcmp_membership_parsed_v1(
 /// fixtures. Production callers cannot bypass the complete transaction
 /// verifier, which additionally enforces balance and the output range proof.
 #[cfg(test)]
-pub(crate) fn verify_fcmp_plus_plus_v1(
+pub fn verify_fcmp_plus_plus_v1(
     context_hash: [u8; 32],
     proof_wire: &[u8],
     public_inputs: &[FcmpProofInputPublicV1],

@@ -8,7 +8,8 @@ use super::table_assets::read_u16_le;
 use super::*;
 use sha2::{Digest as _, Sha256};
 use zeroize::Zeroizing;
-const KAT_512_BYTES: &[u8; 3_168] = include_bytes!("assets/kat512_v1.bin");
+/// Pinned signer fixture bytes shared by Falcon's test-only arithmetic controls.
+pub(super) const KAT_512_BYTES: &[u8; 3_168] = include_bytes!("assets/kat512_v1.bin");
 struct Kat512 {
     f: [i8; 512],
     g: [i8; 512],
@@ -28,11 +29,11 @@ const fn decode_kat_512(bytes: &[u8; 3_168]) -> Kat512 {
     };
     let mut index = 0;
     while index < 512 {
-        kat.f[index] = bytes[index] as i8;
-        kat.g[index] = bytes[512 + index] as i8;
-        kat.capital_f[index] = bytes[1_024 + index] as i8;
-        kat.capital_g[index] = bytes[1_536 + index] as i8;
-        kat.sig_raw[index] = read_u16_le(bytes, 2_144 + index * 2) as i16;
+        kat.f[index] = bytes[index].cast_signed();
+        kat.g[index] = bytes[512 + index].cast_signed();
+        kat.capital_f[index] = bytes[1_024 + index].cast_signed();
+        kat.capital_g[index] = bytes[1_536 + index].cast_signed();
+        kat.sig_raw[index] = read_u16_le(bytes, 2_144 + index * 2).cast_signed();
         index += 1;
     }
     let mut rnd_index = 0;

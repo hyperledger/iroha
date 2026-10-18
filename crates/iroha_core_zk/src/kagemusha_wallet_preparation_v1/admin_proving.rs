@@ -70,7 +70,7 @@ macro_rules! prove_admin {
             witness: &$witness,
             statement: &KagemushaWalletStatementV1,
             prover: &$prover,
-            randomness: ProverRandomness<'_>,
+            randomness: ProverRandomness,
             budget: MemoryBudget,
         ) -> Result<KagemushaWalletStepProofV1, Error> {
             let kind = KagemushaWalletOperationKindV1::$kind;
@@ -184,7 +184,7 @@ impl PreparationV1<'_> {
         owner: &AuthenticatedCredentialV1,
         step: &RefreshStepV1,
         prover: &RefreshProver,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         budget: MemoryBudget,
     ) -> Result<KagemushaWalletStepProofV1, Error> {
         if step.manifest_digest() != self.installed.verifier().manifest_digest() {

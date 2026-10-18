@@ -1,7 +1,7 @@
 //! Complete installed wallet verifier inventory and native identity preimages.
 //!
 //! A pack contains canonical original authority frames and every descriptor/VK of the
-//! sixteen sigma selectors plus Omega. Native protocol/profile identities are constructed
+//! eleven sigma selectors plus Omega. Native protocol/profile identities are constructed
 //! here from compiled native constants and pinned parameter tables, never from wallet wire
 //! inputs. The signed manifest must equal the independently installed manifest digest and
 //! the inventory recomputed from the actual mounted bytes.
@@ -46,20 +46,15 @@ pub mod producer_inventory;
 mod tests;
 
 /// Complete installed V1 sigma catalog, in global selector order.
-/// Receive's mask is the Request-recorded blacklist decision.
-pub const SIGMA_CATALOG_V1: [(u8, u32); 16] = [
+/// Send masks are the quota and lease controls; every other operation has one key.
+pub const SIGMA_CATALOG_V1: [(u8, u32); 11] = [
     (1, 0),
     (2, 0),
     (3, 0),
     (3, 1),
     (3, 2),
     (3, 3),
-    (3, 4),
-    (3, 5),
-    (3, 6),
-    (3, 7),
     (4, 0),
-    (4, 1),
     (5, 0),
     (6, 0),
     (7, 0),
@@ -69,7 +64,7 @@ pub const SIGMA_CATALOG_V1: [(u8, u32); 16] = [
 pub const DESCRIPTOR_MAX_BYTES_V1: usize = 1 << 20;
 /// Per-artifact original native VK cap, before decoding.
 pub const VERIFYING_KEY_MAX_BYTES_V1: usize = 1 << 18;
-/// Aggregate original descriptor/VK cap across all seventeen artifacts.
+/// Aggregate original descriptor/VK cap across all twelve artifacts.
 pub const INVENTORY_MAX_BYTES_V1: usize = 16 << 20;
 /// Complete canonical pack cap including authority frames and codec overhead.
 pub const VERIFIER_PACK_MAX_BYTES_V1: usize = INVENTORY_MAX_BYTES_V1 + (1 << 16);
@@ -90,7 +85,7 @@ pub struct ArtifactOriginalV1 {
 pub struct StepOriginalV1 {
     /// Operation whose complete step relation this installed key authenticates.
     pub kind: KagemushaWalletOperationKindV1,
-    /// Send enabled-controls or Receive Request-recorded blacklist selector.
+    /// Send enabled controls; zero for every other operation.
     pub enabled_controls: u32,
     /// Unmodified descriptor and key originals.
     pub artifact: ArtifactOriginalV1,

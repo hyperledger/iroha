@@ -291,7 +291,7 @@ fn with_consensus_meta_adds_fields_and_stable_fingerprint() {
         .expect("valid fixture consensus parameters");
     assert_eq!(tx2.consensus_mode, SumeragiConsensusMode::Permissioned);
     assert_eq!(tx2.wire_protocol_version, CONSENSUS_PROTOCOL_VERSION);
-    let fp1 = tx2.consensus_fingerprint.clone().unwrap();
+    let fp1 = tx2.consensus_fingerprint.unwrap();
     let fp2 = tx
         .clone()
         .with_consensus_meta()
@@ -853,8 +853,8 @@ fn genesis_builder_rejects_set_parameter_as_generic_instruction() {
 }
 #[test]
 fn multiple_structured_parameter_blocks_are_rejected_as_ambiguous_snapshots() {
-    init_instruction_registry();
     use iroha_data_model::parameter::{Parameters, system::SumeragiParameter};
+    init_instruction_registry();
     let chain = ChainId::from("iroha:test:paramparse-order");
     let mut base = Parameters::default();
     base.set_parameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(100)));
@@ -1009,8 +1009,8 @@ fn debug_dump_set_parameter_order_for_encoded_manifest_path() -> Result<()> {
 }
 #[test]
 fn set_parameter_inside_instructions_is_rejected() {
-    init_instruction_registry();
     use iroha_data_model::parameter::system::SumeragiParameter;
+    init_instruction_registry();
     let set_param = InstructionBox::from(SetParameter::new(Parameter::Sumeragi(
         SumeragiParameter::MaxClockDriftMs(1_000),
     )));

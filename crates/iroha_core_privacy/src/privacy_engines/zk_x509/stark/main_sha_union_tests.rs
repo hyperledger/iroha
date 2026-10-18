@@ -528,7 +528,7 @@ fn quartic_replay_degree_work_and_scoped_residency_fit_unchanged_limits() {
     let n = 1_usize << 19;
     assert_eq!(MainShaUnionPlanV1::COEFFICIENT_COUNT_V1, 526_104);
     assert_eq!(MainShaUnionPlanV1::UNION_DEGREE_V1, 2_104_411);
-    assert!(MainShaUnionPlanV1::UNION_DEGREE_V1 < 2_155_224);
+    const { assert!(MainShaUnionPlanV1::UNION_DEGREE_V1 < 2_155_224) };
     assert_eq!(4 * 8, 32); // original columns generated and IFFT'd once
     assert_eq!(4 * 8 * 8, 256); // lanes, stripes, original columns
     assert_eq!(32 * (n / 2) * 19, 159_383_552);

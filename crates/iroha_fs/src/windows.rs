@@ -728,6 +728,7 @@ impl Directory {
     }
 
     fn revalidate_from(&self, first: usize) -> io::Result<()> {
+        crate::custody_work::record_ancestry_walk(self.links.len().saturating_sub(first));
         for link in self.links.iter().skip(first) {
             let held = snapshot(&link.file, link.private, true)?;
             let named = open_file(

@@ -2,13 +2,6 @@
 //!
 //! Petal Stream is the animated `天` / katakana / dotted-ring transport
 //! specified in `specs/petal_stream.md` and implemented by `iroha_petal`.
-// Report fields mix byte counts, frame counts and floating-point timings that
-// are bounded by the command-line limits above.
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_precision_loss,
-    clippy::cast_sign_loss
-)]
 use crate::{Run, RunContext, cli_output::print_with_optional_text};
 use clap::{Args, Subcommand, ValueEnum};
 use eyre::{Result, WrapErr, eyre};

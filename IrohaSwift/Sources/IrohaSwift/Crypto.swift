@@ -304,10 +304,41 @@ enum Ed25519CompressedPointAdmission {
 
 enum Ed25519PublicKeyAdmission {
     static let publicKeyLength = Ed25519CompressedPointAdmission.compressedPointLength
+    private static let validatedKeys = ValidatedKeys()
 
     static func isValidPublicKey(_ publicKey: Data) -> Bool {
-        publicKey.count == publicKeyLength
-            && Ed25519CompressedPointAdmission.isValidCompressedPoint(publicKey)
+        guard publicKey.count == publicKeyLength else { return false }
+        // Validate and retain the same owned byte snapshot, including for bridged Data.
+        let candidate = Data([UInt8](publicKey))
+        if validatedKeys.contains(candidate) { return true }
+        guard Ed25519CompressedPointAdmission.isValidCompressedPoint(candidate) else {
+            return false
+        }
+        validatedKeys.insert(candidate)
+        return true
+    }
+
+    /// Admission is a pure property of the exact public key bytes. Retain only successful
+    /// complete curve/subgroup checks; this does not cache signatures or account ownership.
+    private final class ValidatedKeys: @unchecked Sendable {
+        private let lock = NSLock()
+        private var keys = Set<Data>()
+        private let capacity = 128
+
+        func contains(_ key: Data) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return keys.contains(key)
+        }
+
+        func insert(_ key: Data) {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !keys.contains(key) else { return }
+            // Eviction changes only how often the complete admission check runs.
+            if keys.count == capacity { keys.removeAll(keepingCapacity: true) }
+            keys.insert(key)
+        }
     }
 }
 

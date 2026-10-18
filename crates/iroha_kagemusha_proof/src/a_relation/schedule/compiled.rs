@@ -26,29 +26,29 @@ impl OperationSchedule {
     pub fn for_variant(variant: Variant) -> Self {
         use OperationTask::*;
         let (q, tasks) = match variant {
+            // Lean: one unsplit terminal A proves the zero state, the issuer and
+            // the own receipt on its single signature Q; no W follows it.
             Variant::Bootstrap => (
-                vec![vec![0], vec![1]],
-                vec![vec![], vec![BootstrapState, BootstrapAuthorization]],
+                vec![vec![0]],
+                vec![vec![BootstrapState, BootstrapAuthorization]],
             ),
             Variant::Load => (
-                vec![vec![], vec![0], vec![1], vec![2]],
-                vec![
-                    vec![LoadRecovery],
-                    vec![],
-                    vec![LoadReceipt],
-                    vec![LoadCurrentAuthorization],
-                ],
+                vec![vec![], vec![0]],
+                vec![vec![LoadRecovery], vec![LoadReceipt]],
             ),
+            // Lean: A1 proves the transition and its objects beside the hard predecessor,
+            // A2 both map insertions, A3 the own receipt.
             Variant::Send => (
-                vec![vec![], vec![], vec![], vec![0], vec![1]],
+                vec![vec![], vec![], vec![0]],
                 vec![
-                    vec![SendObjects, SendProof],
-                    vec![SendPending],
-                    vec![SendFeeAndCarry],
-                    vec![],
+                    vec![SendObjects, SendTransition],
+                    vec![SendPending, SendFeeAndCarry],
                     vec![SendAuthorization],
                 ],
             ),
+            // Lean: A1 proves the transition beside the hard predecessor; Q0 is the
+            // incoming-only Q_sigma, Q1 the merged signature leaf (own receipt hard,
+            // incoming slots soft) owned by Authorization and projected by Signatures.
             Variant::Receive | Variant::ReceiveRenewed => (
                 vec![
                     vec![],
@@ -57,41 +57,29 @@ impl OperationSchedule {
                     vec![],
                     vec![],
                     vec![1],
-                    vec![2],
                     vec![],
                     vec![],
                     vec![],
                 ],
                 vec![
-                    if variant == Variant::ReceiveRenewed {
-                        vec![ReceiveOwnProof, ReceiveConsumedEffects]
-                    } else {
-                        vec![
-                            ReceiveOwnProof,
-                            ReceiveConsumedEffects,
-                            ReceiveCreditEffects,
-                        ]
-                    },
+                    vec![ReceiveConsumedEffects, ReceiveTransition],
                     vec![],
                     vec![ReceiveProofs],
                     vec![ReceiveProofDigest],
                     vec![ReceiveObjects],
                     vec![ReceiveAuthorization],
-                    vec![],
-                    if variant == Variant::ReceiveRenewed {
-                        vec![ReceiveSignatures, ReceiveCreditEffects]
-                    } else {
-                        vec![ReceiveSignatures]
-                    },
-                    vec![ReceiveNonmembership, ReceiveBlacklist],
+                    vec![ReceiveSignatures, ReceiveCreditEffects],
+                    vec![ReceiveNonmembership],
                     vec![ReceiveEffects],
                 ],
             ),
-            Variant::ArchiveReceive | Variant::ArchiveStatus => (
+            // Lean: A already proves sigma_archive's relation (LineagePending runs the
+            // administrative archive rule). Q1 (Q0 for Status) is the merged signature
+            // leaf; ArchiveReceive's Q0 is the incoming-only Q_sigma.
+            Variant::ArchiveReceive => (
                 vec![
                     vec![],
                     vec![],
-                    vec![2],
                     vec![1],
                     vec![],
                     vec![],
@@ -101,10 +89,9 @@ impl OperationSchedule {
                     vec![],
                 ],
                 vec![
-                    vec![ArchiveOwnProof, ArchiveCorePending],
+                    vec![ArchiveCorePending],
                     vec![ArchiveRetainedProofs],
-                    vec![ArchiveSignatures],
-                    vec![ArchiveAuthorization],
+                    vec![ArchiveSignatures, ArchiveAuthorization],
                     vec![ArchiveLineagePending],
                     vec![ArchiveProofs],
                     vec![],
@@ -113,16 +100,38 @@ impl OperationSchedule {
                     vec![ArchiveEffects],
                 ],
             ),
-            Variant::Unload | Variant::Retiring => (
-                vec![vec![], vec![], vec![0], vec![1]],
+            Variant::ArchiveStatus => (
                 vec![
-                    vec![UnloadProof],
+                    vec![],
+                    vec![],
+                    vec![0],
+                    vec![],
+                    vec![],
+                    vec![],
+                    vec![],
+                    vec![],
+                ],
+                vec![
+                    vec![ArchiveCorePending],
+                    vec![ArchiveRetainedProofs],
+                    vec![ArchiveSignatures, ArchiveAuthorization],
+                    vec![ArchiveLineagePending],
+                    vec![ArchiveProofs],
+                    vec![ArchiveEvidence],
+                    vec![ArchiveRetainedPayment],
+                    vec![ArchiveEffects],
+                ],
+            ),
+            // Lean: A1 proves the transition beside the hard predecessor; A2 owns
+            // the own-receipt leaf.
+            Variant::Unload | Variant::Retiring => (
+                vec![vec![], vec![0]],
+                vec![
                     vec![if variant == Variant::Unload {
                         UnloadRecovery
                     } else {
                         RetiringState
                     }],
-                    vec![],
                     vec![UnloadAuthorization],
                 ],
             ),
@@ -140,15 +149,10 @@ impl OperationSchedule {
             ),
             Variant::RefreshCredential
             | Variant::RefreshSchemePolicy
-            | Variant::RefreshBlacklist
             | Variant::RefreshTimeAnchor => (
                 vec![vec![], vec![0], vec![1], vec![2]],
                 vec![
-                    if variant == Variant::RefreshBlacklist {
-                        vec![RefreshEffects, RefreshBlacklist]
-                    } else {
-                        vec![RefreshEffects]
-                    },
+                    vec![RefreshEffects],
                     vec![],
                     vec![RefreshUpdateAuthorization],
                     vec![RefreshCurrentAuthorization],
@@ -178,7 +182,8 @@ impl OperationSchedule {
             .with_operation_tasks(self.tasks)
     }
 
-    /// Number of source A stages; exactly one W joins consecutive stages.
+    /// Number of source A stages; exactly one W joins consecutive stages, and a
+    /// single stage is the unsplit terminal A.
     #[must_use]
     pub fn stage_count(&self) -> usize {
         self.q.len()
@@ -227,7 +232,6 @@ pub fn compiled_routes() -> Vec<OperationRoute> {
             Variant::Unload => (6, None),
             Variant::RefreshCredential
             | Variant::RefreshSchemePolicy
-            | Variant::RefreshBlacklist
             | Variant::RefreshQuotaShare
             | Variant::RefreshTimeAnchor => (7, None),
             Variant::Retiring => (8, None),
@@ -342,7 +346,10 @@ mod tests {
     use super::*;
     #[test]
     fn complete_schedule_has_every_q_and_mandatory_owner_once() {
-        let expected = [2, 4, 5, 10, 10, 10, 10, 4, 4, 4, 4, 4, 7, 4];
+        // Every route except Refresh is lean: no own Q_sigma. Bootstrap, Load, Send,
+        // Unload, Retiring and ArchiveStatus have one signature leaf; Receive and
+        // ArchiveReceive add the incoming-only Q_sigma.
+        let expected = [1, 2, 3, 9, 9, 9, 8, 2, 2, 4, 4, 7, 4];
         for (variant, count) in Variant::ALL.into_iter().zip(expected) {
             let schedule = OperationSchedule::for_variant(variant);
             assert_eq!(schedule.stage_count(), count);
@@ -350,40 +357,51 @@ mod tests {
             OperationTask::validate(variant, schedule.tasks()).unwrap();
             let mut q: Vec<_> = schedule.q_partitions().iter().flatten().copied().collect();
             q.sort_unstable();
-            let expected_q = if matches!(
-                variant,
-                Variant::Bootstrap | Variant::Send | Variant::Unload | Variant::Retiring
-            ) {
-                2
-            } else {
-                3
+            let expected_q = match variant {
+                Variant::Bootstrap
+                | Variant::Load
+                | Variant::Send
+                | Variant::Unload
+                | Variant::Retiring
+                | Variant::ArchiveStatus => 1,
+                Variant::Receive | Variant::ReceiveRenewed | Variant::ArchiveReceive => 2,
+                _ => 3,
             };
             assert_eq!(q, (0..expected_q).collect::<Vec<_>>());
         }
     }
     #[test]
-    fn renewed_receive_moves_only_credit_owner_and_preserves_every_obligation() {
+    fn receive_variants_share_credit_owner_and_preserve_every_obligation() {
         let plain = OperationSchedule::for_variant(Variant::Receive);
         let renewed = OperationSchedule::for_variant(Variant::ReceiveRenewed);
         assert_eq!(plain.q, renewed.q);
         assert_eq!(plain.predecessor, renewed.predecessor);
-        let mut expected = plain.tasks.clone();
-        assert_eq!(expected[0].pop(), Some(OperationTask::ReceiveCreditEffects));
-        expected[7].push(OperationTask::ReceiveCreditEffects);
-        assert_eq!(renewed.tasks, expected);
+        assert_eq!(plain.tasks, renewed.tasks);
         assert_eq!(
             plain.tasks[0],
             [
-                OperationTask::ReceiveOwnProof,
                 OperationTask::ReceiveConsumedEffects,
+                OperationTask::ReceiveTransition
+            ]
+        );
+        assert_eq!(
+            plain.tasks[6],
+            [
+                OperationTask::ReceiveSignatures,
                 OperationTask::ReceiveCreditEffects
             ]
         );
+        let mut untransitioned = plain.tasks.clone();
+        assert_eq!(
+            untransitioned[0].pop(),
+            Some(OperationTask::ReceiveTransition)
+        );
+        assert!(OperationTask::validate(Variant::Receive, &untransitioned).is_err());
         let mut dropped = renewed.tasks.clone();
-        assert_eq!(dropped[7].pop(), Some(OperationTask::ReceiveCreditEffects));
+        assert_eq!(dropped[6].pop(), Some(OperationTask::ReceiveCreditEffects));
         assert!(OperationTask::validate(Variant::ReceiveRenewed, &dropped).is_err());
         let mut substituted = dropped;
-        substituted[7].push(OperationTask::ReceiveConsumedEffects);
+        substituted[6].push(OperationTask::ReceiveConsumedEffects);
         assert!(OperationTask::validate(Variant::ReceiveRenewed, &substituted).is_err());
         let mut duplicate = renewed.tasks.clone();
         duplicate[0].push(OperationTask::ReceiveCreditEffects);
@@ -404,7 +422,7 @@ mod tests {
         assert_eq!(norito::encode_canonical(&policy).unwrap(), bytes);
         assert_eq!(policy.version, 1);
         assert_eq!(policy.records.len(), Variant::ALL.len());
-        assert_eq!(policy.routes.len(), 52);
+        assert_eq!(policy.routes.len(), 22);
         for (actual, expected) in policy.routes.iter().zip(compiled_routes()) {
             assert_eq!(
                 Variant::ALL[usize::from(actual.variant) - 1],
@@ -445,7 +463,7 @@ mod tests {
     #[test]
     fn routes_cover_every_own_and_incoming_selector_exactly_once() {
         let routes = compiled_routes();
-        assert_eq!(routes.len(), 52);
+        assert_eq!(routes.len(), 22);
         for variant in Variant::ALL {
             let selected: Vec<_> = routes.iter().filter(|r| r.variant == variant).collect();
             assert!(!selected.is_empty());
@@ -454,24 +472,14 @@ mod tests {
                 assert!(pairs.insert((route.own, route.incoming)));
             }
             let count = match variant {
-                Variant::Send => 8,
-                Variant::Receive | Variant::ReceiveRenewed => 16,
-                Variant::ArchiveReceive => 2,
+                Variant::Send | Variant::Receive | Variant::ReceiveRenewed => 4,
                 _ => 1,
             };
             assert_eq!(selected.len(), count);
             if matches!(variant, Variant::Receive | Variant::ReceiveRenewed) {
-                assert_eq!(
-                    pairs,
-                    (10..=11)
-                        .flat_map(|own| (2..=9).map(move |incoming| (own, Some(incoming))))
-                        .collect()
-                );
+                assert_eq!(pairs, (2..=5).map(|incoming| (6, Some(incoming))).collect());
             } else if variant == Variant::ArchiveReceive {
-                assert_eq!(
-                    pairs,
-                    [(12, Some(10)), (12, Some(11))].into_iter().collect()
-                );
+                assert_eq!(pairs, [(7, Some(6))].into_iter().collect());
             } else {
                 assert!(selected.iter().all(|r| r.incoming.is_none()));
             }

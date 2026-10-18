@@ -266,6 +266,7 @@ impl MatchedBenchmarkWorkloadV1 {
                 format!("matched_{}", self.digest()?).parse()?,
             ),
             self.movements()?,
+            iroha_data_model::isi::AtomicSettlementEscrows::empty(),
             NonZeroU64::new(expiry).ok_or_else(|| eyre!("zero settlement expiry"))?,
             Metadata::default(),
         ))
@@ -617,8 +618,8 @@ pub(super) fn validate_matched_business_receipt(
         "business receipt authority/metadata/carrier differs"
     );
     ensure!(
-        matches!(&receipt.details, SettlementDetails::Atomic(iroha_data_model::isi::AtomicSettlementDetails { movements, intent_hash })
-        if *movements == expected && *intent_hash == settlement.intent_hash()?),
+        matches!(&receipt.details, SettlementDetails::Atomic(iroha_data_model::isi::AtomicSettlementDetails { movements, intent_hash, escrow_ids })
+        if *movements == expected && *intent_hash == settlement.intent_hash()? && escrow_ids.is_empty()),
         "business receipt differs from complete signed matched intent"
     );
     Ok(())
@@ -1040,6 +1041,7 @@ mod tests {
             details: SettlementDetails::Atomic(iroha_data_model::isi::AtomicSettlementDetails {
                 movements: settlement.movements.resolve().unwrap(),
                 intent_hash: settlement.intent_hash().unwrap(),
+                escrow_ids: Vec::new(),
             }),
         };
         validate_matched_business_receipt(&receipt, &settlement, &carrier).unwrap();
@@ -1065,6 +1067,7 @@ mod tests {
                         SettlementDetails::Atomic(iroha_data_model::isi::AtomicSettlementDetails {
                             movements: movements.try_into().unwrap(),
                             intent_hash: settlement.intent_hash().unwrap(),
+                            escrow_ids: Vec::new(),
                         });
                 }
                 _ => unreachable!(),

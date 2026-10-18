@@ -109,7 +109,7 @@ Torii hot-path benches (`torii_hot_paths.rs`):
 Build benches:
 
 ```
-cargo build -p iroha_core --benches
+cargo build -p iroha_core --benches --features bench,iroha-core-tests
 cargo check -p iroha_torii --bench torii_hot_paths --features app_api
 ```
 
@@ -117,7 +117,7 @@ Run specific benches:
 
 ```
 # All query benches in iroha_core
-cargo bench -p iroha_core --bench queries
+cargo bench -p iroha_core --features bench,iroha-core-tests --bench queries
 
 # Client-path builder benches (mock executor)
 cargo bench -p iroha_core --bench queries_client

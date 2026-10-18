@@ -8,6 +8,10 @@ import Foundation
 enum KagemushaMonetaryProbeManifest {
   // Optional bundles are represented as separate complete input sets; partial bundles fail.
   static let schemas: [String: [Set<String>]] = [
+    "nearby-identity": [[]],
+    "nearby-prepare": [["setup-id", "offer"], ["setup-id", "offer", "fee-schedule", "fee-certificate"]],
+    "nearby-send": [["request-id", "session-id", "request-hash", "peer-certificate"]], "nearby-recover-send": [["request-id", "session-id", "request-hash", "peer-certificate"]],
+    "nearby-receive": [["request-id", "session-id", "request-hash", "peer-certificate", "setup-id"]], "nearby-recover-receive": [["request-id", "session-id", "request-hash", "peer-certificate", "setup-id"]],
     "open": [["result"]], "release-wallet": [[]], "bootstrap": [[]], "activation": [[]],
     "retain-activation": [["signed-wire"]], "activation-status": [["signed-wire"]],
     "activation-finality": [["signed-wire", "finality"]], "confirm-activation": [["signed-wire"]],
@@ -40,7 +44,8 @@ enum KagemushaMonetaryProbeManifest {
   }
   static func maximum(_ name: String) throws -> Int {
     switch name {
-    case "request-id", "setup-id", "operation-id", "transaction-hash": return 32
+    case "request-id", "setup-id", "operation-id", "transaction-hash", "request-hash", "peer-certificate": return 32
+    case "session-id": return 16
     case "amount": return 16
     case "epoch": return 8
     case "result": return KagemushaWalletEnrollmentV1.RESULT_MAX_BYTES

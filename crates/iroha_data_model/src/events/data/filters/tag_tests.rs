@@ -110,6 +110,7 @@ fn canonical_cases() -> Vec<(&'static str, u32, DataEventFilter)> {
             26,
             DataEventFilter::KagemushaLoadCommitted(None),
         ),
+        ("Bond", 27, DataEventFilter::Bond(None)),
     ]
 }
 
@@ -205,7 +206,7 @@ fn sccp_filter_preserves_tag_network_and_event_set() {
 
 #[test]
 fn data_event_filter_rejects_unassigned_tags() {
-    for tag in [27_u32, u32::MAX] {
+    for tag in [28_u32, u32::MAX] {
         for flags in layouts() {
             assert!(matches!(
                 decode(&tag.to_le_bytes(), flags),
@@ -277,4 +278,21 @@ fn event_subscription_preserves_game_session_filters() {
         norito::encode_canonical(&decoded).expect("re-encode event subscription frame"),
         frame,
     );
+}
+
+#[test]
+fn bond_filter_preserves_tag_and_optional_bond() {
+    let bond = crate::asset::AssetDefinitionId::derive_from_components(
+        iroha_model_base::domain::DomainId::try_new("bonds", "universal").expect("domain"),
+        "slo_bond".parse().expect("asset name"),
+    );
+    for value in [None, Some(bond)].map(DataEventFilter::Bond) {
+        for flags in layouts() {
+            let bytes = payload(&value, flags);
+            assert_eq!(&bytes[..4], &27_u32.to_le_bytes());
+            let decoded = decode(&bytes, flags).expect("decode bond filter");
+            assert_eq!(decoded, value);
+            assert_eq!(payload(&decoded, flags), bytes);
+        }
+    }
 }

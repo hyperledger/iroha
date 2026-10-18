@@ -178,7 +178,7 @@ fn continue_retained_archives_then_unload_without_repeating_transfers() {
     require_payment_bound(&payment_ab, &f.config.scheme.scheme_id());
     require_payment_bound(&payment_bc, &f.config.scheme.scheme_id());
     let payment: KagemushaWalletPaymentV1 = decode(&payment_ab);
-    let credit_ab = payment.request.credit_id();
+    let credit_ab = payment.signed_request().unwrap().credit_id();
     let received: KagemushaWalletPackageV1 = decode(&received_ab);
     assert!(matches!(received.statement.effect,
         KagemushaWalletEffectV1::Receive { credit_id, payer_wallet_id, amount }
@@ -194,7 +194,7 @@ fn continue_retained_archives_then_unload_without_repeating_transfers() {
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&package, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&package, MemoryBudget::DEFAULT)
         .unwrap();
     assert_eq!(package.statement.sequence, before_a.sequence);
     assert_eq!(package.statement.successor.value, before_a.head);
@@ -262,7 +262,10 @@ fn continue_retained_archives_then_unload_without_repeating_transfers() {
     device_c.platform.with(|state| state.sign_fault_at = None);
     let bc: KagemushaWalletPaymentV1 = decode(&payment_bc);
     let status_bc = c
-        .credit_status(&bc.request.credit_id(), &bc.payment_digest().unwrap())
+        .credit_status(
+            &bc.signed_request().unwrap().body.credit_id(),
+            &bc.payment_digest().unwrap(),
+        )
         .unwrap();
     assert_eq!(status_bc.lineage.public.wallet_id, before_c.wallet_id);
     let credited_bc =

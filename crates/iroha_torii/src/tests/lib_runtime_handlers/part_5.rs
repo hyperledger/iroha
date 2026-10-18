@@ -4711,6 +4711,37 @@ async fn full_ledger_carrier_authentication_precedes_height_or_hash_lookup() {
     assert_eq!(proof.into_response().status(), StatusCode::UNAUTHORIZED);
 }
 
+#[cfg(feature = "app_api")]
+#[tokio::test]
+async fn explorer_transaction_proof_rejects_incomplete_and_foreign_network_authentication() {
+    let uri: Uri = "/v1/explorer/transactions/invalid-hash/proof".parse().unwrap();
+    let mut bare = HeaderMap::new();
+    bare.insert(super::HEADER_ACCOUNT, "untrusted-caller".parse().unwrap());
+    let incomplete = super::handler_explorer_transaction_proof(
+        State(mk_app_state_for_tests()),
+        bare,
+        Method::GET,
+        uri.clone(),
+        crate::loopback_connect_info(),
+        AxPath("invalid-hash".to_owned()),
+    )
+    .await
+    .expect_err("incomplete account auth must not become an anonymous lookup");
+    assert_eq!(incomplete.into_response().status(), StatusCode::UNAUTHORIZED);
+    let (app, headers) = foreign_network_signed_app_fixture(&Method::GET, &uri, &[], 0xc9, 0xca);
+    let foreign = super::handler_explorer_transaction_proof(
+        State(app),
+        headers,
+        Method::GET,
+        uri,
+        crate::loopback_connect_info(),
+        AxPath("invalid-hash".to_owned()),
+    )
+    .await
+    .expect_err("foreign network signature must fail before proof lookup");
+    assert_eq!(foreign.into_response().status(), StatusCode::UNAUTHORIZED);
+}
+
 #[test]
 fn full_ledger_carrier_rejects_account_and_dataspace_grants_and_rechecks_revocation() {
     use iroha_executor_data_model::permission::query::CanReadAccountData;

@@ -33,12 +33,11 @@
 //! 8. the `n` coefficients of the IPA `s` polynomial and its blind, then per
 //!    round the randomness of `L_j` and `R_j`.
 //!
-//! The stream comes from an opaque [`ProverRandomness`] with exactly three
-//! production sources (the OS CSPRNG, a hedged derivation over fresh entropy,
-//! the witness digest and the statement, and a recovery seed whose stream
-//! this crate keys with the witness and statement digests, so a caller
-//! cannot opt out of the binding). Fixed seeds exist only in this crate's
-//! unit tests.
+//! Every new proof consumes fresh OS entropy through an opaque
+//! [`ProverRandomness`] owner: directly, or hedged with the statement and
+//! witness digests. Restoring a proof verifies and reuses its retained original
+//! bytes; it never regenerates a deterministic proof stream. Fixed seeds exist
+//! only in this crate's unit tests.
 //!
 //! # Determinism
 //!
@@ -94,16 +93,6 @@ pub const STATEMENT_PERSONA: &[u8; 16] = b"PIPA-v1-Statemnt";
 pub const WITNESS_PERSONA: &[u8; 16] = b"PIPA-v1-WitnessD";
 /// `BLAKE2b` personalization of the hedged stream seed.
 pub const HEDGED_PERSONA: &[u8; 16] = b"PIPA-v1-ProveRng";
-/// `BLAKE2b` personalization of the recovery-stream context.
-pub const RECOVERY_PERSONA: &[u8; 16] = b"PIPA-v1-Recovery";
-/// `BLAKE2b` personalization of the recovery-stream key, which binds the
-/// bytes drawn from the caller's derivation to the context inside this crate.
-pub const RECOVERY_KEY_PERSONA: &[u8; 16] = b"PIPA-v1-RecovKey";
-/// The purpose label a recovery-seed derivation should use for prover
-/// randomness (for example `seed.rng(RECOVERY_PURPOSE, context)` of a
-/// caller-held secret recovery seed).
-pub const RECOVERY_PURPOSE: &[u8] = b"iroha_plonk:pipa-v1:prover-randomness";
-
 /// Proving failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProverError {
@@ -159,9 +148,7 @@ pub enum ProverError {
     },
     /// The OS random-number generator failed.
     Entropy,
-    /// The recovery derivation returned no stream.
-    RecoveryStream,
-    /// The challenge `x` is zero or in the subgroup (negligible).
+    /// A defensive check found `x` zero or in the subgroup; total mapping excludes both.
     DegenerateChallenge,
     /// The protocol tables could not be derived from the descriptor.
     Protocol(ProtocolError),
@@ -227,7 +214,6 @@ impl fmt::Display for ProverError {
                 write!(f, "instance column {column} commits to the identity")
             }
             Self::Entropy => f.write_str("the OS random-number generator failed"),
-            Self::RecoveryStream => f.write_str("the recovery derivation returned no stream"),
             Self::DegenerateChallenge => f.write_str("the challenge x is degenerate"),
             Self::Protocol(error) => write!(f, "protocol: {error}"),
             Self::Descriptor(error) => write!(f, "descriptor: {error}"),
@@ -328,62 +314,36 @@ pub trait ProverRng: RngCore + CryptoRng {}
 
 impl<R: RngCore + CryptoRng + ?Sized> ProverRng for R {}
 
-/// A recovery derivation: maps the context digest to a stream.
-type RecoveryDerivation<'a> =
-    Box<dyn FnOnce(&[u8; 32]) -> Option<Box<dyn ProverRng + Send + 'a>> + Send + 'a>;
-
-/// Where the prover's random stream comes from.
-enum Source<'a> {
-    /// A `ChaCha20` stream keyed by 32 bytes of OS entropy.
+/// Where a fresh proof's random stream comes from.
+enum Source {
     Os,
-    /// A `ChaCha20` stream keyed by `BLAKE2b(OS entropy, statement, witness)`.
     Hedged,
-    /// A caller derivation from the recovery context.
-    Recovery(RecoveryDerivation<'a>),
-    /// A caller-supplied stream (unit tests only).
     #[cfg(test)]
-    External(Box<dyn ProverRng + Send + 'a>),
+    External(Box<dyn ProverRng + Send>),
+    #[cfg(test)]
+    EntropyFailure,
 }
 
-/// The prover's randomness: an opaque value with exactly three production
-/// sources (spec section 10, S8).
+/// A consumed owner selecting fresh randomness for one new proof.
 ///
-/// - [`ProverRandomness::os`]: a `ChaCha20` stream keyed by 32 bytes of OS
-///   entropy;
-/// - [`ProverRandomness::hedged`]: a `ChaCha20` stream keyed by
-///   `BLAKE2b(32, "PIPA-v1-ProveRng", os_entropy || statement || witness)`,
-///   so a weak or repeating OS generator that still returns bytes yields
-///   distinct streams for distinct witnesses and statements; an OS generator
-///   that fails is an error ([`ProverError::Entropy`]), never a fallback;
-/// - [`ProverRandomness::recovery`]: a deterministic stream for a recovery
-///   seed (for example a wallet's secret recovery seed). The prover computes
-///   the context `BLAKE2b(32, "PIPA-v1-Recovery", statement || witness)` from
-///   the actual witness, hands it to the caller's derivation, draws 32 bytes
-///   `r` from the stream the derivation returns, and keys the stream it
-///   actually uses itself: `ChaCha20(BLAKE2b(32, "PIPA-v1-RecovKey", r ||
-///   context))` ([`recovery_stream_key`]). Two witnesses or statements proved
-///   under one seed therefore get unrelated blinds even when the derivation
-///   ignores the context.
-///
-/// The statement digest is `BLAKE2b(32, "PIPA-v1-Statemnt",
-/// descriptor_digest || transcript_repr || u32_le(columns) || (u32_le(len)
-/// || values) per instance column)`; the witness digest is `BLAKE2b(32,
-/// "PIPA-v1-WitnessD", u32_le(advice columns) || u32_le(u) || the usable
-/// rows of every advice column)`.
-///
-/// No seed or byte buffer is accepted outside unit tests.
-pub struct ProverRandomness<'a> {
-    source: Source<'a>,
+/// Both production sources request 32 new bytes from the OS. [`Self::hedged`]
+/// additionally binds those bytes to the exact statement and usable witness.
+/// Entropy failure is an error, with no deterministic fallback or retry.
+/// Proof restoration must verify retained original bytes instead of recreating
+/// a random stream. Fixed streams are available only to this crate's unit tests.
+pub struct ProverRandomness {
+    source: Source,
 }
 
-impl fmt::Debug for ProverRandomness<'_> {
+impl fmt::Debug for ProverRandomness {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let source = match &self.source {
             Source::Os => "Os",
             Source::Hedged => "Hedged",
-            Source::Recovery(_) => "Recovery",
             #[cfg(test)]
             Source::External(_) => "External",
+            #[cfg(test)]
+            Source::EntropyFailure => "EntropyFailure",
         };
         f.debug_struct("ProverRandomness")
             .field("source", &source)
@@ -391,31 +351,30 @@ impl fmt::Debug for ProverRandomness<'_> {
     }
 }
 
-/// The statement and witness digests a stream may be bound to.
+/// Exact statement and usable-witness digests for hedging fresh entropy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Binding {
     statement: [u8; 32],
     witness: [u8; 32],
 }
 
-/// 32 bytes of OS entropy.
-fn os_entropy() -> Result<[u8; 32], ProverError> {
-    let mut seed = [0_u8; 32];
+/// Draw one fresh seed, clearing this owned buffer on success or failure.
+fn os_entropy() -> Result<zeroize::Zeroizing<[u8; 32]>, ProverError> {
+    let mut seed = zeroize::Zeroizing::new([0_u8; 32]);
     rand_core_06::OsRng
-        .try_fill_bytes(&mut seed)
+        .try_fill_bytes(seed.as_mut())
         .map_err(|_| ProverError::Entropy)?;
     Ok(seed)
 }
 
-impl<'a> ProverRandomness<'a> {
-    /// A `ChaCha20` stream keyed by 32 bytes of OS entropy.
+impl ProverRandomness {
+    /// Select a `ChaCha20` stream keyed by 32 fresh OS bytes for this proof.
     #[must_use]
     pub fn os() -> Self {
         Self { source: Source::Os }
     }
 
-    /// The hedged derivation over fresh OS entropy, the statement digest and
-    /// the witness digest (the recommended default).
+    /// Select fresh OS entropy hedged with the statement and witness digests.
     #[must_use]
     pub fn hedged() -> Self {
         Self {
@@ -423,120 +382,78 @@ impl<'a> ProverRandomness<'a> {
         }
     }
 
-    /// A deterministic recovery stream: `derive` receives the context digest
-    /// `BLAKE2b(32, "PIPA-v1-Recovery", statement || witness)` and returns a
-    /// stream, typically `seed.rng(RECOVERY_PURPOSE, context)` of a
-    /// caller-held secret recovery seed. The prover draws 32 bytes `r` from
-    /// it and proves with `ChaCha20(`[`recovery_stream_key`]`(r, context))`,
-    /// so the witness and statement binding is enforced here and cannot be
-    /// skipped by a derivation that ignores the context (two witnesses never
-    /// share blinds). Secrecy of the blinds still requires the derivation to be
-    /// keyed by a secret seed: with a public or constant derivation the
-    /// blinds are a public function of the witness. The prover fails with
-    /// [`ProverError::RecoveryStream`] when the derivation returns an error
-    /// or its stream fails.
-    #[must_use]
-    pub fn recovery<R, E, D>(derive: D) -> Self
-    where
-        D: FnOnce(&[u8; 32]) -> Result<R, E> + Send + 'a,
-        R: RngCore + CryptoRng + Send + 'a,
-    {
-        let derivation: RecoveryDerivation<'a> = Box::new(move |context: &[u8; 32]| {
-            let rng = derive(context).ok()?;
-            let boxed: Box<dyn ProverRng + Send + 'a> = Box::new(rng);
-            Some(boxed)
-        });
-        Self {
-            source: Source::Recovery(derivation),
-        }
-    }
-
-    /// A caller-supplied stream. Unit tests only (spec
-    /// 6.4): it reproduces vendored proofs from their fixed seeds.
+    /// Supply a deterministic stream only inside this crate's unit tests.
     #[cfg(test)]
     #[doc(hidden)]
-    #[must_use]
-    pub fn from_rng_for_tests<R: ProverRng + Send + 'a>(rng: R) -> Self {
+    pub fn from_rng_for_tests<R: ProverRng + Send + 'static>(rng: R) -> Self {
         Self {
             source: Source::External(Box::new(rng)),
         }
     }
 
-    /// A `ChaCha20` stream from a fixed seed. Unit tests
-    /// only.
+    /// Select a deterministic seed only inside this crate's unit tests.
     #[cfg(test)]
     #[doc(hidden)]
-    #[must_use]
     pub fn fixed_seed_for_tests(seed: [u8; 32]) -> Self {
         Self::from_rng_for_tests(ChaCha20Rng::from_seed(seed))
     }
 
-    /// Whether this source needs the statement and witness digests.
-    fn needs_binding(&self) -> bool {
-        matches!(self.source, Source::Hedged | Source::Recovery(_))
-    }
-
-    /// Opens the stream.
-    fn into_stream(self, binding: Option<Binding>) -> Result<StreamRng<'a>, ProverError> {
-        match self.source {
-            Source::Os => Ok(StreamRng::ChaCha(Box::new(ChaCha20Rng::from_seed(
-                os_entropy()?,
-            )))),
-            Source::Hedged => {
-                let binding = binding.ok_or(ProverError::Entropy)?;
-                let entropy = os_entropy()?;
-                let seed = blake2b_personal::<32>(
-                    HEDGED_PERSONA,
-                    &[&entropy, &binding.statement, &binding.witness],
-                );
-                Ok(StreamRng::ChaCha(Box::new(ChaCha20Rng::from_seed(seed))))
-            }
-            Source::Recovery(derive) => {
-                let binding = binding.ok_or(ProverError::RecoveryStream)?;
-                let context = recovery_context(&binding.statement, &binding.witness);
-                let mut caller = derive(&context).ok_or(ProverError::RecoveryStream)?;
-                let mut drawn = [0_u8; 32];
-                caller
-                    .try_fill_bytes(&mut drawn)
-                    .map_err(|_| ProverError::RecoveryStream)?;
-                let key = recovery_stream_key(&drawn, &context);
-                drawn.fill(0);
-                Ok(StreamRng::ChaCha(Box::new(ChaCha20Rng::from_seed(key))))
-            }
-            #[cfg(test)]
-            Source::External(rng) => Ok(StreamRng::Boxed(rng)),
+    #[cfg(test)]
+    fn entropy_failure_for_tests() -> Self {
+        Self {
+            source: Source::EntropyFailure,
         }
     }
-}
 
-/// `BLAKE2b(32, "PIPA-v1-Recovery", statement || witness)`.
-#[must_use]
-pub fn recovery_context(statement: &[u8; 32], witness: &[u8; 32]) -> [u8; 32] {
-    blake2b_personal::<32>(RECOVERY_PERSONA, &[statement, witness])
-}
+    fn needs_binding(&self) -> bool {
+        matches!(self.source, Source::Hedged)
+    }
 
-/// The `ChaCha20` key of a recovery stream: `BLAKE2b(32, "PIPA-v1-RecovKey",
-/// drawn || context)`, where `drawn` are the first 32 bytes of the caller's
-/// derived stream and `context` is [`recovery_context`].
-#[must_use]
-pub fn recovery_stream_key(drawn: &[u8; 32], context: &[u8; 32]) -> [u8; 32] {
-    blake2b_personal::<32>(RECOVERY_KEY_PERSONA, &[drawn, context])
+    fn into_stream(self, binding: Option<Binding>) -> Result<StreamRng, ProverError> {
+        self.into_stream_with_entropy(binding, os_entropy)
+    }
+
+    // Private dependency injection tests the same success/failure path used by
+    // production. No caller can replace the entropy source of a public owner.
+    fn into_stream_with_entropy(
+        self,
+        binding: Option<Binding>,
+        entropy: impl FnOnce() -> Result<zeroize::Zeroizing<[u8; 32]>, ProverError>,
+    ) -> Result<StreamRng, ProverError> {
+        let seed = match self.source {
+            Source::Os => entropy()?,
+            Source::Hedged => {
+                let binding = binding.ok_or(ProverError::Entropy)?;
+                let fresh = entropy()?;
+                zeroize::Zeroizing::new(blake2b_personal::<32>(
+                    HEDGED_PERSONA,
+                    &[fresh.as_ref(), &binding.statement, &binding.witness],
+                ))
+            }
+            #[cfg(test)]
+            Source::External(rng) => return Ok(StreamRng::Boxed(rng)),
+            #[cfg(test)]
+            Source::EntropyFailure => return Err(ProverError::Entropy),
+        };
+        Ok(StreamRng::ChaCha(Box::new(ChaCha20Rng::from_seed(*seed))))
+    }
 }
 
 /// The opened random stream.
-enum StreamRng<'a> {
+enum StreamRng {
     ChaCha(Box<ChaCha20Rng>),
     /// A caller-supplied stream: only [`ProverRandomness::from_rng_for_tests`]
     /// (unit tests) constructs it; production streams are
     /// always the `ChaCha20` streams this crate keys.
-    #[cfg_attr(not(test), allow(dead_code))]
-    Boxed(Box<dyn ProverRng + Send + 'a>),
+    #[cfg(test)]
+    Boxed(Box<dyn ProverRng + Send>),
 }
 
-impl RngCore for StreamRng<'_> {
+impl RngCore for StreamRng {
     fn next_u32(&mut self) -> u32 {
         match self {
             Self::ChaCha(rng) => rng.next_u32(),
+            #[cfg(test)]
             Self::Boxed(rng) => rng.next_u32(),
         }
     }
@@ -544,6 +461,7 @@ impl RngCore for StreamRng<'_> {
     fn next_u64(&mut self) -> u64 {
         match self {
             Self::ChaCha(rng) => rng.next_u64(),
+            #[cfg(test)]
             Self::Boxed(rng) => rng.next_u64(),
         }
     }
@@ -551,6 +469,7 @@ impl RngCore for StreamRng<'_> {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         match self {
             Self::ChaCha(rng) => rng.fill_bytes(dest),
+            #[cfg(test)]
             Self::Boxed(rng) => rng.fill_bytes(dest),
         }
     }
@@ -558,12 +477,13 @@ impl RngCore for StreamRng<'_> {
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
         match self {
             Self::ChaCha(rng) => rng.try_fill_bytes(dest),
+            #[cfg(test)]
             Self::Boxed(rng) => rng.try_fill_bytes(dest),
         }
     }
 }
 
-impl CryptoRng for StreamRng<'_> {}
+impl CryptoRng for StreamRng {}
 
 /// A witness: the advice columns and the instance columns of one circuit
 /// instance, checked against a proving key. Advice values are secret and
@@ -870,11 +790,9 @@ impl Default for ProverConfig<'_> {
     }
 }
 
-/// How the transcript is primed: production, or oracle mode with the
-/// vendored `transcript_repr` (spec 6.4).
+/// The canonical descriptor-bound transcript representation for this proof.
 #[derive(Clone, Copy, Debug)]
 struct Mode<C: PastaCurve> {
-    oracle: bool,
     transcript_repr: TranscriptRepr<C>,
 }
 
@@ -895,7 +813,7 @@ pub fn create_proof_owned_with_claim<C: PastaCurve>(
     params: &PinnedParams<C>,
     pk: &ProvingKey<C>,
     witness: Witness<C::ScalarExt>,
-    randomness: ProverRandomness<'_>,
+    randomness: ProverRandomness,
     config: ProverConfig,
 ) -> Result<ProverOutput<C>, ProverError>
 where
@@ -903,7 +821,6 @@ where
     C::Base: PoseidonField,
 {
     let mode = Mode {
-        oracle: false,
         transcript_repr: *pk.vk().transcript_repr(),
     };
     prove_output(
@@ -931,7 +848,7 @@ pub fn create_proof<C: PastaCurve>(
     params: &PinnedParams<C>,
     pk: &ProvingKey<C>,
     witness: &Witness<C::ScalarExt>,
-    randomness: ProverRandomness<'_>,
+    randomness: ProverRandomness,
     config: ProverConfig,
 ) -> Result<Vec<u8>, ProverError>
 where
@@ -939,7 +856,6 @@ where
     C::Base: PoseidonField,
 {
     let mode = Mode {
-        oracle: false,
         transcript_repr: *pk.vk().transcript_repr(),
     };
     prove(
@@ -969,7 +885,7 @@ pub fn create_proof_owned<C: PastaCurve>(
     params: &PinnedParams<C>,
     pk: &ProvingKey<C>,
     witness: Witness<C::ScalarExt>,
-    randomness: ProverRandomness<'_>,
+    randomness: ProverRandomness,
     config: ProverConfig,
 ) -> Result<Vec<u8>, ProverError>
 where
@@ -977,7 +893,6 @@ where
     C::Base: PoseidonField,
 {
     let mode = Mode {
-        oracle: false,
         transcript_repr: *pk.vk().transcript_repr(),
     };
     prove(
@@ -1007,7 +922,7 @@ pub fn create_proof_owned_with_workspace<C: PastaCurve>(
     params: &PinnedParams<C>,
     pk: &ProvingKey<C>,
     witness: Witness<C::ScalarExt>,
-    randomness: ProverRandomness<'_>,
+    randomness: ProverRandomness,
     config: ProverConfig,
     workspace: &mut QuotientWorkspace<C::ScalarExt>,
 ) -> Result<ProverOutput<C>, ProverError>
@@ -1022,7 +937,6 @@ where
         randomness,
         config,
         Mode {
-            oracle: false,
             transcript_repr: *pk.vk().transcript_repr(),
         },
         &mut lookup::VendoredPermutation,
@@ -1042,7 +956,7 @@ pub fn prove_circuit<C: PastaCurve, Ci: Circuit<C::ScalarExt>>(
     pk: &ProvingKey<C>,
     circuit: &Ci,
     instances: &[Vec<C::ScalarExt>],
-    randomness: ProverRandomness<'_>,
+    randomness: ProverRandomness,
     config: ProverConfig,
 ) -> Result<Vec<u8>, ProverError>
 where
@@ -1051,44 +965,6 @@ where
 {
     let witness = Witness::from_circuit_cancellable(pk, circuit, instances, config.cancellation)?;
     create_proof_owned(params, pk, witness, randomness, config)
-}
-
-/// [`create_proof`] in oracle mode (spec 6.4): the vendored
-/// `transcript_repr` is injected, Poseidon points are absorbed with
-/// `fe_to_fe` and the instance frame is omitted. Unit tests
-/// only; never compiled into shipping binaries.
-///
-/// # Errors
-///
-/// As [`create_proof`].
-#[cfg(test)]
-#[doc(hidden)]
-pub fn create_proof_oracle<C: PastaCurve>(
-    params: &PinnedParams<C>,
-    pk: &ProvingKey<C>,
-    witness: &Witness<C::ScalarExt>,
-    randomness: ProverRandomness<'_>,
-    config: ProverConfig,
-    vendored_transcript_repr: C::ScalarExt,
-) -> Result<Vec<u8>, ProverError>
-where
-    C::ScalarExt: PoseidonField,
-    C::Base: PoseidonField,
-{
-    let mode = Mode {
-        oracle: true,
-        transcript_repr: TranscriptRepr::Scalar(vendored_transcript_repr),
-    };
-    prove(
-        params,
-        pk,
-        WitnessInput::Borrowed(witness),
-        randomness,
-        config,
-        mode,
-        &mut lookup::VendoredPermutation,
-        &AllTerms,
-    )
 }
 
 /// The challenges squeezed before the quotient.
@@ -1100,7 +976,7 @@ struct Challenges<F> {
     y: F,
 }
 
-/// The prover body shared by production and oracle mode. Every real proof
+/// The canonical prover body. Every real proof
 /// passes [`lookup::VendoredPermutation`] and [`AllTerms`]; the
 /// malicious-prover tests pass forged lookup permutations and omit the
 /// constraint terms their forgery violates from the quotient.
@@ -1109,7 +985,7 @@ fn prove<C, P>(
     params: &PinnedParams<C>,
     pk: &ProvingKey<C>,
     input: WitnessInput<'_, C::ScalarExt>,
-    randomness: ProverRandomness<'_>,
+    randomness: ProverRandomness,
     config: ProverConfig,
     mode: Mode<C>,
     permutation: &mut P,
@@ -1140,7 +1016,7 @@ fn prove_output<C, P>(
     params: &PinnedParams<C>,
     pk: &ProvingKey<C>,
     mut input: WitnessInput<'_, C::ScalarExt>,
-    randomness: ProverRandomness<'_>,
+    randomness: ProverRandomness,
     config: ProverConfig,
     mode: Mode<C>,
     permutation: &mut P,
@@ -1198,20 +1074,9 @@ where
     let mut rng = randomness.into_stream(binding)?;
     let budget = config.msm_budget;
 
-    let hash = if mode.oracle {
-        oracle_hash::<C>(descriptor)?
-    } else {
-        DescriptorHash::<C>::production(descriptor.transcript)
-    };
+    let hash = DescriptorHash::<C>::production(descriptor.transcript);
     let mut transcript = TranscriptWriter::<C, _>::new(hash);
-    if mode.oracle {
-        oracle_prelude(
-            &mut transcript,
-            mode.transcript_repr
-                .scalar()
-                .ok_or(TranscriptError::ProfileMismatch)?,
-        );
-    } else if let Some(types) = &descriptor.instance_types {
+    if let Some(types) = &descriptor.instance_types {
         absorb_prelude_v2::<C, _>(
             &mut transcript,
             &mode.transcript_repr,
@@ -1369,7 +1234,7 @@ where
         cancellation,
     )?;
     iroha_pasta::CancellationToken::checkpoint(cancellation)?;
-    let x = transcript.squeeze_challenge();
+    let x = crate::transcript::pipa_r::evaluation_challenge(transcript.squeeze_challenge());
     let xn = x.pow_vartime([u64::try_from(shape.n).map_err(|_| ProtocolError::Overflow)?]);
     if bool::from(x.is_zero()) || xn == C::ScalarExt::ONE {
         return Err(ProverError::DegenerateChallenge);
@@ -1396,48 +1261,13 @@ where
         cancellation,
     )?;
     if shape.folded_generator_suffix {
-        transcript.append_unabsorbed_point(folded.g())?;
+        transcript.append_unabsorbed_generator(folded.g());
     }
     iroha_pasta::CancellationToken::checkpoint(cancellation)?;
     Ok(ProverOutput {
         proof: transcript.finish(),
         opening: folded,
     })
-}
-
-/// The oracle-mode hash of the descriptor's transcript.
-#[cfg(test)]
-fn oracle_hash<C: PastaCurve>(
-    descriptor: &ProtocolDescriptor,
-) -> Result<DescriptorHash<C>, TranscriptError>
-where
-    C::ScalarExt: PoseidonField,
-    C::Base: PoseidonField,
-{
-    Ok(DescriptorHash::<C>::oracle(
-        descriptor
-            .transcript
-            .retained()
-            .ok_or(TranscriptError::ProfileMismatch)?,
-    ))
-}
-
-/// Oracle mode does not exist in shipping builds; the production hash is
-/// returned so the code path stays total.
-#[cfg(not(test))]
-fn oracle_hash<C: PastaCurve>(
-    _descriptor: &ProtocolDescriptor,
-) -> Result<DescriptorHash<C>, TranscriptError>
-where
-    C::ScalarExt: PoseidonField,
-    C::Base: PoseidonField,
-{
-    Err(TranscriptError::ProfileMismatch)
-}
-
-/// The oracle-mode prelude (`transcript_repr` only).
-fn oracle_prelude<C: PastaCurve, T: Transcript<C>>(transcript: &mut T, repr: &C::ScalarExt) {
-    transcript.common_scalar(repr);
 }
 
 /// `Field::random` draws in sequence.

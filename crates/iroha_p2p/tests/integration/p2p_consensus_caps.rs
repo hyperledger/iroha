@@ -132,9 +132,11 @@ async fn zero_delay_initial_trusted_sources_precede_authenticated_handshake() {
             super::p2p_identity_keys(kp1),
             cfg1,
             chain.clone(),
-            None,
-            None,
-            None,
+            iroha_p2p::network::HandshakeCapabilities {
+                consensus: None,
+                confidential: None,
+                crypto: None,
+            },
             HashSet::from([id2.clone()]),
             ShutdownSignal::new(),
         ),
@@ -149,9 +151,11 @@ async fn zero_delay_initial_trusted_sources_precede_authenticated_handshake() {
             super::p2p_identity_keys(kp2),
             cfg2,
             chain,
-            None,
-            None,
-            None,
+            iroha_p2p::network::HandshakeCapabilities {
+                consensus: None,
+                confidential: None,
+                crypto: None,
+            },
             HashSet::from([id1.clone()]),
             ShutdownSignal::new(),
         ),
@@ -733,9 +737,11 @@ async fn crypto_caps_match_connects() {
         super::p2p_identity_keys(kp1.clone()),
         cfg(addr1.clone()),
         chain.clone(),
-        None,
-        None,
-        Some(caps.clone()),
+        iroha_p2p::network::HandshakeCapabilities {
+            consensus: None,
+            confidential: None,
+            crypto: Some(caps.clone()),
+        },
         ShutdownSignal::new(),
     ))
     .await
@@ -747,9 +753,11 @@ async fn crypto_caps_match_connects() {
         super::p2p_identity_keys(kp2.clone()),
         cfg(addr2.clone()),
         chain.clone(),
-        None,
-        None,
-        Some(caps.clone()),
+        iroha_p2p::network::HandshakeCapabilities {
+            consensus: None,
+            confidential: None,
+            crypto: Some(caps.clone()),
+        },
         ShutdownSignal::new(),
     ))
     .await
@@ -789,9 +797,11 @@ async fn crypto_caps_mismatch_rejected() {
         super::p2p_identity_keys(kp1.clone()),
         cfg(addr1.clone()),
         chain.clone(),
-        None,
-        None,
-        Some(caps_enabled.clone()),
+        iroha_p2p::network::HandshakeCapabilities {
+            consensus: None,
+            confidential: None,
+            crypto: Some(caps_enabled.clone()),
+        },
         ShutdownSignal::new(),
     ))
     .await
@@ -803,9 +813,11 @@ async fn crypto_caps_mismatch_rejected() {
         super::p2p_identity_keys(kp2.clone()),
         cfg(addr2.clone()),
         chain.clone(),
-        None,
-        None,
-        Some(caps_disabled.clone()),
+        iroha_p2p::network::HandshakeCapabilities {
+            consensus: None,
+            confidential: None,
+            crypto: Some(caps_disabled.clone()),
+        },
         ShutdownSignal::new(),
     ))
     .await
@@ -845,9 +857,11 @@ async fn crypto_caps_mismatch_allowed_when_permissive() {
         super::p2p_identity_keys(kp1.clone()),
         cfg(addr1.clone()),
         chain.clone(),
-        None,
-        None,
-        Some(caps_enabled.clone()),
+        iroha_p2p::network::HandshakeCapabilities {
+            consensus: None,
+            confidential: None,
+            crypto: Some(caps_enabled.clone()),
+        },
         ShutdownSignal::new(),
     ))
     .await
@@ -859,9 +873,11 @@ async fn crypto_caps_mismatch_allowed_when_permissive() {
         super::p2p_identity_keys(kp2.clone()),
         cfg(addr2.clone()),
         chain.clone(),
-        None,
-        None,
-        Some(caps_disabled.clone()),
+        iroha_p2p::network::HandshakeCapabilities {
+            consensus: None,
+            confidential: None,
+            crypto: Some(caps_disabled.clone()),
+        },
         ShutdownSignal::new(),
     ))
     .await

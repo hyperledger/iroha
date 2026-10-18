@@ -210,6 +210,7 @@ test("packed canonical-request subpath executes securely and has strict DOM type
         "  canonicalQueryString,",
         "  canonicalRequestMessage,",
         "  canonicalRequestSignatureMessage,",
+        "  withCanonicalReadRetry,",
         "  NetworkId,",
         '  type CanonicalJsonRequest,',
         '  type CanonicalJsonRequestSignerInput,',
@@ -228,7 +229,8 @@ test("packed canonical-request subpath executes securely and has strict DOM type
         "    return new Uint8Array(64);",
         "  },",
         "});",
-        "void query; void base; void signed; void headers; void request;",
+        "const retried: Promise<string> = withCanonicalReadRetry({ method: \"POST\", path: \"/v1/multisig/spec\", signal: new AbortController().signal, operation: (attempt: number) => String(attempt) });",
+        "void query; void base; void signed; void headers; void request; void retried;",
       ].join("\n"),
       "utf8",
     );

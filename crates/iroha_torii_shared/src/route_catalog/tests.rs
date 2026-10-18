@@ -70,6 +70,38 @@ mod tests {
         assert!(CATALOGED_ROUTES.contains(&route));
     }
     #[test]
+    fn kagemusha_ledger_finality_and_epoch_are_exact_private_authenticated_reads() {
+        for (route, id, path) in [
+            (
+                contracts_and_verification_keys::KAGEMUSHA_LEDGER_FINALITY_GET,
+                "contracts.kagemusha_ledger_finality_get",
+                "/v1/kagemusha/{scheme}/wallets/{wallet}/ledger/{entrypoint}/finality",
+            ),
+            (
+                contracts_and_verification_keys::KAGEMUSHA_LEDGER_EPOCH_GET,
+                "contracts.kagemusha_ledger_epoch_get",
+                "/v1/kagemusha/{scheme}/wallets/{wallet}/ledger/{entrypoint}/epochs/{boundary}",
+            ),
+        ] {
+            assert_eq!(route.stable_route_id(), id);
+            assert_eq!(route.path(), path);
+            assert_eq!(route.method(), HttpMethod::Get);
+            assert_eq!(route.surface(), ApiSurface::Public);
+            assert_eq!(route.transport(), RouteTransport::Http);
+            assert_eq!(route.effect(), RouteEffect::ReadOnly);
+            assert_eq!(route.admission(), AdmissionPolicy::AuthenticatedAccount);
+            assert_eq!(
+                route.authentication(),
+                AuthenticationPolicy::CanonicalAccountSignature
+            );
+            assert!(route.requires_private_no_store());
+            assert_eq!(route.feature_gate(), FeatureGate::Feature("app_api"));
+            assert_eq!(route.projections(), RouteProjections::SDK);
+            assert!(contracts_and_verification_keys::ROUTES.contains(&route));
+            assert!(CATALOGED_ROUTES.contains(&route));
+        }
+    }
+    #[test]
     fn amx_debit_approval_proof_is_an_account_authenticated_sdk_read() {
         let route = contracts_and_verification_keys::AMX_DEBIT_APPROVAL_PROOF_POST;
         assert_eq!(

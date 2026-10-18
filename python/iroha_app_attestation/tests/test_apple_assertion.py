@@ -136,8 +136,8 @@ class AppleAssertionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = SyntheticAssertion(Path(temporary), self.openssl)
             client_data = b"fresh-server-challenge"
-            extension = {"validationCategory": (4).to_bytes(4, "little"),
-                         "bundleVersion": "27"}
+            extension = {"apple_validation_category_01": (4).to_bytes(4, "little"),
+                         "apple_bundle_version_01": "27"}
             assertion = fixture.assertion(fixture.auth(2, extensions=extension), client_data)
             result = fixture.verify(assertion, client_data, 1, category=4, version="27")
             self.assertEqual((result.validation_category, result.bundle_version), (4, "27"))
@@ -146,13 +146,13 @@ class AppleAssertionTests(unittest.TestCase):
                         AttestationRejected, "distribution policy mismatch"):
                     fixture.verify(assertion, client_data, 1, category=category, version=version)
             for malformed in (
-                {"validationCategory": (0).to_bytes(4, "little"),
-                 "bundleVersion": "27"},
-                {"validationCategory": b"\0\0\0\x04",
-                 "bundleVersion": "27"},
-                {"validationCategory": (4).to_bytes(4, "little")},
-                {"apple_validation_category_01": (4).to_bytes(4, "little"),
+                {"apple_validation_category_01": (0).to_bytes(4, "little"),
                  "apple_bundle_version_01": "27"},
+                {"apple_validation_category_01": b"\0\0\0\x04",
+                 "apple_bundle_version_01": "27"},
+                {"apple_validation_category_01": (4).to_bytes(4, "little")},
+                {"validationCategory": (4).to_bytes(4, "little"),
+                 "bundleVersion": "27"},
                 {**extension, "unknown": b"x"},
             ):
                 with self.subTest(malformed=malformed), self.assertRaises(AttestationRejected):

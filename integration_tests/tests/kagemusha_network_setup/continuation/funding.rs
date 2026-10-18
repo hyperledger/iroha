@@ -1,5 +1,30 @@
 //! Ordinary network Activate/IssueLoad after the same owner registered its scheme and pack.
 use super::*;
+use iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLoadReceiptV1;
+
+#[path = "funding/finality_tests.rs"]
+mod finality_tests;
+
+// Every compact certificate must authenticate under the independently selected root.
+// Different exact-quorum witnesses may certify the same canonical header and result.
+fn verify_captured_load_finality(
+    anchor: &SumeragiFinalityVerifier,
+    block: &VerifiedSumeragiBlock,
+    receipt: &KagemushaWalletLoadReceiptV1,
+    finality: &KagemushaWalletLoadFinalityV1,
+) -> Result<()> {
+    finality.verify(anchor, receipt)?;
+    let certificate = block
+        .block()
+        .commit_certificate()
+        .ok_or_else(|| eyre!("Load block certificate missing"))?;
+    ensure!(
+        finality.certificate.consensus_header.as_slice() == certificate.consensus_header()
+            && finality.certificate.result_preimage.as_slice() == certificate.result_preimage(),
+        "live Load finality differs from the original authenticated decision"
+    );
+    Ok(())
+}
 
 pub(super) fn run(
     network: &Network,
@@ -10,8 +35,8 @@ pub(super) fn run(
     deadline: Instant,
 ) -> Result<Vec<u8>> {
     ensure!(
-        committed_height(network)? == 3,
-        "exact registration H3 must remain current before activation"
+        committed_height(network)? == registered.height,
+        "authenticated registration must remain current before activation"
     );
     let output = root.join("funding");
     private_directory(&output)?;
@@ -152,12 +177,19 @@ pub(super) fn run(
     )?;
     require_live_campaign(network, root, setup_sha, deadline)?;
     ensure!(
-        committed_height(network)? == 3,
+        committed_height(network)? == registered.height,
         "chain advanced while awaiting wallet retention"
     );
-    let h4 = submit_retained(network, 41, &activation_transaction)?;
-    ensure!(h4 == 4, "unexpected intervening network block");
-    let (load_transaction, h5) = submit(
+    let activation_height = submit_retained(network, 41, &activation_transaction)?;
+    ensure!(
+        activation_height
+            == registered
+                .height
+                .checked_add(1)
+                .ok_or_else(|| eyre!("height overflow"))?,
+        "activation must follow its retained registration"
+    );
+    let (load_transaction, load_height) = submit(
         network,
         41,
         vec![load.into()],
@@ -165,11 +197,14 @@ pub(super) fn run(
         "issue-load-signed.norito",
     )?;
     ensure!(
-        h5 == 5,
-        "the fixed genuine Load producer requires exact H1..H5"
+        load_height
+            == activation_height
+                .checked_add(1)
+                .ok_or_else(|| eyre!("height overflow"))?,
+        "Load must follow the exact retained activation"
     );
     let snapshots = balances(network, [900, 0, 0, 100])?;
-    let history = prefix(network, 5)?;
+    let history = prefix(network, load_height)?;
     let mut verifier = native(network)?;
     let mut originals = Vec::new();
     let mut blocks = Vec::new();
@@ -190,10 +225,11 @@ pub(super) fn run(
         if proof.height() > 1 {
             blocks.push(block_capture(&block)?);
         }
-        if proof.height() == 5 {
+        if proof.height() == load_height {
             inclusion(&block, network, &load_transaction)?;
         }
-        if proof.height() == 4 {
+        if proof.height() == activation_height {
+            inclusion(&block, network, &activation_transaction)?;
             previous = Some(block.clone());
         }
         last = Some(block);
@@ -209,23 +245,13 @@ pub(super) fn run(
             .kagemusha()
             .load_issuance(&scheme_id, &wallet, &request_id)?;
         ensure!(
-            (receipt.ordinal, receipt.amount, receipt.block_height) == (0, 100, 5),
+            (receipt.ordinal, receipt.amount, receipt.block_height) == (0, 100, load_height),
             "live receipt terms"
         );
         // The service returns DATA; only the independently selected signed genesis
-        // and original H5 certificate can authorize this receipt's event inclusion.
+        // and original Load certificate can authorize this receipt's event inclusion.
         let mut finality = client.kagemusha().load_finality(&receipt)?;
-        finality.verify(&anchor, &receipt)?;
-        let certificate = block
-            .block()
-            .commit_certificate()
-            .ok_or_else(|| eyre!("Load block certificate missing"))?;
-        ensure!(
-            finality.certificate.consensus_header.as_slice() == certificate.consensus_header()
-                && finality.certificate.commit_qc.as_slice() == certificate.commit_qc()
-                && finality.certificate.result_preimage.as_slice() == certificate.result_preimage(),
-            "live Load finality differs from the original authenticated block"
-        );
+        verify_captured_load_finality(&anchor, &block, &receipt, &finality)?;
         let previous_certificate =
             iroha_data_model::sumeragi_finality::SumeragiCommitCertificateV1::from_verified(
                 &previous,
@@ -326,7 +352,7 @@ pub(super) fn run(
     let capture = norito::json::to_vec(&capture)?;
     publish(&output, "capture.json", &capture)?;
     let result = norito::json::to_vec(
-        &norito::json!({"schema":"iroha.kagemusha.network-funded-load.v1", "setup_sha256":setup_sha, "registration_sha256":(hash(&registered.summary)), "target_sha256":(hash(&bytes)), "activation_retention":retention, "source_pins":(target["source_pins"].clone()), "capture_sha256":(hash(&capture)), "receipt_sha256":(hash(&receipt_frame)), "balances":snapshots, "load_transaction_hash_hex":(hex::encode(load_transaction.hash().as_ref())), "certified_height":5}),
+        &norito::json!({"schema":"iroha.kagemusha.network-funded-load.v1", "setup_sha256":setup_sha, "registration_sha256":(hash(&registered.summary)), "target_sha256":(hash(&bytes)), "activation_retention":retention, "source_pins":(target["source_pins"].clone()), "capture_sha256":(hash(&capture)), "receipt_sha256":(hash(&receipt_frame)), "balances":snapshots, "load_transaction_hash_hex":(hex::encode(load_transaction.hash().as_ref())), "registration_height":(registered.height), "activation_height":activation_height, "certified_height":load_height}),
     )?;
     publish(root, "funded.json", &result)?;
     Ok(result)
@@ -341,7 +367,7 @@ fn block_capture(block: &VerifiedSumeragiBlock) -> Result<norito::json::Value> {
     let schedule = &block.commitment().schedule;
     ensure!(
         schedule.boundary.is_none(),
-        "unexpected epoch boundary in fixed five-block setup"
+        "unexpected epoch boundary in bounded campaign setup"
     );
     let mut keys = Vec::new();
     let mut pops = Vec::new();

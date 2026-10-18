@@ -112,7 +112,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let intent = NativeIntentV1::decode(
             &self
                 .archive
-                .read_object(&entry.request, REQUEST_MAX_BYTES)?,
+                .read_object(&entry.retained_request()?, REQUEST_MAX_BYTES)?,
             &scheme,
         )?;
         let Some(OperationRequestV1 {
@@ -133,7 +133,8 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let credit = self
             .indexed_credit(&manifest, &identity.credit_id)?
             .ok_or(Error::WitnessLost("Receive projection credit"))?;
-        if credit.payment_digest != identity.payment || credit.amount != payment.request.body.amount
+        if credit.payment_digest != identity.payment
+            || credit.amount != valid(payment.signed_request())?.body.amount
         {
             return Err(Error::CreditConflict);
         }
@@ -180,7 +181,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 || package.statement.effect
                     != (KagemushaWalletEffectV1::Receive {
                         credit_id: identity.credit_id,
-                        payer_wallet_id: payment.request.body.payer_wallet_id,
+                        payer_wallet_id: valid(payment.signed_request())?.body.payer_wallet_id,
                         amount: credit.amount,
                     })
             {

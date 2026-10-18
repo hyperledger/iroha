@@ -56,6 +56,7 @@ fn sealed_epoch_index_restores_verified_authority_for_current_and_older_receipts
         IndexRoot::default(),
         IndexRoot::default(),
         root,
+        None,
     )
     .unwrap();
     let no_allocation = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
@@ -109,6 +110,7 @@ fn sealed_epoch_index_restores_verified_authority_for_current_and_older_receipts
         IndexRoot::default(),
         IndexRoot::default(),
         root,
+        None,
     )
     .unwrap();
     assert!(custody.load_finality_reader(&genesis, 1).is_err());
@@ -164,6 +166,7 @@ fn epoch_reader_preserves_absent_unavailable_and_lost_index_results() {
         IndexRoot::default(),
         IndexRoot::default(),
         root,
+        None,
     )
     .unwrap();
     assert!(matches!(
@@ -183,6 +186,7 @@ fn epoch_reader_preserves_absent_unavailable_and_lost_index_results() {
         IndexRoot::default(),
         IndexRoot::default(),
         root,
+        None,
     )
     .unwrap();
     assert!(matches!(

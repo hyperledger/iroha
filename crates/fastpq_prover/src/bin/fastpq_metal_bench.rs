@@ -2,22 +2,6 @@
 //!
 //! Measures CPU vs GPU planner operations when the Metal backend is enabled and emits JSON suitable
 //! for dashboards or release artefacts. See `specs/fastpq_plan.md` for expected usage.
-#![allow(
-    clippy::assigning_clones,
-    clippy::case_sensitive_file_extension_comparisons,
-    clippy::collapsible_if,
-    clippy::float_cmp,
-    clippy::ignored_unit_patterns,
-    clippy::map_unwrap_or,
-    clippy::missing_panics_doc,
-    clippy::needless_return,
-    clippy::redundant_closure_for_method_calls,
-    clippy::redundant_pub_crate,
-    clippy::similar_names,
-    clippy::too_many_lines,
-    clippy::unnecessary_map_or,
-    clippy::unwrap_or_default
-)]
 #[cfg(all(feature = "fastpq-gpu", target_os = "macos"))]
 fn main() {
     if let Err(error) = harness::run() {

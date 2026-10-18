@@ -1,7 +1,7 @@
 //! Administrative sigma relations over the exact G1 state and statement.
 //!
 //! Bootstrap proves the initial zero-value state, empty maps and counters.
-//! Load, Unload, Retiring, `ArchiveSent` and the shared five-kind Refresh class
+//! Load, Unload, Retiring, `ArchiveSent` and the shared four-kind Refresh class
 //! prove exact private state effects, checked value arithmetic and
 //! statement/head/lineage continuity. A separately authenticates
 //! their objects, map updates and predecessor proofs. These leaves are not
@@ -62,9 +62,9 @@ const LIMBS: LimbBits = match LimbBits::new(9) {
 /// Original G1 state, lineage and statement witness; no host-side validity bit.
 #[derive(Clone, Copy, Debug)]
 pub struct BootstrapWitness {
-    /// Exact 33-field state core.
+    /// Exact 29-field state core.
     pub core: [Fp; CORE_FIELDS],
-    /// Exact eight-field state rest.
+    /// Exact six-field state rest.
     pub rest: [Fp; REST_FIELDS],
     /// Exact 18-field public lineage prefix.
     pub lineage: [Fp; 18],

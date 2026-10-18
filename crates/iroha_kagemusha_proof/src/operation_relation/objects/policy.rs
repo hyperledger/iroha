@@ -51,10 +51,10 @@ pub struct PolicyCells {
     valid: Bit<Fp>,
 }
 impl PolicyCells {
-    /// Validate one policy, fee schedule, quota share, blacklist, time anchor,
-    /// or charge quote against native self-contained body rules.
+    /// Validate one policy, fee schedule, quota share, time anchor, or charge
+    /// quote against native self-contained body rules.
     ///
-    /// Full windows/blacklist data, fee evaluation and operation/finality
+    /// Full windows data, fee evaluation and operation/finality
     /// bindings are distinct relations; this method does not authenticate them.
     ///
     /// # Errors
@@ -67,7 +67,6 @@ impl PolicyCells {
         let (identifiers, nonzero_fields): (&[usize], &[usize]) = match object.kind() {
             ObjectKind::SchemePolicy => (&[1, 2], &[3, 6]),
             ObjectKind::FeeSchedule => (&[1, 2, 4], &[10]),
-            ObjectKind::Blacklist => (&[1], &[2, 5, 6]),
             ObjectKind::QuotaShare => (&[1, 2, 3], &[4, 7, 8, 9]),
             ObjectKind::TimeAnchor => (&[1, 2, 3], &[5]),
             ObjectKind::ChargeQuote => (&[1, 2, 3, 8], &[7, 10]),
@@ -86,8 +85,9 @@ impl PolicyCells {
         }
         match object.kind() {
             ObjectKind::SchemePolicy => {
+                // QUOTAS bit 0 and ATTESTATION_LEASE bit 1; higher bits undefined.
                 let mask = bits32(uint, region, object.word(4)?)?;
-                for bit in &mask[3..] {
+                for bit in &mask[2..] {
                     checks.push(uint.glue().not(region, bit)?);
                 }
             }
@@ -95,9 +95,6 @@ impl PolicyCells {
                 checks.push(at_most::<32>(uint, region, object.word(5)?, 10_000)?);
                 checks.push(le128(uint, region, object.word(7)?, object.word(8)?)?);
                 checks.push(tag_pair(uint, region, object.word(9)?)?.0);
-            }
-            ObjectKind::Blacklist => {
-                checks.push(at_most::<32>(uint, region, object.word(4)?, 65_535)?);
             }
             ObjectKind::QuotaShare => {
                 let issued = uint.range_check::<64>(region, object.word(5)?)?;
@@ -151,13 +148,6 @@ impl PolicyCells {
                 epoch: o.word(3)?,
                 controls: o.word(4)?,
                 fee: o.word(5)?,
-            },
-            ObjectKind::Blacklist => RefreshUpdate::Blacklist {
-                digest: o.digest(),
-                scheme: o.identifier(1)?,
-                version: o.word(2)?,
-                root: o.word(5)?,
-                issued: o.word(3)?,
             },
             ObjectKind::QuotaShare => RefreshUpdate::QuotaShare {
                 digest: o.digest(),

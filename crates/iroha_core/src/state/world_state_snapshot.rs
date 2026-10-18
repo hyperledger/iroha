@@ -777,6 +777,57 @@ impl State {
         )
     }
 
+    /// Capture a real executed fee row at its complete certified cut for component tests.
+    /// The production surface remains unchanged: this owner never fabricates a row, root,
+    /// read permission or finality decision, and the callback must retain its finite charges.
+    #[cfg(test)]
+    pub(crate) fn with_native_kagemusha_fee_snapshot_for_testing<T>(
+        &self,
+        tip: &CommittedBlock,
+        scheme: [u8; 32],
+        payout: &iroha_data_model::kagemusha::KagemushaWalletPayoutRecordV1,
+        budget: &AllocationBudget,
+        consume: impl FnOnce(&WorldStateSnapshotV1) -> Result<T, String>,
+    ) -> Result<T, WorldStateSnapshotError> {
+        use iroha_data_model::{
+            block::consensus::SumeragiRootScope, kagemusha::KagemushaWalletPayoutKeyV1,
+        };
+        if tip.height() < 2
+            || tip.root_scope() != SumeragiRootScope::Global
+            || !matches!(payout.key, KagemushaWalletPayoutKeyV1::Fee(_))
+            || payout.amount == 0
+            || payout.source == [0; 32]
+            || payout.transaction == [0; 32]
+        {
+            return Err("Fee snapshot requires an actual successor Global payout".into());
+        }
+        self.with_native_world_state_snapshot_cut_v1(tip, None, budget, |snapshot, world| {
+            let key = payout.key.ledger_key(scheme);
+            let bytes = world
+                .kagemusha_wallet_ledger()
+                .get(&key)
+                .ok_or("Fee snapshot payout row is absent")?;
+            let _row_charge = budget
+                .try_reserve_bytes(4096)
+                .map_err(|error| error.to_string())?;
+            let expected = norito::to_bytes(payout).map_err(|error| error.to_string())?;
+            if expected.len() > 4096 {
+                return Err("Fee snapshot payout frame exceeds test bound".into());
+            }
+            if bytes != &expected {
+                return Err("Fee snapshot differs from exact executed payout".into());
+            }
+            require_target(
+                snapshot,
+                "world.kagemusha_wallet_ledger",
+                WorldStateElementKindV1::Table,
+                Some(hash_value(&key)?),
+                hash_value(bytes)?,
+            )?;
+            consume(snapshot)
+        })
+    }
+
     fn with_native_world_state_snapshot_cut_v1<T>(
         &self,
         tip: &CommittedBlock,

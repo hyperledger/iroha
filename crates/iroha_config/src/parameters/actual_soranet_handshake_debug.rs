@@ -1,4 +1,4 @@
-//! Debug formatting for SoraNet handshake configuration.
+//! Debug formatting for `SoraNet` handshake configuration.
 
 use std::fmt;
 

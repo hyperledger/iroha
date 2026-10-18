@@ -31,8 +31,8 @@ internal interface KagemushaWalletEnrollmentDriverV1 {
 }
 internal object NativeEnrollmentDriver : KagemushaWalletEnrollmentDriverV1 {
     override fun call(handle: Long, selector: Int, first: ByteArray, second: ByteArray, third: ByteArray, certificates: Array<ByteArray>) =
-        KagemushaWalletNativeV1.enrollment(handle, selector, first, second, third, certificates)
-    override fun close(handle: Long) = KagemushaWalletNativeV1.close(handle)
+        KagemushaWalletNativeCallsV1.enrollment(handle, selector, first, second, third, certificates)
+    override fun close(handle: Long) = KagemushaWalletNativeCallsV1.close(handle)
 }
 /**
  * Design §3.2 abandonment result. Both forms are durable on the phone before they are returned,

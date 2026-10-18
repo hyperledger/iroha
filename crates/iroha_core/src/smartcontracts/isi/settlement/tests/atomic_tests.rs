@@ -2,10 +2,19 @@
 
 use super::*;
 use iroha_crypto::{Algorithm, KeyPair};
-use iroha_data_model::isi::{
-    AtomicSettlementMovement, AtomicSettlementMovements, SettleAtomic, SettlementDetails,
-};
 use iroha_data_model::query::error::FindError;
+use iroha_data_model::{
+    escrow::{
+        AssetEscrowKind, AssetEscrowStatus, ConditionalEscrowCondition,
+        ConditionalEscrowOracleCondition, ConditionalEscrowPredicate, ConditionalEscrowValue,
+        EscrowId,
+    },
+    isi::{
+        AtomicSettlementEscrow, AtomicSettlementEscrows, AtomicSettlementMovement,
+        AtomicSettlementMovements, SettleAtomic, SettlementDetails,
+        escrow::{AttestEscrowCondition, ExpireConditionalEscrow, OpenConditionalEscrow},
+    },
+};
 use std::num::NonZeroU64;
 
 /// Measure the component corpus through the real bounded canonical frame sizer.
@@ -180,6 +189,7 @@ fn atomic_instruction(
             "atomic_business".parse().expect("reference"),
         ),
         AtomicSettlementMovements::try_from(movements).expect("canonical vector"),
+        AtomicSettlementEscrows::empty(),
         nonzero!(100_u64),
         Metadata::default(),
     )
@@ -294,10 +304,12 @@ fn atomic_settlement_executes_three_and_255_exact_payments_once() {
         let SettlementDetails::Atomic(iroha_data_model::isi::AtomicSettlementDetails {
             movements,
             intent_hash,
+            escrow_ids,
         }) = &receipt.details
         else {
             panic!("atomic details");
         };
+        assert!(escrow_ids.is_empty(), "no escrow legs were signed");
         assert_eq!(
             movements,
             &instruction
@@ -363,9 +375,10 @@ fn atomic_settlement_single_global_payment_credits_250000_units_once() {
     assert_eq!(receipt.authority, authority);
     assert_eq!(receipt.metadata, instruction.metadata);
     assert!(matches!(&receipt.details,
-        SettlementDetails::Atomic(iroha_data_model::isi::AtomicSettlementDetails { movements, intent_hash })
+        SettlementDetails::Atomic(iroha_data_model::isi::AtomicSettlementDetails { movements, intent_hash, escrow_ids })
         if movements == &instruction.movements.resolve().expect("exact movement")
-            && *intent_hash == instruction.intent_hash().expect("exact intent")));
+            && *intent_hash == instruction.intent_hash().expect("exact intent")
+            && escrow_ids.is_empty()));
     assert_eq!(receipt.details.movements().count(), 1);
 
     // Distinct admitted component carriers cannot create a second monetary effect,
@@ -457,6 +470,7 @@ fn atomic_settlement_metadata_or_amount_substitution_requires_fresh_whole_intent
             stx.network_id.clone(),
             original.settlement_id().clone(),
             AtomicSettlementMovements::try_from(changed_movements).expect("canonical"),
+            AtomicSettlementEscrows::empty(),
             *original.expires_at_height(),
             metadata,
         );
@@ -492,6 +506,7 @@ fn atomic_settlement_wrong_network_or_expired_height_changes_nothing() {
                 "atomic_expiry".parse().expect("reference"),
             ),
             AtomicSettlementMovements::try_from(movements.clone()).expect("canonical"),
+            AtomicSettlementEscrows::empty(),
             NonZeroU64::new(if expired { 1 } else { 100 }).expect("expiry"),
             Metadata::default(),
         );
@@ -946,4 +961,804 @@ fn atomic_fixture_profile_covers_the_complete_canonical_255_payment_corpus() {
         16
     );
     println!("Exact canonical 255-payment fixture usage: {usage:?}");
+}
+
+/// Bond issuance parties: the investor pays cash, the issuer delivers bonds and
+/// receives a retained escrow share released by the attestor.
+struct BondEscrowFixture {
+    state: State,
+    investor: AccountId,
+    issuer: AccountId,
+    attestor: AccountId,
+    cash: AssetDefinitionId,
+    bond: AssetDefinitionId,
+}
+
+fn bond_account(seed: u8) -> AccountId {
+    AccountId::new(
+        KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
+            .expect("fixture key")
+            .public_key()
+            .clone(),
+    )
+}
+
+fn bond_escrow_fixture() -> BondEscrowFixture {
+    let domain_id = DomainId::try_new("bond_escrow", "universal").expect("domain");
+    let cash =
+        AssetDefinitionId::derive_from_components(domain_id.clone(), "cash".parse().expect("name"));
+    let bond =
+        AssetDefinitionId::derive_from_components(domain_id.clone(), "bond".parse().expect("name"));
+    let investor = bond_account(0xB1);
+    let issuer = bond_account(0xB2);
+    let attestor = bond_account(0xB3);
+    let accounts = [&investor, &issuer, &attestor, &*CARPENTER_ID]
+        .into_iter()
+        .map(|id| Account::new(id.clone()).build(&CARPENTER_ID))
+        .collect::<Vec<_>>();
+    let definition = |id: &AssetDefinitionId, name: &str| {
+        AssetDefinition::numeric(
+            id.clone(),
+            name.to_owned(),
+            AssetBalancePolicy::Global,
+            None,
+        )
+        .build(&CARPENTER_ID)
+    };
+    let world = World::with_assets(
+        [Domain::new(domain_id).build(&CARPENTER_ID)],
+        accounts,
+        [definition(&cash, "cash"), definition(&bond, "bond")],
+        [
+            Asset::new(
+                AssetId::new(cash.clone(), investor.clone()),
+                Quantity::from(100_u32),
+            ),
+            Asset::new(
+                AssetId::new(cash.clone(), CARPENTER_ID.clone()),
+                Quantity::from(10_u32),
+            ),
+            Asset::new(
+                AssetId::new(bond.clone(), issuer.clone()),
+                Quantity::from(5_u32),
+            ),
+        ],
+        [],
+    );
+    BondEscrowFixture {
+        state: State::new(
+            world,
+            Kura::blank_kura_for_testing(),
+            LiveQueryStore::start_test(),
+        ),
+        investor,
+        issuer,
+        attestor,
+        cash,
+        bond,
+    }
+}
+
+fn bond_escrow_id(label: &str) -> EscrowId {
+    EscrowId::new(Hash::new(format!("bond-escrow:{label}")))
+}
+
+impl BondEscrowFixture {
+    fn escrow_leg(
+        &self,
+        source_owner: &AccountId,
+        label: &str,
+        amount: u32,
+        expires_at_ms: u64,
+    ) -> AtomicSettlementEscrow {
+        self.leg(
+            AssetId::new(self.cash.clone(), source_owner.clone()),
+            &self.issuer,
+            label,
+            amount,
+            expires_at_ms,
+        )
+    }
+
+    /// One escrow leg from an exact source bucket to any beneficiary.
+    fn leg(
+        &self,
+        source: AssetId,
+        beneficiary: &AccountId,
+        label: &str,
+        amount: u32,
+        expires_at_ms: u64,
+    ) -> AtomicSettlementEscrow {
+        AtomicSettlementEscrow {
+            source,
+            escrow_id: bond_escrow_id(label),
+            beneficiary: beneficiary.clone(),
+            amount: Quantity::from(amount),
+            conditions: vec![ConditionalEscrowCondition::Oracle(
+                ConditionalEscrowOracleCondition {
+                    id: "coupon_paid".parse().expect("condition id"),
+                    attestor: self.attestor.clone(),
+                    predicate: ConditionalEscrowPredicate::Equals(ConditionalEscrowValue::Bool(
+                        true,
+                    )),
+                    sequence: core::num::NonZeroU32::new(1).expect("sequence"),
+                },
+            )],
+            expires_at_ms,
+            evidence_hashes: vec![Hash::new(b"bond-term-sheet")],
+        }
+    }
+
+    /// The investor pays `paid` cash to the issuer and receives one bond.
+    fn settlement(
+        &self,
+        stx: &StateTransaction<'_, '_>,
+        payer: &AccountId,
+        paid: u32,
+        escrows: Vec<AtomicSettlementEscrow>,
+    ) -> SettleAtomic {
+        let mut movements = vec![
+            AtomicSettlementMovement {
+                source: AssetId::new(self.cash.clone(), payer.clone()),
+                recipient: self.issuer.clone(),
+                quantity: Quantity::from(paid),
+            },
+            AtomicSettlementMovement {
+                source: AssetId::new(self.bond.clone(), self.issuer.clone()),
+                recipient: payer.clone(),
+                quantity: Quantity::one(),
+            },
+        ];
+        movements.sort_by(|a, b| (&a.source, &a.recipient).cmp(&(&b.source, &b.recipient)));
+        let mut escrows = escrows;
+        escrows.sort_by_key(|escrow| escrow.escrow_id);
+        SettleAtomic::new(
+            stx.network_id.clone(),
+            SettlementId::new(payer.clone(), "bond_issue_1".parse().expect("reference")),
+            AtomicSettlementMovements::try_from(movements).expect("canonical movements"),
+            AtomicSettlementEscrows::try_from(escrows).expect("canonical escrows"),
+            nonzero!(100_u64),
+            Metadata::default(),
+        )
+    }
+
+    fn consent(
+        stx: &mut StateTransaction<'_, '_>,
+        owner: &AccountId,
+        source: AssetId,
+        grantee: &AccountId,
+        instruction: &SettleAtomic,
+    ) {
+        let permission: Permission = CanExecuteSettlement {
+            debited_asset: source,
+            settlement_id: instruction.settlement_id().clone(),
+            intent_hash: instruction.intent_hash().expect("complete intent"),
+        }
+        .into();
+        Grant::account_permission(permission, grantee.clone())
+            .execute(owner, stx)
+            .expect("owner grants exact consent");
+    }
+
+    fn cash_of(&self, stx: &StateTransaction<'_, '_>, account: &AccountId) -> Quantity {
+        asset_balance_or_zero(stx, &AssetId::new(self.cash.clone(), account.clone()))
+    }
+}
+
+#[test]
+fn atomic_settlement_opens_consent_bound_escrow_with_exact_custody() {
+    let fixture = bond_escrow_fixture();
+    let mut block = fixture
+        .state
+        .block(BlockHeader::new(nonzero!(1_u64), None, None, 1_000, 0));
+    let mut stx = block.transaction_for_callback_testing();
+    let leg = fixture.escrow_leg(&fixture.investor, "retention", 10, 1_000_000);
+    let escrow_id = leg.escrow_id;
+    let instruction = fixture.settlement(&stx, &fixture.investor, 90, vec![leg]);
+    BondEscrowFixture::consent(
+        &mut stx,
+        &fixture.issuer,
+        AssetId::new(fixture.bond.clone(), fixture.issuer.clone()),
+        &fixture.investor,
+        &instruction,
+    );
+    let custody = crate::smartcontracts::isi::escrow::escrow_custody_account_id(
+        &stx.network_id,
+        &escrow_id,
+        &fixture.cash,
+    );
+    admission_validate_atomic(&fixture.investor, &mut stx, &instruction)
+        .expect("complete admission including escrow funding");
+    assert!(
+        stx.world.accounts.get(&custody).is_none(),
+        "admission must not retain escrow custody"
+    );
+    instruction
+        .clone()
+        .execute(&fixture.investor, &mut stx)
+        .expect("atomic settlement with escrow leg");
+    assert_eq!(fixture.cash_of(&stx, &fixture.investor), Quantity::zero());
+    assert_eq!(
+        fixture.cash_of(&stx, &fixture.issuer),
+        Quantity::from(90_u32)
+    );
+    assert_eq!(fixture.cash_of(&stx, &custody), Quantity::from(10_u32));
+    assert_eq!(
+        asset_balance_or_zero(
+            &stx,
+            &AssetId::new(fixture.bond.clone(), fixture.investor.clone())
+        ),
+        Quantity::one()
+    );
+    let record = stx
+        .world
+        .asset_escrows
+        .get(&escrow_id)
+        .cloned()
+        .expect("escrow opened by the settlement");
+    assert_eq!(record.seller, fixture.investor);
+    assert_eq!(record.buyer, Some(fixture.issuer.clone()));
+    assert_eq!(record.custody, custody);
+    assert_eq!(record.status, AssetEscrowStatus::Locked);
+    assert_eq!(record.kind, AssetEscrowKind::Conditional);
+    assert_eq!(record.remaining_amount, Quantity::from(10_u32));
+    assert_eq!(record.expires_at_ms, Some(1_000_000));
+    let receipt = stx
+        .world
+        .settlement_receipts
+        .get(instruction.settlement_id())
+        .expect("one receipt");
+    let SettlementDetails::Atomic(details) = &receipt.details else {
+        panic!("atomic details");
+    };
+    assert_eq!(details.escrow_ids, vec![escrow_id]);
+    assert_eq!(
+        details.movements,
+        instruction.movements().resolve().expect("signed movements")
+    );
+}
+
+#[test]
+fn atomic_settlement_counterparty_consent_binds_the_escrow_terms() {
+    let fixture = bond_escrow_fixture();
+    let mut block = fixture
+        .state
+        .block(BlockHeader::new(nonzero!(1_u64), None, None, 1_000, 0));
+    let mut stx = block.transaction_for_callback_testing();
+    let consented = fixture.settlement(
+        &stx,
+        &fixture.investor,
+        90,
+        vec![fixture.escrow_leg(&fixture.investor, "retention", 10, 1_000_000)],
+    );
+    BondEscrowFixture::consent(
+        &mut stx,
+        &fixture.issuer,
+        AssetId::new(fixture.bond.clone(), fixture.issuer.clone()),
+        &fixture.investor,
+        &consented,
+    );
+    let before = atomic_observable_state(&stx);
+    // Omitting or shrinking the retained escrow share is a different intent
+    // that the issuer never approved.
+    for substituted in [
+        fixture.settlement(&stx, &fixture.investor, 90, Vec::new()),
+        fixture.settlement(
+            &stx,
+            &fixture.investor,
+            90,
+            vec![fixture.escrow_leg(&fixture.investor, "retention", 5, 1_000_000)],
+        ),
+        fixture.settlement(
+            &stx,
+            &fixture.investor,
+            90,
+            vec![fixture.escrow_leg(&fixture.investor, "retention", 10, 999_999)],
+        ),
+    ] {
+        let error = substituted
+            .execute(&fixture.investor, &mut stx)
+            .expect_err("changed escrow terms need fresh consent");
+        assert!(
+            error.to_string().contains("whole-intent consent"),
+            "{error}"
+        );
+        assert_eq!(atomic_observable_state(&stx), before);
+    }
+}
+
+#[test]
+fn atomic_settlement_foreign_escrow_source_requires_exact_owner_consent() {
+    let fixture = bond_escrow_fixture();
+    let mut block = fixture
+        .state
+        .block(BlockHeader::new(nonzero!(1_u64), None, None, 1_000, 0));
+    let mut stx = block.transaction_for_callback_testing();
+    let leg = fixture.escrow_leg(&fixture.investor, "foreign", 10, 1_000_000);
+    let escrow_id = leg.escrow_id;
+    let instruction = fixture.settlement(&stx, &CARPENTER_ID, 5, vec![leg]);
+    BondEscrowFixture::consent(
+        &mut stx,
+        &fixture.issuer,
+        AssetId::new(fixture.bond.clone(), fixture.issuer.clone()),
+        &CARPENTER_ID,
+        &instruction,
+    );
+    let before = atomic_observable_state(&stx);
+    let error = instruction
+        .clone()
+        .execute(&CARPENTER_ID, &mut stx)
+        .expect_err("a foreign escrow source needs its owner's consent");
+    assert!(
+        error.to_string().contains("whole-intent consent"),
+        "{error}"
+    );
+    assert_eq!(atomic_observable_state(&stx), before);
+    assert!(stx.world.asset_escrows.get(&escrow_id).is_none());
+    BondEscrowFixture::consent(
+        &mut stx,
+        &fixture.investor,
+        AssetId::new(fixture.cash.clone(), fixture.investor.clone()),
+        &CARPENTER_ID,
+        &instruction,
+    );
+    instruction
+        .execute(&CARPENTER_ID, &mut stx)
+        .expect("consented foreign escrow source");
+    let record = stx
+        .world
+        .asset_escrows
+        .get(&escrow_id)
+        .cloned()
+        .expect("escrow");
+    assert_eq!(
+        record.seller, fixture.investor,
+        "the source owner, not the signer, opens and is refunded by the escrow"
+    );
+    assert_eq!(
+        fixture.cash_of(&stx, &fixture.investor),
+        Quantity::from(90_u32)
+    );
+    assert_eq!(fixture.cash_of(&stx, &CARPENTER_ID), Quantity::from(5_u32));
+}
+
+#[test]
+fn atomic_settlement_failing_escrow_leg_rolls_back_every_movement() {
+    let fixture = bond_escrow_fixture();
+    let mut block = fixture
+        .state
+        .block(BlockHeader::new(nonzero!(1_u64), None, None, 1_000, 0));
+    let mut stx = block.transaction_for_callback_testing();
+    // Pre-existing escrow identifier for the duplicate case.
+    OpenConditionalEscrow::new(
+        bond_escrow_id("taken"),
+        fixture.cash.clone(),
+        fixture.issuer.clone(),
+        1_u32,
+        fixture
+            .escrow_leg(&fixture.investor, "taken", 1, 1_000_000)
+            .conditions,
+        1_000_000,
+    )
+    .execute(&fixture.investor, &mut stx)
+    .expect("existing conditional escrow");
+    let cases = [
+        // The combined movement and escrow outflow exceeds the prefunded balance:
+        // custody creation, both movements and the escrow funding all roll back.
+        (
+            fixture.escrow_leg(&fixture.investor, "overdrawn", 20, 1_000_000),
+            "NotEnoughQuantity",
+        ),
+        (
+            fixture.escrow_leg(&fixture.investor, "expired", 9, 1_000),
+            "expiry must be later",
+        ),
+        (
+            fixture.escrow_leg(&fixture.investor, "taken", 9, 1_000_000),
+            "escrow already exists",
+        ),
+    ];
+    for (leg, expected) in cases {
+        let escrow_id = leg.escrow_id;
+        let instruction = fixture.settlement(&stx, &fixture.investor, 90, vec![leg]);
+        BondEscrowFixture::consent(
+            &mut stx,
+            &fixture.issuer,
+            AssetId::new(fixture.bond.clone(), fixture.issuer.clone()),
+            &fixture.investor,
+            &instruction,
+        );
+        let escrows_before = stx.world.asset_escrows.iter().count();
+        let before = atomic_observable_state(&stx);
+        let error = instruction
+            .execute(&fixture.investor, &mut stx)
+            .expect_err("an invalid escrow leg rejects the whole settlement");
+        assert!(format!("{error:?}").contains(expected), "{error:?}");
+        assert_eq!(atomic_observable_state(&stx), before);
+        assert_eq!(stx.world.asset_escrows.iter().count(), escrows_before);
+        if expected != "escrow already exists" {
+            assert!(stx.world.asset_escrows.get(&escrow_id).is_none());
+        }
+    }
+}
+
+#[test]
+fn atomic_settlement_movement_cannot_credit_same_intent_escrow_custody() {
+    let fixture = bond_escrow_fixture();
+    let mut block = fixture
+        .state
+        .block(BlockHeader::new(nonzero!(1_u64), None, None, 1_000, 0));
+    let mut stx = block.transaction_for_callback_testing();
+    let leg = fixture.escrow_leg(&fixture.investor, "custody-credit", 10, 1_000_000);
+    let custody = crate::smartcontracts::isi::escrow::escrow_custody_account_id(
+        &stx.network_id,
+        &leg.escrow_id,
+        &fixture.cash,
+    );
+    let mut movements = vec![
+        AtomicSettlementMovement {
+            source: AssetId::new(fixture.cash.clone(), fixture.investor.clone()),
+            recipient: custody,
+            quantity: Quantity::one(),
+        },
+        AtomicSettlementMovement {
+            source: AssetId::new(fixture.cash.clone(), fixture.investor.clone()),
+            recipient: fixture.issuer.clone(),
+            quantity: Quantity::one(),
+        },
+    ];
+    movements.sort_by(|a, b| (&a.source, &a.recipient).cmp(&(&b.source, &b.recipient)));
+    let instruction = SettleAtomic::new(
+        stx.network_id.clone(),
+        SettlementId::new(
+            fixture.investor.clone(),
+            "custody_credit".parse().expect("reference"),
+        ),
+        AtomicSettlementMovements::try_from(movements).expect("canonical movements"),
+        AtomicSettlementEscrows::try_from(vec![leg]).expect("canonical escrows"),
+        nonzero!(100_u64),
+        Metadata::default(),
+    );
+    let before = atomic_observable_state(&stx);
+    let error = instruction
+        .execute(&fixture.investor, &mut stx)
+        .expect_err("custody is credited only by its funding leg");
+    assert!(
+        error.to_string().contains("cannot credit escrow custody"),
+        "{error}"
+    );
+    assert_eq!(atomic_observable_state(&stx), before);
+}
+
+#[test]
+fn atomic_settlement_escrow_releases_on_attestation_and_refunds_the_opener_at_expiry() {
+    let fixture = bond_escrow_fixture();
+    let released = bond_escrow_id("released");
+    let refunded = bond_escrow_id("refunded");
+    {
+        let mut block =
+            fixture
+                .state
+                .block(BlockHeader::new(nonzero!(1_u64), None, None, 1_000, 0));
+        let mut stx = block.transaction_for_callback_testing();
+        let instruction = fixture.settlement(
+            &stx,
+            &fixture.investor,
+            70,
+            vec![
+                fixture.escrow_leg(&fixture.investor, "released", 10, 1_000_000),
+                fixture.escrow_leg(&fixture.investor, "refunded", 20, 100_000),
+            ],
+        );
+        BondEscrowFixture::consent(
+            &mut stx,
+            &fixture.issuer,
+            AssetId::new(fixture.bond.clone(), fixture.issuer.clone()),
+            &fixture.investor,
+            &instruction,
+        );
+        instruction
+            .execute(&fixture.investor, &mut stx)
+            .expect("settle with two escrow legs");
+        assert_eq!(fixture.cash_of(&stx, &fixture.investor), Quantity::zero());
+        stx.apply();
+        block.commit_world_overlay_for_testing().expect("commit");
+    }
+    {
+        let mut block =
+            fixture
+                .state
+                .block(BlockHeader::new(nonzero!(2_u64), None, None, 2_000, 0));
+        let mut stx = block.transaction_for_callback_testing();
+        let attest = AttestEscrowCondition::new(
+            released,
+            "coupon_paid".parse().expect("condition id"),
+            ConditionalEscrowValue::Bool(true),
+            None,
+        );
+        let error = attest
+            .clone()
+            .execute(&fixture.issuer, &mut stx)
+            .expect_err("only the configured attestor attests");
+        assert!(
+            error.to_string().contains("exact configured attestor"),
+            "{error}"
+        );
+        attest
+            .execute(&fixture.attestor, &mut stx)
+            .expect("final attestation releases custody");
+        let record = stx
+            .world
+            .asset_escrows
+            .get(&released)
+            .cloned()
+            .expect("record");
+        assert_eq!(record.status, AssetEscrowStatus::Released);
+        assert_eq!(
+            fixture.cash_of(&stx, &fixture.issuer),
+            Quantity::from(80_u32)
+        );
+        assert_eq!(fixture.cash_of(&stx, &record.custody), Quantity::zero());
+        stx.apply();
+        block.commit_world_overlay_for_testing().expect("commit");
+    }
+    let mut block = fixture
+        .state
+        .block(BlockHeader::new(nonzero!(3_u64), None, None, 200_000, 0));
+    let mut stx = block.transaction_for_callback_testing();
+    ExpireConditionalEscrow::new(refunded)
+        .execute(&CARPENTER_ID, &mut stx)
+        .expect("anyone triggers the expiry refund");
+    let record = stx
+        .world
+        .asset_escrows
+        .get(&refunded)
+        .cloned()
+        .expect("record");
+    assert_eq!(record.status, AssetEscrowStatus::Expired);
+    assert_eq!(
+        fixture.cash_of(&stx, &fixture.investor),
+        Quantity::from(20_u32),
+        "expiry refunds the investor that funded the escrow"
+    );
+    assert_eq!(
+        fixture.cash_of(&stx, &fixture.issuer),
+        Quantity::from(80_u32)
+    );
+}
+
+fn attest_condition(escrow_id: EscrowId) -> AttestEscrowCondition {
+    AttestEscrowCondition::new(
+        escrow_id,
+        "coupon_paid".parse().expect("condition id"),
+        ConditionalEscrowValue::Bool(true),
+        None,
+    )
+}
+
+#[test]
+fn atomic_subscription_with_one_fee_movement_and_four_escrow_legs() {
+    let fixture = bond_escrow_fixture();
+    let investor_cash = AssetId::new(fixture.cash.clone(), fixture.investor.clone());
+    let issuer_bond = AssetId::new(fixture.bond.clone(), fixture.issuer.clone());
+    let investor_bond = AssetId::new(fixture.bond.clone(), fixture.investor.clone());
+    let principal = bond_escrow_id("principal");
+    let retention = bond_escrow_id("retention");
+    let delivered = bond_escrow_id("delivered-units");
+    let returned = bond_escrow_id("returned-units");
+    {
+        let mut block =
+            fixture
+                .state
+                .block(BlockHeader::new(nonzero!(1_u64), None, None, 1_000, 0));
+        let mut stx = block.transaction_for_callback_testing();
+        // The investor pays only the 1% fee directly; principal, retention and
+        // both bond-unit tranches are conditional escrow legs of the same intent.
+        let fee = AtomicSettlementMovement {
+            source: investor_cash.clone(),
+            recipient: fixture.issuer.clone(),
+            quantity: Quantity::one(),
+        };
+        let mut legs = vec![
+            fixture.leg(
+                investor_cash.clone(),
+                &fixture.issuer,
+                "principal",
+                89,
+                1_000_000,
+            ),
+            fixture.leg(
+                investor_cash.clone(),
+                &fixture.issuer,
+                "retention",
+                10,
+                1_000_000,
+            ),
+            // Foreign issuer-owned source escrowed for a different beneficiary.
+            fixture.leg(
+                issuer_bond.clone(),
+                &fixture.investor,
+                "delivered-units",
+                1,
+                1_000_000,
+            ),
+            fixture.leg(
+                issuer_bond.clone(),
+                &fixture.investor,
+                "returned-units",
+                1,
+                100_000,
+            ),
+        ];
+        legs.sort_by_key(|leg| leg.escrow_id);
+        let instruction = SettleAtomic::new(
+            stx.network_id.clone(),
+            SettlementId::new(
+                fixture.investor.clone(),
+                "subscription".parse().expect("reference"),
+            ),
+            AtomicSettlementMovements::try_from(vec![fee]).expect("one fee movement"),
+            AtomicSettlementEscrows::try_from(legs).expect("four escrow legs"),
+            nonzero!(100_u64),
+            Metadata::default(),
+        );
+        let before = atomic_observable_state(&stx);
+        let error = instruction
+            .clone()
+            .execute(&fixture.investor, &mut stx)
+            .expect_err("the issuer's bond-unit legs need its exact consent");
+        assert!(
+            error.to_string().contains("whole-intent consent"),
+            "{error}"
+        );
+        assert_eq!(atomic_observable_state(&stx), before);
+        BondEscrowFixture::consent(
+            &mut stx,
+            &fixture.issuer,
+            issuer_bond.clone(),
+            &fixture.investor,
+            &instruction,
+        );
+        admission_validate_atomic(&fixture.investor, &mut stx, &instruction)
+            .expect("admission with foreign escrow source");
+        instruction
+            .clone()
+            .execute(&fixture.investor, &mut stx)
+            .expect("subscription settles");
+        assert_eq!(fixture.cash_of(&stx, &fixture.investor), Quantity::zero());
+        assert_eq!(fixture.cash_of(&stx, &fixture.issuer), Quantity::one());
+        assert_eq!(
+            asset_balance_or_zero(&stx, &issuer_bond),
+            Quantity::from(3_u32)
+        );
+        assert_eq!(
+            asset_balance_or_zero(&stx, &investor_bond),
+            Quantity::zero()
+        );
+        for (id, seller, buyer) in [
+            (principal, &fixture.investor, &fixture.issuer),
+            (retention, &fixture.investor, &fixture.issuer),
+            (delivered, &fixture.issuer, &fixture.investor),
+            (returned, &fixture.issuer, &fixture.investor),
+        ] {
+            let record = stx.world.asset_escrows.get(&id).cloned().expect("record");
+            assert_eq!(&record.seller, seller, "source owner opens {id:?}");
+            assert_eq!(record.buyer.as_ref(), Some(buyer));
+            assert_eq!(record.status, AssetEscrowStatus::Locked);
+        }
+        let receipt = stx
+            .world
+            .settlement_receipts
+            .get(instruction.settlement_id())
+            .expect("receipt");
+        let SettlementDetails::Atomic(details) = &receipt.details else {
+            panic!("atomic details");
+        };
+        assert_eq!(details.movements.as_slice().len(), 1);
+        assert_eq!(details.escrow_ids, instruction.escrows().escrow_ids());
+        stx.apply();
+        block.commit_world_overlay_for_testing().expect("commit");
+    }
+    {
+        let mut block =
+            fixture
+                .state
+                .block(BlockHeader::new(nonzero!(2_u64), None, None, 2_000, 0));
+        let mut stx = block.transaction_for_callback_testing();
+        for id in [principal, delivered] {
+            attest_condition(id)
+                .execute(&fixture.attestor, &mut stx)
+                .expect("condition passes");
+        }
+        // Units reach the buyer only once the condition passes.
+        assert_eq!(asset_balance_or_zero(&stx, &investor_bond), Quantity::one());
+        assert_eq!(
+            fixture.cash_of(&stx, &fixture.issuer),
+            Quantity::from(90_u32)
+        );
+        stx.apply();
+        block.commit_world_overlay_for_testing().expect("commit");
+    }
+    let mut block = fixture
+        .state
+        .block(BlockHeader::new(nonzero!(3_u64), None, None, 200_000, 0));
+    let mut stx = block.transaction_for_callback_testing();
+    ExpireConditionalEscrow::new(returned)
+        .execute(&CARPENTER_ID, &mut stx)
+        .expect("expired units refund");
+    assert_eq!(
+        asset_balance_or_zero(&stx, &issuer_bond),
+        Quantity::from(4_u32),
+        "unreleased units return to the issuer that funded the leg"
+    );
+    assert_eq!(asset_balance_or_zero(&stx, &investor_bond), Quantity::one());
+    assert_eq!(
+        stx.world
+            .asset_escrows
+            .get(&retention)
+            .map(|record| record.status),
+        Some(AssetEscrowStatus::Locked)
+    );
+}
+
+#[test]
+fn atomic_settlement_with_only_two_escrow_legs_and_no_movement() {
+    let fixture = bond_escrow_fixture();
+    let mut block = fixture
+        .state
+        .block(BlockHeader::new(nonzero!(1_u64), None, None, 1_000, 0));
+    let mut stx = block.transaction_for_callback_testing();
+    let issuer_bond = AssetId::new(fixture.bond.clone(), fixture.issuer.clone());
+    let mut legs = vec![
+        fixture.escrow_leg(&fixture.investor, "cash-only", 10, 1_000_000),
+        fixture.leg(
+            issuer_bond.clone(),
+            &fixture.investor,
+            "units-only",
+            1,
+            1_000_000,
+        ),
+    ];
+    legs.sort_by_key(|leg| leg.escrow_id);
+    let instruction = SettleAtomic::new(
+        stx.network_id.clone(),
+        SettlementId::new(
+            fixture.investor.clone(),
+            "escrow_exchange".parse().expect("reference"),
+        ),
+        AtomicSettlementMovements::try_from(Vec::new()).expect("no movement"),
+        AtomicSettlementEscrows::try_from(legs).expect("two escrow legs"),
+        nonzero!(100_u64),
+        Metadata::default(),
+    );
+    BondEscrowFixture::consent(
+        &mut stx,
+        &fixture.issuer,
+        issuer_bond.clone(),
+        &fixture.investor,
+        &instruction,
+    );
+    instruction
+        .execute(&fixture.investor, &mut stx)
+        .expect("escrow-only settlement");
+    assert_eq!(
+        fixture.cash_of(&stx, &fixture.investor),
+        Quantity::from(90_u32)
+    );
+    assert_eq!(
+        asset_balance_or_zero(&stx, &issuer_bond),
+        Quantity::from(4_u32)
+    );
+    assert!(
+        stx.world
+            .asset_escrows
+            .get(&bond_escrow_id("cash-only"))
+            .is_some()
+    );
+    assert!(
+        stx.world
+            .asset_escrows
+            .get(&bond_escrow_id("units-only"))
+            .is_some()
+    );
 }

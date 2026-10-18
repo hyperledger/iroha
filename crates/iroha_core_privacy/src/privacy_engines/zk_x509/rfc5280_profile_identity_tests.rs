@@ -1,4 +1,4 @@
-//! Authenticated ordinal, KeyUsage role and exact extension cardinality controls.
+//! Authenticated ordinal, `KeyUsage` role and exact extension cardinality controls.
 use super::*;
 use crate::privacy_engines::transparent_stark::GoldilocksFp4V1 as E;
 fn fixed(family: ZkX509Rfc5280StarkFamilyV1) -> ZkX509Rfc5280StarkFixedRowV1 {

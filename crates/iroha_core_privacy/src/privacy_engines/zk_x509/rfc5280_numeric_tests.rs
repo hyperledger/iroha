@@ -127,7 +127,7 @@ fn valid(events: &[NumericLookupEventV1<F>], rows: &[NumericLookupRowV1<F>]) -> 
             F(u64::from(index == 0)),
             F(u64::from(index + 1 != rows.len())),
             F(u64::from(index + 1 == rows.len())),
-            challenges(),
+            &challenges(),
         );
         assert_eq!(residues.len(), LOOKUP_RESIDUES_V1);
         residues.into_iter().all(|value| value == F::ZERO)
@@ -279,8 +279,8 @@ fn exact_der_identity_and_public_window_bounds_are_not_host_ordinals() {
     assert!(validate_window_v1(1, 0).is_err());
     assert!(validate_window_v1(0, MAXIMUM_TIMESTAMP_V1 + 1).is_err());
     assert!(validate_window_v1(0, GOLDILOCKS_MODULUS_V1 - 1).is_err());
-    assert!(MAXIMUM_TIMESTAMP_V1 + 300 < 1 << SLACK_BITS_V1);
-    assert!(2 * (1_u64 << SLACK_BITS_V1) < GOLDILOCKS_MODULUS_V1);
+    const { assert!(MAXIMUM_TIMESTAMP_V1 + 300 < 1 << SLACK_BITS_V1) };
+    const { assert!(2 * (1_u64 << SLACK_BITS_V1) < GOLDILOCKS_MODULUS_V1) };
     assert!(
         NumericOperandV1::WindowStart
             .timestamp_tuple_v1(F::ZERO, F(123))
@@ -326,7 +326,7 @@ fn polynomial_input<A: PolynomialAirFieldV1>(x: A) -> Vec<A> {
         cell(47),
         cell(48),
         cell(49),
-        challenges(),
+        &challenges(),
     )
 }
 
@@ -438,7 +438,7 @@ fn weighted_prefix_transition_attains_degree_four_including_fixed_selector() {
                 F::ZERO,
                 x,
                 F::ZERO,
-                challenges(),
+                &challenges(),
             );
             // Three event checks precede twelve checks per lane; transition
             // position eight is -continue * source * multiplicity * inverse.

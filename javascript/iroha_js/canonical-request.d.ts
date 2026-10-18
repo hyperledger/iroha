@@ -88,6 +88,8 @@ export type CanonicalJsonRequestSignature =
   | string;
 
 export interface CanonicalJsonRequestInput {
+  /** Native-inspected browser identity; requires its exact baseUrl and networkId. */
+  nativeIdentity?: import("./index.js").NativeAccountIdentity;
   /** Exact canonical I105 account or structurally bounded ASCII alias header. */
   accountId: string;
   /** Exact genesis-derived network domain for the signed request. */
@@ -137,3 +139,24 @@ export function buildCanonicalRequestHeaders(
 export function buildCanonicalJsonRequest(
   params: CanonicalJsonRequestInput,
 ): Promise<CanonicalJsonRequest>;
+
+export interface CanonicalReadRetryOptions<T> {
+  method: string;
+  /** Exact root-relative Torii target, optionally including its query. */
+  path: string;
+  signal?: AbortSignal;
+  /** Build and sign a fresh request each time; pass signal to the transport. */
+  operation: (attempt: number) => T | Promise<T>;
+}
+
+/**
+ * Retry allowlisted Torii reads on typed HTTP 429 capacity/rate failures only.
+ * Attempts are zero-based, with at most three retries in a ten-second window.
+ * Errors expose status/code and may carry retryAfter (HTTP header text),
+ * retryAfterSeconds, or details.retry_after_seconds. Unknown routes, writes,
+ * authentication and transport failures run once. Exhaustion rethrows the
+ * original failure; Retry-After beyond the remaining window is not shortened.
+ */
+export function withCanonicalReadRetry<T>(
+  options: CanonicalReadRetryOptions<T>,
+): Promise<T>;

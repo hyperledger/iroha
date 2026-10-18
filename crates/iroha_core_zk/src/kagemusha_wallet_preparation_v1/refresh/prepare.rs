@@ -12,8 +12,6 @@ pub struct RefreshOriginalsV1<'a> {
     pub update: &'a [u8],
     /// Complete original canonical direct-root certificate set.
     pub certificates: &'a [u8],
-    /// Blacklist-history low and empty insertion openings, absent for other kinds.
-    pub openings: &'a [Vec<u8>],
     /// Original canonical 64-slot predecessor usage frame, exactly for QuotaShare.
     pub quota: Option<&'a [u8]>,
 }
@@ -27,7 +25,6 @@ pub struct RefreshStepV1 {
     state: KagemushaWalletStateV1,
     statement: KagemushaWalletStatementV1,
     retained: Vec<KagemushaWalletRetainedInputV1>,
-    openings: Vec<Vec<u8>>,
 }
 
 impl RefreshStepV1 {
@@ -46,10 +43,11 @@ impl RefreshStepV1 {
     pub const fn statement(&self) -> &KagemushaWalletStatementV1 {
         &self.statement
     }
-    /// Original frames and map openings to retain without reconstruction in the capsule.
+    /// Original frames to retain without reconstruction in the capsule. A Refresh retains
+    /// no map openings.
     #[must_use]
-    pub fn originals(&self) -> (&[KagemushaWalletRetainedInputV1], &[Vec<u8>]) {
-        (&self.retained, &self.openings)
+    pub fn originals(&self) -> &[KagemushaWalletRetainedInputV1] {
+        &self.retained
     }
     /// Authenticated installation to recheck before proving and release.
     #[must_use]
@@ -156,23 +154,10 @@ impl PreparationV1<'_> {
         )?;
         self.statement_fields(owners.successor, &statement)?;
         authority(statement.validate_successor_of(&capsule.body().statement))?;
-        // Blacklists retain one explicit complete-original archive reference under
-        // their fixed update kind. Native publishes and authenticates that full
-        // original through the actual coordinator ObjectStore before proving.
-        let retained_update = if originals.kind == KagemushaWalletPolicyUpdateKindV1::Blacklist {
-            crate::kagemusha_wallet_state_v1::BlacklistOriginalReferenceV1::for_original(
-                &scheme.scheme_id(),
-                originals.update,
-            )
-            .and_then(|source| source.to_canonical_bytes())
-            .map_err(|_| Error::Authority)?
-        } else {
-            originals.update.to_vec()
-        };
         let mut retained = vec![
             KagemushaWalletRetainedInputV1 {
                 role: KagemushaWalletRetainedInputRoleV1::PolicyUpdate,
-                bytes: retained_update,
+                bytes: originals.update.to_vec(),
             },
             KagemushaWalletRetainedInputV1 {
                 role: KagemushaWalletRetainedInputRoleV1::CertificateSet,
@@ -192,7 +177,6 @@ impl PreparationV1<'_> {
             state,
             statement,
             retained,
-            openings: originals.openings.to_vec(),
         })
     }
 }

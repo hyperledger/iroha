@@ -38,8 +38,9 @@ pub struct ArchiveProofSources {
 /// Exact extra inputs selected by the circuit-fixed evidence kind.
 #[derive(Clone, Copy)]
 pub enum ArchiveProofInputs<'a> {
-    /// Own hard sigma projection; the incoming slot is retained in the source.
-    Receive(&'a SigmaBindingCells),
+    /// Receive evidence; its incoming sigma slot is retained in the source.
+    /// No own sigma is verified: A proves the own step inline.
+    Receive,
     /// Status Omega key, whose identity must equal the current lineage's key.
     Status(&'a VerifierKeyCells<Ep>),
 }
@@ -93,7 +94,8 @@ impl ArchiveProofSources {
     /// Source digests use the sigma-only or exact lineage-byte domain. Both the
     /// declared raw length and every byte participate even when verification
     /// fails. Status exports its exact verifier opening unconditionally;
-    /// Receive exports the same incoming sigma mode verified inside hard Q0.
+    /// Receive exports the same incoming sigma mode verified inside the hard
+    /// incoming-only `Q_sigma` (Q0).
     /// # Errors
     /// Wrong task/kind/schema, missing mode/source, spliced bytes/public/claims,
     /// foreign key identity or layout failure.
@@ -146,16 +148,18 @@ impl ArchiveProofSources {
             .get(self.raw_slot)
             .ok_or(Error::Synthesis)?;
         let (context, valid, opening) = match (&self.source, proof) {
-            (Source::Receive(sigma), ArchiveProofInputs::Receive(own)) => {
+            (Source::Receive(sigma), ArchiveProofInputs::Receive) => {
                 if plan.operation().frame().variant() != Variant::ArchiveReceive {
                     return Err(Error::Synthesis);
                 }
-                let bound = [own.clone(), sigma.as_ref().clone()];
-                bind_statements(region, input, &bound)?;
+                // The lean plan verifies no own sigma: the incoming statement is
+                // the only binding of the incoming-only Q_sigma.
+                let bound = [sigma.as_ref().clone()];
+                bind_statements(region, input, false, &bound)?;
                 let result = bind_sigma(
                     chip,
                     region,
-                    &plan.operation().sigma,
+                    plan.operation().sigma_plan()?,
                     input.q_instances.first().ok_or(Error::Synthesis)?,
                     &bound,
                 )?;

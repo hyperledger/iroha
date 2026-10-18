@@ -458,11 +458,14 @@ fn direct_jumps_keep_the_original_twenty_one_ports_and_fixed_degree_geometry() {
         ivm::ivm_mode::ZK,
     ))
     .unwrap();
-    let fixtures = [
-        Fixture::new(&program, 0, false, 0),
-        Fixture::new(&program, 1, false, 0),
-        Fixture::padding(),
-    ];
+    let fixtures: Vec<_> = [Some(0), Some(1), None]
+        .into_iter()
+        .map(|slot| {
+            slot.map_or_else(Fixture::padding, |slot| {
+                Fixture::new(&program, slot, false, 0)
+            })
+        })
+        .collect();
     let mut lengths = Vec::new();
     for fixture in &fixtures {
         let mut out = Vec::new();

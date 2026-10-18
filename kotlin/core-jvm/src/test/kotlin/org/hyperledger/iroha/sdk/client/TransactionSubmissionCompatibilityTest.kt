@@ -1,18 +1,24 @@
 package org.hyperledger.iroha.sdk.client
 
+import java.io.IOException
 import java.net.URI
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 import java.util.ArrayDeque
+import java.util.concurrent.CancellationException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertSame
+import kotlin.test.assertTrue
 import org.hyperledger.iroha.sdk.address.AccountAddress
 import org.hyperledger.iroha.sdk.client.queue.PendingTransactionQueue
 import org.hyperledger.iroha.sdk.client.transport.TransportRequest
+import org.hyperledger.iroha.sdk.client.transport.TransportRequestNotDispatchedException
 import org.hyperledger.iroha.sdk.client.transport.TransportResponse
 import org.hyperledger.iroha.sdk.core.model.Executable
 import org.hyperledger.iroha.sdk.core.model.FeePaymentIntent
@@ -221,6 +227,172 @@ class TransactionSubmissionCompatibilityTest {
         )
     }
 
+    @Test
+    fun `all transaction ingress forms preserve synchronous pre-dispatch refusal causes`() {
+        assertPreDispatchRefusal(synchronous = true)
+    }
+
+    @Test
+    fun `all transaction ingress forms preserve asynchronous pre-dispatch refusal causes`() {
+        assertPreDispatchRefusal(synchronous = false)
+    }
+
+    @Test
+    fun `untyped synchronous failures remain ambiguous after one signed dispatch`() {
+        assertAmbiguousUntypedFailure(synchronous = true)
+    }
+
+    @Test
+    fun `untyped asynchronous failures remain ambiguous after one signed dispatch`() {
+        assertAmbiguousUntypedFailure(synchronous = false)
+    }
+
+    @Test
+    fun `cancelled transport future remains ambiguous after one signed dispatch`() {
+        val transaction = sampleTransaction(33)
+        val executor = SubmissionFailureExecutor(
+            CancellationException("cancelled after dispatch"),
+            synchronous = false,
+            dispatchPost = true,
+        )
+        val future = transport(executor, retryPolicy = retryThreeTimes()).submitTransaction(transaction)
+        assertFalse(future.isDone)
+        assertTrue(executor.postResult.cancel(false))
+
+        val error = assertFailsWith<CompletionException> { future.join() }
+        val ambiguous = assertIs<AmbiguousTransactionSubmissionException>(error.cause)
+        assertEquals(SignedTransactionHasher.hashHex(transaction), ambiguous.hashHex)
+        assertEquals(null, ambiguous.statusCode)
+        assertIs<CancellationException>(ambiguous.cause)
+        assertOnePostAttempt(executor, "/v1/pipeline/transactions", dispatched = true)
+    }
+
+    @Test
+    fun `other transaction ingress forms retain ordinary transport failure contracts`() {
+        for (synchronous in listOf(true, false)) {
+            for ((index, ingress) in transactionIngressForms(sampleTransaction(34)).withIndex()) {
+                if (index == 0) continue
+                val (postPath, submit) = ingress
+                for (failure in listOf(IOException("connection reset"), CancellationException("transport cancelled"))) {
+                    val executor = SubmissionFailureExecutor(failure, synchronous, dispatchPost = true)
+                    val future = submit(transport(executor, retryPolicy = retryThreeTimes()))
+                    if (!synchronous) {
+                        assertFalse(future.isDone)
+                        assertTrue(executor.postResult.completeExceptionally(CompletionException(failure)))
+                    }
+
+                    val error = assertFailsWith<CompletionException> { future.join() }
+                    if (index == 2) {
+                        assertSame(failure, error.cause)
+                    } else {
+                        val context = assertIs<RuntimeException>(error.cause)
+                        assertEquals(
+                            if (index == 1) "transaction JSON submit request failed"
+                            else "transaction entrypoint JSON submit request failed",
+                            context.message,
+                        )
+                        assertSame(failure, context.cause)
+                    }
+                    assertOnePostAttempt(executor, postPath, dispatched = true)
+                }
+            }
+        }
+    }
+
+    private fun assertPreDispatchRefusal(synchronous: Boolean) {
+        for ((postPath, submit) in transactionIngressForms(sampleTransaction(30))) {
+            for (failure in listOf(
+                CancellationException("owner replaced before dispatch"),
+                IOException("request signing unavailable"),
+                IllegalStateException("request admission refused"),
+            )) {
+                val marker = TransportRequestNotDispatchedException(failure)
+                assertSame(failure, marker.originalFailure)
+                assertSame(failure, marker.cause)
+                val executor = SubmissionFailureExecutor(marker, synchronous, dispatchPost = false)
+                val queue = MemoryPendingQueue()
+                val queued = sampleTransaction(31)
+                queue.enqueue(queued)
+                val future = submit(transport(executor, queue, retryThreeTimes()))
+                if (!synchronous) {
+                    assertFalse(future.isDone)
+                    assertTrue(executor.postResult.completeExceptionally(CompletionException(marker)))
+                }
+
+                val error = assertFailsWith<CompletionException> { future.join() }
+                assertSame(failure, error.cause)
+                assertOnePostAttempt(executor, postPath, dispatched = false)
+                assertEquals(1, queue.size())
+                assertSame(queued, queue.drain().single())
+            }
+        }
+    }
+
+    private fun assertAmbiguousUntypedFailure(synchronous: Boolean) {
+        val transaction = sampleTransaction(32)
+        for (failure in listOf(
+            IOException("connection reset after dispatch"),
+            CancellationException("cancelled after dispatch"),
+            IOException(
+                "a nested refusal is not proof this request was undispatched",
+                TransportRequestNotDispatchedException(CancellationException("nested refusal")),
+            ),
+            RuntimeException("transport failed", CancellationException("nested cancellation")),
+        )) {
+            val executor = SubmissionFailureExecutor(failure, synchronous, dispatchPost = true)
+            val future = transport(executor, retryPolicy = retryThreeTimes()).submitTransaction(transaction)
+            if (!synchronous) {
+                assertFalse(future.isDone)
+                assertTrue(executor.postResult.completeExceptionally(CompletionException(failure)))
+            }
+
+            val error = assertFailsWith<CompletionException> { future.join() }
+            val ambiguous = assertIs<AmbiguousTransactionSubmissionException>(error.cause)
+            assertEquals(SignedTransactionHasher.hashHex(transaction), ambiguous.hashHex)
+            assertEquals(null, ambiguous.statusCode)
+            assertEquals(null, ambiguous.rejectCode)
+            assertEquals(null, ambiguous.responseBody)
+            assertSame(failure, ambiguous.cause)
+            assertOnePostAttempt(executor, "/v1/pipeline/transactions", dispatched = true)
+        }
+    }
+
+    private fun transactionIngressForms(
+        transaction: SignedTransaction,
+    ): List<Pair<String, (HttpClientTransport) -> CompletableFuture<ClientResponse>>> = listOf(
+        "/v1/pipeline/transactions" to { client -> client.submitTransaction(transaction) },
+        "/v1/pipeline/transactions" to { client ->
+            client.submitTransactionJson("""{"version":1}""".toByteArray(StandardCharsets.UTF_8))
+        },
+        "/v1/pipeline/transaction-entrypoints" to { client ->
+            client.submitTransactionEntrypoint(byteArrayOf(1, 2, 3))
+        },
+        "/v1/pipeline/transaction-entrypoints" to { client ->
+            client.submitTransactionEntrypointJson("""{"version":1}""".toByteArray(StandardCharsets.UTF_8))
+        },
+    )
+
+    private fun retryThreeTimes(): RetryPolicy = RetryPolicy.builder()
+        .setMaxAttempts(3)
+        .setBaseDelay(Duration.ZERO)
+        .build()
+
+    private fun assertOnePostAttempt(
+        executor: SubmissionFailureExecutor,
+        postPath: String,
+        dispatched: Boolean,
+    ) {
+        assertEquals(
+            listOf("GET /v1/node/capabilities", "POST $postPath"),
+            executor.attemptedRequests,
+        )
+        assertEquals(
+            if (dispatched) listOf("GET /v1/node/capabilities", "POST $postPath")
+            else listOf("GET /v1/node/capabilities"),
+            executor.dispatchedRequests,
+        )
+    }
+
     private fun transport(
         executor: HttpTransportExecutor,
         queue: PendingTransactionQueue? = null,
@@ -310,6 +482,33 @@ class TransactionSubmissionCompatibilityTest {
         override fun size(): Int = pending.size
 
         override fun telemetryQueueName(): String = "memory"
+    }
+
+    private class SubmissionFailureExecutor(
+        private val failure: Exception,
+        private val synchronous: Boolean,
+        private val dispatchPost: Boolean,
+    ) : HttpTransportExecutor {
+        val attemptedRequests = mutableListOf<String>()
+        val dispatchedRequests = mutableListOf<String>()
+        val postResult = CompletableFuture<TransportResponse>()
+
+        override fun execute(request: TransportRequest): CompletableFuture<TransportResponse> {
+            val description = "${request.method} ${request.uri.path}"
+            attemptedRequests.add(description)
+            if (request.method == "GET") {
+                dispatchedRequests.add(description)
+                return CompletableFuture.completedFuture(
+                    TransportResponse.builder()
+                        .setStatusCode(200)
+                        .setBody(capabilities().toByteArray(StandardCharsets.UTF_8))
+                        .build(),
+                )
+            }
+            if (dispatchPost) dispatchedRequests.add(description)
+            if (synchronous) throw failure
+            return postResult
+        }
     }
 
     private class NetworkFailureExecutor : HttpTransportExecutor {

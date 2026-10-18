@@ -49,7 +49,7 @@ pub(crate) fn interpolate_at<F: Field>(points: &[F], evals: &[F], x: F) -> F {
 /// [`MultiopenError::Shape`] or [`MultiopenError::PointCollision`] for inputs
 /// that do not match the plan; [`MultiopenError::ConflictingEvaluations`] when
 /// a repeated query claims a different evaluation (S3);
-/// [`MultiopenError::DegenerateChallenge`] when `x_3` is an opening point;
+/// [`MultiopenError::DegenerateChallenge`] when `x_3` is in the polynomial domain or is an opening point;
 /// [`MultiopenError::Ipa`] for transcript and IPA failures.
 pub fn verify<C, T>(
     plan: &OpeningPlan,
@@ -113,7 +113,8 @@ where
     }
 
     let q_prime = transcript.read_point()?;
-    let x_3 = transcript.squeeze_challenge();
+    let x_3 = crate::transcript::pipa_r::multiopening_challenge(transcript.squeeze_challenge());
+    super::regularity::validate_challenge(k, x_3, points)?;
     let mut q_evals = Vec::with_capacity(sets.len());
     for _ in sets {
         q_evals.push(transcript.read_scalar()?);

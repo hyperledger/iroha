@@ -389,7 +389,7 @@ fn main_deep_composition_v1(
                 &prepared.public[0].rfc,
                 RfcMainFp4AirContextV1 {
                     der: log19.post_base.der(),
-                    rfc: log19.post_base.rfc5280(),
+                    rfc: *log19.post_base.rfc5280(),
                 },
             )?,
             MainFp4AirEvaluatorV1::Sha(evaluator) => {
@@ -428,7 +428,7 @@ fn main_deep_composition_v1(
                     ShaMainFp4AirContextV1 {
                         word: log19.post_base.sha_word(),
                         call: log19.post_base.sha(),
-                        rfc: log19.post_base.rfc5280(),
+                        rfc: *log19.post_base.rfc5280(),
                         segment: segment as u8,
                     },
                 )?

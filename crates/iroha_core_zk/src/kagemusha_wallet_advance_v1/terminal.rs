@@ -18,6 +18,9 @@
 //! - **D3** the payment key is deleted only after the terminal marker is durable (and, on iOS,
 //!   anchored); **D4** capsules, completion records and the state owner's archive are removed.
 //!
+//! Once a terminal marker is durable, and whenever an abandonment or deletion resumes one,
+//! archive records an open call staged for the slot are discarded, never published.
+//!
 //! The terminal marker, the intent, tombstones and the anchor are kept, so a deliberate
 //! deletion never reads as lost custody. Reconciliation of a terminal slot resumes these steps.
 
@@ -145,6 +148,9 @@ where
             KagemushaWalletSlotStatusV1::Terminal(record)
                 if terminal_reason(&record) == Some(KagemushaWalletTerminalReasonV1::Abandoned) =>
             {
+                // Resumed (for example after an uncertain terminal marker that was durable):
+                // archive records staged for the slot are never published.
+                self.discard_archive(slot);
                 record
             }
             KagemushaWalletSlotStatusV1::Terminal(_) => {
@@ -195,6 +201,8 @@ where
                 });
             }
         };
+        // The slot is terminal: archive records staged for it are never published.
+        self.discard_archive(slot);
         self.finish_terminal_markers(&durable, &[enrollment.generation()])?;
         let record = durable.record().clone();
         self.remember(
@@ -396,6 +404,8 @@ where
                 if terminal_reason(&record)
                     == Some(KagemushaWalletTerminalReasonV1::CustodyDeleted) =>
             {
+                // Resumed: archive records staged for the slot are never published.
+                self.discard_archive(slot);
                 return Ok(KagemushaWalletSlotStatusV1::Terminal(record));
             }
             KagemushaWalletSlotStatusV1::Terminal(_) => {
@@ -443,6 +453,9 @@ where
                 ));
             }
         };
+        // The custody is being destroyed: archive records staged for the slot are never
+        // published (its archive files are removed in D4).
+        self.discard_archive(slot);
         // D2-D4.
         self.finish_terminal_markers(&durable, &[current.generation()])?;
         self.finish_custody_deletion(slot)?;
@@ -486,6 +499,8 @@ where
                 return Err(KagemushaWalletProviderErrorV1::Unavailable(reason));
             }
         }
+        // Archive records are forgotten by the exact-bytes write memo before any is removed.
+        self.forget_archive_writes(slot);
         for dir in [
             kagemusha_wallet_capsules_dir_v1(slot),
             kagemusha_wallet_completion_dir_v1(slot),

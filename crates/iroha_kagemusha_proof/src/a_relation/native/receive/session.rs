@@ -59,14 +59,17 @@ use super::circuit::{Continuation, Stage};
 use super::*;
 use crate::{
     a_relation::{
-        native::artifact::KeyArtifact,
+        native::{
+            artifact::KeyArtifact,
+            identity::{BoundV1, ProverInstanceV1},
+        },
         split::{SplitPlan, WCircuit, WKey},
     },
     omega::OmegaWitness,
 };
 use iroha_plonk::{ProverConfig, ProverRandomness};
 
-/// Installed A1–A10 and W0–W8 artifacts for the complete Receive owner schedule.
+/// Installed A1–A9 and W0–W7 artifacts for the complete Receive owner schedule.
 /// Only verifier metadata is retained. Each proving call reconstructs one exact
 /// admitted source and drops its temporary PK before verification and decisions.
 /// Package authentication belongs to artifact installation. Original PK intake
@@ -76,13 +79,17 @@ pub struct Prover {
     a: [KeyArtifact<Eq>; A_STAGE_COUNT],
     w: [KeyArtifact<Ep>; A_STAGE_COUNT - 1],
     wrappers: [WKey; A_STAGE_COUNT - 1],
+    // Process-local instance identity; only this instance resumes its sessions.
+    // Same-program route aliases share one instance; the retention owner's key
+    // binds the full route.
+    identity: ProverInstanceV1,
 }
 impl Prover {
-    /// Derive the four nonproof Receive predicates using the same bounded circuit
+    /// Derive the three nonproof Receive predicates using the same bounded circuit
     /// owners. Actual Q/A/W/Omega and complete decisions remain mandatory.
     /// # Errors
     /// Invalid source binding, authenticated route or predicate assignment.
-    pub fn propose_nonproof(&self, input: super::PredicateInputs) -> Result<[bool; 4], Error> {
+    pub fn propose_nonproof(&self, input: super::PredicateInputs) -> Result<[bool; 3], Error> {
         self.plan.propose_nonproof(input)
     }
 
@@ -132,6 +139,7 @@ impl Prover {
             a,
             w,
             wrappers,
+            identity: ProverInstanceV1::fresh(),
         })
     }
     /// Check original hard proofs and preserve every untrusted soft source proposal.
@@ -155,6 +163,22 @@ impl Prover {
             prepared: self.plan.prepare_cancellable(input, budget, cancellation)?,
         })
     }
+    /// Resume a session retained from this exact prover instance.
+    ///
+    /// Nothing is re-read or re-verified: `prepare` on this instance verified the
+    /// retained hard originals and selected claims. Checkpoints that session
+    /// produced or restored stay bound to the same source; every later durable
+    /// entry must still be restored strictly from its bytes.
+    /// # Errors
+    /// `Error::Input` when the state was retained from another prover instance,
+    /// including an identically installed one; the state is dropped.
+    pub fn resume(&self, retained: RetainedSession) -> Result<Session<'_>, Error> {
+        let prepared = self.identity.admit(retained.0).map_err(|_| Error::Input)?;
+        Ok(Session {
+            prover: self,
+            prepared,
+        })
+    }
     /// Exact installed descriptor sequence in durable A/W checkpoint order.
     pub fn descriptors(&self) -> Vec<&DescriptorBinding> {
         let mut out = Vec::with_capacity(2 * A_STAGE_COUNT - 1);
@@ -173,6 +197,16 @@ pub struct Session<'a> {
     prover: &'a Prover,
     prepared: Prepared,
 }
+
+/// A Receive session's verified preparation, detached between fold calls.
+///
+/// Only `Session::into_retained` creates one, and only `Prover::resume` on the
+/// prover instance that prepared it consumes it. It is move-only, process-local
+/// and never serialized or built from bytes. It holds the checked originals and
+/// the source identity that the session's checkpoints carry, but no proving key,
+/// original-store handle or durable checkpoint.
+pub struct RetainedSession(BoundV1<Prepared>);
+
 impl Session<'_> {
     fn require_a(&self, source: &ACheckpoint) -> Result<(), Error> {
         if source.stage >= A_STAGE_COUNT
@@ -181,6 +215,14 @@ impl Session<'_> {
             return Err(Error::Input);
         }
         Ok(())
+    }
+
+    /// Detach this session's verified preparation so a later fold call can resume
+    /// it on the same prover instance instead of preparing again. Checkpoints this
+    /// session produced or restored remain usable by the resumed session.
+    #[must_use]
+    pub fn into_retained(self) -> RetainedSession {
+        RetainedSession(self.prover.identity.bind(self.prepared))
     }
 
     /// Execute the same native check with an explicit operation signal.
@@ -312,7 +354,7 @@ impl Session<'_> {
         stage: usize,
         circuit: Stage,
         key: &SourceBoundViewV2<'_, Eq>,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
         budget: MemoryBudget,
     ) -> Result<ACheckpoint, Error> {
@@ -336,16 +378,16 @@ impl Session<'_> {
         )?;
         self.checked_a_cancellable(stage, circuit, output.proof, budget, config.cancellation)
     }
-    /// Prove A1 with hard predecessor and own-sigma ownership.
+    /// Prove A1 with the hard predecessor and the inline step relation.
     /// The admitted A1 metadata must match the installed identity before folding.
     /// # Errors
     /// Failed fixed-artifact assignment, proof or complete decide.
     pub fn first(
         &self,
         key: &SourceBoundViewV2<'_, Eq>,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<ACheckpoint, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -362,7 +404,7 @@ impl Session<'_> {
             .map_err(|_| Error::Artifact)?;
         self.prove_a(
             0,
-            self.prepared.first(salt, fold)?,
+            self.prepared.first(tape, fold)?,
             key,
             randomness,
             config,
@@ -396,7 +438,7 @@ impl Session<'_> {
             source: self.prepared.source.clone(),
             continuation: None,
             pallas: pallas.clone(),
-            fold: vec![],
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
             known: true,
         };
         self.checked_a_cancellable(0, circuit, proof, budget, cancellation)
@@ -414,9 +456,9 @@ impl Session<'_> {
         &self,
         key: &SourceBoundViewV2<'_, Ep>,
         source: &ACheckpoint,
-        salt: Fq,
+        tape: iroha_plonk_recursion::FoldTape<Eq>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<WCheckpoint, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -438,27 +480,14 @@ impl Session<'_> {
         if source.stage + 1 >= A_STAGE_COUNT {
             return Err(Error::Input);
         }
-        let trivial = AccumulatorT::trivial_cancellable(
+        let a = &self.prover.a[source.stage];
+        let (vfold, vesta) = crate::private_fold::wrapper(
             &self.prepared.plan.vesta,
-            fold.kernel_budget,
-            config.cancellation,
-        )
-        .map_err(|error| {
-            if error.is_cancelled() {
-                Error::Cancelled
-            } else {
-                Error::Proof
-            }
-        })?;
-        let (vfold, vesta) = create_fold(
-            &self.prepared.plan.vesta,
-            &[
-                source.part.clone(),
-                source.opening.clone(),
-                trivial.as_input(),
-                trivial.as_input(),
-            ],
-            salt.to_repr(),
+            a.binding(),
+            a.key(),
+            std::slice::from_ref(&source.public),
+            &source.proof,
+            tape,
             fold,
         )
         .map_err(|error| {
@@ -497,7 +526,7 @@ impl Session<'_> {
                 instances: source.public.clone(),
                 length: u32::try_from(source.proof.len()).map_err(|_| Error::Input)?,
                 proof: source.proof.clone(),
-                fold: vfold.to_bytes(),
+                fold: crate::private_fold::PrivateFoldBytes::from_fold(vfold),
             },
         )
         .map_err(|_| Error::Input)?;
@@ -594,7 +623,7 @@ impl Session<'_> {
         &self,
         wrapper: &WCheckpoint,
         pallas: AccumulatorT<Ep>,
-        fold: Vec<u8>,
+        fold: crate::private_fold::PrivateFoldBytes,
     ) -> Result<Stage, Error> {
         self.require_a(&wrapper.source)?;
         let index = wrapper.source.stage + 1;
@@ -625,7 +654,7 @@ impl Session<'_> {
     fn prepare_advance(
         &self,
         wrapper: &WCheckpoint,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         fold: &FoldConfig,
     ) -> Result<Stage, Error> {
         let wrapper = self.restore_wrapper_cancellable(
@@ -652,16 +681,26 @@ impl Session<'_> {
                 .iter()
                 .map(|i| self.prepared.source.q[*i].opening.clone()),
         );
-        let (proof, pallas) =
-            create_fold(&self.prepared.plan.pallas, &claims, salt.to_repr(), fold).map_err(
-                |error| {
+        let purpose = if index + 1 == A_STAGE_COUNT {
+            crate::private_fold::terminal_inputs(&self.prepared.plan.pallas, &mut claims, fold)
+                .map_err(|error| {
                     if error.is_cancelled() {
                         Error::Cancelled
                     } else {
                         Error::Proof
                     }
-                },
-            )?;
+                })?
+        } else {
+            iroha_plonk_recursion::FoldPurpose::AContinuation
+        };
+        let (proof, pallas) = create_fold(&self.prepared.plan.pallas, &claims, tape, purpose, fold)
+            .map_err(|error| {
+                if error.is_cancelled() {
+                    Error::Cancelled
+                } else {
+                    Error::Proof
+                }
+            })?;
         pallas
             .decide_cancellable(
                 &self.prepared.plan.pallas,
@@ -675,7 +714,11 @@ impl Session<'_> {
                     Error::Proof
                 }
             })?;
-        self.continuation(&wrapper, pallas, proof.to_bytes().to_vec())
+        self.continuation(
+            &wrapper,
+            pallas,
+            crate::private_fold::PrivateFoldBytes::from_fold(proof),
+        )
     }
     /// Prepare the exact next owner circuit and public frame from a checked W.
     /// Artifact verification can compare its fixed columns and copy constraints
@@ -685,10 +728,10 @@ impl Session<'_> {
     pub fn next_circuit(
         &self,
         wrapper: &WCheckpoint,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         fold: &FoldConfig,
     ) -> Result<(StageCircuit, Vec<Fp>), Error> {
-        let circuit = self.prepare_advance(wrapper, salt, fold)?;
+        let circuit = self.prepare_advance(wrapper, tape, fold)?;
         let public = stage_public(&circuit)?;
         Ok((StageCircuit { inner: circuit }, public))
     }
@@ -705,9 +748,9 @@ impl Session<'_> {
         &self,
         key: &SourceBoundViewV2<'_, Eq>,
         wrapper: &WCheckpoint,
-        salt: Fp,
+        tape: iroha_plonk_recursion::FoldTape<Ep>,
         fold: &FoldConfig,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<ACheckpoint, Error> {
         let cancellation = config.cancellation.or(fold.cancellation.as_ref());
@@ -726,7 +769,7 @@ impl Session<'_> {
             .ok_or(Error::Artifact)?
             .require_source_bound(key)
             .map_err(|_| Error::Artifact)?;
-        let circuit = self.prepare_advance(wrapper, salt, fold)?;
+        let circuit = self.prepare_advance(wrapper, tape, fold)?;
         self.prove_a(index, circuit, key, randomness, config, fold.kernel_budget)
     }
     /// Restore a subsequent A from its exact W predecessor and carried Pallas bytes.
@@ -761,7 +804,11 @@ impl Session<'_> {
             cancellation,
         )?;
         let pallas = AccumulatorT::from_bytes(pallas).map_err(|_| Error::Input)?;
-        let circuit = self.continuation(&wrapper, pallas, vec![])?;
+        let circuit = self.continuation(
+            &wrapper,
+            pallas,
+            crate::private_fold::PrivateFoldBytes::unknown(),
+        )?;
         self.checked_a_cancellable(
             wrapper.source.stage + 1,
             circuit,
@@ -770,7 +817,7 @@ impl Session<'_> {
             cancellation,
         )
     }
-    /// Export the actual A10 terminal and every distinct final-Omega obligation.
+    /// Export the actual A9 terminal and every distinct final-Omega obligation.
     /// This is not a completed monetary head until the final Omega is proved and durable.
     /// # Errors
     /// Incomplete owner chain, foreign source or failed full proof/decide.
@@ -859,7 +906,7 @@ impl WCheckpoint {
 /// Complete terminal A proof and final-Omega obligations, with original incoming V.
 #[derive(Clone, Debug)]
 pub struct Terminal {
-    /// Actual A10 proof under its installed terminal key.
+    /// Actual A9 proof under its installed terminal key.
     pub proof: Vec<u8>,
     /// Exact common69-word public frame.
     pub instances: Vec<Fp>,

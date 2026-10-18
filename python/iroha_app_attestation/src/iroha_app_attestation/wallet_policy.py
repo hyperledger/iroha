@@ -104,16 +104,14 @@ class WalletAppPolicyV1:
 @dataclass(frozen=True)
 class RegulatoryPolicyV1:
     permitted_controls: int
-    blacklist_max_age_ms: int
     time_anchor_max_response_ms: int
 
     def transcript(self) -> bytes:
         controls = _uint(self.permitted_controls, 32, "invalid regulatory controls")
-        age = _uint(self.blacklist_max_age_ms, 64, "invalid blacklist age")
         response = _uint(self.time_anchor_max_response_ms, 64, "invalid time anchor response")
-        require(controls & ~7 == 0 and (age == 0 or controls & 1), "invalid regulatory policy")
-        require((response > 0) == bool(controls & 6 or age > 0), "invalid regulatory time policy")
-        return controls.to_bytes(4, "little") + age.to_bytes(8, "little") + response.to_bytes(8, "little")
+        require(controls & ~3 == 0, "invalid regulatory policy")
+        require((response > 0) == bool(controls & 3), "invalid regulatory time policy")
+        return controls.to_bytes(4, "little") + response.to_bytes(8, "little")
 
 
 @dataclass(frozen=True)
@@ -201,7 +199,7 @@ class WalletEnrollmentPolicyV1:
         ttl = _uint(self.challenge_lifetime_ms, 64, "invalid challenge lifetime", True)
         lease = _uint(self.attestation_lease_lifetime_ms, 64, "invalid lease lifetime")
         regulator = self.regulatory_policy.transcript()
-        require((lease > 0) == bool(self.regulatory_policy.permitted_controls & 4), "inconsistent lease permission")
+        require((lease > 0) == bool(self.regulatory_policy.permitted_controls & 2), "inconsistent lease permission")
         return (b"\1\0" + _binding(self.scheme_id, "invalid enrollment scheme")
                 + _binding(self.asset_digest, "invalid enrollment asset") + _binding(self.app_policy, "invalid enrollment app")
                 + self.platform.transcript() + regulator + ttl.to_bytes(8, "little") + lease.to_bytes(8, "little"))

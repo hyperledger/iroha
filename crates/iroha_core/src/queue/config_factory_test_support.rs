@@ -49,9 +49,7 @@ fn new_queue_test_state_with_telemetry(
     // State attaches this same sink to Kura and the tiered backend. Reattaching after a
     // default State constructor would leave Kura's OnceLock bound to another sink.
     let mut state = State::try_new(
-        crate::state::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+        world.sccp_committee_generations.allocation_budget().clone(),
         world,
         kura,
         query_handle,

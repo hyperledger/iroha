@@ -776,13 +776,49 @@ fn native_amx_certified_abort_returns_yes_escrow_and_held_decision_never_debits(
         6_999,
     );
     assert_eq!(fresh.commit_at(7_000, vec![signed_payload]), vec![true]);
+    // This fresh root has not received the original participants' owner-signed approvals.
+    let transfer: AmxTransferLegV1 =
+        norito::decode_canonical(&transaction.leg(FIRST).unwrap().payload).unwrap();
+    let approval = iroha_data_model::sumeragi_amx::AmxDebitApprovalV1 {
+        global_network: roots.global.network_id(),
+        participant_network: fresh.network_id(),
+        participant_instance: fresh.instance().0,
+        dataspace: FIRST,
+        transaction_id: transaction.id().unwrap(),
+        debited_asset: transfer.source,
+    };
+    assert_eq!(approval.debited_asset.account(), &account(&payer()));
+    let signed_approval = fresh.sign(
+        &payer(),
+        [Grant::account_permission(approval.permission().unwrap(), account(&payer())).into()],
+        7_499,
+    );
+    assert_eq!(
+        fresh.commit_at(7_500, vec![signed_approval]),
+        vec![true],
+        "fresh-root debit owner grants the exact native AMX intent: {:?}",
+        fresh
+            .committed(fresh.height())
+            .block()
+            .network_output_at(0)
+            .map(|(_, output)| &output.result)
+    );
     let prepare = begin
         .into_prepare(FIRST, &transaction)
         .complete(&budget)
         .unwrap();
     assert!(prepare.amx_proof_admitted_to(&budget));
     let signed_payload = fresh.sign(&payer(), [prepare], 7_999);
-    assert_eq!(fresh.commit_at(8_000, vec![signed_payload]), vec![true]);
+    assert_eq!(
+        fresh.commit_at(8_000, vec![signed_payload]),
+        vec![true],
+        "approved Prepare must observe the held Abort without debiting: {:?}",
+        fresh
+            .committed(fresh.height())
+            .block()
+            .network_output_at(0)
+            .map(|(_, output)| &output.result)
+    );
     assert!(native(&fresh).escrows.is_empty());
     assert_eq!(
         native(&fresh)

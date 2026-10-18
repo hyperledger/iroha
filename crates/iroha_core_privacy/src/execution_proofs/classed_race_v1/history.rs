@@ -325,6 +325,11 @@ pub(super) fn validate_history(
 /// The supplied session must come from consensus state or independently verified finalized
 /// inclusion. This function checks its retained checkpoint certificates and every forced input;
 /// it does not establish ledger finality, NFT collection eligibility or custody on its own.
+///
+/// # Errors
+/// Rejects malformed proof envelopes, inconsistent retained session history,
+/// checkpoint signature or forced-input mismatches, and any underlying statement,
+/// replay or cryptographic verification failure.
 pub fn verify_classed_race_proof_for_session_v1(
     session: &GameSessionRecordV1,
     claimed: &GameOutcomeV1,

@@ -10,8 +10,8 @@ use iroha_pasta::{Fp, poseidon::hash_with_domain};
 
 pub fn witness() -> BootstrapWitness {
     let mut w = BootstrapWitness {
-        core: [Fp::ZERO; 33],
-        rest: [Fp::ZERO; 8],
+        core: [Fp::ZERO; 29],
+        rest: [Fp::ZERO; 6],
         lineage: [Fp::ONE; 18],
         statement: [Fp::ZERO; 26],
     };
@@ -24,7 +24,6 @@ pub fn witness() -> BootstrapWitness {
     w.core[core::QUOTA_USAGE_ROOT] =
         QuotaUsageTree::<Fp>::new(&QuotaWindowTree::new(&[]).unwrap()).root();
     w.core[core::STATE_NONCE] = Fp::from(77);
-    w.rest[7] = empty;
     w.lineage[3] = Fp::from(9);
     w.lineage[4] = Fp::from(10);
     w.lineage[14] = Fp::ZERO;

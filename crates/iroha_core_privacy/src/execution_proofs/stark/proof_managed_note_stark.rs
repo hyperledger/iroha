@@ -29,22 +29,22 @@ use thiserror::Error;
 #[path = "proof_managed_note_stark_execution_fixed.rs"]
 mod execution_fixed;
 /// Number of byte-copy cells in every shared note row.
-pub(crate) const NOTE_COPY_WIDTH_V1: usize = 8;
+pub const NOTE_COPY_WIDTH_V1: usize = 8;
 /// Independent copy-permutation lanes.
-pub(crate) const NOTE_COPY_LANES_V1: usize = 3;
+pub const NOTE_COPY_LANES_V1: usize = 3;
 /// Byte decomposition columns in the copy auxiliary trace.
-pub(crate) const NOTE_COPY_BIT_COLUMNS_V1: usize = NOTE_COPY_WIDTH_V1 * 8;
+pub const NOTE_COPY_BIT_COLUMNS_V1: usize = NOTE_COPY_WIDTH_V1 * 8;
 /// Dual running products and product-tree columns per copy lane.
-pub(crate) const NOTE_COPY_PRODUCT_COLUMNS_PER_LANE_V1: usize = 18;
+pub const NOTE_COPY_PRODUCT_COLUMNS_PER_LANE_V1: usize = 18;
 /// Complete shared copy auxiliary width.
-pub(crate) const NOTE_COPY_AUX_WIDTH_V1: usize =
+pub const NOTE_COPY_AUX_WIDTH_V1: usize =
     NOTE_COPY_BIT_COLUMNS_V1 + NOTE_COPY_LANES_V1 * NOTE_COPY_PRODUCT_COLUMNS_PER_LANE_V1;
 /// Verifier-fixed copy columns: identity, sigma, policy, and boundaries.
-pub(crate) const NOTE_COPY_FIXED_WIDTH_V1: usize = NOTE_COPY_WIDTH_V1 * 5 + 3;
+pub const NOTE_COPY_FIXED_WIDTH_V1: usize = NOTE_COPY_WIDTH_V1 * 5 + 3;
 /// Maximum algebraic degree of every shared copy-chip constraint.
-pub(crate) const NOTE_COPY_CONSTRAINT_DEGREE_V1: u8 = 2;
+pub const NOTE_COPY_CONSTRAINT_DEGREE_V1: u8 = 2;
 /// Number of shared copy constraints before profile-only residues.
-pub(crate) const NOTE_COPY_CONSTRAINT_COUNT_V1: usize =
+pub const NOTE_COPY_CONSTRAINT_COUNT_V1: usize =
     NOTE_COPY_BIT_COLUMNS_V1 + 3 * NOTE_COPY_WIDTH_V1 + 21 * NOTE_COPY_LANES_V1;
 const COPY_FIXED_IDENTITY_OFFSET: usize = 0;
 const COPY_FIXED_SIGMA_OFFSET: usize = COPY_FIXED_IDENTITY_OFFSET + NOTE_COPY_WIDTH_V1;
@@ -84,54 +84,54 @@ const NOTE_SHARED_PROFILE_BINDING_LABEL_V1: &[u8] =
 const NOTE_COMBINED_PROFILE_DIGEST_DOMAIN_V1: &[u8] =
     b"iroha.privacy.proof-managed-note-stark.combined-profile.v1";
 /// Sole first-release proof-system identity for proof-managed note pools.
-pub(crate) const PROOF_MANAGED_NOTE_STARK_SUITE_V1: &[u8] = b"StarkFriPoseidonX7Goldilocks6x64";
+pub const PROOF_MANAGED_NOTE_STARK_SUITE_V1: &[u8] = b"StarkFriPoseidonX7Goldilocks6x64";
 /// Independent composition and FRI lanes in the first-release profile.
-pub(crate) const PROOF_MANAGED_NOTE_SECURITY_LANES_V1: usize = 1;
+pub const PROOF_MANAGED_NOTE_SECURITY_LANES_V1: usize = 1;
 /// Unique shared extension-domain queries in the first-release profile.
-pub(crate) const PROOF_MANAGED_NOTE_QUERY_COUNT_V1: usize = 136;
+pub const PROOF_MANAGED_NOTE_QUERY_COUNT_V1: usize = 136;
 /// Trace-to-LDE blow-up logarithm in the first-release profile.
-pub(crate) const PROOF_MANAGED_NOTE_BLOWUP_LOG2_V1: u8 = 3;
+pub const PROOF_MANAGED_NOTE_BLOWUP_LOG2_V1: u8 = 3;
 /// Terminal FRI vector logarithm in the first-release profile.
-pub(crate) const PROOF_MANAGED_NOTE_TERMINAL_LOG2_V1: u8 = 10;
+pub const PROOF_MANAGED_NOTE_TERMINAL_LOG2_V1: u8 = 10;
 /// Exact terminal FRI polynomial-degree bound.
-pub(crate) const PROOF_MANAGED_NOTE_TERMINAL_DEGREE_BOUND_V1: usize = 143;
+pub const PROOF_MANAGED_NOTE_TERMINAL_DEGREE_BOUND_V1: usize = 143;
 /// Coefficient chunks used to normalize degree-four quotient polynomials.
-pub(crate) const PROOF_MANAGED_NOTE_COMPOSITION_DEGREE_CHUNKS_V1: usize = 4;
+pub const PROOF_MANAGED_NOTE_COMPOSITION_DEGREE_CHUNKS_V1: usize = 4;
 /// One out-of-domain DEEP-ALI query binds each neighboring-row AIR.
-pub(crate) const PROOF_MANAGED_NOTE_DEEP_QUERY_COUNT_V1: usize = 1;
+pub const PROOF_MANAGED_NOTE_DEEP_QUERY_COUNT_V1: usize = 1;
 /// Largest native trace supported by the shared first-release soundness proof.
-pub(crate) const PROOF_MANAGED_NOTE_MAX_NATIVE_TRACE_LOG2_V1: u8 = 19;
+pub const PROOF_MANAGED_NOTE_MAX_NATIVE_TRACE_LOG2_V1: u8 = 19;
 /// Inclusive trace zero-knowledge mask degree.
-pub(crate) const PROOF_MANAGED_NOTE_MASK_DEGREE_V1: usize = 975;
+pub const PROOF_MANAGED_NOTE_MASK_DEGREE_V1: usize = 975;
 /// Largest constraint degree supported by the first-release FRI profile.
-pub(crate) const PROOF_MANAGED_NOTE_MAX_CONSTRAINT_DEGREE_V1: u8 = 4;
+pub const PROOF_MANAGED_NOTE_MAX_CONSTRAINT_DEGREE_V1: u8 = 4;
 /// Exact transcript grinding target.
-pub(crate) const PROOF_MANAGED_NOTE_GRINDING_BITS_V1: u8 = 20;
+pub const PROOF_MANAGED_NOTE_GRINDING_BITS_V1: u8 = 20;
 /// Required non-grinding soundness floor for every proof-managed note profile.
-pub(crate) const PROOF_MANAGED_NOTE_TARGET_SOUNDNESS_BITS_V1: u16 = 128;
+pub const PROOF_MANAGED_NOTE_TARGET_SOUNDNESS_BITS_V1: u16 = 128;
 /// Machine-checked affine-batched FRI query-error exponent at 136 queries.
-pub(crate) const PROOF_MANAGED_NOTE_FRI_QUERY_ERROR_BITS_V1: u16 = 160;
+pub const PROOF_MANAGED_NOTE_FRI_QUERY_ERROR_BITS_V1: u16 = 160;
 /// Worst-case commitment-error exponent at the maximum native trace.
-pub(crate) const PROOF_MANAGED_NOTE_FRI_COMMITMENT_ERROR_BITS_MIN_V1: u16 = 187;
+pub const PROOF_MANAGED_NOTE_FRI_COMMITMENT_ERROR_BITS_MIN_V1: u16 = 187;
 /// Affine batching parameter in the sole first-release FRI theorem instance.
-pub(crate) const PROOF_MANAGED_NOTE_FRI_BATCHING_PARAMETER_M_V1: u8 = 3;
+pub const PROOF_MANAGED_NOTE_FRI_BATCHING_PARAMETER_M_V1: u8 = 3;
 /// Exact effective FRI code-rate numerator.
-pub(crate) const PROOF_MANAGED_NOTE_FRI_RATE_NUMERATOR_V1: u8 = 1;
+pub const PROOF_MANAGED_NOTE_FRI_RATE_NUMERATOR_V1: u8 = 1;
 /// Exact effective FRI code-rate denominator.
-pub(crate) const PROOF_MANAGED_NOTE_FRI_RATE_DENOMINATOR_V1: u8 = 7;
+pub const PROOF_MANAGED_NOTE_FRI_RATE_DENOMINATOR_V1: u8 = 7;
 /// Complete affine arities whose sum enters the commitment-error term.
 // Binary fold arities are derived from the full actual domain/terminal schedule.
 /// Proven lower-bound exponent for the Goldilocks quartic extension field.
-pub(crate) const PROOF_MANAGED_NOTE_EXTENSION_FIELD_LOWER_BOUND_BITS_V1: u16 = 252;
+pub const PROOF_MANAGED_NOTE_EXTENSION_FIELD_LOWER_BOUND_BITS_V1: u16 = 252;
 /// Complete relation-neutral first-release proof-driver geometry.
 ///
 /// Protocol adapters bind a separate relation descriptor. The canonical
 /// profile digest frames this shared descriptor first and the relation
 /// descriptor second, so neither layer can silently restate stale geometry.
-pub(crate) const PROOF_MANAGED_NOTE_STARK_GEOMETRY_DESCRIPTOR_V1: &[u8] = b"proof-managed-note-stark-geometry-v1:proof=StarkFriPoseidonX7Goldilocks6x64:base-field=goldilocks:challenge-field=goldilocks-fp4:merkle=poseidon-x7-goldilocks-six-independent-lanes-6x64:transcript=poseidon-x7-goldilocks-six-independent-lanes-6x64:copy-width=8:copy-lanes=3:copy-aux-width=118:copy-fixed-width=43:copy-constraints=151:copy-constraint-degree=2:security-lanes=1:queries=136:lde-blowup=8:composition-degree-chunks=4:deep-points=1:deep-openings=base-current,base-next,aux-current,aux-next,composition:deep-mixes=independent:max-native-trace-log2=19:trace-mask-degree=975:trace-mask-coefficients=976:max-constraint-degree=4:fri-terminal=1024:fri-degree=143:fri-input=deep-ali:fri-theorem=affine-batched-theorem2:l-minus-one=3/2:batching-m=3:rho-upper-bound=1/7:affine-arities=every-binary-fold:folds=lde-log2-minus-terminal-log2:max-folds=12:extension-field-lower-bound-bits=252:query-error-bits=160:commitment-error-bits-min=187:target-soundness-bits=128:grinding=20-nonadditive:codec=fixed-shape-big-endian-digest384";
+pub const PROOF_MANAGED_NOTE_STARK_GEOMETRY_DESCRIPTOR_V1: &[u8] = b"proof-managed-note-stark-geometry-v1:proof=StarkFriPoseidonX7Goldilocks6x64:base-field=goldilocks:challenge-field=goldilocks-fp4:merkle=poseidon-x7-goldilocks-six-independent-lanes-6x64:transcript=poseidon-x7-goldilocks-six-independent-lanes-6x64:copy-width=8:copy-lanes=3:copy-aux-width=118:copy-fixed-width=43:copy-constraints=151:copy-constraint-degree=2:security-lanes=1:queries=136:lde-blowup=8:composition-degree-chunks=4:deep-points=1:deep-openings=base-current,base-next,aux-current,aux-next,composition:deep-mixes=independent:max-native-trace-log2=19:trace-mask-degree=975:trace-mask-coefficients=976:max-constraint-degree=4:fri-terminal=1024:fri-degree=143:fri-input=deep-ali:fri-theorem=affine-batched-theorem2:l-minus-one=3/2:batching-m=3:rho-upper-bound=1/7:affine-arities=every-binary-fold:folds=lde-log2-minus-terminal-log2:max-folds=12:extension-field-lower-bound-bits=252:query-error-bits=160:commitment-error-bits-min=187:target-soundness-bits=128:grinding=20-nonadditive:codec=fixed-shape-big-endian-digest384";
 /// Derive the canonical digest of shared proof geometry plus one relation.
-pub(crate) fn proof_managed_note_stark_profile_digest_v1(
-    domains: aggregate::AggregateStarkDomainsV1,
+pub fn proof_managed_note_stark_profile_digest_v1(
+    domains: &aggregate::AggregateStarkDomainsV1,
     relation_descriptor: &[u8],
 ) -> Result<GoldilocksDigest384V1, ProofManagedNoteStarkErrorV1> {
     goldilocks_digest384_frame_v1(
@@ -149,8 +149,8 @@ pub(crate) fn proof_managed_note_stark_profile_digest_v1(
     .map_err(map_transparent_error_v1)
 }
 /// Derive the protocol-bound digest of the shared proof geometry.
-pub(crate) fn proof_managed_note_stark_geometry_digest_v1(
-    domains: aggregate::AggregateStarkDomainsV1,
+pub fn proof_managed_note_stark_geometry_digest_v1(
+    domains: &aggregate::AggregateStarkDomainsV1,
 ) -> Result<GoldilocksDigest384V1, ProofManagedNoteStarkErrorV1> {
     goldilocks_digest384_frame_v1(
         domains.digest_context,
@@ -165,7 +165,7 @@ pub(crate) fn proof_managed_note_stark_geometry_digest_v1(
 }
 /// Shared proof-driver or copy-chip failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
-pub(crate) enum ProofManagedNoteStarkErrorV1 {
+pub enum ProofManagedNoteStarkErrorV1 {
     /// The compiled profile or verifier-derived trace shape is invalid.
     #[error("proof-managed note STARK profile is invalid")]
     InvalidProfile,
@@ -260,7 +260,7 @@ fn map_aggregate_error_v1(error: aggregate::AggregateStarkErrorV1) -> ProofManag
 /// only choose its exact wire magic/version, bounded trace range, widths, byte ceiling, transcript
 /// domains, and compiled descriptor/digest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ProofManagedNoteStarkProtocolV1 {
+pub struct ProofManagedNoteStarkProtocolV1 {
     /// Exact aggregate proof dimensions and wire limits.
     pub(crate) parameters: aggregate::AggregateStarkParametersV1,
     /// Complete six-lane Goldilocks Poseidon-x7 Merkle and transcript domains.
@@ -355,7 +355,7 @@ impl ProofManagedNoteStarkProtocolV1 {
         let maximum_native_log = PROOF_MANAGED_NOTE_MAX_NATIVE_TRACE_LOG2_V1;
         let minimum_commitment_bits = PROOF_MANAGED_NOTE_FRI_COMMITMENT_ERROR_BITS_MIN_V1;
         let _combined_profile_digest =
-            proof_managed_note_stark_profile_digest_v1(self.domains, self.profile_descriptor)?;
+            proof_managed_note_stark_profile_digest_v1(&self.domains, self.profile_descriptor)?;
         if self.parameters.security_lanes != PROOF_MANAGED_NOTE_SECURITY_LANES_V1
             || self.parameters.query_count != PROOF_MANAGED_NOTE_QUERY_COUNT_V1
             || self.parameters.blowup_log2 != PROOF_MANAGED_NOTE_BLOWUP_LOG2_V1
@@ -438,7 +438,7 @@ impl ProofManagedNoteStarkProtocolV1 {
 /// decompositions without duplicating range checks. Adapters and their derived
 /// challenges are immutable and `Sync` because quotient rows are evaluated in
 /// deterministic parallel batches.
-pub(crate) trait ProofManagedNoteStarkAdapterV1: Sync {
+pub trait ProofManagedNoteStarkAdapterV1: Sync {
     /// Profile-specific Fiat-Shamir challenges derived after copy challenges.
     type ProfileChallenges: Clone + Sync;
     /// Closed proof protocol.
@@ -489,7 +489,7 @@ pub(crate) trait ProofManagedNoteStarkAdapterV1: Sync {
 }
 /// Fixed policy for one byte-copy cell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum NoteCopyCellPolicyV1 {
+pub enum NoteCopyCellPolicyV1 {
     /// The cell is fixed to zero and does not join a variable cycle.
     Inactive,
     /// The cell is fixed to this exact byte.
@@ -507,7 +507,7 @@ pub(crate) enum NoteCopyCellPolicyV1 {
 }
 /// Verifier-fixed copy policy and permutation for a complete note trace.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct NoteCopyScheduleV1 {
+pub struct NoteCopyScheduleV1 {
     /// Per-row cell policy.
     pub(crate) policies: Vec<[NoteCopyCellPolicyV1; NOTE_COPY_WIDTH_V1]>,
     /// One-based target label for every copy cell.
@@ -607,7 +607,7 @@ impl NoteCopyScheduleV1 {
 }
 /// One copy-permutation lane's transcript challenges.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct NoteCopyLaneChallengesV1 {
+pub struct NoteCopyLaneChallengesV1 {
     /// Cell-label mixing challenge.
     pub(crate) beta: F,
     /// Additive nonzero shift.
@@ -615,12 +615,12 @@ pub(crate) struct NoteCopyLaneChallengesV1 {
 }
 /// Three independent copy-permutation challenge lanes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct NoteCopyChallengesV1 {
+pub struct NoteCopyChallengesV1 {
     /// Closed three-lane challenge set.
     pub(crate) lanes: [NoteCopyLaneChallengesV1; NOTE_COPY_LANES_V1],
 }
 /// Derive the shared copy challenges after all base roots are committed.
-pub(crate) fn derive_note_copy_challenges_v1(
+pub fn derive_note_copy_challenges_v1(
     transcript: &mut TransparentTranscriptV1,
 ) -> Result<NoteCopyChallengesV1, ProofManagedNoteStarkErrorV1> {
     let mut lanes = [NoteCopyLaneChallengesV1 {
@@ -719,7 +719,7 @@ fn write_product_tree_v1(target: &mut [F], offset: usize, factors: [F; NOTE_COPY
     target[offset + 6] = quads[0].mul(quads[1]);
 }
 /// Build byte decompositions and all three copy grand-product lanes.
-pub(crate) fn build_note_copy_aux_columns_v1(
+pub fn build_note_copy_aux_columns_v1(
     base_columns: &[Vec<F>],
     fixed_columns: &[Vec<F>],
     challenges: NoteCopyChallengesV1,
@@ -787,7 +787,7 @@ fn push_boolean_residue_v1(residues: &mut Vec<F>, value: F) {
     residues.push(value.mul(value.sub(F::ONE)));
 }
 /// Evaluate all shared byte-range, fixed-policy, and copy-product residues.
-pub(crate) fn note_copy_constraint_residues_v1(
+pub fn note_copy_constraint_residues_v1(
     current_base: &[F],
     current_aux: &[F],
     next_aux: &[F],
@@ -1352,7 +1352,7 @@ fn fixed_lde_columns_v1(
 }
 #[cfg(test)]
 /// Compare selected execution evaluations against the original native full-LDE path.
-pub(crate) fn execution_fixed_query_parity_v1<A: ProofManagedNoteStarkAdapterV1>(
+pub fn execution_fixed_query_parity_v1<A: ProofManagedNoteStarkAdapterV1>(
     adapter: &A,
     query_indices: &[usize],
 ) -> Result<bool, ProofManagedNoteStarkErrorV1> {
@@ -1526,10 +1526,10 @@ fn new_note_transcript_v1(
     public_digest: &GoldilocksDigest384V1,
 ) -> Result<TransparentTranscriptV1, ProofManagedNoteStarkErrorV1> {
     let profile_digest = proof_managed_note_stark_profile_digest_v1(
-        prepared.protocol.domains,
+        &prepared.protocol.domains,
         prepared.protocol.profile_descriptor,
     )?;
-    let geometry_digest = proof_managed_note_stark_geometry_digest_v1(prepared.protocol.domains)?;
+    let geometry_digest = proof_managed_note_stark_geometry_digest_v1(&prepared.protocol.domains)?;
     let geometry_digest = geometry_digest.to_le_bytes();
     let mut transcript = TransparentTranscriptV1::new(
         prepared.protocol.domains.digest_context,
@@ -1560,7 +1560,7 @@ fn new_note_transcript_v1(
     aggregate::absorb_layout_v1(
         &mut transcript,
         prepared.protocol.parameters,
-        prepared.protocol.domains,
+        &prepared.protocol.domains,
         prepared.protocol.relation_layout_domain,
         &prepared.layout,
     )
@@ -2040,7 +2040,7 @@ fn absorb_grinding_nonce_v1(
 /// The caller supplies exact native base columns; the adapter reconstructs all
 /// statement-derived fixed policy and deterministic auxiliary columns. The
 /// emitted proof is self-verified before it is returned.
-pub(crate) fn prove_proof_managed_note_stark_v1_with_rng<
+pub fn prove_proof_managed_note_stark_v1_with_rng<
     A: ProofManagedNoteStarkAdapterV1,
     R: TryRngCore,
 >(
@@ -2074,7 +2074,7 @@ pub(crate) fn prove_proof_managed_note_stark_v1_with_rng<
     }];
     aggregate::absorb_base_roots_v1(
         &mut transcript,
-        prepared.protocol.domains,
+        &prepared.protocol.domains,
         &trace_group_proofs,
     )
     .map_err(map_aggregate_error_v1)?;
@@ -2125,7 +2125,7 @@ pub(crate) fn prove_proof_managed_note_stark_v1_with_rng<
     trace_group_proofs[0].aux_root = aux_tree.root();
     aggregate::absorb_aux_roots_v1(
         &mut transcript,
-        prepared.protocol.domains,
+        &prepared.protocol.domains,
         &trace_group_proofs,
     )
     .map_err(map_aggregate_error_v1)?;
@@ -2145,7 +2145,7 @@ pub(crate) fn prove_proof_managed_note_stark_v1_with_rng<
     let mut composition_roots = Vec::with_capacity(PROOF_MANAGED_NOTE_SECURITY_LANES_V1);
     for lane in 0..PROOF_MANAGED_NOTE_SECURITY_LANES_V1 {
         let tree =
-            aggregate::composition_tree_v1(prepared.protocol.domains, lane, &compositions[lane])
+            aggregate::composition_tree_v1(&prepared.protocol.domains, lane, &compositions[lane])
                 .map_err(map_aggregate_error_v1)?;
         composition_roots.push(tree.root());
         composition_trees.push(tree);
@@ -2153,13 +2153,13 @@ pub(crate) fn prove_proof_managed_note_stark_v1_with_rng<
     aggregate::absorb_composition_roots_v1(
         &mut transcript,
         prepared.protocol.parameters,
-        prepared.protocol.domains,
+        &prepared.protocol.domains,
         &composition_roots,
     )
     .map_err(map_aggregate_error_v1)?;
     let fri_masks = aggregate::build_fri_mask_oracles_v1(
         prepared.protocol.parameters,
-        prepared.protocol.domains,
+        &prepared.protocol.domains,
         &prepared.layout,
         rng,
     )
@@ -2171,7 +2171,7 @@ pub(crate) fn prove_proof_managed_note_stark_v1_with_rng<
     aggregate::absorb_fri_mask_roots_v1(
         &mut transcript,
         prepared.protocol.parameters,
-        prepared.protocol.domains,
+        &prepared.protocol.domains,
         &fri_mask_roots,
     )
     .map_err(map_aggregate_error_v1)?;
@@ -2271,7 +2271,7 @@ pub(crate) fn prove_proof_managed_note_stark_v1_with_rng<
         fri_lanes.push(
             aggregate::build_fri_lane_v1(
                 prepared.protocol.parameters,
-                prepared.protocol.domains,
+                &prepared.protocol.domains,
                 &prepared.layout,
                 lane,
                 fri_base.into_inner(),
@@ -2291,7 +2291,7 @@ pub(crate) fn prove_proof_managed_note_stark_v1_with_rng<
     let query_indices = aggregate::query_indices_v1(
         &transcript,
         prepared.protocol.parameters,
-        prepared.protocol.domains,
+        &prepared.protocol.domains,
         &prepared.layout,
     )
     .map_err(map_aggregate_error_v1)?;
@@ -2363,7 +2363,7 @@ pub(crate) fn prove_proof_managed_note_stark_v1_with_rng<
 }
 /// Construct a canonical proof with operating-system masking entropy.
 #[allow(dead_code)]
-pub(crate) fn prove_proof_managed_note_stark_v1<A: ProofManagedNoteStarkAdapterV1>(
+pub fn prove_proof_managed_note_stark_v1<A: ProofManagedNoteStarkAdapterV1>(
     adapter: &A,
     base_columns: &[Vec<F>],
 ) -> Result<Vec<u8>, ProofManagedNoteStarkErrorV1> {
@@ -2438,7 +2438,7 @@ impl<A: ProofManagedNoteStarkAdapterV1> AggregateOpenedRowEvaluatorV1
     }
 }
 /// Verify the exact canonical proof wire against one statement-derived adapter.
-pub(crate) fn verify_proof_managed_note_stark_v1<A: ProofManagedNoteStarkAdapterV1>(
+pub fn verify_proof_managed_note_stark_v1<A: ProofManagedNoteStarkAdapterV1>(
     adapter: &A,
     proof_bytes: &[u8],
 ) -> Result<(), ProofManagedNoteStarkErrorV1> {
@@ -2455,7 +2455,7 @@ pub(crate) fn verify_proof_managed_note_stark_v1<A: ProofManagedNoteStarkAdapter
     let mut transcript = new_note_transcript_v1(&prepared, &public_digest)?;
     aggregate::absorb_base_roots_v1(
         &mut transcript,
-        prepared.protocol.domains,
+        &prepared.protocol.domains,
         &proof.trace_groups,
     )
     .map_err(map_aggregate_error_v1)?;
@@ -2464,7 +2464,7 @@ pub(crate) fn verify_proof_managed_note_stark_v1<A: ProofManagedNoteStarkAdapter
         adapter.derive_profile_challenges_v1(&mut transcript, copy_challenges)?;
     aggregate::absorb_aux_roots_v1(
         &mut transcript,
-        prepared.protocol.domains,
+        &prepared.protocol.domains,
         &proof.trace_groups,
     )
     .map_err(map_aggregate_error_v1)?;
@@ -2472,14 +2472,14 @@ pub(crate) fn verify_proof_managed_note_stark_v1<A: ProofManagedNoteStarkAdapter
     aggregate::absorb_composition_roots_v1(
         &mut transcript,
         prepared.protocol.parameters,
-        prepared.protocol.domains,
+        &prepared.protocol.domains,
         &proof.composition_roots,
     )
     .map_err(map_aggregate_error_v1)?;
     aggregate::absorb_fri_mask_roots_v1(
         &mut transcript,
         prepared.protocol.parameters,
-        prepared.protocol.domains,
+        &prepared.protocol.domains,
         &proof.fri_mask_roots,
     )
     .map_err(map_aggregate_error_v1)?;
@@ -2507,7 +2507,7 @@ pub(crate) fn verify_proof_managed_note_stark_v1<A: ProofManagedNoteStarkAdapter
     let (fri_betas, terminals) = aggregate::verify_fri_commitments_v1(
         &proof,
         prepared.protocol.parameters,
-        prepared.protocol.domains,
+        &prepared.protocol.domains,
         &prepared.layout,
         &mut transcript,
     )
@@ -2524,14 +2524,14 @@ pub(crate) fn verify_proof_managed_note_stark_v1<A: ProofManagedNoteStarkAdapter
     let expected_indices = aggregate::query_indices_v1(
         &transcript,
         prepared.protocol.parameters,
-        prepared.protocol.domains,
+        &prepared.protocol.domains,
         &prepared.layout,
     )
     .map_err(map_aggregate_error_v1)?;
     aggregate::verify_all_merkle_openings_v1(
         &proof,
         prepared.protocol.parameters,
-        prepared.protocol.domains,
+        &prepared.protocol.domains,
         &prepared.layout,
         &expected_indices,
     )
@@ -2576,7 +2576,7 @@ pub(crate) fn verify_proof_managed_note_stark_v1<A: ProofManagedNoteStarkAdapter
 /// that degree `d` is actually observed, preventing a stale overstatement as
 /// well as an unsound understatement.
 #[cfg(test)]
-pub(crate) mod degree_audit {
+pub mod degree_audit {
     use super::F;
     use core::fmt::Debug;
     use rand::{RngCore as _, SeedableRng as _, rngs::StdRng};
@@ -2596,7 +2596,7 @@ pub(crate) mod degree_audit {
             .collect()
     }
     /// Measure and enforce the maximum total degree of a residue evaluator.
-    pub(crate) fn measured_maximum_affine_degree_v1<E>(
+    pub fn measured_maximum_affine_degree_v1<E>(
         seed: [u8; 32],
         widths: [usize; 5],
         trial_count: usize,

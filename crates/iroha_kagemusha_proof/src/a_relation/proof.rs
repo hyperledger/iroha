@@ -1,8 +1,8 @@
 //! Hard recursive proof ownership and exact Pallas fold input ordering.
 
 use super::{
-    AFramePlan, BoundSigmaCells, LineagePublicCells, SigmaBindingCells, VestaClaimCells,
-    bind_sigma, lineage_digest,
+    AFramePlan, AOutputCells, BoundSigmaCells, LineagePublicCells, SigmaBindingCells,
+    VestaClaimCells, bind_sigma, lineage_digest,
 };
 use crate::q_sigma::QSigmaPlan;
 use core::num::NonZeroU16;
@@ -55,11 +55,14 @@ impl QProofPlan {
     }
 }
 
-/// Circuit-fixed A recursive program; `Q_sigma` is the first Q slot.
+/// Circuit-fixed A recursive program. With a sigma verifier, `Q_sigma` is the
+/// first Q slot. An inline plan proves the own step relation directly (lean
+/// lineage): it verifies no own sigma, and keeps an incoming-only `Q_sigma`
+/// exactly when the variant consumes an incoming sigma.
 #[derive(Clone, Debug)]
 pub struct AProofPlan {
     frame: AFramePlan,
-    pub(super) sigma: QSigmaPlan,
+    sigma: Option<QSigmaPlan>,
     q: Vec<QProofPlan>,
     omega: Option<VerifierPlan<Ep>>,
     pallas_fold: Option<FoldPlan<Ep>>,
@@ -83,17 +86,17 @@ impl AProofPlan {
         let count = NonZeroU16::new(u16::try_from(q.len()).map_err(|_| Error::BoundsFailure)?)
             .ok_or(Error::Synthesis)?;
         let own_k = sigma
-            .class(0)
+            .class(QSigmaPlan::OWN)
             .ok_or(Error::Synthesis)?
             .verifier()
             .binding()
             .descriptor()
             .k;
         let incoming_k = sigma
-            .class(1)
+            .class(QSigmaPlan::INCOMING)
             .map(|class| class.verifier().binding().descriptor().k);
         let ledger =
-            Ledger::new(variant, count, own_k, incoming_k).map_err(|_| Error::Synthesis)?;
+            Ledger::new(variant, count, Some(own_k), incoming_k).map_err(|_| Error::Synthesis)?;
         let descriptor = q[0].verifier.binding().descriptor();
         if descriptor
             .instance_lengths
@@ -126,7 +129,132 @@ impl AProofPlan {
                 sources.extend([FoldSource::Incoming(16); 2]);
             }
             sources.extend(vec![FoldSource::Fixed(16); q.len()]);
-            Some(FoldPlan::with_sources(params, sources).map_err(|_| Error::Synthesis)?)
+            Some(
+                FoldPlan::with_sources(
+                    params,
+                    sources,
+                    iroha_plonk_recursion::FoldPurpose::AInitial,
+                )
+                .map_err(|_| Error::Synthesis)?,
+            )
+        } else {
+            None
+        };
+        Ok(Self {
+            frame,
+            sigma: Some(sigma),
+            q,
+            omega,
+            pallas_fold,
+            ledger,
+        })
+    }
+    /// Fixes every hard Q, predecessor/incoming Omega and fold slot of a plan
+    /// whose A proves the own step relation directly and that consumes no
+    /// incoming sigma. There is no `Q_sigma`: every Q is an authentication leaf,
+    /// and the part is the pinned trivial filler.
+    ///
+    /// # Errors
+    /// An empty Q list, a variant that consumes an incoming sigma, or any fixed
+    /// descriptor or instance-shape mismatch.
+    pub fn inline(
+        variant: Variant,
+        q: Vec<QProofPlan>,
+        omega: Option<VerifierPlan<Ep>>,
+        params: &PinnedParams<Ep>,
+    ) -> Result<Self, Error> {
+        Self::lean(variant, None, q, omega, params)
+    }
+    /// Fixes a lean plan for a variant that consumes an incoming sigma: A proves
+    /// the own step relation directly, and the first Q is the incoming-only
+    /// `Q_sigma`, whose k16 fold is the part.
+    ///
+    /// # Errors
+    /// A variant without an incoming sigma, a `Q_sigma` with an own slot or
+    /// without an incoming slot, or any fixed descriptor or instance mismatch.
+    pub fn inline_with_incoming(
+        variant: Variant,
+        sigma: QSigmaPlan,
+        q: Vec<QProofPlan>,
+        omega: Option<VerifierPlan<Ep>>,
+        params: &PinnedParams<Ep>,
+    ) -> Result<Self, Error> {
+        Self::lean(variant, Some(sigma), q, omega, params)
+    }
+    fn lean(
+        variant: Variant,
+        sigma: Option<QSigmaPlan>,
+        q: Vec<QProofPlan>,
+        omega: Option<VerifierPlan<Ep>>,
+        params: &PinnedParams<Ep>,
+    ) -> Result<Self, Error> {
+        let frame = AFramePlan::inline(variant);
+        let count = NonZeroU16::new(u16::try_from(q.len()).map_err(|_| Error::BoundsFailure)?)
+            .ok_or(Error::Synthesis)?;
+        let consumes_incoming_sigma = matches!(
+            variant,
+            Variant::Receive | Variant::ReceiveRenewed | Variant::ArchiveReceive
+        );
+        if consumes_incoming_sigma != sigma.is_some()
+            || sigma.as_ref().is_some_and(QSigmaPlan::has_own)
+            || omega.is_some() != frame.has_predecessor()
+        {
+            return Err(Error::Synthesis);
+        }
+        let incoming_k = match &sigma {
+            Some(sigma) => {
+                let descriptor = q[0].verifier.binding().descriptor();
+                if descriptor
+                    .instance_lengths
+                    .iter()
+                    .map(|len| *len as usize)
+                    .collect::<Vec<_>>()
+                    != sigma.instance_lengths()
+                    || descriptor.instance_types.as_deref() != Some(&QSigmaPlan::instance_types())
+                {
+                    return Err(Error::Synthesis);
+                }
+                Some(
+                    sigma
+                        .class(QSigmaPlan::INCOMING)
+                        .ok_or(Error::Synthesis)?
+                        .verifier()
+                        .binding()
+                        .descriptor()
+                        .k,
+                )
+            }
+            None => None,
+        };
+        let ledger = Ledger::new(variant, count, None, incoming_k).map_err(|_| Error::Synthesis)?;
+        if let Some(omega) = &omega {
+            let descriptor = omega.binding().descriptor();
+            if descriptor.k != 16
+                || descriptor.instance_lengths != [1, 2, 16]
+                || descriptor.instance_types.as_deref()
+                    != Some(&[
+                        InstanceType::Bounded,
+                        InstanceType::Field,
+                        InstanceType::Bounded,
+                    ])
+            {
+                return Err(Error::Synthesis);
+            }
+        }
+        let pallas_fold = if frame.has_predecessor() || q.len() > 1 {
+            let mut sources = vec![FoldSource::Fixed(16); 2 * usize::from(frame.has_predecessor())];
+            if frame.has_incoming() {
+                sources.extend([FoldSource::Incoming(16); 2]);
+            }
+            sources.extend(vec![FoldSource::Fixed(16); q.len()]);
+            Some(
+                FoldPlan::with_sources(
+                    params,
+                    sources,
+                    iroha_plonk_recursion::FoldPurpose::AInitial,
+                )
+                .map_err(|_| Error::Synthesis)?,
+            )
         } else {
             None
         };
@@ -138,6 +266,50 @@ impl AProofPlan {
             pallas_fold,
             ledger,
         })
+    }
+    /// The `Q_sigma` plan, absent when the route verifies no sigma at all.
+    pub const fn sigma(&self) -> Option<&QSigmaPlan> {
+        self.sigma.as_ref()
+    }
+    /// The `Q_sigma` plan of a route that verifies an own or incoming sigma.
+    ///
+    /// # Errors
+    /// The route verifies no sigma.
+    pub fn sigma_plan(&self) -> Result<&QSigmaPlan, Error> {
+        self.sigma.as_ref().ok_or(Error::Synthesis)
+    }
+    /// The sigma verifier plan of a plan that verifies its own sigma.
+    ///
+    /// # Errors
+    /// The plan proves the own step directly.
+    pub fn own_sigma(&self) -> Result<&QSigmaPlan, Error> {
+        self.sigma
+            .as_ref()
+            .filter(|sigma| sigma.has_own())
+            .ok_or(Error::Synthesis)
+    }
+    /// Whether A proves the own step relation directly, verifying no own sigma.
+    pub fn is_inline(&self) -> bool {
+        !self.sigma.as_ref().is_some_and(QSigmaPlan::has_own)
+    }
+    /// Whether the route verifies an incoming sigma (soft) in its `Q_sigma`.
+    pub fn has_incoming_sigma(&self) -> bool {
+        self.sigma_class(QSigmaPlan::INCOMING).is_some()
+    }
+    /// A sigma role's verifier class ([`QSigmaPlan::OWN`] or
+    /// [`QSigmaPlan::INCOMING`]); absent when the route does not verify it.
+    pub fn sigma_class(&self, role: usize) -> Option<&crate::q_sigma::SigmaClass> {
+        self.sigma.as_ref().and_then(|sigma| sigma.class(role))
+    }
+    /// A sigma role's exported byte-chunk range; absent when not verified.
+    pub fn sigma_chunk_range(&self, role: usize) -> Option<core::ops::Range<usize>> {
+        self.sigma
+            .as_ref()
+            .and_then(|sigma| sigma.chunk_range(role))
+    }
+    /// Number of sigma slots: zero without `Q_sigma`, otherwise own and/or incoming.
+    pub fn sigma_slots(&self) -> usize {
+        self.sigma.as_ref().map_or(0, QSigmaPlan::slot_count)
     }
     /// Exact A-to-Omega public frame.
     pub const fn frame(&self) -> AFramePlan {
@@ -321,14 +493,13 @@ pub fn verify_sigma(
     bindings: &[SigmaBindingCells],
 ) -> Result<(VerifiedQCells, BoundSigmaCells), Error> {
     let verified = verify_q(chip, region, plan, 0, instances, proof)?;
-    let sigma = bind_sigma(chip, region, &plan.sigma, instances, bindings)?;
+    let sigma = bind_sigma(chip, region, plan.sigma_plan()?, instances, bindings)?;
     Ok((verified, sigma))
 }
 
 /// A predecessor's hard proof and separately retained transported claims.
 #[derive(Clone, Debug)]
 pub struct PredecessorCells {
-    pub(super) proof: ProofMessageCells,
     pub(super) public: [Word<Fp>; 18],
     pub(super) pallas: FoldInputCells<Ep>,
     pub(super) opening: FoldInputCells<Ep>,
@@ -398,7 +569,6 @@ pub fn verify_predecessor(
         successor.omega_key_digest(),
     )?;
     Ok(PredecessorCells {
-        proof: proof.clone(),
         public: public.fields().clone(),
         pallas: pallas.clone(),
         opening: FoldInputCells::from_claim(chip, region, &output.claim)?,
@@ -491,7 +661,7 @@ pub fn verify_incoming(
 pub struct SelectedPallasCells {
     pub(super) origin: IncomingOmegaCells,
     pub(super) modes: [ModeCells<Fp>; 2],
-    pub(super) corrected: [iroha_plonk_gadgets::ecc::NonIdentityPoint<Fp>; 2],
+    pub(super) corrected: [iroha_plonk_recursion::codec::GeneratorPoint<Fp>; 2],
     pub(super) pallas: FoldInputCells<Ep>,
     pub(super) opening: FoldInputCells<Ep>,
 }
@@ -506,7 +676,7 @@ pub fn select_incoming(
     region: &mut Region<'_, Fp>,
     incoming: &IncomingOmegaCells,
     modes: &[ModeCells<Fp>; 2],
-    corrected: &[iroha_plonk_gadgets::ecc::NonIdentityPoint<Fp>; 2],
+    corrected: &[iroha_plonk_recursion::codec::GeneratorPoint<Fp>; 2],
 ) -> Result<SelectedPallasCells, Error> {
     Ok(SelectedPallasCells {
         origin: incoming.clone(),
@@ -543,7 +713,7 @@ pub fn bind_modes(
     modes: &[ModeCells<Fp>],
 ) -> Result<Bit<Fp>, Error> {
     let expected =
-        3 * usize::from(plan.frame.has_incoming()) + usize::from(plan.sigma.slot_count() == 2);
+        3 * usize::from(plan.frame.has_incoming()) + usize::from(plan.has_incoming_sigma());
     if modes.len() != expected || expected == 0 {
         return Err(Error::Synthesis);
     }
@@ -603,4 +773,46 @@ pub fn fold_pallas(
         VerificationMode::Hard,
     )?;
     FoldInputCells::from_claim(chip, region, &output.claim)
+}
+
+/// Closes an unsplit terminal A: no predecessor, no incoming Omega, no
+/// `Q_sigma` and exactly one hard Q, whose opening is forwarded as the Pallas
+/// claim (lean Bootstrap). The part and both Vesta slots are the pinned trivial
+/// filler, and the returned words are the exact A-to-Omega frame.
+///
+/// # Errors
+/// Any other plan shape, a Q other than the plan's single hard Q, or layout
+/// failure.
+pub fn close_unsplit(
+    chip: &mut VerifierChip<Ep>,
+    region: &mut Region<'_, Fp>,
+    plan: &AProofPlan,
+    public: &LineagePublicCells,
+    q: &VerifiedQCells,
+) -> Result<Vec<Word<Fp>>, Error> {
+    if plan.frame.has_predecessor()
+        || plan.frame.has_incoming()
+        || plan.sigma.is_some()
+        || plan.q.len() != 1
+        || plan.pallas_fold.is_some()
+    {
+        return Err(Error::Synthesis);
+    }
+    let pallas = fold_pallas(
+        chip,
+        region,
+        plan,
+        None,
+        None,
+        core::slice::from_ref(q),
+        None,
+    )?;
+    let digest = lineage_digest(chip, region, public, &pallas)?;
+    AOutputCells {
+        digest,
+        sigma_part: VestaClaimCells::trivial(chip, region)?,
+        predecessor: None,
+        incoming: None,
+    }
+    .words(chip, region, plan.frame)
 }

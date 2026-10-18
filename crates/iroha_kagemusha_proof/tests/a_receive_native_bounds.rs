@@ -20,7 +20,7 @@ mod load_objects;
 pub mod load_outer;
 #[path = "common/ordinary_load_receipt.rs"]
 mod ordinary_load_receipt;
-/// Actual Send source proofs used by the bounds check.
+/// Actual Send sigma carried by the Payment, used by the bounds check.
 #[path = "a_send.rs"]
 pub mod send_components;
 
@@ -31,12 +31,14 @@ pub fn genuine_generic_omega_is_rejected_by_receive_payment_cap(fixture: load_ou
     let rooted = load_outer::two_terminal_load_omega(&fixture);
     drop(fixture);
     let source = &rooted.artifact;
-    let send = send_components::genuine_send_source(&source.source.state);
+    // Only the original σ_send length matters: the receiver checks it in its
+    // incoming-only Q_sigma, and the payer proves its own step inline.
+    let (_, sigma) = send_components::genuine_send_sigma(&source.source.state);
     let omega = 320
         + source.proof.len()
         + source.source.pallas.to_bytes().len()
         + source.vesta.to_bytes().len();
-    let sigma = send.sigma.len();
+    let sigma = sigma.len();
     assert!(
         omega + sigma
             > iroha_kagemusha_proof::a_relation::native::receive::MAX_PAYMENT_ORIGINAL_BYTES

@@ -345,9 +345,7 @@ where
 }
 fn startup_error(world: World) -> String {
     State::try_new(
-        crate::state::AllocationBudget::new(
-            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-        ),
+        world.sccp_committee_generations.allocation_budget().clone(),
         world,
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),

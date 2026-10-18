@@ -22,6 +22,8 @@ internal class EnrollmentDeviceDriver(
     private var dispatch: ByteArray? = null
     private val monetary = KagemushaWalletDeviceStages(config,
         { wallet ?: throw EnrollmentProbeFailure("lifecycle") }, ::output, ::requireLive)
+    private val nearby = KagemushaNearbyDeviceStages(config,
+        { wallet ?: throw EnrollmentProbeFailure("lifecycle") }, ::output, ::requireLive)
     private val live = AtomicBoolean(true)
     private var closed = false
     private fun requireLive() { probeRequire(live.get(), "lifecycle") }
@@ -61,6 +63,7 @@ internal class EnrollmentDeviceDriver(
     }
     fun execute(command: EnrollmentProbeCommand, sequence: Int): String {
         requireLive(); probeRequire(!closed, "lifecycle")
+        if (command.action in KagemushaNearbyProbeManifest.schemas) return nearby.execute(command, sequence)
         if (command.action in KagemushaMonetaryProbeManifest.schemas) return monetary.execute(command, sequence)
         return when (command.action) {
             "install" -> {
@@ -240,6 +243,7 @@ internal class EnrollmentDeviceDriver(
         return result
     }
     override fun close() {
+        nearby.close()
         if (closed) return
         live.set(false)
         wallet?.let { it.close(); wallet = null; monetary.released() }

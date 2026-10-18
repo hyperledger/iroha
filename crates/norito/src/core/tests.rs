@@ -3071,3 +3071,35 @@ fn archive_custom_result_cannot_widen_outer_element_or_allocation_budgets() {
     drop(guard);
     reset_decode_state();
 }
+
+#[test]
+fn checked_decode_peak_preserves_depth_and_the_original_nested_layer() {
+    let baseline = DECODE_NESTING_DEPTH.with(Cell::get);
+    let limits = DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 1);
+    with_decode_limits_scope(limits, || {
+        assert_eq!(checked_decode_depth(1).unwrap(), baseline + 1);
+        assert_eq!(DECODE_NESTING_DEPTH.with(Cell::get), baseline);
+        {
+            let _field = DecodeDepthGuard::enter().unwrap();
+            assert_eq!(checked_decode_depth(0).unwrap(), baseline + 1);
+            assert!(matches!(
+                checked_decode_depth(1),
+                Err(Error::NestingDepthExceeded {
+                    depth: 2,
+                    limit: 1,
+                    context: "decode budget",
+                })
+            ));
+            assert_eq!(DECODE_NESTING_DEPTH.with(Cell::get), baseline + 1);
+            with_decode_limits_scope(limits, || {
+                assert!(
+                    checked_decode_depth(1).is_err(),
+                    "a fresh inner scope cannot raise the outer ceiling"
+                );
+            });
+        }
+        assert_eq!(checked_decode_depth(1).unwrap(), baseline + 1);
+        assert_eq!(DECODE_NESTING_DEPTH.with(Cell::get), baseline);
+    });
+    assert_eq!(DECODE_NESTING_DEPTH.with(Cell::get), baseline);
+}

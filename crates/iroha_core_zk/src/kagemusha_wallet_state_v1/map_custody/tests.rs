@@ -17,7 +17,6 @@ fn set_root(state: &mut KagemushaWalletStateV1, role: PreparationMapV1, root: [u
         PreparationMapV1::Pending => state.core.pending_outgoing_root = root,
         PreparationMapV1::Recovery => state.core.load_redeem_recovery_root = root,
         PreparationMapV1::Fee => state.core.fee_claim_root = root,
-        PreparationMapV1::BlacklistHistory => state.rest.blacklist_history_root = root,
     }
 }
 
@@ -84,7 +83,8 @@ fn fee_member_or_low_authenticates_real_empty_and_populated_paths_without_mutati
 #[test]
 fn every_operation_can_only_mutate_its_fixed_map_roles() {
     for kind in K::ALL {
-        let refresh = (kind == K::RefreshPolicy).then_some(R::Blacklist);
+        // No policy update owns a map role.
+        let refresh = (kind == K::RefreshPolicy).then_some(R::SchemePolicy);
         for role in PreparationMapV1::ALL {
             let mut store = MemoryArchive::new();
             let original = SourceMapsV1::default();
@@ -96,7 +96,6 @@ fn every_operation_can_only_mutate_its_fixed_map_roles() {
                 (K::Receive, PreparationMapV1::Consumed)
                     | (K::Send, PreparationMapV1::Pending | PreparationMapV1::Fee)
                     | (K::Load | K::Unload, PreparationMapV1::Recovery)
-                    | (K::RefreshPolicy, PreparationMapV1::BlacklistHistory)
             );
             let insertion = view.insert(role, field(3), field(4));
             assert_eq!(insertion.is_ok(), allowed, "{kind:?} {role:?}");
@@ -170,7 +169,7 @@ fn only_archive_can_clear_pending_and_its_removed_slot_is_not_reused() {
             &maps,
             &sent,
             kind,
-            (kind == K::RefreshPolicy).then_some(R::Blacklist),
+            (kind == K::RefreshPolicy).then_some(R::SchemePolicy),
         )
         .unwrap();
         assert!(view.remove(PreparationMapV1::Recovery, &field(3)).is_err());
@@ -275,7 +274,7 @@ fn malformed_source_or_refresh_selector_is_rejected_before_map_access() {
     let maps = SourceMapsV1::default();
     let mut state = state();
     assert!(
-        PreparationMapsV1::new(&mut store, &maps, &state, K::Send, Some(R::Blacklist)).is_err()
+        PreparationMapsV1::new(&mut store, &maps, &state, K::Send, Some(R::SchemePolicy)).is_err()
     );
     assert!(PreparationMapsV1::new(&mut store, &maps, &state, K::RefreshPolicy, None).is_err());
     state.core.consumed_credit_root = field(1);
@@ -316,16 +315,21 @@ impl ArchiveStore for StorageProbe {
         self.inner.binding()
     }
 
-    fn get(&mut self, key: ArchiveKey, maximum: usize) -> Result<Option<Vec<u8>>, Error> {
+    fn get(
+        &mut self,
+        key: ArchiveKey,
+        maximum: usize,
+    ) -> Result<Option<PrivateArchiveBytes>, Error> {
         self.reads += 1;
         match self.read_fault {
             ReadFault::None => self.inner.get(key, maximum),
             ReadFault::Missing => Ok(None),
             ReadFault::Corrupt => {
-                let mut bytes = self.inner.get(key, maximum)?.unwrap();
+                let retained = self.inner.get(key, maximum)?.unwrap();
+                let mut bytes = zeroize::Zeroizing::new(retained.as_slice().to_vec());
                 let last = bytes.len() - 1;
                 bytes[last] ^= 1;
-                Ok(Some(bytes))
+                Ok(Some(PrivateArchiveBytes::from_guarded(bytes)))
             }
             ReadFault::Unavailable => Err(Error::Storage(std::io::Error::from(
                 std::io::ErrorKind::WouldBlock,
@@ -533,7 +537,8 @@ fn invalid_state_cannot_construct_or_finish_a_matching_map_draft() {
             2 => invalid.core.state_nonce = [0; 32],
             3 => invalid.core.state_nonce = [255; 32],
             4 => invalid.rest.scheme_policy = field(2),
-            _ => invalid.core.blacklist_version = 1,
+            // A held quota share id without its share.
+            _ => invalid.rest.quota_share_id = 1,
         }
         assert!(invalid.validate().is_err());
         // Every role/array root is unchanged: equality alone cannot admit this source.

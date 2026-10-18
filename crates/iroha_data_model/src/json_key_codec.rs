@@ -169,6 +169,28 @@ impl JsonKeyCodec for crate::nexus::AxtSourceTransferReplayKeyV1 {
         Ok(decoded)
     }
 }
+// Bond entitlement keys embed the bond, cash-flow index and holder. Require the
+// one canonical JSON spelling so two snapshot keys cannot alias one entitlement.
+impl JsonKeyCodec for crate::bond::BondEntitlementId {
+    fn encode_json_key(&self, out: &mut String) {
+        let mut encoded = String::new();
+        norito::json::JsonSerialize::json_serialize(self, &mut encoded);
+        json::write_json_string(&encoded, out);
+    }
+
+    fn decode_json_key(encoded: &str) -> Result<Self, json::Error> {
+        let mut parser = json::Parser::new(encoded);
+        let decoded: Self = norito::json::JsonDeserialize::json_deserialize(&mut parser)?;
+        let mut canonical = String::new();
+        norito::json::JsonSerialize::json_serialize(&decoded, &mut canonical);
+        if canonical != encoded {
+            return Err(json::Error::Message(
+                "bond entitlement key must use canonical JSON".into(),
+            ));
+        }
+        Ok(decoded)
+    }
+}
 impl JsonKeyCodec for crate::account::AccountId {
     fn encode_json_key(&self, out: &mut String) {
         json::write_json_string(&self.to_string(), out);

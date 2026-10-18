@@ -1,4 +1,3 @@
-#![allow(clippy::redundant_pub_crate, clippy::needless_pass_by_value)]
 use super::commands::{DiagnosticsArgs, LanesArgs, ParamsArgs, StatusArgs};
 use crate::{CliOutputFormat, RunContext};
 use eyre::Result;

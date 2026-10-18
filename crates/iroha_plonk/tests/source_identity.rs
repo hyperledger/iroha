@@ -174,6 +174,9 @@ fn unrelated_client_owners_and_prose_do_not_invalidate_native_inputs() {
         "docs/operator-guide.md",
         "specs/wallet-policy.md",
         "README.md",
+        "docs/operator-reference.MD",
+        "specs/client-policy.Md",
+        "OVERVIEW.mD",
     ] {
         workspace.write(path, b"first unrelated edit\n");
         assert_eq!(workspace.digest(), expected, "new unrelated input {path}");
@@ -212,6 +215,10 @@ fn unknown_assets_scripts_tests_and_machine_readable_specs_remain_inputs() {
         "docs/native-schema.toml",
         "configs/native.toml",
         "crates/proof/README.md",
+        "docs/unknown.MDX",
+        "specs/native-profile.RSX",
+        "docs/.md",
+        "specs/without-extension",
     ] {
         let before = workspace.digest();
         workspace.write(path, b"first\n");
@@ -232,6 +239,7 @@ fn nested_native_packages_override_client_owner_and_bind_ignored_sources() {
         "python/client/native",
         "vendor/native_math",
         "crates/outer/nested",
+        "docs/native_math",
     ] {
         let before = workspace.digest();
         workspace.write(
@@ -245,6 +253,8 @@ fn nested_native_packages_override_client_owner_and_bind_ignored_sources() {
             "src/ignored_constants.bin",
             "build_support/ignored_recipe.rs",
             "README.md",
+            "REFERENCE.MD",
+            "OVERVIEW.mD",
         ] {
             let before = workspace.digest();
             let path = format!("{owner}/{leaf}");
@@ -335,18 +345,18 @@ fn restored_external_rust_sources_restore_their_relative_inputs_recursively() {
 }
 
 #[test]
-fn prose_suffix_membership_is_lexical_and_case_sensitive() {
+fn prose_membership_classifies_extensions_without_normalizing_paths() {
     for (name, included) in [
-        (".md", false),
+        (".md", true),
         (".MD", true),
         ("README.md", false),
-        ("README.MD", true),
-        ("docs/.md", false),
+        ("README.MD", false),
+        ("docs/.md", true),
         ("docs/.MD", true),
         ("docs/案内.md", false),
-        ("docs/案内.MD", true),
+        ("docs/案内.MD", false),
         ("specs/詳細.md", false),
-        ("specs/詳細.mD", true),
+        ("specs/詳細.mD", false),
         ("docs/name.md.txt", true),
         ("docs/案内．md", true),
     ] {
@@ -371,15 +381,15 @@ fn prose_suffix_membership_is_lexical_and_case_sensitive() {
 }
 
 #[test]
-fn initial_rust_reference_scan_uses_the_exact_lexical_suffix() {
+fn initial_rust_reference_scan_classifies_extensions() {
     for (name, scanned) in [
-        (".rs", true),
+        (".rs", false),
         (".RS", false),
         ("source.rs", true),
-        ("source.RS", false),
-        ("source.rS", false),
+        ("source.RS", true),
+        ("source.rS", true),
         ("入力.rs", true),
-        ("入力.RS", false),
+        ("入力.RS", true),
         ("入力．rs", false),
         ("source.rs.txt", false),
     ] {
@@ -405,15 +415,15 @@ fn initial_rust_reference_scan_uses_the_exact_lexical_suffix() {
 }
 
 #[test]
-fn restored_rust_reference_scan_uses_the_exact_lexical_suffix() {
+fn restored_rust_reference_scan_classifies_extensions() {
     for (name, scanned) in [
-        (".rs", true),
+        (".rs", false),
         (".RS", false),
         ("source.rs", true),
-        ("source.RS", false),
-        ("source.rS", false),
+        ("source.RS", true),
+        ("source.rS", true),
         ("入力.rs", true),
-        ("入力.RS", false),
+        ("入力.RS", true),
         ("入力．rs", false),
         ("source.rs.txt", false),
     ] {
@@ -441,6 +451,65 @@ fn restored_rust_reference_scan_uses_the_exact_lexical_suffix() {
             "recursive input mutation from {restored}"
         );
     }
+}
+
+#[test]
+fn mixed_case_rust_references_restore_recursive_native_inputs() {
+    // Exercise both the initial native-source census and the recursive worklist.
+    for (source, helper, nested) in [
+        ("source.RS", "helper.rs", "nested.rs"),
+        ("source.rs", "helper.RS", "nested.rS"),
+    ] {
+        let workspace = Workspace::new();
+        workspace.write(
+            &format!("crates/proof/src/{source}"),
+            format!("include!(\"../../../python/client/{helper}\");\n").as_bytes(),
+        );
+        workspace.write(
+            &format!("python/client/{helper}"),
+            format!("#[path = \"{nested}\"] mod nested;\n").as_bytes(),
+        );
+        workspace.write(
+            &format!("python/client/{nested}"),
+            b"const INPUT: &str = include_str!(\"../../docs/ignored_profile.Md\");\n",
+        );
+        workspace.write(".gitignore", b"/target/\n/output/\n/docs/ignored_*\n");
+        workspace.write("docs/ignored_profile.Md", b"first");
+        let before = workspace.digest();
+        workspace.write("docs/ignored_profile.Md", b"second");
+        assert_ne!(
+            workspace.digest(),
+            before,
+            "native references must survive extension case: {source}/{helper}/{nested}"
+        );
+        let watched = snapshot(&workspace.0).unwrap().watched_paths;
+        for name in [
+            format!("crates/proof/src/{source}"),
+            format!("python/client/{helper}"),
+            format!("python/client/{nested}"),
+            "docs/ignored_profile.Md".to_owned(),
+        ] {
+            assert!(watched.contains(&workspace.0.join(&name)), "missing {name}");
+        }
+    }
+}
+
+#[test]
+fn native_path_identity_preserves_extension_case() {
+    let workspace = Workspace::new();
+    let original = "native-extra/identity.RS";
+    let renamed = "native-extra/identity.rS";
+    workspace.write(original, b"pub const INPUT: u64 = 1;\n");
+    let before = snapshot(&workspace.0).unwrap();
+    assert!(before.watched_paths.contains(&workspace.0.join(original)));
+    fs::rename(workspace.0.join(original), workspace.0.join(renamed)).unwrap();
+    let after = snapshot(&workspace.0).unwrap();
+    assert_ne!(
+        before.digest, after.digest,
+        "path identity is case-sensitive"
+    );
+    assert!(after.watched_paths.contains(&workspace.0.join(renamed)));
+    assert!(!after.watched_paths.contains(&workspace.0.join(original)));
 }
 
 #[cfg(unix)]
@@ -526,6 +595,64 @@ fn ignored_native_modules_assets_and_cargo_configuration_remain_inputs() {
         assert_eq!(workspace.digest(), previous);
     }
     assert_eq!(workspace.digest(), before);
+}
+
+#[test]
+fn deleted_unreferenced_tracked_inputs_bind_current_source_membership() {
+    let workspace = Workspace::new();
+    let retired = "crates/proof/src/retired/module.rs";
+    workspace.write(retired, b"pub const RETIRED: u32 = 1;\n");
+    workspace.git(&["add", retired]);
+    let before = workspace.digest();
+    fs::remove_dir_all(workspace.0.join("crates/proof/src/retired")).unwrap();
+    let removed = snapshot(&workspace.0).unwrap();
+    assert_ne!(removed.digest, before);
+    assert!(!removed.watched_paths.contains(&workspace.0.join(retired)));
+    workspace.git(&["add", "-u", "--", retired]);
+    assert_eq!(workspace.digest(), removed.digest);
+    workspace.write(retired, b"pub const RETIRED: u32 = 1;\n");
+    assert_eq!(workspace.digest(), before);
+}
+
+#[test]
+fn deleted_tracked_inputs_still_named_by_native_sources_are_rejected() {
+    for (reference, target) in [
+        ("include!(\"retired.rs\");", "crates/proof/src/retired.rs"),
+        (
+            "const INPUT: &[u8] = include_bytes!(\"retired.bin\");",
+            "crates/proof/src/retired.bin",
+        ),
+        (
+            "#[path = \"retired.rs\"] mod retired;",
+            "crates/proof/src/retired.rs",
+        ),
+        (
+            "const INPUT: &str = include_str!(\"../../../docs/retired.md\");",
+            "docs/retired.md",
+        ),
+    ] {
+        let workspace = Workspace::new();
+        workspace.write("crates/proof/src/circuit.rs", reference.as_bytes());
+        workspace.write(target, b"// retired\n");
+        workspace.git(&["add", "."]);
+        assert!(snapshot(&workspace.0).is_ok());
+        fs::remove_file(workspace.0.join(target)).unwrap();
+        assert!(
+            snapshot(&workspace.0).is_err(),
+            "missing dependency {target}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn dangling_ancestor_cannot_disguise_a_tracked_source_as_deleted() {
+    use std::os::unix::fs::symlink;
+    let workspace = Workspace::new();
+    let original = workspace.0.join("crates/proof/src");
+    fs::rename(&original, workspace.0.join("retained-src")).unwrap();
+    symlink("missing", &original).unwrap();
+    assert!(snapshot(&workspace.0).is_err());
 }
 
 #[test]

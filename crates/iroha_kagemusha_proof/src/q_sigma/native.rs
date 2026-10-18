@@ -2,15 +2,15 @@
 //!
 //! A caller supplies the incoming mode after evaluating the complete operation's
 //! soft checks. This module never chooses or authorizes a burn. It derives the
-//! selected local claim, creates the exact local fold, binds every exported
+//! selected local claim, creates or verifies the retained local fold, binds every exported
 //! instance and self-verifies each generated Q proof. Only source-bound verifier
 //! metadata survives native key generation or strict original import. Each proof
 //! reconstructs temporary on-demand buffers, then drops them before verification.
 
 use core::fmt;
 
-use ff::{Field, PrimeField};
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine, PastaField, msm::MemoryBudget};
+use ff::Field;
+use iroha_pasta::{Ep, Eq, Fp, Fq, PastaField, msm::MemoryBudget};
 use iroha_plonk::{
     DescriptorBinding, KeyError, ProverConfig, ProverError, ProverRandomness, VerifyError,
     VerifyingKey, Witness, create_proof_owned,
@@ -27,12 +27,12 @@ use iroha_plonk::{
 };
 use iroha_plonk_gadgets::bytes::tape::{ByteOrder, segment_value};
 use iroha_plonk_recursion::{
-    AccumulatorT, FoldConfig, FoldInput, create_fold, verifier::VerifierPlan,
+    AccumulatorT, FoldConfig, FoldInput, FoldPurpose, FoldTape, FoldWitness, create_fold,
+    verifier::VerifierPlan, verify_fold,
 };
 
 use super::{
-    FOLD_WITNESS_BYTES, IncomingSigmaWitness, QSigmaCircuit, QSigmaPlan, QSigmaWitness, SigmaClass,
-    SigmaSlotWitness,
+    IncomingSigmaWitness, QSigmaCircuit, QSigmaPlan, QSigmaWitness, SigmaClass, SigmaSlotWitness,
 };
 use crate::SigmaVerifier;
 
@@ -45,6 +45,8 @@ pub enum QSigmaError {
     UnauthorizedKey,
     /// The selected incoming mode cannot be realized by the actual claim.
     IncomingMode,
+    /// The selected coin/witness source does not match the actual incoming slot.
+    FoldSource,
     /// Own sigma has the wrong original carrier length.
     OwnLength,
     /// Outer parameters must cover exactly k16.
@@ -115,6 +117,59 @@ pub struct IncomingSigma {
     /// Mode selected by the complete operation coordinator.
     pub mode: IncomingMode,
 }
+/// Exact local fold source selected by the private attempt/checkpoint owner.
+///
+/// An incoming route consumes a fresh tape once or verifies its original retained
+/// witness. A route without an incoming slot takes no tape or fold witness.
+/// Syntax or possession of retained bytes never grants source/proof authority.
+#[derive(Debug)]
+pub enum QSigmaFoldSource<'a> {
+    /// No incoming sigma slot, so the own opening is forwarded without a fold.
+    NoIncoming,
+    /// One fresh private tape for a new incoming-sigma fold attempt.
+    Fresh(FoldTape<Eq>),
+    /// Exact private witness retained by this source-bound attempt's checkpoint.
+    Retained(&'a crate::private_fold::PrivateFoldBytes),
+}
+impl QSigmaFoldSource<'_> {
+    fn check_presence(&self, incoming: bool) -> Result<(), QSigmaError> {
+        if incoming == !matches!(self, Self::NoIncoming) {
+            Ok(())
+        } else {
+            Err(QSigmaError::FoldSource)
+        }
+    }
+    fn resolve(
+        self,
+        params: &PinnedParams<Eq>,
+        inputs: &[FoldInput<Eq>],
+        config: &FoldConfig,
+    ) -> Result<(crate::private_fold::PrivateFoldBytes, AccumulatorT<Eq>), QSigmaError> {
+        let (bytes, part) = match self {
+            Self::NoIncoming => return Err(QSigmaError::FoldSource),
+            Self::Fresh(tape) => {
+                let (witness, part) =
+                    create_fold(params, inputs, tape, FoldPurpose::SigmaBatch, config)
+                        .map_err(QSigmaError::Fold)?;
+                (
+                    crate::private_fold::PrivateFoldBytes::from_fold(witness),
+                    part,
+                )
+            }
+            Self::Retained(bytes) => {
+                let witness = FoldWitness::<Eq>::from_private_bytes(bytes.as_slice())
+                    .map_err(QSigmaError::Fold)?;
+                let part = verify_fold(params, inputs, &witness, FoldPurpose::SigmaBatch, config)
+                    .map_err(QSigmaError::Fold)?;
+                (bytes.clone(), part)
+            }
+        };
+        part.decide_cancellable(params, config.kernel_budget, config.cancellation.as_ref())
+            .map_err(QSigmaError::Fold)?;
+        Ok((bytes, part))
+    }
+}
+
 /// A fully prepared local circuit and its exact public frame.
 #[must_use = "prove this Q relation and register its returned obligation in A"]
 #[derive(Clone, Debug)]
@@ -131,6 +186,16 @@ impl PreparedQSigma {
     /// Public columns in the exact homogeneous Q schema.
     pub fn instances(&self) -> &[Vec<Fq>] {
         &self.instances
+    }
+    /// Borrow the exact verified private fold for an incoming route's checkpoint.
+    /// The private persistence owner must bind it to this source, stage and attempt.
+    /// No-incoming routes return None and require no fold entropy or retained tape.
+    pub fn retained_fold(&self) -> Option<&crate::private_fold::PrivateFoldBytes> {
+        self.circuit
+            .witness
+            .incoming
+            .as_ref()
+            .map(|incoming| &incoming.fold)
     }
     /// Selected forwarded or folded Vesta part.
     pub const fn part(&self) -> &FoldInput<Eq> {
@@ -238,6 +303,12 @@ fn chunks(witness: &SigmaSlotWitness) -> Vec<Fq> {
         .collect()
 }
 impl QSigmaPlan {
+    /// Whether this fixed route has an incoming slot and retains a private fold.
+    /// This query depends only on the installed plan, never on an operation witness.
+    pub const fn requires_private_fold(&self) -> bool {
+        self.incoming.is_some()
+    }
+
     /// Derive the exact incoming original opening before operation-wide mode selection.
     /// The selected VK must occupy the source-derived global index in this plan's
     /// installed incoming class. A malformed original proof is soft only under the
@@ -285,23 +356,34 @@ impl QSigmaPlan {
         }
     }
 
-    /// Prepares the exact local relation, including a fold when two sigmas are
-    /// present. Own and Accept claims must decide. Corrected must change an
-    /// undecidable original; Trivial uses the pinned k16 claim. The caller must
-    /// authorize the selected mode in A's global branch rule.
+    /// Prepares the exact local relation, including a fold whenever an incoming
+    /// sigma is present. Own (when present) and Accept claims must decide.
+    /// Corrected must change an undecidable original; Trivial uses the pinned k16
+    /// claim. The caller must authorize the selected mode in A's global branch rule.
     ///
     /// # Errors
-    /// Wrong slots/lengths/classes, invalid own proof, an impossible incoming
-    /// mode, or a local accumulator/fold failure.
+    /// Wrong slots/lengths/classes or fold source, invalid own proof, an impossible
+    /// incoming mode, or failed fresh/retained fold verification and decision.
+    /// Retained preparation never samples coins and rederives the complete public
+    /// frame from the exact source proofs; callers must compare the whole frame
+    /// against the retained original Q proof before accepting a checkpoint.
     pub fn prepare(
         &self,
-        own: SigmaSlotWitness,
+        own: Option<SigmaSlotWitness>,
         incoming: Option<IncomingSigma>,
         params: &PinnedParams<Eq>,
-        salt: Fq,
+        fold_source: QSigmaFoldSource<'_>,
         config: &FoldConfig,
     ) -> Result<PreparedQSigma, QSigmaError> {
-        if own.proof.len() != self.own.verifier.proof_length()
+        iroha_pasta::CancellationToken::checkpoint(config.cancellation.as_ref())
+            .map_err(|_| QSigmaError::Fold(iroha_plonk_recursion::Error::Cancelled))?;
+        fold_source.check_presence(incoming.is_some())?;
+        if self.own.is_some() != own.is_some()
+            || self
+                .own
+                .as_ref()
+                .zip(own.as_ref())
+                .is_some_and(|(class, own)| own.proof.len() != class.verifier.proof_length())
             || self.incoming.is_some() != incoming.is_some()
             || self
                 .incoming
@@ -313,20 +395,29 @@ impl QSigmaPlan {
         {
             return Err(QSigmaError::Layout(LayoutError::Synthesis));
         }
-        if usize::try_from(own.length).ok() != Some(own.proof.len()) {
-            return Err(QSigmaError::OwnLength);
-        }
-        let own_index = self.own.index(&own)?;
-        let own_claim =
-            self.own
-                .opening(&own, config.kernel_budget, config.cancellation.as_ref())?;
-        own_claim
-            .decide_cancellable(params, config.kernel_budget, config.cancellation.as_ref())
-            .map_err(QSigmaError::Fold)?;
-        let mut statements = vec![scalar(own.statement)];
-        let mut exported = chunks(&own);
-        let mut indices = vec![Fq::from(u64::from(own_index))];
-        let mut verdicts = vec![Fq::ONE];
+        let mut statements = Vec::new();
+        let mut exported = Vec::new();
+        let mut indices = Vec::new();
+        let mut verdicts = Vec::new();
+        let own_claim = match (self.own.as_ref(), own.as_ref()) {
+            (Some(class), Some(own)) => {
+                if usize::try_from(own.length).ok() != Some(own.proof.len()) {
+                    return Err(QSigmaError::OwnLength);
+                }
+                let own_index = class.index(own)?;
+                let own_claim =
+                    class.opening(own, config.kernel_budget, config.cancellation.as_ref())?;
+                own_claim
+                    .decide_cancellable(params, config.kernel_budget, config.cancellation.as_ref())
+                    .map_err(QSigmaError::Fold)?;
+                statements.push(scalar(own.statement));
+                exported.extend(chunks(own));
+                indices.push(Fq::from(u64::from(own_index)));
+                verdicts.push(Fq::ONE);
+                Some(own_claim)
+            }
+            _ => None,
+        };
         let (incoming, part) = if let Some(input) = incoming {
             let class = self.incoming.as_ref().ok_or(QSigmaError::IncomingMode)?;
             let index = class.index(&input.sigma)?;
@@ -371,15 +462,11 @@ impl QSigmaPlan {
                     )
                 }
             };
-            let (fold, part) = create_fold(
-                params,
-                &[own_claim, selected, trivial.as_input()],
-                salt.to_repr(),
-                config,
-            )
-            .map_err(QSigmaError::Fold)?;
-            part.decide_cancellable(params, config.kernel_budget, config.cancellation.as_ref())
-                .map_err(QSigmaError::Fold)?;
+            let inputs = own_claim
+                .into_iter()
+                .chain([selected, trivial.as_input()])
+                .collect::<Vec<_>>();
+            let (fold, part) = fold_source.resolve(params, &inputs, config)?;
             statements.push(scalar(input.sigma.statement));
             exported.extend(chunks(&input.sigma));
             indices.push(Fq::from(u64::from(index)));
@@ -390,17 +477,19 @@ impl QSigmaPlan {
                     sigma: input.sigma,
                     mode: input.mode.bits(),
                     corrected,
-                    fold: fold.to_bytes(),
+                    fold,
                 }),
                 part.as_input(),
             )
         } else {
-            (None, own_claim)
+            (
+                None,
+                own_claim.ok_or(QSigmaError::Layout(LayoutError::Synthesis))?,
+            )
         };
         statements.extend(exported);
         statements.extend(part.challenges().iter().copied().map(scalar));
-        let (x, y) =
-            Option::<(Fq, Fq)>::from(part.g().coordinates()).ok_or(QSigmaError::IncomingMode)?;
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(part.g());
         let instances = vec![
             statements,
             vec![x, y],
@@ -428,7 +517,7 @@ impl QSigmaPlan {
 #[derive(Clone, Debug)]
 pub struct QSigmaSource {
     plan: QSigmaPlan,
-    own_key: VerifyingKey<Eq>,
+    own_key: Option<VerifyingKey<Eq>>,
     incoming_key: Option<VerifyingKey<Eq>>,
 }
 impl QSigmaSource {
@@ -446,7 +535,28 @@ impl QSigmaSource {
         own_key: VerifyingKey<Eq>,
         incoming_key: Option<VerifyingKey<Eq>>,
     ) -> Result<Self, QSigmaError> {
-        if plan.incoming.is_some() != incoming_key.is_some() {
+        Self::build(plan, Some(own_key), incoming_key)
+    }
+
+    /// The same check for an incoming-only plan, whose route proves its own step in A.
+    ///
+    /// # Errors
+    /// As [`Self::new`], or a plan that has an own slot.
+    pub fn incoming_only(
+        plan: QSigmaPlan,
+        incoming_key: VerifyingKey<Eq>,
+    ) -> Result<Self, QSigmaError> {
+        Self::build(plan, None, Some(incoming_key))
+    }
+
+    fn build(
+        plan: QSigmaPlan,
+        own_key: Option<VerifyingKey<Eq>>,
+        incoming_key: Option<VerifyingKey<Eq>>,
+    ) -> Result<Self, QSigmaError> {
+        if plan.own.is_some() != own_key.is_some()
+            || plan.incoming.is_some() != incoming_key.is_some()
+        {
             return Err(QSigmaError::Layout(LayoutError::Synthesis));
         }
         let check = |class: &SigmaClass, key: VerifyingKey<Eq>| {
@@ -463,7 +573,12 @@ impl QSigmaSource {
             class.key_index(&key)?;
             Ok(key)
         };
-        let own_key = check(&plan.own, own_key)?;
+        let own_key = plan
+            .own
+            .as_ref()
+            .zip(own_key)
+            .map(|(class, key)| check(class, key))
+            .transpose()?;
         let incoming_key = plan
             .incoming
             .as_ref()
@@ -518,7 +633,13 @@ impl QSigmaSource {
                 length: encoded_length,
             })
         };
-        let own = slot(&self.plan.own, &self.own_key)?;
+        let own = self
+            .plan
+            .own
+            .as_ref()
+            .zip(self.own_key.as_ref())
+            .map(|(class, key)| slot(class, key))
+            .transpose()?;
         let incoming = self
             .plan
             .incoming
@@ -529,7 +650,7 @@ impl QSigmaSource {
                     sigma: slot(class, key)?,
                     mode: [false; 3],
                     corrected: self.plan.trivial,
-                    fold: [0; FOLD_WITNESS_BYTES],
+                    fold: crate::private_fold::PrivateFoldBytes::unknown(),
                 })
             })
             .transpose()?;
@@ -1079,7 +1200,7 @@ impl<'a> QSigmaProverView<'a> {
         &self,
         circuit: &C,
         prepared: &PreparedQSigma,
-        randomness: ProverRandomness<'_>,
+        randomness: ProverRandomness,
         config: ProverConfig,
     ) -> Result<Vec<u8>, QSigmaError> {
         let source = circuit.without_witnesses();
@@ -1099,6 +1220,8 @@ impl<'a> QSigmaProverView<'a> {
             config.cancellation,
         )
         .map_err(QSigmaError::Prover)?;
+        #[cfg(test)]
+        crate::proof_entry_probe::reached();
         create_proof_owned(self.params, &key, witness, randomness, config)
             .map_err(QSigmaError::Prover)
     }
@@ -1132,8 +1255,8 @@ mod tests {
         let (keys, binding, params, inner) = FIXTURE.get_or_init(|| {
             let params = PinnedParams::<Eq>::derive(BOOTSTRAP_K).unwrap();
             let blank = BootstrapWitness {
-                core: [Fp::ZERO; 33],
-                rest: [Fp::ZERO; 8],
+                core: [Fp::ZERO; 29],
+                rest: [Fp::ZERO; 6],
                 lineage: [Fp::ZERO; 18],
                 statement: [Fp::ZERO; 26],
             };
@@ -1213,7 +1336,10 @@ mod tests {
     #[test]
     fn pre_q_original_checks_exact_class_and_global_selector_before_soft_length() {
         let (one, keys, params) = source_fixture();
-        let plan = QSigmaPlan::new(one.own.clone(), Some(one.own.clone()), &params).unwrap();
+        let own = one.class(QSigmaPlan::OWN).unwrap().clone();
+        let plan = QSigmaPlan::new(own.clone(), Some(own), &params).unwrap();
+        assert!(!one.requires_private_fold());
+        assert!(plan.requires_private_fold());
         let length = plan.class(1).unwrap().verifier().proof_length();
         let mut original = SigmaSlotWitness {
             key: keys[0].clone(),
@@ -1311,7 +1437,8 @@ mod tests {
             QSigmaSource::new(plan.clone(), keys[3].clone(), None),
             Err(QSigmaError::UnauthorizedKey)
         ));
-        let two = QSigmaPlan::new(plan.own.clone(), Some(plan.own.clone()), &inner).unwrap();
+        let own = plan.class(QSigmaPlan::OWN).unwrap().clone();
+        let two = QSigmaPlan::new(own.clone(), Some(own.clone()), &inner).unwrap();
         assert!(QSigmaSource::new(two.clone(), keys[0].clone(), None).is_err());
         assert!(matches!(
             QSigmaSource::new(two.clone(), keys[0].clone(), Some(keys[2].clone())),
@@ -1322,16 +1449,34 @@ mod tests {
             Err(QSigmaError::UnauthorizedKey)
         ));
         assert!(QSigmaSource::new(two, keys[0].clone(), Some(keys[1].clone())).is_ok());
+        // A lean route's incoming-only program has one soft slot and a k16 fold part.
+        let lean = QSigmaPlan::incoming_only(own, &inner).unwrap();
+        assert!(!lean.has_own());
+        assert_eq!(lean.slot_count(), 1);
+        assert_eq!(lean.position(QSigmaPlan::INCOMING), Some(0));
+        assert!(lean.position(QSigmaPlan::OWN).is_none());
+        assert_eq!(lean.part_source_k(), 16);
+        let chunks = lean.class(QSigmaPlan::INCOMING).unwrap().chunks();
+        assert_eq!(lean.chunk_range(QSigmaPlan::INCOMING), Some(1..1 + chunks));
+        assert_eq!(
+            lean.instance_lengths(),
+            [1 + chunks + iroha_plonk_recursion::K, 2, 1, 4, 1]
+        );
+        assert!(QSigmaSource::new(lean.clone(), keys[0].clone(), Some(keys[1].clone())).is_err());
+        assert!(QSigmaSource::incoming_only(lean.clone(), keys[1].clone()).is_ok());
+        assert!(matches!(
+            QSigmaSource::incoming_only(lean, keys[3].clone()),
+            Err(QSigmaError::UnauthorizedKey)
+        ));
     }
 
     #[test]
     fn installed_q_source_layout_does_not_pin_an_allowlisted_member() {
         use iroha_plonk::frontend::synthesize;
         let (plan, keys, inner) = source_fixture();
+        let own = plan.class(QSigmaPlan::OWN).unwrap().clone();
         for incoming in [false, true] {
-            let plan =
-                QSigmaPlan::new(plan.own.clone(), incoming.then(|| plan.own.clone()), &inner)
-                    .unwrap();
+            let plan = QSigmaPlan::new(own.clone(), incoming.then(|| own.clone()), &inner).unwrap();
             let a = QSigmaSource::new(
                 plan.clone(),
                 keys[0].clone(),
@@ -1382,7 +1527,7 @@ mod tests {
                 assert_eq!(first.cs.instance_lengths(), second.cs.instance_lengths());
                 if !incoming && buses.is_none() {
                     let mut changed = plan.clone();
-                    changed.own.entries.reverse();
+                    changed.own.as_mut().unwrap().entries.reverse();
                     let changed = QSigmaSource::new(changed, keys[0].clone(), None)
                         .unwrap()
                         .circuit()
@@ -1448,3 +1593,6 @@ mod tests {
 
 #[cfg(test)]
 mod public_witness_tests;
+
+#[cfg(test)]
+mod retained_fold_tests;

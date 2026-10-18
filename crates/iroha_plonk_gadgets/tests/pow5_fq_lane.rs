@@ -11,7 +11,7 @@
 //!   cells per permutation, one cell per tap, degree 6), a real Pallas proof,
 //!   and an ignored k = 16 release measurement.
 
-use std::{convert::Infallible, path::PathBuf, time::Instant};
+use std::{path::PathBuf, time::Instant};
 
 use ff::{Field as _, PrimeField as _};
 use iroha_pasta::{
@@ -48,7 +48,6 @@ use iroha_plonk_gadgets::{
     tamper::{Tamper, check_tampered, undetected_tampers},
 };
 use norito::json::Value as Json;
-use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
 
 /// The chips a program drives.
 struct Chips {
@@ -1205,10 +1204,8 @@ fn pallas_round_trip(circuit: &LaneCircuit, public: &[Fq], k: u32) -> (usize, [u
     config.proof_suffix = ProofSuffixV1::FoldedGenerator;
     let pk = keygen_pk(&params, &circuit.without_witnesses(), &config).expect("proving key");
     let keygen = started.elapsed().as_millis();
-    let prove = |seed: u8| {
-        let randomness = ProverRandomness::recovery(move |_context: &[u8; 32]| {
-            Ok::<_, Infallible>(ChaCha20Rng::from_seed([seed; 32]))
-        });
+    let prove = || {
+        let randomness = ProverRandomness::hedged();
         prove_circuit(
             &params,
             &pk,
@@ -1220,7 +1217,7 @@ fn pallas_round_trip(circuit: &LaneCircuit, public: &[Fq], k: u32) -> (usize, [u
         .expect("proof")
     };
     let started = Instant::now();
-    let proof = prove(7);
+    let proof = prove();
     let proving = started.elapsed().as_millis();
     let verify = |public: &[Fq], proof: &[u8]| {
         verify_full(

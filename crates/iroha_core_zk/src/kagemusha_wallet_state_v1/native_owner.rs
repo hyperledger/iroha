@@ -29,7 +29,8 @@ use crate::{
     },
     kagemusha_wallet_intake_v1::AdmittedWalletV1,
     kagemusha_wallet_preparation_v1::{
-        NativeAdvanceCheckV1, NativeChoicesV1, PreparationV1, PreparedOperationV1,
+        NativeAdvanceCheckV1, NativeChoicesV1, NativePreparedOperationV1, PreparationV1,
+        PreparedOperationV1,
     },
     kagemusha_wallet_proofs_v1::Error as ProofError,
 };
@@ -71,6 +72,7 @@ fn proof<T>(value: Result<T, ProofError>) -> Result<T, Error> {
         ProofError::DecodeResource(original) => Error::DecodeResource(original),
         ProofError::Unavailable => Error::ArtifactsUnavailable("native operation artifact"),
         ProofError::Cancelled => Error::Cancelled,
+        ProofError::Blocked(field) => Error::Blocked(field),
         ProofError::Entropy => {
             crate::kagemusha_wallet_advance_v1::KagemushaWalletProviderErrorV1::Unavailable(
                 crate::kagemusha_wallet_advance_v1::KagemushaWalletUnavailableV1::Platform(0),
@@ -207,17 +209,35 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             self.budget,
         )
     }
+
+    // The call-scoped token binds the exact plan bytes, source and installation it used.
+    fn derive_retained(
+        &self,
+        request: &NativeIntentV1,
+        source: &PreparationSourceV1<'_>,
+        custody: &mut PreparationCustodyV1<'_>,
+        bytes: &[u8],
+    ) -> Result<NativePreparedOperationV1, Error> {
+        let prepared = self.derive(request, source, custody, bytes)?;
+        Ok(NativePreparedOperationV1::new(
+            prepared,
+            bytes,
+            source.released().frozen.capsule.custody_digest(),
+            self.installed.verifier().manifest_digest(),
+        ))
+    }
 }
 
 impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send>
     NativePreparation for NativeWalletProofsV1<F, P, S>
 {
+    type Prepared = NativePreparedOperationV1;
     fn plan_preparation(
         &self,
         request: &NativeIntentV1,
         source: &PreparationSourceV1<'_>,
         custody: &mut PreparationCustodyV1<'_>,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<(Vec<u8>, Self::Prepared), Error> {
         let choices = NativeChoicesV1::fresh(
             self.installed.verifier().manifest_digest(),
             request,
@@ -225,8 +245,8 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             &self.observations,
         )?;
         let bytes = choices.encode()?;
-        self.derive(request, source, custody, &bytes)?;
-        Ok(bytes)
+        let prepared = self.derive_retained(request, source, custody, &bytes)?;
+        Ok((bytes, prepared))
     }
     fn validate_preparation(
         &self,
@@ -234,17 +254,23 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         source: &PreparationSourceV1<'_>,
         custody: &mut PreparationCustodyV1<'_>,
         plan: &[u8],
-    ) -> Result<(), Error> {
-        self.derive(request, source, custody, plan).map(|_| ())
+    ) -> Result<Self::Prepared, Error> {
+        self.derive_retained(request, source, custody, plan)
     }
     fn prove_preparation(
         &self,
         request: &NativeIntentV1,
         source: &PreparationSourceV1<'_>,
-        custody: &mut PreparationCustodyV1<'_>,
+        prepared: Self::Prepared,
         plan: &[u8],
     ) -> Result<FrozenTransition, Error> {
-        let prepared = self.derive(request, source, custody, plan)?;
+        let manifest = self.installed.verifier().manifest_digest();
+        NativeChoicesV1::decode(plan, manifest, request, source)?;
+        let prepared = prepared.redeem(
+            plan,
+            source.released().frozen.capsule.custody_digest(),
+            manifest,
+        )?;
         let mut originals = self
             .originals
             .lock()
@@ -352,7 +378,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             KagemushaWalletCreditedEvidenceV1::Receive { package } => {
                 proof(self.installed.verifier().verify_package_proofs_cancellable(
                     package,
-                    Some(&request.body),
                     self.budget,
                     None,
                 ))
@@ -391,22 +416,25 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             custody.ok_or(Error::WitnessLost("native fold custody"))?,
         )
     }
-    fn fold_next(
+    fn fold_prepare(
         &self,
         witness: &ReleasedStep,
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
-        checkpoints: &[Vec<u8>],
+        checkpoints: Vec<PrivateArchiveBytes>,
         custody: Option<&mut FoldCustodyV1<'_>>,
+        retained: Option<FoldRetentionV1>,
         cancellation: &Cancellation,
-    ) -> Result<FoldProgress, Error> {
+    ) -> Result<Box<dyn NativeFoldJobV1>, Error> {
+        // The original store is lent to the locked prepare only; the job never holds it.
         let mut originals = self
             .originals
             .lock()
             .map_err(|_| Error::ArtifactsUnavailable("proving original owner poisoned"))?;
-        self.worker.next(
+        self.worker.prepare(
             witness,
             predecessor,
             checkpoints,
+            retained,
             cancellation,
             &mut *originals,
             custody.ok_or(Error::WitnessLost("native fold custody"))?,

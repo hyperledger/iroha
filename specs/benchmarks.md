@@ -11,7 +11,7 @@ targets are available to plain `cargo bench`. Use package and bench selectors
 when isolating a target, for example:
 
 ```bash
-cargo bench -p iroha_core --bench queries
+cargo bench -p iroha_core --features bench,iroha-core-tests --bench queries
 cargo bench -p ivm --bench bench_poseidon
 cargo bench -p norito --bench crc64
 ```

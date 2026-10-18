@@ -146,16 +146,18 @@ pub(super) fn from_admitted_source<C: PastaCurve>(
 }
 
 /// Only an opaque member from the closed registry can reach this additional mint.
-/// The caller has checked every canonical original against that immutable member.
+/// The caller has checked every canonical original against that immutable member,
+/// including the SHA-256 of the exact VK bytes `key` encodes; that checked digest
+/// is the seal's VK identity, so the VK is not hashed a second time here.
 pub(super) fn from_builtin_member<C: PastaCurve>(
     admitted: super::builtin::VerifiedBuiltinOriginal<C>,
     cancellation: Option<&CancellationToken>,
 ) -> Result<SourceBoundVerifyingKeyV2<C>, KeyError> {
     CancellationToken::checkpoint(cancellation)?;
-    let (binding, key, source_digest) = admitted.into_parts();
+    let (binding, key, key_sha256, source_digest) = admitted.into_parts();
     let seal = SourceAdmissionSealV2 {
         descriptor_digest: *binding.digest(),
-        key_sha256: key_digest(&key, cancellation)?,
+        key_sha256,
         source_digest,
         curve: core::marker::PhantomData,
     };

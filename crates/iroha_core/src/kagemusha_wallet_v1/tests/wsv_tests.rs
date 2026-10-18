@@ -492,6 +492,72 @@ fn routing_uses_permanent_scope_and_refuses_missing_wallet_records() {
 }
 
 #[test]
+fn compact_fee_claim_routes_by_the_validated_send_asset_and_permanent_scope() {
+    use iroha_data_model::isi::kagemusha_wallet::{
+        KagemushaWalletLedgerActionV1, KagemushaWalletLedgerV1,
+    };
+    use iroha_model_base::topology::DataSpaceId;
+
+    let memory = Memory::new();
+    let claim: KagemushaWalletFeeClaimV1 = fixture("KagemushaWalletFeeClaimV1");
+    let scheme = memory.registration.scheme.scheme_id();
+    let asset = memory.registration.asset.asset_digest();
+    assert_eq!(claim.payment.send.statement.asset_digest, asset);
+    let instruction = KagemushaWalletLedgerV1::new(
+        scheme,
+        KagemushaWalletLedgerActionV1::ClaimFee(claim.to_canonical_bytes().unwrap()),
+    );
+    let mut world = World::new();
+    assert!(matches!(
+        routing::dataspace(&world.view(), &instruction),
+        Err(Error::Unavailable)
+    ));
+    let key = storage::key(storage::REGISTRATION, scheme, asset);
+    for (scope, expected) in [
+        (AssetBalanceScope::Global, DataSpaceId::UNIVERSAL),
+        (
+            AssetBalanceScope::Dataspace(DataSpaceId::new(7)),
+            DataSpaceId::new(7),
+        ),
+    ] {
+        let mut registration = memory.registration.clone();
+        registration.balance_scope = scope;
+        world
+            .kagemusha_wallet_ledger
+            .insert(key, storage::encode(&registration).unwrap());
+        assert_eq!(
+            routing::dataspace(&world.view(), &instruction).unwrap(),
+            expected
+        );
+    }
+    let foreign = KagemushaWalletLedgerV1::new([0x92; 32], instruction.action.clone());
+    assert!(matches!(
+        routing::dataspace(&world.view(), &foreign),
+        Err(Error::Model(_))
+    ));
+    let mut tampered = claim;
+    tampered.payment.send.statement.asset_digest[0] ^= 1;
+    // Encode a malformed original directly so the routing decoder must reject it.
+    let malformed = KagemushaWalletLedgerV1::new(
+        scheme,
+        KagemushaWalletLedgerActionV1::ClaimFee(norito::encode_canonical(&tampered).unwrap()),
+    );
+    assert!(matches!(
+        routing::dataspace(&world.view(), &malformed),
+        Err(Error::Model(_))
+    ));
+    let mut substituted = memory.registration.clone();
+    substituted.asset.asset_incarnation[0] ^= 1;
+    world
+        .kagemusha_wallet_ledger
+        .insert(key, storage::encode(&substituted).unwrap());
+    assert!(matches!(
+        routing::dataspace(&world.view(), &instruction),
+        Err(Error::Binding)
+    ));
+}
+
+#[test]
 fn verifier_pack_routing_requires_the_exact_registered_asset_and_permanent_scope() {
     use iroha_data_model::isi::kagemusha_wallet::{
         KagemushaWalletLedgerActionV1, KagemushaWalletLedgerV1,

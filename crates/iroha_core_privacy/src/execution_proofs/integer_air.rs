@@ -74,7 +74,7 @@ pub(super) struct IntegerAirV1 {
 
 pub(super) fn field(value: i64) -> F {
     if value >= 0 {
-        F(value as u64)
+        F(i64::cast_unsigned(value))
     } else {
         F::ZERO.sub(F(value.unsigned_abs()))
     }

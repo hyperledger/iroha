@@ -562,6 +562,12 @@ fn rekey_account_id(
                 .into(),
         ));
     }
+    // Bond records name their issuer, paying agent and entitled holders by identity;
+    // they follow the rekey below unless a recording is walking the account's units.
+    crate::smartcontracts::isi::bond::ensure_account_rekey_allowed_by_bonds(
+        state_transaction.world(),
+        old_account,
+    )?;
     if crate::smartcontracts::isi::vpn::is_active_vpn_client(&state_transaction.world, old_account)
     {
         return Err(InstructionExecutionError::InvariantViolation(
@@ -977,6 +983,11 @@ fn rekey_account_id(
     }
     replace_account_id_in_public_lane(state_transaction, old_account, new_account);
     replace_account_id_in_repo_agreements(state_transaction, old_account, new_account);
+    crate::smartcontracts::isi::bond::rekey_bond_references(
+        state_transaction,
+        old_account,
+        new_account,
+    )?;
     replace_account_id_in_citizens(state_transaction, old_account, new_account);
     replace_account_id_in_governance(state_transaction, old_account, new_account);
     replace_account_id_in_oracle(state_transaction, old_account, new_account);
@@ -4930,6 +4941,7 @@ mod tests {
                 movements: ResolvedSettlementMovements::try_from(movements)
                     .expect("exact canonical vector"),
                 intent_hash: Hash::new(b"immutable-complete-intent"),
+                escrow_ids: Vec::new(),
             }),
         ];
         for details in variants {

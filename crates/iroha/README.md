@@ -16,6 +16,13 @@ for setup, configuration, and client examples.
 * Read Torii collections with one filter, sort and cursor language
 * Request data based on Iroha Queries from a Peer
 
+`Client::get_explorer_transaction_proof(entrypoint_hash)` reads selective Explorer
+evidence with the configured native account signature. Every response status has a 16 MiB body ceiling. Typed native decoding checks the network,
+selected input/output and header bindings. The returned `ExplorerTransactionProof`
+is node-supplied evidence, not independently authenticated finality; verify its
+certificate and inclusion against an independently pinned checkpoint before using
+it for settlement. Hidden/private denials remain errors without whole-block fallback.
+
 Transaction finality waits require state-resolved `Applied` status. Temporary
 HTTP 429 responses repeat only the status read, respecting Torii's delta-seconds
 `Retry-After` and the original wait deadline. They never resubmit the transaction;

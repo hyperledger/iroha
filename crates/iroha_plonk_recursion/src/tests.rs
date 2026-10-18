@@ -14,15 +14,34 @@ use iroha_plonk::{
 use sha2::{Digest, Sha256};
 
 use super::*;
-use crate::accumulation::{combined_commitment, prelude};
+use crate::accumulation::{combined_commitment, digest_limbs, input_digest, prelude};
+use zeroize::Zeroizing;
 
-fn syntactic_body<C: PastaCurve>() -> [u8; FOLD_BODY_BYTES] {
-    let mut body = [0; FOLD_BODY_BYTES];
-    for chunk in body.chunks_exact_mut(32) {
+/// Public deterministic DATA for algebraic regressions, never producer entropy.
+fn fixture_tape<C: PastaCurve>(start: u64) -> FoldTape<C> {
+    let mut value = start;
+    FoldTape::try_fill::<()>(|coin| {
+        *coin = C::ScalarExt::from(value);
+        value += 1;
+        Ok(())
+    })
+    .expect("public fixture tape")
+}
+fn fixture_purpose<C: PastaCurve>() -> FoldPurpose {
+    if C::CURVE_ID == "pallas" {
+        FoldPurpose::AInitial
+    } else {
+        FoldPurpose::SigmaBatch
+    }
+}
+fn syntactic_bytes<C: PastaCurve>() -> Zeroizing<Vec<u8>> {
+    let mut bytes = Zeroizing::new(vec![0; FOLD_WITNESS_BYTES]);
+    for chunk in bytes[..FOLD_BODY_BYTES].chunks_exact_mut(32) {
         chunk.copy_from_slice(&encode_point::<C>(&C::generator().to_affine()));
     }
-    body[64 * K..64 * K + 32].copy_from_slice(&C::ScalarExt::ONE.to_repr());
-    body
+    bytes[32 * (2 * K + 1)..32 * (2 * K + 2)].copy_from_slice(&C::ScalarExt::ONE.to_repr());
+    bytes[FOLD_BODY_BYTES..].copy_from_slice(&fixture_tape::<C>(7).to_private_bytes());
+    bytes
 }
 
 fn encoding_case<C: PastaCurve>() {
@@ -42,10 +61,9 @@ fn encoding_case<C: PastaCurve>() {
     }
     let mut bad = bytes;
     bad[..32].fill(0);
-    assert!(matches!(
-        AccumulatorT::<C>::from_bytes(&bad),
-        Err(Error::Encoding(_))
-    ));
+    let identity_claim = AccumulatorT::<C>::from_bytes(&bad).expect("canonical full-group G");
+    assert!(bool::from(identity_claim.g().is_identity()));
+    assert_eq!(identity_claim.to_bytes(), bad);
     bad = bytes;
     bad[32..64].fill(0);
     assert_eq!(
@@ -79,33 +97,44 @@ fn encoding_case<C: PastaCurve>() {
     assert!(FoldInput::<C>::from_opening(generator, &[]).is_err());
     assert!(FoldInput::<C>::from_opening(generator, &[C::ScalarExt::ONE; 17]).is_err());
 
-    let body = syntactic_body::<C>();
-    let salt = C::Base::from(7_u64).to_repr();
-    let witness = FoldWitness::<C>::new(salt, &body).expect("canonical messages");
-    assert_eq!(witness.salt_bytes(), salt);
-    assert_eq!(witness.body(), &body);
-    assert_eq!(witness.to_bytes().len(), 1120);
-    assert_eq!(
-        FoldWitness::<C>::from_bytes(&witness.to_bytes()),
-        Ok(witness)
-    );
-    assert!(FoldWitness::<C>::new([255; 32], &body).is_err());
-    assert!(FoldWitness::<C>::new(salt, &body[..1087]).is_err());
-    assert!(FoldWitness::<C>::from_bytes(&[0; 1119]).is_err());
-    for index in 0..2 * K + 2 {
-        let mut malformed = body;
+    let bytes = syntactic_bytes::<C>();
+    let witness = FoldWitness::<C>::from_private_bytes(&bytes).expect("canonical messages");
+    let retained = witness.to_private_bytes();
+    assert_eq!(&*retained, bytes.as_slice());
+    assert_eq!(retained.len(), 2176);
+    let restored = FoldWitness::<C>::from_private_bytes(&retained).expect("restored");
+    assert_eq!(&*restored.to_private_bytes(), &*retained);
+    for length in [0, 1087, 1119, 2175, 2177] {
+        assert!(FoldWitness::<C>::from_private_bytes(&vec![0; length]).is_err());
+    }
+    for index in 0..2 * K + 3 {
+        let mut malformed = syntactic_bytes::<C>();
         malformed[32 * index..32 * (index + 1)].fill(255);
         assert!(
-            FoldWitness::<C>::new(salt, &malformed).is_err(),
+            FoldWitness::<C>::from_private_bytes(&malformed).is_err(),
             "message {index}"
         );
-        if index != 2 * K {
+        if index <= 2 * K {
             malformed[32 * index..32 * (index + 1)].fill(0);
             assert!(
-                FoldWitness::<C>::new(salt, &malformed).is_err(),
-                "identity message {index}"
+                FoldWitness::<C>::from_private_bytes(&malformed).is_err(),
+                "identity finite message {index}"
+            );
+        } else if index == 2 * K + 2 {
+            malformed[32 * index..32 * (index + 1)].fill(0);
+            assert!(
+                FoldWitness::<C>::from_private_bytes(&malformed).is_ok(),
+                "canonical identity generator suffix"
             );
         }
+    }
+    for index in 0..33 {
+        let mut malformed = syntactic_bytes::<C>();
+        malformed[FOLD_BODY_BYTES + 32 * index..FOLD_BODY_BYTES + 32 * (index + 1)].fill(255);
+        assert!(
+            FoldWitness::<C>::from_private_bytes(&malformed).is_err(),
+            "coin {index}"
+        );
     }
 }
 
@@ -128,14 +157,16 @@ where
         shared_budget: shared.clone(),
         cancellation: Some(token.clone()),
     };
-    let salt = C::Base::from(7).to_repr();
-    let witness = FoldWitness::<C>::new(salt, &syntactic_body::<C>()).unwrap();
-    assert_eq!(
-        create_fold(&params, &[], salt, &config),
+    let witness = FoldWitness::<C>::from_private_bytes(&syntactic_bytes::<C>()).unwrap();
+    let inputs =
+        [FoldInput::from_opening(C::generator().to_affine(), &[C::ScalarExt::ONE; K]).unwrap()];
+    let purpose = fixture_purpose::<C>();
+    assert!(matches!(
+        create_fold(&params, &inputs, fixture_tape(7), purpose, &config),
         Err(Error::Cancelled)
-    );
+    ));
     assert_eq!(
-        verify_fold(&params, &[], &witness, &config),
+        verify_fold(&params, &inputs, &witness, purpose, &config),
         Err(Error::Cancelled)
     );
     assert_eq!(
@@ -189,24 +220,33 @@ fn exceptional_identity_case<C: PastaCurve>() {
     assert!(bool::from(corrected.is_identity()));
     let mut normalized = [C::ScalarExt::ZERO; K];
     normalized[K - 1] = C::ScalarExt::ONE;
+    let input = FoldInput::<C>::from_normalized(corrected, 1, normalized)
+        .expect("full-group correction syntax");
+    let full = AccumulatorT::<C>::new(corrected, [C::ScalarExt::ONE; K])
+        .expect("full-group accumulator syntax");
+    assert_eq!(AccumulatorT::from_bytes(&full.to_bytes()), Ok(full));
+    // Syntax is not a decision. The same identity is false for the installed
+    // independently derived two-generator prefix and must still be rejected.
+    let params = PinnedParams::<C>::derive(1).unwrap();
     assert_eq!(
-        FoldInput::<C>::from_normalized(corrected, 1, normalized),
-        Err(Error::Encoding(
-            iroha_plonk::transcript::TranscriptError::IdentityPoint
-        )),
-        "an algebraically deciding identity cannot become a transportable correction"
+        input.decide(&params, MemoryBudget::DEFAULT),
+        Err(Error::Undecidable)
     );
+    let replacement = input
+        .corrected(&params, MemoryBudget::DEFAULT)
+        .expect("distinct actual generator");
+    replacement
+        .replacement()
+        .decide(&params, MemoryBudget::DEFAULT)
+        .unwrap();
     assert_eq!(
-        AccumulatorT::<C>::new(corrected, [C::ScalarExt::ONE; K]),
-        Err(Error::Encoding(
-            iroha_plonk::transcript::TranscriptError::IdentityPoint
-        )),
-        "construction failure is distinct from an undecidable finite claim"
+        replacement.original().challenges(),
+        replacement.replacement().challenges()
     );
 }
 
 #[test]
-fn exceptional_identity_correction_is_an_encoding_error_not_acceptance() {
+fn full_group_identity_correction_still_requires_independent_decision() {
     exceptional_identity_case::<Ep>();
     exceptional_identity_case::<Eq>();
 }
@@ -318,42 +358,105 @@ fn generator_chunks_are_complete_and_budget_independent() {
     generator_chunk_case::<Eq>();
 }
 
-/// Independent, direct base-field sponge framing, without Transcript/Writer.
-fn reference_prelude<C: PastaCurve>(inputs: &[FoldInput<C>], salt: C::Base) -> [C::ScalarExt; 3]
+/// Independent base-field framing; no `input_digest` or `Transcript` calls.
+fn reference_digest<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    inputs: &[FoldInput<C>],
+    tape: &FoldTape<C>,
+    purpose: FoldPurpose,
+) -> C::Base
 where
     C::Base: PoseidonField,
 {
-    let mut sponge = Sponge::<C::Base>::new();
-    sponge.update(&[
-        C::Base::from(u64::from_le_bytes(*b"pipa-as1")),
-        salt,
+    fn scalar<C: PastaCurve>(words: &mut Vec<C::Base>, value: &C::ScalarExt) {
+        let limbs = value.to_canonical_limbs();
+        if C::CURVE_ID == "pallas" {
+            words.push(C::Base::from_u128(
+                u128::from(limbs[0]) | (u128::from(limbs[1]) << 64),
+            ));
+            words.push(C::Base::from_u128(
+                u128::from(limbs[2]) | (u128::from(limbs[3]) << 64),
+            ));
+        } else {
+            words.push(C::Base::from_canonical_limbs(limbs).expect("Fp fits Fq"));
+        }
+    }
+    let parameter_digest = params.digest();
+    let mut words = vec![
+        C::Base::from_u128(u128::from_le_bytes(
+            parameter_digest[..16].try_into().unwrap(),
+        )),
+        C::Base::from_u128(u128::from_le_bytes(
+            parameter_digest[16..].try_into().unwrap(),
+        )),
+        C::Base::from(purpose.word()),
         C::Base::from(inputs.len() as u64),
-    ]);
+    ];
     for input in inputs {
-        sponge.update(&[
+        words.extend([
             input.g().x(),
             input.g().y(),
             C::Base::from(u64::from(input.source_k())),
         ]);
-        for scalar in input.challenges() {
-            let words = scalar.to_canonical_limbs();
-            if C::CURVE_ID == "pallas" {
-                sponge.update(&[
-                    C::Base::from_u128(u128::from(words[0]) | (u128::from(words[1]) << 64)),
-                    C::Base::from_u128(u128::from(words[2]) | (u128::from(words[3]) << 64)),
-                ]);
-            } else {
-                sponge.update(&[C::Base::from_canonical_limbs(words).expect("Fp fits Fq")]);
-            }
+        for value in input.challenges() {
+            scalar::<C>(&mut words, value);
         }
     }
+    for value in tape.masks() {
+        scalar::<C>(&mut words, value);
+    }
+    let mut sponge = Sponge::<C::Base>::new();
+    sponge.update(&[
+        C::Base::from(u64::from_le_bytes(*b"pipa-in1")),
+        C::Base::from(words.len() as u64),
+    ]);
+    sponge.update(&words);
+    sponge.squeeze()
+}
+/// Independent challenge context followed by the first committed point.
+fn reference_prelude<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    count: usize,
+    purpose: FoldPurpose,
+    d: C::AffineExt,
+) -> [C::ScalarExt; 3]
+where
+    C::Base: PoseidonField,
+{
+    let parameter_digest = params.digest();
+    let mut sponge = Sponge::<C::Base>::new();
+    sponge.update(&[
+        C::Base::from(u64::from_le_bytes(*b"pipa-as1")),
+        C::Base::from_u128(u128::from_le_bytes(
+            parameter_digest[..16].try_into().unwrap(),
+        )),
+        C::Base::from_u128(u128::from_le_bytes(
+            parameter_digest[16..].try_into().unwrap(),
+        )),
+        C::Base::from(purpose.word()),
+        C::Base::from(count as u64),
+        d.x(),
+        d.y(),
+    ]);
     core::array::from_fn(|_| C::ScalarExt::from_raw_reduced(sponge.squeeze().to_canonical_limbs()))
+}
+fn fixture_opening<C: PastaCurve>(
+    params: &PinnedParams<C>,
+    digest: C::Base,
+    tape: &FoldTape<C>,
+) -> C::AffineExt {
+    let [low, high] = digest_limbs::<C>(digest);
+    (params.params().g()[0].to_curve() * low
+        + params.params().g()[1].to_curve() * high
+        + params.params().w().to_curve() * *tape.rho())
+    .to_affine()
 }
 
 fn transcript_case<C: PastaCurve>()
 where
     C::Base: PoseidonField,
 {
+    let params = PinnedParams::<C>::derive(4).expect("small pinned params");
     let generator = C::generator().to_affine();
     let full = AccumulatorT::<C>::new(
         generator,
@@ -367,10 +470,32 @@ where
     )
     .expect("short");
     let inputs = [short, full];
-    let salt = C::Base::from(42_u64);
+    let purpose = fixture_purpose::<C>();
+    let tape = fixture_tape::<C>(42);
+    let h = input_digest(&params, &inputs, &tape, purpose);
+    let identity_input = AccumulatorT::<C>::new(C::identity().to_affine(), [C::ScalarExt::ONE; K])
+        .unwrap()
+        .as_input();
+    let identity_hash = input_digest(&params, &[identity_input], &tape, purpose);
+    assert_ne!(
+        identity_hash, h,
+        "identity G has a defined canonical hash frame"
+    );
+    assert_eq!(h, reference_digest(&params, &inputs, &tape, purpose));
+    let d = fixture_opening(&params, h, &tape);
     let mut transcript = TranscriptWriter::<C, _>::new(BasePoseidonHash::with_domain(*b"pipa-as1"));
-    let actual = prelude(&mut transcript, &inputs, &salt).expect("prelude");
-    assert_eq!(actual, reference_prelude::<C>(&inputs, salt));
+    prelude(&mut transcript, &params, &inputs, purpose).expect("prelude");
+    transcript.write_point(&d).unwrap();
+    let actual: [C::ScalarExt; 3] = core::array::from_fn(|_| transcript.squeeze_challenge());
+    assert_eq!(
+        actual,
+        reference_prelude::<C>(&params, inputs.len(), purpose, d)
+    );
+    assert_eq!(
+        transcript.finish(),
+        encode_point::<C>(&d),
+        "D is first and only proof message before alpha/z/zeta"
+    );
     let digest: [u8; 32] = Sha256::digest(
         actual
             .iter()
@@ -379,23 +504,50 @@ where
     )
     .into();
     let expected = match C::CURVE_ID {
-        "pallas" => "e55b8d7af07c5f4460cdf4aaadbe7e20da293398ec29d0f509f86131ccf398d6",
-        "vesta" => "4a2cf8c915586737505a1d97b8dee219b640077411d287c52b0f16bd09c44a3b",
+        "pallas" => "50b9499cbbbbde6c024e4a0ccfe4411c9e6481d1b1e35c126c3636996af9601a",
+        "vesta" => "2d3a0dfc3a3f7b376931fae7c76def42a3f5543375b2470c3359a99fe418f44f",
         _ => unreachable!("sealed Pasta curve"),
     };
-    assert_eq!(hex(&digest), expected, "PIPA-AS prelude KAT");
-    assert_ne!(actual, reference_prelude::<C>(&[inputs[1].clone()], salt));
+    assert_eq!(hex(&digest), expected, "PIPA-AS committed prelude KAT");
+    assert_ne!(
+        h,
+        reference_digest(&params, &[inputs[1].clone()], &tape, purpose)
+    );
+    assert_ne!(
+        h,
+        reference_digest(
+            &params,
+            &[inputs[1].clone(), inputs[0].clone()],
+            &tape,
+            purpose
+        )
+    );
+    assert_ne!(
+        h,
+        reference_digest(&params, &inputs, &fixture_tape(43), purpose)
+    );
+    assert_ne!(actual, reference_prelude::<C>(&params, 1, purpose, d));
     assert_ne!(
         actual,
-        reference_prelude::<C>(&[inputs[1].clone(), inputs[0].clone()], salt)
+        reference_prelude::<C>(&params, inputs.len(), purpose, -d)
     );
-    assert_ne!(actual, reference_prelude::<C>(&inputs, salt + C::Base::ONE));
+    let alternate = if C::CURVE_ID == "pallas" {
+        FoldPurpose::AContinuation
+    } else {
+        FoldPurpose::WrapperVesta
+    };
+    assert_ne!(h, reference_digest(&params, &inputs, &tape, alternate));
+    assert_ne!(
+        actual,
+        reference_prelude::<C>(&params, inputs.len(), alternate, d)
+    );
+    let mut transcript = TranscriptWriter::<C, _>::new(BasePoseidonHash::with_domain(*b"pipa-as1"));
     assert_eq!(
-        prelude(&mut transcript, &[], &salt),
+        prelude(&mut transcript, &params, &[], purpose),
         Err(Error::EmptyInputs)
     );
     assert_eq!(
-        prelude(&mut transcript, &inputs[..1], &salt),
+        prelude(&mut transcript, &params, &inputs[..1], purpose),
         Err(Error::MissingFullLengthInput)
     );
     // Complete Horner must support cancellation, repeated bases and alpha=0.
@@ -453,31 +605,39 @@ where
     )
     .to_affine();
     let short = FoldInput::<C>::from_opening(source_g, &source_challenges).expect("short input");
-    let salt = C::Base::from(123_u64).to_repr();
-    assert_eq!(
-        create_fold(&params, std::slice::from_ref(&short), salt, &config),
+    let purpose = fixture_purpose::<C>();
+    assert!(matches!(
+        create_fold(
+            &params,
+            std::slice::from_ref(&short),
+            fixture_tape(123),
+            purpose,
+            &config
+        ),
         Err(Error::MissingFullLengthInput)
-    );
+    ));
     let inputs = [short, trivial.as_input()];
-    let (proof, output) = create_fold(&params, &inputs, salt, &config)
+    let (proof, output) = create_fold(&params, &inputs, fixture_tape(123), purpose, &config)
         .expect("explicit trivial fixes short-only liveness");
     let one_worker = rayon::ThreadPoolBuilder::new()
         .num_threads(1)
         .build()
         .expect("pool");
     let serial = one_worker
-        .install(|| create_fold(&params, &inputs, salt, &config))
+        .install(|| create_fold(&params, &inputs, fixture_tape(123), purpose, &config))
         .expect("serial fold");
+    let original = proof.to_private_bytes();
     assert_eq!(
-        serial,
-        (proof.clone(), output.clone()),
+        &*serial.0.to_private_bytes(),
+        &*original,
         "pool-independent proof bytes"
     );
+    assert_eq!(serial.1, output, "pool-independent accumulator");
     output
         .decide(&params, config.kernel_budget)
         .expect("honest fold decides");
     assert_eq!(
-        verify_fold(&params, &inputs, &proof, &config),
+        verify_fold(&params, &inputs, &proof, purpose, &config),
         Ok(output.clone())
     );
     let no_scratch = FoldConfig {
@@ -486,31 +646,31 @@ where
         cancellation: None,
     };
     assert_eq!(
-        verify_fold(&params, &inputs, &proof, &no_scratch),
+        verify_fold(&params, &inputs, &proof, purpose, &no_scratch),
         Ok(output.clone())
     );
     let (trivial_bytes, proof_digest, output_digest) = match C::CURVE_ID {
         "pallas" => (
             PALLAS_TRIVIAL_GENERATOR,
-            "dab4df41fa90c325fbd9fd37737e3e344c8bb27f2c4434dd0c2e52870e5f3502",
-            "38e31a279acd53a4734c854135a85ea2eebe439225b927bd9e9d9d2ee6ecde32",
+            "d9dd041e643773b95eacfd656aaff0b1038867a2d7957871d039417393c050e8",
+            "8163b08a40c93450b8b52095aaccafc5614a0fddb9e904c676b422bcd4fe70b6",
         ),
         "vesta" => (
             VESTA_TRIVIAL_GENERATOR,
-            "d16fc416b1564876768e2967737e0e205a047494331a4115fa941079a506dde2",
-            "0c82ba5f627e8f75a3e284caf36464b5c92919fa10a5fa351ef7c540f9b33927",
+            "b504228ccc2f630eb4863b01888f1e399808715b21740d9226fb33d9f4c684ce",
+            "3e0e2ac6de70b2c5cde576fee8d242ff2f52cfee81b36dc0dcc0eecc3a7781e0",
         ),
         _ => unreachable!("sealed Pasta curve"),
     };
     assert_eq!(encode_point::<C>(trivial.g()), trivial_bytes);
-    assert_eq!(hex(&Sha256::digest(proof.to_bytes())), proof_digest);
+    assert_eq!(hex(&Sha256::digest(&*original)), proof_digest);
     assert_eq!(hex(&Sha256::digest(output.to_bytes())), output_digest);
     assert_eq!(
-        verify_fold(&params, &inputs[..1], &proof, &config),
+        verify_fold(&params, &inputs[..1], &proof, purpose, &config),
         Err(Error::MissingFullLengthInput)
     );
     assert_eq!(
-        verify_fold(&params, &inputs[1..], &proof, &config),
+        verify_fold(&params, &inputs[1..], &proof, purpose, &config),
         Err(Error::FoldEquation)
     );
     assert_eq!(
@@ -518,54 +678,87 @@ where
             &params,
             &[inputs[1].clone(), inputs[0].clone()],
             &proof,
+            purpose,
             &config
         ),
         Err(Error::FoldEquation)
     );
-    let changed_salt = FoldWitness::<C>::new(C::Base::from(124_u64).to_repr(), proof.body())
-        .expect("changed salt");
-    assert_eq!(
-        verify_fold(&params, &inputs, &changed_salt, &config),
-        Err(Error::FoldEquation)
-    );
-    for index in [0, 1, 15, 31, 33] {
-        let mut body = *proof.body();
-        let point = iroha_plonk::transcript::decode_point::<C>(
-            &body[index * 32..(index + 1) * 32]
-                .try_into()
-                .expect("point"),
+    for coin in 0..33 {
+        let changed = proof.to_private_bytes();
+        // This explicit writer keeps mutation output under its clearing owner.
+        let offset = FOLD_BODY_BYTES + coin * 32;
+        let value = iroha_plonk::transcript::decode_scalar::<C::ScalarExt>(
+            &changed[offset..offset + 32].try_into().unwrap(),
         )
-        .expect("point");
-        body[index * 32..(index + 1) * 32].copy_from_slice(&encode_point::<C>(&(-point)));
-        let tampered = FoldWitness::<C>::new(salt, &body).expect("canonical tamper");
+        .unwrap();
+        let mutation = (value + C::ScalarExt::ONE).to_repr();
+        let owned =
+            crate::PrivateWitnessBytes::try_write::<std::io::Error>(FOLD_WITNESS_BYTES, |writer| {
+                writer.write_all(&changed[..offset])?;
+                writer.write_all(&mutation)?;
+                writer.write_all(&changed[offset + 32..])
+            })
+            .unwrap();
+        let tampered = FoldWitness::<C>::from_private_bytes(&owned).unwrap();
         assert_eq!(
-            verify_fold(&params, &inputs, &tampered, &config),
+            verify_fold(&params, &inputs, &tampered, purpose, &config),
+            Err(Error::FoldEquation),
+            "coin {coin}"
+        );
+        // Preserve the retained source, even after a failed replay.
+        assert_eq!(&*changed, &*original);
+    }
+    for index in [0, 1, 2, 16, 32, 34] {
+        let mut bytes = Zeroizing::new(original.to_vec());
+        let point = iroha_plonk::transcript::decode_point::<C>(
+            &bytes[index * 32..(index + 1) * 32].try_into().unwrap(),
+        )
+        .unwrap();
+        bytes[index * 32..(index + 1) * 32].copy_from_slice(&encode_point::<C>(&(-point)));
+        let tampered = FoldWitness::<C>::from_private_bytes(&bytes).expect("canonical tamper");
+        assert_eq!(
+            verify_fold(&params, &inputs, &tampered, purpose, &config),
             Err(Error::FoldEquation),
             "point {index}"
         );
     }
-    let mut body = *proof.body();
+    let mut bytes = Zeroizing::new(original.to_vec());
+    let offset = 32 * (2 * K + 1);
     let value = iroha_plonk::transcript::decode_scalar::<C::ScalarExt>(
-        &body[1024..1056].try_into().expect("scalar"),
+        &bytes[offset..offset + 32].try_into().unwrap(),
     )
-    .expect("scalar");
-    body[1024..1056].copy_from_slice(&(value + C::ScalarExt::ONE).to_repr());
+    .unwrap();
+    bytes[offset..offset + 32].copy_from_slice(&(value + C::ScalarExt::ONE).to_repr());
     assert_eq!(
         verify_fold(
             &params,
             &inputs,
-            &FoldWitness::new(salt, &body).expect("scalar mutation"),
+            &FoldWitness::from_private_bytes(&bytes).unwrap(),
+            purpose,
             &config
         ),
         Err(Error::FoldEquation)
     );
-    let forged = forged_suffix(&params, &inputs, salt);
+    let forged = forged_suffix(&params, &inputs, purpose);
     let pending =
-        verify_fold(&params, &inputs, &forged, &config).expect("solved succinct equation");
+        verify_fold(&params, &inputs, &forged, purpose, &config).expect("solved succinct equation");
     assert_eq!(
         pending.decide(&params, config.kernel_budget),
         Err(Error::Undecidable)
     );
+    let correction = pending
+        .as_input()
+        .corrected(&params, config.kernel_budget)
+        .expect("distinct correction");
+    assert_ne!(correction.original().g(), correction.replacement().g());
+    assert_eq!(
+        correction.original().challenges(),
+        correction.replacement().challenges()
+    );
+    correction
+        .replacement()
+        .decide(&params, config.kernel_budget)
+        .expect("corrected claim decides");
     // A false claim cannot be laundered by the honest fold prover.
     let mut false_inputs = inputs.clone();
     false_inputs[0] = FoldInput::from_opening(
@@ -574,13 +767,14 @@ where
     )
     .expect("false claim");
     assert_eq!(
-        verify_fold(&params, &false_inputs, &proof, &config),
+        verify_fold(&params, &false_inputs, &proof, purpose, &config),
         Err(Error::FoldEquation)
     );
-    assert_eq!(
-        create_fold(&params, &false_inputs, salt, &config),
+    assert!(matches!(
+        create_fold(&params, &false_inputs, fixture_tape(123), purpose, &config),
         Err(Error::FoldEquation)
-    );
+    ));
+    assert_eq!(&*proof.to_private_bytes(), &*original);
     let corrected = false_inputs[0]
         .corrected(&params, config.kernel_budget)
         .expect("corrected slot");
@@ -592,36 +786,51 @@ where
 fn forged_suffix<C: PastaCurve>(
     params: &PinnedParams<C>,
     inputs: &[FoldInput<C>],
-    salt: [u8; 32],
+    purpose: FoldPurpose,
 ) -> FoldWitness<C>
 where
     C::Base: PoseidonField,
 {
-    let salt_value = C::Base::from_repr(salt).unwrap();
+    let tape = fixture_tape::<C>(181);
+    let digest = input_digest(params, inputs, &tape, purpose);
+    let d = fixture_opening(params, digest, &tape);
     let mut transcript = TranscriptWriter::<C, _>::new(BasePoseidonHash::with_domain(*b"pipa-as1"));
-    let [alpha, z, zeta] = prelude(&mut transcript, inputs, &salt_value).expect("prelude");
+    prelude(&mut transcript, params, inputs, purpose).expect("prelude");
+    transcript.write_point(&d).unwrap();
+    let [alpha, z, zeta] = core::array::from_fn(|_| transcript.squeeze_challenge());
     let value = inputs.iter().rev().fold(C::ScalarExt::ZERO, |v, input| {
         v * alpha + fold_evaluation(z, input.challenges())
     });
     let mut equation =
         combined_commitment(inputs, alpha) - params.params().g()[0].to_curve() * value;
     let mut challenges = [C::ScalarExt::ZERO; K];
-    for challenge in &mut challenges {
-        let left = C::generator().to_affine();
-        let right = (C::generator() * C::ScalarExt::from(2_u64)).to_affine();
+    let mut gamma = C::ScalarExt::ZERO;
+    for (round, challenge) in challenges.iter_mut().enumerate() {
+        let left =
+            (C::generator() + params.params().w().to_curve() * tape.masks()[2 * round]).to_affine();
+        let right = (C::generator() * C::ScalarExt::from(2_u64)
+            + params.params().w().to_curve() * tape.masks()[2 * round + 1])
+            .to_affine();
         transcript.write_point(&left).expect("left");
         transcript.write_point(&right).expect("right");
-        *challenge = transcript.squeeze_challenge();
+        *challenge =
+            iroha_plonk::transcript::pipa_r::nonzero_challenge(transcript.squeeze_challenge());
+        gamma += tape.masks()[2 * round] * challenge.invert().unwrap()
+            + tape.masks()[2 * round + 1] * *challenge;
         equation = equation
             + left.to_curve() * challenge.invert().unwrap()
             + right.to_curve() * *challenge;
     }
     transcript.write_scalar(&C::ScalarExt::ONE);
+    equation -= params.params().w().to_curve() * gamma;
     equation -= params.params().u().to_curve() * (fold_evaluation(z, &challenges) * zeta);
-    transcript
-        .append_unabsorbed_point(&equation.to_affine())
-        .expect("solved suffix");
-    FoldWitness::new(salt, &transcript.finish()).expect("canonical forgery")
+    transcript.append_unabsorbed_generator(&equation.to_affine());
+    let body = Zeroizing::new(transcript.finish());
+    let coins = tape.to_private_bytes();
+    let mut bytes = Zeroizing::new(vec![0; FOLD_WITNESS_BYTES]);
+    bytes[..FOLD_BODY_BYTES].copy_from_slice(&body);
+    bytes[FOLD_BODY_BYTES..].copy_from_slice(&coins);
+    FoldWitness::from_private_bytes(&bytes).expect("canonical forgery")
 }
 
 #[test]

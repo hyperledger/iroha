@@ -218,7 +218,11 @@ impl NativeIntentV1 {
             value: Intent::Archive(ArchiveIntentV1 {
                 request_id: Self::archive_identity(
                     &capsule,
-                    &payment.request.body.payer_wallet_id,
+                    &payment
+                        .signed_request()
+                        .expect("fixture Request")
+                        .body
+                        .payer_wallet_id,
                     &credited,
                 ),
                 send_capsule: capsule,
@@ -230,5 +234,160 @@ impl NativeIntentV1 {
                 credited,
             }),
         }
+    }
+}
+
+// Own decoded originals through their last use, including failed intake/recovery.
+// This clears these allocations, not caller aliases or lower-level codec scratch.
+impl Drop for NativeIntentV1 {
+    fn drop(&mut self) {
+        self.clear_originals();
+    }
+}
+impl NativeIntentV1 {
+    fn clear_originals(&mut self) {
+        use zeroize::Zeroize;
+        match &mut self.value {
+            Intent::User(request) => {
+                request.request_id.zeroize();
+                match &mut request.action {
+                    OperationActionV1::Load { receipt, finality } => {
+                        receipt.zeroize();
+                        finality.zeroize();
+                    }
+                    OperationActionV1::Send { request } => request.zeroize(),
+                    OperationActionV1::Receive {
+                        payment,
+                        payer_credential,
+                        certificates,
+                    } => {
+                        payment.zeroize();
+                        payer_credential.zeroize();
+                        certificates.zeroize();
+                    }
+                    OperationActionV1::Refresh {
+                        update,
+                        certificates,
+                        ..
+                    } => {
+                        update.zeroize();
+                        certificates.zeroize();
+                    }
+                    OperationActionV1::Unload { amount, charge } => {
+                        amount.zeroize();
+                        if let Some(charge) = charge {
+                            charge.quote.zeroize();
+                            charge.certificates.zeroize();
+                        }
+                    }
+                    OperationActionV1::Retire => {}
+                }
+            }
+            Intent::Archive(request) => {
+                request.request_id.zeroize();
+                request.send_capsule.zeroize();
+                request.send_commitment.zeroize();
+                request.request.zeroize();
+                request.payment.zeroize();
+                request.credential.zeroize();
+                request.certificates.zeroize();
+                request.credited.zeroize();
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod clearing_tests {
+    use super::*;
+
+    #[test]
+    fn all_owned_intake_original_roles_clear_before_release() {
+        let actions = [
+            OperationActionV1::Load {
+                receipt: vec![1],
+                finality: vec![2],
+            },
+            OperationActionV1::Send { request: vec![3] },
+            OperationActionV1::Receive {
+                payment: vec![4],
+                payer_credential: vec![5],
+                certificates: vec![6],
+            },
+            OperationActionV1::Refresh {
+                kind: KagemushaWalletPolicyUpdateKindV1::Credential,
+                update: vec![7],
+                certificates: vec![8],
+            },
+            OperationActionV1::Unload {
+                amount: 9,
+                charge: Some(ChargeOriginalsV1 {
+                    quote: vec![10],
+                    certificates: vec![11],
+                }),
+            },
+            OperationActionV1::Retire,
+        ];
+        for action in actions {
+            let mut intent = NativeIntentV1::user(OperationRequestV1 {
+                request_id: [99; 32],
+                action,
+            });
+            intent.clear_originals();
+            let request = intent.user_request().unwrap();
+            assert_eq!(request.request_id, [0; 32]);
+            match &request.action {
+                OperationActionV1::Load { receipt, finality } => {
+                    assert!(receipt.is_empty() && finality.is_empty())
+                }
+                OperationActionV1::Send { request } => assert!(request.is_empty()),
+                OperationActionV1::Receive {
+                    payment,
+                    payer_credential,
+                    certificates,
+                } => assert!(
+                    payment.is_empty() && payer_credential.is_empty() && certificates.is_empty()
+                ),
+                OperationActionV1::Refresh {
+                    update,
+                    certificates,
+                    ..
+                } => assert!(update.is_empty() && certificates.is_empty()),
+                OperationActionV1::Unload { amount, charge } => {
+                    assert_eq!(*amount, 0);
+                    let charge = charge.as_ref().unwrap();
+                    assert!(charge.quote.is_empty() && charge.certificates.is_empty());
+                }
+                OperationActionV1::Retire => {}
+            }
+        }
+        let mut intent = NativeIntentV1 {
+            value: Intent::Archive(ArchiveIntentV1 {
+                request_id: [1; 32],
+                send_capsule: [2; 32],
+                send_commitment: [3; 32],
+                request: vec![4],
+                payment: vec![5],
+                credential: vec![6],
+                certificates: vec![7],
+                credited: vec![8],
+            }),
+        };
+        intent.clear_originals();
+        let request = intent.archive_request().unwrap();
+        assert_eq!(request.request_id, [0; 32]);
+        assert_eq!(request.send_capsule, [0; 32]);
+        assert_eq!(request.send_commitment, [0; 32]);
+        assert!(
+            [
+                &request.request,
+                &request.payment,
+                &request.credential,
+                &request.certificates,
+                &request.credited
+            ]
+            .iter()
+            .all(|bytes| bytes.is_empty())
+        );
     }
 }

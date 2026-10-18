@@ -379,8 +379,8 @@ fn kagemusha_wallet_v1_identity_transcript_lengths_are_pinned() {
         (KAGEMUSHA_WALLET_ENROLLMENT_KEY_TRANSCRIPT_BYTES_V1, 97),
         (KAGEMUSHA_WALLET_ID_TRANSCRIPT_BYTES_V1, 161),
         (KAGEMUSHA_WALLET_EVIDENCE_TRANSCRIPT_BYTES_V1, 56),
-        (KAGEMUSHA_WALLET_REGULATORY_POLICY_TRANSCRIPT_BYTES_V1, 20),
-        (KAGEMUSHA_WALLET_CREDENTIAL_BODY_TRANSCRIPT_BYTES_V1, 476),
+        (KAGEMUSHA_WALLET_REGULATORY_POLICY_TRANSCRIPT_BYTES_V1, 12),
+        (KAGEMUSHA_WALLET_CREDENTIAL_BODY_TRANSCRIPT_BYTES_V1, 468),
         (KAGEMUSHA_WALLET_RENEWAL_CHALLENGE_TRANSCRIPT_BYTES_V1, 130),
         (
             KAGEMUSHA_WALLET_RENEWAL_KEY_BINDING_TRANSCRIPT_BYTES_V1,
@@ -1063,42 +1063,46 @@ fn kagemusha_wallet_v1_evidence_fact_rules() {
 
 #[test]
 fn kagemusha_wallet_v1_regulatory_policy_rules() {
-    let policy = |permitted_controls, blacklist_max_age_ms, time_anchor_max_response_ms| {
-        KagemushaWalletRegulatoryPolicyV1 {
+    let policy =
+        |permitted_controls, time_anchor_max_response_ms| KagemushaWalletRegulatoryPolicyV1 {
             permitted_controls,
-            blacklist_max_age_ms,
             time_anchor_max_response_ms,
-        }
-    };
+        };
     let disabled = KagemushaWalletRegulatoryPolicyV1::default();
     assert!(disabled.validate().is_ok());
     assert!(!disabled.permits(0));
     assert!(!disabled.requires_time_anchor());
-    let blacklist = KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1;
     let quotas = KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1;
     let lease = KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1;
-    assert_eq!(KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1, 0b111);
+    assert_eq!(quotas, 1 << 0);
+    assert_eq!(lease, 1 << 1);
+    assert_eq!(KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1, 0b11);
     for (value, valid) in [
-        (policy(blacklist, 0, 0), true),
-        (policy(blacklist, 60_000, 0), false),
-        (policy(blacklist, 60_000, 5_000), true),
-        (policy(blacklist, 0, 5_000), false),
-        (policy(0, 60_000, 5_000), false),
-        (policy(quotas, 0, 0), false),
-        (policy(quotas, 0, 5_000), true),
-        (policy(lease, 0, 5_000), true),
-        (policy(lease, 0, 0), false),
-        (policy(blacklist | quotas | lease, 86_400_000, 5_000), true),
-        (policy(1 << 3, 0, 0), false),
+        (policy(0, 5_000), false),
+        (policy(quotas, 0), false),
+        (policy(quotas, 5_000), true),
+        (policy(lease, 5_000), true),
+        (policy(lease, 0), false),
+        (policy(quotas | lease, 5_000), true),
+        (policy(quotas | lease, 0), false),
+        (policy(1 << 2, 0), false),
+        (policy(1 << 3, 0), false),
     ] {
         assert_eq!(value.validate().is_ok(), valid, "{value:?}");
     }
-    let all = policy(blacklist | quotas | lease, 1, 2);
-    assert!(all.permits(blacklist | lease));
-    assert!(!policy(blacklist, 0, 0).permits(blacklist | quotas));
-    let mut expected = (blacklist | quotas | lease).to_le_bytes().to_vec();
-    expected.extend_from_slice(&1_u64.to_le_bytes());
+    // Only the quota and lease controls are time dependent.
+    assert!(policy(quotas, 0).requires_time_anchor());
+    assert!(policy(lease, 0).requires_time_anchor());
+    let all = policy(quotas | lease, 2);
+    assert!(all.permits(quotas | lease));
+    assert!(all.permits(lease));
+    assert!(!policy(quotas, 5_000).permits(quotas | lease));
+    let mut expected = (quotas | lease).to_le_bytes().to_vec();
     expected.extend_from_slice(&2_u64.to_le_bytes());
+    assert_eq!(
+        expected.len(),
+        KAGEMUSHA_WALLET_REGULATORY_POLICY_TRANSCRIPT_BYTES_V1
+    );
     assert_eq!(all.transcript(), expected);
 }
 
@@ -1387,7 +1391,10 @@ fn kagemusha_wallet_v1_credential_replacement_rules() {
         |b| b.renewal_sequence = 2,
         |b| b.account_digest = [0x61; 32],
         |b| b.app_policy = [0x62; 32],
-        |b| b.regulatory_policy.permitted_controls = KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1,
+        |b| {
+            b.regulatory_policy.permitted_controls = KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1;
+            b.regulatory_policy.time_anchor_max_response_ms = 5_000;
+        },
     ];
     for mutate in cases {
         let mut changed = replacement.body;

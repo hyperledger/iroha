@@ -34,8 +34,9 @@ commitment. Sending a second copy of those deterministic tables is unnecessary.
   the same immutable pinned-parameter owner. This private runtime memo retains
   at most 8,192 column digests and computed points, is shared only by owner
   clones, and accepts no original VK point or declared source fingerprint as a
-  cache entry. Every source and original commitment is still checked; no global
-  or persisted cache and no lazily deferred operation-graph admission is added.
+  cache entry. Every source and original commitment is still checked; no
+  persisted cache, no global cache other than the one-entry admitted-graph memo
+  below, and no lazily deferred operation-graph admission is added.
   The measured generation-2 originals contain 981 unique Pallas k16 columns and
   284/97/5,666 unique Vesta k12/k14/k16 columns. The bound accommodates this
   working set; a 4,096-entry limit would evict Vesta k16 entries before all
@@ -63,6 +64,12 @@ commitment. Sending a second copy of those deterministic tables is unnecessary.
   typed profile, current limits and rereads all descriptor/VK/PK originals.
   Each program still derives its current recipe and retains its distinct identity.
   Every QSigma source is admitted independently; signature reuse never admits it.
+- σ proving keys rebuild from their private admission seal, as Q/A/W/Ω do.
+  Qualification keeps each σ seal beside its descriptor/VK metadata, keyed by its
+  signed member. Every use binds the seal before any I/O, applies the current row
+  and byte limits, rereads all descriptor/VK/PK originals and rebuilds from the
+  compiled source its selector names; the source must match the seal. A failed
+  rebuild fails closed, with no strict re-import fallback.
 - Built-in batch reuse additionally authenticates each current compiled role
   against its bounded descriptor/VK/compact-PK originals and compares the exact
   binding, verifier and opaque source seal to the cached typed owner. Public
@@ -92,6 +99,29 @@ commitment. Sending a second copy of those deterministic tables is unnecessary.
   ancestry are revalidated before an owner can return, including error exits.
   The same observed-file map remains with live runtime imports. No expanded
   tables or snapshot bytes persist on disk or survive admission in the wallet.
+- The Native bridge keeps one process-local admitted-graph memo: the installed
+  verifier pack, qualified wallet sources and carrier reader (with its observed
+  custody map) of the last complete successful installation. Its key is SHA-256
+  over the eight exact runtime originals, each length-framed, plus the kernel
+  identity of the carrier root; the whole framed key is compared on lookup.
+  Every attempt first authenticates its signed base, selection and genesis and
+  checks every carrier metadata, layout and transport-selection original. A hit
+  then requires the stored pack's exact bytes and installation identity (an exact
+  equivalent of loading it again), repeats the other installed-pack checks of a
+  fresh load, re-authenticates the producer inventory, requires the same
+  transport rows and root object, closes custody over every observed original
+  and re-hashes every stored frame against its transport identity; only then are
+  a fresh provider, custody root and owner built. The decoded identity is not
+  derived again: that reader decoded and checked the same frames, and every live
+  read checks both identities. The memo holds no provider, platform, custody,
+  key or enrollment state; the qualified sources it keeps carry their verify-once
+  memos, which a later installation in the same process may reuse for
+  mathematical validity only. It mints no seal, grants nothing and is never
+  serialized, persisted or exposed over C or JNI. It is stored only after a
+  complete successful installation, is never reused once a live read through
+  its reader has failed, and is evicted on a key mismatch, a refused
+  revalidation or an INVALID or CUSTODY_LOST result. It shortens in-process
+  retries; a restart qualifies again.
 - Retail delivery packages the complete authenticated carrier with the app:
   all 1,029 compact originals and the four metadata files. Apps stage these exact
   local originals into private custody and use the unchanged strict native
@@ -122,41 +152,219 @@ commitment. Sending a second copy of those deterministic tables is unnecessary.
    host measurements from phone results. Measure cold wallet opening separately
    from enrollment: source qualification is process-local and repeats after a
    process restart. Preserve complete source admission unless an equally strong
-   alternative is established. Validate real operation composition with all
-   required material local, including Send/Receive and onward spending, and
-   verify that missing or changed material fails closed.
+   alternative is established; the admitted-graph memo above is that alternative
+   for byte-identical reinstallation within one process only. Validate real
+   operation composition with all required material local, including
+   Send/Receive and onward spending, and verify that missing or changed material
+   fails closed.
 5. **Delivery:** rebuild the canonical native/SDK and BPNG consumers, publish
    the compact generation through `png2-deploy` on the approved OVH host, and
    verify the deployed sizes and signed runtime selection. Report separately
    any physical-device checks that cannot be performed here.
 
-## Current state (2026-10-13 JST)
+## Current state (2026-10-15 Asia/Taipei)
 
-The signed generation-3 carrier meets the download budget: **5,017,489 bytes
-(4.785 MiB)** including all metadata. Its 1,029 originals occupy 3,885,985
+The signed generation-4 carrier meets the download budget: **5,017,539 bytes
+(4.785 MiB)** including all metadata. Its 1,029 originals occupy 3,886,035
 compressed bytes and decode to 117,796,512 bytes in total; decoding is streamed,
 not retained as a second disk copy. The four metadata files add 1,131,504 bytes.
-The preceding complete dense carrier was 18,689,631,983 bytes. The coordinated
-release task reports the generation-3 server cutover and signed runtime
-selection complete on the approved OVH host. Android 38 now contains the e6/v2 native libraries; iOS build 20261013030704
-contains the 8bf/v3 device library, including the Apple ancestor-search repair.
-Both retain their actual source/profile identities. Their app acceptance and
-performance scopes remain distinct from the isolated phone diagnostics below.
-An independent public HTTPS check retrieved all 1,029 encoded originals with
-their exact stored extents and hashes. Ten initial connection timeouts passed
-one targeted retry; this verifies the served bytes, not uninterrupted
-availability or phone download latency. The retained result is
-`../bpng/png2-deploy/output/compact-wallet-20261012/public-originals-check-20261013-v1/retry-timeouts-1/result.json`.
+The preceding complete dense carrier was 18,689,631,983 bytes. The compact
+carrier is about 3,725 times smaller. Neither that count nor the streamed
+decoded total is an estimate of the whole app's installed storage.
+
+Both independent complete strict exports pass for canonical native source
+`021e4f7fb78b3f3e74a31ef989241cec8aa068b039113261a1d7e1b075182047`
+at HEAD `9393152d0a3c51f2511d931d8c3f2f0fc3680792`. Each contains 908
+members and 2,725 original bindings; every member matches the preceding
+qualified profile except source identity and equivalent numeric formatting.
+Matching generated DATA has SHA-256
+`2e0876c7fb0693c1608cee3064956dd82abca6f717d55eec237319ab7dc29df5`.
+The ABI 29 Android three-ABI and host libraries and both Apple iOS 18 slices
+are rebuilt and accepted against that pair. The selected native handoffs are
+`android-sdk-current-source-20261015-v10`,
+`android-host-current-source-20261015-v5` and
+`apple-sdk-current-source-20261015-v5` under
+`../bpng/png2-deploy/output/compact-wallet-20261012/`.
+
+These captured binaries pass 93 focused tests: three complete-graph/wrapper/H4
+regressions, 43 private-store controls plus one verification-count baseline,
+and 46 Kotlin host-native SDK tests. With network access denied, the genuine
+production carrier passes native admission in 6.513 seconds and reaches the
+first unavailable custody-root callback; a changed signature is rejected before
+any platform callback. This establishes host admission, not phone opening time,
+hardware enrollment or a successful production payment.
+
+The cached-ancestry change is committed in `c246436080`. It selects the exact
+cached directory and revalidates its complete native ancestor chain once,
+preserving leaf checks and every mutation boundary. All 43 current-source store
+tests pass, including replacement, symlink, mode and Apple ACL controls.
+Earlier alternating host binaries measured median read-time reductions of 23%,
+34% and 47% at directory depths 1, 3 and 8; these remain historical host timings.
+There are no further performance edits pending from this catalogue owner;
+subsequent efficiency work has a separate coordinated owner.
+
+The current-source engineering lifecycle rerun is still incomplete. The first
+attempt passed complete source admission, fresh native Bootstrap/activation
+export, actual local Core registration/Activate/Load, and finality export.
+An application/session interruption stopped its transfer stage without a
+terminal result. Its custody and logs remain unchanged as `native-journey-v2`;
+unknown monetary state is not counted as success or retried in place. A fresh
+isolated `native-journey-v3` passed the first four stages using the same verified
+binaries, public engineering inputs and network denial, separate wallet storage
+and a detached runner. The owner then prioritized the coordinated efficiency
+changes and requested that this run stop. Its existing guard is armed to stop
+after the active exchange stage, retaining the child result and all custody;
+the prepared continuation is cancelled. No complete seven-stage result is
+claimed. These results concern captured source `021e4f7f`, simulated hardware
+and an engineering issuer; they do not qualify later Train A/Train B changes
+or physical-phone and live Taira acceptance.
+
+The earlier strict/native/test records are indexed by
+`output/current-source-wallet-20261014/current-source-validation-v37-selection.json`.
+The production and engineering exports are `production-strict-v6/` and
+`engineering-strict-v6/`; native admission is `native-admission-v37/`, and the
+93 focused tests are in `matched-zk-v37-regressions/`,
+`matched-store-controls-v37/` and `matched-host-v37/` under that output directory.
+The signed generation-4 runtime and carrier are unchanged; these source/native
+updates do not require a new carrier publication. App captures, distribution,
+and physical-device monetary acceptance remain separately recorded by their
+release owners. Those earlier records establish no phone latency or storage result.
+
+The subsequent captured Train A source `ad0a46c8` (HEAD `91af1517`) passed fresh
+production and engineering strict exports, complete parity across all 908 members
+of each profile, and matched production Android builds for ARM64, ARMv7 and x86_64.
+The installed generated registry is `22958a26`; all three libraries retain the
+production profile, native trust, ABI and alignment checks. The complete existing
+5,017,539-byte carrier remains unchanged. This captured-cut result is indexed by
+`output/current-source-wallet-20261014/android-native-lock-fix-v1/native-build-v38-done.json`;
+it does not qualify later source edits. The native source and build-lane reservation
+was released on 2026-10-15 at 06:39 UTC. Full app delivery and monetary lifecycle
+acceptance remain separate outstanding outcomes.
+
+Read-only inspection of Android 41's final AAB and Play-signed APK and both
+iOS `20261014213158` exports confirms that all four packages contain the same
+complete 1,033-file carrier, byte for byte. Their carrier payload is approximately
+4.00 MB inside ZIP compression and 5,017,539 bytes when extracted. All three
+Android native libraries match the accepted v10 handoff. The observation is
+`output/current-source-wallet-20261014/mobile-release-carrier-observation-20261015-v1.json`.
+It establishes package contents, not private phone storage or successful
+monetary operations. The shared Android SDK's private-directory repair now passes
+13 focused controls with unchanged test cases and rejection rules; the sole
+repair tightens the verified app-owned directory through its descriptor and
+syncs the change. A disposable physical Android probe then confirmed the 0771 to
+0700 change preserves directory identity and existing data. Its second test,
+real native installation using accepted originals, failed with status -5; the
+fixed custody child was absent. The accepted native implementation requires an
+existing custody root, while the tested Android adapter only returned its path.
+The SDK first-initialization repair now passes 23 focused controls and creates
+the fixed private root with a durable sibling witness on the disposable phone;
+missing witnessed custody remains a refusal. This witness does not detect
+deletion of both the witness and root. The second native-install attempt failed
+after creating its native lock file. The accepted Rust 1.93.1 implementation
+unconditionally returns `Unsupported` for `std::fs::File::try_lock` on Android,
+which the wallet calls before initializing the root sentinel. An Android kernel
+`flock` repair and contention/release regression are now applied in canonical
+source, preserving the authenticated descriptor and all custody checks. The
+phone's standalone syscall probe reproduced the unsupported Rust call and
+verified kernel-lock contention and release under the shell UID; it does not
+qualify app custody. The matched v11 ARM64 library then passed actual native
+installation, registration and cleanup under the disposable app UID 10384 on the
+Pixel, preserving custody-directory and witness inodes. The complete test took
+27.282 seconds, including copying and syncing originals; this is not isolated
+native installation or payment latency. Each public-originals copy occupied
+7,224 KiB of allocated filesystem space and native custody occupied 15 KiB; the
+retained probe also contains earlier diagnostic copies, so its total directory
+size is not production wallet usage. No 18 GB expansion occurred. The initial
+wrapper verdict incorrectly rejected Android's singular `OK (1 test)` summary;
+the corrected report reparses the preserved successful log without a device rerun.
+The source-bound observation is
+`output/current-source-wallet-20261014/android-native-lock-fix-v1/physical-arm64-v38-observation.json`.
+Full physical monetary acceptance remains unproven. The earlier physical failure
+and source binding are
+recorded in
+`output/current-source-wallet-20261014/android-storage-device2-triage-20261015-v1.json`.
+The earlier focused helper check is
+`output/current-source-wallet-20261014/android-storage-helper-green-review-20261015-v1.json`.
+The iOS expired-activation
+repair reproduced the refusal and then passed seven focused simulator tests:
+retained attempts remain unchanged, valid retries resend the exact bytes,
+known reservations retain their recovery identity, and only Native confirmation
+completes activation. The native implementation in these tests is a probe;
+updated app delivery and physical acceptance remain pending. The independently
+checked source/result record is
+`output/current-source-wallet-20261014/ios-activation-expiry-review-20261015-v1.json`.
+
+### Earlier SDK and delivery observations
+
+The shared Swift and Kotlin SDKs now execute heavy native calls on bounded
+8 MiB workers after a physical iPhone finality decoder exhausted its dispatch
+stack. All 101 focused SDK/host checks pass, including genuine public finality
+decoding from a measured 524 KiB simulator caller. Synchronous ownership,
+original errors and separate capacity for payment and folding/snapshot work
+are preserved. This repair changes neither proof relations nor native DATA.
+The release owner reports Android 40 and iPhone 80107 delivered and installed.
+Their physical activation, Load and offline Send/Receive acceptance remain
+pending. The coordinated validator update completed against all four retained
+ledgers at height 66. Fresh checks at 2026-10-14 16:06 UTC confirm all four
+current validators and all six public readiness endpoints; the deployment owner
+released the phone-test hold. The earlier successful engineering journey below
+retains its original binary identity and is not current-source phone evidence.
+
+The previously installed iPhone had completed user authentication and resumed
+its saved activation, but had not completed Load. Its foreground profile
+identified repeated native directory ancestry validation as a bottleneck;
+the subsequently rebuilt source above contains the cached-ancestry repair.
+Core wallet-ledger recovery also returns HTTP 503; closed-stage diagnostics pass
+their unchanged-response regression. The new service build's startup
+current-asset cut failed because retained server-deployment originals selected
+the old validator source. The deployment owner verified all four current
+validator attestations from the existing checkpoint and installed the corrected
+signed server pins; the new Core build now starts. Direct
+activation finality proofs checked by the device owner are being served
+successfully. The separate incoming-payment signer-restricted lookup is repaired
+and passes its public-proof HTTP regressions; live payment verification remains
+pending after service recovery.
+Android 40's three registration transactions have finalized. These observations
+do not yet establish hardware wallet activation or an offline transfer.
+
+Earlier source `491cc207` / generated DATA `dffe37c1` results are retained in
+`output/current-source-wallet-20261014/current-source-validation-handoff-v1.json`,
+`production-strict-v5/`, `engineering-strict-v5/`,
+`native-admission-current-v5/` and `completion-source-audit-v1/` under the same
+current-source output directory. Carrier counts, all decoded hashes and the
+runtime signature were checked in
+`../bpng/png2-deploy/output/current-source-20261014/gen4-carrier-local-validation-v1/result.json`.
+Independent reads of Android 39's AAB and Play-signed APK and iPhone 80107's IPA
+confirm all 1,033 carrier files are byte-identical to this generation. All 1,029
+single-frame originals also pass bounded decompression, raw-length and raw-hash
+checks without decoded disk writes. The three packaged Android native hashes
+match the accepted source; the iPhone executable contains the same source
+identity and its static input matches the release record. The whole APK, AAB
+and IPA are respectively 205,282,687, 109,200,480 and 64,500,937 bytes. These are
+complete package sizes, not store per-device downloads or installed storage.
+The result and the limits of static-link and physical-device verification are in
+`output/current-source-wallet-20261014/carrier-completion-audit-v1/audit.json`.
+Android 40's subsequent 109,200,651-byte AAB and 205,282,687-byte Play-signed
+APK independently pass the same 1,033-file carrier and three-native-library
+comparison, with version 40 and minimum API 26 confirmed from their actual
+manifests. The APK SHA-256 is
+`1ccb3cfa38bcb931b0615b05b8fdeaf68b684a4991aa0858a86a38c618982afc`.
+These package checks do not establish physical installation or wallet acceptance;
+see `output/current-source-wallet-20261014/android40-carrier-audit-v1/aab-audit.json`
+and `apk-audit.json` in the same directory.
+An independent public HTTPS check also retrieves all 1,033 generation-4 files
+with exact stored sizes and hashes, with no retry. The served financial
+selection matches the locally verified signed runtime. The result is
+`output/current-source-wallet-20261014/public-carrier-audit-v1/result.json`.
+This confirms the published bytes; app installation uses its complete local
+bundle, and the public check does not measure PNG connectivity or phone speed.
 
 Production scheme:
-`aed95157c9a15d6affd07e150a36fc3ff48cba3fa8d7f5065978e48ba3b22bb9`.
+`ce12ce4dff53395d3f1bbad62dec9097c41aa5401664bd5841296dcd19a84fc0`.
 Manifest:
-`929a468417604b2c34e8f7ea8ed08b1c100a16a2537a772ec96bfe2fc24bfbaa`.
-Byte counts and deployment handoff are retained in
-`../bpng/png2-deploy/output/compact-wallet-20261012/carrier-handoff.json`
-and `carrier-inspection.json`.
+`96ffc4b776f552fa73cc101508adad3f9b170bab63e15e2fdb96fdc464f72091`.
 
-### Phone loading and storage
+### Earlier phone loading and storage measurements
 
 On the Pixel 6 (ARM64, Android API 37), isolated complete source-graph loading
 passed all 32 programs and 52 routes under both paths:
@@ -182,7 +390,8 @@ caches may be warm and runs were not a controlled statistical comparison.
 Neither loading time nor memory use is acceptable evidence of low-end-phone
 readiness. Peak process RSS is not steady-state catalogue memory. Both apps
 retain the same admitted native owner across payments, but source qualification
-is process-local and repeats after restart or owner retirement. It is not a
+is process-local: it repeats after a restart, and after owner retirement unless
+the admitted-graph memo still holds byte-identical originals. It is not a
 one-time installation cost.
 
 Both engineering and production compiled profiles were independently exported
@@ -295,20 +504,25 @@ and rebuilt consumer acceptance are recorded under
 alone is not a passing test or a physical-device result. Consumers need a matching
 rebuilt native library to receive this E1 runtime repair.
 
-Registry maintenance binds generated DATA to the finalized canonical source
-census, which includes tests and documentation. Source changes require a fresh
-strict generator, independent complete profile exports and exact member parity
-before installing matching DATA; generated DATA alone is excluded from its own
-source hash. Exact captures, generated hashes and validation results remain in
-the retained output records. Test-only settlement and documentation changes do
-not alter already shipped libraries' internally matched source/profile pairs,
-the generation-3 carrier, circuits or monetary runtime. Existing e6/v2 and
-8bf/v3 artifacts keep their original identities.
+Registry maintenance binds generated DATA to the finalized canonical native
+source census. Native package trees, fixtures and explicitly declared external
+inputs are included. Unrelated client roots and ordinary top-level/docs/specs
+Markdown are excluded; `NativeBridge.swift` and native-consumed documentation
+remain explicit inputs. Changes to selected inputs require a fresh strict
+generator, independent complete profile exports and exact member parity before
+installing matching DATA. Generated DATA is excluded from its own source hash.
+Compiler-input containment is checked separately. Exact captures and validation
+results remain in retained output records; earlier artifacts keep their original
+identities and are never relabelled as results for a later build.
 
 ### Real proofs and retained monetary recovery
 
-Generated-versus-compact-imported proof bytes match for four Sigma Send/Receive
-fixtures across both Pasta curves and four k16 Q-signature fixtures. On the
+Generic engine fixtures check generated-versus-compact-imported proof-byte
+parity across both Pasta curves. Four Sigma Send/Receive fixtures separately
+verify imported proofs and exact proving-key/verifying-key continuity on both
+curves; they do not compare two generated and imported proof byte strings.
+Four k16 Q-signature fixtures include generated-versus-imported proof-byte
+comparison. These results retain their recorded source identities. On the
 Pixel, Sigma key reconstruction/import took 69–247 ms and proofs 667–872 ms;
 one-/two-slot Q-signature key reconstruction took 1.281/1.014 s and proof plus
 self-verification took 31.087/24.931 s. The combined Q test peaked at 527,692 KiB.
@@ -386,6 +600,13 @@ change the native source census or relabel an earlier binary.
 - Reduce the measured 14.201-second catalogue opening further while preserving
   complete source admission; repeat phone loading, memory and disk measurements
   for the selected binary and measure actual app/package sizes.
+- Every native opening records an observation-only phase split (selection,
+  verifier pack, carrier intake, snapshot capture, binding, sigma, Q, routes,
+  Omega, closing, runtime) with per-phase counts of originals and encoded files
+  opened, stored and raw bytes hashed, zstd and descriptor decodes and ancestry
+  walks. The installation attempt retains it in memory and compiled inspection
+  prints it; nothing decides on it, persists it or signs it. Order the remaining
+  opening work by these phone records, not host estimates.
 - Keep complete payment latency, the two-second durable-completion target,
   low-memory devices and physical-device recovery explicitly unqualified until
   their own measurements pass. Small downloads alone do not establish them.

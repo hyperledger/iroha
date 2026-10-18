@@ -11,7 +11,7 @@ use crate::{
         receive::{
             ReceiveObjectInputs, ReceiveObjectSources, ReceiveObjects, ReceiveProofDigest,
             ReceiveProofInputs, ReceiveProofSources, ReceiveSignedObjects, ReceiveStageInputs,
-            ReceiveStageWitness,
+            ReceiveStagePlan, ReceiveStageWitness,
             authorization::{
                 ReceiveAuthorizationObjects, ReceiveAuthorizationSources,
                 ReceiveSignatureQProjection,
@@ -20,6 +20,7 @@ use crate::{
         results::ReceiveResultClaims,
         schedule::OperationTask,
         split::{SplitPlan, close_first, close_stage, resume_context},
+        transition::TransitionInputs,
         verify_predecessor, verify_q,
     },
     admin_sigma::StateWitness,
@@ -29,10 +30,11 @@ use crate::{
         state::StateCells,
         statement::StatementCells,
     },
+    q_sigma::QSigmaPlan,
     tree::IndexedInsert,
 };
 use ff::PrimeField;
-use iroha_pasta::{Ep, Eq, Fp, Fq, PastaAffine};
+use iroha_pasta::{Ep, Eq, Fp, Fq};
 use iroha_plonk::{
     VerifyingKey,
     cs::{Column, ConstraintSystem, Instance, InstanceType},
@@ -41,7 +43,6 @@ use iroha_plonk::{
 use iroha_plonk_gadgets::{
     UintChip, Word,
     bytes::{
-        chunk_segments,
         tape::{BytesChip, BytesConfig, SegmentSpec},
         variable::ActiveBytes,
     },
@@ -98,14 +99,6 @@ fn omega_key_source(
     })
 }
 
-fn frame(bytes: &[u8]) -> Result<Vec<u8>, Error> {
-    let mut framed = u32::try_from(bytes.len())
-        .map_err(|_| Error::BoundsFailure)?
-        .to_le_bytes()
-        .to_vec();
-    framed.extend(bytes);
-    Ok(framed)
-}
 #[derive(Clone, Copy)]
 struct Cells {
     known: bool,
@@ -169,7 +162,7 @@ impl Cells {
         region: &mut Region<'_, Fp>,
         value: &FoldInput<Ep>,
     ) -> Result<FoldInputCells<Ep>, Error> {
-        let point = chip.witness_point(region, self.value(Ep::from(*value.g())))?;
+        let point = chip.witness_generator(region, self.value(Ep::from(*value.g())))?;
         let scalars = value
             .challenges()
             .iter()
@@ -185,7 +178,7 @@ impl Cells {
         region: &mut Region<'_, Fp>,
         value: &AccumulatorT<Eq>,
     ) -> Result<VestaClaimCells, Error> {
-        let (x, y) = Option::from(value.g().coordinates()).ok_or(Error::Synthesis)?;
+        let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(value.g());
         let coordinates = [self.scalar(chip, region, x)?, self.scalar(chip, region, y)?];
         let challenges = self.words(chip, region, value.challenges())?;
         VestaClaimCells::constrain(chip, region, 16, coordinates, challenges)
@@ -314,7 +307,7 @@ pub(super) struct Stage {
     pub(super) source: Arc<Source>,
     pub(super) continuation: Option<Continuation>,
     pub(super) pallas: AccumulatorT<Ep>,
-    pub(super) fold: Vec<u8>,
+    pub(super) fold: crate::private_fold::PrivateFoldBytes,
     pub(super) known: bool,
 }
 /// Fixed native Receive verifier, raw-tape and public-column configuration.
@@ -344,6 +337,7 @@ impl Circuit<Fp> for Stage {
     fn without_witnesses(&self) -> Self {
         Self {
             known: false,
+            fold: crate::private_fold::PrivateFoldBytes::unknown(),
             ..self.clone()
         }
     }
@@ -457,11 +451,11 @@ impl Circuit<Fp> for Stage {
                     .collect::<Result<Vec<_>, _>>()?;
                 let corrections = source
                     .pallas_corrections
-                    .map(|point| chip.witness_point(&mut region, cells.value(Ep::from(point))))
+                    .map(|point| chip.witness_generator(&mut region, cells.value(Ep::from(point))))
                     .into_iter()
                     .collect::<Result<Vec<_>, _>>()?;
                 let (x, y) =
-                    Option::from(source.vesta_correction.coordinates()).ok_or(Error::Synthesis)?;
+                    iroha_plonk::transcript::generator_coordinates::<Eq>(&source.vesta_correction);
                 let vcorrections = [[
                     cells.scalar(&mut chip, &mut region, x)?,
                     cells.scalar(&mut chip, &mut region, y)?,
@@ -483,30 +477,24 @@ impl Circuit<Fp> for Stage {
                     .collect::<Vec<_>>();
                 let context =
                     plan.assign_receive_object_claims(&mut chip, &mut region, &commitments)?;
-                // Fixed owner predicates derive both selectors from the original
-                // Request/Send statement. Reuse the hard Q exports here so this
-                // circuit covers every admitted control mask with one schema.
-                let own_index =
-                    crate::a_relation::bounded_word(&mut chip, &mut region, &q_instances[0][2][0])?;
-                let incoming_index =
-                    crate::a_relation::bounded_word(&mut chip, &mut region, &q_instances[0][2][1])?;
-                let own_chunks = source
+                // The fixed Objects owner derives the incoming selector from the
+                // original Send statement. Reuse the hard Q exports here so this
+                // circuit covers every admitted control mask with one schema. A
+                // proves the own step inline, so Q0 carries only the incoming slot.
+                let incoming_row = source
                     .own
                     .sigma_plan
-                    .chunk_range(0)
-                    .ok_or(Error::Synthesis)?
-                    .map(|i| {
-                        crate::a_relation::bounded_word(
-                            &mut chip,
-                            &mut region,
-                            &q_instances[0][0][i],
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .position(QSigmaPlan::INCOMING)
+                    .ok_or(Error::Synthesis)?;
+                let incoming_index = crate::a_relation::bounded_word(
+                    &mut chip,
+                    &mut region,
+                    &q_instances[0][2][incoming_row],
+                )?;
                 let incoming_chunks = source
                     .own
                     .sigma_plan
-                    .chunk_range(1)
+                    .chunk_range(QSigmaPlan::INCOMING)
                     .ok_or(Error::Synthesis)?
                     .map(|i| {
                         crate::a_relation::bounded_word(
@@ -516,29 +504,11 @@ impl Circuit<Fp> for Stage {
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let mut own_sigma =
-                    SigmaBindingCells::from_statement(&statement, own_index.clone(), own_chunks);
                 let mut incoming_sigma = SigmaBindingCells::from_incoming(
                     &incoming_statement,
                     incoming_index.clone(),
                     incoming_chunks,
                 );
-                if tasks.contains(&OperationTask::ReceiveOwnProof) {
-                    let raw = frame(&source.own.sigma)?;
-                    let run = bytes.run(
-                        &mut region,
-                        &cells.bytes(&raw),
-                        &chunk_segments(0, raw.len()),
-                        &[SegmentSpec::little(0, 4)],
-                    )?;
-                    own_sigma = SigmaBindingCells::from_run(
-                        &mut chip,
-                        &mut region,
-                        &statement,
-                        own_index,
-                        &run,
-                    )?;
-                }
                 let needs_transport = tasks.iter().any(|t| {
                     matches!(
                         t,
@@ -570,7 +540,7 @@ impl Circuit<Fp> for Stage {
                             source
                                 .own
                                 .sigma_plan
-                                .class(1)
+                                .class(QSigmaPlan::INCOMING)
                                 .ok_or(Error::Synthesis)?
                                 .verifier()
                                 .proof_length(),
@@ -609,7 +579,7 @@ impl Circuit<Fp> for Stage {
                         source
                             .own
                             .sigma_plan
-                            .class(1)
+                            .class(QSigmaPlan::INCOMING)
                             .ok_or(Error::Synthesis)?
                             .verifier()
                             .proof_length(),
@@ -650,12 +620,10 @@ impl Circuit<Fp> for Stage {
                 } else {
                     None
                 };
-                let signed = if tasks.iter().any(|t| {
-                    matches!(
-                        t,
-                        OperationTask::ReceiveSignatures | OperationTask::ReceiveBlacklist
-                    )
-                }) {
+                let signed = if tasks
+                    .iter()
+                    .any(|t| matches!(t, OperationTask::ReceiveSignatures))
+                {
                     Some(ReceiveSignedObjects::decode(
                         &mut chip,
                         &mut bytes,
@@ -668,9 +636,7 @@ impl Circuit<Fp> for Stage {
                 let auth = if tasks.iter().any(|t| {
                     matches!(
                         t,
-                        OperationTask::ReceiveAuthorization
-                            | OperationTask::ReceiveOwnProof
-                            | OperationTask::ReceiveSignatures
+                        OperationTask::ReceiveAuthorization | OperationTask::ReceiveSignatures
                     )
                 }) {
                     Some(ReceiveAuthorizationObjects::decode(
@@ -679,10 +645,8 @@ impl Circuit<Fp> for Stage {
                         &mut region,
                         source.variant,
                         ReceiveAuthorizationSources {
-                            current: &values[6],
-                            certificate: &values[7],
-                            receipt: &values[8],
-                            quoted: [&values[9], &values[10]],
+                            receipt: &values[6],
+                            quoted: [&values[7], &values[8]],
                         },
                     )?)
                 } else {
@@ -714,7 +678,7 @@ impl Circuit<Fp> for Stage {
                     vesta_corrections: &vcorrections,
                     receive_results: Some(&results),
                 };
-                let sigma = [own_sigma.clone(), incoming_sigma.clone()];
+                let sigma = [incoming_sigma.clone()];
                 let pred = if stage == 0 {
                     let key = cells.key(
                         &mut chip,
@@ -749,7 +713,7 @@ impl Circuit<Fp> for Stage {
                         &q_instances[*index],
                         &proof,
                     )?;
-                    if *index == 1 {
+                    if *index == ReceiveStagePlan::SIGNATURE_Q {
                         let slots = crate::a_relation::bind_signature_q(
                             &mut chip,
                             &mut region,
@@ -785,19 +749,6 @@ impl Circuit<Fp> for Stage {
                     Some(
                         cells
                             .insertion(&mut chip.uint(), &mut region, &source.own.witness.consumed)?
-                            .low,
-                    )
-                } else {
-                    None
-                };
-                let blacklist = if tasks.contains(&OperationTask::ReceiveBlacklist) {
-                    Some(
-                        cells
-                            .insertion(
-                                &mut chip.uint(),
-                                &mut region,
-                                &source.own.witness.blacklist,
-                            )?
                             .low,
                     )
                 } else {
@@ -866,16 +817,12 @@ impl Circuit<Fp> for Stage {
                         objects: objects.as_ref(),
                         signed: signed.as_ref(),
                         authorization: auth.as_ref(),
-                        own_sigma: tasks
-                            .contains(&OperationTask::ReceiveOwnProof)
-                            .then_some(&own_sigma),
                     },
                     ReceiveStageWitness {
                         proofs: if let Some(key) = proof_key.as_ref() {
                             Some(ReceiveProofInputs {
                                 sources: proof_sources.as_ref().ok_or(Error::Synthesis)?,
                                 omega_key: key,
-                                own_sigma: &own_sigma,
                             })
                         } else {
                             None
@@ -883,8 +830,20 @@ impl Circuit<Fp> for Stage {
                         own_signatures: own_signature.as_ref(),
                         incoming_signatures: incoming_signature.as_ref(),
                         nonmembership: nonmembership.as_ref(),
-                        blacklist: blacklist.as_ref(),
                         effects: effects.as_ref(),
+                        // A1 proves the own step relation itself beside the hard
+                        // predecessor. Key generation lays out the same relation unknown.
+                        transition: tasks.contains(&OperationTask::ReceiveTransition).then(|| {
+                            TransitionInputs {
+                                shape: super::Own::shape(),
+                                witness: source
+                                    .own
+                                    .step
+                                    .as_ref()
+                                    .filter(|_| self.known)
+                                    .map(|(step, native)| (step, native)),
+                            }
+                        }),
                     },
                 )?;
                 let fold = cells.proof(&mut chip, &mut region, &self.fold)?;

@@ -6,7 +6,11 @@
 
 use super::*;
 
-fn record(output: &Path, name: &str, message: KagemushaWalletMessageV1) -> norito::json::Value {
+pub(super) fn record(
+    output: &Path,
+    name: &str,
+    message: KagemushaWalletMessageV1,
+) -> norito::json::Value {
     let maximum = message.max_bytes();
     let scheme = *message.scheme_id();
     let tag = message.tag();
@@ -86,19 +90,11 @@ pub(super) fn retain(
     let mut proof_checks = Vec::new();
     let mut all_proofs_verified = true;
     for (name, payment, credited) in originals {
-        let payment_result = verifier.verify_package_proofs(
-            &payment.send,
-            Some(&payment.request.body),
-            MemoryBudget::DEFAULT,
-        );
+        let payment_result = verifier.verify_package_proofs(&payment.send, MemoryBudget::DEFAULT);
         let (credited_scope, credited_result) = match &credited.evidence {
             KagemushaWalletCreditedEvidenceV1::Receive { package } => (
-                "Receive Sigma proof; request-body selector only",
-                verifier.verify_package_proofs(
-                    package,
-                    Some(&payment.request.body),
-                    MemoryBudget::DEFAULT,
-                ),
+                "Receive Sigma proof only",
+                verifier.verify_package_proofs(package, MemoryBudget::DEFAULT),
             ),
             KagemushaWalletCreditedEvidenceV1::Status { status } => (
                 "CreditStatus Omega lineage only; no credit-membership or request linkage verdict",
@@ -108,7 +104,7 @@ pub(super) fn retain(
         all_proofs_verified &= payment_result.is_ok() && credited_result.is_ok();
         proof_checks.push(norito::json!({
             "pair": name,
-            "payment_proof_scope": "Send Sigma and predecessor Omega proofs; request-body selector only",
+            "payment_proof_scope": "Send Sigma and predecessor Omega proofs only",
             "payment_proof_result": (format!("{payment_result:?}")),
             "credited_proof_scope": credited_scope,
             "credited_proof_result": (format!("{credited_result:?}")),

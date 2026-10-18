@@ -47,7 +47,7 @@ fn evaluate<A: PolynomialAirFieldV1>(rows: &[Vec<A>; 5]) -> Vec<A> {
         rows[3].as_slice().try_into().unwrap(),
         rows[4].as_slice().try_into().unwrap(),
         der_challenges(),
-        challenges(),
+        &challenges(),
         ZkX509Rfc5280StarkTerminalClaimsV1::canonical_identity_v1(),
     )
     .unwrap()
@@ -211,7 +211,7 @@ fn rfc5280_opened_air_rejects_malformed_fields_challenges_and_claims() {
             rows[3].as_slice().try_into().unwrap(),
             rows[4].as_slice().try_into().unwrap(),
             der,
-            local,
+            &local,
             claims,
         )
     };

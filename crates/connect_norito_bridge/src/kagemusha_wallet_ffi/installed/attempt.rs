@@ -6,10 +6,20 @@ use super::*;
 /// copy, inspect or dereference it; exact pointer custody lasts until consuming zero ack.
 pub struct WalletInstallationAttempt {
     owner: Option<Arc<open::RuntimeOwner>>,
+    opening: OpeningMetricsV1,
 }
 impl WalletInstallationAttempt {
-    pub(super) fn new(owner: Arc<open::RuntimeOwner>) -> Self {
-        Self { owner: Some(owner) }
+    pub(super) fn new(owner: Arc<open::RuntimeOwner>, opening: OpeningMetricsV1) -> Self {
+        Self {
+            owner: Some(owner),
+            opening,
+        }
+    }
+    /// Observation-only phase durations and work of the opening that loaded this attempt.
+    /// Public names and counts only; registration, close and every status ignore it.
+    #[must_use]
+    pub fn opening_metrics(&self) -> &OpeningMetricsV1 {
+        &self.opening
     }
     pub(super) fn register(&mut self, selected: &Mutex<Registry>) -> Result<u64> {
         let owner = self.owner.as_ref().ok_or(Failure::code(CLOSED))?;

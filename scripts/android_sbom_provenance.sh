@@ -54,7 +54,7 @@ echo '==> Testing canonical SDK and generating runtime SBOMs'
   --project-cache-dir "$SDK_PROJECT_CACHE" \
   -PirohaSdkVersion="$SDK_VERSION" \
   :core-jvm:test :client-android:testDebugUnitTest :client-android:testDebugHostNative \
-  :kagemusha-wallet-android:testDebugUnitTest \
+  :kagemusha-wallet-android:testDebugUnitTest :kagemusha-wallet-android:testDebugHostNative \
   :core-jvm:cyclonedxDirectBom :client-android:cyclonedxDirectBom \
   :kagemusha-wallet-android:cyclonedxDirectBom
 

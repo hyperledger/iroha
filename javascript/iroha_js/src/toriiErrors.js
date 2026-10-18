@@ -157,6 +157,27 @@ export class ToriiHttpError extends ToriiError {
   }
 }
 
+// Torii queue rejections for signed bytes it already holds: HTTP 409 with the
+// envelope code `already_committed`/`already_enqueued` and the matching reject code.
+const IDEMPOTENT_SUBMISSION_CODES = new Set(["already_committed", "already_enqueued"]);
+const IDEMPOTENT_SUBMISSION_REJECT_CODES = new Set([
+  "PRTRY:ALREADY_COMMITTED",
+  "PRTRY:ALREADY_ENQUEUED",
+]);
+
+/**
+ * Whether a submission error means Torii already queued or committed the same
+ * signed transaction, so a caller can continue with the finality wait.
+ */
+export function isIdempotentSubmissionRejection(error) {
+  return (
+    error instanceof ToriiHttpError &&
+    error.status === 409 &&
+    (IDEMPOTENT_SUBMISSION_REJECT_CODES.has(error.rejectCode) ||
+      IDEMPOTENT_SUBMISSION_CODES.has(error.bodyJson?.code))
+  );
+}
+
 function trimErrorText(text, maxLength = ERROR_TEXT_MAX_LENGTH) {
   if (typeof text !== "string") return null;
   const trimmed = text.trim();

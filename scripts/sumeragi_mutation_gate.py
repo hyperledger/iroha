@@ -5,10 +5,9 @@ Purpose
     Every mutation of §13.4 exists in the crate only as a `cfg(sumeragi_mutation = "<ID>")`
     switch, compiled in when the crate feature `mutation-testing` is on and the environment
     variable `SUMERAGI_MUTATION=<ID>` is set (see `crates/iroha_sumeragi/build.rs`). For each
-    mutation this script builds the mutated crate and runs
-
-        SUMERAGI_MUTATION=<ID> cargo test --locked -p iroha_sumeragi --release \\
-            --features mutation-testing,sim --lib -- <named det test(s)>
+    mutation this script builds the owning library test executable once with Cargo's
+    capture-only target runner, then invokes that original executable directly with
+    the named deterministic controls,
 
     expecting a FAILURE, then (unless --fast) the mutation's randomized scenario(s) with
     SUMERAGI_SIM_SEEDS=200, again expecting a failure. It also runs the unmutated build once
@@ -23,13 +22,24 @@ Purpose
                                declared control. A process failure is not a mutation kill.
 
     Deadlines classify execution as an error. After a deadline the runner waits for
-    its owned Cargo child to exit naturally and retains the output without sending
+    its owned child to exit naturally and retains the output without sending
     termination signals. A late completed result never counts as a mutation kill.
     Each step discovers its actual filtered test names first and accounts for every
     terminal result and the complete libtest summary. Discovery and execution share
     the original step deadline; ignored or incomplete controls cannot establish a kill.
     A named step is a mutation's exact selector tuple. Baselines run each distinct
     tuple once; baseline and mutant randomized steps run one distinct scenario each.
+    Cargo JSON identifies the exact owning libtest; every discovery/runtime must
+    retain its original build executable identity and bytes before and after execution.
+    A capture-only Cargo target runner records the owning package directory and
+    whitelisted runtime/loader environment without executing tests. Every native
+    phase then invokes the captured executable directly; it never re-enters Cargo.
+    The compiler is selected by RUSTC, then CARGO_BUILD_RUSTC, then PATH rustc;
+    the build pins that selection instead of inheriting Cargo build.rustc config.
+    Its queried native host is the explicit target for baseline and mutants.
+    This intentionally separates Cargo host/target units.
+    Capture preparation shares the original build deadline; native phases retain
+    the default stack. Cargo envelopes are interpreted only during the build.
     Qualified selectors require their exact full test path; leaf selectors require
     every exact final path segment in discovery. Cargo substring-selected extras
     remain fully accounted, but their failures cannot replace a declared control.
@@ -50,6 +60,8 @@ Purpose
     with `SUMERAGI_TORII_MUTATION`.
     `--norito` selects canonical decode-origin unit tests in the test profile
     with `SUMERAGI_NORITO_MUTATION`.
+    `--p2p` selects receive-credit transport custody unit tests in the test profile
+    with `SUMERAGI_P2P_MUTATION`.
     Each test-only feature guards only its own crate, without mutating dependencies.
 
 Prerequisites
@@ -61,7 +73,11 @@ Prerequisites
 
 Outputs
     <target-dir>/report.json   per-mutation results and a summary
-    <target-dir>/logs/*.log    full cargo output of every step
+    <target-dir>/logs/*.log    exact combined Cargo/native bytes of every step
+    <target-dir>/logs/*.runtime.json  capture-only Cargo runner cwd/environment
+    <target-dir>/logs/*.compiler.log  selected compiler native-host query
+    <target-dir>/logs/*.artifact.json  emitted executable metadata, original identity/hash,
+                               before/after checks and command/deadline for each phase
 
 Exit status
     0 when the baseline passes and no mutation survived or errored; 1 otherwise. With --strict
@@ -76,15 +92,18 @@ Examples
     scripts/sumeragi_mutation_gate.py --daemon --only HC93 --strict --jobs 1
     scripts/sumeragi_mutation_gate.py --torii --only TOR1 --strict --jobs 1
     scripts/sumeragi_mutation_gate.py --norito --strict --jobs 1
+    scripts/sumeragi_mutation_gate.py --p2p --strict --jobs 1
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import queue
 import re
+import stat
 import subprocess
 import sys
 import threading
@@ -1444,6 +1463,29 @@ CORE_MUTATIONS = [
       causes=(ExpectedFailure("reader retirement must resume directly after source descriptors retire",
           "crates/iroha_core/src/state/publication/retained_musubi_group/production_tests.rs"),)),
 
+    m("HC385", "State construction: omit original prepaid World pool identity preflight",
+      ["state::world_acquisition::pool_identity_tests::fresh_state_refuses_a_foreign_pool_before_resource_admission"],
+      causes=(ExpectedFailure("fresh State must reject the original foreign pool before admission",
+          "crates/iroha_core/src/state/world_acquisition/pool_identity_tests.rs"),)),
+
+    m("HC386", "SCCP write set: omit the destination pending-generation index",
+      ["state::tests::sccp_derived_indexes_bind_inserted_keys_and_deletions_in_merge_write_sets"],
+      causes=(ExpectedFailure("every changed SCCP index must appear in its canonical delta",
+          "crates/iroha_core/src/state/tests.rs"),)),
+
+    m("HC387", "SCCP write set: omit the reconciliation deadline index",
+      ["state::tests::sccp_derived_indexes_bind_inserted_keys_and_deletions_in_merge_write_sets"],
+      causes=(ExpectedFailure("every changed SCCP index must appear in its canonical delta",
+          "crates/iroha_core/src/state/tests.rs"),)),
+
+    m("HC388", "Snapshot restore: let a direct local policy relax the fixed structural depth",
+      ["snapshot::tests::snapshot_scanner_direct_policy_cannot_relax_fixed_structural_depth",
+       "snapshot::tests::signed_snapshot_reader_refuses_depth_before_state_decode_with_direct_policy"],
+      causes=(ExpectedFailure("direct snapshot policy must not relax the fixed structural depth",
+          "crates/iroha_core/src/snapshot/support_policy_tests.rs"),
+          ExpectedFailure("signed snapshot depth must refuse before typed State decoding",
+          "crates/iroha_core/src/snapshot/support_policy_tests.rs"))),
+
     m("HC365", "Retail idle maintenance: omit original native receipt-purpose admission",
       ['retail_fee_tests::original_idle_sweep_admits_exact_native_receipts_before_carrier_execution', 'retail_fee_tests::original_idle_sweep_keeps_bounded_month_prefix_and_fair_native_share', 'retail_fee_tests::original_one_entry_native_policy_alternates_retail_and_sns_admission'],
       causes=(
@@ -2031,6 +2073,19 @@ MODEL_MUTATIONS = [
       ["sumeragi_amx::tests::time_tests::sumeragi_amx_time_expiry_preserves_all_pending_rows_on_writer_refusal"], causes=(ExpectedFailure("failed witness publication cannot prune time-expired obligations",
           "crates/iroha_data_model/src/sumeragi_amx/time_tests.rs"),)),
 
+    m("DM41", "compute price bounds: cap the observed delta to the bound domain",
+      ["compute::tests::price_delta_bounds_keep_full_width_before_comparison"],
+      causes=(ExpectedFailure("price updates must compare full-width deltas before applying bounds",
+          "crates/iroha_data_model/src/compute/mod.rs"),)),
+    m("DM42", "compute sponsor bounds: saturate daily usage before comparison",
+      ["compute::tests::sponsor_caps_keep_exact_daily_total_and_per_call_precedence"],
+      causes=(ExpectedFailure("the full daily sum must retain per-call refusal precedence",
+          "crates/iroha_data_model/src/compute/mod.rs"),)),
+    m("DM43", "compute price bounds: saturate the percentage numerator to u64",
+      ["compute::tests::price_delta_wide_numerator_rejects_extreme_reduction"],
+      causes=(ExpectedFailure("price percentage must widen the numerator before multiplication",
+          "crates/iroha_data_model/src/compute/mod.rs"),)),
+
 ]
 
 
@@ -2156,8 +2211,19 @@ NORITO_MUTATIONS = [
 ]
 
 
+P2P_MUTATIONS = [
+    m("NET1", "Receive-credit constructor: release the original source before rejected I/O closes",
+      ["peer::receive_credit::stream::constructor_tests::constructor_peer_mismatch_closes_io_before_source_reuse",
+       "peer::receive_credit::stream::constructor_tests::constructor_writer_refusal_closes_io_before_source_reuse"],
+      causes=(ExpectedFailure("source cannot be rebound while either I/O half remains alive",
+                  "crates/iroha_p2p/src/peer/receive_credit/stream.rs"),) * 2),
+]
+
+
 def package_options(args):
     """Select the actual implementation owner without propagating a mutation to dependencies."""
+    if getattr(args, "p2p", False):
+        return "iroha_p2p", "mutation-testing", "SUMERAGI_P2P_MUTATION"
     if getattr(args, "norito", False):
         return "norito", "mutation-testing", "SUMERAGI_NORITO_MUTATION"
     if getattr(args, "torii", False):
@@ -2261,62 +2327,338 @@ class Step:
     discovery_log: str = ""
     panics: dict = field(default_factory=dict)
     panic_owners_valid: bool = False
+    artifact: dict | None = None
+    custody: dict = field(default_factory=dict)
 
 
-def cargo_test(args, target_dir, mutation, filters, seeds, timeout, log_path, no_run=False):
-    """Run `cargo test` for the crate; returns (returncode or None on timeout, output)."""
+def executable_identity(path, target_dir):
+    """Hash the actual emitted regular executable without following path aliases."""
+    path, target_dir = Path(path), Path(target_dir)
+    if (not path.is_absolute() or path.resolve(strict=True) != path
+            or target_dir.resolve(strict=True) != target_dir
+            or target_dir not in path.parents):
+        raise ValueError("executable is outside the original canonical target directory")
+
+    def identity(value):
+        return {"device": value.st_dev, "inode": value.st_ino, "size": value.st_size,
+                "mtime_ns": value.st_mtime_ns, "ctime_ns": value.st_ctime_ns,
+                "mode": value.st_mode, "links": value.st_nlink}
+
+    named = path.lstat()
+    if not stat.S_ISREG(named.st_mode) or not named.st_size or not os.access(path, os.X_OK):
+        raise ValueError("emitted executable is not a nonempty executable regular file")
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(descriptor, "rb") as source:
+        opened = identity(os.fstat(source.fileno()))
+        if opened != identity(named):
+            raise ValueError("executable changed while opening the original")
+        digest = hashlib.sha256()
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+        if opened != identity(os.fstat(source.fileno())) or opened != identity(path.lstat()):
+            raise ValueError("executable changed while hashing the original")
+    return {"path": str(path), "sha256": digest.hexdigest(), **opened}
+
+
+def cargo_observation(raw, args, target_dir, mutation):
+    """Separate only Cargo's pre-harness envelopes and bind its one owning libtest."""
+    native, records, finished = [], [], []
+    reasons = {"compiler-artifact", "compiler-message", "build-script-executed", "build-finished"}
+    for line in raw.splitlines(keepends=True):
+        record = None
+        if not finished and line.startswith("{"):
+            try:
+                candidate = json.loads(line)
+            except ValueError:
+                candidate = None
+            if isinstance(candidate, dict) and candidate.get("reason") in reasons:
+                record = candidate
+        if record is None:
+            native.append(line)
+        else:
+            records.append(record)
+            if record["reason"] == "build-finished":
+                finished.append(record)
+    observation = {"artifact": None, "errors": [], "compiler_errors": [
+        record.get("message", {}).get("rendered", "") for record in records
+        if record["reason"] == "compiler-message"
+        and isinstance(record.get("message"), dict)
+        and record["message"].get("level") == "error"]}
+    try:
+        if len(finished) != 1 or finished[0].get("success") is not True:
+            raise ValueError("Cargo did not emit one successful build-finished record")
+        emitted = [record for record in records if record["reason"] == "compiler-artifact"
+                   and record.get("executable") is not None]
+        if len(emitted) != 1:
+            raise ValueError("Cargo did not emit exactly one executable artifact")
+        record = emitted[0]
+        crate, features, _ = package_options(args)
+        directory = "irohad" if crate == "irohad_lib" else crate
+        owner = REPO / "crates" / directory
+        target = record.get("target")
+        profile = record.get("profile")
+        if not isinstance(target, dict) or not isinstance(profile, dict):
+            raise ValueError("Cargo executable target/profile metadata is malformed")
+        expected_name = "irohad" if crate == "irohad_lib" else crate
+        if (record.get("manifest_path") != str(owner / "Cargo.toml")
+                or not isinstance(record.get("package_id"), str)
+                or not record["package_id"].startswith("path+" + owner.as_uri() + "#")
+                or target.get("kind") != ["lib"] or target.get("crate_types") != ["lib"]
+                or target.get("name") != expected_name
+                or target.get("src_path") != str(owner / "src/lib.rs")
+                or target.get("test") is not True or profile.get("test") is not True
+                or not isinstance(record.get("features"), list)
+                or not all(isinstance(value, str) for value in record["features"])
+                or len(set(record["features"])) != len(record["features"])
+                or not set(features.split(",")).issubset(record["features"])
+                or not isinstance(record.get("filenames"), list)
+                or record["executable"] not in record["filenames"]):
+            raise ValueError("Cargo executable does not belong to the exact owning libtest")
+        artifact = {key: record[key] for key in
+                    ("package_id", "manifest_path", "target", "profile", "features", "executable")}
+        artifact["mutation"] = mutation
+        artifact["identity"] = executable_identity(record["executable"], target_dir)
+        observation["artifact"] = artifact
+    except (OSError, ValueError, TypeError) as error:
+        observation["errors"].append(str(error))
+    return "".join(native), observation
+
+
+# Only Cargo's public runtime metadata and loader paths may enter retained receipts.
+# Owner build scripts currently emit no rustc-env fields. Add an explicit reviewed
+# field here if an owner introduces one; never capture the whole parent environment.
+CARGO_RUNTIME_FIELDS = (
+    "CARGO", "CARGO_MANIFEST_DIR", "CARGO_MANIFEST_PATH", "CARGO_PKG_NAME",
+    "CARGO_PKG_VERSION", "CARGO_PKG_VERSION_MAJOR", "CARGO_PKG_VERSION_MINOR",
+    "CARGO_PKG_VERSION_PATCH", "CARGO_PKG_VERSION_PRE", "CARGO_PKG_AUTHORS",
+    "CARGO_PKG_DESCRIPTION", "CARGO_PKG_HOMEPAGE", "CARGO_PKG_REPOSITORY",
+    "CARGO_PKG_LICENSE", "CARGO_PKG_LICENSE_FILE", "CARGO_PKG_RUST_VERSION",
+    "CARGO_PKG_README", "OUT_DIR", "PATH", "LD_LIBRARY_PATH",
+    "DYLD_FALLBACK_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "LIBPATH",
+)
+
+
+def capture_runtime(arguments):
+    """Cargo target runner: retain its runtime context without executing the harness."""
+    if len(arguments) != 3:
+        raise ValueError("runtime capture requires one output, owner and executable")
+    output, owner, executable = map(Path, arguments)
+    if (not output.is_absolute() or not owner.is_absolute()
+            or not executable.is_absolute() or Path.cwd() != owner
+            or os.environ.get("CARGO_MANIFEST_DIR") != str(owner)
+            or os.environ.get("CARGO_MANIFEST_PATH") != str(owner / "Cargo.toml")):
+        raise ValueError("runtime capture does not belong to the owning package")
+    if "RUST_MIN_STACK" in os.environ:
+        raise ValueError("mutation qualification requires the default native stack")
+    runtime = {"argv": [str(executable)], "cwd": str(owner), "environment": {
+        key: os.environ.get(key) for key in CARGO_RUNTIME_FIELDS}}
+    # A second runner invocation cannot overwrite the first and then claim success.
+    with output.open("x", encoding="utf-8") as destination:
+        json.dump(runtime, destination, ensure_ascii=True, sort_keys=True)
+        destination.write("\n")
+    return 0
+
+
+def artifact_digest(artifact):
+    """Bind retained Cargo metadata and captured context to the original executable."""
+    payload = {key: value for key, value in artifact.items() if key != "binding_sha256"}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=True).encode("utf-8")).hexdigest()
+
+
+def runtime_loader_key():
+    """Name the loader field Cargo supplies on the current native platform."""
+    if os.name == "nt":
+        return "PATH"
+    if sys.platform == "darwin":
+        return "DYLD_FALLBACK_LIBRARY_PATH"
+    return "LIBPATH" if sys.platform.startswith("aix") else "LD_LIBRARY_PATH"
+
+
+def validate_runtime(artifact):
+    """Require the sole captured invocation of the exact Cargo-owned package."""
+    runtime = artifact["runtime"]
+    owner = str(Path(artifact["manifest_path"]).parent)
+    environment = runtime.get("environment")
+    if (set(runtime) != {"argv", "cwd", "environment"}
+            or runtime["argv"] != [artifact["executable"]] or runtime["cwd"] != owner
+            or not isinstance(environment, dict)
+            or set(environment) != set(CARGO_RUNTIME_FIELDS)
+            or any(value is not None and not isinstance(value, str)
+                   for value in environment.values())
+            or environment["CARGO_MANIFEST_DIR"] != owner
+            or environment["CARGO_MANIFEST_PATH"] != artifact["manifest_path"]
+            or not environment["CARGO"]
+            or not environment[runtime_loader_key()]
+            or environment["CARGO_PKG_NAME"] != (
+                "irohad_lib" if Path(owner).name == "irohad" else Path(owner).name)):
+        raise ValueError("captured runtime does not match the original owning executable")
+    return runtime
+
+
+def cargo_build_options(args):
+    """Keep the same owning package, feature set and named profile in every phase."""
+    crate, features, _ = package_options(args)
+    profile = ("test" if any(getattr(args, owner, False) for owner in
+                           ("model", "sdk", "deploy", "torii", "norito", "p2p")) else
+               (getattr(args, "core_profile", None) or "test") if getattr(args, "core", False) else None)
+    profile_options = ["--profile", profile] if profile else ["--release"]
+    return ["cargo", "test", "--locked", "-p", crate, *profile_options,
+            "--features", features, "--lib", "--message-format=json-render-diagnostics"]
+
+
+def capture_build_command(args, env, log_path, started, timeout):
+    """Select the native compiler host and one capture-only Cargo target runner."""
+    compiler = env.get("RUSTC") or env.get("CARGO_BUILD_RUSTC") or "rustc"
+    probe_command = [compiler, "-vV"]
+    remaining = max(0.0, timeout - (time.monotonic() - started)) if timeout else None
+    if remaining == 0:
+        raise ValueError("native host preparation exhausted the original build deadline")
+    probe = subprocess.Popen(probe_command, cwd=REPO, env=env, stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT, start_new_session=True)
+    expired = False
+    try:
+        raw, _ = probe.communicate(timeout=remaining)
+    except subprocess.TimeoutExpired:
+        raw, _ = probe.communicate()
+        expired = True
+    probe_path = log_path.with_suffix(".compiler.log")
+    probe_path.write_bytes(raw)
+    hosts = re.findall(r"^host: ([A-Za-z0-9_-]+)$", raw.decode("utf-8"), re.MULTILINE)
+    if expired or probe.returncode != 0 or len(hosts) != 1:
+        raise ValueError("selected compiler did not identify one native host within the build deadline")
+    host = hosts[0]
+    crate, _, _ = package_options(args)
+    owner = REPO / "crates" / ("irohad" if crate == "irohad_lib" else crate)
+    capture_path = log_path.with_suffix(".runtime.json")
+    if capture_path.exists() or capture_path.is_symlink():
+        raise ValueError("runtime capture output already exists")
+    runner = [str(Path(sys.executable).resolve()), "-I", str(Path(__file__).resolve()),
+              "--capture-runtime", str(capture_path), str(owner)]
+    # Cargo accepts a runner string as whitespace-separated arguments. A scalar
+    # CLI value replaces ambient runners instead of concatenating array arguments.
+    if any(not argument or any(character.isspace() for character in argument) for argument in runner):
+        raise ValueError("capture runner paths must not contain whitespace")
+    # An explicit native target prevents an ambient cross target or runner from
+    # executing a test during capture. Host/target units are intentionally separate.
+    # Pin the compiler we queried instead of consulting a different build.rustc.
+    env["RUSTC"] = compiler
+    cmd = [*cargo_build_options(args),
+           "--target", host, "--config", "build.rustc=" + json.dumps(compiler),
+           "--config", "target." + host + ".runner=" + json.dumps(" ".join(runner))]
+    preparation = {"compiler_command": probe_command, "compiler_log": str(probe_path),
+                   "compiler_log_sha256": hashlib.sha256(raw).hexdigest(),
+                   "native_host": host, "capture_path": str(capture_path),
+                   "runner": runner, "explicit_native_target": True}
+    return cmd, preparation
+
+
+def cargo_test(args, target_dir, mutation, filters, seeds, timeout, log_path, no_run=False,
+               expected_artifact=None):
+    """Build once with Cargo capture; launch only that original libtest thereafter."""
     env = dict(os.environ)
-    env.pop("SUMERAGI_MUTATION", None)
-    env.pop("SUMERAGI_CORE_MUTATION", None)
-    env.pop("SUMERAGI_DAEMON_MUTATION", None)
-    env.pop("SUMERAGI_MODEL_MUTATION", None)
-    env.pop("SUMERAGI_SDK_MUTATION", None)
-    env.pop("SUMERAGI_DEPLOY_MUTATION", None)
-    env.pop("SUMERAGI_TORII_MUTATION", None)
-    env.pop("SUMERAGI_NORITO_MUTATION", None)
-    crate, features, mutation_env = package_options(args)
-    env.pop("SUMERAGI_SIM_SEED", None)
-    env.pop("SUMERAGI_SIM_SEED_BASE", None)
+    for key in ("SUMERAGI_MUTATION", "SUMERAGI_CORE_MUTATION", "SUMERAGI_DAEMON_MUTATION",
+                "SUMERAGI_MODEL_MUTATION", "SUMERAGI_SDK_MUTATION", "SUMERAGI_DEPLOY_MUTATION",
+                "SUMERAGI_TORII_MUTATION", "SUMERAGI_NORITO_MUTATION", "SUMERAGI_P2P_MUTATION",
+                "SUMERAGI_SIM_SEED", "SUMERAGI_SIM_SEED_BASE", "SUMERAGI_SIM_SEEDS"):
+        env.pop(key, None)
+    _, _, mutation_env = package_options(args)
     if mutation:
         env[mutation_env] = mutation
     if seeds is not None:
         env["SUMERAGI_SIM_SEEDS"] = str(seeds)
-    else:
-        env.pop("SUMERAGI_SIM_SEEDS", None)
     env["CARGO_TARGET_DIR"] = str(target_dir)
-    profile = ("test" if any(getattr(args, owner, False) for owner in ("model", "sdk", "deploy", "torii", "norito")) else
-               (getattr(args, "core_profile", None) or "test") if getattr(args, "core", False) else None)
-    profile_options = ["--profile", profile] if profile else ["--release"]
-    cmd = ["cargo", "test", "--locked", "-p", crate, *profile_options, "--features", features, "--lib"]
-    if no_run:
-        cmd.append("--no-run")
-    else:
-        cmd += ["--"] + list(filters)
     started = time.monotonic()
-    # Own this child session, but never signal Cargo when a deadline is missed.
-    proc = subprocess.Popen(cmd, cwd=REPO, env=env, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, text=True, start_new_session=True)
+    before, errors, raw, code, launched = None, [], b"", None, False
+    cmd, cwd, preparation = [], REPO, None
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        out, _ = proc.communicate(timeout=timeout or None)
-        code = proc.returncode
-    except subprocess.TimeoutExpired:
-        # Keep the deadline verdict even if the naturally completed harness later
-        # passes or reports a failed test; neither can qualify a late mutation.
-        out, _ = proc.communicate()
-        code = None
+        if "RUST_MIN_STACK" in env:
+            raise ValueError("mutation qualification requires the default native stack")
+        if no_run:
+            cmd, preparation = capture_build_command(args, env, log_path, started, timeout)
+        else:
+            if expected_artifact is None or expected_artifact.get("mutation") != mutation:
+                raise ValueError("native invocation lacks its original same-mutation build artifact")
+            before = executable_identity(expected_artifact["executable"], target_dir)
+            if before != expected_artifact["identity"]:
+                raise ValueError("original executable changed before native invocation")
+            if expected_artifact.get("binding_sha256") != artifact_digest(expected_artifact):
+                raise ValueError("original Cargo metadata or captured runtime changed before native invocation")
+            if expected_artifact["build_options"] != cargo_build_options(args):
+                raise ValueError("native invocation changed its original build owner/profile/features")
+            runtime = validate_runtime(expected_artifact)
+            for key, value in runtime["environment"].items():
+                if value is None:
+                    env.pop(key, None)
+                else:
+                    env[key] = value
+            cwd = Path(runtime["cwd"])
+            cmd = [expected_artifact["executable"], *filters]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        errors.append(str(error))
+    remaining = max(0.0, timeout - (time.monotonic() - started)) if timeout else None
+    if not errors and remaining != 0:
+        try:
+            proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, start_new_session=True)
+            launched = True
+            try:
+                raw, _ = proc.communicate(timeout=remaining)
+                code = proc.returncode
+            except subprocess.TimeoutExpired:
+                raw, _ = proc.communicate()
+                code = None
+        except OSError as error:
+            errors.append(str(error))
+    elif remaining == 0:
+        errors.append("preparation exhausted the original phase deadline")
+    log_path.write_bytes(raw)
+    receipt = {"artifact": None, "errors": [], "compiler_errors": []}
+    try:
+        out = raw.decode("utf-8")
+        if no_run:
+            out, receipt = cargo_observation(out, args, target_dir, mutation)
+            if receipt["artifact"] is not None:
+                if code != 0 or preparation is None or receipt["compiler_errors"]:
+                    raise ValueError("Cargo capture build did not complete successfully")
+                capture_raw = Path(preparation["capture_path"]).read_bytes()
+                preparation["capture_sha256"] = hashlib.sha256(capture_raw).hexdigest()
+                runtime = json.loads(capture_raw.decode("utf-8"))
+                artifact = receipt["artifact"]
+                artifact["runtime"] = runtime
+                artifact["build_options"] = cargo_build_options(args)
+                validate_runtime(artifact)
+                artifact["binding_sha256"] = artifact_digest(artifact)
+        elif launched:
+            # Native stdout is native data, including JSON that resembles Cargo.
+            receipt["artifact"] = expected_artifact
+    except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError) as error:
+        if isinstance(error, UnicodeDecodeError):
+            out = ""
+        receipt["errors"].append(str(error))
+        receipt["artifact"] = None
+    receipt["errors"][:0] = errors
+    receipt["before"] = before
+    if expected_artifact is not None:
+        try:
+            receipt["after"] = executable_identity(expected_artifact["executable"], target_dir)
+            if receipt["after"] != before:
+                receipt["errors"].append("original executable changed during native invocation")
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            receipt["errors"].append(str(error))
     elapsed = time.monotonic() - started
-    # Spawning and completion processing also belong to this original deadline.
-    # Keep all output, but a naturally completed late command cannot qualify.
     if timeout and elapsed > timeout:
         code = None
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(log_path, "w") as f:
-        f.write(f"$ {' '.join(cmd)}\n# {mutation_env}={mutation or ''} "
-                f"SUMERAGI_SIM_SEEDS={seeds or ''} CARGO_TARGET_DIR={target_dir}\n")
-        f.write(out or "")
-        f.write(f"\n# exit {code} after {elapsed:.1f}s\n")
-    return code, out or "", elapsed
-
+    receipt.update(command=cmd, cwd=str(cwd), mutation=mutation, seeds=seeds,
+                   target_dir=str(target_dir), preparation=preparation,
+                   original_deadline_seconds=timeout, deadline_exceeded=bool(timeout and elapsed >= timeout),
+                   exit_code=code, seconds=elapsed, launched=launched,
+                   raw_log=str(log_path), raw_log_sha256=hashlib.sha256(raw).hexdigest())
+    receipt_path = log_path.with_suffix(".artifact.json")
+    receipt["receipt"] = str(receipt_path)
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+    return code, out, elapsed, receipt
 
 def test_selector_matches(selector, name):
     """Resolve a full test path or every exact leaf, without a substring substitute."""
@@ -2329,21 +2671,31 @@ def required_test_failures(filters, failed):
                   if any(test_selector_matches(selector, name) for selector in filters))
 
 
-def run_step(args, target_dir, mutation, filters, seeds, timeout, log_path):
+def run_step(args, target_dir, mutation, filters, seeds, timeout, log_path, artifact=None):
     """Account for the actual substring selection within one original deadline."""
     started = time.monotonic()
     discovery_log = log_path.with_name(log_path.stem + ".discovery" + log_path.suffix)
-    discovery_code, listing, discovery_elapsed = cargo_test(
+    discovery_code, listing, discovery_elapsed, discovery_custody = cargo_test(
         args, target_dir, mutation, [*filters, "--list", "--format", "pretty", "--color", "never"],
-        seeds, timeout, discovery_log)
+        seeds, timeout, discovery_log, expected_artifact=artifact)
     selected = TEST_LIST.findall(listing)
     declared = TEST_LIST_COMPLETION.findall(listing)
     elapsed = max(time.monotonic() - started, discovery_elapsed)
     step = Step(status="pass", seconds=round(elapsed, 1), selected=selected,
-                log=str(log_path), discovery_log=str(discovery_log))
+                log=str(log_path), discovery_log=str(discovery_log), artifact=artifact,
+                custody={"discovery": discovery_custody})
+    if (discovery_custody["errors"] and not discovery_custody.get("launched", True)
+            and not discovery_custody.get("deadline_exceeded", False)):
+        step.status = "execution-error"
+        step.detail.extend(discovery_custody["errors"])
+        return step
     if discovery_code is None or (timeout and elapsed >= timeout):
         step.status = "timeout"
         step.detail.append(f"discovery exhausted the original {timeout}s deadline")
+        return step
+    if discovery_custody["errors"]:
+        step.status = "execution-error"
+        step.detail.extend(discovery_custody["errors"])
         return step
     if discovery_code != 0 or declared != [(str(len(selected)), "0")] or len(selected) != len(set(selected)):
         step.status = "execution-error"
@@ -2358,10 +2710,10 @@ def run_step(args, target_dir, mutation, filters, seeds, timeout, log_path):
     required = {name for name in selected
                 if any(test_selector_matches(selector, name) for selector in filters)}
     remaining = max(0.0, timeout - elapsed) if timeout else 0
-    code, out, runtime_elapsed = cargo_test(
+    code, out, runtime_elapsed, runtime_custody = cargo_test(
         args, target_dir, mutation,
         [*filters, "--test-threads=1", "--format", "pretty", "--color", "never"],
-        seeds, remaining, log_path)
+        seeds, remaining, log_path, expected_artifact=artifact)
     elapsed = max(time.monotonic() - started, discovery_elapsed + runtime_elapsed)
     terminals, terminal_owners_valid = serial_test_terminals(out)
     results = [(name, verdict) for name, verdict, _, _ in terminals]
@@ -2370,14 +2722,22 @@ def run_step(args, target_dir, mutation, filters, seeds, timeout, log_path):
     panics, panic_owners_valid = captured_test_panics(out)
     step = Step(status="pass", seconds=round(elapsed, 1), failed=failed, ran=ran,
                 selected=selected, log=str(log_path), discovery_log=str(discovery_log),
-                panics=panics, panic_owners_valid=panic_owners_valid)
+                panics=panics, panic_owners_valid=panic_owners_valid, artifact=artifact,
+                custody={"discovery": discovery_custody, "runtime": runtime_custody})
     missing = sorted(required - set(ran))
-    if code is None or (timeout and elapsed > timeout):
+    if (runtime_custody["errors"] and not runtime_custody.get("launched", True)
+            and not runtime_custody.get("deadline_exceeded", False)):
+        step.status = "execution-error"
+        step.detail.extend(runtime_custody["errors"])
+    elif code is None or (timeout and elapsed > timeout):
         step.status = "timeout"
         step.detail.append(f"timed out after {timeout}s")
-    elif "error[E" in out or "could not compile" in out:
+    elif runtime_custody["compiler_errors"] or "error[E" in out or "could not compile" in out:
         step.status = "build-error"
         step.detail = [line for line in out.splitlines() if line.startswith("error")][:5]
+    elif runtime_custody["errors"]:
+        step.status = "execution-error"
+        step.detail.extend(runtime_custody["errors"])
     elif code not in (0, 101) or (code != 0 and not failed):
         step.status = "execution-error"
         step.detail.append(f"cargo exited {code} without a normal completed test failure")
@@ -2414,19 +2774,22 @@ def run_step(args, target_dir, mutation, filters, seeds, timeout, log_path):
 
 
 def build(args, target_dir, mutation, log_path):
-    code, out, elapsed = cargo_test(args, target_dir, mutation, [], None, args.timeout_build,
+    code, out, elapsed, custody = cargo_test(args, target_dir, mutation, [], None, args.timeout_build,
                                     log_path, no_run=True)
-    ok = code == 0
+    ok = code == 0 and not custody["errors"]
     detail = [] if ok else ([line for line in out.splitlines() if line.startswith("error")][:5]
                             or ["timeout" if code is None else f"cargo exited {code}"])
     return Step(status="pass" if ok else "build-error", seconds=round(elapsed, 1),
-                detail=detail, log=str(log_path))
+                detail=detail + custody["errors"], log=str(log_path), artifact=custody["artifact"],
+                custody={"build": custody})
 
 
-def has_switch(mid, *, core=False, daemon=False, model=False, sdk=False, deploy=False, torii=False, norito=False):
-    if sum((core, daemon, model, sdk, deploy, torii, norito)) > 1:
+def has_switch(mid, *, core=False, daemon=False, model=False, sdk=False, deploy=False, torii=False, norito=False, p2p=False):
+    if sum((core, daemon, model, sdk, deploy, torii, norito, p2p)) > 1:
         raise ValueError("a mutation has exactly one implementation owner")
-    if norito:
+    if p2p:
+        cfg, source = "sumeragi_p2p_mutation", REPO / "crates" / "iroha_p2p" / "src"
+    elif norito:
         cfg, source = "sumeragi_norito_mutation", REPO / "crates" / "norito" / "src"
     elif torii:
         cfg, source = "sumeragi_torii_mutation", REPO / "crates" / "iroha_torii" / "src"
@@ -2446,7 +2809,7 @@ def has_switch(mid, *, core=False, daemon=False, model=False, sdk=False, deploy=
 
 
 
-def run_grouped_steps(args, target_dir, mutation, groups, seeds, timeout, logs, stem):
+def run_grouped_steps(args, target_dir, mutation, groups, seeds, timeout, logs, stem, artifact=None):
     """Retain every invocation and refuse an aggregate pass or kill on any step error."""
     steps = []
     for index, filters in enumerate(groups):
@@ -2454,7 +2817,7 @@ def run_grouped_steps(args, target_dir, mutation, groups, seeds, timeout, logs, 
         if not filters:
             step = Step(status="missing-test", detail=["no selectors for this invocation"], log=str(log))
         else:
-            step = run_step(args, target_dir, mutation, filters, seeds, timeout, log)
+            step = run_step(args, target_dir, mutation, filters, seeds, timeout, log, artifact)
         steps.append({"filters": list(filters), "deadline_seconds": timeout,
                       "seeds": seeds, **step.__dict__,
                       "required_failed": required_test_failures(filters, step.failed)})
@@ -2478,7 +2841,9 @@ def evaluate(args, target_dir, mu):
         result.update(verdict="error", reason="no named test selectors")
         return result
     started = time.monotonic()
-    if getattr(args, "norito", False):
+    if getattr(args, "p2p", False):
+        present = has_switch(mu.id, p2p=True)
+    elif getattr(args, "norito", False):
         present = has_switch(mu.id, norito=True)
     elif getattr(args, "torii", False):
         present = has_switch(mu.id, torii=True)
@@ -2501,7 +2866,7 @@ def evaluate(args, target_dir, mu):
         result.update(verdict="error", reason="mutant does not build")
         return result
     named = run_step(args, target_dir, mu.id, mu.tests, None, args.timeout_test,
-                     logs / f"{mu.id}.named.log")
+                     logs / f"{mu.id}.named.log", b.artifact)
     named_failed = required_test_failures(mu.tests, named.failed)
     result["named"] = {**named.__dict__, "required_failed": named_failed}
     killed_by_test = named.status == "fail" and bool(named_failed)
@@ -2518,7 +2883,7 @@ def evaluate(args, target_dir, mu):
     if mu.scenarios and not args.fast:
         groups = [(scenario,) for scenario in dict.fromkeys(SCENARIOS[s] for s in mu.scenarios)]
         scen = run_grouped_steps(args, target_dir, mu.id, groups, args.seeds,
-                                 args.timeout_scenario, logs, f"{mu.id}.scenario")
+                                 args.timeout_scenario, logs, f"{mu.id}.scenario", b.artifact)
         result["scenario"] = scen
     killed_by_scenario = scen is not None and scen["status"] == "fail" and bool(scen["required_failed"])
     if named.status not in ("pass", "fail"):
@@ -2554,13 +2919,13 @@ def evaluate_baseline(args, target_dir, mutations):
     # The baseline de-duplicates tuples, rather than merging unrelated steps.
     groups = sorted({tuple(mu.tests) for mu in mutations})
     named = run_grouped_steps(args, target_dir, None, groups, None, args.timeout_test,
-                             logs, "baseline.named")
+                             logs, "baseline.named", b.artifact)
     result["named"] = named
     ok = named["status"] == "pass"
     scenarios = sorted({SCENARIOS[s] for mu in mutations for s in mu.scenarios})
     if scenarios and not args.fast:
         scen = run_grouped_steps(args, target_dir, None, [(s,) for s in scenarios],
-                                 args.seeds, args.timeout_scenario, logs, "baseline.scenario")
+                                 args.seeds, args.timeout_scenario, logs, "baseline.scenario", b.artifact)
         result["scenario"] = scen
         ok = ok and scen["status"] == "pass"
     result["verdict"] = "pass" if ok else "fail"
@@ -2588,6 +2953,8 @@ def main():
                        help="qualify registered Torii canonical-outcome custody rules with owning unit tests in the test profile")
     owner.add_argument("--norito", action="store_true",
                        help="qualify registered Norito decode-origin rules with owning unit tests in the test profile")
+    owner.add_argument("--p2p", action="store_true",
+                       help="qualify registered P2P receive-credit custody rules with owning unit tests in the test profile")
     parser.add_argument("--only", help="comma-separated mutation ids (default: all)")
     parser.add_argument("--jobs", type=int, default=1,
                         help="parallel jobs, each with its own target sub-directory")
@@ -2596,7 +2963,7 @@ def main():
     parser.add_argument("--seeds", type=int, default=200,
                         help="SUMERAGI_SIM_SEEDS for the scenarios (default 200)")
     parser.add_argument("--target-dir", type=Path,
-                        help="dedicated target root (default: target/sumeragi-mutants; --core: target/sumeragi-core-mutants; --daemon: target/sumeragi-daemon-mutants; --model: target/sumeragi-model-mutants; --sdk: target/sumeragi-sdk-mutants; --deploy: target/sumeragi-deploy-mutants; --torii: target/sumeragi-torii-mutants; --norito: target/sumeragi-norito-mutants)")
+                        help="dedicated target root (default: target/sumeragi-mutants; --core: target/sumeragi-core-mutants; --daemon: target/sumeragi-daemon-mutants; --model: target/sumeragi-model-mutants; --sdk: target/sumeragi-sdk-mutants; --deploy: target/sumeragi-deploy-mutants; --torii: target/sumeragi-torii-mutants; --norito: target/sumeragi-norito-mutants; --p2p: target/sumeragi-p2p-mutants)")
     parser.add_argument("--skip-baseline", action="store_true",
                         help="do not run the unmutated build")
     parser.add_argument("--strict", action="store_true",
@@ -2619,7 +2986,8 @@ def main():
     if args.strict and args.skip_baseline:
         parser.error("--strict requires the unmutated baseline")
     if args.target_dir is None:
-        name = ("sumeragi-norito-mutants" if args.norito else
+        name = ("sumeragi-p2p-mutants" if args.p2p else
+                "sumeragi-norito-mutants" if args.norito else
                 "sumeragi-torii-mutants" if args.torii else
                 "sumeragi-sdk-mutants" if args.sdk else
                 "sumeragi-deploy-mutants" if args.deploy else
@@ -2630,7 +2998,7 @@ def main():
     args.target_dir = args.target_dir.resolve()
     if args.core_profile is not None and not args.core:
         parser.error("--core-profile requires --core; protocol and daemon qualification use release")
-    table = (NORITO_MUTATIONS if args.norito else TORII_MUTATIONS if args.torii else SDK_MUTATIONS if args.sdk else DEPLOY_MUTATIONS if args.deploy else
+    table = (P2P_MUTATIONS if args.p2p else NORITO_MUTATIONS if args.norito else TORII_MUTATIONS if args.torii else SDK_MUTATIONS if args.sdk else DEPLOY_MUTATIONS if args.deploy else
              MODEL_MUTATIONS if args.model else DAEMON_MUTATIONS if args.daemon else
              CORE_MUTATIONS if args.core else MUTATIONS)
     by_id = index_mutations(table)
@@ -2717,7 +3085,7 @@ def main():
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "command": sys.argv,
         "package": package_options(args)[0],
-        "profile": ("test" if args.model or args.sdk or args.deploy or args.torii or args.norito else
+        "profile": ("test" if args.model or args.sdk or args.deploy or args.torii or args.norito or args.p2p else
                     (args.core_profile or "test") if args.core else "release"),
         "seeds": None if args.fast else args.seeds,
         "fast": args.fast,
@@ -2736,4 +3104,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(capture_runtime(sys.argv[2:]) if sys.argv[1:2] == ["--capture-runtime"] else main())

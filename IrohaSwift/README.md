@@ -149,6 +149,12 @@ canonical σ-field values and never recomputes them. Structural envelope checks 
 no monetary or delivery authority; typed decoding and verification of the message
 bodies remain open (TODO(G4)).
 
+`KagemushaWalletAccountCheckCodeV1` renders the eight-digit check code (`0006 6051`)
+that payer and receiver compare before a Send: `code(accountDigest:)` for the reviewed
+receiver account digest, `code(accountOriginal:)` or `code(accountID:)` for the wallet's
+own account. Kotlin wallets render the same text for the same account (wire record §6,
+`fixtures/kagemusha/wallet_account_check_code_v1.json`). The code is display DATA only.
+
 `KagemushaWalletApplePlatformV1` is the iPhone platform adapter of the Rust wallet
 Advance provider (Secure Enclave payment key that signs exactly the 32-byte message
 the Rust signer passes with `kSecKeyAlgorithmECDSASignatureMessageX962SHA256`,
@@ -170,7 +176,11 @@ the same live handle without repeating authorization.
 
 `KagemushaWalletV1` exposes typed setup, Load/Send/Receive/refresh/Unload/Retiring,
 retry/status, folding and activity. Request publication durably selects its exact
-original and recorded blacklist decision together. Offer/Request setup bytes are
+original. A signed blacklist is local-only: `installBlacklist(list:certificates:)` stores
+it on the phone (a replacement's version must increase), and Native then refuses to pay a
+listed receiver and to request or accept money from a listed payer with
+`KagemushaWalletErrorV1.blockedStatus` (-15); no proof, wallet state or peer message
+carries it. Offer/Request setup bytes are
 canonical object frames, while peer transports require an Envelope frame. Use
 `envelope(_:original:)` and `original(_:envelope:)` for native, bounded conversion
 with the expected kind and this wallet's scheme; conversion grants no authority.
@@ -344,7 +354,7 @@ keys used by the rails you enable (replace only the human-readable strings):
 <key>NSLocalNetworkUsageDescription</key>
 <string>Exchange a wallet transfer with a nearby device.</string>
 
-<!-- Info.plist: Core NFC reader mode. Keep the AID exact. -->
+<!-- Info.plist: Core NFC reader mode. List your application identifier. -->
 <key>NFCReaderUsageDescription</key>
 <string>Exchange a wallet transfer over NFC.</string>
 <key>com.apple.developer.nfc.readersession.iso7816.select-identifiers</key>
@@ -352,6 +362,33 @@ keys used by the rails you enable (replace only the human-readable strings):
     <string>F0504B45504B524E464301</string>
 </array>
 ```
+
+NFC selects each app's card by the ISO/IEC 7816-4 application identifier the app
+registered with Apple (and in its Android `HostApduService` aid-filter); both phones
+of an exchange use the same one. Pass it as
+`IrohaPeerNfcCoreNFCConfigurationV1(applicationIdentifier:)`
+(`IrohaPeerNfcApplicationIdentifierV1(hex:)`) and list it in the reader's
+`select-identifiers` and the HCE `select-identifier-prefixes` below. Apps without
+their own registration use the protocol identifier `F0504B45504B524E464301`
+(`IrohaPeerNfcApplicationIdentifierV1.protocolDefault`), as shown.
+
+An exchange completes in one continuous hold. On the receiver, `IrohaPeerNfcCardSessionControllerV1.startIntake`
+emulates a card that awaits the payer's Offer and calls `prepareRequest` to sign the
+Request. On the payer, `IrohaPeerNfcReaderServiceV1.run(offer:)` writes the Offer,
+reads the Request, and keeps the same reader session and tag connection open while
+`loadOrCreateDurableCheckpoint` confirms the exact payment with hardware-backed
+authentication and durably stores its `IrohaPeerNfcSenderCheckpointV1`. That same
+hold then delivers the Payment, persists the receiver's Credited acknowledgement,
+and confirms it. The normal flow does not close the reader or ask for another tap.
+If contact is interrupted, `run(restoredCheckpoint:)` resumes the exact retained
+Payment without another debit. A receiver whose card session stops restarts with
+`start(sessionID:receiveRequest:)` and the same session identifier and Request bytes.
+While a receiver finishes saving, the reader retries admission/commit storage-failure
+replies within the same hold, bounded by twelve attempts and the operation deadline.
+The iOS card retains one context-bound durability worker across APDU timeouts;
+replays await that same work. Cancellation or session retirement prevents late
+results from entering another session and retains the shared worker lease until
+the callback actually returns.
 
 Reader builds also need the Near Field Communication Tag Reading capability,
 which produces this entitlement:
@@ -377,6 +414,11 @@ device.
     <string>F0504B45504B524E464301</string>
 </array>
 ```
+
+A Nearby receiver may advertise before it holds a Request:
+`IrohaPeerNearbyDiscoveryContextV1.freshReceiver(profile:)` binds the session to a
+random value, and the Offer, Request, Payment and Credited then all travel inside the
+authenticated session.
 
 #### NoritoBridge policy (SwiftPM)
 

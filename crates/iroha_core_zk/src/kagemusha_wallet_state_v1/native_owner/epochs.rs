@@ -232,7 +232,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         expected_epoch: u64,
         original: &[u8],
     ) -> Result<NativeEpochProgressV1, Error> {
-        let _payment = self.scheduler.payment();
         let genesis = Arc::clone(&self.proofs.genesis);
         self.ingest_epoch_original(&genesis, expected_epoch, original)
     }

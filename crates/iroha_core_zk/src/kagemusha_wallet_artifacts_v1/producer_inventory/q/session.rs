@@ -302,13 +302,14 @@ impl AuthenticatedProducerInventoryV1 {
                     program_index,
                     u32::try_from(index).map_err(|_| Error::Inventory)?,
                 ])?;
-                let (key, seal) = if index == 0 {
+                let offset = usize::from(source.is_some());
+                let (key, seal) = if index < offset {
                     // Every QSigma still passes its typed serialized-foreign,
                     // two-range-bus importer; only the admission origin differs.
                     let bytes = self.read_original(member, originals, config.maximum_bytes)?;
                     let metadata = import_with_admission(
                         index,
-                        &source,
+                        source.as_ref(),
                         &signatures,
                         &bytes,
                         inputs.pallas(),
@@ -323,7 +324,7 @@ impl AuthenticatedProducerInventoryV1 {
                         InstalledSourceSealV1::new(member, seal),
                     )
                 } else {
-                    let plan = signatures.get(index - 1).ok_or(Error::Inventory)?;
+                    let plan = signatures.get(index - offset).ok_or(Error::Inventory)?;
                     signatures_admitted
                         .qualify_with_member(&inputs, member, plan, originals, compiled)?
                 };
@@ -333,7 +334,11 @@ impl AuthenticatedProducerInventoryV1 {
             let qualified = QualifiedQProgramV1 {
                 program: program_index,
                 installation: identity,
-                recipe: QProgramRecipeV1::from_metadata(source.plan().clone(), signatures, keys)?,
+                recipe: QProgramRecipeV1::from_metadata(
+                    source.as_ref().map(|source| source.plan().clone()),
+                    signatures,
+                    keys,
+                )?,
                 seals: seals.into_boxed_slice(),
             };
             observer(QQualificationProgressV1::Completed { program_index });

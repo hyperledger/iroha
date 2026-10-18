@@ -4992,6 +4992,7 @@ dependencies = [
  "p256",
  "rand 0.9.4",
  "rand_core 0.6.4",
+ "rayon",
  "rustix 1.1.4",
  "sha2",
  "tempfile",
@@ -5428,7 +5429,6 @@ dependencies = [
  "iroha_plonk_recursion",
  "iroha_sumeragi",
  "norito",
- "rand_chacha 0.3.1",
  "rayon",
  "rustix 1.1.4",
  "sha2",
@@ -5665,6 +5665,7 @@ dependencies = [
  "iroha_plonk_gadgets",
  "rayon",
  "sha2",
+ "zeroize",
 ]
 
 [[package]]
@@ -6072,6 +6073,7 @@ dependencies = [
  "tokio-tungstenite",
  "tower",
  "tower-http",
+ "tracing-subscriber",
  "tungstenite",
  "url",
  "urlencoding",

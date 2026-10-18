@@ -41,32 +41,32 @@ use super::super::table_assets::{read_u16_le, read_u32_le};
 // reprensentation of y, then the unsigned representation of y can be
 // obtained by computing the Montgomery multiplication of y with 1.
 // Return 0xFFFFFFFF if the top bit of x is 1, 0x00000000 otherwise.
-#[inline(always)]
-pub(crate) const fn tbmask(x: u32) -> u32 {
-    ((x as i32) >> 31) as u32
+#[inline]
+pub const fn tbmask(x: u32) -> u32 {
+    (x.cast_signed() >> 31).cast_unsigned()
 }
 // Given v in the [-(p-1), +(p-1)] range (signed), return x = v mod p.
-#[inline(always)]
-pub(crate) fn mp_set(v: i32, p: u32) -> u32 {
-    let w = v as u32;
+#[inline]
+pub fn mp_set(v: i32, p: u32) -> u32 {
+    let w = v.cast_unsigned();
     w.wrapping_add(p & tbmask(w))
 }
 // Given v in the [0, 2*p-1] range (unsigned), return x = v mod p.
-#[inline(always)]
-pub(crate) fn mp_set_u(v: u32, p: u32) -> u32 {
+#[inline]
+pub fn mp_set_u(v: u32, p: u32) -> u32 {
     let w = v.wrapping_sub(p);
     w.wrapping_add(p & tbmask(w))
 }
 // Given x (integer modulo p), return its signed normalized value
 // (in [-p/2, +p/2]).
-#[inline(always)]
-pub(crate) fn mp_norm(x: u32, p: u32) -> i32 {
+#[inline]
+pub fn mp_norm(x: u32, p: u32) -> i32 {
     let c = tbmask(x.wrapping_sub((p + 1) >> 1));
-    x.wrapping_sub(p & !c) as i32
+    x.wrapping_sub(p & !c).cast_signed()
 }
 // Compute R = 2^32 mod p.
-#[inline(always)]
-pub(crate) fn mp_R(p: u32) -> u32 {
+#[inline]
+pub fn mp_R(p: u32) -> u32 {
     // Since we assume that 1.34*2^30 < p < 2^31, we have:
     //    2*p < 2^32 < 3*p
     // Hence, 2^32 = 2*p + R with 0 <= R < p.
@@ -74,8 +74,8 @@ pub(crate) fn mp_R(p: u32) -> u32 {
     p.wrapping_neg() << 1
 }
 // Compute hR = 2^31 mod p.
-#[inline(always)]
-pub(crate) fn mp_hR(p: u32) -> u32 {
+#[inline]
+pub fn mp_hR(p: u32) -> u32 {
     // Since we assume that 1.34*2^30 < p < 2^31, we have:
     //    p < 2^31 < 2*p
     // Hence, 2^31 = p + hR with 0 <= R < p.
@@ -86,8 +86,8 @@ pub(crate) fn mp_hR(p: u32) -> u32 {
 // This function is compatible with Montgomery representation: if a and b
 // are the Montgomery representations of x and y, respectively, then this
 // returns the Montgomery representation of x + y mod p.
-#[inline(always)]
-pub(crate) fn mp_add(a: u32, b: u32, p: u32) -> u32 {
+#[inline]
+pub fn mp_add(a: u32, b: u32, p: u32) -> u32 {
     let d = a.wrapping_add(b).wrapping_sub(p);
     d.wrapping_add(p & tbmask(d))
 }
@@ -95,8 +95,8 @@ pub(crate) fn mp_add(a: u32, b: u32, p: u32) -> u32 {
 // This function is compatible with Montgomery representation: if a and b
 // are the Montgomery representations of x and y, respectively, then this
 // returns the Montgomery representation of x - y mod p.
-#[inline(always)]
-pub(crate) fn mp_sub(a: u32, b: u32, p: u32) -> u32 {
+#[inline]
+pub fn mp_sub(a: u32, b: u32, p: u32) -> u32 {
     let d = a.wrapping_sub(b);
     d.wrapping_add(p & tbmask(d))
 }
@@ -104,23 +104,24 @@ pub(crate) fn mp_sub(a: u32, b: u32, p: u32) -> u32 {
 // This function is compatible with Montgomery representation: if a is the
 // Montgomery representation of x, then this returns the Montgomery
 // representation of x/2 mod p.
-#[inline(always)]
-pub(crate) fn mp_half(a: u32, p: u32) -> u32 {
+#[inline]
+pub fn mp_half(a: u32, p: u32) -> u32 {
     a.wrapping_add(p & (a & 1).wrapping_neg()) >> 1
 }
 // Compute a*b/2^32 mod p; parameter p0i is equal to -1/p mod 2^32.
 // This is the "Montgomery multiplication".
-#[inline(always)]
-pub(crate) fn mp_mmul(a: u32, b: u32, p: u32, p0i: u32) -> u32 {
-    let z = (a as u64) * (b as u64);
-    let w = (z as u32).wrapping_mul(p0i);
-    let d = (((z + (w as u64) * (p as u64)) >> 32) as u32).wrapping_sub(p);
-    d.wrapping_add(p & tbmask(d))
+#[inline]
+pub fn mp_mmul(left: u32, right: u32, modulus: u32, p0i: u32) -> u32 {
+    let product = u64::from(left) * u64::from(right);
+    let correction = read_u32_le(&product.to_le_bytes(), 0).wrapping_mul(p0i);
+    let reduced = (product + u64::from(correction) * u64::from(modulus)) >> 32;
+    let difference = read_u32_le(&reduced.to_le_bytes(), 0).wrapping_sub(modulus);
+    difference.wrapping_add(modulus & tbmask(difference))
 }
 // Compute 2^(31*e) mod p.
 // Exponent e is considered non-secret.
-#[inline(always)]
-pub(crate) fn mp_Rx31(e: u32, p: u32, p0i: u32, R2: u32) -> u32 {
+#[inline]
+pub fn mp_Rx31(e: u32, p: u32, p0i: u32, R2: u32) -> u32 {
     // Set x <- 2^63 mod p
     let mut x = mp_half(R2, p);
     let mut d = 1;
@@ -157,7 +158,7 @@ pub(crate) fn mp_Rx31(e: u32, p: u32, p0i: u32, R2: u32) -> u32 {
 //
 // (The PRIMES table is later on in this file.)
 #[derive(Copy, Clone, Debug)]
-pub(crate) struct SmallPrime {
+pub struct SmallPrime {
     pub(crate) p: u32,   // modulus
     pub(crate) p0i: u32, // -1/p mod 2^32
     pub(crate) R2: u32,  // 2^64 mod p
@@ -167,7 +168,7 @@ pub(crate) struct SmallPrime {
 }
 // The first prime in PRIMES[] has a dedicated name because it is
 // used directly in some functions.
-pub(crate) const P0: SmallPrime = PRIMES[0];
+pub const P0: SmallPrime = PRIMES[0];
 // REV10[] contains the precomputed "bit-reversal" function over 10 bits.
 const MP31_TABLE_BYTES: &[u8; 9_440] = include_bytes!("../assets/kgen_mp31_tables_le_v1.bin");
 const fn decode_rev10(bytes: &[u8; 9_440]) -> [u16; 1024] {
@@ -203,5 +204,105 @@ const fn decode_primes(bytes: &[u8; 9_440]) -> [SmallPrime; 308] {
     }
     table
 }
-pub(crate) const REV10: [u16; 1024] = decode_rev10(MP31_TABLE_BYTES);
-pub(crate) const PRIMES: [SmallPrime; 308] = decode_primes(MP31_TABLE_BYTES);
+pub const REV10: [u16; 1024] = decode_rev10(MP31_TABLE_BYTES);
+pub const PRIMES: [SmallPrime; 308] = decode_primes(MP31_TABLE_BYTES);
+
+#[cfg(test)]
+mod arithmetic_tests {
+    use super::*;
+
+    fn power(mut base: u64, mut exponent: u64, modulus: u64) -> u64 {
+        let mut result = 1;
+        while exponent != 0 {
+            if exponent & 1 != 0 {
+                result = result * base % modulus;
+            }
+            base = base * base % modulus;
+            exponent >>= 1;
+        }
+        result
+    }
+
+    #[test]
+    fn signed_boundaries_and_modular_operations_match_integer_remainders() {
+        for value in [0, 1, 0x7FFF_FFFF, 0x8000_0000, u32::MAX] {
+            assert_eq!(tbmask(value), if value >= 1 << 31 { u32::MAX } else { 0 });
+        }
+        for prime in PRIMES {
+            let modulus = i64::from(prime.p);
+            for value in [
+                1 - modulus,
+                -modulus / 2,
+                -1,
+                0,
+                1,
+                modulus / 2,
+                modulus - 1,
+            ] {
+                let residue = mp_set(i32::try_from(value).expect("signed coefficient"), prime.p);
+                assert_eq!(i64::from(residue), value.rem_euclid(modulus));
+                let expected = if i64::from(residue) > modulus / 2 {
+                    i64::from(residue) - modulus
+                } else {
+                    i64::from(residue)
+                };
+                assert_eq!(i64::from(mp_norm(residue, prime.p)), expected);
+            }
+            for value in [0, 1, modulus - 1, modulus, modulus + 1, 2 * modulus - 1] {
+                assert_eq!(
+                    i64::from(mp_set_u(
+                        u32::try_from(value).expect("unsigned coefficient"),
+                        prime.p
+                    )),
+                    value % modulus
+                );
+            }
+            let values = [0, 1, prime.p / 2, prime.p - 2, prime.p - 1];
+            for left in values {
+                for right in values {
+                    assert_eq!(
+                        i64::from(mp_add(left, right, prime.p)),
+                        (i64::from(left) + i64::from(right)) % modulus
+                    );
+                    assert_eq!(
+                        i64::from(mp_sub(left, right, prime.p)),
+                        (i64::from(left) - i64::from(right)).rem_euclid(modulus)
+                    );
+                }
+                assert_eq!(
+                    i64::from(mp_half(left, prime.p)),
+                    i64::from(left) * ((modulus + 1) / 2) % modulus
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn montgomery_products_and_public_powers_match_independent_modular_arithmetic() {
+        for prime in PRIMES {
+            let modulus = u64::from(prime.p);
+            let radix = (1u64 << 32) % modulus;
+            let inverse_radix = power(radix, modulus - 2, modulus);
+            assert_eq!(u64::from(mp_R(prime.p)), radix);
+            assert_eq!(u64::from(mp_hR(prime.p)), (1u64 << 31) % modulus);
+            assert_eq!(u128::from(prime.R2), (1u128 << 64) % u128::from(modulus));
+            let values = [0, 1, 2, prime.p / 2, prime.p - 2, prime.p - 1, prime.R2];
+            for left in values {
+                for right in values {
+                    let expected =
+                        (u64::from(left) * u64::from(right) % modulus) * inverse_radix % modulus;
+                    assert_eq!(
+                        u64::from(mp_mmul(left, right, prime.p, prime.p0i)),
+                        expected
+                    );
+                }
+            }
+            for exponent in [0, 1, 2, 3, 31, 32, 63, 1024, u32::MAX] {
+                assert_eq!(
+                    u64::from(mp_Rx31(exponent, prime.p, prime.p0i, prime.R2)),
+                    power(2, 31 * u64::from(exponent), modulus)
+                );
+            }
+        }
+    }
+}

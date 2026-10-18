@@ -15,16 +15,15 @@
 //!
 //! # State
 //!
-//! A wallet state is a 33-element core ([`CoreState`], in the G1
+//! A wallet state is a 29-element core ([`CoreState`], in the G1
 //! `KagemushaWalletStateV1::core_field_items` order: lifecycle; scheme id,
 //! asset digest and `wallet_id` (two limbs each), credential digest (one field);
 //! balance, `burned_total`, sequence, `next_send`, `next_load`,
 //! `next_redeem`; both chains; the consumed-credit, pending-outgoing,
 //! load/redeem-recovery, fee-claim and quota-usage roots; the
 //! enabled-controls mask; the quota-windows root and quota-share expiry;
-//! the blacklist version, root, issue time and maximum age; the maximum
-//! accepted response span; the lease expiry; the policy epoch; the
-//! accepted-time floor; the state nonce) and an 8-element rest
+//! the maximum accepted response span; the lease expiry; the policy epoch;
+//! the accepted-time floor; the state nonce) and a 6-element rest
 //! ([`StateRest`]) that no step relation opens. The commitment is one `Fp`
 //! value `P(kgwcore1, core || P(kgwrest1, rest))` (owner answer Q10).
 //!
@@ -32,11 +31,11 @@
 //!
 //! A [`SigmaRelation`] is a step and the enabled-controls mask its
 //! verifying key is selected by (the G1 selector `(operation tag, mask)`,
-//! owner answer Q11; Receive by the Request's recorded blacklist version). Both steps open
+//! owner answer Q11; Receive has one relation). Both steps open
 //! the predecessor commitment, require the lifecycle to be Active or
 //! Retiring (carried unchanged: a Retiring wallet keeps sending and
 //! receiving, spec section 6.3), a nonzero `u128` amount and `sequence + 1 <
-//! 2^128`, hash the 26-element Request body into `credit_id = P(kgwcrdt1,
+//! 2^128`, hash the 24-element Request body into `credit_id = P(kgwcrdt1,
 //! body)` (one element, owner answers Q1 and A5: both wallets and both
 //! account digests are in the preimage), require distinct payer and
 //! receiver wallets, append one chain and commit the successor with a fresh
@@ -57,12 +56,6 @@
 //!   `send_chain' = P(kgwschn1, [send_chain, credit_id, receiver (2),
 //!   ordinal, amount, fee, request digest])`. Each control in its mask
 //!   is enforced against the head-committed fields ([`crate::controls`]):
-//!   - blacklist: while a list is held (`blacklist_version != 0`), the
-//!     Request's receiver account digest is absent from the list (a gap
-//!     opening against `blacklist_root`), and under an age rule
-//!     (`blacklist_max_age_ms != 0`) `blacklist_issued_at_ms <= upper <=
-//!     blacklist_issued_at_ms + blacklist_max_age_ms` (the native G1
-//!     `check_send_blacklist` rules);
 //!   - quotas: every touched window of the committed quota-window tree is
 //!     charged `amount + fee` within its limit, every defined kind is
 //!     touched, `upper < quota_share_expires_at_ms`, and the interval span
@@ -76,11 +69,10 @@
 //!   renewal stays receivable after it; the `payment_key` match is the
 //!   native Payment check and `Λ_recv`'s). `recv_chain' = P(kgwrchn1,
 //!   [recv_chain, credit_id, payer (2), amount])`, and the successor's
-//!   consumed-credit root is a carried witness. Its relation is selected by
-//!   the Request's recorded blacklist version: version zero selects no
-//!   list, otherwise the Request's payer account digest must be absent
-//!   from the Request's recorded root (B6). Current list changes do not
-//!   invalidate an already issued Request.
+//!   consumed-credit root is a carried witness.
+//!
+//! A wallet's blacklist is local only (owner decision 2026-10-17): it blocks
+//! listed counterparties natively and no step relation reads it.
 //!
 //! Map roots that a step does not touch are copied; the consumed-credit,
 //! pending-outgoing and fee-claim roots a step updates are carried
@@ -106,21 +98,16 @@ use iroha_plonk_gadgets::statement::{
     STATEMENT_VERSION, StatementV1, StepRelation, canonical_field, digest_fields,
 };
 
-use crate::{
-    controls::{
-        ControlViolation, QuotaSend, QuotaWitness, blacklist_holds, evaluate_quota, lease_holds,
-    },
-    tree::BlacklistGap,
-};
+use crate::controls::{ControlViolation, QuotaSend, QuotaWitness, evaluate_quota, lease_holds};
 
 /// Core elements: every field a step relation reads, changes or carries.
-pub const CORE_FIELDS: usize = 33;
+pub const CORE_FIELDS: usize = 29;
 /// Rest elements: the fields only the lineage relation opens.
-pub const REST_FIELDS: usize = 8;
+pub const REST_FIELDS: usize = 6;
 /// Inputs of the state commitment: the core and the rest digest.
 pub const COMMITMENT_ARITY: usize = CORE_FIELDS + 1;
 /// Elements of the Request body (the `credit_id` preimage).
-pub const REQUEST_FIELDS: usize = 26;
+pub const REQUEST_FIELDS: usize = 24;
 /// Inputs of a `send_chain` append: the chain and the 7 descriptor elements.
 pub const SEND_CHAIN_FIELDS: usize = 8;
 /// Inputs of a `recv_chain` append: the chain and 4 descriptor elements.
@@ -150,18 +137,13 @@ pub const SEND_CHAIN_DOMAIN: u64 = u64::from_le_bytes(*b"kgwschn1");
 /// `KAGEMUSHA_WALLET_RECV_CHAIN_DOMAIN_V1`).
 pub const RECEIVE_CHAIN_DOMAIN: u64 = u64::from_le_bytes(*b"kgwrchn1");
 
-/// Recipient blacklist control bit (G1 `KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1`).
-pub const CONTROL_BLACKLIST: u32 = 1 << 0;
 /// Sending quota control bit (G1 `KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1`).
-pub const CONTROL_QUOTAS: u32 = 1 << 1;
+pub const CONTROL_QUOTAS: u32 = 1 << 0;
 /// Attestation lease control bit (G1
 /// `KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1`).
-pub const CONTROL_ATTESTATION_LEASE: u32 = 1 << 2;
+pub const CONTROL_ATTESTATION_LEASE: u32 = 1 << 1;
 /// Every defined control bit: the masks a `sigma_send` relation may enforce.
-pub const CONTROLS_DEFINED: u32 = CONTROL_BLACKLIST | CONTROL_QUOTAS | CONTROL_ATTESTATION_LEASE;
-/// The allowed control bits of a `sigma_recv` relation (B6 maps a nonzero
-/// Request blacklist version to the blacklist bit).
-pub const RECEIVE_CONTROLS: u32 = CONTROL_BLACKLIST;
+pub const CONTROLS_DEFINED: u32 = CONTROL_QUOTAS | CONTROL_ATTESTATION_LEASE;
 
 const _: () = assert!(SEND_EFFECT_FIELDS <= EFFECT_UNION_FIELDS);
 const _: () = assert!(RECEIVE_EFFECT_FIELDS <= EFFECT_UNION_FIELDS);
@@ -211,31 +193,23 @@ pub mod core_index {
     pub const QUOTA_WINDOWS_ROOT: usize = 22;
     /// The `quota_share_expiry` core field.
     pub const QUOTA_SHARE_EXPIRY: usize = 23;
-    /// The `blacklist_version` core field.
-    pub const BLACKLIST_VERSION: usize = 24;
-    /// The `blacklist_root` core field.
-    pub const BLACKLIST_ROOT: usize = 25;
-    /// The `blacklist_issued_at` core field.
-    pub const BLACKLIST_ISSUED_AT: usize = 26;
-    /// The `blacklist_max_age` core field.
-    pub const BLACKLIST_MAX_AGE: usize = 27;
     /// The `time_anchor_max_response` core field.
-    pub const TIME_ANCHOR_MAX_RESPONSE: usize = 28;
+    pub const TIME_ANCHOR_MAX_RESPONSE: usize = 24;
     /// The `lease_expiry` core field.
-    pub const LEASE_EXPIRY: usize = 29;
+    pub const LEASE_EXPIRY: usize = 25;
     /// The `policy_epoch` core field.
-    pub const POLICY_EPOCH: usize = 30;
+    pub const POLICY_EPOCH: usize = 26;
     /// The `time_floor` core field.
-    pub const TIME_FLOOR: usize = 31;
+    pub const TIME_FLOOR: usize = 27;
     /// The `state_nonce` core field.
-    pub const STATE_NONCE: usize = 32;
+    pub const STATE_NONCE: usize = 28;
 }
 
 /// A step relation and the enabled-controls mask it enforces: the G1
 /// verifying-key selector `(operation tag, mask)` (owner answer Q11).
 ///
-/// `sigma_send` has one relation per mask; `sigma_recv` one without and one
-/// with the blacklist bit (B6 selects Receive by Request recorded version).
+/// `sigma_send` has one relation per mask; `sigma_recv` has one relation, with
+/// the empty mask.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SigmaRelation {
     step: StepRelation,
@@ -245,24 +219,17 @@ pub struct SigmaRelation {
 impl SigmaRelation {
     /// `sigma_send` with every control off.
     pub const SEND: Self = Self::send(0);
-    /// `sigma_recv` without the blacklist bit.
-    pub const RECEIVE: Self = Self::receive(0);
+    /// `sigma_recv`.
+    pub const RECEIVE: Self = Self {
+        step: StepRelation::Receive,
+        enabled_controls: 0,
+    };
 
     /// `sigma_send` enforcing `enabled_controls`.
     #[must_use]
     pub const fn send(enabled_controls: u32) -> Self {
         Self {
             step: StepRelation::Send,
-            enabled_controls,
-        }
-    }
-
-    /// `sigma_recv` for the derived Request selector (the blacklist bit or
-    /// zero, selected from its recorded version).
-    #[must_use]
-    pub const fn receive(enabled_controls: u32) -> Self {
-        Self {
-            step: StepRelation::Receive,
             enabled_controls,
         }
     }
@@ -282,8 +249,7 @@ impl SigmaRelation {
         self.step
     }
 
-    /// The enabled-controls mask the relation enforces (for Receive, the
-    /// blacklist bit or zero).
+    /// The enabled-controls mask the relation enforces (zero for Receive).
     #[must_use]
     pub const fn enabled_controls(self) -> u32 {
         self.enabled_controls
@@ -302,13 +268,12 @@ impl SigmaRelation {
     }
 
     /// Whether the relation is defined: `sigma_send` with defined control
-    /// bits ([`CONTROLS_DEFINED`]), `sigma_recv` with the blacklist bit or
-    /// none ([`RECEIVE_CONTROLS`]).
+    /// bits ([`CONTROLS_DEFINED`]), `sigma_recv` with the empty mask.
     #[must_use]
     pub const fn is_supported(self) -> bool {
         let defined = match self.step {
             StepRelation::Send => CONTROLS_DEFINED,
-            StepRelation::Receive => RECEIVE_CONTROLS,
+            StepRelation::Receive => 0,
         };
         self.enabled_controls & !defined == 0
     }
@@ -362,19 +327,11 @@ pub struct Controls<F> {
     pub quota_share_expires_at_ms: u64,
     /// Maximum time-anchor response and Send interval width.
     pub time_anchor_max_response_ms: u64,
-    /// The held blacklist version (zero: none held).
-    pub blacklist_version: u64,
-    /// The held blacklist gap-tree root.
-    pub blacklist_root: F,
-    /// The held blacklist issue time in Unix milliseconds.
-    pub blacklist_issued_at_ms: u64,
-    /// The regulatory policy's maximum blacklist age (zero: no age rule).
-    pub blacklist_max_age_ms: u64,
     /// The attestation lease expiry.
     pub lease_expires_at_ms: u64,
 }
 
-/// The 32 core elements.
+/// The core elements.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CoreState<F> {
     /// The lifecycle tag ([`LIFECYCLE_ACTIVE`] or [`LIFECYCLE_RETIRING`]).
@@ -443,10 +400,6 @@ impl<F: PoseidonField> CoreState<F> {
             F::from(u64::from(controls.enabled)),
             controls.quota_windows_root,
             F::from(controls.quota_share_expires_at_ms),
-            F::from(controls.blacklist_version),
-            controls.blacklist_root,
-            F::from(controls.blacklist_issued_at_ms),
-            F::from(controls.blacklist_max_age_ms),
             F::from(controls.time_anchor_max_response_ms),
             F::from(controls.lease_expires_at_ms),
             F::from(self.policy_epoch),
@@ -456,7 +409,7 @@ impl<F: PoseidonField> CoreState<F> {
     }
 }
 
-/// The eight rest elements (opaque to the step relations; the lineage relation
+/// The six rest elements (opaque to the step relations; the lineage relation
 /// opens them).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StateRest {
@@ -466,16 +419,12 @@ pub struct StateRest {
     pub scheme_policy: [u8; 32],
     /// The fee schedule the held scheme policy names.
     pub fee_schedule: [u8; 32],
-    /// Digest of the held blacklist.
-    pub blacklist: [u8; 32],
     /// Digest of the held quota share.
     pub quota_share: [u8; 32],
     /// Identity of the held quota share.
     pub quota_share_id: u64,
     /// Digest of the committed time anchor.
     pub time_anchor: [u8; 32],
-    /// Root of the wallet's committed blacklist history.
-    pub blacklist_history_root: [u8; 32],
 }
 
 impl StateRest {
@@ -486,11 +435,9 @@ impl StateRest {
             F::from(u64::from(self.permitted_controls)),
             field_value(&self.scheme_policy),
             field_value(&self.fee_schedule),
-            field_value(&self.blacklist),
             field_value(&self.quota_share),
             F::from(self.quota_share_id),
             field_value(&self.time_anchor),
-            field_value(&self.blacklist_history_root),
         ]
     }
 
@@ -541,17 +488,13 @@ pub struct RequestTerms {
     /// The receiver's authenticated accepted time (G1
     /// `receiver_accepted_time_ms`).
     pub request_time: u64,
-    /// Receiver blacklist version recorded at Request issuance (zero: no list).
-    pub receiver_blacklist_version: u64,
-    /// Receiver blacklist root recorded at Request issuance.
-    pub receiver_blacklist_root: [u8; 32],
     /// The certificate-set digest.
     pub certificates: [u8; 32],
     /// The fresh Request nonce.
     pub nonce: [u8; 32],
 }
 
-/// The canonical 26-element Request body (spec section 5.1; G1
+/// The canonical 24-element Request body (spec section 5.1; G1
 /// `KagemushaWalletRequestBodyV1::field_items`): the `credit_id` preimage,
 /// as both wallets and every consumer hold it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -585,7 +528,6 @@ impl RequestBody {
             self.terms.fee_schedule,
             self.terms.scheme_policy,
             self.terms.certificates,
-            self.terms.receiver_blacklist_root,
         ]
         .iter()
         .all(|bytes| canonical_field::<F>(bytes).is_some())
@@ -629,8 +571,6 @@ impl RequestBody {
             F::from(terms.policy_epoch),
             policy,
             F::from(terms.request_time),
-            F::from(terms.receiver_blacklist_version),
-            field_value(&terms.receiver_blacklist_root),
             certificates,
             nonce_lo,
             nonce_hi,
@@ -686,9 +626,6 @@ pub struct SendInputs<F> {
     /// The successor's fee-claim recovery root (checked natively at Advance
     /// and by the lineage relation).
     pub successor_fee_claim: F,
-    /// The gap opening of the receiver's account in the payer's committed
-    /// blacklist (read only with the blacklist control and a held list).
-    pub blacklist: BlacklistGap<F>,
     /// The quota witness (read only with the quota control).
     pub quota: Box<QuotaWitness<F>>,
 }
@@ -715,9 +652,6 @@ pub struct ReceiveInputs<F> {
     /// `credit_id` inserted; checked natively at Advance and by the lineage
     /// relation).
     pub successor_consumed_credit: F,
-    /// The gap opening of the payer's account in the receiver's blacklist
-    /// recorded in the Request (read by the relation with the blacklist bit).
-    pub blacklist: BlacklistGap<F>,
 }
 
 /// The step-specific inputs.
@@ -776,14 +710,11 @@ pub enum Violation {
     WrongStep,
     /// A Poseidon digest has a noncanonical field encoding.
     NoncanonicalDigest,
-    /// The Request list version and root disagree about absence.
-    RequestBlacklist,
     /// The Send reaches or exceeds the quota-share expiry.
     QuotaShareExpired,
     /// The Send interval exceeds the committed response bound.
     SendSpan,
-    /// The relation enables an undefined control (or Receive a bit other
-    /// than the blacklist bit).
+    /// The relation enables an undefined control (or Receive any bit).
     UnsupportedRelation,
     /// The predecessor lifecycle is neither Active nor Retiring.
     Lifecycle,
@@ -794,8 +725,7 @@ pub enum Violation {
     /// The payer and receiver wallets are equal.
     SelfPayment,
     /// `sigma_send`: the core's enabled-controls mask is not the relation's;
-    /// `sigma_recv`: the Request's recorded blacklist version selects another relation, or
-    /// the mask has an undefined bit.
+    /// `sigma_recv`: the core's mask has an undefined bit.
     ControlsMismatch,
     /// `sigma_send`: `amount + fee` reaches `2^128`.
     DebitOverflow,
@@ -814,13 +744,6 @@ pub enum Violation {
     AcceptedTimeBelowRequest,
     /// `sigma_send`: the accepted upper time is below the lower time.
     AcceptedWindowInverted,
-    /// `sigma_send` with the blacklist control: the held list is older than
-    /// the maximum age at the accepted upper time, or issued after it.
-    BlacklistTooOld,
-    /// The blacklist control with a held list: the gap opening does not
-    /// prove the counterparty's account absent from the committed list (the
-    /// receiver's for `sigma_send`, the payer's for `sigma_recv`).
-    BlacklistListed,
     /// `sigma_send` with the lease control: the accepted upper time reached
     /// the lease expiry.
     LeaseExpired,
@@ -846,7 +769,6 @@ pub enum Violation {
 impl From<ControlViolation> for Violation {
     fn from(violation: ControlViolation) -> Self {
         match violation {
-            ControlViolation::BlacklistListed => Self::BlacklistListed,
             ControlViolation::LeaseExpired => Self::LeaseExpired,
             ControlViolation::QuotaWindowOpening => Self::QuotaWindowOpening,
             ControlViolation::QuotaWindowSkipped => Self::QuotaWindowSkipped,
@@ -924,17 +846,6 @@ impl<F: Copy> NativeStep<F> {
     }
 }
 
-/// Whether the maximum-age rule rejects a held blacklist at `upper` (the
-/// native G1 `check_blacklist` age check: underflow or an age above the
-/// maximum).
-fn blacklist_too_old(controls: &Controls<impl Sized>, upper: u64) -> bool {
-    controls.blacklist_version != 0
-        && controls.blacklist_max_age_ms != 0
-        && upper
-            .checked_sub(controls.blacklist_issued_at_ms)
-            .is_none_or(|age| age > controls.blacklist_max_age_ms)
-}
-
 /// The relation rules `witness` breaks under `relation`, with the quota
 /// rule's outcome (`quota`, for a relation with the quota control).
 fn violations<F: PoseidonField>(
@@ -946,10 +857,6 @@ fn violations<F: PoseidonField>(
     let mut found = Vec::new();
     if !witness.canonical_digests() {
         found.push(Violation::NoncanonicalDigest);
-    }
-    let terms = witness.inputs.terms();
-    if (terms.receiver_blacklist_version == 0) != (terms.receiver_blacklist_root == [0; 32]) {
-        found.push(Violation::RequestBlacklist);
     }
     if witness.inputs.relation() != relation.step() {
         found.push(Violation::WrongStep);
@@ -1006,19 +913,6 @@ fn violations<F: PoseidonField>(
                 found.push(Violation::AcceptedWindowInverted);
             }
             let controls = &core.controls;
-            if relation.enforces(CONTROL_BLACKLIST) {
-                if blacklist_too_old(controls, send.accepted_upper) {
-                    found.push(Violation::BlacklistTooOld);
-                }
-                if !blacklist_holds(
-                    controls.blacklist_version,
-                    &controls.blacklist_root,
-                    &send.blacklist,
-                    &send.receiver_account_digest,
-                ) {
-                    found.push(Violation::BlacklistListed);
-                }
-            }
             if relation.enforces(CONTROL_ATTESTATION_LEASE)
                 && !lease_holds(send.accepted_upper, controls.lease_expires_at_ms)
             {
@@ -1044,25 +938,11 @@ fn violations<F: PoseidonField>(
             );
         }
         StepInputs::Receive(receive) => {
-            let controls = &core.controls;
-            if controls.enabled & !CONTROLS_DEFINED != 0
-                || u32::from(receive.request.receiver_blacklist_version != 0)
-                    != relation.enabled_controls()
-            {
+            if core.controls.enabled & !CONTROLS_DEFINED != 0 {
                 found.push(Violation::ControlsMismatch);
             }
             if core.balance.checked_add(receive.request.amount).is_none() {
                 found.push(Violation::BalanceOverflow);
-            }
-            if relation.enforces(CONTROL_BLACKLIST)
-                && !blacklist_holds(
-                    receive.request.receiver_blacklist_version,
-                    &field_value::<F>(&receive.request.receiver_blacklist_root),
-                    &receive.blacklist,
-                    &receive.payer_account_digest,
-                )
-            {
-                found.push(Violation::BlacklistListed);
             }
         }
     }
@@ -1086,10 +966,8 @@ impl<F: PoseidonField> StepWitness<F> {
             self.predecessor.core.identity.credential_digest,
             rest.scheme_policy,
             rest.fee_schedule,
-            rest.blacklist,
             rest.quota_share,
             rest.time_anchor,
-            rest.blacklist_history_root,
         ];
         common
             .iter()
@@ -1383,30 +1261,27 @@ mod tests {
         assert_eq!(CREDIT_DOMAIN.to_le_bytes(), *b"kgwcrdt1");
         assert_eq!(SEND_CHAIN_DOMAIN.to_le_bytes(), *b"kgwschn1");
         assert_eq!(RECEIVE_CHAIN_DOMAIN.to_le_bytes(), *b"kgwrchn1");
-        assert_eq!(COMMITMENT_ARITY, 34);
+        assert_eq!(COMMITMENT_ARITY, 30);
+        assert_eq!(CONTROL_QUOTAS, 1);
+        assert_eq!(CONTROL_ATTESTATION_LEASE, 2);
         assert_eq!(SigmaRelation::SEND.selector(), (3, 0));
-        assert_eq!(SigmaRelation::send(CONTROL_BLACKLIST).selector(), (3, 1));
-        assert_eq!(SigmaRelation::send(CONTROLS_DEFINED).selector(), (3, 7));
+        assert_eq!(SigmaRelation::send(CONTROL_QUOTAS).selector(), (3, 1));
+        assert_eq!(SigmaRelation::send(CONTROLS_DEFINED).selector(), (3, 3));
         assert_eq!(SigmaRelation::RECEIVE.selector(), (4, 0));
-        assert_eq!(SigmaRelation::receive(CONTROL_BLACKLIST).selector(), (4, 1));
         assert_eq!(
             SigmaRelation::of(StepRelation::Receive),
             SigmaRelation::RECEIVE
         );
-        assert!(SigmaRelation::send(CONTROL_BLACKLIST).enforces(CONTROL_BLACKLIST));
-        assert!(!SigmaRelation::SEND.enforces(CONTROL_BLACKLIST));
+        assert!(SigmaRelation::send(CONTROL_QUOTAS).enforces(CONTROL_QUOTAS));
+        assert!(!SigmaRelation::SEND.enforces(CONTROL_QUOTAS));
         assert!(!SigmaRelation::SEND.enforces(0));
         for mask in 0..=CONTROLS_DEFINED {
             assert!(SigmaRelation::send(mask).is_supported(), "{mask}");
         }
-        assert!(SigmaRelation::receive(CONTROL_BLACKLIST).is_supported());
-        assert!(!SigmaRelation::send(8).is_supported());
-        for mask in [CONTROL_QUOTAS, CONTROL_ATTESTATION_LEASE, CONTROLS_DEFINED] {
-            assert!(!SigmaRelation::receive(mask).is_supported(), "{mask}");
-        }
+        assert!(SigmaRelation::RECEIVE.is_supported());
+        assert!(!SigmaRelation::send(4).is_supported());
         assert_eq!(SigmaRelation::send(1).label(), "send_m1");
         assert_eq!(SigmaRelation::RECEIVE.label(), "recv_m0");
-        assert_eq!(SigmaRelation::receive(1).label(), "recv_m1");
     }
 
     #[test]
@@ -1425,12 +1300,12 @@ mod tests {
             digest_fields::<Fp>(&state.core.identity.asset_digest)
         );
         assert_eq!(
-            core[core_index::BLACKLIST_ISSUED_AT],
-            Fp::from(state.core.controls.blacklist_issued_at_ms)
+            core[core_index::TIME_ANCHOR_MAX_RESPONSE],
+            Fp::from(state.core.controls.time_anchor_max_response_ms)
         );
         assert_eq!(
-            core[core_index::BLACKLIST_MAX_AGE],
-            Fp::from(state.core.controls.blacklist_max_age_ms)
+            core[core_index::LEASE_EXPIRY],
+            Fp::from(state.core.controls.lease_expires_at_ms)
         );
         assert_eq!(
             core[core_index::LOAD_REDEEM_ROOT],
@@ -1443,7 +1318,7 @@ mod tests {
         assert_eq!(core[core_index::STATE_NONCE], state.core.state_nonce);
         let rest = state.rest.fields::<Fp>();
         assert_eq!(rest[0], Fp::from(u64::from(state.rest.permitted_controls)));
-        assert_eq!(rest[5], Fp::from(state.rest.quota_share_id));
+        assert_eq!(rest[4], Fp::from(state.rest.quota_share_id));
         assert_eq!(
             state.commitment(),
             hash_with_domain(
@@ -1500,7 +1375,7 @@ mod tests {
         body.receiver_account[..16].copy_from_slice(&103_u128.to_le_bytes());
         body.receiver_account[16..].copy_from_slice(&104_u128.to_le_bytes());
         let fields = body.fields::<Fp>();
-        assert_eq!(fields.len(), 26);
+        assert_eq!(fields.len(), 24);
         assert_eq!(fields[5..7], digest_fields::<Fp>(&body.payer_wallet));
         assert_eq!(fields[7..9], [Fp::from(101_u64), Fp::from(102_u64)]);
         assert_eq!(fields[9..11], digest_fields::<Fp>(&body.receiver_wallet));
@@ -1564,11 +1439,9 @@ mod tests {
     fn statements_match_the_gadget_encoding_on_both_fields() {
         for relation in [
             SigmaRelation::SEND,
-            SigmaRelation::send(CONTROL_BLACKLIST),
             SigmaRelation::send(CONTROL_ATTESTATION_LEASE),
             SigmaRelation::send(CONTROLS_DEFINED),
             SigmaRelation::RECEIVE,
-            SigmaRelation::receive(CONTROL_BLACKLIST),
         ] {
             statement_matches_gadgets::<Fp>(relation);
             statement_matches_gadgets::<Fq>(relation);
@@ -1658,7 +1531,6 @@ mod tests {
 
     #[test]
     fn mutations_are_reported_as_violations() {
-        let blacklist = SigmaRelation::send(CONTROL_BLACKLIST);
         let cases = [
             (
                 SigmaRelation::SEND,
@@ -1687,16 +1559,6 @@ mod tests {
                 Violation::ControlsMismatch,
             ),
             (
-                blacklist,
-                Mutation::StaleBlacklist,
-                Violation::BlacklistTooOld,
-            ),
-            (
-                blacklist,
-                Mutation::FutureBlacklist,
-                Violation::BlacklistTooOld,
-            ),
-            (
                 SigmaRelation::RECEIVE,
                 Mutation::Overflow,
                 Violation::BalanceOverflow,
@@ -1711,14 +1573,6 @@ mod tests {
             let native = sample_witness::<Fp>(9, relation, mutation).evaluate(relation);
             assert_eq!(native.violations, vec![violation], "{mutation:?}");
             assert!(native.successor_state.is_none());
-        }
-        // Without the blacklist control the age rule is not enforced.
-        for mutation in [Mutation::StaleBlacklist, Mutation::FutureBlacklist] {
-            assert!(
-                sample_witness::<Fp>(9, SigmaRelation::SEND, mutation)
-                    .evaluate(SigmaRelation::SEND)
-                    .is_honest()
-            );
         }
         let mut witness = sample_witness::<Fp>(9, SigmaRelation::SEND, Mutation::None);
         witness.predecessor.core.lifecycle = 3;
@@ -1771,21 +1625,9 @@ mod tests {
 
     #[test]
     fn control_mutations_are_reported_as_violations() {
-        let blacklist = SigmaRelation::send(CONTROL_BLACKLIST);
-        let receive_blacklist = SigmaRelation::receive(CONTROL_BLACKLIST);
         let lease = SigmaRelation::send(CONTROL_ATTESTATION_LEASE);
         let quotas = SigmaRelation::send(CONTROL_QUOTAS);
         let cases = [
-            (
-                blacklist,
-                Mutation::Listed,
-                vec![Violation::BlacklistListed],
-            ),
-            (
-                receive_blacklist,
-                Mutation::Listed,
-                vec![Violation::BlacklistListed],
-            ),
             (lease, Mutation::LeaseExpired, vec![Violation::LeaseExpired]),
             (
                 quotas,
@@ -1798,7 +1640,7 @@ mod tests {
                 vec![Violation::QuotaKindUntouched],
             ),
             (
-                receive_blacklist,
+                SigmaRelation::RECEIVE,
                 Mutation::ControlsMismatch,
                 vec![Violation::ControlsMismatch],
             ),
@@ -1815,8 +1657,6 @@ mod tests {
         }
         // A relation without the control accepts the mutation.
         for (relation, mutation) in [
-            (SigmaRelation::SEND, Mutation::Listed),
-            (SigmaRelation::RECEIVE, Mutation::Listed),
             (SigmaRelation::SEND, Mutation::LeaseExpired),
             (SigmaRelation::SEND, Mutation::QuotaExceeded),
         ] {
@@ -1825,23 +1665,6 @@ mod tests {
                     .evaluate(relation)
                     .is_honest(),
                 "{} {mutation:?}",
-                relation.label()
-            );
-        }
-        // No list held: nothing is refused, under either step.
-        for relation in [blacklist, receive_blacklist] {
-            let mut witness = sample_witness::<Fp>(9, relation, Mutation::Listed);
-            witness.predecessor.core.controls.blacklist_version = 0;
-            let checked_relation = if let StepInputs::Receive(receive) = &mut witness.inputs {
-                receive.request.receiver_blacklist_version = 0;
-                receive.request.receiver_blacklist_root = [0; 32];
-                SigmaRelation::RECEIVE
-            } else {
-                relation
-            };
-            assert!(
-                witness.evaluate(checked_relation).is_honest(),
-                "{}",
                 relation.label()
             );
         }
@@ -1890,32 +1713,5 @@ mod tests {
                 Some(LIFECYCLE_RETIRING)
             );
         }
-    }
-
-    #[test]
-    fn the_blacklist_age_rule_is_the_native_g1_rule() {
-        let controls = |version, issued, max_age| Controls {
-            enabled: CONTROL_BLACKLIST,
-            quota_windows_root: Fp::ZERO,
-            quota_share_expires_at_ms: 0,
-            time_anchor_max_response_ms: 0,
-            blacklist_version: version,
-            blacklist_root: Fp::ONE,
-            blacklist_issued_at_ms: issued,
-            blacklist_max_age_ms: max_age,
-            lease_expires_at_ms: 0,
-        };
-        // Age exactly the maximum, issued at the upper time: accepted.
-        assert!(!blacklist_too_old(&controls(1, 100, 50), 150));
-        assert!(!blacklist_too_old(&controls(1, 150, 50), 150));
-        // One millisecond older, or issued after the upper time: rejected.
-        assert!(blacklist_too_old(&controls(1, 100, 50), 151));
-        assert!(blacklist_too_old(&controls(1, 151, 50), 150));
-        // No list held, or no age rule: not enforced.
-        assert!(!blacklist_too_old(&controls(0, 0, 50), u64::MAX));
-        assert!(!blacklist_too_old(&controls(1, u64::MAX, 0), 0));
-        // The extremes of u64.
-        assert!(!blacklist_too_old(&controls(1, 0, u64::MAX), u64::MAX));
-        assert!(blacklist_too_old(&controls(1, 0, u64::MAX - 1), u64::MAX));
     }
 }

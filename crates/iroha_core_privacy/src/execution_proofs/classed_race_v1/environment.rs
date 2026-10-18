@@ -31,7 +31,10 @@ pub(super) fn laterals(track: ClassedRaceTrackV1) -> [i64; 12] {
     })
 }
 pub(super) fn centers(track: ClassedRaceTrackV1) -> [i64; 12] {
-    std::array::from_fn(|cell| (2 * cell as i64 + 1) * classed_track_length_v1(track) / 24)
+    std::array::from_fn(|cell| {
+        let cell = i64::try_from(cell).expect("twelve track cells fit i64");
+        (2 * cell + 1) * classed_track_length_v1(track) / 24
+    })
 }
 pub(super) fn rain_pattern(track: ClassedRaceTrackV1) -> [i64; 4] {
     match track {
@@ -55,7 +58,8 @@ pub(super) fn weather(track: ClassedRaceTrackV1, tick: u32) -> (i64, i64) {
 }
 pub(super) fn object(track: ClassedRaceTrackV1, progress: i64) -> (i64, i64, i64, i64) {
     let wrapped = progress.rem_euclid(classed_track_length_v1(track));
-    let cell = (wrapped * 12 / classed_track_length_v1(track)) as usize;
+    let cell = usize::try_from(wrapped * 12 / classed_track_length_v1(track))
+        .expect("wrapped track position selects one of twelve cells");
     (
         wrapped,
         centers(track)[cell],
@@ -112,7 +116,10 @@ pub(super) fn impact(
         } else {
             -1_800
         };
-        (pushed.clamp(-9_000, 9_000) as i32, (speed - 600).max(0))
+        (
+            i32::try_from(pushed.clamp(-9_000, 9_000)).expect("clamped lateral position fits i32"),
+            (speed - 600).max(0),
+        )
     } else {
         (lateral, (speed - 260).max(0))
     }
@@ -130,7 +137,7 @@ mod tests {
         ] {
             for cell in 0..12 {
                 let center = centers(track)[cell];
-                let x = laterals(track)[cell] as i32;
+                let x = i32::try_from(laterals(track)[cell]).expect("fixed track lateral fits i32");
                 let kind = kinds(track)[cell];
                 if kind == OIL {
                     continue;
@@ -173,6 +180,59 @@ mod tests {
                 .unwrap();
                 assert_eq!(state.cars[0].lateral_mm, -1800);
                 assert_eq!(state.cars[1].lateral_mm, 1800);
+            }
+        }
+    }
+
+    #[test]
+    fn frozen_centers_and_wrapped_progress_keep_exact_cell_boundaries() {
+        for (track, expected_centers, extreme_positions) in [
+            (
+                ClassedRaceTrackV1::NeonTokyo,
+                [
+                    83_333, 250_000, 416_666, 583_333, 750_000, 916_666, 1_083_333, 1_250_000,
+                    1_416_666, 1_583_333, 1_750_000, 1_916_666,
+                ],
+                [(i64::MIN, 1_224_192, 7), (i64::MAX, 775_807, 4)],
+            ),
+            (
+                ClassedRaceTrackV1::Harbor,
+                [
+                    100_000, 300_000, 500_000, 700_000, 900_000, 1_100_000, 1_300_000, 1_500_000,
+                    1_700_000, 1_900_000, 2_100_000, 2_300_000,
+                ],
+                [(i64::MIN, 424_192, 2), (i64::MAX, 1_975_807, 9)],
+            ),
+            (
+                ClassedRaceTrackV1::Sakura,
+                [
+                    75_000, 225_000, 375_000, 525_000, 675_000, 825_000, 975_000, 1_125_000,
+                    1_275_000, 1_425_000, 1_575_000, 1_725_000,
+                ],
+                [(i64::MIN, 1_024_192, 6), (i64::MAX, 775_807, 5)],
+            ),
+        ] {
+            assert_eq!(centers(track), expected_centers);
+            let length = classed_track_length_v1(track);
+            let positions = [
+                (-length - 1, length - 1, 11),
+                (-length, 0, 0),
+                (-1, length - 1, 11),
+                (0, 0, 0),
+                (length - 1, length - 1, 11),
+                (length, 0, 0),
+                (length + 1, 1, 0),
+            ];
+            for (progress, wrapped, cell) in positions.into_iter().chain(extreme_positions) {
+                assert_eq!(
+                    object(track, progress),
+                    (
+                        wrapped,
+                        expected_centers[cell],
+                        kinds(track)[cell],
+                        laterals(track)[cell]
+                    ),
+                );
             }
         }
     }

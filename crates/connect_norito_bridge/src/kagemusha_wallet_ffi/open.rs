@@ -392,7 +392,7 @@ fn finish_with(
     selected.owners.insert(
         id,
         Arc::new(Owner {
-            background: background::Background::default(),
+            background: background::Background::observing(&scheduler),
             closing: Arc::clone(&owner.closing),
             scheduler,
             wallet: Mutex::new(Some(wallet)),

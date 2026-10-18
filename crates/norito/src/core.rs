@@ -667,6 +667,38 @@ fn charge_atomic_budget(counter: &AtomicU64, amount: u64, limit: u64) -> Result<
         .map(|previous| previous.saturating_add(amount))
         .map_err(|current| current.saturating_add(amount))
 }
+/// Check a nested decode's peak against every active original budget layer.
+///
+/// Returns the absolute peak without advancing the current depth or consuming counters.
+/// JSON can preflight a complete structure while ordinary field guards commit one level.
+pub(crate) fn checked_decode_depth(additional_depth: usize) -> Result<usize, Error> {
+    let depth = DECODE_NESTING_DEPTH
+        .with(Cell::get)
+        .checked_add(additional_depth)
+        .ok_or(Error::NestingDepthExceeded {
+            depth: usize::MAX,
+            limit: usize::MAX,
+            context: "decode budget",
+        })?;
+    budget_scope::with_active(|layers| {
+        for (index, layer) in decode_attempt::layers_in_order(layers) {
+            let relative_depth = depth.saturating_sub(layer.base_depth);
+            if relative_depth > layer.budget.limits.max_nesting_depth() {
+                return Err(decode_attempt::budget_error(
+                    index,
+                    &layer.budget.counters,
+                    Error::NestingDepthExceeded {
+                        depth: relative_depth,
+                        limit: layer.budget.limits.max_nesting_depth(),
+                        context: "decode budget",
+                    },
+                ));
+            }
+        }
+        Ok(())
+    })?;
+    Ok(depth)
+}
 /// Guard representing one nested length-delimited value decode.
 pub(crate) struct DecodeDepthGuard {
     previous_depth: usize,
@@ -675,30 +707,7 @@ pub(crate) struct DecodeDepthGuard {
 impl DecodeDepthGuard {
     pub(crate) fn enter() -> Result<Self, Error> {
         let previous_depth = DECODE_NESTING_DEPTH.with(Cell::get);
-        let depth = previous_depth
-            .checked_add(1)
-            .ok_or(Error::NestingDepthExceeded {
-                depth: usize::MAX,
-                limit: usize::MAX,
-                context: "decode budget",
-            })?;
-        budget_scope::with_active(|layers| {
-            for (index, layer) in decode_attempt::layers_in_order(layers) {
-                let relative_depth = depth.saturating_sub(layer.base_depth);
-                if relative_depth > layer.budget.limits.max_nesting_depth() {
-                    return Err(decode_attempt::budget_error(
-                        index,
-                        &layer.budget.counters,
-                        Error::NestingDepthExceeded {
-                            depth: relative_depth,
-                            limit: layer.budget.limits.max_nesting_depth(),
-                            context: "decode budget",
-                        },
-                    ));
-                }
-            }
-            Ok(())
-        })?;
+        let depth = checked_decode_depth(1)?;
         DECODE_NESTING_DEPTH.with(|slot| slot.set(depth));
         Ok(Self {
             previous_depth,

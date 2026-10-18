@@ -11,33 +11,66 @@ import kotlin.test.assertTrue
 
 class IrohaPeerAndroidPermissionContractV1Test {
     @Test
+    fun `merged manifest keeps alternative peer carrier hardware optional`() {
+        for (name in listOf(
+            "android.hardware.nfc",
+            "android.hardware.nfc.hce",
+            "android.hardware.bluetooth",
+            "android.hardware.bluetooth_le",
+            "android.hardware.wifi",
+            "android.hardware.location",
+            "android.hardware.location.gps",
+            "android.hardware.location.network",
+        )) {
+            val matches = features.filter { it.first == name }
+            assertEquals(1, matches.size, "Merged manifest must declare $name exactly once")
+            assertEquals("false", matches.single().second, "$name must not filter app installation")
+        }
+    }
+
+    @Test
     fun `merged manifest preserves exact wifi permission boundaries`() {
         val accessWifi = permission("android.permission.ACCESS_WIFI_STATE")
         assertEquals(null, accessWifi.minimumSdk)
-        assertEquals(31, accessWifi.maximumSdk)
+        assertEquals(32, accessWifi.maximumSdk)
 
         val changeWifi = permission("android.permission.CHANGE_WIFI_STATE")
         assertEquals(null, changeWifi.minimumSdk)
-        assertEquals(31, changeWifi.maximumSdk)
+        assertEquals(32, changeWifi.maximumSdk)
 
         val nearbyWifi = permission("android.permission.NEARBY_WIFI_DEVICES")
-        assertEquals(32, nearbyWifi.minimumSdk)
+        assertEquals(33, nearbyWifi.minimumSdk)
         assertEquals(null, nearbyWifi.maximumSdk)
         assertEquals("neverForLocation", nearbyWifi.flags)
     }
 
     @Test
-    fun `api 31 and older use legacy wifi while api 32 and newer use nearby wifi`() {
-        for (api in intArrayOf(24, 28, 29, 30, 31)) {
+    fun `api 32 and older use legacy wifi while api 33 and newer use nearby wifi`() {
+        for (api in intArrayOf(24, 28, 29, 30, 31, 32)) {
             assertTrue(permission("android.permission.ACCESS_WIFI_STATE").appliesTo(api))
             assertTrue(permission("android.permission.CHANGE_WIFI_STATE").appliesTo(api))
             assertFalse(permission("android.permission.NEARBY_WIFI_DEVICES").appliesTo(api))
         }
-        for (api in intArrayOf(32, 33, 34, 35, 36, 37)) {
+        for (api in intArrayOf(33, 34, 35, 36, 37)) {
             assertFalse(permission("android.permission.ACCESS_WIFI_STATE").appliesTo(api))
             assertFalse(permission("android.permission.CHANGE_WIFI_STATE").appliesTo(api))
             assertTrue(permission("android.permission.NEARBY_WIFI_DEVICES").appliesTo(api))
         }
+    }
+
+    @Test
+    fun `api 32 retains location and api 33 switches to nearby wifi`() {
+        val coarse = permission("android.permission.ACCESS_COARSE_LOCATION")
+        val fine = permission("android.permission.ACCESS_FINE_LOCATION")
+        assertEquals(32, coarse.maximumSdk)
+        assertEquals(29, fine.minimumSdk)
+        assertEquals(32, fine.maximumSdk)
+        assertTrue(coarse.appliesTo(32))
+        assertTrue(fine.appliesTo(32))
+        assertFalse(coarse.appliesTo(33))
+        assertFalse(fine.appliesTo(33))
+        assertFalse(permission("android.permission.NEARBY_WIFI_DEVICES").appliesTo(32))
+        assertTrue(permission("android.permission.NEARBY_WIFI_DEVICES").appliesTo(33))
     }
 
     private class Permission(
@@ -53,6 +86,7 @@ class IrohaPeerAndroidPermissionContractV1Test {
     companion object {
         private const val ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android"
         private lateinit var permissions: List<Permission>
+        private lateinit var features: List<Pair<String, String>>
 
         @JvmStatic
         @BeforeAll
@@ -67,8 +101,14 @@ class IrohaPeerAndroidPermissionContractV1Test {
                 isExpandEntityReferences = false
                 setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
             }
-            val nodes = factory.newDocumentBuilder().parse(manifest)
-                .getElementsByTagName("uses-permission")
+            val document = factory.newDocumentBuilder().parse(manifest)
+            val featureNodes = document.getElementsByTagName("uses-feature")
+            features = (0 until featureNodes.length).map { index ->
+                val element = featureNodes.item(index) as Element
+                element.getAttributeNS(ANDROID_NAMESPACE, "name") to
+                    element.getAttributeNS(ANDROID_NAMESPACE, "required")
+            }
+            val nodes = document.getElementsByTagName("uses-permission")
             permissions = (0 until nodes.length).map { index ->
                 val element = nodes.item(index) as Element
                 Permission(

@@ -172,3 +172,25 @@ export function canonicalizeDomainIdLabel(value, context = "DomainId label") {
   }
   return canonical;
 }
+
+/**
+ * Canonicalize one fully qualified `domain.dataspace` DomainId literal.
+ *
+ * Both labels use {@link canonicalizeDomainIdLabel}; the result is the native
+ * `DomainId` display form.
+ */
+export function canonicalizeDomainId(value, context = "DomainId") {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new TypeError(`${context} must be a non-empty string`);
+  }
+  if (value.trim() !== value) {
+    throw new TypeError(`${context} must not contain surrounding whitespace`);
+  }
+  const segments = value.split(".");
+  if (segments.length !== 2 || segments.some((segment) => segment.length === 0)) {
+    throw new TypeError(`${context} must use the exact domain.dataspace form`);
+  }
+  return segments
+    .map((segment) => canonicalizeDomainIdLabel(segment, `${context} label`))
+    .join(".");
+}

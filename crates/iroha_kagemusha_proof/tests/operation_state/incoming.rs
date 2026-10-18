@@ -135,7 +135,7 @@ fn incoming_statement_range_boundaries_cannot_alias_or_hide_burn_predicate() {
     for (index, value) in [
         (0, Fp::from(1 << 16)),
         (8, Fp::from(256)),
-        (11, Fp::from(8)),
+        (11, Fp::from(4)),
         (9, Fp::from_u128(1 << 127).double()),
         (20, Fp::from_u128(1 << 127).double()),
         (24, Fp::from_u128(1 << 64)),

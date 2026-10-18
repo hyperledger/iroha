@@ -5,9 +5,8 @@
 //! raw physical rows are non-authorizing: undo alone is not the predecessor.
 //! The optional fourteen-map structural owner shares the same cursor kernel.
 //! The group also retains the actual staged revision pair.
-//! TODO: connect the retained group predecessor descriptors to semantic read-plan
-//! admission and the semantic
-//! materializer before full-State use.
+//! The retained group supplies semantic admission and canonical materializers.
+//! TODO: authenticate complete State and retained history before accelerated restore.
 
 use super::*;
 use iroha_allocation::{ChargedBuffer, ChargedBufferError, OwnedAllocationScope};

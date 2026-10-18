@@ -170,7 +170,7 @@ fn native_aux_cache_late_invalid_column_clears_the_entire_batch() {
 #[test]
 fn native_aux_cache_clears_full_rows_and_terminals_on_drop_error_and_unwind() {
     for mode in 0..3 {
-        let (_, observations) = inspection::observe_v1(|| {
+        let ((), observations) = inspection::observe_v1(|| {
             if mode == 0 {
                 let cache = cache(3, 0);
                 let copy = cache.copy_terminals_v1().unwrap();

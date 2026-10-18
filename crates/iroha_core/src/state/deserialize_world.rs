@@ -8692,8 +8692,10 @@ fn decode_world_fields(
     crate::privacy_state::validate_privacy_persisted_state_v1(
         privacy_consensus_policy.view().get(),
         &privacy_activations.view(),
-        &privacy_pgc_accounts.view(),
-        &privacy_pgc_pool_invariants.view(),
+        crate::privacy_state::PrivacyPgcStateReadV1 {
+            accounts: &privacy_pgc_accounts.view(),
+            pool_invariants: &privacy_pgc_pool_invariants.view(),
+        },
         &privacy_nullifiers.view(),
         &privacy_commitments.view(),
         &privacy_roots.view(),
@@ -8874,6 +8876,8 @@ fn decode_world_fields(
     let global_beacon_pulses = take_required(&mut map, "global_beacon_pulses")?;
     let repo_agreements = take_required(&mut map, "repo_agreements")?;
     let settlement_receipts = take_required(&mut map, "settlement_receipts")?;
+    let bonds = take_required(&mut map, "bonds")?;
+    let bond_entitlements = take_required(&mut map, "bond_entitlements")?;
     let manifest_aliases = take_required(&mut map, "manifest_aliases")?;
     validate_musubi_location_reverse_indices(
         &musubi_archives,
@@ -9144,6 +9148,9 @@ fn decode_world_fields(
         repo_agreements_by_counterparty: Storage::default(),
         repo_agreements_by_custodian: Storage::default(),
         settlement_receipts,
+        bonds,
+        bond_entitlements,
+        bond_vaults: Storage::default(),
         domain_committees,
         domain_endorsement_policies,
         domain_endorsements,
@@ -9635,6 +9642,7 @@ fn parse_world(
             message,
         })?;
     world.rebuild_repo_agreement_indexes();
+    world.rebuild_bond_vault_index();
     world.rebuild_proof_status_index();
     world
         .validate_identifier_claims()
@@ -10010,6 +10018,8 @@ fn build_state(
                 execution_budget.clone(),
             ),
         )),
+        finality_prefix_checkpoints:
+            crate::sumeragi::certified_chain::FinalityPrefixCheckpoints::new(),
         ivm_execution_budget: execution_budget.clone(),
         pipeline_ivm_prepared_cache: PublicationRwLock::try_new(
             PreparedContractCache::with_execution_budget(
@@ -10335,6 +10345,14 @@ pub(in crate::state) fn decode_world_component_for_testing(
 #[cfg(test)]
 pub(in crate::state) fn seeded_musubi_publication_world_for_testing() -> World {
     decode_tests::seeded_musubi_publication_snapshot().0
+}
+
+/// Reuse the signed provider fixture for retained original-source admission controls.
+#[cfg(test)]
+pub(in crate::state) fn seeded_musubi_attested_publication_world_for_testing() -> World {
+    let (mut world, release, archive, _) = decode_tests::seeded_musubi_publication_snapshot();
+    decode_tests::seed_provider_attested_location(&mut world, &release, archive);
+    world
 }
 
 #[cfg(test)]
@@ -10755,9 +10773,7 @@ mod decode_tests {
         validate_musubi_persisted_snapshot(world)?;
         validate_musubi_live_projections(
             world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
     }
@@ -11075,9 +11091,7 @@ mod decode_tests {
         let (world, _, archive_id, _) = seeded_musubi_publication_snapshot();
         validate_musubi_live_projections(
             &world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
         .expect("both retained availability cuts match their SoraFS evidence");
@@ -11097,9 +11111,7 @@ mod decode_tests {
         block.commit();
         let error = validate_musubi_live_projections(
             &world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
         .expect_err("current availability cannot invent an active location");
@@ -11113,9 +11125,7 @@ mod decode_tests {
         block.commit();
         let error = validate_musubi_live_projections(
             &world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
         .expect_err("repairing current availability cannot hide the stale predecessor");
@@ -11142,9 +11152,7 @@ mod decode_tests {
             .insert(orphan.archive_id, orphan);
         let error = validate_musubi_live_projections(
             &world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
         .expect_err("a valid availability row cannot name an absent archive");
@@ -11283,9 +11291,7 @@ mod decode_tests {
         let key = seed_provider_attested_location(&mut world, &release, archive_id);
         validate_musubi_live_projections(
             &world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
         .expect("the attested location is valid on both retained cuts");
@@ -11300,9 +11306,7 @@ mod decode_tests {
         removal.commit();
         let error = validate_musubi_live_projections(
             &world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
         .expect_err("current location must retain its exact attestation");
@@ -11318,9 +11322,7 @@ mod decode_tests {
         repair.commit();
         let error = validate_musubi_live_projections(
             &world,
-            &iroha_allocation::AllocationBudget::new(
-                iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
-            ),
+            world.sccp_committee_generations.allocation_budget(),
         )
         .map_err(expect_completed_restore_rejection)
         .expect_err("repairing current evidence cannot hide a missing predecessor row");

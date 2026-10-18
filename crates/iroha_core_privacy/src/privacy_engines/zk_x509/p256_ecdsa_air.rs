@@ -4,7 +4,7 @@
 //! formulas, public-key curve validation, nonzero checks, and the wallet-only low-s rule. Every
 //! primitive is emitted through [`P256EcdsaCircuitV1`]; a production implementation must bind those
 //! primitives to the arithmetic, reduction, window, equality, and byte-I/O AIRs. The verifier never
-//! calls RustCrypto or the native reference relation.
+//! calls `RustCrypto` or the native reference relation.
 use super::p256_group_air::{
     P256ProjectiveValueV1, P256WindowCircuitV1, constrain_p256_affine_on_curve_v1,
     normalize_p256_nonidentity_v1, p256_two_scalar_linear_combination_v1,
@@ -12,7 +12,7 @@ use super::p256_group_air::{
 use super::p256_window_air::P256WindowScalarV1;
 /// Verifier-fixed signature role.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256EcdsaRoleV1 {
+pub enum P256EcdsaRoleV1 {
     /// Certificate or CRL signature: both mathematically valid s halves are admitted by RFC 5280.
     CertificateOrCrl,
     /// Fresh wallet-ownership signature: low-s is mandatory.
@@ -20,7 +20,7 @@ pub(crate) enum P256EcdsaRoleV1 {
 }
 /// Private values required for one exact ECDSA equation.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) struct P256EcdsaWitnessV1 {
+pub struct P256EcdsaWitnessV1 {
     /// Affine public-key x-coordinate.
     pub(crate) public_key_x_be: [u8; 32],
     /// Affine public-key y-coordinate.
@@ -58,7 +58,7 @@ impl P256EcdsaWitnessV1 {
 }
 /// Assigned values retained for complete cross-chip composition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256EcdsaAssignedV1<S, B> {
+pub struct P256EcdsaAssignedV1<S, B> {
     /// Constrained affine public key `(x : y : 1)`.
     pub(crate) public_key: P256ProjectiveValueV1<B>,
     /// Canonical signature scalar r.
@@ -80,7 +80,7 @@ pub(crate) struct P256EcdsaAssignedV1<S, B> {
 }
 /// Scalar, reduction, and binding primitives required in addition to the
 /// complete base-field/window circuit.
-pub(crate) trait P256EcdsaCircuitV1: P256WindowCircuitV1 {
+pub trait P256EcdsaCircuitV1: P256WindowCircuitV1 {
     /// Handle of one canonical P-256 scalar-field value.
     type Scalar: Copy;
     /// Allocate a private base-field value bound to DER/P-256 byte I/O.
@@ -128,7 +128,7 @@ pub(crate) trait P256EcdsaCircuitV1: P256WindowCircuitV1 {
 /// The relation schedule asks for each value only at its canonical allocation point. Native proving
 /// sources bind concrete witness bytes through [`P256EcdsaCircuitV1`], while verifier-topology
 /// compilers can allocate typed handles without constructing witness-shaped placeholder values.
-pub(crate) trait P256EcdsaInputSourceV1<C: P256EcdsaCircuitV1> {
+pub trait P256EcdsaInputSourceV1<C: P256EcdsaCircuitV1> {
     /// Allocate the affine public-key coordinates.
     fn public_key_v1(&mut self, circuit: &mut C) -> Result<(C::Value, C::Value), C::Error>;
     /// Allocate the canonical signature scalars `(r, s)`.
@@ -163,10 +163,7 @@ impl<C: P256EcdsaCircuitV1> P256EcdsaInputSourceV1<C> for P256EcdsaWitnessInputS
 ///
 /// This is the single canonical relation schedule shared by native witness
 /// compilation and independent verifier-topology compilation.
-pub(crate) fn constrain_p256_ecdsa_from_source_v1<
-    C: P256EcdsaCircuitV1,
-    I: P256EcdsaInputSourceV1<C>,
->(
+pub fn constrain_p256_ecdsa_from_source_v1<C: P256EcdsaCircuitV1, I: P256EcdsaInputSourceV1<C>>(
     circuit: &mut C,
     generator_table: &[P256ProjectiveValueV1<C::Value>; 16],
     role: P256EcdsaRoleV1,
@@ -210,7 +207,7 @@ pub(crate) fn constrain_p256_ecdsa_from_source_v1<
 }
 /// Constrain one complete P-256 ECDSA verification equation from native witness bytes.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn constrain_p256_ecdsa_v1<C: P256EcdsaCircuitV1>(
+pub fn constrain_p256_ecdsa_v1<C: P256EcdsaCircuitV1>(
     circuit: &mut C,
     generator_table: &[P256ProjectiveValueV1<C::Value>; 16],
     role: P256EcdsaRoleV1,

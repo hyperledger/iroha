@@ -39,6 +39,9 @@ pub enum ClassedRaceSimulationErrorV1 {
 }
 
 /// Immutable two-column grid; skin, kit price and per-car tuning cannot alter it.
+///
+/// # Errors
+/// Returns `PlayerCount` unless the grid contains one to eight cars.
 pub fn initial_classed_race_state_v1(
     class_id: ClassedRaceClassV1,
     track: ClassedRaceTrackV1,
@@ -108,6 +111,10 @@ fn terminal(state: &ClassedRaceStateV1) -> bool {
 }
 
 /// Return the canonical batch-aligned termination predicate after validating the state.
+///
+/// # Errors
+/// Returns `PlayerCount` or `StateBounds` when the supplied state is outside
+/// the admitted roster, tick or car-state bounds.
 pub fn classed_race_is_terminal_v1(
     state: &ClassedRaceStateV1,
 ) -> Result<bool, ClassedRaceSimulationErrorV1> {
@@ -123,6 +130,11 @@ fn narrow(value: i64) -> Result<i32, ClassedRaceSimulationErrorV1> {
 ///
 /// The validated public state bounds make every i64 intermediate smaller than 2^27.
 /// Checked addition/conversion and a staged copy additionally make failures atomic.
+///
+/// # Errors
+/// Rejects invalid state, terminal races, nonsequential ticks, mismatched
+/// control counts or reserved control bits. Arithmetic overflow and invalid
+/// successor state also fail; the original state remains unchanged.
 pub fn step_classed_race_v1(
     state: &mut ClassedRaceStateV1,
     frame: &ClassedRaceInputFrameV1,
@@ -262,6 +274,10 @@ pub fn step_classed_race_v1(
 }
 
 /// Apply a unique ascending consensus removal set; preserve earlier finishes and reject repeats.
+///
+/// # Errors
+/// Rejects invalid state or an empty, oversized, unsorted, repeated or
+/// out-of-roster removal set, including slots already removed.
 pub fn apply_classed_race_dnf_v1(
     state: &mut ClassedRaceStateV1,
     slots: &[u8],
@@ -284,6 +300,11 @@ pub fn apply_classed_race_dnf_v1(
 }
 
 /// Replay from the exact grid, rejecting noncanonical events and any tick after termination.
+///
+/// # Errors
+/// Rejects unsupported versions, invalid player counts, excessive duration,
+/// noncanonical frame or removal sequences, and invalid controls. State-bound
+/// and arithmetic failures from individual replay steps are propagated.
 pub fn replay_classed_race_v1(
     replay: &ClassedRaceReplayV1,
 ) -> Result<ClassedRaceStateV1, ClassedRaceSimulationErrorV1> {
@@ -325,6 +346,9 @@ pub fn replay_classed_race_v1(
 }
 
 /// Derive a terminal result; prefixes have display standings but never a payout winner list.
+///
+/// # Errors
+/// Returns `PlayerCount` or `StateBounds` when the supplied state is invalid.
 pub fn classed_race_result_v1(
     state: &ClassedRaceStateV1,
 ) -> Result<ClassedRaceResultV1, ClassedRaceSimulationErrorV1> {

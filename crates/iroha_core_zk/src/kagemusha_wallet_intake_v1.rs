@@ -368,6 +368,35 @@ pub struct AdmittedWalletV1<F: KagemushaWalletFsV1, P> {
     asset_scope_original: Vec<u8>,
 }
 
+// Before selection, E6 is the only durable credential witness. After selection, the
+// reconciled capsule is authoritative for both Pending and Released: Refresh already
+// retained the successor credential in the source-selected custody transaction. A
+// separate indexed renewal file would be a second, unsynchronized publication.
+// `selected` comes only from provider.current_capsule(), never from caller DATA.
+fn bind_source_credential(
+    credential: &KagemushaWalletCredentialV1,
+    credential_original: &[u8],
+    selected: Option<(&KagemushaWalletStateV1, &KagemushaWalletStatementV1)>,
+    enrollment_original: impl FnOnce() -> Result<Option<Vec<u8>>, KagemushaWalletProviderErrorV1>,
+) -> Result<(), Error> {
+    if let Some((state, statement)) = selected {
+        state
+            .validate_for_credential(credential)
+            .map_err(|_| Error::Authority("source credential/state"))?;
+        statement
+            .validate_for_credential(credential)
+            .map_err(|_| Error::Authority("source credential/statement"))?;
+    } else {
+        if credential.body.renewal_sequence != 0 {
+            return Err(Error::Authority("renewal without selected source"));
+        }
+        if enrollment_original()?.as_deref() != Some(credential_original) {
+            return Err(Error::Authority("retained enrollment/credential original"));
+        }
+    }
+    Ok(())
+}
+
 fn source<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1>(
     provider: &mut KagemushaWalletProviderV1<F, P>,
     slot: &KagemushaWalletSlotIdV1,
@@ -399,10 +428,6 @@ fn source<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1>(
             != original_marker
                 .marker_digest()
                 .map_err(|_| Error::Authority("enrollment marker digest"))?
-        || provider
-            .credential(slot, credential.body.renewal_sequence)?
-            .as_deref()
-            != Some(credential_original)
     {
         return Err(Error::Authority("retained enrollment/credential original"));
     }
@@ -417,25 +442,61 @@ fn source<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1>(
             return Err(KagemushaWalletProviderErrorV1::Unavailable(reason).into());
         }
     }
-    if let Some(capsule) = provider.current_capsule(slot)? {
-        capsule
-            .body()
-            .successor_state
-            .validate_for_credential(credential)
-            .map_err(|_| Error::Authority("source credential/state"))?;
-        capsule
-            .body()
-            .statement
-            .validate_for_credential(credential)
-            .map_err(|_| Error::Authority("source credential/statement"))?;
-    } else if credential.body.renewal_sequence != 0 {
-        return Err(Error::Authority("renewal without selected source"));
-    }
+    // A failed or unavailable selected-capsule read must not fall back to E6.
+    let capsule = provider.current_capsule(slot)?;
+    bind_source_credential(
+        credential,
+        credential_original,
+        capsule.as_ref().map(|capsule| {
+            let body = capsule.body();
+            (&body.successor_state, &body.statement)
+        }),
+        || provider.credential(slot, 0),
+    )?;
     let after = provider.status(slot)?;
     if after.marker().map(|r| r.marker_file_digest()) != Some(marker.marker_file_digest()) {
         return Err(Error::SourceChanged);
     }
     Ok(marker)
+}
+
+// Called only after issuer credential, account and asset authentication. A different
+// positive orphan key cannot own that credential; all selected-source checks remain below.
+// Kept crate-visible for provider-custody regression tests of this exact opening path.
+pub(crate) fn select_enrolled_source<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1>(
+    provider: &mut KagemushaWalletProviderV1<F, P>,
+    credential: &KagemushaWalletCredentialV1,
+    credential_original: &[u8],
+    pinned: Option<(KagemushaWalletSlotIdV1, [u8; 32])>,
+) -> Result<(KagemushaWalletSlotIdV1, [u8; 32]), Error> {
+    let mut selected = None;
+    for slot in provider.slots()? {
+        let status = match provider.status(&slot) {
+            Ok(status) => status,
+            Err(error @ KagemushaWalletProviderErrorV1::LostCustody(
+                crate::kagemusha_wallet_advance_v1::KagemushaWalletLostCustodyV1::KeyWithoutMarker,
+            )) if pinned.is_none_or(|(selected, _)| selected != slot) => {
+                if provider.key_only_orphan(&slot)?
+                    .is_some_and(|key| key != credential.body.payment_key)
+                {
+                    continue;
+                }
+                return Err(error.into());
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if status
+            .marker()
+            .is_some_and(|record| record.marker().wallet_id == credential.body.wallet_id)
+        {
+            let marker = source(provider, &slot, credential, credential_original)?;
+            if selected.is_some() {
+                return Err(Error::Ambiguous);
+            }
+            selected = Some((slot, *marker.marker_file_digest()));
+        }
+    }
+    selected.ok_or(Error::NotEnrolled)
 }
 
 impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> PendingWalletOpenV1<F, P> {
@@ -505,21 +566,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> PendingWalletOpenV1<F
             let credential = *authenticated.credential();
             let account = account(account_original, &credential.body.account_digest)?;
             let asset_scope = asset_scope(asset_scope_original, &credential.body.asset_digest)?;
-            let mut selected = None;
-            for slot in provider.slots()? {
-                let status = provider.status(&slot)?;
-                if status
-                    .marker()
-                    .is_some_and(|record| record.marker().wallet_id == credential.body.wallet_id)
-                {
-                    let marker = source(provider, &slot, &credential, credential_original)?;
-                    if selected.is_some() {
-                        return Err(Error::Ambiguous);
-                    }
-                    selected = Some((slot, *marker.marker_file_digest()));
-                }
-            }
-            let (slot, marker_file_digest) = selected.ok_or(Error::NotEnrolled)?;
+            let (slot, marker_file_digest) = select_enrolled_source(
+                provider,
+                &credential,
+                credential_original,
+                intake.selected_source,
+            )?;
             // Once actual source validation succeeds, even a later RNG/platform refusal
             // cannot silently reselect another marker/source on retry.
             pin_selected_source(&mut intake.selected_source, (slot, marker_file_digest))?;

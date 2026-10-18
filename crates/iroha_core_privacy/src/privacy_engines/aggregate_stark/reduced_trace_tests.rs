@@ -127,7 +127,7 @@ fn reduced_trace_codec_authenticates_exact_roots_slices_and_full_deep_payload() 
                 .iter()
                 .map(|query| query.index as usize)
                 .collect::<Vec<_>>();
-            verify_all_merkle_openings_v1(&proof, parameters, DOMAINS, &layout, &indices).unwrap();
+            verify_all_merkle_openings_v1(&proof, parameters, &DOMAINS, &layout, &indices).unwrap();
             let deep = deep_fixture(&layout);
             let encoded = encode_proof_with_deep_v1(&proof, &deep, parameters, &layout).unwrap();
             assert_eq!(
@@ -180,8 +180,10 @@ fn reduced_trace_codec_authenticates_exact_roots_slices_and_full_deep_payload() 
                     changed.queries[0].trace_groups[field - 2].aux_current[0] += 1;
                 }
                 assert!(
-                    verify_all_merkle_openings_v1(&changed, parameters, DOMAINS, &layout, &indices)
-                        .is_err()
+                    verify_all_merkle_openings_v1(
+                        &changed, parameters, &DOMAINS, &layout, &indices
+                    )
+                    .is_err()
                 );
             }
             let mut changed = proof.clone();
@@ -223,7 +225,7 @@ fn trace_layout_is_bound_before_roots_and_joined_scalar_savings_are_exact() {
         absorb_layout_v1(
             &mut transcript,
             parameters,
-            DOMAINS,
+            &DOMAINS,
             b"layout-separation-test",
             layout,
         )
@@ -253,7 +255,7 @@ fn trace_layout_is_bound_before_roots_and_joined_scalar_savings_are_exact() {
         .iter()
         .map(|query| query.index as usize)
         .collect::<Vec<_>>();
-    verify_all_merkle_openings_v1(&proof, parameters, DOMAINS, &current, &indices).unwrap();
+    verify_all_merkle_openings_v1(&proof, parameters, &DOMAINS, &current, &indices).unwrap();
 }
 
 #[test]
@@ -381,14 +383,14 @@ fn complete_oods_fixture_with_supplemental_v1(selected: Option<AggregateSuppleme
         let trees = compositions
             .iter()
             .enumerate()
-            .map(|(lane, values)| composition_tree_v1(DOMAINS, lane, values).unwrap())
+            .map(|(lane, values)| composition_tree_v1(&DOMAINS, lane, values).unwrap())
             .collect::<Vec<_>>();
         let composition_roots = trees
             .iter()
             .map(PrivacyOuterMerkleTreeV1::root)
             .collect::<Vec<_>>();
         let mut rng = StdRng::seed_from_u64(0x44_45_45_50);
-        let masks = build_fri_mask_oracles_v1(parameters, DOMAINS, &layout, &mut rng).unwrap();
+        let masks = build_fri_mask_oracles_v1(parameters, &DOMAINS, &layout, &mut rng).unwrap();
         let fri_mask_roots = masks
             .iter()
             .map(|mask| mask.tree.root())
@@ -397,16 +399,16 @@ fn complete_oods_fixture_with_supplemental_v1(selected: Option<AggregateSuppleme
         absorb_layout_v1(
             &mut transcript,
             parameters,
-            DOMAINS,
+            &DOMAINS,
             b"complete-oods-fixture",
             &layout,
         )
         .unwrap();
-        absorb_base_roots_v1(&mut transcript, DOMAINS, &trace_groups).unwrap();
-        absorb_aux_roots_v1(&mut transcript, DOMAINS, &trace_groups).unwrap();
-        absorb_composition_roots_v1(&mut transcript, parameters, DOMAINS, &composition_roots)
+        absorb_base_roots_v1(&mut transcript, &DOMAINS, &trace_groups).unwrap();
+        absorb_aux_roots_v1(&mut transcript, &DOMAINS, &trace_groups).unwrap();
+        absorb_composition_roots_v1(&mut transcript, parameters, &DOMAINS, &composition_roots)
             .unwrap();
-        absorb_fri_mask_roots_v1(&mut transcript, parameters, DOMAINS, &fri_mask_roots).unwrap();
+        absorb_fri_mask_roots_v1(&mut transcript, parameters, &DOMAINS, &fri_mask_roots).unwrap();
         let point = derive_deep_point_v1(&mut transcript, parameters, &layout).unwrap();
         let deep = AggregateDeepProofV1 {
             trace_groups: vec![AggregateDeepTraceGroupOpeningV1 {
@@ -491,7 +493,7 @@ fn complete_oods_fixture_with_supplemental_v1(selected: Option<AggregateSuppleme
             .map(|(lane, mask)| {
                 build_fri_lane_v1(
                     parameters,
-                    DOMAINS,
+                    &DOMAINS,
                     &layout,
                     lane,
                     if with_supplemental {
@@ -534,7 +536,7 @@ fn complete_oods_fixture_with_supplemental_v1(selected: Option<AggregateSuppleme
                 .unwrap()
             })
             .collect::<Vec<_>>();
-        let indices = query_indices_v1(&transcript, parameters, DOMAINS, &layout).unwrap();
+        let indices = query_indices_v1(&transcript, parameters, &DOMAINS, &layout).unwrap();
         // The materialized current-row assembler is identical for one logical
         // group; the tree already carries the selected layout's leaf marker.
         let queries = indices
@@ -586,16 +588,16 @@ fn complete_oods_fixture_with_supplemental_v1(selected: Option<AggregateSuppleme
         let (betas, terminals) = verify_fri_commitments_v1(
             &proof,
             parameters,
-            DOMAINS,
+            &DOMAINS,
             &layout,
             &mut verifier_transcript,
         )
         .unwrap();
         assert_eq!(
-            query_indices_v1(&verifier_transcript, parameters, DOMAINS, &layout).unwrap(),
+            query_indices_v1(&verifier_transcript, parameters, &DOMAINS, &layout).unwrap(),
             indices
         );
-        verify_all_merkle_openings_v1(&proof, parameters, DOMAINS, &layout, &indices).unwrap();
+        verify_all_merkle_openings_v1(&proof, parameters, &DOMAINS, &layout, &indices).unwrap();
         let verify = |proof: &AggregateStarkProofV1,
                       deep: &AggregateDeepProofV1,
                       betas: &[Vec<E>],

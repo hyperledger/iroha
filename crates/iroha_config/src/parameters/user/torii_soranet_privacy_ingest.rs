@@ -1,4 +1,4 @@
-/// Guard rails for SoraNet privacy ingestion endpoints.
+/// Guard rails for `SoraNet` privacy ingestion endpoints.
 #[derive(Debug, ReadConfig, Clone, norito::JsonDeserialize)]
 pub struct ToriiSoranetPrivacyIngest {
     /// Master enable switch for the `/v1/soranet/privacy/*` endpoints.

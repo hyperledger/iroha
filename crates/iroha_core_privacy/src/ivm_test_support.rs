@@ -1,7 +1,7 @@
 //! Authenticated V1 Unit-call fixtures for native execution-relation tests.
 
 /// Descriptor for a zero-argument function returning one initialized Unit word.
-pub(crate) fn unit_callable(entry_pc: u64) -> ivm::call::EmbeddedCallableV1 {
+pub fn unit_callable(entry_pc: u64) -> ivm::call::EmbeddedCallableV1 {
     ivm::call::EmbeddedCallableV1 {
         entry_pc,
         frame_bytes: 0,
@@ -11,7 +11,7 @@ pub(crate) fn unit_callable(entry_pc: u64) -> ivm::call::EmbeddedCallableV1 {
 }
 
 /// Unit return through the caller-owned result table and protected return address.
-pub(crate) fn unit_return() -> [u8; 16] {
+pub fn unit_return() -> [u8; 16] {
     use ivm::{
         encoding::wide,
         instruction::wide::{arithmetic, control, memory},

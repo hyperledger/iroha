@@ -39,7 +39,7 @@ fn point_v1(
 }
 
 /// Actual CA proof plus explicit synthetic MAIN transcript context for component tests.
-pub(crate) struct CaJointComponentFixtureV1 {
+pub struct CaJointComponentFixtureV1 {
     pub(crate) evidence: (
         ZkX509CaAccumulatorStarkPublicV1,
         ZkX509ShaCallScheduleV1,
@@ -86,7 +86,7 @@ impl CaJointComponentFixtureV1 {
     }
 }
 /// Share one genuine CA Merkle/FRI construction across all hostile component tests.
-pub(crate) fn fixture_v1() -> &'static CaJointComponentFixtureV1 {
+pub fn fixture_v1() -> &'static CaJointComponentFixtureV1 {
     static FIXTURE: std::sync::OnceLock<CaJointComponentFixtureV1> = std::sync::OnceLock::new();
     FIXTURE.get_or_init(|| {
         let (trace, schedule, _, _) = fixture();

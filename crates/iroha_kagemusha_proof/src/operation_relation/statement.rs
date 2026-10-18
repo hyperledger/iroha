@@ -223,7 +223,7 @@ fn validate_header(
     for index in [9, 10, 12] {
         uint.range_check::<128>(region, &fields[index])?;
     }
-    uint.range_check::<3>(region, &fields[11])?;
+    uint.range_check::<2>(region, &fields[11])?;
     if flags.1 {
         uint.glue().assert_nonzero(region, &fields[13])?;
     } else {
@@ -324,9 +324,8 @@ fn effect(
             let kind = match variant {
                 Variant::RefreshCredential => 1,
                 Variant::RefreshSchemePolicy => 2,
-                Variant::RefreshBlacklist => 3,
-                Variant::RefreshQuotaShare => 4,
-                Variant::RefreshTimeAnchor => 5,
+                Variant::RefreshQuotaShare => 3,
+                Variant::RefreshTimeAnchor => 4,
                 _ => return Err(Error::Synthesis),
             };
             GlueChip::assert_constant(region, &e[0], Fp::from(kind))?;
@@ -338,15 +337,15 @@ fn effect(
 }
 
 /// One `RefreshPolicy` statement whose update kind is constrained inside one source.
-/// The five selectors are derived from field17; none is a caller's validity flag.
+/// The four selectors are derived from field17; none is a caller's validity flag.
 #[derive(Clone, Debug)]
 pub struct RefreshStatementCells {
     fields: [Word<Fp>; STATEMENT_FIELDS],
     digest: Word<Fp>,
-    kinds: [Bit<Fp>; 5],
+    kinds: [Bit<Fp>; 4],
 }
 impl RefreshStatementCells {
-    /// Constrain the common header, exactly one kind1..5, effect padding and digest.
+    /// Constrain the common header, exactly one kind1..4, effect padding and digest.
     ///
     /// # Errors
     /// Layout failure; invalid kinds, noncanonical statement fields, nonzero lineage
@@ -360,15 +359,15 @@ impl RefreshStatementCells {
         validate_header(uint, region, (false, false), fields)?;
         GlueChip::assert_constant(region, &fields[16], Fp::from(7))?;
         uint.range_check::<3>(region, &fields[17])?;
-        let mut kinds = Vec::with_capacity(5);
-        for kind in 1_u64..=5 {
+        let mut kinds = Vec::with_capacity(4);
+        for kind in 1_u64..=4 {
             let difference = uint
                 .glue()
                 .add_constant(region, &fields[17], -Fp::from(kind))?;
             kinds.push(uint.glue().is_zero(region, &difference)?);
         }
         // The shared four-column glue accepts at most three input terms.
-        // Sum all five derived bits in two fixed rows without changing the source
+        // Sum all four derived bits in two fixed rows without changing the source
         // shape or permitting a host-selected subset of refresh kinds.
         let first = uint.glue().linear(
             region,
@@ -379,15 +378,7 @@ impl RefreshStatementCells {
             ],
             Fp::ZERO,
         )?;
-        let sum = uint.glue().linear(
-            region,
-            &[
-                (Fp::ONE, &first),
-                (Fp::ONE, kinds[3].word()),
-                (Fp::ONE, kinds[4].word()),
-            ],
-            Fp::ZERO,
-        )?;
+        let sum = uint.glue().add(region, &first, kinds[3].word())?;
         GlueChip::assert_constant(region, &sum, Fp::ONE)?;
         uint.glue().assert_nonzero(region, &fields[18])?;
         uint.range_check::<64>(region, &fields[19])?;
@@ -417,9 +408,9 @@ impl RefreshStatementCells {
         &self.digest
     }
 
-    /// Derived one-hot selectors in Credential, Policy, Blacklist, Share, Anchor order.
+    /// Derived one-hot selectors in Credential, Policy, Share, Anchor order.
     #[must_use]
-    pub const fn kinds(&self) -> &[Bit<Fp>; 5] {
+    pub const fn kinds(&self) -> &[Bit<Fp>; 4] {
         &self.kinds
     }
 

@@ -8,8 +8,6 @@
 use ff::PrimeField;
 use iroha_plonk_gadgets::p256::native::{self, HALF_N, ORDER};
 
-use rand_chacha::rand_core::{CryptoRng, RngCore};
-
 use super::*;
 use crate::q_signature::{SLOT_WORDS, SignatureSlot};
 
@@ -296,66 +294,6 @@ fn load_signature_inverse_binds_digest_slot_order_and_original_signature() {
     ));
 }
 
-// Record the real recovery provider boundary, not the prover's internal
-// ChaCha scalar consumption. Current recovery requests one 32-byte draw.
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum RecoveryEvent {
-    Context([u8; 32]),
-    NextU32(u32),
-    NextU64(u64),
-    Fill(Vec<u8>),
-    TryFill(Vec<u8>),
-}
-type RecoveryLog = std::sync::Arc<std::sync::Mutex<Vec<RecoveryEvent>>>;
-struct RecordedRng {
-    inner: rand_chacha::ChaCha20Rng,
-    log: RecoveryLog,
-}
-impl RngCore for RecordedRng {
-    fn next_u32(&mut self) -> u32 {
-        let value = self.inner.next_u32();
-        self.log.lock().unwrap().push(RecoveryEvent::NextU32(value));
-        value
-    }
-    fn next_u64(&mut self) -> u64 {
-        let value = self.inner.next_u64();
-        self.log.lock().unwrap().push(RecoveryEvent::NextU64(value));
-        value
-    }
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.inner.fill_bytes(dest);
-        self.log
-            .lock()
-            .unwrap()
-            .push(RecoveryEvent::Fill(dest.to_vec()));
-    }
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_chacha::rand_core::Error> {
-        self.inner.try_fill_bytes(dest)?;
-        self.log
-            .lock()
-            .unwrap()
-            .push(RecoveryEvent::TryFill(dest.to_vec()));
-        Ok(())
-    }
-}
-impl CryptoRng for RecordedRng {}
-fn recovery(seed: u8, log: RecoveryLog) -> ProverRandomness<'static> {
-    use rand_chacha::rand_core::SeedableRng as _;
-    ProverRandomness::recovery(move |context: &[u8; 32]| {
-        log.lock().unwrap().push(RecoveryEvent::Context(*context));
-        Ok::<_, std::convert::Infallible>(RecordedRng {
-            inner: rand_chacha::ChaCha20Rng::from_seed([seed; 32]),
-            log,
-        })
-    })
-}
-fn assert_recovery(log: &RecoveryLog) {
-    let events = log.lock().unwrap();
-    assert!(
-        matches!(events.as_slice(), [RecoveryEvent::Context(_), RecoveryEvent::TryFill(bytes)] if bytes.len() == 32)
-    );
-}
-
 #[test]
 #[ignore = "two Load signature profiles: two k16 keygens/imports and four proofs; explicit resource handoff"]
 fn genuine_load_signature_public_inverse_native_proof_parity() {
@@ -451,13 +389,45 @@ fn genuine_load_signature_public_inverse_native_proof_parity() {
         let owner =
             QSignatureProverView::from_source_bound(&plan, &params, metadata.view()).unwrap();
         // Both pre-cut reconstruction/validation paths have now finished.
-        let first_log = RecoveryLog::default();
-        let second_log = RecoveryLog::default();
+        crate::proof_entry_probe::assert_owner_cancellation(
+            |token| {
+                owner.prove(
+                    &witnesses,
+                    ProverRandomness::hedged(),
+                    ProverConfig {
+                        cancellation: Some(token),
+                        ..ProverConfig::default()
+                    },
+                )
+            },
+            super::QSignatureError::is_cancelled,
+        );
+
+        let refused = crate::proof_entry_probe::Guard::new(None);
+        let mut invalid = witnesses.clone();
+        invalid[0].signature[1] = [0; 4];
+        assert!(matches!(
+            owner.prove(
+                &invalid,
+                ProverRandomness::hedged(),
+                ProverConfig::default()
+            ),
+            Err(QSignatureError::Signature)
+        ));
+        assert_eq!(
+            refused.entries(),
+            0,
+            "invalid signature never enters prover"
+        );
+        drop(refused);
+
+        let entries = crate::proof_entry_probe::Guard::new(None);
+
         let started = std::time::Instant::now();
         let first = owner
             .prove(
                 &witnesses,
-                recovery(83, first_log.clone()),
+                ProverRandomness::hedged(),
                 ProverConfig::default(),
             )
             .unwrap();
@@ -466,15 +436,17 @@ fn genuine_load_signature_public_inverse_native_proof_parity() {
         let second = owner
             .prove(
                 &restored,
-                recovery(83, second_log.clone()),
+                ProverRandomness::hedged(),
                 ProverConfig::default(),
             )
             .unwrap();
         let second_prove_ms = started.elapsed().as_millis();
-        assert_eq!(*first_log.lock().unwrap(), *second_log.lock().unwrap());
-        assert_recovery(&first_log);
-        assert_recovery(&second_log);
-        assert_eq!(first.bytes, second.bytes);
+
+        assert_eq!(entries.entries(), 2);
+        assert_ne!(
+            first.bytes, second.bytes,
+            "fresh proofs use independent OS draws"
+        );
         assert_eq!(first.instances, second.instances);
         assert_eq!(frame(&first.instances), public);
         let started = std::time::Instant::now();
@@ -490,6 +462,28 @@ fn genuine_load_signature_public_inverse_native_proof_parity() {
             .unwrap();
         }
         let verify_pair_ms = started.elapsed().as_millis();
+        let retained = first.bytes.clone();
+        for _ in 0..2 {
+            iroha_plonk::verify_full(
+                owner.params(),
+                owner.binding(),
+                owner.verifying_key(),
+                &first.instances,
+                &retained,
+                iroha_pasta::msm::MemoryBudget::DEFAULT,
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            retained, first.bytes,
+            "retained original replay preserves exact bytes"
+        );
+        assert_eq!(
+            entries.entries(),
+            2,
+            "verifier replay never re-enters a producer"
+        );
+
         println!(
             "COMPACT_HOST_Q_SIGNATURE k=16 slots={} original_bytes={} reconstructed_table_bytes={} cold_metadata_admission_ms={} source_bound_reconstruction_ms={} native_prove_and_self_verify_ms={} repeat_native_prove_and_self_verify_ms={} explicit_verify_pair_ms={}",
             plan.slots().len(),

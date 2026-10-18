@@ -128,7 +128,6 @@ impl VerifierConfigurationV1 {
         }
         let regulator = norito::json!({
             "permitted_controls": (policy.regulatory_policy.permitted_controls),
-            "blacklist_max_age_ms": (policy.regulatory_policy.blacklist_max_age_ms),
             "time_anchor_max_response_ms": (policy.regulatory_policy.time_anchor_max_response_ms),
         });
         let mut selected = norito::json!({

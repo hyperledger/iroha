@@ -5115,6 +5115,11 @@ function assertRepoGovernanceSnapshot(governance, label) {
   assert.equal(typeof governance.haircutBps, "number", `${label}.haircutBps must be a number`);
   assert.ok(Number.isFinite(governance.haircutBps), `${label}.haircutBps must be finite`);
   assertNonNegativeInteger(governance.marginFrequencySecs, `${label}.marginFrequencySecs`);
+  assert.equal(
+    typeof governance.allowEarlyRepayment,
+    "boolean",
+    `${label}.allowEarlyRepayment must be a boolean`,
+  );
 }
 
 function assertContractInstanceListResponse(page, expectedNamespace = null) {
