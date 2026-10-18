@@ -35972,7 +35972,11 @@ pub trait StateReadOnly: WorldStateSnapshot {
     fn axt_execution_policy_snapshot(&self) -> Option<AxtPolicySnapshot> {
         None
     }
-    /// Cached snapshot of all account identifiers currently known to the state view.
+    /// Cached canonical-order prefix of the account identifiers known to the state view.
+    ///
+    /// It holds at most
+    /// [`CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS`](crate::smartcontracts::ivm::host::CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS)
+    /// entries: the only consumer, `CREATE_NFTS_FOR_ALL_USERS`, observes no later account.
     fn accounts_snapshot(&self) -> Arc<Vec<AccountId>>;
     /// Resolve the exact canonical `3f+1` committee for a lane/dataspace route
     /// at an explicit consensus height.
@@ -36245,11 +36249,8 @@ macro_rules! impl_state_ro {
             }
             fn accounts_snapshot(&self) -> Arc<Vec<AccountId>> {
                 Arc::clone(self.accounts_snapshot_cache.get_or_init(|| {
-                    Arc::new(
-                        self.world
-                            .accounts_iter()
-                            .map(|entry| entry.id().clone())
-                            .collect(),
+                    crate::smartcontracts::ivm::host::create_nfts_for_all_recipient_snapshot(
+                        &self.world,
                     )
                 }))
             }
@@ -43366,15 +43367,10 @@ impl StateTransaction<'_, '_> {
         self.last_tx_gas_used = self.last_tx_gas_used.saturating_add(gas);
         Ok(())
     }
-    /// Build or fetch the cached snapshot of accounts available for trigger execution.
+    /// Build or fetch the cached bounded account prefix available for trigger execution.
     fn trigger_accounts_snapshot(&mut self) -> Arc<Vec<AccountId>> {
         Arc::clone(self.accounts_snapshot_cache.get_or_init(|| {
-            Arc::new(
-                self.world
-                    .accounts_iter()
-                    .map(|entry| entry.id().clone())
-                    .collect(),
-            )
+            crate::smartcontracts::ivm::host::create_nfts_for_all_recipient_snapshot(&self.world)
         }))
     }
     fn trigger_args_from_event(

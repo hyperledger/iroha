@@ -10,6 +10,7 @@
 mod contract_calls;
 pub(crate) mod contract_event;
 mod native_events;
+mod prepared_verifying_key_memo;
 mod tlv_transport;
 
 use super::cache::PreparedContractCache;
@@ -244,6 +245,28 @@ struct AxtIssuerKeyBinding {
 const PUBLIC_INPUT_GAS_BASE_DEFAULT: u64 = ivm::gas::HOST_BYTE_GAS_BASE;
 const PUBLIC_INPUT_GAS_PER_BYTE_DEFAULT: u64 = ivm::gas::SYSCALL_GAS_PER_BYTE;
 const CREATE_NFTS_ALL_GAS: u64 = ivm::gas::HOST_BYTE_GAS_BASE;
+/// Maximum NFT recipients of one `CREATE_NFTS_FOR_ALL_USERS` call.
+///
+/// Every call walks the host account snapshot from its first entry and stops
+/// after this many recipients, so no call can observe a later account.
+pub(crate) const CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS: usize = 256;
+/// Snapshot the account identifiers `CREATE_NFTS_FOR_ALL_USERS` can observe.
+///
+/// The syscall reads at most [`CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS`] accounts from
+/// the start of the canonical account order. Copying exactly that prefix keeps
+/// host setup independent of the number of accounts in the World while every
+/// call produces the same recipients as a complete snapshot would.
+pub(crate) fn create_nfts_for_all_recipient_snapshot(
+    world: &impl WorldReadOnly,
+) -> Arc<Vec<AccountId>> {
+    Arc::new(
+        world
+            .accounts_iter()
+            .take(CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS)
+            .map(|entry| entry.id().clone())
+            .collect(),
+    )
+}
 const SMARTCONTRACT_DEPTH_GAS: u64 = ivm::gas::HOST_BYTE_GAS_BASE;
 const AXT_GAS_BASE: u64 = ivm::gas::HOST_BYTE_GAS_BASE;
 const AXT_GAS_PER_BYTE: u64 = ivm::gas::SYSCALL_GAS_PER_BYTE;
@@ -636,7 +659,9 @@ pub struct CoreHostImpl<QS> {
     instruction_queue_encoded_bytes: u64,
     instruction_queue_violation: Option<HostOutputBudgetViolation>,
     fastpq_batch_entries: Option<Vec<TransferAssetBatchEntry>>,
-    // Snapshot of accounts available for simple iteration helpers used by samples.
+    // Canonically ordered account ids walked by `CREATE_NFTS_FOR_ALL_USERS`; state
+    // owners supply only the prefix it can observe
+    // (`create_nfts_for_all_recipient_snapshot`).
     accounts_snapshot: Arc<Vec<AccountId>>,
     // Optional owned contract registry snapshot for nested resolution without a live query view.
     bound_contract_records_by_subject:
@@ -685,8 +710,7 @@ pub struct CoreHostImpl<QS> {
     zk_roots: BTreeMap<AssetDefinitionId, ZkRootsSnapshot>,
     zk_elections: BTreeMap<String, (u32, bool, Vec<u128>)>,
     vrf_epoch_seeds: BTreeMap<u64, [u8; 32]>,
-    // Registry snapshot of verifying keys.
-    verifying_keys: BTreeMap<VerifyingKeyId, Arc<VerifyingKeyRecord>>,
+    // Validated verifying-key registry indexed by commitment for proof dispatch.
     prepared_verifying_keys: BTreeMap<[u8; 32], PreparedVerifyingKey>,
     // Registry snapshot of public inputs exposed via SYSCALL_GET_PUBLIC_INPUT.
     public_inputs: BTreeMap<Name, PublicInputRecord>,
@@ -712,10 +736,6 @@ pub struct CoreHostImpl<QS> {
     axt_policy_snapshot: Option<AxtPolicySnapshot>,
     // Issuer keys resolved only from committed Space Directory/UAID state.
     axt_issuer_keys: Arc<BTreeMap<DataSpaceId, AxtIssuerKeyBinding>>,
-    // Authoritative definition policies frozen from WSV for state-free AXT runs.
-    axt_asset_policies: Arc<BTreeMap<AssetDefinitionId, AssetBalancePolicy>>,
-    // Exact live asset-definition incarnations frozen from WSV for state-free AXT runs.
-    axt_asset_incarnations: Arc<BTreeMap<AssetDefinitionId, AxtAssetIncarnationV1>>,
     // Slot for which cached AXT proofs were verified.
     axt_proof_cache_slot: Option<u64>,
     // Cache of per-dataspace proofs validated in the current slot.
@@ -3148,7 +3168,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             zk_roots: BTreeMap::new(),
             zk_elections: BTreeMap::new(),
             vrf_epoch_seeds: BTreeMap::new(),
-            verifying_keys: BTreeMap::new(),
             prepared_verifying_keys: BTreeMap::new(),
             public_inputs: BTreeMap::new(),
             chain_id_bytes: Vec::new(),
@@ -3163,8 +3182,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             zk_last_env_hash_tally: Arc::new(VecDeque::new()),
             axt_policy_snapshot: None,
             axt_issuer_keys: Arc::new(BTreeMap::new()),
-            axt_asset_policies: Arc::new(BTreeMap::new()),
-            axt_asset_incarnations: Arc::new(BTreeMap::new()),
             axt_proof_cache_slot: None,
             axt_proof_cache: Arc::new(BTreeMap::new()),
             last_axt_reject: None,
@@ -3280,7 +3297,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             zk_roots: BTreeMap::new(),
             zk_elections: BTreeMap::new(),
             vrf_epoch_seeds: BTreeMap::new(),
-            verifying_keys: BTreeMap::new(),
             prepared_verifying_keys: BTreeMap::new(),
             public_inputs: BTreeMap::new(),
             chain_id_bytes: Vec::new(),
@@ -3295,8 +3311,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             zk_last_env_hash_tally: Arc::new(VecDeque::new()),
             axt_policy_snapshot: None,
             axt_issuer_keys: Arc::new(BTreeMap::new()),
-            axt_asset_policies: Arc::new(BTreeMap::new()),
-            axt_asset_incarnations: Arc::new(BTreeMap::new()),
             axt_proof_cache_slot: None,
             axt_proof_cache: Arc::new(BTreeMap::new()),
             last_axt_reject: None,
@@ -3366,7 +3380,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             zk_roots: BTreeMap::new(),
             zk_elections: BTreeMap::new(),
             vrf_epoch_seeds: BTreeMap::new(),
-            verifying_keys: BTreeMap::new(),
             prepared_verifying_keys: BTreeMap::new(),
             public_inputs: BTreeMap::new(),
             chain_id_bytes: Vec::new(),
@@ -3381,8 +3394,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             zk_last_env_hash_tally: Arc::new(VecDeque::new()),
             axt_policy_snapshot: None,
             axt_issuer_keys: Arc::new(BTreeMap::new()),
-            axt_asset_policies: Arc::new(BTreeMap::new()),
-            axt_asset_incarnations: Arc::new(BTreeMap::new()),
             axt_proof_cache_slot: None,
             axt_proof_cache: Arc::new(BTreeMap::new()),
             last_axt_reject: None,
@@ -3869,28 +3880,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
                 public_key,
             },
         );
-    }
-    /// Install one registered asset policy into an explicitly constructed test host.
-    ///
-    /// Production hosts obtain this snapshot only through [`Self::hydrate_axt_state`].
-    #[cfg(any(test, feature = "iroha-core-tests"))]
-    pub fn set_axt_asset_policy_for_tests(
-        &mut self,
-        asset_definition_id: AssetDefinitionId,
-        policy: AssetBalancePolicy,
-    ) {
-        Arc::make_mut(&mut self.axt_asset_policies).insert(asset_definition_id, policy);
-    }
-    /// Install one exact asset incarnation into an explicitly constructed test host.
-    ///
-    /// Production hosts obtain this snapshot only through [`Self::hydrate_axt_state`].
-    #[cfg(any(test, feature = "iroha-core-tests"))]
-    pub fn set_axt_asset_incarnation_for_tests(
-        &mut self,
-        asset_definition_id: AssetDefinitionId,
-        incarnation: AxtAssetIncarnationV1,
-    ) {
-        Arc::make_mut(&mut self.axt_asset_incarnations).insert(asset_definition_id, incarnation);
     }
     fn clear_axt_proof_cache(&mut self) {
         for (dsid, entry) in core::mem::take(Arc::make_mut(&mut self.axt_proof_cache)) {
@@ -4464,22 +4453,27 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         &mut self,
         map: BTreeMap<AssetDefinitionId, crate::state::ZkAssetState>,
     ) -> Result<(), ivm::VMError> {
-        self.zk_roots = Self::validated_zk_roots_snapshot(map)?;
+        self.zk_roots = Self::validated_zk_roots_snapshot(&map)?;
         Ok(())
     }
-    fn validated_zk_roots_snapshot(
-        map: BTreeMap<AssetDefinitionId, crate::state::ZkAssetState>,
+    /// Validate confidential trees in place and copy only what `ZK_ROOTS_GET` reads.
+    ///
+    /// The commitment leaves and nullifier sets stay in the World: a root read
+    /// observes the tree profile, the bounded retained root history and the
+    /// commitment count, never an individual leaf.
+    fn validated_zk_roots_snapshot<'a>(
+        entries: impl IntoIterator<Item = (&'a AssetDefinitionId, &'a crate::state::ZkAssetState)>,
     ) -> Result<BTreeMap<AssetDefinitionId, ZkRootsSnapshot>, ivm::VMError> {
         let mut roots = BTreeMap::new();
-        for (asset_id, state) in map {
+        for (asset_id, state) in entries {
             state
                 .validate_tree_metadata()
                 .map_err(|_| ivm::VMError::NoritoInvalid)?;
             roots.insert(
-                asset_id,
+                asset_id.clone(),
                 ZkRootsSnapshot {
                     tree_profile: state.tree_profile,
-                    root_history: state.root_history,
+                    root_history: state.root_history.clone(),
                     commitment_count: state.commitments.len(),
                 },
             );
@@ -4561,6 +4555,11 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
     }
     /// Hydrate ZK snapshots (roots, elections, verifying keys) from a world view.
     ///
+    /// Every registry entry is validated on every hydration. Confidential trees
+    /// are read in place, and verifying keys reuse the process-local
+    /// preparation memo only for a registry pair equal to an already validated
+    /// one, so no World value is deep-copied unless a syscall can observe it.
+    ///
     /// # Errors
     /// Returns an error if an election selector or shape, confidential tree, or
     /// verifying key registry entry is inconsistent. Validation completes before
@@ -4581,19 +4580,10 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         // otherwise allow an invalid selector to return with partially replaced
         // verifying-key and tree snapshots.
         Self::validate_zk_elections_snapshot(&elections)?;
-        let roots = Self::validated_zk_roots_snapshot(
-            world
-                .zk_assets()
-                .iter()
-                .map(|(asset_id, state)| (asset_id.clone(), state.clone()))
-                .collect(),
-        )?;
-        let vks = world
-            .verifying_keys()
-            .iter()
-            .map(|(id, rec)| (id.clone(), rec.clone()))
-            .collect();
-        self.set_verifying_keys(vks)?;
+        let roots = Self::validated_zk_roots_snapshot(world.zk_assets().iter())?;
+        let prepared_verifying_keys =
+            Self::prepared_verifying_key_index(world.verifying_keys().iter())?;
+        self.prepared_verifying_keys = prepared_verifying_keys;
         self.set_zk_tree_roots_history_len(zk_cfg.tree_roots_history_len);
         self.zk_roots = roots;
         self.zk_elections = elections;
@@ -4639,64 +4629,87 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         &mut self,
         map: BTreeMap<VerifyingKeyId, VerifyingKeyRecord>,
     ) -> Result<(), ivm::VMError> {
-        let mut records = BTreeMap::new();
+        self.prepared_verifying_keys = Self::prepared_verifying_key_index(&map)?;
+        Ok(())
+    }
+    /// Validate a verifying-key registry and index its prepared keys by commitment.
+    ///
+    /// Entries are checked in registry order and the first invalid entry or
+    /// duplicate commitment rejects the complete registry.
+    fn prepared_verifying_key_index<'a>(
+        entries: impl IntoIterator<Item = (&'a VerifyingKeyId, &'a VerifyingKeyRecord)>,
+    ) -> Result<BTreeMap<[u8; 32], PreparedVerifyingKey>, ivm::VMError> {
         let mut prepared_by_commitment = BTreeMap::new();
-        // Early sanity: ensure commitments and backend labels match the
-        // production no-trusted-setup verifier policy.
-        for (id, rec) in map {
-            if !id.is_portable_registry_id() {
-                return Err(ivm::VMError::NoritoInvalid);
-            }
-            let Some(registry_backend_tag) =
-                crate::zk::verifier_backend_registry_tag_v1(id.backend.as_str())
-            else {
-                return Err(ivm::VMError::NoritoInvalid);
-            };
-            if registry_backend_tag != rec.backend {
-                return Err(ivm::VMError::NoritoInvalid);
-            }
-            if rec.commitment.iter().all(|byte| *byte == 0)
-                || rec.public_inputs_schema_hash.iter().all(|byte| *byte == 0)
-            {
-                return Err(ivm::VMError::NoritoInvalid);
-            }
-            if rec.circuit_id.len() > iroha_data_model::zk::OPEN_VERIFY_DEFAULT_MAX_CIRCUIT_ID_BYTES
-                || !iroha_data_model::zk::open_verify_circuit_id_is_portable(&rec.circuit_id)
-                || iroha_data_model::zk::open_verify_circuit_id_uses_reserved_privacy_protocol_namespace_v1(
-                    &rec.circuit_id,
-                )
-            {
-                return Err(ivm::VMError::NoritoInvalid);
-            }
-            let backend_label = Self::backend_label_for_record(&id, &rec);
-            if !Self::production_backend_label_matches_record(&backend_label, rec.backend) {
-                return Err(ivm::VMError::NoritoInvalid);
-            }
-            let material = crate::zk::validate_and_prepare_verifying_key_record_v1(&id, &rec)
-                .map_err(|error| match error {
-                    crate::zk::VerificationAttemptError::Rejected(_) => ivm::VMError::NoritoInvalid,
-                    crate::zk::VerificationAttemptError::Deferred(original) => {
-                        ivm::VMError::VerificationDeferred(original)
-                    }
-                })?;
-            let commitment = rec.commitment;
-            let record = Arc::new(rec);
-            let prepared = PreparedVerifyingKey {
-                record: Arc::clone(&record),
-                backend_label: Arc::from(backend_label),
-                material,
-            };
+        for (id, rec) in entries {
+            let prepared = Self::prepare_verifying_key(id, rec)?;
             if prepared_by_commitment
-                .insert(commitment, prepared)
+                .insert(rec.commitment, prepared)
                 .is_some()
             {
                 return Err(ivm::VMError::NoritoInvalid);
             }
-            records.insert(id, record);
         }
-        self.verifying_keys = records;
-        self.prepared_verifying_keys = prepared_by_commitment;
-        Ok(())
+        Ok(prepared_by_commitment)
+    }
+    /// Validate one registry entry against the production verifier policy and
+    /// prepare its backend material.
+    ///
+    /// A registry pair equal to one this process already validated, including
+    /// every key byte, reuses the memoized result: validation is a pure
+    /// function of that pair, so only the repeated hashing and backend
+    /// preparation are skipped. A pair whose id, metadata or key bytes changed
+    /// is validated again.
+    fn prepare_verifying_key(
+        id: &VerifyingKeyId,
+        rec: &VerifyingKeyRecord,
+    ) -> Result<PreparedVerifyingKey, ivm::VMError> {
+        if let Some(prepared) = prepared_verifying_key_memo::lookup(id, rec) {
+            return Ok(prepared);
+        }
+        // Early sanity: ensure commitments and backend labels match the
+        // production no-trusted-setup verifier policy.
+        if !id.is_portable_registry_id() {
+            return Err(ivm::VMError::NoritoInvalid);
+        }
+        let Some(registry_backend_tag) =
+            crate::zk::verifier_backend_registry_tag_v1(id.backend.as_str())
+        else {
+            return Err(ivm::VMError::NoritoInvalid);
+        };
+        if registry_backend_tag != rec.backend {
+            return Err(ivm::VMError::NoritoInvalid);
+        }
+        if rec.commitment.iter().all(|byte| *byte == 0)
+            || rec.public_inputs_schema_hash.iter().all(|byte| *byte == 0)
+        {
+            return Err(ivm::VMError::NoritoInvalid);
+        }
+        if rec.circuit_id.len() > iroha_data_model::zk::OPEN_VERIFY_DEFAULT_MAX_CIRCUIT_ID_BYTES
+            || !iroha_data_model::zk::open_verify_circuit_id_is_portable(&rec.circuit_id)
+            || iroha_data_model::zk::open_verify_circuit_id_uses_reserved_privacy_protocol_namespace_v1(
+                &rec.circuit_id,
+            )
+        {
+            return Err(ivm::VMError::NoritoInvalid);
+        }
+        let backend_label = Self::backend_label_for_record(id, rec);
+        if !Self::production_backend_label_matches_record(&backend_label, rec.backend) {
+            return Err(ivm::VMError::NoritoInvalid);
+        }
+        let material = crate::zk::validate_and_prepare_verifying_key_record_v1(id, rec)
+            .map_err(|error| match error {
+                crate::zk::VerificationAttemptError::Rejected(_) => ivm::VMError::NoritoInvalid,
+                crate::zk::VerificationAttemptError::Deferred(original) => {
+                    ivm::VMError::VerificationDeferred(original)
+                }
+            })?;
+        let prepared = PreparedVerifyingKey {
+            record: Arc::new(rec.clone()),
+            backend_label: Arc::from(backend_label),
+            material,
+        };
+        prepared_verifying_key_memo::remember(id, &prepared);
+        Ok(prepared)
     }
     fn backend_label_for_record(id: &VerifyingKeyId, rec: &VerifyingKeyRecord) -> String {
         if let Some(ref vk) = rec.key {
@@ -5770,16 +5783,15 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         CREATE_NFTS_ALL_GAS
     }
     fn create_nfts_for_all_preview(&self) -> (Vec<InstructionBox>, u64) {
-        const MAX_NFTS_PER_CALL: usize = 256;
         let mut instructions = Vec::with_capacity(
             self.accounts_snapshot
                 .len()
-                .min(MAX_NFTS_PER_CALL)
+                .min(CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS)
                 .saturating_mul(2),
         );
         let mut sequence = self.nft_seq;
         for account_id in self.accounts_snapshot.iter() {
-            if instructions.len() / 2 >= MAX_NFTS_PER_CALL {
+            if instructions.len() / 2 >= CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS {
                 break;
             }
             let Some(next_sequence) = sequence.checked_add(1) else {
@@ -6441,11 +6453,14 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             .as_ref()
             .map(|snapshot| snapshot.version)
     }
-    /// Atomically hydrate AXT timing, policy, issuer keys, and asset context.
+    /// Atomically hydrate AXT timing, policy and issuer keys.
     ///
     /// Policy construction and authorization projection complete before the
     /// host is mutated. A successful replacement aborts any active envelope,
     /// because its proofs were admitted under the previous policy or timing.
+    /// Work is proportional to the policy snapshot, never to the World: asset
+    /// balance policies and incarnations are read from the attached query
+    /// state only by the syscalls that need them.
     ///
     /// # Errors
     ///
@@ -6466,17 +6481,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         )?;
         let _current_slot = current_axt_slot_for_state(state)
             .ok_or(AxtPolicySnapshotValidationError::AuthenticatedLedgerTimeUnavailable)?;
-        let asset_policies = state
-            .world()
-            .asset_definitions_iter()
-            .map(|definition| (definition.id.clone(), definition.balance_scope_policy()))
-            .collect();
-        let asset_incarnations = state
-            .world()
-            .axt_asset_incarnations()
-            .iter()
-            .map(|(definition_id, incarnation)| (definition_id.clone(), *incarnation))
-            .collect();
         let mut issuer_keys = BTreeMap::new();
         for binding in &snapshot.entries {
             if binding.policy.manifest_root.iter().all(|byte| *byte == 0) {
@@ -6506,8 +6510,6 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         self.set_network_id(*state.network_id());
         self.install_validated_axt_policy_snapshot(&snapshot, policy);
         self.axt_issuer_keys = Arc::new(issuer_keys);
-        self.axt_asset_policies = Arc::new(asset_policies);
-        self.axt_asset_incarnations = Arc::new(asset_incarnations);
         self.note_axt_proof_cache_event(AXT_PROOF_CACHE_CLEARED);
         Ok(())
     }

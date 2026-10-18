@@ -5207,6 +5207,7 @@ impl Drop for NetworkActorProgressLease {
 }
 mod reliable_actor;
 use reliable_actor::*;
+pub(crate) use reliable_actor::WriterFlushNotice;
 #[cfg(any(test, feature = "test-fixtures"))]
 #[path = "network/actor_admission_fixture.rs"]
 mod actor_admission_fixture;
@@ -6631,15 +6632,21 @@ fn network_actor_progress_target_capacity(max_total_connections: usize) -> Optio
     max_total_connections.checked_mul(2)
 }
 fn network_actor_progress_source_capacity(max_total_connections: usize) -> Option<usize> {
-    // Every authorized target can own one item in each protected semantic class.
+    // Every authorized target owns one source in each protected semantic class.
     // Reliable broadcasts acquire these same target lanes before crossing
     // admission; there is deliberately no class-wide broadcast parent.
     network_actor_progress_target_capacity(max_total_connections)?
         .checked_mul(ActorProgressClass::COUNT)
 }
+/// Maximum reliable items the actor retains at once: every source may
+/// pipeline a bounded window of items within its single-frame byte cap.
+fn network_actor_progress_item_capacity(max_total_connections: usize) -> Option<usize> {
+    network_actor_progress_source_capacity(max_total_connections)?
+        .checked_mul(RELIABLE_ACTOR_SOURCE_WINDOW)
+}
 fn network_actor_progress_waiter_capacity(max_total_connections: usize) -> Option<usize> {
     network_actor_progress_target_capacity(max_total_connections)?
-        .checked_mul(3)?
+        .checked_mul(ActorProgressClass::COUNT)?
         .checked_mul(RELIABLE_PROGRESS_WAITERS_PER_SOURCE)
 }
 fn inbound_source_credit_capacity(
@@ -6903,7 +6910,8 @@ fn validate_transport_queue_geometry<E: Enc>(
         actor_progress_bytes: ActorProgressByteLimits {
             safety: safety_reserve_bytes,
             lane: lane_reserve_bytes,
-            bulk: bulk_reserve_bytes,
+            payload: bulk_reserve_bytes,
+            block_sync: bulk_reserve_bytes,
         },
     })
 }
@@ -7661,6 +7669,8 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             mpsc::channel(HANDSHAKE_UPDATE_CHANNEL_CAPACITY);
         // Bounded queue capacities are supplied from node configuration so the
         // default build enforces backpressure without relying on feature flags.
+        let (reliable_flush_notice_sender, reliable_flush_notice_receiver) =
+            mpsc::unbounded_channel();
         let (network_message_high_sender, network_message_high_receiver) =
             net_channel::channel_with_capacity(p2p_queue_cap_high.get());
         let (network_message_safety_sender, network_message_safety_receiver) =
@@ -7849,6 +7859,8 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             pending_reply_source_authority: PendingReplySourceAuthority::default(),
             pending_configured_hub_source: None,
             network_actor_progress_budget: Arc::clone(&network_actor_progress_budget),
+            reliable_flush_notice_sender,
+            reliable_flush_notice_receiver,
             update_topology_receiver,
             update_peers_receiver,
             update_validator_dial_roster_receiver,
@@ -9757,7 +9769,8 @@ mod accept_stream_tests {
                 actor_progress_bytes: ActorProgressByteLimits {
                     safety,
                     lane,
-                    bulk: max_ordinary,
+                    payload: max_ordinary,
+                    block_sync: max_ordinary,
                 },
             }
         );
@@ -12167,6 +12180,10 @@ struct NetworkBase<T: Pload, E: Enc> {
     /// Shared reliable-progress owner used to cancel waiters whose exact
     /// broadcast membership was removed by an accepted topology transition.
     network_actor_progress_budget: Arc<NetworkActorProgressBudget>,
+    /// Cloned into every reliable writer occurrence as its settle notice.
+    reliable_flush_notice_sender: mpsc::UnboundedSender<ActorProgressSource>,
+    /// Sources whose peer writer settled a reliable occurrence.
+    reliable_flush_notice_receiver: WriterFlushNoticeReceiver,
     /// Latest [`UpdateTopology`] snapshot receiver.
     update_topology_receiver: ControlUpdateReceiver<UpdateTopology>,
     /// Latest [`UpdatePeers`] snapshot receiver.
@@ -12744,6 +12761,11 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             drop(actor_lease);
             return Ok(());
         }
+        // Writer completions wake the actor for this exact backlog source.
+        let notice_source = actor_lease
+            .progress_source()
+            .cloned()
+            .or_else(|| ActorProgressSource::for_admitted_payload(&message));
         let mut message = message.materialize(&self.self_id, self.relay_ttl);
         let frame = message.frame_mut();
         let frame_target = frame.target.clone();
@@ -12776,6 +12798,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
                         frame,
                         topic,
                         exact_reply,
+                        notice_source.as_ref(),
                     ) {
                         ReliableWriterAttempt::Awaiting(receiver) => {
                             let replaced = pending_flush_acks.insert(peer_id.clone(), receiver);
@@ -12807,8 +12830,13 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
                         if pending_flush_acks.contains_key(&target) {
                             continue;
                         }
-                        match self.post_reliable_actor_frame_to_writer(&target, frame, topic, false)
-                        {
+                        match self.post_reliable_actor_frame_to_writer(
+                            &target,
+                            frame,
+                            topic,
+                            false,
+                            notice_source.as_ref(),
+                        ) {
                             ReliableWriterAttempt::Awaiting(receiver) => {
                                 let replaced = pending_flush_acks.insert(target, receiver);
                                 debug_assert!(replaced.is_none());
@@ -12846,23 +12874,69 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             ))
         }
     }
+    /// Service up to `budget` backlog sources in round-robin order.
+    ///
+    /// This is the periodic fallback for peers that are missing or whose
+    /// writers refused a post; flush notices and arrivals service their own
+    /// source immediately. Returns the number of completed items.
     fn retry_reliable_actor_messages(
         &mut self,
         pending: &mut ReliableActorPending<T>,
         budget: usize,
     ) -> usize {
-        let attempts = pending.len().min(budget);
+        let attempts = pending.source_count().min(budget);
         let mut completed = 0usize;
         for _ in 0..attempts {
-            let Some((source, message)) = pending.pop_front() else {
+            let Some(source) = pending.next_ready_source() else {
                 break;
             };
-            match self.dispatch_reliable_actor_message(message) {
-                Ok(()) => completed = completed.saturating_add(1),
-                Err(message) => pending.retry_back(source, message),
-            }
+            completed = completed.saturating_add(self.service_reliable_source(pending, &source));
         }
         completed
+    }
+    /// Dispatch every retained item of one source in admission order.
+    ///
+    /// Items awaiting a writer flush do not block later items, which pipeline
+    /// into the same per-class writer FIFO. An item that could not enter the
+    /// writer holds every later item of its source back, preserving order.
+    /// Returns the number of completed items.
+    fn service_reliable_source(
+        &mut self,
+        pending: &mut ReliableActorPending<T>,
+        source: &ActorProgressSource,
+    ) -> usize {
+        let mut entries = pending.take_source(source);
+        let mut retained = VecDeque::with_capacity(entries.len());
+        let mut completed = 0usize;
+        while let Some(entry) = entries.pop_front() {
+            match self.dispatch_reliable_actor_message(entry) {
+                Ok(()) => completed = completed.saturating_add(1),
+                Err(entry) => {
+                    let entered_writer = !entry.pending_flush_acks.is_empty();
+                    retained.push_back(entry);
+                    if !entered_writer {
+                        retained.append(&mut entries);
+                        break;
+                    }
+                }
+            }
+        }
+        pending.restore_source(source.clone(), retained);
+        completed
+    }
+    /// Service one source after its peer writer settled an occurrence.
+    fn service_reliable_flush_notice(
+        &mut self,
+        safety_pending: &mut ReliableActorPending<T>,
+        progress_pending: &mut ReliableActorPending<T>,
+        source: &ActorProgressSource,
+    ) {
+        let pending = if matches!(source.class, ActorProgressClass::Safety) {
+            safety_pending
+        } else {
+            progress_pending
+        };
+        let _ = self.service_reliable_source(pending, source);
     }
     fn accept_reliable_actor_message(
         &mut self,
@@ -12873,11 +12947,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             message.publish_ready_exact_reply_before_terminal_drop();
             return;
         }
-        pending.push_back(message);
-        // A fresh source may run only after the prior head receives another
-        // attempt. Two attempts make a cap-one blocked -> live sequence
-        // immediately useful without letting the arrival barge ahead.
-        self.retry_reliable_actor_messages(pending, 2);
+        // The arrival queues behind every retained item of its own source and
+        // is dispatched at once unless one of them could not enter its writer.
+        let source = pending.push_back(message);
+        let _ = self.service_reliable_source(pending, &source);
     }
     /// [`Self`] task.
     #[allow(clippy::too_many_lines)]
@@ -12891,15 +12964,14 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
         pending_connects_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut deferred_retry_interval = tokio::time::interval(DEFERRED_RETRY_INTERVAL);
         deferred_retry_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        let reliable_actor_source_capacity = network_actor_progress_source_capacity(
+        let reliable_actor_item_capacity = network_actor_progress_item_capacity(
             self.max_total_connections.unwrap_or(
                 iroha_config::parameters::defaults::network::lane_profile::CORE_MAX_TOTAL_CONNECTIONS,
             ),
         )
-        .expect("reliable actor source geometry was validated before listener startup");
-        let mut safety_dispatch_pending = ReliableActorPending::new(reliable_actor_source_capacity);
-        let mut progress_dispatch_pending =
-            ReliableActorPending::new(reliable_actor_source_capacity);
+        .expect("reliable actor item geometry was validated before listener startup");
+        let mut safety_dispatch_pending = ReliableActorPending::new(reliable_actor_item_capacity);
+        let mut progress_dispatch_pending = ReliableActorPending::new(reliable_actor_item_capacity);
         let mut dns_refresh_interval =
             self.dns_refresh_interval
                 .map(tokio::time::interval)
@@ -13020,6 +13092,35 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
                 }
                 Some(peer_message) = self.peer_message_safety_receiver.recv() => {
                     self.peer_message(peer_message).await;
+                }
+                // A peer writer settled a reliable occurrence: retire its
+                // lease (or retry it) now rather than on the retry tick.
+                Some(source) = self.reliable_flush_notice_receiver.recv() => {
+                    self.service_reliable_flush_notice(
+                        &mut safety_dispatch_pending,
+                        &mut progress_dispatch_pending,
+                        &source,
+                    );
+                    for _ in 1..NETWORK_PROGRESS_ACTOR_DRAIN_BUDGET {
+                        let Ok(source) = self.reliable_flush_notice_receiver.try_recv() else {
+                            break;
+                        };
+                        self.service_reliable_flush_notice(
+                            &mut safety_dispatch_pending,
+                            &mut progress_dispatch_pending,
+                            &source,
+                        );
+                    }
+                    update_network_queue_depth_safety(
+                        self.network_message_safety_receiver
+                            .len()
+                            .saturating_add(safety_dispatch_pending.len()),
+                    );
+                    update_network_queue_depth_progress(
+                        self.network_message_progress_receiver
+                            .len()
+                            .saturating_add(progress_dispatch_pending.len()),
+                    );
                 }
                 // Subscribe messages is expected to exhaust at some point after starting network actor
                 subscriber = self.subscribe_to_peers_messages_receiver.recv() => {
@@ -14287,6 +14388,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
         frame: &mut Arc<RelayMessage<T>>,
         topic: message::Topic,
         exact_reply: bool,
+        notice_source: Option<&ActorProgressSource>,
     ) -> ReliableWriterAttempt {
         if !message::ClassifyTopic::is_outbound_allowed(frame.as_ref()) {
             iroha_logger::error!(
@@ -14330,9 +14432,12 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
         // Clone only after every route/session/capability preflight passes.
         // Missing-session retries therefore touch only the actor's `Arc` and
         // never allocate another relay envelope.
+        let notice = notice_source.map(|source| {
+            WriterFlushNotice::new(&self.reliable_flush_notice_sender, source.clone())
+        });
         match ref_peer
             .handle
-            .post_recover_with_flush_ack(RelayMessage::clone(frame.as_ref()))
+            .post_recover_with_flush_ack(RelayMessage::clone(frame.as_ref()), notice)
         {
             Ok(receiver) => {
                 if is_consensus {

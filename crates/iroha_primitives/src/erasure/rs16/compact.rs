@@ -268,7 +268,6 @@ impl CompactShape {
                             .copied()
                             .zip(rows.iter().flatten().copied()),
                         output,
-                        false,
                         backend,
                     );
                 }
@@ -290,7 +289,6 @@ impl CompactShape {
                             .copied()
                             .zip(data.chunks_exact(row_bytes)),
                         output,
-                        false,
                         backend,
                     ),
                 }
@@ -353,7 +351,6 @@ fn encode_parity_rows(
                 .copied()
                 .zip(data.chunks_exact(row_bytes)),
             output,
-            false,
             backend,
         );
     }

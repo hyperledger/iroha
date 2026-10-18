@@ -3131,6 +3131,7 @@ pub(super) fn network_fixture_with_listener<T: Pload + message::ClassifyTopic>(
         mpsc::channel::<ServiceMessage<WireMessage<T>>>(4);
     let (_network_hi_tx, network_message_high_rx) = net_channel::channel_with_capacity(1);
     let (_network_lo_tx, network_message_low_rx) = net_channel::channel_with_capacity(1);
+    let (reliable_flush_notice_sender, reliable_flush_notice_receiver) = mpsc::unbounded_channel();
     let (online_peers_tx, _online_peers_rx) = watch::channel(HashSet::new());
     let (online_peer_capabilities_tx, _online_peer_capabilities_rx) =
         watch::channel(HashMap::new());
@@ -3191,6 +3192,8 @@ pub(super) fn network_fixture_with_listener<T: Pload + message::ClassifyTopic>(
             pending_reply_source_authority: PendingReplySourceAuthority::default(),
             pending_configured_hub_source: None,
             network_actor_progress_budget: test_network_actor_progress_budget(),
+            reliable_flush_notice_sender,
+            reliable_flush_notice_receiver,
             update_topology_receiver: update_topology_rx,
             update_peers_receiver: update_peers_rx,
             update_validator_dial_roster_receiver,

@@ -2543,6 +2543,9 @@ struct OutboundPostOwnership {
     _byte_lease: Option<SharedByteLease>,
     _semantic_lease: Option<post_admission::Lease>,
     flush_ack: Option<oneshot::Sender<()>>,
+    /// Declared last: it wakes the network actor only after the byte leases
+    /// are released and the acknowledgement is sent or abandoned.
+    flush_notice: Option<crate::network::WriterFlushNotice>,
 }
 impl OutboundPostOwnership {
     fn new(byte_lease: SharedByteLease, flush_ack: Option<oneshot::Sender<()>>) -> Self {
@@ -2550,6 +2553,7 @@ impl OutboundPostOwnership {
             _byte_lease: Some(byte_lease),
             _semantic_lease: None,
             flush_ack,
+            flush_notice: None,
         }
     }
     fn granted(lease: post_admission::Lease) -> Self {
@@ -2557,11 +2561,19 @@ impl OutboundPostOwnership {
             _byte_lease: None,
             _semantic_lease: Some(lease),
             flush_ack: None,
+            flush_notice: None,
         }
     }
     fn acknowledge_flush(mut self) {
         if let Some(flush_ack) = self.flush_ack.take() {
             let _ = flush_ack.send(());
+        }
+    }
+    /// Release a post the writer never accepted without waking the actor:
+    /// the refusing caller already retains the occurrence for its retry.
+    fn release_refused(mut self) {
+        if let Some(notice) = self.flush_notice.take() {
+            notice.disarm();
         }
     }
 }
@@ -3552,7 +3564,7 @@ pub mod handles {
         where
             T: crate::network::message::ClassifyTopic,
         {
-            self.post_recover_inner(msg, None)
+            self.post_recover_inner(msg, None, None)
         }
         /// Post a message and return a completion receiver that becomes ready
         /// only after the peer writer has written and flushed the complete
@@ -3565,25 +3577,35 @@ pub mod handles {
         /// at-least-once delivery rather than exactly-once delivery: callers
         /// must retry, and downstream semantic consumers must be idempotent or
         /// deduplicate authenticated message identities.
+        ///
+        /// `notice` wakes the network actor once this exact occurrence settles
+        /// (flushed or abandoned). A refused post never fires it.
         pub(crate) fn post_recover_with_flush_ack(
             &self,
             msg: T,
+            notice: Option<crate::network::WriterFlushNotice>,
         ) -> Result<oneshot::Receiver<()>, RecoverPostError<T>>
         where
             T: crate::network::message::ClassifyTopic,
         {
             let (flush_ack, receiver) = oneshot::channel();
-            self.post_recover_inner(msg, Some(flush_ack))?;
+            self.post_recover_inner(msg, Some(flush_ack), notice)?;
             Ok(receiver)
         }
         fn post_recover_inner(
             &self,
             msg: T,
             flush_ack: Option<oneshot::Sender<()>>,
+            notice: Option<crate::network::WriterFlushNotice>,
         ) -> Result<(), RecoverPostError<T>>
         where
             T: crate::network::message::ClassifyTopic,
         {
+            let disarm = |notice: Option<crate::network::WriterFlushNotice>| {
+                if let Some(notice) = notice {
+                    notice.disarm();
+                }
+            };
             use tokio::sync::mpsc::error::TrySendError;
             let topic = msg.topic();
             let priority = msg.priority();
@@ -3594,6 +3616,7 @@ pub mod handles {
                 Ok(bytes) => bytes,
                 Err(error) => {
                     iroha_logger::warn!(?topic, %error, "Failed to count outbound peer post");
+                    disarm(notice);
                     return Err(RecoverPostError::Full(msg));
                 }
             };
@@ -3607,17 +3630,21 @@ pub mod handles {
                     plaintext_frame_bytes,
                     "Semantic outbound post byte admission is full"
                 );
+                disarm(notice);
                 return Err(RecoverPostError::Full(msg));
             };
             ownership.flush_ack = flush_ack;
+            ownership.flush_notice = notice;
             let retained = RetainedPost::new(msg, ownership);
             sender.try_send(retained).map_err(|error| match error {
                 TrySendError::Full(retained) => {
-                    let (message, _released_lease) = retained.into_parts();
+                    let (message, ownership) = retained.into_parts();
+                    ownership.release_refused();
                     RecoverPostError::Full(message)
                 }
                 TrySendError::Closed(retained) => {
-                    let (message, _released_lease) = retained.into_parts();
+                    let (message, ownership) = retained.into_parts();
+                    ownership.release_refused();
                     RecoverPostError::Closed(message)
                 }
             })
@@ -8164,7 +8191,7 @@ mod run {
             let (handle, mut receivers) =
                 test_outbound_mailbox_with_budgets::<RoutedMsg>(1, &budgets);
             let mut flush = handle
-                .post_recover_with_flush_ack(message)
+                .post_recover_with_flush_ack(message, None)
                 .unwrap_or_else(|error| {
                     panic!(
                         "recoverable post must enter the peer mailbox: {:?}",
@@ -8259,7 +8286,7 @@ mod run {
             // flush. This clone is the exact retry it owns across replacement.
             let actor_retry = message.clone();
             let mut original_ack = original
-                .post_recover_with_flush_ack(message)
+                .post_recover_with_flush_ack(message, None)
                 .unwrap_or_else(|error| {
                     panic!(
                         "original writer must accept the recoverable post: {:?}",
@@ -8326,7 +8353,7 @@ mod run {
             );
             assert_eq!(budgets.retained_high_total(), 0);
             let replacement_ack = replacement
-                .post_recover_with_flush_ack(actor_retry)
+                .post_recover_with_flush_ack(actor_retry, None)
                 .unwrap_or_else(|error| {
                     panic!(
                         "replacement writer must accept the actor retry: {:?}",

@@ -1745,6 +1745,7 @@ fn account_asset_row(item: &AccountAssetListItem) -> Map {
 
 fn asset_holder_row(item: &AssetHolderListItem) -> Map {
     let mut row = Map::new();
+    row.insert("id".into(), Value::from(item.partition_id.clone()));
     row.insert("account_id".into(), Value::from(item.canonical_id.clone()));
     row.insert("asset".into(), Value::from(item.asset.clone()));
     row.insert(
