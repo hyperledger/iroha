@@ -2469,3 +2469,41 @@ pub fn observe_retired_sync_for_test<R>(
     assert_eq!(budget.limit_bytes(), limit);
     result
 }
+
+#[test]
+fn isolated_frame_source_reads_authenticated_frame_without_acquiring_live_writer() {
+    let fixture = Fixture::new(true);
+    fixture.publish();
+    let before = fs::read(fixture.path()).unwrap();
+    let reader = LaneFrameSource::new(
+        fixture.dir.path().to_path_buf(),
+        fixture.stores.network,
+        fixture.stores.chain_id.clone(),
+        fixture.stores.crypto.clone(),
+        fixture.stores.budget.clone(),
+        fixture.authorities.clone(),
+    );
+    // The registry still owns the source writer and its disk lock. A second writer
+    // cannot open this incarnation; the canonical read-only frame owner can read it.
+    let source_writer = fixture.stores.store(LANE, &INCARNATION).unwrap();
+    assert!(
+        reader
+            .wait_for(LANE, &INCARNATION, 1, Duration::ZERO)
+            .unwrap()
+    );
+    let block = reader.block(LANE, &INCARNATION, 1).unwrap().unwrap();
+    assert_eq!(block.block_hash, fixture.qc.block_hash);
+    assert_eq!(block.result, fixture.qc.result);
+    assert!(block.batch.is_some());
+    assert_eq!(fs::read(fixture.path()).unwrap(), before);
+    assert!(reader.tip(LANE, &INCARNATION).is_err());
+    assert!(reader.block(LANE, &INCARNATION, 0).is_err());
+    assert!(
+        matches!(reader.block(LANE,&INCARNATION,2), Err(ref error) if error.io_kind()==io::ErrorKind::NotFound)
+    );
+    fixture.authorities.corrupt.store(true, Ordering::SeqCst);
+    assert!(
+        matches!(reader.block(LANE,&INCARNATION,1), Err(ref error) if error.io_kind()==io::ErrorKind::InvalidData)
+    );
+    drop(source_writer);
+}

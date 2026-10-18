@@ -1,11 +1,13 @@
 """Qualification rejects missing evidence, cherry-picking and cap overruns."""
 
 from copy import deepcopy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import random
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,7 +18,19 @@ qualify = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(qualify)
 
 
-def report(cpu=25, wall=8, rss=700_000_000, workers=1):
+# Independently evaluated with wrapping 64-bit integer arithmetic from the
+# Rust mix(seed, index, 0) contract, rather than computed by the Python validator.
+FIXTURE_SEED_KATS = (
+    (0, 0, 0xE220A8397B1DCDAF),
+    (0, 1, 0x7EC2F3D2E3AE3E6B),
+    (7, 0, 0xF75F04CBB5A1A1DD),
+    (7, 1, 0x90BF7C7430732C49),
+    ((1 << 64) - 1, 0, 0xDE0A564CBCD060C4),
+    ((1 << 64) - 1, 1, 0x4921325150033EEC),
+)
+
+
+def report(cpu=25, wall=8, rss=700_000_000, workers=1, seed=7):
     return {
         "schema": "kagemusha.m3.process.v1", "workers": workers,
         "binary_sha256": "ab" * 32, "witness_api": "owned",
@@ -25,18 +39,27 @@ def report(cpu=25, wall=8, rss=700_000_000, workers=1):
         "quotient_workspace_allocated_bytes": 128 << 20,
         "msm_process_budget_bytes": 64 << 20,
         "msm_process_peak_bytes": 1 << 20, "msm_process_retained_bytes": 0,
-        "transcript_profile": "pipa-r", "gate": "G3.6/q_exact_shape", "k": 16, "shape": "test-shape", "seed": 7,
+        "transcript_profile": "pipa-r", "gate": "G3.6/q_exact_shape", "k": 16, "shape": "test-shape", "seed": seed,
+        "randomness": "fresh-hedged", "fixture_seed_derivation": "splitmix64-process-sample-v1",
         "descriptor_digest": "cd" * 32, "descriptor_hash": "blake2b256-pipa-v2-circdesc",
         "peak_rss_source": "kernel_lifetime_high_water", "peak_rss_bytes": rss,
         "thermal_before": "nominal", "thermal_after": "nominal",
         "samples": [
-            {"index": i, "cpu_ns": int(cpu * 1e9), "total_ns": int(wall * 1e9),
+            {"index": i, "fixture_seed": qualify.sample_fixture_seed(seed, i),
+             "cpu_ns": int(cpu * 1e9), "total_ns": int(wall * 1e9),
              "quotient_workspace_before_bytes": 0 if i == 0 else 128 << 20,
              "quotient_workspace_after_bytes": 128 << 20,
              "verified": True, "thermal_before": "nominal", "thermal_after": "nominal"}
             for i in range(2)
         ],
     }
+
+
+def reseed_report(value, seed):
+    """Keep honest specimen evidence coherent when constructing scheduled rows."""
+    value["seed"] = seed
+    for index, sample in enumerate(value["samples"]):
+        sample["fixture_seed"] = qualify.sample_fixture_seed(seed, index)
 
 
 def attempts(value=None):
@@ -144,6 +167,79 @@ def test_probe_errors_wrong_api_wrong_pool_and_unverified_proofs_invalidate():
         value = report()
         value["samples"][0][field] = bad
         assert qualify.report_reasons(value, config, candidate, 7), field
+
+
+@pytest.mark.parametrize("seed,index,expected", FIXTURE_SEED_KATS)
+def test_fixture_seed_matches_independent_wrapping_u64_known_answers(seed, index, expected):
+    assert qualify.sample_fixture_seed(seed, index) == expected
+
+
+@pytest.mark.parametrize("seed,index", [
+    (False, 0), (True, 0), (-1, 0), (1 << 64, 0), ("7", 0), (7.0, 0), (None, 0),
+    (7, False), (7, True), (7, -1), (7, 2), (7, "0"), (7, 0.0), (7, None),
+])
+def test_fixture_seed_rejects_noncanonical_process_or_sample_identity(seed, index):
+    with pytest.raises(ValueError):
+        qualify.sample_fixture_seed(seed, index)
+
+
+FIXTURE_EVIDENCE_DEFECTS = (
+    "missing_randomness", "wrong_randomness", "missing_derivation", "wrong_derivation",
+    "missing_seed", "wrong_seed", "repeated_seed", "swapped_seeds", "foreign_process",
+    "boolean_seed", "negative_seed", "overflow_seed", "string_seed", "float_seed", "null_seed",
+    "missing_index", "boolean_index", "float_index", "reversed_samples",
+)
+
+
+def corrupt_fixture_evidence(value, defect):
+    """Change specimen evidence while leaving its scheduled process seed intact."""
+    samples = value["samples"]
+    if defect == "missing_randomness":
+        del value["randomness"]
+    elif defect == "wrong_randomness":
+        value["randomness"] = "deterministic"
+    elif defect == "missing_derivation":
+        del value["fixture_seed_derivation"]
+    elif defect == "wrong_derivation":
+        value["fixture_seed_derivation"] = "unknown"
+    elif defect == "missing_seed":
+        del samples[0]["fixture_seed"]
+    elif defect == "wrong_seed":
+        samples[0]["fixture_seed"] ^= 1
+    elif defect == "repeated_seed":
+        samples[1]["fixture_seed"] = samples[0]["fixture_seed"]
+    elif defect == "swapped_seeds":
+        samples[0]["fixture_seed"], samples[1]["fixture_seed"] = (
+            samples[1]["fixture_seed"], samples[0]["fixture_seed"])
+    elif defect == "foreign_process":
+        for index, sample in enumerate(samples):
+            sample["fixture_seed"] = qualify.sample_fixture_seed(value["seed"] ^ 1, index)
+    elif defect in ("boolean_seed", "negative_seed", "overflow_seed", "string_seed", "float_seed", "null_seed"):
+        samples[0]["fixture_seed"] = {
+            "boolean_seed": True, "negative_seed": -1, "overflow_seed": 1 << 64,
+            "string_seed": str(samples[0]["fixture_seed"]),
+            "float_seed": float(samples[0]["fixture_seed"]), "null_seed": None,
+        }[defect]
+    elif defect == "missing_index":
+        del samples[0]["index"]
+    elif defect == "boolean_index":
+        samples[0]["index"], samples[1]["index"] = False, True
+    elif defect == "float_index":
+        samples[0]["index"], samples[1]["index"] = 0.0, 1.0
+    elif defect == "reversed_samples":
+        samples.reverse()
+    else:
+        raise AssertionError(defect)
+
+
+@pytest.mark.parametrize("defect", FIXTURE_EVIDENCE_DEFECTS)
+def test_report_requires_exact_specimen_and_randomness_evidence(defect):
+    candidate = ledger_fixture()["candidate"]
+    config = qualify.CONFIGS["q_exact-1"]
+    value = report()
+    assert qualify.report_reasons(value, config, candidate, 7) == []
+    corrupt_fixture_evidence(value, defect)
+    assert qualify.report_reasons(value, config, candidate, 7), defect
 
 
 def test_calibration_uses_both_direct_metrics_with_no_normalization():
@@ -277,6 +373,11 @@ def ledger_fixture():
     candidate = {"binary_sha256": "ab" * 32, "source_sha256": "ef" * 32, "layouts": {},
                  "memory_activity_policy": qualify.MEMORY_ACTIVITY_POLICY, "source_policy": qualify.SOURCE_POLICY,
                  "source_scope": {"kind": "cargo_component"}}
+    native, identity, process = retained_native_fixture(candidate["binary_sha256"])
+    candidate["source_scope"]["native_source"] = native
+    candidate["source_scope"]["build_script_outputs"] = retained_native_build_outputs(native)
+    candidate["native_identity"] = identity
+    candidate["native_identity_process"] = process
     configs = {}
     for name, config in qualify.CONFIGS.items():
         layout = {key: report()[key] for key in
@@ -287,16 +388,15 @@ def ledger_fixture():
         for seed, row in enumerate(rows):
             row["seed"] = seed
             row["report"].update(layout)
-            row["report"]["seed"] = seed
+            reseed_report(row["report"], seed)
         configs[name] = rows
     for name, rows in configs.items():
         config = qualify.CONFIGS[name]
         calibration = qualify.CONFIGS[f"{config['kind'][0]}_exact-{config['workers']}"]
         for row in rows:
             row["measured"] = observation_fixture(row["report"])
-            value = report(workers=config["workers"])
+            value = report(workers=config["workers"], seed=0)
             value.update(candidate["layouts"][calibration["gate"]])
-            value["seed"] = 0
             row["pre"] = observation_fixture(value)
             row["post"] = observation_fixture(value)
             for boundary in ("candidate_before", "candidate_after"):
@@ -309,9 +409,9 @@ def ledger_fixture():
             for row in configs[name]:
                 if row["block"] == block:
                     row["seed"] = rng.randrange(1 << 64)
-                    row["report"]["seed"] = row["seed"]
+                    reseed_report(row["report"], row["seed"])
                     row["measured"]["seed"] = row["seed"]
-                    row["measured"]["report"]["seed"] = row["seed"]
+                    reseed_report(row["measured"]["report"], row["seed"])
                     refresh_raw(row["measured"])
                     row["sequence"] = sequence
                     sequence += 1
@@ -336,13 +436,38 @@ def test_summary_rejects_resampled_seed_even_when_raw_measurement_agrees(tmp_pat
     ledger = ledger_fixture()
     row = ledger["attempts"]["q_chips-1"][0]
     row["seed"] ^= 1 << 63
-    row["report"]["seed"] = row["seed"]
+    reseed_report(row["report"], row["seed"])
     row["measured"]["seed"] = row["seed"]
-    row["measured"]["report"]["seed"] = row["seed"]
+    reseed_report(row["measured"]["report"], row["seed"])
     refresh_raw(row["measured"])
     path = tmp_path / "runs.json"
     qualify.write_json(path, ledger)
     assert qualify.summarize(path)["status"] == "inconclusive"
+
+
+@pytest.mark.parametrize("boundary", ["pre", "measured", "post"])
+@pytest.mark.parametrize("defect", FIXTURE_EVIDENCE_DEFECTS)
+def test_summary_rejects_raw_consistent_specimen_mutations(tmp_path, boundary, defect):
+    ledger = ledger_fixture()
+    row = ledger["attempts"]["q_chips-1"][0]
+    observation = row[boundary]
+    corrupt_fixture_evidence(observation["report"], defect)
+    refresh_raw(observation)
+    if boundary == "measured":
+        row["report"] = deepcopy(observation["report"])
+    assert qualify.parse_report(observation["process"]["stdout"]) == observation["report"]
+    assert observation["seed"] == row[boundary]["report"]["seed"]
+    path = tmp_path / "runs.json"
+    qualify.write_json(path, ledger)
+    result = qualify.summarize(path)
+    assert result["status"] == "inconclusive"
+    configuration = result["configurations"]["q_chips-1"]
+    assert configuration["valid_processes"] == 8
+    reasons = configuration["invalid_attempts"][0]["reasons"]
+    assert reasons
+    assert not any("retained report differs" in reason for reason in reasons)
+    assert all(result["configurations"][name]["status"] == "pass"
+               for name in qualify.CONFIGS if name != "q_chips-1")
 
 
 @pytest.mark.parametrize("policy", [None, "all-vm-counters-unchanged", "unknown"])
@@ -515,8 +640,8 @@ def test_run_retains_complete_recomputable_attempts(tmp_path, monkeypatch, sourc
 
     def measured(_candidate, config, seed, _path):
         calls.append((config["gate"], config["workers"], seed))
-        value = report(workers=config["workers"])
-        value.update(candidate["layouts"][config["gate"]], seed=seed)
+        value = report(workers=config["workers"], seed=seed)
+        value.update(candidate["layouts"][config["gate"]])
         if source_changes and len(calls) == 3:
             monkeypatch.setattr(qualify, "source_digest", lambda *_args: "changed-source")
         return observation_fixture(value)
@@ -606,7 +731,9 @@ def source_fixture(tmp_path, monkeypatch):
     return metadata, artifacts, binary
 
 
-def mocked_build(monkeypatch, artifacts, binary, *, during_build=None, during_inventory=None):
+def mocked_build(monkeypatch, artifacts, binary, *, during_build=None, during_inventory=None, identity_record=None):
+    if identity_record is None and any(item.get("target", {}).get("name") == "iroha_plonk" for item in artifacts):
+        identity_record = retained_native_fixture(qualify.file_hash(binary))[1]
     def command(argv, **_kwargs):
         if argv[0] == "git":
             return subprocess.run(argv, cwd=qualify.ROOT, text=True, capture_output=True)
@@ -618,6 +745,10 @@ def mocked_build(monkeypatch, artifacts, binary, *, during_build=None, during_in
             output = "fixture compiler\n"
         elif "--list" in argv:
             output = "\n".join(f"{config['test']}: test" for config in qualify.CONFIGS.values())
+            if identity_record is not None:
+                output += "\nqualification_candidate_identity: test"
+        elif "qualification_candidate_identity" in argv:
+            output = "M3_SOURCE_JSON " + json.dumps(identity_record)
         else:
             output = "\n".join("M3_LAYOUT_JSON " + json.dumps(layout)
                                for layout in ledger_fixture()["candidate"]["layouts"].values())
@@ -629,7 +760,7 @@ def mocked_build(monkeypatch, artifacts, binary, *, during_build=None, during_in
 
 @pytest.mark.parametrize("change", [None, "source", "executable"])
 def test_prepare_binds_inventory_to_unchanged_source_and_binary(tmp_path, monkeypatch, change):
-    _, artifacts, binary = source_fixture(tmp_path, monkeypatch)
+    _, artifacts, binary = prepare_source_fixture(tmp_path, monkeypatch)
     def mutate():
         if change == "source":
             (tmp_path / "vendor/local/lib.rs").write_text("changed")
@@ -668,8 +799,8 @@ def test_component_scope_uses_actual_dependencies_and_cross_crate_inputs(tmp_pat
 
 @pytest.mark.parametrize("change", [None, "owned", "unrelated"])
 def test_component_prepare_keeps_captured_scope_distinct_from_release(tmp_path, monkeypatch, change):
-    _, artifacts, binary = source_fixture(tmp_path, monkeypatch)
-    unrelated = tmp_path / "unrelated.txt"
+    _, artifacts, binary = prepare_source_fixture(tmp_path, monkeypatch)
+    unrelated = tmp_path / "unrelated.md"
     unrelated.write_text("before")
     def mutate():
         if change:
@@ -693,9 +824,10 @@ def test_component_prepare_keeps_captured_scope_distinct_from_release(tmp_path, 
 
 @pytest.mark.parametrize("change", ["edit", "add", "delete"])
 def test_ignored_local_package_files_are_bound_at_build_and_runtime(tmp_path, monkeypatch, change):
-    metadata, artifacts, binary = source_fixture(tmp_path, monkeypatch)
-    mocked_build(monkeypatch, artifacts, binary)
-    scope = qualify.component_scope(metadata, artifacts)
+    fixture = native_source_fixture(tmp_path, monkeypatch)
+    metadata, artifacts, binary = fixture.metadata, fixture.artifacts, fixture.binary
+    mocked_build(monkeypatch, [*artifacts, *fixture.scripts], binary)
+    scope = qualify.component_scope(metadata, artifacts, fixture.scripts, capture_native_fixture(fixture))
     before = qualify.source_digest(scope)
     old = tmp_path / "vendor/local/uncompiled.txt"
     old.write_text("before")
@@ -712,13 +844,13 @@ def test_ignored_local_package_files_are_bound_at_build_and_runtime(tmp_path, mo
     # Same mutation during a build must refuse creating candidate.json.
     old.write_text("before")
     (old.parent / "new.txt").unlink(missing_ok=True)
-    mocked_build(monkeypatch, artifacts, binary, during_build=mutate)
+    mocked_build(monkeypatch, [*artifacts, *fixture.scripts], binary, during_build=mutate)
     with pytest.raises(ValueError, match="source changed during build"):
         qualify.prepare(tmp_path / "target/output", component=True)
 
 
 def test_missing_prebuild_ignored_external_include_is_never_late_pinned(tmp_path, monkeypatch):
-    _, artifacts, binary = source_fixture(tmp_path, monkeypatch)
+    _, artifacts, binary = prepare_source_fixture(tmp_path, monkeypatch)
     (tmp_path / "fixtures/ignored.txt").write_text("not in initial inventory")
     with binary.with_suffix(".d").open("a") as stream:
         stream.write(f"{binary}: fixtures/ignored.txt\n")
@@ -839,8 +971,8 @@ def test_hard_failure_stop_keeps_complete_attempt_and_failing_partial_verdict(tm
     monkeypatch.setattr(qualify, "file_hash", lambda _path: candidate["binary_sha256"])
 
     def measured(_candidate, config, seed, _path):
-        value = report(workers=config["workers"])
-        value.update(candidate["layouts"][config["gate"]], seed=seed)
+        value = report(workers=config["workers"], seed=seed)
+        value.update(candidate["layouts"][config["gate"]])
         if config["kind"] == "q_chips":
             value["samples"][0]["total_ns"] = 10_000_000_001
         return observation_fixture(value)
@@ -941,8 +1073,8 @@ def test_source_custody_error_after_measurement_preserves_failed_attempt(tmp_pat
     calls = []
     def measured(_candidate, config, seed, _path):
         calls.append(seed)
-        value = report(workers=config["workers"])
-        value.update(candidate["layouts"][config["gate"]], seed=seed)
+        value = report(workers=config["workers"], seed=seed)
+        value.update(candidate["layouts"][config["gate"]])
         if len(calls) == 3:
             def unavailable(*_args):
                 raise ValueError("mandatory compiler input lost")
@@ -1101,3 +1233,680 @@ def test_unavailable_cargo_configuration_is_not_absence(tmp_path, monkeypatch):
     monkeypatch.setattr(qualify, "file_hash", inaccessible)
     with pytest.raises(PermissionError, match="fixture denied"):
         qualify.cargo_configuration()
+
+
+def native_source_fixture(tmp_path, monkeypatch):
+    """Model exact Cargo originals; only compiler/snapshot execution is stubbed."""
+    metadata, artifacts, binary = source_fixture(tmp_path, monkeypatch)
+    package = tmp_path / "crates/iroha_plonk"
+    source_names = ("Cargo.toml", "build.rs", "build_support/source_identity.rs",
+                    "src/lib.rs", "src/keys/keygen/builtin/generated.rs")
+    for name in source_names:
+        path = package / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("// original " + name + "\n")
+    for name in ("audit_native_source_inputs.py", "native_source_snapshot.rs"):
+        path = tmp_path / "scripts" / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_text("# maintained evaluator input\n")
+    metadata["packages"].append(dict(id="plonk", name="iroha_plonk", version="1", source=None,
+                                     manifest_path=str(package / "Cargo.toml")))
+    base = tmp_path / "target/release/build/iroha_plonk-selected"
+    out = base / "out"
+    out.mkdir(parents=True)
+    alias, executable = base / "build-script-build", base / "build_script_build-selected"
+    alias.write_bytes(b"selected generator")
+    executable.write_bytes(b"selected generator")
+    executable.with_suffix(".d").write_text(
+        f"{executable}: crates/iroha_plonk/build.rs crates/iroha_plonk/build_support/source_identity.rs\n")
+    library = tmp_path / "target/release/deps/libiroha_plonk.rlib"
+    library.parent.mkdir()
+    library.write_bytes(b"selected library")
+    identity = out / "native_source_identity.rs"
+    identity.write_text(
+        "// Generated from actual workspace inputs, not an environment digest.\n"
+        "pub(super) const CURRENT_NATIVE_SOURCE_DIGEST: [u8; 32] = [" + ", ".join(["17"] * 32) + "];\n"
+        "pub(super) const NATIVE_SOURCE_CLOSURE_COMPLETE: bool = true;\n"
+        "pub(super) const BUILTIN_TARGET_SUPPORTED: bool = true;\n"
+        "#[allow(dead_code)]\n"
+        'pub(super) const NATIVE_SOURCE_TARGET: &str = "aarch64-apple-darwin";\n')
+    depfile = library.with_name("iroha_plonk.d")
+    depfile.write_text(f"{library}: crates/iroha_plonk/src/lib.rs {identity}\n# env-dep:OUT_DIR={out}\n")
+    artifacts.extend([
+        dict(reason="compiler-artifact", package_id="plonk", filenames=[str(alias)],
+             target={"name": "build-script-build", "kind": ["custom-build"]}),
+        dict(reason="compiler-artifact", package_id="plonk", filenames=[str(library)],
+             target={"name": "iroha_plonk", "kind": ["lib"]}),
+    ])
+    scripts = [dict(reason="build-script-executed", package_id="plonk", out_dir=str(out))]
+    target = {"triple": "aarch64-apple-darwin", "cfg": {"target_arch": "aarch64", "target_os": "macos",
+              "target_pointer_width": "64", "target_endian": "little"},
+              "cfg_stdout": 'target_arch="aarch64"\ntarget_os="macos"\ntarget_pointer_width="64"\ntarget_endian="little"\n',
+              "environment": {"TARGET": "aarch64-apple-darwin", "CARGO_CFG_TARGET_ARCH": "aarch64",
+                              "CARGO_CFG_TARGET_OS": "macos", "CARGO_CFG_TARGET_POINTER_WIDTH": "64",
+                              "CARGO_CFG_TARGET_ENDIAN": "little"}}
+    watched = sorted({".git/index", ".git/info/exclude", "Cargo.lock",
+                      *("crates/iroha_plonk/" + name for name in source_names),
+                      "scripts/audit_native_source_inputs.py", "scripts/native_source_snapshot.rs"})
+    snapshot = {"digest": "11" * 32, "watched": watched}
+    rescan = out / "native-source-rescan-required"
+    build_output = base / "output"
+    build_output.write_text("".join(f"cargo:rerun-if-changed={tmp_path / name}\n" for name in watched)
+                            + f"cargo:rerun-if-changed={rescan}\n"
+                            + "".join(f"cargo:rerun-if-env-changed={name}\n" for name in target["environment"]))
+    sha2 = library.with_name("libsha2-selected.rlib")
+    sha2.write_bytes(b"Cargo-selected host sha2")
+    helper, driver = package / "build_support/source_identity.rs", tmp_path / "scripts/native_source_snapshot.rs"
+
+    def build_tool(directory, events):
+        assert events == [*artifacts, *scripts]
+        tool = directory / "source-snapshot"
+        tool.write_bytes(b"selected evaluator")
+        record = {"helperPath": str(helper), "helperSha256": qualify.file_hash(helper),
+                  "driverPath": str(driver), "driverSha256": qualify.file_hash(driver),
+                  "binaryPath": str(tool), "binarySha256": qualify.file_hash(tool),
+                  "sha2Path": str(sha2), "sha2Sha256": qualify.file_hash(sha2),
+                  "sha2Features": [],
+                  "command": ["rustc", "--edition=2024", "--crate-name", "iroha_native_source_snapshot", str(driver),
+                              "--extern", "sha2=" + str(sha2), "-L", "dependency=" + str(sha2.parent), "-o", str(tool)]}
+        qualify.write_json(tool.with_name("source-snapshot-build.json"), record)
+        return tool
+
+    audit = SimpleNamespace(HELPER=helper, DRIVER=driver, build_snapshot_tool=build_tool,
+                            actual_snapshot=lambda _tool: (snapshot["digest"], {tmp_path / name for name in snapshot["watched"]}))
+    monkeypatch.setattr(qualify, "native_audit_module", lambda: audit)
+    monkeypatch.setattr(qualify, "native_host_target", lambda: deepcopy(target))
+    output = tmp_path / "target/qualification"
+    output.mkdir()
+    return SimpleNamespace(metadata=metadata, artifacts=artifacts, scripts=scripts, binary=binary, output=output,
+                           identity=identity, out=out, depfile=depfile, library=library, rescan=rescan,
+                           build_output=build_output, target=target, snapshot=snapshot, sha2=sha2,
+                           helper=helper, driver=driver, audit=audit, generator=executable)
+
+
+def prepare_source_fixture(tmp_path, monkeypatch):
+    fixture = native_source_fixture(tmp_path, monkeypatch)
+    return fixture.metadata, [*fixture.artifacts, *fixture.scripts], fixture.binary
+
+
+def retained_native_fixture(binary_sha256):
+    """Synthetic retained evidence for verdict tests that never inspect live files."""
+    root = qualify.ROOT
+    tool = root / "target/fixture/native-source-evaluator/source-snapshot"
+    helper = root / "crates/iroha_plonk/build_support/source_identity.rs"
+    driver = root / "scripts/native_source_snapshot.rs"
+    sha2 = root / "target/release/deps/libsha2-fixture.rlib"
+    out = root / "target/release/build/iroha_plonk-fixture/out"
+    generated = out / "native_source_identity.rs"
+    # Literal build.rs framing, independent of the qualifier's reconstruction.
+    source = ("// Generated from actual workspace inputs, not an environment digest.\n"
+              "pub(super) const CURRENT_NATIVE_SOURCE_DIGEST: [u8; 32] = [" + ", ".join(["17"] * 32) + "];\n"
+              "pub(super) const NATIVE_SOURCE_CLOSURE_COMPLETE: bool = true;\n"
+              "pub(super) const BUILTIN_TARGET_SUPPORTED: bool = true;\n"
+              "#[allow(dead_code)]\n"
+              'pub(super) const NATIVE_SOURCE_TARGET: &str = "aarch64-apple-darwin";\n')
+    source_hash = hashlib.sha256(source.encode()).hexdigest()
+    native = {"policy": "complete-native-source-identity-v1", "source_digest": "11" * 32,
+              "tool": str(tool), "evaluator": {
+                  "helperPath": str(helper), "helperSha256": "ac" * 32,
+                  "driverPath": str(driver), "driverSha256": "bc" * 32,
+                  "binaryPath": str(tool), "binarySha256": "cd" * 32,
+                  "sha2Path": str(sha2), "sha2Sha256": "dc" * 32, "sha2Features": [],
+                  "command": ["rustc", "--edition=2024", "--crate-name", "iroha_native_source_snapshot", str(driver),
+                              "--extern", "sha2=" + str(sha2), "-L", "dependency=" + str(sha2.parent), "-o", str(tool)]},
+              "evaluator_record_sha256": "de" * 32,
+              "builds": [{"package_id": "plonk", "out_dir": str(out), "identity": str(generated),
+                          "identity_sha256": source_hash, "rescan": str(out / "native-source-rescan-required"),
+                          "output": str(out.parent / "output"), "output_sha256": "ed" * 32,
+                          "inventory": {generated.relative_to(root).as_posix(): "file:" + source_hash}}],
+              "watched": sorted([".git/index", ".git/info/exclude", "crates/iroha_plonk/build.rs",
+                                 "crates/iroha_plonk/build_support/source_identity.rs",
+                                 "crates/iroha_plonk/src/keys/keygen/builtin/generated.rs",
+                                 "scripts/audit_native_source_inputs.py", "scripts/native_source_snapshot.rs"]),
+              "admin_watchers": {".git/index": None, ".git/info/exclude": "ef" * 32},
+              "target": {"triple": "aarch64-apple-darwin", "cfg": {"target_arch": "aarch64", "target_os": "macos",
+                         "target_pointer_width": "64", "target_endian": "little"},
+                         "cfg_stdout": 'target_arch="aarch64"\ntarget_os="macos"\ntarget_pointer_width="64"\ntarget_endian="little"\n',
+                         "environment": {"TARGET": "aarch64-apple-darwin", "CARGO_CFG_TARGET_ARCH": "aarch64",
+                                         "CARGO_CFG_TARGET_OS": "macos", "CARGO_CFG_TARGET_POINTER_WIDTH": "64",
+                                         "CARGO_CFG_TARGET_ENDIAN": "little"}}}
+    identity = {"schema": "kagemusha.m3.native-source.v1", "native_source_digest": "11" * 32,
+                "binary_sha256": binary_sha256, "target_arch": "aarch64", "target_os": "macos",
+                "pointer_width": 64, "little_endian": True}
+    native["builds"][0]["output_sha256"] = retained_native_build_outputs(native)[0]["sha256"]
+    process = {"code": 0, "stdout": "M3_SOURCE_JSON " + json.dumps(identity), "stderr": ""}
+    return native, identity, process
+
+
+def retained_native_build_outputs(native):
+    """Retain Cargo's raw watcher declarations alongside their selected event."""
+    result = []
+    for build in native["builds"]:
+        text = ("".join(f"cargo:rerun-if-changed={qualify.ROOT / name}\n" for name in native["watched"])
+                + f"cargo:rerun-if-changed={build['rescan']}\n"
+                + "".join(f"cargo:rerun-if-env-changed={name}\n" for name in native["target"]["environment"]))
+        result.append({"record": {"reason": "build-script-executed", "package_id": build["package_id"],
+                                  "out_dir": build["out_dir"]}, "path": build["output"],
+                       "sha256": hashlib.sha256(text.encode()).hexdigest(), "text": text,
+                       "generated_disposition": "exact complete native source identity"})
+    return result
+
+
+def capture_native_fixture(fixture):
+    return qualify.capture_native_source(fixture.metadata, fixture.artifacts, fixture.scripts, fixture.output)
+
+
+def test_native_identity_has_exact_generated_and_admin_dispositions(tmp_path, monkeypatch):
+    fixture = native_source_fixture(tmp_path, monkeypatch)
+    native = capture_native_fixture(fixture)
+    scope = qualify.component_scope(fixture.metadata, fixture.artifacts, fixture.scripts, native)
+    assert native["source_digest"] == "11" * 32
+    assert native["admin_watchers"][".git/index"] is None
+    assert native["admin_watchers"][".git/info/exclude"] == qualify.file_hash(tmp_path / ".git/info/exclude")
+    assert not set(native["admin_watchers"]) & set(scope["required_inputs"])
+    assert fixture.identity.relative_to(tmp_path).as_posix() not in scope["required_inputs"]
+    assert fixture.rescan.relative_to(tmp_path).as_posix() not in scope["required_inputs"]
+    assert scope["build_environment"] == {}
+    assert scope["depfiles"][str(fixture.depfile)]["derived_environment"] == {"OUT_DIR": str(fixture.out)}
+    assert scope["build_script_outputs"][0]["generated_disposition"] == "exact complete native source identity"
+    before = qualify.source_digest(scope)
+    monkeypatch.setenv("OUT_DIR", "/not-a-Cargo-compiler-input")
+    monkeypatch.setenv("TARGET", "not-a-Cargo-compiler-input")
+    assert qualify.source_digest(scope) == before
+
+
+@pytest.mark.parametrize("defect", [
+    "incomplete", "unsupported", "digest", "target", "malformed", "extra_code", "missing_identity",
+    "extra_output", "nested_target", "nested_git", "empty_directory", "rescan_created", "rescan_symlink",
+    "missing_watch", "extra_absent_watch", "missing_environment", "unknown_environment", "duplicate_out_dir", "snapshot_drift",
+])
+def test_native_capture_refuses_unverified_identity_or_watchers(tmp_path, monkeypatch, defect):
+    fixture = native_source_fixture(tmp_path, monkeypatch)
+    replacements = {
+        "incomplete": ("NATIVE_SOURCE_CLOSURE_COMPLETE: bool = true", "NATIVE_SOURCE_CLOSURE_COMPLETE: bool = false"),
+        "unsupported": ("BUILTIN_TARGET_SUPPORTED: bool = true", "BUILTIN_TARGET_SUPPORTED: bool = false"),
+        "digest": ("[17,", "[18,"), "target": ("aarch64-apple-darwin", "x86_64-apple-darwin"),
+    }
+    if defect in replacements:
+        fixture.identity.write_text(fixture.identity.read_text().replace(*replacements[defect]))
+    elif defect == "malformed":
+        fixture.identity.write_text("// no valid identity\n")
+    elif defect == "extra_code":
+        fixture.identity.write_text(fixture.identity.read_text() + "pub const UNREVIEWED: u8 = 1;\n")
+    elif defect == "missing_identity":
+        fixture.identity.unlink()
+    elif defect == "extra_output":
+        (fixture.out / "other.rs").write_text("// unverified\n")
+    elif defect in ("nested_target", "nested_git", "empty_directory"):
+        directory = fixture.out / {"nested_target": "target", "nested_git": ".git", "empty_directory": "empty"}[defect]
+        directory.mkdir()
+        if defect != "empty_directory":
+            (directory / "other.rs").write_text("// unverified\n")
+    elif defect == "rescan_created":
+        fixture.rescan.write_text("must remain absent")
+    elif defect == "rescan_symlink":
+        fixture.rescan.symlink_to(fixture.out / "missing")
+    elif defect == "missing_watch":
+        fixture.build_output.write_text(fixture.build_output.read_text().replace(
+            f"cargo:rerun-if-changed={fixture.rescan}\n", ""))
+    elif defect == "extra_absent_watch":
+        with fixture.build_output.open("a") as stream:
+            stream.write(f"cargo:rerun-if-changed={fixture.out / 'unreviewed-absent'}\n")
+    elif defect == "missing_environment":
+        fixture.build_output.write_text(fixture.build_output.read_text().replace("cargo:rerun-if-env-changed=TARGET\n", ""))
+    elif defect == "unknown_environment":
+        with fixture.build_output.open("a") as stream:
+            stream.write("cargo:rerun-if-env-changed=UNREVIEWED_NATIVE_CONTROL\n")
+    elif defect == "duplicate_out_dir":
+        fixture.scripts.append(deepcopy(fixture.scripts[0]))
+    else:
+        observations = []
+        def changed(_tool):
+            observations.append(None)
+            return ("11" * 32 if len(observations) == 1 else "22" * 32,
+                    {tmp_path / name for name in fixture.snapshot["watched"]})
+        fixture.audit.actual_snapshot = changed
+    with pytest.raises((ValueError, FileNotFoundError)):
+        capture_native_fixture(fixture)
+
+
+@pytest.mark.parametrize("defect", [
+    "missing_env", "foreign_env", "unknown_cargo_env", "foreign_include", "missing_include", "generator_include",
+])
+def test_native_compiler_include_and_out_dir_must_match_exact_cargo_event(tmp_path, monkeypatch, defect):
+    fixture = native_source_fixture(tmp_path, monkeypatch)
+    native = capture_native_fixture(fixture)
+    text = fixture.depfile.read_text()
+    if defect == "missing_env":
+        text = text.split("# env-dep:")[0]
+    elif defect == "foreign_env":
+        text = text.replace(f"# env-dep:OUT_DIR={fixture.out}", "# env-dep:OUT_DIR=/foreign/out")
+    elif defect == "unknown_cargo_env":
+        text += "# env-dep:CARGO_UNREVIEWED=1\n"
+    elif defect == "foreign_include":
+        foreign = tmp_path / "target/foreign_native_source_identity.rs"
+        foreign.write_bytes(fixture.identity.read_bytes())
+        text = text.replace(str(fixture.identity), str(foreign))
+    elif defect == "generator_include":
+        fixture.generator.with_suffix(".d").write_text(
+            f"{fixture.generator}: crates/iroha_plonk/build.rs {fixture.identity}\n# env-dep:OUT_DIR={fixture.out}\n")
+        text = text.replace(str(fixture.identity), "")
+    else:
+        text = text.replace(str(fixture.identity), "")
+    fixture.depfile.write_text(text)
+    with pytest.raises(ValueError):
+        qualify.component_scope(fixture.metadata, fixture.artifacts, fixture.scripts, native)
+
+
+@pytest.mark.parametrize("defect", [
+    "identity", "build_output", "extra_output", "rescan", "index_creation", "exclude_change", "exclude_symlink",
+    "snapshot_digest", "snapshot_membership", "helper", "driver", "sha2", "evaluator", "record", "record_whitespace", "depfile",
+])
+def test_native_boundary_rechecks_source_generated_inputs_and_evaluator_custody(tmp_path, monkeypatch, defect):
+    fixture = native_source_fixture(tmp_path, monkeypatch)
+    native = capture_native_fixture(fixture)
+    scope = qualify.component_scope(fixture.metadata, fixture.artifacts, fixture.scripts, native)
+    qualify.source_digest(scope)
+    paths = {"identity": fixture.identity, "build_output": fixture.build_output, "helper": fixture.helper,
+             "driver": fixture.driver, "sha2": fixture.sha2, "evaluator": Path(native["tool"]),
+             "record": Path(native["tool"]).with_name("source-snapshot-build.json"), "depfile": fixture.depfile}
+    if defect in paths:
+        with paths[defect].open("ab") as stream:
+            stream.write(b"changed")
+    elif defect == "extra_output":
+        (fixture.out / "extra.rs").write_text("// unexpected\n")
+    elif defect == "rescan":
+        fixture.rescan.write_text("not absent")
+    elif defect == "index_creation":
+        (tmp_path / ".git/index").write_bytes(b"new index")
+    elif defect == "exclude_change":
+        (tmp_path / ".git/info/exclude").write_text("changed\n")
+    elif defect == "exclude_symlink":
+        (tmp_path / ".git/info/exclude").unlink()
+        (tmp_path / ".git/info/exclude").symlink_to(tmp_path / "Cargo.toml")
+    elif defect == "snapshot_digest":
+        fixture.snapshot["digest"] = "22" * 32
+    elif defect == "record_whitespace":
+        with Path(native["tool"]).with_name("source-snapshot-build.json").open("a") as stream:
+            stream.write("\n")
+    else:
+        fixture.snapshot["watched"] = [*fixture.snapshot["watched"], "new-native-input.rs"]
+    with pytest.raises((ValueError, subprocess.CalledProcessError)):
+        qualify.source_digest(scope)
+
+
+@pytest.mark.parametrize("component", [False, True])
+def test_prepare_joins_exact_generated_native_identity_to_executable(tmp_path, monkeypatch, component):
+    fixture = native_source_fixture(tmp_path, monkeypatch)
+    identity_record = {"schema": "kagemusha.m3.native-source.v1", "native_source_digest": "11" * 32,
+                       "binary_sha256": qualify.file_hash(fixture.binary), "target_arch": "aarch64",
+                       "target_os": "macos", "pointer_width": 64, "little_endian": True}
+    mocked_build(monkeypatch, [*fixture.artifacts, *fixture.scripts], fixture.binary, identity_record=identity_record)
+    qualify.prepare(fixture.output, component=component)
+    candidate = json.loads((fixture.output / "candidate.json").read_text())
+    assert candidate["native_identity"] == identity_record
+    assert candidate["source_sha256"] == qualify.source_digest(candidate["source_scope"])
+    assert json.loads((fixture.output / "native-identity.json").read_text()) == identity_record
+    assert (fixture.output / "native-source-evaluator/source-snapshot-build.json").is_file()
+
+
+@pytest.mark.parametrize("field,bad", [
+    ("schema", "unknown"), ("native_source_digest", "22" * 32), ("binary_sha256", "cd" * 32),
+    ("target_arch", "x86_64"), ("target_os", "linux"), ("pointer_width", 32),
+    ("pointer_width", 64.0), ("little_endian", False), ("little_endian", 1),
+])
+def test_compiled_native_identity_rejects_source_binary_target_or_type_substitution(tmp_path, monkeypatch, field, bad):
+    fixture = native_source_fixture(tmp_path, monkeypatch)
+    native = capture_native_fixture(fixture)
+    value = {"schema": "kagemusha.m3.native-source.v1", "native_source_digest": "11" * 32,
+             "binary_sha256": "ab" * 32, "target_arch": "aarch64", "target_os": "macos",
+             "pointer_width": 64, "little_endian": True}
+    prefix = "M3_SOURCE_JSON "
+    assert qualify.parse_native_identity(prefix + json.dumps(value), native, "ab" * 32) == value
+    value[field] = bad
+    with pytest.raises(ValueError):
+        qualify.parse_native_identity(prefix + json.dumps(value), native, "ab" * 32)
+    for text in ("", prefix + "{}", prefix + json.dumps(value) + "\n" + prefix + json.dumps(value)):
+        with pytest.raises(ValueError):
+            qualify.parse_native_identity(text, native, "ab" * 32)
+
+
+@pytest.mark.parametrize("defect", [None, "host_missing", "host_duplicate", "cfg_missing", "cfg_duplicate", "unsupported"])
+def test_native_host_target_is_independent_of_generated_output_and_shell_env(monkeypatch, defect):
+    version = "rustc fixture\nhost: aarch64-apple-darwin\n"
+    cfg = 'target_arch="aarch64"\ntarget_os="macos"\ntarget_pointer_width="64"\ntarget_endian="little"\n'
+    if defect == "host_missing":
+        version = "rustc fixture\n"
+    elif defect == "host_duplicate":
+        version += "host: x86_64-apple-darwin\n"
+    elif defect == "cfg_missing":
+        cfg = cfg.replace('target_endian="little"\n', "")
+    elif defect == "cfg_duplicate":
+        cfg += 'target_pointer_width="32"\n'
+    elif defect == "unsupported":
+        cfg = cfg.replace('target_os="macos"', 'target_os="linux"')
+    calls = []
+    def compiler(argv, **_kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, version if "-Vv" in argv else cfg, "")
+    monkeypatch.setattr(qualify, "command", compiler)
+    monkeypatch.setenv("TARGET", "foreign-target")
+    monkeypatch.setenv("CARGO_CFG_TARGET_ARCH", "foreign-arch")
+    if defect:
+        with pytest.raises(ValueError):
+            qualify.native_host_target()
+    else:
+        result = qualify.native_host_target()
+        assert result["triple"] == "aarch64-apple-darwin"
+        assert result["environment"] == {"TARGET": "aarch64-apple-darwin", "CARGO_CFG_TARGET_ARCH": "aarch64",
+                                         "CARGO_CFG_TARGET_OS": "macos", "CARGO_CFG_TARGET_POINTER_WIDTH": "64",
+                                         "CARGO_CFG_TARGET_ENDIAN": "little"}
+        assert calls == [["rustc", "-Vv"], ["rustc", "--print", "cfg", "--target", "aarch64-apple-darwin"]]
+
+
+@pytest.mark.parametrize("defect", [None, "different_spelling", "different_name", "no_native_disposition", "parent_symlink"])
+def test_only_exact_native_policy_swift_output_link_is_classified(tmp_path, monkeypatch, defect):
+    fixture = native_source_fixture(tmp_path, monkeypatch)
+    native = capture_native_fixture(fixture)
+    scope = qualify.component_scope(fixture.metadata, fixture.artifacts, fixture.scripts, native)
+    scope["kind"] = "whole_checkout"
+    swift = tmp_path / "IrohaSwift"
+    swift.mkdir()
+    name = "other.xcframework" if defect == "different_name" else "NoritoBridge.xcframework"
+    spelling = "./../dist/NoritoBridge.xcframework" if defect == "different_spelling" else "../dist/NoritoBridge.xcframework"
+    (swift / name).symlink_to(spelling)
+    manifest = qualify.source_manifest(qualify.metadata_roots(fixture.metadata))
+    if defect == "no_native_disposition":
+        scope["native_source"] = None
+    elif defect == "parent_symlink":
+        swift.rename(tmp_path / "original-swift")
+        swift.symlink_to(tmp_path / "original-swift", target_is_directory=True)
+    if defect:
+        with pytest.raises(ValueError, match="symlink"):
+            qualify.selected_sources(manifest, scope)
+    else:
+        selected = qualify.selected_sources(manifest, scope)
+        assert selected["IrohaSwift/NoritoBridge.xcframework"] == "symlink:../dist/NoritoBridge.xcframework"
+
+
+@pytest.mark.parametrize("watcher", [".git/index", ".git/info/exclude"])
+def test_native_prepare_refuses_admin_watcher_change_during_build(tmp_path, monkeypatch, watcher):
+    fixture = native_source_fixture(tmp_path, monkeypatch)
+    def mutate():
+        path = tmp_path / watcher
+        if watcher.endswith("index"):
+            # A valid empty index is unnecessary: refusing Git's failed read is
+            # also correct, and the retained build result is not qualified.
+            path.write_bytes(b"unreadable changed index")
+        else:
+            path.write_text("changed exclusion policy\n")
+    mocked_build(monkeypatch, [*fixture.artifacts, *fixture.scripts], fixture.binary, during_build=mutate)
+    with pytest.raises((ValueError, subprocess.CalledProcessError)):
+        qualify.prepare(fixture.output, component=True)
+    assert not (fixture.output / "candidate.json").exists()
+
+
+@pytest.mark.parametrize("defect", ["digest", "failed_process", "missing_record"])
+def test_prepare_refuses_bad_compiled_native_join_before_key_inventory(tmp_path, monkeypatch, defect):
+    fixture = native_source_fixture(tmp_path, monkeypatch)
+    value = {"schema": "kagemusha.m3.native-source.v1", "native_source_digest": "22" * 32,
+             "binary_sha256": qualify.file_hash(fixture.binary), "target_arch": "aarch64", "target_os": "macos",
+             "pointer_width": 64, "little_endian": True}
+    mocked_build(monkeypatch, [*fixture.artifacts, *fixture.scripts], fixture.binary, identity_record=value)
+    original = qualify.command
+    calls = []
+    def command(argv, **kwargs):
+        calls.append(argv)
+        if "qualification_candidate_identity" in argv:
+            if defect == "failed_process":
+                return subprocess.CompletedProcess(argv, 101, "", "incomplete native closure")
+            if defect == "missing_record":
+                return subprocess.CompletedProcess(argv, 0, "", "")
+        return original(argv, **kwargs)
+    monkeypatch.setattr(qualify, "command", command)
+    with pytest.raises((ValueError, subprocess.CalledProcessError)):
+        qualify.prepare(fixture.output, component=True)
+    assert not any("qualification_candidate_layouts" in argv for argv in calls)
+    assert not (fixture.output / "candidate.json").exists()
+
+
+@pytest.mark.parametrize("changed", ["identity", "build_output", "rescan", "admin"])
+def test_native_outputs_and_watchers_are_rechecked_after_snapshot_evaluation(tmp_path, monkeypatch, changed):
+    fixture = native_source_fixture(tmp_path, monkeypatch)
+    native = capture_native_fixture(fixture)
+    original = fixture.audit.actual_snapshot
+    def snapshot(tool):
+        result = original(tool)
+        path = {"identity": fixture.identity, "build_output": fixture.build_output,
+                "rescan": fixture.rescan, "admin": tmp_path / ".git/info/exclude"}[changed]
+        with path.open("a") as stream:
+            stream.write("changed during evaluation\n")
+        return result
+    fixture.audit.actual_snapshot = snapshot
+    with pytest.raises(ValueError):
+        qualify.recheck_native_source(native)
+
+
+@pytest.mark.parametrize("component", [False, True])
+def test_prepare_requires_native_dependency_and_never_skips_executable_identity(tmp_path, monkeypatch, component):
+    metadata, artifacts, binary = source_fixture(tmp_path, monkeypatch)
+    # The general compiler-input helper can still exercise isolated fixtures.
+    assert qualify.component_scope(metadata, artifacts)["native_source"] is None
+    mocked_build(monkeypatch, artifacts, binary)
+    original = qualify.command
+    calls = []
+    def command(argv, **kwargs):
+        calls.append(argv)
+        return original(argv, **kwargs)
+    monkeypatch.setattr(qualify, "command", command)
+    output = tmp_path / "target/required-native"
+    with pytest.raises(ValueError, match="requires the selected iroha_plonk native source identity"):
+        qualify.prepare(output, component=component)
+    assert (output / "build.stdout.log").exists()
+    assert not (output / "candidate.json").exists()
+    assert not any(argv[0] == str(binary) for argv in calls)
+
+
+@pytest.mark.parametrize("defect", [
+    "missing_scope", "missing_native", "null_native", "empty_native", "wrong_native_policy",
+    "empty_builds", "missing_evaluator", "missing_digest", "scope_digest_mismatch", "unsupported_target",
+    "missing_identity", "null_identity", "cached_digest_mismatch", "cached_boolean_alias",
+    "missing_process", "failed_exit", "boolean_exit", "missing_stdout", "empty_stdout", "duplicate_stdout",
+    "raw_consistent_wrong_source", "raw_consistent_wrong_binary",
+    "sentinel_evaluator", "sentinel_build", "extra_evaluator_field", "extra_build_field", "duplicate_build",
+    "foreign_helper", "foreign_driver", "foreign_binary", "foreign_sha2", "relative_tool", "parent_tool",
+    "empty_evaluator_hash", "malformed_output_hash", "wrong_generated_hash", "wrong_inventory_hash", "extra_inventory",
+    "wrong_identity_path", "wrong_rescan_path", "wrong_output_path", "foreign_out_dir", "empty_package",
+    "wrong_command", "extra_command", "malformed_features", "duplicate_features",
+    "wrong_triple", "wrong_cfg_stdout", "duplicate_cfg_stdout", "wrong_environment", "extra_environment",
+    "missing_watch", "duplicate_watch", "unordered_watch", "absolute_watch", "parent_watch", "empty_watch",
+    "missing_native_outputs", "empty_native_outputs", "duplicate_native_output", "sentinel_native_output",
+    "wrong_output_package", "wrong_output_outdir", "wrong_output_event", "wrong_output_disposition", "wrong_output_capture_hash",
+    "wrong_output_text", "raw_consistent_missing_watch", "raw_consistent_extra_watch", "raw_consistent_relative_watch",
+    "raw_consistent_missing_rescan", "raw_consistent_wrong_env",
+] + [f"delete:{section}:{field}" for section, names in {
+    "evaluator": "helperPath helperSha256 driverPath driverSha256 binaryPath binarySha256 sha2Path sha2Sha256 sha2Features command",
+    "build": "package_id out_dir identity identity_sha256 rescan output output_sha256 inventory",
+    "target": "triple cfg cfg_stdout environment",
+    "cfg": "target_arch target_os target_pointer_width target_endian",
+    "environment": "TARGET CARGO_CFG_TARGET_ARCH CARGO_CFG_TARGET_OS CARGO_CFG_TARGET_POINTER_WIDTH CARGO_CFG_TARGET_ENDIAN",
+    "admin": ".git/index .git/info/exclude",
+    "output": "record path sha256 text generated_disposition",
+    "output_event": "reason package_id out_dir",
+}.items() for field in names.split()])
+def test_run_and_summary_require_matching_successful_compiled_native_identity(tmp_path, monkeypatch, defect):
+    ledger = ledger_fixture()
+    candidate = ledger["candidate"]
+    assert qualify.candidate_native_reasons(candidate) == []
+    native = candidate["source_scope"]["native_source"]
+    if defect.startswith("delete:"):
+        _, section, field = defect.split(":")
+        records = {"evaluator": native["evaluator"], "build": native["builds"][0], "target": native["target"],
+                   "cfg": native["target"]["cfg"], "environment": native["target"]["environment"],
+                   "admin": native["admin_watchers"], "output": candidate["source_scope"]["build_script_outputs"][0],
+                   "output_event": candidate["source_scope"]["build_script_outputs"][0]["record"]}
+        del records[section][field]
+    elif defect == "missing_native_outputs":
+        del candidate["source_scope"]["build_script_outputs"]
+    elif defect == "empty_native_outputs":
+        candidate["source_scope"]["build_script_outputs"] = []
+    elif defect == "duplicate_native_output":
+        candidate["source_scope"]["build_script_outputs"] *= 2
+    elif defect == "sentinel_native_output":
+        candidate["source_scope"]["build_script_outputs"] = [{"path": native["builds"][0]["output"]}]
+    elif defect in ("wrong_output_package", "wrong_output_outdir", "wrong_output_event"):
+        key = {"wrong_output_package": "package_id", "wrong_output_outdir": "out_dir", "wrong_output_event": "reason"}[defect]
+        candidate["source_scope"]["build_script_outputs"][0]["record"][key] = "foreign"
+    elif defect == "wrong_output_disposition":
+        candidate["source_scope"]["build_script_outputs"][0]["generated_disposition"] = "unverified"
+    elif defect == "wrong_output_capture_hash":
+        candidate["source_scope"]["build_script_outputs"][0]["sha256"] = "22" * 32
+    elif defect == "wrong_output_text" or defect.startswith("raw_consistent_") and defect not in (
+            "raw_consistent_wrong_source", "raw_consistent_wrong_binary"):
+        output = candidate["source_scope"]["build_script_outputs"][0]
+        watch = f"cargo:rerun-if-changed={qualify.ROOT / '.git/index'}\n"
+        if defect == "wrong_output_text":
+            output["text"] += "cargo:warning=changed after capture\n"
+        elif defect == "raw_consistent_missing_watch":
+            output["text"] = output["text"].replace(watch, "")
+        elif defect == "raw_consistent_extra_watch":
+            output["text"] += f"cargo:rerun-if-changed={qualify.ROOT / 'unreviewed'}\n"
+        elif defect == "raw_consistent_relative_watch":
+            output["text"] = output["text"].replace(watch, "cargo:rerun-if-changed=.git/index\n")
+        elif defect == "raw_consistent_missing_rescan":
+            output["text"] = output["text"].replace(f"cargo:rerun-if-changed={native['builds'][0]['rescan']}\n", "")
+        else:
+            output["text"] = output["text"].replace("cargo:rerun-if-env-changed=TARGET\n", "cargo:rerun-if-env-changed=UNREVIEWED\n")
+        if defect != "wrong_output_text":
+            output["sha256"] = hashlib.sha256(output["text"].encode()).hexdigest()
+            native["builds"][0]["output_sha256"] = output["sha256"]
+    elif defect == "sentinel_evaluator":
+        native["evaluator"] = {"bogus": 1}
+    elif defect == "sentinel_build":
+        native["builds"] = [{"package_id": "plonk"}]
+    elif defect == "extra_evaluator_field":
+        native["evaluator"]["unreviewed"] = True
+    elif defect == "extra_build_field":
+        native["builds"][0]["unreviewed"] = True
+    elif defect == "duplicate_build":
+        native["builds"].append(deepcopy(native["builds"][0]))
+    elif defect in ("foreign_helper", "foreign_driver", "foreign_binary", "foreign_sha2"):
+        native["evaluator"][defect.removeprefix("foreign_") + "Path"] = "/foreign/input"
+    elif defect in ("relative_tool", "parent_tool"):
+        native["tool"] = "relative/source-snapshot" if defect == "relative_tool" else "/foreign/../source-snapshot"
+    elif defect == "empty_evaluator_hash":
+        native["evaluator"]["binarySha256"] = ""
+    elif defect == "malformed_output_hash":
+        native["builds"][0]["output_sha256"] = "not-a-digest"
+    elif defect == "wrong_generated_hash":
+        native["builds"][0]["identity_sha256"] = "22" * 32
+    elif defect in ("wrong_inventory_hash", "extra_inventory"):
+        inventory = native["builds"][0]["inventory"]
+        inventory[next(iter(inventory)) if defect == "wrong_inventory_hash" else "target/foreign.rs"] = "file:" + "22" * 32
+    elif defect in ("wrong_identity_path", "wrong_rescan_path", "wrong_output_path"):
+        native["builds"][0][defect.removeprefix("wrong_").removesuffix("_path")] += ".foreign"
+    elif defect == "foreign_out_dir":
+        native["builds"][0]["out_dir"] = "/foreign/out"
+    elif defect == "empty_package":
+        native["builds"][0]["package_id"] = ""
+    elif defect == "wrong_command":
+        native["evaluator"]["command"][-1] = "/foreign/tool"
+    elif defect == "extra_command":
+        native["evaluator"]["command"].append("--unreviewed")
+    elif defect == "malformed_features":
+        native["evaluator"]["sha2Features"] = [[]]
+    elif defect == "duplicate_features":
+        native["evaluator"]["sha2Features"] = ["std", "std"]
+    elif defect == "wrong_triple":
+        native["target"]["triple"] = "x86_64-apple-darwin"
+    elif defect == "wrong_cfg_stdout":
+        native["target"]["cfg_stdout"] = "sentinel"
+    elif defect == "duplicate_cfg_stdout":
+        native["target"]["cfg_stdout"] += 'target_arch="aarch64"\n'
+    elif defect == "wrong_environment":
+        native["target"]["environment"]["TARGET"] = "x86_64-apple-darwin"
+    elif defect == "extra_environment":
+        native["target"]["environment"]["UNREVIEWED"] = "1"
+    elif defect == "missing_watch":
+        native["watched"].remove(".git/index")
+    elif defect == "duplicate_watch":
+        native["watched"].append(native["watched"][0])
+    elif defect == "unordered_watch":
+        native["watched"].reverse()
+    elif defect in ("absolute_watch", "parent_watch", "empty_watch"):
+        native["watched"] = sorted([*native["watched"], {
+            "absolute_watch": "/foreign/input", "parent_watch": "../foreign", "empty_watch": "",
+        }[defect]])
+    elif defect == "missing_scope":
+        del candidate["source_scope"]
+    elif defect == "missing_native":
+        del candidate["source_scope"]["native_source"]
+    elif defect == "null_native":
+        candidate["source_scope"]["native_source"] = None
+    elif defect == "empty_native":
+        candidate["source_scope"]["native_source"] = {}
+    elif defect == "wrong_native_policy":
+        native["policy"] = "unverified"
+    elif defect == "empty_builds":
+        native["builds"] = []
+    elif defect == "missing_evaluator":
+        del native["evaluator"]
+    elif defect == "missing_digest":
+        del native["source_digest"]
+    elif defect == "scope_digest_mismatch":
+        native["source_digest"] = "22" * 32
+    elif defect == "unsupported_target":
+        native["target"]["cfg"]["target_os"] = "linux"
+    elif defect == "missing_identity":
+        del candidate["native_identity"]
+    elif defect == "null_identity":
+        candidate["native_identity"] = None
+    elif defect == "cached_digest_mismatch":
+        candidate["native_identity"]["native_source_digest"] = "22" * 32
+    elif defect == "cached_boolean_alias":
+        candidate["native_identity"]["little_endian"] = 1
+    elif defect == "missing_process":
+        del candidate["native_identity_process"]
+    elif defect == "failed_exit":
+        candidate["native_identity_process"]["code"] = 101
+    elif defect == "boolean_exit":
+        candidate["native_identity_process"]["code"] = False
+    elif defect == "missing_stdout":
+        del candidate["native_identity_process"]["stdout"]
+    elif defect == "empty_stdout":
+        candidate["native_identity_process"]["stdout"] = ""
+    elif defect == "duplicate_stdout":
+        candidate["native_identity_process"]["stdout"] += "\n" + candidate["native_identity_process"]["stdout"]
+    else:
+        field = "native_source_digest" if defect == "raw_consistent_wrong_source" else "binary_sha256"
+        candidate["native_identity"][field] = "22" * 32
+        candidate["native_identity_process"]["stdout"] = "M3_SOURCE_JSON " + json.dumps(candidate["native_identity"])
+    assert qualify.candidate_native_reasons(candidate)
+    retained = tmp_path / "retained-runs.json"
+    qualify.write_json(retained, ledger)
+    result = qualify.summarize(retained)
+    assert result["status"] == "inconclusive"
+    assert all(item["valid_processes"] == 0 for item in result["configurations"].values())
+    assert all(any("candidate native identity invalid" in reason for reason in item["invalid_attempts"][0]["reasons"])
+               for item in result["configurations"].values())
+    calls = []
+    monkeypatch.setattr(qualify, "candidate_boundary", lambda *_args: calls.append("boundary"))
+    monkeypatch.setattr(qualify, "run_process", lambda *_args: calls.append("process"))
+    path = tmp_path / "candidate.json"
+    qualify.write_json(path, candidate)
+    with pytest.raises(ValueError, match="candidate native identity invalid.*prepare a fresh candidate"):
+        qualify.run(path, 123)
+    assert calls == []
+    assert not (tmp_path / "runs.json").exists()
+
+
+def test_retained_native_identity_and_summary_do_not_require_live_artifacts(tmp_path, monkeypatch):
+    ledger = ledger_fixture()
+    retained = tmp_path / "retained-runs.json"
+    qualify.write_json(retained, ledger)
+    def unavailable(*_args, **_kwargs):
+        raise AssertionError("offline summary attempted to inspect live source or artifacts")
+    for name in ("file_hash", "local_path", "native_snapshot", "command"):
+        monkeypatch.setattr(qualify, name, unavailable)
+    assert qualify.candidate_native_reasons(ledger["candidate"]) == []
+    assert qualify.summarize(retained)["status"] == "pass"

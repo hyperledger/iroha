@@ -187,7 +187,8 @@ fn fee_policy_or_peer_identity_substitution_refuses_despite_unchanged_expected_h
                         "per_instruction_fee".into(),
                         toml::Value::String("0".into()),
                     )]
-                    .into(),
+                    .into_iter()
+                    .collect(),
                 ),
             );
         let altered = toml::to_string(&*table).unwrap();

@@ -9,7 +9,7 @@ fn receipt_rejects_misauthorized_expired_unregistered_and_untraced_locks_atomica
     let buyer_id = account(&buyer);
     let provider_id = account(&provider);
     let treasury_id = account(&treasury);
-    let state = state_with_settlement_accounts(
+    let mut state = state_with_settlement_accounts(
         &settlement,
         &buyer,
         &provider,
@@ -31,16 +31,28 @@ fn receipt_rejects_misauthorized_expired_unregistered_and_untraced_locks_atomica
         .custody
         .clone();
     let configured_asset = stx.gov.sorafs_pin_fee_asset_id.clone();
-    stx.gov.sorafs_pin_fee_asset_id = AssetDefinitionId::derive_from_components(
+    stx.apply();
+    block
+        .commit_world_overlay_for_testing()
+        .expect("retain original settlement lock before fee-asset change");
+    state.gov.sorafs_pin_fee_asset_id = AssetDefinitionId::derive_from_components(
         DomainId::try_new("sorafs", "universal").expect("settlement domain"),
         "not_xor".parse().expect("wrong asset name"),
     );
+    let mut block = state.block(block_header());
+    block.admit_fastpq_source_for_testing(Hash::prehashed([0xA7; Hash::LENGTH]));
+    let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0xA6; Hash::LENGTH]));
     assert!(
         RecordSorafsOrderbookSettlementReceipt::new(encode(&candidate), policy_digest)
             .execute(&authority, &mut stx)
             .is_err()
     );
-    stx.gov.sorafs_pin_fee_asset_id = configured_asset;
+    drop(stx);
+    drop(block);
+    state.gov.sorafs_pin_fee_asset_id = configured_asset;
+    let mut block = state.block(block_header());
+    block.admit_fastpq_source_for_testing(Hash::prehashed([0xA7; Hash::LENGTH]));
+    let mut stx = block.transaction_for_fastpq_testing(Hash::prehashed([0xA6; Hash::LENGTH]));
     stx.world
         .asset_escrows
         .get_mut(&escrow_id)

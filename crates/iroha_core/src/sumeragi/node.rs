@@ -8,7 +8,12 @@
 //! Kura, the system clock and the State executor.
 
 mod configuration;
+mod replay;
 pub use configuration::consensus_configuration_fingerprint;
+#[cfg(test)]
+pub(crate) use replay::original_source_fixture_for_test as isolated_replay_source_fixture_for_test;
+pub(crate) use replay::{IsolatedNativeReplay, IsolatedReplayError, ReplayedNativeTransport};
+pub use replay::{NativeReplaySeed, NativeReplaySeedError};
 
 use std::{
     path::PathBuf,
@@ -587,6 +592,49 @@ impl core::fmt::Debug for Prepared {
 /// # Errors
 /// See [`NodeError`].
 pub fn prepare(inputs: PrepareInputs) -> Result<Prepared, NodeError> {
+    let mut prepared = prepare_genesis(inputs, None)?;
+    let state = &prepared.state;
+    let crypto = &prepared.crypto;
+    let blocks = &prepared.blocks;
+    let executor = &mut prepared.executor;
+    // Replay what Kura holds above genesis.
+    let stored = blocks.height();
+    for height in GENESIS_HEIGHT.saturating_add(1)..=stored {
+        let (body, commit_qc) = blocks
+            .committed_body(height)
+            .map_err(|error| NodeError::Replay {
+                height,
+                reason: ReplayError::Read(error),
+            })?
+            .ok_or_else(|| NodeError::Replay {
+                height,
+                reason: ReplayError::MissingBody,
+            })?;
+        executor
+            .replay(&body, &commit_qc)
+            .map_err(|reason| NodeError::Replay {
+                height,
+                reason: ReplayError::Execution(reason),
+            })?;
+    }
+    // Every replayed result bound the complete World state roots; the incrementally advanced
+    // accumulator must also equal a cold capture of the rebuilt World (Appendix E, E51).
+    state
+        .verify_world_state_accumulator()
+        .map_err(|reason| NodeError::Replay {
+            height: stored.max(GENESIS_HEIGHT),
+            reason: ReplayError::StateRoot(reason),
+        })?;
+    admit_window(&state, &crypto, stored.max(GENESIS_HEIGHT)).map_err(NodeError::Input)?;
+    Ok(prepared)
+}
+
+// One original signed-genesis/bootstrap and executor owner. Isolated replay changes
+// only physical destinations and local observations; all execution checks are shared.
+fn prepare_genesis(
+    inputs: PrepareInputs,
+    read_only_lane_root: Option<(PathBuf, u64)>,
+) -> Result<Prepared, NodeError> {
     let PrepareInputs {
         state,
         events,
@@ -630,12 +678,13 @@ pub fn prepare(inputs: PrepareInputs) -> Result<Prepared, NodeError> {
             let (instance, root_scope) =
                 root_identity(&block, &chain_id).map_err(node_policy_error)?;
             (
-                startup::apply_genesis(
+                startup::apply_genesis_with_fastpq_target(
                     &state,
                     block,
                     &genesis_account,
                     consensus_mode,
                     Some(&certificate),
+                    read_only_lane_root.as_ref().map(|(_, height)| *height),
                 )?,
                 fingerprint,
                 instance,
@@ -649,7 +698,14 @@ pub fn prepare(inputs: PrepareInputs) -> Result<Prepared, NodeError> {
             let (instance, root_scope) =
                 root_identity(&genesis, &chain_id).map_err(node_policy_error)?;
             (
-                startup::apply_genesis(&state, genesis, &genesis_account, consensus_mode, None)?,
+                startup::apply_genesis_with_fastpq_target(
+                    &state,
+                    genesis,
+                    &genesis_account,
+                    consensus_mode,
+                    None,
+                    read_only_lane_root.as_ref().map(|(_, height)| *height),
+                )?,
                 fingerprint,
                 instance,
                 root_scope,
@@ -713,17 +769,50 @@ pub fn prepare(inputs: PrepareInputs) -> Result<Prepared, NodeError> {
         state.ivm_execution_budget(),
         lane_authorities,
     ));
-    let mut executor = StateExecutor::spawn(ExecutorContext {
+    let isolated = read_only_lane_root.is_some();
+    let capture_target = read_only_lane_root.as_ref().map(|(_, height)| *height);
+    let lane_blocks: Arc<dyn super::lanes::merge::LaneBlockSource> =
+        if let Some((root, _)) = read_only_lane_root {
+            Arc::new(super::lanes::registry::LaneFrameSource::new(
+                root,
+                *state.network_id_ref(),
+                chain_id.clone(),
+                crypto.clone(),
+                state.ivm_execution_budget(),
+                Arc::new(
+                    super::runtime_availability::NativeLaneStoreAuthorities::new(
+                        Arc::clone(&state),
+                        Arc::clone(&crypto),
+                    ),
+                ),
+            ))
+        } else {
+            lane_stores.clone()
+        };
+    let archive_error =
+        |original: crate::query::native_context_archive::NativeContextArchiveError| {
+            if isolated {
+                NodeError::Startup(startup::StartupError::IsolatedSourceTransport(original))
+            } else {
+                NodeError::Input(original.to_string())
+            }
+        };
+    let mut native_context_archive =
+        crate::query::native_context_archive::NativeContextArchive::open(
+            state.kura(),
+            state.ivm_execution_budget(),
+            state.kura().native_context_archive_max_bytes(),
+        )
+        .map_err(archive_error)?;
+    if let Some(height) = capture_target {
+        native_context_archive
+            .retain_isolated_fastpq_target(state.kura(), height)
+            .map_err(archive_error)?;
+    }
+    let context = ExecutorContext {
         time_source: iroha_primitives::time::TimeSource::new_system(),
         state: Arc::clone(&state),
-        native_context_archive: Arc::new(
-            crate::query::native_context_archive::NativeContextArchive::open(
-                state.kura(),
-                state.ivm_execution_budget(),
-                state.kura().native_context_archive_max_bytes(),
-            )
-            .map_err(|error| NodeError::Input(error.to_string()))?,
-        ),
+        native_context_archive: Arc::new(native_context_archive),
         queue: None,
         staging,
         events,
@@ -733,39 +822,15 @@ pub fn prepare(inputs: PrepareInputs) -> Result<Prepared, NodeError> {
         applied: (GENESIS_HEIGHT, tip.block_hash),
         crypto: Some(Arc::clone(&crypto)),
         applied_watch: Arc::clone(&applied_watch),
-        lane_blocks: lane_stores.clone(),
-    })
+        lane_blocks,
+    };
+    let executor = if isolated {
+        StateExecutor::spawn_isolated_replay(context)
+    } else {
+        StateExecutor::spawn(context)
+    }
     .map_err(NodeError::ExecutorStart)?;
     admit_window(&state, &crypto, GENESIS_HEIGHT).map_err(NodeError::Input)?;
-    // Replay what Kura holds above genesis.
-    let stored = blocks.height();
-    for height in GENESIS_HEIGHT.saturating_add(1)..=stored {
-        let (body, commit_qc) = blocks
-            .committed_body(height)
-            .map_err(|error| NodeError::Replay {
-                height,
-                reason: ReplayError::Read(error),
-            })?
-            .ok_or_else(|| NodeError::Replay {
-                height,
-                reason: ReplayError::MissingBody,
-            })?;
-        executor
-            .replay(&body, &commit_qc)
-            .map_err(|reason| NodeError::Replay {
-                height,
-                reason: ReplayError::Execution(reason),
-            })?;
-    }
-    // Every replayed result bound the complete World state roots; the incrementally advanced
-    // accumulator must also equal a cold capture of the rebuilt World (Appendix E, E51).
-    state
-        .verify_world_state_accumulator()
-        .map_err(|reason| NodeError::Replay {
-            height: stored.max(GENESIS_HEIGHT),
-            reason: ReplayError::StateRoot(reason),
-        })?;
-    admit_window(&state, &crypto, stored.max(GENESIS_HEIGHT)).map_err(NodeError::Input)?;
     Ok(Prepared {
         state,
         crypto,

@@ -26,14 +26,9 @@ impl State {
         let mut soracloud_runtime;
         let mut accounts_snapshot_cache;
         let mut pipeline;
-        let mut oracle;
-        let mut crypto;
         let mut lane_compliance;
         let mut fraud_monitoring;
         let mut zk;
-        let mut gov;
-        let mut content;
-        let mut settlement;
         let mut settlement_engine;
         let mut chain_id;
         let mut fastpq_transcripts;
@@ -76,6 +71,7 @@ impl State {
             &acquired.projection,
             &effective_zk,
             self.lane_compliance.read().clone(),
+            self,
         ));
         pipeline_ivm_prepared_cache = Some(self.pipeline_ivm_prepared_cache.read().clone());
         query_ledger_time_ms = Some(Some(
@@ -90,8 +86,6 @@ impl State {
             self.pipeline.clone(),
             acquired.world.parameters.get(),
         ));
-        oracle = Some(self.oracle.clone());
-        crypto = Some(self.crypto());
         lane_compliance = Some(
             runtime_policy
                 .as_ref()
@@ -104,9 +98,6 @@ impl State {
             acquired.world.parameters.get(),
         ));
         zk = Some(effective_zk);
-        gov = Some(self.gov.clone());
-        content = Some(self.content.clone());
-        settlement = Some(self.settlement);
         settlement_engine = Some(self.settlement_engine.clone());
         chain_id = Some(self.chain_id.clone());
         fastpq_transcripts = Some(BTreeMap::new());
@@ -143,14 +134,9 @@ impl State {
         assert!(soracloud_runtime.is_some());
         assert!(accounts_snapshot_cache.is_some());
         assert!(pipeline.is_some());
-        assert!(oracle.is_some());
-        assert!(crypto.is_some());
         assert!(lane_compliance.is_some());
         assert!(fraud_monitoring.is_some());
         assert!(zk.is_some());
-        assert!(gov.is_some());
-        assert!(content.is_some());
-        assert!(settlement.is_some());
         assert!(settlement_engine.is_some());
         assert!(chain_id.is_some());
         assert!(fastpq_transcripts.is_some());
@@ -219,8 +205,6 @@ impl State {
                     .take()
                     .expect("prepared State input"),
                 pipeline: pipeline.take().expect("prepared State input"),
-                oracle: oracle.take().expect("prepared State input"),
-                crypto: crypto.take().expect("prepared State input"),
                 nexus: projection.nexus,
                 lane_incarnations: projection.incarnations,
                 lane_incarnation_lineage: projection.lineage,
@@ -231,9 +215,6 @@ impl State {
                 runtime_policy: runtime_policy.take().expect("prepared State input"),
                 fraud_monitoring: fraud_monitoring.take().expect("prepared State input"),
                 zk: zk.take().expect("prepared State input"),
-                gov: gov.take().expect("prepared State input"),
-                content: content.take().expect("prepared State input"),
-                settlement: settlement.take().expect("prepared State input"),
                 settlement_engine: settlement_engine.take().expect("prepared State input"),
                 chain_id: chain_id.take().expect("prepared State input"),
                 network_id: self.network_id,

@@ -48,6 +48,10 @@ fn archive_error(error: NativeContextArchiveError) -> ExecutionAttemptError<Stri
         NativeContextArchiveError::Codec(error) => archive_codec_error(error),
         // Missing, oversized or corrupt local custody is never a protocol verdict.
         NativeContextArchiveError::Io(_)
+        // CaptureAdmission is produced only by isolated target-tape writes, never
+        // by this historical reward reader. It supplies no missing reward fact.
+        | NativeContextArchiveError::CaptureAdmission(_)
+        | NativeContextArchiveError::CaptureFailure(_)
         | NativeContextArchiveError::Limit { .. }
         | NativeContextArchiveError::Source(_) => unavailable(),
     }

@@ -147,6 +147,31 @@ impl NativeFastpqSourceRead {
             decoded: None,
         }
     }
+    pub(crate) fn native(&self) -> Result<&AuthenticatedExecutionBlock, SourceReadError> {
+        self.native
+            .as_ref()
+            .ok_or(SourceReadError::Source("source already delivered"))
+    }
+
+    /// Only an exact completed isolated replay can replace missing transport.
+    /// The original native authority and pool survive; all replacement bytes are
+    /// re-read and verified by this same canonical D7/tape join.
+    pub(crate) fn use_replayed_transport(
+        &mut self,
+        transport: crate::sumeragi::node::ReplayedNativeTransport,
+    ) -> Result<(), crate::sumeragi::node::IsolatedReplayError> {
+        let native =
+            self.native
+                .as_ref()
+                .ok_or(crate::sumeragi::node::IsolatedReplayError::Identity(
+                    "source already delivered",
+                ))?;
+        let kura = transport.into_for(native)?;
+        let native = self.native.take().expect("checked original source");
+        *self = Self::new(kura, native, self.pool.clone(), self.limits);
+        Ok(())
+    }
+
     /// At most one source chunk is read by a poll. `None` is bounded progress, not
     /// an absent manifest, a negative proof or a durable work acknowledgement.
     pub(crate) fn poll(

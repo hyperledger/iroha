@@ -37,7 +37,7 @@ use iroha_data_model::{
     },
 };
 use iroha_primitives::numeric::Numeric;
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 
 const ETH: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
 const TON: SccpNetworkV1 = SccpNetworkV1::TonMainnet;
@@ -619,6 +619,9 @@ fn every_hold_reason_keeps_the_proof_and_is_retried_by_settle() {
 #[test]
 fn recipients_that_can_never_be_credited_bounce() {
     let state = state();
+    let mut crypto = (*state.crypto()).clone();
+    crypto.allowed_signing = vec![Algorithm::Ed25519];
+    state.install_crypto_snapshot_for_isolated_replay(crypto);
     let mut block = state.block(header(5));
     let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"bounces"));
     install(&mut stx);
@@ -631,9 +634,6 @@ fn recipients_that_can_never_be_credited_bounce() {
             .public_key()
             .clone(),
     );
-    let mut crypto = (*stx.crypto).clone();
-    crypto.allowed_signing = vec![Algorithm::Ed25519];
-    stx.crypto = Arc::new(crypto);
 
     let cases = [
         (address_bytes(&escrow), SccpBounceReasonV1::EscrowRecipient),

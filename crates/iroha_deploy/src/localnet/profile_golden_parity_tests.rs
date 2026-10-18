@@ -235,7 +235,7 @@ fn custody_normalization_sets_exactly_the_five_custody_roles() {
         .slash_sink_account_id
         .clone_from(&literal);
     from_nexus.fees.fee_asset_id = AssetDefinitionId::derive_from_components(
-        "app.parity".parse().unwrap(),
+        iroha_model_base::domain::DomainId::parse_fully_qualified("app.parity").unwrap(),
         "different".parse().unwrap(),
     );
     let (mut pipeline, mut nexus) = (actual::Pipeline::default(), actual::Nexus::default());

@@ -55,8 +55,9 @@ fn sorafs_provider_owner_transition_uses_canonical_constitutional_parliament_pip
 }
 #[test]
 fn sorafs_provider_governance_proposer_must_be_a_fully_bonded_citizen() {
-    blank_test_state_transaction!(state, block, state_transaction);
-    state_transaction.gov.citizenship_bond_amount = Quantity::from(10_u32);
+    blank_test_state_transaction!(state, block, state_transaction; |state: &mut State| {
+        state.gov.citizenship_bond_amount = Quantity::from(10_u32);
+    });
 
     assert!(
         super::ensure_sorafs_provider_governance_proposer(&ALICE_ID, &state_transaction).is_err(),

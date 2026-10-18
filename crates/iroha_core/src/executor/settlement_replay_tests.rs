@@ -665,7 +665,10 @@ fn committed_fee_update_uses_predecessor_for_entire_block_and_survives_replay() 
         250_000_u32.into()
     );
     assert_eq!(chain.state().view().nexus().fees, next);
-    let second = intent(&chain, "successor-root-fee-update");
+    let mut second = intent(&chain, "successor-root-fee-update");
+    // This distinct successor is first executed at H3; the shared fixture's H2
+    // expiry belongs to the earlier payment and cannot authorize this one.
+    second.expires_at_height = NonZeroU64::new(3).unwrap();
     let mut builder = TransactionBuilder::new(
         chain.network_id(),
         account(),
@@ -682,8 +685,14 @@ fn committed_fee_update_uses_predecessor_for_entire_block_and_survives_replay() 
     let second = builder
         .with_instructions([second])
         .sign(payer().private_key());
-    assert_eq!(chain.commit(vec![second]), vec![true]);
+    let accepted = chain.commit(vec![second]);
     let last = chain.committed(3);
+    assert_eq!(
+        accepted,
+        vec![true],
+        "successor payment outcome: {:?}",
+        last.block().network_output_at(0)
+    );
     let receipt = last
         .block()
         .network_output_at(0)
@@ -748,18 +757,17 @@ fn paid_root_fee_identity_updates_are_rejected_without_replacing_committed_custo
         let original = chain.committed(2);
         let output = &original.block().network_output_at(0).unwrap().1.result;
         let rejection = output.as_ref().expect_err("identity update must reject");
-        assert!(
-            matches!(
-                rejection,
-                TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(_))
+        let TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
+            iroha_data_model::isi::error::InstructionExecutionError::InvalidParameter(
+                iroha_data_model::isi::error::InvalidParameterError::SmartContract(message),
             ),
-            "{rejection}"
-        );
-        assert!(
-            rejection
-                .to_string()
-                .contains("root fee currency and sponsor custody are immutable after genesis"),
-            "{rejection}"
+        )) = rejection
+        else {
+            panic!("expected the immutable monetary identity rejection, got {rejection:?}");
+        };
+        assert_eq!(
+            message, "root fee currency and sponsor custody are immutable after genesis",
+            "the typed cause must identify the monetary custody rule: {rejection:?}"
         );
         let receipt = output
             .nexus_fee_receipt()

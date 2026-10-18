@@ -204,6 +204,35 @@ pub(super) fn read_pinned_originals() -> (Vec<u8>, [Vec<u8>; 8]) {
     (original, bytes)
 }
 
+// Producer capture pins bind exact session identity beyond Payment's protocol fields.
+pub(super) fn require_selected_send_session(
+    offer: &[u8],
+    request: &[u8],
+    selected_send: &norito::json::Value,
+) {
+    assert_eq!(
+        selected_send["retained_offer_sha256"].as_str(),
+        Some(sha(offer).as_str()),
+        "census Offer differs from the original selected-Send capture"
+    );
+    assert_eq!(
+        selected_send["retained_request_sha256"].as_str(),
+        Some(sha(request).as_str()),
+        "census Request differs from the original selected-Send capture"
+    );
+}
+
+pub(super) fn require_manifest_continuity(
+    manifest: &[u8],
+    prior_continuation: &norito::json::Value,
+) {
+    assert_eq!(
+        prior_continuation["message_originals_manifest_sha256"].as_str(),
+        Some(sha(manifest).as_str()),
+        "census manifest differs from the retained archive continuation"
+    );
+}
+
 pub(super) fn sessions_for_exchange(
     originals: [Vec<u8>; 8],
     scheme: &KagemushaWalletSchemeV1,
@@ -268,12 +297,7 @@ fn fixture_message(kind: &str) -> KagemushaWalletMessageV1 {
     decode::<KagemushaWalletEnvelopeV1>(&frame).message
 }
 
-#[test]
-fn message_census_authenticates_session_originals_and_rejects_substitution() {
-    use p256::ecdsa::signature::Signer as _;
-
-    // Real fixture signatures exercise model admission; the fixture's stand-in
-    // financial proofs are deliberately never passed to the genuine census.
+fn fixture_scheme() -> KagemushaWalletSchemeV1 {
     let vectors: norito::json::Value = norito::json::from_slice(include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../fixtures/kagemusha/wallet_v1_vectors.json"
@@ -285,8 +309,16 @@ fn message_census_authenticates_session_originals_and_rejects_substitution() {
         .iter()
         .find(|row| row["type"].as_str() == Some("KagemushaWalletSchemeV1"))
         .unwrap();
-    let scheme: KagemushaWalletSchemeV1 =
-        decode(&hex::decode(scheme_row["canonical_hex"].as_str().unwrap()).unwrap());
+    decode(&hex::decode(scheme_row["canonical_hex"].as_str().unwrap()).unwrap())
+}
+
+#[test]
+fn message_census_authenticates_session_originals_and_rejects_substitution() {
+    use p256::ecdsa::signature::Signer as _;
+
+    // Real fixture signatures exercise model admission; the fixture's stand-in
+    // financial proofs are deliberately never passed to the genuine census.
+    let scheme = fixture_scheme();
     let KagemushaWalletMessageV1::Offer { offer } = fixture_message("Offer") else {
         unreachable!()
     };
@@ -369,6 +401,90 @@ fn message_census_authenticates_session_originals_and_rejects_substitution() {
 }
 
 #[test]
+fn message_census_recovery_pins_reject_valid_offer_and_manifest_substitution() {
+    use p256::ecdsa::signature::Signer as _;
+
+    let scheme = fixture_scheme();
+    let KagemushaWalletMessageV1::Offer { offer } = fixture_message("Offer") else {
+        unreachable!()
+    };
+    let KagemushaWalletMessageV1::Request { request } = fixture_message("Request") else {
+        unreachable!()
+    };
+    let KagemushaWalletMessageV1::Payment { payment } = fixture_message("Payment") else {
+        unreachable!()
+    };
+    let offer_bytes = norito::encode_canonical(&offer).unwrap();
+    let request_bytes = norito::encode_canonical(&request).unwrap();
+    let selected = norito::json!({
+        "retained_offer_sha256": (sha(&offer_bytes)),
+        "retained_request_sha256": (sha(&request_bytes)),
+    });
+    require_selected_send_session(&offer_bytes, &request_bytes, &selected);
+
+    // The same payer can sign another valid Offer nonce. Payment deliberately binds
+    // the payer credential, not this nonce: only the capture pin rejects substitution.
+    // Fixture proof stand-ins remain outside the genuine-proof census.
+    let mut substitute = offer.clone();
+    substitute.body.session_nonce[0] ^= 1;
+    assert_eq!(
+        public_key(&signing_key(0x51)),
+        offer.payer_credential.body.payment_key
+    );
+    let signature: p256::ecdsa::Signature =
+        signing_key(0x51).sign(&substitute.body.signing_message());
+    let signature = signature.normalize_s().unwrap_or(signature);
+    substitute.signature =
+        KagemushaDeviceSignatureV1::from_raw_bytes(&signature.to_bytes()).unwrap();
+    verify_session(&scheme, &substitute, &request, &payment).unwrap();
+    let substitute = norito::encode_canonical(&substitute).unwrap();
+    assert_ne!(substitute, offer_bytes);
+    assert!(
+        std::panic::catch_unwind(|| require_selected_send_session(
+            &substitute,
+            &request_bytes,
+            &selected,
+        ))
+        .is_err()
+    );
+    let mut foreign_request = request_bytes.clone();
+    foreign_request.push(0);
+    assert!(
+        std::panic::catch_unwind(|| require_selected_send_session(
+            &offer_bytes,
+            &foreign_request,
+            &selected,
+        ))
+        .is_err()
+    );
+    assert!(
+        std::panic::catch_unwind(|| require_selected_send_session(
+            &offer_bytes,
+            &request_bytes,
+            &norito::json!({}),
+        ))
+        .is_err()
+    );
+
+    // The first continuation selects one exact manifest. A restarted continuation
+    // cannot silently replace it, even with another separately pinned input.
+    let manifest = b"exact retained census manifest";
+    let prior = norito::json!({"message_originals_manifest_sha256": (sha(manifest))});
+    require_manifest_continuity(manifest, &prior);
+    assert!(
+        std::panic::catch_unwind(|| require_manifest_continuity(
+            b"replacement census manifest",
+            &prior,
+        ))
+        .is_err()
+    );
+    assert!(
+        std::panic::catch_unwind(|| require_manifest_continuity(manifest, &norito::json!({}),))
+            .is_err()
+    );
+}
+
+#[test]
 fn message_census_manifest_requires_exact_pinned_roles() {
     let directory = tempfile::tempdir().unwrap();
     let input = directory.path().join("originals.json");
@@ -393,14 +509,30 @@ fn message_census_manifest_requires_exact_pinned_roles() {
     );
     for mutation in 0..6 {
         let mut changed = manifest.clone();
-        match mutation {
-            0 => changed["source_pins"] = norito::json!({"test_source":"foreign"}),
-            1 => changed["originals"] = norito::json!(rows[..7].to_vec()),
-            2 => changed["originals"][7] = changed["originals"][6].clone(),
-            3 => changed["originals"][7]["name"] = "foreign.norito".into(),
-            4 => changed["originals"][7]["bytes"] = 99_u64.into(),
-            5 => changed["originals"][7]["sha256"] = sha(b"foreign").into(),
-            _ => unreachable!(),
+        let object = changed.as_object_mut().unwrap();
+        if mutation < 2 {
+            let (field, value) = if mutation == 0 {
+                ("source_pins", norito::json!({"test_source":"foreign"}))
+            } else {
+                ("originals", norito::json!(rows[..7].to_vec()))
+            };
+            object.insert(field.into(), value);
+        } else {
+            let changed_rows = object.get_mut("originals").unwrap().as_array_mut().unwrap();
+            if mutation == 2 {
+                changed_rows[7] = changed_rows[6].clone();
+            } else {
+                let (field, value) = match mutation {
+                    3 => ("name", "foreign.norito".into()),
+                    4 => ("bytes", 99_u64.into()),
+                    5 => ("sha256", sha(b"foreign").into()),
+                    _ => unreachable!(),
+                };
+                changed_rows[7]
+                    .as_object_mut()
+                    .unwrap()
+                    .insert(field.into(), value);
+            }
         }
         assert!(
             std::panic::catch_unwind(|| manifest_originals(

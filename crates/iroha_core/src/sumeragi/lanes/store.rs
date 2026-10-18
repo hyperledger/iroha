@@ -53,6 +53,11 @@ pub struct LaneFrameRead {
 }
 
 impl LaneFrameRead {
+    /// Select the canonical immutable frame in an independently pinned lane instance.
+    pub(super) fn path(root: &Path, instance: Hash32, height: u64) -> PathBuf {
+        root.join(hex::encode(instance.0)).join(frame_name(height))
+    }
+
     /// Begin inspecting an independently selected path and native height. The historical
     /// schedule and BLS keys must come from authenticated authority, never the inspected frame.
     ///
@@ -97,6 +102,20 @@ struct StoreState {
 pub(super) struct BatchRead {
     pub(super) body: AvailableBody,
     pub(super) qc: Qc,
+}
+
+impl BatchRead {
+    // Both the exclusive store and read-only replay retain this exact authenticated
+    // body/QC while the one canonical payload decoder refuses its original pool.
+    pub(super) fn decode_batch(&self) -> Result<Option<LaneBatch>, Attempt<io::Error>> {
+        match LaneBatch::from_payload(self.body.payload().as_slice()) {
+            Ok(batch) => Ok(Some(batch)),
+            // A certified malformed lane payload has no effects; it is not capacity.
+            Err(AdmissionAttemptError::Rejected(_)) => Ok(None),
+            Err(AdmissionAttemptError::ResourceDeferred(reason)) => Err(Attempt::Deferred(reason)),
+            Err(AdmissionAttemptError::Deferred(reason)) => Err(Attempt::Deferred(reason.into())),
+        }
+    }
 }
 
 /// One fully recovered lane incarnation. Share this owner through Arc; second opens fail.
@@ -381,17 +400,7 @@ impl FileLaneBlockStore {
                     *slot = Some(BatchRead { body, qc });
                 }
                 let read = slot.as_ref().expect("retained authenticated batch read");
-                let batch = match LaneBatch::from_payload(read.body.payload().as_slice()) {
-                    Ok(batch) => Some(batch),
-                    // An authenticated malformed payload is distinct from local resource pressure.
-                    Err(AdmissionAttemptError::Rejected(_)) => None,
-                    Err(AdmissionAttemptError::ResourceDeferred(reason)) => {
-                        return Err(Attempt::Deferred(reason));
-                    }
-                    Err(AdmissionAttemptError::Deferred(reason)) => {
-                        return Err(Attempt::Deferred(reason.into()));
-                    }
-                };
+                let batch = read.decode_batch()?;
                 self.revalidate_custody()?;
                 let read = slot.take().expect("completed original batch decode");
                 if read.body.header().height == height {

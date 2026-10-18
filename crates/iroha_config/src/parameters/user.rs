@@ -160,23 +160,6 @@ fn validate_asset_definition_selector_literal(value: &str) -> core::result::Resu
             )
         })
 }
-fn validate_nexus_fee_asset_selector_literal(value: &str) -> core::result::Result<String, String> {
-    if value.trim() != value {
-        return Err(
-            "must be an exact canonical selector without surrounding whitespace".to_owned(),
-        );
-    }
-    let value = validate_asset_definition_selector_literal(value)?;
-    let is_xor_selector =
-        AssetDefinitionId::parse_address_literal(&value).is_ok() || value == "xor#universal";
-    if !is_xor_selector {
-        return Err(
-            "Nexus fees must be charged in XOR; use exact `xor#universal` or the canonical XOR asset definition id"
-                .to_owned(),
-        );
-    }
-    Ok(value)
-}
 fn parse_asset_definition_selector_literal(field_path: &str, value: &str) -> String {
     validate_asset_definition_selector_literal(value)
         .unwrap_or_else(|err| panic!("invalid {field_path} `{value}`: {err}"))

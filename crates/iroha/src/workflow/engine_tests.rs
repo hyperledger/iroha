@@ -72,6 +72,56 @@ fn world() -> Arc<FakeWorkflowWorld> {
 }
 
 #[test]
+fn journal_snapshot_never_creates_or_mutates_stored_custody() {
+    let world = world();
+    let storage = Arc::new(MemoryWorkflowStorage::new());
+    let handle = engine(&world, storage.clone())
+        .workflow(single_transaction())
+        .unwrap();
+    assert!(handle.journal_snapshot().unwrap().is_none());
+    assert!(storage.load(&handle.id()).unwrap().is_none());
+
+    let mut journal = WorkflowJournalV1::new(&single_transaction(), &binding(), 7).unwrap();
+    journal.sequence = 1;
+    let original = journal.encode_record().unwrap();
+    storage
+        .compare_and_store(&handle.id(), None, &original)
+        .unwrap();
+    let _runner = storage.acquire_runner(&handle.id()).unwrap();
+    let mut snapshot = handle.journal_snapshot().unwrap().unwrap();
+    assert_eq!(snapshot.encode_record().unwrap(), original);
+    snapshot.cancel_requested = true;
+    assert!(!handle.journal_snapshot().unwrap().unwrap().cancel_requested);
+    assert_eq!(storage.load(&handle.id()).unwrap(), Some(original));
+    assert!(world.take_trace().is_empty());
+}
+
+#[test]
+fn journal_snapshot_rejects_foreign_and_corrupt_records_without_repair() {
+    let world = world();
+    let storage = Arc::new(MemoryWorkflowStorage::new());
+    let handle = engine(&world, storage.clone())
+        .workflow(single_transaction())
+        .unwrap();
+    let mut foreign_binding = binding();
+    foreign_binding.network = "foreign-network".into();
+    let mut foreign = WorkflowJournalV1::new(&single_transaction(), &foreign_binding, 7).unwrap();
+    foreign.sequence = 1;
+    for (record, expected) in [
+        (
+            foreign.encode_record().unwrap(),
+            WorkflowErrorCode::BindingMismatch,
+        ),
+        (vec![1], WorkflowErrorCode::StorageCorrupted),
+    ] {
+        storage.overwrite_unchecked(&handle.id(), record.clone());
+        assert_eq!(handle.journal_snapshot().unwrap_err().code, expected);
+        assert_eq!(storage.load(&handle.id()).unwrap(), Some(record));
+    }
+    assert!(world.take_trace().is_empty());
+}
+
+#[test]
 fn journal_read_refusal_preserves_stored_custody_and_cancellation_retries() {
     let world = world();
     let storage = Arc::new(MemoryWorkflowStorage::new());

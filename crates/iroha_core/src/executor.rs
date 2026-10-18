@@ -5724,7 +5724,7 @@ impl Executor {
     ) -> Result<(), ValidationFail> {
         if !is_initial_genesis_context(state_transaction) {
             if cfg!(all(test, sumeragi_core_mutation = "HC397")) {
-                if let Some(policy) = state_transaction.world.state_parameters().root_fees() {
+                if let Some(policy) = state_transaction.world.parameters().root_fees() {
                     state_transaction.nexus.fees = policy.clone();
                 }
             }
@@ -10002,6 +10002,27 @@ pub mod executor_norito {
         };
         norito::to_bytes(&dto)
     }
+    /// Encode the complete recoverable raw executor for the keyed State cell.
+    /// Loaded VM instances, compiled artifacts and runtime-pool history are excluded.
+    pub(crate) fn encode_state_authority(
+        executor: &Executor,
+        writer: &mut dyn std::io::Write,
+    ) -> Result<(), norito::core::Error> {
+        #[derive(Encode)]
+        enum BorrowedExecutorDto<'a> {
+            Initial,
+            UserProvided(&'a iroha_data_model::executor::Executor),
+        }
+        let borrowed = match executor {
+            Executor::Initial => BorrowedExecutorDto::Initial,
+            Executor::UserProvided(loaded) => {
+                BorrowedExecutorDto::UserProvided(&loaded.raw_executor)
+            }
+        };
+        let mut writer = writer;
+        norito::codec::encode_adaptive_into(&borrowed, &mut writer).map(|_| ())
+    }
+
     /// Hash the executor's borrowed semantic payload for the private World delta.
     /// Loaded VM variants, caches and pool history are not State values.
     pub(crate) fn net_state_hash(executor: &Executor) -> Result<iroha_crypto::Hash, String> {
@@ -10108,6 +10129,35 @@ pub mod executor_norito {
                 "actual runtime pool changed"
             );
             assert_eq!(expected, net_state_hash(&first).unwrap());
+        }
+
+        #[test]
+        fn complete_state_executor_bytes_match_the_owned_raw_dto() {
+            for executor in [
+                Executor::Initial,
+                denying_executor_for_testing("recoverable raw executor"),
+            ] {
+                let mut actual = Vec::new();
+                encode_state_authority(&executor, &mut actual).unwrap();
+                let owned = match &executor {
+                    Executor::Initial => ExecutorDto::Initial,
+                    Executor::UserProvided(loaded) => {
+                        ExecutorDto::UserProvided((*loaded.raw_executor).clone())
+                    }
+                };
+                assert_eq!(actual, norito::codec::encode_adaptive(&owned));
+                let restored =
+                    norito::codec::decode_exact_from_slice::<ExecutorDto>(&actual).unwrap();
+                assert_eq!(norito::codec::encode_adaptive(&restored), actual);
+                assert!(
+                    norito::codec::decode_exact_from_slice::<ExecutorDto>(
+                        &actual[..actual.len() - 1]
+                    )
+                    .is_err()
+                );
+                actual.push(0);
+                assert!(norito::codec::decode_exact_from_slice::<ExecutorDto>(&actual).is_err());
+            }
         }
 
         #[test]
@@ -13027,7 +13077,7 @@ mod tests {
         let authority = checked_account_id();
         let citizen_target = checked_account_id();
         let account = Account::new(authority.clone()).build(&authority);
-        let state = state_after_genesis(World::with([], [account], []));
+        let mut state = state_after_genesis(World::with([], [account], []));
         let network_id = state.network_id;
         let contract_address =
             ContractAddress::derive(&network_id, &authority, 1, DataSpaceId::UNIVERSAL)
@@ -13131,6 +13181,7 @@ mod tests {
             ]),
         );
         world.commit();
+        state.gov.citizenship_bond_amount = Quantity::zero();
         let mut block = state.block(BlockHeader::new(
             nonzero!(2_u64),
             Some(
@@ -13144,7 +13195,6 @@ mod tests {
             0,
         ));
         let mut state_transaction = block.transaction();
-        state_transaction.gov.citizenship_bond_amount = Quantity::zero();
         for (instruction, permission_name, _) in &probes {
             let error = super::Executor::Initial
                 .execute_instruction(&mut state_transaction, &authority, instruction.clone())

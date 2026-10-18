@@ -6165,11 +6165,14 @@ pub(crate) mod valid {
                     }
                 }
             }
+            let isolate_observations = crate::status::replay_observations_are_isolated();
             let validate_tx = |(idx, (tx, prepared)): (
                 usize,
                 (&SignedTransaction, &PreparedBlockTransaction),
             )|
              -> Option<BlockValidationError> {
+                let _observations =
+                    isolate_observations.then(crate::status::isolate_replay_observations);
                 #[cfg(test)]
                 let inherited_account_profile = chain_discriminant();
                 let _profile = ChainDiscriminantGuard::enter(account_discriminant);

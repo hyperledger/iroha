@@ -4,16 +4,16 @@
 //! No wallet witness, signing key, plaintext audit opening or membership path is serialized.
 //! This is a test provider, not a production deterministic-key recommendation.
 use super::*;
-use iroha::client::{
-    OneCallPrivateSettlementError, PrivateSettlementBusinessTerms,
-    PrivateSettlementRestrictedOpening, PrivateSettlementWallet,
-};
 use iroha::workflow::{Digest32, FileWorkflowStorage, WorkflowId, WorkflowStorage, domain_digest};
 use iroha_core_privacy::privacy_engines::atomic_private_settlement::{
     AtomicPrivateSettlementAuthorizedWalletLegV1, plan_atomic_private_settlement_initial_inputs_v1,
     prepare_atomic_private_settlement_authorization_inputs_v1,
 };
 use iroha_data_model::nexus::PrivateSettlementProofIntentV1;
+use iroha_private_settlement::{
+    OneCallPrivateSettlementError, PrivateSettlementBusinessTerms,
+    PrivateSettlementRestrictedOpening, PrivateSettlementWallet,
+};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 pub(super) struct OriginalWallet {

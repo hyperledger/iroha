@@ -1066,6 +1066,12 @@ impl Kura {
             )),
         )
     }
+    /// Whether this exact Kura owns its isolated disposable staging directory.
+    /// This local storage fact never grants block or State authority.
+    pub(crate) fn is_temporary_staging(&self) -> bool {
+        self.temp_store_dir.is_some()
+    }
+
     /// Initialize an authenticated Kura in an isolated temporary directory.
     ///
     /// This applies the same configured-catalog authentication as

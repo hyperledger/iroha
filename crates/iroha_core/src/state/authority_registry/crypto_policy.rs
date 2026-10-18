@@ -38,6 +38,50 @@ impl CryptoAdmissionPolicyV1 {
     }
 }
 
+/// Fund only sorted references; variable leaves remain in the original policy.
+pub(super) struct BorrowedCryptoPolicy<'a> {
+    config: &'a Crypto,
+    signing: super::policy_borrowed::SortedRefs<'a, Algorithm>,
+    curves: super::policy_borrowed::SortedRefs<'a, u8>,
+}
+impl<'a> BorrowedCryptoPolicy<'a> {
+    pub(super) fn new(
+        config: &'a Crypto,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<Self, super::policy_borrowed::OrderError> {
+        use super::policy_borrowed::SortedRefs;
+        Ok(Self {
+            config,
+            signing: SortedRefs::new_by(&config.allowed_signing, budget, Ord::cmp)?,
+            curves: SortedRefs::new_by(&config.allowed_curve_ids, budget, Ord::cmp)?,
+        })
+    }
+}
+impl norito::SerializePayload for BorrowedCryptoPolicy<'_> {
+    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::Error> {
+        use super::policy_borrowed::{Payload, Ref, Seq, record};
+        use std::io::Write as _;
+        let curves = Payload(|writer: &mut norito::core::Encoder<'_>| {
+            let values = self.curves.unique();
+            norito::core::write_seq_len(
+                writer,
+                u64::try_from(values.len()).map_err(|_| norito::Error::LengthMismatch)?,
+            )?;
+            for value in values {
+                writer.write_all(&[*value.0])?;
+            }
+            Ok(())
+        });
+        record!(
+            Ref(&self.config.default_hash),
+            Seq(self.signing.unique()),
+            Ref(&self.config.sm2_distid_default),
+            curves
+        )
+        .serialize(writer)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -55,6 +99,11 @@ mod tests {
     }
 
     fn frame(policy: &Crypto) -> Vec<u8> {
+        super::super::policy_borrowed::assert_same_payload(
+            &BorrowedCryptoPolicy::new(policy, &iroha_allocation::AllocationBudget::new(1 << 20))
+                .unwrap(),
+            &CryptoAdmissionPolicyV1::from_actual(policy),
+        );
         norito::encode_canonical(&CryptoAdmissionPolicyV1::from_actual(policy)).unwrap()
     }
 

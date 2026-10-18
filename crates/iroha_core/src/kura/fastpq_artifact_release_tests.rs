@@ -250,7 +250,10 @@ fn original_producer_read_success_and_absence_notify_after_storage_fences() {
     assert!(inventory(&kura).is_empty());
 
     let bytes = b"opaque original producer artifact";
-    kura.persist_fastpq_producer_record(key, bytes).unwrap();
+    let receipt = kura.persist_fastpq_producer_record(key, bytes).unwrap();
+    assert!(receipt.is_from(&kura));
+    assert_eq!(receipt.reference().digest(), *Hash::new(bytes).as_ref());
+    assert_eq!(receipt.reference().byte_len(), bytes.len() as u64);
     let before = inventory(&kura);
     for (selected, expected) in [
         (key, Some(bytes.to_vec())),
@@ -297,8 +300,18 @@ fn original_artifact_partial_refusals_retain_exact_storage_errors() {
             let kura = fixture(4);
             let receipt = kura.persist_fastpq_artifact(b"original").unwrap();
             let producer = Hash::new(b"original producer position");
-            kura.persist_fastpq_producer_record(producer, b"producer")
+            let producer_receipt = kura
+                .persist_fastpq_producer_record(producer, b"producer")
                 .unwrap();
+            assert!(producer_receipt.is_from(&kura));
+            assert_eq!(
+                producer_receipt.reference().digest(),
+                *Hash::new(b"producer").as_ref()
+            );
+            assert_eq!(
+                producer_receipt.reference().byte_len(),
+                b"producer".len() as u64
+            );
             let before = inventory(&kura);
             let flag = if stage == 1 {
                 &kura.prune_recovery_required
@@ -338,8 +351,18 @@ fn original_artifact_unwind_notifies_after_each_acquired_prefix() {
             let kura = fixture(4);
             let receipt = kura.persist_fastpq_artifact(b"original").unwrap();
             let producer = Hash::new(b"original producer position");
-            kura.persist_fastpq_producer_record(producer, b"producer")
+            let producer_receipt = kura
+                .persist_fastpq_producer_record(producer, b"producer")
                 .unwrap();
+            assert!(producer_receipt.is_from(&kura));
+            assert_eq!(
+                producer_receipt.reference().digest(),
+                *Hash::new(b"producer").as_ref()
+            );
+            assert_eq!(
+                producer_receipt.reference().byte_len(),
+                b"producer".len() as u64
+            );
             let before = inventory(&kura);
             let fence = if read && stage == 3 { 3 } else { stage - 1 };
             observe_original_release(&kura, fence, || {

@@ -160,7 +160,9 @@ fn install_genesis_custody(
     let hash = global.pins.genesis_hash;
     let network_id = network.network_id();
     let scope = global.scope;
-    runtime.block_on(async {
+    // Keep the ceremony future out of Runtime::block_on's generic stack frame.
+    // Each owned customer payment is supervised on a default Tokio worker.
+    runtime.block_on(Box::pin(async {
         network.start_all().await?;
         let bundle = network.native_genesis_provisioning_bundle()?;
         ensure!(bundle.block_hash == hash);
@@ -206,7 +208,7 @@ fn install_genesis_custody(
         network.start_all().await?;
         network.ensure_blocks(5).await?;
         Ok((dkg, catalogs))
-    })
+    }))
 }
 
 fn deliver_boundary(

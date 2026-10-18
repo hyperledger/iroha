@@ -22,7 +22,7 @@ pub(super) fn effective(
     world: &impl WorldReadOnly,
     captured: &RootFeePolicy,
 ) -> Result<RootFeePolicy, ExecutionAttemptError<NexusFeeAdmissionError>> {
-    if world.state_parameters().root_fees().is_none() {
+    if world.parameters().root_fees().is_none() {
         return Err(invalid("committed root fee policy is absent").into());
     }
     let scope = scope(world)?;
@@ -86,7 +86,7 @@ pub(crate) fn validate_committed(
     world: &impl WorldReadOnly,
 ) -> Result<(), ExecutionAttemptError<NexusFeeAdmissionError>> {
     let policy = world
-        .state_parameters()
+        .parameters()
         .root_fees()
         .ok_or_else(|| invalid("committed root fee policy is absent"))?;
     effective(world, policy).map(|_| ())
@@ -102,7 +102,7 @@ pub(super) fn quote_nexus<'a>(
     ExecutionAttemptError<NexusFeeAdmissionError>,
 > {
     let policy = world
-        .state_parameters()
+        .parameters()
         .root_fees()
         .ok_or_else(|| invalid("committed root fee policy is absent"))?;
     let policy = effective(world, policy)?;
@@ -339,14 +339,7 @@ mod tests {
         let (state, _, _) = fixture(true, true);
         let view = state.view();
         let world = view.world();
-        assert!(std::ptr::eq(
-            world.state_parameters(),
-            world.parameters.get(),
-        ));
-        assert!(std::ptr::eq(
-            world.parameters(),
-            &**world.state_parameters()
-        ));
+        assert!(std::ptr::eq(world.parameters(), world.parameters.get()));
         validate_committed(world).unwrap();
 
         let (missing, _, _) = fixture(false, true);
@@ -374,7 +367,7 @@ mod tests {
             ))
             .unwrap();
         Executor::validate_root_fee_policy(&mut tx).unwrap();
-        assert_eq!(tx.world.state_parameters().root_fees(), Some(&next));
+        assert_eq!(tx.world.parameters().root_fees(), Some(&next));
         assert_eq!(tx.nexus.fees, before);
         assert_eq!(tx.nexus.fees.fee_asset_id, asset);
         assert_eq!(tx.pipeline.gas, frozen_gas);
@@ -515,7 +508,7 @@ mod tests {
             .get(&RootFeePolicy::parameter_id())
             .unwrap()
             .clone();
-        let original = view.world().state_parameters().clone();
+        let original = view.world().parameters().clone();
         for restore in [false, true] {
             let baseline = pool.reserved_bytes();
             let context = original_fee_decode_context(&pool, 0);
@@ -524,21 +517,26 @@ mod tests {
             let mut owner = original.clone();
             let error = context
                 .with(|| {
-                    if restore {
-                        crate::pipeline_gas_policy::StateParameters::try_from(
-                            view.world().parameters().clone(),
-                        )
-                        .map(|_| ())
-                    } else {
-                        owner.set_parameter(Parameter::Custom(parameter.clone()))
-                    }
+                    norito::core::classify_decode_attempt(|| {
+                        if restore {
+                            crate::pipeline_gas_policy::StateParameters::try_from(
+                                (**view.world().parameters()).clone(),
+                            )
+                            .map(|_| ())
+                        } else {
+                            owner.set_parameter(Parameter::Custom(parameter.clone()))
+                        }
+                    })
                 })
                 .unwrap_err();
             assert_eq!(
                 owner, original,
                 "refused source and cached projection remain atomic"
             );
-            let refused = crate::execution_attempt::norito_decode_attempt_error(error, |_| ());
+            let refused = crate::execution_attempt::canonical_decode_attempt_error(
+                error,
+                std::convert::identity,
+            );
             let ExecutionAttemptError::Deferred(owner) = refused else {
                 panic!("actual policy producer must retain decoder cause: {refused:?}");
             };
@@ -577,7 +575,7 @@ mod tests {
             assert_eq!(retry, original);
             assert_eq!(
                 crate::pipeline_gas_policy::StateParameters::try_from(
-                    view.world().parameters().clone()
+                    (**view.world().parameters()).clone()
                 )
                 .unwrap(),
                 original
@@ -585,6 +583,103 @@ mod tests {
             drop((exported, original_cause));
             assert_eq!(pool.reserved_bytes(), baseline);
         }
+    }
+
+    #[test]
+    fn committed_parameter_install_preserves_original_policy_decode_refusal() {
+        use crate::smartcontracts::Execute as _;
+        use iroha_data_model::isi::SetParameter;
+
+        let (state, _, _) = fixture(true, true);
+        let pool = state.ivm_execution_budget();
+        let view = state.view();
+        // Fund the complete signed-root prelude, so the first unfunded allocation
+        // belongs to the actual custom-policy parser in SetParameter::execute.
+        let root_bytes = original_private_root_demand(view.world(), &pool);
+        let before = view.world().parameters().clone();
+        let mut next = before.root_fees().unwrap().clone();
+        next.base_fee = 7_u32.into();
+        let parameter = next.clone().into_custom_parameter().unwrap();
+        let instruction = SetParameter::new(Parameter::Custom(parameter.clone()));
+        drop(view);
+        {
+            let mut block =
+                state.block(BlockHeader::new(2.try_into().unwrap(), None, None, 1000, 0));
+            let mut tx = block.transaction();
+            let context = original_fee_decode_context(&pool, root_bytes);
+            assert!(
+                context
+                    .with(|| instruction.clone().execute(&ALICE_ID, &mut tx))
+                    .is_err()
+            );
+            assert_eq!(
+                context.consumed_allocated_bytes(),
+                u64::try_from(root_bytes).unwrap()
+            );
+            assert_eq!(
+                tx.world.parameters(),
+                &before,
+                "refused input and projection remain atomic"
+            );
+            assert_eq!(tx.nexus.fees, *before.root_fees().unwrap());
+            let original = tx
+                .borrow_execution_deferral()
+                .expect("actual parameter installer records a local refusal")
+                .decode_refusal()
+                .expect("actual policy parser retains its original owner")
+                .clone();
+            assert_eq!(
+                original.kind(),
+                norito::core::DecodeLocalRefusalKind::EnclosingLimit
+            );
+            assert!(matches!(original.resource_error(),
+                norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit }
+                if attempted > limit && limit == u64::try_from(root_bytes).unwrap()));
+            drop(context);
+            let moved = tx.ensure_execution_ready().unwrap_err();
+            assert_eq!(moved.decode_refusal(), Some(&original));
+            assert!(moved.allocation_refusal().is_none());
+            assert!(moved.allocator_refusal().is_none());
+            assert!(tx.is_execution_deferred());
+        }
+        // The same signed policy bytes succeed only in a new, fully funded attempt.
+        let mut block = state.block(BlockHeader::new(2.try_into().unwrap(), None, None, 1000, 0));
+        let mut retry = block.transaction();
+        instruction.execute(&ALICE_ID, &mut retry).unwrap();
+        assert!(!retry.is_execution_deferred());
+        assert_eq!(retry.world.parameters().root_fees(), Some(&next));
+        assert_eq!(
+            retry
+                .world
+                .parameters()
+                .custom()
+                .get(&RootFeePolicy::parameter_id()),
+            Some(&parameter)
+        );
+        assert_eq!(
+            retry.nexus.fees,
+            *before.root_fees().unwrap(),
+            "the current block keeps predecessor fees"
+        );
+
+        let malformed = SetParameter::new(Parameter::Custom(CustomParameter::new(
+            RootFeePolicy::parameter_id(),
+            "{}".parse().unwrap(),
+        )));
+        assert!(malformed.execute(&ALICE_ID, &mut retry).is_err());
+        assert!(
+            !retry.is_execution_deferred(),
+            "invalid source bytes remain a deterministic rejection"
+        );
+        assert_eq!(retry.world.parameters().root_fees(), Some(&next));
+        assert_eq!(
+            retry
+                .world
+                .parameters()
+                .custom()
+                .get(&RootFeePolicy::parameter_id()),
+            Some(&parameter)
+        );
     }
 
     #[test]

@@ -3,8 +3,13 @@
 //! One-call wallet preparation followed by the existing prepared settlement operation.
 //! The existing workflow owns round identity and retries; immutable encrypted artifacts own
 //! proof recovery. No plaintext witness is serialized by this operation.
-use super::*;
-use crate::workflow::{
+use iroha::client::{
+    AccountClient, AccountWorkflowContext, PRIVATE_SETTLEMENT_RESPONSE_MAX_BYTES_V1,
+    PrivateSettlementError, PrivateSettlementRecovery, PrivateSettlementRequest,
+    PrivateSettlementResult, PrivateSettlementRunOptions, run_private_settlement_worker,
+    validate_private_settlement_committee_endpoints_v1,
+};
+use iroha::workflow::{
     CommittedOutcome, Digest32, DispatchOutcome, DriverIdentityV1, RoundContext, RoundRecovery,
     RoundReport, RoundStatusReport, StepDescriptorV1, StepFailure, SystemWorkflowClock,
     TransactionIdentityV1, WorkflowAccount, WorkflowBindingV1, WorkflowDriver, WorkflowEngine,
@@ -17,14 +22,15 @@ use iroha_core_privacy::privacy_engines::atomic_private_settlement::{
     finalize_atomic_private_settlement_provisional_bundle_v1,
     prepare_atomic_private_settlement_leg_v1, verify_atomic_private_settlement_intent_v1,
 };
+use iroha_crypto::Hash;
 use iroha_data_model::{
     asset::AssetDefinitionId,
     block::consensus::SumeragiRootScope,
     nexus::{
-        PrivateSettlementAuditPolicyV1, PrivateSettlementCapsulePaddingV1,
-        PrivateSettlementContextRequestV1, PrivateSettlementContextsProofV1,
-        PrivateSettlementPoolGovernanceV1, PrivateSettlementPoolKeyV1,
-        PrivateSettlementProofIntentV1,
+        PRIVATE_SETTLEMENT_MAX_RECEIPT_BYTES_V1, PrivateSettlementAuditPolicyV1,
+        PrivateSettlementCapsulePaddingV1, PrivateSettlementContextRequestV1,
+        PrivateSettlementContextsProofV1, PrivateSettlementPoolGovernanceV1,
+        PrivateSettlementPoolKeyV1, PrivateSettlementProofIntentV1,
     },
     sumeragi_finality::{
         FinalityError, FinalityReadError, SumeragiFinalityVerifier, VerifiedSumeragiBlock,
@@ -34,9 +40,7 @@ use std::{
     num::NonZeroU64,
     sync::{Arc, Mutex},
 };
-
-#[cfg(test)]
-use iroha_data_model::nexus::PrivateSettlementContextProofV1;
+use url::Url;
 
 mod artifacts;
 mod errors;
@@ -88,7 +92,7 @@ pub trait PrivateSettlementContextSource: Send + Sync {
         std::result::Result<PrivateSettlementContextsProofV1, OneCallPrivateSettlementError>,
     >;
 }
-impl PrivateSettlementContextSource for Client {
+impl PrivateSettlementContextSource for AccountClient {
     fn fetch<'a>(
         &'a self,
         height: u64,
@@ -111,7 +115,7 @@ impl PrivateSettlementContextSource for Client {
 ///
 /// `round` and `leg` identify one original reservation. A resumed call must reopen the same
 /// reserved notes and authorizations, never silently choose different inputs. Implementations
-/// may use their existing wallet storage; this SDK never encodes these returned witnesses.
+/// may use their existing wallet storage; this operation never encodes these returned witnesses.
 pub trait PrivateSettlementWallet: Send + Sync {
     /// Reopen exact restricted governed openings for the independent asset selection.
     fn open_policy(
@@ -246,7 +250,7 @@ impl OneCallPrivateSettlementRequest {
     }
     fn plan(&self) -> WorkflowPlanV1 {
         WorkflowPlanV1 {
-            kind: crate::workflow::WorkflowKindV1::PrivateSettlement,
+            kind: iroha::workflow::WorkflowKindV1::PrivateSettlement,
             instance: hex::encode(self.intent().bundle_id.as_ref()),
             driver: preparation::driver_identity(),
             request_context_digest: self.0.digest,
@@ -314,24 +318,25 @@ pub struct OneCallPrivateSettlementOperation {
     driver: Arc<PreparationDriver>,
     call: tokio::sync::Mutex<()>,
 }
-impl AccountClient {
+impl OneCallPrivateSettlementOperation {
     /// Construct one-call preparation using this account's bounded native context transport.
     /// Restricted policy openings and original witness custody remain with the supplied wallet.
     /// # Errors
     /// Wrong original trust/intent binding, volatile journal storage or invalid local bounds.
-    pub fn private_settlement_one_call(
-        &self,
+    pub fn new(
+        account: AccountClient,
         request: OneCallPrivateSettlementRequest,
         storage: Arc<dyn WorkflowStorage>,
         artifacts: Arc<FilePrivateSettlementArtifacts>,
         wallet: Arc<dyn PrivateSettlementWallet>,
         verifier: SumeragiFinalityVerifier,
     ) -> std::result::Result<OneCallPrivateSettlementOperation, OneCallPrivateSettlementError> {
-        self.private_settlement_one_call_with_source(
+        Self::with_source(
+            account.clone(),
             request,
             storage,
             artifacts,
-            Arc::new(self.client().clone()),
+            Arc::new(account),
             wallet,
             verifier,
         )
@@ -339,8 +344,8 @@ impl AccountClient {
     /// Construct a durable one-call confidential settlement with explicit wallet and source custody.
     /// # Errors
     /// Volatile storage, foreign sponsor/network/root/schema or malformed bound workflow.
-    pub fn private_settlement_one_call_with_source(
-        &self,
+    pub fn with_source(
+        account: AccountClient,
         request: OneCallPrivateSettlementRequest,
         storage: Arc<dyn WorkflowStorage>,
         artifacts: Arc<FilePrivateSettlementArtifacts>,
@@ -349,16 +354,16 @@ impl AccountClient {
         verifier: SumeragiFinalityVerifier,
     ) -> std::result::Result<OneCallPrivateSettlementOperation, OneCallPrivateSettlementError> {
         if storage.durability() != WorkflowStorageDurability::Durable
-            || self.authority() != &request.intent().sponsor
-            || self.network_id() != &request.intent().network_id
+            || account.authority() != &request.intent().sponsor
+            || account.network_id() != &request.intent().network_id
             || verifier.initial_epoch().network_id != request.intent().network_id
             || verifier.root_scope() != SumeragiRootScope::Global
-            || verifier.chain_id() != self.client().chain.as_ref()
+            || verifier.chain_id() != account.chain_id().as_ref()
         {
             return Err(OneCallPrivateSettlementError::Binding);
         }
         let context = Arc::new(
-            AccountWorkflowContext::new(self.clone()).map_err(PrivateSettlementError::from)?,
+            AccountWorkflowContext::new(account.clone()).map_err(PrivateSettlementError::from)?,
         );
         let no_effects = Arc::new(NoPreparationEffects(context.binding()));
         let handle = WorkflowEngine::new(
@@ -369,7 +374,7 @@ impl AccountClient {
         )
         .workflow(request.plan())?;
         let driver = Arc::new(PreparationDriver::new(
-            self.clone(),
+            account.clone(),
             request.clone(),
             storage.clone(),
             artifacts,
@@ -378,7 +383,7 @@ impl AccountClient {
             verifier.clone(),
         ));
         Ok(OneCallPrivateSettlementOperation {
-            account: self.clone(),
+            account: account.clone(),
             storage,
             handle,
             driver,
@@ -497,7 +502,7 @@ impl OneCallPrivateSettlementOperation {
 }
 
 #[cfg(test)]
-mod context_transport_tests;
+mod cold_context_tests;
 
 #[cfg(test)]
-mod cold_context_tests;
+mod test_support;

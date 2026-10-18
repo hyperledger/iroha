@@ -1456,21 +1456,23 @@ fn ff_gate_shape_and_degree() {
     );
     let (cs, config) = configure(&circuit).expect("configure");
     let (ff, _, _, _) = config;
-    // Gates have degree 3; the `C`/`Q` lookups (degree-3 inputs from the
-    // ternary patterns) have degree 6 and the `U` lookups degree 5: within
-    // the crate policy of 6.
-    assert_eq!(cs.degree(), 6);
-    assert!(cs.degree() <= crate::MAX_GATE_DEGREE);
+    // Gate polynomials retain the degree-3 bound. Norm lookup constraints
+    // require max(6, 2 + 2*d_input + 2*d_table): C/Q inputs have degree 3,
+    // U inputs degree 2, and the fixed table degree 1, giving totals 10/8.
+    assert_eq!(cs.degree(), 10);
     for gate in cs.gates() {
         for polynomial in gate.polynomials() {
             assert!(polynomial.degree() <= 3, "{}", gate.name());
+            assert!(polynomial.degree() <= crate::MAX_GATE_DEGREE);
         }
     }
     assert_eq!(cs.lookups().len(), FF_ADVICE_COLUMNS);
     for (index, lookup) in cs.lookups().iter().enumerate() {
         // One width-1 argument per column, into `V`.
         assert_eq!(lookup.width(), 1);
-        let expected = if index < 2 * LIMBS { 6 } else { 5 };
+        let (input_degree, expected) = if index < 2 * LIMBS { (3, 10) } else { (2, 8) };
+        assert_eq!(lookup.input_expressions()[0].degree(), input_degree);
+        assert_eq!(lookup.table_expressions()[0].degree(), 1);
         assert_eq!(lookup.required_degree(), expected, "{}", lookup.name());
     }
     // Three queries per operand column (rotations 0, 1, 6): no extra
@@ -1678,6 +1680,78 @@ fn ff_final_usable_row_binds_fused_and_comparison_blocks() {
         final_usable_row_case::<Fp>(modulus, true);
         final_usable_row_case::<Fq>(modulus, true);
     }
+}
+
+/// Isolates the low value limb's scaled-top lookup without a following
+/// arithmetic block. `args = [outside, first_row]` selects `2^87 - 1` or
+/// `2^87`; the latter's plain top entry is still a valid 15-bit value.
+fn terminal_value_top_program<F: PastaField>(
+    ff: &mut FfChip<F>,
+    _glue: &mut GlueChip<F>,
+    region: &mut Region<'_, F>,
+    _inputs: &[Value<[u64; 4]>],
+    args: &[u64],
+) -> Result<Vec<Word<F>>, Error> {
+    *ff = FfChip::starting_at(
+        ff.fused_config()?.clone(),
+        usize::try_from(args[1]).map_err(|_| Error::Synthesis)?,
+    );
+    let start = ff.block(&[Group::C])?;
+    ff.activate(region, start, Group::C)?;
+    let limit = F::from_u128(1 << LIMB_BITS);
+    let low = if args[0] == 0 { limit - F::ONE } else { limit };
+    ff.value_running_sums(region, start, Value::known([low, F::ZERO, F::ZERO]))?;
+    Ok(Vec::new())
+}
+
+/// The `c_0` argument is modulus-independent; exercise its private table
+/// and SHA-256-merged table in both native fields at the final `+6` read.
+fn terminal_value_top_case<F: PastaField>(leaf: bool) {
+    let mut circuit = FfCircuit::new(
+        &[ForeignModulus::P256_BASE],
+        0,
+        terminal_value_top_program::<F>,
+        Vec::new(),
+        &[0, 0],
+    );
+    circuit.params.leaf = leaf;
+    let (cs, _) = configure(&circuit).expect("configure");
+    let usable = cs.usable_rows(K).expect("usable rows");
+    circuit.args[1] = u64::try_from(usable - BLOCK_ROWS).expect("row");
+    assert_accepts(&circuit, &[], "maximum low limb at final usable row");
+
+    circuit.args[0] = 1;
+    let rejected = check(&circuit, &[]);
+    let [
+        CheckFailure::LookupInputMissing {
+            name,
+            location,
+            input,
+            ..
+        },
+    ] = rejected.failures()
+    else {
+        panic!("expected only the scaled c_0 lookup to reject: {rejected}");
+    };
+    let (expected_name, expected_input) = if leaf {
+        (
+            "ff c_0 range + sha256 spread",
+            vec![F::ZERO, F::ZERO, F::from_u128(1 << SUBLIMB_BITS)],
+        )
+    } else {
+        ("ff c_0 range", vec![F::from_u128(1 << SUBLIMB_BITS)])
+    };
+    assert_eq!(name, expected_name);
+    assert_eq!(location.row, usable - BLOCK_ROWS);
+    assert_eq!(input, &expected_input);
+}
+
+#[test]
+fn ff_value_scaled_top_is_checked_through_the_final_row() {
+    terminal_value_top_case::<Fp>(false);
+    terminal_value_top_case::<Fq>(false);
+    terminal_value_top_case::<Fp>(true);
+    terminal_value_top_case::<Fq>(true);
 }
 
 /// Isolates all four carry range arguments from the arithmetic equations.

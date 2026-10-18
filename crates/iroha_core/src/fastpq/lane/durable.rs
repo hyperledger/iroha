@@ -188,8 +188,11 @@ mod tests {
             .unwrap()
         );
         assert_eq!(job.next_statement, 0);
-        kura.persist_fastpq_producer_record(key, b"not a verified proof")
-            .unwrap();
+        let bytes = b"not a verified proof";
+        let receipt = kura.persist_fastpq_producer_record(key, bytes).unwrap();
+        assert!(receipt.is_from(&kura));
+        assert_eq!(receipt.reference().digest(), *Hash::new(bytes).as_ref());
+        assert_eq!(receipt.reference().byte_len(), bytes.len() as u64);
         assert!(matches!(
             job.recover_next(
                 &kura,
@@ -291,4 +294,10 @@ mod tests {
                 .unwrap()
         );
     }
+}
+
+/// Inspect the actual durable position without introducing a test-side encoder.
+#[cfg(test)]
+pub(super) fn position_for_test(job: &FastpqWitnessJob) -> Result<Hash, DurableError> {
+    position(job)
 }

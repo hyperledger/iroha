@@ -41,14 +41,14 @@ use sorafs_manifest::{
 use std::{convert::TryInto, error::Error, fs, path::PathBuf};
 const FIXTURE_PATH: &str = "crates/iroha_core/tests/fixtures/sorafs_pin_registry/snapshot.json";
 fn main() -> Result<(), Box<dyn Error>> {
-    let state = make_state();
+    let council_keys = council_keypair();
+    let state = make_state(&council_keys);
     seed_completion_anchor(&state);
     let mut block = state.block(block_header(2));
     let mut tx = block.transaction();
     bootstrap_sorafs(&mut tx);
     let digest = default_digest();
     let chunk_digest = default_chunk_digest();
-    let council_keys = council_keypair();
     register_and_approve(&mut tx, digest, chunk_digest, &council_keys)?;
     let alias_binding = alias_binding_for(digest, "sora", "docs", 12, 36, &council_keys)?;
     BindManifestAlias {
@@ -187,15 +187,6 @@ fn register_and_approve(
         .get(&digest)
         .expect("manifest stored")
         .clone();
-    tx.gov.sorafs_pin_policy.require_council_signatures = true;
-    tx.gov.sorafs_pin_policy.approval_quorum = 1;
-    tx.gov.sorafs_pin_policy.approval_signers =
-        vec![iroha_config::parameters::actual::SorafsPinApprovalSigner {
-            signer_id: "council-a".to_owned(),
-            public_key: council_keys.public_key().clone(),
-            valid_from_block_height: 0,
-            revoked_at_block_height: None,
-        }];
     let envelope = build_envelope(&stored, council_keys)?;
     ApprovePinManifest {
         digest,
@@ -472,7 +463,7 @@ fn order_snapshot(order: &ReplicationOrderRecord) -> json::Map {
     );
     order_obj
 }
-fn make_state() -> State {
+fn make_state(council_keys: &KeyPair) -> State {
     let kura = Kura::blank_kura_for_testing();
     let live = LiveQueryStore::start_test();
     let default_domain =
@@ -489,6 +480,15 @@ fn make_state() -> State {
     );
     let mut state = State::new_for_testing(world, kura, live);
     let mut governance = state.gov.clone();
+    governance.sorafs_pin_policy.require_council_signatures = true;
+    governance.sorafs_pin_policy.approval_quorum = 1;
+    governance.sorafs_pin_policy.approval_signers =
+        vec![iroha_config::parameters::actual::SorafsPinApprovalSigner {
+            signer_id: "council-a".to_owned(),
+            public_key: council_keys.public_key().clone(),
+            valid_from_block_height: 0,
+            revoked_at_block_height: None,
+        }];
     governance.sorafs_provider_owners.extend(
         [
             ProviderId::new([0x51; 32]),

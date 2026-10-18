@@ -68,9 +68,10 @@ pub use payment_return::{
     NativePaymentReturnRecovery, NativePaymentReturnSettlement, VerifiedPaymentReturn,
 };
 pub use private_settlement::{
-    PrivateSettlementError, PrivateSettlementOperation, PrivateSettlementReceiptError,
-    PrivateSettlementRecovery, PrivateSettlementRequest, PrivateSettlementResult,
-    PrivateSettlementRunOptions, VerifiedPrivateSettlementReceipt,
+    PRIVATE_SETTLEMENT_RESPONSE_MAX_BYTES_V1, PrivateSettlementError, PrivateSettlementOperation,
+    PrivateSettlementReceiptError, PrivateSettlementRecovery, PrivateSettlementRequest,
+    PrivateSettlementResult, PrivateSettlementRunOptions, VerifiedPrivateSettlementReceipt,
+    run_private_settlement_worker, validate_private_settlement_committee_endpoints_v1,
 };
 pub use transaction_wait::TransactionFinalityFailure;
 pub use verified_payment::{PaymentReceiptVerificationError, VerifiedPaymentReceipt};
@@ -14398,6 +14399,12 @@ impl AccountClient {
         &self.context.account
     }
 
+    /// Borrow the exact chain identity bound to this context.
+    #[must_use]
+    pub fn chain_id(&self) -> &ChainId {
+        &self.context.chain
+    }
+
     /// Borrow the exact network identity bound to this context.
     #[must_use]
     pub fn network_id(&self) -> &NetworkId {
@@ -14415,6 +14422,40 @@ impl AccountClient {
     #[must_use]
     pub fn signing_capability(&self) -> AccountSigningCapability {
         self.signing_capability
+    }
+
+    /// Fetch a structurally checked proof through this account context's async transport.
+    /// The caller authenticates the committee and execution from independent genesis.
+    ///
+    /// # Errors
+    /// Returns the deadline, bounded transport, codec, height and scope errors from
+    /// [`Client::get_sumeragi_finality_proof_async`].
+    pub async fn get_sumeragi_finality_proof_async(
+        &self,
+        height: NonZeroU64,
+        expected_scope: iroha_data_model::block::consensus::SumeragiRootScope,
+    ) -> Result<iroha_data_model::sumeragi_finality::SumeragiFinalityProof> {
+        self.context
+            .get_sumeragi_finality_proof_async(height, expected_scope)
+            .await
+    }
+
+    /// Fetch untrusted private-pool context originals using this account's authority.
+    /// The caller verifies the returned World proof, assignments and keys against
+    /// independently pinned Global finality and schema. Full-World context requires
+    /// all-ledger read permission; selected data space grants are insufficient.
+    ///
+    /// # Errors
+    /// Returns the selector, authorization, deadline, response-bound and codec errors from
+    /// [`Client::get_private_settlement_context_async`].
+    pub async fn get_private_settlement_context_async(
+        &self,
+        height: NonZeroU64,
+        selectors: iroha_data_model::nexus::PrivateSettlementContextRequestV1,
+    ) -> Result<iroha_data_model::nexus::PrivateSettlementContextsProofV1> {
+        self.context
+            .get_private_settlement_context_async(height, selectors)
+            .await
     }
 }
 impl OperatorClient {
@@ -14486,6 +14527,8 @@ mod context;
 mod context_tests;
 #[cfg(test)]
 mod native_checkpoint_tests;
+#[cfg(test)]
+mod private_settlement_context_tests;
 pub use context::ClientBuilder;
 
 include!("client/canonical_request_auth.rs");
