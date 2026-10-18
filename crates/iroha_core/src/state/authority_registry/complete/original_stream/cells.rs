@@ -21,7 +21,7 @@ pub(super) fn append(block: &StateBlock<'_>, output: &mut Collector) -> Result<(
         mode,
         bare,
     )?;
-    let source = || SourceIdentity::Policy(fields as *const _ as usize);
+    let source = || SourceIdentity::Policy(std::ptr::from_ref(fields) as usize);
     output.projected_cell(
         "state.chain_id",
         source(),

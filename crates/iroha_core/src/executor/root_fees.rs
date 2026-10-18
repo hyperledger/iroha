@@ -576,7 +576,7 @@ mod tests {
 
         let malformed = SetParameter::new(Parameter::Custom(CustomParameter::new(
             RootFeePolicy::parameter_id(),
-            "{}".parse().unwrap(),
+            "{}".parse::<iroha_primitives::json::Json>().unwrap(),
         )));
         assert!(malformed.execute(&ALICE_ID, &mut retry).is_err());
         assert!(

@@ -1988,23 +1988,7 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         staking
             .entry("slash_sink_account_id")
             .or_insert_with(|| defaults.staking.slash_sink_account_id.into());
-        let fees = nexus
-            .entry("fees")
-            .or_insert_with(|| toml::Value::Table(toml::Table::new()))
-            .as_table_mut()
-            .expect("fees fixture table");
-        fees.entry("fee_sink_account_id")
-            .or_insert_with(|| defaults.fees.fee_sink_account_id.into());
-        if let Some(custody) = fees.get_mut("sponsor_vault_custody_account_id") {
-            let literal = custody.as_str().expect("fixture custody account literal");
-            *custody = staged_default_account_literal(
-                literal,
-                manifest.chain_discriminant(),
-                "fixture sponsor vault",
-            )
-            .expect("bind fixture custody discriminant")
-            .into();
-        }
+        // Fee terms remain in the signed manifest; node configuration has no fee policy.
         // Materialize the disabled VPN profile's default account in the same
         // network as this complete fixture, as localnet rendering does.
         let network = table
@@ -2190,6 +2174,10 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         );
         let path = runtime_test_peer_config(table, &manifest, &key);
         let mut table: toml::Table = fs::read_to_string(&path).unwrap().parse().unwrap();
+        assert!(
+            table["nexus"].as_table().unwrap().get("fees").is_none(),
+            "runtime fixture must retain fee policy only in signed genesis"
+        );
         let genesis = table.get_mut("genesis").unwrap().as_table_mut().unwrap();
         genesis.remove("expected_hash");
         genesis.remove("expected_hash_file");

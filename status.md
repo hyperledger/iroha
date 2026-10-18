@@ -345,8 +345,9 @@ with every cost limit exact.
 Recorded dependency boundaries, legacy-codec and checker controls retain their
 input cuts. Native private-settlement preparation now depends on the SDK and
 CorePrivacy from its own crate; the reverse SDK execution edge is removed. All
-21 current ownership selections pass. The exact numeric dependency-budget and
-manifest-fingerprint baseline remains unapproved; its outstanding deltas must be
+22 current ownership selections, including native preparation, pass. The exact
+numeric dependency-budget and manifest-fingerprint baseline remains unapproved;
+its outstanding deltas must be
 reviewed separately. Shipping Oracle denials and the aggregate-model test
 exception remain intact. Core retains consensus ownership
 after the unused direct daemon Sumeragi edge was removed.

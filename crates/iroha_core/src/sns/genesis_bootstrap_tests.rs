@@ -152,7 +152,27 @@ fn private_genesis_seeds_signed_namespace_currency_before_global_defaults_withou
 
 #[test]
 fn missing_or_untrusted_private_fee_authority_cannot_seed_namespace_state() {
-    let missing = genesis(scope(), vec![]);
+    // The production builder rejects missing private monetary policy. Construct a genuinely
+    // signed negative fixture through the native epoch fixture to exercise SNS admission itself.
+    let missing = crate::sumeragi::epoch::tests::genesis_fixture_with_scope(
+        SumeragiConsensusMode::Permissioned,
+        10,
+        false,
+        scope(),
+    );
+    iroha_data_model::sumeragi_finality::authenticated_genesis(&missing)
+        .expect("missing-policy fixture retains authenticated genesis authority");
+    let mut missing_world = World::default();
+    assert!(matches!(
+        seed_genesis_alias_bootstrap(
+            &mut missing_world,
+            &missing,
+            &DataSpaceCatalog::default(),
+        ),
+        Err(SnsError::BadRequest(message))
+            if message == "private SNS bootstrap omits its signed fee policy"
+    ));
+    assert_eq!(missing_world.smart_contract_state.view().iter().count(), 0);
     let global = genesis(SumeragiRootScope::Global, vec![]);
     let fee = policy().into_custom_parameter().unwrap();
     let valid = genesis(scope(), vec![Parameter::Custom(fee)]);
@@ -163,13 +183,12 @@ fn missing_or_untrusted_private_fee_authority_cannot_seed_namespace_state() {
         None,
         None,
     );
-    for block in [&missing, &forged] {
-        let mut world = World::default();
-        assert!(
-            seed_genesis_alias_bootstrap(&mut world, block, &DataSpaceCatalog::default()).is_err()
-        );
-        assert_eq!(world.smart_contract_state.view().iter().count(), 0);
-    }
+    let mut forged_world = World::default();
+    assert!(
+        seed_genesis_alias_bootstrap(&mut forged_world, &forged, &DataSpaceCatalog::default())
+            .is_err()
+    );
+    assert_eq!(forged_world.smart_contract_state.view().iter().count(), 0);
     let mut world = World::default();
     seed_genesis_alias_bootstrap(&mut world, &global, &DataSpaceCatalog::default()).unwrap();
     try_seed_default_namespace_policies(

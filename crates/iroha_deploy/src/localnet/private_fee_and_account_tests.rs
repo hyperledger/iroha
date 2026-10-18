@@ -1,5 +1,5 @@
 #[test]
-fn private_dataspace_peer_configs_use_direct_fee_settlement() {
+fn private_profile_fee_policy_is_signed_and_absent_from_node_config() {
     let temp = crate::localnet::localnet_test_helpers::private_tempdir().expect("tmp dir");
     for (profile, label, base_port) in [
         (SoraProfile::PrivateSbp, "sbp", 28_080_u16),
@@ -25,26 +25,45 @@ fn private_dataspace_peer_configs_use_direct_fee_settlement() {
         };
         generate_localnet(&opts, &mut BufWriter::new(Vec::new()))
             .unwrap_or_else(|error| panic!("generate {label} localnet: {error:#}"));
+        let signed = read_signed_genesis(&out_dir.join("genesis.signed.nrt"))
+            .expect("canonical generated signed genesis");
+        let expected: NetworkId = fs::read_to_string(out_dir.join("genesis.expected_hash"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert_eq!(signed.hash(), expected.into_genesis_hash());
+        let fees = iroha_genesis::signed_genesis_root_fee_policy(&signed)
+            .expect("complete authenticated root fee policy");
+        let generated_custody = localnet_gas_account_id(
+            signed
+                .external_transactions()
+                .next()
+                .unwrap()
+                .authority()
+                .try_signatory()
+                .unwrap(),
+        );
+        assert_eq!(fees.fee_asset_id, localnet_xor_asset_definition_id());
+        assert_eq!(fees.fee_sink_account_id, generated_custody);
+        assert_eq!(fees.sponsor_vault_custody_account_id, generated_custody);
+        assert!(fees.successful_claim_fee_exempt_authorities.is_empty());
+        assert_eq!(fees.base_fee, Quantity::zero());
+        assert_eq!(fees.per_byte_fee, Quantity::zero());
+        assert_eq!(fees.per_instruction_fee, "0.001".parse().unwrap());
+        assert_eq!(fees.per_gas_unit_fee, "0.00005".parse().unwrap());
         for peer in 0..4 {
             let peer_cfg: toml::Value = toml::from_str(
                 &fs::read_to_string(out_dir.join(format!("peer{peer}.toml")))
                     .expect("read generated peer config"),
             )
             .expect("parse peer config");
-            let fees = peer_cfg
-                .get("nexus")
-                .and_then(toml::Value::as_table)
-                .and_then(|nexus| nexus.get("fees"))
-                .and_then(toml::Value::as_table)
-                .expect("nexus fees table");
-            assert_eq!(
-                fees.get("per_gas_unit_fee").and_then(toml::Value::as_str),
-                Some("0.00005")
-            );
-            assert_eq!(
-                fees.get("settlement_mode").and_then(toml::Value::as_str),
-                Some("direct"),
-                "private {label} peer {peer} must use genesis-compatible direct fee settlement"
+            assert!(
+                peer_cfg
+                    .get("nexus")
+                    .and_then(|nexus| nexus.get("fees"))
+                    .is_none(),
+                "private {label} peer {peer} cannot author monetary terms"
             );
         }
     }

@@ -1281,11 +1281,7 @@ async fn global_asset_definition_and_own_balance_ignore_unrelated_restricted_rou
         checked_torii_test_ed25519_keypair(0xc0, "derive existing asset-query validator authority");
     let caller = AccountId::new(caller_key.public_key().clone());
     let mut nexus = private_ingress_nexus_for_test();
-    let fee_asset: AssetDefinitionId = nexus
-        .fees
-        .fee_asset_id
-        .parse()
-        .expect("canonical Nexus fee currency");
+    let fee_asset: AssetDefinitionId = nexus.fees.fee_asset_id.clone();
     assert_eq!(
         fee_asset, definition,
         "the global XOR fixture uses its original fee currency"

@@ -3,13 +3,13 @@ use super::*;
 use iroha::workflow::{CustodyHandleV1, WorkflowJournalV1, WorkflowStorageError};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-pub(super) fn driver_identity() -> DriverIdentityV1 {
+pub fn driver_identity() -> DriverIdentityV1 {
     DriverIdentityV1 {
         id: "private_settlement_preparation".into(),
         schema_version: 1,
     }
 }
-pub(super) struct NoPreparationEffects(pub WorkflowBindingV1);
+pub struct NoPreparationEffects(pub WorkflowBindingV1);
 impl WorkflowAccount for NoPreparationEffects {
     fn binding(&self) -> WorkflowBindingV1 {
         self.0.clone()
@@ -56,7 +56,7 @@ impl WorkflowLedger for NoPreparationEffects {
         })
     }
 }
-pub(super) struct PreparationDriver {
+pub struct PreparationDriver {
     account: AccountClient,
     request: OneCallPrivateSettlementRequest,
     storage: Arc<dyn WorkflowStorage>,
@@ -240,22 +240,21 @@ impl PreparationDriver {
         })
         .await?;
         lease = original_lease;
-        let (proof, context_length, publish) = match original? {
-            Some((proof, length)) => (proof, length, false),
-            None => {
-                if !may_prepare {
-                    return Ok(None);
-                }
-                let proof = self
-                    .source
-                    .fetch(request.intent().authority_context_height, selectors.clone())
-                    .await?;
-                let length = norito::canonical_frame_len(&proof)?;
-                if length > maximum {
-                    return Err(OneCallPrivateSettlementError::Capacity);
-                }
-                (proof, length, true)
+        let (proof, context_length, publish) = if let Some((proof, length)) = original? {
+            (proof, length, false)
+        } else {
+            if !may_prepare {
+                return Ok(None);
             }
+            let proof = self
+                .source
+                .fetch(request.intent().authority_context_height, selectors.clone())
+                .await?;
+            let length = norito::canonical_frame_len(&proof)?;
+            if length > maximum {
+                return Err(OneCallPrivateSettlementError::Capacity);
+            }
+            (proof, length, true)
         };
         if context_length > request.0.max_total_artifact_bytes {
             return Err(OneCallPrivateSettlementError::Capacity);
@@ -343,9 +342,11 @@ impl PreparationDriver {
                             opening.governance.body.asset_binding_salt,request.intent().expiry_height)?;
                         let secrets=wallet.reserve_or_reopen(round,request.intent(),leg.ordinal,terms)?;
                         let plaintext=secrets.plaintext();
+                        let asset_matches = plaintext.asset_definition_id == terms.asset;
+                        let reimbursement_matches = plaintext.sponsor_reimbursement_amount == terms.reimbursement;
                         if plaintext.payer!=terms.payer || plaintext.recipient!=terms.recipient
-                            || plaintext.asset_definition_id!=terms.asset || plaintext.amount!=terms.amount
-                            || plaintext.sponsor_reimbursement_amount!=terms.reimbursement || plaintext.memo!=terms.memo {
+                            || !asset_matches || plaintext.amount!=terms.amount
+                            || !reimbursement_matches || plaintext.memo!=terms.memo {
                             return Err(OneCallPrivateSettlementError::Binding);
                         }
                         let prepared=prepare_atomic_private_settlement_leg_v1(request.intent(),leg.ordinal,

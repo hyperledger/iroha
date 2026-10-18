@@ -10008,15 +10008,26 @@ pub mod executor_norito {
         executor: &Executor,
         writer: &mut dyn std::io::Write,
     ) -> Result<(), norito::core::Error> {
+        // A reference delegates the existing payload without cloning raw code. The
+        // derive requires SerializePayload on its field type, which plain &T lacks.
+        struct BorrowedRawExecutor<'a>(&'a iroha_data_model::executor::Executor);
+        impl norito::core::SerializePayload for BorrowedRawExecutor<'_> {
+            fn serialize(
+                &self,
+                writer: &mut norito::core::Encoder<'_>,
+            ) -> Result<(), norito::core::Error> {
+                norito::core::SerializePayload::serialize(self.0, writer)
+            }
+        }
         #[derive(Encode)]
         enum BorrowedExecutorDto<'a> {
             Initial,
-            UserProvided(&'a iroha_data_model::executor::Executor),
+            UserProvided(BorrowedRawExecutor<'a>),
         }
         let borrowed = match executor {
             Executor::Initial => BorrowedExecutorDto::Initial,
             Executor::UserProvided(loaded) => {
-                BorrowedExecutorDto::UserProvided(&loaded.raw_executor)
+                BorrowedExecutorDto::UserProvided(BorrowedRawExecutor(&loaded.raw_executor))
             }
         };
         let mut writer = writer;
@@ -10146,17 +10157,14 @@ pub mod executor_norito {
                     }
                 };
                 assert_eq!(actual, norito::codec::encode_adaptive(&owned));
-                let restored =
-                    norito::codec::decode_exact_from_slice::<ExecutorDto>(&actual).unwrap();
+                let restored = norito::codec::decode_adaptive::<ExecutorDto>(&actual).unwrap();
                 assert_eq!(norito::codec::encode_adaptive(&restored), actual);
                 assert!(
-                    norito::codec::decode_exact_from_slice::<ExecutorDto>(
-                        &actual[..actual.len() - 1]
-                    )
-                    .is_err()
+                    norito::codec::decode_adaptive::<ExecutorDto>(&actual[..actual.len() - 1])
+                        .is_err()
                 );
                 actual.push(0);
-                assert!(norito::codec::decode_exact_from_slice::<ExecutorDto>(&actual).is_err());
+                assert!(norito::codec::decode_adaptive::<ExecutorDto>(&actual).is_err());
             }
         }
 

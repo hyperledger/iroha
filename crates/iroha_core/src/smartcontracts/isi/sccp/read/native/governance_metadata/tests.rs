@@ -380,7 +380,7 @@ fn readiness_preserves_unavailable_authority_and_original_pool_refusals() {
     let mut state = blank_state();
     state.gov.rules_committee_size = 19;
     let mut block = state.block(header(40));
-    let stx = block.transaction();
+    let mut stx = block.transaction();
     let pool = AllocationBudget::new(4096);
     let stop = AtomicBool::new(false);
     let held = pool.try_reserve_bytes(4096).unwrap();

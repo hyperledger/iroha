@@ -8,9 +8,12 @@ use iroha_data_model::nexus::{
 };
 use iroha_fs::{PrivateDirectory, PublishMode};
 
+// Preserve the previous largest admitted artifact's decode-allocation ceiling.
+const MAX_PREPARED_DECODE_ALLOCATION_BYTES: usize = PRIVATE_SETTLEMENT_RESPONSE_MAX_BYTES_V1 * 4;
+
 #[derive(Clone, Copy, norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha::client::PrivateSettlementPreparedArtifactKeyV1")]
-pub(super) struct ArtifactKey {
+pub struct ArtifactKey {
     pub request: Digest32,
     pub round: Digest32,
     pub ordinal: u8,
@@ -31,7 +34,7 @@ impl ArtifactKey {
 }
 #[derive(norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha::client::PrivateSettlementPreparedArtifactV1")]
-pub(super) struct Artifact {
+pub struct Artifact {
     pub key: ArtifactKey,
     pub context_id: Hash,
     pub context_digest: Digest32,
@@ -194,16 +197,21 @@ impl FilePrivateSettlementArtifacts {
         if plaintext.len() > maximum {
             return Err(OneCallPrivateSettlementError::Capacity);
         }
+        // Owned policy/committee graphs can cost more than four times a small wire frame.
+        // Use Norito's canonical accounting policy for the actual authenticated bytes,
+        // capped at the existing largest admitted artifact allocation (128 MiB).
+        let canonical_limits = norito::canonical_decode_limits(plaintext.len());
+        let allocation_limit = canonical_limits
+            .max_total_allocated_bytes()
+            .min(MAX_PREPARED_DECODE_ALLOCATION_BYTES);
         let artifact: Artifact = norito::decode_canonical_with_limits(
             &plaintext,
             norito::DecodeLimits::new(
                 maximum,
                 maximum,
                 maximum,
-                maximum
-                    .checked_mul(4)
-                    .ok_or(OneCallPrivateSettlementError::Capacity)?,
-                64,
+                allocation_limit,
+                canonical_limits.max_nesting_depth(),
             ),
         )?;
         if artifact.key.request != key.request
@@ -336,6 +344,27 @@ pub(super) mod tests {
         let (restored, actual) = reopened.read(key, size).unwrap().unwrap();
         assert_eq!(actual, size);
         assert_eq!(restored.digest().unwrap(), digest);
+        let constrained = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(size, size, size, 1, 64),
+            || reopened.read(key, size),
+        );
+        assert!(matches!(
+            constrained,
+            Err(OneCallPrivateSettlementError::Encoding(error))
+                if error.is_decode_resource_limit()
+        ));
+        assert_eq!(std::fs::read(path.join(key.name())).unwrap(), bytes);
+        assert_eq!(
+            reopened
+                .read(key, size)
+                .unwrap()
+                .unwrap()
+                .0
+                .digest()
+                .unwrap(),
+            digest,
+            "an enclosing allocation refusal cannot change the retained original"
+        );
         assert!(
             reopened.publish(&artifact, size).is_err(),
             "original artifact is never overwritten"
@@ -357,6 +386,68 @@ pub(super) mod tests {
             foreign.read(key, size),
             Err(OneCallPrivateSettlementError::Binding)
         ));
+    }
+
+    #[test]
+    fn private_onecall_artifact_reopens_maximum_auditor_graph() {
+        use iroha_crypto::{Algorithm, HybridKeyPair, KeyPair};
+        use iroha_data_model::nexus::{
+            PRIVATE_SETTLEMENT_MAX_AUDITORS_V1, PrivateSettlementAuditorV1,
+            PrivateSettlementHybridPublicKeyV1,
+        };
+
+        // Exercise nested ownership at the valid policy cardinality. Capsule/proof
+        // bytes are opaque custody fixtures; this does not assert monetary validity.
+        let mut artifact = fixture();
+        let mut policy = artifact.policy.body.clone();
+        let mut rng = iroha_crypto::rng_from_seed_slice(b"artifact maximum auditor graph");
+        policy.auditors = (0..PRIVATE_SETTLEMENT_MAX_AUDITORS_V1)
+            .map(|index| {
+                let seed = u8::try_from(index + 1).unwrap();
+                let signing = KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519);
+                let hybrid = HybridKeyPair::generate(&mut rng).unwrap();
+                PrivateSettlementAuditorV1 {
+                    auditor_id: iroha_data_model::account::AccountId::new(
+                        signing.public_key().clone(),
+                    ),
+                    signing_key: signing.public_key().clone(),
+                    encryption_key: PrivateSettlementHybridPublicKeyV1::from_hybrid(
+                        hybrid.public(),
+                    ),
+                }
+            })
+            .collect();
+        policy
+            .auditors
+            .sort_by(|a, b| a.auditor_id.cmp(&b.auditor_id));
+        artifact.policy = PrivateSettlementAuditPolicyV1::new(policy).unwrap();
+        let wrapped = artifact.capsule.wrapped_deks[0].clone();
+        artifact.capsule.wrapped_deks = artifact
+            .policy
+            .body
+            .auditors
+            .iter()
+            .map(|auditor| {
+                let mut value = wrapped.clone();
+                value.auditor_id = auditor.auditor_id.clone();
+                value
+            })
+            .collect();
+        let size = norito::canonical_frame_len(&artifact).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("artifacts");
+        let store = FilePrivateSettlementArtifacts::open(&path, &[24; 32]).unwrap();
+        assert_eq!(store.publish(&artifact, size).unwrap(), size);
+        drop(store);
+        let reopened = FilePrivateSettlementArtifacts::open(&path, &[24; 32]).unwrap();
+        let (original, actual) = reopened.read(artifact.key, size).unwrap().unwrap();
+        assert_eq!(actual, size);
+        assert_eq!(original.digest().unwrap(), artifact.digest().unwrap());
+        assert_eq!(
+            original.policy.body.auditors.len(),
+            PRIVATE_SETTLEMENT_MAX_AUDITORS_V1
+        );
+        assert!(reopened.read(artifact.key, size - 1).is_err());
     }
 
     #[test]

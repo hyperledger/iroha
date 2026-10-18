@@ -137,7 +137,7 @@ fn provider_code(error: &eyre::Report) -> WorkflowErrorCode {
     }
     WorkflowErrorCode::EvidenceUnavailable
 }
-fn proof_code(error: &ProofError) -> WorkflowErrorCode {
+fn proof_code(error: ProofError) -> WorkflowErrorCode {
     match error {
         ProofError::Relation(error) => relation_code(error),
         ProofError::ResourceLimit => WorkflowErrorCode::ResourceLimitExceeded,
@@ -149,7 +149,7 @@ fn proof_code(error: &ProofError) -> WorkflowErrorCode {
         }
     }
 }
-fn relation_code(error: &RelationError) -> WorkflowErrorCode {
+fn relation_code(error: RelationError) -> WorkflowErrorCode {
     match error {
         RelationError::CanonicalEncoding => WorkflowErrorCode::EvidenceUnavailable,
         RelationError::InvalidNetworkBinding => WorkflowErrorCode::BindingMismatch,
@@ -168,16 +168,18 @@ fn preparation_code(error: &AtomicPrivateSettlementPreparationErrorV1) -> Workfl
                 WorkflowErrorCode::BindingMismatch
             }
             WalletError::SecretMaterial => WorkflowErrorCode::AuthorizationDenied,
-            WalletError::Proof(error) => proof_code(error),
+            WalletError::Proof(error) => proof_code(*error),
         },
         E::Frontier(error) => match error {
             FrontierError::NamespaceEncoding => WorkflowErrorCode::EvidenceUnavailable,
             FrontierError::TreeFull => WorkflowErrorCode::ResourceLimitExceeded,
             _ => WorkflowErrorCode::ProofInvalid,
         },
-        E::Relation(error) => relation_code(error),
+        E::Relation(error) => relation_code(*error),
         E::Audit(error) => match error {
-            AuditError::CanonicalEncoding => WorkflowErrorCode::EvidenceUnavailable,
+            AuditError::CanonicalEncoding | AuditError::CryptographicFailure => {
+                WorkflowErrorCode::EvidenceUnavailable
+            }
             AuditError::InvalidPlaintextFrame => WorkflowErrorCode::NonCanonicalEncoding,
             AuditError::InvalidPlaintextSize => WorkflowErrorCode::ResourceLimitExceeded,
             AuditError::PlaintextCommitmentMismatch | AuditError::RecipientKeyMismatch => {
@@ -186,10 +188,9 @@ fn preparation_code(error: &AtomicPrivateSettlementPreparationErrorV1) -> Workfl
             AuditError::UnknownAuditor => WorkflowErrorCode::AuthorizationDenied,
             AuditError::InvalidWire(_) => WorkflowErrorCode::ProofInvalid,
             AuditError::RandomnessUnavailable => WorkflowErrorCode::LocalResourceUnavailable,
-            AuditError::CryptographicFailure => WorkflowErrorCode::EvidenceUnavailable,
         },
         E::Randomness(_) => WorkflowErrorCode::LocalResourceUnavailable,
-        E::Proof(error) => proof_code(error),
+        E::Proof(error) => proof_code(*error),
     }
 }
 fn settlement_code(error: &PrivateSettlementError) -> WorkflowErrorCode {

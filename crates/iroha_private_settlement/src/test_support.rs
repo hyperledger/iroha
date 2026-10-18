@@ -34,7 +34,7 @@ public_key = "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B704
 private_key = "802620CCF31D85E3B32A4BEA59987CE0C78E3B8E2DB93881468AB2435FE45D5C9DCD53"
 [transaction]
 time_to_live_ms = 5000
-status_timeout_ms = 10000
+status_timeout_ms = 1000
 nonce = false
 "#
     );
@@ -53,8 +53,8 @@ pub(super) fn compatible_capabilities_response() -> eyre::Result<http::Response<
     let hash = hex::encode(norito::schema::identity::frame_hash::<
         iroha_data_model::transaction::SignedTransaction,
     >());
-    let body = norito::json::json!({
-        "data_model_version": iroha_data_model::DATA_MODEL_VERSION,
+    let body = norito::json!({
+        "data_model_version": (iroha_data_model::DATA_MODEL_VERSION),
         "signed_transaction_schema_hash_hex": hash,
     });
     Ok(http::Response::builder()

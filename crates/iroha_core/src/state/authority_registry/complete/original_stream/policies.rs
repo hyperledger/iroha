@@ -54,7 +54,7 @@ pub(super) fn append(
     }
     // OriginalCut retains StatePublication's validated frozen phase. Its fields
     // cannot be mutated, rebound or replaced while this same cut is alive.
-    let source = || SourceIdentity::Policy(fields as *const _ as usize);
+    let source = || SourceIdentity::Policy(std::ptr::from_ref(fields) as usize);
     let parameters_touched = parameters.touched_value().is_some();
     let runtime_touched = runtime.touched_value().is_some();
     macro_rules! immutable {

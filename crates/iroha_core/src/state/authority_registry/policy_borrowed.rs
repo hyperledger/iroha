@@ -446,7 +446,7 @@ mod tests {
         let original = Owned {
             fixed,
             optional,
-            nested: norito::Encode::encode(&17_u64),
+            nested: norito::codec::Encode::encode(&17_u64),
             names: names.clone(),
         };
         assert_same_payload(
@@ -460,8 +460,10 @@ mod tests {
         );
         assert_eq!(
             hash_payload(b"domain", &original).unwrap(),
-            iroha_crypto::Hash::new_from_chunks(&[b"domain", &norito::Encode::encode(&original)])
-                .into()
+            <[u8; 32]>::from(iroha_crypto::Hash::new_from_chunks(&[
+                b"domain",
+                &norito::codec::Encode::encode(&original)
+            ]))
         );
     }
     #[test]
@@ -483,7 +485,7 @@ mod tests {
         let encoded = EncodedSet::new(&strings, &pool).unwrap();
         let mut expected = strings
             .iter()
-            .map(norito::Encode::encode)
+            .map(norito::codec::Encode::encode)
             .collect::<Vec<_>>();
         expected.sort();
         expected.dedup();
@@ -493,7 +495,7 @@ mod tests {
     }
     #[test]
     fn source_json_and_display_text_stream_the_exact_native_strings() {
-        let json = norito::json::json!({"unicode": "日本語\n\"", "array": [true, null, 7]});
+        let json = norito::json!({"unicode": "日本語\n\"", "array": [true, null, 7]});
         let expected = norito::json::to_json(&json).unwrap();
         assert_same_payload(&JsonString(&json), &expected);
         assert_eq!(

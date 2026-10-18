@@ -591,7 +591,9 @@ def test_foundation_model_selections_reject_upper_layer_dependencies() -> None:
             assert not result["within_boundary"], package
 
 
-@pytest.mark.parametrize("owner", ["iroha_core_privacy", "iroha_core_timed_ovn"])
+@pytest.mark.parametrize("owner", [
+    "iroha_core_privacy", "iroha_core_timed_ovn", "iroha_private_settlement",
+])
 def test_extracted_native_owners_remain_forbidden_from_lower_layer_selections(owner: str) -> None:
     path = Path(__file__).resolve().parents[2] / "ci" / "dependency_budget.json"
     policy = MODULE.validate_boundary_policy(json.loads(path.read_text()))
@@ -609,14 +611,15 @@ def test_extracted_native_owners_remain_forbidden_from_lower_layer_selections(ow
         if selection.get("package_contracts"):
             baseline = _native_custody_tree(selection) + "1|norito v1.0.0|\n"
         assert MODULE.evaluate_boundary_tree(policy, selection, baseline)["within_boundary"]
-        leaked = MODULE.evaluate_boundary_tree(
-            policy, selection, baseline + f"2|{owner} v1.0.0|\n",
-        )
-        assert leaked["violations"] == [{
-            "package": owner,
-            "forbidden_layer": "node_execution",
-            "path": [root, "norito", owner],
-        }]
+        for depth, path in [(1, [root, owner]), (2, [root, "norito", owner])]:
+            leaked = MODULE.evaluate_boundary_tree(
+                policy, selection, baseline + f"{depth}|{owner} v1.0.0|\n",
+            )
+            assert leaked["violations"] == [{
+                "package": owner,
+                "forbidden_layer": "node_execution",
+                "path": path,
+            }]
 
 
 def test_aggregate_model_test_boundary_retains_protocol_ownership_and_denials() -> None:
@@ -804,6 +807,7 @@ WALLET_PROOF_DENIAL_CONTEXTS = [
     "model-base-default",
     "model-base-transparent",
     "musubi-service-default",
+    "private-settlement-native",
     "sccp-rpc-default",
     "sccp-wallet-default",
     "sdk-default",
@@ -875,18 +879,23 @@ def test_retired_package_contract_admission_is_rejected(context) -> None:
 
 def test_native_policy_preserves_every_original_context_and_layer() -> None:
     policy = _native_policy()
-    assert len(policy["configurations"]) == 21
+    assert len(policy["configurations"]) == 22
     assert set(WALLET_PROOF_DENIAL_CONTEXTS) == (
         set(policy["configurations"]) - {"iroha3d-without-sccp-wallet"}
     )
     # This test-only invariant projects out exactly the reviewed additions and
     # keeps every original ownership, denial, feature, target and root-dev choice.
-    original_configurations = copy.deepcopy(policy["configurations"])
-    for context in WALLET_PROOF_DENIAL_CONTEXTS:
+    previous_configurations = copy.deepcopy(policy["configurations"])
+    previous_configurations.pop("private-settlement-native")
+    previous_layers = copy.deepcopy(policy["layers"])
+    assert previous_layers["node_execution"].count("iroha_private_settlement") == 1
+    previous_layers["node_execution"].remove("iroha_private_settlement")
+    original_configurations = copy.deepcopy(previous_configurations)
+    for context in set(WALLET_PROOF_DENIAL_CONTEXTS) - {"private-settlement-native"}:
         layers = original_configurations[context]["forbidden_layers"]
         assert layers.count("wallet_proof_execution") == 1
         layers.remove("wallet_proof_execution")
-    original_layers = copy.deepcopy(policy["layers"])
+    original_layers = copy.deepcopy(previous_layers)
     assert original_layers.pop("wallet_proof_execution") == WALLET_PROOF_OWNERS
     assert original_layers["proof_primitives"] == [
         "iroha_zkp_halo2", *SHARED_NATIVE_PROOF_PRIMITIVES,
@@ -906,11 +915,84 @@ def test_native_policy_preserves_every_original_context_and_layer() -> None:
         original_layers, sort_keys=True, separators=(",", ":"),
     ).encode()).hexdigest() == "3cca600ca6223358c8889fe065f5d8b2a400b360e04083506dd23d2b007fb880"
     assert hashlib.sha256(json.dumps(
-        policy["configurations"], sort_keys=True, separators=(",", ":"),
+        previous_configurations, sort_keys=True, separators=(",", ":"),
     ).encode()).hexdigest() == "a82622b18157e40ba1b0e68633322ba8cac5afbd87d60efb033c3e5c87cf80c8"
     assert hashlib.sha256(json.dumps(
-        policy["layers"], sort_keys=True, separators=(",", ":"),
+        previous_layers, sort_keys=True, separators=(",", ":"),
     ).encode()).hexdigest() == "09a4b45b8c8fb31b19effe8135c6858d98abe3ba66e1b2ad2265074057c801a9"
+
+
+def test_native_preparation_shipping_selection_keeps_its_required_native_closure() -> None:
+    policy = _native_policy()
+    selection = policy["configurations"]["private-settlement-native"]
+    assert selection == {
+        "default_features": True,
+        "features": [],
+        "forbidden_features": {
+            "fastpq_prover": ["dev-tools", "bench"],
+            "iroha": ["mutation-testing", "test-fixtures", "test-network-private-settlement-evidence"],
+            "iroha_core_privacy": ["privacy-release-evidence", "test-utils", "fastpq-replay-measurement"],
+            "iroha_data_model": [
+                "mutation-testing", "dev-tools", "test-fixtures", "privacy-exact12-conformance",
+                "fault_injection", "trybuild-tests", "bench",
+            ],
+            "iroha_zkp_halo2": ["bench", "schema-structural"],
+            "ivm": [
+                "dev-tools", "bench", "beep", "cuda-hardware-tests", "metal-hardware-tests",
+                "ivm_zk_tests", "ivm_vrf_tests",
+            ],
+        },
+        "forbidden_layers": [
+            "service_runtime", "storage_runtime", "storage_client", "sccp_rpc", "sccp_wallet",
+            "wallet_proof_execution",
+        ],
+        "forbidden_packages": [
+            "iroha_core", "iroha_core_zk", "iroha_core_timed_ovn", "iroha_torii", "irohad",
+            "irohad_lib", "iroha_p2p", "kotodama_lang", "kotodama_toolchain", "zk_ace_prover",
+            "iroha_plonk_oracle",
+        ],
+        "include_root_dev_dependencies": False,
+        "package": "iroha_private_settlement",
+        "target": "all",
+    }
+    command = MODULE.boundary_tree_command(Path("Cargo.toml"), selection, offline=True)
+    assert command[command.index("--edges") + 1] == "normal,build"
+    assert "--locked" in command and "--offline" in command
+    assert command[command.index("--target") + 1] == "all"
+    assert "--all-features" not in command and "--workspace" not in command
+    tree = (
+        "0|iroha_private_settlement v1.0.0|\n"
+        "1|iroha v1.0.0|default,gost,sm,tls-rustls-native-roots\n"
+        "2|iroha_data_model v1.0.0|application-model,governance,http,transparent_api\n"
+        "1|iroha_core_privacy v1.0.0|\n"
+        "2|ivm v1.0.0|default,metal\n"
+        "3|iroha_config v1.0.0|\n"
+        "3|iroha_telemetry v1.0.0|\n"
+        "2|fastpq_prover v1.0.0|default\n"
+        "2|iroha_zkp_halo2 v1.0.0|default,full,model-primitives,parallel\n"
+    )
+    assert MODULE.evaluate_boundary_tree(policy, selection, tree)["within_boundary"]
+    root = selection["package"]
+    denied_packages = set(selection["forbidden_packages"])
+    for layer in selection["forbidden_layers"]:
+        denied_packages.update(policy["layers"][layer])
+    for package in sorted(denied_packages):
+        for suffix, path in [
+            (f"1|{package} v1.0.0|\n", [root, package]),
+            (f"1|norito v1.0.0|\n2|{package} v1.0.0|\n", [root, "norito", package]),
+        ]:
+            report = MODULE.evaluate_boundary_tree(policy, selection, tree + suffix)
+            assert not report["within_boundary"], package
+            assert any(row["package"] == package and row["path"] == path for row in report["violations"])
+    for package, features in selection["forbidden_features"].items():
+        for feature in features:
+            report = MODULE.evaluate_boundary_tree(
+                policy, selection, tree + f"1|norito v1.0.0|\n2|{package} v1.0.0|{feature}\n",
+            )
+            assert report["violations"] == [{
+                "package": package, "forbidden_feature": feature,
+                "path": [root, "norito", package],
+            }]
 
 
 @pytest.mark.parametrize("metric", MODULE.METRIC_KEYS)
@@ -935,6 +1017,7 @@ SHIPPING_ORACLE_DENIAL_CONTEXTS = [
     "model-base-default",
     "model-base-transparent",
     "musubi-service-default",
+    "private-settlement-native",
     "sccp-rpc-default",
     "sccp-wallet-default",
     "sdk-default",

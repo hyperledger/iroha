@@ -1,8 +1,10 @@
-//! Deterministic private-settlement fixtures shared by SDK and preparation tests.
+//! Structural private-settlement fixtures shared by SDK and preparation tests.
 //!
 //! Opaque proof and capsule bytes establish transport and custody shape only.
 //! Committee keys, proof-of-possession and signatures are real; no native proof,
 //! authenticated World state or monetary execution is claimed.
+//! Routes and committee keys are deterministic; hybrid auditor keys use hedged
+//! generation, so separately constructed material need not share policy digests.
 
 use iroha_crypto::{Algorithm, Hash, KeyPair, Signature};
 use iroha_data_model::{
@@ -213,7 +215,7 @@ pub fn finalization_manifest_v1(
 /// fixture, and padded capsule shape follows the shared response-validation fixture.
 ///
 /// # Panics
-/// Panics when deterministic crypto construction or structural validation fails.
+/// Panics when crypto construction or structural validation fails.
 pub fn availability_material_fixture_v1(
     network_id: &NetworkId,
     sponsor: &AccountId,
@@ -518,8 +520,24 @@ mod tests {
         assert_eq!(context.pool.pool.route, material.statement.route);
         assert_eq!(context.pool.pool.pool_id, material.statement.pool_id);
         assert_eq!(
-            context.pool.governance.audit_policy_digest,
+            material.statement.audit_policy_digest,
             material.audit_policy.policy_digest
+        );
+        assert_eq!(
+            material.audit_capsule.aad.audit_policy_digest,
+            material.audit_policy.policy_digest
+        );
+        // Context constructs its own hybrid auditor key with live entropy; only
+        // the route and committee are shared across separate fixture invocations.
+        assert_ne!(
+            context.pool.governance.audit_policy_digest,
+            Hash::prehashed([0; Hash::LENGTH])
+        );
+        assert_eq!(context.pool.governance.route, context.pool.pool.route);
+        assert_eq!(context.pool.governance.pool_id, context.pool.pool.pool_id);
+        assert_eq!(
+            context.pool.pool.restricted_pool_policy_digest,
+            context.pool.governance.governance_digest
         );
         for (index, proof) in context.committee_keys.iter().enumerate() {
             assert_eq!(

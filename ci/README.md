@@ -191,6 +191,14 @@ a failure. Use `--offline` after dependencies have been fetched and
 with `--write-baseline`. Extend the owned package and configuration inventory
 when introducing a new SDK, model, or runtime compilation unit.
 
+The `private-settlement-native` selection owns native preparation above the SDK.
+It permits the required privacy engines, configuration and telemetry while
+rejecting full-node services, compiler and runtime adapters, wallet proof
+execution, and development or test features. Its owner is `node_execution`, so
+the existing lower-layer selections directly reject reverse dependencies on
+`iroha_private_settlement`. This architecture inventory does not refresh or
+approve the separate numeric dependency baseline.
+
 `python3 -I -S scripts/check_release_feature_graph.py` separately validates the
 reviewed shipping recipes and their source seal. Android release packaging must
 use `compileNativeLibs` with its canonical `android-cargo` profile. The shared

@@ -354,16 +354,44 @@ fn prepare_rotation_exchange(
     })
 }
 
+// Only the original obligation owners cross phases. The old certified decision is
+// moved out of its first verified receipt, never reconstructed from later State.
+struct FrozenRotationPayment {
+    transaction: iroha_data_model::sumeragi_amx::AmxTransactionV1,
+    approvals: [iroha_data_model::sumeragi_amx::AmxDebitApprovalV1; 2],
+    original_prepare: evidence::PendingCarrier,
+    prepare_fee: Quantity,
+    original_pending: evidence::PendingCarrier,
+    old_decision: iroha_data_model::sumeragi_amx::AmxCertifiedBlockV1,
+}
+
+struct FirstRotationHandoff {
+    first: PreparedRotation,
+    survivors: BTreeSet<PeerId>,
+}
+
+// Prepared custody retains owner-private credential directories. Keep both exact
+// ceremony owners alive through bank restart, fee audit and the final idle check.
+struct RetainedRotationCustody {
+    _second: PreparedRotation,
+    _first: PreparedRotation,
+}
+
+// Keep only durable owners on this orchestration frame. Each completed ceremony
+// and proof acquisition frame returns before the next phase is entered.
 #[inline(never)]
-fn recover_original_decision_after_rotation(setup: RotationSetup) -> Result<()> {
-    let RotationSetup {
-        mut exchange,
-        dkg,
-        catalogs,
-        admin,
-        operators,
-        workload,
-    } = setup;
+fn recover_original_decision_after_rotation(mut setup: RotationSetup) -> Result<()> {
+    let pending = freeze_original_rotation_payment(&mut setup.exchange)?;
+    let first = perform_first_rotation_handoff(&setup, &pending)?;
+    let _custody = perform_second_rotation_handoff(&setup, &pending, first)?;
+    let final_heights = release_original_rotation_payment(&mut setup.exchange, &pending)?;
+    verify_final_rotation_effects(&setup.exchange, &setup.workload, final_heights)
+}
+
+#[inline(never)]
+fn freeze_original_rotation_payment(
+    exchange: &mut amx::Exchange,
+) -> Result<Box<FrozenRotationPayment>> {
     // The P0 test deliberately pauses this real service between signing and
     // delivery. Give its ordinary bounded retry owner enough scheduling room to
     // capture the original identity; do not change its eight-dispatch contract.
@@ -374,7 +402,7 @@ fn recover_original_decision_after_rotation(setup: RotationSetup) -> Result<()> 
         .block_on(exchange.roots[0].restart_service())?;
     let (transaction, approvals) = exchange.begin(300, 0xA3, false)?;
     let original_prepare =
-        evidence::pause_with_pending(&exchange, transaction.id()?, PendingKind::Prepare)?;
+        evidence::pause_with_pending(exchange, transaction.id()?, PendingKind::Prepare)?;
     let prepare_fee = evidence::native_carrier_fee(&exchange.roots[2], &original_prepare)?;
     amx::submit(
         &exchange.roots[2],
@@ -394,7 +422,7 @@ fn recover_original_decision_after_rotation(setup: RotationSetup) -> Result<()> 
         &exchange.runtime,
     )?;
     evidence::assert_preserved(
-        &exchange,
+        exchange,
         transaction.id()?,
         PendingKind::Prepare,
         &original_prepare,
@@ -402,14 +430,14 @@ fn recover_original_decision_after_rotation(setup: RotationSetup) -> Result<()> 
     exchange
         .runtime
         .block_on(exchange.roots[0].restart_service())?;
-    let original = exchange.observe(
+    let mut original = exchange.observe(
         &transaction,
         &approvals,
         AmxOutcomeV1::Commit,
         [true, false],
     )?;
     let old_decision = original.decisions[0]
-        .as_ref()
+        .take()
         .ok_or_else(|| eyre!("actual epoch-zero decision proof absent"))?;
     let global_client = exchange.roots[0].client(&amx::relay(0));
     let global_tip = exchange
@@ -437,14 +465,42 @@ fn recover_original_decision_after_rotation(setup: RotationSetup) -> Result<()> 
     // The funding was consumed only by Prepare; Settle is durably signed but
     // cannot debit principal or fees until explicitly replenished after rotation.
     let original_pending =
-        evidence::pause_with_pending(&exchange, transaction.id()?, PendingKind::Settle)?;
+        evidence::pause_with_pending(exchange, transaction.id()?, PendingKind::Settle)?;
     evidence::wait_frozen_obligation(
-        &exchange,
+        exchange,
         &transaction,
         &approvals[1],
         &original_prepare,
         &prepare_fee,
     )?;
+    Ok(Box::new(FrozenRotationPayment {
+        transaction,
+        approvals,
+        original_prepare,
+        prepare_fee,
+        original_pending,
+        old_decision,
+    }))
+}
+
+#[inline(never)]
+fn perform_first_rotation_handoff(
+    setup: &RotationSetup,
+    pending: &FrozenRotationPayment,
+) -> Result<FirstRotationHandoff> {
+    let RotationSetup {
+        exchange,
+        dkg,
+        catalogs,
+        admin,
+        operators,
+        workload,
+    } = setup;
+    let FrozenRotationPayment {
+        transaction,
+        original_pending,
+        ..
+    } = pending;
     let initial = exchange.roots[0]
         .network
         .validators()
@@ -455,24 +511,24 @@ fn recover_original_decision_after_rotation(setup: RotationSetup) -> Result<()> 
         &exchange.roots[0].network,
         &initial,
         SELECTION + 1,
-        Some(&workload),
+        Some(workload),
     ))?;
-    deliver_boundary(&exchange, SELECTION, 0, 4, 4, 0)?;
+    deliver_boundary(exchange, SELECTION, 0, 4, 4, 0)?;
     let preparation = exchange
         .runtime
-        .block_on(read_validator_committee(&admin, 2))?
+        .block_on(read_validator_committee(admin, 2))?
         .selected
         .ok_or_else(|| eyre!("real seven-seat preparation absent"))?
         .transition
         .preparation;
     ensure!(preparation.committee.len() == 7 && preparation.selection_height == SELECTION);
-    let current = genesis_current_custody(&dkg, &catalogs)?;
+    let current = genesis_current_custody(dkg, catalogs)?;
     let first = exchange
         .runtime
         .block_on(execute_rotation_preparation_with_workload(
             &exchange.roots[0].network,
-            &admin,
-            &operators,
+            admin,
+            operators,
             &preparation,
             &RotationSignerCustody {
                 current_custody: &current,
@@ -480,15 +536,15 @@ fn recover_original_decision_after_rotation(setup: RotationSetup) -> Result<()> 
                 missing_custody: None,
             },
             exchange.roots[0].pins.genesis_hash,
-            Some(&workload),
+            Some(workload),
         ))?;
     // The real DKG owner restarts peers with ordinary config; the intentionally
     // paused AMX service stays absent while its exact journal remains on disk.
     evidence::assert_preserved(
-        &exchange,
+        exchange,
         transaction.id()?,
         PendingKind::Settle,
-        &original_pending,
+        original_pending,
     )?;
     let survivors = first
         .target
@@ -496,13 +552,13 @@ fn recover_original_decision_after_rotation(setup: RotationSetup) -> Result<()> 
         .take(4)
         .cloned()
         .collect::<BTreeSet<_>>();
-    for (peer, owner) in &operators {
+    for (peer, owner) in operators {
         if survivors.contains(peer) {
             continue;
         }
         committee_status::submit_and_observe_until(
             &owner.client,
-            &admin,
+            admin,
             Instant::now() + WAIT,
             |bounded| {
                 bounded.submit(
@@ -520,18 +576,40 @@ fn recover_original_decision_after_rotation(setup: RotationSetup) -> Result<()> 
         &exchange.roots[0].network,
         &initial,
         CUTOFF,
-        Some(&workload),
+        Some(workload),
     ))?;
-    deliver_boundary(&exchange, CUTOFF, 1, 4, 7, 1)?;
+    deliver_boundary(exchange, CUTOFF, 1, 4, 7, 1)?;
     exchange.runtime.block_on(advance_to_height_with_workload(
         &exchange.roots[0].network,
         &first.target,
         TARGET_FIRST,
-        Some(&workload),
+        Some(workload),
     ))?;
+    Ok(FirstRotationHandoff { first, survivors })
+}
+
+#[inline(never)]
+fn perform_second_rotation_handoff(
+    setup: &RotationSetup,
+    pending: &FrozenRotationPayment,
+    handoff: FirstRotationHandoff,
+) -> Result<Box<RetainedRotationCustody>> {
+    let RotationSetup {
+        exchange,
+        admin,
+        operators,
+        workload,
+        ..
+    } = setup;
+    let FrozenRotationPayment {
+        transaction,
+        original_pending,
+        ..
+    } = pending;
+    let FirstRotationHandoff { first, survivors } = handoff;
     let return_preparation = exchange
         .runtime
-        .block_on(read_validator_committee(&admin, 3))?
+        .block_on(read_validator_committee(admin, 3))?
         .selected
         .ok_or_else(|| eyre!("real four-seat return preparation absent"))?
         .transition
@@ -549,8 +627,8 @@ fn recover_original_decision_after_rotation(setup: RotationSetup) -> Result<()> 
         .runtime
         .block_on(execute_rotation_preparation_with_workload(
             &exchange.roots[0].network,
-            &admin,
-            &operators,
+            admin,
+            operators,
             &return_preparation,
             &RotationSignerCustody {
                 current_custody: &current,
@@ -558,44 +636,63 @@ fn recover_original_decision_after_rotation(setup: RotationSetup) -> Result<()> 
                 missing_custody: None,
             },
             exchange.roots[0].pins.genesis_hash,
-            Some(&workload),
+            Some(workload),
         ))?;
     // The real DKG owner restarts peers with ordinary config; the intentionally
     // paused AMX service stays absent while its exact journal remains on disk.
     evidence::assert_preserved(
-        &exchange,
+        exchange,
         transaction.id()?,
         PendingKind::Settle,
-        &original_pending,
+        original_pending,
     )?;
     exchange.runtime.block_on(advance_to_height_with_workload(
         &exchange.roots[0].network,
         &first.target,
         TARGET_LAST,
-        Some(&workload),
+        Some(workload),
     ))?;
-    deliver_boundary(&exchange, TARGET_LAST, 2, 7, 4, 2)?;
+    deliver_boundary(exchange, TARGET_LAST, 2, 7, 4, 2)?;
     exchange.runtime.block_on(advance_to_height_with_workload(
         &exchange.roots[0].network,
         &second.target,
         TARGET_LAST + 1,
-        Some(&workload),
+        Some(workload),
     ))?;
+    Ok(Box::new(RetainedRotationCustody {
+        _second: second,
+        _first: first,
+    }))
+}
+
+#[inline(never)]
+fn release_original_rotation_payment(
+    exchange: &mut amx::Exchange,
+    pending: &FrozenRotationPayment,
+) -> Result<[u64; 3]> {
+    let FrozenRotationPayment {
+        transaction,
+        approvals,
+        original_prepare,
+        prepare_fee,
+        original_pending,
+        old_decision,
+    } = pending;
     exchange.runtime.block_on(exchange.roots[2].restart_all())?;
     evidence::wait_frozen_obligation(
-        &exchange,
-        &transaction,
+        exchange,
+        transaction,
         &approvals[1],
-        &original_prepare,
-        &prepare_fee,
+        original_prepare,
+        prepare_fee,
     )?;
     evidence::assert_preserved(
-        &exchange,
+        exchange,
         transaction.id()?,
         PendingKind::Settle,
-        &original_pending,
+        original_pending,
     )?;
-    let settle_fee = evidence::native_carrier_fee(&exchange.roots[2], &original_pending)?;
+    let settle_fee = evidence::native_carrier_fee(&exchange.roots[2], original_pending)?;
     amx::submit(
         &exchange.roots[2],
         &amx::genesis_key(2),
@@ -616,15 +713,15 @@ fn recover_original_decision_after_rotation(setup: RotationSetup) -> Result<()> 
         &exchange.runtime,
     )?;
     evidence::assert_preserved(
-        &exchange,
+        exchange,
         transaction.id()?,
         PendingKind::Settle,
-        &original_pending,
+        original_pending,
     )?;
     exchange
         .runtime
         .block_on(exchange.roots[0].restart_service())?;
-    let recovered = exchange.observe(&transaction, &approvals, AmxOutcomeV1::Commit, [true; 2])?;
+    let recovered = exchange.observe(transaction, approvals, AmxOutcomeV1::Commit, [true; 2])?;
     ensure!(
         recovered.deliveries[1].is_some_and(|(_, hash)| hash == original_pending.hash()),
         "funding must recover the exact original signed Settle rather than manufacture a new carrier"
@@ -633,21 +730,30 @@ fn recover_original_decision_after_rotation(setup: RotationSetup) -> Result<()> 
         recovered.decisions[1].as_ref() == Some(old_decision),
         "delayed settlement must retain the exact old certified decision"
     );
-    evidence::rejected_replay(&exchange, &original_pending)?;
-    let replayed = exchange.observe(&transaction, &approvals, AmxOutcomeV1::Commit, [true; 2])?;
+    evidence::rejected_replay(exchange, original_pending)?;
+    let replayed = exchange.observe(transaction, approvals, AmxOutcomeV1::Commit, [true; 2])?;
     assert_same_original_receipts(&recovered, &replayed)?;
     exchange.runtime.block_on(exchange.roots[2].restart_all())?;
-    let restarted = exchange.observe(&transaction, &approvals, AmxOutcomeV1::Commit, [true; 2])?;
+    let restarted = exchange.observe(transaction, approvals, AmxOutcomeV1::Commit, [true; 2])?;
     assert_same_original_receipts(&recovered, &restarted)?;
     let final_heights = exchange.quiescent_heights()?;
     ensure!(
         final_heights[0] == ROTATION_HISTORY_BOUND,
         "the three-handoff workload must end at its exact first successor, without later Global traffic"
     );
+    Ok(final_heights)
+}
+
+#[inline(never)]
+fn verify_final_rotation_effects(
+    exchange: &amx::Exchange,
+    workload: &rotation_payments::CustomerWorkload,
+    final_heights: [u64; 3],
+) -> Result<()> {
     for (root, height) in exchange.roots.iter().zip(final_heights) {
         fee_audit::audit(root, height, &exchange.runtime)?;
     }
-    assert_final_customer_effects(&exchange, &workload)?;
+    assert_final_customer_effects(exchange, workload)?;
     exchange.assert_no_background_blocks(final_heights)
 }
 

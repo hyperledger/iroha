@@ -126,7 +126,7 @@ fn rebuilding_never_inherits_compatibility_or_in_flight_probes() {
     ));
 
     let mut builder = original.to_builder();
-    builder.chain = "independent context chain".parse().expect("chain identity");
+    builder.chain = "independent-context-chain".parse().expect("chain identity");
     builder.torii_url = "https://other.example/api/".parse().expect("endpoint");
     builder.network_id = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
         b"independent context network",

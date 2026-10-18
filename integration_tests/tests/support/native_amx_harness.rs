@@ -50,6 +50,9 @@ pub(crate) mod status_poll;
 pub(crate) use fixture::*;
 pub(crate) use proofs::Observer;
 
+#[path = "native_amx_harness/owned_task.rs"]
+pub(crate) mod owned_task;
+
 pub(crate) fn now_ms() -> Result<u64> {
     Ok(SystemTime::now()
         .duration_since(UNIX_EPOCH)?
@@ -74,9 +77,14 @@ pub(crate) fn submit(
     let hash = transaction.hash();
     rt.block_on(account.submit_transaction(&transaction))?;
     let mut verifier = root.verifier()?;
-    rt.block_on(async {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
-        tokio::time::timeout_at(deadline, async {
+    let scope = root.scope;
+    let network_id = root.network.network_id();
+    // Preserve the original post-submission observation budget while polling
+    // native verification on an owned default worker, outside the phase stack.
+    rt.block_on(async move {
+        let deadline = std::time::Instant::now() + Duration::from_secs(180);
+        owned_task::owned_payment_until(deadline, async move {
+            let deadline = tokio::time::Instant::from_std(deadline);
             loop {
                 let height = status_poll::read_until(deadline, || async {
                     client.client().status().get().await.map_err(Into::into)
@@ -91,7 +99,7 @@ pub(crate) fn submit(
                         .client()
                         .get_sumeragi_finality_proof_async(
                             NonZeroU64::new(height).unwrap(),
-                            root.scope,
+                            scope,
                         )
                         .await?;
                     let verified = verifier.verify(&proof)?;
@@ -100,7 +108,7 @@ pub(crate) fn submit(
                     });
                     if let Some(index) = index {
                         verified.verify_committed_transaction(
-                            &root.network.network_id(),
+                            &network_id,
                             &proofs::evidence(verified.block(), index.try_into()?)?,
                         )?;
                         return Ok(verified);
@@ -110,8 +118,7 @@ pub(crate) fn submit(
             }
         })
         .await
-    })?
-    .map_err(Into::into)
+    })
 }
 
 // Complete parent acquisition before child genesis executes on this same ordinary stack.

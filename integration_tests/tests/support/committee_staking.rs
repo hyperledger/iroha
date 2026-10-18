@@ -822,22 +822,11 @@ pub async fn schedule_retained_withdrawal(
         network.genesis().0.hash() == signed_genesis_hash,
         "reward custody must come from the original retained signed genesis"
     );
-    let mut fee_sink = None;
-    for layer in network.config_layers() {
-        if let Some(value) = layer
-            .get("nexus")
-            .and_then(|value| value.get("fees"))
-            .and_then(|value| value.get("fee_sink_account_id"))
-        {
-            fee_sink = Some(AccountId::parse_encoded(value.as_str().ok_or_else(
-                || eyre!("reward fee sink configuration must be a canonical account string"),
-            )?)?);
-        }
-    }
-    let fee_sink = fee_sink.ok_or_else(|| eyre!("actual reward fee sink configuration missing"))?;
+    let fee_sink =
+        iroha_genesis::signed_genesis_root_fee_policy(&network.genesis().0)?.fee_sink_account_id;
     ensure!(
         fee_sink == *ALICE_ID,
-        "the paid reward administrator must own the actual configured fee sink"
+        "the paid reward administrator must own the original signed fee sink"
     );
     let reward_treasury =
         reward_treasury_from_signed_genesis(&network.genesis(), &xor, &fee_sink, &escrow)?;

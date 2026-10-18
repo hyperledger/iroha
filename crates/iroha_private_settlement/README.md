@@ -24,6 +24,11 @@ explicitly continues the original preparation. Prepared materials feed
 `AccountClient::private_settlement` with the SDK's existing
 `PrivateSettlementRunOptions` and typed settlement results.
 
+Prepared-artifact reads enforce the caller's wire-size cap before decoding. Their
+cumulative decode allocation budget follows Norito's canonical policy for the
+authenticated frame length, capped at 128 MiB; narrower enclosing budgets still
+apply. A local read refusal does not replace the retained original.
+
 The current full-World context transport requires `CanReadAllLedgerData`.
 Selected data space grants do not authorize its unrelated row identities and
 low-entropy values; scoped authenticated context proofs remain unfinished.

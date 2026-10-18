@@ -29296,6 +29296,7 @@ impl State {
         let sb = sb.fields.as_mut().expect("original executing State");
         let transitions = collect_confidential_transitions(&sb.world, now_h);
         let axt_lane_map = axt_active_lane_map_at_height(&sb.nexus, now_h);
+        let static_policy = sb.runtime_policy.static_inputs();
         let mut wtx = sb.world.try_transaction_with_axt_lane_map(
             #[cfg(feature = "telemetry")]
             Some(sb.telemetry),
@@ -29553,9 +29554,9 @@ impl State {
                         approve,
                         reject,
                         abstain,
-                        sb.gov.approval_threshold_q_num,
-                        sb.gov.approval_threshold_q_den,
-                        sb.gov.min_turnout,
+                        static_policy.gov.approval_threshold_q_num,
+                        static_policy.gov.approval_threshold_q_den,
+                        static_policy.gov.min_turnout,
                     )
                     .expect("persisted standalone referendum tally must remain exact");
                 wtx.emit_events(Some(governance_events::GovernanceEvent::ReferendumDecided(
@@ -29715,6 +29716,7 @@ impl State {
     ) -> Result<(), StateStorageAdmissionError> {
         let sb = sb.fields.as_mut().expect("original executing State");
         let axt_lane_map = axt_active_lane_map_at_height(&sb.nexus, now_h);
+        let static_policy = sb.runtime_policy.static_inputs();
         let mut wtx = sb.world.try_transaction_with_axt_lane_map(
             #[cfg(feature = "telemetry")]
             Some(sb.telemetry),
@@ -29722,7 +29724,7 @@ impl State {
             current_slot,
             axt_lane_map,
         )?;
-        update_oracle_change_pipeline(&mut wtx, now_h, &sb.oracle.governance);
+        update_oracle_change_pipeline(&mut wtx, now_h, &static_policy.oracle.governance);
         crate::smartcontracts::ivm::active_runtime_abi_hash(&wtx, now_h).unwrap_or_else(
             |error| {
                 panic!(

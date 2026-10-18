@@ -83,22 +83,24 @@ pub struct PrivateSettlementRestrictedOpening {
 /// context-response decoder; neither endpoint identity nor status grants state authority.
 pub trait PrivateSettlementContextSource: Send + Sync {
     /// Fetch all selected public originals atomically from one current cut, without wallet material.
-    fn fetch<'a>(
-        &'a self,
+    /// # Errors
+    /// Invalid height or selectors, unavailable source, or a response that fails bounded decoding.
+    fn fetch(
+        &self,
         height: u64,
         selectors: PrivateSettlementContextRequestV1,
     ) -> WorkflowFuture<
-        'a,
+        '_,
         std::result::Result<PrivateSettlementContextsProofV1, OneCallPrivateSettlementError>,
     >;
 }
 impl PrivateSettlementContextSource for AccountClient {
-    fn fetch<'a>(
-        &'a self,
+    fn fetch(
+        &self,
         height: u64,
         selectors: PrivateSettlementContextRequestV1,
     ) -> WorkflowFuture<
-        'a,
+        '_,
         std::result::Result<PrivateSettlementContextsProofV1, OneCallPrivateSettlementError>,
     > {
         Box::pin(async move {
@@ -118,6 +120,9 @@ impl PrivateSettlementContextSource for AccountClient {
 /// may use their existing wallet storage; this operation never encodes these returned witnesses.
 pub trait PrivateSettlementWallet: Send + Sync {
     /// Reopen exact restricted governed openings for the independent asset selection.
+    /// # Errors
+    /// Unavailable original custody, denied access, or no opening for the selected intent leg
+    /// and independently chosen business terms.
     fn open_policy(
         &self,
         intent: &PrivateSettlementProofIntentV1,
@@ -126,6 +131,9 @@ pub trait PrivateSettlementWallet: Send + Sync {
     ) -> std::result::Result<PrivateSettlementRestrictedOpening, OneCallPrivateSettlementError>;
     /// Reserve or reopen the original explicitly authorized wallet inputs and output views.
     /// Called under a durable original round lease retained until native proof work exits.
+    /// # Errors
+    /// Missing authorization, unavailable durable custody, or a conflict with the original
+    /// reservation bound to this round, intent leg and business terms.
     fn reserve_or_reopen(
         &self,
         round: Digest32,
@@ -375,15 +383,15 @@ impl OneCallPrivateSettlementOperation {
         .workflow(request.plan())?;
         let driver = Arc::new(PreparationDriver::new(
             account.clone(),
-            request.clone(),
+            request,
             storage.clone(),
             artifacts,
             source,
             wallet,
-            verifier.clone(),
+            verifier,
         ));
         Ok(OneCallPrivateSettlementOperation {
-            account: account.clone(),
+            account,
             storage,
             handle,
             driver,

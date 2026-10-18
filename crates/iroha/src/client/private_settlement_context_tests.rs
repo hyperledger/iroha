@@ -32,7 +32,7 @@ impl HttpTransport for Transport {
 }
 #[tokio::test(flavor = "current_thread")]
 async fn account_context_transport_binds_exact_selector_and_enforces_codec_status_and_bound() {
-    let client = client_with_base_url("http://context.invalid/provider/v1/".parse().unwrap());
+    let client = client_with_base_url("http://context.invalid/provider/".parse().unwrap());
     let proof = context_fixture(client.network_id(), client.account());
     let key = PrivateSettlementPoolKeyV1 {
         route: proof.pool.pool.route,
@@ -138,23 +138,98 @@ async fn account_context_genesis_selector_never_reaches_transport() {
 #[tokio::test(flavor = "current_thread")]
 async fn account_finality_transport_preserves_exact_height_scope_and_codec_checks() {
     use iroha_data_model::{
-        block::consensus::SumeragiRootScope, testing::native_finality::NativeFinalityFixture,
+        block::{CommitCertificate, consensus::SumeragiRootScope, decode_framed_signed_block},
+        sumeragi_finality::{
+            CertifiedResultScope, CertifiedResultV1, SccpFinalityHeaderV1,
+            certified_result::FLAG_ACTIVE, context_committee_root,
+        },
+        testing::native_finality::NativeFinalityFixture,
     };
     let native = NativeFinalityFixture::start("account-finality-delegate");
     let proof = native.genesis_proof().clone();
-    let mut client = client_with_base_url("http://context.invalid/provider/v1/".parse().unwrap());
+    // This result-only genesis variant tests the structural scope gate. It is
+    // synthetic execution data, not authenticated genesis execution or authority.
+    let mut active_block = decode_framed_signed_block(&proof.block_wire).unwrap();
+    let certificate = active_block.commit_certificate().unwrap();
+    let result = CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let mut fields = result.header().fields();
+    fields.flags = FLAG_ACTIVE;
+    fields.generation = 1;
+    fields.committee_root = context_committee_root(&result.commitment().schedule.current).unwrap();
+    let active_result = CertifiedResultV1::new(
+        SccpFinalityHeaderV1::from_fields(&fields).unwrap(),
+        result.commitment().clone(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .unwrap();
+    let active_certificate = CommitCertificate::from_untrusted_parts(
+        certificate.consensus_header().to_vec(),
+        certificate.commit_qc().to_vec(),
+        active_result.preimage().unwrap(),
+        certificate.availability().to_vec(),
+    );
+    active_block.set_commit_certificate(Some(active_certificate));
+    let mut active_proof = proof.clone();
+    active_proof.block_wire = active_block.encode_wire().unwrap();
+    let mut client = client_with_base_url("http://context.invalid/provider/".parse().unwrap());
     client.chain = native.chain_id().parse().unwrap();
     client.network_id = NetworkId::from_genesis_hash(proof.block_header.hash());
-    for (height, scope, media, success) in [
-        (1, SumeragiRootScope::Global, "application/x-norito", true),
-        (2, SumeragiRootScope::Global, "application/x-norito", false),
-        (1, SumeragiRootScope::Global, "application/json", false),
+    let private_scope = SumeragiRootScope::Dataspace {
+        parent_network_id: client.network_id,
+        dataspace_id: iroha_model_base::topology::DataSpaceId::new(71),
+    };
+    for (case, response_proof, height, scope, media, success) in [
         (
+            "inactive global",
+            &proof,
             1,
-            SumeragiRootScope::Dataspace {
-                parent_network_id: client.network_id,
-                dataspace_id: iroha_model_base::topology::DataSpaceId::new(71),
-            },
+            SumeragiRootScope::Global,
+            "application/x-norito",
+            true,
+        ),
+        (
+            "wrong height",
+            &proof,
+            2,
+            SumeragiRootScope::Global,
+            "application/x-norito",
+            false,
+        ),
+        (
+            "wrong media type",
+            &proof,
+            1,
+            SumeragiRootScope::Global,
+            "application/json",
+            false,
+        ),
+        // Inactive X is structurally valid under either scope; the independent
+        // signed-genesis verifier owns exact root identity authentication.
+        (
+            "inactive private scope",
+            &proof,
+            1,
+            private_scope,
+            "application/x-norito",
+            true,
+        ),
+        (
+            "active global",
+            &active_proof,
+            1,
+            SumeragiRootScope::Global,
+            "application/x-norito",
+            true,
+        ),
+        (
+            "active private scope",
+            &active_proof,
+            1,
+            private_scope,
             "application/x-norito",
             false,
         ),
@@ -164,7 +239,7 @@ async fn account_finality_transport_preserves_exact_height_scope_and_codec_check
                 http::Response::builder()
                     .status(200)
                     .header("content-type", media)
-                    .body(norito::encode_canonical(&proof).unwrap())
+                    .body(norito::encode_canonical(response_proof).unwrap())
                     .unwrap(),
             )),
             requests: Mutex::new(Vec::new()),
@@ -178,9 +253,16 @@ async fn account_finality_transport_preserves_exact_height_scope_and_codec_check
             .unwrap()
             .get_sumeragi_finality_proof_async(NonZeroU64::new(height).unwrap(), scope)
             .await;
-        assert_eq!(result.is_ok(), success);
+        assert_eq!(result.is_ok(), success, "{case}: {result:?}");
         if success {
-            assert_eq!(result.unwrap(), proof);
+            assert_eq!(&result.unwrap(), response_proof);
+        } else if case == "active private scope" {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("a non-global root carries an active finality header")
+            );
         }
         let requests = transport.requests.lock().unwrap();
         assert_eq!(requests.len(), 1);

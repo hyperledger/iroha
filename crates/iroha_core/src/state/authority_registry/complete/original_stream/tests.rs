@@ -263,7 +263,7 @@ fn actual_cell_equal_touch_keeps_its_original_preimage() {
         field.undo.as_slice()[0].value.as_ref().unwrap().bytes()
     );
     assert_eq!(
-        norito::codec::decode_exact_from_slice::<u64>(
+        norito::codec::decode_exact_from_slice::<Option<u64>>(
             field.current.as_slice()[0].value.as_ref().unwrap().bytes()
         )
         .unwrap(),

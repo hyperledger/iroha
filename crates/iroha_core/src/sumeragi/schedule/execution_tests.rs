@@ -90,7 +90,9 @@ fn sccp_executed_genesis_rejects_work_budgets_that_starve_pause_enactment() {
 
 #[test]
 fn executed_genesis_clock_drift_bound_cannot_be_bypassed_by_raw_state() {
-    use iroha_data_model::parameter::system::MAX_CLOCK_DRIFT_BOUND_MS;
+    use iroha_data_model::parameter::{
+        CustomParameter, GovernanceClockParametersV1, Parameter, system::MAX_CLOCK_DRIFT_BOUND_MS,
+    };
     let signed = crate::sumeragi::epoch::tests::genesis_fixture(
         SumeragiConsensusMode::Permissioned,
         10,
@@ -114,6 +116,20 @@ fn executed_genesis_clock_drift_bound_cannot_be_bypassed_by_raw_state() {
                         std::num::NonZeroU64::new(124_000).unwrap(),
                     ),
                 ))
+                .unwrap();
+            let governance_clock = GovernanceClockParametersV1 {
+                due_work_max_lag_ms: 2 * MAX_CLOCK_DRIFT_BOUND_MS
+                    + 4 * parameters.sumeragi().block_cadence_ms().get(),
+                ..GovernanceClockParametersV1::default()
+            };
+            parameters
+                .set_parameter(Parameter::Custom(CustomParameter::new(
+                    GovernanceClockParametersV1::parameter_id().clone(),
+                    norito::json::to_json(&governance_clock)
+                        .unwrap()
+                        .parse::<iroha_primitives::json::Json>()
+                        .unwrap(),
+                )))
                 .unwrap();
             parameters
                 .set_parameter(iroha_data_model::parameter::Parameter::Sumeragi(

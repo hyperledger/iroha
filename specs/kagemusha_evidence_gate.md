@@ -1,6 +1,6 @@
 # KAGEMUSHA verification checklist
 
-Status: working checklist, 2026-10-16, for the split-lineage proposal and its
+Status: working checklist, 2026-10-18, for the split-lineage proposal and its
 accepted native BLS Load-finality amendment. This document records useful checks for
 [the single protocol](kagemusha_single_design_proposal.md). It is not an
 approval process and does not block use, production integration or deployment.
@@ -544,6 +544,37 @@ on iPhone. Release across power loss or restoration must exclude replay of an
 old head under a still-usable payment key through the retained authority/key
 boundary described above. These are implementation requirements, not an
 additional approval or deployment process.
+
+### Captured component checks (2026-10-18)
+
+These checks retain their own source inventories, copied executables and raw
+logs under `target/qualification/`. They do not constitute the frozen shared
+release candidate. The source window for that candidate remains pending;
+restored free disk space resolves the earlier storage shortage, not that source
+dependency.
+
+| Component | Executed result and retained record |
+| --- | --- |
+| M3 qualifier | **416 Python tests pass** in `m3-mandatory-native-provenance-python-20261018-1`. Preparation now requires native identity capture; run and offline summary bind the successful raw producer output, evaluator, Cargo output/watch inventory, target/environment and binary. Missing probes or provenance invalidate evidence. These are harness controls, not resource measurements. |
+| M3 shapes and native engine | Focused strict Clippy, **17 ordinary M3 tests** and **three explicitly selected shape tests pass** in `m3-current-field-shapes-20261018-2`; 13 tests were ignored by the ordinary invocation. Exact Q uses Fq and A uses Fp, matching their actual proving paths. **Seven native norm/degree/lookup/permutation controls pass**, including the two in `remaining-native-checks`. The original missing-selector preflight failure remains in `dispatch-failure.json`; the continuation does not erase it. |
+| Carry/range constraints | The four explicit assigned-cell mutation sweeps pass for Fq-in-Fp, Fp-in-Fq and P-256 p/n-in-Fq in `ff-all-moduli-cell-tamper-20261018-1` (1,135.79 seconds). They mutate individual assigned cells by +1, not arbitrary coordinated witnesses. The [carry memo](kagemusha_ff_carry_v1.md) records the current fused-layout review; [PLONK §2.1](plonk_ipa_v1.md#21-conditional-norm-lookup-multiset-binding) separates the conditional norm-product argument from the remaining commitment, challenge and Fiat–Shamir assumptions. |
+| Wallet recovery and proof boundary | The rebuilt copied executable passes **362 state/recovery tests, 33 proof-boundary tests and five expired-prekey tests**, with five explicit ignores, in `wallet-fold-retention-regression-20261018-1`. Its recorded CoreZK source set and binary remain unchanged through execution. The repaired fold-retention test requires `Cancelled`, verifies durable records remain unchanged and preserves the newer attempt's retention. The prior stale-assertion failure remains in `wallet-expiry-delivery-corezk-20261018-3`. |
+| Lineage encoding and claims | The separately selected mutation test passes in `lineage-field-claim-mutations-20261018-1`: public-field/key/claim digest binding, independent accumulator rejection and strict transport length. Its trivial accumulators and stand-in proof payload do not qualify an installed lineage proof. The older capture's lockfile and unrelated test edits are recorded; the selected mutation function is unchanged. |
+| JVM SDK | The full `core-jvm:test` run passes **2,008 tests with no failures, errors or skips** in `enrollment-expiry-kotlin-full-20261018-2` (584.96 seconds). It uses the newly guarded ABI29 host library and the retained actual Rust fixture generator; all recorded Kotlin sources and both binary hashes remain unchanged. `count-reconciliation.json` includes the encoded-name XML omitted by the original 2,007-case counter, with the original receipt and independent Gradle HTML summary retained. The earlier 15-failure run remains in attempt 1. |
+| Android managed/host SDK | `enrollment-expiry-android-host-20261018-1` passes **103 client and 249 wallet managed tests, plus 30 client and 16 wallet host-native tests**, with zero failures, errors or skips (28.54 seconds). All four tasks execute against the same ABI29 host library; recorded sources and binary hashes remain unchanged. A separately retained eight-case XML dates from 4 October and does not contribute to this run. These host results do not qualify cross-compiled Android release artifacts or phones. |
+| Enrollment issuer and Torii | `enrollment-expiry-rust-20261018-3` exits 101 during Core compilation, before selected issuer/journal/Torii tests execute. Its final log contains 30 diagnostics at 23 distinct errors/locations in concurrent executor, authority, fee and governance changes; no observed error originates in enrollment expiry. This is an unexecuted test obligation, not a pass. |
+
+Both latest M3/native build logs explicitly report that the closed source
+registry was disabled when sources changed during identity computation. Their
+eight selected source hashes and copied binary hashes match the receipts, but
+complete-source authentication and the candidate-identity/layout tests are not
+established by this capture. The older exhaustive FF capture also predates the
+recorded lockfile, harness, carry-memo and test-formatting changes. Independent
+review accepts the stated component scopes only.
+
+Fresh nine-process M3 CPU/elapsed/RSS qualification, actual complete-envelope
+measurements, the current 22-route catalog, genuine offline monetary execution,
+four-validator settlement and physical-phone compliance remain open.
 
 ### Historical complete catalog capture (source9696, 2026-10-15)
 

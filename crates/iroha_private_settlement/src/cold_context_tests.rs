@@ -8,7 +8,6 @@ use iroha::{
     workflow::FileWorkflowStorage,
 };
 use iroha_data_model::{
-    nexus::*,
     sumeragi_finality::{
         SumeragiFinalityProof, WorldStateElementKindV1, WorldStateSnapshotEntryV1,
         test_fixtures::NativeFinalityFixture, world_state_value_hash_v1,
@@ -27,12 +26,12 @@ impl HttpTransport for FinalityTransport {
     }
     fn send(&self, request: TransportRequest) -> TransportFuture<'_> {
         Box::pin(async move {
-            if request.url.path().ends_with("/v1/node/capabilities") {
+            if request.url.path() == "/v1/node/capabilities" {
                 assert_eq!(request.method, http::Method::GET);
                 return compatible_capabilities_response();
             }
             assert_eq!(request.method, http::Method::GET);
-            assert!(request.url.path().ends_with("/2"));
+            assert_eq!(request.url.path(), "/v1/bridge/finality/2");
             Ok(http::Response::builder()
                 .status(200)
                 .header("content-type", "application/x-norito")
@@ -119,8 +118,12 @@ fn row<K: norito::codec::Encode, V: norito::codec::Encode>(
         value_hash: world_state_value_hash_v1(value).unwrap(),
     }
 }
-fn context() -> PrivateSettlementContextsProofV1 {
-    let client = client_with_base_url("http://context.invalid/".parse().unwrap());
+fn context(
+    client: &Client,
+) -> (
+    PrivateSettlementContextsProofV1,
+    PrivateSettlementProofIntentV1,
+) {
     let template = context_fixture(client.network_id(), client.account());
     let (material, _) = availability_material_fixture_v1(client.network_id(), client.account());
     let mut contexts = Vec::new();
@@ -200,14 +203,16 @@ fn context() -> PrivateSettlementContextsProofV1 {
         proof.lanes = lanes.clone();
         proof.pool.world.entries = entries.clone();
     }
-    PrivateSettlementContextsProofV1 { contexts }
+    (
+        PrivateSettlementContextsProofV1 { contexts },
+        material.manifest.proof_intent(),
+    )
 }
 fn request(
     client: &Client,
     proof: &PrivateSettlementContextsProofV1,
+    original: &PrivateSettlementProofIntentV1,
 ) -> OneCallPrivateSettlementRequest {
-    let (material, _) = availability_material_fixture_v1(client.network_id(), client.account());
-    let original = material.manifest.proof_intent();
     let intent = PrivateSettlementProofIntentV1::new(
         original.network_id,
         2,
@@ -253,17 +258,18 @@ fn request(
 #[tokio::test(flavor = "current_thread")]
 async fn private_onecall_cold_reopen_preserves_context_before_wallet_and_never_fetches_replacement()
 {
-    let proof = context();
     let mut native = NativeFinalityFixture::start("private-onecall-cold-context");
+    let mut builder = client_with_base_url("http://context.invalid/".parse().unwrap()).to_builder();
+    builder.network_id = native.network_id();
+    builder.chain = native.chain_id().parse().unwrap();
+    let client = builder.build().unwrap();
+    let (proof, original_intent) = context(&client);
     let genesis_verifier = native.verifier();
     let block = native.block_with_submitted_work(native.next_header());
     let finality =
         native.certify_with_world_root(block, proof.contexts[0].pool.world.root().unwrap());
-    let mut builder =
-        client_with_base_url("http://context.invalid/v1/".parse().unwrap()).to_builder();
-    builder.network_id = native.network_id();
-    builder.chain = native.chain_id().parse().unwrap();
-    let client = builder
+    let client = client
+        .to_builder()
         .http_transport(Arc::new(FinalityTransport(finality)))
         .build()
         .unwrap();
@@ -277,7 +283,7 @@ async fn private_onecall_cold_reopen_preserves_context_before_wallet_and_never_f
     let wallet = Arc::new(RefusingWallet::default());
     let operation = OneCallPrivateSettlementOperation::with_source(
         client.account_client().unwrap(),
-        request(&client, &proof),
+        request(&client, &proof, &original_intent),
         Arc::new(FileWorkflowStorage::open_or_create(&journals).unwrap()),
         Arc::new(FilePrivateSettlementArtifacts::open(&artifacts, &[29; 32]).unwrap()),
         source.clone(),
@@ -304,7 +310,7 @@ async fn private_onecall_cold_reopen_preserves_context_before_wallet_and_never_f
     let saved = reopened
         .read_context(
             ArtifactKey {
-                request: request(&client, &proof).0.digest,
+                request: request(&client, &proof, &original_intent).0.digest,
                 round,
                 ordinal: 0,
             },
@@ -329,7 +335,7 @@ async fn private_onecall_cold_reopen_preserves_context_before_wallet_and_never_f
     });
     let rebuilt = OneCallPrivateSettlementOperation::with_source(
         client.account_client().unwrap(),
-        request(&client, &proof),
+        request(&client, &proof, &original_intent),
         Arc::new(FileWorkflowStorage::open_or_create(&journals).unwrap()),
         Arc::new(FilePrivateSettlementArtifacts::open(&artifacts, &[29; 32]).unwrap()),
         absent.clone(),
@@ -429,17 +435,18 @@ impl PrivateSettlementWallet for HeldWallet {
 
 #[tokio::test(flavor = "current_thread")]
 async fn private_onecall_cancelled_wallet_worker_keeps_original_round_lease_until_exit() {
-    let proof = context();
     let mut native = NativeFinalityFixture::start("private-onecall-cancel-custody");
+    let mut builder = client_with_base_url("http://context.invalid/".parse().unwrap()).to_builder();
+    builder.network_id = native.network_id();
+    builder.chain = native.chain_id().parse().unwrap();
+    let client = builder.build().unwrap();
+    let (proof, original_intent) = context(&client);
     let verifier = native.verifier();
     let block = native.block_with_submitted_work(native.next_header());
     let finality =
         native.certify_with_world_root(block, proof.contexts[0].pool.world.root().unwrap());
-    let mut builder =
-        client_with_base_url("http://context.invalid/v1/".parse().unwrap()).to_builder();
-    builder.network_id = native.network_id();
-    builder.chain = native.chain_id().parse().unwrap();
-    let client = builder
+    let client = client
+        .to_builder()
         .http_transport(Arc::new(FinalityTransport(finality)))
         .build()
         .unwrap();
@@ -452,7 +459,7 @@ async fn private_onecall_cancelled_wallet_worker_keeps_original_round_lease_unti
     let operation = Arc::new(
         OneCallPrivateSettlementOperation::with_source(
             client.account_client().unwrap(),
-            request(&client, &proof),
+            request(&client, &proof, &original_intent),
             Arc::new(FileWorkflowStorage::open_or_create(&journals).unwrap()),
             Arc::new(FilePrivateSettlementArtifacts::open(&artifacts, &[31; 32]).unwrap()),
             Arc::new(Source {
@@ -484,7 +491,7 @@ async fn private_onecall_cancelled_wallet_worker_keeps_original_round_lease_unti
     });
     let reopened = OneCallPrivateSettlementOperation::with_source(
         client.account_client().unwrap(),
-        request(&client, &proof),
+        request(&client, &proof, &original_intent),
         Arc::new(FileWorkflowStorage::open_or_create(&journals).unwrap()),
         Arc::new(FilePrivateSettlementArtifacts::open(&artifacts, &[31; 32]).unwrap()),
         source.clone(),
@@ -552,21 +559,24 @@ async fn private_onecall_all_public_intent_bindings_precede_every_wallet_effect(
     // A mismatch on the second leg must not reserve the first leg. Both mutations remain
     // internally valid public intents, so this tests the authenticated context join.
     for changed_policy in [false, true] {
-        let proof = context();
         let mut native = NativeFinalityFixture::start("private-onecall-public-binding");
+        let mut builder =
+            client_with_base_url("http://context.invalid/".parse().unwrap()).to_builder();
+        builder.network_id = native.network_id();
+        builder.chain = native.chain_id().parse().unwrap();
+        let client = builder.build().unwrap();
+        let (proof, original_intent) = context(&client);
         let verifier = native.verifier();
         let block = native.block_with_submitted_work(native.next_header());
         let finality =
             native.certify_with_world_root(block, proof.contexts[0].pool.world.root().unwrap());
-        let mut builder =
-            client_with_base_url("http://context.invalid/v1/".parse().unwrap()).to_builder();
-        builder.network_id = native.network_id();
-        builder.chain = native.chain_id().parse().unwrap();
-        let client = builder
+        let verified_block = verifier.clone().verify(&finality).unwrap();
+        let client = client
+            .to_builder()
             .http_transport(Arc::new(FinalityTransport(finality)))
             .build()
             .unwrap();
-        let original = request(&client, &proof);
+        let original = request(&client, &proof, &original_intent);
         let mut legs = original.intent().legs.clone();
         if changed_policy {
             legs[1].audit_policy_digest = Hash::new(b"different independently selected policy");
@@ -597,6 +607,32 @@ async fn private_onecall_all_public_intent_bindings_precede_every_wallet_effect(
             original.0.max_total_artifact_bytes,
         )
         .unwrap();
+        // Prove that this exact authenticated original accepts both initial legs and that
+        // only the independently mutated second-leg binding rejects the changed intent.
+        for (index, member) in proof.contexts.iter().enumerate() {
+            let leg = &original.intent().legs[index];
+            let selected = member
+                .verify(
+                    original.intent().network_id,
+                    original.0.schema,
+                    PrivateSettlementPoolKeyV1 {
+                        route: leg.route,
+                        pool_id: leg.pool_id,
+                    },
+                    &verified_block,
+                )
+                .unwrap();
+            selected
+                .verify_intent(original.intent(), leg.ordinal)
+                .unwrap();
+            assert_eq!(
+                selected
+                    .verify_intent(changed.intent(), leg.ordinal)
+                    .is_err(),
+                index == 1,
+                "only the selected second-leg binding may differ, changed_policy={changed_policy}"
+            );
+        }
         let root = tempfile::tempdir().unwrap();
         let source = Arc::new(Source {
             proof: Some(proof),
@@ -646,13 +682,12 @@ async fn private_onecall_all_public_intent_bindings_precede_every_wallet_effect(
 
 #[tokio::test(flavor = "current_thread")]
 async fn private_onecall_fresh_readonly_recovery_has_no_journal_or_wallet_effects() {
-    let proof = context();
     let native = NativeFinalityFixture::start("private-onecall-cold-context");
-    let mut builder =
-        client_with_base_url("http://context.invalid/v1/".parse().unwrap()).to_builder();
+    let mut builder = client_with_base_url("http://context.invalid/".parse().unwrap()).to_builder();
     builder.network_id = native.network_id();
     builder.chain = native.chain_id().parse().unwrap();
     let client = builder.build().unwrap();
+    let (proof, original_intent) = context(&client);
     let root = tempfile::tempdir().unwrap();
     let journals = root.path().join("journals");
     let artifacts = root.path().join("artifacts");
@@ -663,7 +698,7 @@ async fn private_onecall_fresh_readonly_recovery_has_no_journal_or_wallet_effect
     let wallet = Arc::new(RefusingWallet::default());
     let operation = OneCallPrivateSettlementOperation::with_source(
         client.account_client().unwrap(),
-        request(&client, &proof),
+        request(&client, &proof, &original_intent),
         Arc::new(FileWorkflowStorage::open_or_create(&journals).unwrap()),
         Arc::new(FilePrivateSettlementArtifacts::open(&artifacts, &[29; 32]).unwrap()),
         source.clone(),
@@ -828,18 +863,20 @@ async fn private_onecall_original_failure_category_survives_store_reopen_without
         OperationalRefusal::Finality,
         OperationalRefusal::Capacity,
     ] {
-        let proof = context();
         let mut native = NativeFinalityFixture::start("private-preparation-classification");
+        let mut builder =
+            client_with_base_url("http://context.invalid/".parse().unwrap()).to_builder();
+        builder.network_id = native.network_id();
+        builder.chain = native.chain_id().parse().unwrap();
+        let client = builder.build().unwrap();
+        let (proof, original_intent) = context(&client);
         let original_verifier = native.verifier();
         let block = native.block_with_submitted_work(native.next_header());
         let finality =
             native.certify_with_world_root(block, proof.contexts[0].pool.world.root().unwrap());
-        let mut builder =
-            client_with_base_url("http://context.invalid/v1/".parse().unwrap()).to_builder();
-        builder.network_id = native.network_id();
-        builder.chain = native.chain_id().parse().unwrap();
         // The public compatibility handshake precedes finality reads; any monetary dispatch fails.
-        let client = builder
+        let client = client
+            .to_builder()
             .http_transport(Arc::new(FinalityTransport(finality)))
             .build()
             .unwrap();
@@ -861,7 +898,7 @@ async fn private_onecall_original_failure_category_survives_store_reopen_without
             });
             let operation = OneCallPrivateSettlementOperation::with_source(
                 client.account_client().unwrap(),
-                request(&client, &proof),
+                request(&client, &proof, &original_intent),
                 storage.clone(),
                 Arc::new(FilePrivateSettlementArtifacts::open(&artifacts, &[73; 32]).unwrap()),
                 source.clone(),
