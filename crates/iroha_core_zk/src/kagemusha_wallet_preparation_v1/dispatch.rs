@@ -112,7 +112,8 @@ pub struct OperationPreparationV1<'a> {
 /// that made it. It binds the exact native plan bytes, source capsule and installed verifier
 /// manifest it was derived from. It has no clone, codec or `Send`, so no review, slot,
 /// worker, process or later call can retain it, and it grants no Advance authority: commit
-/// always derives again from the durable plan.
+/// always derives again from the durable plan. A review's speculative σ_send proves from its
+/// own separate derivation (`SpeculativeSendStepV1`) and never yields one of these.
 ///
 /// ```
 /// use iroha_core_zk::kagemusha_wallet_preparation_v1::NativePreparedOperationV1;
@@ -405,6 +406,41 @@ impl PreparedOperationV1 {
         self.freeze(preparation, sigma, budget)
     }
 
+    /// This derivation's Send step, for one speculative σ; `None` for every other operation.
+    pub(crate) fn into_speculative_send(self) -> Result<Option<SpeculativeSendStepV1>> {
+        let selector = self.selector()?;
+        Ok(match self.step {
+            Step::Monetary(step)
+                if step.statement().effect.kind() == KagemushaWalletOperationKindV1::Send =>
+            {
+                Some(SpeculativeSendStepV1 { selector, step })
+            }
+            _ => None,
+        })
+    }
+
+    /// Freeze `speculative` without proving when it was proved for exactly this derivation's
+    /// Send statement and relation; `Ok(None)` leaves it unused. The frozen body verifies the
+    /// σ in full like a fresh proof's, and commit derives and verifies again.
+    pub(crate) fn freeze_speculated(
+        &self,
+        preparation: &PreparationV1<'_>,
+        speculative: SpeculativeSigmaV1,
+        budget: MemoryBudget,
+    ) -> Result<Option<state::FrozenTransition>> {
+        let Step::Monetary(step) = &self.step else {
+            return Ok(None);
+        };
+        if step.statement().effect.kind() != KagemushaWalletOperationKindV1::Send
+            || *step.statement() != speculative.statement
+            || step.relation() != speculative.relation
+        {
+            return Ok(None);
+        }
+        self.freeze(preparation, speculative.sigma, budget)
+            .map(Some)
+    }
+
     pub(crate) fn verify_frozen(
         &self,
         preparation: &PreparationV1<'_>,
@@ -458,6 +494,72 @@ impl PreparedOperationV1 {
                 ),
             ),
         }
+    }
+}
+
+/// The Send step of one derivation, retained only to prove a speculative σ_send without the
+/// wallet owner (design §5.1, Payment row). It holds no plan, custody, signing or Advance
+/// capability: execute derives again from its durable plan and uses the σ only through
+/// [`PreparedOperationV1::freeze_speculated`] for an identical statement and relation.
+pub(crate) struct SpeculativeSendStepV1 {
+    selector: u8,
+    step: Box<MonetaryStepV1>,
+}
+
+/// A σ_send proved speculatively for one exact statement and relation. DATA only: it is
+/// never signed or retained durably.
+pub(crate) struct SpeculativeSigmaV1 {
+    statement: KagemushaWalletStatementV1,
+    relation: iroha_kagemusha_proof::witness::SigmaRelation,
+    sigma: KagemushaWalletStepProofV1,
+}
+
+#[cfg(test)]
+impl SpeculativeSigmaV1 {
+    /// Test support: a σ DATA value with no proof authority, for review slot tests.
+    pub(crate) fn for_test(statement: KagemushaWalletStatementV1, bytes: Vec<u8>) -> Self {
+        Self {
+            statement,
+            relation: iroha_kagemusha_proof::witness::SigmaRelation::SEND,
+            sigma: KagemushaWalletStepProofV1 { bytes },
+        }
+    }
+
+    pub(crate) fn proof_bytes(&self) -> &[u8] {
+        &self.sigma.bytes
+    }
+}
+
+impl SpeculativeSendStepV1 {
+    /// The installed σ selector of this Send's controls.
+    pub(crate) const fn selector(&self) -> u8 {
+        self.selector
+    }
+
+    /// Prove σ_send with `imported` under today's hedged prover randomness, exactly like
+    /// execute's proof of this step, stopping at `preparation`'s cancellation signal. The
+    /// prover is dropped before this returns; nothing is signed.
+    pub(crate) fn prove(
+        &self,
+        preparation: &PreparationV1<'_>,
+        imported: ImportedSigmaV1,
+        budget: MemoryBudget,
+    ) -> Result<SpeculativeSigmaV1> {
+        let ImportedSigmaV1::Monetary(prover) = imported else {
+            return Err(state::Error::Proof("qualified sigma operation mismatch"));
+        };
+        let sigma = proof(preparation.prove_monetary_sigma(
+            &self.step,
+            &prover,
+            ProverRandomness::hedged(),
+            budget,
+        ));
+        drop(prover);
+        Ok(SpeculativeSigmaV1 {
+            statement: *self.step.statement(),
+            relation: self.step.relation(),
+            sigma: sigma?,
+        })
     }
 }
 

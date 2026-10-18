@@ -37,7 +37,10 @@ use crate::{
 use iroha_data_model::sumeragi_finality::SumeragiFinalityVerifier;
 use iroha_pasta::msm::MemoryBudget;
 use iroha_plonk::keys::pk::artifact::ReadConfig;
-pub use review::{NativeOperationReviewV1, ReviewedOperationV1};
+pub use review::{
+    NativeOperationReviewV1, ReviewedOperationV1, SpeculativeProofV1, SpeculativeSendJobV1,
+    SpeculativeSendV1,
+};
 use runtime::RuntimeCustodyV1;
 pub use runtime::{
     NativeInstallationConfigV1, NativeOpenErrorV1, NativeOpenFailureV1, NativeStartupFailureV1,
@@ -227,6 +230,42 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             self.installed.verifier().manifest_digest(),
         ))
     }
+
+    // Check the durable plan and release this call's derivation for exactly that plan.
+    fn redeem_for(
+        &self,
+        request: &NativeIntentV1,
+        source: &PreparationSourceV1<'_>,
+        prepared: NativePreparedOperationV1,
+        plan: &[u8],
+    ) -> Result<PreparedOperationV1, Error> {
+        let manifest = self.installed.verifier().manifest_digest();
+        NativeChoicesV1::decode(plan, manifest, request, source)?;
+        prepared.redeem(
+            plan,
+            source.released().frozen.capsule.custody_digest(),
+            manifest,
+        )
+    }
+
+    // The sole original store is lent to this proof's import only.
+    fn prove_redeemed(
+        &self,
+        preparation: &PreparationV1<'_>,
+        prepared: &PreparedOperationV1,
+    ) -> Result<FrozenTransition, Error> {
+        let mut originals = self
+            .originals
+            .lock()
+            .map_err(|_| Error::ArtifactsUnavailable("proving original owner poisoned"))?;
+        prepared.prove(
+            preparation,
+            &self.sources,
+            &mut *originals,
+            self.read,
+            self.budget,
+        )
+    }
 }
 
 impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send>
@@ -265,24 +304,50 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         prepared: Self::Prepared,
         plan: &[u8],
     ) -> Result<FrozenTransition, Error> {
+        let prepared = self.redeem_for(request, source, prepared, plan)?;
+        self.prove_redeemed(&proof(PreparationV1::new(&self.installed))?, &prepared)
+    }
+
+    type Speculative = review::SpeculativeSendV1;
+
+    fn plan_speculated(
+        &self,
+        request: &NativeIntentV1,
+        source: &PreparationSourceV1<'_>,
+        custody: &mut PreparationCustodyV1<'_>,
+        speculative: &Self::Speculative,
+    ) -> Result<(Vec<u8>, Self::Prepared), Error> {
         let manifest = self.installed.verifier().manifest_digest();
-        NativeChoicesV1::decode(plan, manifest, request, source)?;
-        let prepared = prepared.redeem(
-            plan,
-            source.released().frozen.capsule.custody_digest(),
-            manifest,
-        )?;
-        let mut originals = self
-            .originals
-            .lock()
-            .map_err(|_| Error::ArtifactsUnavailable("proving original owner poisoned"))?;
-        prepared.prove(
-            &proof(PreparationV1::new(&self.installed))?,
-            &self.sources,
-            &mut *originals,
-            self.read,
-            self.budget,
-        )
+        if !speculative.made_for(manifest, request, source) {
+            return self.plan_preparation(request, source, custody);
+        }
+        let bytes = NativeChoicesV1::speculated(manifest, request, source, speculative.nonce())?
+            .encode()?;
+        let prepared = self.derive_retained(request, source, custody, &bytes)?;
+        Ok((bytes, prepared))
+    }
+
+    fn prove_speculated(
+        &self,
+        request: &NativeIntentV1,
+        source: &PreparationSourceV1<'_>,
+        prepared: Self::Prepared,
+        plan: &[u8],
+        speculative: Self::Speculative,
+    ) -> Result<FrozenTransition, Error> {
+        let manifest = self.installed.verifier().manifest_digest();
+        let prepared = self.redeem_for(request, source, prepared, plan)?;
+        let preparation = proof(PreparationV1::new(&self.installed))?;
+        if speculative.made_for(manifest, request, source) {
+            // Another statement or relation, or a σ the frozen body does not verify, leaves
+            // the speculation unused: this call then proves the step itself.
+            if let Ok(Some(frozen)) =
+                prepared.freeze_speculated(&preparation, speculative.into_sigma(), self.budget)
+            {
+                return Ok(frozen);
+            }
+        }
+        self.prove_redeemed(&preparation, &prepared)
     }
 }
 

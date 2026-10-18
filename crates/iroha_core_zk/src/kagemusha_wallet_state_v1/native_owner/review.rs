@@ -1,11 +1,24 @@
 //! Whole native financial checks for hardware UI approval, without a monetary operation.
+//!
+//! A Send review may also have its σ_send proved speculatively while the user looks at it
+//! (design §5.1, Payment row), the way the fold worker proves: a scheduler slot with payment
+//! priority over folds, a locked prepare under the wallet owner that derives the Send on a
+//! throwaway draft, and a proof without the owner. Nothing is written, signed or debited
+//! before `execute_reviewed`, which uses that σ only after hardware approval, its fresh
+//! recheck and an identical derivation. A declined review drops the σ unsigned.
 
+use super::super::object_workspace::{DraftWorkspace, WorkspaceLimits};
+use super::super::scheduling::{Speculation, SpeculationJob};
 use super::*;
 use crate::kagemusha_wallet_advance_v1::{
     KAGEMUSHA_WALLET_ARCHIVE_MANIFEST_MAX_BYTES_V1, kagemusha_wallet_archive_checkpoint_digest_v1,
+    kagemusha_wallet_provider_digest_v1,
 };
+use crate::kagemusha_wallet_artifacts_v1::producer_inventory::WalletSourcesErrorV1;
 use crate::kagemusha_wallet_intake_v1::{self as intake, ACCOUNT_ORIGINAL_MAX_BYTES_V1};
-use crate::kagemusha_wallet_preparation_v1::{SendControlsV1, UnloadChargeOriginalsV1};
+use crate::kagemusha_wallet_preparation_v1::{
+    SendControlsV1, SpeculativeSendStepV1, SpeculativeSigmaV1, UnloadChargeOriginalsV1,
+};
 
 /// Authenticated financial projection for fresh hardware UI approval.
 /// This copyable DATA grants no wallet admission, signature, proof or Advance authority.
@@ -50,7 +63,7 @@ pub struct NativeOperationReviewV1 {
     pub artifact_manifest_digest: [u8; 32],
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct ReviewSourceV1 {
     marker: KagemushaWalletMarkerV1,
     completion: [u8; 32],
@@ -111,18 +124,37 @@ pub struct ReviewedOperationV1 {
     source: ReviewSourceV1,
     action: OperationActionV1,
     unload_beneficiary: Option<Vec<u8>>,
+    // The σ_send this Send review may have proved speculatively. Dropping the review cancels
+    // it and drops any finished σ unsigned.
+    speculation: Option<Speculation<SpeculativeSendV1>>,
 }
 // A review must stay `Send`, so it can never retain a call-scoped, `!Send` native
 // derivation (`NativePreparedOperationV1`), independently of any mobile boundary bound.
 const _: () = {
     const fn send<T: Send>() {}
     send::<ReviewedOperationV1>();
+    send::<SpeculativeSendJobV1>();
+    send::<SpeculativeProofV1>();
 };
 impl ReviewedOperationV1 {
     /// Borrow the immutable financial DATA for hardware UI approval.
     #[must_use]
     pub const fn projection(&self) -> &NativeOperationReviewV1 {
         &self.projection
+    }
+    /// The job that may prove this Send review's σ_send speculatively without the wallet
+    /// owner; `None` for Unload and for a Send whose controls need a clock reading. Each call
+    /// returns a handle to the same single speculation.
+    #[must_use]
+    pub fn speculation(&self) -> Option<SpeculativeSendJobV1> {
+        let OperationActionV1::Send { request } = &self.action else {
+            return None;
+        };
+        Some(SpeculativeSendJobV1 {
+            job: self.speculation.as_ref()?.job(),
+            request: request.clone(),
+            source: self.source.clone(),
+        })
     }
     /// Exact Native-authenticated signed Request original; absent for Unload.
     #[must_use]
@@ -163,6 +195,146 @@ impl ReviewedOperationV1 {
             request_id,
             action: self.action,
         })
+    }
+
+    // The exact request and the σ_send its speculation finished, if any. Taking the
+    // speculation ends it either way.
+    fn into_execution(
+        mut self,
+        request_id: [u8; 32],
+    ) -> Result<(OperationRequestV1, Option<SpeculativeSendV1>), Error> {
+        let speculative = self.speculation.take().and_then(Speculation::take);
+        Ok((self.into_request(request_id)?, speculative))
+    }
+}
+
+// Domain of the private Request identity a speculation is bound to; never persisted.
+const SPECULATIVE_REQUEST_DOMAIN: &str = "wallet-speculative-send-request";
+// The derivation reads only the Send action; this identity is never bound or published.
+const SPECULATIVE_REQUEST_ID: [u8; 32] = [0x5a; 32];
+
+/// One finished speculative σ_send of a review (design §5.1, Payment row). It is never
+/// signed or written: execution plans with its nonce and freezes its σ only for exactly the
+/// request, source, installation and derived statement it was proved for.
+pub struct SpeculativeSendV1 {
+    manifest: [u8; 32],
+    source: [u8; 32],
+    request: [u8; 32],
+    nonce: [u8; 32],
+    sigma: SpeculativeSigmaV1,
+}
+
+impl SpeculativeSendV1 {
+    // Whether this speculation was made for this exact Send, installation and source capsule.
+    pub(super) fn made_for(
+        &self,
+        manifest: [u8; 32],
+        request: &NativeIntentV1,
+        source: &PreparationSourceV1<'_>,
+    ) -> bool {
+        let same_request = matches!(
+            request.user_request().map(|user| &user.action),
+            Some(OperationActionV1::Send { request: original })
+                if kagemusha_wallet_provider_digest_v1(SPECULATIVE_REQUEST_DOMAIN, original)
+                    == self.request
+        );
+        same_request
+            && self.manifest == manifest
+            && self.source == source.released().frozen.capsule.custody_digest()
+            && !NativeChoicesV1::needs_clock(request, source)
+    }
+
+    pub(super) const fn nonce(&self) -> [u8; 32] {
+        self.nonce
+    }
+
+    pub(super) fn into_sigma(self) -> SpeculativeSigmaV1 {
+        self.sigma
+    }
+}
+
+/// The job side of one Send review's speculative σ_send, for its locked prepare under the
+/// wallet owner (`prepare_speculation`). It copies the review's exact Request original and
+/// source binding and grants no review, proof, signing or Advance authority.
+pub struct SpeculativeSendJobV1 {
+    job: SpeculationJob<SpeculativeSendV1>,
+    request: Vec<u8>,
+    source: ReviewSourceV1,
+}
+
+/// The unlocked half of one speculative σ_send: it waits for the scheduler's speculation slot
+/// and proves without the wallet owner. It holds no custody, original store, plan or signing
+/// capability.
+pub struct SpeculativeProofV1 {
+    job: SpeculationJob<SpeculativeSendV1>,
+    installed: Arc<InstalledVerifierPackV1>,
+    sources: Arc<QualifiedWalletSourcesV1>,
+    read: ReadConfig,
+    budget: MemoryBudget,
+    step: SpeculativeSendStepV1,
+    manifest: [u8; 32],
+    source: [u8; 32],
+    request: [u8; 32],
+    nonce: [u8; 32],
+}
+
+fn speculative_source_error(error: WalletSourcesErrorV1) -> Error {
+    if error.is_cancelled() {
+        Error::Cancelled
+    } else if error.is_unavailable() {
+        Error::ArtifactsUnavailable("qualified sigma original import")
+    } else {
+        Error::Proof("qualified sigma original import")
+    }
+}
+
+impl SpeculativeProofV1 {
+    /// Wait for `scheduler`'s speculation slot ([`Scheduler::speculate`]), rebuild the σ_send
+    /// key from its sealed source (the locked prepare revalidated its originals), prove under
+    /// the review's cancellation signal and publish the σ for the review. Call this without
+    /// the wallet owner. The prover's memory is released before the slot.
+    ///
+    /// # Errors
+    /// Cancellation (an ended review or close), unavailable artifacts or a failed proof; the
+    /// review then executes with a fresh proof.
+    pub fn prove(self, scheduler: &Scheduler) -> Result<(), Error> {
+        let run = scheduler.speculate(&self.job).ok_or(Error::Cancelled)?;
+        let sigma = self.sigma(run.token());
+        let Self {
+            job,
+            installed,
+            sources,
+            step,
+            manifest,
+            source,
+            request,
+            nonce,
+            ..
+        } = self;
+        // The derivation and source handles go before the slot is released.
+        drop((job, installed, sources, step));
+        let sigma = sigma?;
+        run.finish(SpeculativeSendV1 {
+            manifest,
+            source,
+            request,
+            nonce,
+            sigma,
+        });
+        Ok(())
+    }
+
+    // Rebuild the key and prove; the prover is released when this returns.
+    fn sigma(&self, token: &Cancellation) -> Result<SpeculativeSigmaV1, Error> {
+        token.check()?;
+        let imported = self
+            .sources
+            .bind_sigma_cancellable(self.step.selector(), self.read, Some(token.prover_token()))
+            .map_err(speculative_source_error)?;
+        token.check()?;
+        let preparation =
+            proof(PreparationV1::new(&self.installed))?.with_cancellation(token.prover_token());
+        self.step.prove(&preparation, imported, self.budget)
     }
 }
 
@@ -226,11 +398,13 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         })
     }
 
+    // `speculate` gives a Send review its speculation slot; a recheck never has one.
     fn review_action(
         &mut self,
         action: OperationActionV1,
         destination_original: Option<&[u8]>,
         unload_beneficiary: Option<&[u8]>,
+        speculate: bool,
     ) -> Result<ReviewedOperationV1, Error> {
         let kind = match &action {
             OperationActionV1::Send { request }
@@ -415,16 +589,161 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         {
             return Err(Error::OperationConflict);
         }
+        // A Send whose controls need a clock reading keeps execute-time choices: its σ binds
+        // the accepted interval of that reading.
+        let speculation = (speculate
+            && kind == KagemushaWalletOperationKindV1::Send
+            && !released
+                .frozen
+                .capsule
+                .body()
+                .successor_state
+                .send_requires_time_anchor())
+        .then(Speculation::new);
         Ok(ReviewedOperationV1 {
             projection,
             source: binding,
             action,
             unload_beneficiary: verified_unload_beneficiary,
+            speculation,
         })
     }
 
+    /// Locked prepare of a Send review's speculative σ_send, before its proof is admitted.
+    /// It requires the review's exact source to be current and the phone to have the proving
+    /// capacity, draws the speculative nonce with the ordinary sampler, derives the Send with
+    /// today's preparation on a throwaway draft (nothing is written) and revalidates the
+    /// σ_send originals. `Ok(None)` when the review ended, a payment already holds priority
+    /// or the review's source changed; execution then proves itself.
+    ///
+    /// # Errors
+    /// Unavailable custody, capacity, artifacts or entropy, or a refused derivation. Nothing
+    /// durable changed and the review executes with a fresh proof.
+    pub fn prepare_speculation(
+        &mut self,
+        job: &SpeculativeSendJobV1,
+    ) -> Result<Option<SpeculativeProofV1>, Error> {
+        if job.job.ended() || self.scheduler.payment_pending() {
+            return Ok(None);
+        }
+        let (selected, manifest) = self.sync_manifest()?;
+        let released = self.indexed_step(&manifest, manifest.indexed.ok_or(Error::NoHead)?)?;
+        if self.review_source(selected, &manifest, &released)? != job.source {
+            return Ok(None);
+        }
+        let fold = self
+            .read_fold(&released)?
+            .ok_or(Error::FoldRequired)?
+            .record;
+        let intent = NativeIntentV1::user(OperationRequestV1 {
+            request_id: SPECULATIVE_REQUEST_ID,
+            action: OperationActionV1::Send {
+                request: job.request.clone(),
+            },
+        });
+        let source = PreparationSourceV1 {
+            released: &released,
+            folded: Some(&fold),
+        };
+        if NativeChoicesV1::needs_clock(&intent, &source) {
+            return Ok(None);
+        }
+        // The same admission execute applies before it proves.
+        self.require_runtime_capacity()?;
+        let (snapshot, map_state) = self.preparation_source_custody(
+            &manifest,
+            &released,
+            KagemushaWalletOperationKindV1::Send,
+            Some(&fold),
+        )?;
+        let nonce = NativeChoicesV1::fresh_nonce(
+            &released
+                .frozen
+                .capsule
+                .body()
+                .successor_state
+                .core
+                .state_nonce,
+        )?;
+        // The same binding fresh choices have; a speculation never carries a clock reading.
+        let choices = NativeChoicesV1::speculated(
+            self.proofs.installed.verifier().manifest_digest(),
+            &intent,
+            &source,
+            nonce,
+        )?;
+        let prepared = {
+            // Map insertions stage in memory only; the draft is dropped unpublished.
+            let mut draft = DraftWorkspace::new(
+                &mut self.archive,
+                WorkspaceLimits {
+                    max_bytes: super::super::lifecycle::INTAKE_DRAFT_BYTES,
+                    max_objects: super::super::lifecycle::INTAKE_DRAFT_OBJECTS,
+                },
+            );
+            let mut custody = PreparationCustodyV1::new(
+                &mut draft,
+                &snapshot,
+                &map_state,
+                KagemushaWalletOperationKindV1::Send,
+                None,
+                manifest.issued_requests,
+                manifest.direct_anchors,
+                manifest.finality_epochs,
+                manifest.blacklist.clone(),
+            )?;
+            proof(PreparationV1::new(&self.proofs.installed))?.prepare_operation(
+                &intent,
+                &source,
+                &mut custody,
+                &OperationPreparationV1 {
+                    sources: &self.proofs.sources,
+                    choices: &choices,
+                    budget: self.proofs.budget,
+                },
+            )?
+        };
+        let Some(step) = prepared.into_speculative_send()? else {
+            return Ok(None);
+        };
+        // A confirmation that arrived meanwhile proves itself; skip the original reads.
+        if self.scheduler.payment_pending() {
+            return Ok(None);
+        }
+        // Every σ use revalidates its signed originals under the owner of the sole store.
+        {
+            let mut originals = self
+                .proofs
+                .originals
+                .lock()
+                .map_err(|_| Error::ArtifactsUnavailable("proving original owner poisoned"))?;
+            self.proofs
+                .sources
+                .revalidate_sigma_cancellable(
+                    step.selector(),
+                    &mut *originals,
+                    self.proofs.read,
+                    Some(job.job.token().prover_token()),
+                )
+                .map_err(speculative_source_error)?;
+        }
+        Ok(Some(SpeculativeProofV1 {
+            job: job.job.clone(),
+            installed: Arc::clone(&self.proofs.installed),
+            sources: Arc::clone(&self.proofs.sources),
+            read: self.proofs.read,
+            budget: self.proofs.budget,
+            step,
+            manifest: self.proofs.installed.verifier().manifest_digest(),
+            source: released.frozen.capsule.custody_digest(),
+            request: kagemusha_wallet_provider_digest_v1(SPECULATIVE_REQUEST_DOMAIN, &job.request),
+            nonce,
+        }))
+    }
+
     /// Authenticate an exact signed Request against the current folded payer and all controls.
-    /// No nonce, map insertion, proof, hardware signature or Advance is produced.
+    /// No nonce, map insertion, proof, hardware signature or Advance is produced. The review
+    /// may then have its σ_send proved speculatively ([`ReviewedOperationV1::speculation`]).
     /// A running local fold continues; an uncovered current head returns `FoldRequired`.
     /// # Errors
     /// Invalid/foreign Request, missing or changed source/fold/originals, failed controls or unavailable storage/observations.
@@ -446,6 +765,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             },
             Some(destination_account_original),
             None,
+            true,
         )
     }
 
@@ -467,6 +787,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             OperationActionV1::Unload { amount, charge },
             None,
             beneficiary_original,
+            false,
         )
     }
 
@@ -480,6 +801,8 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         review: ReviewedOperationV1,
         request_id: [u8; 32],
     ) -> Result<Completion, Error> {
+        // Payment priority also joins an admitted speculative σ_send of this review, without
+        // cancelling it, so a finished speculation is found below.
         let _payment = self.scheduler.payment();
         if request_id == [0; 32] {
             return Err(Error::Invalid("review request identity"));
@@ -491,9 +814,14 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             review.action.clone(),
             review.projection.destination_account_original.as_deref(),
             review.unload_beneficiary.as_deref(),
+            false,
         )?;
         review.require_recheck(&fresh)?;
-        self.execute(review.into_request(request_id)?)
+        // Only an identical source and action reach here. The speculative σ is DATA until
+        // execution plans with its nonce and finds an identical derivation; τ_send, Advance
+        // and the debit happen only inside this execution.
+        let (request, speculative) = review.into_execution(request_id)?;
+        self.execute_speculated(request, speculative)
     }
 }
 

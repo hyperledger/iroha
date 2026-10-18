@@ -64,8 +64,8 @@ pub use native_owner::{
     NativeOpenFailureV1, NativeOperationReviewV1, NativePreparedLedgerLoadV1,
     NativeReleasedOutputV1, NativeStartupFailureV1, NativeWalletCoordinatorV1,
     NativeWalletMetadataV1, NativeWalletProofsV1, NativeWalletRuntimeV1,
-    PAYOUT_RECORD_MAX_BYTES_V1, PendingNativeWalletOpenV1, ReviewedOperationV1,
-    UnloadFinalityProgressV1,
+    PAYOUT_RECORD_MAX_BYTES_V1, PendingNativeWalletOpenV1, ReviewedOperationV1, SpeculativeProofV1,
+    SpeculativeSendJobV1, SpeculativeSendV1, UnloadFinalityProgressV1,
 };
 mod preparation_custody;
 mod scheduling;
@@ -101,7 +101,10 @@ pub(crate) use native_worker::NativeFoldWorkerV1;
 #[cfg(test)]
 pub(crate) use native_worker::{FoldRetentionCountsV1, perturb_retained_key_for_test};
 pub use preparation_custody::{PreparationCustodyV1, PreparationOriginalV1};
-pub use scheduling::{Cancellation, FoldRetentionV1, PaymentGuard, Scheduler};
+pub use scheduling::{
+    Cancellation, FoldRetentionV1, PaymentGuard, Scheduler, Speculation, SpeculationJob,
+    SpeculationRun,
+};
 pub use session_custody::DirectTimeExchangeV1;
 pub use snapshot::{Snapshot, SnapshotFold};
 pub use transition_custody::TransitionCustodyV1;

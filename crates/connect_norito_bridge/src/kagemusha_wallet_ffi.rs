@@ -298,6 +298,19 @@ trait Wallet: Send {
     fn discard_review(&mut self, _token: u64) -> Result<()> {
         Err(Failure::code(INVALID))
     }
+    /// The job that may prove retained review `token`'s σ_send speculatively, taken under
+    /// the owner right after the review was retained.
+    fn review_speculation(&mut self, _token: u64) -> Option<state::SpeculativeSendJobV1> {
+        None
+    }
+    /// Locked prepare of a speculative σ_send; its proof waits for the scheduler and runs
+    /// after the owner is released.
+    fn prepare_speculation(
+        &mut self,
+        _job: &state::SpeculativeSendJobV1,
+    ) -> Result<Option<state::SpeculativeProofV1>> {
+        Ok(None)
+    }
     fn observe(&mut self, _selector: u32, _identity: &[u8]) -> Result<Response> {
         Err(Failure::code(INVALID))
     }
@@ -377,7 +390,17 @@ impl<P: advance::KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send> Wallet
         self.execute_reviewed_inner(token, request)
     }
     fn discard_review(&mut self, token: u64) -> Result<()> {
+        // Dropping the review cancels its speculation and drops any σ unsigned.
         self.reviews.take(token).map(drop)
+    }
+    fn review_speculation(&mut self, token: u64) -> Option<state::SpeculativeSendJobV1> {
+        self.reviews.get(token)?.speculation()
+    }
+    fn prepare_speculation(
+        &mut self,
+        job: &state::SpeculativeSendJobV1,
+    ) -> Result<Option<state::SpeculativeProofV1>> {
+        Ok(self.wallet.prepare_speculation(job)?)
     }
     fn snapshot(&mut self) -> Result<state::Snapshot> {
         Ok(self.wallet.snapshot()?)

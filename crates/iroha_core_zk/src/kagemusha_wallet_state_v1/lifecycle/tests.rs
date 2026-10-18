@@ -12,6 +12,14 @@ use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v
 pub(in crate::kagemusha_wallet_state_v1) enum TestOriginV1 {
     Plan,
     Validate,
+    /// A step frozen from its speculation instead of proved.
+    Speculated,
+}
+
+/// Mock speculation: the whole mock plan a simulated review derived; its frozen step stands
+/// for the speculatively proved σ.
+pub(in crate::kagemusha_wallet_state_v1) struct TestSpeculativeV1 {
+    plan: Vec<u8>,
 }
 
 /// Mock call-scoped derivation, bound to the exact plan bytes it was derived from.
@@ -144,6 +152,192 @@ impl NativePreparation for TestProofs {
         }
         archive::decode(plan)
     }
+
+    type Speculative = TestSpeculativeV1;
+
+    fn plan_speculated(
+        &self,
+        request: &NativeIntentV1,
+        source: &PreparationSourceV1<'_>,
+        custody: &mut PreparationCustodyV1<'_>,
+        speculative: &Self::Speculative,
+    ) -> Result<(Vec<u8>, Self::Prepared), Error> {
+        // The mock's choices are its whole plan: reuse the speculation's for its own source.
+        let made_for_source =
+            archive::decode::<FrozenTransition>(&speculative.plan).is_ok_and(|frozen| {
+                frozen.capsule.body().predecessor_capsule_digest
+                    == source.released().frozen.capsule.custody_digest()
+            });
+        if !made_for_source {
+            return self.plan_preparation(request, source, custody);
+        }
+        self.preparations.fetch_add(1, Ordering::SeqCst);
+        self.derivations.fetch_add(1, Ordering::SeqCst);
+        Ok((
+            speculative.plan.clone(),
+            TestPreparedV1 {
+                plan: object_digest(&speculative.plan),
+                origin: TestOriginV1::Plan,
+            },
+        ))
+    }
+
+    fn prove_speculated(
+        &self,
+        request: &NativeIntentV1,
+        source: &PreparationSourceV1<'_>,
+        prepared: Self::Prepared,
+        plan: &[u8],
+        speculative: Self::Speculative,
+    ) -> Result<FrozenTransition, Error> {
+        if speculative.plan != plan {
+            return self.prove_preparation(request, source, prepared, plan);
+        }
+        if prepared.plan != object_digest(plan) {
+            return Err(Error::WitnessLost("test prepared operation binding"));
+        }
+        self.proof_origins
+            .lock()
+            .unwrap()
+            .push(TestOriginV1::Speculated);
+        archive::decode(plan)
+    }
+}
+
+// A simulated review's speculation: the mock plan for the wallet's current folded source.
+fn speculation(wallet: &mut Wallet) -> TestSpeculativeV1 {
+    let current = wallet.released_steps().unwrap().pop().unwrap();
+    let fold = wallet.read_fold(&current).unwrap().unwrap().record;
+    let source = PreparationSourceV1 {
+        released: &current,
+        folded: Some(&fold),
+    };
+    let (_, manifest) = wallet.manifest().unwrap();
+    let (snapshot, map_state) = wallet
+        .preparation_source_custody(&manifest, &current, request().kind(), Some(&fold))
+        .unwrap();
+    let mut custody = PreparationCustodyV1::new(
+        &mut wallet.archive,
+        &snapshot,
+        &map_state,
+        request().kind(),
+        None,
+        manifest.issued_requests,
+        manifest.direct_anchors,
+        manifest.finality_epochs,
+        manifest.blacklist.clone(),
+    )
+    .unwrap();
+    let (plan, _) = wallet
+        .proofs
+        .plan_preparation(&NativeIntentV1::user(request()), &source, &mut custody)
+        .unwrap();
+    // The speculation's own derivation is not this execution's.
+    wallet.proofs.preparations.fetch_sub(1, Ordering::SeqCst);
+    wallet.proofs.derivations.fetch_sub(1, Ordering::SeqCst);
+    TestSpeculativeV1 { plan }
+}
+
+// The same mock step with one body change: a speculation made for another statement or source.
+fn changed(
+    speculative: &TestSpeculativeV1,
+    change: impl FnOnce(&mut KagemushaWalletRecoveryBodyV1),
+) -> TestSpeculativeV1 {
+    let mut other: FrozenTransition = archive::decode(&speculative.plan).unwrap();
+    let mut body = other.capsule.body().clone();
+    change(&mut body);
+    rebind_frozen_successor(&mut other, body);
+    TestSpeculativeV1 {
+        plan: archive::encode(&other).unwrap(),
+    }
+}
+
+#[test]
+fn a_confirmed_speculation_is_the_durable_plan_and_skips_the_proof() {
+    let mut wallet = prepared_wallet();
+    let speculative = speculation(&mut wallet);
+    let plan = speculative.plan.clone();
+    let signatures = wallet.custody.signatures;
+    let complete = wallet
+        .execute_speculated(request(), Some(speculative))
+        .unwrap();
+    assert!(matches!(complete, Completion::Complete(_)));
+    assert_eq!(
+        *wallet.proofs.proof_origins.lock().unwrap(),
+        [TestOriginV1::Speculated]
+    );
+    assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+    assert_eq!(wallet.proofs.preparations.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        wallet.custody.signatures,
+        signatures + 1,
+        "one Advance signature"
+    );
+    let released: FrozenTransition = archive::decode(&plan).unwrap();
+    assert_eq!(
+        wallet.released_steps().unwrap().last().unwrap().frozen,
+        released,
+        "the committed step is the speculated one"
+    );
+    // Exact retry returns the same output with no proof, plan or signature.
+    assert_eq!(wallet.execute(request()).unwrap(), complete);
+    assert_eq!(wallet.custody.signatures, signatures + 1);
+    assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn a_declined_speculation_leaves_no_plan_signature_or_debit() {
+    let mut wallet = prepared_wallet();
+    let before = wallet.snapshot().unwrap();
+    let signatures = wallet.custody.signatures;
+    drop(speculation(&mut wallet));
+    assert_eq!(wallet.snapshot().unwrap(), before);
+    assert_eq!(wallet.custody.signatures, signatures);
+    assert_eq!(
+        wallet.retry_request(&request().request_id).unwrap(),
+        RequestStatusV1::Unknown
+    );
+    assert_eq!(wallet.proofs.preparations.load(Ordering::SeqCst), 0);
+    assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn a_speculation_for_another_source_or_statement_is_unused_and_execution_proves() {
+    // Changed source: the speculation was made for a head that is no longer current.
+    let mut wallet = prepared_wallet();
+    let stale = changed(&speculation(&mut wallet), |body| {
+        body.predecessor_capsule_digest = [93; 32];
+    });
+    let signatures = wallet.custody.signatures;
+    assert!(matches!(
+        wallet.execute_speculated(request(), Some(stale)).unwrap(),
+        Completion::Complete(_)
+    ));
+    assert_eq!(
+        *wallet.proofs.proof_origins.lock().unwrap(),
+        [TestOriginV1::Plan]
+    );
+    assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 1);
+    assert_eq!(wallet.custody.signatures, signatures + 1);
+
+    // A held plan from an earlier attempt wins over a later speculation of another nonce
+    // (the mock head carries Bootstrap's nonce 92 forward).
+    let mut wallet = prepared_wallet();
+    wallet.proofs.fail_preparation_proof = true;
+    assert!(wallet.execute(request()).is_err());
+    wallet.proofs.fail_preparation_proof = false;
+    let later = changed(&speculation(&mut wallet), |body| {
+        body.successor_state.core.state_nonce = field(91);
+    });
+    assert!(matches!(
+        wallet.execute_speculated(request(), Some(later)).unwrap(),
+        Completion::Complete(_)
+    ));
+    assert_eq!(
+        *wallet.proofs.proof_origins.lock().unwrap(),
+        [TestOriginV1::Plan, TestOriginV1::Validate]
+    );
+    assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 2);
 }
 
 fn request() -> OperationRequestV1 {

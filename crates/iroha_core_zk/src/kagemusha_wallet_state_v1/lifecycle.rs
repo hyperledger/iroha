@@ -116,4 +116,39 @@ pub trait NativePreparation: NativeProofs {
         prepared: Self::Prepared,
         plan: &[u8],
     ) -> Result<FrozenTransition, Error>;
+
+    /// A step proof made speculatively for a reviewed request before the user confirmed
+    /// (design §5.1, Payment row). It is DATA: never signed, never durable, and only the two
+    /// methods below may use it, for an identical derivation.
+    type Speculative;
+
+    /// [`Self::plan_preparation`] for a request whose review proved its step speculatively:
+    /// the plan takes the speculation's own choices when it was made for this exact request
+    /// and source, and fresh choices otherwise. The plan is still published durably before
+    /// anything uses it.
+    ///
+    /// # Errors
+    /// As [`Self::plan_preparation`].
+    fn plan_speculated(
+        &self,
+        request: &NativeIntentV1,
+        source: &PreparationSourceV1<'_>,
+        custody: &mut PreparationCustodyV1<'_>,
+        speculative: &Self::Speculative,
+    ) -> Result<(Vec<u8>, Self::Prepared), Error>;
+
+    /// [`Self::prove_preparation`] given a speculative step proof: freeze that proof when it
+    /// was made for exactly this derivation's statement and relation, and prove otherwise.
+    /// The coordinator verifies the result in full either way before the sole Advance.
+    ///
+    /// # Errors
+    /// As [`Self::prove_preparation`].
+    fn prove_speculated(
+        &self,
+        request: &NativeIntentV1,
+        source: &PreparationSourceV1<'_>,
+        prepared: Self::Prepared,
+        plan: &[u8],
+        speculative: Self::Speculative,
+    ) -> Result<FrozenTransition, Error>;
 }

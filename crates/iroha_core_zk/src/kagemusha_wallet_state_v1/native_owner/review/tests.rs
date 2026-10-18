@@ -58,6 +58,7 @@ fn unadmitted_review_fixture() -> ReviewedOperationV1 {
     };
     ReviewedOperationV1 {
         unload_beneficiary: None,
+        speculation: None,
         projection: NativeOperationReviewV1 {
             kind: KagemushaWalletOperationKindV1::Send,
             amount: request.body.amount,
@@ -411,6 +412,88 @@ fn recheck_rejects_source_runtime_completion_generation_and_key_changes() {
             Err(Error::OperationConflict)
         ));
     }
+}
+
+fn speculating_review() -> ReviewedOperationV1 {
+    let mut review = unadmitted_review_fixture();
+    review.speculation = Some(Speculation::new());
+    review
+}
+
+fn finished_speculation(bytes: Vec<u8>) -> SpeculativeSendV1 {
+    let statement = super::super::super::tests::fixture::<KagemushaWalletRecoveryCapsuleV1>(
+        "KagemushaWalletRecoveryCapsuleV1",
+    )
+    .body()
+    .statement;
+    SpeculativeSendV1 {
+        manifest: [3; 32],
+        source: [2; 32],
+        request: [8; 32],
+        nonce: [9; 32],
+        sigma: SpeculativeSigmaV1::for_test(statement, bytes),
+    }
+}
+
+#[test]
+fn a_dropped_review_cancels_its_speculative_proof() {
+    let scheduler = Scheduler::new();
+    let review = speculating_review();
+    let job = review.speculation().unwrap();
+    let run = scheduler.speculate(&job.job).unwrap();
+    run.token().check().unwrap();
+    // Discard, a failed recheck and close all drop the review.
+    drop(review);
+    assert!(matches!(run.token().check(), Err(Error::Cancelled)));
+    run.finish(finished_speculation(vec![1]));
+    assert!(
+        scheduler.speculate(&job.job).is_none(),
+        "an ended speculation never restarts"
+    );
+}
+
+#[test]
+fn execution_takes_only_a_finished_speculation_once() {
+    let scheduler = Scheduler::new();
+    let review = speculating_review();
+    let job = review.speculation().unwrap();
+    scheduler
+        .speculate(&job.job)
+        .unwrap()
+        .finish(finished_speculation(vec![7, 7]));
+    let (request, speculative) = review.into_execution([7; 32]).unwrap();
+    assert_eq!(request.request_id, [7; 32]);
+    let speculative = speculative.unwrap();
+    assert_eq!(speculative.nonce(), [9; 32]);
+    assert_eq!(speculative.into_sigma().proof_bytes(), [7, 7]);
+
+    // A speculation execution finds unadmitted ends there, and its job never proves.
+    let review = speculating_review();
+    let job = review.speculation().unwrap();
+    let (_, speculative) = review.into_execution([7; 32]).unwrap();
+    assert!(speculative.is_none());
+    assert!(scheduler.speculate(&job.job).is_none());
+
+    // Without a speculation the review executes exactly as before.
+    let (_, speculative) = unadmitted_review_fixture().into_execution([7; 32]).unwrap();
+    assert!(speculative.is_none());
+}
+
+#[test]
+fn only_a_send_review_offers_its_speculation() {
+    let mut review = speculating_review();
+    assert!(review.speculation().is_some());
+    assert_eq!(
+        review.speculation().unwrap().request,
+        review.send_original().unwrap(),
+        "the job carries the exact retained Request"
+    );
+    review.action = OperationActionV1::Unload {
+        amount: 1,
+        charge: None,
+    };
+    assert!(review.speculation().is_none());
+    assert!(unadmitted_review_fixture().speculation().is_none());
 }
 
 #[test]

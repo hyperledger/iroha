@@ -510,6 +510,17 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
         self.execute_intent(NativeIntentV1::user(request))
     }
 
+    /// [`Self::execute`] for a reviewed request whose step a speculation proved before the
+    /// user confirmed. Planning and proving use it only for an identical derivation; every
+    /// other check, the durable plan, commit and the sole Advance are unchanged.
+    pub(crate) fn execute_speculated(
+        &mut self,
+        request: OperationRequestV1,
+        speculative: Option<N::Speculative>,
+    ) -> Result<Completion, Error> {
+        self.execute_intent_with(NativeIntentV1::user(request), speculative)
+    }
+
     pub(crate) fn archive_credited(
         &mut self,
         credit: &[u8; 32],
@@ -523,6 +534,14 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
     }
 
     fn execute_intent(&mut self, request: NativeIntentV1) -> Result<Completion, Error> {
+        self.execute_intent_with(request, None)
+    }
+
+    fn execute_intent_with(
+        &mut self,
+        request: NativeIntentV1,
+        speculative: Option<N::Speculative>,
+    ) -> Result<Completion, Error> {
         let _payment = self.scheduler.payment();
         let (scheme, _) = self.proofs.ledger_scope()?;
         request.validate(&scheme)?;
@@ -643,6 +662,7 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
                 &mut entry,
                 &mut selected,
                 &mut manifest,
+                speculative.as_ref(),
             )?
             else {
                 return Ok(Completion::NotPerformed(NotPerformed::StaleHead));
@@ -707,12 +727,22 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
             {
                 return Err(Error::WitnessLost("retained derivation binding"));
             }
-            let frozen = self.proofs.prove_preparation(
-                &request,
-                &source,
-                derivation.native,
-                &plan.native,
-            )?;
+            let frozen = match speculative {
+                // A step proved during review is frozen only for this identical derivation.
+                Some(speculative) => self.proofs.prove_speculated(
+                    &request,
+                    &source,
+                    derivation.native,
+                    &plan.native,
+                    speculative,
+                )?,
+                None => self.proofs.prove_preparation(
+                    &request,
+                    &source,
+                    derivation.native,
+                    &plan.native,
+                )?,
+            };
             // Proving takes no custody. Before any publication, the retained draft must pass
             // the same successor checks as `PreparationCustodyV1::finish` on durable objects.
             plan.draft.require(
