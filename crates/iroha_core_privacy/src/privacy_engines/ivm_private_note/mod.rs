@@ -76,14 +76,14 @@ pub(crate) use stark::{
 };
 #[cfg(test)]
 pub use wallet::decrypt_ivm_private_wallet_note_v1;
-#[cfg(any(test, feature = "test-utils"))]
-#[doc(hidden)]
-pub use wallet::encrypt_ivm_private_wallet_note_for_commitment_with_opening_v1;
-pub(crate) use wallet::validate_ivm_private_wallet_encryption_opening_v1;
 pub use wallet::{
     IvmPrivateNoteWalletErrorV1, derive_ivm_private_recipient_id_v1,
     encrypt_ivm_private_wallet_note_v1, encrypt_ivm_private_wallet_note_with_os_rng_v1,
     ivm_private_recipient_public_key_v1, validate_ivm_private_encrypted_output_v1,
+};
+pub(crate) use wallet::{
+    encrypt_ivm_private_wallet_note_for_commitment_with_opening_v1,
+    validate_ivm_private_wallet_encryption_opening_v1,
 };
 #[cfg(any(test, feature = "test-utils"))]
 #[doc(hidden)]

@@ -45,6 +45,8 @@ fn retained_archive(
 #[test]
 #[ignore = "requires exact retained A Archive fully folded and B Archive checkpoint7; never repeats completed transfers or Archive commits"]
 fn continue_retained_b_archive_then_unload_without_repeating_transfers() {
+    // Require all exact session originals before opening or advancing retained custody.
+    let (census_manifest, census_originals) = message_census::read_pinned_originals();
     let output = fresh_output("KAGEMUSHA_NATIVE_ARCHIVE_RESTART_OUTPUT");
     let prior_path = selected_path("KAGEMUSHA_NATIVE_INTERRUPTED_ARCHIVE_CONTINUATION");
     let prior_bytes = read_pin(
@@ -220,17 +222,6 @@ fn continue_retained_b_archive_then_unload_without_repeating_transfers() {
     let ab: KagemushaWalletPaymentV1 = decode(&payment_ab);
     let bc: KagemushaWalletPaymentV1 = decode(&payment_bc);
     let credited_ab = credited(&received_ab);
-    assert_eq!(
-        retained_archive(
-            &mut a,
-            &sources,
-            &f,
-            &frames_a,
-            &credited_ab,
-            ab.signed_request().unwrap().body.credit_id()
-        ),
-        archived_ab
-    );
     // C's unchanged folded head reconstructs the same authenticated public status.
     let status_bc = c
         .credit_status(
@@ -242,6 +233,23 @@ fn continue_retained_b_archive_then_unload_without_repeating_transfers() {
     let credited_bc =
         norito::encode_canonical(&KagemushaWalletCreditedV1::from_status(status_bc).unwrap())
             .unwrap();
+    let sessions = message_census::sessions_for_exchange(
+        census_originals,
+        &f.config.scheme,
+        [&payment_ab, &payment_bc],
+        [&credited_ab, &credited_bc],
+    );
+    assert_eq!(
+        retained_archive(
+            &mut a,
+            &sources,
+            &f,
+            &frames_a,
+            &credited_ab,
+            ab.signed_request().unwrap().body.credit_id()
+        ),
+        archived_ab
+    );
     let archived_bc = retained_archive(
         &mut b,
         &sources,
@@ -267,6 +275,7 @@ fn continue_retained_b_archive_then_unload_without_repeating_transfers() {
         "target_sha256": (sha(&target_bytes)),
         "consumer_binary_sha256": (executable_hash()),
         "consumer_source_sha256": (env_pin("KAGEMUSHA_NATIVE_SOURCE_SHA256")),
+        "message_originals_manifest_sha256": (sha(&census_manifest)),
         "retained_payment_ab_sha256": (sha(&payment_ab)),
         "retained_payment_bc_sha256": (sha(&payment_bc)),
         "retained_archive_ab_sha256": (sha(&archived_ab)),
@@ -372,6 +381,7 @@ fn continue_retained_b_archive_then_unload_without_repeating_transfers() {
             },
         ],
         ExchangeOriginals {
+            sessions,
             payment_ab,
             payment_bc,
             received_ab,

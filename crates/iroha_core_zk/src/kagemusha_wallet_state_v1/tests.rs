@@ -3041,7 +3041,7 @@ pub(super) fn alternate_retained_completion(
 ) -> Retained<KagemushaWalletCompletionRecordV1> {
     use p256::ecdsa::signature::RandomizedSigner as _;
 
-    let owner = TransitionOwner::new(frozen.credential.clone());
+    let owner = TransitionOwner::new(&frozen.credential);
     let body = owner
         .receipt_body(&frozen.capsule, &frozen.capsule.custody_digest())
         .unwrap();

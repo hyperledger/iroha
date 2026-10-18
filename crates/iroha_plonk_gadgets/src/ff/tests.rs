@@ -1938,6 +1938,18 @@ fn ff_every_cell_is_pinned_p256_in_fq() {
 
 #[test]
 #[ignore = "every assigned cell of a k = 16 circuit; run in release"]
+fn ff_every_cell_is_pinned_p256_order_in_fq() {
+    tamper_case::<Fq>(P256_N_INDEX);
+}
+
+#[test]
+#[ignore = "every assigned cell of a k = 16 circuit; run in release"]
+fn ff_every_cell_is_pinned_fp_in_fq() {
+    tamper_case::<Fq>(FP_INDEX);
+}
+
+#[test]
+#[ignore = "every assigned cell of a k = 16 circuit; run in release"]
 fn ff_every_cell_is_pinned_fq_in_fp() {
     tamper_case::<Fp>(FQ_INDEX);
 }

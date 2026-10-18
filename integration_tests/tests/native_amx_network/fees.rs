@@ -18,28 +18,37 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-pub(crate) fn audit(root: &Root, height: u64, runtime: &tokio::runtime::Runtime) -> Result<()> {
+// Progress is returned only after the newer cut and every carrier through it have
+// been independently authenticated. It is never inferred from a transport error.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum FeeCut {
+    Exact,
+    Advanced { observed: u64 },
+}
+
+pub(crate) async fn audit(
+    root: &Root,
+    height: u64,
+    deadline: tokio::time::Instant,
+) -> Result<FeeCut> {
     ensure!(
         (2..=128).contains(&height),
         "fee audit exceeded the fixture's finite history bound"
     );
-    // The ordinary query supplies only an original value. It becomes evidence only
-    // after its exact canonical preimage matches the independently authenticated cut.
-    let definition = root
-        .client(&genesis_key(root.index))
-        .client()
-        .query_single(FindAssetDefinitionById::new(fee_asset()))?;
-    runtime.block_on(async {
+    tokio::time::timeout_at(deadline, async {
+        // The ordinary query supplies only an original value. It becomes evidence only
+        // after its exact canonical preimage matches the independently authenticated cut.
+        let definition = root
+            .client(&genesis_key(root.index))
+            .account_client()
+            .query_single(FindAssetDefinitionById::new(fee_asset()))
+            .await?;
         let cut = world_cut(root).await?;
+        let observed = cut.attestation.body.finality_proof.block_header.height().get();
         ensure!(
-            cut.attestation
-                .body
-                .finality_proof
-                .block_header
-                .height()
-                .get()
-                == height,
-            "fee audit requires the exact quiescent certified tip"
+            observed >= height && observed <= 128,
+            "fee audit root {} requires the exact quiescent certified tip: expected {height}, observed {observed}",
+            root.index
         );
         let mut verifier = root.verifier()?;
         let mut balances = BTreeMap::from([
@@ -63,8 +72,8 @@ pub(crate) fn audit(root: &Root, height: u64, runtime: &tokio::runtime::Runtime)
         };
         let mut burned = Quantity::zero();
         let mut tip = None;
-        for next in verifier.authenticated_height().unwrap_or(0) + 1..=height {
-            let proof = if next == height {
+        for next in verifier.authenticated_height().unwrap_or(0) + 1..=observed {
+            let proof = if next == observed {
                 cut.attestation.body.finality_proof.clone()
             } else {
                 root.client(&genesis_key(root.index))
@@ -122,6 +131,13 @@ pub(crate) fn audit(root: &Root, height: u64, runtime: &tokio::runtime::Runtime)
             world.schema_hash()
                 == iroha_core::state::State::native_world_schema_hash_v1().map_err(|e| eyre!(e))?
         );
+        if observed > height {
+            // This verified successor may have consumed an already-authorized relay
+            // carrier after status polling selected the prior cut. The definition
+            // query may precede that cut, so it is not used as a monetary preimage.
+            // A later exact audit rechecks the entire history, supply and balances.
+            return Ok(FeeCut::Advanced { observed });
+        }
         world.verify_table_value("world.asset_definitions", &fee_asset(), &definition)?;
         ensure!(
             definition.total_quantity() == &Quantity::from(initial_supply).checked_sub(&burned)?,
@@ -140,8 +156,10 @@ pub(crate) fn audit(root: &Root, height: u64, runtime: &tokio::runtime::Runtime)
                 world.verify_table_value("world.assets", &asset, &AssetValue::new(amount))?;
             }
         }
-        Ok(())
+        Ok(FeeCut::Exact)
     })
+    .await
+    .map_err(|_| eyre!("fee audit deadline exceeded for root {} at expected height {height}", root.index))?
 }
 
 // Reuse the existing signed full-ledger read owner. Only its complete World hash

@@ -170,8 +170,7 @@ fn native_bank_read_role_revocation_preserves_debit_after_restart() -> Result<()
                 &approved[1],
             ))?;
     }
-    let heights = exchange.quiescent_heights()?;
+    let heights = exchange.quiescent_fee_heights()?;
     ensure!(heights[1] == revoked.height() && heights[2] == approved[1].height());
-    exchange.audit_fees(heights)?;
     exchange.assert_no_background_blocks(heights)
 }

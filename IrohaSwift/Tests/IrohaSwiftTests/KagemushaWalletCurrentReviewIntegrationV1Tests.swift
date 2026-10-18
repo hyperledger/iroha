@@ -16,23 +16,23 @@ final class KagemushaWalletCurrentReviewIntegrationV1Tests: XCTestCase {
   }
   func testLosslessImmutableProjectionData() throws {
     var original = projection()
-    let value = try KagemushaWalletReviewProjectionV1(original: original)
+    let value = try KagemushaWalletReviewProjectionV1(original)
     original[0] = 0
     XCTAssertEqual(value.kind, .send)
     for amount in [value.amount, value.fee, value.grossDebit, value.netDestinationAmount] {
       XCTAssertEqual(amount, .init(low: UInt64.max, high: UInt64.max))
     }
-    var receiver = try XCTUnwrap(value.receiverWalletId); receiver[0] = 0
-    XCTAssertEqual(value.receiverWalletId, Data(repeating: 7, count: 32))
+    var receiver = try XCTUnwrap(value.receiverWalletID); receiver[0] = 0
+    XCTAssertEqual(value.receiverWalletID, Data(repeating: 7, count: 32))
     XCTAssertEqual(value.destinationAccountDigest, Data(repeating: 1, count: 32))
     XCTAssertEqual(value.artifactManifestDigest, Data(repeating: 10, count: 32))
-    XCTAssertEqual(value.paymentKey.first, 4)
+    XCTAssertEqual(value.paymentPublicKey.first, 4)
     var account = try XCTUnwrap(value.destinationAccountOriginal); account[0] = 0
     XCTAssertEqual(value.destinationAccountOriginal, Data([0xa1,0xb2,0xc3]))
   }
   func testOriginBindingAndAliasCannotReplayToken() throws {
     let owner = KagemushaWalletReviewOriginV1(), another = KagemushaWalletReviewOriginV1()
-    let data = try KagemushaWalletReviewProjectionV1(original: projection())
+    let data = try KagemushaWalletReviewProjectionV1(projection())
     let review = try KagemushaWalletReviewReplyV1(status:18,reason:-1,platformCode:0,sequenceLow:19,sequenceHigh:0,detail:0,bytes:data.bytes).review(origin:owner,expected:.send)
     XCTAssertThrowsError(try review.consume(origin: another))
     let alias = review
@@ -44,17 +44,17 @@ final class KagemushaWalletCurrentReviewIntegrationV1Tests: XCTestCase {
   func testMalformedProjectionAndCompletionSeparation() throws {
     XCTAssertThrowsError(try KagemushaWalletCallV1(status: 18, sequenceLow: 19, sequenceHigh: 0, detail: 0, bytes: projection()))
     for count in [0, 490, 491, 494, 4_592] {
-      XCTAssertThrowsError(try KagemushaWalletReviewProjectionV1(original: Data(repeating: 0, count: count)))
+      XCTAssertThrowsError(try KagemushaWalletReviewProjectionV1(Data(repeating: 0, count: count)))
     }
     let mutations: [(Int, UInt8)] = [(0, 0), (8, 2), (73, 2), (73, 0), (426, 3)]
     for (offset, byte) in mutations {
       var changed = projection(); changed[offset] = byte
-      XCTAssertThrowsError(try KagemushaWalletReviewProjectionV1(original: changed))
+      XCTAssertThrowsError(try KagemushaWalletReviewProjectionV1(changed))
     }
-    let unload = try KagemushaWalletReviewProjectionV1(original: projection(8))
-    XCTAssertEqual(unload.kind, .unload); XCTAssertNil(unload.receiverWalletId); XCTAssertNil(unload.destinationAccountOriginal)
+    let unload = try KagemushaWalletReviewProjectionV1(projection(8))
+    XCTAssertEqual(unload.kind, .unload); XCTAssertNil(unload.receiverWalletID); XCTAssertNil(unload.destinationAccountOriginal)
     var changed = projection(8); changed[74] = 1
-    XCTAssertThrowsError(try KagemushaWalletReviewProjectionV1(original: changed))
+    XCTAssertThrowsError(try KagemushaWalletReviewProjectionV1(changed))
   }
   func testFixedInputBoundsAndForeignFieldRefusal() throws {
     _ = try KagemushaWalletReviewInputV1(selector: 1, first: Data(repeating: 1, count: 10_000), second: Data(repeating: 2, count: 4_096))

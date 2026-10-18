@@ -192,3 +192,192 @@ fn new_expiry_proof_requires_current_selected_issuer_and_actual_signature() {
         assert_eq!(session.attempt.phase(), Phase::Selected);
     }
 }
+
+/// Capture the complete attempt original and monetary ledger, excluding the separate expiry row.
+fn expiry_boundary_snapshot(
+    owner: &EnrollmentIssuerV1<Runtime>,
+    attempt: &EnrollmentAttemptV1,
+) -> (Vec<u8>, Vec<u8>) {
+    use mv::storage::StorageReadOnly as _;
+
+    let original = std::fs::read(
+        owner
+            .journal_path
+            .join(format!("{}.norito", hex::encode(attempt.selection().key))),
+    )
+    .unwrap();
+    let rows: Vec<(KagemushaWalletLedgerKeyV1, Vec<u8>)> = owner
+        .state
+        .world
+        .kagemusha_wallet_ledger
+        .view()
+        .iter()
+        .map(|(key, value)| (*key, value.clone()))
+        .collect();
+    (original, norito::encode_canonical(&rows).unwrap())
+}
+
+#[test]
+fn stale_expiry_session_cannot_sign_or_replay_after_another_session_advances() {
+    let (_temp, mut owner, dispatch) = fixture();
+    let mut initial = authenticate(&mut owner, &dispatch);
+    let permit = owner.pre_key_permit(&mut initial).unwrap();
+    let resumed = resume(&dispatch, permit);
+    let mut stale = authenticate_expiry(&mut owner, &resumed);
+    let mut advancing = authenticate(&mut owner, &dispatch);
+    let request = permit_tests::account_request(&dispatch, &advancing.attempt);
+    owner.runtime.fixture_evidence = Some(request.clone());
+    owner
+        .verify_evidence(&mut advancing, &request.encode().unwrap())
+        .unwrap();
+    assert_eq!(advancing.attempt.phase(), Phase::Evidence);
+    assert_eq!(stale.attempt.phase(), Phase::Selected);
+    let before = expiry_boundary_snapshot(&owner, &advancing.attempt);
+    let bank_calls = owner.runtime.bank_calls;
+    let worker_actions = owner.runtime.worker_actions.clone();
+    let signatures = owner.runtime.signatures;
+    owner.runtime.clock = advancing.attempt.selection().expires_at_ms;
+    owner.runtime.fail_bank = true;
+    owner.runtime.fail_worker = true;
+    assert!(matches!(
+        owner.expiry_proof(&mut stale),
+        Err(EnrollmentIssuerErrorV1::Journal(
+            EnrollmentJournalErrorV1::Conflict
+        ))
+    ));
+    assert_eq!(owner.runtime.signatures, signatures);
+    assert_eq!(
+        owner
+            .journal
+            .expiry_proof(&advancing.attempt, &resumed)
+            .unwrap(),
+        None
+    );
+
+    let mut current = authenticate_expiry(&mut owner, &resumed);
+    let proof = owner.expiry_proof(&mut current).unwrap();
+    assert_eq!(owner.expiry_proof(&mut current).unwrap(), proof);
+    // An already retained proof does not make the superseded cursor authoritative again.
+    assert!(matches!(
+        owner.expiry_proof(&mut stale),
+        Err(EnrollmentIssuerErrorV1::Journal(
+            EnrollmentJournalErrorV1::Conflict
+        ))
+    ));
+    assert_eq!(owner.runtime.signatures, signatures + 1);
+    assert_eq!(owner.runtime.bank_calls, bank_calls);
+    assert_eq!(owner.runtime.worker_actions, worker_actions);
+    assert_eq!(expiry_boundary_snapshot(&owner, &current.attempt), before);
+    assert_eq!(current.attempt.phase(), Phase::Evidence);
+    assert!(current.attempt.issued().is_none());
+}
+
+#[test]
+fn expiry_proof_preserves_actual_worker_rejection_across_replay_and_reopen() {
+    let (_temp, mut owner, dispatch) = fixture();
+    let mut initial = authenticate(&mut owner, &dispatch);
+    let permit = owner.pre_key_permit(&mut initial).unwrap();
+    let request = permit_tests::account_request(&dispatch, &initial.attempt)
+        .encode()
+        .unwrap();
+    let refusal = KagemushaWalletEnrollmentRefusalV1::AppIdentityMismatch;
+    owner.runtime.refuse_with = Some(refusal);
+    assert!(matches!(
+        owner.verify_evidence(&mut initial, &request),
+        Err(Refused(reason)) if reason == refusal
+    ));
+    assert_eq!(initial.attempt.phase(), Phase::Rejected);
+    assert_eq!(initial.attempt.worker_refusal(), Some(refusal));
+    let before = expiry_boundary_snapshot(&owner, &initial.attempt);
+    let bank_calls = owner.runtime.bank_calls;
+    let worker_actions = owner.runtime.worker_actions.clone();
+    let signatures = owner.runtime.signatures;
+    owner.runtime.clock = initial.attempt.selection().expires_at_ms;
+    owner.runtime.fail_bank = true;
+    owner.runtime.fail_worker = true;
+    let resumed = resume(&dispatch, permit);
+    let mut session = authenticate_expiry(&mut owner, &resumed);
+    let proof = owner.expiry_proof(&mut session).unwrap();
+    for restart in [false, true] {
+        if restart {
+            owner = reopened(owner);
+            session = authenticate_expiry(&mut owner, &resumed);
+        }
+        assert_eq!(owner.expiry_proof(&mut session).unwrap(), proof);
+        assert_eq!(session.attempt.phase(), Phase::Rejected);
+        assert_eq!(session.attempt.worker_refusal(), Some(refusal));
+        assert_eq!(session.attempt.refusal(), None);
+        assert!(session.attempt.issued().is_none());
+        for result in [
+            owner.verify_evidence(&mut session, &request).err(),
+            owner.pre_key_permit(&mut session).err(),
+            owner.issue_credential(&mut session).err(),
+            owner.deliver_credential(&mut session).err(),
+        ] {
+            assert!(matches!(result, Some(Refused(reason)) if reason == refusal));
+        }
+        assert_eq!(expiry_boundary_snapshot(&owner, &session.attempt), before);
+        assert_eq!(owner.runtime.bank_calls, bank_calls);
+        assert_eq!(owner.runtime.worker_actions, worker_actions);
+        assert_eq!(owner.runtime.signatures, signatures + 1);
+    }
+}
+
+#[test]
+fn expiry_proof_preserves_unknown_credential_signing_across_replay_and_reopen() {
+    let (_temp, mut owner, dispatch) = fixture();
+    let mut initial = authenticate(&mut owner, &dispatch);
+    let permit = owner.pre_key_permit(&mut initial).unwrap();
+    let request = permit_tests::account_request(&dispatch, &initial.attempt);
+    owner.runtime.fixture_evidence = Some(request.clone());
+    owner
+        .verify_evidence(&mut initial, &request.encode().unwrap())
+        .unwrap();
+    owner.runtime.lose_signature_reply = true;
+    assert!(matches!(
+        owner.issue_credential(&mut initial),
+        Err(OutcomeUnknown)
+    ));
+    assert_eq!(initial.attempt.phase(), Phase::Signing);
+    assert!(owner.journal.signing_dispatched(&initial.attempt));
+    assert!(!initial.attempt.pre_issuance());
+    assert!(initial.attempt.issued().is_none());
+    let before = expiry_boundary_snapshot(&owner, &initial.attempt);
+    let bank_calls = owner.runtime.bank_calls;
+    let worker_actions = owner.runtime.worker_actions.clone();
+    let signatures = owner.runtime.signatures;
+    owner.runtime.lose_signature_reply = false;
+    owner.runtime.clock = initial.attempt.selection().expires_at_ms;
+    owner.runtime.fail_bank = true;
+    owner.runtime.fail_worker = true;
+    let resumed = resume(&dispatch, permit);
+    let mut session = authenticate_expiry(&mut owner, &resumed);
+    let proof = owner.expiry_proof(&mut session).unwrap();
+    // Losing any later signer reply cannot affect recovery of the retained expiry original.
+    owner.runtime.lose_signature_reply = true;
+    for restart in [false, true] {
+        if restart {
+            owner = reopened(owner);
+            session = authenticate_expiry(&mut owner, &resumed);
+        }
+        assert_eq!(owner.expiry_proof(&mut session).unwrap(), proof);
+        assert!(matches!(
+            owner.issue_credential(&mut session),
+            Err(OutcomeUnknown)
+        ));
+        assert!(matches!(
+            owner.deliver_credential(&mut session),
+            Err(Pending)
+        ));
+        assert_eq!(session.attempt.phase(), Phase::Signing);
+        assert!(owner.journal.signing_dispatched(&session.attempt));
+        assert!(!session.attempt.pre_issuance());
+        assert!(session.attempt.issued().is_none());
+        assert_eq!(session.attempt.refusal(), None);
+        assert_eq!(session.attempt.worker_refusal(), None);
+        assert_eq!(expiry_boundary_snapshot(&owner, &session.attempt), before);
+        assert_eq!(owner.runtime.bank_calls, bank_calls);
+        assert_eq!(owner.runtime.worker_actions, worker_actions);
+        assert_eq!(owner.runtime.signatures, signatures + 1);
+    }
+}

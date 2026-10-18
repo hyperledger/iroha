@@ -7,11 +7,7 @@
 //! paths are decoded only inside Rust and the consumed byte buffer is wiped on
 //! every success or failure path.
 
-use super::relation::{
-    atomic_private_settlement_dummy_input_memo_digest_v1,
-    atomic_private_settlement_output_memo_digests_v1, atomic_private_settlement_program_id_v1,
-    internal_statement_v1,
-};
+use super::relation::{atomic_private_settlement_program_id_v1, internal_statement_v1};
 use super::{
     facade::{AtomicPrivateSettlementProofErrorV1, prove_atomic_private_settlement_v1},
     relation::{
@@ -36,10 +32,12 @@ use iroha_data_model::nexus::{
     PRIVATE_SETTLEMENT_OUTPUT_SLOTS_V1, PrivateSettlementAuditNoteOpeningV1,
     PrivateSettlementAuditOutputV1,
 };
+#[cfg(any(test, feature = "test-utils"))]
 use iroha_data_model::privacy::{
-    PrivacyCommitmentV1, PrivacyEncryptedOutputV1, PrivacyNamespaceScopeV1, PrivacyNamespaceV1,
-    PrivacyNullifierV1, PrivacyPoolProgramNamespaceV1, PrivacyProtocolIdV1, PrivacyRootV1,
+    PrivacyCommitmentV1, PrivacyNamespaceScopeV1, PrivacyNamespaceV1,
+    PrivacyPoolProgramNamespaceV1, PrivacyProtocolIdV1, PrivacyRootV1,
 };
+use iroha_data_model::privacy::{PrivacyEncryptedOutputV1, PrivacyNullifierV1};
 use rand_core_06::CryptoRng;
 use rand_core_06::RngCore;
 use thiserror::Error;

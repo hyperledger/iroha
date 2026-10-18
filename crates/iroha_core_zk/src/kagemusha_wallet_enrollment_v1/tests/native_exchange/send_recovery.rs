@@ -223,7 +223,7 @@ fn resume_selected_a_send_then_b_to_c_unload_with_restart_and_replay() {
             },
         ],
         send,
-        payment,
+        SendOriginals { offer, payment },
     );
 }
 
@@ -451,7 +451,7 @@ fn continue_completed_a_send_then_b_to_c_unload_with_restart_and_replay() {
             },
         ],
         send,
-        payment,
+        SendOriginals { offer, payment },
     );
 }
 

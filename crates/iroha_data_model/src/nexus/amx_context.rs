@@ -198,7 +198,7 @@ pub mod tag {
     pub const STAGED_ACTIVE_PUBLIC_LANE_VALIDATORS: &str = "staged.active_public_lane_validators";
 
     /// Fixed-arity fields after the routing rules, in exact preimage order.
-    pub const TAIL: [&str; 66] = [
+    pub const TAIL: [&str; 65] = [
         STAKING_PUBLIC_VALIDATOR_MODE,
         STAKING_RESTRICTED_VALIDATOR_MODE,
         STAKING_MIN_VALIDATOR_STAKE,

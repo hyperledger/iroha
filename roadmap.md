@@ -60,6 +60,13 @@ require a separate request.
 | 4 — N4, N6, N8, C4 / F.4, G.3–G.5, A.1, X.2; State/Core/Kura/proofs | Missing implementation and validation: complete the selected keyed authoritative State commitment and authenticated restore, committed validity policy, finalized-source proof dispatch and coherent resource admission. Shared State/Core/Kura changes have one integration owner. | Full replay equals accelerated restore at the exact native tip; omitted, substituted and extra State refuse. Identical signed inputs under different local caches, budgets and scalar/accelerated paths yield identical outcomes, fees and roots. Actual maximum and one-byte-over transactions/proofs/receipts traverse SDK, Torii, queue, signed RS16, verification and replay under unchanged fixed caps. |
 | 5 — N11, C5 / B.2–B.3, S.1–S.6; private settlement/provers/SDKs | Integration: deliver genuine confidential settlement through one asynchronous operation and its prepared form, using authoritative context, encrypted audit material and durable recovery. Consolidate existing STARK consumers under the shared backend. Depends on the authority/resource work actually consumed. | Genuine proofs and money movement, nullifier/capsule/auditor/source/fee/replay negatives and crash recovery; private-settlement N=3 topology with sixteen validators and N=2/3/4/8/16 fault coverage. Measure the unchanged five-second proof-preparation-to-verified-receipt target, p50/p95/p99, throughput, memory and leakage across payload/query/storage/log/transport. |
 
+Qualify the single committed `root_fees_v1` policy across Global and independent
+data space roots. Required evidence includes signed H1 missing/duplicate rejection,
+identical payment outcomes under different local settings, predecessor rates for
+the entire update block, immutable post-H1 currency/sponsor custody, authenticated
+fee receipts and final-tip replay. Rebuild generated profiles, schema and SDK
+fixtures through their canonical owners before accepting the combined candidate.
+
 Native payments do not wait for general proofs of arbitrary IVM invocations.
 An authenticated Global Begin is a request, not authority to debit a private bank
 account. Qualify the exact owner-issued `CanPrepareAmx` permission under the

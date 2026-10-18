@@ -35,14 +35,14 @@ class KagemushaWalletCurrentReviewIntegrationV1Test {
         val holder = reply(original)
         original.fill(0)
         val value = holder.review(Any(),KagemushaWalletReviewProjectionV1.Kind.SEND).projection
-        assertEquals(KagemushaWalletReviewedKindV1.SEND, value.kind)
+        assertEquals(KagemushaWalletReviewProjectionV1.Kind.SEND, value.kind)
         for (scalar in listOf(value.amount, value.fee, value.grossDebit, value.netDestinationAmount)) {
             assertEquals(KagemushaWalletUInt128V1(-1, -1), scalar)
         }
-        value.receiverWalletId()!![0] = 0; value.destinationAccountDigest()[0] = 0; value.paymentKey()[0] = 0
+        value.receiverWalletId()!![0] = 0; value.destinationAccountDigest()[0] = 0; value.paymentPublicKey()[0] = 0
         assertContentEquals(ByteArray(32) { 7 }, value.receiverWalletId())
         assertContentEquals(ByteArray(32) { 1 }, value.destinationAccountDigest())
-        assertEquals(4.toByte(), value.paymentKey()[0])
+        assertEquals(4.toByte(), value.paymentPublicKey()[0])
         value.destinationAccountOriginal()!![0] = 0
         assertContentEquals(byteArrayOf(0xa1.toByte(),0xb2.toByte(),0xc3.toByte()),value.destinationAccountOriginal())
         assertContentEquals(ByteArray(32) { 10 }, value.artifactManifestDigest())
@@ -83,7 +83,7 @@ class KagemushaWalletCurrentReviewIntegrationV1Test {
             assertFailsWith<KagemushaWalletExceptionV1> { reply(changed).review(Any(),if(changed.getOrNull(8)==8.toByte())KagemushaWalletReviewProjectionV1.Kind.UNLOAD else KagemushaWalletReviewProjectionV1.Kind.SEND) }
         }
         val unload = reply(projection(8)).review(Any(),KagemushaWalletReviewProjectionV1.Kind.UNLOAD).projection
-        assertEquals(KagemushaWalletReviewedKindV1.UNLOAD, unload.kind)
+        assertEquals(KagemushaWalletReviewProjectionV1.Kind.UNLOAD, unload.kind)
         assertEquals(null, unload.receiverWalletId())
         assertEquals(null, unload.destinationAccountOriginal())
         val changed = projection(8); changed[74] = 1

@@ -83,10 +83,6 @@ fn global_root() -> Result<amx::Root> {
             AssetId::of(customer_asset(), ALICE_ID.clone()),
         ))
         .with_genesis_instruction(Grant::account_permission(
-            iroha_executor_data_model::permission::parameter::CanSetParameters,
-            amx::account(&amx::genesis_key(0)),
-        ))
-        .with_genesis_instruction(Grant::account_permission(
             iroha_executor_data_model::permission::query::CanReadAllLedgerData,
             amx::account(&amx::genesis_key(0)),
         ))

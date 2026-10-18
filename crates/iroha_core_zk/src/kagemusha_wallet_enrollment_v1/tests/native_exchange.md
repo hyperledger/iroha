@@ -100,36 +100,53 @@ acknowledgement/Archive originals are retained with their lengths and hashes in
 execution, rather than registration of the checks, establishes acceptance.
 
 The exchange additionally retains the **complete canonical envelopes** for both
-Payments, their predecessor Lineage messages, the Receive acknowledgement and
-the CreditStatus acknowledgement. `message_envelopes` records each full frame's
+Offers, Requests and Payments, their predecessor Lineage messages, the Receive
+acknowledgement and the CreditStatus acknowledgement. The Offers and Requests
+are the exact producer originals; the census neither reconstructs nor signs them.
+`message_envelopes` records each full frame's
 role, byte count, SHA-256 and bound. Each frame and its measurement are synced
 before checking the bound, so an oversized failure remains inspectable. A naked
 Payment or Credited object's byte count does not establish the carrying frame's
 size. All measured frames are retained before Sigma proofs and the Omega
 opening/accumulator decisions are verified against the admitted catalog. The
 separate `proof-checks.json` retains each proof decision, including failures.
+It also records Offer signature/credential/certificate verification and Payment
+model verification against that payer credential and the exact signed Request,
+including the receiver credential, certificates and fee schedule. This does not
+assert that Payment commits to the Offer's session nonce or proposed amount.
 This helper checks CreditStatus's Omega only: it does not independently recheck
 its credit-membership opening, receipt or Request/Payment linkage. The parent
-exchange's Archive owner performs full native admission separately. These six observed
-messages cover the zero-fee, controls-off ABC exchange only; they do not qualify
-Offer, every fee/control variant, all message types, or physical carriers.
+exchange's Archive owner performs full native admission separately. These ten
+observed messages cover the zero-fee, controls-off ABC exchange only; they do not
+qualify every fee/control variant, all message types, or physical carriers.
 
 `message_census::remeasure_retained_genuine_exchange_envelopes_without_wallet_mutation`
 rechecks existing public originals without opening wallet custody, reenrolling,
 signing or repeating a monetary operation. In addition to the catalog inputs it
 requires `KAGEMUSHA_NATIVE_MESSAGE_ORIGINALS` and `_SHA256`, a privately retained
 JSON manifest with schema `iroha.kagemusha.message-originals.v1`, the exact seven
-`source_pins`, and exactly four `originals` entries (`name`, `bytes`, `sha256`):
+`source_pins`, and exactly eight `originals` entries (`name`, `bytes`, `sha256`):
 `a-b-payment.norito`, `b-c-payment.norito`, `a-credited-receive.norito` and
-`b-credited-status.norito`. Those files are siblings of the manifest. Use a fresh
+`b-credited-status.norito`, plus `a-b-offer.norito`, `a-b-request.norito`,
+`b-c-offer.norito` and `b-c-request.norito`. Those files are siblings of the
+manifest; a four-original manifest is rejected. Use a fresh
 `KAGEMUSHA_NATIVE_MESSAGE_CENSUS_OUTPUT`. The result binds its observer binary
 and source snapshot separately. The snapshot is diagnostic and is not a guarded
 compiler consumed-input attestation. It cannot promote historical producer
 evidence into a current-candidate lifecycle result. Its proof verification is
-not a new native message/operation-admission verdict. The focused ordinary regression
-`message_census_records_complete_frame_and_retains_oversize_failure` uses clearly
-labelled structural vectors solely to reject a payload that fits while its
-carrying envelope exceeds 10,000 bytes.
+not a new native message/operation-admission verdict. Both archive-recovery
+continuations require this same pinned manifest at entry. They check roles,
+bounds, hashes and source pins before opening custody, then require equality
+with the retained monetary originals and authenticate the session bindings
+before resuming archives, folds or Unload. A missing original is not replaced
+by another wallet operation.
+
+The ordinary `message_census` regressions use clearly labelled structural
+vectors, never genuine-proof qualification. They check exact signed-Request
+linkage (including a different valid Request signed by the same receiver),
+manifest substitution, Offer/Request frame bounds, and retention of oversized
+Offer and Payment frames. A payload that fits while its complete carrying
+envelope exceeds the bound is still rejected.
 
 No host-census result supplies a physical latency measurement. Device campaigns
 must retain separate monotonic events for payer confirmation, receiver durable

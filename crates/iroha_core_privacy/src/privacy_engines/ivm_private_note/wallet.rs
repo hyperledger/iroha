@@ -342,14 +342,12 @@ pub fn encrypt_ivm_private_wallet_note_v1(
     )
 }
 
-#[cfg(any(test, feature = "test-utils"))]
 /// Encrypt a pre-committed profiled note using a capsule-retained ephemeral opening.
 ///
 /// The caller must already have derived `commitment` under its governed note
 /// profile. The supplied ephemeral secret is retained only in restricted audit
 /// material; a fresh authenticated nonce is obtained from `rng`.
-#[doc(hidden)]
-pub fn encrypt_ivm_private_wallet_note_for_commitment_with_opening_v1(
+pub(crate) fn encrypt_ivm_private_wallet_note_for_commitment_with_opening_v1(
     rng: &mut (impl RngCore + CryptoRng),
     pool_id: PrivacyPoolIdV1,
     program_id: PrivacyProgramIdV1,
