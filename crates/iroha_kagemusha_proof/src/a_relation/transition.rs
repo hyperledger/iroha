@@ -1,6 +1,6 @@
 //! The own step relation proved inline by a lean A (lean lineage).
 //!
-//! Send, Receive and ReceiveRenewed lay out their own σ step relation on A's
+//! Send, Receive and `ReceiveRenewed` lay out their own σ step relation on A's
 //! operation lane and assert each of its statement fields equal to A's own
 //! statement, instead of verifying the own σ proof. Equal fields are exactly
 //! the inputs of the statement digest σ would have certified, so A proves the
@@ -32,7 +32,7 @@ mod tests;
 impl TransitionInputs<'_> {
     /// Lay out the step relation on A's lane and assert each of its statement
     /// fields equal to A's own. The relation must be the statement variant's own
-    /// step: Send for Send, Receive for Receive and ReceiveRenewed.
+    /// step: Send for Send, Receive for Receive and `ReceiveRenewed`.
     ///
     /// # Errors
     /// A shape of another step, layout failure or a statement field that differs.

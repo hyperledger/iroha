@@ -91,11 +91,14 @@ only its unspent grants after I/O closes. Old delivered work keeps its original
 reservations until physical consumption. Outbound posts likewise reserve
 semantic `H`/`L`/`P` bytes before joining a peer FIFO and keep them through flush.
 
-The network actor has three protected classes: Safety, Lane and Bulk (Payload
-and BlockSync). The transport actor class derives from the actual payload, never
-caller priority. For each of `T = 2N` authorized target slots, every class
-retains 65 FIFO metadata ranks (195 total). The independent safety and low
-owners are unchanged.
+The network actor has four protected classes: Safety, Lane, Payload and BlockSync.
+The actor class derives from the actual payload, never caller priority. For each
+of `T = 2N` authorized target slots, every class retains 65 FIFO metadata ranks
+(260 total). Source and waiter capacities derive from that same class inventory.
+Each source may retain up to eight small frames within its existing single-frame
+byte cap; the item window never increases that byte cap. A full byte allowance or
+item window returns the original ranked ticket until physical ownership releases.
+The independent safety and low owners are unchanged.
 
 Physical inbound and daemon subscriber queues partition their existing count
 budgets across the semantic classes. Default high count is 8192, low count

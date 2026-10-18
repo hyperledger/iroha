@@ -17,6 +17,9 @@ pub mod executor;
 pub mod global;
 /// The global chain's merge of certified lane blocks.
 pub mod merge;
+mod proposal_reads;
+pub use proposal_reads::ProposalReadScope;
+
 /// Canonical durable lane certificate and original payload records.
 pub(crate) mod record;
 /// The node's lane block stores.

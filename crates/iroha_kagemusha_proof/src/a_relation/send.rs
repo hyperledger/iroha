@@ -4,7 +4,7 @@
 //! decoded and bound to the state's credential digest, but its signature and
 //! certificate are carried by continuity (lean lineage); only the own receipt is
 //! re-verified, under the predecessor payment key. A proves the Send step relation
-//! itself (`SendTransition`) instead of verifying σ_send, which the payment path
+//! itself (`SendTransition`) instead of verifying `σ_send`, which the payment path
 //! verified natively and the receiver verifies in full. The receiver owns the
 //! separate Request signature obligation.
 
@@ -56,12 +56,12 @@ pub struct SendCells<'a> {
     fee_schedule: iroha_plonk_gadgets::Word<Fp>,
 }
 impl SendCells<'_> {
-    fn transition(&self) -> Result<MapTransition<'_>, Error> {
-        Ok(MapTransition {
+    fn transition(&self) -> MapTransition<'_> {
+        MapTransition {
             statement: self.input.statement,
             predecessor: self.input.predecessor,
             successor: self.input.successor,
-        })
+        }
     }
     /// Check the exact pending descriptor insertion into the adjusted lineage map.
     ///
@@ -76,7 +76,7 @@ impl SendCells<'_> {
         let lanes = chip.operation_lanes()?;
         MapEffectsChip::new(lanes.glue, lanes.range, lanes.hash).send_pending(
             region,
-            &self.transition()?,
+            &self.transition(),
             path,
         )
     }
@@ -94,7 +94,7 @@ impl SendCells<'_> {
         let lanes = chip.operation_lanes()?;
         MapEffectsChip::new(lanes.glue, lanes.range, lanes.hash).send_fee_and_unchanged(
             region,
-            &self.transition()?,
+            &self.transition(),
             path,
             &self.fee_schedule,
         )
@@ -265,7 +265,7 @@ pub struct SendStageWitness<'a> {
     pub fee: Option<&'a InsertCells>,
     /// Present exactly in the mandatory own signature authorization stage.
     pub authorization: Option<SendAuthorization<'a>>,
-    /// The σ_send step relation (the route's control mask), present exactly in
+    /// The `σ_send` step relation (the route's control mask), present exactly in
     /// the transition stage.
     pub transition: Option<super::transition::TransitionInputs<'a>>,
 }

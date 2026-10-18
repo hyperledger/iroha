@@ -75,6 +75,25 @@ impl LaneBlockSource for Deferred {
             .get()
             .map_or(Ok(None), |stores| stores.block(lane, incarnation, height))
     }
+    fn proposal_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        request: &crate::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<
+        Option<CommittedLaneBlock>,
+        crate::execution_attempt::ExecutionAttemptError<std::io::Error>,
+    > {
+        self.0.get().map_or(Ok(None), |stores| {
+            stores.proposal_block(lane, incarnation, height, request)
+        })
+    }
+    fn release_cancelled_proposal_reads(&self) {
+        if let Some(stores) = self.0.get() {
+            stores.release_cancelled_proposal_reads();
+        }
+    }
     fn wait_for(
         &self,
         lane: LaneId,
@@ -154,6 +173,11 @@ impl LaneTransactions for NoTransactions {
 }
 
 struct Fixture {
+    // Join the original publication owner before releasing the certified chain.
+    publication: OnceLock<(
+        Arc<super::super::store::FileLaneBlockStore>,
+        crate::sumeragi::test_chain::NativeLanePublication,
+    )>,
     chain: CertifiedTestChain,
     keys: Vec<KeyPair>,
     stores: Arc<super::super::registry::LaneStores>,
@@ -206,6 +230,7 @@ impl Fixture {
             keys,
             stores,
             crypto,
+            publication: OnceLock::new(),
             _dir: dir,
         }
     }
@@ -262,6 +287,20 @@ impl Fixture {
             .stores
             .store(LANE, &record.incarnation)
             .expect("lane store");
+        // One original joiner owns every height of this exact fixture store.
+        // Binding again per append would attempt to revive an ended one-shot owner.
+        let (original_store, _) = self.publication.get_or_init(|| {
+            let publication = crate::sumeragi::test_chain::NativeLanePublication::start(
+                store.clone(),
+                &self.chain.state().ivm_execution_budget(),
+            )
+            .expect("original native lane publication owner");
+            (store.clone(), publication)
+        });
+        assert!(
+            Arc::ptr_eq(original_store, &store),
+            "all fixture heights retain the exact original publication store"
+        );
         let instance = self.stores.instance(LANE, &record.incarnation);
         assert_eq!(
             height,
@@ -675,6 +714,7 @@ fn malformed_merges_are_invalid_and_missing_blocks_pending() {
         &fixture.chain.state().view(),
         &*fixture.stores,
         fixture.chain.height() + 1,
+        &mut crate::sumeragi::lanes::ProposalReadScope::new(),
     )
     .expect("fixture lane storage available");
     assert_eq!(
@@ -806,7 +846,13 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
     let scheduled = view.world().consensus_schedule().ready(height).unwrap();
     let cadence = Duration::from_millis(scheduled.params.block_time_ms);
     let parent = fixture.chain.committed(height - 1);
-    let merges = propose(&view, &*fixture.stores, height).expect("fixture lane storage available");
+    let merges = propose(
+        &view,
+        &*fixture.stores,
+        height,
+        &mut crate::sumeragi::lanes::ProposalReadScope::new(),
+    )
+    .expect("fixture lane storage available");
     assert_eq!(merges.transactions, 1);
     // The source and certified lane are genuine. Only the proposed global cadence is
     // invalid, so validation must emit a deterministic rejection after expansion.
@@ -922,6 +968,19 @@ fn leader_proposal_preserves_local_storage_error_instead_of_omitting_lane_work()
         > {
             panic!("tip failure must stop proposal before reading a block")
         }
+        fn proposal_block(
+            &self,
+            lane: LaneId,
+            incarnation: &[u8; 32],
+            height: u64,
+            _: &crate::sumeragi::lanes::ProposalReadScope,
+        ) -> Result<
+            Option<CommittedLaneBlock>,
+            crate::execution_attempt::ExecutionAttemptError<std::io::Error>,
+        > {
+            self.block(lane, incarnation, height)
+        }
+        fn release_cancelled_proposal_reads(&self) {}
         fn wait_for(
             &self,
             _: LaneId,
@@ -939,6 +998,7 @@ fn leader_proposal_preserves_local_storage_error_instead_of_omitting_lane_work()
         &fixture.chain.state().view(),
         &FailedStore,
         fixture.chain.height() + 1,
+        &mut crate::sumeragi::lanes::ProposalReadScope::new(),
     )
     .expect_err("a leader must not silently omit lane work after a storage failure");
     assert_eq!(error.io_kind(), std::io::ErrorKind::PermissionDenied);
@@ -947,3 +1007,6 @@ fn leader_proposal_preserves_local_storage_error_instead_of_omitting_lane_work()
 
 #[path = "merge_tests/sealed_entrypoints.rs"]
 mod sealed_entrypoints;
+
+#[path = "merge_tests/opening_retirement.rs"]
+mod opening_retirement;

@@ -6654,7 +6654,8 @@ fn network_actor_progress_target_capacity(max_total_connections: usize) -> Optio
     max_total_connections.checked_mul(2)
 }
 fn network_actor_progress_source_capacity(max_total_connections: usize) -> Option<usize> {
-    // Every authorized target owns one source in each protected semantic class.
+    // Every authorized target owns one source with an independent byte reserve
+    // in each protected semantic class.
     // Reliable broadcasts acquire these same target lanes before crossing
     // admission; there is deliberately no class-wide broadcast parent.
     network_actor_progress_target_capacity(max_total_connections)?
@@ -6667,8 +6668,7 @@ fn network_actor_progress_item_capacity(max_total_connections: usize) -> Option<
         .checked_mul(RELIABLE_ACTOR_SOURCE_WINDOW)
 }
 fn network_actor_progress_waiter_capacity(max_total_connections: usize) -> Option<usize> {
-    network_actor_progress_target_capacity(max_total_connections)?
-        .checked_mul(ActorProgressClass::COUNT)?
+    network_actor_progress_source_capacity(max_total_connections)?
         .checked_mul(RELIABLE_PROGRESS_WAITERS_PER_SOURCE)
 }
 fn inbound_source_credit_capacity(

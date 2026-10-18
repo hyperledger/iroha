@@ -16,7 +16,7 @@ use std::{
 use iroha_config::parameters::actual;
 use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair, bls_normal_pop_prove};
 use iroha_data_model::{
-    Registrable,
+    Registrable, ValidationFail,
     account::{Account, AccountId},
     alias_setup::{
         AccountAliasName, AccountAliasRoleV1, AccountProvisionV1, AliasAccountIntentV1,
@@ -37,7 +37,8 @@ use iroha_data_model::{
     domain::Domain,
     isi::{
         InstructionBox, Mint, Register, SetParameter, alias_setup::EnsureAlias,
-        consensus_keys::RegisterConsensusKey, retail_daily_limit::ActivateRetailDailyLimitV1,
+        consensus_keys::RegisterConsensusKey, error::InstructionExecutionError,
+        retail_daily_limit::ActivateRetailDailyLimitV1,
     },
     nexus::{
         DataSpaceMetadata, LaneCatalog, LaneConfig, LaneLifecycleParameterV1, LaneVisibility,
@@ -55,7 +56,7 @@ use iroha_data_model::{
     sumeragi_lanes::{SumeragiLaneRecord, SumeragiLaneRoute},
     transaction::{
         FeeChargeKind, FeeChargeLimit, FeePaymentIntent, SignedTransaction, TransactionBuilder,
-        TransactionEntrypoint,
+        TransactionEntrypoint, error::TransactionRejectionReason,
     },
 };
 use iroha_executor_data_model::permission::{
@@ -70,6 +71,8 @@ use iroha_primitives::{
     json::Json,
     numeric::{NumericSpec, Quantity},
 };
+use mv::storage::StorageReadOnly as _;
+
 use iroha_sumeragi::{
     availability::{AvailableBody, PayloadAuthoring, PayloadBytes},
     crypto::{Signer as _, form_qc},
@@ -138,6 +141,25 @@ impl LaneBlockSource for DeferredLaneStores {
             .map_or(Ok(None), |stores| stores.block(lane, incarnation, height))
     }
 
+    fn proposal_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        request: &crate::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<
+        Option<CommittedLaneBlock>,
+        crate::execution_attempt::ExecutionAttemptError<std::io::Error>,
+    > {
+        self.0.get().map_or(Ok(None), |stores| {
+            stores.proposal_block(lane, incarnation, height, request)
+        })
+    }
+    fn release_cancelled_proposal_reads(&self) {
+        if let Some(stores) = self.0.get() {
+            stores.release_cancelled_proposal_reads();
+        }
+    }
     fn wait_for(
         &self,
         lane: LaneId,
@@ -315,11 +337,12 @@ fn start_chain(
     CertifiedTestChain::start(config).expect("certified genesis")
 }
 
-/// The runtime catalog addition of the `bpng` dataspace and its restricted fixed lane.
+/// The runtime catalog addition of the `bpng` data space and its fixed lane.
 fn catalog_transition(
     chain: &CertifiedTestChain,
     keys: &Keys,
     bootstrap: &AliasDataspaceBootstrapGrantV1,
+    visibility: LaneVisibility,
 ) -> NexusCatalogTransitionV1 {
     let view = chain.state().view();
     let dataspace = bootstrap.dataspace.dataspace_id;
@@ -357,7 +380,7 @@ fn catalog_transition(
             id: RETAIL_LANE,
             alias: "bpng".into(),
             dataspace_id: dataspace,
-            visibility: LaneVisibility::Restricted,
+            visibility,
             ..LaneConfig::default()
         }],
         manifest_additions: vec![RuntimeLaneManifestV1 {
@@ -427,11 +450,12 @@ fn alias_instructions(
 fn register_retail_lane(
     chain: &mut CertifiedTestChain,
     keys: &Keys,
+    visibility: LaneVisibility,
 ) -> (DataSpaceId, HashOf<TransactionEntrypoint>) {
     let owner = keys.owner();
     let bootstrap =
         AliasDataspaceBootstrapGrantV1::try_new("bpng", owner.clone()).expect("bootstrap name");
-    let transition = catalog_transition(chain, keys, &bootstrap);
+    let transition = catalog_transition(chain, keys, &bootstrap, visibility);
     let catalog_tx = sign_paid(
         chain,
         &keys.governance,
@@ -530,7 +554,15 @@ fn store_lane_block(
     keys: &Keys,
     record: &SumeragiLaneRecord,
     transaction: SignedTransaction,
-) {
+) -> crate::sumeragi::test_chain::NativeLanePublication {
+    let store = stores
+        .store(RETAIL_LANE, &record.incarnation)
+        .expect("open lane store");
+    let publication = crate::sumeragi::test_chain::NativeLanePublication::start(
+        store.clone(),
+        &chain.state().ivm_execution_budget(),
+    )
+    .expect("original retail lane publication owner");
     let crypto = BlsCrypto::new();
     let chain_id = chain.state().view().chain_id().to_string();
     let anchor_height = ACTIVATION_HEIGHT - 1;
@@ -608,11 +640,10 @@ fn store_lane_block(
         &qc,
     )
     .expect("authenticate and reproduce actual lane admission");
-    stores
-        .store(RETAIL_LANE, &record.incarnation)
-        .expect("open lane store")
+    store
         .append(&body, &qc)
         .expect("persist authenticated lane frame");
+    publication
 }
 
 /// Commit the global block that merges the stored lane block.
@@ -623,8 +654,13 @@ fn merge_lane(chain: &mut CertifiedTestChain, stores: &LaneStores) {
             .latest_block()
             .expect("parent history read completes")
             .expect("route parent");
-        let merges = merge::propose(&view, stores, ACTIVATION_HEIGHT)
-            .expect("authenticated retail lane storage available");
+        let merges = merge::propose(
+            &view,
+            stores,
+            ACTIVATION_HEIGHT,
+            &mut crate::sumeragi::lanes::ProposalReadScope::new(),
+        )
+        .expect("authenticated retail lane storage available");
         let cadence = Duration::from_millis(
             view.world()
                 .consensus_schedule()
@@ -652,7 +688,9 @@ fn merge_lane(chain: &mut CertifiedTestChain, stores: &LaneStores) {
 }
 
 /// The actual chain up to the activation block and the independently approved coordinates.
-struct ActivatedChain {
+struct ActivationCandidate {
+    // Physically join the one original publication owner before releasing its chain.
+    _publication: crate::sumeragi::test_chain::NativeLanePublication,
     chain: CertifiedTestChain,
     owner: AccountId,
     governance: AccountId,
@@ -666,8 +704,8 @@ struct ActivatedChain {
     _lane_dir: tempfile::TempDir,
 }
 
-/// Execute one owner-signed activation through a certified lane block merged by the chain.
-fn activated_chain() -> ActivatedChain {
+/// Execute one owner-signed activation through the actual global root and chosen home.
+fn activation_candidate(visibility: LaneVisibility) -> ActivationCandidate {
     let keys = Keys::new();
     let (owner, governance) = (keys.owner(), keys.governance());
     let domain = DomainId::try_new("retail", "bpng").expect("retail domain");
@@ -688,7 +726,7 @@ fn activated_chain() -> ActivatedChain {
         )),
     ));
     assert!(deferred.0.set(Arc::clone(&stores)).is_ok());
-    let (dataspace, route_entry) = register_retail_lane(&mut chain, &keys);
+    let (dataspace, route_entry) = register_retail_lane(&mut chain, &keys, visibility);
     let definition =
         AssetDefinitionId::derive_from_components(domain.clone(), "kina".parse().expect("name"));
     let policy = RetailDailyLimitPolicyV1 {
@@ -735,7 +773,7 @@ fn activated_chain() -> ActivatedChain {
             .cloned()
             .expect("finalized runtime lane")
     };
-    store_lane_block(&chain, &stores, &keys, &record, activation_tx);
+    let publication = store_lane_block(&chain, &stores, &keys, &record, activation_tx);
     merge_lane(&mut chain, &stores);
     let committed = chain.committed(ACTIVATION_HEIGHT);
     let input_index = committed
@@ -743,16 +781,12 @@ fn activated_chain() -> ActivatedChain {
         .network_input_hashes()
         .position(|entry| entry == activation_entry)
         .expect("original activation was merged into the certified block");
-    let (_, output) = committed
+    committed
         .block()
         .network_output_at(u32::try_from(input_index).expect("bounded activation input index"))
         .expect("original activation has its exact typed Network output");
-    assert!(
-        output.result.as_ref().is_ok(),
-        "original merged activation failed native execution: {:?}",
-        output.result
-    );
-    ActivatedChain {
+    ActivationCandidate {
+        _publication: publication,
         chain,
         owner,
         governance,
@@ -764,6 +798,27 @@ fn activated_chain() -> ActivatedChain {
         activation_entry,
         _lane_dir: lane_dir,
     }
+}
+
+/// A public home on the global root supports the restricted balance policy being activated.
+fn activated_chain() -> ActivationCandidate {
+    let fixture = activation_candidate(LaneVisibility::Public);
+    let committed = fixture.chain.committed(ACTIVATION_HEIGHT);
+    let input_index = committed
+        .block()
+        .network_input_hashes()
+        .position(|entry| entry == fixture.activation_entry)
+        .expect("original activation was merged into the certified block");
+    let (_, output) = committed
+        .block()
+        .network_output_at(u32::try_from(input_index).expect("bounded activation input index"))
+        .expect("original activation has its exact typed Network output");
+    assert!(
+        output.result.as_ref().is_ok(),
+        "original merged activation failed native execution: {:?}",
+        output.result
+    );
+    fixture
 }
 
 /// The trust root a client selects independently: the signed genesis and its own committee.
@@ -871,6 +926,80 @@ fn finalized_activation_evidence_is_anchored_on_native_certified_finality() {
             &fixture.activation_entry
         )
         .expect("portable entry anchor")
+    );
+}
+
+#[test]
+fn restricted_home_on_global_root_has_certified_rejection_without_activation_evidence() {
+    let fixture = activation_candidate(LaneVisibility::Restricted);
+    let chain = &fixture.chain;
+    let committed = chain.committed(ACTIVATION_HEIGHT);
+    assert_eq!(committed.block().merged_entrypoint_count(), 1);
+    assert!(
+        committed
+            .block()
+            .execution_context()
+            .expect("original execution context")
+            .external
+            .contains(&ExternalExecutionContext::new(
+                fixture.activation_entry,
+                RETAIL_LANE,
+                fixture.dataspace
+            )),
+        "the rejected activation reached its original physical data space route"
+    );
+    let input_index = committed
+        .block()
+        .network_input_hashes()
+        .position(|entry| entry == fixture.activation_entry)
+        .expect("original rejected activation was merged into the certified block");
+    let (_, output) = committed
+        .block()
+        .network_output_at(u32::try_from(input_index).expect("bounded activation input index"))
+        .expect("original rejected activation has its exact typed Network output");
+    assert_eq!(
+        output.result.as_ref(),
+        Err(&TransactionRejectionReason::Validation(
+            ValidationFail::InstructionFailed(InstructionExecutionError::InvariantViolation(
+                "direct-dataspace registration currently requires a public home dataspace".into()
+            ))
+        )),
+        "the authenticated Global root cannot stand in for an independent private root"
+    );
+    let view = chain.state().view();
+    assert_eq!(
+        view.world().asset_definition(&fixture.definition),
+        Err(iroha_data_model::query::error::FindError::AssetDefinition(
+            fixture.definition.clone()
+        ))
+    );
+    assert_eq!(
+        retail_state::policy_for_exact(view.world(), &fixture.definition, fixture.dataspace)
+            .expect("native policy state"),
+        None
+    );
+    assert!(
+        view.world()
+            .smart_contract_state()
+            .get(&retail_state::activation_key(&fixture.definition))
+            .is_none(),
+        "failed activation leaves no native marker"
+    );
+    let prefix = verified_prefix(chain);
+    let (_, authenticated) = &prefix[at(ACTIVATION_HEIGHT)];
+    assert_eq!(
+        verify_finalized_retail_activation_v1(
+            authenticated.block(),
+            authenticated,
+            fixture.activation_entry,
+            &fixture.owner,
+            &fixture.policy,
+            &fixture.definition,
+            &fixture.domain,
+            fixture.dataspace,
+        ),
+        Err(RetailActivationProofError::MissingSuccessfulDirectInput),
+        "a valid certified rejection cannot become successful activation evidence"
     );
 }
 

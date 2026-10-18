@@ -138,7 +138,7 @@ fn every_actual_qc_control_layout_refusal_keeps_original_input_and_reclaims_reti
             PreparedQc::new(&input, range, &pool)
         });
         assert!(refused.is_err());
-        assert!(requests >= index + 1);
+        assert!(requests > index);
         assert_eq!(pool.reserved_bytes(), floor);
         assert_eq!(input.as_slice().as_ptr(), ptr);
         assert_eq!(norito::core::crc64_fallback(input.as_slice()), hash);
@@ -180,8 +180,8 @@ fn actual_qc_bitmap_allocator_refusal_preserves_controls_and_same_source_retry()
     // A fresh charge cannot be reacquired at this shrunken limit. The exact
     // original admitted charge must survive physical refusal and fund retry.
     pool.set_limit_bytes(floor);
-    let (decoded, requests) = run(None, 0, || decoder.prepare(&input, range, limits()));
-    decoded.unwrap();
+    let (preparation, requests) = run(None, 0, || decoder.prepare(&input, range, limits()));
+    preparation.unwrap();
     assert_eq!(requests, 1);
     assert_eq!(pool.reserved_bytes(), floor + 4);
     let (owner, requests) = run(None, 0, || decoder.finish().unwrap());
@@ -203,8 +203,8 @@ fn complete_qc_decode_has_only_original_bitmap_allocation_then_publication_and_s
     let pool = AllocationBudget::new(1 << 20);
     let (input, range) = source(&bytes, &pool);
     let mut decoder = PreparedQc::new(&input, range, &pool).unwrap();
-    let (decoded, requests) = run(None, 0, || decoder.prepare(&input, range, limits()));
-    decoded.unwrap();
+    let (preparation, requests) = run(None, 0, || decoder.prepare(&input, range, limits()));
+    preparation.unwrap();
     assert_eq!(
         requests, 1,
         "nine-field parse and exact frame comparison allocate only actual bitmap Vec"

@@ -110,6 +110,12 @@ impl Directory {
         original.file().sync_all()?;
         original.revalidate()
     }
+    pub(crate) fn sync_custody_file_ordered(&self, name: &OsStr) -> io::Result<()> {
+        let original = self.open_retained(name, true, false)?;
+        original.revalidate()?;
+        super::sync_file_ordered(original.file())?;
+        original.revalidate()
+    }
 }
 impl RetainedFile {
     pub(crate) fn rename_custody_file(

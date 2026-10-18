@@ -668,6 +668,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'native_lane_first_prepare_rechecks_pinned_clock_after_execution',
         'native_lane_first_prepare_admission_binds_original_source_and_retains_its_charge',
         'native_lane_first_prepare_owner_refusal_preserves_original_decoded_admission',
+        'startup_refusal_observation_borrows_the_original_native_recovery_carrier',
     )),
     ('native original proposal work and captured time', 'sumeragi/payload.rs', 'sumeragi/payload/work_tests.rs', 'work_tests', 'sumeragi::payload::work_tests', (
         'native_lane_merge_is_work_without_a_direct_network_execution_leaf',
@@ -675,6 +676,13 @@ NATIVE_CORE_TEST_OWNERS = (
         'fresh_proposal_progress_recheck_uses_captured_time_with_original_signed_input',
         'merge_floor_avoids_duplicate_original_parent_build_with_exact_wire_parity',
         'empty_work_and_cadence_overflow_refuse_before_any_parent_build',
+    )),
+    ('native confined private home root custody', 'smartcontracts/isi/domain.rs', 'smartcontracts/isi/domain/private_root_home_tests.rs', 'private_root_home_tests', 'smartcontracts::isi::domain::isi::private_root_home_tests', (
+        'original_private_root_registers_confined_home_and_never_creates_global_bucket',
+        'restricted_home_requires_original_private_root_not_global_missing_or_foreign_scope',
+        'original_private_home_requires_both_exact_captured_routes',
+        'original_private_home_requires_canonical_single_root_geometry',
+        'original_private_home_root_decode_refusal_remains_local_and_global_policy_stays_refused',
     )),
  )
 

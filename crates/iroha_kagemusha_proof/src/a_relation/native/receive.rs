@@ -584,7 +584,7 @@ struct Own {
     part: FoldInput<Eq>,
 }
 impl Own {
-    /// The σ_recv relation A1 proves inline, with absorbed prefixes.
+    /// The `σ_recv` relation A1 proves inline, with absorbed prefixes.
     fn shape() -> RelationShape {
         RelationShape::new(SigmaRelation::RECEIVE, PrefixMode::Absorbed)
     }

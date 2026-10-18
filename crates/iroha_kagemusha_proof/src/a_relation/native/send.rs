@@ -356,7 +356,7 @@ impl Plan {
     pub const fn context(&self) -> &ContextPlan {
         &self.context
     }
-    /// The σ_send relation of this installed mask, which A1 proves inline.
+    /// The `σ_send` relation of this installed mask, which A1 proves inline.
     #[must_use]
     pub fn relation(&self) -> SigmaRelation {
         SigmaRelation::send(u32::from(self.mask))

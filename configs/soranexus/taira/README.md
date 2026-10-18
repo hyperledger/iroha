@@ -837,9 +837,10 @@ mv <network>/genesis.expected_hash.next <network>/genesis.expected_hash
    per validator Torii root:
    `iroha --config <client.toml> sccp governance drive --release-peer <torii-1> ... --release-peer <torii-N> [--relay-dir <dir>]`.
    Keep it running while any SCCP proposal is Proposed or any attempt is
-   active (§4.14.5 item 4). The driver does not vote; citizens cast their own
-   ballots (`scripts/taira_devnet.py citizens` acts for the genesis citizens on
-   devnets, see [Devnet citizens](#devnet-citizens)).
+   active (§4.14.5 item 4). The driver does not vote or endorse; citizens act for
+   themselves (`scripts/taira_devnet.py citizens` responds to invitations and
+   endorses public findings for the genesis citizens on devnets, see
+   [Devnet citizens](#devnet-citizens)).
 7. Check the result with `iroha taira doctor --parliament`.
 
 ### Doctor
@@ -877,27 +878,13 @@ python3 scripts/taira_devnet.py citizens respond-invitation --iroha <iroha> \
   --governance-attempt-id <hex> --election-attempt-id <hex> --body policy-jury
 python3 scripts/taira_devnet.py citizens endorse --iroha <iroha> \
   --governance-attempt-id <hex> --body-instance-id <hex> --result-root <hex>
-python3 scripts/taira_devnet.py citizens ballot-register --iroha <iroha> \
-  --ballot-attempt-id <hex> [--anchor-height <height>]
-python3 scripts/taira_devnet.py citizens ballot-cast --iroha <iroha> \
-  --ballot-attempt-id <hex> --choice approve
-python3 scripts/taira_devnet.py citizens ballot-dropout --iroha <iroha> --ballot-attempt-id <hex>
-python3 scripts/taira_devnet.py citizens ballot-status --iroha <iroha> \
-  --governance-attempt-id <hex> [--ballot-attempt-id <hex>]
 ```
 
-The actions map to `iroha gov parliament respond-invitation`, `endorse` and
-`ballot register|cast|relay|dropout|status|anchor`; each helper first proves the
-compiled CLI exposes the documented command and options and fails with a clear
-message otherwise. Every action runs for all citizens unless `--citizen N`
-selects some, and reports each citizen's result, since only drawn or seated
-citizens can act. Ballot keys live next to the citizen keys
-(`citizen-NN.ballot.key` and `citizen-NN.ballot-state.json`); a new state file
-is pinned to the finality anchor the devnet's own Torii serves at the current
-height (every devnet peer is operator-owned; public citizens compare the anchor
-with a source they trust). `ballot-cast` writes each public ballot record to
-`citizen-NN.ballot-<ballot>.record` and relays the records of citizens whose
-predecessors in the frozen survivor order had not cast yet.
+The actions map to `iroha gov parliament respond-invitation` and `endorse`; each
+helper first proves the compiled CLI exposes the documented command and options
+and fails with a clear message otherwise. Every action runs for all citizens
+unless `--citizen N` selects some, and reports each citizen's result, since only
+drawn or seated citizens can act.
 
 ### Residual Sybil risk
 

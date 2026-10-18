@@ -10,6 +10,7 @@ use std::{
 struct Publication {
     instance: Hash32,
     budget: AllocationBudget,
+    owner: std::sync::OnceLock<OriginalPublicationOwner>,
     operation: Box<dyn Fn() -> Result<(), Attempt<io::Error>> + Send + Sync>,
 }
 impl RetiredPublication for Publication {
@@ -19,7 +20,25 @@ impl RetiredPublication for Publication {
     fn belongs_to(&self, budget: &AllocationBudget) -> bool {
         self.budget.same_pool(budget)
     }
-    fn resume(&self) -> Result<(), Attempt<io::Error>> {
+    fn bind_owner(&self, owner: OriginalPublicationOwner) -> io::Result<()> {
+        owner.require_binding_thread()?;
+        if !owner.belongs_to(self.instance, &self.budget) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "foreign original owner",
+            ));
+        }
+        self.owner
+            .set(owner)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "owner already bound"))
+    }
+    fn resume(&self, owner: &OriginalPublicationOwner) -> Result<(), Attempt<io::Error>> {
+        assert!(
+            self.owner
+                .get()
+                .is_some_and(|original| original.same_owner(owner))
+        );
+        owner.require_resume()?;
         (self.operation)()
     }
 }
@@ -30,6 +49,7 @@ fn publication(
     Arc::new(Publication {
         instance: Hash32([17; 32]),
         budget: budget.clone(),
+        owner: std::sync::OnceLock::new(),
         operation: Box::new(operation),
     })
 }
@@ -80,7 +100,7 @@ fn retired_publication_controls_require_exact_pool_identity_and_full_prepaid_cap
     drop(occupied);
     let (control, job) = admit(&store, &budget).unwrap();
     assert_eq!(budget.reserved_bytes(), bytes);
-    assert_eq!(Arc::strong_count(&store), 2);
+    assert_eq!(Arc::strong_count(&store), 3);
     drop(job);
     assert_eq!(
         budget.reserved_bytes(),
@@ -130,11 +150,17 @@ fn retired_publication_capacity_keeps_original_refusal_until_its_actual_release_
         Some(&original),
         "the exact non-Clone refusal survives until the actual retry result"
     );
+    control.retire();
     job.run();
     assert!(control.complete());
     drop(control);
-    assert_eq!(budget.reserved_bytes(), 0);
     assert_eq!(Arc::strong_count(&store), 1);
+    assert_eq!(
+        budget.reserved_bytes(),
+        ChargedShared::<Control>::allocation_layout().size()
+    );
+    drop(store);
+    assert_eq!(budget.reserved_bytes(), 0);
 }
 
 #[test]
@@ -210,6 +236,7 @@ fn original_joiner_physically_joins_workers_before_running_exact_publication() {
         let _ = wait.recv();
         worker_ended.store(true, Ordering::Release);
     });
+    control.retire();
     let thread = match joiner.handoff(vec![worker]) {
         Ok(thread) => thread,
         Err(failed) => {
@@ -221,22 +248,32 @@ fn original_joiner_physically_joins_workers_before_running_exact_publication() {
             panic!("original handoff");
         }
     };
-    let early = calls.try_recv();
+    let early = calls.recv_timeout(Duration::from_millis(30));
+    let premature = early.is_ok();
     let _ = release.send(());
-    let call = calls.recv_timeout(Duration::from_secs(5));
+    let call = early.or_else(|_| calls.recv_timeout(Duration::from_secs(5)));
     control.stop();
     let joined = thread.join();
-    assert!(
-        matches!(early, Err(mpsc::TryRecvError::Empty)),
-        "publication cannot precede the original physical worker join"
-    );
-    assert_eq!(call.unwrap(), (original_joiner, true));
     assert!(joined.is_ok());
     assert!(control.complete());
     drop(stop_guard);
     drop(control);
-    assert_eq!(budget.reserved_bytes(), 0);
     assert_eq!(Arc::strong_count(&store), 1);
+    assert_eq!(
+        budget.reserved_bytes(),
+        ChargedShared::<Control>::allocation_layout().size()
+    );
+    drop(store);
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert!(
+        !premature && call.as_ref() == Ok(&(original_joiner, true)),
+        "original publication must wait for every successful physical worker join"
+    );
+    assert!(
+        !premature,
+        "publication cannot precede the original physical worker join"
+    );
+    assert_eq!(call.unwrap(), (original_joiner, true));
 }
 
 #[test]
@@ -257,6 +294,7 @@ fn final_shutdown_wakes_original_capacity_wait_and_releases_exact_retained_owner
     let stop_guard = StopOnDrop(&control);
     let held = budget.try_reserve_bytes(1).unwrap();
     let joiner = super::super::DriverJoiner::start(Some(job)).unwrap();
+    control.retire();
     let thread = joiner.handoff(Vec::new()).ok().unwrap();
     let observed = observation.recv_timeout(Duration::from_secs(5));
     control.stop();
@@ -281,10 +319,18 @@ fn final_shutdown_wakes_original_capacity_wait_and_releases_exact_retained_owner
     );
     drop(stop_guard);
     drop(control);
-    assert_eq!(budget.reserved_bytes(), 1);
+    assert_eq!(
+        budget.reserved_bytes(),
+        ChargedShared::<Control>::allocation_layout().size() + 1
+    );
     drop(held);
-    assert_eq!(budget.reserved_bytes(), 0);
     assert_eq!(Arc::strong_count(&store), 1);
+    assert_eq!(
+        budget.reserved_bytes(),
+        ChargedShared::<Control>::allocation_layout().size()
+    );
+    drop(store);
+    assert_eq!(budget.reserved_bytes(), 0);
 }
 
 struct RefusalDrop {
@@ -313,7 +359,7 @@ fn replacement_refusal_callback_can_reenter_original_stop_without_a_completion_l
     let budget = AllocationBudget::new(bytes + 1);
     let store = publication(&budget, || Ok(()));
     let (control, mut job) = admit(&store, &budget).unwrap();
-    let reentry = RetirementControl(job.control.clone());
+    let reentry = control.clone();
     let called = Arc::new(AtomicBool::new(false));
     let observed = Arc::clone(&called);
     let callback_budget = budget.clone();
@@ -361,8 +407,13 @@ fn final_shutdown_before_handoff_joins_original_workers_without_starting_publica
     assert!(worker_done.load(Ordering::Acquire));
     assert!(!control.complete());
     drop(control);
-    assert_eq!(budget.reserved_bytes(), 0);
     assert_eq!(Arc::strong_count(&store), 1);
+    assert_eq!(
+        budget.reserved_bytes(),
+        ChargedShared::<Control>::allocation_layout().size()
+    );
+    drop(store);
+    assert_eq!(budget.reserved_bytes(), 0);
 }
 
 #[test]
@@ -371,10 +422,15 @@ fn panicking_publication_cannot_claim_completion_or_release_the_original_store_o
     let store = publication(&budget, || panic!("original publication callback unwind"));
     let (control, job) = admit(&store, &budget).unwrap();
     let joiner = super::super::DriverJoiner::start(Some(job)).unwrap();
+    control.retire();
     let thread = joiner.handoff(Vec::new()).ok().unwrap();
     let joined = thread.join();
     assert!(joined.is_err());
     assert!(!control.complete());
+    assert!(
+        store.owner.get().unwrap().admit_append().is_err(),
+        "publication unwind must leave its exact original owner terminal"
+    );
     assert_eq!(
         Arc::strong_count(&store),
         2,
@@ -385,8 +441,13 @@ fn panicking_publication_cannot_claim_completion_or_release_the_original_store_o
         ChargedShared::<Control>::allocation_layout().size()
     );
     drop(control);
-    assert_eq!(budget.reserved_bytes(), 0);
     assert_eq!(Arc::strong_count(&store), 1);
+    assert_eq!(
+        budget.reserved_bytes(),
+        ChargedShared::<Control>::allocation_layout().size()
+    );
+    drop(store);
+    assert_eq!(budget.reserved_bytes(), 0);
 }
 
 #[test]
@@ -426,6 +487,7 @@ fn original_joiner_retries_capacity_only_after_real_release_on_the_same_thread()
         let held = budget.try_reserve_bytes(1).unwrap();
         let joiner = super::super::DriverJoiner::start(Some(job)).unwrap();
         let original_thread = joiner.thread.thread().id();
+        control.retire();
         let thread = joiner.handoff(Vec::new()).ok().unwrap();
         let first = refusal_seen.recv_timeout(Duration::from_secs(5));
         let (premature, attempts_before_release) = if release_before_refusal_returns {
@@ -463,7 +525,379 @@ fn original_joiner_retries_capacity_only_after_real_release_on_the_same_thread()
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
         drop(stop_guard);
         drop(control);
-        assert_eq!(budget.reserved_bytes(), 0);
         assert_eq!(Arc::strong_count(&store), 1);
+        assert_eq!(
+            budget.reserved_bytes(),
+            ChargedShared::<Control>::allocation_layout().size()
+        );
+        drop(store);
+        assert_eq!(budget.reserved_bytes(), 0);
     }
+}
+
+#[test]
+fn original_worker_panic_never_authorizes_publication_or_retirement_success() {
+    let budget = AllocationBudget::new(RetirementJob::admission_bytes().unwrap());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed_calls = Arc::clone(&calls);
+    let store = publication(&budget, move || {
+        observed_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    });
+    let (control, job) = admit(&store, &budget).unwrap();
+    let joiner = super::super::DriverJoiner::start(Some(job)).unwrap();
+    let (panicked, observed) = mpsc::sync_channel(1);
+    let first = std::thread::spawn(move || {
+        panicked.send(()).unwrap();
+        panic!("original physical worker panic");
+    });
+    let (release, resume) = mpsc::sync_channel(1);
+    let last = std::thread::spawn(move || {
+        let _ = resume.recv();
+    });
+    control.retire();
+    let thread = joiner.handoff(vec![first, last]).ok().unwrap();
+    let first_ended = observed.recv_timeout(Duration::from_secs(5));
+    let pending_last_join = !thread.is_finished();
+    let calls_before_join = calls.load(Ordering::SeqCst);
+    let _ = release.send(());
+    let joined = thread.join();
+    let original_failure = joined.as_ref().err().is_some_and(|error| {
+        error.downcast_ref::<&str>() == Some(&"original physical worker panic")
+    });
+    let completed = control.complete();
+    let refused_append = store.owner.get().unwrap().admit_append().is_err();
+    let calls_after_join = calls.load(Ordering::SeqCst);
+    let retained_original = Arc::strong_count(&store) == 2;
+    drop(joined);
+    drop(control);
+    assert_eq!(Arc::strong_count(&store), 1);
+    assert_eq!(
+        budget.reserved_bytes(),
+        ChargedShared::<Control>::allocation_layout().size()
+    );
+    drop(store);
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert!(first_ended.is_ok() && pending_last_join);
+    assert_eq!(calls_before_join, 0);
+    assert!(retained_original);
+    assert!(
+        refused_append,
+        "failed physical joins must close original append admission"
+    );
+    assert!(
+        original_failure && !completed && calls_after_join == 0,
+        "a failed original worker join must retain failure and never authorize publication"
+    );
+}
+
+#[test]
+fn retirement_waits_for_every_original_append_permit_before_native_continuation() {
+    let budget = AllocationBudget::new(RetirementJob::admission_bytes().unwrap());
+    let (called, calls) = mpsc::sync_channel(1);
+    let store = publication(&budget, move || {
+        called.send(std::thread::current().id()).unwrap();
+        Ok(())
+    });
+    let (control, job) = admit(&store, &budget).unwrap();
+    let joiner = super::super::DriverJoiner::start(Some(job)).unwrap();
+    control.wait_bound().unwrap();
+    let original_thread = joiner.thread.thread().id();
+    let owner = store.owner.get().unwrap().clone();
+    let first = owner.admit_append().unwrap();
+    let last = owner.admit_append().unwrap();
+    control.retire();
+    let closed = owner.admit_append().is_err();
+    let thread = joiner.handoff(Vec::new()).ok().unwrap();
+    let early = calls.recv_timeout(Duration::from_millis(30));
+    let complete_with_both = control.complete();
+    drop(first);
+    let after_one = calls.recv_timeout(Duration::from_millis(30));
+    let complete_with_last = control.complete();
+    drop(last);
+    let actual = calls.recv_timeout(Duration::from_secs(5));
+    control.stop();
+    let joined = thread.join();
+    drop(owner);
+    drop(control);
+    assert_eq!(
+        budget.reserved_bytes(),
+        ChargedShared::<Control>::allocation_layout().size()
+    );
+    drop(store);
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert!(joined.is_ok());
+    assert!(closed);
+    assert!(
+        early.is_err()
+            && after_one.is_err()
+            && !complete_with_both
+            && !complete_with_last
+            && actual == Ok(original_thread),
+        "original retirement must wait for every admitted append permit before native continuation"
+    );
+}
+
+#[derive(Debug)]
+struct OriginalBindingFailure(Arc<()>);
+impl std::fmt::Display for OriginalBindingFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("original native binding refusal")
+    }
+}
+impl std::error::Error for OriginalBindingFailure {}
+
+struct RefusedBinding {
+    budget: AllocationBudget,
+    source: Arc<()>,
+    panic_after_binding: bool,
+}
+impl RetiredPublication for RefusedBinding {
+    fn instance(&self) -> Hash32 {
+        Hash32([17; 32])
+    }
+    fn belongs_to(&self, budget: &AllocationBudget) -> bool {
+        self.budget.same_pool(budget)
+    }
+    fn bind_owner(&self, owner: OriginalPublicationOwner) -> io::Result<()> {
+        owner.require_binding_thread()?;
+        if self.panic_after_binding {
+            panic!("original binding panic");
+        }
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            OriginalBindingFailure(self.source.clone()),
+        ))
+    }
+    fn resume(&self, _: &OriginalPublicationOwner) -> Result<(), Attempt<io::Error>> {
+        panic!("refused binding cannot authorize publication")
+    }
+}
+
+#[test]
+fn original_binding_refusal_and_panic_wake_readiness_without_losing_their_source() {
+    for panics in [false, true] {
+        let budget = AllocationBudget::new(RetirementJob::admission_bytes().unwrap());
+        let source = Arc::new(());
+        let store = Arc::new(RefusedBinding {
+            budget: budget.clone(),
+            source: source.clone(),
+            panic_after_binding: panics,
+        });
+        let (control, job) =
+            RetirementJob::admit(store.clone(), store.instance(), &budget, Backoff::default())
+                .unwrap();
+        let super::super::DriverJoiner { workers, thread } =
+            super::super::DriverJoiner::start(Some(job)).unwrap();
+        let result = control.wait_bound();
+        let exact = match &result {
+            Err(DriverError::RetirementBinding(error)) if panics => {
+                error.kind() == io::ErrorKind::BrokenPipe
+            }
+            Err(DriverError::RetirementBinding(error)) => error
+                .get_ref()
+                .and_then(|source| source.downcast_ref::<OriginalBindingFailure>())
+                .is_some_and(|original| Arc::ptr_eq(&original.0, &source)),
+            _ => false,
+        };
+        drop(workers);
+        let joined = thread.join();
+        let original_panic = joined
+            .as_ref()
+            .err()
+            .is_some_and(|error| error.downcast_ref::<&str>() == Some(&"original binding panic"));
+        assert!(!control.complete());
+        drop((result, joined, control, store));
+        assert_eq!(budget.reserved_bytes(), 0);
+        assert!(
+            exact,
+            "readiness retains the actual binding refusal or original joiner panic boundary"
+        );
+        assert_eq!(original_panic, panics);
+        assert_eq!(Arc::strong_count(&source), 1);
+    }
+}
+
+struct HeldBinding {
+    original: Arc<Publication>,
+    entered: mpsc::SyncSender<()>,
+    release: parking_lot::Mutex<mpsc::Receiver<()>>,
+}
+impl RetiredPublication for HeldBinding {
+    fn instance(&self) -> Hash32 {
+        self.original.instance
+    }
+    fn belongs_to(&self, budget: &AllocationBudget) -> bool {
+        self.original.budget.same_pool(budget)
+    }
+    fn bind_owner(&self, owner: OriginalPublicationOwner) -> io::Result<()> {
+        self.original.bind_owner(owner)?;
+        self.entered.send(()).map_err(io::Error::other)?;
+        self.release.lock().recv().map_err(io::Error::other)
+    }
+    fn resume(&self, owner: &OriginalPublicationOwner) -> Result<(), Attempt<io::Error>> {
+        self.original.resume(owner)
+    }
+}
+
+#[test]
+fn stop_before_or_during_original_binding_never_acknowledges_live_append_readiness() {
+    for stop_before_bind in [true, false] {
+        let budget = AllocationBudget::new(RetirementJob::admission_bytes().unwrap());
+        let original = publication(&budget, || panic!("stopped binding cannot publish"));
+        let (entered, observed) = mpsc::sync_channel(1);
+        let (release, resumed) = mpsc::sync_channel(1);
+        let store = Arc::new(HeldBinding {
+            original: original.clone(),
+            entered,
+            release: parking_lot::Mutex::new(resumed),
+        });
+        let (control, job) =
+            RetirementJob::admit(store.clone(), store.instance(), &budget, Backoff::default())
+                .unwrap();
+        if stop_before_bind {
+            control.stop();
+        }
+        let joiner = super::super::DriverJoiner::start(Some(job)).unwrap();
+        let entered = observed.recv_timeout(Duration::from_secs(5));
+        let before_ready = original
+            .owner
+            .get()
+            .is_some_and(|owner| owner.admit_append().is_err());
+        if !stop_before_bind {
+            control.stop();
+        }
+        // Complete only the actual original binding; stop never fabricates Ready.
+        let _ = release.send(());
+        let readiness = control.wait_bound();
+        let stopped = matches!(&readiness, Err(DriverError::RetirementBinding(error))
+            if error.kind() == io::ErrorKind::Interrupted);
+        let thread = joiner.handoff(Vec::new()).ok().unwrap();
+        let joined = thread.join();
+        let terminal = original.owner.get().unwrap().admit_append().is_err();
+        assert!(!control.complete());
+        drop((readiness, control, store));
+        assert_eq!(
+            budget.reserved_bytes(),
+            ChargedShared::<Control>::allocation_layout().size()
+        );
+        drop(original);
+        assert_eq!(budget.reserved_bytes(), 0);
+        assert!(joined.is_ok());
+        assert!(
+            entered.is_ok() && before_ready && stopped && terminal,
+            "stop around original binding must preserve completion ordering and terminal append ownership"
+        );
+    }
+}
+
+#[test]
+fn final_stop_drains_original_append_permit_without_retrying_publication() {
+    let budget = AllocationBudget::new(RetirementJob::admission_bytes().unwrap());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed_calls = calls.clone();
+    let store = publication(&budget, move || {
+        observed_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    });
+    let (control, job) = admit(&store, &budget).unwrap();
+    let (ended, observed) = mpsc::sync_channel(1);
+    let joiner = super::super::DriverJoiner::start_with(move |receive| {
+        super::super::DriverJoiner::join_workers(receive, Some(job));
+        let _ = ended.send(());
+    })
+    .unwrap();
+    control.wait_bound().unwrap();
+    let owner = store.owner.get().unwrap().clone();
+    let original = owner.admit_append().unwrap();
+    control.stop();
+    let rejects_new = owner.admit_append().is_err();
+    let thread = joiner.handoff(Vec::new()).ok().unwrap();
+    let early = observed.recv_timeout(Duration::from_secs(5));
+    let premature = early.is_ok();
+    let calls_while_held = calls.load(Ordering::SeqCst);
+    drop(original);
+    let ended = early.or_else(|_| observed.recv_timeout(Duration::from_secs(5)));
+    let joined = thread.join();
+    let resumed = control.complete() || calls.load(Ordering::SeqCst) != 0;
+    drop((owner, control));
+    assert_eq!(
+        budget.reserved_bytes(),
+        ChargedShared::<Control>::allocation_layout().size()
+    );
+    drop(store);
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert!(joined.is_ok() && ended.is_ok());
+    assert!(rejects_new);
+    assert_eq!(calls_while_held, 0);
+    assert!(
+        !premature && !resumed,
+        "final stop must drain every admitted append permit without retrying publication"
+    );
+}
+
+#[test]
+fn original_worker_panics_keep_secondary_payloads_until_every_physical_join_finishes() {
+    use crate::sumeragi::driver::worker_panic::tests::{
+        PanicWorkers, join_barrier, with_before_join,
+    };
+    let mut workers = PanicWorkers::new();
+    let budget = AllocationBudget::new(RetirementJob::admission_bytes().unwrap());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed_calls = calls.clone();
+    let store = publication(&budget, move || {
+        observed_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    });
+    let (control, job) = admit(&store, &budget).unwrap();
+    let (hook, observed, release_hook) = join_barrier();
+    let joiner = super::super::DriverJoiner::start_with(move |receive| {
+        with_before_join(hook, || {
+            super::super::DriverJoiner::join_workers(receive, Some(job))
+        });
+    })
+    .unwrap();
+    control.retire();
+    let thread = joiner
+        .handoff(std::mem::take(&mut workers.handles))
+        .ok()
+        .unwrap();
+    let entered = observed.recv_timeout(Duration::from_secs(5));
+    let early = workers.premature.load(Ordering::SeqCst);
+    let retained = workers.budget.reserved_bytes();
+    let uncompleted = !thread.is_finished();
+    workers.release();
+    let _ = release_hook.send(());
+    let joined = thread.join();
+    let exact_first = joined
+        .as_ref()
+        .err()
+        .and_then(|error| error.downcast_ref::<Arc<()>>())
+        .is_some_and(|error| Arc::ptr_eq(error, &workers.original));
+    let exact_box = joined.as_ref().err().is_some_and(|error| {
+        std::ptr::from_ref(error.as_ref()).cast::<()>() as usize == workers.original_address
+    });
+    let completed = control.complete();
+    let append_refused = store.owner.get().unwrap().admit_append().is_err();
+    let publication_calls = calls.load(Ordering::SeqCst);
+    drop(joined);
+    drop(control);
+    assert_eq!(Arc::strong_count(&store), 1);
+    assert_eq!(
+        budget.reserved_bytes(),
+        ChargedShared::<Control>::allocation_layout().size()
+    );
+    drop(store);
+    assert_eq!(budget.reserved_bytes(), 0);
+    workers.assert_clean();
+    assert!(entered.is_ok() && uncompleted);
+    assert!(
+        exact_first && exact_box,
+        "complete cleanup must preserve the first original panic identity"
+    );
+    assert!(!completed && append_refused && publication_calls == 0);
+    assert!(
+        !early && retained == 1,
+        "secondary panic payloads must remain owned until every original worker physically joins"
+    );
 }

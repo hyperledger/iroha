@@ -1668,8 +1668,18 @@ fn concurrent_reviewed_retail_payments_and_replay_do_not_double_spend_inclusion(
         concurrent_payment.is_err(),
         "concurrent free assessment cannot acquire an overage charge"
     );
+    // Publish only the successful payment and its competing assessment rejection.
+    // A duplicate input within one canonical block is rejected before execution;
+    // this component helper cannot reuse an already-consumed invocation owner.
+    // Replay the exact signed payment against the retained World in a fresh scope.
+    block.commit_world_overlay_for_testing().unwrap();
+    let mut replay_block = state.block(block_header(
+        &state,
+        TEST_POLICY_EFFECTIVE_HEIGHT + 1,
+        1_793_451_601_001,
+    ));
     let replay = iroha_core::tx::execute_component_transaction_for_testing(
-        &mut block,
+        &mut replay_block,
         accept_transaction(&state, transactions[0].clone()),
         &mut cache,
         None,
@@ -1678,7 +1688,18 @@ fn concurrent_reviewed_retail_payments_and_replay_do_not_double_spend_inclusion(
         replay.is_err(),
         "same signed payment cannot consume another included payment"
     );
-    block.commit_world_overlay_for_testing().unwrap();
+    assert!(
+        matches!(
+            replay,
+            Err(
+                iroha_data_model::transaction::error::TransactionRejectionReason::Validation(
+                    iroha_data_model::ValidationFail::NotPermitted(_)
+                )
+            )
+        ),
+        "replay must reject deterministically, not poison an invalid component owner: {replay:?}"
+    );
+    replay_block.commit_world_overlay_for_testing().unwrap();
     let view = state.view();
     iroha_core::retail_fee::test_support::validate_frontier(view.world())
         .expect("payment and rejected replay preserve the exact unsettled-month frontier");
@@ -1692,6 +1713,10 @@ fn concurrent_reviewed_retail_payments_and_replay_do_not_double_spend_inclusion(
     assert_eq!(
         asset_balance(view.world(), &AssetId::new(asset.clone(), user.clone())),
         quantity("99")
+    );
+    assert_eq!(
+        asset_balance(view.world(), &AssetId::new(asset.clone(), recipient)),
+        quantity("1")
     );
     assert_eq!(
         asset_balance(view.world(), &AssetId::new(asset, treasury)),

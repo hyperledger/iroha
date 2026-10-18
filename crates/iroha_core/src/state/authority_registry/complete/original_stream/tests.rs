@@ -628,15 +628,44 @@ fn complete_original_fixture_covers_every_table_and_all_cells() {
         })
         .collect();
     assert_eq!(addresses, retried);
+    // Consume the real insertion stream, not only the replacement notifications.
+    // This registry starts empty in the original State and is populated by the
+    // existing validated Musubi fixture before its frozen cut is captured.
+    assert!(state.world.musubi_namespace_bindings.view().is_empty());
+    let expected_bindings: BTreeMap<_, _> = block
+        .world
+        .musubi_namespace_bindings
+        .iter()
+        .map(|(key, value)| {
+            (
+                norito::codec::encode_adaptive(key),
+                norito::codec::encode_adaptive(value),
+            )
+        })
+        .collect();
+    assert!(!expected_bindings.is_empty());
+    let mut actual_bindings = BTreeMap::new();
     let mut replacements = Vec::new();
     cut.changes(
         |id| {
             replacements.push(id);
             Ok::<_, core::convert::Infallible>(())
         },
-        |_, _| Ok(()),
+        |id, change| {
+            if id == "world.musubi_namespace_bindings" {
+                assert!(change.before.is_none());
+                assert!(
+                    actual_bindings
+                        .insert(change.key.to_vec(), change.after.unwrap().to_vec())
+                        .is_none(),
+                    "one original insertion per canonical namespace key"
+                );
+            }
+            Ok(())
+        },
     )
     .unwrap();
+    assert_eq!(actual_bindings, expected_bindings);
     assert_eq!(
         replacements,
         ["state.transactions.current", "state.transactions.rollback"]

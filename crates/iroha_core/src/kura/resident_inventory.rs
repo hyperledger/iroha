@@ -56,7 +56,8 @@ impl<T: ResidentOwner> ResidentMutex<T> {
         self.guard(self.inner.lock())
     }
 
-    /// Preserve callers' existing nonblocking owner-lock behavior.
+    /// Observe the original owner lock without blocking in release-callback controls.
+    #[cfg(test)]
     pub(super) fn try_lock(&self) -> Option<ResidentGuard<'_, T>> {
         self.inner.try_lock().map(|guard| self.guard(guard))
     }

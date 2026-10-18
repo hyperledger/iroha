@@ -19,6 +19,37 @@ mod apple_acl;
 #[cfg(target_vendor = "apple")]
 #[path = "apple_inventory.rs"]
 mod apple_inventory;
+#[cfg(target_vendor = "apple")]
+#[path = "apple_sync.rs"]
+mod apple_sync;
+#[cfg(all(target_vendor = "apple", test))]
+#[path = "unix/apple_sync_tests.rs"]
+mod apple_sync_tests;
+
+/// Order a file's data and metadata before later I/O on its device: `F_BARRIERFSYNC` on Apple
+/// (made durable by [`durability_fence`]); elsewhere `fsync`, which is already durable.
+pub fn sync_file_ordered(file: &File) -> io::Result<()> {
+    #[cfg(target_vendor = "apple")]
+    {
+        apple_sync::ordered(file)
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        file.sync_all()
+    }
+}
+
+/// Persist every ordered sync of this process; the number of devices flushed (Apple only).
+pub fn durability_fence() -> io::Result<u64> {
+    #[cfg(target_vendor = "apple")]
+    {
+        apple_sync::fence()
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    {
+        Ok(0)
+    }
+}
 
 #[cfg(any(target_os = "android", test))]
 #[path = "unix/android_ancestry.rs"]
@@ -1135,6 +1166,11 @@ impl Directory {
     pub(super) fn sync(&self) -> io::Result<()> {
         self.revalidate()?;
         self.current().file.sync_all()
+    }
+
+    pub(super) fn sync_ordered(&self) -> io::Result<()> {
+        self.revalidate()?;
+        sync_file_ordered(&self.current().file)
     }
 
     pub(super) fn rename_to_sibling(mut self, name: &OsStr, mode: PublishMode) -> io::Result<Self> {

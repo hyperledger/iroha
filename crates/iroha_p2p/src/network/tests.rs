@@ -525,6 +525,10 @@ fn set_one_frame_lane_source_budget(
         RELIABLE_ACTOR_SOURCE_WINDOW,
     )
     .expect("one-frame lane byte cap with independent target sources");
+    assert_eq!(
+        handle.network_actor_progress_budget.max_items_per_source,
+        RELIABLE_ACTOR_SOURCE_WINDOW,
+    );
 }
 type TestPeerReceivers<T> = crate::peer::handles::TestPeerHandleReceivers<WireMessage<T>>;
 fn random_node_key_pair() -> KeyPair {

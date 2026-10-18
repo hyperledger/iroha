@@ -400,6 +400,61 @@ mod handle_update_tests {
         assert_eq!(budget.retained(), 0);
     }
     #[test]
+    fn small_source_frames_pipeline_only_within_original_byte_and_item_caps() {
+        for ceiling in [
+            RELIABLE_ACTOR_SOURCE_WINDOW,
+            RELIABLE_ACTOR_SOURCE_WINDOW + 1,
+        ] {
+            let budget = NetworkActorProgressBudget::new_with_window(
+                ceiling,
+                1,
+                1,
+                RELIABLE_ACTOR_SOURCE_WINDOW,
+            )
+            .expect("one source with the production item window");
+            let shape = |index: usize| ProgressTicketShape {
+                topic: message::Topic::Consensus,
+                stream_wire_bytes: 1,
+                broadcast: false,
+                reply_writer_timeout_attempt: None,
+                request_digest: Hash::new(index.to_le_bytes()),
+                authority: None,
+            };
+            let mut retained = Vec::new();
+            for index in 0..RELIABLE_ACTOR_SOURCE_WINDOW {
+                let ProgressLeaseAttempt::Ready { lease, mut ticket } =
+                    budget.try_reserve(1, shape(index), None)
+                else {
+                    panic!("small original frames must fit the existing source window");
+                };
+                ticket.commit();
+                retained.push(lease);
+            }
+            assert_eq!(budget.retained(), RELIABLE_ACTOR_SOURCE_WINDOW);
+            let pending = shape(RELIABLE_ACTOR_SOURCE_WINDOW);
+            let ProgressLeaseAttempt::Waiting {
+                ticket: Some(ticket),
+                rank: 1,
+            } = budget.try_reserve(1, pending, None)
+            else {
+                panic!("an additional frame must wait even when one byte remains");
+            };
+            drop(retained.pop().unwrap());
+            let ProgressLeaseAttempt::Ready {
+                lease,
+                ticket: mut admitted,
+            } = budget.try_reserve(1, pending, Some(ticket))
+            else {
+                panic!("the original rank-one ticket acquires the released source slot");
+            };
+            admitted.commit();
+            assert_eq!(budget.retained(), RELIABLE_ACTOR_SOURCE_WINDOW);
+            drop(lease);
+            drop(retained);
+            assert_eq!(budget.retained(), 0);
+        }
+    }
+    #[test]
     fn configured_producer_geometry_gives_six_same_source_waiters_decreasing_ranks() {
         let waiters_per_source = RELIABLE_PROGRESS_WAITERS_PER_SOURCE;
         assert!(
@@ -904,13 +959,7 @@ mod handle_update_tests {
                 let ProgressLeaseAttempt::Waiting {
                     ticket: Some(ticket),
                     rank,
-                } = budget.try_reserve_for_source(
-                    bytes,
-                    request_shape,
-                    source.clone(),
-                    None,
-                    None,
-                )
+                } = budget.try_reserve_for_source(bytes, request_shape, source.clone(), None, None)
                 else {
                     panic!("every class must retain its complete independent waiter envelope");
                 };
@@ -993,7 +1042,10 @@ mod handle_update_tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         assert_eq!(state.waiter_count, 0);
         assert_eq!(state.waiters_by_class, [0; ActorProgressClass::COUNT]);
-        assert_eq!(state.retained_sources_by_class, [0; ActorProgressClass::COUNT]);
+        assert_eq!(
+            state.retained_sources_by_class,
+            [0; ActorProgressClass::COUNT]
+        );
     }
     #[test]
     fn progress_ticket_allocation_never_wraps_and_resets_only_when_empty() {

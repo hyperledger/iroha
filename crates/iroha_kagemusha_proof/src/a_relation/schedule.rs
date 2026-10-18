@@ -56,16 +56,13 @@ pub fn constrain_sigma_selector(
     operation_tag: u8,
     mask: &Word<Fp>,
 ) -> Result<Word<Fp>, Error> {
-    match operation_tag {
-        3 => {
-            uint.range_check::<2>(region, mask)?;
-            uint.glue().add_constant(region, mask, Fp::from(2))
-        }
-        _ => {
-            let index = sigma_selector(operation_tag, 0).ok_or(Error::Synthesis)?;
-            GlueChip::assert_constant(region, mask, Fp::ZERO)?;
-            uint.glue().constant(region, Fp::from(u64::from(index)))
-        }
+    if operation_tag == 3 {
+        uint.range_check::<2>(region, mask)?;
+        uint.glue().add_constant(region, mask, Fp::from(2))
+    } else {
+        let index = sigma_selector(operation_tag, 0).ok_or(Error::Synthesis)?;
+        GlueChip::assert_constant(region, mask, Fp::ZERO)?;
+        uint.glue().constant(region, Fp::from(u64::from(index)))
     }
 }
 

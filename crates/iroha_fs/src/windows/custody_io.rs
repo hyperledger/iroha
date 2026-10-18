@@ -141,6 +141,9 @@ impl Directory {
         }
         Ok(available)
     }
+    pub(crate) fn sync_custody_file_ordered(&self, name: &OsStr) -> io::Result<()> {
+        self.sync_custody_file(name)
+    }
     pub(crate) fn sync_custody_file(&self, name: &OsStr) -> io::Result<()> {
         self.revalidate()?;
         let file = open_file(

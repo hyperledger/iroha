@@ -399,15 +399,16 @@ mod tests {
             1,
         ))
         .expect("frame");
-        let carried = carrier.encode().len();
-        assert!(carried > carrier.as_bytes().len());
+        let encoded_len = carrier.encode().len();
+        let framing = encoded_len - carrier.as_bytes().len();
+        assert!(framing > 0);
         assert!(
-            carried + 64 <= ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1,
-            "{carried}"
+            encoded_len + 64 <= ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1,
+            "{encoded_len}"
         );
         // The cap holds for an envelope at its own cap, framing included.
         assert!(
-            ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1 + (carried - carrier.as_bytes().len()) + 64
+            ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1 + framing + 64
                 <= ANONYMOUS_BALLOT_ENTRYPOINT_WIRE_MAX_BYTES_V1
         );
     }

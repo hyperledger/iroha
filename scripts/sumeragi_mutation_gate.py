@@ -1554,24 +1554,173 @@ CORE_MUTATIONS = [
       causes=(ExpectedFailure("a new incarnation must not acquire startup authority before its same-lane predecessor physically finishes",
           "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
 
-    m("HC395", "Lane shutdown: resume original publication while its retiring driver remains owned",
-      ["sumeragi::driver::tests::threaded::retirement_tests::pending_publication_waits_for_its_original_retiring_driver"],
-      causes=(ExpectedFailure("a still-owned retiring driver must exclude its original pending publication from lifecycle continuation",
+    m("HC395", "Original joiner publishes before physically joining every original worker",
+      ["sumeragi::driver::retirement::tests::original_joiner_physically_joins_workers_before_running_exact_publication"],
+      causes=(ExpectedFailure("original publication must wait for every successful physical worker join",
+          "crates/iroha_core/src/sumeragi/driver/retirement/tests.rs"),)),
+
+    m("HC422", "Native append bypasses original joining-owner admission",
+      ["sumeragi::lanes::store::owner_tests::native_append_without_original_joiner_refuses_before_any_write_or_tip_change"],
+      causes=(ExpectedFailure("ownerless append must refuse before any native write, retained write or tip mutation",
+          "crates/iroha_core/src/sumeragi/lanes/store/owner_tests.rs"),)),
+
+    m("HC423", "Registry notification performs original native publication on the lifecycle caller",
+      ["sumeragi::driver::tests::threaded::retirement_tests::original_orphan_publication_does_not_block_other_lane_transaction_delivery"],
+      causes=(ExpectedFailure("original orphan SyncDir must not block another lane's actual lifecycle turn and transaction commit",
           "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
+
+    m("HC424", "Native store acknowledges a second original joining owner",
+      ["sumeragi::lanes::store::owner_tests::native_owner_binding_refuses_repeated_concurrent_and_foreign_admission"],
+      causes=(ExpectedFailure("a second original joining owner must fail before replacing or acknowledging a bound store",
+          "crates/iroha_core/src/sumeragi/lanes/store/owner_tests.rs"),)),
+
+    m("HC425", "Stopped or failed original publication owner admits another append",
+      ["sumeragi::lanes::store::owner_tests::stopped_original_owner_refuses_append_and_stays_bound_until_final_store_release"],
+      causes=(ExpectedFailure("a stopped original publication owner must never admit another append",
+          "crates/iroha_core/src/sumeragi/lanes/store/owner_tests.rs"),)),
+
+    m("HC426", "Original retirement or final stop ignores admitted append permits",
+      ["sumeragi::driver::retirement::tests::retirement_waits_for_every_original_append_permit_before_native_continuation",
+       "sumeragi::driver::retirement::tests::final_stop_drains_original_append_permit_without_retrying_publication"],
+      causes=(ExpectedFailure("original retirement must wait for every admitted append permit before native continuation",
+          "crates/iroha_core/src/sumeragi/driver/retirement/tests.rs"),
+          ExpectedFailure("final stop must drain every admitted append permit without retrying publication",
+          "crates/iroha_core/src/sumeragi/driver/retirement/tests.rs"))),
+
+    m("HC428", "Proposal tip falsely creates permanent historical opening interest",
+      ["sumeragi::lanes::merge::tests::opening_retirement::abandoned_proposal_tip_releases_original_opening_after_certified_retirement"],
+      causes=(ExpectedFailure("an abandoned proposal tip must release its original opening after certified retirement",
+          "crates/iroha_core/src/sumeragi/lanes/merge_tests/opening_retirement.rs"),)),
+
+    m("HC429", "Proposal cancellation leaves original Ready read custody live",
+      ["sumeragi::lanes::registry::tests::proposal_reads::cancelled_proposal_releases_actual_ready_read_and_native_lock_without_another_driver_tick"],
+      causes=(ExpectedFailure("cancelled proposal reads must release original ready custody without successor traffic",
+          "crates/iroha_core/src/sumeragi/lanes/registry/proposal_reads.rs"),)),
+
+    m("HC430", "Historical joining fails to preserve independent original read interest",
+      ["sumeragi::lanes::registry::tests::proposal_reads::historical_join_retains_exact_authenticated_body_after_proposal_cancellation"],
+      causes=(ExpectedFailure("historical joining must retain the exact original authenticated proposal read",
+          "crates/iroha_core/src/sumeragi/lanes/registry/proposal_reads.rs"),)),
+
+    m("HC431", "A live or incompatible successor consumes another original proposal read",
+      ["sumeragi::lanes::registry::tests::proposal_reads::successor_proposal_cannot_consume_live_or_incompatible_original_read"],
+      causes=(ExpectedFailure("a successor proposal must not consume another live or incompatible original read",
+          "crates/iroha_core/src/sumeragi/lanes/registry/proposal_reads.rs"),)),
+
+    m("HC433", "Repeated builds replace the original request before its actual cancellation",
+      ["sumeragi::executor::proposal_read_tests::original_lane_read_request_survives_refusal_busy_state_and_incidental_publication"],
+      causes=(ExpectedFailure("the original lane read request must survive refusal and incidental publication until explicit cancellation",
+          "crates/iroha_core/src/sumeragi/executor/proposal_read_tests.rs"),)),
+
+    m("HC434", "A busy original native operation abandons inherited read cleanup",
+      ["sumeragi::lanes::store::refund_tests::busy_original_native_operation_inherits_cancelled_read_cleanup_before_returning"],
+      causes=(ExpectedFailure("the original busy native operation must finish cancelled read cleanup before returning",
+          "crates/iroha_core/src/sumeragi/lanes/store/refund_tests.rs"),)),
+
+    m("HC432", "Lane startup erases the original decode refusal into a bare WouldBlock",
+      ["sumeragi::lanes::executor::native_decode_tests::startup_refusal_observation_borrows_the_original_native_recovery_carrier"],
+      causes=(ExpectedFailure("lane startup must retain its original decode refusal through the public startup projection",
+          "crates/iroha_core/src/sumeragi/lanes/executor/native_decode_tests.rs"),)),
+
+    m("HC427", "Secondary worker panic payload is destroyed before all original physical joins",
+      ["sumeragi::driver::retirement::tests::original_worker_panics_keep_secondary_payloads_until_every_physical_join_finishes"],
+      causes=(ExpectedFailure("secondary panic payloads must remain owned until every original worker physically joins",
+          "crates/iroha_core/src/sumeragi/driver/retirement/tests.rs"),)),
+
+    m("HC419", "Startup retirement drops its original admitted publication job",
+      ["sumeragi::driver::tests::threaded::retirement_tests::retired_startup_keeps_publication_on_its_original_joiner"],
+      causes=(ExpectedFailure("committed startup retirement must finish publication on its original joiner without blocking another lane",
+          "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
+
+    m("HC420", "Final startup shutdown omits the original publication stop signal",
+      ["sumeragi::driver::tests::threaded::retirement_tests::final_startup_shutdown_preserves_unpublished_original_store"],
+      causes=(ExpectedFailure("final startup shutdown must stop its admitted job and preserve the original unpublished store",
+          "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
+
+    m("HC421", "Original worker panic is discarded before retirement publication",
+      ["sumeragi::driver::retirement::tests::original_worker_panic_never_authorizes_publication_or_retirement_success"],
+      causes=(ExpectedFailure("a failed original worker join must retain failure and never authorize publication",
+          "crates/iroha_core/src/sumeragi/driver/retirement/tests.rs"),)),
+
+
+
+    m("HC418", "Read-only lane source: discard a funded original on post-open NotFound",
+      ["sumeragi::lanes::registry::tests::read_only_destruction_tests::read_only_post_open_not_found_retains_original_source"],
+      causes=(ExpectedFailure("post-open NotFound must retain the original funded frame and authority without recapture",
+          "crates/iroha_core/src/sumeragi/lanes/registry/read_only_destruction_tests.rs"),)),
+
+    m("HC416", "Lane startup: observe transfer and cancellation in separate phase-lock decisions",
+      ["sumeragi::driver::startup::tests::cancelled_ready_transfer_keeps_original_joiner_until_every_worker_finishes"],
+      causes=(ExpectedFailure("cancelled Ready transfer must retain its original physical joining owner",
+          "crates/iroha_core/src/sumeragi/driver/startup/tests.rs"),)),
+
+    m("HC404", "Lane startup: synchronously wait on original preparation in lifecycle admission",
+      ["sumeragi::driver::tests::threaded::retirement_tests::native_lane_startup_sync_does_not_block_other_lane_transaction_delivery"],
+      causes=(ExpectedFailure("original native startup SyncFile must not block another lane's actual lifecycle turn and transaction commit",
+          "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
+
+    m("HC405", "Lane startup: omit original Ready transfer transaction wake",
+      ["sumeragi::driver::tests::threaded::retirement_tests::ready_transfer_reissues_consumed_transaction_wake_to_original_workers"],
+      causes=(ExpectedFailure("Ready transfer must redeliver the consumed transaction wake to the original workers",
+          "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
+
+    m("HC406", "Lane startup: expose Ready after the original joining thread already ended",
+      ["sumeragi::driver::startup::tests::pending_ready_with_finished_original_joiner_stays_owned_and_unexposed"],
+      causes=(ExpectedFailure("Ready must remain unexposed with exact workers when its original joiner already ended",
+          "crates/iroha_core/src/sumeragi/driver/startup/tests.rs"),)),
+
+    m("HC407", "Lane startup: refund original startup registration before receiving worker joins",
+      ["sumeragi::driver::startup::tests::pending_transfer_retains_original_startup_charge_until_worker_join"],
+      causes=(ExpectedFailure("original startup registration and control charge must survive transfer until workers join",
+          "crates/iroha_core/src/sumeragi/driver/startup/tests.rs"),)),
+
+    m("HC408", "Lane startup: terminalize actual native I/O instead of retrying its original stage",
+      ["sumeragi::lanes::runner::startup::tests::original_record_log_os_failure_retries_same_stage_and_store"],
+      causes=(ExpectedFailure("original custody log I/O must retry without replacing the startup generation",
+          "crates/iroha_core/src/sumeragi/lanes/runner/startup/tests.rs"),)),
+
+    m("HC409", "Lane startup: treat changed native directory custody as retryable physical I/O",
+      ["sumeragi::lanes::runner::startup::tests::changed_original_directory_custody_is_terminal_without_native_retry"],
+      causes=(ExpectedFailure("actual changed directory custody must remain a typed terminal refusal",
+          "crates/iroha_core/src/sumeragi/lanes/runner/startup/tests.rs"),)),
+
+    m("HC410", "Lane startup: retain a retired failed generation after successful physical cleanup",
+      ["sumeragi::driver::tests::threaded::retirement_tests::stale_failed_startup_releases_same_lane_only_after_original_workers_join"],
+      causes=(ExpectedFailure("committed retirement must release the original failed startup after successful physical cleanup",
+          "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
+
+    m("HC411", "Lane startup: discard original completed native refusal source in a diagnostic string",
+      ["sumeragi::lanes::runner::startup::tests::custom_custody_other_stays_terminal_with_its_original_source"],
+      causes=(ExpectedFailure("terminal native source must remain typed",
+          "crates/iroha_core/src/sumeragi/lanes/runner/startup/tests.rs"),)),
+
+    m("HC412", "Lane installation: classify deterministic record encoding failure as generic Other",
+      ["sumeragi::driver::persist::tests::installation_encoding_refusal_preserves_original_record_error"],
+      causes=(ExpectedFailure("installation encoding refusal must stay deterministic InvalidData",
+          "crates/iroha_core/src/sumeragi/driver/persist.rs"),)),
+
+    m("HC413", "Lane startup: certify retirement from a missing or failed original joiner",
+      ["sumeragi::driver::startup::tests::cancelled_failed_joiner_cannot_report_startup_retirement_success"],
+      causes=(ExpectedFailure("failed or missing original joiner must never certify retired startup success",
+          "crates/iroha_core/src/sumeragi/driver/startup/tests.rs"),)),
 
     m("HC403", "Read-only lane source: retain initial absence as a corrupt committed restore job",
       ["sumeragi::lanes::store::tests::read_only_missing_frame_preserves_not_found_and_reopens_after_publication"],
       causes=(ExpectedFailure("read-only absent frame must remain NotFound before any retained restore job",
           "crates/iroha_core/src/sumeragi/lanes/store/tests.rs"),)),
 
+    m("HC402", "Read-only lane frames: destroy final original historical authority beneath the read mutex",
+      ['sumeragi::lanes::registry::tests::read_only_destruction_tests::completed_read_only_frame_destroys_final_authority_after_read_unlock', 'sumeragi::lanes::registry::tests::read_only_destruction_tests::missing_read_only_frame_destroys_final_authority_after_read_unlock', 'sumeragi::lanes::registry::tests::read_only_destruction_tests::reselected_read_only_frame_destroys_each_final_authority_after_read_unlock'],
+      causes=tuple(ExpectedFailure('final original read-only authority destructor must run after read mutex unlock', 'crates/iroha_core/src/sumeragi/lanes/registry/read_only_destruction_tests.rs') for _ in range(3))),
+
     m("HC415", "Lane registry retirement: destroy the final original authority beneath the registry map guard",
       ['sumeragi::lanes::registry::tests::destruction_tests::explicit_ready_retirement_destroys_original_authority_after_registry_unlock', 'sumeragi::lanes::registry::tests::destruction_tests::applied_ready_retirement_destroys_original_authority_after_registry_unlock', 'sumeragi::lanes::registry::tests::destruction_tests::explicit_opening_retirement_destroys_original_authority_after_registry_unlock', 'sumeragi::lanes::registry::tests::destruction_tests::applied_opening_retirement_destroys_original_authority_after_registry_unlock'],
       causes=tuple(ExpectedFailure("final original lane authority destructor must run after registry unlock",
           'crates/iroha_core/src/sumeragi/lanes/registry/destruction_tests.rs') for _ in range(4))),
 
-    m("HC414", "Retired lane publication: omit its original joiner continuation capability",
-      ["sumeragi::driver::tests::threaded::retirement_tests::retired_directory_sync_does_not_block_other_lane_transaction_delivery"],
-      causes=(ExpectedFailure("original retired SyncDir must not block another lane's actual transaction wake and commit",
+    m("HC414", "Native driver omits its required original publication admission",
+      ["sumeragi::driver::tests::threaded::retirement_tests::native_driver_binds_original_publication_before_its_first_append"],
+      causes=(ExpectedFailure("native driver readiness must bind its exact funded joining owner before the first append",
           "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),)),
 
     m("HC365", "Retail idle maintenance: omit original native receipt-purpose admission",

@@ -1,9 +1,9 @@
 //! Authorization-envelope and multisignature transaction tests.
 
 use super::{
-    Executable, FeePaymentIntent, MultisigSignature, MultisigSignatures, SignedTransaction,
-    TransactionBuilder, TransactionDomain, TransactionSignature, TransactionSignatureError, model,
-    test_network_id,
+    EntrypointHashMemo, Executable, FeePaymentIntent, MultisigSignature, MultisigSignatures,
+    SignedTransaction, TransactionBuilder, TransactionDomain, TransactionSignature,
+    TransactionSignatureError, model, test_network_id,
 };
 use crate::{
     Level,

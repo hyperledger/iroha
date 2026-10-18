@@ -72,7 +72,7 @@ pub struct ReceiveStageWitness<'a> {
     pub nonmembership: Option<&'a OpeningCells<Fp>>,
     /// Exact OQ-3/credit-record paths, only in the consumed/credit effect owners.
     pub effects: Option<&'a ReceiveMapWitness>,
-    /// The σ_recv step relation, only in the Transition owner.
+    /// The `σ_recv` step relation, only in the Transition owner.
     pub transition: Option<TransitionInputs<'a>>,
 }
 

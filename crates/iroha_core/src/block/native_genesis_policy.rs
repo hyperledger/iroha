@@ -260,7 +260,7 @@ mod native_genesis_policy_tests {
                 .iter()
                 .map(|key| PeerId::new(key.public_key().clone())),
         );
-        let (_valid, mut staged) = ValidBlock::validate_signed_genesis(
+        let (valid, sealed) = ValidBlock::validate_signed_genesis(
             genesis.clone(),
             &topology,
             &authority,
@@ -273,8 +273,43 @@ mod native_genesis_policy_tests {
         .unwrap_or_else(|(_, error)| panic!("original native genesis: {error}"));
         assert_eq!(prepared.state.committed_height(), 0);
         assert_eq!(prepared.kura.exact_durable_blocks_count().unwrap(), 0);
-        ValidBlock::validate_native_genesis_policy(genesis, &staged)
+        ValidBlock::validate_native_genesis_policy(genesis, &sealed)
             .expect("the actual original staged state matches its signed metadata");
+        // A completed native execution is immutable. Retain the full native
+        // positive control above, then execute the same authenticated inputs on
+        // their pristine owner and stop at the real pre-seal policy boundary.
+        // Negative probes must never reopen or mutate a completed execution.
+        drop(sealed);
+        let mut profile = ConsensusValidationProfile::SumeragiGenesis {
+            consensus_mode: iroha_data_model::parameter::system::ConsensusMode::Permissioned,
+            root_scope: metadata.sumeragi_context.root_scope,
+        };
+        let generation = prepared.state.state_view_generation();
+        let source = PristineNativeSource {
+            state: &prepared.state,
+            generation,
+            header: genesis.header(),
+            staking: crate::sumeragi::evidence::prepare(&prepared.state, genesis, generation)
+                .expect("the original authenticated genesis staking inputs"),
+        };
+        let (mut staged, _recording) =
+            ValidBlock::state_block_for_execution(genesis, &prepared.state, source, &profile)
+                .expect("the original pristine genesis execution owner");
+        staged.request_sumeragi_lanes(profile.take_sumeragi_lanes().unwrap());
+        let authenticated = authenticate_genesis_block_intents(genesis, &authority)
+            .expect("the same original signed genesis inputs");
+        staged.reserve_ordinary_execution_outputs(genesis).unwrap();
+        staged
+            .execute_ordinary_output_plan(genesis, Some(&authenticated))
+            .unwrap();
+        let outputs = staged.retained_execution_outputs_for_test().unwrap();
+        assert_eq!(outputs.len(), valid.as_ref().execution_outputs().len());
+        assert!(GenesisOutputRejection::first(outputs).is_none());
+        staged.advance_requested_sumeragi_schedule().unwrap();
+        staged.advance_requested_sumeragi_lanes().unwrap();
+        staged.advance_sumeragi_amx().unwrap();
+        ValidBlock::validate_native_genesis_policy(genesis, &staged)
+            .expect("the same genuine execution matches before the immutable seal");
 
         let original_cadence = staged.world().parameters().sumeragi().block_cadence_ms();
         assert_eq!(original_cadence, metadata.block_cadence_ms);

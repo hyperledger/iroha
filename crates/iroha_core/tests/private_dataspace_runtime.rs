@@ -38,7 +38,7 @@ use iroha_data_model::{
         AliasDataSpaceIntentV1, AliasDataspaceBootstrapGrantV1, AliasIntentV1,
         AliasLeaseAcquisitionV1, AliasPlanDispositionV1, AliasQuoteGuardV1, ResolvedAccountAliasV1,
     },
-    asset::{AssetBalancePolicy, AssetDefinition, AssetDefinitionId, AssetId},
+    asset::{AssetBalancePolicy, AssetDefinition, AssetId},
     block::ExternalExecutionContext,
     consensus::{ConsensusKeyRecord, ConsensusKeyRole, ConsensusKeyStatus},
     domain::Domain,
@@ -107,6 +107,25 @@ impl LaneBlockSource for DeferredLaneStores {
             .map_or(Ok(None), |stores| stores.block(lane, incarnation, height))
     }
 
+    fn proposal_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        request: &iroha_core::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<
+        Option<CommittedLaneBlock>,
+        iroha_core::execution_attempt::ExecutionAttemptError<std::io::Error>,
+    > {
+        self.0.get().map_or(Ok(None), |stores| {
+            stores.proposal_block(lane, incarnation, height, request)
+        })
+    }
+    fn release_cancelled_proposal_reads(&self) {
+        if let Some(stores) = self.0.get() {
+            stores.release_cancelled_proposal_reads();
+        }
+    }
     fn wait_for(
         &self,
         lane: LaneId,
@@ -614,9 +633,15 @@ fn runtime_private_dataspace_executes_concrete_work_after_certified_activation()
         .is_err(),
         "a forged certificate cannot qualify the private work"
     );
-    stores
+    let store = stores
         .store(PRIVATE_LANE, &record.incarnation)
-        .expect("open lane store")
+        .expect("open lane store");
+    // The signed native frame uses the same original funded joiner as real lane drivers.
+    // Keep that one owner until this fixture has finished every publication and merge.
+    let _publication =
+        iroha_core::sumeragi::test_chain::NativeLanePublication::start(store.clone(), &budget)
+            .expect("original private lane publication owner");
+    store
         .append(&block, &qc)
         .expect("persist authenticated lane frame");
     let proposal = {
@@ -625,8 +650,13 @@ fn runtime_private_dataspace_executes_concrete_work_after_certified_activation()
             .latest_block()
             .expect("parent history read completes")
             .expect("activation parent");
-        let merges = merge::propose(&view, &*stores, 5)
-            .expect("authenticated private lane storage available");
+        let merges = merge::propose(
+            &view,
+            &*stores,
+            5,
+            &mut iroha_core::sumeragi::lanes::ProposalReadScope::new(),
+        )
+        .expect("authenticated private lane storage available");
         let cadence = Duration::from_millis(
             view.world()
                 .consensus_schedule()

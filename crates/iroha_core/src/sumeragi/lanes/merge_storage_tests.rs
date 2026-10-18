@@ -44,6 +44,19 @@ impl LaneBlockSource for Source {
             batch: None,
         }))
     }
+    fn proposal_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        _: &crate::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<
+        Option<CommittedLaneBlock>,
+        crate::execution_attempt::ExecutionAttemptError<std::io::Error>,
+    > {
+        self.block(lane, incarnation, height)
+    }
+    fn release_cancelled_proposal_reads(&self) {}
     fn wait_for(
         &self,
         _: LaneId,

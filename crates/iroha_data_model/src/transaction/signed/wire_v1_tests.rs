@@ -382,8 +382,8 @@ fn canonical_signed_frame_and_wire_share_checked_geometry_and_roundtrips() {
             .is_some_and(|bytes| bytes <= frame_bound)
     );
     assert!(
-        !SignedTransaction::canonical_frame_len_from_wire_len_v1(larger_wire.len())
-            .is_some_and(|bytes| bytes <= frame_bound)
+        SignedTransaction::canonical_frame_len_from_wire_len_v1(larger_wire.len())
+            .is_none_or(|bytes| bytes > frame_bound)
     );
     assert_eq!(
         norito::canonical_frame_len(&one_over).unwrap(),

@@ -97,6 +97,7 @@ impl AvailabilitySchedule for Schedule {
 }
 type Lane = LaneExecutor<Anchor, IntrinsicComponentCheck, NoRows>;
 struct Fixture {
+    _publication: crate::sumeragi::driver::PublicationSession,
     _directory: tempfile::TempDir,
     record: SumeragiLaneRecord,
     anchor: Arc<Anchor>,
@@ -255,13 +256,17 @@ impl Fixture {
         .unwrap()
         .complete()
         .unwrap_or_else(|(_, error)| panic!("empty native lane store: {error}"));
+        let store = Arc::new(store);
+        let publication =
+            crate::sumeragi::driver::PublicationSession::start(store.clone(), &budget);
         Self {
+            _publication: publication,
             _directory: directory,
             record,
             anchor,
             body,
             qc,
-            store: Arc::new(store),
+            store,
             crypto,
             budget,
             genesis,
@@ -808,4 +813,42 @@ fn native_lane_first_prepare_owner_refusal_preserves_original_decoded_admission(
         matches!(lane.execute(&fixture.body, &fixture.qc.block_hash, false),
         Ok(Some(ExecOutcome::Valid { result, .. })) if result == fixture.qc.result)
     );
+}
+
+#[test]
+fn startup_refusal_observation_borrows_the_original_native_recovery_carrier() {
+    let fixture = Fixture::new(true);
+    fixture.store.append(&fixture.body, &fixture.qc).unwrap();
+    let recovery = fixture.recovery();
+    assert!(recovery.original_startup_refusal().is_none());
+    let (recovery, error) = allocation_scope(|| recovery.complete()).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+    assert!(error.get_ref().is_none());
+    let stored = recovery.refusal.as_ref();
+    let borrowed = recovery.original_startup_refusal();
+    let retained = stored.is_some();
+    let same = stored
+        .zip(borrowed)
+        .is_some_and(|(stored, borrowed)| std::ptr::eq(borrowed, stored));
+    let decode = borrowed.is_some_and(|original| original.decode_refusal().is_some());
+    let lane = recovery
+        .complete()
+        .unwrap_or_else(|_| panic!("same original recovery after refusal"));
+    assert_eq!(lane.applied.height, 1);
+    assert_eq!(lane.applied.block_hash, fixture.qc.block_hash);
+    assert_eq!(lane.applied.result, fixture.qc.result);
+    assert_eq!(lane.applied.state.anchor, 7);
+    let budget = fixture.budget.clone();
+    drop(error);
+    drop((lane, fixture));
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert!(
+        retained,
+        "lane startup must retain its original decode refusal through the public startup projection"
+    );
+    assert!(
+        same,
+        "startup must borrow the retained native refusal, not reconstruct it"
+    );
+    assert!(decode);
 }

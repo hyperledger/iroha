@@ -64,7 +64,10 @@ fn imported_suite_has_every_pinned_row() {
         assert_eq!(labels.len(), expected, "duplicate labels in {name}");
         assert!(!labels.contains(""), "missing label in {name}");
         for row in cases {
-            assert!(string(row, "source_file").ends_with(".json"));
+            assert_eq!(
+                std::path::Path::new(string(row, "source_file")).extension(),
+                Some(std::ffi::OsStr::new("json"))
+            );
             field(row, "input");
             field(row, "output");
         }
@@ -243,7 +246,7 @@ fn reproduces_imported_aggregate_verify() {
         assert_eq!(public.len(), messages.len(), "{}", label(row));
         let expected = boolean(row, "output");
         assert_eq!(boolean(row, "consensus_output"), expected, "{}", label(row));
-        let valid_keys: Vec<bool> = public.iter().map(key_validate).collect();
+        let all_keys_valid = public.iter().all(key_validate);
         let Some(signature) = upstream_fixed::<96>(string(input, "signature")) else {
             assert!(
                 !expected,
@@ -252,7 +255,7 @@ fn reproduces_imported_aggregate_verify() {
             );
             continue;
         };
-        if valid_keys.contains(&false) {
+        if !all_keys_valid {
             assert!(
                 !expected,
                 "{}: key fails KeyValidate before PoP admission",
@@ -323,7 +326,7 @@ fn reproduces_imported_hash_to_g2_coordinates() {
             &[],
         )
         .to_affine();
-        let components: Vec<[u8; 48]> = ["x", "y"]
+        let expected: Vec<u8> = ["x", "y"]
             .into_iter()
             .flat_map(|coordinate| {
                 let components: Vec<_> = string(output, coordinate)
@@ -335,8 +338,8 @@ fn reproduces_imported_hash_to_g2_coordinates() {
                 // upstream coordinate pairs are real, imaginary.
                 components.into_iter().rev()
             })
+            .flatten()
             .collect();
-        let expected: Vec<u8> = components.into_iter().flatten().collect();
         assert_eq!(
             point.to_uncompressed().as_slice(),
             expected,

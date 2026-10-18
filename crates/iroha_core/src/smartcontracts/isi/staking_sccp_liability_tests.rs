@@ -128,10 +128,14 @@ fn sccp_liable_unbond_keeps_exact_pending_request_and_both_balances() {
         staker: validator.clone(),
         request_id,
     };
-    let retention_policy = stx.world.sumeragi_npos_parameters().unwrap();
+    // The caller builds the keys and may already hold the decoded policy; the preflight
+    // itself must not copy any graph before the original L3 refusal.
+    let retention_policy = std::cell::OnceCell::from(stx.world.sumeragi_npos_parameters().unwrap());
+    let validator_key = (lane_id, validator.clone());
     let allocations = crate::test_allocations::allocations_during(|| {
         let preflight =
-            original_unbond_liability(&stx, &instruction, retention_policy.as_ref()).unwrap();
+            original_unbond_liability(&stx, &instruction, &validator_key, &key, &retention_policy)
+                .unwrap();
         assert_eq!(
             preflight.activation_height,
             validator_before.activation_height
@@ -167,6 +171,83 @@ fn sccp_liable_unbond_keeps_exact_pending_request_and_both_balances() {
     assert!(
         stx.require_storage_admission().is_ok(),
         "a protocol hold is not a local resource refusal"
+    );
+}
+
+/// The rejection order is part of the certified result: a withdrawal naming a validator
+/// that never had custody fails on retained custody before any validator, committee, stake
+/// or L3 check, exactly as before the borrowed L3 preflight existed.
+#[test]
+fn unbond_of_never_registered_validator_keeps_the_retained_custody_rejection_first() {
+    let mut state = setup_state();
+    set_epoch_length(&mut state, 4);
+    let nexus = state.nexus_snapshot();
+    let state = original_staking_state(
+        state,
+        nexus,
+        iroha_data_model::parameter::system::SumeragiConsensusMode::Npos,
+    );
+    let block = new_block_with_height_and_time(2, 0);
+    let mut state_block = state.block(block.as_ref().header());
+    let mut stx = state_block.transaction_for_callback_testing();
+    let (validator, _, escrow, asset_definition) = prepare_accounts(&mut stx);
+    set_test_npos_penalty_windows(&mut stx, 1, 1);
+    let lane_id = LaneId::SINGLE;
+    let peer_key = checked_keypair_with_algorithm(Algorithm::BlsNormal);
+    signed_candidate(&stx, &validator, &peer_key, 500, lane_id)
+        .execute(&validator, &mut stx)
+        .unwrap();
+    stx.apply();
+    state_block.commit_world_overlay_for_testing().unwrap();
+
+    let block = new_block_with_height_and_time(4, 0);
+    let mut state_block = state.block(block.as_ref().header());
+    let mut stx = state_block.transaction_for_callback_testing();
+    stx.nexus.staking.stake_asset_id = asset_definition.to_string();
+    set_fixture_xor_identity(&mut stx, &asset_definition);
+    stx.nexus.staking.stake_escrow_account_id = escrow.to_string();
+    stx.nexus.staking.slash_sink_account_id = escrow.to_string();
+    let request_id = Hash::new("never-registered-validator-unbond");
+    SchedulePublicLaneUnbond {
+        lane_id,
+        validator: validator.clone(),
+        staker: validator.clone(),
+        request_id,
+        amount: Quantity::from(500_u64),
+        release_at_ms: stx.block_unix_timestamp_ms(),
+    }
+    .execute(&validator, &mut stx)
+    .unwrap();
+    // A structurally valid plan of the signer's own withdrawal; it is never reached.
+    let monetary_plan = fixture_unbond_plan(&stx, lane_id, &validator, &validator, request_id);
+    let stranger = AccountId::new(iroha_crypto::KeyPair::random().public_key().clone());
+    assert!(
+        stx.world
+            .public_lane_validators
+            .get(&(lane_id, stranger.clone()))
+            .is_none()
+    );
+    assert!(
+        stx.world
+            .public_lane_stake_custody
+            .get(&(lane_id, stranger.clone()))
+            .is_none()
+    );
+    let result = FinalizePublicLaneUnbond {
+        monetary_plan,
+        lane_id,
+        validator: stranger,
+        staker: validator.clone(),
+        request_id,
+    }
+    .execute(&validator, &mut stx);
+    assert!(
+        matches!(
+            &result,
+            Err(Error::InvariantViolation(message))
+                if &message[..] == "validator has no retained positive stake custody"
+        ),
+        "retained custody is rejected before the validator record: {result:?}"
     );
 }
 
