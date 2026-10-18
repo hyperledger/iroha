@@ -2507,3 +2507,6 @@ fn isolated_frame_source_reads_authenticated_frame_without_acquiring_live_writer
     );
     drop(source_writer);
 }
+
+#[path = "destruction_tests.rs"]
+mod destruction_tests;
