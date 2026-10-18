@@ -259,7 +259,15 @@ fn restore_references(
                 }
             }
             for candidate in candidates {
-                if entries.contains_key(&candidate) || selected(&candidate, packages) {
+                if entries.contains_key(&candidate) {
+                    continue;
+                }
+                if selected(&candidate, packages) {
+                    // Deleted tracked inputs are absent from the current census,
+                    // but a surviving source must not reference their old paths.
+                    if all.contains_key(&candidate) && tracked_input_absent(root, &candidate)? {
+                        return Err("missing referenced source input".to_owned());
+                    }
                     continue;
                 }
                 let entry = if let Some(entry) = all.get(&candidate) {
@@ -314,6 +322,30 @@ fn relative_name(bytes: &[u8]) -> Result<String, String> {
     Ok(name.to_owned())
 }
 
+fn tracked_input_absent(root: &Path, name: &str) -> Result<bool, String> {
+    let path = root.join(name);
+    match fs::symlink_metadata(&path) {
+        Ok(_) => return Ok(false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(_) => return Err("unreadable source input".to_owned()),
+    }
+    // An absent path beneath a dangling or redirected ancestor is not a source
+    // deletion. Preserve the regular-directory boundary even for removed trees.
+    for parent in path
+        .ancestors()
+        .skip(1)
+        .take_while(|parent| *parent != root)
+    {
+        match fs::symlink_metadata(parent) {
+            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => (),
+            Ok(_) => return Err("source parent traverses a symlink or changed kind".to_owned()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(_) => return Err("unreadable source parent".to_owned()),
+        }
+    }
+    Ok(true)
+}
+
 fn inventory(root: &Path) -> Result<BTreeMap<String, Entry>, String> {
     let mut entries = BTreeMap::new();
     for record in git(root, &["ls-files", "--stage", "--cached", "-z"])?
@@ -356,9 +388,26 @@ fn inventory(root: &Path) -> Result<BTreeMap<String, Entry>, String> {
             return Err("duplicate source inventory path".to_owned());
         }
     }
+    // Git's cached inventory still names intentional, unstaged deletions. Bind
+    // the files that actually exist, just as for an already staged deletion,
+    // while retaining old paths for the surviving-source reference check below.
+    let mut all = entries.clone();
+    for (name, entry) in &all {
+        if !matches!(entry, Entry::DocsGitlink(_))
+            && !matches!(name.as_str(), "Cargo.toml" | "Cargo.lock" | GENERATED)
+            && !EXTERNAL_INPUTS.contains(&name.as_str())
+            && tracked_input_absent(root, name)?
+        {
+            entries.remove(name);
+        }
+    }
     required_source_roots(root, &mut entries)?;
     let packages = package_roots(&entries);
-    let all = entries.clone();
+    all.extend(
+        entries
+            .iter()
+            .map(|(name, entry)| (name.clone(), entry.clone())),
+    );
     entries.retain(|name, _| selected(name, &packages));
     restore_references(root, &all, &packages, &mut entries)?;
     if entries.is_empty() {

@@ -48,14 +48,14 @@ fn builtin_complete_batch_reuse_preserves_every_role_and_original() {
         config,
         &profile,
     );
-    assert_eq!(signature_controls, 94);
+    assert_eq!(signature_controls, 63);
     assert_eq!(receive_controls, 175);
     let sigma_rebuilds = builtin_sigma_rebuilds(&qualified, &mut originals, config);
-    assert_eq!(sigma_rebuilds, 16);
+    assert_eq!(sigma_rebuilds, 11);
     let (distinct, memo_off) =
         descriptor_memo_controls(&qualified, &installed, &mut originals, config, profile);
     println!(
-        "BUILTIN_BATCH_ACCEPTED routes=52 programs=32 signature_controls={signature_controls} receive_controls={receive_controls} sigma_rebuilds={sigma_rebuilds} route_descriptor_decodes={distinct} memo_off_descriptor_decodes={memo_off} every_role_revalidated=true monetary_custody=false"
+        "BUILTIN_BATCH_ACCEPTED routes=22 programs=16 signature_controls={signature_controls} receive_controls={receive_controls} sigma_rebuilds={sigma_rebuilds} route_descriptor_decodes={distinct} memo_off_descriptor_decodes={memo_off} every_role_revalidated=true monetary_custody=false"
     );
 }
 
@@ -125,10 +125,11 @@ fn descriptor_memo_controls(
                 distinct.push(descriptor);
             }
         }
-        // Metadata reads per route: Bootstrap A1, W0, A2 and its terminal; a
-        // Receive alias only its Omega; any other route Omega and every A and W.
+        // Metadata reads per route: Bootstrap its one unsplit A, then that A again
+        // as its terminal; a Receive alias only its Omega; any other route Omega
+        // and every A and W.
         reads += match route.variant {
-            Variant::Bootstrap => 4,
+            Variant::Bootstrap => 2,
             Variant::Receive | Variant::ReceiveRenewed if !receive_programs.insert(*program) => 1,
             _ => u64::try_from(1 + record.a.len() + record.w.len()).unwrap(),
         };

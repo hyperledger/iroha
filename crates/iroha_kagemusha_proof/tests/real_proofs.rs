@@ -6,9 +6,8 @@
 //!   input is rejected; each fresh attempt changes the proof bytes and
 //!   retained originals remain verifiable;
 //! - a mutated witness (overdraft, a debit that ignores the lineage
-//!   `burned_total`, newer policy epoch, early accepted time, a blacklist
-//!   older than the maximum age or issued after the accepted time, a Send at
-//!   the lease expiry, `u128` overflow) is refused by
+//!   `burned_total`, newer policy epoch, early accepted time, a Send at the
+//!   lease expiry, `u128` overflow) is refused by
 //!   [`SigmaProver::prove`] with its violation, and the engine itself
 //!   refuses it (a limb lookup input is missing from its table);
 //! - a forger who zeroes the failing range checks so every lookup passes
@@ -19,8 +18,8 @@
 //!
 //! Every byte of a proof, flipped, is rejected; a proof on Pallas verifies
 //! too; a forged identity proves only its own head; a proof under one
-//! selector does not verify under another; a listed counterparty and the
-//! quota rule's violations have no accepted proof; the full mask proves and
+//! selector does not verify under another; the quota rule's violations
+//! have no accepted proof; the full mask proves and
 //! verifies at its single-lane `k = 14` shape; keys and verification of retained
 //! proof bytes do not depend on the Rayon pool size. All tests here prove for real and are ignored in
 //! debug builds.
@@ -30,9 +29,9 @@ mod common;
 use core::fmt::Write as _;
 
 use common::{
-    CHECK_SEED, RECEIVE_BLACKLIST, RELATION_CASES, RELATION_CHECK_CASES, RELATIONS, SEND_BLACKLIST,
-    SEND_EVERY, SEND_QUOTAS, budget_shape, case_label, folded, forged_witness, fresh_randomness,
-    pinned_shape, relation_shapes, vesta_params, vesta_prover,
+    CHECK_SEED, RELATION_CASES, RELATION_CHECK_CASES, RELATIONS, SEND_EVERY, SEND_LEASE,
+    SEND_QUOTAS, budget_shape, case_label, folded, forged_witness, fresh_randomness, pinned_shape,
+    relation_shapes, vesta_params, vesta_prover,
 };
 use ff::Field;
 use iroha_kagemusha_proof::{
@@ -44,7 +43,7 @@ use iroha_plonk::{ProverConfig, ProverError, create_proof, prove_circuit};
 use rayon::prelude::*;
 
 #[test]
-#[ignore = "30 cases with real proofs; run in release"]
+#[ignore = "20 cases with real proofs; run in release"]
 fn relation_checks_as_real_proofs() {
     let mut cases = 0;
     for relation in relation_shapes() {
@@ -239,7 +238,7 @@ fn pallas_step_proofs_verify() {
 /// A witness of the other step is refused before proving, and a proof
 /// verifies only under its own selector of the allowlist.
 #[test]
-#[ignore = "key generation for five selectors; run in release"]
+#[ignore = "key generation for three selectors; run in release"]
 fn proofs_verify_only_under_their_selector() {
     let mut allowlist = SigmaAllowlist::<Eq>::new();
     let mut provers = Vec::new();
@@ -257,7 +256,7 @@ fn proofs_verify_only_under_their_selector() {
             .iter()
             .map(VerifyingKeyEntry::selector)
             .collect::<Vec<_>>(),
-        vec![(3, 0), (3, 1), (3, 4), (4, 0), (4, 1)]
+        vec![(3, 0), (3, 2), (4, 0)]
     );
     for (entry, (_, prover)) in entries.iter().zip(&provers) {
         let length = prover.shape().proof_length::<Eq>().expect("length");
@@ -310,8 +309,8 @@ fn proofs_verify_only_under_their_selector() {
     }
     // A mask without an allowlisted relation has no verifier.
     assert!(matches!(
-        allowlist.select(SigmaRelation::send(2)),
-        Err(SigmaError::NoVerifier((3, 2)))
+        allowlist.select(SigmaRelation::send(1)),
+        Err(SigmaError::NoVerifier((3, 1)))
     ));
 }
 
@@ -342,43 +341,6 @@ fn engine_refuses(
             );
             println!("M12_REFUSED case={label} engine=proved verdict=rejected");
         }
-    }
-}
-
-/// A listed counterparty has no accepted proof under either step's
-/// blacklist relation; with no list held the same account is proved.
-#[test]
-#[ignore = "real proofs of the blacklist relations; run in release"]
-fn a_listed_counterparty_has_no_accepted_proof() {
-    for case in [SEND_BLACKLIST, RECEIVE_BLACKLIST] {
-        let prover = vesta_prover(budget_shape(folded(case)));
-        let listed = sample_witness::<Fp>(CHECK_SEED, case, Mutation::Listed);
-        assert_eq!(
-            prover
-                .prove(&listed, fresh_randomness())
-                .map(|proof| proof.bytes),
-            Err(SigmaError::RelationViolated(vec![
-                Violation::BlacklistListed
-            ]))
-        );
-        engine_refuses(&prover, &listed, &case.label());
-        let mut unheld = listed;
-        unheld.predecessor.core.controls.blacklist_version = 0;
-        let unheld_prover = match &mut unheld.inputs {
-            iroha_kagemusha_proof::StepInputs::Send(_) => prover,
-            iroha_kagemusha_proof::StepInputs::Receive(receive) => {
-                receive.request.receiver_blacklist_version = 0;
-                receive.request.receiver_blacklist_root = [0; 32];
-                vesta_prover(budget_shape(folded(SigmaRelation::RECEIVE)))
-            }
-        };
-        let proof = unheld_prover
-            .prove(&unheld, fresh_randomness())
-            .expect("no list held");
-        assert_eq!(
-            unheld_prover.verifier().verify(&proof.public, &proof.bytes),
-            Ok(())
-        );
     }
 }
 
@@ -450,7 +412,7 @@ fn quota_relations_prove_at_k14() {
 #[test]
 #[ignore = "real proofs of forged identities; run in release"]
 fn forged_identities_prove_only_their_own_head() {
-    for case in [SigmaRelation::SEND, SEND_BLACKLIST] {
+    for case in [SigmaRelation::SEND, SEND_LEASE] {
         let relation = folded(case);
         let prover = vesta_prover(budget_shape(relation));
         let verifier = prover.verifier();
@@ -999,6 +961,7 @@ fn compact_send_descriptor_support_inventory() {
     );
     assert!(descriptor.selectors.compress);
     assert_eq!(descriptor.selectors.first_column, 15);
+    // TODO(blacklist-local V2): re-measure the compressed selector map.
     assert_eq!(
         selector_map,
         vec![
@@ -1026,7 +989,7 @@ fn compact_send_descriptor_support_inventory() {
     assert_eq!(protocol.plan().sets().len(), 5);
     assert_eq!(
         format!("{:x}", Sha256::digest(binding.encoded())),
-        "e320f8c818ac562bc909db4158bce72b8f7b237ae0ef5d5396580b492bb1af75"
+        "e320f8c818ac562bc909db4158bce72b8f7b237ae0ef5d5396580b492bb1af75" // TODO(blacklist-local V2): re-measure
     );
 
     let circuit = SigmaCircuit::<Fp>::keygen(shape.params);
@@ -1061,8 +1024,9 @@ fn compact_send_descriptor_support_inventory() {
         .collect();
     assert_eq!(
         format!("{:x}", Sha256::digest(&packed)),
-        "726eec3eae129cb012871bb0abba0eae768f1f5c585d1963ba9441d46542fdff"
+        "726eec3eae129cb012871bb0abba0eae768f1f5c585d1963ba9441d46542fdff" // TODO(blacklist-local V2): re-measure
     );
+    // TODO(blacklist-local V2): re-measure the permutation mapping digest.
     assert_eq!(
         source.tables.permutation().mapping_digest(),
         [
@@ -1079,6 +1043,7 @@ fn compact_send_descriptor_support_inventory() {
     )
     .expect("source fingerprint");
     assert_eq!(fingerprint.binding(), &binding);
+    // TODO(blacklist-local V2): re-measure the source fingerprint.
     assert_eq!(
         fingerprint.digest(),
         &[

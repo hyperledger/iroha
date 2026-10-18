@@ -1122,12 +1122,26 @@ circuit computations: even at a fresh disjoint address, an independent uniform
 oracle word equals the fixed circuit word with probability only `1/p`. This
 refutes that proposed general implication, not the actual protocol, whose two
 paths use fixed RP57. The retained historical reverse-erasure argument has ten
-suffix calls; the current native Load order is
-`A1,W0,A2,W1,A3,W2,A4,Omega`.
+suffix calls; the current native Load order is the lean
+`A1,W0,A2,Omega` (owner decision 2026-10-17: A1 proves the Load transition
+directly, with no own `Q_sigma`, and A2 owns the single own-receipt leaf).
 
 There is a source-backed checkpoint boundary for this current order.
-`native_worker/stages.rs` prepares a fresh session from exact authenticated
-originals and restores every selected A/W payload before the next stage.
+`native_worker/stages.rs` prepares a session from exact authenticated originals.
+Within one live owner it may resume that session across fold calls, but only on
+the prover instance that prepared it, only while the operation route, sequence,
+capsule, predecessor fold and the digests of every authenticated source original
+and preparation are unchanged (originals reached through the insert-once
+issued-Request, direct-anchor and finality-epoch indexes are covered by those
+indexes' insert-once rule), and only while the payloads restored in that session
+are a byte-exact prefix of the durable checkpoint list. Every later durable A/W/Q
+payload is restored strictly from its durable bytes before a later stage uses
+it, in that session or in any new one. A resumed preparation equals the one a
+fresh preparation computes from the same originals. Carried objects, including
+the σ preparation, are always in restore form: no fresh fold body, prover coin
+or producer-side checkpoint is carried between calls. A payment, cancellation,
+error, mismatch, discarded publication, completion or loss of eligibility
+releases the session.
 `native/load/checkpoint.rs::Payload` retains authority/ordinal bindings,
 `source_context`, proof and carried accumulator, but no prover coins or local
 fold body. Restoration rederives public frames/openings with empty old fold
@@ -1343,14 +1357,14 @@ fold/publication reduction remain open. The source/math packet is retained at
 independent review SHA
 `a23b51bc7e10734c2b829446ae17defa8b3e1d99f2ec161db264256da60c3735`).
 
-For the exact no-incoming Load route, the three Q circuit witnesses have a
-deterministic inverse from their stage-public columns and admitted catalog.
-Q0's [124,2,1,1,1] columns contain the complete LE32 length and sigma byte tape,
-statement, key index, verdict and normalized opening. The worker uses the exact
-installed sigma key, and its prepared object has no incoming witness or local
-fold. Q1/Q2 export every signature-witness field through canonical digest and
-128/128-bit integer limbs; the unchanged native prover re-derives each hard
-low-S and fixed-key verdict. The maintained private inverse controls reject
+For the exact no-incoming lean Load route, the one Q circuit witness, the own
+Advance receipt signature leaf, has a deterministic inverse from its stage-public
+column and admitted catalog. There is no `Q_sigma`: the route consumes no sigma
+byte tape, and its Vesta part is the pinned trivial filler. The leaf exports every
+signature-witness field through canonical digest and 128/128-bit integer limbs;
+the unchanged native prover re-derives its hard low-S verdict. The credential and
+Enrollment certificate are carried by continuity from the predecessor lineage, so
+no second signature leaf exists (owner decision 2026-10-17). The maintained private inverse controls reject
 malformed tape padding, lengths, fields and parts; reconstruction alone supplies
 no admission.
 
@@ -1368,9 +1382,27 @@ private entropy; complete ordered inputs are still absorbed before challenges. A
 or native validation work must occur before the cut or be charged explicitly;
 silently repeating preparation afterward would invalidate this equality.
 
-The Q2,Q1,Q0 comparisons add no local terms to the suffix bounds under the
-same continuation/publication premises (eight current Load suffix calls; ten
-in the historical five-A/four-W argument). They preserve exact checkpoint replay
+The Q0 comparison adds no local terms to the suffix bounds under the
+same continuation/publication premises (four current lean Load suffix calls; ten
+in the historical five-A/four-W argument). This lean-route reduction removes calls
+from the previously argued eight-call order and introduces no new call kind; it
+still requires the outside C12 review of its exact diff before qualification. Lean
+lineage milestone 2 (owner decision 2026-10-17) extends the same reduction to every
+remaining non-Refresh route. Bootstrap's only Q is its 2V/1F signature leaf and its A
+is one unsplit terminal stage, so its order is Q, A, Ω with no W. Receive, Receive
+(renewed) and ArchiveSent (i) keep a `Q_sigma` whose only slot is the incoming sigma
+(soft, with its hard digest/selector/chunk binding and mode): the own-sigma slot, its
+byte tape and its call disappear, and the stage-public inverse of the incoming slot is
+the one the paired program already had. Their own receipt becomes hard slot 0 of the
+incoming signature leaf, whose other slots stay soft; the native inverse of a mixed
+hard/soft leaf is the existing per-slot one. ArchiveSent (ii) has no `Q_sigma`.
+Receive's own step is proved by `ReceiveTransition`: A lays out σ_recv's relation on its
+lane from the prepared step witness and equates each of the 26 statement inputs to its
+own statement cell, which is exactly the statement whose digest σ_recv certifies; the
+relation's hidden state enters A only through the predecessor and successor
+commitments, which A binds to its authenticated openings. These changes remove calls
+and introduce no new call kind; the outside C12 review must cover this diff (lean-1 and
+lean-2 together) before qualification. They preserve exact checkpoint replay
 and require later folds to use the selected Q proofs' actual outer openings.
 Their stage-public inputs are not the final external wallet/payment view:
 those inputs still include the original sigma and signatures. Their joint
@@ -1448,14 +1480,14 @@ and unchanged inner recursive constants cannot supply coherent recursive authori
 
 The exact current head layout also admits a narrower, independently reviewed
 local lemma under an **ordinary ideal-permutation interface**. This is not an
-adopted release assumption about fixed RP57. The33 core words place the nonce
-last; the eight rest words and padding give the final two permutation edges
+adopted release assumption about fixed RP57. The29 core words place the nonce
+last; the six rest words and padding give the final two permutation edges
 
 `X = (a, b + N, c + R), U = π(X), Z = U + (0, 1, 0), V = π(Z), head = V₁`.
 
 For a fresh legal Load, all prefix values are independent of the new sampler
 coins. The analysis conditions on the actual prior private/public table plus
-six rest and seventeen head-prefix positions, with at most K edges. For an
+five rest and fifteen head-prefix positions, with at most K edges. For an
 ordinary nonzero predecessor nonce, the sampler accepts s=p−2 field values in
 at most128 independent256-bit fills. Each fill clears only bit255 and then rejects
 zero, the predecessor and noncanonical Fp values without modular reduction. Every
@@ -1591,7 +1623,7 @@ combinations on both fields and reject dropped, duplicated, gated or
 reshaped fixed obligations.
 
 The full operation relations must add the foreign-key, dropped-accumulator,
-bad history-path, invalid-burn and middle-proof mutations, and the depth-16
+invalid-burn and middle-proof mutations, and the depth-16
 cycle test. The carry argument is separately recorded in
 [the reviewed M3b memo](kagemusha_ff_carry_v1.md). The final soundness review
 must bind the actual descriptor/VK hashes and generated proof behavior.
@@ -1599,7 +1631,7 @@ must bind the actual descriptor/VK hashes and generated proof behavior.
 ## Receive raw ownership and sigma projection
 
 The Receive context commits the complete Q public inputs, all eleven original
-object triples, all five predicate claims, all incoming modes and the original
+object triples, all four predicate claims, all incoming modes and the original
 Omega verifier opening. `ReceiveStagePlan` requires every named operation task
 exactly once. Each continuation verifies its exact preceding W key and the same
 context; a component result is not an admission certificate for a stage key.
@@ -1740,6 +1772,17 @@ layout/strict constraints and checkpoint mutations in 1,990.77 seconds. Its A1
 maximum is 65,527 rows, only two below the strict 65,529 gate; that actual stage
 passes unchanged. Its larger Q2 owner uses 63,677 rows and terminal uses 55,315
 rows. No spare-row or runtime margin is inferred from these constraint counts.
+
+Lean lineage milestone 2 (owner decision 2026-10-17) replaces this ten-stage
+schedule. A proves the Receive transition itself in A1 (`ReceiveTransition` 46, beside
+the hard predecessor and `ReceiveConsumedEffects`), so `OwnProof` (17), the own
+sigma slot of Q0 and the own sigma tape are removed. The current credential and its
+certificate are no longer re-verified (C4 is carried by continuity), so their objects
+leave the schema (nine slots). The own receipt becomes hard slot 0 of the incoming
+signature leaf Q1, verified with Authorization at A6 and projected by Signatures at A7.
+The schedule is nine A and eight W stages; every incoming check, result owner and
+mode is unchanged. The measurements in this section describe the former schedules;
+the lean schedule needs new capacity, proof and restoration runs.
 
 The split map regression passes acceptance,
 burn insertion and burn no-op with known/unknown equality and mutations of the
@@ -1913,9 +1956,15 @@ the adversarial source never qualifies as a valid monetary head.
 
 ## Archive original sources and conditional terminal closure
 
-`ArchiveStagePlan` requires exactly one owner for each of OwnProof, retained
-Proofs, retained Payment, incoming Proofs, Evidence, Signatures, current
-Authorization, CorePending, LineagePending and Effects.
+`ArchiveStagePlan` requires exactly one owner for each of retained Proofs,
+retained Payment, incoming Proofs, Evidence, Signatures, Authorization,
+CorePending, LineagePending and Effects. Lean lineage milestone 2 (owner decision
+2026-10-17) removes OwnProof: A already runs σ_archive's constraints in
+LineagePending, and the own receipt is hard slot 0 of the merged signature leaf
+that Signatures and Authorization share. The current credential and certificate
+leave the schema (fifteen slots for Receive evidence, seventeen for Status). The
+schedule is nine stages for Receive evidence (with an incoming-only Q0) and eight for
+Status evidence; the paragraphs below describe the former ten-stage source.
 Effects must be terminal, while Proofs must precede it. Q1 and Q2 execute at the
 Authorization and Signatures owners respectively. In the fixed ten-stage
 source, Q0 executes in its own stage: original-proof binding consumes the same
@@ -1954,7 +2003,7 @@ the circuit then binds those supplied originals to the incoming evidence. Pendin
 membership alone cannot justify limiting a historical sigma to 3,456 bytes.
 
 Receive evidence binds its original sigma to the incoming Q0 slot and uses the
-Request-recorded blacklist selector. Status instead binds the original active
+Receive selector. Status instead binds the original active
 Omega carrier, decoded public fields and both transported claims; its verified
 key must hash to the current lineage's carried Omega-key identity. Its exact
 soft-verifier opening is committed even when verification returns false.

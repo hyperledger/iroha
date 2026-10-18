@@ -90,10 +90,6 @@ fn kagemusha_wallet_v1_poseidon_domains_are_distinct_ascii_words() {
         (KAGEMUSHA_WALLET_FEE_CLAIM_VALUE_DOMAIN_V1, b"kgwfee_1"),
         (KAGEMUSHA_WALLET_QUOTA_USAGE_LEAF_DOMAIN_V1, b"kgwquse1"),
         (KAGEMUSHA_WALLET_QUOTA_USAGE_NODE_DOMAIN_V1, b"kgwqusn1"),
-        (
-            KAGEMUSHA_WALLET_BLACKLIST_HISTORY_VALUE_DOMAIN_V1,
-            b"kgwbhst1",
-        ),
         (KAGEMUSHA_WALLET_CERTIFICATE_SET_DOMAIN_V1, b"kgwcset1"),
         (KAGEMUSHA_WALLET_PACKAGE_DOMAIN_V1, b"kgwpkg_1"),
         (KAGEMUSHA_WALLET_NULLIFIER_DOMAIN_V1, b"kgwnull1"),
@@ -122,9 +118,10 @@ fn kagemusha_wallet_v1_poseidon_domains_are_distinct_ascii_words() {
         );
     }
     assert_eq!(seen.len(), KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1.len());
-    assert_eq!(seen.len(), 34);
-    // The superseded sparse-tree domains are gone.
-    for retired in [*b"kgwsmte1", *b"kgwsmtn1"] {
+    assert_eq!(seen.len(), 33);
+    // The superseded sparse-tree domains and the retired blacklist-history domain (the list is
+    // local only, owner decision 2026-10-17) are gone.
+    for retired in [*b"kgwsmte1", *b"kgwsmtn1", *b"kgwbhst1"] {
         assert!(!seen.contains(&u64::from_le_bytes(retired)));
     }
 }

@@ -96,6 +96,7 @@ impl Prover {
             a,
             w,
             wrappers,
+            identity: ProverInstanceV1::fresh(),
         })
     }
 
@@ -384,11 +385,14 @@ impl FirstCircuit {
         let operation = plan.context.operation();
         let variant = operation.frame().variant();
         let kinds = object_kinds(variant)?;
-        let class = operation.sigma.class(0).ok_or(Error::Artifact)?;
+        let class = operation
+            .sigma()
+            .and_then(|sigma| sigma.class(0))
+            .ok_or(Error::Artifact)?;
         let predecessor = operation.omega().ok_or(Error::Artifact)?;
         let state = StateWitness {
-            core: [Fp::ZERO; 33],
-            rest: [Fp::ZERO; 8],
+            core: [Fp::ZERO; 29],
+            rest: [Fp::ZERO; 6],
             lineage: [Fp::ZERO; 18],
         };
         let mut q_instances = Vec::new();
@@ -413,7 +417,6 @@ impl FirstCircuit {
         let kind = match variant {
             Variant::RefreshCredential => RefreshKind::Credential,
             Variant::RefreshSchemePolicy => RefreshKind::SchemePolicy,
-            Variant::RefreshBlacklist => RefreshKind::Blacklist,
             Variant::RefreshQuotaShare => RefreshKind::QuotaShare,
             Variant::RefreshTimeAnchor => RefreshKind::TimeAnchor,
             _ => return Err(Error::Artifact),
@@ -438,13 +441,6 @@ impl FirstCircuit {
                         fee_schedule: Fp::ZERO,
                     },
                 },
-                blacklist: (variant == Variant::RefreshBlacklist).then_some(IndexedInsert {
-                    leaf: crate::tree::IndexedLeaf::default(),
-                    leaf_slot: 0,
-                    leaf_siblings: [Fp::ZERO; 32],
-                    slot: 1,
-                    slot_siblings: [Fp::ZERO; 32],
-                }),
                 quota: (variant == Variant::RefreshQuotaShare).then_some(QuotaInput {
                     old: [[Fp::ZERO; 4]; 64],
                     windows: [[Fp::ZERO; 4]; 64],

@@ -195,8 +195,8 @@ pub struct ProducerInventoryV1 {
     pub native_profile: [u8; 32],
     /// Unique original references, all consumed by this inventory.
     pub originals: Vec<OriginalV1>,
-    /// All sixteen sigma originals in global selector order.
-    pub sigma: [u32; 16],
+    /// All eleven sigma originals in global selector order.
+    pub sigma: [u32; 11],
     /// Compiled operation programs, each referenced by at least one logical route.
     pub operations: Vec<OperationV1>,
     /// Program index for every compiled logical selector route, in that exact order.
@@ -215,8 +215,10 @@ fn variant(tag: u8) -> Result<Variant, Error> {
 }
 fn selectors(values: &[u8], empty: bool) -> Result<(), Error> {
     if (!empty && values.is_empty())
-        || values.len() > 16
-        || values.iter().any(|i| *i >= 16)
+        || values.len() > SIGMA_CATALOG_V1.len()
+        || values
+            .iter()
+            .any(|i| usize::from(*i) >= SIGMA_CATALOG_V1.len())
         || values.windows(2).any(|w| w[0] >= w[1])
     {
         return Err(Error::Inventory);
@@ -346,7 +348,7 @@ impl ProducerInventoryV1 {
         bounded(&bytes, CATALOG_MAX_BYTES_V1)?;
         Ok(bytes)
     }
-    /// Exact domain-separated commitment included in the signed seventeen-verifier inventory.
+    /// Exact domain-separated commitment included in the signed twelve-verifier inventory.
     /// # Errors
     /// The complete bounded canonical inventory cannot be encoded.
     pub fn digest(&self) -> Result<[u8; 32], Error> {

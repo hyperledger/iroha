@@ -8,7 +8,7 @@ use iroha_data_model::{
 use iroha_torii_shared::PipelineTransactionStatusResponse;
 
 #[path = "settlement/policy.rs"]
-mod policy;
+pub(super) mod policy;
 
 pub(super) fn state_rejection(
     transaction: HashOf<SignedTransaction>,
@@ -442,7 +442,7 @@ pub(super) fn run(
     let instruction = KagemushaWalletLedgerV1::new(scheme_id, Action::Unload(claim_bytes.clone()));
     // The exact genuine claim must survive an authoritative policy refusal without
     // consuming its payout key. Availability changes use the ordinary asset owner.
-    let policy_retry = policy::before_payout(network, &output, &instruction)?;
+    let policy_retry = policy::before_payout(network, &output, &instruction, 43, [900, 0, 0, 100])?;
     let (transaction, settled_height) = submit(
         network,
         43,

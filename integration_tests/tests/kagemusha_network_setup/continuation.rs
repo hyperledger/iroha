@@ -27,7 +27,7 @@ const ORIGINAL_MAX: usize = 16 << 20;
 fn hash(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
-fn digest(value: &norito::json::Value) -> Result<[u8; 32]> {
+pub(super) fn digest(value: &norito::json::Value) -> Result<[u8; 32]> {
     let text = value
         .as_str()
         .ok_or_else(|| eyre!("digest string required"))?;
@@ -61,7 +61,11 @@ fn private_directory(path: &Path) -> Result<()> {
 }
 
 // These are bounded DATA originals. Their digests do not grant network or wallet authority.
-fn read_original(path: &Path, maximum: usize, expected: Option<&str>) -> Result<Vec<u8>> {
+pub(super) fn read_original(
+    path: &Path,
+    maximum: usize,
+    expected: Option<&str>,
+) -> Result<Vec<u8>> {
     ensure!(path.is_absolute(), "absolute selected original required");
     if let Some(expected) = expected {
         ensure!(
@@ -183,7 +187,7 @@ fn original(
     );
     Ok(bytes)
 }
-fn selected(
+pub(super) fn selected(
     command: &norito::json::Value,
     name: &str,
     maximum: usize,
@@ -534,7 +538,7 @@ mod registration;
 mod settlement;
 
 #[test]
-#[ignore = "owns four actual validators through fresh-anchor catalog, genuine native ABC, settlement and retained-C confirmation; explicit controller required"]
+#[ignore = "owns four actual validators through retained-genesis catalog, genuine native ABC, settlement and retained-C confirmation; explicit controller required"]
 fn execute_four_validator_monetary_continuation() -> Result<()> {
     init_instruction_registry();
     let root = PathBuf::from(
@@ -545,13 +549,13 @@ fn execute_four_validator_monetary_continuation() -> Result<()> {
     private_directory(&root)?;
     let deadline = Instant::now() + Duration::from_secs(7 * 24 * 60 * 60);
     let (network, rt) = sandbox::start_network_blocking_or_skip(
-        network_builder(),
+        retained::network_builder()?,
         stringify!(execute_four_validator_monetary_continuation),
     )?
     .ok_or_else(|| eyre!("qualification cannot skip"))?;
     let result = (|| -> Result<()> {
         wait_for_committed(&network, 1, network.sync_timeout(), &[])?;
-        fund_fee_successor(&network)?;
+        let _genesis_dkg = retained::provision(&network, &rt, &root)?;
         export(&network, &root.join("setup"))?;
         let setup_sha = hash(&fs::read(root.join("setup/setup.json"))?);
         let ready = norito::json::to_vec(

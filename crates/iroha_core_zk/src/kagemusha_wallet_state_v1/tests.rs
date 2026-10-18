@@ -337,7 +337,9 @@ fn frozen_rejects_rebound_successor_with_unenrolled_regulatory_controls() {
         0
     );
     let mut body = value.capsule.body().clone();
-    body.successor_state.rest.permitted_controls = KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1;
+    // A structurally valid quota policy (its response bound is nonzero) the credential lacks.
+    body.successor_state.rest.permitted_controls = KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1;
+    body.successor_state.core.time_anchor_max_response_ms = 1;
     rebind_frozen_successor(&mut value, body);
     assert!(value.validate().is_err());
 }
@@ -509,6 +511,7 @@ pub(super) struct TestCustody {
     status_calls: usize,
     status_replacement: Option<(usize, SlotStatus)>,
     status_unavailable_at: Option<usize>,
+    status_error: Option<ProviderError>,
     checkpoint_calls: usize,
     checkpoint_replacement: Option<(usize, ([u8; 32], Vec<u8>))>,
     // A genuine custody head reported by status once `move_head` is set: an Advance that
@@ -537,6 +540,7 @@ impl TestCustody {
             status_calls: 0,
             status_replacement: None,
             status_unavailable_at: None,
+            status_error: None,
             checkpoint_calls: 0,
             checkpoint_replacement: None,
             moved_status: None,
@@ -658,6 +662,9 @@ impl Custody for TestCustody {
 
     fn status(&mut self) -> Result<SlotStatus, ProviderError> {
         self.status_calls += 1;
+        if let Some(error) = self.status_error {
+            return Err(error);
+        }
         if self.move_head.load(Ordering::SeqCst) {
             if let Some(moved) = &self.moved_status {
                 return Ok(moved.clone());
@@ -794,8 +801,52 @@ pub(super) struct TestProofs {
     expire_during_publication: bool,
     fold_pause: Option<Arc<folding_preemption_tests::Pause>>,
     pub(super) capacity: crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeCapacityV1,
+    // D6b with mock proof work: the marker each sub-proof leaves and what each locked
+    // prepare was handed. The marker carries no proof state; it only shows slot ownership.
+    retention: Arc<Mutex<TestRetention>>,
 }
 
+/// The mock's retained marker: which sub-proof left it and how many checkpoints it saw.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct TestRetainedV1 {
+    pub(super) mark: usize,
+    pub(super) sequence: u128,
+    pub(super) checkpoints: usize,
+}
+
+#[derive(Default)]
+pub(super) struct TestRetention {
+    marks: usize,
+    /// For every mock `fold_prepare`, the marker it was handed, if any.
+    pub(super) handed: Vec<Option<TestRetainedV1>>,
+    /// Every marker a mock proof left, in order.
+    pub(super) left: Vec<TestRetainedV1>,
+}
+
+impl TestProofs {
+    /// The marker the last locked prepare was handed.
+    pub(super) fn last_handed(&self) -> Option<TestRetainedV1> {
+        self.retention
+            .lock()
+            .expect("retention log")
+            .handed
+            .last()
+            .copied()
+            .flatten()
+    }
+    /// The marker the last mock proof left.
+    pub(super) fn last_left(&self) -> TestRetainedV1 {
+        *self
+            .retention
+            .lock()
+            .expect("retention log")
+            .left
+            .last()
+            .expect("a retained marker")
+    }
+}
+
+mod fold_retention_tests;
 mod folding_preemption_tests;
 mod storage_counters;
 mod verification_baseline_tests;
@@ -929,10 +980,18 @@ impl NativeProofs for TestProofs {
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
         checkpoints: Vec<PrivateArchiveBytes>,
         _custody: Option<&mut FoldCustodyV1<'_>>,
+        retained: Option<FoldRetentionV1>,
         cancellation: &Cancellation,
     ) -> Result<Box<dyn NativeFoldJobV1>, Error> {
         cancellation.check()?;
         self.folds.fetch_add(1, Ordering::SeqCst);
+        // Only this mock's own marker is recognized; it decides nothing.
+        let handed = retained.and_then(FoldRetentionV1::downcast::<TestRetainedV1>);
+        self.retention
+            .lock()
+            .expect("retention log")
+            .handed
+            .push(handed);
         Ok(Box::new(TestFoldJob {
             proofs: self.clone(),
             witness: witness.clone(),
@@ -950,7 +1009,10 @@ struct TestFoldJob {
     checkpoints: Vec<PrivateArchiveBytes>,
 }
 impl NativeFoldJobV1 for TestFoldJob {
-    fn prove(self: Box<Self>, cancellation: &Cancellation) -> Result<FoldProgress, Error> {
+    fn prove(
+        self: Box<Self>,
+        cancellation: &Cancellation,
+    ) -> Result<(FoldProgress, Option<FoldRetentionV1>), Error> {
         let Self {
             proofs,
             witness,
@@ -980,9 +1042,23 @@ impl NativeFoldJobV1 for TestFoldJob {
             );
         }
         if checkpoints.len() < stages {
-            return Ok(FoldProgress::Checkpoint(PrivateArchiveBytes::copy_from(
-                &original(checkpoints.len()),
-            )?));
+            let left = {
+                let mut retention = proofs.retention.lock().expect("retention log");
+                retention.marks += 1;
+                let left = TestRetainedV1 {
+                    mark: retention.marks,
+                    sequence: witness.frozen.capsule.body().statement.sequence,
+                    checkpoints: checkpoints.len(),
+                };
+                retention.left.push(left);
+                left
+            };
+            return Ok((
+                FoldProgress::Checkpoint(PrivateArchiveBytes::copy_from(&original(
+                    checkpoints.len(),
+                ))?),
+                Some(FoldRetentionV1::new(left)),
+            ));
         }
         let c = &witness.frozen.capsule;
         let mut tree = KagemushaWalletIndexedTreeV1::new();
@@ -1004,27 +1080,30 @@ impl NativeFoldJobV1 for TestFoldJob {
         } else {
             predecessor.map_or(tree.root(), |pred| pred.lineage.public.credit_digest_root)
         };
-        Ok(FoldProgress::Complete {
-            lineage: KagemushaWalletLineageV1 {
-                public: KagemushaWalletLineagePublicV1 {
-                    version: 1,
-                    scheme_id: c.body().scheme_id,
-                    relation_id: c.body().statement.relation_id,
-                    head: c.body().statement.successor,
-                    wallet_id: c.body().wallet_id,
-                    credential_digest: c.body().statement.credential_digest,
-                    payment_key: witness.frozen.credential.body.payment_key,
-                    lifecycle: c.body().statement.lifecycle,
-                    policy_epoch: c.body().successor_state.core.policy_epoch,
-                    enabled_controls: c.body().successor_state.core.enabled_controls,
-                    burned_total: c.body().successor_state.core.burned_total,
-                    pending_outgoing_root: c.body().successor_state.core.pending_outgoing_root,
-                    credit_digest_root: credit_root,
+        Ok((
+            FoldProgress::Complete {
+                lineage: KagemushaWalletLineageV1 {
+                    public: KagemushaWalletLineagePublicV1 {
+                        version: 1,
+                        scheme_id: c.body().scheme_id,
+                        relation_id: c.body().statement.relation_id,
+                        head: c.body().statement.successor,
+                        wallet_id: c.body().wallet_id,
+                        credential_digest: c.body().statement.credential_digest,
+                        payment_key: witness.frozen.credential.body.payment_key,
+                        lifecycle: c.body().statement.lifecycle,
+                        policy_epoch: c.body().successor_state.core.policy_epoch,
+                        enabled_controls: c.body().successor_state.core.enabled_controls,
+                        burned_total: c.body().successor_state.core.burned_total,
+                        pending_outgoing_root: c.body().successor_state.core.pending_outgoing_root,
+                        credit_digest_root: credit_root,
+                    },
+                    proof: vec![1, 2, 3],
                 },
-                proof: vec![1, 2, 3],
+                burned: proofs.burn && c.body().kind == KagemushaWalletOperationKindV1::Receive,
             },
-            burned: proofs.burn && c.body().kind == KagemushaWalletOperationKindV1::Receive,
-        })
+            None,
+        ))
     }
 }
 
@@ -1051,7 +1130,7 @@ pub(super) fn synthetic_payout_wallet(scheme: KagemushaWalletSchemeV1, chain: St
         folds: IndexRoot::default(),
         claims: IndexRoot::default(),
         preparations: IndexRoot::default(),
-        blacklists: IndexRoot::default(),
+        blacklist: None,
         capsule_plans: IndexRoot::default(),
         capsule_sources: IndexRoot::default(),
         issued_requests: IndexRoot::default(),
@@ -1135,6 +1214,53 @@ fn completion_retry_and_pending_resume_use_exact_receipt_bytes() {
     changed.capsule = seal_body(body);
     assert!(w.commit(changed).is_err());
     assert_eq!(w.custody.signatures, 1);
+}
+
+#[test]
+fn local_blacklist_install_waits_for_a_pending_operation_and_never_changes_its_resume() {
+    let list: KagemushaWalletBlacklistV1 = fixture("KagemushaWalletBlacklistV1");
+    let original = list.to_canonical_bytes().expect("list");
+    let certificates = archive::encode(
+        &KagemushaWalletCertificateSetV1::new(vec![fixture("KagemushaWalletSignerCertificateV1")])
+            .expect("certificate set"),
+    )
+    .expect("certificates");
+    let mut w = wallet();
+    let boot = bootstrap();
+    w.commit(boot.clone()).expect("boot");
+    let receive = frozen(
+        Some(&boot),
+        KagemushaWalletEffectV1::Receive {
+            credit_id: field(101),
+            payer_wallet_id: [0x88; 32],
+            amount: 1,
+        },
+    );
+    w.custody.pause = true;
+    assert_eq!(
+        w.commit(receive.clone()).expect("pending"),
+        Completion::Pending
+    );
+    // A list is never selected beside an unfinished Advance.
+    assert!(matches!(
+        w.install_blacklist(&original, &certificates),
+        Err(Error::Pending)
+    ));
+    w.custody.pause = false;
+    let complete = w.resume().expect("resume").expect("pending");
+    assert!(matches!(complete, Completion::Complete(_)));
+    assert_eq!(
+        w.install_blacklist(&original, &certificates)
+            .expect("install"),
+        Completion::Complete(list.blacklist_digest().to_vec())
+    );
+    assert_eq!(
+        w.retry(&receive.capsule.body().operation_id)
+            .expect("retry"),
+        Some(complete)
+    );
+    assert_eq!(w.local_blacklist().expect("local list"), Some(list));
+    assert_eq!(w.custody.signatures, 2);
 }
 
 #[test]
@@ -2409,6 +2535,60 @@ fn snapshot_test_replace_fold(
         .unwrap();
     w.publish_manifest(digest, &manifest).unwrap();
     w.verified_folds.clear();
+}
+
+#[test]
+fn pending_custody_parks_folding_without_proof_and_resumes_after_release() {
+    use std::ops::ControlFlow;
+
+    let mut w = wallet();
+    let boot = bootstrap();
+    let operation = boot.capsule.body().operation_id;
+    w.custody.pause = true;
+    assert_eq!(w.commit(boot).unwrap(), Completion::Pending);
+    w.scheduler().set_activity(true, false);
+    let originals = w.archive.records.lock().unwrap().clone();
+    let checkpoint = w.custody.checkpoint.clone();
+    for _ in 0..3 {
+        let ControlFlow::Break(ended) = w.fold_prepare().expect("Pending is idle") else {
+            panic!("Pending custody cannot prepare a proof");
+        };
+        assert_eq!(ended.status, FoldStatus::Idle);
+        assert_eq!(ended.backlog, None);
+    }
+    assert_eq!(w.proofs.folds.load(Ordering::SeqCst), 0);
+    assert_eq!(w.custody.signatures, 0);
+    assert_eq!(*w.archive.records.lock().unwrap(), originals);
+    assert_eq!(w.custody.checkpoint, checkpoint);
+    assert_eq!(w.retry(&operation).unwrap(), Some(Completion::Pending));
+    assert!(matches!(w.snapshot(), Err(Error::Pending)));
+
+    // The same ABI family also carries actual uncertain writes. Only the typed
+    // custody Pending answer may park; storage uncertainty must remain an error.
+    let uncertain = ProviderError::Uncertain(
+        crate::kagemusha_wallet_advance_v1::KagemushaWalletUnavailableV1::Io(5),
+    );
+    w.custody.status_error = Some(uncertain);
+    assert!(matches!(w.fold_prepare(), Err(Error::Provider(error)) if error == uncertain));
+    assert_eq!(w.proofs.folds.load(Ordering::SeqCst), 0);
+    w.custody.status_error = None;
+
+    w.custody.pause = false;
+    let complete = w.resume().unwrap().expect("same selected operation");
+    assert!(matches!(complete, Completion::Complete(_)));
+    assert_eq!(w.retry(&operation).unwrap(), Some(complete));
+    assert_eq!(w.custody.signatures, 1);
+    assert_eq!(
+        w.fold_once().unwrap(),
+        FoldStatus::Checkpoint {
+            sequence: 0,
+            ordinal: 0
+        }
+    );
+    assert_eq!(w.fold_once().unwrap(), FoldStatus::Folded(0));
+    assert_eq!(w.fold_once().unwrap(), FoldStatus::CaughtUp);
+    assert_eq!(w.proofs.folds.load(Ordering::SeqCst), 2);
+    assert_eq!(w.custody.signatures, 1);
 }
 
 #[test]

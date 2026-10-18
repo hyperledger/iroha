@@ -1087,3 +1087,215 @@ fn eviction_at_the_proof_bound_never_changes_a_verdict() {
     assert_eq!(current().since(start).reused_verifications, 1);
     assert_eq!(owner.verification_memo_sizes().1, PROOF_ENTRIES);
 }
+
+/// Both full-verification entry points publish one exact opening; succinct calls never do.
+fn accepted_opening_reuse<C: PastaCurve>()
+where
+    C::ScalarExt: PoseidonField,
+    C::Base: PoseidonField,
+{
+    let params = PinnedParams::<C>::derive(K).expect("params");
+    let pk = crate::keys::keygen_pk_v2(
+        &params,
+        &CIRCUIT,
+        &crate::keys::KeygenConfigV2::pipa_r(vec![crate::cs::InstanceType::Field]),
+    )
+    .expect("V2 PIPA-R key");
+    let setup = Setup { params, pk };
+    let instances = CIRCUIT.instances::<C::ScalarExt>();
+    let proof = setup.prove(&CIRCUIT, &instances, 109).expect("proof");
+    let read_count = crate::verifier::proof_reads_for_test;
+    let opening = |owner: &PinnedParams<C>, cancellation: Option<&CancellationToken>| {
+        verify_full_opening_cancellable(
+            owner,
+            setup.pk.binding(),
+            setup.pk.vk(),
+            &instances,
+            &proof,
+            BUDGET,
+            cancellation,
+        )
+    };
+    let succinct = |owner: &PinnedParams<C>, cancellation: Option<&CancellationToken>| {
+        crate::verifier::accumulate_generator_cancellable(
+            owner,
+            setup.pk.binding(),
+            setup.pk.vk(),
+            &instances,
+            &proof,
+            BUDGET,
+            cancellation,
+        )
+    };
+    let reference_owner = PinnedParams::<C>::derive(K).expect("reference");
+    let reference = succinct(&reference_owner, None).expect("reference opening");
+    assert_eq!(reference_owner.verification_memo_sizes(), (0, 0));
+
+    for publish_with_opening in [false, true] {
+        let owner = PinnedParams::<C>::derive(K).expect("owner");
+        let start = read_count();
+        if publish_with_opening {
+            assert!(
+                opening(&owner, None)
+                    .expect("cold opening")
+                    .matches(&reference)
+            );
+        } else {
+            verify(&owner, &setup, &instances, &proof, None).expect("cold full verify");
+        }
+        assert_eq!(read_count() - start, 1);
+        let clone = owner.clone();
+        let start = read_count();
+        for active in [&owner, &clone] {
+            for _ in 0..40 {
+                assert!(
+                    opening(active, None)
+                        .expect("warm opening")
+                        .matches(&reference)
+                );
+                assert_eq!(succinct(active, None).expect("warm claim"), reference);
+            }
+        }
+        assert_eq!(
+            read_count() - start,
+            0,
+            "80 paired reads reuse full acceptance"
+        );
+        assert_eq!(owner.verification_memo_sizes(), (1, 1));
+
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        let start = read_count();
+        assert_eq!(
+            opening(&owner, Some(&cancelled)),
+            Err(VerifyError::Cancelled)
+        );
+        assert_eq!(
+            succinct(&owner, Some(&cancelled)),
+            Err(VerifyError::Cancelled)
+        );
+        assert_eq!(read_count() - start, 0);
+
+        // A key hit must not bypass current caller-controlled shape or byte admission.
+        let mut changed = proof.clone();
+        changed[0] ^= 1;
+        assert!(
+            crate::verifier::accumulate_generator_cancellable(
+                &owner,
+                setup.pk.binding(),
+                setup.pk.vk(),
+                &instances,
+                &changed,
+                BUDGET,
+                None,
+            )
+            .is_err()
+        );
+        changed.push(0);
+        assert!(matches!(
+            crate::verifier::accumulate_generator_cancellable(
+                &owner,
+                setup.pk.binding(),
+                setup.pk.vk(),
+                &instances,
+                &changed,
+                BUDGET,
+                None,
+            ),
+            Err(VerifyError::ProofLength { .. })
+        ));
+        let mut wrong = instances.clone();
+        wrong[0][0] += C::ScalarExt::ONE;
+        assert!(
+            crate::verifier::accumulate_generator_cancellable(
+                &owner,
+                setup.pk.binding(),
+                setup.pk.vk(),
+                &wrong,
+                &proof,
+                BUDGET,
+                None,
+            )
+            .is_err()
+        );
+        assert_eq!(owner.verification_memo_sizes(), (1, 1));
+
+        // A forgotten or poisoned owner must recompute, retaining the exact opening.
+        let restarted = PinnedParams::<C>::derive(K).expect("restart");
+        let start = read_count();
+        assert!(
+            opening(&restarted, None)
+                .expect("restarted opening")
+                .matches(&reference)
+        );
+        assert_eq!(read_count() - start, 1);
+        owner.poison_verification_memo();
+        let start = read_count();
+        assert!(
+            opening(&owner, None)
+                .expect("poisoned opening")
+                .matches(&reference)
+        );
+        assert_eq!(succinct(&owner, None).expect("poisoned claim"), reference);
+        assert_eq!(read_count() - start, 2);
+        assert_eq!(owner.verification_memo_sizes(), (0, 0));
+    }
+}
+
+#[test]
+fn accepted_openings_skip_repeated_transcripts_on_both_curves() {
+    accepted_opening_reuse::<Ep>();
+    accepted_opening_reuse::<Eq>();
+}
+
+/// Test the actual Arc-valued LRU without manufacturing any proof acceptance.
+#[test]
+fn opening_memo_values_drop_at_eviction_and_leave_no_mutable_alias() {
+    let setup = setup::<Ep, _>(&CIRCUIT, CHOICES[1]);
+    let instances = CIRCUIT.instances();
+    let proof = setup.prove(&CIRCUIT, &instances, 113).expect("proof");
+    let opening = verify_full_opening_cancellable(
+        &setup.params,
+        setup.pk.binding(),
+        setup.pk.vk(),
+        &instances,
+        &proof,
+        BUDGET,
+        None,
+    )
+    .expect("fully verified opening");
+    let shared = Arc::new(opening);
+    let weak = Arc::downgrade(&shared);
+    let mut lru = Lru::new(1);
+    lru.insert([1; 32], Some(shared));
+    let borrowed = lru.get(&[1; 32]).flatten().expect("owned read");
+    assert_eq!(Arc::strong_count(&borrowed), 2);
+    drop(borrowed);
+    lru.insert([2; 32], None);
+    assert!(
+        weak.upgrade().is_none(),
+        "eviction releases the retained opening"
+    );
+}
+
+/// Report payload accounting separately from allocator and BTree node overhead.
+fn report_opening_memo_layout<C: PastaCurve>() {
+    for k in [16, iroha_pasta::params::MAX_K] {
+        let per_entry = std::mem::size_of::<Option<Arc<VerifiedOpening<C>>>>()
+            + 2 * std::mem::size_of::<usize>()
+            + std::mem::size_of::<VerifiedOpening<C>>()
+            + k as usize * std::mem::size_of::<C::ScalarExt>();
+        eprintln!(
+            "OPENING_MEMO_LAYOUT curve={} k={k} per_entry_bytes={per_entry} \
+             owner_payload_bytes={} capacity={PROOF_ENTRIES}",
+            std::any::type_name::<C>(),
+            per_entry * PROOF_ENTRIES,
+        );
+    }
+}
+
+#[test]
+fn accepted_opening_memo_reports_bounded_payload_on_both_curves() {
+    report_opening_memo_layout::<Ep>();
+    report_opening_memo_layout::<Eq>();
+}

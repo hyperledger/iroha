@@ -82,7 +82,7 @@ impl ReceiveSignedObjects {
     ) -> Result<(), Error> {
         if plan.receive_results().is_none()
             || input.objects.len() != plan.object_specs().len()
-            || input.objects.len() != 11
+            || input.objects.len() != 9
         {
             return Err(Error::Synthesis);
         }

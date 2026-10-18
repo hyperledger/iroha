@@ -2,7 +2,7 @@
 use super::*;
 
 #[test]
-#[ignore = "requires the genuine complete52 source grant; exports a target, never a finalized receipt"]
+#[ignore = "requires the genuine complete22 source grant; exports a target, never a finalized receipt"]
 fn export_actual_controls_load_target_with_separate_native_custody() {
     let output = fresh_output("KAGEMUSHA_NATIVE_CONTROLS_TARGET_OUTPUT");
     let sources = Sources::admit(&output.join("source-admission"));

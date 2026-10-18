@@ -71,11 +71,14 @@ fn builtin_signature_wrapper_binds_originals_and_rejects_foreign_actual_source()
         .unwrap();
     let plan = qualified.signatures()[0].clone();
     let record = &authenticated.inventory().operations[program];
+    // Lean Bootstrap has no sigma Q: the hard 2V1F signature leaf is its only Q.
+    assert_eq!(record.q.len(), 1);
     let original = authenticated
-        .read_original(record.q[1], &mut originals, config.maximum_bytes)
+        .read_original(record.q[0], &mut originals, config.maximum_bytes)
         .unwrap();
     let params = installed.verifier().pallas_parameters().as_ref().clone();
-    let member = profile.member(&[2, program_index, 1]).unwrap();
+    let member = profile.member(&[2, program_index, 0]).unwrap();
+    assert!(profile.member(&[2, program_index, 1]).is_err());
     assert!(profile.member(&[2, program_index, u32::MAX]).is_err());
     let admit = |plan, member, descriptor: &[u8], vk: &[u8], pk: &[u8], cancellation| {
         QSignatureProver::from_builtin_original_artifact_cancellable(
@@ -89,13 +92,22 @@ fn builtin_signature_wrapper_binds_originals_and_rejects_foreign_actual_source()
             cancellation,
         )
     };
-    // A real member from the same complete profile, but the other Q relation,
-    // cannot be used as authority for this signature source's originals.
-    assert_ne!(record.q[0], record.q[1]);
+    // A real member from the same complete profile, but another program's Q
+    // relation (Load's one-slot own-receipt leaf), cannot be used as authority
+    // for this signature source's originals.
+    let load = authenticated
+        .inventory()
+        .operations
+        .iter()
+        .position(|record| inventory::variant(record.variant).unwrap() == Variant::Load)
+        .unwrap();
+    assert_ne!(record.q[0], authenticated.inventory().operations[load].q[0]);
     assert!(
         admit(
             plan.clone(),
-            profile.member(&[2, program_index, 0]).unwrap(),
+            profile
+                .member(&[2, u32::try_from(load).unwrap(), 0])
+                .unwrap(),
             &original.descriptor,
             &original.verifying_key,
             &original.proving_key,

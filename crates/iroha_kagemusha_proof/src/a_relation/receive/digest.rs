@@ -75,7 +75,7 @@ impl ReceiveProofDigest {
         input: &ContextInputs<'_>,
     ) -> Result<(), Error> {
         require_task(plan, stage, OperationTask::ReceiveProofDigest)?;
-        if input.objects.len() != 11 || plan.object_specs().len() != 11 {
+        if input.objects.len() != 9 || plan.object_specs().len() != 9 {
             return Err(Error::Synthesis);
         }
         for (offset, actual) in self.context.iter().enumerate() {

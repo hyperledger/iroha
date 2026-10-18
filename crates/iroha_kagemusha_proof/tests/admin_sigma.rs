@@ -65,7 +65,7 @@ fn bootstrap_initial_state_and_rehashed_invalid_states() {
     assert_eq!(lanes.len(), 5);
     let (cs, _) = configure::<Fp, BootstrapCircuit>(&circuit).unwrap();
     assert_eq!(cs.instance_lengths(), &[1]);
-    for index in (core_index::BALANCE..=core_index::BLACKLIST_ISSUED_AT).chain([
+    for index in (core_index::BALANCE..=core_index::QUOTA_SHARE_EXPIRY).chain([
         core_index::POLICY_EPOCH,
         core_index::TIME_FLOOR,
         core_index::STATE_NONCE,
@@ -84,7 +84,7 @@ fn bootstrap_initial_state_and_rehashed_invalid_states() {
             "rehashed core {index}"
         );
     }
-    for index in 1..8 {
+    for index in 1..6 {
         let mut wrong = witness;
         wrong.rest[index] += Fp::ONE;
         bootstrap::rebind(&mut wrong);
@@ -185,7 +185,7 @@ fn rebind_load(w: &mut iroha_kagemusha_proof::admin_sigma::LoadWitness) {
         state.lineage[6..8].copy_from_slice(&state.core[5..7]);
         state.lineage[8] = state.core[7];
         state.lineage[13] = state.core[0]
-            + Fp::from(256) * state.core[30]
+            + Fp::from(256) * state.core[26]
             + Fp::from(2).pow_vartime([72]) * state.core[21];
     }
     w.statement[3..7].copy_from_slice(&w.successor.core[1..5]);
@@ -231,7 +231,7 @@ fn load_sigma_constrains_value_continuity_and_exact_changes() {
             .count()
     );
     assert_eq!(lanes.len(), 5);
-    for index in 0..33 {
+    for index in 0..29 {
         if [core_index::STATE_NONCE, core_index::LOAD_REDEEM_ROOT].contains(&index) {
             continue;
         }
@@ -245,7 +245,7 @@ fn load_sigma_constrains_value_continuity_and_exact_changes() {
             "rehashed Load core{index}"
         );
     }
-    for index in 0..8 {
+    for index in 0..6 {
         let mut wrong = witness;
         wrong.successor.rest[index] += Fp::ONE;
         rebind_load(&mut wrong);

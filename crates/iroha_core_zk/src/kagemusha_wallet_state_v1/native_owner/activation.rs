@@ -207,11 +207,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             &valid(plan.credential.to_canonical_bytes())?,
             &archive::encode(&plan.certificates)?,
         )?;
-        proof(self.proofs.installed.verifier().verify_package_proofs(
-            &plan.bootstrap,
-            None,
-            self.proofs.budget,
-        ))?;
+        proof(
+            self.proofs
+                .installed
+                .verifier()
+                .verify_package_proofs(&plan.bootstrap, self.proofs.budget),
+        )?;
         Ok(())
     }
     /// Return the exact durable Activate frame for ordinary signed ledger submission.

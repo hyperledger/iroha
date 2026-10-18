@@ -12,7 +12,6 @@ fn initial() -> StateCircuit {
     state.core[core::CONSUMED_CREDIT_ROOT..=core::FEE_CLAIM_ROOT].fill(empty);
     state.core[core::QUOTA_USAGE_ROOT] =
         QuotaUsageTree::<Fp>::new(&QuotaWindowTree::new(&[]).expect("windows")).root();
-    state.rest[rest::BLACKLIST_HISTORY] = empty;
     state.lineage[14] = Fp::ZERO;
     state.lineage[15] = empty;
     state.lineage[16] = empty;
@@ -82,7 +81,7 @@ fn fixture(variant: Variant) -> StatementCircuit {
 fn bootstrap_rejects_preloaded_value_and_nonempty_maps() {
     let c = fixture(Variant::Bootstrap);
     assert!(c.accepts());
-    for index in core::BALANCE..=core::BLACKLIST_ISSUED_AT {
+    for index in core::BALANCE..=core::QUOTA_SHARE_EXPIRY {
         let mut wrong = c.clone();
         wrong.states.as_mut().unwrap().1.core[index] += Fp::ONE;
         rebind(&mut wrong);
@@ -94,7 +93,7 @@ fn bootstrap_rejects_preloaded_value_and_nonempty_maps() {
         rebind(&mut wrong);
         assert!(!wrong.accepts());
     }
-    for index in 1..8 {
+    for index in 1..6 {
         let mut wrong = c.clone();
         wrong.states.as_mut().unwrap().1.rest[index] += Fp::ONE;
         rebind(&mut wrong);

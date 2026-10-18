@@ -6,7 +6,7 @@
 //! encoding overhead and exact size limits, not cryptographic proof acceptance or frozen keys.
 //! Receive uses the same conservative 3,456-byte sample. The credit-status opening has exactly
 //! 32 siblings, so its complete envelope has a fixed overhead plus the Omega proof length.
-//! The signed blacklist is downloaded online and has no peer-envelope case here.
+//! The signed blacklist is local only and has no peer-envelope case here.
 
 use super::{
     messages::messages_tests::MessageFixture,

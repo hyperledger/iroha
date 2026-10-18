@@ -24,26 +24,23 @@ use super::{
     digest::{
         KagemushaWalletObjectDigestDomainV1 as ObjectDomain, KagemushaWalletSignerOutputV1,
         KagemushaWalletSigningDomainV1 as Domain, WalletFieldItemsV1, WalletTranscriptV1,
-        kagemusha_wallet_field_from_u128_v1, kagemusha_wallet_freeze_signature_v1,
-        kagemusha_wallet_signed_object_digest_v1, kagemusha_wallet_signing_message_v1,
-        kagemusha_wallet_verify_signature_v1,
+        kagemusha_wallet_freeze_signature_v1, kagemusha_wallet_signed_object_digest_v1,
+        kagemusha_wallet_signing_message_v1, kagemusha_wallet_verify_signature_v1,
     },
     identity::{
-        KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1, KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1,
-        KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1, KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1,
-        KagemushaWalletCredentialV1, KagemushaWalletRegulatoryPolicyV1, KagemushaWalletSchemeV1,
+        KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1, KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1,
+        KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1, KagemushaWalletCredentialV1,
+        KagemushaWalletRegulatoryPolicyV1, KagemushaWalletSchemeV1,
         kagemusha_wallet_provider_contract_v1,
     },
     invalid_v1, is_zero_v1,
     keys::{KagemushaDevicePublicKeyV1, KagemushaDeviceSignatureV1},
-    messages::KagemushaWalletRequestBodyV1,
     overflow_v1,
     policy::{
         KAGEMUSHA_WALLET_QUOTA_TREE_DEPTH_V1, KAGEMUSHA_WALLET_QUOTA_WINDOWS_MAX_V1,
         KagemushaWalletQuotaWindowKindV1, KagemushaWalletQuotaWindowV1,
     },
     poseidon::{
-        KAGEMUSHA_WALLET_BLACKLIST_HISTORY_VALUE_DOMAIN_V1,
         KAGEMUSHA_WALLET_CONSUMED_CREDIT_VALUE_DOMAIN_V1, KAGEMUSHA_WALLET_CORE_DOMAIN_V1,
         KAGEMUSHA_WALLET_CREDIT_DIGEST_VALUE_DOMAIN_V1, KAGEMUSHA_WALLET_FEE_CLAIM_VALUE_DOMAIN_V1,
         KAGEMUSHA_WALLET_LINEAGE_DOMAIN_V1, KAGEMUSHA_WALLET_LOAD_VALUE_DOMAIN_V1,
@@ -112,9 +109,9 @@ pub const KAGEMUSHA_WALLET_LINEAGE_PUBLIC_TRANSCRIPT_BYTES_V1: usize = 2
     + 2 * DIGEST_BYTES;
 
 /// σ-field elements of the state core (§3), before the appended rest digest.
-pub const KAGEMUSHA_WALLET_CORE_FIELD_ITEMS_V1: usize = 33;
+pub const KAGEMUSHA_WALLET_CORE_FIELD_ITEMS_V1: usize = 29;
 /// σ-field elements of the state rest (§3).
-pub const KAGEMUSHA_WALLET_REST_FIELD_ITEMS_V1: usize = 8;
+pub const KAGEMUSHA_WALLET_REST_FIELD_ITEMS_V1: usize = 6;
 /// σ-field elements of the zero-filled effect union of the statement encoding.
 pub const KAGEMUSHA_WALLET_EFFECT_FIELD_ITEMS_V1: usize = max_width_v1(&EFFECT_FIELD_ITEMS);
 /// σ-field elements of the statement encoding: 17 header elements and the effect union.
@@ -227,14 +224,12 @@ impl KagemushaWalletStateCommitmentV1 {
 ///
 /// The field order is the σ-field element order of the commitment
 /// ([`KagemushaWalletStateV1::core_field_items`]). The scheme and asset (owner answer Q4), the
-/// blacklist issue time and the regulatory policy's maximum blacklist age (owner answer Q5)
-/// are core fields, so `σ_send` enforces the maximum list age; the quota share expiry (owner
-/// answer B7) and the policy's maximum anchor response time (owner answer B8) are core fields,
-/// so `σ_send` enforces the share expiry and the Send time span. Load and redeem recovery share
-/// one map and root keyed by `(kind, ordinal)` (owner answer Q3). The credential digest, map
-/// roots, the quota-usage array root, chains, the blacklist and quota-windows roots and the
-/// state nonce are canonical σ-field values; an all-zero digest or root means "none held" where
-/// noted.
+/// quota share expiry (owner answer B7) and the policy's maximum anchor response time (owner
+/// answer B8) are core fields, so `σ_send` enforces the share expiry and the Send time span.
+/// Load and redeem recovery share one map and root keyed by `(kind, ordinal)` (owner answer
+/// Q3). The credential digest, map roots, the quota-usage array root, chains, the quota-windows
+/// root and the state nonce are canonical σ-field values; an all-zero digest or root means
+/// "none held" where noted. A wallet's blacklist is local only and is not part of the state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletStateCoreV1"
@@ -287,14 +282,6 @@ pub struct KagemushaWalletStateCoreV1 {
     /// Expiry of the held quota share in Unix milliseconds (owner answer B7); zero when none is
     /// held.
     pub quota_share_expires_at_ms: u64,
-    /// Version of the held blacklist; zero when none is held.
-    pub blacklist_version: u64,
-    /// Gap-tree root of the held blacklist; zero when none is held.
-    pub blacklist_root: [u8; 32],
-    /// Issuance time of the held blacklist in Unix milliseconds; zero when none is held.
-    pub blacklist_issued_at_ms: u64,
-    /// Maximum blacklist age of the credential's regulatory policy; zero for no age rule.
-    pub blacklist_max_age_ms: u64,
     /// Response-age bound of a time anchor of the credential's regulatory policy; with the quota
     /// control it also bounds the Send time span `U − L` (owner answer B8).
     pub time_anchor_max_response_ms: u64,
@@ -310,10 +297,9 @@ pub struct KagemushaWalletStateCoreV1 {
 
 /// State rest: the remaining fields, committed by the rest digest and opened only by Λ (§3).
 ///
-/// It holds the rest of the credential's regulatory policy body (the maximum blacklist age and
-/// the maximum anchor response time are core fields), the held policy objects by object digest
-/// (`P` values, one element each), the committed time anchor and the blacklist-history root
-/// (owner answer B6). An all-zero digest means "none held".
+/// It holds the rest of the credential's regulatory policy body (the maximum anchor response
+/// time is a core field), the held policy objects by object digest (`P` values, one element
+/// each) and the committed time anchor. An all-zero digest means "none held".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletStateRestV1"
@@ -325,18 +311,12 @@ pub struct KagemushaWalletStateRestV1 {
     pub scheme_policy: [u8; 32],
     /// Fee schedule named by the held scheme policy; zero for no fee.
     pub fee_schedule: [u8; 32],
-    /// Digest of the held blacklist; zero when none is held.
-    pub blacklist: [u8; 32],
     /// Digest of the held quota share; zero when none is held.
     pub quota_share: [u8; 32],
     /// Identity of the held quota share; zero when none is held.
     pub quota_share_id: u64,
     /// Digest of the committed time anchor; zero when none is committed.
     pub time_anchor: [u8; 32],
-    /// Root of the depth-32 indexed blacklist-history map `list_version → (list_version,
-    /// entries_root)` (owner answer B6): every `RefreshPolicy(Blacklist)` inserts the new list,
-    /// and no other transition changes it.
-    pub blacklist_history_root: [u8; 32],
 }
 
 /// Private state of one wallet incarnation (§3): core and rest.
@@ -356,8 +336,8 @@ pub struct KagemushaWalletStateV1 {
 
 impl KagemushaWalletStateV1 {
     /// Bootstrap state of a newly enrolled incarnation (§3.2): zero balance, `burned_total`,
-    /// ordinals and sequence, the empty root of every indexed map, the blacklist history
-    /// included ([`kagemusha_wallet_empty_map_root_v1`]), the all-padding quota-usage array root
+    /// ordinals and sequence, the empty root of every indexed map
+    /// ([`kagemusha_wallet_empty_map_root_v1`]), the all-padding quota-usage array root
     /// ([`kagemusha_wallet_quota_usage_empty_root_v1`]), empty chains (the field zero), no held
     /// policy object, and the credential's regulatory policy and lease.
     ///
@@ -395,10 +375,6 @@ impl KagemushaWalletStateV1 {
                 enabled_controls: 0,
                 quota_windows_root: [0; 32],
                 quota_share_expires_at_ms: 0,
-                blacklist_version: 0,
-                blacklist_root: [0; 32],
-                blacklist_issued_at_ms: 0,
-                blacklist_max_age_ms: body.regulatory_policy.blacklist_max_age_ms,
                 time_anchor_max_response_ms: body.regulatory_policy.time_anchor_max_response_ms,
                 lease_expires_at_ms: body.lease_expires_at_ms,
                 policy_epoch: 0,
@@ -409,11 +385,9 @@ impl KagemushaWalletStateV1 {
                 permitted_controls: body.regulatory_policy.permitted_controls,
                 scheme_policy: [0; 32],
                 fee_schedule: [0; 32],
-                blacklist: [0; 32],
                 quota_share: [0; 32],
                 quota_share_id: 0,
                 time_anchor: [0; 32],
-                blacklist_history_root: empty,
             },
         };
         state.validate()?;
@@ -421,12 +395,11 @@ impl KagemushaWalletStateV1 {
     }
 
     /// The credential's regulatory policy as the state holds it: the permitted controls from
-    /// the rest, the maximum blacklist age and maximum anchor response time from the core.
+    /// the rest and the maximum anchor response time from the core.
     #[must_use]
     pub const fn regulatory_policy(&self) -> KagemushaWalletRegulatoryPolicyV1 {
         KagemushaWalletRegulatoryPolicyV1 {
             permitted_controls: self.rest.permitted_controls,
-            blacklist_max_age_ms: self.core.blacklist_max_age_ms,
             time_anchor_max_response_ms: self.core.time_anchor_max_response_ms,
         }
     }
@@ -436,7 +409,7 @@ impl KagemushaWalletStateV1 {
     /// # Errors
     ///
     /// Rejects another version, zero identities, a zero or noncanonical credential digest, map
-    /// root, quota-usage root, blacklist-history root or nonce, noncanonical chains, policy roots
+    /// root, quota-usage root or nonce, noncanonical chains, policy roots
     /// or held object digests, and inconsistent control fields ([`Self::validate_controls`]).
     pub fn validate(&self) -> WalletResult<()> {
         require_version_v1("state.version", self.version)?;
@@ -450,14 +423,9 @@ impl KagemushaWalletStateV1 {
             require_nonzero_v1(field, digest)?;
         }
         require_nonzero_field_v1("state.core.credential_digest", &core.credential_digest)?;
-        require_nonzero_field_v1(
-            "state.rest.blacklist_history_root",
-            &rest.blacklist_history_root,
-        )?;
         for (field, value) in [
             ("state.rest.scheme_policy", &rest.scheme_policy),
             ("state.rest.fee_schedule", &rest.fee_schedule),
-            ("state.rest.blacklist", &rest.blacklist),
             ("state.rest.quota_share", &rest.quota_share),
             ("state.rest.time_anchor", &rest.time_anchor),
         ] {
@@ -486,7 +454,6 @@ impl KagemushaWalletStateV1 {
             ("state.core.send_chain", &core.send_chain),
             ("state.core.recv_chain", &core.recv_chain),
             ("state.core.quota_windows_root", &core.quota_windows_root),
-            ("state.core.blacklist_root", &core.blacklist_root),
         ] {
             require_canonical_field_v1(field, value)?;
         }
@@ -514,13 +481,6 @@ impl KagemushaWalletStateV1 {
                 && (core.enabled_controls != 0 || !is_zero_v1(&rest.fee_schedule)))
         {
             return Err(invalid_v1("state.scheme_policy"));
-        }
-        let blacklist_held = core.blacklist_version != 0;
-        if blacklist_held == is_zero_v1(&rest.blacklist)
-            || blacklist_held == is_zero_v1(&core.blacklist_root)
-            || (!blacklist_held && core.blacklist_issued_at_ms != 0)
-        {
-            return Err(invalid_v1("state.blacklist"));
         }
         let share_held = rest.quota_share_id != 0;
         if share_held == is_zero_v1(&rest.quota_share)
@@ -578,27 +538,23 @@ impl KagemushaWalletStateV1 {
         control != 0 && self.core.enabled_controls & control == control
     }
 
-    /// Whether Send needs a same-boot anchored interval: an active quota or lease control, or
-    /// an enforced blacklist with a list-age rule (design C6).
+    /// Whether Send needs a same-boot anchored interval: an active quota or lease control
+    /// (design C6).
     #[must_use]
     pub const fn send_requires_time_anchor(&self) -> bool {
         self.is_active(KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1)
             || self.is_active(KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1)
-            || (self.is_active(KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1)
-                && self.core.blacklist_version > 0
-                && self.core.blacklist_max_age_ms > 0)
     }
 
     /// σ-field elements of the core, in commitment order (§3, element rule of
     /// [`super::poseidon`]).
     ///
-    /// Order (33 elements): lifecycle; scheme id (2); asset digest (2); wallet id (2);
+    /// Order (29 elements): lifecycle; scheme id (2); asset digest (2); wallet id (2);
     /// credential digest (1); balance, `burned_total`, sequence, `next_send`, `next_load`,
     /// `next_redeem`; `send_chain`, `recv_chain`; the consumed-credit, pending-outgoing,
     /// load/redeem-recovery and fee-claim roots and the quota-usage array root; enabled controls;
-    /// quota-windows root; quota share expiry; blacklist version, root, issue time and maximum
-    /// age; maximum anchor response time; lease expiry; policy epoch; accepted-time floor; state
-    /// nonce.
+    /// quota-windows root; quota share expiry; maximum anchor response time; lease expiry; policy
+    /// epoch; accepted-time floor; state nonce.
     ///
     /// # Errors
     ///
@@ -628,10 +584,6 @@ impl KagemushaWalletStateV1 {
             .integer(u128::from(core.enabled_controls))
             .field(&core.quota_windows_root)
             .integer(u128::from(core.quota_share_expires_at_ms))
-            .integer(u128::from(core.blacklist_version))
-            .field(&core.blacklist_root)
-            .integer(u128::from(core.blacklist_issued_at_ms))
-            .integer(u128::from(core.blacklist_max_age_ms))
             .integer(u128::from(core.time_anchor_max_response_ms))
             .integer(u128::from(core.lease_expires_at_ms))
             .integer(u128::from(core.policy_epoch))
@@ -643,8 +595,8 @@ impl KagemushaWalletStateV1 {
 
     /// σ-field elements of the rest, in rest-digest order (§3).
     ///
-    /// Order (8 elements): permitted controls; scheme policy; fee schedule; blacklist; quota
-    /// share; quota share id; time anchor; blacklist-history root.
+    /// Order (6 elements): permitted controls; scheme policy; fee schedule; quota share; quota
+    /// share id; time anchor.
     ///
     /// # Errors
     ///
@@ -656,11 +608,9 @@ impl KagemushaWalletStateV1 {
             .integer(u128::from(rest.permitted_controls))
             .field(&rest.scheme_policy)
             .field(&rest.fee_schedule)
-            .field(&rest.blacklist)
             .field(&rest.quota_share)
             .integer(u128::from(rest.quota_share_id))
-            .field(&rest.time_anchor)
-            .field(&rest.blacklist_history_root);
+            .field(&rest.time_anchor);
         debug_assert_eq!(items.len(), KAGEMUSHA_WALLET_REST_FIELD_ITEMS_V1);
         Ok(items.finish())
     }
@@ -1454,88 +1404,6 @@ impl KagemushaWalletQuotaUsageArrayV1 {
     }
 }
 
-/// Blacklist-history entry `list_version → (list_version, entries_root)` of the rest's
-/// depth-32 indexed blacklist-history map (§3.3, owner answer B6).
-///
-/// Every `RefreshPolicy(Blacklist)` inserts the new list's pair. A Receive under a Request that
-/// recorded a nonzero `(receiver_blacklist_version, receiver_blacklist_root)` finds that pair in
-/// the history of the head it receives on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct KagemushaWalletBlacklistHistoryLeafV1 {
-    /// List version (the map key); at least 1.
-    pub list_version: u64,
-    /// Gap-tree root of that list version, a nonzero canonical σ-field value.
-    pub entries_root: [u8; 32],
-}
-
-impl KagemushaWalletBlacklistHistoryLeafV1 {
-    /// Poseidon domain of this map's values.
-    pub const DOMAIN: u64 = KAGEMUSHA_WALLET_BLACKLIST_HISTORY_VALUE_DOMAIN_V1;
-
-    /// Map key: the list version as one element.
-    #[must_use]
-    pub fn key(&self) -> [u8; 32] {
-        kagemusha_wallet_field_from_u128_v1(u128::from(self.list_version))
-    }
-
-    /// Leaf elements: list version, entries root (2).
-    ///
-    /// # Errors
-    ///
-    /// Rejects version zero and a zero or noncanonical root.
-    pub fn field_items(&self) -> WalletResult<Vec<[u8; 32]>> {
-        if self.list_version == 0 {
-            return Err(invalid_v1("blacklist_history.list_version"));
-        }
-        require_nonzero_field_v1("blacklist_history.entries_root", &self.entries_root)?;
-        Ok(WalletFieldItemsV1::with_capacity(2)
-            .integer(u128::from(self.list_version))
-            .field(&self.entries_root)
-            .finish())
-    }
-
-    /// Map value `P(kgwbhst1, elements)`.
-    ///
-    /// # Errors
-    ///
-    /// Rejects what [`Self::field_items`] rejects.
-    pub fn leaf_value(&self) -> WalletResult<[u8; 32]> {
-        Ok(poseidon_items_v1(Self::DOMAIN, &self.field_items()?))
-    }
-
-    /// Verify that `leaf` at `opening` proves this pair present under `history_root`: the
-    /// version's leaf with exactly this entries root.
-    ///
-    /// # Errors
-    ///
-    /// Rejects an invalid pair, a leaf of another key or value (another root recorded for the
-    /// version), and an opening that does not reach `history_root`.
-    pub fn verify_membership(
-        &self,
-        history_root: &[u8; 32],
-        leaf: &KagemushaWalletIndexedLeafV1,
-        opening: &KagemushaWalletIndexedOpeningV1,
-    ) -> WalletResult<()> {
-        if leaf.key != self.key() || leaf.value != self.leaf_value()? {
-            return Err(invalid_v1("blacklist_history.leaf"));
-        }
-        kagemusha_wallet_indexed_verify_membership_v1(history_root, leaf, opening)
-            .map_err(|_| invalid_v1("blacklist_history.opening"))
-    }
-
-    /// Insert this pair into the native history store `history` and return the witness.
-    ///
-    /// # Errors
-    ///
-    /// Rejects an invalid pair and a version the history already holds.
-    pub fn insert_into(
-        &self,
-        history: &mut KagemushaWalletIndexedTreeV1,
-    ) -> WalletResult<KagemushaWalletIndexedInsertV1> {
-        history.insert(self.key(), self.leaf_value()?)
-    }
-}
-
 /// Exact σ-field preimage of one chain append: `[chain] || entry elements` (§3).
 fn chain_append_preimage_v1(chain: &[u8; 32], entry: Vec<[u8; 32]>) -> WalletResult<Vec<[u8; 32]>> {
     require_canonical_field_v1("chain", chain)?;
@@ -1982,23 +1850,19 @@ pub enum KagemushaWalletPolicyUpdateKindV1 {
     /// Scheme policy.
     #[codec(index = 2)]
     SchemePolicy,
-    /// Blacklist.
-    #[codec(index = 3)]
-    Blacklist,
     /// Quota share.
-    #[codec(index = 4)]
+    #[codec(index = 3)]
     QuotaShare,
     /// Time anchor.
-    #[codec(index = 5)]
+    #[codec(index = 4)]
     TimeAnchor,
 }
 
 impl KagemushaWalletPolicyUpdateKindV1 {
     /// Every update kind, in tag order.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 4] = [
         Self::Credential,
         Self::SchemePolicy,
-        Self::Blacklist,
         Self::QuotaShare,
         Self::TimeAnchor,
     ];
@@ -2009,9 +1873,8 @@ impl KagemushaWalletPolicyUpdateKindV1 {
         match self {
             Self::Credential => 1,
             Self::SchemePolicy => 2,
-            Self::Blacklist => 3,
-            Self::QuotaShare => 4,
-            Self::TimeAnchor => 5,
+            Self::QuotaShare => 3,
+            Self::TimeAnchor => 4,
         }
     }
 }
@@ -3596,44 +3459,18 @@ impl KagemushaWalletPackageV1 {
         Ok((signer, digests))
     }
 
-    /// Verifying-key selector of σ (§3.2; owner answers Q11, A5 and B6, technical decision Q5):
-    /// the operation tag and, for Send, the enabled-controls mask (equal to
-    /// `Ω.enabled_controls` by the consumer checks); for Receive, the blacklist bit exactly when
-    /// the package's Request recorded a nonzero receiver blacklist decision
-    /// (`receiver_blacklist_version ≠ 0`), whatever the receiver's current enabled controls, so
-    /// selecting a Receive key takes the Request; zero for every other operation. Statements and
-    /// Ω carry one scheme-level `relation_id`; the selector picks σ's entry of the verifying-key
-    /// allowlist ([`super::KagemushaWalletVerifyingKeyAllowlistV1`]) whose digest the relation
-    /// binds. `request` is required for Receive and ignored otherwise.
-    ///
-    /// # Errors
-    ///
-    /// Rejects a Receive package without a Request, a Request whose `credit_id` is not the
-    /// effect's, and an invalid Request body.
-    pub fn verifying_key_selector(
-        &self,
-        request: Option<&KagemushaWalletRequestBodyV1>,
-    ) -> WalletResult<(KagemushaWalletOperationKindV1, u32)> {
+    /// Verifying-key selector of σ (§3.2; owner answers Q11 and A5, technical decision Q5): the
+    /// operation tag and, for Send, the enabled-controls mask (equal to `Ω.enabled_controls` by
+    /// the consumer checks); zero for every other operation. Statements and Ω carry one
+    /// scheme-level `relation_id`; the selector picks σ's entry of the verifying-key allowlist
+    /// ([`super::KagemushaWalletVerifyingKeyAllowlistV1`]) whose digest the relation binds.
+    #[must_use]
+    pub fn verifying_key_selector(&self) -> (KagemushaWalletOperationKindV1, u32) {
         let kind = self.statement.effect.kind();
-        Ok(match (&self.statement.effect, request) {
-            (KagemushaWalletEffectV1::Send { .. }, _) => (kind, self.statement.enabled_controls),
-            (KagemushaWalletEffectV1::Receive { credit_id, .. }, Some(request)) => {
-                request.validate()?;
-                if request.credit_id() != *credit_id {
-                    return Err(invalid_v1("package.request"));
-                }
-                let mask = if request.receiver_blacklist_version == 0 {
-                    0
-                } else {
-                    KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1
-                };
-                (kind, mask)
-            }
-            (KagemushaWalletEffectV1::Receive { .. }, None) => {
-                return Err(invalid_v1("package.request"));
-            }
+        match self.statement.effect {
+            KagemushaWalletEffectV1::Send { .. } => (kind, self.statement.enabled_controls),
             _ => (kind, 0),
-        })
+        }
     }
 
     /// Package digest after [`Self::verify`].

@@ -317,7 +317,7 @@ mod tests {
                 verifying_key: blobs[1],
                 proving_key: blobs[2],
             }],
-            sigma: [0; 16],
+            sigma: [0; 11],
             operations: Vec::new(),
             routes: Vec::new(),
             terminals: Vec::new(),

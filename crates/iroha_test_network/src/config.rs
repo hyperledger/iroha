@@ -79,11 +79,17 @@ use toml::Table;
 #[cfg(test)]
 thread_local! {
     static GENESIS_PREEXECUTION_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static GENESIS_SIGNING_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
 pub(crate) fn genesis_preexecution_count() -> usize {
     GENESIS_PREEXECUTION_COUNT.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) fn genesis_signing_count() -> usize {
+    GENESIS_SIGNING_COUNT.with(std::cell::Cell::get)
 }
 
 /// Exact policy commitments derived by isolated genesis pre-execution.
@@ -1176,6 +1182,41 @@ pub(crate) fn preexecute_genesis_with_runtime_config(
     ),
     Report,
 > {
+    let discriminant = runtime_config.map_or_else(
+        iroha_data_model::account::address::chain_discriminant,
+        |config| *config.common.chain_discriminant.value(),
+    );
+    let _profile = iroha_data_model::account::address::ChainDiscriminantGuard::enter(discriminant);
+    let (validated, hashes) = validate_genesis_with_runtime_config(
+        block,
+        genesis_account,
+        topology,
+        pipeline_config,
+        nexus_config,
+        zk_config,
+        runtime_config,
+    )?;
+    Ok((resign_genesis(&validated, genesis_key_pair), hashes))
+}
+
+/// Execute the ordinary native genesis validator without possessing or using a signer.
+/// The returned validation result is for policy admission; retained owners keep their
+/// authenticated source bytes instead of publishing or signing this temporary value.
+pub(crate) fn validate_genesis_with_runtime_config(
+    block: &GenesisBlock,
+    genesis_account: &AccountId,
+    topology: &[PeerId],
+    pipeline_config: Option<&ActualPipeline>,
+    nexus_config: Option<&ActualNexus>,
+    zk_config: Option<&ActualZk>,
+    runtime_config: Option<&ActualRoot>,
+) -> Result<
+    (
+        iroha_data_model::block::SignedBlock,
+        StagedGenesisPolicyHashes,
+    ),
+    Report,
+> {
     if topology.is_empty() {
         return Err(eyre!("genesis topology is empty"));
     }
@@ -1189,11 +1230,10 @@ pub(crate) fn preexecute_genesis_with_runtime_config(
         |config| *config.common.chain_discriminant.value(),
     );
     let _profile = iroha_data_model::account::address::ChainDiscriminantGuard::enter(discriminant);
-    preexecute_genesis_on_current_thread(
+    validate_genesis_on_current_thread(
         block,
         genesis_account,
         topology,
-        genesis_key_pair,
         pipeline_config,
         nexus_config,
         zk_config,
@@ -1201,11 +1241,10 @@ pub(crate) fn preexecute_genesis_with_runtime_config(
     )
 }
 
-fn preexecute_genesis_on_current_thread(
+fn validate_genesis_on_current_thread(
     block: &GenesisBlock,
     genesis_account: &AccountId,
     topology: &[PeerId],
-    genesis_key_pair: &KeyPair,
     pipeline_config: Option<&ActualPipeline>,
     nexus_config: Option<&ActualNexus>,
     zk_config: Option<&ActualZk>,
@@ -1329,10 +1368,7 @@ fn preexecute_genesis_on_current_thread(
     };
     drop(state_block);
     let signed_block: iroha_data_model::block::SignedBlock = valid_block.into();
-    Ok((
-        resign_genesis(&signed_block, genesis_key_pair),
-        staged_hashes,
-    ))
+    Ok((signed_block, staged_hashes))
 }
 fn resolve_preexec_nexus_config(
     nexus_config: Option<&ActualNexus>,
@@ -1453,6 +1489,8 @@ fn resign_genesis(
     template: &iroha_data_model::block::SignedBlock,
     genesis_key_pair: &KeyPair,
 ) -> iroha_data_model::block::SignedBlock {
+    #[cfg(test)]
+    GENESIS_SIGNING_COUNT.with(|count| count.set(count.get() + 1));
     // Preserve the complete proposal or executed object, including internal
     // outputs, source context, AXT/FASTPQ data and fragment accounting. Signing never rebuilds
     // results or restores outputs invalidated by a proposal change.
@@ -2352,7 +2390,7 @@ mod tests {
                     entries.clone(),
                     SAMPLE_GENESIS_ACCOUNT_KEYPAIR.clone(),
                 );
-            let (executed, staged) = super::preexecute_genesis_on_current_thread(
+            let (executed, staged) = super::preexecute_genesis_with_runtime_config(
                 &block, &account, &peers, &key, None, None, None, None,
             )
             .unwrap();
@@ -2404,7 +2442,7 @@ mod tests {
         divergent_pipeline.stateless_cache_cap = 3;
         let preexecute = |pipeline: &iroha_config::parameters::actual::Pipeline,
                           zk: &iroha_config::parameters::actual::Zk| {
-            super::preexecute_genesis_on_current_thread(
+            super::preexecute_genesis_with_runtime_config(
                 &block,
                 &genesis_account,
                 &topology_vec,

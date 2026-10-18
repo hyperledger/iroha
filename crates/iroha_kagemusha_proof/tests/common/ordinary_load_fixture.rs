@@ -7,12 +7,10 @@ use iroha_kagemusha_proof::{
     a_relation::{
         AProofPlan, QProofPlan,
         native::load::{A_STAGE_COUNT, Inputs, Plan, PredecessorInput, QInput},
-        schedule::sigma_selector,
         split::WKey,
     },
     admin_sigma::{LoadCircuit, LoadWitness, StateWitness},
     operation_relation::map_effects::LOAD_DOMAIN,
-    q_sigma::{QSigmaPlan, SigmaClass, SigmaSlotWitness, native::QSigmaProver},
     q_signature::QSignaturePlan,
     tree::{IndexedInsert, IndexedTree},
     witness::core_index as core,
@@ -24,7 +22,7 @@ use iroha_plonk::{
     keys::{CosetCachePolicy, KeygenConfigV2, keygen_pk_v2, pk::artifact::ReadConfig},
     pcs::ipa::PinnedParams,
 };
-use iroha_plonk_recursion::{FoldConfig, obligation::ledger::Variant, verifier::VerifierPlan};
+use iroha_plonk_recursion::{obligation::ledger::Variant, verifier::VerifierPlan};
 use std::{fs, path::Path};
 
 /// Build the first-Load state/map witness from the exact supplied receipt terms.
@@ -96,6 +94,9 @@ pub fn build(
     let (state, insertion) = monetary(&rooted.source.state, receipt);
     let pallas = PinnedParams::<Ep>::derive(16).unwrap();
     let vesta = PinnedParams::<Eq>::derive(16).unwrap();
+    // The wallet still proves its k12 step relation before Advance, and the own receipt
+    // binds that proof's digest. Lean lineage proves the Load transition in A1 directly,
+    // so no Q_sigma verifies this proof inside the lineage.
     let sigma_params = PinnedParams::<Eq>::derive(12).unwrap();
     let sigma = LoadCircuit::new(&state);
     let sigma_instances = sigma.instances();
@@ -113,100 +114,43 @@ pub fn build(
         ProverConfig::default(),
     )
     .unwrap();
-    let sigma_plan = QSigmaPlan::new(
-        SigmaClass::new(
-            VerifierPlan::new(sigma_key.binding().clone(), sigma_params).unwrap(),
-            vec![(
-                sigma_selector(2, 0).unwrap(),
-                sigma_key
-                    .vk()
-                    .kagemusha_digest(sigma_key.binding())
-                    .unwrap(),
-            )],
-        )
-        .unwrap(),
-        None,
-        &vesta,
-    )
-    .unwrap();
-    let prepared = sigma_plan
-        .prepare(
-            SigmaSlotWitness {
-                key: sigma_key.vk().clone(),
-                statement: sigma_instances[0][0],
-                length: u32::try_from(sigma_proof.proof.len()).unwrap(),
-                proof: sigma_proof.proof.clone(),
-            },
-            None,
-            &vesta,
-            iroha_kagemusha_proof::q_sigma::native::QSigmaFoldSource::NoIncoming,
-            &FoldConfig::default(),
-        )
-        .unwrap();
     drop(sigma_key);
-    let q_sigma = QSigmaProver::keygen_serialized_foreign(&prepared, pallas.clone(), 2).unwrap();
-    let sigma_q_proof = q_sigma
-        .prove(
-            &prepared,
-            common::fresh_randomness(),
-            ProverConfig::default(),
-        )
-        .unwrap();
-    let mut q_plans = vec![
-        QProofPlan::new(
-            VerifierPlan::new(q_sigma.binding().clone(), pallas.clone()).unwrap(),
-            q_sigma.verifying_key().clone(),
-        )
-        .unwrap(),
-    ];
-    let mut q_inputs = vec![QInput {
-        proof: sigma_q_proof.bytes,
-        instances: sigma_q_proof.instances,
-    }];
-    drop(q_sigma);
     let mut signed_state = bootstrap_objects::enrollment();
     signed_state.0.lineage[17] = rooted.source.state.lineage[17];
     assert_eq!(signed_state.0.core, rooted.source.state.core);
     assert_eq!(signed_state.0.rest, rooted.source.state.rest);
     assert_eq!(signed_state.0.lineage, rooted.source.state.lineage);
-    let (_, certificate, credential) = signed_state;
     let own = load_objects::receipt(&state, &sigma_proof.proof);
-    let signatures = [
-        load_objects::own_signature(own.signature),
-        load_objects::current_signatures(&[credential.signature, certificate.signature]),
+    let (circuit, instances) = load_objects::own_signature(own.signature);
+    let signature_plans: [QSignaturePlan; 1] = [circuit.plan().clone()];
+    let key = keygen_pk_v2(
+        &pallas,
+        &circuit,
+        &KeygenConfigV2::pipa_r(QSignaturePlan::instance_types().to_vec()),
+    )
+    .unwrap();
+    let proof = create_proof_owned_with_claim(
+        &pallas,
+        &key,
+        Witness::from_circuit(&key, &circuit, &instances).unwrap(),
+        common::fresh_randomness(),
+        ProverConfig::default(),
+    )
+    .unwrap();
+    let q_plans = vec![
+        QProofPlan::new(
+            VerifierPlan::new(key.binding().clone(), pallas.clone()).unwrap(),
+            key.vk().clone(),
+        )
+        .unwrap(),
     ];
-    let signature_plans: [QSignaturePlan; 2] =
-        std::array::from_fn(|i| signatures[i].0.plan().clone());
-    for (circuit, instances) in &signatures {
-        let key = keygen_pk_v2(
-            &pallas,
-            circuit,
-            &KeygenConfigV2::pipa_r(QSignaturePlan::instance_types().to_vec()),
-        )
-        .unwrap();
-        let proof = create_proof_owned_with_claim(
-            &pallas,
-            &key,
-            Witness::from_circuit(&key, circuit, instances).unwrap(),
-            common::fresh_randomness(),
-            ProverConfig::default(),
-        )
-        .unwrap();
-        q_plans.push(
-            QProofPlan::new(
-                VerifierPlan::new(key.binding().clone(), pallas.clone()).unwrap(),
-                key.vk().clone(),
-            )
-            .unwrap(),
-        );
-        q_inputs.push(QInput {
-            proof: proof.proof,
-            instances: instances.to_vec(),
-        });
-    }
-    let operation = AProofPlan::new(
+    let q_inputs = [QInput {
+        proof: proof.proof,
+        instances: instances.to_vec(),
+    }];
+    drop(key);
+    let operation = AProofPlan::inline(
         Variant::Load,
-        sigma_plan,
         q_plans,
         Some(VerifierPlan::new(rooted.binding.clone(), pallas.clone()).unwrap()),
         &pallas,
@@ -223,11 +167,10 @@ pub fn build(
     .unwrap();
     let inputs = Inputs {
         state,
-        sigma: sigma_proof.proof,
         receipt: *receipt,
-        objects: [own.bytes, certificate.bytes, credential.bytes],
+        objects: [own.bytes],
         insertion,
-        q: q_inputs.try_into().unwrap(),
+        q: q_inputs,
         predecessor: PredecessorInput {
             proof: rooted.proof.clone(),
             pallas: rooted.source.pallas.to_bytes(),
@@ -264,10 +207,7 @@ pub fn build(
             drop(key);
             previous = Some(fixed);
         }
-        eprintln!(
-            "ORDINARY_LOAD_ARTIFACT stage={} complete4A3W=false",
-            stage + 1
-        );
+        eprintln!("ORDINARY_LOAD_ARTIFACT stage={} lean2A1W=true", stage + 1);
     }
     load_chain::InstalledLoad {
         plan,

@@ -270,7 +270,7 @@ fn complete_wallet_catalog_from_pinned_genesis() {
         msm_budget: MemoryBudget::DEFAULT,
     };
     eprintln!(
-        "WALLET_SOURCE_PHASE all52_route_compilation_started signed=false wallet_grant=false"
+        "WALLET_SOURCE_PHASE all22_route_compilation_started signed=false wallet_grant=false"
     );
     let candidates = reuse::intake(&mut originals).unwrap();
     let mut compiler = OfflineCompilerV1::new(scope, &mut originals, config, OUTPUT_BYTES).unwrap();

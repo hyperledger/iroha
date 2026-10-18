@@ -3,146 +3,24 @@
 use super::*;
 use iroha_pasta::PastaAffine;
 
-fn original() -> Inputs {
-    let state = StateWitness {
-        core: [Fp::ZERO; 33],
-        rest: [Fp::ZERO; 8],
-        lineage: [Fp::ZERO; 18],
-    };
-    let state = ConsumingWitness {
-        predecessor: state,
-        successor: state,
-        statement: [Fp::ZERO; 26],
-    };
-    let sigma = (0..64).collect::<Vec<u8>>();
-    let mut raw = u32::try_from(sigma.len()).unwrap().to_le_bytes().to_vec();
-    raw.extend(&sigma);
-    let statement = hash_with_domain(
-        iroha_plonk_gadgets::statement::STATEMENT_DOMAIN,
-        &state.statement,
-    );
-    let mut bounded = vec![Fq::from_repr(statement.to_repr()).unwrap()];
-    bounded.extend(raw.chunks(31).map(|chunk| le_value::<Fq>(chunk).unwrap()));
-    bounded.extend([Fq::ONE; K]);
-    Inputs {
-        state,
-        sigma,
-        omega: vec![],
-        objects: core::array::from_fn(|_| vec![]),
-        recovery: None,
-        q: [
-            QInput {
-                proof: vec![],
-                instances: vec![
-                    bounded,
-                    vec![],
-                    vec![Fq::from(13)],
-                    vec![Fq::ONE],
-                    vec![Fq::from(12)],
-                ],
-            },
-            QInput {
-                proof: vec![],
-                instances: vec![],
-            },
-        ],
-        predecessor: PredecessorInput {
-            proof: vec![],
-            pallas: [0; 544],
-            vesta: [0; 544],
-        },
-    }
+#[test]
+fn lean_schedule_has_two_a_one_w_and_the_pinned_trivial_part() {
+    assert_eq!(A_STAGE_COUNT, 2);
+    assert_eq!(W_STAGE_COUNT, 1);
+    // No own sigma verifier: W0 folds the explicit pinned filler, exactly the words
+    // every internal frame already uses for absent Vesta slots.
+    let part = trivial_vesta_claim().unwrap();
+    assert_eq!(part.source_k(), 16);
+    assert_eq!(vesta_words(&part).unwrap(), trivial_vesta_words().unwrap());
+    let public = internal_public(Fp::from(5), &part).unwrap();
+    assert_eq!(public[1], Fp::from(16));
+    assert_eq!(&public[2..22], &public[22..42]);
 }
 
 #[test]
-fn exact_consuming_sigma_tape_statement_length_and_selector_are_bound() {
-    for (variant, selector) in [(Variant::Unload, 13), (Variant::Retiring, 15)] {
-        let mut source = original();
-        source.q[0].instances[2][0] = Fq::from(selector);
-        assert_eq!(check_sigma_tape(&source, variant), Ok(()));
-        for mutation in 0..6 {
-            let mut bad = source.clone();
-            match mutation {
-                0 => bad.sigma[40] ^= 1,
-                1 => bad.sigma.push(7),
-                2 => bad.q[0].instances[0][1] += Fq::ONE,
-                3 => bad.q[0].instances[2][0] = Fq::ZERO,
-                4 => bad.q[0].instances[2][0] = Fq::from(2),
-                _ => bad.state.statement[20] += Fp::ONE,
-            }
-            assert_eq!(
-                check_sigma_tape(&bad, variant),
-                Err(Error::Input),
-                "mutation{mutation}"
-            );
-        }
-    }
-}
-
-#[test]
-fn consuming_q_sigma_normalization_rejects_wrong_selector_source_or_scalar_alias() {
-    for (variant, selector) in [(Variant::Unload, 13), (Variant::Retiring, 15)] {
-        let mut input = original().q[0].clone();
-        input.instances[2][0] = Fq::from(selector);
-        let point = iroha_plonk::transcript::decode_point::<Eq>(
-            &iroha_plonk_recursion::VESTA_TRIVIAL_GENERATOR,
-        )
-        .unwrap();
-        let (x, y) = Option::<(Fq, Fq)>::from(point.coordinates()).unwrap();
-        input.instances[1] = vec![x, y];
-        let n = input.instances[0].len();
-        input.instances[0][n - K..n - K + 4].fill(Fq::ZERO);
-        let finite = q_sigma_part(&input, 12, variant).unwrap();
-        let mut identity_input = input.clone();
-        identity_input.instances[1] = vec![Fq::ZERO; 2];
-        let identity = q_sigma_part(&identity_input, 12, variant).unwrap();
-        assert_eq!(identity.source_k(), finite.source_k());
-        assert_eq!(identity.challenges(), finite.challenges());
-        assert_eq!(
-            *identity.g(),
-            iroha_plonk::transcript::decode_generator::<Eq>(&[0; 32]).unwrap()
-        );
-        for mutation in 0..6 {
-            let mut bad = input.clone();
-            match mutation {
-                0 => bad.instances[0][n - K] = Fq::ONE,
-                1 => bad.instances[0][n - 1] = Fq::ZERO,
-                2 => bad.instances[1] = vec![Fq::ZERO, Fq::ONE],
-                3 => bad.instances[3][0] = Fq::ZERO,
-                4 => bad.instances[4][0] = Fq::from(16),
-                _ => bad.instances[2][0] = Fq::ZERO,
-            }
-            assert!(
-                q_sigma_part(&bad, 12, variant).is_err(),
-                "mutation{mutation}"
-            );
-        }
-        let p = [
-            0x992d_30ed_0000_0001_u64,
-            0x2246_98fc_094c_f91b,
-            0,
-            0x4000_0000_0000_0000,
-        ];
-        let mut repr = [0; 32];
-        for (to, word) in repr.chunks_exact_mut(8).zip(p) {
-            to.copy_from_slice(&word.to_le_bytes());
-        }
-        let mut alias = input;
-        alias.instances[0][n - 1] = Fq::from_repr(repr).unwrap();
-        assert!(q_sigma_part(&alias, 12, variant).is_err());
-    }
-}
-
-#[test]
-fn all_three_signed_originals_bind_body_and_each_raw_signature_limb() {
-    assert_eq!(
-        object_kinds(),
-        [
-            ObjectKind::Credential,
-            ObjectKind::Certificate,
-            ObjectKind::Receipt
-        ]
-    );
+fn own_receipt_original_binds_body_and_each_raw_signature_limb() {
+    // Lean lineage: the credential and certificate are carried by continuity.
+    assert_eq!(object_kinds(), [ObjectKind::Receipt]);
     for kind in object_kinds() {
         let raw = (0..kind.body_len() + 64)
             .map(|i| u8::try_from(i % 256).unwrap())
@@ -214,138 +92,20 @@ fn final_digest_has_exact52_fields_and_keeps_high_foreign_challenge_limbs() {
 }
 
 #[test]
-fn retiring_has_its_own_sigma_selector_and_unrelated_variants_reject() {
-    let mut source = original();
-    assert_eq!(
-        check_sigma_tape(&source, Variant::Retiring),
-        Err(Error::Input)
-    );
-    source.q[0].instances[2][0] = Fq::from(15);
-    assert_eq!(check_sigma_tape(&source, Variant::Retiring), Ok(()));
-    assert_eq!(
-        check_sigma_tape(&source, Variant::Unload),
-        Err(Error::Input)
-    );
-    assert_eq!(
-        check_sigma_tape(&source, Variant::Load),
-        Err(Error::Artifact)
-    );
-}
-
-#[test]
-fn original_lineage_bytes_bind_every_byte_without_truncating_limbs() {
-    let ep = iroha_plonk::transcript::decode_point::<Ep>(
-        &iroha_plonk_recursion::PALLAS_TRIVIAL_GENERATOR,
-    )
-    .unwrap();
-    let eq = iroha_plonk::transcript::decode_point::<Eq>(
-        &iroha_plonk_recursion::VESTA_TRIVIAL_GENERATOR,
-    )
-    .unwrap();
-    let p = AccumulatorT::new(ep, [Fq::ONE; K]).unwrap();
-    let v = AccumulatorT::new(eq, [Fp::ONE; K]).unwrap();
-    let mut fields = [Fp::ONE; 18];
-    let proof = vec![0x37; 3_712];
-    let raw = lineage_bytes(&fields, &proof, &p, &v).unwrap();
-    assert_eq!(raw.len(), 320 + proof.len() + 544 + 544);
-    assert_eq!(&raw[320..320 + proof.len()], &proof);
-    assert_eq!(
-        &raw[320 + proof.len()..320 + proof.len() + 544],
-        p.to_bytes()
-    );
-    assert_eq!(&raw[320 + proof.len() + 544..], v.to_bytes());
-    let framed = frame(&raw).unwrap();
-    assert_eq!(&framed[4..], raw);
-    assert_eq!(
-        &framed[..4],
-        u32::try_from(raw.len()).unwrap().to_le_bytes()
-    );
-    for (index, width) in [(1, 128), (6, 128), (9, 128), (13, 104), (14, 128)] {
-        fields[index] = Fp::from(2).pow_vartime([width]);
-        assert_eq!(lineage_bytes(&fields, &proof, &p, &v), Err(Error::Input));
-        fields[index] = Fp::ONE;
-    }
-    fields[0] = Fp::from(2);
-    assert_eq!(lineage_bytes(&fields, &proof, &p, &v), Err(Error::Input));
-}
-
-#[test]
 fn uniform_omega_transport_cap_rejects_generic_profiles_without_a_fallback() {
-    assert_eq!(OMEGA_TRANSPORT_CAP, 5_044);
-    for size in (32..=3_936).step_by(32) {
+    assert_eq!(OMEGA_TRANSPORT_CAP, 5_086);
+    for size in (32..=3_968).step_by(32) {
         assert_eq!(check_omega_transport_length(size), Ok(()), "size {size}");
     }
     assert_eq!(check_omega_transport_length(3_872), Ok(()));
     assert_eq!(check_omega_transport_length(3_904), Ok(()));
-    for size in [0, 1, 3_733, 3_968, 11_360 - 1_088, usize::MAX] {
+    for size in [0, 1, 3_733, 4_000, 11_360 - 1_088, usize::MAX] {
         assert_eq!(
             check_omega_transport_length(size),
             Err(Error::Input),
             "size {size}"
         );
     }
-}
-
-#[test]
-fn consuming_lineage_tape_preserves_exact_public_and_both_complete_claim_originals() {
-    let ep = iroha_plonk::transcript::decode_point::<Ep>(
-        &iroha_plonk_recursion::PALLAS_TRIVIAL_GENERATOR,
-    )
-    .unwrap();
-    let eq = iroha_plonk::transcript::decode_point::<Eq>(
-        &iroha_plonk_recursion::VESTA_TRIVIAL_GENERATOR,
-    )
-    .unwrap();
-    // Encoding fixtures, not deciding accumulator witnesses or accepted financial proofs.
-    let p = AccumulatorT::new(ep, [Fq::ONE; K]).unwrap();
-    let v = AccumulatorT::new(eq, [Fp::ONE; K]).unwrap();
-    let mut fields = core::array::from_fn(|i| Fp::from(i as u64 + 1));
-    fields[0] = Fp::ONE;
-    let proof = (0..64).collect::<Vec<_>>();
-    let original = lineage_bytes(&fields, &proof, &p, &v).unwrap();
-    assert_eq!(original.len(), 320 + 64 + 2 * 544);
-    assert_eq!(&original[..2], &[1, 0]);
-    assert_eq!(&original[320..384], proof);
-    assert_eq!(&original[384..928], p.to_bytes());
-    assert_eq!(&original[928..], v.to_bytes());
-    // Exactly the original public transcript; the admitted VK digest is already
-    // constrained by the verified predecessor and is not a second copied field.
-    assert_eq!(original[162], 4);
-    assert_eq!(
-        &original[163..179],
-        fields[10].to_repr()[..16]
-            .iter()
-            .rev()
-            .copied()
-            .collect::<Vec<_>>()
-    );
-    for index in 1..17 {
-        let mut changed = fields;
-        changed[index] += Fp::ONE;
-        assert_ne!(
-            lineage_bytes(&changed, &proof, &p, &v).unwrap(),
-            original,
-            "public field {index}"
-        );
-    }
-    let mut changed = proof.clone();
-    changed[63] ^= 1;
-    assert_ne!(lineage_bytes(&fields, &changed, &p, &v).unwrap(), original);
-    let p2 = AccumulatorT::new(ep, [Fq::from(2); K]).unwrap();
-    assert_ne!(lineage_bytes(&fields, &proof, &p2, &v).unwrap(), original);
-    let v2 = AccumulatorT::new(eq, [Fp::from(2); K]).unwrap();
-    assert_ne!(lineage_bytes(&fields, &proof, &p, &v2).unwrap(), original);
-    for index in [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 14] {
-        let mut changed = fields;
-        changed[index] = Fp::from(2).pow_vartime([128]);
-        assert_eq!(lineage_bytes(&changed, &proof, &p, &v), Err(Error::Input));
-    }
-    let mut bad = fields;
-    bad[13] = Fp::from(2).pow_vartime([104]);
-    assert_eq!(lineage_bytes(&bad, &proof, &p, &v), Err(Error::Input));
-    bad = fields;
-    bad[0] = Fp::from(2);
-    assert_eq!(lineage_bytes(&bad, &proof, &p, &v), Err(Error::Input));
 }
 
 #[test]

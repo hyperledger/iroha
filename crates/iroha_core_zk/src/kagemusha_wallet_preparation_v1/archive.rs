@@ -114,20 +114,22 @@ fn removal(
 pub(crate) struct ArchiveFoldFieldsV1 {
     pub(crate) state: ArchiveWitness,
     pub(crate) removals: [IndexedRemove<Fp>; 2],
-    pub(crate) own: [Vec<u8>; 3],
-    pub(crate) sigma: Vec<u8>,
+    /// Own retained receipt, the only own signed object Λ consumes.
+    pub(crate) own: Vec<u8>,
+    /// Native source of the payment key for the own-receipt slot of the merged
+    /// signature leaf; not a circuit object.
+    pub(crate) credential: Vec<u8>,
     pub(crate) retained: native::RetainedPayment,
     pub(crate) evidence: native::Evidence,
     pub(crate) results: [bool; 3],
     pub(crate) predecessor: native::PredecessorInput,
 }
 impl ArchiveFoldFieldsV1 {
-    pub(crate) fn with_q(self, q: [native::QInput; 3]) -> native::Inputs {
+    pub(crate) fn with_q(self, q: Vec<native::QInput>) -> native::Inputs {
         native::Inputs {
             state: self.state,
             removals: self.removals,
             own: self.own,
-            sigma: self.sigma,
             retained: self.retained,
             evidence: self.evidence,
             results: self.results,
@@ -142,7 +144,8 @@ impl PreparationV1<'_> {
     /// The current owner signs this Archive; its historical payer credential is read
     /// from durable custody and may have an earlier renewal digest. Incoming proof,
     /// signature and membership verdicts remain soft circuit obligations, including
-    /// every corrected-claim no-op. All ten A/nine W owners remain mandatory.
+    /// every corrected-claim no-op. Every A owner and W continuation of the installed
+    /// schedule remains mandatory; `q` holds every installed Q in order.
     ///
     /// # Errors
     /// Changed source/receipt/credential, missing or duplicate originals, noncanonical
@@ -155,7 +158,7 @@ impl PreparationV1<'_> {
         predecessor: &FoldedStateV1,
         public: &KagemushaWalletLineagePublicV1,
         witness: ArchiveFoldWitnessV1,
-        q: [native::QInput; 3],
+        q: Vec<native::QInput>,
         budget: MemoryBudget,
     ) -> Result<native::Inputs, Error> {
         self.archive_fold_fields(owner, step, predecessor, public, witness, budget)
@@ -224,12 +227,8 @@ impl PreparationV1<'_> {
                 statement,
             },
             removals: [core, adjusted],
-            own: [
-                owner.credential_tape.clone(),
-                owner.certificate_tape.clone(),
-                receipt,
-            ],
-            sigma: capsule.body().step_proof.bytes.clone(),
+            own: receipt,
+            credential: owner.credential_tape.clone(),
             retained: retained.native,
             evidence,
             results: witness.results,

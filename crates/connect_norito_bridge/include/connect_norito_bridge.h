@@ -1813,6 +1813,7 @@ int32_t connect_norito_acceleration_state_get_v1(connect_norito_acceleration_sta
  * Failure: -1 input, -2 closed, -3 capacity, -4 artifacts, -5 unavailable, -6 uncertain,
  * -7 custody lost, -8 fold required, -9 proof rejected, -10 cancelled, -11 conflict,
  * -12 not enough storage, -13 terminal/key lost, -14 not enough memory,
+ * -15 blocked by the wallet's local blacklist (nothing debited, issued or credited),
  * -100 internal (outcome must be reconciled).
  */
 /* Design §5.3 runtime capacity results, checked on this phone before proving and before
@@ -1821,6 +1822,10 @@ int32_t connect_norito_acceleration_state_get_v1(connect_norito_acceleration_sta
  * holder retries after freeing storage or memory. Never a device verdict. */
 #define CONNECT_NORITO_KAGEMUSHA_WALLET_NOT_ENOUGH_STORAGE -12
 #define CONNECT_NORITO_KAGEMUSHA_WALLET_NOT_ENOUGH_MEMORY -14
+/* The wallet's locally installed blacklist lists the counterparty: a payer refusing to pay a
+ * listed receiver, or a receiver refusing to request or accept money from a listed payer.
+ * Refused before any mutation. */
+#define CONNECT_NORITO_KAGEMUSHA_WALLET_BLOCKED -15
 typedef struct {
     uint32_t tag; /* 0 success, 1 absent, 2 unavailable/not performed, 3 exists,
                      4 uncertain, 5 destination absent; interpreted per operation. */
@@ -1931,10 +1936,12 @@ int32_t connect_norito_kagemusha_wallet_close_v1(uint64_t handle);
 int32_t connect_norito_kagemusha_wallet_activity_v1(uint64_t handle, uint8_t foreground, uint8_t charging);
 // Native lifecycle intent; no caller state, roots, proof, time or nonce. Selector meanings:
 // Load0(receipt,finality), Send1(Request), Receive2(Payment,credential,certificates),
-// Credential3/SchemePolicy4/Blacklist5/TimeAnchor6/QuotaShare7(update,certificates),
+// Credential3/SchemePolicy4/TimeAnchor6/QuotaShare7(update,certificates),
+// BlacklistInstall5(list,certificates): local install only, no operation, proof or retry
+// identity (request_id all zero); kind1 carries the held list's 32-byte object digest,
 // Unload8(optional quote+certificates, positive amount), Retire9(no originals),
 // ReceiveFromOffer10(Payment,signed Offer). Native extracts the Offer payer originals.
-// Unused slots/amount are zero. request_id is a nonzero local retry identity.
+// Unused slots/amount are zero. request_id is otherwise a nonzero local retry identity.
 // Original bounds are selector-specific; Payment remains <=10,000 bytes.
 typedef struct {
     const uint8_t* request_id;

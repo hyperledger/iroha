@@ -56,8 +56,9 @@ fn plan(variant: Variant) -> Plan {
         )
         .unwrap()
     };
-    let sigma = QSigmaPlan::new(sigma_class(12, 10), Some(sigma_class(14, 2)), &v).unwrap();
-    let signatures = ReceiveStagePlan::signature_schemas(variant, policy).unwrap();
+    // Lean Receive: A proves its own step; Q0 verifies only the incoming Send sigma.
+    let sigma = QSigmaPlan::incoming_only(sigma_class(14, 2), &v).unwrap();
+    let signatures = [ReceiveStagePlan::signature_schema_for(variant, policy).unwrap()];
     let mut q = Vec::new();
     for (lengths, types) in std::iter::once((
         sigma.instance_lengths().to_vec(),
@@ -88,7 +89,7 @@ fn plan(variant: Variant) -> Plan {
     )
     .unwrap();
     let omega = VerifierPlan::new(binding, p.clone()).unwrap();
-    let operation = AProofPlan::new(variant, sigma, q, Some(omega), &p).unwrap();
+    let operation = AProofPlan::inline_with_incoming(variant, sigma, q, Some(omega), &p).unwrap();
     Plan::new(operation, policy, key, p, v).unwrap()
 }
 
@@ -132,18 +133,9 @@ fn source_factory_pins_full_domains_and_never_exposes_an_accepted_witness() {
             value.plan.context().object_specs()[5].capacity as usize,
             MAX_SIGMA_RAW_BYTES
         );
-        assert_eq!(value.commitments.len(), 11);
-        assert_eq!(
-            value.own.sigma.len(),
-            plan.context()
-                .operation()
-                .sigma
-                .class(0)
-                .unwrap()
-                .verifier()
-                .proof_length()
-        );
-        assert_eq!(value.q.len(), 3);
+        assert_eq!(value.commitments.len(), 9);
+        assert!(value.own.step.is_none());
+        assert_eq!(value.q.len(), 2);
         for (index, q) in value.q.iter().enumerate() {
             let fixed = plan.context().operation().q(index).unwrap().verifier();
             assert_eq!(q.proof.len(), fixed.proof_length());
@@ -250,7 +242,7 @@ fn sequential_imports(variant: Variant) {
         w.try_into().unwrap(),
     )
     .unwrap();
-    assert_eq!(prover.checkpoint_layouts().unwrap().len(), 19);
+    assert_eq!(prover.checkpoint_layouts().unwrap().len(), 17);
     for stage in 0..A_STAGE_COUNT {
         let source = plan
             .source_circuit(stage, stage.checked_sub(1).map(|i| wrappers[i].clone()))

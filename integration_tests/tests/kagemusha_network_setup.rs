@@ -7,6 +7,8 @@ use eyre::{ensure, eyre};
 
 #[path = "kagemusha_network_setup/collections.rs"]
 mod collections;
+#[path = "kagemusha_network_setup/retained.rs"]
+mod retained;
 use iroha_crypto::{Algorithm, Hash, KeyPair};
 use iroha_data_model::{
     asset::{AssetBalancePolicy, AssetDefinition},
@@ -72,8 +74,8 @@ fn network_builder() -> NetworkBuilder {
     for seed in [41, 42, 43, 95] {
         network = network.with_genesis_instruction(Register::account(Account::new(account(seed))));
     }
-    // Isolate registration so its exact signed execution has lifecycle ordinal zero.
-    // The derived incarnation below refuses a normalized transaction that adds instructions.
+    // The standalone generated fixture isolates the creation at lifecycle ordinal zero.
+    // The monetary campaign instead retains its exact grouped engineering genesis.
     network
         .next_genesis_transaction()
         .with_genesis_instruction(Register::asset_definition(definition()))
@@ -85,28 +87,56 @@ fn network_builder() -> NetworkBuilder {
         .with_genesis_instruction(Grant::account_permission(permission(), account(95)))
 }
 
+/// Locate the exact creation and its Core lifecycle ordinal, not its statement index.
+struct RegistrationCall<'a> {
+    transaction: &'a SignedTransaction,
+    instruction_index: usize,
+    lifecycle_ordinal: u64,
+}
 fn registration_call<'a>(
     transactions: impl Iterator<Item = &'a SignedTransaction>,
-) -> Result<&'a SignedTransaction> {
+) -> Result<RegistrationCall<'a>> {
     let mut selected = None;
     for transaction in transactions {
         let Executable::Instructions(instructions) = transaction.instructions() else {
             continue;
         };
-        let matches = instructions.iter().filter(|instruction| {
-            instruction.as_any().downcast_ref::<RegisterBox>().is_some_and(|register| {
-                matches!(register, RegisterBox::AssetDefinition(register) if register.object.id == definition_id())
+        let positions = instructions.iter().enumerate().filter_map(|(index, instruction)| {
+            instruction.as_any().downcast_ref::<RegisterBox>().and_then(|register| {
+                matches!(register, RegisterBox::AssetDefinition(register) if register.object.id == definition_id()).then_some(index)
             })
-        }).count();
-        if matches == 0 {
+        }).collect::<Vec<_>>();
+        if positions.is_empty() {
             continue;
         }
         ensure!(
-            matches == 1 && instructions.len() == 1,
-            "asset registration must have its own exact execution and ordinal zero"
+            positions.len() == 1 && selected.is_none(),
+            "asset registration must be unique"
         );
-        ensure!(selected.is_none(), "asset registration must be unique");
-        selected = Some(transaction);
+        let index = positions[0];
+        let mut ordinal = 0_u64;
+        for instruction in &instructions[..index] {
+            match instruction.as_any().downcast_ref::<RegisterBox>() {
+                Some(RegisterBox::Account(_)) => (),
+                Some(RegisterBox::AssetDefinition(_)) => {
+                    ordinal = ordinal
+                        .checked_add(1)
+                        .ok_or_else(|| eyre!("lifecycle ordinal overflow"))?
+                }
+                _ if instruction.as_any().downcast_ref::<Log>().is_some() => (),
+                _ => bail!(
+                    "unsupported pre-registration lifecycle effects; use an authenticated runtime incarnation source"
+                ),
+            }
+        }
+        // Core increments next_lifecycle_transition_seed for asset-definition
+        // creation and contract lifecycle only. Account registration does not.
+        // This closed prefix refuses contracts/triggers/opaque instructions.
+        selected = Some(RegistrationCall {
+            transaction,
+            instruction_index: index,
+            lifecycle_ordinal: ordinal,
+        });
     }
     selected.ok_or_else(|| eyre!("asset registration is missing"))
 }
@@ -175,15 +205,14 @@ fn export(network: &Network, root: &Path) -> Result<()> {
         roster.len() == 4 && members == network.peers().iter().map(NetworkPeer::id).collect(),
         "signed roster differs from four running peers"
     );
-    let execution_identity = Hash::from(
-        registration_call(genesis.block().external_transactions())?.hash_as_entrypoint(),
-    );
+    let registration = registration_call(genesis.block().external_transactions())?;
+    let execution_identity = Hash::from(registration.transaction.hash_as_entrypoint());
     let incarnation = AxtAssetIncarnationV1::derive(
         &network.network_id(),
         &definition_id(),
         &genesis.block().header().hash(),
         &execution_identity,
-        0,
+        registration.lifecycle_ordinal,
     );
     let asset = KagemushaWalletAssetScopeV1::new(definition_id(), &incarnation, SCALE)?;
     let chain = network.chain_id().to_string();
@@ -203,6 +232,11 @@ fn export(network: &Network, root: &Path) -> Result<()> {
                 parameters.exec_budget_ms, parameters.apply_budget_ms, u64::from(parameters.max_block_bytes), parameters.epoch_length_blocks]),
         },
     });
+    let live_height = committed_height(network)?;
+    ensure!(
+        (2..=64).contains(&live_height),
+        "bounded live setup history required"
+    );
     let mut selected = Vec::new();
     for peer in network.peers() {
         ensure!(peer.is_running(), "each seat must be a live node process");
@@ -214,7 +248,7 @@ fn export(network: &Network, root: &Path) -> Result<()> {
         let mut peer_verifier =
             SumeragiFinalityVerifier::new(genesis.block(), &chain, roster.clone())?;
         let mut prefix = Vec::new();
-        for height in 1..=2 {
+        for height in 1..=live_height {
             let proof = native.get_sumeragi_finality_proof(
                 NonZeroU64::new(height).unwrap(),
                 peer_verifier.root_scope(),
@@ -237,7 +271,7 @@ fn export(network: &Network, root: &Path) -> Result<()> {
                     .all(|result| result.is_ok()),
                 "setup execution failed"
             );
-            if height == 2 {
+            if height > 1 {
                 let certificate = decision
                     .block()
                     .commit_certificate()
@@ -276,18 +310,6 @@ fn export(network: &Network, root: &Path) -> Result<()> {
             registered.total_quantity() == &quantity(),
             "registered total supply differs"
         );
-        let fee_asset: AssetDefinitionId =
-            iroha_config::parameters::defaults::nexus::fees::fee_asset_id().parse()?;
-        let fee_quantity =
-            Quantity::from_canonical_numeric(Numeric::new(u128::from(ROLE_FEE_UNITS), 0))?;
-        for seed in [41, 42, 43, 95] {
-            let bucket = AssetId::of(fee_asset.clone(), account(seed));
-            let balance = native.query_single(FindAssetById::new(bucket))?;
-            ensure!(
-                balance.value() == &fee_quantity,
-                "ordinary fee funding differs for role {seed}"
-            );
-        }
         let balances = collections::holders(&client)?;
         ensure!(
             balances.len() == 1 && balances.get(&account(41)) == Some(&quantity()),
@@ -306,7 +328,11 @@ fn export(network: &Network, root: &Path) -> Result<()> {
             );
         }
     }
+    let live_history = norito::encode_canonical(&selected)?;
     let proofs: [SumeragiFinalityProof; 2] = selected
+        .into_iter()
+        .take(2)
+        .collect::<Vec<_>>()
         .try_into()
         .map_err(|_| eyre!("exact two-block prefix required"))?;
     // No replacement of earlier outputs, including partial or failed attempts.
@@ -339,14 +365,17 @@ fn export(network: &Network, root: &Path) -> Result<()> {
             &norito::encode_canonical(&account(seed))?,
         )?);
     }
+    let live_history = publish(root, "live-history.norito", &live_history)?;
     let setup = norito::json!({
         "schema": "iroha.kagemusha.executed-ledger-setup.v1", "chain_id": chain,
         "genesis_public_key": (provisioned.public_key.to_string()),
         "network_hex": (hex::encode(network.network_id().as_bytes())),
         "instance_hex": (hex::encode(verifier.instance().0)),
-        "registration_height": 1, "certified_height": 2,
+        "registration_height": 1, "certified_height": 2, "live_height":live_height,
+        "live_history":live_history, "asset_registration_instruction_index":(registration.instruction_index),
+        "asset_lifecycle_ordinal":(registration.lifecycle_ordinal),
         "initial_supply_atomic_units": (SUPPLY.to_string()), "asset_digest_hex": (hex::encode(asset.asset_digest())),
-        "scope": "Four running validators independently returned admitted H1/H2, exact three-vote QC and matching executed balances. Source-only setup; no offline wallet or monetary completion qualification.",
+        "scope": "Four running validators independently returned the complete live certified prefix with exact three-vote QCs and matching balances. The asset registration anchor remains exact H1/H2; live_height names the independently verified current cut. Source-only setup; no offline wallet or monetary completion qualification.",
         "originals": originals,
     });
     publish(root, "setup.json", &norito::json::to_vec(&setup)?)?;
@@ -381,7 +410,24 @@ fn fund_fee_successor(network: &Network) -> Result<()> {
         successor,
         iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
     )?;
-    wait_for_committed(network, 2, network.sync_timeout(), &[])
+    wait_for_committed(network, 2, network.sync_timeout(), &[])?;
+    for peer in network.peers() {
+        let client = peer.client();
+        let native = client.client();
+        let fee_asset: AssetDefinitionId =
+            iroha_config::parameters::defaults::nexus::fees::fee_asset_id().parse()?;
+        let fee_quantity =
+            Quantity::from_canonical_numeric(Numeric::new(u128::from(ROLE_FEE_UNITS), 0))?;
+        for seed in [41, 42, 43, 95] {
+            let bucket = AssetId::of(fee_asset.clone(), account(seed));
+            let balance = native.query_single(FindAssetById::new(bucket))?;
+            ensure!(
+                balance.value() == &fee_quantity,
+                "ordinary fee funding differs for role {seed}"
+            );
+        }
+    }
+    Ok(())
 }
 
 #[test]
@@ -407,7 +453,7 @@ fn export_four_validator_kagemusha_setup() -> Result<()> {
 }
 
 #[test]
-fn registration_incarnation_requires_one_isolated_signed_creation() {
+fn registration_incarnation_uses_lifecycle_ordinal_not_instruction_position() {
     let transaction = |instructions: Vec<InstructionBox>| {
         TransactionBuilder::new(
             iroha_data_model::NetworkId::from_genesis_hash(
@@ -426,6 +472,7 @@ fn registration_incarnation_requires_one_isolated_signed_creation() {
         Hash::from(
             registration_call(std::iter::once(&valid))
                 .unwrap()
+                .transaction
                 .hash_as_entrypoint()
         ),
         Hash::from(valid.hash_as_entrypoint())
@@ -436,7 +483,43 @@ fn registration_incarnation_requires_one_isolated_signed_creation() {
         Register::asset_definition(definition()).into(),
         Log::new(Level::INFO, "extra".to_owned()).into(),
     ]);
-    assert!(registration_call(std::iter::once(&mixed)).is_err());
+    let selected = registration_call(std::iter::once(&mixed)).unwrap();
+    assert_eq!(
+        (selected.instruction_index, selected.lifecycle_ordinal),
+        (0, 0)
+    );
+    let grouped = transaction(vec![
+        Register::account(Account::new(account(41))).into(),
+        Register::account(Account::new(account(42))).into(),
+        Register::account(Account::new(account(43))).into(),
+        Register::account(Account::new(account(95))).into(),
+        Register::asset_definition(definition()).into(),
+    ]);
+    let selected = registration_call(std::iter::once(&grouped)).unwrap();
+    assert_eq!(
+        (selected.instruction_index, selected.lifecycle_ordinal),
+        (4, 0)
+    );
+    let mut earlier = definition();
+    earlier.id = AssetDefinitionId::from_uuid_bytes([
+        0x31, 0x53, 0x75, 0x97, 0xb9, 0xdb, 0x4d, 0xef, 0x80, 0x21, 0x32, 0x43, 0x54, 0x65, 0x76,
+        0x87,
+    ])
+    .unwrap();
+    let two_assets = transaction(vec![
+        Register::asset_definition(earlier).into(),
+        Register::asset_definition(definition()).into(),
+    ]);
+    let selected = registration_call(std::iter::once(&two_assets)).unwrap();
+    assert_eq!(
+        (selected.instruction_index, selected.lifecycle_ordinal),
+        (1, 1)
+    );
+    let unknown = transaction(vec![
+        Mint::asset_quantity(quantity(), AssetId::of(definition_id(), account(41))).into(),
+        Register::asset_definition(definition()).into(),
+    ]);
+    assert!(registration_call(std::iter::once(&unknown)).is_err());
 }
 
 #[path = "kagemusha_network_setup/continuation.rs"]

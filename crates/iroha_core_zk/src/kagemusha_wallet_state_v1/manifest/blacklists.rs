@@ -1,281 +1,178 @@
-//! Bounded selected-policy custody survives collection of historical step capsules.
+//! The locally installed signed blacklist: wallet custody only.
+//!
+//! Owner decision 2026-10-17: a list is never committed in wallet state, proved or carried in
+//! a peer message. Install authenticates the complete signed list natively and selects its
+//! exact original in the protected manifest, replacing a held list only for a higher
+//! `list_version`. Installing changes no head, receipt, fold or lineage. With a list held, the
+//! payer refuses to pay a listed receiver and the receiver refuses to request or accept money
+//! from a listed payer; without one nothing is refused.
 
 use super::*;
 use crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1 as object_digest;
-use crate::kagemusha_wallet_state_v1::policy_custody::{
-    BlacklistOriginalReferenceV1, read_blacklist_original,
-};
 
+/// Manifest selection of the installed list and its exact archived original.
 #[derive(Debug, Clone, PartialEq, Eq, norito::Encode, norito::Decode, norito::NoritoSchema)]
-#[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::BlacklistSourceEntryV1")]
-struct BlacklistSourceEntryV1 {
+#[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::LocalBlacklistV1")]
+pub(in crate::kagemusha_wallet_state_v1) struct LocalBlacklistV1 {
     version: u16,
-    original: BlacklistOriginalReferenceV1,
-    certificates_digest: [u8; 32],
-    certificates_bytes: u32,
+    list_version: u64,
+    digest: [u8; 32],
+    original: [u8; 32],
+    original_bytes: u32,
 }
 
-// Decode the selected full original independently of certificate admission. This returns
-// DATA only; authenticate still requires the original certificate role, signature and state.
-fn decode_selected_list(
-    full: &[u8],
-    scheme_id: &[u8; 32],
-) -> Result<KagemushaWalletBlacklistV1, Error> {
-    read_model_original(
-        || KagemushaWalletBlacklistV1::decode_canonical(full, scheme_id),
-        Error::WitnessLost("blacklist selected original"),
-    )
+impl LocalBlacklistV1 {
+    /// Read the selected list back. Install authenticated these exact bytes and the protected
+    /// manifest names them by archive digest, so this decode does not recompute the signed
+    /// entries root: enforcement stays fast for a full list.
+    pub(in crate::kagemusha_wallet_state_v1) fn read(
+        &self,
+        store: &mut dyn ObjectWorkspace,
+        scheme_id: &[u8; 32],
+    ) -> Result<KagemushaWalletBlacklistV1, Error> {
+        let length = usize::try_from(self.original_bytes)
+            .map_err(|_| Error::WitnessLost("local blacklist length"))?;
+        if self.version != 1
+            || self.list_version == 0
+            || self.digest == [0; 32]
+            || length == 0
+            || length > KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1
+        {
+            return Err(Error::WitnessLost("local blacklist selection"));
+        }
+        let original = store.read_staged_object(&self.original, length)?;
+        if original.len() != length || object_digest(&original) != self.original {
+            return Err(Error::WitnessLost("local blacklist exact original"));
+        }
+        let list: KagemushaWalletBlacklistV1 = archive::decode(&original)?;
+        if list.body.scheme_id != *scheme_id
+            || list.body.list_version != self.list_version
+            || list.blacklist_digest() != self.digest
+        {
+            return Err(Error::WitnessLost("local blacklist original binding"));
+        }
+        Ok(list)
+    }
 }
 
+// Authenticate a complete list natively: certificate set under the scheme, the list's
+// RegulatoryPolicy signer and signature, scheme, entry order, count and entries root.
 fn authenticate(
     scheme: &KagemushaWalletSchemeV1,
-    state: &KagemushaWalletStateV1,
-    full: &[u8],
+    original: &[u8],
     certificates: &[u8],
-) -> Result<[u8; 32], Error> {
-    state
-        .validate()
-        .map_err(|_| Error::WitnessLost("blacklist selected state"))?;
-    if certificates.is_empty() || certificates.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
-        return Err(Error::WitnessLost("blacklist certificates bound"));
+) -> Result<KagemushaWalletBlacklistV1, Error> {
+    if original.is_empty()
+        || original.len() > KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1
+        || certificates.is_empty()
+        || certificates.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1
+    {
+        return Err(Error::Invalid("blacklist original size"));
     }
-    let set: KagemushaWalletCertificateSetV1 = archive::decode(certificates)?;
-    set.verify(scheme)
-        .map_err(|_| Error::WitnessLost("blacklist certificates authority"))?;
-    let list = decode_selected_list(full, &scheme.scheme_id())?;
-    let certificate = set
-        .certificate(
-            &list.body.signer_certificate,
-            KagemushaWalletSignerRoleV1::RegulatoryPolicy,
+    // Caller input: a malformed set is invalid input, never lost custody.
+    let set: KagemushaWalletCertificateSetV1 = norito::core::classify_decode_attempt(|| {
+        norito::decode_canonical_with_limits(
+            certificates,
+            norito::canonical_decode_limits(certificates.len()),
         )
-        .map_err(|_| Error::WitnessLost("blacklist certificate role"))?;
-    list.verify(scheme, certificate)
-        .map_err(|_| Error::WitnessLost("blacklist original authority"))?;
-    let key = list.blacklist_digest();
-    if key == [0; 32]
-        || state.rest.blacklist != key
-        || state.core.blacklist_version != list.body.list_version
-        || state.core.blacklist_root != list.body.entries_root
-        || state.core.blacklist_issued_at_ms != list.body.issued_at_ms
-    {
-        return Err(Error::WitnessLost("blacklist selected state join"));
-    }
-    Ok(key)
-}
-
-impl BlacklistSourceEntryV1 {
-    fn read(
-        &self,
-        objects: &mut impl ObjectStore,
-        scheme: &KagemushaWalletSchemeV1,
-        state: &KagemushaWalletStateV1,
-    ) -> Result<(Vec<u8>, Vec<u8>), Error> {
-        let maximum = usize::try_from(self.certificates_bytes)
-            .map_err(|_| Error::WitnessLost("blacklist certificates length"))?;
-        if self.version != 1
-            || self.certificates_digest == [0; 32]
-            || maximum == 0
-            || maximum > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1
-        {
-            return Err(Error::WitnessLost("blacklist source entry"));
-        }
-        let full = read_blacklist_original(objects, &self.original, &scheme.scheme_id())?;
-        let certificates = objects.read_object(&self.certificates_digest, maximum)?;
-        if certificates.len() != maximum || object_digest(&certificates) != self.certificates_digest
-        {
-            return Err(Error::WitnessLost("blacklist exact certificates original"));
-        }
-        authenticate(scheme, state, &full, &certificates)?;
-        Ok((full, certificates))
-    }
-}
-
-fn retain(
-    objects: &mut impl ObjectStore,
-    selected: IndexRoot,
-    scheme: &KagemushaWalletSchemeV1,
-    state: &KagemushaWalletStateV1,
-    reference: &BlacklistOriginalReferenceV1,
-    certificates: &[u8],
-) -> Result<IndexRoot, Error> {
-    let full = read_blacklist_original(objects, reference, &scheme.scheme_id())?;
-    let key = authenticate(scheme, state, &full, certificates)?;
-    let certificates_digest = object_digest(certificates);
-    if objects.write_object(certificates, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?
-        != certificates_digest
-    {
-        return Err(Error::WitnessLost("blacklist certificates publication"));
-    }
-    let entry = BlacklistSourceEntryV1 {
-        version: 1,
-        original: reference.clone(),
-        certificates_digest,
-        certificates_bytes: u32::try_from(certificates.len())
-            .map_err(|_| Error::WitnessLost("blacklist certificates length"))?,
-    };
-    if entry.read(objects, scheme, state)? != (full, certificates.to_vec()) {
-        return Err(Error::WitnessLost("blacklist source readback"));
-    }
-    let bytes = archive::encode(&entry)?;
-    if let Some(existing) = selected.get(objects, &key)? {
-        if existing != bytes {
-            return Err(Error::WitnessLost("conflicting blacklist source index"));
-        }
-        return Ok(selected);
-    }
-    let proposed = selected.set(objects, key, &bytes)?;
-    if proposed.get(objects, &key)?.as_deref() != Some(bytes.as_slice()) {
-        return Err(Error::WitnessLost("blacklist source index readback"));
-    }
-    Ok(proposed)
-}
-
-fn selected_originals(
-    objects: &mut impl ObjectStore,
-    selected: IndexRoot,
-    scheme: &KagemushaWalletSchemeV1,
-    state: &KagemushaWalletStateV1,
-) -> Result<Option<(Vec<u8>, Vec<u8>)>, Error> {
-    state
-        .validate()
-        .map_err(|_| Error::WitnessLost("blacklist selected state"))?;
-    if state.rest.blacklist == [0; 32] {
-        return Ok(None);
-    }
-    let bytes = selected
-        .get(objects, &state.rest.blacklist)?
-        .ok_or(Error::WitnessLost("selected blacklist source index"))?;
-    let entry: BlacklistSourceEntryV1 = archive::decode(&bytes)?;
-    entry.read(objects, scheme, state).map(Some)
+    })
+    .map_err(|error| decode_attempt_error(error, Error::Invalid("blacklist certificates")))?;
+    valid(set.verify(scheme))?;
+    let list = read_model_original(
+        || KagemushaWalletBlacklistV1::decode_canonical(original, &scheme.scheme_id()),
+        Error::Invalid("G1 validation"),
+    )?;
+    let signer = valid(set.certificate(
+        &list.body.signer_certificate,
+        KagemushaWalletSignerRoleV1::RegulatoryPolicy,
+    ))?;
+    valid(list.verify(scheme, signer))?;
+    Ok(list)
 }
 
 impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
-    pub(super) fn retain_blacklist_source(
-        &mut self,
-        manifest: &mut Manifest,
-        step: &ReleasedStep,
-    ) -> Result<(), Error> {
-        let capsule = &step.frozen.capsule;
-        let KagemushaWalletEffectV1::RefreshPolicy {
-            update_kind: KagemushaWalletPolicyUpdateKindV1::Blacklist,
-            update,
-            ..
-        } = capsule.body().statement.effect
-        else {
-            return Ok(());
-        };
-        if capsule.body().kind != KagemushaWalletOperationKindV1::RefreshPolicy
-            || capsule.body().scheme_id != self.scheme_id
-            || capsule.body().wallet_id != self.wallet_id
-            || update != capsule.body().successor_state.rest.blacklist
-        {
-            return Err(Error::WitnessLost("blacklist source released join"));
-        }
-        let original = |role| -> Result<&[u8], Error> {
-            let mut inputs = capsule
-                .body()
-                .retained_inputs
-                .iter()
-                .filter(|input| input.role == role);
-            let bytes = &inputs
-                .next()
-                .ok_or(Error::WitnessLost("blacklist source absent"))?
-                .bytes;
-            if inputs.next().is_some() {
-                return Err(Error::WitnessLost("blacklist source inventory"));
-            }
-            Ok(bytes)
-        };
-        let reference = BlacklistOriginalReferenceV1::decode_canonical(
-            original(KagemushaWalletRetainedInputRoleV1::PolicyUpdate)?,
-            &self.scheme_id,
-        )?;
-        let (scheme, _) = self.proofs.ledger_scope()?;
-        if scheme.scheme_id() != self.scheme_id {
-            return Err(Error::WitnessLost("blacklist source scheme"));
-        }
-        manifest.blacklists = retain(
-            &mut self.archive,
-            manifest.blacklists,
-            &scheme,
-            &capsule.body().successor_state,
-            &reference,
-            original(KagemushaWalletRetainedInputRoleV1::CertificateSet)?,
-        )?;
-        Ok(())
-    }
-
-    /// Restore the current source-selected full blacklist and exact certificate-set original.
+    /// Authenticate a signed blacklist and install it in local custody.
     ///
-    /// The bounded immutable index survives collection of the Refresh capsule. This is source
-    /// custody and issuer authentication; Native still proves every monetary transition.
-    /// No foreign head, scheme, wallet, object digest or history-scan selector is accepted.
+    /// Reinstalling the held list is idempotent and republishes its exact original, which
+    /// repairs a lost archive copy. Nothing is sent to a peer or proved, and no wallet
+    /// operation, receipt or fold results. The completion carries the 32-byte object digest of
+    /// the held list.
     ///
     /// # Errors
-    /// Pending, missing/corrupt selected objects, unavailable storage and source changes remain
-    /// distinct errors. Absence is returned only when the actual current state holds no list.
-    pub fn current_blacklist_originals(&mut self) -> Result<Option<(Vec<u8>, Vec<u8>)>, Error> {
-        let (digest, manifest) = self.sync_manifest()?;
-        let status = self.status()?;
-        let SlotStatus::Released(marker) = &status else {
-            return Err(if matches!(status, SlotStatus::Pending(_)) {
-                Error::Pending
-            } else {
-                Error::NoHead
-            });
-        };
-        let checkpoint = self
-            .custody
-            .archive_checkpoint()?
-            .ok_or(Error::WitnessLost("blacklist manifest"))?;
-        if checkpoint.1.len()
-            > crate::kagemusha_wallet_advance_v1::KAGEMUSHA_WALLET_ARCHIVE_MANIFEST_MAX_BYTES_V1
-            || checkpoint.0 != digest
-            || manifest_digest(&checkpoint.1) != digest
-            || checkpoint.1 != archive::encode(&manifest)?
-            || marker.archive_checkpoint() != digest
-        {
-            return Err(Error::WitnessLost("blacklist selected manifest"));
-        }
-        let (sequence, operation, capsule_digest) = marker.head().ok_or(Error::NoHead)?;
-        if manifest.indexed != Some(sequence) || manifest.capsule != capsule_digest {
-            return Err(Error::WitnessLost("blacklist selected index"));
-        }
-        let current = self.indexed_step(&manifest, sequence)?;
-        let head = match marker.marker().state {
-            KagemushaWalletMarkerStateV1::Head { head, .. } => head,
-            _ => return Err(Error::NoHead),
-        };
-        if current.frozen.capsule.body().statement.successor != head
-            || current.retained.operation_id != operation
-            || marker.selected_generation() != Some(current.retained.selected_generation)
-            || marker.completion_digest() != Some(current.retained.completion_digest)
-            || marker.payment_key() != &current.frozen.credential.body.payment_key
-        {
-            return Err(Error::WitnessLost("blacklist selected head"));
-        }
+    /// No released head, an unauthenticated list or certificate set, a `list_version` that does
+    /// not increase, too little free storage to keep one operation possible after the install
+    /// (`NotEnoughStorage`), or unavailable storage. An uncertain publication is reconciled by
+    /// installing the same list again. A failed removal of the replaced original is reported
+    /// after the new selection is published; that unreferenced copy then stays in custody.
+    pub fn install_blacklist(
+        &mut self,
+        original: &[u8],
+        certificates: &[u8],
+    ) -> Result<Completion, Error> {
         let (scheme, _) = self.proofs.ledger_scope()?;
         if scheme.scheme_id() != self.scheme_id {
-            return Err(Error::WitnessLost("blacklist source scheme"));
+            return Err(Error::WitnessLost("blacklist scheme"));
         }
-        let result = selected_originals(
-            &mut self.archive,
-            manifest.blacklists,
-            &scheme,
-            &current.frozen.capsule.body().successor_state,
-        )?;
-        if self.status()? != status {
-            return Err(Error::WitnessLost("blacklist source marker changed"));
+        let installed = authenticate(&scheme, original, certificates)?;
+        let digest = installed.blacklist_digest();
+        let (root, mut manifest) = self.sync_manifest()?;
+        if manifest.indexed.is_none() {
+            return Err(Error::NoHead);
         }
-        if self.manifest()?.0 != digest
-            || self.custody.archive_checkpoint()?.as_ref() != Some(&checkpoint)
-        {
-            return Err(Error::WitnessLost("blacklist source manifest changed"));
+        // The protected manifest authenticates the held selection; its original is not read.
+        let reinstall = match &manifest.blacklist {
+            Some(held) if held.digest == digest => true,
+            Some(held) if installed.body.list_version <= held.list_version => {
+                return Err(Error::Invalid("blacklist list_version"));
+            }
+            _ => false,
+        };
+        if !reinstall {
+            self.require_blacklist_capacity(original.len())?;
         }
-        if self.status()? != status {
-            return Err(Error::WitnessLost("blacklist source marker changed"));
+        let address = self
+            .archive
+            .write_object(original, KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1)?;
+        if address != object_digest(original) {
+            return Err(Error::WitnessLost("local blacklist publication"));
         }
-        Ok(result)
+        let entry = LocalBlacklistV1 {
+            version: 1,
+            list_version: installed.body.list_version,
+            digest,
+            original: address,
+            original_bytes: u32::try_from(original.len())
+                .map_err(|_| Error::Invalid("blacklist original size"))?,
+        };
+        if entry.read(&mut self.archive, &self.scheme_id)? != installed {
+            return Err(Error::WitnessLost("local blacklist readback"));
+        }
+        if reinstall {
+            if manifest.blacklist.as_ref() != Some(&entry) {
+                return Err(Error::WitnessLost("local blacklist selection"));
+            }
+            return Ok(Completion::Complete(digest.to_vec()));
+        }
+        let previous = manifest.blacklist.replace(entry);
+        self.publish_manifest(root, &manifest)?;
+        // The published manifest no longer selects the replaced original, and no other record
+        // holds a list frame.
+        if let Some(held) = previous {
+            self.archive.remove(ArchiveKey::Object(held.original))?;
+        }
+        Ok(Completion::Complete(digest.to_vec()))
+    }
+
+    /// The list selected by the current manifest, if any; reads local custody only.
+    pub(in crate::kagemusha_wallet_state_v1) fn local_blacklist(
+        &mut self,
+    ) -> Result<Option<KagemushaWalletBlacklistV1>, Error> {
+        let (_, manifest) = self.manifest()?;
+        manifest
+            .blacklist
+            .as_ref()
+            .map(|list| list.read(&mut self.archive, &self.scheme_id))
+            .transpose()
     }
 }
 

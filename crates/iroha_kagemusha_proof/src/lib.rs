@@ -12,13 +12,12 @@
 //! (`specs/kagemusha_single_design_proposal.md` sections 3, 3.2, 5.1 and 7)
 //! in the G1 wallet layout of `iroha_data_model`
 //! (`specs/kagemusha_wallet_wire_v1.md` sections 3.2 to 3.4): the G1
-//! Poseidon domains, the 33-element core and 8-element rest, the `Fp` head
+//! Poseidon domains, the 29-element core and 6-element rest, the `Fp` head
 //! commitment, the chain appends, the one-element Poseidon `credit_id` over
-//! the 26-element Request body (both account digests included), the
-//! 26-element statement and every enabled control: the blacklist gap
-//! opening and list age, the quota windows and usage update and the
-//! attestation lease in `sigma_send`, and the receiver's blacklist in
-//! `sigma_recv`. The shared vectors of
+//! the 24-element Request body (both account digests included), the
+//! 26-element statement and every enabled control: the quota windows and
+//! usage update and the attestation lease in `sigma_send`. A wallet's
+//! blacklist is local only and no relation reads it. The shared vectors of
 //! `fixtures/kagemusha/wallet_v1_vectors.json` pin them
 //! (`tests/digest_parity.rs`). The native wallet provider and ledger verifier
 //! consume these relations. The complete installed artifact set, actual proof
@@ -32,10 +31,10 @@
 //!   evaluation ([`StepWitness::evaluate`]: every digest, the successor and
 //!   the relation [`Violation`]s), the Request body ([`RequestBody`]) and
 //!   the public input ([`StepPublic`]).
-//! - [`controls`]: the control witnesses (blacklist gap, quota segments and
-//!   charges) and their native reference rules.
-//! - [`tree`]: the native blacklist gap tree, quota-window tree and depth-32
-//!   indexed Merkle tree, their domains and openings.
+//! - [`controls`]: the control witnesses (quota segments and charges) and
+//!   their native reference rules.
+//! - [`tree`]: the native quota-window tree and depth-32 indexed Merkle tree,
+//!   their domains and openings.
 //! - [`circuit`]: [`SigmaCircuit`], the step relations on Pow5 sponge lanes,
 //!   running-sum range checks, checked `u128`/`u64` arithmetic and glue
 //!   gates, with folded or absorbed Poseidon prefixes.
@@ -67,15 +66,11 @@
 //! requires `request_policy_epoch <= policy_epoch` and
 //! `max(accepted_time_floor, request_time) <= lower <= upper`, raises the
 //! successor's accepted-time floor to `lower` and enforces each control of
-//! its mask: with a held blacklist, the receiver's account absent from the
-//! list and the maximum list age; the quota windows the interval touches,
-//! their limits and the aligned fixed64 quota-usage update, quota-share expiry
-//! and accepted-span bound; the lease expiry.
-//! `sigma_recv` matches the Request's receiver by `wallet_id`, credits the
-//! amount without overflow and selects blacklist enforcement from the
-//! Request's recorded version, opening the payer's account against that
-//! recorded root regardless of current-list changes. The public input is the digest of the
-//! 26-element G1 statement.
+//! its mask: the quota windows the interval touches, their limits and the
+//! aligned fixed64 quota-usage update, quota-share expiry and accepted-span
+//! bound; the lease expiry. `sigma_recv` matches the Request's receiver by
+//! `wallet_id` and credits the amount without overflow. The public input is
+//! the digest of the 26-element G1 statement.
 //!
 //! # Determinism
 //!
@@ -124,13 +119,13 @@ pub use shape::{
     PROOF_BYTES_GATE, ShapeChoice, ShapePolicy, SigmaShape, limb_bits_for, select_shape,
     wallet_monetary_shape,
 };
-pub use tree::{BlacklistGap, IndexedInsert, IndexedLeaf, QuotaWindow};
+pub use tree::{IndexedInsert, IndexedLeaf, QuotaWindow};
 pub use vectors::{Mutation, SAMPLE_RELATION_ID, sample_witness};
 pub use witness::{
-    CONTROL_ATTESTATION_LEASE, CONTROL_BLACKLIST, CONTROL_QUOTAS, CONTROLS_DEFINED, Controls,
-    CoreState, Identity, LIFECYCLE_ACTIVE, LIFECYCLE_RETIRING, LineageInputs, MapRoots, NativeStep,
-    RECEIVE_CONTROLS, ReceiveInputs, RequestBody, RequestTerms, SendInputs, SigmaRelation,
-    StateRest, StateV1, StepDigests, StepInputs, StepPublic, StepWitness, Violation,
+    CONTROL_ATTESTATION_LEASE, CONTROL_QUOTAS, CONTROLS_DEFINED, Controls, CoreState, Identity,
+    LIFECYCLE_ACTIVE, LIFECYCLE_RETIRING, LineageInputs, MapRoots, NativeStep, ReceiveInputs,
+    RequestBody, RequestTerms, SendInputs, SigmaRelation, StateRest, StateV1, StepDigests,
+    StepInputs, StepPublic, StepWitness, Violation,
 };
 
 // Private proof-entry instrumentation and genuine owner boundaries exist only

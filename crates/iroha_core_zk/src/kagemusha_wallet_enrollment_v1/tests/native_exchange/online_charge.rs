@@ -13,7 +13,7 @@ const CHARGE_KEY_SEED: u8 = 111;
 const REGULATORY_KEY_SEED: u8 = 113;
 
 #[test]
-#[ignore = "requires the genuine complete52 source grant; exports a target, never a finalized receipt"]
+#[ignore = "requires the genuine complete22 source grant; exports a target, never a finalized receipt"]
 fn export_actual_online_charge_target_with_dedicated_custody() {
     let output = fresh_output("KAGEMUSHA_NATIVE_CHARGE_TARGET_OUTPUT");
     let sources = Sources::admit(&output.join("source-admission"));
@@ -325,7 +325,7 @@ fn actual_online_charge_unload_with_retained_quotes_and_restart() {
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&claim.package, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&claim.package, MemoryBudget::DEFAULT)
         .unwrap();
     fold(&mut a);
     let final_snapshot = a.snapshot().unwrap();

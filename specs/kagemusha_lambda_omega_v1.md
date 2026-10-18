@@ -50,8 +50,8 @@ record.
 | **OQ-2 (B2), applied.** Λ_recv and Λ_archive may fold a self-computed *corrected claim* (G*, u), with G* = ⟨s(u), g⟩ ≠ G, as the witness that an incoming accumulator (G, u) fails to decide | §2.7 burn and no-op branches |
 | **OQ-3 (B3), applied.** On the burn branch with a duplicate `credit_id`, the committed consumed-credit root equals the predecessor's root or is a structurally valid IMT insert of a fresh key | §2.7 |
 | **OQ-4 (B4), applied.** The QuotaShare refresh rule "keeps the end of every existing usage key" is checked only for the 64 quota-window slots | §5.1; with B5 it is part of the usage-array rebuild, whose budget §5.4 states |
-| **B5.** The quota-usage map is a depth-6 fixed array aligned one to one with the 64 quota-window slots; a Send charges its window slots in place | σ_send: ≈ 45 permutations per charge, ≈ 309 for the quota part and ≈ 346 with every control [E], a single-lane k14 shape (≈ 3,424 B [C]) or k13 with shared paths, replacing the k15 IMT estimate. Λ_refresh(QuotaShare): array rebuild ≈ 954 permutations instead of ≈ 4,734; the measured recursive composition requires split root/merge owners (§§5.1, 5.4) |
-| **B6.** The Request records the receiver blacklist version and root used at issuance; Receive (native and σ_recv) checks only that list | σ_recv proves the gap in the recorded root and its key is selected by the recorded version. Λ_recv looks the recorded pair up in the blacklist-history IMT of the rest (≈ 68 permutations); Refresh(Blacklist) inserts into it (≈ 264). These fields are included in the compact Payment fixed overhead of 1,436 B; R9 permits 8,564 B of combined proofs (§3.5) |
+| **B5.** The quota-usage map is a depth-6 fixed array aligned one to one with the 64 quota-window slots; a Send charges its window slots in place | σ_send: ≈ 45 permutations per charge and ≈ 309 for the quota part [E], a single-lane k14 shape (≈ 3,424 B [C]) or k13 with shared paths, replacing the k15 IMT estimate. Λ_refresh(QuotaShare): array rebuild ≈ 954 permutations instead of ≈ 4,734; the measured recursive composition requires split root/merge owners (§§5.1, 5.4) |
+| **B6, replaced by the owner decision of 2026-10-17.** The account blacklist is local-only: wallets block listed accounts natively, and no list enters the state, a Request, a σ, Λ or Ω | None: σ_recv has one key, and no Λ step looks up or inserts a list |
 | **B7.** `quota_share_expires_at_ms` is a core field; σ_send enforces `U < expires_at_ms` with the quota control | σ only; one 64-bit comparison |
 | **B8.** `time_anchor_max_response_ms` < the shortest quota window, checked when a share is installed; σ_send checks `U − L ≤ time_anchor_max_response_ms` (a core field) with the quota control | Λ_refresh(QuotaShare): 64 length comparisons; σ_send: one comparison; two charge candidates per kind suffice |
 | The actual descriptor degree governs quotient size; k ≤ 16; ≤ 1 GiB fold memory with one sub-proof at a time; std Rust only; identical outputs on every hardware; no new external crates | §§2, 6, 9 |
@@ -61,16 +61,16 @@ record.
 | Constraint | Met by | Status |
 |---|---|---|
 | Two-second p95 to durable completion; Ω verified on the path unless pre-verified | Matching native/SDK/device campaign, initially Pixel 6 and the connected iPhone 17 Pro Max | open; the estimates in §4 do not qualify durable completion |
-| R9: Ω + largest σ_send ≤ 10,000 − 1,436 = 8,564 B | Independent role caps σ ≤ 3,520 B and Ω ≤ 5,044 B, plus the checked joint bound (§3.5) | model/SDK boundary rules implemented; current candidate validation and genuine complete-catalog artifact qualification are open |
-| Credited::Status ≤ 10,000 B | Fixed status overhead 2,188 B plus Ω ≤ 5,044 B gives at most 7,232 B; the carrier-derived 7,812 B budget does not replace the Ω role cap | envelope arithmetic [C]; genuine artifact qualification open |
+| R9: Ω + largest σ_send ≤ 10,000 − 1,394 = 8,606 B | Independent role caps σ ≤ 3,520 B and Ω ≤ 5,086 B, plus the checked joint bound (§3.5) | model/SDK boundary rules implemented; current candidate validation and genuine complete-catalog artifact qualification are open |
+| Credited::Status ≤ 10,000 B | Fixed status overhead 2,188 B plus Ω ≤ 5,086 B gives at most 7,274 B; the carrier-derived 7,812 B budget does not replace the Ω role cap | envelope arithmetic [C]; genuine artifact qualification open |
 | Fold peak RAM ≤ 1 GiB | §6: one prover at a time, ≤ 0.85 GiB per sub-proof plus ≤ 0.15 GiB wallet core | estimate only; current candidate measurement remains open (G3.6, G3.7, G4.6, G5.3) |
 | First release; formats may be redesigned | PIPA-R profile and PIPA-AS-v1 (§8); σ moves to the base-field transcript at unchanged byte length | used |
 | std, deterministic, no new external crates, Pasta curves | only `iroha_pasta`, `iroha_plonk`, `iroha_plonk_gadgets` and a new workspace crate `iroha_plonk_recursion`; verifier MSMs stay `msm_complete` (PIPA S10) | met |
 | `credit_id`, `proof_digest` (σ only and Ω‖σ) and the Payment digest are `P` / `P_bytes` | spec-literal `P_bytes` over the bytes, linked in-circuit (§5.2) | met |
-| Wallet maps (the blacklist history included) and the credit-digest tree are depth-32 IMTs; the quota-usage map is the B5 depth-6 array | IMT chip in A; the array shares the depth-6 path layer of the quota-window tree | met |
+| Wallet maps and the credit-digest tree are depth-32 IMTs; the quota-usage map is the B5 depth-6 array | IMT chip in A; the array shares the depth-6 path layer of the quota-window tree | met |
 | Receiver matched by `wallet_id` and `payment_key`; continuity proven in Λ | A equalities; the Request's receiver credential is verified in Λ_recv and deduplicated with the current credential | met |
-| One Fp head commitment; one `relation_id`; σ keys selected by (tag, mask), Receive by its Request's recorded blacklist version | `relation_id` is carried in D_A, never a circuit constant; σ's key is selected in Q by one-hot digest and checked in A against the (tag, mask) table, with the Receive selector derived from the Request | met |
-| Enabled controls enforced in σ_send, the receiver's Request-recorded blacklist decision in σ_recv | Λ only selects σ's key; G-Ω2 enforces σ_send ≤ 3,520 B, Ω ≤ 5,044 B and their independent joint cap of 8,564 B | met; σ shape threshold |
+| One Fp head commitment; one `relation_id`; σ keys selected by (tag, mask) | `relation_id` is carried in D_A, never a circuit constant; σ's key is selected in Q by one-hot digest and checked in A against the (tag, mask) table | met |
+| Enabled controls enforced in σ_send | Λ only selects σ's key; G-Ω2 enforces σ_send ≤ 3,520 B, Ω ≤ 5,086 B and their independent joint cap of 8,606 B | met; σ shape threshold |
 | Proposal §3.2 containment: deferred failures burn or no-op, no poison | corrected-claim witness plus total soft verifiers (§2.7) | met |
 | Proposal §3.2: native and in-circuit verifiers accept exactly the same set | one table-driven predicate (PIPA S11), complete in-circuit arithmetic, total soft verifiers (§7 C7) | met deterministically |
 
@@ -184,7 +184,7 @@ Build order: σ VKs → Q VKs → A VKs → Ω VK → `vkΩ_digest` and
 
 | Verifier → verified | Key binding | In-circuit cost [E] |
 |---|---|---|
-| Q → σ | Witness VK (31 points + `transcript_repr`); its `P_Fq` digest compared one-hot with the allowlist's σ digests (constants of Q). Q exports `vk_index`; A checks it against the constant (tag, mask) → index table, with a Receive mask of 1 iff its Request records a nonzero blacklist version (B6) | ≈ 32 permutations ≈ 4.7k cells |
+| Q → σ | Witness VK (31 points + `transcript_repr`); its `P_Fq` digest compared one-hot with the allowlist's σ digests (constants of Q). Q exports `vk_index`; A checks it against the constant (tag, mask) → index table | ≈ 32 permutations ≈ 4.7k cells |
 | A → Q | Q variants' VKs are fixed columns of each A variant | 0 |
 | A → Ω(pred), Ω_in, Ω(h), W | Witness key K. A computes `P(K)` and requires it to equal the `vkΩ_digest` field of the D_A(pred) it opens, copies that field into its own D_A, and recomputes D_A(in) with the same field. Bootstrap's A takes the field as a free witness | ≈ 23 permutations ≈ 3.4k |
 | Ω → A | Witness VK_A (≈ 54 points + repr); the complete `P_Fq` digest is bound by the zero product of its differences from the 1..32 distinct constant digests in T_A. A pinned-key profile selects every key component with one constrained catalog selection and retains the same membership predicate. No lookup argument is added | ≈ 56 permutations ≈ 8.3k |
@@ -230,24 +230,28 @@ the gadget does not recompute BLAKE2b. It also binds the witnessed key's
 - **σ shape classes.** A shape class is one σ descriptor (k, column counts, gate set).
   Relations of one class differ only in fixed commitments, share one Q_σ program and are
   selected by the one-hot key digest; each distinct class has its own Q_σ program. The
-  allowlist (wire §3.1, at most 16 σ entries) holds every operation with mask 0, Send per
-  supported mask and, when some Send mask enables the blacklist, Receive for a
-  Request-recorded blacklist decision (selected by the Request's recorded version, not
-  by the receiver's mask). With the B5 usage array the quota-enabled σ_send is expected
-  to be a single-lane k14 class (k13 with shared window and usage paths), and the
-  blacklist σ_recv to stay in the k12 class [E].
+  allowlist (wire §3.1, at most 11 σ entries) holds every operation with mask 0 and Send
+  per supported mask. With the B5 usage array the quota-enabled σ_send is expected
+  to be a single-lane k14 class (k13 with shared window and usage paths) [E].
 - **A variants.** One per (operation, σ shape classes it verifies): Bootstrap, Load, Send,
   Unload, Retiring, Receive and Receive (renewed receiver credential), ArchiveSent (i) and
-  (ii), the five RefreshPolicy kinds and the A-split halves. T_A, the constant list in Ω, is
+  (ii), the four RefreshPolicy kinds and the A-split halves. T_A, the constant list in Ω, is
   sized at artifact freeze (≤ 32 expected [E]; each entry costs one comparison).
 
 ### 2.6 Base case
 
 - Bootstrap's A has no Ω slot. It enforces the unique zero state (proposal §3.2) and writes
   free `vkΩ_digest` and `relation_id` fields, which every native verifier pins.
-- Bootstrap uses the complete required Q set. The current implementation separates Q_σ from a 2V/1F signature leaf, so F_P hard-folds both k16 Q openings with no predecessor input. A genuinely combined single-Q layout may forward O_Q, but only after proving all of its obligations in that leaf; the single-Q frame fixture does not establish that workload.
-- F_V^Ω folds {acc_V^part = O_σ, O_A, ACC_TRIV, ACC_TRIV}; the last two are
-  the fixed absent-predecessor and absent-incoming slots of the uniform frame.
+- Bootstrap is lean (owner decision 2026-10-17): one unsplit terminal A and no W. Its only
+  Q is the hard 2V/1F leaf (own receipt, current credential, scheme-root certificate), so
+  the credential and certificate are checked here, at the start of the chain. A runs
+  σ_bootstrap's constraints itself (state, public prefix, statement and the
+  administrative Bootstrap rule) instead of verifying σ_bootstrap, which is still produced
+  natively; the receipt's `proof_digest` is its own field, checked nonzero. With one Q and
+  no predecessor, F_P is absent and A forwards O_Q (`Ledger::new(Bootstrap, 1, None, None)`).
+- F_V^Ω folds {ACC_TRIV (part), O_A, ACC_TRIV, ACC_TRIV}; the part is the pinned trivial
+  filler of a route without Q_σ, and the last two are the fixed absent-predecessor and
+  absent-incoming slots of the uniform frame.
 - A forwarded `acc_V^part` is an internal checked fold input, not a transported
   `AccumulatorT`. It retains the source k derived from the selected σ descriptor
   and has exactly `16-k` leading zeros. A real F_V^Q output instead has source
@@ -259,12 +263,8 @@ the gadget does not recompute BLAKE2b. It also binds the witnessed key's
 ### 2.7 Soft verification, burn and no-op
 
 **Soft verifiers are total.** They run for Ω_in or Ω(h) in A; for σ_send or σ_recv, τ_send,
-τ_recv or τ(h) and the Request in Q; and for the consumer checks, `credit_id`
-non-membership and the Request's recorded-blacklist history lookup (B6) in A. A lookup
-always opens, hard, either the recorded version's leaf or its low leaf in the
-predecessor's history root; its soft bit is false only on proven absence or an
-authenticated root different from the recorded one, so a bad path is unsatisfiable,
-never a burn. Each outputs a verdict bit and is satisfiable for every witness
+τ_recv or τ(h) and the Request in Q; and for the consumer checks and `credit_id`
+non-membership in A. Each outputs a verdict bit and is satisfiable for every witness
 (PIPA S12, §8): every decode check yields a bit and a failing input is replaced by a fixed
 default before use; denominators are guarded by is-zero bits; group arithmetic is complete.
 
@@ -274,8 +274,7 @@ fold in one of three modes: **Accept** (G_j, u_j); **Trivial** ACC_TRIV; **Corre
 
 ```text
 soft_ok  = AND of every soft bit (Ω_in succinct incl. D_A(in) recomputation, σ_send, τ_send,
-           Request incl. its recorded-blacklist lookup, consumer checks, credit_id
-           non-membership)
+           Request, consumer checks, credit_id non-membership)
 valid    = soft_ok AND (no slot in Corrected mode)
 valid = 1  ⇒ every incoming slot is Accept
 valid = 0  ⇒ every incoming slot is Trivial except at most one Corrected slot, and
@@ -432,31 +431,31 @@ obligation. The full binding, purpose and privacy scope is in the
 
 ### 3.5 Byte budget and thresholds
 
-The sole compact Payment frame has fixed overhead **1,436 B**. The model and
+The sole compact Payment frame has fixed overhead **1,394 B**. The model and
 both managed SDKs enforce all of these independent bounds before accepting its
 proof payloads:
 
 | Bound | Bytes [C] | Owner |
 |---|---:|---|
 | σ proof | 3,520 | Every admitted σ descriptor and decoded Payment |
-| Transported Ω, including both accumulator claims | 5,044 | Every admitted Ω descriptor, Lineage and Payment |
-| σ + transported Ω | 8,564 | Checked addition in Payment and artifact admission |
-| Complete Payment | 10,000 | 1,436 + 3,520 + 5,044 |
+| Transported Ω, including both accumulator claims | 5,086 | Every admitted Ω descriptor, Lineage and Payment |
+| σ + transported Ω | 8,606 | Checked addition in Payment and artifact admission |
+| Complete Payment | 10,000 | 1,394 + 3,520 + 5,086 |
 | Credited::Status fixed overhead | 2,188 | Canonical wire encoder |
-| Credited::Status with Ω at its role cap | 7,232 | 2,188 + 5,044 |
+| Credited::Status with Ω at its role cap | 7,274 | 2,188 + 5,086 |
 
 The status carrier's derived budget, 10,000 − 2,188 = 7,812 B, is a frame
 calculation only. It cannot be borrowed by an oversized Ω; spare Ω space cannot
 be borrowed by an oversized σ. The same applies when only one role's proof is
 present. The native raw carrier adds its own 320-byte prefix: a maximal raw Ω
-carrier is 5,364 B and a maximal raw Ω-plus-σ carrier is 8,884 B. These raw
+carrier is 5,406 B and a maximal raw Ω-plus-σ carrier is 8,926 B. These raw
 carriers are not the Payment transport encoding.
 
 Let `B(D)` be the exact proof length derived by `Protocol::proof_length` from
 the complete descriptor using PIPA §7. A transported Ω is `B(D_Ω) + 1,088`
 bytes, where each of its two generator claims occupies 544 bytes. Its proof
-body must therefore satisfy `B(D_Ω) ≤ 3,956`. Since that body consists of
-32-byte words, its effective bound is **3,936 B**. The σ role bound is exactly
+body must therefore satisfy `B(D_Ω) ≤ 3,998`. Since that body consists of
+32-byte words, its effective bound is **3,968 B**. The σ role bound is exactly
 110 such words. These rules use the actual descriptor degree, permutation
 sets, query counts, point sets and lookup counts; a fixed historical degree or
 advice-column estimate is not an admission predicate.
@@ -503,9 +502,8 @@ not fit.
    - **two decides with `msm_complete`**: Pallas batches Ω's opening with acc_P (2^16 + ≈ 90
      bases); Vesta decides acc_V (2^16 + 1);
    - cache the verdict under `lineage_digest = P_bytes(kgwlin_1, Ω bytes)` (wire §3.2).
-3. **Request.** Record the enforced blacklist version and root (or `(0, 0)`) and retain the
-   payer's 580-byte gap opening (B6), sign the Request and precompute σ_recv against the
-   recorded root: 0.27 s on 4 Mac threads, 0.77 s on 1 [M].
+3. **Request.** Refuse a payer that a held local blacklist lists (native only), sign the
+   Request and precompute σ_recv: 0.27 s on 4 Mac threads, 0.77 s on 1 [M].
 
 ### 4.2 At Payment arrival (critical path)
 
@@ -513,10 +511,10 @@ not fit.
 |---|---|---|---|
 | Decode ≤ 10,000 B canonically | — | < 0.1 ms [E] | < 0.3 ms |
 | Ω(pred) byte identity with the cached Lineage Ω | byte comparison (equal `lineage_digest`) | < 0.1 ms [E] | < 0.1 ms |
-| Consumer checks, Request account digests; for a nonzero recorded blacklist pair, its history lookup and the retained gap opening against the recorded root (B6) | equalities, ≈ 35 + 68 permutations | < 0.5 ms [E] | < 1 ms |
+| Consumer checks, Request account digests; with a held local blacklist, a native search of it for the payer account | equalities, ≈ 35 permutations | < 0.5 ms [E] | < 1 ms |
 | σ_send `verify_full`, key by (Send, Ω.enabled_controls) | k12; its 2^12 G'_0 MSM is 36.8 ms [M] | **39 ms 1t, 14 ms 4t** [M]; PIPA-R re-measure G4.8 | 15–32 ms (4 cores), 43–90 ms (1 core) |
 | τ_send and Request P-256 | 2 verifications | 0.5–0.6 ms [M] | < 2 ms |
-| `P` work: statement 14, receipt message ≈ 7, `operation_id` 3, `proof_digest` 136, `credit_id` 14, Payment digest and its object digests ≈ 14 | ≈ 188 permutations | ≈ 1–2 ms [E; native permutation timing unmeasured] | 2–5 ms |
+| `P` work: statement 14, receipt message ≈ 7, `operation_id` 3, `proof_digest` 136, `credit_id` 13, Payment digest and its object digests ≈ 14 | ≈ 187 permutations | ≈ 1–2 ms [E; native permutation timing unmeasured] | 2–5 ms |
 | Consumed-credit IMT non-membership and insert in Advance | 265 permutations + store I/O | ≈ 1.5–3 ms + I/O [E] | 3–8 ms |
 | σ_recv | precomputed; re-proved only if the head changed | 0 (0.27 s 4t [M]) | 0 (0.3–0.7 s) |
 | τ_recv hardware signing, self-verify (0.25 ms), two durable commits | — | unmeasured | unmeasured |
@@ -549,36 +547,35 @@ for the value and the leaf.
 | Check | Placement |
 |---|---|
 | C1 predecessor | A: Ω(pred) hard with witness key K; Bootstrap uses the base variant |
-| C2 own σ | Q_σ: hard σ verifier, key one-hot (Receive: by its Request's recorded blacklist version, B6). A recomputes the 26-element statement digest (14 permutations) and checks d_σ and `vk_index` |
+| C2 own σ | Lean lineage (owner decision 2026-10-17): every operation except RefreshPolicy proves its own step in A instead of verifying its own σ. Load, Send, Unload, Retiring and Receive lay out their σ relation on A's lane and bind each statement field to A's statement; Bootstrap and ArchiveSent already run σ_bootstrap's and σ_archive's constraints in A. Each own σ is still produced natively. RefreshPolicy keeps Q_σ: hard σ verifier, key one-hot; A recomputes the 26-element statement digest (14 permutations) and checks d_σ and `vk_index` |
 | C3 own τ | Q: V slot under `payment_key` with 1 SHA block. A computes the signing message `m = P_bytes(kgwrcpt1, receipt body)`, `operation_id` (3), `proof_digest` = `P_bytes` over the linked bytes (55 σ-only or 136 Ω‖σ) and the receipt object digest `P(kgworcp1, [m, r_lo, r_hi, s_lo, s_hi])` (3) where a package digest needs it |
-| C4 R10, spec-literal | Q: the current credential (V, issuer key from its certificate) and its certificate (F, scheme root), every step. A opens the credential body (25 + 8 permutations) and checks scope, relation, tag and provider contract |
-| C5 continuity | A equalities. Λ_send checks the Request's payer account digest against the payer's own credential. Λ_recv verifies the Request's receiver credential, which binds `wallet_id`, `payment_key` and the receiver account digest; deduplicated with C4 when the digests are equal, otherwise verified (Receive (renewed): +V +F) |
+| C4 R10, inductive | Q: the current credential (V, issuer key from its certificate) and its certificate (F, scheme root), only at Bootstrap and at RefreshPolicy (renewal and the other policy updates); A opens the credential body (25 + 8 permutations) and checks scope, relation, tag and provider contract. Every other step carries them by continuity: the statement's credential digest equals the state's, and the payment key equals the predecessor lineage's (owner decision 2026-10-17) |
+| C5 continuity | A equalities. Λ_send checks the Request's payer account digest against the payer's own credential. Λ_recv verifies the Request's receiver credential, which binds `wallet_id`, `payment_key` and the receiver account digest; it equals the state's current credential digest for ordinary Receive, otherwise it is verified softly (Receive (renewed): +V +F) |
 | C6–C8 | A: core and rest openings, IMT operations, u128 arithmetic, lineage-adjusted values |
 | C9 `relation_id` | carried in D_A |
 | Incoming Payment | Ω_in soft in A; σ_send, τ_send and Request soft in Q; consumer checks and `credit_id` non-membership soft in A. No fee-schedule signature: proposal §3.2 gives fee terms to Λ_send against the payer's own policy, and the Request signature binds the fee and schedule digest |
-| Receive recorded blacklist (B6) | for a nonzero recorded pair, a hard-authenticated lookup of its version in the predecessor rest's blacklist-history IMT (the leaf or its low leaf, ≈ 68 permutations), whose soft bit (present with the recorded root) joins the Request's verdict; σ_recv proves the gap in the recorded root. A recorded `(0, 0)` needs nothing |
-| Credited evidence | (i) σ_recv (key by the Request's recorded blacklist version) and τ_recv soft in Q, with `proof_digest(σ_recv)` linked. (ii) Ω(h) soft in A, τ(h) soft in Q, IMT membership of `credit_id → (Payment digest, burned)` in Ω(h)'s credit-digest root (≈ 70 permutations) |
+| Credited evidence | (i) σ_recv and τ_recv soft in Q, with `proof_digest(σ_recv)` linked. (ii) Ω(h) soft in A, τ(h) soft in Q, IMT membership of `credit_id → (Payment digest, burned)` in Ω(h)'s credit-digest root (≈ 70 permutations) |
 | ArchiveSent removal | two wire §3.2 removals (core root and Λ root; the Λ one skipped on the no-op branch); each relinks the predecessor and clears the slot: 4 depth-32 traversals (256 permutations), 3 leaf hashes (6) and the 7-element pending value bound to the retained Payment's descriptor (4), ≈ 266 permutations, so ≈ 2 × 266 for both, which §5.4 counts. Core and lineage removals are separate unless their roots and descriptors coincide |
-| RefreshPolicy (Blacklist), B6 | insertion of `(list_version, entries_root)` into the rest's blacklist-history IMT (≈ 264 permutations) |
 | RefreshPolicy (QuotaShare), OQ-4 with B5 | rebuild of the 64-slot usage array: the 64 predecessor usage leaves against the core's `quota_usage_root` (318 permutations), the 64 new window leaves against the share's signed `windows_root` (318) and the 64 successor usage leaves (318), ≈ 954 permutations, plus a constrained sorted merge of the two key-sorted arrays (the current deterministic 128-entry bitonic merge uses 448 compare/swap nodes): matching keys keep `end` and carry `used`, an absent key starts at 0 only with `start ≥` the new floor (unless no share was held), a charged key is dropped only with `end ≤` the new floor, and every window is longer than `time_anchor_max_response_ms` (B8) |
 
 Current component evidence: the complete fixed64 quota rebuild plus both state openings and refresh effects fits k16 at 51,652 maximum assigned rows on the stand-alone sponge lane (36,008 range rows, 17,670 glue rows). The same constraints pass on A’s shared verifier duplex. Its actual Bootstrap-rooted recursive composition exceeded k16 at 91,131 rows, and the run stopped before generating an oversized proof. The replacement source assigns three exact array-root owners and one deterministic matching owner, all mandatory. Their shared internal context contains `[H_old, H_windows, H_used, issued, count]`; the three hashes use `kgwciw_1` with distinct tags7/8/9 and fixed counts256/256/64. The context object uses tag6 and count5 (160 bytes of canonical field words). Each root owner opens every array it consumes; the matching owner opens all three arrays and binds issue/count to the signed share. This preserves all578 witness words and all fixed64 semantics without duplicating every array hash in every stage. The first eight-stage recursive attempt produced four valid 7,744-byte A proofs, then failed the PreviousRoot stage at 68,931 rows. Its result is retained; no oversized proof was generated. Root-only stages now retain proposed object digest/length/tape triples under the exact complete quota task/schema plan. Mandatory Effects and authorization owners recompute every signed original, and Merge binds signed issue/count; root proposals cannot supply signed fields. The eight-stage proposal preflight reduced PreviousRoot to 65,490 rows but found WindowRoot/UsageRoot at 67,303/70,411. It generated no Refresh proof. The current seven-stage schedule places Effects+PreviousRoot with the hard predecessor at A0, WindowRoot at A1, UsageRoot at A2, Q-sigma at A3, update authorization at A4, current authorization at A5, and Merge at A6. The seven-stage unknown-witness preflight and genuine recursive closure pass at maxima53,206/60,014/63,122/62,715/61,679/62,974/61,420 under the unchanged65,529 ceiling. The representative-W preflight is only a sizing diagnostic; the actual chain derives every successive key and independently confirms those bounds. All seven A proofs are7,744 B and all six W continuations verify with every original/Q/opening obligation retained. The captured native producer/canonical checkpoint test passes1/1 in3,884.48 s with exact A/W proof-byte replay and every checkpoint restored. This uses the earlier typed-key mount; current strict original-PK intake is qualified separately. The component result establishes neither a performance gate nor terminal admission.
 
 Signed messages are `P_bytes` over the body transcript (wire §1): A links the transcript
-bytes (2–3 cells per byte, 108–476 B per body) and hashes them; Q receives m as a Bounded
+bytes (2–3 cells per byte, 108–468 B per body) and hashes them; Q receives m as a Bounded
 instance and feeds its 32-byte canonical encoding to SHA-256.
 
 ### 5.2 Signature, SHA and proof counts (spec-literal R10)
 
 | Operation | P-256 V / F | SHA blocks | σ verified | Ω verified in A | Bytes linked in A |
 |---|---|---:|---:|---:|---|
-| Bootstrap | 2 / 1 (τ, credential; certificate) | 3 | 1 | 0 | σ (3.3 KB) |
-| Load | 2 / 1 (own receipt, credential; Enrollment certificate) | 3 | 1 | 1 | σ; exact receipt and native-authorized Advance signature |
-| Send, Unload, Retiring | 2 / 1 | 3 | 1 | 1 | Ω(pred) ‖ σ (8.4 KB) |
-| Receive | 4 / 1 (τ_recv, credential, τ_send, Request; certificate) | 5 | 2 | 2 | σ_recv; Ω_in ‖ σ_send |
-| Receive (renewed receiver credential) | 5 / 2 | 7 | 2 | 2 | as Receive |
-| ArchiveSent (i) | 3 / 1 (+ τ_recv) | 4 | 2 | 1 | σ, σ_recv; opaque Payment `proof_digest` (283 chunks) |
-| ArchiveSent (ii) | 3 / 1 (+ τ(h)) | 4 | 1 | 2 | σ; opaque Payment `proof_digest` |
+| Bootstrap (lean, owner decision 2026-10-17) | 2 / 1 (τ, credential; certificate) | 3 | 0 (σ_bootstrap's constraints run in A) | 0 | none; the receipt's proof digest is its own field |
+| Load (lean, owner decision 2026-10-17) | 1 / 0 (own receipt) | 1 | 0 (transition proved in A) | 1 | exact receipt and native-authorized Advance signature |
+| Send (lean, owner decision 2026-10-17) | 1 / 0 (own receipt) | 1 | 0 (relation proved in A) | 1 | exact own receipt; its proof digest names the Ω(pred) ‖ σ Payment carriers the receiver verifies |
+| Unload, Retiring (lean, owner decision 2026-10-17) | 1 / 0 (own receipt) | 1 | 0 (transition proved in A) | 1 | exact own receipt; its proof digest names the Ω(pred) ‖ σ carriers the ledger verifies |
+| Receive (lean) | 3 / 0 (τ_recv hard; τ_send, Request soft), one merged leaf | 3 | 1 (σ_send soft; the own step proved in A) | 2 | Ω_in ‖ σ_send |
+| Receive (renewed receiver credential, lean) | 4 / 1 (+ quoted credential; certificate, both soft) | 5 | 1 | 2 | as Receive |
+| ArchiveSent (i) (lean) | 2 / 0 (own τ hard, τ_recv soft), one merged leaf | 2 | 1 (σ_recv soft) | 1 | σ_recv; opaque Payment `proof_digest` (283 chunks) |
+| ArchiveSent (ii) (lean) | 2 / 0 (own τ hard, τ(h) soft), one merged leaf | 2 | 0 | 2 | opaque Payment `proof_digest` |
 | RefreshPolicy (every kind) | 3 / 2 | 5 | 1 | 1 | σ |
 
 **σ byte crossing.** σ is verified in Q (Fq) but its `P_bytes` digest is computed in A (Fp).
@@ -628,23 +625,41 @@ historical estimates cannot establish the current G3.6 result.
 
 | Operation | Q leaves (cells) | A cells (cap 1.67M) | Ω cells | Folds | Proofs (Q + A + Ω) | Mac 1t | Phone 4 cores, optimistic / pessimistic |
 |---|---|---:|---:|---:|---:|---:|---:|
-| Bootstrap (original combined-leaf estimate; current implementation uses at least 2 Q leaves) | 1 (1.00–1.09M) [E] | 0.31–0.40M | 0.34–0.43M | 1 | 3 | 67–94 s | 23–87 / 39–166 s |
-| Load (current native-BLS schedule) | 3; current cells pending measurement | 4 A stages; current cells pending measurement | Current cells pending measurement | 3 W stages | 8 (+ 3 W) | Unqualified | Unqualified |
+| Bootstrap (lean single stage) | 1 (the 2V1F leaf); cells pending measurement | 1 unsplit terminal A; cells pending measurement | Cells pending measurement | 0 W | 3 | Unqualified | Unqualified |
+| Load (lean native-BLS schedule) | 1 (own receipt); cells pending measurement | 2 A stages; cells pending measurement | Cells pending measurement | 1 W stage | 4 (+ 1 W) | Unqualified | Unqualified |
 | **Send** | 1 (1.00–1.09M) | 0.67–0.81M | 0.36–0.45M | 2 | 3 | **70–97 s** | **24–89 / 41–172 s** |
-| **Receive** | 2 (1.02–1.07 + 0.83–1.05M) | **1.18–1.45M** (B6 history lookup included) | 0.37–0.46M | 3 | 4 | **96–132 s** | **33–122 / 55–234 s** |
-| Receive (renewed) | 3 | 1.43–1.76M; A-split at the high end | 0.37–0.46M | 3 (+2) | 5 (+2) | 118–163 s (+48–65 s split) | 40–150 / 68–289 s (+ split) |
-| ArchiveSent (i) | 2 | 0.98–1.20M | 0.36–0.45M | 3 | 4 | 95–132 s | 33–121 / 55–233 s |
-| ArchiveSent (ii) | 2 | 1.11–1.37M | 0.37–0.46M | 2 | 4 | 93–129 s | 32–119 / 54–228 s |
+| **Receive** (lean) | 2 (incoming-only Q_σ; merged 3V leaf); cells pending measurement | 9 A stages; cells pending measurement | Cells pending measurement | 8 W stages | 12 (+ 8 W) | Unqualified | Unqualified |
+| Receive (renewed, lean) | 2 (incoming-only Q_σ; merged 4V1F leaf) | 9 A stages | Cells pending measurement | 8 W stages | 12 (+ 8 W) | Unqualified | Unqualified |
+| ArchiveSent (i) (lean) | 2 (incoming-only Q_σ; merged 2V leaf) | 9 A stages | Cells pending measurement | 8 W stages | 12 (+ 8 W) | Unqualified | Unqualified |
+| ArchiveSent (ii) (lean) | 1 (merged 2V leaf) | 8 A stages | Cells pending measurement | 7 W stages | 10 (+ 7 W) | Unqualified | Unqualified |
 | Unload | 1 | 0.62–0.77M | 0.36–0.45M | 2 | 3 | 70–97 s | 24–89 / 41–172 s |
 | Retiring | 1 | 0.58–0.73M | 0.36–0.45M | 2 | 3 | 70–97 s | 24–89 / 41–172 s |
 | RefreshPolicy (Credential, worst other kind) | 2 | 0.81–1.02M | 0.36–0.45M | 2 | 4 | 92–128 s | 32–118 / 53–227 s |
-| RefreshPolicy (Blacklist, B6 history insertion) | 2 | 0.85–1.06M | 0.36–0.45M | 2 | 4 | 92–128 s | 32–118 / 53–227 s |
 | RefreshPolicy (QuotaShare, OQ-4 with the B5 array rebuild) | 2 | 0.97–1.18M; no A-split | 0.36–0.45M | 2 | 4 | 92–128 s | 32–118 / 53–227 s |
 
 Load verifies ordinary BLS finality natively before Advance signing; it has no
-recursive BLS-finality stage. Its compiled schedule is three Q, four A, three W
-and one Ω proof (`a_relation/schedule/compiled.rs`). The table's other historical
-estimates and the model below do not measure this schedule. Current Load timing,
+recursive BLS-finality stage. Its compiled schedule is lean: one Q (the own
+receipt), two A, one W and one Ω proof (`a_relation/schedule/compiled.rs`). A1
+proves the Load transition directly, so there is no own `Q_sigma`; the
+credential and certificate are carried by continuity (inductive R10, owner
+decision 2026-10-17). Unload and Retiring use the same lean shape: one Q (the own
+receipt), A1 (hard predecessor and the `administrative::monetary` transition, with the
+D32 recovery insertion for Unload), one W and A2 (the own receipt under the carried
+payment key), then Ω. Send is lean with three A stages: one Q (the own receipt), A1
+(hard predecessor, the Send objects and σ_send's relation for the installed mask, laid
+out on A's lane and bound field by field to A's statement), W1, A2 (both depth-32 map
+insertions), W2 and A3 (the own receipt), then Ω.
+
+Lean lineage milestone 2 (owner decision 2026-10-17) completes the set: Bootstrap is one
+unsplit terminal A over its 2V1F leaf (3 sub-proofs, down from 6). Receive and Receive
+(renewed) prove the Receive transition in A1 beside the hard predecessor (`ReceiveTransition`,
+σ_recv's relation bound field by field to A's statement) and keep an incoming-only Q_σ for
+σ_send; their own receipt joins the incoming signature leaf as its hard slot 0, so the
+schedule is 2 Q, 9 A, 8 W and Ω (20 sub-proofs, down from 23). ArchiveSent (i) is 2 Q, 9 A,
+8 W and Ω (20, down from 23) and ArchiveSent (ii) 1 Q, 8 A, 7 W and Ω (17, down from 23):
+A already runs σ_archive's constraints, and the own receipt joins the incoming receipt's
+leaf. No incoming check is removed. The table's other historical estimates and the model
+below do not measure these schedules. Current Load timing,
 memory and full-catalog artifact qualification remain separate gates; retaining
 Pasta payment proofs does not restore independent in-proof funding verification.
 
@@ -668,9 +683,9 @@ Historical time model [E]:
 
 | Lever | Effect [E] |
 |---|---|
-| Inductive R10 (verify the credential only at Bootstrap and refresh) | Load, RefreshPolicy and ArchiveSent drop to 1 Q leaf (−22–31 s) |
+| Inductive R10 (verify the credential only at Bootstrap and refresh) | Applied to every non-Refresh step (2026-10-17); Receive (renewed) still verifies the quoted credential and certificate softly |
 | `proof_digest` over binding digests | −55–135k cells in A per step |
-| Inline own σ instead of verifying it | −150–190k cells in Q |
+| Inline own σ instead of verifying it | −150–190k cells in Q; applied to Load (2026-10-17): −1 Q, −1 A, −1 W; Unload and Retiring: −1 Q, −2 A, −2 W; Send: −1 Q, −2 A, −2 W; Bootstrap: −1 Q, −1 A, −1 W; Receive and ArchiveSent (i): −1 Q, −1 A, −1 W (with the own receipt merged into the incoming leaf); ArchiveSent (ii): −2 Q, −2 A, −2 W |
 | Precommitted own-key table | own τ 0.04–0.08M instead of 0.3M |
 | 128-bit fold challenges | Ω −512 B |
 | Audited fixed-base batch-affine decide (PIPA S10 amendment) | cold receiver ≈ −45% |
@@ -818,9 +833,7 @@ generator codec, must decide as described in §2.7. For completed proofs, (accep
 ∧ (burn ⇔ native reject), so the branch is unique. A burn moves value only out of the
 receiver's spendable balance; it cannot create value. The OQ-3 root rule keeps the
 consumed-credit IMT invariant (C10) on the burn branch, so no later non-membership becomes
-false. The B6 history lookup keeps the branch unique: its opening is hard, and its soft bit
-is a function of the authenticated leaf or low leaf, so the prover cannot select burn with a
-bad path. The [containment argument](kagemusha_recursion_soundness_v1.md#branch-uniqueness-and-containment)
+false. The [containment argument](kagemusha_recursion_soundness_v1.md#branch-uniqueness-and-containment)
 reduces the selection rule to C2, C7 and C10; complete operation binding and
 independent review remain G4.1 work.
 
@@ -972,7 +985,7 @@ oracle; the `iroha_core_zk` gadgets below are references, never dependencies.
 | P-256 ECDSA chip `::p256` | Fq (Q) | V ≤ 0.30M, F ≤ 0.12M; soft and hard | `kagemusha_p256_curve_gadget.rs` (joint 2-bit Shamir, low-S, x(R) mod n); RCB complete formulas | per-proof `lookup_any` window table; e = SHA-256 output as a big-endian integer mod n |
 | SHA-256 compression `::sha256` | Fq | ≤ 2,800 rows, ≤ 50k cells per block | `pasta_sha256_table8.rs` (degree 9 → 6) | exactly one block: the 32-byte canonical (little-endian, wire §3.2) encoding of m, loaded as eight big-endian words, then the fixed padding; codec m → bytes with the `< p` canonicity check (≈ 0.1k) |
 | Pow5 Fq lane | Fq | 148 per permutation | existing generic `poseidon::pow5` | parity vectors against `RP57_FQ` |
-| IMT chip `::imt` (depth 32) | Fp | insert 39.7k; removal ≈ 39.7k; non-membership 10.0k; membership 9.9k; membership-or-insert ≈ insert | wire §3.2; `iroha_data_model` native trees | shares its path layer with the blacklist gap, quota-window and quota-usage array path chips; written slot must be empty; next free index is native (slot `2^32 − 1` valid) |
+| IMT chip `::imt` (depth 32) | Fp | insert 39.7k; removal ≈ 39.7k; non-membership 10.0k; membership 9.9k; membership-or-insert ≈ insert | wire §3.2; `iroha_data_model` native trees | shares its path layer with the quota-window and quota-usage array path chips; written slot must be empty; next free index is native (slot `2^32 − 1` valid) |
 | Byte linking `::bytes` | Fp, Fq | 2–3 cells per byte; opaque chunk ≈ 20 | `statement.rs` codecs | `P_bytes` chunks; signed-message transcripts; compressed point ↔ (x, y parity); descriptor-fixed 107/112-chunk σ export |
 | u128, glue, statement | Fp | existing | `iroha_plonk_gadgets` | — |
 | PIPA-R transcript `iroha_plonk_recursion::transcript` | Fp, Fq | 148 per permutation; ≈ 30 per S6 limb pair; challenge map ≈ 10 | native `kagemusha_poseidon.rs` | 6.2b |
@@ -1152,7 +1165,7 @@ hard slot; MV14 skip the VK-digest equality in A; MV15 allow a Corrected slot wi
 |---|---|
 | G4.1 | Fiat–Shamir, CRT and PCD/containment memos written; PIPA-R and PIPA-AS text merged into `plonk_ipa_v1.md` with KATs |
 | G4.2 | In-circuit verify cells ≤ σ 191k; Q 297k + 0.45k per instance; A 337k; Ω 212k; PIPA-AS (r = 4) 91k |
-| G4.3 | Current complete-catalog Ω proof body ≤ 3,936 B, transported Ω ≤ 5,044 B; all main/range rows fit and actual assignments replay. Matching genuine artifact, source catalog and root continuity qualification remain open |
+| G4.3 | Current complete-catalog Ω proof body ≤ 3,968 B, transported Ω ≤ 5,086 B; all main/range rows fit and actual assignments replay. Matching genuine artifact, source catalog and root continuity qualification remain open |
 | G4.4 | PIPA-AS prover ≤ 3.5 s Mac 1t, ≤ 1.2 s 4t |
 | G4.5 | `msm_complete` at 2^16 measured on 4 threads; two decides ≤ 0.35 s Mac 4t |
 | G4.6 | Measured peak RSS ≤ 0.85 GiB for the A shape under the owned-witness API |
@@ -1181,8 +1194,6 @@ Named tests:
 - `lambda_recv_duplicate_credit_id_root_rule`
 - `lambda_recv_duplicate_credit_id_keeps_first_credit_digest_leaf` (same and other Payment digest)
 - `lambda_archive_duplicate_credit_id_other_payment_digest_takes_noop`
-- `lambda_recv_recorded_blacklist_lookup_matches_native` (present, absent, other root; a bad path is unsatisfiable, never a burn)
-- `sigma_recv_key_selected_by_request_recorded_version`
 - `lambda_recv_renewed_receiver_credential_verified`
 - `lambda_recv_receiver_credential_with_other_payment_key_rejected`
 - `lambda_archive_noop_branch_keeps_descriptor_then_rearchive`
@@ -1190,7 +1201,6 @@ Named tests:
 - `lambda_refresh_quota_share_rebuilds_usage_array`
 - `lambda_refresh_quota_share_rejects_changed_end_dropped_live_charge_or_started_new_key`
 - `lambda_refresh_quota_share_rejects_window_not_longer_than_response_bound`
-- `lambda_refresh_blacklist_inserts_history`
 - `a_split_context_wrap_never_accepted_as_omega`
 - `run_with_two_send_class_steps_rejected`
 - `sigma_vk_index_must_match_tag_and_mask`
@@ -1217,7 +1227,7 @@ Named tests:
 |---|---|---|---|
 | R1 | P-256 cost: estimated 0.2–0.4M cells, measured today at 1.47M | above 0.30M Receive needs the A-split (+48–65 s Mac); above 0.40M every operation gains a Q leaf | G3.1 first; window tables; precommitted own key |
 | R2 | Current complete-catalog Ω geometry and genuine artifact qualification remain open | A row or proof-length overflow makes the candidate inadmissible | G4.3; measure all stages and the current outer Ω before freezing the catalog/root |
-| R3 | Norm products, masking and enabled controls change σ geometry | Any σ above 3,520 B fails admission even if its paired Ω is smaller | Prove every admitted mask and enforce both role caps and the independent 8,564 B joint bound at artifact freeze |
+| R3 | Norm products, masking and enabled controls change σ geometry | Any σ above 3,520 B fails admission even if its paired Ω is smaller | Prove every admitted mask and enforce both role caps and the independent 8,606 B joint bound at artifact freeze |
 | R4 | No native measurement wider than k14; quotient cost of the wide gate sets | fold times 1.5–2× the model | G3.6, G3.7, G4.7 |
 | R5 | RAM: A at 0.84 GiB under the owned-witness API, close to 0.85 | over the cap | streaming (0.64 GiB); A-split; global scratch cap |
 | R6 | Phone performance: per-core ratio 1.1–2.3, 4-core wide-circuit speedup unmeasured, thermals | Receive up to ≈ 4 min on a slow phone | G5.6; fold while charging or in the foreground; preemption |
@@ -1250,22 +1260,21 @@ last were applied to the proposal and the wire record with the third set of owne
   certificate-set and package digests, `operation_id`, the unload nullifier and the
   receipt's statement digest left the SHA-256 role table (34 → 18 roles) and are `P` values
   with the encodings of §1.1. The statement digest is the σ statement digest, now 26 elements
-  (14 permutations), and `credit_id` has 26 elements (14) with the B6 fields. The wire §7 note
+  (14 permutations), and `credit_id` has 24 elements (13). The wire §7 note
   that these "stay `H` although Λ recomputes them" is resolved.
 - **Applied. Wire §3.3 RefreshPolicy (OQ-4, B4 with B5):** the end check is bounded to the 64
   quota-window slots and is part of the usage-array rebuild (§5.1).
-- **Applied with B5–B8.** Wire §§3.2–3.4 and proposal §§3, 3.2, 5.1, 5.2 and 7: the fixed
-  quota-usage array and its in-place charges, the Request-recorded receiver blacklist with
-  its history and Request-derived Receive selector, the core quota share expiry and maximum
+- **Applied with B5, B7 and B8.** Wire §§3.2–3.4 and proposal §§3, 3.2 and 7: the fixed
+  quota-usage array and its in-place charges, the core quota share expiry and maximum
   anchor response time, and the Send time span.
 - **Pending (G4.3). Wire §3.2:** `lineage.proof = π_Ω ‖ acc_P (544) ‖ acc_V (544)`;
-  derive the exact `π_Ω` length from the regenerated descriptor and enforce the 5,044-byte
+  derive the exact `π_Ω` length from the regenerated descriptor and enforce the 5,086-byte
   Ω role cap. No historical component length is fixed into the wire contract.
 
 Remaining design gates:
 
-- A current σ exceeding 3,520 B, Ω exceeding 5,044 B, combined proofs exceeding
-  8,564 B, or a complete Payment exceeding 10,000 B fails admission. Fix the
+- A current σ exceeding 3,520 B, Ω exceeding 5,086 B, combined proofs exceeding
+  8,606 B, or a complete Payment exceeding 10,000 B fails admission. Fix the
   descriptor or relation design and regenerate the coherent artifact set.
 - A stage that exceeds its domain or memory bound must be split or optimized
   while preserving its constraints, containment behavior and causal privacy

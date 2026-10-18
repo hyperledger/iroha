@@ -14,7 +14,10 @@ use crate::a_relation::native::support::{
 };
 use crate::{
     a_relation::{
-        native::artifact::KeyArtifact,
+        native::{
+            artifact::KeyArtifact,
+            identity::{BoundV1, ProverInstanceV1},
+        },
         split::{SplitPlan, WCircuit, WKey},
     },
     omega::OmegaWitness,
@@ -25,15 +28,18 @@ use iroha_plonk::{ProverConfig, ProverRandomness};
 use iroha_plonk_recursion::{FoldConfig, create_fold, verifier::VerifierPlan};
 use std::sync::Arc;
 
-/// Installed A1–A10 and W0–W8 artifacts for the complete Archive owner schedule.
+/// Installed A and W artifacts for the complete Archive owner schedule: nine A
+/// and eight W for `ArchiveReceive`, eight A and seven W for `ArchiveStatus`.
 /// Only verifier metadata is retained. Each proving call reconstructs one exact
 /// admitted source and drops its temporary PK before verification and decisions.
 /// Package authentication and original PK import belong to artifact installation.
 pub struct Prover {
     plan: Plan,
-    a: [KeyArtifact<Eq>; A_STAGE_COUNT],
-    w: [KeyArtifact<Ep>; A_STAGE_COUNT - 1],
-    wrappers: [WKey; A_STAGE_COUNT - 1],
+    a: Vec<KeyArtifact<Eq>>,
+    w: Vec<KeyArtifact<Ep>>,
+    wrappers: Vec<WKey>,
+    // Process-local instance identity; only this instance resumes its sessions.
+    identity: ProverInstanceV1,
 }
 impl Prover {
     /// Propose Evidence and Signatures from the exact same fixed native predicates.
@@ -45,14 +51,23 @@ impl Prover {
     }
 
     /// Install exact fixed-profile verifier metadata without retaining any PK.
-    /// Installation performs no runtime key generation or profile selection.
+    /// Installation performs no runtime key generation or profile selection; the
+    /// installed plan's compiled schedule fixes the A count and one W per join.
     /// # Errors
-    /// Wrong public schema, internal/terminal profile or authenticated W stage identity.
+    /// Wrong stage count, public schema, internal/terminal profile or
+    /// authenticated W stage identity.
     pub fn from_artifacts(
         plan: Plan,
-        a: [KeyArtifact<Eq>; A_STAGE_COUNT],
-        w: [KeyArtifact<Ep>; A_STAGE_COUNT - 1],
+        a: Vec<KeyArtifact<Eq>>,
+        w: Vec<KeyArtifact<Ep>>,
     ) -> Result<Self, Error> {
+        let count = plan.context().stage_count();
+        if !matches!(count, RECEIVE_A_STAGE_COUNT | STATUS_A_STAGE_COUNT)
+            || a.len() != count
+            || w.len() + 1 != count
+        {
+            return Err(Error::Artifact);
+        }
         let internal =
             super::super::artifact::source_descriptor::<StageCircuit>(INTERNAL_RANGE_BUSES)
                 .ok_or(Error::Artifact)?;
@@ -60,7 +75,7 @@ impl Prover {
             super::super::artifact::source_descriptor::<StageCircuit>(TERMINAL_RANGE_BUSES)
                 .ok_or(Error::Artifact)?;
         for (stage, key) in a.iter().enumerate() {
-            let expected = if stage + 1 == A_STAGE_COUNT {
+            let expected = if stage + 1 == count {
                 &terminal
             } else {
                 &internal
@@ -71,25 +86,26 @@ impl Prover {
             VerifierPlan::new(key.binding().clone(), plan.vesta.clone())
                 .map_err(|_| Error::Artifact)?;
         }
-        let wrappers = (0..A_STAGE_COUNT - 1)
-            .map(|i| {
+        let wrappers = w
+            .iter()
+            .enumerate()
+            .map(|(i, artifact)| {
                 WKey::from_artifact(
                     plan.context(),
                     i,
-                    w[i].binding().clone(),
+                    artifact.binding().clone(),
                     plan.pallas.clone(),
-                    w[i].key().clone(),
+                    artifact.key().clone(),
                 )
                 .map_err(|_| Error::Artifact)
             })
-            .collect::<Result<Vec<_>, _>>()?
-            .try_into()
-            .map_err(|_| Error::Artifact)?;
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
             plan,
             a,
             w,
             wrappers,
+            identity: ProverInstanceV1::fresh(),
         })
     }
     /// Check original hard proofs and preserve every untrusted soft source proposal.
@@ -113,13 +129,29 @@ impl Prover {
             prepared: Arc::new(self.plan.prepare_cancellable(input, budget, cancellation)?),
         })
     }
+    /// Resume a session retained from this exact prover instance.
+    ///
+    /// Nothing is re-read or re-verified: `prepare` on this instance verified the
+    /// retained hard originals. Checkpoints that session produced or restored stay
+    /// bound to the same shared preparation; every later durable entry must still
+    /// be restored strictly from its bytes.
+    /// # Errors
+    /// `Error::Input` when the state was retained from another prover instance,
+    /// including an identically installed one; the state is dropped.
+    pub fn resume(&self, retained: RetainedSession) -> Result<Session<'_>, Error> {
+        let prepared = self.identity.admit(retained.0).map_err(|_| Error::Input)?;
+        Ok(Session {
+            prover: self,
+            prepared,
+        })
+    }
     /// Exact installed descriptor sequence in durable A/W checkpoint order.
     pub fn descriptors(&self) -> Vec<&DescriptorBinding> {
-        let mut out = Vec::with_capacity(2 * A_STAGE_COUNT - 1);
-        for i in 0..A_STAGE_COUNT {
-            out.push(self.a[i].binding());
-            if i + 1 < A_STAGE_COUNT {
-                out.push(self.w[i].binding());
+        let mut out = Vec::with_capacity(self.a.len() + self.w.len());
+        for (i, a) in self.a.iter().enumerate() {
+            out.push(a.binding());
+            if let Some(w) = self.w.get(i) {
+                out.push(w.binding());
             }
         }
         out
@@ -131,12 +163,32 @@ pub struct Session<'a> {
     prover: &'a Prover,
     prepared: Arc<Prepared>,
 }
+
+/// An Archive session's verified preparation, detached between fold calls.
+///
+/// Only `Session::into_retained` creates one, and only `Prover::resume` on the
+/// prover instance that prepared it consumes it. It is move-only, process-local
+/// and never serialized or built from bytes. It keeps the same shared
+/// preparation that the session's checkpoints carry, but no proving key,
+/// original-store handle or durable checkpoint.
+pub struct RetainedSession(BoundV1<Arc<Prepared>>);
+
 impl Session<'_> {
     fn require_a(&self, source: &ACheckpoint) -> Result<(), Error> {
-        if source.stage >= A_STAGE_COUNT || !Arc::ptr_eq(&source.circuit.source, &self.prepared) {
+        if source.stage >= self.prover.a.len()
+            || !Arc::ptr_eq(&source.circuit.source, &self.prepared)
+        {
             return Err(Error::Input);
         }
         Ok(())
+    }
+
+    /// Detach this session's verified preparation so a later fold call can resume
+    /// it on the same prover instance instead of preparing again. Checkpoints this
+    /// session produced or restored remain usable by the resumed session.
+    #[must_use]
+    pub fn into_retained(self) -> RetainedSession {
+        RetainedSession(self.prover.identity.bind(self.prepared))
     }
 
     /// Execute the same native check with an explicit operation signal.
@@ -212,7 +264,7 @@ impl Session<'_> {
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<ACheckpoint, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
-        if stage >= A_STAGE_COUNT
+        if stage >= self.prover.a.len()
             || circuit.continuation.as_ref().map_or(0, |c| c.plan.stage()) != stage
         {
             return Err(Error::Input);
@@ -292,7 +344,7 @@ impl Session<'_> {
         )?;
         self.checked_a_cancellable(stage, circuit, output.proof, budget, config.cancellation)
     }
-    /// Prove A1 with hard predecessor and own-sigma ownership.
+    /// Prove A1 with hard predecessor ownership.
     /// The admitted A1 metadata must match the installed identity before folding.
     /// # Errors
     /// Failed fixed-artifact assignment, proof or complete decide.
@@ -391,7 +443,7 @@ impl Session<'_> {
             .require_source_bound(key)
             .map_err(|_| Error::Artifact)?;
         self.verify_a_cancellable(source, fold.kernel_budget, config.cancellation)?;
-        if source.stage + 1 >= A_STAGE_COUNT {
+        if source.stage + 1 >= self.prover.a.len() {
             return Err(Error::Input);
         }
         let a = &self.prover.a[source.stage];
@@ -486,7 +538,7 @@ impl Session<'_> {
     ) -> Result<WCheckpoint, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         self.verify_a_cancellable(source, budget, cancellation)?;
-        if source.stage + 1 >= A_STAGE_COUNT {
+        if source.stage + 1 >= self.prover.a.len() {
             return Err(Error::Input);
         }
         let vesta = AccumulatorT::from_bytes(vesta).map_err(|_| Error::Input)?;
@@ -541,7 +593,7 @@ impl Session<'_> {
     ) -> Result<Stage, Error> {
         self.require_a(&wrapper.source)?;
         let index = wrapper.source.stage + 1;
-        if index >= A_STAGE_COUNT {
+        if index >= self.prover.a.len() {
             return Err(Error::Input);
         }
         let split = SplitPlan::new(
@@ -579,13 +631,12 @@ impl Session<'_> {
             fold.cancellation.as_ref(),
         )?;
         let index = wrapper.source.stage + 1;
+        let terminal = index + 1 == self.prover.a.len();
         let mut claims = vec![
             wrapper.source.circuit.pallas.as_input(),
             wrapper.opening.clone(),
         ];
-        if index + 1 == A_STAGE_COUNT
-            && let Some((selected, _)) = self.prepared.selected_status()
-        {
+        if terminal && let Some((selected, _)) = self.prepared.selected_status() {
             claims.extend(selected.iter().cloned());
         }
         claims.extend(
@@ -597,7 +648,7 @@ impl Session<'_> {
                 .iter()
                 .map(|i| self.prepared.q_openings()[*i].clone()),
         );
-        let purpose = if index + 1 == A_STAGE_COUNT {
+        let purpose = if terminal {
             crate::private_fold::terminal_inputs(&self.prepared.plan().pallas, &mut claims, fold)
                 .map_err(|error| {
                     if error.is_cancelled() {
@@ -735,7 +786,7 @@ impl Session<'_> {
             cancellation,
         )
     }
-    /// Export the actual A10 terminal and every distinct final-Omega obligation.
+    /// Export the actual terminal A and every distinct final-Omega obligation.
     /// This is not a completed monetary head until the final Omega is proved and durable.
     /// # Errors
     /// Incomplete owner chain, foreign source or failed full proof/decide.
@@ -753,7 +804,7 @@ impl Session<'_> {
     ) -> Result<Terminal, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         self.verify_a_cancellable(source, budget, cancellation)?;
-        if source.stage + 1 != A_STAGE_COUNT {
+        if source.stage + 1 != self.prover.a.len() {
             return Err(Error::Input);
         }
         let continuation = source.circuit.continuation.as_ref().ok_or(Error::Input)?;
@@ -848,7 +899,7 @@ impl WCheckpoint {
 /// Complete terminal A proof and final-Omega obligations, with original incoming V.
 #[derive(Clone, Debug)]
 pub struct Terminal {
-    /// Actual A10 proof under its installed terminal key.
+    /// Actual terminal A proof under its installed terminal key.
     pub proof: Vec<u8>,
     /// Exact common69-word public frame.
     pub instances: Vec<Fp>,

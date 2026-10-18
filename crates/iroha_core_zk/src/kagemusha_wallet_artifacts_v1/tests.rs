@@ -140,7 +140,8 @@ fn full_catalog_rejects_missing_extra_reordered_and_undefined_selectors() {
     mask.steps[0].enabled_controls = 1;
     assert_eq!(mask.inventory_bounds(), Err(Error::Inventory));
     let mut receive = pack.clone();
-    receive.steps[11].enabled_controls = 2;
+    // Receive has one selector: its retired mask-1 key is no catalog member.
+    receive.steps[6].enabled_controls = 1;
     assert_eq!(receive.inventory_bounds(), Err(Error::Inventory));
     assert!(
         KagemushaWalletOperationKindV1::ALL
@@ -149,7 +150,7 @@ fn full_catalog_rejects_missing_extra_reordered_and_undefined_selectors() {
     );
     assert_eq!(
         SIGMA_CATALOG_V1.iter().filter(|(tag, _)| *tag == 3).count(),
-        8
+        4
     );
 }
 
@@ -265,14 +266,14 @@ fn native_profile_contains_fixed_typed_policies_and_all_decision_codes() {
         ]
     );
     let profile = native_profile_transcript_v1().unwrap();
-    assert_eq!(&profile[..6], &[1, 0, 16, 0, 0, 0]);
+    assert_eq!(&profile[..6], &[1, 0, 11, 0, 0, 0]);
     let marker = b"kgwomg_1\x01\x02\x03\x04";
     let offset = profile
         .windows(marker.len())
         .position(|bytes| bytes == marker)
         .unwrap();
     let counts = &profile[offset - 32..offset];
-    let expected: Vec<_> = [33_u32, 8, 26, 18, 52, 16, 544, 1120]
+    let expected: Vec<_> = [29_u32, 6, 26, 18, 52, 16, 544, 1120]
         .into_iter()
         .flat_map(u32::to_le_bytes)
         .collect();

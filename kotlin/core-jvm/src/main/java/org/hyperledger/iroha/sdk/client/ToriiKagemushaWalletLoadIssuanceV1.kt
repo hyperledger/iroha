@@ -99,3 +99,22 @@ class ToriiKagemushaWalletLoadOriginalsV1 internal constructor(
     /** Owned copy of the compact finality original. */
     val finalityOriginal: ByteArray get() = finality.copyOf()
 }
+
+/** HTTP failure from one of the two independent Load-original routes. [stage] comes from
+ * the dispatched request, never from the server's error code. The exact original error,
+ * including its cause and suppressed diagnostics, remains available as [error]. Transport,
+ * cancellation and local owner-check failures retain their original throwable identity. */
+class ToriiKagemushaWalletLoadReadExceptionV1 internal constructor(
+    /** The request whose HTTP response failed. */
+    @JvmField val stage: Stage,
+    /** The unchanged error decoded from that HTTP response. */
+    @JvmField val error: ToriiApiException,
+) : RuntimeException("Load ${stage.name.lowercase()} original request failed", error) {
+    /** Independent authenticated Load-original request routes. */
+    enum class Stage {
+        /** The issuance receipt route. */
+        ISSUANCE,
+        /** The compact finality proof route. */
+        FINALITY,
+    }
+}

@@ -111,12 +111,12 @@ The enrollment-policy transcript begins
 - Apple tag 2: root DER SHA256. Production App Attest plus a durable fresh assertion binding
   E1 and the separately selected payment key are always required.
 
-Both arms end with the existing 20-byte inline regulatory-policy transcript:
-`LE32(permitted_controls) || LE64(blacklist_max_age_ms) || LE64(time_anchor_max_response_ms)`,
+Both arms end with the existing 12-byte inline regulatory-policy transcript:
+`LE32(permitted_controls) || LE64(time_anchor_max_response_ms)`,
 then `LE64(challenge_lifetime_ms) || LE64(attestation_lease_lifetime_ms)`.
-An Android transcript is `140 + Σ root_entry_bytes`, where a Google entry is 34 bytes and a
-Vendor entry `38 + adapter_id_bytes`: 174 bytes with one Google root and at most 572 bytes
-with eight Vendor roots. Apple is exactly 167. Order follows the E1 scope first, platform
+An Android transcript is `132 + Σ root_entry_bytes`, where a Google entry is 34 bytes and a
+Vendor entry `38 + adapter_id_bytes`: 166 bytes with one Google root and at most 564 bytes
+with eight Vendor roots. Apple is exactly 159. Order follows the E1 scope first, platform
 verification inputs second, and credential regulator/lifetime rules last. There is no field order
 sorting, optional arm, extension map or compatibility decoder.
 
@@ -332,7 +332,7 @@ verifies again as a first attempt, signs a second credential or consumes the App
 again (design §2.4).
 
 Existing regulatory bits and consistency rules are preserved. Zero permitted controls does
-not disable Kagemusha; it permits no extra blacklist/quota/lease restrictions. Lease lifetime
+not disable Kagemusha; it permits no extra quota/lease restrictions. Lease lifetime
 is zero iff the regulator does not permit attestation lease and otherwise positive. The NEW
 initial producer computes expiry as checked `issued_at_ms + lease_lifetime` with positive
 trusted issuer time. This is an attestation lease. Renewals keep

@@ -14,7 +14,57 @@ use super::{
     bootstrap, bootstrap_objects, catalog::send_chain::load_outer::load_chain, common, load_objects,
 };
 use first_load_fixture::first_load_fixture;
-use std::sync::atomic::Ordering;
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
+
+/// A funded Load head built from a synthetic ordinary receipt bound to the genuine
+/// rooted Bootstrap predecessor's scheme, asset, wallet and next ordinal. Λ_load binds
+/// the receipt terms and never verifies BLS finality, which native code checks before
+/// Advance, so the Load and consuming proof chains are the same as with a captured
+/// receipt. Each reconstruction writes fresh originals under `KAGEMUSHA_LOAD_OUTPUT`.
+fn synthetic_load_fixture(expected_rebuilds: usize) -> (load_chain::LoadFixture, Arc<AtomicUsize>) {
+    let output = PathBuf::from(
+        std::env::var_os("KAGEMUSHA_LOAD_OUTPUT")
+            .expect("fresh exclusive Load Omega original output directory"),
+    );
+    fs::create_dir(&output).expect("fresh output; no overwrite or implicit resume");
+    let rebuilds = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&rebuilds);
+    let fixture: load_chain::LoadFixture = Arc::new(move |rooted| {
+        let index = observed.fetch_add(1, Ordering::Relaxed);
+        assert!(
+            index < expected_rebuilds,
+            "unexpected predecessor reconstruction"
+        );
+        let directory = output.join(format!("predecessor-{index}"));
+        fs::create_dir(&directory).expect("fresh originals for each selected predecessor");
+        let (_, _, receipt) = load_objects::funded(&rooted.source.state);
+        load_fixture::build(rooted, &receipt.bytes, &directory)
+    });
+    (fixture, rebuilds)
+}
+
+#[test]
+#[ignore = "genuine Bootstrap, lean Load and every lean Unload/Retiring stage at k16 from a synthetic receipt and the two-terminal catalog; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
+fn synthetic_two_terminal_wallet_proves_lean_unload_and_retiring() {
+    let (fixture, rebuilds) = synthetic_load_fixture(2);
+    super::two_terminal_loaded_wallet_proves_unload_and_retiring_with_all_owners(&fixture);
+    assert!(rebuilds.load(Ordering::Relaxed) >= 1);
+}
+
+#[test]
+#[ignore = "genuine Bootstrap, lean Load and lean Unload/Retiring chains with native differential and checkpoint replay from a synthetic receipt; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
+fn synthetic_funded_wallet_proves_and_restores_lean_unload_and_retiring() {
+    let (fixture, rebuilds) = synthetic_load_fixture(2);
+    super::installed_native_consuming_proves_and_restores_every_stage(&fixture);
+    assert_eq!(rebuilds.load(Ordering::Relaxed), 2);
+}
 
 #[test]
 #[ignore = "native BLS receipt and genuine funded Unload/Retiring chains; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]

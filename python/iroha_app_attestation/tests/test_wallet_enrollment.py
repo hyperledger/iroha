@@ -54,7 +54,7 @@ def configured_policy(root: bytes, apple: bool, *, roots=None, minimum=7,
         platform = AndroidEnrollmentPlatformV1(roots or (
             AndroidRootV1("google_rsa", spki_sha256(root), "google_attestation_status"),), 202608)
     enrollment = WalletEnrollmentPolicyV1(1, b"\1" * 32, b"\2" * 32, app.policy_digest(),
-        platform, RegulatoryPolicyV1(0, 0, 0), 120_000, 0)
+        platform, RegulatoryPolicyV1(0, 0), 120_000, 0)
     return ConfiguredWalletEnrollmentPolicyV1(app, enrollment, root if apple else None)
 
 

@@ -392,7 +392,6 @@ impl Circuit<Fp> for Stage {
                             .contains(&OperationTask::RefreshUpdateAuthorization)
                             .then_some(&sigma),
                         signatures: signatures.as_ref(),
-                        blacklist: maps.blacklist.as_ref(),
                         quota: maps.quota.as_ref(),
                     },
                 )?;
@@ -644,9 +643,6 @@ fn prepare_refresh(rooted: &bootstrap_outer::RootedBootstrapOmega, variant: Vari
         vec![OperationTask::RefreshCurrentAuthorization],
     ];
     let mut partition = vec![vec![], vec![0], vec![1], vec![2]];
-    if variant == Variant::RefreshBlacklist {
-        tasks[0].push(OperationTask::RefreshBlacklist);
-    }
     if variant == Variant::RefreshQuotaShare {
         // Root hashing must precede long continuation histories. The first
         // stage has room for Effects and the old usage root alongside the hard
@@ -1166,15 +1162,6 @@ fn compact_bootstrap_completes_credential_policy_and_anchor_refresh() {
     }
 }
 #[test]
-#[ignore = "genuine compact Bootstrap and full Blacklist/Quota map owners; diagnostic capacity does not relax k16"]
-fn compact_bootstrap_measures_blacklist_and_quota_refresh_capacity() {
-    let rooted = bootstrap_outer::compact_bootstrap::rooted_compact_bootstrap();
-    for variant in [Variant::RefreshBlacklist, Variant::RefreshQuotaShare] {
-        refresh_from_bootstrap(&rooted, variant, true);
-    }
-}
-
-#[test]
 #[ignore = "genuine compact Bootstrap plus seven fixed Quota Q/A/W stages and all64 slots; optimized only"]
 fn compact_bootstrap_completes_split_quota_refresh() {
     let rooted = bootstrap_outer::compact_bootstrap::rooted_compact_bootstrap();
@@ -1284,7 +1271,6 @@ impl NativeRecord {
             state: source.fixture.witness,
             sigma: source.sigma.clone(),
             objects: source.objects.each_ref().map(|o| o.bytes.clone()),
-            blacklist: source.fixture.blacklist,
             quota: source.fixture.quota.as_ref().map(|q| native::QuotaInput {
                 old: q.old,
                 windows: q.windows,
@@ -1405,6 +1391,7 @@ impl NativeRecord {
         assert!(check_originals(plan.clone(), &bad_a, &w).is_err());
         drop(bad_a);
         drop(changed_pk);
+        let other = install(plan.clone(), &a, &w).unwrap();
         let prover = install(plan, &a, &w).unwrap();
         assert!(prover.import_a(a.len(), a[0].proving_key, read).is_err());
         assert!(prover.import_w(w.len(), w[0].proving_key, read).is_err());
@@ -1438,7 +1425,15 @@ impl NativeRecord {
         let mut changed = input.clone();
         changed.q[0].proof[0] ^= 1;
         assert!(prover.prepare(changed, budget).is_err());
-        let session = prover.prepare(input, budget).unwrap();
+        // D6a (DP §7.4 test 8): a detached session resumes only on the prover
+        // instance that prepared it, never on an identically installed one.
+        let detached = prover
+            .prepare(input.clone(), budget)
+            .unwrap()
+            .into_retained();
+        assert!(matches!(other.resume(detached), Err(native::Error::Input)));
+        drop(other);
+        let mut session = prover.prepare(input, budget).unwrap();
         let fold = FoldConfig::default();
         let foreign_seal = prover.import_a(1, a[1].proving_key, read).unwrap();
         let foreign = prover.bind_a(1, &foreign_seal, None).unwrap();
@@ -1495,6 +1490,9 @@ impl NativeRecord {
             .unwrap();
         assert_eq!(checkpoint.proof(), self.proofs[0].0);
         for stage in 1..self.proofs.len() {
+            // D6a: each continuation runs on a session detached and resumed between
+            // fold calls; checkpoints restored before detaching keep their source.
+            session = prover.resume(session.into_retained()).unwrap();
             let salt = u64::try_from(stage).unwrap();
             if stage == 1 {
                 let foreign_seal = prover.import_w(1, w[1].proving_key, read).unwrap();
@@ -1651,14 +1649,10 @@ fn compact_bootstrap_preflights_split_quota_refresh() {
 }
 
 #[test]
-#[ignore = "genuine Policy, Anchor and Blacklist installed native A/W exact-proof/checkpoint parity; optimized only"]
-fn installed_native_policy_anchor_blacklist_match_genuine_relations_and_checkpoints() {
+#[ignore = "genuine Policy and Anchor installed native A/W exact-proof/checkpoint parity; optimized only"]
+fn installed_native_policy_and_anchor_match_genuine_relations_and_checkpoints() {
     let rooted = bootstrap_outer::compact_bootstrap::rooted_compact_bootstrap();
-    for variant in [
-        Variant::RefreshSchemePolicy,
-        Variant::RefreshTimeAnchor,
-        Variant::RefreshBlacklist,
-    ] {
+    for variant in [Variant::RefreshSchemePolicy, Variant::RefreshTimeAnchor] {
         build_refresh(&rooted, variant, false, true);
     }
 }

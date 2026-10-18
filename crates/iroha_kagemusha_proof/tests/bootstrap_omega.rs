@@ -1,5 +1,6 @@
-//! Actual authenticated Bootstrap sigma/Q/A1/W/A2 wrapped by the complete Omega
-//! predicate. Layout diagnostics do not establish the production transport cap.
+//! Actual authenticated Bootstrap signature Q and unsplit terminal A wrapped by the
+//! complete Omega predicate. Layout diagnostics do not establish the production
+//! transport cap.
 
 /// Shared authenticated Bootstrap proof-chain fixture.
 #[path = "common/proof_fixtures/a_recursive.rs"]

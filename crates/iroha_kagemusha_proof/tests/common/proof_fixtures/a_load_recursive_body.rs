@@ -112,9 +112,9 @@ impl Original {
 pub struct InstalledLoad {
     /// Installed monetary source plan binding the native-authorized receipt and Advance.
     pub plan: Plan,
-    /// All four actual A source artifacts.
+    /// Both actual A source artifacts.
     pub a: [Original; A_STAGE_COUNT],
-    /// All three mandatory W source artifacts.
+    /// The one mandatory W source artifact.
     pub w: [Original; A_STAGE_COUNT - 1],
     /// Exact native-authorized receipt and predecessor/Q originals.
     pub inputs: Inputs,
@@ -128,15 +128,15 @@ pub type LoadFixture = Arc<dyn Fn(&bootstrap_outer::RootedBootstrapOmega) -> Ins
 /// Actual terminal artifacts for the outer and subsequent-operation assertions.
 #[derive(Clone)]
 pub struct AuthenticatedLoad {
-    /// Actual A4 key and descriptor.
+    /// Actual terminal A2 key and descriptor.
     pub key: VerifyingKey<Eq>,
-    /// Actual A4 descriptor.
+    /// Actual terminal A2 descriptor.
     pub binding: DescriptorBinding,
-    /// Original A4 proof.
+    /// Original terminal A2 proof.
     pub proof: Vec<u8>,
     /// Exact terminal frame.
     pub instances: Vec<Fp>,
-    /// Derived original A4 opening.
+    /// Derived original terminal A2 opening.
     pub opening: FoldInput<Eq>,
     /// Fully verified carried Pallas obligation.
     pub pallas: AccumulatorT<Ep>,
@@ -150,7 +150,7 @@ pub struct AuthenticatedLoad {
     pub receipt: [u8; 282],
 }
 
-/// Import the required originals, prove all four A/three W stages and replay every
+/// Import the required originals, prove both A stages and the W stage and replay every
 /// checkpoint from canonical original bytes. The signed Advance binds the native-authorized receipt.
 pub fn authenticated_load(
     rooted: &bootstrap_outer::RootedBootstrapOmega,
@@ -185,7 +185,7 @@ pub fn authenticated_load(
             2 => bad.receipt[130] ^= 1,
             3 => bad.receipt[146] ^= 1,
             4 => bad.receipt[0] ^= 1,
-            _ => bad.q[1].proof.push(0),
+            _ => bad.q[0].proof.push(0),
         }
         assert!(
             source.plan.prepare(bad, MemoryBudget::DEFAULT).is_err(),
@@ -194,6 +194,12 @@ pub fn authenticated_load(
     }
     let state = source.inputs.state.successor;
     let receipt = source.inputs.receipt;
+    let other = Prover::from_artifacts(
+        source.plan.clone(),
+        core::array::from_fn(|i| source.a[i].metadata()),
+        core::array::from_fn(|i| source.w[i].metadata()),
+    )
+    .expect("all original Load sources must match the installed plan");
     let prover = Prover::from_artifacts(
         source.plan,
         core::array::from_fn(|i| source.a[i].metadata()),
@@ -202,7 +208,18 @@ pub fn authenticated_load(
     .expect("all original Load sources must match the installed plan");
     let binding = prover.descriptors()[2 * (A_STAGE_COUNT - 1)].clone();
     let key = VerifyingKey::read(&source.a[A_STAGE_COUNT - 1].verifying_key, &binding).unwrap();
-    let session = prover
+    // D6a (DP §7.4 test 8): a detached session resumes only on the prover instance
+    // that prepared it, never on an identically installed one.
+    let detached = prover
+        .prepare(source.inputs.clone(), MemoryBudget::DEFAULT)
+        .expect("native-authorized receipt, predecessor and Q originals are mandatory")
+        .into_retained();
+    assert!(matches!(
+        other.resume(detached),
+        Err(iroha_kagemusha_proof::a_relation::native::load::Error::Input)
+    ));
+    drop(other);
+    let mut session = prover
         .prepare(source.inputs, MemoryBudget::DEFAULT)
         .expect("native-authorized receipt, predecessor and Q originals are mandatory");
     let fold = FoldConfig::default();
@@ -224,6 +241,11 @@ pub fn authenticated_load(
         .restore_first(a.proof().to_vec(), &a.pallas_bytes(), MemoryBudget::DEFAULT)
         .unwrap();
     for stage in 0..A_STAGE_COUNT - 1 {
+        // D6a: each continuation runs on a session detached and resumed between
+        // fold calls; checkpoints restored before detaching keep their source.
+        session = prover
+            .resume(session.into_retained())
+            .expect("the preparing prover instance resumes its own session");
         let seed = u8::try_from(202 + stage * 2).unwrap();
         let active_seal = prover
             .import_w(

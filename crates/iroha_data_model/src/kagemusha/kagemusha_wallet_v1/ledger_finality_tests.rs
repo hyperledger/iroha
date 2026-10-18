@@ -436,8 +436,9 @@ fn reference_schema_matches_ledger_finality() {
         MerkleProof::<TransactionEntrypoint>::type_name(),
         MerkleProof::<ExecutionOutputV1>::type_name(),
     ];
-    let path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../specs/references/schema.json");
+    let path = crate::kagemusha::kagemusha_wallet_v1::test_fixture_path(
+        "specs/references/schema.json",
+    );
     let mut saved: norito::json::Value =
         norito::json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     if std::env::var_os("IROHA_UPDATE_KAGEMUSHA_WALLET_VECTORS").is_some_and(|value| value == "1") {

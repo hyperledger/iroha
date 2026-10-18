@@ -234,7 +234,7 @@ pub(crate) fn wrap_receive(
 /// No funded source or Load trust is needed to prove the malformed-input burn.
 /// Both Bootstrap and Receive are rebuilt under one final two-terminal key.
 #[test]
-#[ignore = "genuine immutable Bootstrap+Receive catalog, all10A9W and final native Omega; run optimized"]
+#[ignore = "genuine immutable Bootstrap+Receive catalog, all9A8W and final native Omega; run optimized"]
 fn bootstrap_only_invalid_sigma_burn_closes_all_four_outer_obligations() {
     let (seed, initial_program, initial_receiver) =
         compact_catalog::compact_bootstrap_catalog_seed();
@@ -260,7 +260,7 @@ fn bootstrap_only_invalid_sigma_burn_closes_all_four_outer_obligations() {
     );
     assert_eq!(result.source.terminal.incoming_mode, IncomingMode::Trivial);
     eprintln!(
-        "BOOTSTRAP_ONLY_INVALID_SIGMA_RECEIVE_OMEGA full10A9W=true canonical_custody_all19=true original_sigma_soft_false=true no_Load_trust=true adjusted_spendable_zero=true terminal_omega=true immutable_catalog_size=2 full_catalog=false release_qualified=false"
+        "BOOTSTRAP_ONLY_INVALID_SIGMA_RECEIVE_OMEGA full9A8W=true canonical_custody_all17=true original_sigma_soft_false=true no_Load_trust=true adjusted_spendable_zero=true terminal_omega=true immutable_catalog_size=2 full_catalog=false release_qualified=false"
     );
 }
 

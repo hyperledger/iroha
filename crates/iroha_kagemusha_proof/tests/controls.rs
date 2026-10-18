@@ -1,14 +1,8 @@
-//! The regulatory controls in circuit (proposal sections 3.2 and 7, owner
-//! answers A4 and A5; wire record sections 3.3 and 3.4): every enabled
-//! control of `sigma_send` and the receiver's blacklist of `sigma_recv`,
-//! honest and forged, in the strict constraint checker.
+//! The regulatory controls in circuit (proposal sections 3.2 and 7; wire
+//! record sections 3.3 and 3.4): every enabled control of `sigma_send`,
+//! honest and forged, in the strict constraint checker. A wallet's blacklist
+//! is local only and no relation reads it.
 //!
-//! - **Blacklist.** With a held list, the counterparty's account digest must
-//!   have a gap opening in the committed list (the receiver's in
-//!   `sigma_send`, the payer's in `sigma_recv`): a listed account, a gap of
-//!   another account, a forged sibling and a gap against another root are
-//!   rejected; with no list held (version 0) nothing is refused. The Receive
-//!   relation is selected by the Request's recorded blacklist version.
 //! - **Lease.** `U < lease_expires_at_ms`, exactly at the boundary.
 //! - **Quotas.** Every touched window is charged within its limit and every
 //!   defined kind is touched, against the committed window tree; the usage
@@ -23,13 +17,13 @@ mod common;
 use std::time::Instant;
 
 use common::{
-    CHECK_SEED, RECEIVE_BLACKLIST, SEND_BLACKLIST, SEND_EVERY, SEND_LEASE, SEND_QUOTAS,
-    check_claim, check_witness, folded, smallest_shape,
+    CHECK_SEED, SEND_EVERY, SEND_LEASE, SEND_QUOTAS, check_claim, check_witness, folded,
+    smallest_shape,
 };
 use ff::PrimeField;
 use iroha_kagemusha_proof::{
-    CONTROL_BLACKLIST, ConsumerError, Mutation, RelationShape, SigmaRelation, SigmaShape,
-    StepInputs, StepWitness, Violation, check_receive, check_send, lineage_view_of, sample_witness,
+    ConsumerError, Mutation, RelationShape, SigmaRelation, SigmaShape, StepInputs, StepWitness,
+    Violation, check_send, lineage_view_of, sample_witness,
 };
 use iroha_pasta::Fp;
 
@@ -74,110 +68,10 @@ fn send_inputs(
     }
 }
 
-fn receive_inputs(
-    witness: &mut StepWitness<Fp>,
-) -> &mut iroha_kagemusha_proof::witness::ReceiveInputs<Fp> {
-    match &mut witness.inputs {
-        StepInputs::Receive(receive) => receive,
-        StepInputs::Send(_) => panic!("a receive witness"),
-    }
-}
-
 #[test]
 fn honest_control_witnesses_satisfy_their_relations() {
-    for relation in [SEND_BLACKLIST, SEND_LEASE, RECEIVE_BLACKLIST] {
-        let shape = shape(relation);
-        assert!(accepted(&shape, &witness(relation, Mutation::None), &[]));
-    }
-}
-
-/// The blacklist rule of both steps: a listed counterparty, a gap of
-/// another account, a forged sibling and a list root other than the head's
-/// are refused; no held list refuses nothing.
-#[test]
-fn a_listed_counterparty_is_refused_by_both_steps() {
-    for relation in [SEND_BLACKLIST, RECEIVE_BLACKLIST] {
-        let shape = shape(relation);
-        let listed = witness(relation, Mutation::Listed);
-        assert!(!accepted(&shape, &listed, &[Violation::BlacklistListed]));
-        // No list held: the same account is not refused (owner answer A5).
-        let mut unheld = listed.clone();
-        unheld.predecessor.core.controls.blacklist_version = 0;
-        if let StepInputs::Receive(receive) = &mut unheld.inputs {
-            receive.request.receiver_blacklist_version = 0;
-            receive.request.receiver_blacklist_root = [0; 32];
-            assert!(accepted(&shape_of(SigmaRelation::RECEIVE), &unheld, &[]));
-        } else {
-            assert!(accepted(&shape, &unheld, &[]));
-        }
-        // An honest gap opening of another account.
-        let honest = witness(relation, Mutation::None);
-        let mut other = honest.clone();
-        match &mut other.inputs {
-            StepInputs::Send(send) => send.receiver_account_digest = send.blacklist.lower,
-            StepInputs::Receive(receive) => receive.payer_account_digest = receive.blacklist.lower,
-        }
-        assert!(!accepted(&shape, &other, &[Violation::BlacklistListed]));
-        // A forged sibling, and a list root other than the committed one.
-        let mut forged = honest.clone();
-        match &mut forged.inputs {
-            StepInputs::Send(send) => send.blacklist.siblings[3] += Fp::from(1_u64),
-            StepInputs::Receive(receive) => receive.blacklist.siblings[3] += Fp::from(1_u64),
-        }
-        assert!(!accepted(&shape, &forged, &[Violation::BlacklistListed]));
-        let mut rooted = honest;
-        if let StepInputs::Receive(receive) = &mut rooted.inputs {
-            let root: Fp = Option::from(Fp::from_repr(receive.request.receiver_blacklist_root))
-                .expect("field");
-            receive.request.receiver_blacklist_root = (root + Fp::from(1_u64)).to_repr();
-        } else {
-            rooted.predecessor.core.controls.blacklist_root += Fp::from(1_u64);
-        }
-        assert!(!accepted(&shape, &rooted, &[Violation::BlacklistListed]));
-    }
-}
-
-/// The Receive relation is selected by the Request's recorded blacklist version:
-/// a nonzero recorded version requires the blacklist relation, and a zero
-/// recorded version requires the relation without the bit.
-#[test]
-fn the_receive_relation_follows_the_request_recorded_blacklist() {
-    let enabled = witness(RECEIVE_BLACKLIST, Mutation::None);
-    let control_free = shape(SigmaRelation::RECEIVE);
-    assert!(!accepted(
-        &control_free,
-        &enabled,
-        &[Violation::ControlsMismatch]
-    ));
-    let disabled = witness(SigmaRelation::RECEIVE, Mutation::None);
-    assert!(!accepted(
-        &shape(RECEIVE_BLACKLIST),
-        &disabled,
-        &[Violation::ControlsMismatch]
-    ));
-    // The consumer selects by the statement's blacklist bit, and a
-    // statement claiming the bit off for a receiver whose control is on is
-    // unprovable (the mask is the opened core cell).
-    let statement = enabled.statement(RECEIVE_BLACKLIST).expect("statement");
-    let accepted_relation =
-        check_receive(&enabled.relation_id, &enabled.request_body(), &statement).expect("consumer");
-    assert_eq!(accepted_relation.relation, RECEIVE_BLACKLIST);
-    let mut cleared = statement.clone();
-    cleared.enabled_controls &= !CONTROL_BLACKLIST;
-    let selected =
-        check_receive(&enabled.relation_id, &enabled.request_body(), &cleared).expect("consumer");
-    assert_eq!(selected.relation, RECEIVE_BLACKLIST);
-    assert!(!check_claim(&shape(RECEIVE_BLACKLIST), &enabled, &selected.public).is_satisfied());
-    let mut relabelled = statement;
-    relabelled.relation_id[0] ^= 1;
-    assert_eq!(
-        check_receive(&enabled.relation_id, &enabled.request_body(), &relabelled),
-        Err(ConsumerError::Relation)
-    );
-    // Other receiver controls do not change the selector.
-    let mut quotas = enabled.clone();
-    quotas.predecessor.core.controls.enabled |= iroha_kagemusha_proof::CONTROL_QUOTAS;
-    assert!(accepted(&shape(RECEIVE_BLACKLIST), &quotas, &[]));
+    let shape = shape(SEND_LEASE);
+    assert!(accepted(&shape, &witness(SEND_LEASE, Mutation::None), &[]));
 }
 
 /// The consumer's verdict on a forged Send: the forged witness is a valid
@@ -216,52 +110,6 @@ fn forgery_is_refused(
             "{label}"
         );
     }
-}
-
-/// A payer cannot pay a receiver its committed list contains: Ω(pred)'s
-/// mask selects the blacklist relation, which has no witness; clearing the
-/// mask or dropping the held list moves the head, and naming another
-/// receiver account changes `credit_id`.
-#[test]
-fn a_listed_receiver_cannot_be_paid_by_a_consistent_forgery() {
-    let listed = witness(SEND_BLACKLIST, Mutation::Listed);
-    assert_eq!(
-        listed.evaluate(SEND_BLACKLIST).violations,
-        vec![Violation::BlacklistListed]
-    );
-    let mut unmasked = listed.clone();
-    unmasked.predecessor.core.controls.enabled = 0;
-    forgery_is_refused(
-        &listed,
-        &unmasked,
-        SigmaRelation::SEND,
-        ConsumerError::Predecessor,
-    );
-    let mut dropped = listed.clone();
-    dropped.predecessor.core.controls.blacklist_version = 0;
-    forgery_is_refused(
-        &listed,
-        &dropped,
-        SEND_BLACKLIST,
-        ConsumerError::Predecessor,
-    );
-    let mut renamed = listed.clone();
-    let honest_gap = witness(SEND_BLACKLIST, Mutation::None);
-    if let (StepInputs::Send(forged), StepInputs::Send(honest)) =
-        (&mut renamed.inputs, &honest_gap.inputs)
-    {
-        forged.receiver_account_digest = honest.receiver_account_digest;
-        forged.blacklist = honest.blacklist;
-    }
-    renamed.predecessor.core.controls.blacklist_root =
-        honest_gap.predecessor.core.controls.blacklist_root;
-    // The list without the listed account is another head.
-    forgery_is_refused(
-        &listed,
-        &renamed,
-        SEND_BLACKLIST,
-        ConsumerError::Predecessor,
-    );
 }
 
 /// A payer past its lease cannot Send: clearing the lease control or
@@ -406,45 +254,6 @@ fn shape_of(relation: SigmaRelation) -> SigmaShape {
     shape(relation)
 }
 
-/// A receiver-side forgery: the receiver's own Request names a listed payer;
-/// claiming the list empty (version 0) moves the head, and naming another
-/// payer account changes `credit_id`, which the payer's Credited check
-/// recomputes from the Request it holds.
-#[test]
-fn a_listed_payer_cannot_be_received_by_a_consistent_forgery() {
-    let listed = witness(RECEIVE_BLACKLIST, Mutation::Listed);
-    let request = listed.request_body();
-    // Updating or clearing the current list cannot admit a payer listed at Request time.
-    let mut changed_head = listed.clone();
-    changed_head.predecessor.core.controls.blacklist_version = 0;
-    assert!(!accepted(
-        &shape(RECEIVE_BLACKLIST),
-        &changed_head,
-        &[Violation::BlacklistListed]
-    ));
-    // Forging no enforcement rewrites the signed Request, so it changes credit_id.
-    let mut dropped = listed.clone();
-    receive_inputs(&mut dropped)
-        .request
-        .receiver_blacklist_version = 0;
-    receive_inputs(&mut dropped).request.receiver_blacklist_root = [0; 32];
-    assert!(accepted(&shape(SigmaRelation::RECEIVE), &dropped, &[]));
-    let own = dropped
-        .statement(SigmaRelation::RECEIVE)
-        .expect("statement");
-    assert_eq!(own.predecessor, listed.predecessor.commitment());
-    assert_eq!(
-        check_receive(&listed.relation_id, &request, &own),
-        Err(ConsumerError::Effect)
-    );
-    let mut renamed = listed;
-    receive_inputs(&mut renamed).payer_account_digest[0] ^= 0x01;
-    assert_ne!(
-        renamed.request_body().credit_id::<Fp>(),
-        request.credit_id::<Fp>()
-    );
-}
-
 /// Expiry and interval width are authenticated core fields and enforced by `σ_send`.
 #[test]
 fn quota_expiry_and_send_span_are_enforced_at_the_exact_boundaries() {
@@ -478,25 +287,6 @@ fn quota_expiry_and_send_span_are_enforced_at_the_exact_boundaries() {
     forgery_is_refused(&too_wide, &honest, SEND_QUOTAS, ConsumerError::Predecessor);
 }
 
-/// A newer receiver list cannot strand the already committed Payment.
-#[test]
-fn receive_uses_the_recorded_list_after_the_current_list_changes() {
-    let honest = witness(RECEIVE_BLACKLIST, Mutation::None);
-    let mut renewed = honest.clone();
-    renewed.predecessor.core.controls.enabled = 0;
-    renewed.predecessor.core.controls.blacklist_version += 1;
-    renewed.predecessor.core.controls.blacklist_root += Fp::from(1_u64);
-    assert!(accepted(&shape(RECEIVE_BLACKLIST), &renewed, &[]));
-    assert_eq!(renewed.request_body(), honest.request_body());
-    let statement = renewed.statement(RECEIVE_BLACKLIST).expect("statement");
-    assert_eq!(
-        check_receive(&renewed.relation_id, &renewed.request_body(), &statement)
-            .expect("consumer")
-            .relation,
-        RECEIVE_BLACKLIST
-    );
-}
-
 /// A quota opening is tied to the touched window slot, and every candidate has six index bits.
 #[test]
 fn quota_array_rejects_misaligned_repeated_and_out_of_range_slots() {
@@ -519,20 +309,6 @@ fn quota_array_rejects_misaligned_repeated_and_out_of_range_slots() {
     ));
 }
 
-/// B6 gives the zero version exactly one encoding: the zero root.
-#[test]
-fn request_blacklist_zero_version_and_root_must_agree() {
-    let relation = SigmaRelation::SEND;
-    let shape = shape(relation);
-    for (version, root) in [(0, Fp::from(1).to_repr()), (1, [0; 32])] {
-        let mut invalid = witness(relation, Mutation::None);
-        let request = &mut send_inputs(&mut invalid).request;
-        request.receiver_blacklist_version = version;
-        request.receiver_blacklist_root = root;
-        assert!(!accepted(&shape, &invalid, &[Violation::RequestBlacklist]));
-    }
-}
-
 /// Byte encodings of P values are never reduced or interpreted as limb pairs.
 #[test]
 fn noncanonical_poseidon_digests_are_refused_before_synthesis() {
@@ -551,22 +327,19 @@ fn noncanonical_poseidon_digests_are_refused_before_synthesis() {
         }
     }
     for malformed in [modulus, [0xff; 32]] {
-        for slot in 0..13 {
+        for slot in 0..10 {
             let mut invalid = honest.clone();
             let bytes = match slot {
                 0 => &mut invalid.predecessor.core.identity.credential_digest,
                 1 => &mut invalid.predecessor.rest.scheme_policy,
                 2 => &mut invalid.predecessor.rest.fee_schedule,
-                3 => &mut invalid.predecessor.rest.blacklist,
-                4 => &mut invalid.predecessor.rest.quota_share,
-                5 => &mut invalid.predecessor.rest.time_anchor,
-                6 => &mut invalid.predecessor.rest.blacklist_history_root,
-                7 => &mut send_inputs(&mut invalid).receiver_credential_digest,
-                8 => &mut send_inputs(&mut invalid).request.fee_schedule,
-                9 => &mut send_inputs(&mut invalid).request.scheme_policy,
-                10 => &mut send_inputs(&mut invalid).request.certificates,
-                11 => &mut send_inputs(&mut invalid).request.receiver_blacklist_root,
-                12 => &mut send_inputs(&mut invalid).request_digest,
+                3 => &mut invalid.predecessor.rest.quota_share,
+                4 => &mut invalid.predecessor.rest.time_anchor,
+                5 => &mut send_inputs(&mut invalid).receiver_credential_digest,
+                6 => &mut send_inputs(&mut invalid).request.fee_schedule,
+                7 => &mut send_inputs(&mut invalid).request.scheme_policy,
+                8 => &mut send_inputs(&mut invalid).request.certificates,
+                9 => &mut send_inputs(&mut invalid).request_digest,
                 _ => unreachable!(),
             };
             *bytes = malformed;

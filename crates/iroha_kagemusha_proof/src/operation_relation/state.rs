@@ -11,7 +11,7 @@ use crate::{
     witness::{CORE_DOMAIN, CORE_FIELDS, REST_DOMAIN, REST_FIELDS, core_index as core},
 };
 
-/// Indices in the canonical eight-field state rest.
+/// Indices in the canonical six-field state rest.
 pub mod rest_index {
     /// Controls the credential permits.
     pub const PERMITTED: usize = 0;
@@ -19,16 +19,12 @@ pub mod rest_index {
     pub const SCHEME_POLICY: usize = 1;
     /// Held fee-schedule object digest, or zero.
     pub const FEE_SCHEDULE: usize = 2;
-    /// Held blacklist object digest, or zero.
-    pub const BLACKLIST: usize = 3;
     /// Held quota-share object digest, or zero.
-    pub const QUOTA_SHARE: usize = 4;
+    pub const QUOTA_SHARE: usize = 3;
     /// Held quota-share identity, or zero.
-    pub const QUOTA_SHARE_ID: usize = 5;
+    pub const QUOTA_SHARE_ID: usize = 4;
     /// Committed time-anchor object digest, or zero.
-    pub const TIME_ANCHOR: usize = 6;
-    /// Permanent blacklist-version history root.
-    pub const BLACKLIST_HISTORY: usize = 7;
+    pub const TIME_ANCHOR: usize = 5;
 }
 
 /// A validated private state opening, with both Poseidon levels constrained.
@@ -102,7 +98,7 @@ impl StateCells {
     pub const fn rest(&self) -> &[Word<Fp>; REST_FIELDS] {
         &self.rest
     }
-    /// Digest opened from the eight rest fields.
+    /// Digest opened from the six rest fields.
     #[must_use]
     pub const fn rest_digest(&self) -> &Word<Fp> {
         &self.rest_digest
@@ -159,10 +155,10 @@ fn mask(
     uint: &mut UintChip<'_, Fp>,
     region: &mut Region<'_, Fp>,
     word: &Word<Fp>,
-) -> Result<[Bit<Fp>; 3], Error> {
-    let integer = uint.range_check::<3>(region, word)?;
-    let mut bits = Vec::with_capacity(3);
-    for index in 0..3 {
+) -> Result<[Bit<Fp>; 2], Error> {
+    let integer = uint.range_check::<2>(region, word)?;
+    let mut bits = Vec::with_capacity(2);
+    for index in 0..2 {
         bits.push(
             uint.glue()
                 .boolean(region, integer.value().map(|n| n & (1 << index) != 0))?,
@@ -170,11 +166,7 @@ fn mask(
     }
     let composed = uint.glue().linear(
         region,
-        &[
-            (Fp::ONE, bits[0].word()),
-            (Fp::from(2), bits[1].word()),
-            (Fp::from(4), bits[2].word()),
-        ],
+        &[(Fp::ONE, bits[0].word()), (Fp::from(2), bits[1].word())],
         Fp::ZERO,
     )?;
     GlueChip::assert_equal(region, word, &composed)?;
@@ -213,9 +205,6 @@ fn validate_fields(
     }
     for index in [
         core::QUOTA_SHARE_EXPIRY,
-        core::BLACKLIST_VERSION,
-        core::BLACKLIST_ISSUED_AT,
-        core::BLACKLIST_MAX_AGE,
         core::TIME_ANCHOR_MAX_RESPONSE,
         core::LEASE_EXPIRY,
         core::POLICY_EPOCH,
@@ -235,8 +224,6 @@ fn validate_fields(
     ] {
         uint.glue().assert_nonzero(region, &core[index])?;
     }
-    uint.glue()
-        .assert_nonzero(region, &rest[rest_index::BLACKLIST_HISTORY])?;
     controls(uint, region, core, rest)?;
     Ok(())
 }
@@ -253,18 +240,12 @@ fn controls(
         let allowed = uint.glue().and(region, enabled, permitted)?;
         GlueChip::assert_equal(region, enabled.word(), allowed.word())?;
     }
-    let age_zero = uint
-        .glue()
-        .is_zero(region, &core[core::BLACKLIST_MAX_AGE])?;
-    let has_age = uint.glue().not(region, &age_zero)?;
-    let valid_age = uint.glue().and(region, &has_age, &permitted[0])?;
-    GlueChip::assert_equal(region, has_age.word(), valid_age.word())?;
+    // Quotas (bit 0) and the lease (bit 1) are the time-dependent rules.
     let time_rules = uint.glue().linear(
         region,
         &[
+            (Fp::ONE, permitted[0].word()),
             (Fp::ONE, permitted[1].word()),
-            (Fp::ONE, permitted[2].word()),
-            (Fp::ONE, has_age.word()),
         ],
         Fp::ZERO,
     )?;
@@ -274,7 +255,7 @@ fn controls(
         .is_zero(region, &core[core::TIME_ANCHOR_MAX_RESPONSE])?;
     GlueChip::assert_equal(region, no_time_rules.word(), no_response.word())?;
     let no_lease = uint.glue().is_zero(region, &core[core::LEASE_EXPIRY])?;
-    let lease_forbidden = uint.glue().not(region, &permitted[2])?;
+    let lease_forbidden = uint.glue().not(region, &permitted[1])?;
     GlueChip::assert_equal(region, no_lease.word(), lease_forbidden.word())?;
 
     let no_policy = uint.glue().is_zero(region, &core[core::POLICY_EPOCH])?;
@@ -285,14 +266,6 @@ fn controls(
     gated_zero(uint, region, &no_policy, &core[core::ENABLED_CONTROLS])?;
     gated_zero(uint, region, &no_policy, &rest[rest_index::FEE_SCHEDULE])?;
 
-    let no_list = uint
-        .glue()
-        .is_zero(region, &core[core::BLACKLIST_VERSION])?;
-    for value in [&core[core::BLACKLIST_ROOT], &rest[rest_index::BLACKLIST]] {
-        let zero = uint.glue().is_zero(region, value)?;
-        GlueChip::assert_equal(region, no_list.word(), zero.word())?;
-    }
-    gated_zero(uint, region, &no_list, &core[core::BLACKLIST_ISSUED_AT])?;
     let no_share = uint
         .glue()
         .is_zero(region, &rest[rest_index::QUOTA_SHARE_ID])?;

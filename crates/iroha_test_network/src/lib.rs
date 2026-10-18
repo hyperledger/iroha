@@ -21,6 +21,7 @@ pub use disposable_rotation_ceremony::{
 };
 pub mod fslock_ports;
 pub mod genesis_support;
+mod retained_genesis;
 use color_eyre::eyre::{Context, Report, Result, eyre};
 pub use config::chain_id;
 pub use config::genesis_participant_committee_key_instructions;
@@ -103,6 +104,7 @@ pub use private_settlement_route_control::{
     PrivateSettlementRouteControlAction, PrivateSettlementRouteControlCommand,
     PrivateSettlementRouteControlPhase,
 };
+pub use retained_genesis::RetainedNetworkGenesis;
 use std::{
     borrow::Cow,
     collections::{BTreeSet, HashMap, HashSet, hash_map::DefaultHasher},
@@ -3327,7 +3329,7 @@ pub struct Network {
     sync_timeout_override: Option<Duration>,
     peer_startup_timeout_override: Option<Duration>,
     consensus_profile: ConsensusBootstrapProfile,
-    genesis_key_pair: KeyPair,
+    genesis_key_pair: Option<KeyPair>,
     genesis_isi: Vec<Vec<InstructionBox>>,
     genesis_post_topology_isi: Vec<Vec<InstructionBox>>,
     // Cache a single, deterministic genesis block per network instance to ensure
@@ -3336,6 +3338,8 @@ pub struct Network {
     // The generated manifest is retained with the cached signed block even
     // when file-backed policies require fresh native pre-execution on each call.
     generated_genesis_manifest: OnceLock<RawGenesisTransaction>,
+    // Exact externally signed originals; this branch has no genesis signing owner.
+    retained_genesis: Option<retained_genesis::RetainedGenesis>,
     // Only immutable, file-free policy inputs may reuse pre-execution validation.
     // File-backed policies retain the ordinary fresh-validation path.
     validated_genesis: Option<OnceLock<ValidatedNetworkGenesis>>,
@@ -3360,7 +3364,7 @@ struct ValidatedNetworkGenesis {
 /// this signed block before its serialized bytes are exposed to a subprocess.
 #[derive(Clone)]
 pub struct NativeGenesisProvisioningBundle {
-    /// Canonical JSON bytes of the retained raw genesis manifest.
+    /// Exact raw genesis manifest JSON bytes; generated recipes emit canonical JSON.
     pub manifest_json: Vec<u8>,
     /// SHA-256 of `manifest_json`, for asserting the staged file is unchanged.
     pub manifest_sha256: [u8; 32],
@@ -4253,6 +4257,12 @@ impl Network {
     /// The signed voting roster is rechecked against the guarded validator
     /// topology before any cached or newly generated block is returned.
     pub fn genesis(&self) -> GenesisBlock {
+        if let Some(retained) = &self.retained_genesis {
+            return self
+                .validate_retained_genesis(retained)
+                .expect("retained signed genesis must match the exact runtime configuration")
+                .block;
+        }
         let peer_topology: Vec<PeerId> = self.peers.iter().map(NetworkPeer::id).collect();
         if let Some(cache) = &self.validated_genesis {
             // `get_or_init` publishes only after every native validation succeeds;
@@ -4271,6 +4281,10 @@ impl Network {
     /// Custom genesis blocks have no generated raw manifest. An encoding or
     /// signed-manifest mismatch also fails before the bundle can be used.
     pub fn native_genesis_provisioning_bundle(&self) -> Result<NativeGenesisProvisioningBundle> {
+        if let Some(retained) = &self.retained_genesis {
+            self.validate_retained_genesis(retained)?;
+            return Ok(retained.originals());
+        }
         let peer_topology: Vec<PeerId> = self.peers.iter().map(NetworkPeer::id).collect();
         let validated = self.validated_genesis.as_ref().map_or_else(
             || self.prepare_validated_genesis(&peer_topology),
@@ -4291,7 +4305,12 @@ impl Network {
             .encode_wire()
             .map_err(|error| eyre!("encode exact signed genesis: {error}"))?;
         let block_hash = validated.block.0.hash();
-        let public_key = self.genesis_key_pair.public_key().clone();
+        let public_key = self
+            .genesis_key_pair
+            .as_ref()
+            .expect("generated genesis signer")
+            .public_key()
+            .clone();
         let verified = iroha_genesis::validate_prepared_genesis_bundle(
             &signed_wire,
             manifest,
@@ -4316,6 +4335,10 @@ impl Network {
     }
 
     fn prepare_validated_genesis(&self, peer_topology: &[PeerId]) -> ValidatedNetworkGenesis {
+        let genesis_key_pair = self
+            .genesis_key_pair
+            .as_ref()
+            .expect("generated genesis signer");
         let config_layers: Vec<Table> = self.config_layers().map(Cow::into_owned).collect();
         let actual_config = Some(resolve_final_actual_config(
             self.peers
@@ -4336,13 +4359,13 @@ impl Network {
         let confidential_policy_hash =
             Some(iroha_core::state::default_genesis_confidential_policy_hash());
         let consensus_handshake_meta = consensus_handshake_parameter(&self.consensus_profile);
-        let genesis_account_id = AccountId::new(self.genesis_key_pair.public_key().clone());
+        let genesis_account_id = AccountId::new(genesis_key_pair.public_key().clone());
         let recompute_staged_hashes = |block: &GenesisBlock| {
             config::staged_genesis_policy_hashes(
                 block,
                 &genesis_account_id,
                 &peer_topology,
-                &self.genesis_key_pair,
+                genesis_key_pair,
                 pipeline_config.as_ref(),
                 nexus_config.as_ref(),
                 zk_config.as_ref(),
@@ -4374,7 +4397,7 @@ impl Network {
                 &self.genesis_isi,
                 &self.genesis_post_topology_isi,
                 &consensus_handshake_meta,
-                &self.genesis_key_pair,
+                genesis_key_pair,
                 da_proof_policies.as_ref(),
                 confidential_policy_hash,
             );
@@ -4382,7 +4405,7 @@ impl Network {
                 &mut augmented,
                 &genesis_account_id,
                 &peer_topology,
-                &self.genesis_key_pair,
+                genesis_key_pair,
                 pipeline_config.as_ref(),
                 nexus_config.as_ref(),
                 zk_config.as_ref(),
@@ -4404,7 +4427,7 @@ impl Network {
                 self.genesis_post_topology_isi.clone(),
                 self.peers.iter().map(NetworkPeer::id).collect(),
                 self.topology_entries.clone(),
-                self.genesis_key_pair.clone(),
+                genesis_key_pair.clone(),
                 self.chain_id(),
                 genesis_crypto,
                 da_proof_policies,
@@ -5877,6 +5900,7 @@ pub struct NetworkBuilder {
     genesis_isi: Vec<Vec<InstructionBox>>,
     genesis_post_topology_isi: Vec<Vec<InstructionBox>>,
     custom_genesis: Option<GenesisBuilderFn>,
+    retained_genesis: Option<RetainedNetworkGenesis>,
     seed: Option<String>,
     genesis_key_pair: KeyPair,
     block_sync_gossip_period: Duration,
@@ -6761,6 +6785,7 @@ impl NetworkBuilder {
             genesis_isi: vec![vec![]],
             genesis_post_topology_isi: Vec::new(),
             custom_genesis: None,
+            retained_genesis: None,
             seed: None,
             genesis_key_pair: SAMPLE_GENESIS_ACCOUNT_KEYPAIR.clone(),
             block_sync_gossip_period: DEFAULT_BLOCK_SYNC,
@@ -7465,7 +7490,12 @@ impl NetworkBuilder {
         let permit = acquire_network_permit();
         self.build_with_permit(permit)
     }
-    fn build_with_permit(self, permit: NetworkPermit) -> Network {
+    fn build_with_permit(mut self, permit: NetworkPermit) -> Network {
+        if let Some(retained) = self.retained_genesis.take() {
+            return self
+                .build_retained_with_permit(retained, permit)
+                .expect("retained signed genesis network must validate without normalization");
+        }
         let NetworkBuilder {
             n_peers,
             max_validator_capacity,
@@ -7481,6 +7511,7 @@ impl NetworkBuilder {
             mut genesis_isi,
             mut genesis_post_topology_isi,
             custom_genesis,
+            retained_genesis: _,
             seed,
             genesis_key_pair,
             block_sync_gossip_period,
@@ -8343,11 +8374,12 @@ impl NetworkBuilder {
             sync_timeout_override: sync_timeout,
             peer_startup_timeout_override: peer_startup_timeout,
             consensus_profile,
-            genesis_key_pair,
+            genesis_key_pair: Some(genesis_key_pair),
             genesis_isi,
             genesis_post_topology_isi,
             cached_genesis,
             generated_genesis_manifest: OnceLock::new(),
+            retained_genesis: None,
             validated_genesis: resolved_genesis_config.as_ref().and_then(|config| {
                 (config.nexus.registry.manifest_directory.is_none()
                     && config.nexus.registry.cache_directory.is_none()
@@ -10194,6 +10226,7 @@ impl PartialEq for NetworkPeer {
 pub struct NetworkPeerBuilder {
     mnemonic: String,
     seed: Option<Vec<u8>>,
+    validator_key: Option<KeyPair>,
     parliament_beacon_signer_mode: Option<ParliamentBeaconSignerMode>,
 }
 impl NetworkPeerBuilder {
@@ -10208,11 +10241,16 @@ impl NetworkPeerBuilder {
                 .collect::<Vec<_>>()
                 .join("_"),
             seed: None,
+            validator_key: None,
             parliament_beacon_signer_mode: None,
         }
     }
     pub fn with_seed(mut self, seed: Option<impl Into<Vec<u8>>>) -> Self {
         self.seed = seed.map(Into::into);
+        self
+    }
+    fn with_validator_key(mut self, key: KeyPair) -> Self {
+        self.validator_key = Some(key);
         self
     }
     fn with_parliament_beacon_signer_mode(
@@ -10229,6 +10267,7 @@ impl NetworkPeerBuilder {
         let NetworkPeerBuilder {
             mnemonic,
             seed,
+            validator_key,
             parliament_beacon_signer_mode,
         } = self;
         assert_eq!(
@@ -10256,7 +10295,9 @@ impl NetworkPeerBuilder {
                 pair
             },
         );
-        let bls_key = if let Some(mut seed_bytes) = seed.clone() {
+        let bls_key = if let Some(key) = validator_key {
+            key
+        } else if let Some(mut seed_bytes) = seed.clone() {
             seed_bytes.extend_from_slice(b":bls");
             checked_key_pair_from_seed(seed_bytes, Algorithm::BlsNormal)
         } else {
@@ -11952,7 +11993,10 @@ mod tests {
         assert!(
             signature
                 .signature()
-                .verify_hash(network.genesis_key_pair.public_key(), original_hash,)
+                .verify_hash(
+                    network.genesis_key_pair.as_ref().unwrap().public_key(),
+                    original_hash,
+                )
                 .is_ok()
         );
         assert_eq!(network.network_id(), original_network);
@@ -12721,9 +12765,16 @@ mod tests {
             .collect::<Vec<_>>();
         let staged = config::staged_genesis_policy_hashes(
             genesis,
-            &AccountId::new(network.genesis_key_pair.public_key().clone()),
+            &AccountId::new(
+                network
+                    .genesis_key_pair
+                    .as_ref()
+                    .unwrap()
+                    .public_key()
+                    .clone(),
+            ),
             &topology,
-            &network.genesis_key_pair,
+            network.genesis_key_pair.as_ref().unwrap(),
             Some(&actual.pipeline),
             Some(&actual.nexus),
             Some(&actual.zk),

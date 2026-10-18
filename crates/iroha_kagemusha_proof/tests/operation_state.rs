@@ -63,7 +63,7 @@ fn configure_columns(meta: &mut ConstraintSystem<Fp>, public_count: usize) -> Co
         meta,
         columns,
         rounds,
-        &[(CORE_DOMAIN, 34), (REST_DOMAIN, 8)],
+        &[(CORE_DOMAIN, 30), (REST_DOMAIN, 6)],
     );
     let public = meta.instance_column(public_count);
     meta.enable_equality(public);
@@ -192,9 +192,7 @@ fn basic() -> StateCircuit {
         *field = Fp::from(index as u64);
     }
     core[core::STATE_NONCE] = Fp::from(77);
-    let mut rest = [Fp::ZERO; REST_FIELDS];
-    rest[rest::BLACKLIST_HISTORY] = Fp::from(88);
-    StateCircuit::new(&core, rest)
+    StateCircuit::new(&core, [Fp::ZERO; REST_FIELDS])
 }
 
 fn field(value: &Json) -> Fp {
@@ -219,7 +217,7 @@ fn shared_core_rest_vectors_and_keygen_layout_match() {
             .map(field)
             .collect::<Vec<_>>()
             .try_into()
-            .expect("33");
+            .expect("29");
         let rest = object["rest_items"]
             .as_array()
             .expect("rest")
@@ -227,7 +225,7 @@ fn shared_core_rest_vectors_and_keygen_layout_match() {
             .map(field)
             .collect::<Vec<_>>()
             .try_into()
-            .expect("8");
+            .expect("6");
         let c = StateCircuit::new(&core, rest);
         assert!(c.accepts(), "{name}");
         assert_eq!(c.public()[1], field(&object["commitment_hex"]));
@@ -273,9 +271,6 @@ fn integer_ranges_lifecycle_and_nonzero_state_facts() {
     }
     for index in [
         core::QUOTA_SHARE_EXPIRY,
-        core::BLACKLIST_VERSION,
-        core::BLACKLIST_ISSUED_AT,
-        core::BLACKLIST_MAX_AGE,
         core::TIME_ANCHOR_MAX_RESPONSE,
         core::LEASE_EXPIRY,
         core::POLICY_EPOCH,
@@ -287,9 +282,6 @@ fn integer_ranges_lifecycle_and_nonzero_state_facts() {
     }
     let mut c = basic();
     c.rest[rest::QUOTA_SHARE_ID] = Fp::from_u128(1 << 64);
-    c.reject_rebound();
-    let mut c = basic();
-    c.rest[rest::BLACKLIST_HISTORY] = Fp::ZERO;
     c.reject_rebound();
     for tag in [0, 3] {
         let mut c = basic();
@@ -304,17 +296,17 @@ fn integer_ranges_lifecycle_and_nonzero_state_facts() {
 
 #[test]
 fn exact_control_mask_policy_and_held_object_consistency() {
-    for permitted in 0..8_u64 {
-        for enabled in 0..8_u64 {
+    for permitted in 0..4_u64 {
+        for enabled in 0..4_u64 {
             let mut c = basic();
             c.rest[rest::PERMITTED] = Fp::from(permitted);
             c.core[core::ENABLED_CONTROLS] = Fp::from(enabled);
             c.core[core::POLICY_EPOCH] = Fp::ONE;
             c.rest[rest::SCHEME_POLICY] = Fp::ONE;
-            if permitted & 6 != 0 {
+            if permitted & 3 != 0 {
                 c.core[core::TIME_ANCHOR_MAX_RESPONSE] = Fp::from(17);
             }
-            if permitted & 4 != 0 {
+            if permitted & 2 != 0 {
                 c.core[core::LEASE_EXPIRY] = Fp::from(33);
             }
             c.rebind();
@@ -326,15 +318,14 @@ fn exact_control_mask_policy_and_held_object_consistency() {
         }
     }
     let mut c = basic();
-    c.rest[rest::PERMITTED] = Fp::from(8);
+    c.rest[rest::PERMITTED] = Fp::from(4);
     c.reject_rebound();
     let mut c = basic();
-    c.core[core::ENABLED_CONTROLS] = Fp::from(8);
+    c.core[core::ENABLED_CONTROLS] = Fp::from(4);
     c.reject_rebound();
     for index in [
         rest::SCHEME_POLICY,
         rest::FEE_SCHEDULE,
-        rest::BLACKLIST,
         rest::QUOTA_SHARE,
         rest::QUOTA_SHARE_ID,
     ] {
@@ -344,12 +335,8 @@ fn exact_control_mask_policy_and_held_object_consistency() {
     }
     for index in [
         core::POLICY_EPOCH,
-        core::BLACKLIST_VERSION,
-        core::BLACKLIST_ROOT,
-        core::BLACKLIST_ISSUED_AT,
         core::QUOTA_WINDOWS_ROOT,
         core::QUOTA_SHARE_EXPIRY,
-        core::BLACKLIST_MAX_AGE,
         core::TIME_ANCHOR_MAX_RESPONSE,
         core::LEASE_EXPIRY,
     ] {
@@ -357,13 +344,11 @@ fn exact_control_mask_policy_and_held_object_consistency() {
         c.core[index] = Fp::ONE;
         c.reject_rebound();
     }
+    // The quota control (bit 0) is permitted, so the response bound is
+    // required; the held share does not enable it.
     let mut c = basic();
     c.rest[rest::PERMITTED] = Fp::ONE;
-    c.core[core::BLACKLIST_MAX_AGE] = Fp::from(9);
     c.core[core::TIME_ANCHOR_MAX_RESPONSE] = Fp::from(10);
-    c.core[core::BLACKLIST_VERSION] = Fp::ONE;
-    c.core[core::BLACKLIST_ROOT] = Fp::from(20);
-    c.rest[rest::BLACKLIST] = Fp::from(30);
     c.rest[rest::QUOTA_SHARE_ID] = Fp::ONE;
     c.rest[rest::QUOTA_SHARE] = Fp::from(40);
     c.core[core::QUOTA_WINDOWS_ROOT] = Fp::from(50);
@@ -582,9 +567,8 @@ fn statement(variant: Variant) -> StatementCircuit {
         }
         Variant::RefreshCredential => (7, vec![1, 1, 0]),
         Variant::RefreshSchemePolicy => (7, vec![2, 1, 0]),
-        Variant::RefreshBlacklist => (7, vec![3, 1, 0]),
-        Variant::RefreshQuotaShare => (7, vec![4, 1, 0]),
-        Variant::RefreshTimeAnchor => (7, vec![5, 1, 0]),
+        Variant::RefreshQuotaShare => (7, vec![3, 1, 0]),
+        Variant::RefreshTimeAnchor => (7, vec![4, 1, 0]),
     };
     fields[16] = Fp::from(tag);
     for (i, value) in values.into_iter().enumerate() {
@@ -631,7 +615,7 @@ fn all_operation_statement_variants_and_consistent_forgeries() {
             assert!(!zero.accepts());
         }
         let mut wrong = c.clone();
-        wrong.fields[11] = Fp::from(8);
+        wrong.fields[11] = Fp::from(4);
         assert!(!wrong.accepts());
         let mut wrong = c.clone();
         wrong.fields[8] = Fp::from(3);
@@ -659,7 +643,7 @@ fn all_operation_statement_variants_and_consistent_forgeries() {
         (Variant::Unload, 21, Fp::ONE),
         (Variant::Load, 10, Fp::from(3)),
         (Variant::RefreshCredential, 18, Fp::from(2)),
-        (Variant::RefreshBlacklist, 17, Fp::from(2)),
+        (Variant::RefreshQuotaShare, 17, Fp::from(2)),
         (Variant::Retiring, 8, Fp::ONE),
     ] {
         let mut c = statement(variant);

@@ -3,8 +3,17 @@
 //! A fold sub-proof holds the background slot from its locked prepare through its proof,
 //! which runs without the wallet owner. It releases the slot before taking the owner again to
 //! publish, so a payment that holds the owner and joins the slot never waits on that owner.
+//!
+//! The scheduler also owns the one volatile retention slot between the sub-proofs of a step
+//! (D6b). A sub-proof takes it at its locked prepare and parks what it leaves for the next
+//! sub-proof under its own attempt, atomically with releasing the background slot; only that
+//! attempt's successful checkpoint publication promotes it. Payment priority, inactivity and
+//! close invalidate it, so payment proving never runs beside retained fold memory.
 
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::{
+    any::Any,
+    sync::{Arc, Condvar, Mutex, MutexGuard},
+};
 
 use super::{
     Error, FoldStatus,
@@ -38,6 +47,45 @@ impl Cancellation {
     }
 }
 
+/// Volatile native fold state that one sub-proof leaves for the next sub-proof of the same
+/// step (D6b).
+///
+/// The coordinator and the scheduler never read it. Only the native fold owner that created
+/// it can recover its value; any other value, or none, is that owner's cold path in the same
+/// call. It is process-local and move-only: it is never serialized, persisted, hashed into
+/// durable data or exposed over FFI, and it grants no proof, custody or monetary authority.
+/// Dropping it only releases memory; it does no I/O, takes no lock and proves nothing.
+pub struct FoldRetentionV1(Box<dyn Any + Send>);
+
+impl FoldRetentionV1 {
+    pub(super) fn new<T: Any + Send>(value: T) -> Self {
+        Self(Box::new(value))
+    }
+
+    /// The value, when its owner created it as a `T`; otherwise `None`, and it is dropped.
+    pub(super) fn downcast<T: Any>(self) -> Option<T> {
+        self.0.downcast::<T>().ok().map(|value| *value)
+    }
+
+    /// Test support: the value in place, when its owner created it as a `T`.
+    #[cfg(test)]
+    pub(super) fn downcast_mut<T: Any>(&mut self) -> Option<&mut T> {
+        self.0.downcast_mut::<T>()
+    }
+}
+
+/// The one retention slot of a scheduler.
+enum Slot {
+    /// Parked by the released sub-proof `attempt` until its publication settles. It is not a
+    /// completed continuation: a new sub-proof evicts it and runs cold.
+    Pending {
+        attempt: u64,
+        value: FoldRetentionV1,
+    },
+    /// Promoted by that sub-proof's durable checkpoint publication, for the next sub-proof.
+    Ready(FoldRetentionV1),
+}
+
 #[derive(Default)]
 struct State {
     eligible: bool,
@@ -48,6 +96,10 @@ struct State {
     // Ingests that ran while the running sub-proof held the slot; fold telemetry only.
     ingests: u32,
     observer: Option<Arc<dyn FoldObserverV1>>,
+    // Volatile fold state between the sub-proofs of one step, owned by exactly one attempt.
+    retained: Option<Slot>,
+    // The identity of the last sub-proof attempt this scheduler started; never reused.
+    attempts: u64,
 }
 
 impl State {
@@ -79,6 +131,8 @@ impl Inner {
 /// work. Holding the returned guard prevents a new background proof from starting. Dropping
 /// it permits resumption from the last durable checkpoint. No payment state is rolled back.
 /// An `ingest` never cancels or waits: the sub-proof keeps proving outside the wallet owner.
+/// Payment priority, inactivity and close also drop the volatile fold state retained between
+/// sub-proofs; an ingest leaves it.
 #[derive(Clone)]
 pub struct Scheduler(Arc<Inner>);
 
@@ -98,21 +152,33 @@ impl Scheduler {
         }))
     }
 
-    /// Update app/device activity. Leaving both states cancels an existing sub-proof.
+    /// Update app/device activity. Leaving both states cancels an existing sub-proof and drops
+    /// the retained fold state.
     pub fn set_activity(&self, foreground: bool, charging: bool) {
-        let mut state = self.0.lock();
-        state.eligible = foreground || charging;
-        if !state.eligible {
-            state.cancel(FoldCancelCauseV1::Activity);
-        }
+        let released = {
+            let mut state = self.0.lock();
+            state.eligible = foreground || charging;
+            if state.eligible {
+                None
+            } else {
+                state.cancel(FoldCancelCauseV1::Activity);
+                state.retained.take()
+            }
+        };
+        // Retained fold memory is released after the state lock.
+        drop(released);
     }
 
     /// The owner is closing: leave both states like [`Self::set_activity`], reporting a
     /// cancelled sub-proof as closed.
     pub fn close(&self) {
-        let mut state = self.0.lock();
-        state.eligible = false;
-        state.cancel(FoldCancelCauseV1::Close);
+        let released = {
+            let mut state = self.0.lock();
+            state.eligible = false;
+            state.cancel(FoldCancelCauseV1::Close);
+            state.retained.take()
+        };
+        drop(released);
     }
 
     /// Signal payment priority and join the current sub-proof before returning.
@@ -135,13 +201,19 @@ impl Scheduler {
                 .wait(state)
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
+        // Payment proving never runs beside retained fold memory: take the sole retained
+        // value, pending or ready, and drop it after the lock and before the guard returns.
+        // A publication still waiting for the wallet owner finds its value gone.
+        let released = state.retained.take();
+        drop(state);
+        drop(released);
         PaymentGuard(self.clone())
     }
 
     /// A host call that neither proves, signs, commits an Advance nor deletes custody. It never
     /// cancels or joins: a running sub-proof keeps proving outside the wallet owner and
     /// publishes only if its fold fields are still unchanged. Fold telemetry counts the call on
-    /// that sub-proof (observation only).
+    /// that sub-proof (observation only). The retained fold state is left alone.
     pub fn ingest(&self) {
         let mut state = self.0.lock();
         if state.running.is_some() {
@@ -182,10 +254,34 @@ impl Scheduler {
         state.running = Some(token.clone());
         state.cause = None;
         state.ingests = 0;
+        // One identity per started attempt; 2^64 attempts never wrap in practice.
+        state.attempts = state.attempts.wrapping_add(1);
         Some(FoldGuard {
             scheduler: self.clone(),
             token,
+            attempt: state.attempts,
+            released: false,
         })
+    }
+
+    /// Whether the retention slot holds a value, pending or ready.
+    #[cfg(test)]
+    pub(super) fn holds_retained_for_test(&self) -> bool {
+        self.0.lock().retained.is_some()
+    }
+
+    /// Test support for the genuine fold flows: apply `change` in place to a ready retained
+    /// value. It runs under the state lock, so it only edits the value: it neither drops nor
+    /// replaces it. `false` when the slot holds no ready value or `change` declines it.
+    #[cfg(test)]
+    pub(crate) fn change_ready_for_test(
+        &self,
+        change: impl FnOnce(&mut FoldRetentionV1) -> bool,
+    ) -> bool {
+        match self.0.lock().retained.as_mut() {
+            Some(Slot::Ready(value)) => change(value),
+            Some(Slot::Pending { .. }) | None => false,
+        }
     }
 }
 
@@ -203,6 +299,10 @@ impl Drop for PaymentGuard {
 pub(super) struct FoldGuard {
     scheduler: Scheduler,
     pub(super) token: Cancellation,
+    // The identity of this attempt; it owns at most the one value it parks.
+    attempt: u64,
+    // The slot was released with this attempt's publication identity.
+    released: bool,
 }
 
 impl FoldGuard {
@@ -216,18 +316,112 @@ impl FoldGuard {
         self.scheduler.report(turn, result, cause, ingests);
     }
 
+    /// Take the value the previous sub-proof's checkpoint publication promoted for this
+    /// attempt. A value still parked by an unsettled publication is evicted instead: this
+    /// attempt runs cold and that publication finds its slot gone. Called once, at the locked
+    /// prepare; the native owner alone decides whether the value is usable.
+    pub(super) fn take_retained(&self) -> Option<FoldRetentionV1> {
+        let taken = self.scheduler.0.lock().retained.take();
+        match taken {
+            Some(Slot::Ready(value)) => Some(value),
+            // An evicted pending value is dropped here, after the state lock.
+            Some(Slot::Pending { .. }) | None => None,
+        }
+    }
+
     /// Release the slot of a sub-proof whose proof finished, before its locked publication.
     /// A payment waiting for the slot proceeds; the publication re-checks the fold fields
-    /// under the wallet owner. Returns the ingests the sub-proof overlapped.
-    pub(super) fn release(self) -> u32 {
-        let ingests = self.scheduler.0.lock().ingests;
-        drop(self);
-        ingests
+    /// under the wallet owner. `retained` is parked under this attempt atomically with the
+    /// release, unless a payment holds priority, the scheduler is ineligible or this
+    /// sub-proof's signal was cancelled: then it is dropped before the slot is released, so a
+    /// joining payment never runs beside it. The proved job keeps only the returned
+    /// publication identity, never the value. Returns the ingests the sub-proof overlapped.
+    pub(super) fn release(mut self, retained: Option<FoldRetentionV1>) -> (u32, FoldPublicationV1) {
+        let mut state = self.scheduler.0.lock();
+        let parks = state.eligible && state.payments == 0 && self.token.check().is_ok();
+        let displaced = if !parks && retained.is_some() {
+            drop(state);
+            drop(retained);
+            state = self.scheduler.0.lock();
+            None
+        } else if let Some(value) = retained {
+            // The slot is empty here: this attempt took it at its prepare, and no other
+            // attempt runs before this release.
+            debug_assert!(
+                state.retained.is_none(),
+                "an attempt parks only into the slot its prepare emptied"
+            );
+            state.retained.replace(Slot::Pending {
+                attempt: self.attempt,
+                value,
+            })
+        } else {
+            None
+        };
+        let ingests = state.ingests;
+        state.running = None;
+        drop(state);
+        // Anything displaced is released after the state lock, like every retained value.
+        drop(displaced);
+        self.released = true;
+        self.scheduler.0.idle.notify_all();
+        let publication = FoldPublicationV1 {
+            scheduler: self.scheduler.clone(),
+            attempt: self.attempt,
+            published: false,
+        };
+        (ingests, publication)
     }
 
     #[cfg(test)]
     fn cause(&self) -> Option<FoldCancelCauseV1> {
         self.scheduler.0.lock().cause
+    }
+}
+
+/// The publication identity of a released sub-proof.
+///
+/// It settles only the value its own attempt parked, and only while that value is still in
+/// the slot. A durable checkpoint publication promotes it for the next sub-proof, unless a
+/// payment holds priority or the scheduler is ineligible. Every other end drops it: a
+/// discarded, failed or refused publication, a completed Ω, or this identity dropped
+/// unpublished. A value already evicted, taken or invalidated is never recreated, and a newer
+/// attempt's value is never cleared or promoted.
+pub(super) struct FoldPublicationV1 {
+    scheduler: Scheduler,
+    attempt: u64,
+    published: bool,
+}
+
+impl FoldPublicationV1 {
+    /// Settle this sub-proof's parked value with its publication result: only a durable
+    /// checkpoint keeps it.
+    pub(super) fn settle(mut self, result: Result<FoldStatus, &Error>) {
+        self.published = matches!(result, Ok(FoldStatus::Checkpoint { .. }));
+    }
+}
+
+impl Drop for FoldPublicationV1 {
+    fn drop(&mut self) {
+        let released = {
+            let mut state = self.scheduler.0.lock();
+            match state.retained.take() {
+                Some(Slot::Pending { attempt, value }) if attempt == self.attempt => {
+                    if self.published && state.eligible && state.payments == 0 {
+                        state.retained = Some(Slot::Ready(value));
+                        None
+                    } else {
+                        Some(value)
+                    }
+                }
+                // Absent, another attempt's or already promoted: never touched.
+                other => {
+                    state.retained = other;
+                    None
+                }
+            }
+        };
+        drop(released);
     }
 }
 
@@ -261,8 +455,10 @@ impl Scheduler {
 
 impl Drop for FoldGuard {
     fn drop(&mut self) {
-        self.scheduler.0.lock().running = None;
-        self.scheduler.0.idle.notify_all();
+        if !self.released {
+            self.scheduler.0.lock().running = None;
+            self.scheduler.0.idle.notify_all();
+        }
     }
 }
 
@@ -332,11 +528,14 @@ mod cancellation_tests {
         scheduler.ingest();
         fold.token.check().unwrap();
         assert_eq!(fold.cause(), None);
-        assert_eq!(fold.release(), 2, "an idle ingest is not counted");
+        assert_eq!(fold.release(None).0, 2, "an idle ingest is not counted");
         // The released slot admits a payment without a join; the next sub-proof starts at 0.
         drop(scheduler.payment());
         let fold = scheduler.start().unwrap();
         fold.token.check().unwrap();
-        assert_eq!(fold.release(), 0);
+        assert_eq!(fold.release(None).0, 0);
     }
 }
+
+#[cfg(test)]
+mod retention_tests;

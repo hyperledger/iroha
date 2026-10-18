@@ -70,7 +70,7 @@ fn actual_same_a_confirms_charged_unload_after_absorption_and_restart() {
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&claim.package, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&claim.package, MemoryBudget::DEFAULT)
         .unwrap();
 
     let capture_path = selected_path("KAGEMUSHA_EXECUTED_CHARGE_CONTINUATION");
@@ -191,7 +191,7 @@ fn actual_same_a_confirms_charged_unload_after_absorption_and_restart() {
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&loaded, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&loaded, MemoryBudget::DEFAULT)
         .unwrap();
 
     let target_path = selected_path("KAGEMUSHA_NATIVE_LOAD_TARGET");

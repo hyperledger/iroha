@@ -112,22 +112,26 @@ fn validate_load(
     params: &PinnedParams<Eq>,
     config: &FoldConfig,
 ) -> Result<PreparedQSigma, QSigmaError> {
+    let own = plan
+        .own
+        .as_ref()
+        .ok_or(QSigmaError::Layout(LayoutError::Synthesis))?;
     if plan.incoming.is_some()
         || plan.fold.is_some()
         || plan.part_source_k() != LOAD_SOURCE_K
-        || plan.own.key_index(catalog_key)? != LOAD_SELECTOR
+        || own.key_index(catalog_key)? != LOAD_SELECTOR
     {
         return Err(QSigmaError::UnauthorizedKey);
     }
-    let decoded = decode_load(public, plan.own.verifier.proof_length())
+    let decoded = decode_load(public, own.verifier.proof_length())
         .map_err(|_| QSigmaError::Layout(LayoutError::Synthesis))?;
     let prepared = plan.prepare(
-        SigmaSlotWitness {
+        Some(SigmaSlotWitness {
             key: catalog_key.clone(),
             statement: decoded.statement,
             proof: decoded.proof,
             length: decoded.length,
-        },
+        }),
         None,
         params,
         QSigmaFoldSource::NoIncoming,
@@ -317,8 +321,8 @@ fn bootstrap_witness() -> crate::admin_sigma::BootstrapWitness {
         witness::core_index as core,
     };
     let mut w = crate::admin_sigma::BootstrapWitness {
-        core: [Fp::ZERO; 33],
-        rest: [Fp::ZERO; 8],
+        core: [Fp::ZERO; 29],
+        rest: [Fp::ZERO; 6],
         lineage: [Fp::ONE; 18],
         statement: [Fp::ZERO; 26],
     };
@@ -331,7 +335,6 @@ fn bootstrap_witness() -> crate::admin_sigma::BootstrapWitness {
     w.core[core::QUOTA_USAGE_ROOT] =
         QuotaUsageTree::<Fp>::new(&QuotaWindowTree::new(&[]).unwrap()).root();
     w.core[core::STATE_NONCE] = Fp::from(77);
-    w.rest[7] = empty;
     w.lineage[3] = Fp::from(9);
     w.lineage[4] = Fp::from(10);
     w.lineage[14] = Fp::ZERO;
@@ -447,7 +450,7 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
     let plan = QSigmaPlan::new(class, None, &inner).unwrap();
     let original = plan
         .prepare(
-            own,
+            Some(own),
             None,
             &inner,
             QSigmaFoldSource::NoIncoming,
@@ -461,29 +464,22 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
     assert!(
         original.circuit.witness.incoming.is_none() && restored.circuit.witness.incoming.is_none()
     );
-    assert_eq!(
-        restored.circuit.witness.own.key.to_bytes(),
-        original.circuit.witness.own.key.to_bytes()
+    let (restored_own, original_own) = (
+        restored.circuit.witness.own.as_ref().unwrap(),
+        original.circuit.witness.own.as_ref().unwrap(),
     );
-    assert_eq!(
-        restored.circuit.witness.own.statement,
-        original.circuit.witness.own.statement
+    assert_eq!(restored_own.key.to_bytes(), original_own.key.to_bytes());
+    assert_eq!(restored_own.statement, original_own.statement);
+    assert_eq!(restored_own.proof, original_own.proof);
+    assert_eq!(restored_own.length, original_own.length);
+    let (restored_class, original_class) = (
+        restored.circuit.plan.own.as_ref().unwrap(),
+        original.circuit.plan.own.as_ref().unwrap(),
     );
+    assert_eq!(restored_class.entries, original_class.entries);
     assert_eq!(
-        restored.circuit.witness.own.proof,
-        original.circuit.witness.own.proof
-    );
-    assert_eq!(
-        restored.circuit.witness.own.length,
-        original.circuit.witness.own.length
-    );
-    assert_eq!(
-        restored.circuit.plan.own.entries,
-        original.circuit.plan.own.entries
-    );
-    assert_eq!(
-        restored.circuit.plan.own.verifier.binding(),
-        original.circuit.plan.own.verifier.binding()
+        restored_class.verifier.binding(),
+        original_class.verifier.binding()
     );
     assert!(restored.circuit.plan.incoming.is_none() && restored.circuit.plan.fold.is_none());
     assert_eq!(restored.circuit.plan.trivial, original.circuit.plan.trivial);
@@ -499,7 +495,8 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
     foreign[10..42].copy_from_slice(&iroha_plonk::transcript::encode_point::<Eq>(
         &(-catalog_key.fixed_commitments()[0]),
     ));
-    let foreign = VerifyingKey::<Eq>::read(&foreign, plan.own.verifier.binding()).unwrap();
+    let foreign =
+        VerifyingKey::<Eq>::read(&foreign, plan.own.as_ref().unwrap().verifier.binding()).unwrap();
     assert!(validate_load(&plan, &foreign, &public, &inner, &FoldConfig::default()).is_err());
     for (column, row) in [(0, 0), (0, 1)] {
         let mut changed = original.instances.clone();
@@ -517,7 +514,13 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
     }
     let mut changed = public.clone();
     changed[0][1][4] ^= 1; // first actual proof byte, leaving LE32/padding intact
-    assert!(decode_load(&changed, original.circuit.witness.own.proof.len()).is_ok());
+    assert!(
+        decode_load(
+            &changed,
+            original.circuit.witness.own.as_ref().unwrap().proof.len()
+        )
+        .is_ok()
+    );
     assert!(
         validate_load(
             &plan,
@@ -535,7 +538,13 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
     } else {
         Fq::ONE
     };
-    assert!(decode_load(&frame(&changed), original.circuit.witness.own.proof.len()).is_ok());
+    assert!(
+        decode_load(
+            &frame(&changed),
+            original.circuit.witness.own.as_ref().unwrap().proof.len()
+        )
+        .is_ok()
+    );
     assert!(
         validate_load(
             &plan,
@@ -549,7 +558,13 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
     let mut changed = original.instances.clone();
     let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(&-*original.part.g());
     changed[1] = vec![x, y];
-    assert!(decode_load(&frame(&changed), original.circuit.witness.own.proof.len()).is_ok());
+    assert!(
+        decode_load(
+            &frame(&changed),
+            original.circuit.witness.own.as_ref().unwrap().proof.len()
+        )
+        .is_ok()
+    );
     assert!(
         validate_load(
             &plan,
@@ -564,7 +579,14 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
     // All decode/prepare/opening/decide work above is BEFORE the selected cut.
     let outer = PinnedParams::<Ep>::derive(16).unwrap();
     let source = QSigmaSource::new(plan.clone(), catalog_key.clone(), None).unwrap();
-    assert_eq!(source.own_key.to_bytes(), catalog_key.to_bytes());
+    assert_eq!(
+        source
+            .own_key
+            .as_ref()
+            .expect("own-slot source key")
+            .to_bytes(),
+        catalog_key.to_bytes()
+    );
     let mut q_config = KeygenConfigV2::pipa_r(QSigmaPlan::instance_types().to_vec());
     q_config.coset_cache = CosetCachePolicy::OnDemand;
     let q_key = keygen_pk_v2(&outer, &source.source_circuit().unwrap(), &q_config).unwrap();
@@ -602,7 +624,7 @@ fn genuine_load_public_inverse_prepared_and_native_proof_parity() {
 
     let refused = crate::proof_entry_probe::Guard::new(None);
     let mut wrong_source = original.clone();
-    wrong_source.circuit.plan.own.entries[0].0 = 2;
+    wrong_source.circuit.plan.own.as_mut().unwrap().entries[0].0 = 2;
     assert!(matches!(
         prover.prove(
             &wrong_source,

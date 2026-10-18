@@ -176,7 +176,11 @@ the same live handle without repeating authorization.
 
 `KagemushaWalletV1` exposes typed setup, Load/Send/Receive/refresh/Unload/Retiring,
 retry/status, folding and activity. Request publication durably selects its exact
-original and recorded blacklist decision together. Offer/Request setup bytes are
+original. A signed blacklist is local-only: `installBlacklist(list:certificates:)` stores
+it on the phone (a replacement's version must increase), and Native then refuses to pay a
+listed receiver and to request or accept money from a listed payer with
+`KagemushaWalletErrorV1.blockedStatus` (-15); no proof, wallet state or peer message
+carries it. Offer/Request setup bytes are
 canonical object frames, while peer transports require an Envelope frame. Use
 `envelope(_:original:)` and `original(_:envelope:)` for native, bounded conversion
 with the expected kind and this wallet's scheme; conversion grants no authority.

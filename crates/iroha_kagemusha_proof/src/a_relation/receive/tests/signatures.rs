@@ -269,9 +269,9 @@ fn actual_bound_invalid_signature_forces_trivial_without_auxiliary_substitution(
             pk.vk().clone(),
         )
         .unwrap();
-        let plan = AProofPlan::new(
+        let plan = AProofPlan::inline_with_incoming(
             Variant::Receive,
-            operation.sigma.clone(),
+            operation.sigma_plan().unwrap().clone(),
             vec![operation.q(0).unwrap().clone(), qplan],
             operation.omega().cloned(),
             &params,
@@ -318,8 +318,8 @@ fn actual_bound_invalid_signature_forces_trivial_without_auxiliary_substitution(
 }
 
 #[test]
-#[ignore = "native k16 renewed incoming3V1F proof and public-input mutations"]
-fn actual_renewed_three_variable_one_fixed_leaf_preserves_every_signature() {
+#[ignore = "native k16 renewed merged 4V1F proof (hard own receipt) and public-input mutations"]
+fn actual_renewed_merged_leaf_preserves_every_signature() {
     let j: norito::json::Value = norito::json::from_str(include_str!(
         "../../../../../../fixtures/kagemusha/wallet_v1_vectors.json"
     ))
@@ -339,12 +339,21 @@ fn actual_renewed_three_variable_one_fixed_leaf_preserves_every_signature() {
     };
     let root = point("scheme_root");
     let policy = OwnPolicy::new([3, 4], root).unwrap();
-    let schemas = ReceiveStagePlan::signature_schemas(Variant::ReceiveRenewed, policy).unwrap();
-    assert_eq!(schemas[0].slots().len(), 3);
-    let schema = schemas[1].clone();
-    assert_eq!(schema.slots().len(), 4);
-    assert_eq!(schema.slots()[3].key, SignatureKey::Fixed(root));
+    let schema = ReceiveStagePlan::signature_schema_for(Variant::ReceiveRenewed, policy).unwrap();
+    assert_eq!(schema.slots().len(), 5);
+    assert_eq!(schema.slots()[0].mode, VerifyMode::Hard);
+    assert!(
+        schema.slots()[1..]
+            .iter()
+            .all(|slot| slot.mode == VerifyMode::Soft)
+    );
+    assert_eq!(schema.slots()[4].key, SignatureKey::Fixed(root));
     let witnesses = [
+        (
+            "Receive receipt binding the Payment digest",
+            "receiver_payment",
+            ObjectKind::Receipt,
+        ),
         ("Send receipt", "payer_payment", ObjectKind::Receipt),
         ("Request", "receiver_payment", ObjectKind::Request),
         ("payer credential", "payer_issuer", ObjectKind::Credential),
@@ -376,7 +385,7 @@ fn actual_renewed_three_variable_one_fixed_leaf_preserves_every_signature() {
     })
     .collect::<Vec<_>>();
     let circuit = QSignatureCircuit::new(schema.clone(), witnesses.clone()).unwrap();
-    let instances = circuit.instances(&[true; 4]).unwrap();
+    let instances = circuit.instances(&[true; 5]).unwrap();
     assert!(
         check_circuit(&circuit, 16, &instances, CheckMode::Strict)
             .unwrap()
@@ -408,13 +417,14 @@ fn actual_renewed_three_variable_one_fixed_leaf_preserves_every_signature() {
     .unwrap()
     .decide(&params, MemoryBudget::DEFAULT)
     .unwrap();
-    for slot in 0..4 {
+    for slot in 0..5 {
         let mut malformed = witnesses.clone();
         malformed[slot].signature[0] = [0; 4];
         let malformed = QSignatureCircuit::new(schema.clone(), malformed).unwrap();
-        let mut verdicts = [true; 4];
+        let mut verdicts = [true; 5];
         verdicts[slot] = false;
-        assert!(
+        // The own receipt in slot 0 is hard: no verdict admits a malformed one.
+        assert_eq!(
             check_circuit(
                 &malformed,
                 16,
@@ -422,7 +432,9 @@ fn actual_renewed_three_variable_one_fixed_leaf_preserves_every_signature() {
                 CheckMode::Strict
             )
             .unwrap()
-            .is_satisfied()
+            .is_satisfied(),
+            slot != 0,
+            "slot {slot}"
         );
         assert!(
             !check_circuit(&malformed, 16, &instances, CheckMode::Strict)
@@ -454,7 +466,7 @@ fn actual_renewed_three_variable_one_fixed_leaf_preserves_every_signature() {
         .map(|c| c.iter().rposition(|v| *v).map_or(0, |i| i + 1))
         .collect::<Vec<_>>();
     eprintln!(
-        "Receive renewed actual soft3V1F Q proof={}B lanes={rows:?}",
+        "Receive renewed actual merged 4V1F Q proof={}B lanes={rows:?}",
         output.proof.len()
     );
 }

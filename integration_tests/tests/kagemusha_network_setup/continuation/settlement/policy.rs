@@ -23,16 +23,30 @@ fn outgoing_disabled() -> TransactionRejectionReason {
     ))
 }
 
-// The genesis asset owner is ALICE, not the reserve account. Use the ordinary
-// owner client and fee quote; retaining its signed original precedes dispatch.
+fn require_retained_owner(actual: &AccountId) -> Result<()> {
+    ensure!(
+        actual == &account(0xCE),
+        "retained engineering asset owner differs"
+    );
+    Ok(())
+}
+
+// The retained engineering genesis creates this asset under its CE authority.
+// Query and bind that actual owner before ordinary fee preparation and signing.
 fn set_availability(
     network: &Network,
     output: &Path,
     expected_revision: u64,
     outgoing: AssetTransferAvailability,
     name: &str,
+    expected_balances: [u128; 4],
 ) -> Result<norito::json::Value> {
-    let client = running_peer(network)?.client();
+    let owner = account(0xCE);
+    let client = running_peer(network)?.client_for(&owner, key(0xCE).private_key().clone());
+    let actual = client
+        .client()
+        .query_single(FindAssetDefinitionById::new(definition_id()))?;
+    require_retained_owner(actual.owned_by())?;
     let instruction = SetAssetTransferAvailability::new(
         account(95),
         definition_id(),
@@ -58,7 +72,7 @@ fn set_availability(
     payload.fee_payment = quote.intent;
     let transaction = client.account_client().sign_transaction(payload)?;
     ensure!(
-        transaction.authority() == &*iroha_test_samples::ALICE_ID,
+        transaction.authority() == &owner,
         "availability changes require the genesis asset owner"
     );
     let original = canonical_observation(output, name, &transaction, ORIGINAL_MAX)?;
@@ -83,7 +97,7 @@ fn set_availability(
         }
     }
     let height = found.ok_or_else(|| eyre!("policy update absent from certified history"))?;
-    balances(network, [900, 0, 0, 100])?;
+    balances(network, expected_balances)?;
     Ok(norito::json!({
         "height":height,
         "transaction_hash_hex":(hex::encode(transaction.hash().as_ref())),
@@ -91,15 +105,17 @@ fn set_availability(
     }))
 }
 
-pub(super) fn before_payout(
+pub(crate) fn before_payout(
     network: &Network,
     output: &Path,
     instruction: &KagemushaWalletLedgerV1,
+    submitter: u8,
+    expected_balances: [u128; 4],
 ) -> Result<norito::json::Value> {
     // Sign while the reserve is available, so an ordinary preparation-time policy
     // check cannot replace the required certified refusal. The signed original
     // remains unchanged while the asset owner commits the disabling update.
-    let transaction = signed(network, 43, vec![instruction.clone().into()])?;
+    let transaction = signed(network, submitter, vec![instruction.clone().into()])?;
     let transaction_hash = hex::encode(transaction.hash().as_ref());
     let disabled = set_availability(
         network,
@@ -107,14 +123,15 @@ pub(super) fn before_payout(
         0,
         AssetTransferAvailability::Disabled,
         "reserve-outgoing-disable-policy-signed.norito",
+        expected_balances,
     )?;
     let refusal = refused(
         network,
         output,
-        43,
+        submitter,
         transaction,
         &outgoing_disabled(),
-        [900, 0, 0, 100],
+        expected_balances,
         "reserve-outgoing-disabled",
     )?;
     ensure!(
@@ -127,12 +144,13 @@ pub(super) fn before_payout(
         1,
         AssetTransferAvailability::Enabled,
         "reserve-outgoing-enable-policy-signed.norito",
+        expected_balances,
     )?;
     let evidence = norito::json::to_vec(&norito::json!({
         "schema":"iroha.kagemusha.network-unload-policy-retry.v1",
         "instruction_sha256":(hash(&norito::encode_canonical(instruction)?)),
         "disabled":disabled, "refused":refusal, "enabled":enabled,
-        "balances_before_payout":[900, 0, 0, 100],
+        "balances_before_payout":(expected_balances.to_vec()),
         "scope":"Ordinary asset-owner availability changes and certified OutgoingDisabled refusal preserve the entire reserve. This record precedes payout; the parent settlement must pay the identical claim and independently retain its successful execution. No wallet proof or payment receipt is re-signed."
     }))?;
     let original = publish(output, "policy-retry.json", &evidence)?;
@@ -193,4 +211,16 @@ fn policy_failure_requires_exact_reserve_asset_revision_and_direction() {
         assert!(claim_failure(&TransactionResult::new(Err(changed)), &expected).is_err());
     }
     assert!(claim_failure(&TransactionResult::new(Ok(Vec::new())), &expected).is_err());
+}
+
+#[test]
+fn policy_authority_requires_exact_retained_genesis_owner() {
+    require_retained_owner(&account(0xCE)).unwrap();
+    for foreign in [
+        account(41),
+        account(95),
+        (*iroha_test_samples::ALICE_ID).clone(),
+    ] {
+        assert!(require_retained_owner(&foreign).is_err());
+    }
 }

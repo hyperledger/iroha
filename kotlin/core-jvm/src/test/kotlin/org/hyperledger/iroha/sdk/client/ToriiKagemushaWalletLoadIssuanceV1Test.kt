@@ -272,6 +272,92 @@ class ToriiKagemushaWalletLoadIssuanceV1Test {
     }
 
     @Test
+    fun combinedHttpFailuresRetainRequestStageForEveryCompletionOrder() {
+        for (failed in 0..1) for (immediate in listOf(false, true)) for (siblingDone in listOf(false, true)) {
+            for ((status, code) in listOf(503 to "kagemusha_issuance_unavailable",
+                503 to "kagemusha_load_finality_unavailable", 503 to "another_unavailable", 401 to "unauthorized")) {
+                val executor = RecordingExecutor()
+                val pending = ArrayList<CompletableFuture<TransportResponse>>()
+                fun failure(request: TransportRequest) = TransportResponse(status,
+                    """{"code":"$code","message":"original","details":{"hint":"retained"}}""".toByteArray(), "",
+                    mapOf("Content-Type" to listOf("application/json"), "x-iroha-reject-code" to listOf("retained-reject")), request.uri, false)
+                executor.response = { request ->
+                    val index = pending.size
+                    CompletableFuture<TransportResponse>().also { future ->
+                        pending += future
+                        if (index == failed && immediate) future.complete(failure(request))
+                        if (index != failed && siblingDone) future.complete(TransportResponse(
+                            200, byteArrayOf(1), "", mapOf("Content-Type" to listOf("application/x-norito")), request.uri, false))
+                    }
+                }
+                val result = client(executor).getKagemushaWalletLoadOriginalsV1(selection(), auth(), Runnable {})
+                if (!immediate) pending[failed].complete(failure(executor.requests[failed]))
+                val error = assertFailsWith<CompletionException> { result.join() }.cause
+                assertTrue(error is ToriiKagemushaWalletLoadReadExceptionV1)
+                assertEquals(if (failed == 0) ToriiKagemushaWalletLoadReadExceptionV1.Stage.ISSUANCE
+                    else ToriiKagemushaWalletLoadReadExceptionV1.Stage.FINALITY, error.stage)
+                assertTrue(error.cause === error.error)
+                assertEquals(status, error.error.status)
+                assertEquals(code, error.error.code)
+                assertEquals("retained", error.error.hint)
+                assertEquals("retained-reject", error.error.rejectCode)
+                assertEquals(2, executor.requests.size)
+                if (!siblingDone) assertTrue(pending[1 - failed].isCancelled)
+            }
+        }
+    }
+
+    @Test
+    fun combinedTransportFailuresKeepOriginalIdentityEvenWhenTheyResembleHttpErrors() {
+        for (failed in 0..1) for (apiLike in listOf(false, true)) {
+            val executor = RecordingExecutor()
+            val pending = ArrayList<CompletableFuture<TransportResponse>>()
+            executor.response = { CompletableFuture<TransportResponse>().also(pending::add) }
+            val result = client(executor).getKagemushaWalletLoadOriginalsV1(selection(), auth(), Runnable {})
+            val original = if (apiLike) ToriiApiException(503, "kagemusha_issuance_unavailable", "executor refusal", null, null)
+                else java.io.IOException("exact transport failure")
+            val diagnostic = IllegalStateException("retained diagnostic")
+            original.addSuppressed(diagnostic)
+            pending[failed].completeExceptionally(original)
+            assertTrue(assertFailsWith<CompletionException> { result.join() }.cause === original)
+            assertTrue(original.suppressed.single() === diagnostic)
+            assertTrue(pending[1 - failed].isCancelled)
+        }
+    }
+
+    @Test
+    fun combinedOwnerFailuresNeverAcquireHttpRouteProvenanceAtAnyBoundary() {
+        fun run(failAt: Int?): Int {
+            val executor = RecordingExecutor()
+            val pending = ArrayList<CompletableFuture<TransportResponse>>()
+            executor.response = { CompletableFuture<TransportResponse>().also(pending::add) }
+            var checks = 0
+            val original = ToriiApiException(503, "kagemusha_issuance_unavailable", "local owner refusal", null, null)
+            val attempt = runCatching {
+                client(executor).getKagemushaWalletLoadOriginalsV1(selection(), auth(), Runnable {
+                    checks++
+                    if (checks == failAt) throw original
+                })
+            }
+            val result = attempt.getOrNull()
+            pending.forEachIndexed { index, future -> future.complete(TransportResponse(
+                200, byteArrayOf(1), "", mapOf("Content-Type" to listOf("application/x-norito")), executor.requests[index].uri, false)) }
+            if (failAt == null) {
+                assertTrue(result!!.join().finalityOriginal.contentEquals(byteArrayOf(1)))
+            } else {
+                val failure = attempt.exceptionOrNull()
+                    ?: assertFailsWith<CompletionException> { result!!.join() }.cause
+                assertTrue(failure === original)
+                assertTrue(pending.all { it.isDone })
+            }
+            return checks
+        }
+        val boundaries = run(null)
+        assertTrue(boundaries > 0)
+        for (boundary in 1..boundaries) run(boundary)
+    }
+
+    @Test
     fun cancellingCombinedOriginalsCancelsBothUpstreamReads() {
         val executor = RecordingExecutor()
         val pending = ArrayList<CompletableFuture<TransportResponse>>()

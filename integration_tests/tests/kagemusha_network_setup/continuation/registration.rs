@@ -14,6 +14,7 @@ pub(super) struct Registered {
     pub(super) scheme: KagemushaWalletSchemeV1,
     asset: KagemushaWalletAssetScopeV1,
     pub(super) manifest: [u8; 32],
+    pub(super) height: u64,
     setup_sha: String,
     pub(super) summary: Vec<u8>,
 }
@@ -42,12 +43,16 @@ pub(super) fn run(
     command: &norito::json::Value,
     setup_sha: &str,
 ) -> Result<Registered> {
-    ensure!(
-        committed_height(network)? == 2,
-        "fresh exact H1/H2 anchor required"
-    );
     let setup: norito::json::Value =
         norito::json::from_slice(&read(&root.join("setup/setup.json"), 16 << 10, setup_sha)?)?;
+    let predecessor = setup["live_height"]
+        .as_u64()
+        .ok_or_else(|| eyre!("certified live setup height"))?;
+    ensure!(
+        predecessor >= 2 && committed_height(network)? == predecessor,
+        "setup predecessor changed"
+    );
+    prefix(network, predecessor)?;
     let asset: KagemushaWalletAssetScopeV1 = canonical(&original(
         &root.join("setup"),
         &setup,
@@ -98,7 +103,13 @@ pub(super) fn run(
         &output,
         "register-install-signed.norito",
     )?;
-    ensure!(height == 3, "unexpected block before registration");
+    ensure!(
+        height
+            == predecessor
+                .checked_add(1)
+                .ok_or_else(|| eyre!("height overflow"))?,
+        "registration must immediately follow its authenticated setup predecessor"
+    );
     let snapshots = balances(network, [SUPPLY, 0, 0, 0])?;
     let history = prefix(network, height)?;
     let genesis = native(network)?;
@@ -147,7 +158,7 @@ pub(super) fn run(
         || false,
     )?;
     ensure!(
-        finalized.height() == 3
+        finalized.height() == height
             && finalized.asset() == &asset
             && finalized.scheme() == &scheme
             && finalized.reserve() == &account(95)
@@ -164,7 +175,7 @@ pub(super) fn run(
         "registration_source_sha256": (hash(&source_bytes)),
         "registration_source_path": (output.join("package/registration-source.norito").display().to_string()),
         "registration_transaction_hash_hex": (hex::encode(transaction.hash().as_ref())),
-        "certified_height": height,
+        "predecessor_height": predecessor, "certified_height": height,
         "originals": originals,
         "balances": snapshots,
         "scope": "Same four real validators; genuine direct registration and installed verifier pack. No credential, device enrollment, activation, Load or payment has occurred."
@@ -175,6 +186,7 @@ pub(super) fn run(
         scheme,
         asset,
         manifest,
+        height,
         setup_sha: setup_sha.to_owned(),
         summary,
     })
@@ -203,6 +215,7 @@ fn funding_target_requires_same_owner_setup_scheme_manifest_and_asset() -> Resul
         scheme,
         asset: asset.clone(),
         manifest: [11; 32],
+        height: 6,
         setup_sha: hash(b"selected setup"),
         summary: Vec::new(),
     };

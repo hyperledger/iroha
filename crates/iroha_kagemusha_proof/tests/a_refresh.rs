@@ -23,8 +23,7 @@ use iroha_kagemusha_proof::{
     },
     admin_sigma::{RefreshCircuit, StateWitness},
     operation_relation::{
-        map_effects::InsertCells, quota_refresh::QuotaRebuildCells, state::StateCells,
-        statement::StatementCells,
+        quota_refresh::QuotaRebuildCells, state::StateCells, statement::StatementCells,
     },
     q_sigma::{QSigmaPlan, SigmaClass, SigmaSlotWitness, native::QSigmaProver},
     q_signature::{QSignatureCircuit, QSignaturePlan},
@@ -45,7 +44,6 @@ use iroha_plonk_gadgets::{
         element::le_message_segments,
         tape::{BytesChip, BytesConfig, SegmentSpec},
     },
-    imt::{LeafCells, OpeningCells, PathCells},
     statement::foreign_limbs,
 };
 use iroha_plonk_recursion::{
@@ -76,9 +74,6 @@ fn tasks(variant: Variant) -> Vec<Vec<OperationTask>> {
         vec![OperationTask::RefreshUpdateAuthorization],
         vec![OperationTask::RefreshCurrentAuthorization],
     ];
-    if variant == Variant::RefreshBlacklist {
-        tasks.push(vec![OperationTask::RefreshBlacklist]);
-    }
     if variant == Variant::RefreshQuotaShare {
         tasks.extend(
             [
@@ -145,12 +140,12 @@ pub(crate) fn sources(
     .unwrap();
     let prepared = sigma_plan
         .prepare(
-            SigmaSlotWitness {
+            Some(SigmaSlotWitness {
                 key: key.vk().clone(),
                 statement: leaf.instances()[0][0],
                 length: u32::try_from(sigma.len()).unwrap(),
                 proof: sigma.clone(),
-            },
+            }),
             None,
             &v,
             iroha_kagemusha_proof::q_sigma::native::QSigmaFoldSource::NoIncoming,
@@ -293,7 +288,6 @@ pub(crate) struct Config {
 }
 /// Exact optional map witnesses assigned by their fixed owning stage.
 pub(crate) struct AssignedMaps {
-    pub(crate) blacklist: Option<InsertCells>,
     pub(crate) quota: Option<QuotaRebuildCells>,
 }
 impl Owner {
@@ -438,49 +432,6 @@ impl Owner {
             .context()
             .operation_tasks(self.stage)
             .ok_or(Error::Synthesis)?;
-        let blacklist = if task.contains(&OperationTask::RefreshBlacklist) {
-            let mut proof = source.fixture.blacklist.ok_or(Error::Synthesis)?;
-            if self.mutation == 8 {
-                proof.slot_siblings[31] += Fp::ONE;
-            }
-            let fields = [proof.leaf.key, proof.leaf.value, proof.leaf.next_key];
-            let leaf = LeafCells::from_words(
-                chip.uint()
-                    .glue()
-                    .witnesses(r, &fields.map(|v| self.value(v)))?
-                    .try_into()
-                    .map_err(|_| Error::Synthesis)?,
-            );
-            let mut paths = Vec::new();
-            for (index, siblings) in [
-                (proof.leaf_slot, proof.leaf_siblings),
-                (proof.slot, proof.slot_siblings),
-            ] {
-                let index = chip
-                    .uint()
-                    .glue()
-                    .witness(r, self.value(Fp::from(u64::from(index))))?;
-                let siblings = chip
-                    .uint()
-                    .glue()
-                    .witnesses(r, &siblings.map(|v| self.value(v)))?
-                    .try_into()
-                    .map_err(|_| Error::Synthesis)?;
-                paths.push(PathCells::from_words(
-                    &mut chip.uint(),
-                    r,
-                    &index,
-                    siblings,
-                )?);
-            }
-            let [low, slot] = paths.try_into().map_err(|_| Error::Synthesis)?;
-            Some(InsertCells {
-                low: OpeningCells { leaf, path: low },
-                slot,
-            })
-        } else {
-            None
-        };
         let quota = if task.iter().any(|task| {
             matches!(
                 task,
@@ -527,7 +478,7 @@ impl Owner {
         } else {
             None
         };
-        Ok(AssignedMaps { blacklist, quota })
+        Ok(AssignedMaps { quota })
     }
     fn public(&self) -> Vec<Vec<Fp>> {
         let mut objects = self.source.objects.clone();
@@ -706,7 +657,6 @@ impl Circuit<Fp> for Owner {
                     RefreshStageWitness {
                         sigma: sigma.as_ref(),
                         signatures: signatures.as_ref(),
-                        blacklist: maps.blacklist.as_ref(),
                         quota: maps.quota.as_ref(),
                     },
                 )?;
@@ -826,7 +776,6 @@ fn check_genuine_owners(variant: Variant) {
             0 => &[2],
             1 => &[1, 2, 3, 6, 7],
             2 => &[4, 5, 7],
-            _ if variant == Variant::RefreshBlacklist => &[8],
             _ => &[8, 9],
         };
         for &mutation in mutations {

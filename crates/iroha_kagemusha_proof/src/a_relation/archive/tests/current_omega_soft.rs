@@ -393,7 +393,7 @@ impl NativeCases {
 }
 
 #[test]
-#[ignore = "current six-file Omega fixture + admitted native soft case outputs; five real VK keygens and fixed-k16 checks, no new proofs"]
+#[ignore = "current six-file Omega fixture + admitted native soft case outputs; three real VK keygens and fixed-k16 checks, no new proofs"]
 fn current_omega_incoming_api_matches_native_originals_and_rejects_forged_outputs() {
     let fixture = real_sources::read_selected_fixture();
     let (binding, key) =
@@ -431,7 +431,8 @@ fn current_omega_incoming_api_matches_native_originals_and_rejects_forged_output
     let (operation, _policy, selected_key) =
         real_sources::captured_operation(Variant::ArchiveReceive, binding.clone(), key.clone(), 12);
     assert_eq!(operation.frame().variant(), Variant::ArchiveReceive);
-    assert_eq!(operation.q_count(), 3);
+    // Lean: the incoming-only Q_sigma and the merged signature leaf.
+    assert_eq!(operation.q_count(), 2);
     assert_eq!(selected_key.to_bytes(), key.to_bytes());
     assert_eq!(operation.omega().unwrap().binding(), &binding);
     let decode_plan = IncomingTransportPlan::new(&operation).unwrap();
@@ -534,9 +535,9 @@ fn current_omega_incoming_api_matches_native_originals_and_rejects_forged_output
     let foreign = DescriptorBinding::new_v2(foreign).unwrap();
     assert_ne!(foreign, binding);
     let original_program = base.operation.omega().unwrap();
-    let foreign_plan = AProofPlan::new(
+    let foreign_plan = AProofPlan::inline_with_incoming(
         Variant::ArchiveReceive,
-        base.operation.sigma.clone(),
+        base.operation.sigma_plan().unwrap().clone(),
         (0..base.operation.q_count())
             .map(|i| base.operation.q(i).unwrap().clone())
             .collect(),
@@ -569,7 +570,7 @@ fn current_omega_incoming_api_matches_native_originals_and_rejects_forged_output
     }
     retain(&output, "result.json", &norito::json::to_vec(&norito::json!({
         "scope":"actual incoming transport/AProofPlan boundary; full ArchiveReceive/Receive operation and folds unqualified",
-        "k":16,"generated_proofs":0,"actual_plan_vk_keygens":5,"cases":observed,
+        "k":16,"generated_proofs":0,"actual_plan_vk_keygens":3,"cases":observed,
         "known_unknown_layout_equal":true,"actual_incoming_verify_chain":true,
         "forged_export_checks":(FORGED_INDICES.len()),"descriptor_mismatch_synthesis_error":true,
         "native_result_sha256":(hex(&sha(&native.originals[0].1))),

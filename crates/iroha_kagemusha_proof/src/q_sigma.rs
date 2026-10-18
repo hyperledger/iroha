@@ -1,13 +1,16 @@
 //! Descriptor-fixed `Q_sigma` relation over Fq (Lambda §§2.2–2.7 and §5.2).
 //!
-//! One shared verifier lane checks the own sigma hard and an optional incoming
-//! sigma soft. Witness keys are authorized by their complete `kgwvkey1` digest.
+//! One shared verifier lane checks an optional own sigma hard and an optional
+//! incoming sigma soft, at least one of them. A lean route proves its own step
+//! in A and keeps only the incoming slot. Witness keys are authorized by their
+//! complete `kgwvkey1` digest.
 //! The exact LE32 length and fixed descriptor-sized proof buffer are exported
 //! as 31-byte chunks from the same byte tape used by verification. The owning A
 //! relation checks the selected operation/mask, recomputes the 26-element
 //! statement digest, and enforces the global incoming-mode rule; Q binds those
-//! exported values and modes to its local claims. A single claim is forwarded
-//! with its source k; two claims are folded with an explicit k16 trivial slot.
+//! exported values and modes to its local claims. A single own claim is forwarded
+//! with its source k; an incoming claim is folded, after the own claim when one
+//! exists, with an explicit k16 trivial slot.
 //!
 //! TODO: qualify the composed Q/A/Omega artifacts and their final shared layouts.
 
@@ -45,7 +48,7 @@ pub struct SigmaClass {
     entries: Vec<(u8, Fq)>,
 }
 impl SigmaClass {
-    /// Binds a PIPA-R sigma descriptor and 1..=16 distinct global indices and
+    /// Binds a PIPA-R sigma descriptor and distinct global allowlist indices and
     /// key digests. The one public sigma instance is a bounded Fp statement.
     ///
     /// # Errors
@@ -56,12 +59,12 @@ impl SigmaClass {
             || descriptor.instance_lengths != [1]
             || descriptor.instance_types.as_deref() != Some(&[InstanceType::Bounded])
             || entries.is_empty()
-            || entries.len() > 16
+            || entries.len() > crate::a_relation::schedule::SIGMA_SELECTORS.len()
             || entries
                 .iter()
                 .enumerate()
                 .any(|(position, (index, digest))| {
-                    *index >= 16
+                    usize::from(*index) >= crate::a_relation::schedule::SIGMA_SELECTORS.len()
                         || entries[..position]
                             .iter()
                             .any(|(other_index, other_digest)| {
@@ -94,32 +97,57 @@ impl SigmaClass {
     }
 }
 
-/// Fixed `Q_sigma` program: one own slot and optionally one incoming slot.
+/// Fixed `Q_sigma` program: an optional own slot and an optional incoming slot,
+/// at least one of them.
 #[derive(Clone, Debug)]
 pub struct QSigmaPlan {
-    own: SigmaClass,
+    own: Option<SigmaClass>,
     incoming: Option<SigmaClass>,
     fold: Option<FoldPlan<Eq>>,
     trivial: Eq,
 }
 impl QSigmaPlan {
-    /// Fixed number of sigma slots, own first and optional incoming second.
-    pub fn slot_count(&self) -> usize {
-        1 + usize::from(self.incoming.is_some())
+    /// Role of the own step's sigma, verified hard.
+    pub const OWN: usize = 0;
+    /// Role of the incoming Send or Receive sigma, verified soft.
+    pub const INCOMING: usize = 1;
+
+    /// Whether the program verifies the own step's sigma.
+    pub const fn has_own(&self) -> bool {
+        self.own.is_some()
     }
-    /// Descriptor class of a fixed slot; indices outside the schema return None.
-    pub fn class(&self, slot: usize) -> Option<&SigmaClass> {
-        match slot {
-            0 => Some(&self.own),
-            1 => self.incoming.as_ref(),
+    /// Fixed number of sigma slots, own first when present, then incoming.
+    pub fn slot_count(&self) -> usize {
+        usize::from(self.own.is_some()) + usize::from(self.incoming.is_some())
+    }
+    /// Descriptor class of a role ([`Self::OWN`] or [`Self::INCOMING`]); an
+    /// absent role or another index returns None.
+    pub fn class(&self, role: usize) -> Option<&SigmaClass> {
+        match role {
+            Self::OWN => self.own.as_ref(),
+            Self::INCOMING => self.incoming.as_ref(),
             _ => None,
         }
     }
-    /// The slot's chunk interval in public column zero. Its statement occupies
-    /// row `slot`, its key index column two, and verdict column three.
-    pub fn chunk_range(&self, slot: usize) -> Option<core::ops::Range<usize>> {
-        let count = self.class(slot)?.chunks();
-        let start = self.slot_count() + if slot == 0 { 0 } else { self.own.chunks() };
+    /// Public position of a present role: its statement row in column zero, its
+    /// key-index row in column two and its verdict row in column three.
+    pub fn position(&self, role: usize) -> Option<usize> {
+        self.class(role)?;
+        Some(if role == Self::OWN {
+            0
+        } else {
+            usize::from(self.own.is_some())
+        })
+    }
+    /// The role's chunk interval in public column zero.
+    pub fn chunk_range(&self, role: usize) -> Option<core::ops::Range<usize>> {
+        let count = self.class(role)?.chunks();
+        let start = self.slot_count()
+            + if role == Self::OWN {
+                0
+            } else {
+                self.own.as_ref().map_or(0, SigmaClass::chunks)
+            };
         Some(start..start + count)
     }
     /// The sixteen normalized part challenges in public column zero.
@@ -129,14 +157,14 @@ impl QSigmaPlan {
     }
     /// Fixed source k of the forwarded or folded output part.
     pub fn part_source_k(&self) -> u32 {
-        if self.incoming.is_some() {
-            16
-        } else {
-            u32::from(self.own.verifier.binding().descriptor().k)
+        match (&self.own, &self.incoming) {
+            (Some(own), None) => u32::from(own.verifier.binding().descriptor().k),
+            _ => 16,
         }
     }
-    /// Fixes every slot and its descriptor. The two-sigma program explicitly
-    /// includes the pinned trivial k16 input as its third fold slot.
+    /// Fixes the own slot, an optional incoming slot and their descriptors. A
+    /// program with an incoming sigma explicitly includes the pinned trivial k16
+    /// input as its last fold slot.
     ///
     /// # Errors
     /// Insufficient k16 parameters or an invalid fixed fold schema.
@@ -145,14 +173,33 @@ impl QSigmaPlan {
         incoming: Option<SigmaClass>,
         params: &PinnedParams<Eq>,
     ) -> Result<Self, Error> {
+        Self::build(Some(own), incoming, params)
+    }
+    /// Fixes an incoming-only program for a lean route that proves its own step
+    /// in A: `F_V^Q` folds the selected incoming claim with the pinned trivial
+    /// k16 input, and the part is that k16 fold.
+    ///
+    /// # Errors
+    /// Insufficient k16 parameters or an invalid fixed fold schema.
+    pub fn incoming_only(incoming: SigmaClass, params: &PinnedParams<Eq>) -> Result<Self, Error> {
+        Self::build(None, Some(incoming), params)
+    }
+    fn build(
+        own: Option<SigmaClass>,
+        incoming: Option<SigmaClass>,
+        params: &PinnedParams<Eq>,
+    ) -> Result<Self, Error> {
         params.require_k(16).map_err(|_| Error::Synthesis)?;
-        if incoming.as_ref().is_some_and(|incoming| {
-            own.entries.iter().any(|(index, digest)| {
+        if own.is_none() && incoming.is_none() {
+            return Err(Error::Synthesis);
+        }
+        if let (Some(own), Some(incoming)) = (&own, &incoming)
+            && own.entries.iter().any(|(index, digest)| {
                 incoming.entries.iter().any(|(other_index, other_digest)| {
                     (index == other_index) != (digest == other_digest)
                 })
             })
-        }) {
+        {
             return Err(Error::Synthesis);
         }
         let trivial =
@@ -160,13 +207,17 @@ impl QSigmaPlan {
         let fold = incoming
             .as_ref()
             .map(|incoming| {
+                let mut sources = own
+                    .iter()
+                    .map(|own| FoldSource::Fixed(u32::from(own.verifier.binding().descriptor().k)))
+                    .collect::<Vec<_>>();
+                sources.push(FoldSource::Incoming(u32::from(
+                    incoming.verifier.binding().descriptor().k,
+                )));
+                sources.push(FoldSource::Fixed(16));
                 FoldPlan::with_sources(
                     params,
-                    vec![
-                        FoldSource::Fixed(u32::from(own.verifier.binding().descriptor().k)),
-                        FoldSource::Incoming(u32::from(incoming.verifier.binding().descriptor().k)),
-                        FoldSource::Fixed(16),
-                    ],
+                    sources,
                     iroha_plonk_recursion::FoldPurpose::SigmaBatch,
                 )
                 .map_err(|_| Error::Synthesis)
@@ -184,9 +235,12 @@ impl QSigmaPlan {
     /// Field is G.x/G.y; Bits4 is key indices; Bits1 is proof verdicts then
     /// incoming Accept/Trivial/Corrected; Bits5 is the selected part's source k.
     pub fn instance_lengths(&self) -> [usize; 5] {
-        let count = 1 + usize::from(self.incoming.is_some());
+        let count = self.slot_count();
         [
-            count + self.own.chunks() + self.incoming.as_ref().map_or(0, SigmaClass::chunks) + K,
+            count
+                + self.own.as_ref().map_or(0, SigmaClass::chunks)
+                + self.incoming.as_ref().map_or(0, SigmaClass::chunks)
+                + K,
             2,
             count,
             count + 3 * usize::from(self.incoming.is_some()),
@@ -229,14 +283,15 @@ pub struct IncomingSigmaWitness {
     pub mode: [bool; 3],
     /// Canonical full-group replacement; constrained different in Corrected mode.
     pub corrected: Eq,
-    /// Exact local AS witness over own, selected incoming and explicit trivial.
+    /// Exact local AS witness over own (when present), selected incoming and
+    /// explicit trivial.
     pub fold: crate::private_fold::PrivateFoldBytes,
 }
 /// Complete local relation witness, with fixed slot presence determined by the plan.
 #[derive(Clone, Debug)]
 pub struct QSigmaWitness {
-    /// Own step, always verified hard.
-    pub own: SigmaSlotWitness,
+    /// Own step, verified hard; present exactly when the program has an own slot.
+    pub own: Option<SigmaSlotWitness>,
     /// Present exactly when the fixed program has an incoming sigma slot.
     pub incoming: Option<IncomingSigmaWitness>,
 }
@@ -292,7 +347,14 @@ impl QSigmaCircuit {
         })
     }
     fn check_structure(plan: &QSigmaPlan, witness: &QSigmaWitness) -> Result<(), Error> {
-        if witness.own.proof.len() != plan.own.verifier.proof_length()
+        if plan.own.is_some() != witness.own.is_some()
+            || plan
+                .own
+                .as_ref()
+                .zip(witness.own.as_ref())
+                .is_some_and(|(class, witness)| {
+                    witness.proof.len() != class.verifier.proof_length()
+                })
             || plan.incoming.is_some() != witness.incoming.is_some()
             || plan
                 .incoming
@@ -504,8 +566,11 @@ impl Circuit<Fq> for QSigmaCircuit {
         source
     }
     fn params(&self) -> Self::Params {
-        let bytes = 4
-            + self.plan.own.verifier.proof_length()
+        let bytes = self
+            .plan
+            .own
+            .as_ref()
+            .map_or(0, |class| 4 + class.verifier.proof_length())
             + self.plan.incoming.as_ref().map_or(0, |class| {
                 4 + class.verifier.proof_length() + 4 + FOLD_WITNESS_BYTES
             });
@@ -545,13 +610,14 @@ impl Circuit<Fq> for QSigmaCircuit {
             |mut region| {
                 // All byte rows precede the curve lane in its shared columns.
                 // Integer decoding uses the independent glue/range lanes.
-                let own_tape = self.proof_tape(
-                    &mut chip,
-                    &mut bytes,
-                    &mut region,
-                    &self.witness.own.proof,
-                    self.witness.own.length,
-                )?;
+                let own_tape = self
+                    .witness
+                    .own
+                    .as_ref()
+                    .map(|own| {
+                        self.proof_tape(&mut chip, &mut bytes, &mut region, &own.proof, own.length)
+                    })
+                    .transpose()?;
                 let incoming_tapes = self
                     .witness
                     .incoming
@@ -574,18 +640,29 @@ impl Circuit<Fq> for QSigmaCircuit {
                         Ok::<_, Error>((sigma, fold))
                     })
                     .transpose()?;
-                let own = self.slot(
-                    &mut chip,
-                    own_tape,
-                    &mut region,
-                    &self.plan.own,
-                    &self.witness.own,
-                    VerificationMode::Hard,
-                )?;
-                let mut statements = vec![own.statement];
-                let mut chunks = own.chunks;
-                let mut indices = vec![own.index];
-                let mut verdicts = vec![own.valid];
+                let mut statements = Vec::new();
+                let mut chunks = Vec::new();
+                let mut indices = Vec::new();
+                let mut verdicts = Vec::new();
+                let own_claim = match (own_tape, &self.plan.own, &self.witness.own) {
+                    (Some(tape), Some(class), Some(witness)) => {
+                        let own = self.slot(
+                            &mut chip,
+                            tape,
+                            &mut region,
+                            class,
+                            witness,
+                            VerificationMode::Hard,
+                        )?;
+                        statements.push(own.statement);
+                        chunks.extend(own.chunks);
+                        indices.push(own.index);
+                        verdicts.push(own.valid);
+                        Some(own.claim)
+                    }
+                    (None, None, None) => None,
+                    _ => return Err(Error::Synthesis),
+                };
                 let part = if let Some(incoming) = &self.witness.incoming {
                     let class = self.plan.incoming.as_ref().ok_or(Error::Synthesis)?;
                     let (incoming_tape, fold_tape) = incoming_tapes.ok_or(Error::Synthesis)?;
@@ -636,17 +713,21 @@ impl Circuit<Fq> for QSigmaCircuit {
                     let TapedProof {
                         messages, length, ..
                     } = fold_tape;
+                    let inputs = own_claim
+                        .into_iter()
+                        .chain([selected, trivial])
+                        .collect::<Vec<_>>();
                     let folded = chip.verify_fold(
                         &mut region,
                         self.plan.fold.as_ref().ok_or(Error::Synthesis)?,
-                        &[own.claim, selected, trivial],
+                        &inputs,
                         &messages,
                         &length,
                         VerificationMode::Hard,
                     )?;
                     FoldInputCells::from_claim(&mut chip, &mut region, &folded.claim)?
                 } else {
-                    own.claim
+                    own_claim.ok_or(Error::Synthesis)?
                 };
                 statements.extend(chunks);
                 statements.extend(

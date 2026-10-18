@@ -268,7 +268,7 @@ impl OpeningClockV1 {
 pub struct QualificationMetricsV1 {
     /// Installation identity, native-genesis finality and compiled-profile binding.
     pub binding: OpeningPhaseV1,
-    /// The sixteen sigma sources.
+    /// The eleven sigma sources.
     pub sigma: OpeningPhaseV1,
     /// Every Q program.
     pub q: OpeningPhaseV1,

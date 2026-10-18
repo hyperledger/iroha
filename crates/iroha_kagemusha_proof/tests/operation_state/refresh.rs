@@ -10,10 +10,9 @@ use iroha_kagemusha_proof::operation_relation::{
 mod quota;
 
 const RK: u32 = 13;
-const VARIANTS: [Variant; 5] = [
+const VARIANTS: [Variant; 4] = [
     Variant::RefreshCredential,
     Variant::RefreshSchemePolicy,
-    Variant::RefreshBlacklist,
     Variant::RefreshQuotaShare,
     Variant::RefreshTimeAnchor,
 ];
@@ -117,13 +116,6 @@ impl RefreshCircuit {
                 controls: &facts[6],
                 fee: &facts[7],
             },
-            Variant::RefreshBlacklist => RefreshUpdate::Blacklist {
-                digest: &facts[0],
-                scheme: &scheme,
-                version: &facts[3],
-                root: &facts[4],
-                issued: &facts[5],
-            },
             Variant::RefreshQuotaShare => RefreshUpdate::QuotaShare {
                 digest: &facts[0],
                 scheme: &scheme,
@@ -205,7 +197,7 @@ fn fixture(variant: Variant) -> RefreshCircuit {
     before.core[core::TIME_FLOOR] = Fp::from(30);
     before.core[core::TIME_ANCHOR_MAX_RESPONSE] = Fp::from(5);
     before.core[core::LEASE_EXPIRY] = Fp::from(1000);
-    before.rest[rest::PERMITTED] = Fp::from(5);
+    before.rest[rest::PERMITTED] = Fp::from(2);
     before.rebind();
     let mut after = before.clone();
     after.core[core::SEQUENCE] += Fp::ONE;
@@ -220,18 +212,10 @@ fn fixture(variant: Variant) -> RefreshCircuit {
         }
         Variant::RefreshSchemePolicy => {
             after.core[core::POLICY_EPOCH] = f(2);
-            after.core[core::ENABLED_CONTROLS] = f(5);
+            after.core[core::ENABLED_CONTROLS] = f(2);
             after.rest[rest::SCHEME_POLICY] = f(80);
             after.rest[rest::FEE_SCHEDULE] = f(90);
-            vec![f(80), f(1), f(2), f(3), f(4), f(2), f(7), f(90)]
-        }
-        Variant::RefreshBlacklist => {
-            after.core[core::BLACKLIST_VERSION] = f(2);
-            after.core[core::BLACKLIST_ROOT] = f(89);
-            after.core[core::BLACKLIST_ISSUED_AT] = f(40);
-            after.core[core::TIME_FLOOR] = f(40);
-            after.rest[rest::BLACKLIST] = f(80);
-            vec![f(80), f(1), f(2), f(2), f(89), f(40)]
+            vec![f(80), f(1), f(2), f(3), f(4), f(2), f(3), f(90)]
         }
         Variant::RefreshQuotaShare => {
             after.rest[rest::QUOTA_SHARE] = f(80);
@@ -272,15 +256,13 @@ fn fixture(variant: Variant) -> RefreshCircuit {
 }
 
 #[test]
-fn five_refresh_state_effects_and_every_unrelated_field_are_constrained() {
+fn four_refresh_state_effects_and_every_unrelated_field_are_constrained() {
     for variant in VARIANTS {
         let c = fixture(variant);
         assert!(c.accepts(), "{variant:?}");
         for i in 0..CORE_FIELDS + REST_FIELDS {
             if i == core::STATE_NONCE
                 || (variant == Variant::RefreshQuotaShare && i == core::QUOTA_USAGE_ROOT)
-                || (variant == Variant::RefreshBlacklist
-                    && i == CORE_FIELDS + rest::BLACKLIST_HISTORY)
             {
                 continue;
             }
@@ -316,7 +298,6 @@ fn five_refresh_state_effects_and_every_unrelated_field_are_constrained() {
 fn refresh_rejects_stale_counters_wrong_objects_and_repeated_anchors() {
     for (variant, at) in [
         (Variant::RefreshSchemePolicy, 5),
-        (Variant::RefreshBlacklist, 3),
         (Variant::RefreshQuotaShare, 7),
     ] {
         let mut stale = fixture(variant);

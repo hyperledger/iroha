@@ -295,34 +295,25 @@ impl Objects {
         use crate::operation_relation::state::StateCells;
         use iroha_plonk_recursion::codec::ScalarCells;
         let zero = chip.uint().glue().constant(region, Fp::ZERO)?;
-        let mut words = plan
+        // Lean Receive: Q0 carries only the incoming sigma slot.
+        let sigma_plan = plan.operation().sigma_plan()?;
+        let row = sigma_plan
+            .position(crate::q_sigma::QSigmaPlan::INCOMING)
+            .ok_or(Error::Synthesis)?;
+        let chunks = plan
             .operation()
-            .sigma
-            .instance_lengths()
-            .map(|n| vec![zero.clone(); n]);
-        words[0][0] = own.digest().clone();
-        words[0][1] = sigma.statement().digest().clone();
-        words[2][1] = sigma.key_index().clone();
-        for (i, chunk) in plan
-            .operation()
-            .sigma
-            .chunk_range(1)
-            .ok_or(Error::Synthesis)?
-            .zip(sigma.proof_chunks())
-        {
+            .sigma_chunk_range(crate::q_sigma::QSigmaPlan::INCOMING)
+            .ok_or(Error::Synthesis)?;
+        let mut words = sigma_plan.instance_lengths().map(|n| vec![zero.clone(); n]);
+        words[0][row] = sigma.statement().digest().clone();
+        words[2][row] = sigma.key_index().clone();
+        for (i, chunk) in chunks.clone().zip(sigma.proof_chunks()) {
             words[0][i] = chunk.clone();
         }
         let mutation_slot = match self.mutation {
-            BindMutation::QDigest => Some((0, 1)),
-            BindMutation::QIndex => Some((2, 1)),
-            BindMutation::QBytes => Some((
-                0,
-                plan.operation()
-                    .sigma
-                    .chunk_range(1)
-                    .ok_or(Error::Synthesis)?
-                    .start,
-            )),
+            BindMutation::QDigest => Some((0, row)),
+            BindMutation::QIndex => Some((2, row)),
+            BindMutation::QBytes => Some((0, chunks.start)),
             _ => None,
         };
         if let Some((col, row)) = mutation_slot {
@@ -442,8 +433,6 @@ impl Objects {
             region,
             Variant::Receive,
             authorization::ReceiveAuthorizationSources {
-                current: &credential,
-                certificate: &certificate,
                 receipt: &receipt,
                 quoted: [&credential, &certificate],
             },
@@ -489,7 +478,7 @@ impl Objects {
         }
         let context = plan.assign_receive_object_claims(chip, region, &proposed)?;
         let plan_result = plan.receive_results().ok_or(Error::Synthesis)?;
-        let mut values = [Value::known(true); 5];
+        let mut values = [Value::known(true); 4];
         values[ReceiveResultTag::Objects as usize - 1] = if self.known {
             Value::known(self.valid ^ matches!(self.mutation, BindMutation::Result))
         } else {
@@ -638,7 +627,7 @@ impl Objects {
         .unwrap();
         let verifier = VerifierPlan::new(key.binding().clone(), params.clone()).unwrap();
         let q = QProofPlan::new(verifier, key.vk().clone()).unwrap();
-        let operation = AProofPlan::new(
+        let operation = AProofPlan::inline_with_incoming(
             Variant::Receive,
             sigma,
             vec![q],
@@ -814,8 +803,7 @@ impl Objects {
     fn sigma_view(&self) -> usize {
         self.context.as_ref().map_or(32, |c| {
             c.operation()
-                .sigma
-                .class(1)
+                .sigma_class(crate::q_sigma::QSigmaPlan::INCOMING)
                 .unwrap()
                 .verifier()
                 .proof_length()
@@ -877,13 +865,13 @@ fn active_receive_object_result_binds_raw_tapes_selector_and_joint_length() {
     let mut request_fields = Vec::new();
     let mut cursor = 0;
     for (index, width) in [
-        2, 32, 32, 32, 32, 32, 32, 16, 32, 16, 32, 16, 8, 32, 8, 8, 32, 32, 32,
+        2, 32, 32, 32, 32, 32, 32, 16, 32, 16, 32, 16, 8, 32, 8, 32, 32,
     ]
     .into_iter()
     .enumerate()
     {
         let bytes = &c.source[0][cursor..cursor + width];
-        if matches!(index, 1..=6 | 18) {
+        if matches!(index, 1..=6 | 16) {
             request_fields.extend([half(&bytes[..16]), half(&bytes[16..])]);
         } else {
             let mut repr = [0; 32];
@@ -893,7 +881,7 @@ fn active_receive_object_result_binds_raw_tapes_selector_and_joint_length() {
         cursor += width;
     }
     assert_eq!(cursor, ObjectKind::Request.body_len());
-    assert_eq!(request_fields.len(), 26);
+    assert_eq!(request_fields.len(), 24);
     assert_eq!(
         hash_with_domain(u64::from_le_bytes(*b"kgwcrdt1"), &request_fields),
         c.own[17]
@@ -1012,7 +1000,7 @@ fn proposed_receive_object_triples_require_every_raw_owner() {
         !wrong_projection.accepts(),
         "Receive requires its fixed active source schema"
     );
-    for slot in 0..11 {
+    for slot in 0..9 {
         for word in 0..3 {
             let mut changed = c.clone();
             changed.mutation = BindMutation::Commitment { slot, word };

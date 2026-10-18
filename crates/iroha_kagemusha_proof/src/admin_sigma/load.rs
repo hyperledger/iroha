@@ -14,9 +14,9 @@ use crate::operation_relation::map_effects::{MapState, MapTransition};
 /// and adjusted state. Consuming sigma relations require that actual prefix.
 #[derive(Clone, Copy, Debug)]
 pub struct StateWitness {
-    /// Exact 33-field state core.
+    /// Exact 29-field state core.
     pub core: [Fp; CORE_FIELDS],
-    /// Exact eight-field rest.
+    /// Exact six-field rest.
     pub rest: [Fp; REST_FIELDS],
     /// Exact 18-field private projection for this operation's sigma relation.
     pub lineage: [Fp; 18],

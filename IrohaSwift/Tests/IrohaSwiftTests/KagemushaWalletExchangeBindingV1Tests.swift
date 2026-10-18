@@ -12,7 +12,7 @@ final class KagemushaWalletExchangeBindingV1Tests: XCTestCase {
 
     func testDifferentQuotedBodyOrSignatureIsRejected() throws {
         let request = envelope(.request, requestFields())
-        for index in [0, 11] {
+        for index in [0, 9] {
             var signedRequest = uniqueRequestFields()
             if signedRequest[index].isEmpty { signedRequest[index] = Data([1]) }
             else { signedRequest[index][signedRequest[index].count - 1] ^= 1 }
@@ -105,7 +105,7 @@ final class KagemushaWalletExchangeBindingV1Tests: XCTestCase {
     func testPaymentProofRolesAreBoundedBeforeExchangeBinding() throws {
         let wire = KagemushaWalletWireV1.self
         let request = envelope(.request, requestFields())
-        for (sigma, omega) in [(0, 0), (3_520, 0), (0, 5_044), (3_520, 5_044)] {
+        for (sigma, omega) in [(0, 0), (3_520, 0), (0, 5_086), (3_520, 5_086)] {
             let payment = envelope(.payment, paymentWithProofVectors(
                 sigma: proofVector(count: sigma), omega: proofVector(count: omega)))
             XCTAssertLessThanOrEqual(payment.count, wire.messageMaximumBytes)
@@ -260,7 +260,7 @@ final class KagemushaWalletExchangeBindingV1Tests: XCTestCase {
 
     private func bodyFields() -> [Data] {
         [version, irohaPeerWalletStructuralSchemeV1, Data([0x29])]
-            + Array(repeating: Data(), count: 16)
+            + Array(repeating: Data(), count: 14)
     }
 
     private func requestFields() -> [Data] {
@@ -273,7 +273,7 @@ final class KagemushaWalletExchangeBindingV1Tests: XCTestCase {
 
     private func uniqueRequestFields() -> [Data] {
         let body = bodyFields()
-        return [4, 6, 8, 10, 12, 13, 14, 15, 16, 17, 18].map { body[$0] } + [signature]
+        return [4, 6, 8, 10, 12, 13, 14, 15, 16].map { body[$0] } + [signature]
     }
 
     private func creditedFields() -> [Data] {

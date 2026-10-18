@@ -8,13 +8,9 @@ use ff::Field;
 use iroha_kagemusha_proof::{
     a_relation::native::refresh as native,
     admin_sigma::{RefreshKind, RefreshUpdateWitness, RefreshWitness},
-    tree::IndexedInsert,
 };
 
-use super::{
-    native_inputs::{no_map_openings, retained_insertion},
-    *,
-};
+use super::{native_inputs::no_map_openings, *};
 use KagemushaWalletSignerRoleV1 as Role;
 
 #[path = "refresh/prepare.rs"]
@@ -38,7 +34,6 @@ struct DecodedRefresh {
     effect: KagemushaWalletEffectV1,
     projection: RefreshUpdateWitness,
     objects: [Vec<u8>; 2],
-    blacklist: Option<IndexedInsert<Fp>>,
     quota: Option<native::QuotaInput>,
 }
 
@@ -92,7 +87,6 @@ fn finish(
     projection: &RefreshUpdateWitness,
     certificate: &KagemushaWalletSignerCertificateV1,
     tape: Vec<u8>,
-    blacklist: Option<IndexedInsert<Fp>>,
 ) -> DecodedRefresh {
     DecodedRefresh {
         core: changed.core,
@@ -103,7 +97,6 @@ fn finish(
             signed_tape(certificate.body.transcript(), &certificate.signature),
             tape,
         ],
-        blacklist,
         quota: None,
     }
 }
@@ -115,7 +108,6 @@ struct UpdateSource<'a> {
     state: &'a KagemushaWalletStateV1,
     original: &'a [u8],
     certificates: &'a KagemushaWalletCertificateSetV1,
-    openings: &'a [Vec<u8>],
 }
 
 fn credential_update(source: &UpdateSource<'_>) -> Result<DecodedRefresh, Error> {
@@ -147,7 +139,6 @@ fn credential_update(source: &UpdateSource<'_>) -> Result<DecodedRefresh, Error>
         &values,
         certificate,
         signed_tape(update.body.transcript(), &update.signature),
-        None,
     ))
 }
 
@@ -177,37 +168,6 @@ fn scheme_policy_update(source: &UpdateSource<'_>) -> Result<DecodedRefresh, Err
         &values,
         certificate,
         signed_tape(update.body.transcript(), &update.signature),
-        None,
-    ))
-}
-
-fn blacklist_update(source: &UpdateSource<'_>) -> Result<DecodedRefresh, Error> {
-    let scheme = source.scheme;
-    let scheme_id = scheme.scheme_id();
-    let original = source.original;
-    let set = source.certificates;
-    let update = read_model(|| KagemushaWalletBlacklistV1::decode_canonical(original, &scheme_id))?;
-    let certificate =
-        authority(set.certificate(&update.body.signer_certificate, Role::RegulatoryPolicy))?;
-    authority(update.verify(scheme, certificate))?;
-    let history = retained_insertion(source.openings)?;
-    let changed = authority(source.state.refresh_policy(
-        KagemushaWalletPolicyUpdateV1::Blacklist {
-            list: &update,
-            history: &history,
-        },
-    ))?;
-    let mut values = projection(RefreshKind::Blacklist, update.blacklist_digest())?;
-    values.scheme = limbs(&update.body.scheme_id);
-    values.counter = Fp::from(update.body.list_version);
-    values.issued_at_ms = Fp::from(update.body.issued_at_ms);
-    values.root = word(update.body.entries_root)?;
-    Ok(finish(
-        &changed,
-        &values,
-        certificate,
-        signed_tape(update.body.transcript(), &update.signature),
-        Some(super::monetary::insertion(&history)?),
     ))
 }
 
@@ -235,7 +195,6 @@ fn time_anchor_update(source: &UpdateSource<'_>) -> Result<DecodedRefresh, Error
         &values,
         certificate,
         signed_tape(update.body.transcript(), &update.signature),
-        None,
     ))
 }
 
@@ -305,7 +264,6 @@ fn quota_update(
         &values,
         certificate,
         signed_tape(update.body.transcript(), &update.signature),
-        None,
     );
     decoded.quota = Some(quota);
     Ok(decoded)
@@ -334,13 +292,9 @@ fn decode_update(
         &capsule.retained_inputs,
         KagemushaWalletRetainedInputRoleV1::PolicyUpdate,
     )?;
-    crate::kagemusha_wallet_state_v1::verify_policy_update_original(
-        update_kind,
-        &scheme.scheme_id(),
-        update,
-        original_update,
-    )
-    .map_err(Error::preparation_read)?;
+    if update.is_empty() || update != original_update {
+        return Err(Error::Authority);
+    }
     let certificates = retained_original(
         &capsule.retained_inputs,
         KagemushaWalletRetainedInputRoleV1::CertificateSet,
@@ -358,10 +312,10 @@ fn decode_update(
             kind: update_kind,
             update: original_update,
             certificates,
-            openings: &capsule.map_openings,
             quota: quota.map(|original| original.bytes.as_slice()),
         },
     )?;
+    no_map_openings(&capsule.map_openings)?;
     if decoded.effect != capsule.statement.effect {
         return Err(Error::Authority);
     }
@@ -380,9 +334,6 @@ fn decode_originals(
     if originals.kind != Kind::Credential && current != successor {
         return Err(Error::Authority);
     }
-    if originals.kind != Kind::Blacklist {
-        no_map_openings(originals.openings)?;
-    }
     let quota = match (originals.kind == Kind::QuotaShare, originals.quota) {
         (true, Some(original)) => Some(read_model(|| {
             KagemushaWalletQuotaRefreshWitnessV1::decode_canonical(original)
@@ -398,12 +349,10 @@ fn decode_originals(
         state: source,
         original: originals.update,
         certificates: &set,
-        openings: originals.openings,
     };
     match originals.kind {
         Kind::Credential => credential_update(&source),
         Kind::SchemePolicy => scheme_policy_update(&source),
-        Kind::Blacklist => blacklist_update(&source),
         Kind::TimeAnchor => time_anchor_update(&source),
         Kind::QuotaShare => quota_update(&source, quota.as_ref().ok_or(Error::Authority)?),
     }
@@ -438,7 +387,6 @@ pub(crate) struct RefreshFoldFieldsV1 {
     pub(crate) state: RefreshWitness,
     pub(crate) sigma: Vec<u8>,
     pub(crate) objects: [Vec<u8>; 5],
-    pub(crate) blacklist: Option<IndexedInsert<Fp>>,
     pub(crate) quota: Option<native::QuotaInput>,
     pub(crate) predecessor: native::PredecessorInput,
 }
@@ -448,7 +396,6 @@ impl RefreshFoldFieldsV1 {
             state: self.state,
             sigma: self.sigma,
             objects: self.objects,
-            blacklist: self.blacklist,
             quota: self.quota,
             predecessor: self.predecessor,
             q,
@@ -468,7 +415,7 @@ impl PreparationV1<'_> {
     ///
     /// # Errors
     /// Changed source/owner/effect, missing or duplicate original,
-    /// bad issuer role/signature, invalid renewal, changed unrelated state or history path.
+    /// bad issuer role/signature, invalid renewal or changed unrelated state.
     pub fn refresh_native_inputs(
         &self,
         owners: RefreshOwnersV1<'_>,
@@ -547,7 +494,6 @@ impl PreparationV1<'_> {
                 owners.current.certificate_tape.clone(),
                 owners.current.credential_tape.clone(),
             ],
-            blacklist: decoded.blacklist,
             quota: decoded.quota,
             predecessor: native::PredecessorInput {
                 proof: predecessor.proof.clone(),

@@ -7,8 +7,8 @@ use crate::kagemusha::kagemusha_wallet_v1::codec_tests::{
     assert_every_flip_rejected_or_rebound, norito_tag,
 };
 
-/// Path of the shared policy vectors relative to this crate.
-const VECTORS_PATH: &str = "../../fixtures/kagemusha/wallet_enrollment_policy_v1_vectors.json";
+/// Path of the shared policy vectors relative to the repository fixture root.
+const VECTORS_PATH: &str = "fixtures/kagemusha/wallet_enrollment_policy_v1_vectors.json";
 /// Test-only switch shared with the wallet vectors: rewrite instead of comparing.
 const UPDATE_VARIABLE: &str = "IROHA_UPDATE_KAGEMUSHA_WALLET_VECTORS";
 
@@ -82,8 +82,7 @@ fn policies(
         app_policy: app.policy_digest().unwrap(),
         platform,
         regulatory_policy: KagemushaWalletRegulatoryPolicyV1 {
-            permitted_controls: if lease { 4 } else { 0 },
-            blacklist_max_age_ms: 0,
+            permitted_controls: if lease { 2 } else { 0 },
             time_anchor_max_response_ms: if lease { 5000 } else { 0 },
         },
         challenge_lifetime_ms: 120_000,
@@ -220,7 +219,6 @@ fn inputs_json(
     };
     let regulator = norito::json!({
         "permitted_controls": (enrollment.regulatory_policy.permitted_controls),
-        "blacklist_max_age_ms": (enrollment.regulatory_policy.blacklist_max_age_ms),
         "time_anchor_max_response_ms": (enrollment.regulatory_policy.time_anchor_max_response_ms),
     });
     norito::json!({
@@ -299,7 +297,7 @@ fn new_enrollment_policy_enum_tags_match_current_wallet_canonical_convention() {
 
 #[test]
 fn new_enrollment_policy_shared_vectors_file_matches_the_generated_vectors() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(VECTORS_PATH);
+    let path = crate::kagemusha::kagemusha_wallet_v1::test_fixture_path(VECTORS_PATH);
     let text = vectors_text();
     assert_eq!(text, vectors_text(), "deterministic");
     if std::env::var_os(UPDATE_VARIABLE).is_some_and(|value| value == "1") {
@@ -307,6 +305,7 @@ fn new_enrollment_policy_shared_vectors_file_matches_the_generated_vectors() {
         return;
     }
     let existing = std::fs::read_to_string(&path).expect("policy vectors");
+    // TODO(blacklist-local G5): regenerate wallet_enrollment_policy_v1_vectors.json.
     assert!(
         existing == text,
         "{} differs; regenerate with `{UPDATE_VARIABLE}=1 cargo test -p iroha_data_model \
@@ -329,21 +328,21 @@ fn new_enrollment_policy_transcript_layouts_are_exact() {
     assert_eq!(&app[66..], &[5; 32]);
     assert_eq!(apple_app.transcript().unwrap().len(), 39 + 25);
     let enrollment = android.transcript().unwrap();
-    assert_eq!(enrollment.len(), 174);
+    assert_eq!(enrollment.len(), 166);
     assert_eq!(enrollment[98], 1, "Android enrollment tag");
     assert_eq!(enrollment[99], 1, "root count");
     assert_eq!(enrollment[100], 1, "GoogleRsa family");
     assert_eq!(&enrollment[101..133], &[4; 32]);
     assert_eq!(enrollment[133], 1, "Google attestation status source");
     assert_eq!(&enrollment[134..138], &202_608_u32.to_le_bytes());
-    assert_eq!(apple.transcript().unwrap().len(), 167);
+    assert_eq!(apple.transcript().unwrap().len(), 159);
     let (_, mut vendor_policy) = policy_fixture(false);
     vendor_policy.platform = KagemushaWalletEnrollmentPlatformV1::Android {
         root_set: vec![google_rsa([4; 32]), vendor("huawei", [9; 32])],
         patch_floor_yyyymm: 202_608,
     };
     let transcript = vendor_policy.transcript().unwrap();
-    assert_eq!(transcript.len(), 140 + 34 + 38 + 6);
+    assert_eq!(transcript.len(), 132 + 34 + 38 + 6);
     assert_eq!(transcript[99], 2, "root count");
     assert_eq!(transcript[134], 3, "Vendor family");
     assert_eq!(&transcript[135..139], &6_u32.to_le_bytes());
@@ -601,7 +600,7 @@ fn new_policy_maximal_norito_frames_fit_the_complete_frame_cap() {
         );
         assert_eq!(
             enrollment.transcript().unwrap().len(),
-            if apple { 167 } else { 572 },
+            if apple { 159 } else { 564 },
             "enrollment transcript"
         );
         let app_frame = app.encode_canonical().unwrap();

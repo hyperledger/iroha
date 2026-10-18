@@ -2,6 +2,8 @@
 //!
 //! The predecessor helper currently has superseded Load ancestry. This module
 //! proves source leaves only; it never admits an Archive terminal or monetary head.
+//! Lean lineage: A proves the own step inline, so Q0 is the incoming-only
+//! `Q_sigma` and Q1 the merged signature leaf (own receipt hard, incoming soft).
 
 use ff::{Field, PrimeField};
 use iroha_kagemusha_proof::{
@@ -51,30 +53,31 @@ pub struct QSource {
 pub struct ArchiveSource {
     pub(super) predecessor: compact_catalog::CompactSendOmega,
     pub(super) archive: ArchiveFixture,
-    pub(super) own_sigma: Vec<u8>,
     pub(super) incoming_sigma: Vec<u8>,
     pub(super) incoming_statement: [Fp; 26],
+    /// The incoming-only `Q_sigma` program of Q0.
     pub(super) sigma_plan: QSigmaPlan,
-    pub(super) q: [QSource; 3],
+    /// Q0 incoming-only `Q_sigma`, Q1 merged signature leaf.
+    pub(super) q: [QSource; 2],
     pub(super) part: FoldInput<Eq>,
     pub(super) policy: OwnPolicy,
-    /// Current credential, direct certificate and own receipt, in context order.
-    pub(super) own: [Signed; 3],
+    /// Own receipt, context slot 0; the only own signed object A consumes.
+    pub(super) own: Signed,
     /// Original Request, payer credential, Send receipt and quoted receiver.
     pub(super) retained: [Vec<u8>; 4],
     /// Original Request, quoted receiver and incoming Receive receipt.
     pub(super) incoming: [Vec<u8>; 3],
     pub(super) payment: Vec<u8>,
     pub(super) credited: Vec<u8>,
-    /// Exact commitments for the sixteen original source slots, before results.
-    pub(super) commitments: [[Fp; 3]; 16],
+    /// Exact commitments for the fourteen original source slots, before results.
+    pub(super) commitments: [[Fp; 3]; 14],
     pub(super) specs: Vec<ContextObjectSpec>,
     pub(super) valid: bool,
 }
 impl ArchiveSource {
     /// Bind the caller's fixed owner metadata and all three derived result bits.
     /// The stage plan supplies owner indices; the source cannot choose them.
-    pub(super) fn context_triples(&self, result_words: &[Fp]) -> [[Fp; 3]; 17] {
+    pub(super) fn context_triples(&self, result_words: &[Fp]) -> [[Fp; 3]; 15] {
         assert_eq!(result_words.len(), 11);
         assert_eq!(&result_words[..2], &[Fp::ONE, Fp::ONE]);
         assert_eq!(
@@ -82,7 +85,7 @@ impl ArchiveSource {
             &[Fp::from(u64::from(self.valid)), Fp::ONE, Fp::ONE]
         );
         let mut values = self.commitments.to_vec();
-        values.push(internal(self.specs[16], result_words));
+        values.push(internal(self.specs[14], result_words));
         values.try_into().unwrap()
     }
 }
@@ -207,10 +210,12 @@ pub enum IncomingOriginal {
     FullEnvelopeTail,
 }
 
-/// Prove the exact own Archive and incoming Receive leaves plus all three Qs.
-/// Invalid originals are re-signed and re-hashed, so receipt and body still pass
-/// while Q0 soft-fails and selects Trivial. Q receives only its fixed safe view;
-/// A must bind the entire original, including an over-descriptor tail.
+/// Prove the own Archive sigma, the incoming Receive leaf and both Qs.
+/// The own sigma is still produced natively and named by the own receipt's
+/// proof digest; A proves the step inline and never verifies it. Invalid
+/// originals are re-signed and re-hashed, so receipt and body still pass while
+/// Q0 soft-fails and selects Trivial. Q receives only its fixed safe view; A
+/// must bind the entire original, including an over-descriptor tail.
 pub fn build(
     predecessor: compact_catalog::CompactSendOmega,
     original: IncomingOriginal,
@@ -220,11 +225,11 @@ pub fn build(
     let send = send_objects::from_load(&retained_send.before);
     assert_eq!(send.statement, retained_send.statement);
     assert_eq!(send.objects, retained_send.objects);
-    let (_, certificate, credential) = bootstrap_objects::enrollment();
+    let (_, _, credential) = bootstrap_objects::enrollment();
     assert_eq!(credential.bytes, retained_send.objects[0]);
-    assert_eq!(certificate.bytes, predecessor.source.own_objects[0]);
     let quoted = send_objects::receiver_credential();
-    let send_receipt = signed(ObjectKind::Receipt, &predecessor.source.own_objects[1], 29);
+    // Lean lineage: the own receipt is the payer's only retained own object.
+    let send_receipt = signed(ObjectKind::Receipt, &predecessor.source.own_objects[0], 29);
     let proof_tape = [
         framed(&predecessor.source.predecessor_omega),
         framed(&predecessor.source.sigma),
@@ -336,30 +341,17 @@ pub fn build(
     let policy = OwnPolicy::new([31, 32], bootstrap_objects::key(23)).unwrap();
     let pparams = PinnedParams::<Ep>::derive(16).unwrap();
     let vparams = common::vesta_params(16);
-    let sigma_plan = QSigmaPlan::new(
-        SigmaClass::new(
-            VerifierPlan::new(own_key.binding().clone(), leaf_params).unwrap(),
-            vec![(
-                sigma_selector(5, 0).unwrap(),
-                own_key.vk().kagemusha_digest(own_key.binding()).unwrap(),
-            )],
-        )
-        .unwrap(),
-        Some(
-            SigmaClass::from_verifiers(&[(sigma_selector(4, 0).unwrap(), &incoming.verifier())])
-                .unwrap(),
-        ),
+    drop(own_key);
+    // Lean: no own slot. Q0 verifies the incoming Receive sigma alone, soft.
+    let sigma_plan = QSigmaPlan::incoming_only(
+        SigmaClass::from_verifiers(&[(sigma_selector(4, 0).unwrap(), &incoming.verifier())])
+            .unwrap(),
         &vparams,
     )
     .unwrap();
     let prepared = sigma_plan
         .prepare(
-            SigmaSlotWitness {
-                key: own_key.vk().clone(),
-                statement: leaf.instances()[0][0],
-                length: own_sigma.len().try_into().unwrap(),
-                proof: own_sigma.clone(),
-            },
+            None,
             Some(IncomingSigma {
                 sigma: SigmaSlotWitness {
                     key: incoming.proving_key().vk().clone(),
@@ -380,7 +372,6 @@ pub fn build(
             &FoldConfig::default(),
         )
         .unwrap();
-    drop(own_key);
     drop(incoming);
     let qprover = QSigmaProver::keygen_serialized_foreign(&prepared, pparams.clone(), 2).unwrap();
     let qproof = qprover
@@ -404,8 +395,7 @@ pub fn build(
         .part()
         .decide(&vparams, MemoryBudget::DEFAULT)
         .unwrap();
-    assert_eq!(qproof.instances[3][0], Fq::ONE);
-    assert_eq!(qproof.instances[3][1], Fq::from(u64::from(valid)));
+    assert_eq!(qproof.instances[3][0], Fq::from(u64::from(valid)));
     let q0 = QSource {
         plan: QProofPlan::new(
             VerifierPlan::new(qprover.binding().clone(), pparams).unwrap(),
@@ -417,17 +407,12 @@ pub fn build(
         opening: FoldInput::from_opening(*opening.g(), opening.challenges()).unwrap(),
     };
     drop(qprover);
-    let schemas = ArchiveAuthorizationObjects::signature_schemas(policy).unwrap();
+    // The merged leaf: own receipt hard under the payer's payment key, then the
+    // incoming receipt soft under the quoted receiver key.
     let q1 = signature_q(
-        &schemas[0],
-        vec![
-            own_receipt.signature,
-            credential.signature,
-            certificate.signature,
-        ],
+        &ArchiveAuthorizationObjects::signature_schema().unwrap(),
+        vec![own_receipt.signature, incoming_receipt.signature],
     );
-    let q2 = signature_q(&schemas[1], vec![incoming_receipt.signature]);
-    let own = [credential, certificate, own_receipt];
     let retained = [
         send.objects[1].clone(),
         send.objects[0].clone(),
@@ -436,11 +421,13 @@ pub fn build(
     ];
     let incoming = [retained[0].clone(), quoted.bytes, incoming_receipt.bytes];
     let specs = ArchiveStagePlan::full_context_specs(Variant::ArchiveReceive).unwrap();
-    assert_eq!(specs.len(), 17);
-    let mut triples = Vec::new();
-    for (i, object) in own.iter().enumerate() {
-        triples.push(commitment(specs[i], &object.bytes, object.digest(), false));
-    }
+    assert_eq!(specs.len(), 15);
+    let mut triples = vec![commitment(
+        specs[0],
+        &own_receipt.bytes,
+        own_receipt.digest(),
+        false,
+    )];
     for (i, (kind, raw)) in [
         ObjectKind::Request,
         ObjectKind::Credential,
@@ -452,14 +439,14 @@ pub fn build(
     .enumerate()
     {
         triples.push(commitment(
-            specs[3 + i],
+            specs[1 + i],
             raw,
             archive_objects::object_digest(kind, raw),
             false,
         ));
     }
-    triples.push(commitment(specs[7], &payment, payment_digest, false));
-    triples.push(internal(specs[8], &send.statement));
+    triples.push(commitment(specs[5], &payment, payment_digest, false));
+    triples.push(internal(specs[6], &send.statement));
     for (i, raw) in [
         &predecessor.source.predecessor_omega,
         &predecessor.source.sigma,
@@ -467,34 +454,33 @@ pub fn build(
     .into_iter()
     .enumerate()
     {
-        triples.push(commitment(specs[9 + i], raw, retained_proof, true));
+        triples.push(commitment(specs[7 + i], raw, retained_proof, true));
     }
-    triples.push(internal(specs[11], &descriptor));
+    triples.push(internal(specs[9], &descriptor));
     triples.push(commitment(
-        specs[12],
+        specs[10],
         &incoming[2],
         archive_objects::object_digest(ObjectKind::Receipt, &incoming[2]),
         false,
     ));
     triples.push(commitment(
-        specs[13],
+        specs[11],
         &incoming_sigma,
         archive_objects::step_digest(&incoming_sigma),
         true,
     ));
-    triples.push(internal(specs[14], &receive.statement));
-    triples.push(commitment(specs[15], &credited, credited_digest, false));
+    triples.push(internal(specs[12], &receive.statement));
+    triples.push(commitment(specs[13], &credited, credited_digest, false));
     ArchiveSource {
         predecessor,
         archive,
-        own_sigma,
         incoming_sigma,
         incoming_statement: receive.statement,
         sigma_plan,
-        q: [q0, q1, q2],
+        q: [q0, q1],
         part: prepared.part().clone(),
         policy,
-        own,
+        own: own_receipt,
         retained,
         incoming,
         payment,

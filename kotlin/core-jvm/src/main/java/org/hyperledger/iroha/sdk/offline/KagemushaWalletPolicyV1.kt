@@ -165,7 +165,6 @@ class KagemushaWalletEnrollmentPolicyV1 private constructor(
     appPolicyDigest: ByteArray,
     @JvmField val platform: Platform,
     @JvmField val permittedControls: Long,
-    @JvmField val blacklistMaxAgeMs: BigInteger,
     @JvmField val timeAnchorMaxResponseMs: BigInteger,
     @JvmField val challengeLifetimeMs: BigInteger,
     @JvmField val attestationLeaseLifetimeMs: BigInteger,
@@ -226,7 +225,7 @@ class KagemushaWalletEnrollmentPolicyV1 private constructor(
     /** The exact app-policy digest this enrollment policy selects. */
     fun appPolicyDigest(): ByteArray = app.copyOf()
 
-    /** Exact transcript: Android is `140 + Σ root entries` bytes, Apple exactly 167. */
+    /** Exact transcript: Android is `132 + Σ root entries` bytes, Apple exactly 159. */
     fun transcript(): ByteArray {
         val out = PolicyTranscript().u16(VERSION).bytes(scheme).bytes(asset).bytes(app)
         when (val selected = platform) {
@@ -241,7 +240,7 @@ class KagemushaWalletEnrollmentPolicyV1 private constructor(
             }
             is Platform.Apple -> out.u8(2).bytes(selected.pinOriginal())
         }
-        return out.u32(permittedControls).u64(blacklistMaxAgeMs).u64(timeAnchorMaxResponseMs)
+        return out.u32(permittedControls).u64(timeAnchorMaxResponseMs)
             .u64(challengeLifetimeMs).u64(attestationLeaseLifetimeMs).finish()
     }
 
@@ -298,7 +297,6 @@ class KagemushaWalletEnrollmentPolicyV1 private constructor(
         }
         payload.field { regulatory ->
             regulatory.field { it.u32(permittedControls) }
-            regulatory.field { it.u64(blacklistMaxAgeMs) }
             regulatory.field { it.u64(timeAnchorMaxResponseMs) }
         }
         payload.field { it.u64(challengeLifetimeMs) }
@@ -314,8 +312,7 @@ class KagemushaWalletEnrollmentPolicyV1 private constructor(
         }
         // Regulatory consistency (Rust KagemushaWalletRegulatoryPolicyV1::validate).
         require(permittedControls and DEFINED_CONTROLS.inv() == 0L) { "undefined regulatory control" }
-        require(blacklistMaxAgeMs.signum() == 0 || permits(CONTROL_BLACKLIST)) { "blacklist age without the blacklist control" }
-        val timeDependent = permits(CONTROL_QUOTAS) || permits(CONTROL_ATTESTATION_LEASE) || blacklistMaxAgeMs.signum() > 0
+        val timeDependent = permits(CONTROL_QUOTAS) || permits(CONTROL_ATTESTATION_LEASE)
         require((timeAnchorMaxResponseMs.signum() > 0) == timeDependent) { "time-anchor bound inconsistent with permitted rules" }
         require(challengeLifetimeMs.signum() > 0) { "challenge lifetime must be positive" }
         require((attestationLeaseLifetimeMs.signum() > 0) == permits(CONTROL_ATTESTATION_LEASE)) {
@@ -349,10 +346,9 @@ class KagemushaWalletEnrollmentPolicyV1 private constructor(
         /** Canonical Rust type name; its Norito schema hash heads every frame. */
         const val SCHEMA_NAME: String = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletEnrollmentPolicyV1"
         private val ENROLLMENT_POLICY_SCHEMA: ByteArray = SchemaHash.hash16(SCHEMA_NAME)
-        private const val CONTROL_BLACKLIST = 1L
-        private const val CONTROL_QUOTAS = 2L
-        private const val CONTROL_ATTESTATION_LEASE = 4L
-        private const val DEFINED_CONTROLS = CONTROL_BLACKLIST or CONTROL_QUOTAS or CONTROL_ATTESTATION_LEASE
+        private const val CONTROL_QUOTAS = 1L
+        private const val CONTROL_ATTESTATION_LEASE = 2L
+        private const val DEFINED_CONTROLS = CONTROL_QUOTAS or CONTROL_ATTESTATION_LEASE
 
         /**
          * Decode one canonical original under the 1,024-byte frame cap.
@@ -402,13 +398,13 @@ class KagemushaWalletEnrollmentPolicyV1 private constructor(
                 }
             }
             val permitted = reader.field { regulatory ->
-                Triple(regulatory.field { it.u32() }, regulatory.field { it.u64() }, regulatory.field { it.u64() })
+                Pair(regulatory.field { it.u32() }, regulatory.field { it.u64() })
             }
             val challengeLifetime = reader.field { it.u64() }
             val leaseLifetime = reader.field { it.u64() }
             reader.finish()
             val policy = KagemushaWalletEnrollmentPolicyV1(
-                scheme, asset, app, platform, permitted.first, permitted.second, permitted.third, challengeLifetime, leaseLifetime,
+                scheme, asset, app, platform, permitted.first, permitted.second, challengeLifetime, leaseLifetime,
             )
             policy.validate()
             require(policy.encodeCanonical().contentEquals(frame)) { "enrollment policy original is not canonical" }

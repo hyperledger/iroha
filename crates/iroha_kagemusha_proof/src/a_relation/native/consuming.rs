@@ -1,10 +1,12 @@
-//! Installed native Unload and Retiring composition over exact original tapes.
+//! Installed native Unload and Retiring composition over exact original tapes (lean lineage).
 //!
-//! The four fixed A stages own the hard predecessor and consuming digest, recovery
-//! insertion or retirement effects, own sigma, and current credential/direct
-//! Enrollment/receipt signatures. Sessions use installed keys, verify every source
-//! and checkpoint proof, and decide all retained openings. They do not authorize
-//! a monetary head without the final rooted Omega and durable wallet commit.
+//! A1 owns the hard predecessor and proves the transition directly: the recovery
+//! insertion and value conservation, or the retirement effects. There is no own sigma
+//! verifier. A2 owns the one own-receipt signature under the predecessor payment key;
+//! the credential and its certificate are carried by continuity. Sessions use installed
+//! keys, verify every source and checkpoint proof, and decide all retained openings.
+//! They do not authorize a monetary head without the final rooted Omega and durable
+//! wallet commit.
 //! TODO: qualify installed producer parity and the full common terminal catalog.
 //! Original PK imports reconstruct the same source with unknown circuit-only
 //! witnesses and require exact installed descriptor and verifying-key agreement.
@@ -15,6 +17,7 @@ mod checkpoint;
 pub use checkpoint::{CheckpointKind, CheckpointLayout};
 
 use super::artifact::KeyArtifact;
+use super::identity::{BoundV1, ProverInstanceV1};
 use core::fmt;
 use std::sync::Arc;
 
@@ -51,13 +54,13 @@ use iroha_plonk_recursion::{
 };
 
 use super::super::{
-    AProofPlan, LineagePublicCells, ProofMessageCells, SigmaBindingCells, VestaClaimCells,
+    AProofPlan, LineagePublicCells, ProofMessageCells, VestaClaimCells,
     context::{ContextInputs, ContextPlan, ContextPredecessor, ContextState},
-    own::{ConsumingProofCells, OwnPolicy},
+    own::OwnPolicy,
     schedule::OperationTask,
     split::{SplitPlan, WCircuit, WKey, close_first},
-    unload::{UnloadObjects, UnloadProofInputs, UnloadStagePlan, UnloadStageWitness},
-    verify_predecessor, verify_sigma,
+    unload::{UnloadObjects, UnloadStagePlan, UnloadStageWitness},
+    verify_predecessor,
 };
 use crate::{
     admin_sigma::{ConsumingWitness, StateWitness},
@@ -122,9 +125,9 @@ mod tests;
 pub const SOURCE_RANGE_BUSES: usize = 3;
 const DESCRIPTOR_MAX_BYTES: usize = 1 << 20;
 const VERIFYING_KEY_MAX_BYTES: usize = 1 << 18;
-/// Exact source schedule has four A stages and three W continuations.
-pub const A_STAGE_COUNT: usize = 4;
-/// Exact internal wrapper count, ending in final A4.
+/// Exact source schedule has two A stages and one W continuation.
+pub const A_STAGE_COUNT: usize = 2;
+/// Exact internal wrapper count, ending in final A2.
 pub const W_STAGE_COUNT: usize = A_STAGE_COUNT - 1;
 use super::super::receive::OMEGA_TRANSPORT_CAP;
 
@@ -205,18 +208,14 @@ pub struct PredecessorInput {
 /// field transcripts and exact signed-body transcript||signature tapes.
 #[derive(Clone, Debug)]
 pub struct Inputs {
-    /// Exact predecessor/successor core33/rest8/public18 and own statement26.
+    /// Exact predecessor/successor core29/rest6/public18 and own statement26.
     pub state: ConsumingWitness,
-    /// Exact original unframed sigma bytes also exported by Q0.
-    pub sigma: Vec<u8>,
-    /// Exact canonical public320 plus original predecessor proof and both full claims.
-    pub omega: Vec<u8>,
-    /// Current credential, direct Enrollment certificate and own Advance Receipt.
-    pub objects: [Vec<u8>; 3],
+    /// Own Advance Receipt, the only signed object Λ consumes.
+    pub objects: [Vec<u8>; 1],
     /// Exact depth32 recovery insertion for Unload; must be absent for Retiring.
     pub recovery: Option<IndexedInsert<Fp>>,
-    /// Own `Q_sigma` and the mandatory receipt/current-credential/Enrollment Q.
-    pub q: [QInput; 2],
+    /// The mandatory own-receipt signature Q.
+    pub q: [QInput; 1],
     /// Actual predecessor proof; its key/profile comes from the installed Plan.
     pub predecessor: PredecessorInput,
 }
@@ -232,9 +231,9 @@ pub struct Plan {
     vesta: PinnedParams<Eq>,
 }
 impl Plan {
-    /// Pin the fixed [[],[],[Q0],[Q1]] schedule and every consuming task.
+    /// Pin the fixed [[],[Q0]] schedule on an inline plan and every consuming task.
     /// The variant is an installed key property, never selected by private witness data.
-    /// Hard signature slots are receipt, current credential and direct Enrollment certificate.
+    /// The one hard signature slot is the own receipt under the predecessor payment key.
     /// # Errors
     /// Wrong variant/k/schema, absent predecessor or substituted fixed signature/key policy.
     pub fn new(
@@ -248,19 +247,10 @@ impl Plan {
         if !matches!(
             operation.frame().variant(),
             Variant::Unload | Variant::Retiring
-        ) || operation.frame().part_source_k() != 12
-            || operation.q_count() != 2
+        ) || !operation.is_inline()
+            || operation.frame().part_source_k() != 16
+            || operation.q_count() != 1
             || !operation.frame().has_predecessor()
-            || operation.sigma.slot_count() != 1
-            || operation
-                .sigma
-                .class(0)
-                .ok_or(Error::Artifact)?
-                .verifier()
-                .binding()
-                .descriptor()
-                .k
-                != 12
         {
             return Err(Error::Artifact);
         }
@@ -283,25 +273,16 @@ impl Plan {
         predecessor_key
             .kagemusha_digest(predecessor.binding())
             .map_err(|_| Error::Artifact)?;
-        operation
-            .sigma
-            .class(0)
-            .ok_or(Error::Artifact)?
-            .selector_key_digest(selector_index(operation.frame().variant())?)
-            .ok_or(Error::Artifact)?;
         check_omega_transport_length(predecessor.proof_length()).map_err(|_| Error::Artifact)?;
         let slots = signatures.slots();
-        if slots.len() != 3
-            || slots.iter().any(|slot| slot.mode != VerifyMode::Hard)
-            || slots[..2]
-                .iter()
-                .any(|slot| slot.key != SignatureKey::Variable)
-            || slots[2].key != SignatureKey::Fixed(policy.root)
+        if slots.len() != 1
+            || slots[0].mode != VerifyMode::Hard
+            || slots[0].key != SignatureKey::Variable
         {
             return Err(Error::Artifact);
         }
         let signature = operation
-            .q(1)
+            .q(0)
             .ok_or(Error::Artifact)?
             .verifier()
             .binding()
@@ -339,7 +320,7 @@ impl Plan {
     }
 
     /// Verify all actual predecessor/Q proofs and both transported predecessor claims.
-    /// Derive every Q opening and sigma Vesta claim from those checked originals.
+    /// Derive every Q opening from those checked originals.
     /// # Errors
     /// Wrong tape/length/schema or any native proof/full-accumulator failure.
     pub fn prepare(&self, input: Inputs, budget: MemoryBudget) -> Result<Prepared, Error> {
@@ -360,37 +341,23 @@ impl Plan {
                 return Err(Error::Input);
             }
         }
-        super::support::check_hard_own_tapes(
-            input.objects.each_ref().map(Vec::as_slice),
-            &input.q[1].instances,
+        super::support::check_hard_own_receipt(
+            &input.objects[0],
+            &input.q[0].instances,
             core::array::from_fn(|i| input.state.predecessor.lineage[9 + i]),
-            [self.policy.root.x, self.policy.root.y],
         )
         .map_err(|_| Error::Input)?;
-        let class = self
-            .context
-            .operation()
-            .sigma
-            .class(0)
-            .ok_or(Error::Artifact)?;
-        if input.sigma.len() != class.verifier().proof_length() {
-            return Err(Error::Input);
-        }
         let variant = self.context.operation().frame().variant();
         if input.recovery.is_some() != (variant == Variant::Unload) {
             return Err(Error::Input);
         }
-        check_sigma_tape(&input, variant)?;
         let predecessor_length = self
             .context
             .operation()
             .omega()
             .ok_or(Error::Artifact)?
             .proof_length();
-        if input.predecessor.proof.len() != predecessor_length
-            || input.omega.len()
-                != 320 + predecessor_length + 2 * iroha_plonk_recursion::ACCUMULATOR_BYTES
-        {
+        if input.predecessor.proof.len() != predecessor_length {
             return Err(Error::Input);
         }
         check_omega_transport_length(predecessor_length)?;
@@ -485,24 +452,8 @@ impl Plan {
                 cancellation,
             )?);
         }
-        let part = q_sigma_part(&input.q[0], 12, variant)?;
-        part.decide_cancellable(&self.vesta, budget, cancellation)
-            .map_err(|error| {
-                if error.is_cancelled() {
-                    Error::Cancelled
-                } else {
-                    Error::Proof
-                }
-            })?;
-        let omega = lineage_bytes(
-            &input.state.predecessor.lineage,
-            &input.predecessor.proof,
-            &pallas,
-            &vesta,
-        )?;
-        if input.omega != omega {
-            return Err(Error::Input);
-        }
+        // No own sigma verifier: the part forwarded to W0 is the pinned trivial claim.
+        let part = trivial_vesta_claim()?;
         let objects = core::array::from_fn(|i| SignedTape {
             kind: object_kinds()[i],
             bytes: input.objects[i].clone(),
@@ -523,8 +474,6 @@ impl Plan {
             maps,
             objects,
             variant,
-            omega,
-            sigma: input.sigma,
             q_instances: input.q.each_ref().map(|q| q.instances.clone()).to_vec(),
             q_proofs: input.q.each_ref().map(|q| q.proof.clone()).to_vec(),
             q_openings: openings,
@@ -552,10 +501,8 @@ struct Predecessor {
 #[derive(Clone)]
 struct Sources {
     maps: Maps,
-    objects: [SignedTape; 3],
+    objects: [SignedTape; 1],
     variant: Variant,
-    sigma: Vec<u8>,
-    omega: Vec<u8>,
     q_instances: Vec<Vec<Vec<Fq>>>,
     q_proofs: Vec<Vec<u8>>,
     q_openings: Vec<FoldInput<Ep>>,
@@ -674,10 +621,8 @@ struct CircuitPredecessor {
 #[derive(Clone)]
 struct CircuitSources {
     maps: Maps,
-    objects: [SignedTape; 3],
+    objects: [SignedTape; 1],
     variant: Variant,
-    omega: Vec<u8>,
-    sigma: Vec<u8>,
     q_instances: Vec<Vec<Vec<Fq>>>,
     q_proofs: Vec<Vec<u8>>,
     signature_schema: QSignaturePlan,
@@ -700,8 +645,6 @@ impl First {
                 maps: source.maps.clone(),
                 objects: source.objects.clone(),
                 variant: source.variant,
-                omega: source.omega.clone(),
-                sigma: source.sigma.clone(),
                 q_instances: source.q_instances.clone(),
                 q_proofs: source.q_proofs.clone(),
                 signature_schema: source.signature_schema.clone(),
@@ -723,16 +666,15 @@ impl First {
 impl FirstCircuit {
     fn blank(plan: &Plan) -> Result<Self, Error> {
         let operation = plan.context.operation();
-        let class = operation.sigma.class(0).ok_or(Error::Artifact)?;
         let predecessor = operation.omega().ok_or(Error::Artifact)?;
         let state = StateWitness {
-            core: [Fp::ZERO; 33],
-            rest: [Fp::ZERO; 8],
+            core: [Fp::ZERO; 29],
+            rest: [Fp::ZERO; 6],
             lineage: [Fp::ZERO; 18],
         };
         let mut q_instances = Vec::new();
         let mut q_proofs = Vec::new();
-        for index in 0..2 {
+        for index in 0..operation.q_count() {
             let q = operation.q(index).ok_or(Error::Artifact)?;
             q_instances.push(
                 q.verifier()
@@ -768,14 +710,6 @@ impl FirstCircuit {
                 recovery: (operation.frame().variant() == Variant::Unload).then_some(insertion),
                 known: false,
             },
-            omega: vec![
-                0;
-                predecessor
-                    .proof_length()
-                    .checked_add(320 + 2 * 544)
-                    .ok_or(Error::Artifact)?
-            ],
-            sigma: vec![0; class.verifier().proof_length()],
             q_instances,
             q_proofs,
             signature_schema: plan.signatures.clone(),
@@ -913,46 +847,6 @@ impl FirstCircuit {
         )?;
         ProofMessageCells::from_run(chip, region, &run, 0, body.len())
     }
-    fn sigma(
-        &self,
-        chip: &mut VerifierChip<Ep>,
-        bytes: &mut BytesChip<Fp>,
-        region: &mut Region<'_, Fp>,
-        statement: &StatementCells,
-    ) -> Result<SigmaBindingCells, LayoutError> {
-        let length =
-            u32::try_from(self.source.sigma.len()).map_err(|_| LayoutError::BoundsFailure)?;
-        let source = length
-            .to_le_bytes()
-            .into_iter()
-            .chain(self.source.sigma.iter().copied())
-            .map(|v| self.value(v))
-            .collect::<Vec<_>>();
-        let run = bytes.run(
-            region,
-            &source,
-            &source
-                .chunks(31)
-                .map(<[Value<u8>]>::len)
-                .collect::<Vec<_>>(),
-            &[SegmentSpec::little(0, 4)],
-        )?;
-        let index = chip.uint().glue().constant(
-            region,
-            Fp::from(u64::from(
-                super::super::schedule::sigma_selector(
-                    if self.source.variant == Variant::Unload {
-                        6
-                    } else {
-                        8
-                    },
-                    0,
-                )
-                .ok_or(LayoutError::Synthesis)?,
-            )),
-        )?;
-        SigmaBindingCells::from_run(chip, region, statement, index, &run)
-    }
 }
 impl FirstCircuit {
     fn objects(
@@ -1026,7 +920,6 @@ impl Circuit<Fp> for FirstCircuit {
                     self.source.variant,
                     &fields,
                 )?;
-                let sigma = self.sigma(&mut chip, &mut bytes, &mut region, &statement)?;
                 let objects = self.objects(&mut chip, &mut bytes, &mut region)?;
                 let context_objects = objects.context();
                 let q_instances = self
@@ -1108,31 +1001,14 @@ impl Circuit<Fp> for FirstCircuit {
                     &pv,
                     &proof,
                 )?;
-                let omega = frame(&self.source.omega).map_err(|_| LayoutError::Synthesis)?;
-                let omega_run = bytes.run(
-                    &mut region,
-                    &omega.iter().map(|v| self.value(*v)).collect::<Vec<_>>(),
-                    &iroha_plonk_gadgets::bytes::chunk_segments(0, omega.len()),
-                    &ConsumingProofCells::omega_segments(self.source.predecessor.proof.len())?,
-                )?;
-                let sigma_tape = frame(&self.source.sigma).map_err(|_| LayoutError::Synthesis)?;
-                let sigma_run = bytes.run(
-                    &mut region,
-                    &sigma_tape
-                        .iter()
-                        .map(|v| self.value(*v))
-                        .collect::<Vec<_>>(),
-                    &iroha_plonk_gadgets::bytes::chunk_segments(0, sigma_tape.len()),
-                    &[SegmentSpec::little(0, 4)],
-                )?;
-                let consuming = ConsumingProofCells::from_runs(
-                    &mut chip,
-                    &mut region,
-                    &pred,
-                    &sigma,
-                    &omega_run,
-                    &sigma_run,
-                )?;
+                // A1 proves the transition beside the hard predecessor; the own
+                // receipt Q belongs to A2.
+                let tasks = self.plan.operation_tasks(0).ok_or(LayoutError::Synthesis)?;
+                let recovery = if tasks.contains(&OperationTask::UnloadRecovery) {
+                    Some(maps.insertion(&mut chip.uint(), &mut region)?)
+                } else {
+                    None
+                };
                 UnloadStagePlan::new(self.plan.clone(), self.source.policy)?.constrain_stage(
                     &mut chip,
                     &mut region,
@@ -1140,34 +1016,12 @@ impl Circuit<Fp> for FirstCircuit {
                     &objects,
                     &input,
                     UnloadStageWitness {
-                        proof: Some(UnloadProofInputs {
-                            proof: &consuming,
-                            sigma: &sigma,
-                        }),
+                        recovery: recovery.as_ref(),
                         ..UnloadStageWitness::default()
                     },
                 )?;
-                let mut verified = Vec::new();
-                for (index, columns) in q_instances
-                    .iter()
-                    .enumerate()
-                    .take(self.plan.first_q_count())
-                {
-                    let proof = self.carrier(
-                        &mut chip,
-                        &mut bytes,
-                        &mut region,
-                        &self.source.q_proofs[index],
-                    )?;
-                    let (q, _) = verify_sigma(
-                        &mut chip,
-                        &mut region,
-                        self.plan.operation(),
-                        columns,
-                        &proof,
-                        core::slice::from_ref(&sigma),
-                    )?;
-                    verified.push(q);
+                if self.plan.first_q_count() != 0 {
+                    return Err(LayoutError::Synthesis);
                 }
                 let fold = self.carrier(&mut chip, &mut bytes, &mut region, &self.fold)?;
                 let first = close_first(
@@ -1176,8 +1030,8 @@ impl Circuit<Fp> for FirstCircuit {
                     &self.plan,
                     &input,
                     Some(&pred),
-                    &verified,
-                    core::slice::from_ref(&sigma),
+                    &[],
+                    &[],
                     Some(&fold),
                     &self.source.params,
                 )?;
@@ -1283,7 +1137,6 @@ impl Circuit<Fp> for ContinuationCircuit {
                     first.source.variant,
                     &fields,
                 )?;
-                let sigma = first.sigma(&mut chip, &mut bytes, &mut region, &statement)?;
                 let objects = first.objects(&mut chip, &mut bytes, &mut region)?;
                 let context_objects = objects.context();
                 let q_instances = first
@@ -1343,7 +1196,7 @@ impl Circuit<Fp> for ContinuationCircuit {
                     &cp,
                     &cv,
                     &proof,
-                    core::slice::from_ref(&sigma),
+                    &[],
                 )?;
                 let mut verified = Vec::new();
                 for index in first
@@ -1360,17 +1213,7 @@ impl Circuit<Fp> for ContinuationCircuit {
                         &mut region,
                         &first.source.q_proofs[index],
                     )?;
-                    let q = if index == 0 {
-                        verify_sigma(
-                            &mut chip,
-                            &mut region,
-                            first.plan.operation(),
-                            columns,
-                            &proof,
-                            core::slice::from_ref(&sigma),
-                        )?
-                        .0
-                    } else {
+                    let q = {
                         let q = super::super::verify_q(
                             &mut chip,
                             &mut region,
@@ -1403,33 +1246,10 @@ impl Circuit<Fp> for ContinuationCircuit {
                     };
                     verified.push(q);
                 }
-                if !first
-                    .plan
-                    .q_partition(self.plan.stage())
-                    .ok_or(LayoutError::Synthesis)?
-                    .contains(&1)
-                {
-                    let tasks = first
-                        .plan
-                        .operation_tasks(self.plan.stage())
-                        .ok_or(LayoutError::Synthesis)?;
-                    let recovery = if tasks.contains(&OperationTask::UnloadRecovery) {
-                        Some(maps.insertion(&mut chip.uint(), &mut region)?)
-                    } else {
-                        None
-                    };
-                    UnloadStagePlan::new(first.plan.clone(), first.source.policy)?
-                        .constrain_stage(
-                            &mut chip,
-                            &mut region,
-                            self.plan.stage(),
-                            &objects,
-                            &input,
-                            UnloadStageWitness {
-                                recovery: recovery.as_ref(),
-                                ..UnloadStageWitness::default()
-                            },
-                        )?;
+                // The fixed lean layout gives every continuation the own receipt Q,
+                // so its authorization ran inside the loop above.
+                if verified.is_empty() {
+                    return Err(LayoutError::Synthesis);
                 }
                 let fold = first.carrier(&mut chip, &mut bytes, &mut region, &self.fold)?;
                 let closed = super::super::split::close_stage(
@@ -1602,6 +1422,8 @@ pub struct Prover {
     a: [KeyArtifact<Eq>; A_STAGE_COUNT],
     w: [KeyArtifact<Ep>; A_STAGE_COUNT - 1],
     wrappers: [WKey; A_STAGE_COUNT - 1],
+    // Process-local instance identity; only this instance resumes its sessions.
+    identity: ProverInstanceV1,
 }
 impl Prover {
     /// Install all fixed A/W verifier identities without retaining any PK.
@@ -1650,6 +1472,7 @@ impl Prover {
             a,
             w,
             wrappers: wrappers.try_into().map_err(|_| Error::Artifact)?,
+            identity: ProverInstanceV1::fresh(),
         })
     }
     /// Import one A original against the exact installed stage and preceding W identity.
@@ -1866,17 +1689,29 @@ impl Prover {
             prepared: self.plan.prepare_cancellable(input, budget, cancellation)?,
         })
     }
-    /// Exact installed descriptors in actual A1/W0/A2/W1/A3/W2/A4 checkpoint order.
+    /// Resume a session retained from this exact prover instance.
+    ///
+    /// Nothing is re-read or re-verified: `prepare` on this instance verified the
+    /// retained preparation. Checkpoints that session produced or restored stay
+    /// bound to the same source; every later durable entry must still be restored
+    /// strictly from its bytes.
+    /// # Errors
+    /// `Error::Input` when the state was retained from another prover instance,
+    /// including an identically installed one; the state is dropped.
+    pub fn resume(&self, retained: RetainedSession) -> Result<Session<'_>, Error> {
+        let prepared = self.identity.admit(retained.0).map_err(|_| Error::Input)?;
+        Ok(Session {
+            prover: self,
+            prepared,
+        })
+    }
+    /// Exact installed descriptors in actual A1/W0/A2 checkpoint order.
     #[must_use]
-    pub fn descriptors(&self) -> [&DescriptorBinding; 7] {
+    pub fn descriptors(&self) -> [&DescriptorBinding; A_STAGE_COUNT + W_STAGE_COUNT] {
         [
             self.a[0].binding(),
             self.w[0].binding(),
             self.a[1].binding(),
-            self.w[1].binding(),
-            self.a[2].binding(),
-            self.w[2].binding(),
-            self.a[3].binding(),
         ]
     }
 }
@@ -1967,12 +1802,32 @@ pub struct Session<'a> {
     prover: &'a Prover,
     prepared: Prepared,
 }
+
+/// An Unload/Retiring session's verified preparation, detached between fold calls.
+///
+/// Only `Session::into_retained` creates one, and only `Prover::resume` on the
+/// prover instance that prepared it consumes it. It is move-only, process-local
+/// and never serialized or built from bytes. It holds the checked originals and
+/// the source identity that the session's checkpoints carry, but no proving key,
+/// original-store handle or durable checkpoint.
+pub struct RetainedSession(BoundV1<Prepared>);
+
 impl Session<'_> {
     fn require_source(&self, source: &ACheckpoint) -> Result<(), Error> {
-        if source.stage >= 4 || !Arc::ptr_eq(&source.first.source, &self.prepared.source) {
+        if source.stage >= A_STAGE_COUNT
+            || !Arc::ptr_eq(&source.first.source, &self.prepared.source)
+        {
             return Err(Error::Input);
         }
         Ok(())
+    }
+
+    /// Detach this session's verified preparation so a later fold call can resume
+    /// it on the same prover instance instead of preparing again. Checkpoints this
+    /// session produced or restored remain usable by the resumed session.
+    #[must_use]
+    pub fn into_retained(self) -> RetainedSession {
+        RetainedSession(self.prover.identity.bind(self.prepared))
     }
 
     /// Execute the same native check with an explicit operation signal.
@@ -2189,7 +2044,7 @@ impl Session<'_> {
             .require_source_bound(key)
             .map_err(|_| Error::Artifact)?;
         self.verify_a_cancellable(source, fold.kernel_budget, config.cancellation)?;
-        if source.stage >= 3 {
+        if source.stage >= W_STAGE_COUNT {
             return Err(Error::Input);
         }
         let a = &self.prover.a[source.stage];
@@ -2285,7 +2140,7 @@ impl Session<'_> {
     ) -> Result<WCheckpoint, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         self.verify_a_cancellable(source, budget, cancellation)?;
-        if source.stage >= 3 {
+        if source.stage >= W_STAGE_COUNT {
             return Err(Error::Input);
         }
         let vesta = AccumulatorT::<Eq>::from_bytes(vesta).map_err(|_| Error::Input)?;
@@ -2340,7 +2195,7 @@ impl Session<'_> {
     ) -> Result<Continuation, Error> {
         self.require_source(&wrapper.source)?;
         let previous = wrapper.source.stage;
-        if previous >= 3 {
+        if previous >= W_STAGE_COUNT {
             return Err(Error::Input);
         }
         let split = SplitPlan::new(
@@ -2470,7 +2325,7 @@ impl Session<'_> {
             opening,
         })
     }
-    /// Restore A2/A3/A4 from its verified source W and canonical new Pallas claim.
+    /// Restore A2 from its verified source W and canonical new Pallas claim.
     /// Every context/public field is derived from the retained source chain.
     /// # Errors
     /// Canonical claim, source/context, installed key, proof or complete decide mismatch.
@@ -2555,7 +2410,7 @@ impl Session<'_> {
             opening,
         })
     }
-    /// Export A4 and all distinct final Omega obligations after another full native check.
+    /// Export A2 and all distinct final Omega obligations after another full native check.
     /// This grants neither monetary completion nor a final transported Omega.
     /// # Errors
     /// A nonterminal/wrong source checkpoint or any failed native proof/decide.
@@ -2573,7 +2428,7 @@ impl Session<'_> {
     ) -> Result<Terminal, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
         self.verify_a_cancellable(source, budget, cancellation)?;
-        if source.stage != 3 {
+        if source.stage != A_STAGE_COUNT - 1 {
             return Err(Error::Input);
         }
         if source.part.source_k() != 16 {
@@ -2650,82 +2505,25 @@ impl WCheckpoint {
         self.vesta.to_bytes()
     }
 }
-/// Actual A4 proof and every distinct obligation consumed by the final Omega producer.
+/// Actual A2 proof and every distinct obligation consumed by the final Omega producer.
 #[derive(Clone, Debug)]
 pub struct Terminal {
-    /// Original terminal A4 proof under its installed key.
+    /// Original terminal A2 proof under its installed key.
     pub proof: Vec<u8>,
     /// Exact homogeneous69-word public frame.
     pub instances: Vec<Fp>,
     /// Full accumulated Pallas claim.
     pub pallas: AccumulatorT<Ep>,
-    /// Full Vesta part forwarded by W2.
+    /// Full Vesta part forwarded by W0.
     pub vesta_part: AccumulatorT<Eq>,
     /// Full predecessor Vesta obligation, distinct from the current part and A opening.
     pub predecessor_vesta: AccumulatorT<Eq>,
-    /// Actual terminal A4 own opening, a separate final Omega slot.
+    /// Actual terminal A2 own opening, a separate final Omega slot.
     pub opening: FoldInput<Eq>,
 }
 
-fn object_kinds() -> [ObjectKind; 3] {
-    [
-        ObjectKind::Credential,
-        ObjectKind::Certificate,
-        ObjectKind::Receipt,
-    ]
-}
-
-fn check_sigma_tape(input: &Inputs, variant: Variant) -> Result<(), Error> {
-    let bounded = input.q[0].instances.first().ok_or(Error::Input)?;
-    let mut raw = u32::try_from(input.sigma.len())
-        .map_err(|_| Error::Input)?
-        .to_le_bytes()
-        .to_vec();
-    raw.extend(&input.sigma);
-    let chunks = raw
-        .chunks(31)
-        .map(|chunk| le_value::<Fq>(chunk).ok_or(Error::Input))
-        .collect::<Result<Vec<_>, _>>()?;
-    let statement = hash_with_domain(
-        iroha_plonk_gadgets::statement::STATEMENT_DOMAIN,
-        &input.state.statement,
-    );
-    let statement = Option::<Fq>::from(Fq::from_repr(statement.to_repr())).ok_or(Error::Input)?;
-    if bounded.len() != 1 + chunks.len() + K
-        || bounded[0] != statement
-        || bounded[1..=chunks.len()] != chunks
-        || input.q[0].instances.get(2).map(Vec::as_slice) != Some(&[sigma_selector(variant)?])
-    {
-        return Err(Error::Input);
-    }
-    Ok(())
-}
-
-fn q_sigma_part(input: &QInput, source_k: u32, variant: Variant) -> Result<FoldInput<Eq>, Error> {
-    let [bounded, point, indices, verdicts, source] = input.instances.as_slice() else {
-        return Err(Error::Input);
-    };
-    if point.len() != 2
-        || indices.len() != 1
-        || indices.as_slice() != [sigma_selector(variant)?]
-        || verdicts.as_slice() != [Fq::ONE]
-        || source.as_slice() != [Fq::from(u64::from(source_k))]
-        || bounded.len() < K
-    {
-        return Err(Error::Input);
-    }
-    let g = iroha_plonk::transcript::generator_from_coordinates::<Eq>(point[0], point[1])
-        .map_err(|_| Error::Input)?;
-    let challenges = bounded[bounded.len() - K..]
-        .iter()
-        .map(|v| Option::<Fp>::from(Fp::from_repr(v.to_repr())).ok_or(Error::Input))
-        .collect::<Result<Vec<_>, _>>()?;
-    FoldInput::from_normalized(
-        g,
-        source_k,
-        challenges.try_into().map_err(|_| Error::Input)?,
-    )
-    .map_err(|_| Error::Input)
+fn object_kinds() -> [ObjectKind; 1] {
+    [ObjectKind::Receipt]
 }
 
 fn object_digest(kind: ObjectKind, bytes: &[u8]) -> Result<Fp, Error> {
@@ -2808,14 +2606,15 @@ fn context_digest(first: &First) -> Result<Fp, Error> {
     Ok(hash_with_domain(u64::from_le_bytes(*b"kgwctx_1"), &words))
 }
 
-fn trivial_vesta_words() -> Result<Vec<Fp>, Error> {
+fn trivial_vesta_claim() -> Result<FoldInput<Eq>, Error> {
     let g = iroha_plonk::transcript::decode_point::<Eq>(
         &iroha_plonk_recursion::VESTA_TRIVIAL_GENERATOR,
     )
     .map_err(|_| Error::Artifact)?;
-    let claim =
-        FoldInput::<Eq>::from_normalized(g, 16, [Fp::ONE; K]).map_err(|_| Error::Artifact)?;
-    vesta_words(&claim)
+    FoldInput::<Eq>::from_normalized(g, 16, [Fp::ONE; K]).map_err(|_| Error::Artifact)
+}
+fn trivial_vesta_words() -> Result<Vec<Fp>, Error> {
+    vesta_words(&trivial_vesta_claim()?)
 }
 fn internal_public(digest: Fp, part: &FoldInput<Eq>) -> Result<Vec<Fp>, Error> {
     let mut words = vec![digest, Fp::from(u64::from(part.source_k()))];
@@ -3010,69 +2809,6 @@ fn prove_a(
         config.cancellation,
     )?;
     Ok((output.proof, opening))
-}
-
-fn selector_index(variant: Variant) -> Result<u8, Error> {
-    let tag = match variant {
-        Variant::Unload => 6,
-        Variant::Retiring => 8,
-        _ => return Err(Error::Artifact),
-    };
-    super::super::schedule::sigma_selector(tag, 0).ok_or(Error::Artifact)
-}
-fn sigma_selector(variant: Variant) -> Result<Fq, Error> {
-    selector_index(variant).map(|index| Fq::from(u64::from(index)))
-}
-
-fn frame(bytes: &[u8]) -> Result<Vec<u8>, Error> {
-    let mut out = u32::try_from(bytes.len())
-        .map_err(|_| Error::Input)?
-        .to_le_bytes()
-        .to_vec();
-    out.extend(bytes);
-    Ok(out)
-}
-
-fn lineage_bytes(
-    fields: &[Fp; 18],
-    proof: &[u8],
-    pallas: &AccumulatorT<Ep>,
-    vesta: &AccumulatorT<Eq>,
-) -> Result<Vec<u8>, Error> {
-    if fields[0] != Fp::ONE {
-        return Err(Error::Input);
-    }
-    let bounded = |index: usize, length: usize| -> Result<Vec<u8>, Error> {
-        let bytes = fields[index].to_repr();
-        if bytes[length..].iter().any(|v| *v != 0) {
-            return Err(Error::Input);
-        }
-        Ok(bytes[..length].to_vec())
-    };
-    let mut out = 1u16.to_le_bytes().to_vec();
-    for i in [1, 2, 3, 4] {
-        out.extend(bounded(i, 16)?);
-    }
-    out.extend(fields[5].to_repr());
-    for i in [6, 7] {
-        out.extend(bounded(i, 16)?);
-    }
-    out.extend(fields[8].to_repr());
-    out.push(4);
-    for i in [10, 9, 12, 11] {
-        out.extend(bounded(i, 16)?.into_iter().rev());
-    }
-    out.extend(bounded(13, 13)?);
-    out.extend(bounded(14, 16)?);
-    out.extend(fields[15].to_repr());
-    out.extend(fields[16].to_repr());
-    if out.len() != 320 {
-        return Err(Error::Input);
-    }
-    out.extend(proof);
-    out.extend(pallas.to_bytes());
-    out.extend(vesta.to_bytes());
-    Ok(out)
 }
 
 fn check_omega_transport_length(proof: usize) -> Result<(), Error> {

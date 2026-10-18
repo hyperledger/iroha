@@ -46,7 +46,7 @@ fn incoming() -> IncomingWitness {
         pallas: AccumulatorT::new(*p.g(), *p.challenges()).unwrap(),
         vesta: AccumulatorT::new(*v.g(), *v.challenges()).unwrap(),
         opening: p.clone(),
-        results: [true; 5],
+        results: [true; 4],
         modes: [IncomingMode::Accept; 4],
         pallas_corrections: [*p.g(); 2],
         vesta_correction: *v.g(),
@@ -56,7 +56,7 @@ fn incoming() -> IncomingWitness {
 #[test]
 fn every_result_and_mode_pattern_obeys_exact_non_discretionary_burn_rule() {
     let mut input = incoming();
-    for mask in 0..32 {
+    for mask in 0..16 {
         input.results = core::array::from_fn(|i| mask & (1 << i) != 0);
         for code in 0..81 {
             let mut code = code;
@@ -218,7 +218,7 @@ fn exact_original_digest_distinguishes_lengths_tails_and_every_signed_limb() {
     objects[4] = vec![7; 320 + 3712 + 1088];
     objects[5] = vec![11; 3296];
     let original = object_commitments(&specs, &objects).unwrap();
-    for slot in 0..11 {
+    for slot in 0..9 {
         for mutation in [0, objects[slot].len() / 2, objects[slot].len() - 1] {
             let mut bad = objects.clone();
             bad[slot][mutation] ^= 1;
@@ -237,7 +237,7 @@ fn exact_original_digest_distinguishes_lengths_tails_and_every_signed_limb() {
         assert_ne!(changed[slot][1], original[slot][1]);
         assert_ne!(changed[slot][2], original[slot][2]);
     }
-    for slot in [0, 1, 2, 6, 7, 8, 9, 10] {
+    for slot in [0, 1, 2, 6, 7, 8] {
         let mut bad = objects.clone();
         bad[slot].pop();
         assert_eq!(object_commitments(&specs, &bad), Err(Error::Input));
@@ -245,7 +245,7 @@ fn exact_original_digest_distinguishes_lengths_tails_and_every_signed_limb() {
 }
 
 #[test]
-fn mandatory_owner_schedule_keeps_own_sigma_before_its_later_q_verification() {
+fn mandatory_owner_schedule_proves_the_step_inline_beside_the_predecessor() {
     let tasks =
         crate::a_relation::schedule::compiled::OperationSchedule::for_variant(Variant::Receive)
             .tasks()
@@ -254,26 +254,26 @@ fn mandatory_owner_schedule_keeps_own_sigma_before_its_later_q_verification() {
     assert_eq!(
         tasks[0],
         [
-            OperationTask::ReceiveOwnProof,
-            OperationTask::ReceiveConsumedEffects
+            OperationTask::ReceiveConsumedEffects,
+            OperationTask::ReceiveTransition
         ]
     );
     assert_eq!(tasks[5], [OperationTask::ReceiveAuthorization]);
     assert_eq!(
-        tasks[7],
+        tasks[6],
         [
             OperationTask::ReceiveSignatures,
             OperationTask::ReceiveCreditEffects
         ]
     );
-    assert_eq!(tasks[9], [OperationTask::ReceiveEffects]);
+    assert_eq!(tasks[8], [OperationTask::ReceiveEffects]);
     let mut flat = tasks
         .into_iter()
         .flatten()
         .map(|t| t as u32)
         .collect::<Vec<_>>();
     flat.sort_unstable();
-    assert_eq!(flat, [11, 12, 13, 14, 15, 16, 17, 18, 23, 36, 37]);
+    assert_eq!(flat, [11, 12, 13, 14, 16, 18, 23, 36, 37, 46]);
     assert_eq!((INTERNAL_RANGE_BUSES, TERMINAL_RANGE_BUSES), (4, 3));
 }
 

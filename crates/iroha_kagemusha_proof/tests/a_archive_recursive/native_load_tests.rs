@@ -1,6 +1,6 @@
 //! Funded Archive acceptance and no-op branches under exact native-BLS Load originals.
 //!
-//! These partial-catalog component cases do not establish full52 admission or
+//! These partial-catalog component cases do not establish full22 admission or
 //! real-network settlement. TODO: Compile and execute on the current candidate.
 
 #[path = "../common/first_load_fixture.rs"]

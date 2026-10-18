@@ -13,7 +13,7 @@ use crate::kagemusha::kagemusha_wallet_v1::{
             IdentityFixture, identity_fixture, raw_output, signing_key, test_certificate,
         },
     },
-    poseidon::{KagemushaWalletIndexedTreeV1, kagemusha_wallet_poseidon_v1},
+    poseidon::kagemusha_wallet_poseidon_v1,
     state::{KagemushaWalletLifecycleV1, state_tests::field_value},
 };
 
@@ -54,7 +54,6 @@ fn policy_fixture() -> PolicyFixture {
     let mut body = identity.credential.body;
     body.regulatory_policy = KagemushaWalletRegulatoryPolicyV1 {
         permitted_controls: KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1,
-        blacklist_max_age_ms: DAY_MS,
         time_anchor_max_response_ms: MAX_RESPONSE_MS,
     };
     body.lease_expires_at_ms = LEASE_MS;
@@ -243,7 +242,6 @@ impl PolicyFixture {
     /// State with every control enabled and the given objects committed by `RefreshPolicy`.
     fn controlled_state(
         &self,
-        list: Option<&KagemushaWalletBlacklistV1>,
         share: Option<&KagemushaWalletQuotaShareV1>,
         anchor: Option<&KagemushaWalletTimeAnchorV1>,
     ) -> KagemushaWalletStateV1 {
@@ -254,25 +252,6 @@ impl PolicyFixture {
             .expect("scheme policy");
         state.core = refresh.core;
         state.rest = refresh.rest;
-        if let Some(list) = list {
-            let mut history = KagemushaWalletIndexedTreeV1::new();
-            assert_eq!(history.root(), state.rest.blacklist_history_root);
-            let insertion = KagemushaWalletBlacklistHistoryLeafV1 {
-                list_version: list.body.list_version,
-                entries_root: list.body.entries_root,
-            }
-            .insert_into(&mut history)
-            .expect("original blacklist history insertion");
-            let refresh = state
-                .refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist {
-                    list,
-                    history: &insertion,
-                })
-                .expect("blacklist");
-            state.core = refresh.core;
-            state.rest = refresh.rest;
-            assert_eq!(state.rest.blacklist_history_root, history.root());
-        }
         if let Some(share) = share {
             let usage = KagemushaWalletQuotaUsageArrayV1::empty();
             assert_eq!(usage.root(), state.core.quota_usage_root);
@@ -510,11 +489,15 @@ fn kagemusha_wallet_v1_scheme_policy_sign_verify_decode() {
     body.policy_epoch = 0;
     assert!(is_invalid(body.validate(), "scheme_policy.policy_epoch"));
     body.policy_epoch = 1;
-    body.enabled_controls = 1 << 3;
-    assert!(is_invalid(
-        body.validate(),
-        "scheme_policy.enabled_controls"
-    ));
+    // Only the quota and lease bits are defined.
+    assert_eq!(KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1, 0b11);
+    for undefined in [1 << 2, 1 << 3] {
+        body.enabled_controls = undefined;
+        assert!(is_invalid(
+            body.validate(),
+            "scheme_policy.enabled_controls"
+        ));
+    }
     // The Enrollment-role certificate cannot sign policy.
     let body = policy.body;
     assert!(is_invalid(
@@ -694,71 +677,54 @@ fn kagemusha_wallet_v1_blacklist_root_matches_the_full_tree() {
     }
 }
 
+#[track_caller]
+fn assert_blocked<T: core::fmt::Debug>(result: WalletResult<T>, expected: &str) {
+    match result {
+        Err(KagemushaWalletValidationErrorV1::BlockedAccount { field }) if field == expected => {}
+        other => panic!("expected blocked `{expected}`, got {other:?}"),
+    }
+}
+
+/// The local blacklist (owner decision 2026-10-17): a held, authenticated list refuses exactly
+/// its listed accounts under the caller's field label, and with no list held nothing is
+/// refused.
 #[test]
-fn kagemusha_wallet_v1_blacklist_gap_openings() {
+fn kagemusha_wallet_v1_local_block_refuses_only_listed_accounts() {
     let f = policy_fixture();
     let list = f.blacklist(1, T0_MS, vec![entry(0x10), entry(0x20), entry(0x30)]);
-    let root = list.body.entries_root;
-    for (account, leaf_index, lower, upper) in [
-        ([0x01; 32], 0, [0x00; 32], [0x10; 32]),
-        ([0x15; 32], 1, [0x10; 32], [0x20; 32]),
-        ([0x2f; 32], 2, [0x20; 32], [0x30; 32]),
-        ([0xfe; 32], 3, [0x30; 32], [0xff; 32]),
-    ] {
-        assert!(!list.contains(&account));
-        let opening = list.gap_opening(&account).expect("opening");
-        assert_eq!(
-            (opening.leaf_index, opening.lower, opening.upper),
-            (leaf_index, lower, upper)
-        );
-        opening.verify(&root, &account).expect("verify");
-        assert_eq!(opening.root().expect("root"), root);
-        let mut tampered = opening;
-        tampered.siblings[15][0] ^= 1;
-        assert!(is_invalid(
-            tampered.verify(&root, &account),
-            "blacklist.opening"
-        ));
-        let mut moved = opening;
-        moved.leaf_index ^= 1;
-        assert!(is_invalid(
-            moved.verify(&root, &account),
-            "blacklist.opening"
-        ));
-        let mut wide = opening;
-        wide.siblings[3] = [0xff; 32];
-        assert!(is_invalid(wide.verify(&root, &account), "blacklist.node"));
-    }
-    let opening = list.gap_opening(&[0x15; 32]).expect("opening");
-    assert!(is_invalid(
-        opening.verify(&root, &[0x20; 32]),
-        "blacklist.listed"
-    ));
-    assert!(is_invalid(
-        opening.verify(&root, &[0x10; 32]),
-        "blacklist.listed"
-    ));
-    let mut outside = opening;
-    outside.leaf_index = KAGEMUSHA_WALLET_BLACKLIST_LEAVES_V1;
-    assert!(is_invalid(outside.root(), "blacklist.leaf_index"));
-    assert!(list.contains(&[0x20; 32]));
-    assert!(is_invalid(
-        list.gap_opening(&[0x20; 32]),
-        "blacklist.listed"
-    ));
-    assert!(is_invalid(
-        list.gap_opening(&[0x00; 32]),
-        "blacklist.account_digest"
-    ));
-    assert!(is_invalid(
-        list.gap_opening(&[0xff; 32]),
-        "blacklist.account_digest"
-    ));
+    list.verify(f.scheme(), &f.regulator_certificate)
+        .expect("verify list");
     let empty = f.blacklist(2, T0_MS, Vec::new());
-    let opening = empty.gap_opening(&[0x42; 32]).expect("empty list opening");
-    opening
-        .verify(&empty.body.entries_root, &[0x42; 32])
-        .expect("verify");
+    for field in [
+        "request.payer_account_digest",
+        "request.receiver_account_digest",
+    ] {
+        for listed in [entry(0x10), entry(0x20), entry(0x30)] {
+            assert!(list.contains(&listed.account_digest));
+            assert_blocked(
+                kagemusha_wallet_local_block_v1(Some(&list), field, &listed.account_digest),
+                field,
+            );
+            kagemusha_wallet_local_block_v1(None, field, &listed.account_digest)
+                .expect("no list held");
+            kagemusha_wallet_local_block_v1(Some(&empty), field, &listed.account_digest)
+                .expect("empty list");
+        }
+        for unlisted in [[0x01; 32], [0x15; 32], [0x2f; 32], [0xfe; 32]] {
+            assert!(!list.contains(&unlisted));
+            kagemusha_wallet_local_block_v1(Some(&list), field, &unlisted)
+                .expect("unlisted account");
+            kagemusha_wallet_local_block_v1(None, field, &unlisted).expect("no list held");
+        }
+    }
+    let rendered =
+        kagemusha_wallet_local_block_v1(Some(&list), "request.payer_account_digest", &[0x20; 32])
+            .expect_err("listed account")
+            .to_string();
+    assert_eq!(
+        rendered,
+        "KAGEMUSHA wallet V1 `request.payer_account_digest` is on the local blacklist"
+    );
 }
 
 /// A digest of `fill` bytes with byte `index` set to `value`.
@@ -769,7 +735,7 @@ fn digest_with(fill: u8, index: usize, value: u8) -> [u8; 32] {
 }
 
 /// Entries whose unsigned byte order and limb order differ (owner answer A4): the list is
-/// sorted, the tree built and gaps bracketed in limb order `hi · 2^128 + lo`.
+/// sorted, the tree built and membership decided in limb order `hi · 2^128 + lo`.
 #[test]
 fn kagemusha_wallet_v1_blacklist_order_is_the_limb_order() {
     // small_high has the larger byte 0 (byte order) but the smaller high limb (limb order).
@@ -809,143 +775,33 @@ fn kagemusha_wallet_v1_blacklist_order_is_the_limb_order() {
     ));
     let fixture = policy_fixture();
     let list = fixture.blacklist(1, T0_MS, sorted);
+    assert_eq!(list.body.entries_root, root);
     for listed in [small_high, large_high, full_low, next_high] {
         assert!(list.contains(&listed));
-        assert!(is_invalid(list.gap_opening(&listed), "blacklist.listed"));
+        assert_blocked(
+            kagemusha_wallet_local_block_v1(
+                Some(&list),
+                "request.receiver_account_digest",
+                &listed,
+            ),
+            "request.receiver_account_digest",
+        );
     }
     // `between` lies between small_high and large_high in limb order but above both in byte
-    // order.
+    // order. Just below full_low (in its low limb) and just above next_high are unlisted,
+    // although byte 0 orders them the other way.
     let between = digest_with(0x10, 0, 0xf1);
     assert!(between > small_high && between > large_high);
-    assert!(!list.contains(&between));
-    let opening = list.gap_opening(&between).expect("gap");
-    assert_eq!(
-        (opening.leaf_index, opening.lower, opening.upper),
-        (1, small_high, large_high)
-    );
-    opening.verify(&root, &between).expect("verify");
-    // The byte-order reading would put `between` in the gap (large_high, full_low): limb order
-    // rejects it.
-    let byte_gap = list.gap_opening(&digest_with(0x10, 31, 0x12)).expect("gap");
-    assert_eq!((byte_gap.lower, byte_gap.upper), (large_high, full_low));
-    assert!(is_invalid(
-        byte_gap.verify(&root, &between),
-        "blacklist.listed"
-    ));
-    // full_low and next_high are adjacent integers across the limb boundary
-    // (full_low + 1 = next_high): their gap is empty. Just below full_low (in its low limb) is
-    // the gap (large_high, full_low); just above next_high is the gap (next_high, FF..FF),
-    // although byte 0 orders them the other way.
     let mut below = full_low;
     below[0] = 0xfe;
     assert!(below > next_high);
-    let below = list.gap_opening(&below).expect("gap");
-    assert_eq!(
-        (below.leaf_index, below.lower, below.upper),
-        (2, large_high, full_low)
-    );
     let mut beyond = next_high;
     beyond[0] = 0x01;
-    let above = list.gap_opening(&beyond).expect("gap");
-    assert_eq!(
-        (above.leaf_index, above.lower, above.upper),
-        (4, next_high, KAGEMUSHA_WALLET_BLACKLIST_SENTINEL_HIGH_V1)
-    );
-    above.verify(&root, &beyond).expect("verify");
-}
-
-/// Two-sided enforcement (owner answer A5): each phone enforces only its own committed list,
-/// lists differ between phones, and with no list held every account is allowed at issuance.
-#[test]
-fn kagemusha_wallet_v1_two_sided_blacklist_checks() {
-    let f = policy_fixture();
-    let anchor = f.time_anchor(T0_MS);
-    let payer_account = [0x15; 32];
-    let receiver_account = [0x25; 32];
-    let early = interval(T0_MS + 10, T0_MS + 20);
-    let stale = interval(T0_MS, T0_MS + DAY_MS + 1);
-
-    // Phone A lists the receiver; phone B lists the payer; phone C lists neither.
-    let lists_receiver = f.blacklist(1, T0_MS, vec![entry(0x10), entry(0x25)]);
-    let lists_payer = f.blacklist(1, T0_MS, vec![entry(0x15), entry(0x30)]);
-    let lists_neither = f.blacklist(1, T0_MS, vec![entry(0x30)]);
-    let phone_a = f.controlled_state(Some(&lists_receiver), None, Some(&anchor));
-    let phone_b = f.controlled_state(Some(&lists_payer), None, Some(&anchor));
-    let phone_c = f.controlled_state(Some(&lists_neither), None, Some(&anchor));
-    for phone in [&phone_a, &phone_b, &phone_c] {
-        assert!(phone.enforces_blacklist());
+    for unlisted in [between, digest_with(0x10, 31, 0x12), below, beyond] {
+        assert!(!list.contains(&unlisted));
+        kagemusha_wallet_local_block_v1(Some(&list), "request.receiver_account_digest", &unlisted)
+            .expect("unlisted account");
     }
-
-    // Payer side (Send): only the payer's own list counts.
-    assert!(is_invalid(
-        phone_a.check_send_blacklist(Some(&lists_receiver), &receiver_account, &early),
-        "blacklist.listed"
-    ));
-    assert!(
-        phone_b
-            .check_send_blacklist(Some(&lists_payer), &receiver_account, &early)
-            .expect("phone B does not list the receiver")
-            .is_some()
-    );
-    // Receiver side at Request issuance: only the receiver's own list counts.
-    assert!(is_invalid(
-        phone_b.check_request_blacklist(Some(&lists_payer), &payer_account),
-        "blacklist.listed"
-    ));
-    let opening = phone_a
-        .check_request_blacklist(Some(&lists_receiver), &payer_account)
-        .expect("phone A does not list the payer")
-        .expect("enforced");
-    opening
-        .verify(&phone_a.core.blacklist_root, &payer_account)
-        .expect("gap opening");
-    phone_c
-        .check_request_blacklist(Some(&lists_neither), &payer_account)
-        .expect("phone C allows the payer");
-    phone_c
-        .check_send_blacklist(Some(&lists_neither), &receiver_account, &early)
-        .expect("phone C allows the receiver");
-    // The list-age rule applies to Send only.
-    assert!(is_invalid(
-        phone_c.check_send_blacklist(Some(&lists_neither), &receiver_account, &stale),
-        "blacklist.age"
-    ));
-    // Each phone checks against its own committed list only: another phone's list, or none,
-    // is refused while a list is held.
-    assert!(is_invalid(
-        phone_c.check_request_blacklist(Some(&lists_payer), &payer_account),
-        "state.rest.blacklist"
-    ));
-    assert!(is_invalid(
-        phone_c.check_request_blacklist(None, &payer_account),
-        "blacklist.missing"
-    ));
-
-    // No list held (version 0): every account is allowed, with or without the control.
-    let no_list = f.controlled_state(None, None, Some(&anchor));
-    assert!(!no_list.enforces_blacklist());
-    assert_eq!(
-        no_list
-            .check_request_blacklist(None, &payer_account)
-            .expect("no list held"),
-        None
-    );
-    assert_eq!(
-        no_list
-            .check_send_blacklist(None, &receiver_account, &stale)
-            .expect("no list held, no age rule"),
-        None
-    );
-    // A held list without the enabled control is not enforced.
-    let mut disabled = phone_b;
-    disabled.core.enabled_controls &= !KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1;
-    assert!(!disabled.enforces_blacklist());
-    assert_eq!(
-        disabled
-            .check_request_blacklist(Some(&lists_payer), &payer_account)
-            .expect("control disabled"),
-        None
-    );
 }
 
 #[test]
@@ -1005,49 +861,25 @@ fn kagemusha_wallet_v1_blacklist_uses_little_endian_integer_order() {
     assert_eq!(decoded, list);
     for listed in entries {
         assert!(decoded.contains(&listed.account_digest));
-        assert!(is_invalid(
-            decoded.gap_opening(&listed.account_digest),
-            "blacklist.listed"
-        ));
+        assert_blocked(
+            kagemusha_wallet_local_block_v1(
+                Some(&decoded),
+                "request.payer_account_digest",
+                &listed.account_digest,
+            ),
+            "request.payer_account_digest",
+        );
     }
-    for (account, leaf_index, lower, upper) in [
-        (digest(0x10, 0x70), 0, [0; 32], entries[0].account_digest),
-        (
-            digest(0x02, 0x85),
-            1,
-            entries[0].account_digest,
-            entries[1].account_digest,
-        ),
-        (
-            digest(0xfe, 0x95),
-            2,
-            entries[1].account_digest,
-            entries[2].account_digest,
-        ),
-        (digest(0x03, 0xb0), 3, entries[2].account_digest, [0xff; 32]),
+    // Accounts in each integer gap, including below the first and above the last entry.
+    for account in [
+        digest(0x10, 0x70),
+        digest(0x02, 0x85),
+        digest(0xfe, 0x95),
+        digest(0x03, 0xb0),
     ] {
         assert!(!decoded.contains(&account));
-        let opening = decoded.gap_opening(&account).expect("integer gap");
-        assert_eq!(
-            (opening.leaf_index, opening.lower, opening.upper),
-            (leaf_index, lower, upper)
-        );
-        opening
-            .verify(&decoded.body.entries_root, &account)
-            .expect("verify integer gap");
-        for boundary in [lower, upper] {
-            assert!(is_invalid(
-                opening.verify(&decoded.body.entries_root, &boundary),
-                "blacklist.listed"
-            ));
-        }
-        let mut inverted = opening;
-        inverted.lower = upper;
-        inverted.upper = lower;
-        assert!(is_invalid(
-            inverted.verify(&decoded.body.entries_root, &account),
-            "blacklist.listed"
-        ));
+        kagemusha_wallet_local_block_v1(Some(&decoded), "request.payer_account_digest", &account)
+            .expect("unlisted account");
     }
 }
 
@@ -1114,15 +946,13 @@ fn kagemusha_wallet_v1_maximum_blacklist_fits_its_frame_cap() {
     assert!(frame.len() <= KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1);
     let decoded =
         KagemushaWalletBlacklistV1::decode_canonical(&frame, &f.scheme_id()).expect("decode");
-    let opening = decoded.gap_opening(&[0x02; 32]).expect("above every entry");
     assert_eq!(
-        opening.leaf_index,
+        decoded.body.entry_count,
         KAGEMUSHA_WALLET_BLACKLIST_ENTRIES_MAX_V1
     );
-    assert_eq!(opening.upper, KAGEMUSHA_WALLET_BLACKLIST_SENTINEL_HIGH_V1);
-    opening
-        .verify(&decoded.body.entries_root, &[0x02; 32])
-        .expect("verify");
+    let last = decoded.entries.last().expect("last entry").account_digest;
+    assert!(decoded.contains(&last));
+    assert!(!decoded.contains(&[0x02; 32]), "above every entry");
     let mut too_many = decoded.entries.clone();
     too_many.push(entry(0x03));
     assert!(is_invalid(
@@ -1320,7 +1150,7 @@ fn kagemusha_wallet_v1_quota_intersections_and_charges() {
     ));
 
     let share = f.quota_share(1, windows.clone());
-    let mut state = f.controlled_state(None, Some(&share), None);
+    let mut state = f.controlled_state(Some(&share), None);
     let mut usage = KagemushaWalletQuotaUsageArrayV1::zero_for(&windows).expect("usage");
     assert_eq!(usage.root(), state.core.quota_usage_root);
     usage
@@ -1557,7 +1387,7 @@ fn kagemusha_wallet_v1_effective_accepted_time() {
     let anchor = f.time_anchor(T0_MS);
     let anchored = KagemushaWalletAnchoredTimeV1::new(anchor, BOOT, 1_000, 1_300, MAX_RESPONSE_MS)
         .expect("anchored");
-    let state = f.controlled_state(None, None, Some(&anchor));
+    let state = f.controlled_state(None, Some(&anchor));
     assert!(state.send_requires_time_anchor());
     assert!(is_invalid(
         state.effective_accepted_time(None, None, 0),
@@ -1661,64 +1491,7 @@ fn kagemusha_wallet_v1_refresh_policy_rules() {
         0
     );
 
-    // Blacklist, quota share and time anchor raise the floor to their signed time.
-    let list = f.blacklist(1, T0_MS + 10, vec![entry(0x10)]);
-    let mut history = KagemushaWalletIndexedTreeV1::new();
-    assert_eq!(history.root(), state.rest.blacklist_history_root);
-    let insertion = KagemushaWalletBlacklistHistoryLeafV1 {
-        list_version: list.body.list_version,
-        entries_root: list.body.entries_root,
-    }
-    .insert_into(&mut history)
-    .expect("first history insertion");
-    let mut corrupted = insertion;
-    corrupted.low.value = [0xff; 32];
-    assert!(is_invalid(
-        state.refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist {
-            list: &list,
-            history: &corrupted,
-        }),
-        "blacklist_history.insert"
-    ));
-    let refresh = state
-        .refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist {
-            list: &list,
-            history: &insertion,
-        })
-        .expect("blacklist");
-    assert_eq!(refresh.core.blacklist_version, 1);
-    assert_eq!(refresh.core.blacklist_root, list.body.entries_root);
-    assert_eq!(refresh.rest.blacklist_history_root, history.root());
-    assert_eq!(refresh.core.accepted_time_floor_ms, T0_MS + 10);
-    let mut listed = state;
-    listed.core = refresh.core;
-    listed.rest = refresh.rest;
-    assert!(is_invalid(
-        listed.refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist {
-            list: &list,
-            history: &insertion,
-        }),
-        "blacklist.list_version"
-    ));
-    let older = f.blacklist(2, T0_MS, vec![]);
-    let older_insertion = KagemushaWalletBlacklistHistoryLeafV1 {
-        list_version: older.body.list_version,
-        entries_root: older.body.entries_root,
-    }
-    .insert_into(&mut history)
-    .expect("next authentic history insertion");
-    assert_eq!(
-        listed
-            .refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist {
-                list: &older,
-                history: &older_insertion,
-            })
-            .expect("older issuance never lowers the floor")
-            .core
-            .accepted_time_floor_ms,
-        T0_MS + 10
-    );
-
+    // Quota share and time anchor raise the floor to their signed time.
     let share = f.quota_share(1, sample_windows());
     let mut slots = *KagemushaWalletQuotaUsageArrayV1::zero_for(&share.windows)
         .expect("native usage array")
@@ -1784,6 +1557,18 @@ fn kagemusha_wallet_v1_refresh_policy_rules() {
         anchored.refresh_policy(KagemushaWalletPolicyUpdateV1::TimeAnchor { anchor: &anchor }),
         "time_anchor.unchanged"
     ));
+    // An older signed time never lowers the floor.
+    assert_eq!(
+        anchored
+            .refresh_policy(KagemushaWalletPolicyUpdateV1::QuotaShare {
+                share: &share,
+                usage: &empty,
+            })
+            .expect("older issuance never lowers the floor")
+            .core
+            .accepted_time_floor_ms,
+        T0_MS + 99
+    );
     let later = f.time_anchor(T0_MS + 100);
     let refresh = anchored
         .refresh_policy(KagemushaWalletPolicyUpdateV1::TimeAnchor { anchor: &later })
@@ -1834,9 +1619,8 @@ fn kagemusha_wallet_v1_refresh_policy_rules() {
 fn kagemusha_wallet_v1_send_control_checks() {
     let f = policy_fixture();
     let anchor = f.time_anchor(T0_MS);
-    let list = f.blacklist(1, T0_MS, vec![entry(0x10), entry(0x20)]);
     let share = f.quota_share(1, sample_windows());
-    let state = f.controlled_state(Some(&list), Some(&share), Some(&anchor));
+    let state = f.controlled_state(Some(&share), Some(&anchor));
     assert_eq!(state.core.lifecycle, KagemushaWalletLifecycleV1::Active);
     let early = interval(T0_MS + 10, T0_MS + 20);
 
@@ -1849,53 +1633,6 @@ fn kagemusha_wallet_v1_send_control_checks() {
     let idle = f.state();
     idle.check_lease(&interval(LEASE_MS, LEASE_MS))
         .expect("inactive lease never blocks");
-
-    // Blacklist.
-    let opening = state
-        .check_send_blacklist(Some(&list), &[0x15; 32], &early)
-        .expect("not listed")
-        .expect("enforced");
-    opening
-        .verify(&state.core.blacklist_root, &[0x15; 32])
-        .expect("opening");
-    assert!(is_invalid(
-        state.check_send_blacklist(Some(&list), &[0x20; 32], &early),
-        "blacklist.listed"
-    ));
-    assert!(is_invalid(
-        state.check_send_blacklist(None, &[0x15; 32], &early),
-        "blacklist.missing"
-    ));
-    let other = f.blacklist(1, T0_MS, vec![entry(0x30)]);
-    assert!(is_invalid(
-        state.check_send_blacklist(Some(&other), &[0x15; 32], &early),
-        "state.rest.blacklist"
-    ));
-    assert!(is_invalid(
-        state.check_send_blacklist(
-            Some(&list),
-            &[0x15; 32],
-            &interval(T0_MS, T0_MS + DAY_MS + 1)
-        ),
-        "blacklist.age"
-    ));
-    state
-        .check_send_blacklist(Some(&list), &[0x15; 32], &interval(T0_MS, T0_MS + DAY_MS))
-        .expect("exactly at the maximum age");
-    assert!(matches!(
-        state.check_send_blacklist(Some(&list), &[0x15; 32], &interval(T0_MS - 2, T0_MS - 1)),
-        Err(KagemushaWalletValidationErrorV1::ArithmeticOverflow {
-            field: "blacklist.age"
-        })
-    ));
-    // A missing list blocks nothing.
-    let unlisted = f.controlled_state(None, Some(&share), Some(&anchor));
-    assert_eq!(
-        unlisted
-            .check_send_blacklist(None, &[0x20; 32], &early)
-            .expect("no list held"),
-        None
-    );
 
     // Quotas: the exact native array must open the payer head before any charge.
     let predecessor = KagemushaWalletQuotaUsageArrayV1::zero_for(&share.windows).expect("usage");
@@ -1999,123 +1736,6 @@ fn kagemusha_wallet_v1_send_control_checks() {
     ));
 }
 
-/// Recorded blacklist decisions are authenticated under the receiving head's retained history;
-/// the current list and enabled control cannot replace the original recorded decision.
-#[test]
-fn kagemusha_wallet_v1_recorded_blacklist_uses_exact_history_and_original_gap() {
-    let f = policy_fixture();
-    let account = [0x15; 32];
-    let list = f.blacklist(1, T0_MS, vec![entry(0x10), entry(0x20)]);
-    list.verify(f.scheme(), &f.regulator_certificate)
-        .expect("signed list");
-    let state = f.controlled_state(Some(&list), None, None);
-    let history_entry = KagemushaWalletBlacklistHistoryLeafV1 {
-        list_version: list.body.list_version,
-        entries_root: list.body.entries_root,
-    };
-    let mut history = KagemushaWalletIndexedTreeV1::new();
-    history_entry
-        .insert_into(&mut history)
-        .expect("native history");
-    assert_eq!(history.root(), state.rest.blacklist_history_root);
-    let (history_leaf, history_opening) = history
-        .membership(&history_entry.key())
-        .expect("history lookup");
-    let proof = KagemushaWalletRecordedBlacklistProofV1 {
-        history_leaf,
-        history_opening,
-        gap: list
-            .gap_opening(&account)
-            .expect("original allowed account gap"),
-    };
-    state
-        .check_recorded_blacklist(1, &list.body.entries_root, &account, Some(&proof))
-        .expect("exact recorded decision");
-    assert!(is_invalid(
-        state.check_recorded_blacklist(1, &list.body.entries_root, &account, None),
-        "blacklist.recorded"
-    ));
-    assert!(is_invalid(
-        state.check_recorded_blacklist(0, &list.body.entries_root, &account, Some(&proof)),
-        "request.receiver_blacklist"
-    ));
-    assert!(is_invalid(
-        state.check_recorded_blacklist(1, &[0; 32], &account, Some(&proof)),
-        "request.receiver_blacklist"
-    ));
-    assert!(is_invalid(
-        state.check_recorded_blacklist(2, &list.body.entries_root, &account, Some(&proof)),
-        "blacklist_history.leaf"
-    ));
-    let foreign = f.blacklist(1, T0_MS, vec![entry(0x30)]);
-    assert!(is_invalid(
-        state.check_recorded_blacklist(1, &foreign.body.entries_root, &account, Some(&proof)),
-        "blacklist_history.leaf"
-    ));
-    let mut wrong_opening = proof;
-    wrong_opening.history_opening.siblings[0] = [0xff; 32];
-    assert!(is_invalid(
-        state.check_recorded_blacklist(1, &list.body.entries_root, &account, Some(&wrong_opening)),
-        "blacklist_history.opening"
-    ));
-    let mut wrong_gap = proof;
-    wrong_gap.gap.siblings[0] = [0xff; 32];
-    assert!(
-        state
-            .check_recorded_blacklist(1, &list.body.entries_root, &account, Some(&wrong_gap))
-            .is_err()
-    );
-    let original = state;
-    let later_list = f.blacklist(2, T0_MS + 1, vec![entry(0x15), entry(0x30)]);
-    let later_insertion = KagemushaWalletBlacklistHistoryLeafV1 {
-        list_version: later_list.body.list_version,
-        entries_root: later_list.body.entries_root,
-    }
-    .insert_into(&mut history)
-    .expect("later history insertion");
-    let refresh = state
-        .refresh_policy(KagemushaWalletPolicyUpdateV1::Blacklist {
-            list: &later_list,
-            history: &later_insertion,
-        })
-        .expect("later signed policy");
-    let mut later = state;
-    later.core = refresh.core;
-    later.rest = refresh.rest;
-    assert_eq!(later.rest.blacklist_history_root, history.root());
-    assert!(is_invalid(
-        later.check_request_blacklist(Some(&later_list), &account),
-        "blacklist.listed"
-    ));
-    let (history_leaf, history_opening) = history
-        .membership(&history_entry.key())
-        .expect("retained old pair");
-    let retained = KagemushaWalletRecordedBlacklistProofV1 {
-        history_leaf,
-        history_opening,
-        gap: proof.gap,
-    };
-    later
-        .check_recorded_blacklist(1, &list.body.entries_root, &account, Some(&retained))
-        .expect("original decision survives later listing");
-    assert!(is_invalid(
-        later.check_recorded_blacklist(1, &list.body.entries_root, &account, Some(&proof)),
-        "blacklist_history.opening"
-    ));
-    later.core.enabled_controls &= !KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1;
-    assert!(is_invalid(
-        later.check_recorded_blacklist(1, &list.body.entries_root, &account, None),
-        "blacklist.recorded"
-    ));
-    later
-        .check_recorded_blacklist(1, &list.body.entries_root, &account, Some(&retained))
-        .expect("disabled current control cannot excuse or add a recorded check");
-    later
-        .check_recorded_blacklist(0, &[0; 32], &account, None)
-        .expect("original no-list decision remains unconditionally allowed");
-    assert_eq!(state, original);
-}
-
 /// Quota refresh carries consumed usage by window identity, with original floor and response
 /// bounds. These are exact native component pre-checks, not a claim of folded σ authentication.
 #[test]
@@ -2123,7 +1743,7 @@ fn kagemusha_wallet_v1_quota_refresh_preserves_consumption_and_original_bounds()
     let f = policy_fixture();
     let windows = sample_windows();
     let share = f.quota_share(1, windows.clone());
-    let mut state = f.controlled_state(None, Some(&share), None);
+    let mut state = f.controlled_state(Some(&share), None);
     let usage = KagemushaWalletQuotaUsageArrayV1::zero_for(&windows).expect("usage");
     assert_eq!(usage.root(), state.core.quota_usage_root);
     let (charges, next_usage) = state
@@ -2392,9 +2012,8 @@ fn kagemusha_wallet_v1_charge_quotes() {
 fn kagemusha_wallet_v1_speculative_send_recheck_keeps_charge_only_inside_same_windows() {
     let f = policy_fixture();
     let anchor = f.time_anchor(T0_MS);
-    let list = f.blacklist(1, T0_MS, vec![entry(0x10)]);
     let share = f.quota_share(1, sample_windows());
-    let state = f.controlled_state(Some(&list), Some(&share), Some(&anchor));
+    let state = f.controlled_state(Some(&share), Some(&anchor));
     let usage = KagemushaWalletQuotaUsageArrayV1::zero_for(&share.windows).unwrap();
     let original = state
         .check_send_quota(Some(&share), &usage, &interval(T0_MS + 10, T0_MS + 20), 10)
@@ -2431,13 +2050,5 @@ fn kagemusha_wallet_v1_speculative_send_recheck_keeps_charge_only_inside_same_wi
     assert!(is_invalid(
         state.check_lease(&interval(LEASE_MS - 1, LEASE_MS)),
         "state.lease_expired"
-    ));
-    assert!(is_invalid(
-        state.check_send_blacklist(
-            Some(&list),
-            &[0x15; 32],
-            &interval(T0_MS + DAY_MS, T0_MS + DAY_MS + 1)
-        ),
-        "blacklist.age"
     ));
 }

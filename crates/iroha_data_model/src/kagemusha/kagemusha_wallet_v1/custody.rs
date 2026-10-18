@@ -573,10 +573,7 @@ pub enum KagemushaWalletRetainedInputRoleV1 {
     /// Canonical charge quote consumed by Load or Unload.
     #[codec(index = 5)]
     ChargeQuote,
-    /// Exact update custody consumed by `RefreshPolicy`: Blacklist carries the
-    /// bounded native complete-original archive reference; other fixed kinds
-    /// carry the complete inline signed update. Native restores and authenticates
-    /// the full blacklist before using it; the reference is not an issuer verdict.
+    /// Exact update custody consumed by `RefreshPolicy`: the complete inline signed update.
     #[codec(index = 6)]
     PolicyUpdate,
     /// Canonical certificate set the operation needed.

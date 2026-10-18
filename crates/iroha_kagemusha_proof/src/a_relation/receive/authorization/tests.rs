@@ -20,7 +20,10 @@ struct Config {
 #[derive(Clone)]
 struct Sources {
     request: Vec<u8>,
-    objects: [Vec<u8>; 5],
+    /// The receiver's current credential, carried by the state as its digest.
+    current: Vec<u8>,
+    /// Own receipt, quoted credential and quoted certificate.
+    objects: [Vec<u8>; 3],
     variant: Variant,
     known: bool,
 }
@@ -64,10 +67,8 @@ impl Circuit<Fp> for Sources {
                 };
                 let objects = self.objects.each_ref().map(|raw| values(raw));
                 let sources = ReceiveAuthorizationSources {
-                    current: &objects[0],
-                    certificate: &objects[1],
-                    receipt: &objects[2],
-                    quoted: [&objects[3], &objects[4]],
+                    receipt: &objects[0],
+                    quoted: [&objects[1], &objects[2]],
                 };
                 let auth = ReceiveAuthorizationObjects::decode(
                     &mut chip,
@@ -93,7 +94,16 @@ impl Circuit<Fp> for Sources {
                 )?
                 .0;
                 let request = RequestCells::check(&mut uint, lanes.hash, &mut region, &request)?;
-                auth.bind_quoted_sources(&mut uint, &mut region, &request)
+                let current = object_digest(ObjectKind::Credential, &self.current);
+                let current = uint.glue().witness(
+                    &mut region,
+                    if self.known {
+                        Value::known(current)
+                    } else {
+                        Value::unknown()
+                    },
+                )?;
+                auth.bind_quoted_sources(&mut uint, &mut region, &request, &current)
             },
         )
     }
@@ -125,9 +135,8 @@ impl Sources {
             .copy_from_slice(&object_digest(ObjectKind::Credential, &credential).to_repr());
         Self {
             request,
+            current: credential.clone(),
             objects: [
-                credential.clone(),
-                certificate.clone(),
                 signed("Receive receipt binding the Payment digest"),
                 credential,
                 certificate,
@@ -140,7 +149,7 @@ impl Sources {
         check_circuit(self, 16, &[], CheckMode::Strict).is_ok_and(|r| r.is_satisfied())
     }
     fn rebind_quoted(&mut self) {
-        let digest = object_digest(ObjectKind::Credential, &self.objects[3]);
+        let digest = object_digest(ObjectKind::Credential, &self.objects[1]);
         self.request[210..242].copy_from_slice(&digest.to_repr());
     }
 }
@@ -149,14 +158,21 @@ impl Sources {
 fn quoted_preimages_and_ordinary_renewed_choice_are_hard_bound() {
     let c = Sources::fixture();
     assert!(c.accepts());
+    // Ordinary Receive quotes exactly the state's current credential.
+    let mut other = c.clone();
+    other.current[ObjectKind::Credential.body_len()] ^= 1;
+    assert!(
+        !other.accepts(),
+        "quoted credential must be the current one"
+    );
     for (object, offset) in [
-        (3, 0),
-        (3, 130),
-        (3, 300),
-        (3, 507),
-        (4, 0),
-        (4, 35),
-        (4, 105),
+        (1, 0),
+        (1, 130),
+        (1, 300),
+        (1, 507),
+        (2, 0),
+        (2, 35),
+        (2, 105),
     ] {
         let mut wrong = c.clone();
         wrong.objects[object][offset] ^= 1;
@@ -169,7 +185,7 @@ fn quoted_preimages_and_ordinary_renewed_choice_are_hard_bound() {
         "cannot opt out of equal-digest deduplication"
     );
     let mut renewed = c.clone();
-    renewed.objects[3][ObjectKind::Credential.body_len()] ^= 1;
+    renewed.objects[1][ObjectKind::Credential.body_len()] ^= 1;
     renewed.rebind_quoted();
     assert!(
         !renewed.accepts(),
@@ -190,15 +206,15 @@ fn quoted_preimages_and_ordinary_renewed_choice_are_hard_bound() {
 fn quoted_certificate_cannot_change_even_with_rebound_credential() {
     let c = Sources::fixture();
     let mut wrong = c.clone();
-    wrong.objects[4][ObjectKind::Certificate.body_len()] ^= 1;
+    wrong.objects[2][ObjectKind::Certificate.body_len()] ^= 1;
     // Rebinding the Request alone cannot authorize another certificate.
     wrong.rebind_quoted();
     assert!(!wrong.accepts());
     // A truly different credential that commits to the changed certificate
     // remains a total signature-verification input, never ordinary dedup.
-    let certificate = object_digest(ObjectKind::Certificate, &wrong.objects[4]);
+    let certificate = object_digest(ObjectKind::Certificate, &wrong.objects[2]);
     let end = ObjectKind::Credential.body_len();
-    wrong.objects[3][end - 32..end].copy_from_slice(&certificate.to_repr());
+    wrong.objects[1][end - 32..end].copy_from_slice(&certificate.to_repr());
     wrong.rebind_quoted();
     wrong.variant = Variant::ReceiveRenewed;
     assert!(wrong.accepts());

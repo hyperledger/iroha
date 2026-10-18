@@ -4,15 +4,8 @@
 //! computes exactly the field values and verdicts of the circuit
 //! (`crate::control_circuit`).
 //!
-//! # Blacklist
-//!
-//! A Send enforces the payer's current committed list while its BLACKLIST
-//! control is enabled and it holds a list (`blacklist_version != 0`).
-//! A Receive enforces the receiver's list recorded in the Request, with
-//! its relation selected by that recorded version. Current list or mask
-//! changes do not invalidate an already issued Request. Absence is one gap
-//! opening ([`BlacklistGap`]) with `lower < account < upper` in limb order
-//! against the corresponding root. Send also checks maximum list age.
+//! A wallet's blacklist is not a control: it is local only and blocks listed
+//! counterparties natively (owner decision 2026-10-17).
 //!
 //! # Attestation lease
 //!
@@ -52,8 +45,8 @@
 use iroha_pasta::poseidon::PoseidonField;
 
 use crate::tree::{
-    BlacklistGap, QUOTA_DEPTH, QUOTA_NODE_DOMAIN, QUOTA_USAGE_NODE_DOMAIN, QuotaWindow,
-    WINDOW_DAILY, WINDOW_KINDS, WINDOW_MONTHLY, path_root,
+    QUOTA_DEPTH, QUOTA_NODE_DOMAIN, QUOTA_USAGE_NODE_DOMAIN, QuotaWindow, WINDOW_DAILY,
+    WINDOW_KINDS, WINDOW_MONTHLY, path_root,
 };
 
 /// Positions of a window segment.
@@ -184,9 +177,6 @@ impl<F: PoseidonField> QuotaWitness<F> {
 /// Why the controls reject a witness (mapped onto `crate::Violation`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ControlViolation {
-    /// The gap opening does not prove the counterparty absent from the
-    /// committed list.
-    BlacklistListed,
     /// The accepted upper time reached the lease expiry.
     LeaseExpired,
     /// A segment's base or a window opening is invalid.
@@ -199,18 +189,6 @@ pub enum ControlViolation {
     QuotaUsageOpening,
     /// A touched window's usage exceeds its limit (or overflows).
     QuotaExceeded,
-}
-
-/// Whether `gap` shows `account` absent from the list `root`, under an
-/// enforced list (`version != 0`); always true otherwise.
-#[must_use]
-pub fn blacklist_holds<F: PoseidonField>(
-    version: u64,
-    root: &F,
-    gap: &BlacklistGap<F>,
-    account: &[u8; 32],
-) -> bool {
-    version == 0 || gap.proves_absent(root, account)
 }
 
 /// The facts the circuit derives about one segment position (one bit
@@ -586,8 +564,5 @@ mod tests {
                 .contains(&ControlViolation::QuotaUsageOpening)
         );
         assert!(lease_holds(9, 10) && !lease_holds(10, 10));
-        let gap = BlacklistGap::<Fp>::unused();
-        assert!(blacklist_holds(0, &Fp::from(1_u64), &gap, &[1; 32]));
-        assert!(!blacklist_holds(1, &Fp::from(1_u64), &gap, &[1; 32]));
     }
 }

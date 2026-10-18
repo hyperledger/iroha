@@ -11,7 +11,7 @@ pub struct QClassesV1 {
     pub incoming: Vec<u8>,
 }
 
-fn groups(selectors: &[u8], keys: &[CompiledKeyV1<Eq>; 16]) -> Vec<Vec<u8>> {
+fn groups(selectors: &[u8], keys: &[CompiledKeyV1<Eq>; 11]) -> Vec<Vec<u8>> {
     let mut groups: Vec<Vec<u8>> = Vec::new();
     for selector in selectors {
         if let Some(group) = groups.iter_mut().find(|group| {

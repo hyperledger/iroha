@@ -538,6 +538,7 @@ fn source_rotation_does_not_rebase_a_durable_plan_or_repeat_proving() {
         manifest.issued_requests,
         manifest.direct_anchors,
         manifest.finality_epochs,
+        manifest.blacklist.clone(),
     )
     .unwrap();
     let (plan, _) = wallet
@@ -658,12 +659,6 @@ fn model_intake_refusal_preserves_all_refresh_receive_and_unload_originals_befor
         (
             K::SchemePolicy,
             fixture::<KagemushaWalletSchemePolicyV1>("KagemushaWalletSchemePolicyV1")
-                .to_canonical_bytes()
-                .unwrap(),
-        ),
-        (
-            K::Blacklist,
-            fixture::<KagemushaWalletBlacklistV1>("KagemushaWalletBlacklistV1")
                 .to_canonical_bytes()
                 .unwrap(),
         ),
@@ -931,6 +926,7 @@ fn unsynced_head_move_after_the_binding_check_stops_at_the_final_source_check() 
         manifest.issued_requests,
         manifest.direct_anchors,
         manifest.finality_epochs,
+        manifest.blacklist.clone(),
     )
     .unwrap();
     let (plan, _) = wallet
@@ -985,6 +981,7 @@ fn proven_successor_is_checked_on_durable_custody_before_capsule_publication() {
         manifest.issued_requests,
         manifest.direct_anchors,
         manifest.finality_epochs,
+        manifest.blacklist.clone(),
     )
     .unwrap()
     .original(crate::kagemusha_wallet_state_v1::PreparationOriginalV1::CurrentCredential)

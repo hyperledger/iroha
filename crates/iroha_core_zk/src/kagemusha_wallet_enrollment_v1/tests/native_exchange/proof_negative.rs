@@ -33,7 +33,7 @@ pub(super) fn claim(
     device: &HostDevice,
     original: &KagemushaWalletUnloadClaimV1,
 ) -> Vec<u8> {
-    let selector = original.package.verifying_key_selector(None).unwrap();
+    let selector = original.package.verifying_key_selector();
     assert_eq!(selector, (KagemushaWalletOperationKindV1::Unload, 0));
     let matching = sources
         .installed
@@ -113,11 +113,10 @@ pub(super) fn claim(
     assert_eq!(decoded, bad);
     decoded.verify(scheme).unwrap();
     assert_eq!(
-        sources.installed.verifier().verify_package_proofs(
-            &decoded.package,
-            None,
-            MemoryBudget::DEFAULT,
-        ),
+        sources
+            .installed
+            .verifier()
+            .verify_package_proofs(&decoded.package, MemoryBudget::DEFAULT),
         Err(crate::kagemusha_wallet_proofs_v1::Error::Proof)
     );
     // The schedule reads f after the last challenge and before the unabsorbed generator.

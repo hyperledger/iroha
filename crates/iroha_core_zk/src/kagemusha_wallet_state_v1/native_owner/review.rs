@@ -273,6 +273,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             manifest.issued_requests,
             manifest.direct_anchors,
             manifest.finality_epochs,
+            manifest.blacklist.clone(),
         )?;
         let credential = custody
             .original(PreparationOriginalV1::CurrentCredential)?
@@ -297,17 +298,8 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             charge_quote_digest,
         ) = match &action {
             OperationActionV1::Send { request } => {
-                let blacklist = if before.enforces_blacklist() {
-                    let original = custody
-                        .original(PreparationOriginalV1::Blacklist)?
-                        .ok_or(Error::WitnessLost("review blacklist"))?;
-                    Some(read_model_original(
-                        || KagemushaWalletBlacklistV1::decode_canonical(&original, &self.scheme_id),
-                        Error::Invalid("G1 validation"),
-                    )?)
-                } else {
-                    None
-                };
+                // A listed receiver is refused here, before the user is asked to confirm.
+                let blacklist = custody.local_blacklist()?;
                 let share = if before.is_active(KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1) {
                     let original = custody
                         .original(PreparationOriginalV1::QuotaShare)?

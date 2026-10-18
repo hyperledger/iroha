@@ -1044,7 +1044,7 @@ internal fun nfcRequireCreditedScheme(request: IrohaPeerWireMessageV1, credited:
         requestFrame = IrohaPeerKagemushaWalletAdapterV1.decode(request)
         creditedFrame = IrohaPeerKagemushaWalletAdapterV1.decode(credited)
         val requestFields = nfcWalletMessageFields(requestFrame, KagemushaWalletMessageKindV1.REQUEST, 5)
-        val body = nfcWalletRecordFields(requestFields[0], 19)
+        val body = nfcWalletRecordFields(requestFields[0], 17)
         val creditedFields = nfcWalletMessageFields(creditedFrame, KagemushaWalletMessageKindV1.CREDITED, 3)
         if (!creditedFields[1].contentEquals(body[1])) {
             throw IllegalArgumentException("KAGEMUSHA wallet V1 Credited does not name this Request's scheme")

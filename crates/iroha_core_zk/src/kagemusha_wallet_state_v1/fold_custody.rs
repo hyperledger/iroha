@@ -3,6 +3,8 @@
 //! The fold may write immutable draft nodes, but cannot select a source or publish a
 //! manifest. The coordinator compares the final roots with the fully verified Ω.
 
+use sha2::{Digest as _, Sha256};
+
 use super::{preparation_custody::SourceCustodyV1, *};
 
 #[derive(Clone)]
@@ -23,6 +25,30 @@ impl ObjectWorkspace for Store<'_> {
     fn stage_object(&mut self, bytes: &[u8], maximum: usize) -> Result<[u8; 32], Error> {
         self.0.stage_object(bytes, maximum)
     }
+}
+
+/// A SHA-256 sink for one canonical frame: the encoding is hashed as it is written, so no
+/// intermediate buffer copies the private originals it may contain.
+struct DigestWriter(Sha256);
+impl std::io::Write for DigestWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.update(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn canonical_digest<T: norito::NoritoSerialize>(
+    domain: &[u8],
+    value: &T,
+) -> Result<[u8; 32], Error> {
+    let mut writer = DigestWriter(Sha256::new());
+    writer.0.update(domain);
+    norito::core::write_canonical_to_writer(value, &mut writer)
+        .map_err(|_| Error::Invalid("fold source identity"))?;
+    Ok(writer.0.finalize().into())
 }
 
 #[cfg(test)]
@@ -128,6 +154,8 @@ impl<'a> FoldCustodyV1<'a> {
             self.issued,
             self.anchors,
             self.epochs,
+            // A fold replays committed steps; a later local list never refuses them.
+            None,
         )?;
         Ok((&plan.request, &plan.native, &plan.draft, custody))
     }
@@ -136,6 +164,42 @@ impl<'a> FoldCustodyV1<'a> {
     #[must_use]
     pub const fn predecessor(&self) -> Option<&ReleasedStep> {
         self.before
+    }
+
+    /// SHA-256 identities of the canonical source records this view was built from: the
+    /// predecessor's, the successor's, and the retained preparation (its request, native
+    /// plan, source capsule and draft). Zero marks an absent predecessor or preparation. Only
+    /// in-memory values are hashed; nothing is read from the store.
+    ///
+    /// # Errors
+    /// A canonical encoding failure.
+    pub(super) fn source_digests(&self) -> Result<[[u8; 32]; 3], Error> {
+        let before = self
+            .before_source
+            .as_ref()
+            .map(|source| canonical_digest(b"KAGEMUSHA fold source before v1", source))
+            .transpose()?
+            .unwrap_or([0; 32]);
+        let after = canonical_digest(b"KAGEMUSHA fold source after v1", &self.after_source)?;
+        let preparation = match &self.preparation {
+            None => [0; 32],
+            Some(plan) => {
+                let mut digest = Sha256::new();
+                digest.update(b"KAGEMUSHA fold source preparation v1");
+                digest.update(canonical_digest(
+                    b"KAGEMUSHA fold source request v1",
+                    &plan.request,
+                )?);
+                digest.update(Sha256::digest(plan.native.as_slice()));
+                digest.update(plan.source);
+                digest.update(canonical_digest(
+                    b"KAGEMUSHA fold source draft v1",
+                    &plan.draft,
+                )?);
+                digest.finalize().into()
+            }
+        };
+        Ok([before, after, preparation])
     }
 
     /// Read the predecessor's own historical original, including its enrollment set.
@@ -271,49 +335,6 @@ impl<'a> FoldCustodyV1<'a> {
         let witness = removed.remove(&mut self.store, &credit_id)?;
         self.removed = Some((witness, removed));
         Ok(witness)
-    }
-
-    /// Authenticate Receive's Request-recorded blacklist query, including the safe zero query.
-    /// This always opens the real local history map; latest policy cannot replace the Request.
-    ///
-    /// # Errors
-    /// Another operation, missing/ambiguous Request original or unavailable/corrupt history.
-    pub fn blacklist_history(
-        &mut self,
-    ) -> Result<
-        (
-            KagemushaWalletIndexedLeafV1,
-            KagemushaWalletIndexedOpeningV1,
-        ),
-        Error,
-    > {
-        let capsule = &self.after.frozen.capsule;
-        if capsule.body().kind != KagemushaWalletOperationKindV1::Receive {
-            return Err(Error::Invalid("fold history role"));
-        }
-        let mut requests = capsule
-            .body()
-            .retained_inputs
-            .iter()
-            .filter(|input| input.role == KagemushaWalletRetainedInputRoleV1::Request);
-        let original = requests
-            .next()
-            .ok_or(Error::WitnessLost("fold Request original"))?;
-        if requests.next().is_some() {
-            return Err(Error::WitnessLost("duplicate fold Request"));
-        }
-        let request: KagemushaWalletRequestV1 = archive::decode(&original.bytes)?;
-        let version = if request.body.receiver_blacklist_version != 0
-            && request.body.receiver_blacklist_root != [0; 32]
-        {
-            request.body.receiver_blacklist_version
-        } else {
-            1
-        };
-        self.after_source.maps.history().member_or_low(
-            &mut self.store,
-            &kagemusha_wallet_field_from_u128_v1(u128::from(version)),
-        )
     }
 
     pub(super) fn finish(

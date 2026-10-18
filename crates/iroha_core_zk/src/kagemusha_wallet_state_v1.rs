@@ -55,7 +55,6 @@ mod map_custody;
 mod map_tree;
 mod native_owner;
 mod native_worker;
-mod policy_custody;
 pub use native_owner::{
     ActivationFinalityProgressV1, LEDGER_INSTRUCTION_MAX_BYTES_V1, LEDGER_PROOF_MAX_BYTES_V1,
     LedgerProgressV1, NativeEpochProgressV1, NativeInstallationConfigV1, NativeOpenErrorV1,
@@ -96,11 +95,10 @@ pub use lifecycle::{
 };
 pub use map_custody::{PreparationMapV1, PreparationMapsV1};
 pub(crate) use native_worker::NativeFoldWorkerV1;
-pub(crate) use policy_custody::{
-    BlacklistOriginalReferenceV1, publish_blacklist_original, verify_policy_update_original,
-};
+#[cfg(test)]
+pub(crate) use native_worker::{FoldRetentionCountsV1, perturb_retained_key_for_test};
 pub use preparation_custody::{PreparationCustodyV1, PreparationOriginalV1};
-pub use scheduling::{Cancellation, PaymentGuard, Scheduler};
+pub use scheduling::{Cancellation, FoldRetentionV1, PaymentGuard, Scheduler};
 pub use session_custody::DirectTimeExchangeV1;
 pub use snapshot::{Snapshot, SnapshotFold};
 pub use transition_custody::TransitionCustodyV1;
@@ -165,6 +163,10 @@ pub enum Error {
     /// freeing memory. Never a device verdict.
     #[error("not enough memory for this operation")]
     NotEnoughMemory,
+    /// The wallet's local blacklist lists the counterparty account in this field. Refused
+    /// before any mutation: nothing was debited, issued or credited, and no Request was issued.
+    #[error("`{0}` is on the local blacklist")]
+    Blocked(&'static str),
 }
 
 /// Preserve the original attempt classification before projecting completed invalid input.
@@ -209,7 +211,10 @@ pub(crate) fn finality_read_error(
 }
 
 fn valid<T>(result: Result<T, KagemushaWalletValidationErrorV1>) -> Result<T, Error> {
-    result.map_err(|_| Error::Invalid("G1 validation"))
+    result.map_err(|error| match error {
+        KagemushaWalletValidationErrorV1::BlockedAccount { field } => Error::Blocked(field),
+        _ => Error::Invalid("G1 validation"),
+    })
 }
 
 /// Immutable pre-signing inputs, including the credential needed to resume assembly.
@@ -388,6 +393,13 @@ pub trait NativeProofs {
     /// durable source chain. The returned job owns every input and holds no custody, archive
     /// or original-store handle, so it proves after the wallet owner is released.
     ///
+    /// `retained` is what the previous sub-proof of this owner's scheduler left after its
+    /// checkpoint publication. An implementation may resume it only when it belongs to the
+    /// same durable inputs, which this call reads from `witness`, `predecessor` and `custody`,
+    /// and only when the payloads it restored are a byte-exact prefix of `checkpoints`. Any
+    /// other value, or none, is dropped and this same call prepares cold; a mismatch is never
+    /// an error. It grants nothing: every key import and native check still runs.
+    ///
     /// # Errors
     /// Return `Cancelled` on preemption; reject unavailable/invalid relation inputs.
     fn fold_prepare(
@@ -396,6 +408,7 @@ pub trait NativeProofs {
         predecessor: Option<&KagemushaWalletFoldRecordV1>,
         checkpoints: Vec<PrivateArchiveBytes>,
         custody: Option<&mut FoldCustodyV1<'_>>,
+        retained: Option<FoldRetentionV1>,
         cancellation: &Cancellation,
     ) -> Result<Box<dyn NativeFoldJobV1>, Error>;
 }
@@ -406,9 +419,17 @@ pub trait NativeFoldJobV1 {
     /// in order; the latest proof alone cannot supply that source. Poll cancellation at every
     /// task boundary and release proof workspaces before returning.
     ///
+    /// With a checkpoint, the job may also return what the next sub-proof of the same step
+    /// can resume: only state restored strictly from durable bytes and inputs derived from
+    /// the same originals, never anything this proof produced. The scheduler keeps it only if
+    /// that checkpoint is published and no payment, inactivity or close intervened.
+    ///
     /// # Errors
     /// Return `Cancelled` on preemption; reject unavailable/invalid relation inputs.
-    fn prove(self: Box<Self>, cancellation: &Cancellation) -> Result<FoldProgress, Error>;
+    fn prove(
+        self: Box<Self>,
+        cancellation: &Cancellation,
+    ) -> Result<(FoldProgress, Option<FoldRetentionV1>), Error>;
 }
 
 /// One authenticated released transition; inputs and output remain byte-exact.
@@ -792,6 +813,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                     manifest.issued_requests,
                     manifest.direct_anchors,
                     manifest.finality_epochs,
+                    manifest.blacklist.clone(),
                 )
             })
             .transpose()?;

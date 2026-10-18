@@ -161,10 +161,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         action: &Action,
         plan: &mut Plan,
         bytes: &[u8],
-        issued: Option<(
-            &KagemushaWalletRequestV1,
-            Option<&KagemushaWalletBlacklistGapOpeningV1>,
-        )>,
+        issued: Option<&KagemushaWalletRequestV1>,
     ) -> Result<(), Error> {
         let (root, mut manifest) = self.sync_manifest()?;
         if manifest.capsule != plan.source {
@@ -182,7 +179,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             return Err(Error::WitnessLost("changed setup plan"));
         }
         match (action, issued) {
-            (Action::Request { .. }, Some((request, _)))
+            (Action::Request { .. }, Some(request))
                 if request.body.nonce == plan.nonce && archive::encode(request)? == bytes => {}
             (Action::Offer { .. }, None) => {}
             _ => return Err(Error::WitnessLost("setup output binding")),
@@ -191,12 +188,11 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             self.archive
                 .write_object(bytes, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?,
         );
-        if let Some((request, gap)) = issued {
+        if let Some(request) = issued {
             manifest.issued_requests = super::super::session_custody::retain_request(
                 &mut self.archive,
                 manifest.issued_requests,
                 request,
-                gap,
             )?;
         }
         manifest.sessions = retain_plan(&mut self.archive, manifest.sessions, id, plan)?;
@@ -207,8 +203,8 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         &mut self,
         request: &KagemushaWalletRequestV1,
     ) -> Result<Vec<u8>, Error> {
-        // This read cannot recreate a missing recorded decision after a head change.
-        // Fresh output and its issued Request/gap were selected by the same publication.
+        // This read cannot recreate a missing Request after a head change.
+        // Fresh output and its issued Request were selected by the same publication.
         let (_, manifest) = self.manifest()?;
         let selected = manifest
             .issued_requests
@@ -216,13 +212,12 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             .ok_or(Error::WitnessLost("setup issued Request custody"))?;
         let record: super::super::preparation_custody::IssuedRequestCustodyV1 =
             archive::decode(&selected)?;
-        let (original, retained) = record.read(
+        let (_, retained) = record.read(
             &mut self.archive,
             &self.scheme_id,
             &self.wallet_id,
             &request.request_digest(),
         )?;
-        record.gap(&mut self.archive, &original)?;
         if retained != archive::encode(request)? {
             return Err(Error::WitnessLost("setup Request original"));
         }
@@ -336,11 +331,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
 
     /// Authenticate an Offer and issue one exact receiver Request from selected local policy.
     /// A nonzero held fee schedule requires its signed original and issuer. The exact signed
-    /// Request and recorded blacklist gap are durable before any bytes leave this method.
+    /// Request is durable before any bytes leave this method.
     ///
     /// # Errors
-    /// Invalid Offer, mismatched fee evidence, blocked payer, unavailable custody or changed
-    /// unfinished setup source. Retries return retained bytes and never sign a replacement.
+    /// Invalid Offer, mismatched fee evidence, a payer on the local blacklist
+    /// ([`Error::Blocked`]), unavailable custody or changed unfinished setup source. Retries
+    /// return retained bytes and never sign a replacement.
     pub fn request(
         &mut self,
         setup_id: [u8; 32],
@@ -400,7 +396,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
                 }
                 _ => return Err(Error::Invalid("Request selected fee schedule")),
             };
-            let (blacklist_version, blacklist_root) = state.request_blacklist_decision();
             let body = KagemushaWalletRequestBodyV1 {
                 version: 1,
                 scheme_id: self.scheme_id,
@@ -417,16 +412,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
                 policy_epoch: state.core.policy_epoch,
                 scheme_policy: state.rest.scheme_policy,
                 receiver_accepted_time_ms: state.core.accepted_time_floor_ms,
-                receiver_blacklist_version: blacklist_version,
-                receiver_blacklist_root: blacklist_root,
                 certificates: valid(certificates.digest())?,
                 nonce: plan.nonce,
             };
-            let blacklist = snapshot
-                .original(&mut self.archive, &state, PreparationOriginalV1::Blacklist)?
-                .map(|bytes| archive::decode::<KagemushaWalletBlacklistV1>(&bytes))
-                .transpose()?;
-            let gap = valid(body.check_request_rule(
+            let blacklist = self.local_blacklist()?;
+            valid(body.check_request_rule(
                 &scheme,
                 &offer,
                 &credential,
@@ -449,13 +439,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
                 KagemushaWalletSignerOutputV1::Raw(*signature.as_raw_bytes()),
             ))?;
             let bytes = archive::encode(&request)?;
-            self.finish_setup(
-                setup_id,
-                &action,
-                &mut plan,
-                &bytes,
-                Some((&request, gap.as_ref())),
-            )?;
+            self.finish_setup(setup_id, &action, &mut plan, &bytes, Some(&request))?;
             bytes
         };
         let request: KagemushaWalletRequestV1 = archive::decode(&bytes)?;
@@ -615,8 +599,6 @@ mod tests {
             policy_epoch: state.core.policy_epoch,
             scheme_policy: state.rest.scheme_policy,
             receiver_accepted_time_ms: state.core.accepted_time_floor_ms,
-            receiver_blacklist_version: 0,
-            receiver_blacklist_root: [0; 32],
             certificates: request.certificates.digest().unwrap(),
             nonce: [73; 32],
         };
@@ -652,7 +634,7 @@ mod tests {
             wallet.custody.fail_publication = Some(selected_before_error);
             assert!(
                 wallet
-                    .finish_setup(id, &action, &mut plan, &original, Some((&request, None)))
+                    .finish_setup(id, &action, &mut plan, &original, Some(&request))
                     .is_err()
             );
             let (_, manifest) = wallet.manifest().unwrap();
@@ -690,7 +672,7 @@ mod tests {
             assert_eq!(resumed.nonce, plan.nonce);
             if resumed.output.is_none() {
                 wallet
-                    .finish_setup(id, &action, &mut resumed, &original, Some((&request, None)))
+                    .finish_setup(id, &action, &mut resumed, &original, Some(&request))
                     .unwrap();
             }
             assert_eq!(wallet.issued_setup_request(&request).unwrap(), original);
@@ -773,7 +755,7 @@ mod tests {
                 &action,
                 &mut plan,
                 &archive::encode(&request).unwrap(),
-                Some((&request, None)),
+                Some(&request),
             ),
             Err(Error::Invalid(_))
         ));

@@ -82,7 +82,7 @@ pub(crate) fn rooted_compact_bootstrap_with_identity(
         );
     }
 
-    // The signed credential, receipt, sigma, Q and each A/W stage are rebuilt
+    // The signed credential, receipt, sigma, Q and the unsplit A are rebuilt
     // with the actual digest. No public word is changed after a proof exists.
     let source = bootstrap_chain::authenticated_bootstrap_with_identity(
         false,

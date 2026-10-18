@@ -1,10 +1,10 @@
 //! The in-circuit control checks of the step relations (the circuit side of
 //! [`crate::controls`]): Merkle paths over the tree domains of
-//! [`crate::tree`], the blacklist gap opening, the attestation lease and the
-//! quota windows and usage updates.
+//! [`crate::tree`], the attestation lease and the quota windows and usage
+//! updates.
 //!
-//! Every check here is gated by a bit the circuit derives (a held list, a
-//! present segment slot, a touched window), so a check that does not apply
+//! Every check here is gated by a bit the circuit derives (a present segment
+//! slot, a touched window), so a check that does not apply
 //! constrains nothing, and every hash runs on the lane of its
 //! [`HashSite`]. Each output equals the native reference of
 //! [`crate::controls`] for every witness, honest or not, so the digests the
@@ -12,58 +12,34 @@
 
 use iroha_pasta::poseidon::PoseidonField;
 use iroha_plonk::frontend::{Error, Region, Value};
-use iroha_plonk_gadgets::{
-    AbsorbInput, Bit, GlueChip, SpongeChip, U64, U128, Uint, UintChip, Word,
-};
+use iroha_plonk_gadgets::{AbsorbInput, Bit, GlueChip, U64, U128, Uint, UintChip, Word};
 
 use crate::{
-    circuit::{HashSite, LanePlan, UsagePath},
+    circuit::{HashSite, UsagePath},
     controls::{
         QUOTA_CHARGES_PER_KIND, QuotaCharge, QuotaWitness, SEGMENT_BASE_MAX, SEGMENT_POSITIONS,
         WindowSegment,
     },
     tree::{
-        BLACKLIST_DEPTH, BLACKLIST_LEAF_DOMAIN, BLACKLIST_NODE_DOMAIN, BlacklistGap, QUOTA_DEPTH,
-        QUOTA_NODE_DOMAIN, QUOTA_USAGE_DOMAIN, QUOTA_USAGE_NODE_DOMAIN, QUOTA_WINDOW_DOMAIN,
-        WINDOW_DAILY, WINDOW_KINDS,
+        QUOTA_DEPTH, QUOTA_NODE_DOMAIN, QUOTA_USAGE_DOMAIN, QUOTA_USAGE_NODE_DOMAIN,
+        QUOTA_WINDOW_DOMAIN, WINDOW_DAILY, WINDOW_KINDS,
     },
 };
-
-/// The two `u128` limbs of a 32-byte digest, low half first (the G1
-/// element rule).
-fn limbs_of(bytes: &[u8; 32]) -> [u128; 2] {
-    let mut lo = [0_u8; 16];
-    let mut hi = [0_u8; 16];
-    lo.copy_from_slice(&bytes[..16]);
-    hi.copy_from_slice(&bytes[16..]);
-    [u128::from_le_bytes(lo), u128::from_le_bytes(hi)]
-}
 
 /// A value of the witness (unknown during key generation).
 fn value<T, V>(source: Option<&T>, read: impl FnOnce(&T) -> V) -> Value<V> {
     source.map_or_else(Value::unknown, |source| Value::known(read(source)))
 }
 
-/// The sponge of `site`'s lane.
-fn sponge<'s, F: PoseidonField>(
-    sponges: &'s mut [SpongeChip<F>],
-    plan: &LanePlan,
-    site: HashSite,
-) -> Result<&'s mut SpongeChip<F>, Error> {
-    sponges.get_mut(plan.lane_of(site)).ok_or(Error::Synthesis)
-}
-
 /// The chips a control check lays out on.
-pub struct ControlChips<'c, 'u, F: PoseidonField> {
+pub struct ControlChips<'c, 'u, 's, F: PoseidonField> {
     /// Checked arithmetic on the glue and running-sum chips.
     pub uint: &'c mut UintChip<'u, F>,
-    /// One sponge per lane.
-    pub sponges: &'c mut [SpongeChip<F>],
-    /// The lane of every hash site.
-    pub plan: &'c LanePlan,
+    /// The relation's lanes: the σ circuit's planned sponges or an A stage's one lane.
+    pub lanes: &'c mut crate::relation::RelationLanes<'s, F>,
 }
 
-impl<F: PoseidonField> ControlChips<'_, '_, F> {
+impl<F: PoseidonField> ControlChips<'_, '_, '_, F> {
     fn glue(&mut self) -> &mut GlueChip<F> {
         self.uint.glue()
     }
@@ -115,7 +91,7 @@ impl<F: PoseidonField> ControlChips<'_, '_, F> {
                 &[(F::ONE, &current), (F::ONE, sibling), (-F::ONE, &left)],
                 F::ZERO,
             )?;
-            current = sponge(self.sponges, self.plan, site)?.hash(
+            current = self.lanes.site(site)?.hash_inputs(
                 region,
                 node_domain,
                 &[AbsorbInput::Word(&left), AbsorbInput::Word(&right)],
@@ -132,7 +108,7 @@ impl<F: PoseidonField> ControlChips<'_, '_, F> {
         domain: u64,
         inputs: &[AbsorbInput<'_, F>],
     ) -> Result<Word<F>, Error> {
-        sponge(self.sponges, self.plan, site)?.hash(region, domain, inputs)
+        self.lanes.site(site)?.hash_inputs(region, domain, inputs)
     }
 
     /// Constrains `gate (x - y) = 0`.
@@ -145,18 +121,6 @@ impl<F: PoseidonField> ControlChips<'_, '_, F> {
     ) -> Result<(), Error> {
         let difference = self.glue().sub(region, x, y)?;
         let gated = self.glue().mul(region, gate.word(), &difference)?;
-        GlueChip::assert_constant(region, &gated, F::ZERO)
-    }
-
-    /// Constrains `gate -> bit` (`gate (1 - bit) = 0`).
-    fn assert_gated_true(
-        &mut self,
-        region: &mut Region<'_, F>,
-        gate: &Bit<F>,
-        bit: &Bit<F>,
-    ) -> Result<(), Error> {
-        let not = self.glue().not(region, bit)?;
-        let gated = self.glue().mul(region, gate.word(), not.word())?;
         GlueChip::assert_constant(region, &gated, F::ZERO)
     }
 
@@ -184,83 +148,6 @@ impl<F: PoseidonField> ControlChips<'_, '_, F> {
             F::ZERO,
         )?;
         self.glue().assert_bool(region, &sum)
-    }
-
-    /// `[a < b]` in limb order for two-limb values `(lo, hi)`.
-    fn limb_less(
-        &mut self,
-        region: &mut Region<'_, F>,
-        a: &[U128<F>; 2],
-        b: &[U128<F>; 2],
-    ) -> Result<Bit<F>, Error> {
-        let high_less = self.uint.lt(region, &a[1], &b[1])?;
-        let high_equal = self.glue().is_equal(region, a[1].word(), b[1].word())?;
-        let low_less = self.uint.lt(region, &a[0], &b[0])?;
-        let less =
-            self.glue()
-                .mul_add(region, high_equal.word(), low_less.word(), high_less.word())?;
-        self.glue().assert_bool(region, &less)
-    }
-
-    /// The blacklist rule: while a list is held (`version != 0`), `gap`
-    /// shows `account` (two limbs, range-checked here) absent from the list
-    /// `root`.
-    pub fn blacklist(
-        &mut self,
-        region: &mut Region<'_, F>,
-        version: &Word<F>,
-        root: &Word<F>,
-        account: [&Word<F>; 2],
-        gap: Option<&BlacklistGap<F>>,
-    ) -> Result<(), Error> {
-        let none = self.glue().is_zero(region, version)?;
-        let held = self.glue().not(region, &none)?;
-        let account = [
-            self.uint.range_check::<128>(region, account[0])?,
-            self.uint.range_check::<128>(region, account[1])?,
-        ];
-        let reads: [fn(&BlacklistGap<F>) -> u128; 4] = [
-            |gap| limbs_of(&gap.lower)[0],
-            |gap| limbs_of(&gap.lower)[1],
-            |gap| limbs_of(&gap.upper)[0],
-            |gap| limbs_of(&gap.upper)[1],
-        ];
-        let mut limbs = Vec::with_capacity(4);
-        for read in reads {
-            limbs.push(self.uint.assign_u128(region, value(gap, read))?);
-        }
-        let [lower_lo, lower_hi, upper_lo, upper_hi]: [U128<F>; 4] =
-            limbs.try_into().map_err(|_| Error::Synthesis)?;
-        let lower = [lower_lo, lower_hi];
-        let upper = [upper_lo, upper_hi];
-        let site = HashSite::BlacklistGap;
-        let leaf = self.hash(
-            region,
-            site,
-            BLACKLIST_LEAF_DOMAIN,
-            &[
-                AbsorbInput::Word(lower[0].word()),
-                AbsorbInput::Word(lower[1].word()),
-                AbsorbInput::Word(upper[0].word()),
-                AbsorbInput::Word(upper[1].word()),
-            ],
-        )?;
-        let bits = self.index_bits(
-            region,
-            value(gap, |gap| u64::from(gap.leaf_index)),
-            BLACKLIST_DEPTH,
-        )?;
-        let siblings: Vec<Value<F>> = (0..BLACKLIST_DEPTH)
-            .map(|height| value(gap, |gap| gap.siblings[height]))
-            .collect();
-        let siblings = self.words(region, &siblings)?;
-        let opened =
-            self.merkle_root(region, site, BLACKLIST_NODE_DOMAIN, &leaf, &bits, &siblings)?;
-        self.assert_gated_equal(region, &held, &opened, root)?;
-        let above_lower = self.limb_less(region, &lower, &account)?;
-        let below_upper = self.limb_less(region, &account, &upper)?;
-        let inside = self.glue().and(region, &above_lower, &below_upper)?;
-        self.assert_gated_true(region, &held, &inside)
     }
 
     /// The quota rule: every touched window of `windows_root` is charged

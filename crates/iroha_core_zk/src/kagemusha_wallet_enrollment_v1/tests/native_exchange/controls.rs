@@ -1,7 +1,8 @@
 //! Genuine installed-proof offline controls over one fresh Load100 and retained A/B custody.
 //!
-//! Every Send selector 0..=7 executes; all three controls need a credential permitting them
+//! Every Send selector 0..=3 executes; both controls need a credential permitting them
 //! BEFORE enrollment. Signed policy changes never recreate an enrollment or refund a Send.
+//! Each wallet's signed blacklist is installed locally: no operation, proof or peer message.
 //! Clock/hardware/issuer are explicit engineering fixtures. Ordinary executed Load finality
 //! and the complete current-source installed catalog remain mandatory external prerequisites.
 //! TODO: Compile and execute this source candidate; it establishes no result until run.
@@ -24,7 +25,6 @@ const LEASE_EXPIRES: u64 = 12000;
 fn permitted(mut f: Fixture) -> Fixture {
     f.config.policy.regulatory_policy = KagemushaWalletRegulatoryPolicyV1 {
         permitted_controls: ALL,
-        blacklist_max_age_ms: 1000,
         time_anchor_max_response_ms: 100,
     };
     f.config.policy.attestation_lease_lifetime_ms = 10000;
@@ -83,7 +83,7 @@ fn refresh(
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&package, None, MemoryBudget::DEFAULT)
+        .verify_package_proofs(&package, MemoryBudget::DEFAULT)
         .unwrap();
     assert!(
         matches!(package.statement.effect, KagemushaWalletEffectV1::RefreshPolicy { update_kind, .. } if update_kind == kind)
@@ -146,35 +146,47 @@ fn set_policy(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn set_list(
+fn install_list(
     wallet: &mut Wallet,
     device: &HostDevice,
-    sources: &Sources,
-    credential: &KagemushaWalletCredentialV1,
     regulator: &KagemushaWalletSignerCertificateV1,
     version: u64,
-    time: u64,
     blocked: Option<[u8; 32]>,
-    id: &mut u8,
     output: &Path,
     label: &str,
     records: &mut Vec<norito::json::Value>,
 ) {
-    let list = terms::blacklist(regulator, version, time, blocked);
-    // Lists are standalone administrative objects, never invented peer PolicyData envelopes.
-    refresh(
-        wallet,
-        device,
-        sources,
-        credential,
-        KagemushaWalletPolicyUpdateKindV1::Blacklist,
-        list.to_canonical_bytes().unwrap(),
-        regulator,
-        id,
+    let list = terms::blacklist(regulator, version, 3000, blocked);
+    let list_original = list.to_canonical_bytes().unwrap();
+    let certificates =
+        norito::encode_canonical(&KagemushaWalletCertificateSetV1::new(vec![*regulator]).unwrap())
+            .unwrap();
+    // Lists are standalone signed objects installed locally, never peer PolicyData envelopes.
+    records.push(original(
         output,
-        label,
-        records,
-    );
+        &format!("{label}-list.norito"),
+        &list_original,
+    ));
+    records.push(original(
+        output,
+        &format!("{label}-certificates.norito"),
+        &certificates,
+    ));
+    let before = wallet.snapshot().unwrap();
+    let signatures = device.platform.with(|state| state.sign_calls);
+    // No Advance, receipt, fold, proof or signature; reinstalling the held list is idempotent.
+    for _ in 0..2 {
+        assert_eq!(
+            complete(
+                wallet
+                    .install_blacklist(&list_original, &certificates)
+                    .unwrap()
+            ),
+            list.blacklist_digest()
+        );
+        assert_eq!(wallet.snapshot().unwrap(), before);
+    }
+    assert_eq!(device.platform.with(|state| state.sign_calls), signatures);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -279,6 +291,37 @@ fn execute_refused(wallet: &mut Wallet, device: &HostDevice, request: &[u8], id:
     assert_eq!(device.platform.with(|state| state.sign_calls), signatures);
 }
 
+// The payer's local list names the receiver: review and execution refuse with the distinct
+// blocked outcome before any debit, signature or head change.
+fn send_blocked(
+    wallet: &mut Wallet,
+    device: &HostDevice,
+    request: &[u8],
+    account: &[u8],
+    id: &mut u8,
+) {
+    let before = wallet.snapshot().unwrap();
+    let signatures = device.platform.with(|state| state.sign_calls);
+    let intent = action(
+        next(id),
+        OperationActionV1::Send {
+            request: request.to_vec(),
+        },
+    );
+    for _ in 0..2 {
+        assert!(matches!(
+            wallet.review_send(request, account),
+            Err(state::Error::Blocked("request.receiver_account_digest"))
+        ));
+        assert!(matches!(
+            wallet.execute(intent.clone()),
+            Err(state::Error::Blocked("request.receiver_account_digest"))
+        ));
+        assert_eq!(wallet.snapshot().unwrap(), before);
+    }
+    assert_eq!(device.platform.with(|state| state.sign_calls), signatures);
+}
+
 #[allow(clippy::too_many_arguments)]
 fn request(
     a: &mut Wallet,
@@ -349,11 +392,7 @@ fn send(
     sources
         .installed
         .verifier()
-        .verify_package_proofs(
-            &payment.send,
-            Some(&request_value.body),
-            MemoryBudget::DEFAULT,
-        )
+        .verify_package_proofs(&payment.send, MemoryBudget::DEFAULT)
         .unwrap();
     assert_eq!(payment.send.statement.enabled_controls, mask);
     assert_eq!(payment.send.statement.next_load, 1);
@@ -392,7 +431,7 @@ fn receive_and_check(
     sources
         .installed
         .verifier()
-        .verify_package_proofs(&package, Some(&request.body), MemoryBudget::DEFAULT)
+        .verify_package_proofs(&package, MemoryBudget::DEFAULT)
         .unwrap();
     let acknowledgement = credited(&bytes);
     records.push(message_census::record(
@@ -419,7 +458,7 @@ fn receive_and_check(
 }
 
 #[test]
-#[ignore = "requires fresh permitted target SAME A custody, genuine complete52 catalog and independently executed pinned Activate/Load"]
+#[ignore = "requires fresh permitted target SAME A custody, genuine complete22 catalog and independently executed pinned Activate/Load"]
 fn actual_native_all_control_masks_preserve_committed_payment_and_conservation() {
     let output = fresh_output("KAGEMUSHA_NATIVE_CONTROLS_OUTPUT");
     let sources = Sources::requalify(&output.join("source-admission"));
@@ -612,30 +651,22 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         "b-policy-1",
         &mut records,
     );
-    set_list(
+    install_list(
         &mut a,
         &device_a,
-        &sources,
-        &credential_a,
         &regulator,
         1,
-        3000,
         None,
-        &mut id,
         &output,
         "a-list-1",
         &mut records,
     );
-    set_list(
+    install_list(
         &mut b,
         &device_b,
-        &sources,
-        &credential_b,
         &regulator,
         1,
-        3000,
         None,
-        &mut id,
         &output,
         "b-list-1",
         &mut records,
@@ -665,13 +696,7 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         &mut records,
     );
     let (offer40, request40, setup40) =
-        request(&mut a, &mut b, 40, &mut id, &output, "mask-7", &mut records);
-    assert_eq!(
-        decode::<KagemushaWalletRequestV1>(&request40)
-            .body
-            .receiver_blacklist_version,
-        1
-    );
+        request(&mut a, &mut b, 40, &mut id, &output, "mask-3", &mut records);
     a.review_send(&request40, &frames_b[2]).unwrap();
     let (send40, payment40) = send(
         &mut a,
@@ -679,13 +704,13 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         &sources,
         &frames_a,
         &request40,
-        7,
+        3,
         &mut id,
         &output,
-        "mask-7",
+        "mask-3",
         &mut records,
     );
-    masks.push(7_u32);
+    masks.push(3_u32);
     completed_sends.push((send40.clone(), payment40.clone()));
     assert_eq!(
         a.snapshot().unwrap().owned_balance + b.snapshot().unwrap().owned_balance + 40,
@@ -700,16 +725,12 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
             .send_ordinal,
         1
     );
-    set_list(
+    install_list(
         &mut b,
         &device_b,
-        &sources,
-        &credential_b,
         &regulator,
         2,
-        3000,
         Some(a_account),
-        &mut id,
         &output,
         "b-list-2-blocks-a",
         &mut records,
@@ -726,15 +747,35 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
     let signatures = device_b.platform.with(|state| state.sign_calls);
     assert!(matches!(
         b.request([next(&mut id); 32], &blocked_offer, None),
-        Err(state::Error::Invalid("G1 validation"))
+        Err(state::Error::Blocked("request.payer_account_digest"))
     ));
     assert_eq!(b.snapshot().unwrap(), before);
     assert_eq!(device_b.platform.with(|state| state.sign_calls), signatures);
     assert_eq!(b.request(setup40, &offer40, None).unwrap(), request40);
     assert_eq!(b.snapshot().unwrap(), before);
     assert_eq!(device_b.platform.with(|state| state.sign_calls), signatures);
-    // Receiver policy changed after irreversible Send. Receive proves the Request's
-    // retained version1 gap through current history; it must not consult the blocking v2.
+    // The receiver's current local list refuses a listed payer's Payment before any mutation,
+    // even under a Request it issued before the list. The payer keeps the exact Payment bytes,
+    // and the same Payment is accepted once the receiver's list no longer lists the payer.
+    for _ in 0..2 {
+        assert!(matches!(
+            b.execute(receive(&payment40, &frames_a, next(&mut id))),
+            Err(state::Error::Blocked("request.payer_account_digest"))
+        ));
+        assert_eq!(b.snapshot().unwrap(), before);
+    }
+    assert_eq!(device_b.platform.with(|state| state.sign_calls), signatures);
+    assert_eq!(complete(a.execute(send40.clone()).unwrap()), payment40);
+    install_list(
+        &mut b,
+        &device_b,
+        &regulator,
+        3,
+        None,
+        &output,
+        "b-list-3",
+        &mut records,
+    );
     let ack = receive_and_check(
         &mut b,
         &device_b,
@@ -745,12 +786,12 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         &payment40,
         &mut id,
         &output,
-        "mask-7",
+        "mask-3",
         &mut records,
     );
     let (reopened, archived) = archive::exercise(a, &device_a, &sources, &f, &frames_a, &ack);
     a = reopened;
-    records.push(original(&output, "mask-7-archive.norito", &archived));
+    records.push(original(&output, "mask-3-archive.norito", &archived));
     assert_eq!(
         a.snapshot().unwrap().owned_balance + b.snapshot().unwrap().owned_balance,
         100
@@ -786,55 +827,32 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         &mut records,
     );
     a.review_send(&request7, &frames_b[2]).unwrap();
-    set_list(
+    install_list(
         &mut a,
         &device_a,
-        &sources,
-        &credential_a,
         &regulator,
         2,
-        3000,
         Some(b_account),
-        &mut id,
         &output,
         "a-list-2-blocks-b",
         &mut records,
     );
-    review_refused(&mut a, &device_a, &request7, &frames_b[2]);
-    execute_refused(&mut a, &device_a, &request7, &mut id);
-    set_list(
+    send_blocked(&mut a, &device_a, &request7, &frames_b[2], &mut id);
+    install_list(
         &mut a,
         &device_a,
-        &sources,
-        &credential_a,
         &regulator,
         3,
-        3000,
         None,
-        &mut id,
         &output,
         "a-list-3",
         &mut records,
     );
     a.review_send(&request7, &frames_b[2]).unwrap();
-    set_list(
-        &mut b,
-        &device_b,
-        &sources,
-        &credential_b,
-        &regulator,
-        3,
-        3000,
-        None,
-        &mut id,
-        &output,
-        "b-list-3",
-        &mut records,
-    );
 
-    // One funded incarnation covers every current Send mask, with genuine Receive
-    // selector1 (recorded blacklist history) and ArchiveReceive for each Payment.
-    for mask in 0_u32..=6 {
+    // One funded incarnation covers every current Send mask, with genuine Receive and
+    // ArchiveReceive for each Payment.
+    for mask in 0_u32..=2 {
         let label = format!("mask-{mask}");
         set_policy(
             &mut a,
@@ -894,89 +912,60 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
             100
         );
     }
-    assert_eq!(a.snapshot().unwrap().owned_balance, 11);
-    assert_eq!(b.snapshot().unwrap().owned_balance, 89);
+    assert_eq!(a.snapshot().unwrap().owned_balance, 39);
+    assert_eq!(b.snapshot().unwrap().owned_balance, 61);
     set_policy(
-        &mut a,
-        &device_a,
-        &sources,
-        &credential_a,
-        &regulator,
-        9,
-        ALL,
-        &mut id,
-        &output,
-        "a-policy-9",
-        &mut records,
-    );
-    let (_, request11, _) = request(
-        &mut a,
-        &mut b,
-        11,
-        &mut id,
-        &output,
-        "after-expiry",
-        &mut records,
-    );
-    a.review_send(&request11, &frames_b[2]).unwrap();
-
-    // Same signed anchor, forward-only simulated monotonic clock: U is exactly the
-    // lease deadline. Refresh the list so expiry is the only failing active condition.
-    device_a.platform.with(|state| state.monotonic = Ok(10000));
-    set_list(
-        &mut a,
-        &device_a,
-        &sources,
-        &credential_a,
-        &regulator,
-        4,
-        LEASE_EXPIRES,
-        None,
-        &mut id,
-        &output,
-        "a-list-4",
-        &mut records,
-    );
-    review_refused(&mut a, &device_a, &request11, &frames_b[2]);
-    execute_refused(&mut a, &device_a, &request11, &mut id);
-    assert_eq!(complete(a.execute(send40.clone()).unwrap()), payment40);
-    // A signed later scheme policy disables lease enforcement, leaving the list and
-    // quota active. This is not renewal: the original credential remains unchanged.
-    set_policy(
-        &mut a,
-        &device_a,
-        &sources,
-        &credential_a,
-        &regulator,
-        10,
-        3,
-        &mut id,
-        &output,
-        "a-policy-10",
-        &mut records,
-    );
-    a.review_send(&request11, &frames_b[2]).unwrap();
-    device_a.platform.with(|state| state.monotonic = Ok(11001));
-    review_refused(&mut a, &device_a, &request11, &frames_b[2]);
-    execute_refused(&mut a, &device_a, &request11, &mut id);
-    set_list(
         &mut a,
         &device_a,
         &sources,
         &credential_a,
         &regulator,
         5,
-        13001,
-        None,
+        ALL,
         &mut id,
         &output,
-        "a-list-5",
+        "a-policy-5",
         &mut records,
     );
-    a.review_send(&request11, &frames_b[2]).unwrap();
+    let (_, request39, _) = request(
+        &mut a,
+        &mut b,
+        39,
+        &mut id,
+        &output,
+        "after-expiry",
+        &mut records,
+    );
+    a.review_send(&request39, &frames_b[2]).unwrap();
+
+    // Same signed anchor, forward-only simulated monotonic clock: U is exactly the
+    // lease deadline, the only failing active condition.
+    device_a.platform.with(|state| state.monotonic = Ok(10000));
+    review_refused(&mut a, &device_a, &request39, &frames_b[2]);
+    execute_refused(&mut a, &device_a, &request39, &mut id);
+    assert_eq!(complete(a.execute(send40.clone()).unwrap()), payment40);
+    // A signed later scheme policy disables lease enforcement, leaving the quota active.
+    // This is not renewal: the original credential remains unchanged.
+    set_policy(
+        &mut a,
+        &device_a,
+        &sources,
+        &credential_a,
+        &regulator,
+        6,
+        KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1,
+        &mut id,
+        &output,
+        "a-policy-6",
+        &mut records,
+    );
+    a.review_send(&request39, &frames_b[2]).unwrap();
+    // The held local list has no age rule: time passing alone refuses nothing.
+    device_a.platform.with(|state| state.monotonic = Ok(11001));
+    a.review_send(&request39, &frames_b[2]).unwrap();
     device_a.platform.with(|state| state.boot = Ok([0xbc; 32]));
-    review_refused(&mut a, &device_a, &request11, &frames_b[2]);
-    execute_refused(&mut a, &device_a, &request11, &mut id);
+    review_refused(&mut a, &device_a, &request39, &frames_b[2]);
+    execute_refused(&mut a, &device_a, &request39, &mut id);
     assert_eq!(complete(a.execute(send40).unwrap()), payment40);
     reanchor(
         &mut a,
@@ -990,31 +979,17 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         "anchor-after-boot",
         &mut records,
     );
-    a.review_send(&request11, &frames_b[2]).unwrap();
+    a.review_send(&request39, &frames_b[2]).unwrap();
     let (intent, payment) = send(
         &mut a,
         &device_a,
         &sources,
         &frames_a,
-        &request11,
-        3,
+        &request39,
+        KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1,
         &mut id,
         &output,
         "after-expiry",
-        &mut records,
-    );
-    set_list(
-        &mut b,
-        &device_b,
-        &sources,
-        &credential_b,
-        &regulator,
-        4,
-        13001,
-        Some(a_account),
-        &mut id,
-        &output,
-        "b-list-4-blocks-a",
         &mut records,
     );
     let ack = receive_and_check(
@@ -1023,7 +998,7 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         &sources,
         &frames_a,
         &credential_b,
-        &request11,
+        &request39,
         &payment,
         &mut id,
         &output,
@@ -1066,7 +1041,7 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
     assert_eq!(device_a.platform.with(|state| state.sign_calls), signatures);
     assert_eq!(a.epoch_progress().unwrap(), initial_epoch);
     masks.sort();
-    assert_eq!(masks, (0_u32..=7).collect::<Vec<_>>());
+    assert_eq!(masks, (0_u32..=3).collect::<Vec<_>>());
     // Public originals and exact terminal source identity bind the optional renewal
     // continuation to these SAME two persisted incarnations; they grant no new balance.
     let continuation_originals = [("a", &frames_a), ("b", &frames_b)]
@@ -1086,19 +1061,20 @@ fn actual_native_all_control_masks_preserve_committed_payment_and_conservation()
         "a_final_sequence":(final_a.sequence.to_string()),"b_final_sequence":(final_b.sequence.to_string()),
         "a_credential_digest":(hex::encode(final_a.credential_digest)),"b_credential_digest":(hex::encode(final_b.credential_digest)),
         "a_finality_epoch":(a.epoch_progress().unwrap().epoch),"b_finality_epoch":(b.epoch_progress().unwrap().epoch),
-        "last_policy_epochs":[10,1],
+        "last_policy_epochs":[6,1],
         "source_pins":(source_pins()),"target_sha256":(sha(&target_bytes)),
         "receipt_sha256":(env_pin("KAGEMUSHA_NATIVE_LOAD_RECEIPT_SHA256")),
         "scheme_id":(hex::encode(f.config.scheme.scheme_id())),
         "manifest_digest":(hex::encode(sources.qualified.installation().1)),
-        "executed_send_masks":masks,"payments":9,"received_total":"100",
+        "executed_send_masks":masks,"payments":5,"received_total":"100",
         "final_owned_atomic":["0","100"],"burned_atomic":"0","fee_atomic":"0",
         "daily_monthly_usage_preserved_on_share_refresh":true,
-        "recorded_blacklist_receive_after_later_block":true,
+        "local_blacklist_refuses_listed_counterparties":true,
+        "later_receiver_block_refuses_then_accepts_exact_payment":true,
         "fresh_refusals_preserve_head_and_payment_signatures":true,
         "same_custody_restart_exact_payment_retries":true,
         "records":records,
-        "scope":"Actual installed native proofs over one ordinary finalized Load and all eight Send masks, Receive with retained blacklist history, ArchiveReceive and exact replay. Signed policy/issuer and simulated monotonic/hardware inputs are explicit engineering fixtures. No four-validator run, credential renewal, quota-boundary rollover, physical-device or release qualification."
+        "scope":"Actual installed native proofs over one ordinary finalized Load and all four Send masks, local blacklist refusals on both sides, Receive, ArchiveReceive and exact replay. Signed policy/issuer and simulated monotonic/hardware inputs are explicit engineering fixtures. No four-validator run, credential renewal, quota-boundary rollover, physical-device or release qualification."
     });
     publish(
         &output.join("controls-result.json"),

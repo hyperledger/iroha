@@ -23278,6 +23278,42 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
             expectedURL: request.url, response: response, bytes: data)
     }
 
+    /// Fetch both independent Load originals concurrently with their existing exact-route
+    /// signatures, bounds and owner checks. A failed or cancelled pair cancels and drains
+    /// its sibling; a partial result is never returned or retained.
+    public func getKagemushaWalletLoadOriginalsV1(
+        selection: ToriiKagemushaWalletLoadSelectionV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+        requireCurrentOwner: @escaping @Sendable () async throws -> Void
+    ) async throws -> ToriiKagemushaWalletLoadOriginalsV1 {
+        try Task.checkCancellation()
+        try await requireCurrentOwner()
+        return try await withThrowingTaskGroup(of: ToriiKagemushaWalletLoadReadPartV1.self) { group in
+            group.addTask {
+                .issuance(try await self.getKagemushaWalletLoadIssuanceOriginalV1(
+                    selection: selection, canonicalAuth: canonicalAuth, requireCurrentOwner: requireCurrentOwner))
+            }
+            group.addTask {
+                .finality(try await self.getKagemushaWalletLoadFinalityOriginalV1(
+                    selection: selection, canonicalAuth: canonicalAuth, requireCurrentOwner: requireCurrentOwner))
+            }
+            defer { group.cancelAll() }
+            var issuance: ToriiKagemushaWalletLoadIssuanceOriginalV1?
+            var finality: Data?
+            for try await part in group {
+                switch part {
+                case .issuance(let original): issuance = original
+                case .finality(let original): finality = original
+                }
+            }
+            try Task.checkCancellation()
+            try await requireCurrentOwner()
+            try Task.checkCancellation()
+            guard let issuance, let finality else { throw ToriiClientError.invalidResponse }
+            return ToriiKagemushaWalletLoadOriginalsV1(issuance: issuance, finalityOriginal: finality)
+        }
+    }
+
     /// Receive one native BLS certificate and exact Load event inclusion from the payer route.
     /// These bytes remain DATA until the installed Native wallet verifies them with the exact receipt.
     public func getKagemushaWalletLoadFinalityOriginalV1(

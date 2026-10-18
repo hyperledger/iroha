@@ -1,5 +1,6 @@
 //! Total original Credited evidence, fixed selector and no-op result owner.
 
+use ff::Field;
 use iroha_pasta::{Ep, Fp};
 use iroha_plonk::frontend::{Error, Region, Value};
 use iroha_plonk_gadgets::{Bit, GlueChip, UintChip, Word, bytes::tape::BytesChip};
@@ -28,6 +29,7 @@ use crate::{
             },
         },
     },
+    q_sigma::QSigmaPlan,
 };
 
 /// Original bytes selected by the fixed Archive evidence class.
@@ -73,7 +75,7 @@ fn bind_object(
     Ok(())
 }
 
-/// Fixed statement/Credited fields and Status-only original tapes after slot13.
+/// Fixed statement/Credited fields and Status-only original tapes after slot11.
 /// The last result object is supplied by `ArchiveResultPlan`, separately.
 /// # Errors
 /// Non-Archive variant or impossible fixed-size conversion.
@@ -88,7 +90,7 @@ pub fn evidence_specs(variant: Variant) -> Result<Vec<ContextObjectSpec>, Error>
         .enumerate()
         .map(|(i, n)| {
             Ok(ContextObjectSpec {
-                tag: u32::try_from(15 + i).map_err(|_| Error::BoundsFailure)?,
+                tag: u32::try_from(13 + i).map_err(|_| Error::BoundsFailure)?,
                 capacity: u32::try_from(n).map_err(|_| Error::BoundsFailure)?,
             })
         })
@@ -159,11 +161,14 @@ pub(crate) fn derive_evidence(
             incoming_statement: input.incoming_statement,
             incoming_public: input.incoming.map(|v| v.public),
             objects: input.objects,
-            incoming_selector: input
-                .q_instances
-                .first()
-                .and_then(|q| q.get(2))
-                .and_then(|c| c.get(1)),
+            // ArchiveReceive's Q0 is the incoming-only Q_sigma; its key-index
+            // row is the incoming role's installed position.
+            incoming_selector: plan
+                .operation()
+                .sigma_plan()
+                .ok()
+                .and_then(|sigma| sigma.position(QSigmaPlan::INCOMING))
+                .and_then(|row| input.q_instances.first()?.get(2)?.get(row)),
         },
         policy,
         objects,
@@ -171,7 +176,7 @@ pub(crate) fn derive_evidence(
     )
 }
 
-// Exact original-only inputs. No Q0 frame, mode, result or verifier verdict is present.
+// Exact original-only inputs. No Q_sigma frame, mode, result or verifier verdict is present.
 #[derive(Clone, Copy)]
 pub(crate) struct EvidencePredicateInputs<'a> {
     pub(crate) own_statement: &'a crate::operation_relation::statement::StatementCells,
@@ -183,7 +188,7 @@ pub(crate) struct EvidencePredicateInputs<'a> {
 }
 
 // Shared raw evidence predicate. The owning stage retains its task, full context
-// and Q0 selector binding; native evaluation supplies the exact installed selector.
+// and Q_sigma selector binding; native evaluation supplies the exact installed selector.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn evidence_predicate(
     chip: &mut VerifierChip<Ep>,
@@ -199,12 +204,12 @@ pub(crate) fn evidence_predicate(
     let specs = evidence_specs(variant)?;
     let payment = input
         .objects
-        .get(7)
+        .get(5)
         .ok_or(Error::Synthesis)?
         .authenticated_digest();
     let raw_digest = input
         .objects
-        .get(13)
+        .get(11)
         .ok_or(Error::Synthesis)?
         .authenticated_digest();
     GlueChip::assert_equal(
@@ -227,11 +232,9 @@ pub(crate) fn evidence_predicate(
             )?;
             let lanes = chip.operation_lanes()?;
             let mut uint = UintChip::new(lanes.glue, lanes.range);
-            let zero = uint
-                .glue()
-                .is_zero(region, objects.request().object().word(15)?)?;
-            let recorded = uint.glue().not(region, &zero)?;
-            let expected = constrain_sigma_selector(&mut uint, region, 4, recorded.word())?;
+            // Receive has the single sigma key `(4, 0)`.
+            let zero = uint.glue().constant(region, Fp::ZERO)?;
+            let expected = constrain_sigma_selector(&mut uint, region, 4, &zero)?;
             GlueChip::assert_equal(region, &selector, &expected)?;
             let evidence = ReceiveEvidenceCells::bind(
                 &mut uint,
@@ -312,8 +315,8 @@ pub(crate) fn evidence_predicate(
                 },
             )?;
             for (index, spec, digest, run) in [
-                (16, specs[2], evidence.digest(), &status_run),
-                (17, specs[3], opening.digest(), &opening_run),
+                (14, specs[2], evidence.digest(), &status_run),
+                (15, specs[3], opening.digest(), &opening_run),
             ] {
                 let actual = ContextObjectCells::from_exact_run(chip, region, spec, digest, run)?;
                 bind_object(region, plan, input.objects, index, spec, &actual)?;
@@ -328,7 +331,7 @@ pub(crate) fn evidence_predicate(
         }
     };
     let actual = ContextObjectCells::from_internal_words(chip, region, specs[0], &statement)?;
-    bind_object(region, plan, input.objects, 14, specs[0], &actual)?;
+    bind_object(region, plan, input.objects, 12, specs[0], &actual)?;
     let run = bytes.run(
         region,
         credited_bytes,
@@ -353,6 +356,6 @@ pub(crate) fn evidence_predicate(
     let valid = all(uint.glue(), region, &[valid, credited.valid().clone()])?;
     let actual =
         ContextObjectCells::from_exact_run(chip, region, specs[1], credited.digest(), &run)?;
-    bind_object(region, plan, input.objects, 15, specs[1], &actual)?;
+    bind_object(region, plan, input.objects, 13, specs[1], &actual)?;
     Ok(valid)
 }

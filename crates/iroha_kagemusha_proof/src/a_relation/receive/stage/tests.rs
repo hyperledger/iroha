@@ -16,13 +16,12 @@ use iroha_plonk_recursion::verifier::VerifierPlan;
 fn tasks() -> Vec<Vec<OperationTask>> {
     use OperationTask::*;
     vec![
-        vec![ReceiveProofs, ReceiveOwnProof, ReceiveProofDigest],
+        vec![ReceiveProofs, ReceiveProofDigest, ReceiveTransition],
         vec![ReceiveAuthorization],
         vec![
             ReceiveObjects,
             ReceiveSignatures,
             ReceiveNonmembership,
-            ReceiveBlacklist,
             ReceiveConsumedEffects,
             ReceiveCreditEffects,
         ],
@@ -30,48 +29,62 @@ fn tasks() -> Vec<Vec<OperationTask>> {
     ]
 }
 
+fn signature_key(schema: &QSignaturePlan, params: &PinnedParams<Ep>) -> QProofPlan {
+    let placeholder = SignatureWitness {
+        digest: Fp::ZERO,
+        key: [Affine::GENERATOR.x, Affine::GENERATOR.y],
+        signature: [[0; 4]; 2],
+    };
+    // Key generation fixes the real signature relation without making any claim
+    // that these unused placeholder signatures are valid.
+    let circuit =
+        QSignatureCircuit::new(schema.clone(), vec![placeholder; schema.slots().len()]).unwrap();
+    let key = keygen_pk_v2(
+        params,
+        &circuit,
+        &KeygenConfigV2::pipa_r(QSignaturePlan::instance_types().to_vec()),
+    )
+    .unwrap();
+    QProofPlan::new(
+        VerifierPlan::new(key.binding().clone(), params.clone()).unwrap(),
+        key.vk().clone(),
+    )
+    .unwrap()
+}
+
 #[test]
 fn stage_plan_pins_all_tapes_signature_slots_and_q_owners() {
     let (base, policy) = recursive_program_fixture();
-    assert_eq!(base.q_count(), 1, "unused sigma key is a metadata fixture");
+    assert_eq!(
+        base.q_count(),
+        1,
+        "the incoming-only Q_sigma is a metadata fixture"
+    );
     let params = PinnedParams::<Ep>::derive(16).unwrap();
-    for variant in [Variant::Receive, Variant::ReceiveRenewed] {
-        let schemas = ReceiveStagePlan::signature_schemas(variant, policy).unwrap();
-        let keys = schemas
-            .iter()
-            .map(|schema| {
-                let placeholder = SignatureWitness {
-                    digest: Fp::ZERO,
-                    key: [Affine::GENERATOR.x, Affine::GENERATOR.y],
-                    signature: [[0; 4]; 2],
-                };
-                // Key generation fixes the real signature relation without making
-                // any claim that these unused placeholder signatures are valid.
-                let circuit =
-                    QSignatureCircuit::new(schema.clone(), vec![placeholder; schema.slots().len()])
-                        .unwrap();
-                let key = keygen_pk_v2(
-                    &params,
-                    &circuit,
-                    &KeygenConfigV2::pipa_r(QSignaturePlan::instance_types().to_vec()),
-                )
-                .unwrap();
-                QProofPlan::new(
-                    VerifierPlan::new(key.binding().clone(), params.clone()).unwrap(),
-                    key.vk().clone(),
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
-        let operation = AProofPlan::new(
-            variant,
-            base.sigma.clone(),
-            vec![base.q(0).unwrap().clone(), keys[0].clone(), keys[1].clone()],
-            base.omega().cloned(),
+    let keys = [Variant::Receive, Variant::ReceiveRenewed].map(|variant| {
+        signature_key(
+            &ReceiveStagePlan::signature_schema_for(variant, policy).unwrap(),
             &params,
         )
-        .unwrap();
-        exercise_signature_projection(&operation, &schemas[1]);
+    });
+    for (variant, own, other) in [
+        (Variant::Receive, &keys[0], &keys[1]),
+        (Variant::ReceiveRenewed, &keys[1], &keys[0]),
+    ] {
+        let schema = ReceiveStagePlan::signature_schema_for(variant, policy).unwrap();
+        let operation = |signature: &QProofPlan| {
+            AProofPlan::inline_with_incoming(
+                variant,
+                base.sigma_plan().unwrap().clone(),
+                vec![base.q(0).unwrap().clone(), signature.clone()],
+                base.omega().cloned(),
+                &params,
+            )
+            .unwrap()
+        };
+        let operation_with = operation(own);
+        exercise_signature_projection(&operation_with, &operation(other), &schema);
+        let operation = operation_with;
         let specs = ReceiveStagePlan::context_specs(variant, 8132, 10000).unwrap();
         let context = |operation: AProofPlan, partition, specs| {
             ContextPlan::with_schedule(operation, partition, Some(0), specs)
@@ -79,10 +92,12 @@ fn stage_plan_pins_all_tapes_signature_slots_and_q_owners() {
                 .with_operation_tasks(tasks())
                 .unwrap()
         };
-        let partition = vec![vec![0], vec![1], vec![2], vec![]];
+        // Authorization verifies the merged Q1; Signatures projects it later.
+        let partition = vec![vec![0], vec![1], vec![], vec![]];
         let honest = context(operation.clone(), partition.clone(), specs.clone());
         for (required, duplicate) in [
             OperationTask::ReceiveProofDigest,
+            OperationTask::ReceiveTransition,
             OperationTask::ReceiveConsumedEffects,
             OperationTask::ReceiveCreditEffects,
         ]
@@ -108,31 +123,31 @@ fn stage_plan_pins_all_tapes_signature_slots_and_q_owners() {
                 .unwrap()
                 .with_operation_tasks(incomplete)
                 .is_err(),
-                "every hard digest/map owner must occur exactly once before terminal admission",
+                "every hard digest/map/transition owner must occur exactly once",
             );
         }
         for partition in [
-            vec![vec![0], vec![1], vec![], vec![]],
-            vec![vec![0], vec![1], vec![2], vec![2]],
+            vec![vec![0], vec![], vec![], vec![]],
+            vec![vec![0], vec![1], vec![1], vec![]],
         ] {
             assert!(
                 ContextPlan::with_schedule(operation.clone(), partition, Some(0), specs.clone())
                     .is_err(),
-                "Q2 must be verified exactly once"
+                "Q1 must be verified exactly once"
             );
         }
         let future = context(
             operation.clone(),
-            vec![vec![0], vec![1], vec![], vec![2]],
+            vec![vec![0], vec![], vec![], vec![1]],
             specs.clone(),
         );
         assert!(
             ReceiveStagePlan::new(future, policy).is_err(),
-            "Signatures cannot project future Q2"
+            "Authorization verifies Q1 in its own stage, and Signatures cannot project a future Q1"
         );
         let split = ContextPlan::with_schedule(
             operation.clone(),
-            vec![vec![0], vec![1], vec![2], vec![], vec![]],
+            vec![vec![0], vec![1], vec![], vec![], vec![]],
             Some(0),
             specs.clone(),
         )
@@ -147,7 +162,7 @@ fn stage_plan_pins_all_tapes_signature_slots_and_q_owners() {
         .unwrap();
         assert!(
             ReceiveStagePlan::new(split, policy).is_ok(),
-            "unique preceding Q2 owner is permitted"
+            "unique preceding Q1 owner is permitted"
         );
         for required in [
             OperationTask::ReceiveConsumedEffects,
@@ -175,13 +190,15 @@ fn stage_plan_pins_all_tapes_signature_slots_and_q_owners() {
         let plan = ReceiveStagePlan::new(honest, policy).unwrap();
         assert_eq!(plan.context().stage_count(), 4);
         assert!(plan.signature_schema(0).is_none());
-        assert!(plan.signature_schema(3).is_none());
-        assert_eq!(plan.signature_schema(1).unwrap().slots().len(), 3);
+        assert!(plan.signature_schema(2).is_none());
         assert_eq!(
-            plan.signature_schema(2).unwrap().slots().len(),
-            if variant == Variant::Receive { 2 } else { 4 }
+            plan.signature_schema(ReceiveStagePlan::SIGNATURE_Q)
+                .unwrap()
+                .slots()
+                .len(),
+            if variant == Variant::Receive { 3 } else { 5 }
         );
-        assert_eq!(plan.context().object_specs().len(), 11);
+        assert_eq!(plan.context().object_specs().len(), 9);
         for mutation in 0..4 {
             let mut wrong = specs.clone();
             match mutation {
@@ -190,7 +207,7 @@ fn stage_plan_pins_all_tapes_signature_slots_and_q_owners() {
                 2 => {
                     wrong.pop();
                 }
-                _ => wrong[10].capacity -= 1,
+                _ => wrong[8].capacity -= 1,
             }
             assert!(
                 ReceiveStagePlan::new(context(operation.clone(), partition.clone(), wrong), policy)
@@ -200,14 +217,14 @@ fn stage_plan_pins_all_tapes_signature_slots_and_q_owners() {
         }
         let wrong_owner = context(
             operation.clone(),
-            vec![vec![0], vec![2], vec![1], vec![]],
+            vec![vec![0], vec![], vec![1], vec![]],
             specs.clone(),
         );
         assert!(ReceiveStagePlan::new(wrong_owner, policy).is_err());
-        let wrong_slots = AProofPlan::new(
+        let wrong_slots = AProofPlan::inline_with_incoming(
             variant,
-            base.sigma.clone(),
-            vec![base.q(0).unwrap().clone(), keys[1].clone(), keys[0].clone()],
+            base.sigma_plan().unwrap().clone(),
+            vec![base.q(0).unwrap().clone(), other.clone()],
             base.omega().cloned(),
             &params,
         )
@@ -275,7 +292,7 @@ impl iroha_plonk::frontend::Circuit<Fp> for ProjectionBinding {
                     &mut chip,
                     &mut region,
                     &self.original,
-                    2,
+                    ReceiveStagePlan::SIGNATURE_Q,
                     &self.schema,
                     &original,
                 )?;
@@ -291,7 +308,12 @@ impl ProjectionBinding {
     }
 }
 
-fn exercise_signature_projection(operation: &AProofPlan, schema: &QSignaturePlan) {
+// `foreign` differs from `operation` only in its Q1 key.
+fn exercise_signature_projection(
+    operation: &AProofPlan,
+    foreign: &AProofPlan,
+    schema: &QSignaturePlan,
+) {
     use ff::PrimeField;
     use iroha_plonk::frontend::{Circuit, synthesize};
     use iroha_plonk_gadgets::ff::Nat;
@@ -317,7 +339,7 @@ fn exercise_signature_projection(operation: &AProofPlan, schema: &QSignaturePlan
         schema: schema.clone(),
         target_values: values.clone(),
         values,
-        target_index: 2,
+        target_index: ReceiveStagePlan::SIGNATURE_Q,
         known: true,
     };
     assert!(fixture.accepts());
@@ -328,26 +350,15 @@ fn exercise_signature_projection(operation: &AProofPlan, schema: &QSignaturePlan
     for index in 0..fixture.values.len() {
         let mut changed = fixture.clone();
         changed.target_values[index] += Fp::ONE;
-        assert!(!changed.accepts(), "changed Q2 public limb {index}");
+        assert!(!changed.accepts(), "changed Q1 public limb {index}");
     }
     let mut relabelled = fixture.clone();
-    relabelled.target_index = 1;
-    assert!(!relabelled.accepts(), "Q2 cannot be relabelled Q1");
-    let mut foreign = fixture.clone();
-    foreign.target = AProofPlan::new(
-        operation.frame().variant(),
-        operation.sigma.clone(),
-        vec![
-            operation.q(0).unwrap().clone(),
-            operation.q(2).unwrap().clone(),
-            operation.q(1).unwrap().clone(),
-        ],
-        operation.omega().cloned(),
-        operation.q(0).unwrap().verifier().params(),
-    )
-    .unwrap();
+    relabelled.target_index = 0;
+    assert!(!relabelled.accepts(), "Q1 cannot be relabelled Q0");
+    let mut crossed = fixture.clone();
+    crossed.target = foreign.clone();
     assert!(
-        !foreign.accepts(),
+        !crossed.accepts(),
         "same public words cannot cross fixed Q key identity"
     );
     let mut wide = fixture.clone();

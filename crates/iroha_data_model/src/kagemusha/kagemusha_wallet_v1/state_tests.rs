@@ -333,8 +333,8 @@ fn kagemusha_wallet_v1_state_transcript_lengths_are_pinned() {
         (KAGEMUSHA_WALLET_COMMITMENT_TRANSCRIPT_BYTES_V1, 32),
         (KAGEMUSHA_WALLET_RECEIPT_BODY_TRANSCRIPT_BYTES_V1, 338),
         (KAGEMUSHA_WALLET_LINEAGE_PUBLIC_TRANSCRIPT_BYTES_V1, 320),
-        (KAGEMUSHA_WALLET_CORE_FIELD_ITEMS_V1, 33),
-        (KAGEMUSHA_WALLET_REST_FIELD_ITEMS_V1, 8),
+        (KAGEMUSHA_WALLET_CORE_FIELD_ITEMS_V1, 29),
+        (KAGEMUSHA_WALLET_REST_FIELD_ITEMS_V1, 6),
         (KAGEMUSHA_WALLET_EFFECT_FIELD_ITEMS_V1, 9),
         (KAGEMUSHA_WALLET_STATEMENT_FIELD_ITEMS_V1, 26),
         (KAGEMUSHA_WALLET_QUOTA_USAGE_SLOTS_V1, 64),
@@ -446,9 +446,17 @@ fn kagemusha_wallet_v1_state_enum_tags_equal_norito_tags() {
         assert_eq!(norito_tag(&kind), u32::from(kind.tag()));
         assert_eq!(usize::from(kind.tag()), index + 1);
     }
-    for kind in KagemushaWalletPolicyUpdateKindV1::ALL {
+    // Credential 1, SchemePolicy 2, QuotaShare 3, TimeAnchor 4: dense, with no list kind.
+    assert_eq!(KagemushaWalletPolicyUpdateKindV1::ALL.len(), 4);
+    for (index, kind) in KagemushaWalletPolicyUpdateKindV1::ALL
+        .into_iter()
+        .enumerate()
+    {
         assert_eq!(norito_tag(&kind), u32::from(kind.tag()));
+        assert_eq!(usize::from(kind.tag()), index + 1);
     }
+    assert_eq!(KagemushaWalletPolicyUpdateKindV1::QuotaShare.tag(), 3);
+    assert_eq!(KagemushaWalletPolicyUpdateKindV1::TimeAnchor.tag(), 4);
     for (effect, kind) in sample_effects(&f)
         .iter()
         .zip(KagemushaWalletOperationKindV1::ALL)
@@ -520,7 +528,7 @@ fn kagemusha_wallet_v1_effect_elements_are_one_element_per_p_value() {
         refresh
             .write_field_items(WalletFieldItemsV1::with_capacity(3))
             .finish(),
-        vec![int(5), field_value(0x7b), int(0x0102)]
+        vec![int(4), field_value(0x7b), int(0x0102)]
     );
     let body = &f.credential.body;
     let nullifier = kagemusha_wallet_unload_nullifier_v1(&body.scheme_id, &body.wallet_id, 2);
@@ -742,7 +750,7 @@ fn kagemusha_wallet_v1_effect_validation_rules() {
         ),
         (
             KagemushaWalletEffectV1::RefreshPolicy {
-                update_kind: KagemushaWalletPolicyUpdateKindV1::Blacklist,
+                update_kind: KagemushaWalletPolicyUpdateKindV1::QuotaShare,
                 update: [0; 32],
                 accepted_time_floor_ms: 0,
             },
@@ -936,6 +944,11 @@ fn kagemusha_wallet_v1_statement_layout_and_validation() {
     );
     reject(&|s| s.relation_id = [0; 32], "statement.relation_id");
     reject(&|s| s.enabled_controls = 0x80, "statement.enabled_controls");
+    // Only the quota and lease bits are defined; bit 2 is undefined.
+    reject(
+        &|s| s.enabled_controls = 0b100,
+        "statement.enabled_controls",
+    );
     // Operations that do not consume Ω(pred) carry the core values forward.
     reject(&|s| s.lineage_burned_total = 1, "statement.lineage");
     reject(
@@ -1825,7 +1838,7 @@ fn kagemusha_wallet_v1_package_verify_digest_and_flips() {
     assert_eq!(consumer, digests);
     assert_eq!(signer.wallet_id, f.credential.body.wallet_id);
     assert_eq!(
-        package.verifying_key_selector(None).expect("send selector"),
+        package.verifying_key_selector(),
         (KagemushaWalletOperationKindV1::Send, 0)
     );
 
@@ -2068,40 +2081,10 @@ fn kagemusha_wallet_v1_receive_package_binds_payment_digest() {
     let package = signed_package(&f, &f.credential, &statement, stand_in_proof(40));
     assert_eq!(package.receipt.payment_digest, RECEIVE_PAYMENT);
     package.verify(&f.credential).expect("receive package");
+    // Receive has one selector, the empty mask; selecting it takes no Request.
     assert_eq!(
-        package
-            .verifying_key_selector(Some(&request.body))
-            .expect("receive selector"),
+        package.verifying_key_selector(),
         (KagemushaWalletOperationKindV1::Receive, 0)
-    );
-    assert!(is_invalid(
-        package.verifying_key_selector(None),
-        "package.request"
-    ));
-    let mut foreign = request.body;
-    foreign.nonce[0] ^= 1;
-    assert!(is_invalid(
-        package.verifying_key_selector(Some(&foreign)),
-        "package.request"
-    ));
-    // Receive selects the key for the recorded decision, independently of current controls.
-    let mut recorded = request.body;
-    recorded.receiver_blacklist_version = 1;
-    recorded.receiver_blacklist_root = field_value(0x39);
-    let mut recorded_statement = statement;
-    if let KagemushaWalletEffectV1::Receive { credit_id, .. } = &mut recorded_statement.effect {
-        *credit_id = recorded.credit_id();
-    }
-    let recorded_package =
-        signed_package(&f, &f.credential, &recorded_statement, stand_in_proof(40));
-    assert_eq!(
-        recorded_package
-            .verifying_key_selector(Some(&recorded))
-            .expect("recorded selector"),
-        (
-            KagemushaWalletOperationKindV1::Receive,
-            KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1
-        )
     );
     let mut zero_payment = package.clone();
     zero_payment.receipt.payment_digest = [0; 32];
@@ -2217,8 +2200,8 @@ fn kagemusha_wallet_v1_bootstrap_state_core_and_rest() {
         ),
         (0, 0, 0, 0, 0, 0)
     );
-    // Empty chains are field zero. Recovery maps and blacklist history begin at the
-    // depth-32 indexed root; quota usage begins at its all-padding depth-6 array root.
+    // Empty chains are field zero. Recovery maps begin at the depth-32 indexed root; quota
+    // usage begins at its all-padding depth-6 array root.
     assert_eq!((core.send_chain, core.recv_chain), ([0; 32], [0; 32]));
     let empty = kagemusha_wallet_empty_map_root_v1();
     for root in [
@@ -2226,7 +2209,6 @@ fn kagemusha_wallet_v1_bootstrap_state_core_and_rest() {
         core.pending_outgoing_root,
         core.load_redeem_recovery_root,
         core.fee_claim_root,
-        rest.blacklist_history_root,
     ] {
         assert_eq!(root, empty);
     }
@@ -2242,13 +2224,6 @@ fn kagemusha_wallet_v1_bootstrap_state_core_and_rest() {
     assert_eq!(core.quota_share_expires_at_ms, 0);
     assert_eq!(empty, KagemushaWalletIndexedTreeV1::new().root());
     assert_eq!(core.quota_windows_root, [0; 32]);
-    assert_eq!((core.blacklist_version, core.blacklist_root), (0, [0; 32]));
-    // The blacklist issue time and maximum age are core fields (owner answer Q5).
-    assert_eq!(core.blacklist_issued_at_ms, 0);
-    assert_eq!(
-        core.blacklist_max_age_ms,
-        body.regulatory_policy.blacklist_max_age_ms
-    );
     assert_eq!(core.lease_expires_at_ms, 0);
     assert_eq!(core.accepted_time_floor_ms, 0);
     assert_eq!(core.enabled_controls, 0);
@@ -2311,21 +2286,13 @@ fn kagemusha_wallet_v1_bootstrap_state_core_and_rest() {
     reject(&|s| s.core.policy_epoch = 1, "state.scheme_policy");
     reject(&|s| s.rest.scheme_policy = [1; 32], "state.scheme_policy");
     reject(&|s| s.rest.fee_schedule = [1; 32], "state.scheme_policy");
-    reject(&|s| s.core.blacklist_version = 1, "state.blacklist");
-    reject(&|s| s.core.blacklist_issued_at_ms = 1, "state.blacklist");
-    reject(
-        &|s| {
-            s.core.blacklist_version = 1;
-            s.rest.blacklist = [1; 32];
-        },
-        "state.blacklist",
-    );
-    reject(
-        &|s| s.core.blacklist_max_age_ms = 5,
-        "regulatory_policy.blacklist_max_age_ms",
-    );
     reject(
         &|s| s.rest.permitted_controls = 0x80,
+        "regulatory_policy.permitted_controls",
+    );
+    // Only the quota and lease bits are defined; bit 2 is undefined.
+    reject(
+        &|s| s.rest.permitted_controls = 0b100,
         "regulatory_policy.permitted_controls",
     );
     reject(&|s| s.rest.quota_share_id = 1, "state.quota_share");
@@ -2334,25 +2301,13 @@ fn kagemusha_wallet_v1_bootstrap_state_core_and_rest() {
         "state.quota_share",
     );
     reject(
-        &|s| s.rest.blacklist_history_root = [0; 32],
-        "state.rest.blacklist_history_root",
-    );
-    reject(
-        &|s| s.rest.blacklist_history_root = [0xff; 32],
-        "state.rest.blacklist_history_root",
-    );
-    reject(
         &|s| s.core.quota_windows_root = [1; 32],
         "state.quota_share",
     );
-    // The blacklist and quota-window roots are Poseidon roots (§7).
+    // The quota-window root is a Poseidon root (§7).
     reject(
         &|s| s.core.quota_windows_root = [0xff; 32],
         "state.core.quota_windows_root",
-    );
-    reject(
-        &|s| s.core.blacklist_root = KAGEMUSHA_WALLET_FIELD_MODULUS_V1,
-        "state.core.blacklist_root",
     );
     reject(
         &|s| s.core.quota_usage_root = [0; 32],
@@ -2385,10 +2340,6 @@ fn kagemusha_wallet_v1_bootstrap_state_core_and_rest() {
     held.core.policy_epoch = 1;
     held.rest.scheme_policy = [1; 32];
     held.rest.fee_schedule = [2; 32];
-    held.core.blacklist_version = 3;
-    held.rest.blacklist = [3; 32];
-    held.core.blacklist_root = field_value(4);
-    held.core.blacklist_issued_at_ms = 11;
     held.rest.quota_share_id = 5;
     held.rest.quota_share = [5; 32];
     held.core.quota_windows_root = field_value(6);
@@ -2421,13 +2372,12 @@ const fn controlled_digest(seed: u8) -> [u8; 32] {
 
 /// `base` with every core and rest field other than the four identities set to a distinct
 /// value the state rules admit: Retiring, every control permitted and enabled, a held scheme
-/// policy, blacklist (with a list-age rule) and quota share, a lease, and distinct map roots,
-/// chains and counters.
+/// policy and quota share, a lease, and distinct map roots, chains and counters.
 ///
 /// No two core elements and no two rest elements of this state are equal, so its element lists
-/// pin every position (owner answers Q3, Q4 and Q5 placed the load/redeem root, scheme, asset
-/// and the blacklist age fields); the shared vector `field_encodings.controlled_state` is this
-/// state over the vectored receiver's identities.
+/// pin every position (owner answers Q3 and Q4 placed the load/redeem root, scheme and asset);
+/// the shared vector `field_encodings.controlled_state` is this state over the vectored
+/// receiver's identities.
 pub(in crate::kagemusha::kagemusha_wallet_v1) fn controlled_state(
     base: &KagemushaWalletStateV1,
 ) -> KagemushaWalletStateV1 {
@@ -2451,10 +2401,6 @@ pub(in crate::kagemusha::kagemusha_wallet_v1) fn controlled_state(
     core.quota_windows_root = field_value(0x78);
     core.quota_share_expires_at_ms = 1_000_015;
     core.time_anchor_max_response_ms = 1_000_013;
-    core.blacklist_version = 1_000_007;
-    core.blacklist_root = field_value(0x79);
-    core.blacklist_issued_at_ms = 1_000_008;
-    core.blacklist_max_age_ms = 1_000_009;
     core.lease_expires_at_ms = 1_000_010;
     core.policy_epoch = 1_000_011;
     core.accepted_time_floor_ms = 1_000_012;
@@ -2463,11 +2409,9 @@ pub(in crate::kagemusha::kagemusha_wallet_v1) fn controlled_state(
     rest.permitted_controls = KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1;
     rest.scheme_policy = controlled_digest(0x81);
     rest.fee_schedule = controlled_digest(0x82);
-    rest.blacklist = controlled_digest(0x83);
     rest.quota_share = controlled_digest(0x84);
     rest.quota_share_id = 1_000_014;
     rest.time_anchor = controlled_digest(0x85);
-    rest.blacklist_history_root = field_value(0x86);
     state.validate().expect("controlled state");
     state
 }
@@ -2487,16 +2431,12 @@ fn kagemusha_wallet_v1_state_core_and_rest_field_items() {
     // send_chain, recv_chain; the consumed-credit, pending-outgoing, load/redeem-recovery,
     // fee-claim and quota-usage roots (one element each).
     expected.extend((0x71..=0x77).map(field_value));
-    // Mask, quota-windows root, share expiry, blacklist version and root, issue time,
-    // maximum age and anchor response, lease, epoch, floor, nonce.
+    // Mask, quota-windows root, share expiry, maximum anchor response, lease, epoch, floor,
+    // nonce.
     expected.extend([
-        int(7),
+        int(3),
         field_value(0x78),
         int(1_000_015),
-        int(1_000_007),
-        field_value(0x79),
-        int(1_000_008),
-        int(1_000_009),
         int(1_000_013),
         int(1_000_010),
         int(1_000_011),
@@ -2510,13 +2450,12 @@ fn kagemusha_wallet_v1_state_core_and_rest_field_items() {
     assert_eq!(distinct.len(), KAGEMUSHA_WALLET_CORE_FIELD_ITEMS_V1);
     let core_items = expected;
 
-    let mut expected = vec![int(7)];
-    for seed in [0x81, 0x82, 0x83, 0x84] {
+    let mut expected = vec![int(3)];
+    for seed in [0x81, 0x82, 0x84] {
         expected.push(controlled_digest(seed));
     }
     expected.push(int(1_000_014));
     expected.push(controlled_digest(0x85));
-    expected.push(field_value(0x86));
     assert_eq!(state.rest_field_items().expect("rest"), expected);
     assert_eq!(expected.len(), KAGEMUSHA_WALLET_REST_FIELD_ITEMS_V1);
     let distinct: std::collections::BTreeSet<_> = expected.iter().collect();
@@ -2557,7 +2496,7 @@ fn kagemusha_wallet_v1_state_commitment_binds_every_field() {
     let state = controlled_state(&bootstrap_state(&f, 0x5c));
     let base = state.commitment().expect("commitment");
     // One valid mutation per core field (in core order), then per rest field.
-    let core_mutations: [StateMutation; 30] = [
+    let core_mutations: [StateMutation; 26] = [
         ("lifecycle", |s| {
             s.core.lifecycle = KagemushaWalletLifecycleV1::Active;
         }),
@@ -2589,7 +2528,7 @@ fn kagemusha_wallet_v1_state_commitment_binds_every_field() {
             s.core.quota_usage_root = field_value(0x27);
         }),
         ("enabled_controls", |s| {
-            s.core.enabled_controls = KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1;
+            s.core.enabled_controls = KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1;
         }),
         ("quota_windows_root", |s| {
             s.core.quota_windows_root = field_value(0x27);
@@ -2597,14 +2536,6 @@ fn kagemusha_wallet_v1_state_commitment_binds_every_field() {
         ("quota_share_expires_at_ms", |s| {
             s.core.quota_share_expires_at_ms += 1
         }),
-        ("blacklist_version", |s| s.core.blacklist_version += 1),
-        ("blacklist_root", |s| {
-            s.core.blacklist_root = field_value(0x27);
-        }),
-        ("blacklist_issued_at_ms", |s| {
-            s.core.blacklist_issued_at_ms += 1;
-        }),
-        ("blacklist_max_age_ms", |s| s.core.blacklist_max_age_ms += 1),
         ("time_anchor_max_response_ms", |s| {
             s.core.time_anchor_max_response_ms += 1
         }),
@@ -2617,18 +2548,14 @@ fn kagemusha_wallet_v1_state_commitment_binds_every_field() {
     ];
     // Rest fields enter through the rest digest; narrowing the permitted controls also narrows
     // the enabled ones, which must stay within them.
-    let rest_mutations: [StateMutation; 8] = [
+    let rest_mutations: [StateMutation; 6] = [
         ("rest.permitted_controls", |s| {
             s.rest.permitted_controls = KAGEMUSHA_WALLET_CONTROLS_DEFINED_MASK_V1;
             s.rest.permitted_controls &= !KAGEMUSHA_WALLET_CONTROL_QUOTAS_V1;
             s.core.enabled_controls = s.rest.permitted_controls;
         }),
-        ("rest.blacklist_history_root", |s| {
-            s.rest.blacklist_history_root = field_value(0x27);
-        }),
         ("rest.scheme_policy", |s| s.rest.scheme_policy = [0x2c; 32]),
         ("rest.fee_schedule", |s| s.rest.fee_schedule = [0x2c; 32]),
-        ("rest.blacklist", |s| s.rest.blacklist = [0x2c; 32]),
         ("rest.quota_share", |s| s.rest.quota_share = [0x2c; 32]),
         ("rest.quota_share_id", |s| s.rest.quota_share_id += 1),
         ("rest.time_anchor", |s| s.rest.time_anchor = [0x2c; 32]),

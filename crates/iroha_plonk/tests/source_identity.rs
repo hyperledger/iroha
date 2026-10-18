@@ -489,6 +489,64 @@ fn ignored_native_modules_assets_and_cargo_configuration_remain_inputs() {
 }
 
 #[test]
+fn deleted_unreferenced_tracked_inputs_bind_current_source_membership() {
+    let workspace = Workspace::new();
+    let retired = "crates/proof/src/retired/module.rs";
+    workspace.write(retired, b"pub const RETIRED: u32 = 1;\n");
+    workspace.git(&["add", retired]);
+    let before = workspace.digest();
+    fs::remove_dir_all(workspace.0.join("crates/proof/src/retired")).unwrap();
+    let removed = snapshot(&workspace.0).unwrap();
+    assert_ne!(removed.digest, before);
+    assert!(!removed.watched_paths.contains(&workspace.0.join(retired)));
+    workspace.git(&["add", "-u", "--", retired]);
+    assert_eq!(workspace.digest(), removed.digest);
+    workspace.write(retired, b"pub const RETIRED: u32 = 1;\n");
+    assert_eq!(workspace.digest(), before);
+}
+
+#[test]
+fn deleted_tracked_inputs_still_named_by_native_sources_are_rejected() {
+    for (reference, target) in [
+        ("include!(\"retired.rs\");", "crates/proof/src/retired.rs"),
+        (
+            "const INPUT: &[u8] = include_bytes!(\"retired.bin\");",
+            "crates/proof/src/retired.bin",
+        ),
+        (
+            "#[path = \"retired.rs\"] mod retired;",
+            "crates/proof/src/retired.rs",
+        ),
+        (
+            "const INPUT: &str = include_str!(\"../../../docs/retired.md\");",
+            "docs/retired.md",
+        ),
+    ] {
+        let workspace = Workspace::new();
+        workspace.write("crates/proof/src/circuit.rs", reference.as_bytes());
+        workspace.write(target, b"// retired\n");
+        workspace.git(&["add", "."]);
+        assert!(snapshot(&workspace.0).is_ok());
+        fs::remove_file(workspace.0.join(target)).unwrap();
+        assert!(
+            snapshot(&workspace.0).is_err(),
+            "missing dependency {target}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn dangling_ancestor_cannot_disguise_a_tracked_source_as_deleted() {
+    use std::os::unix::fs::symlink;
+    let workspace = Workspace::new();
+    let original = workspace.0.join("crates/proof/src");
+    fs::rename(&original, workspace.0.join("retained-src")).unwrap();
+    symlink("missing", &original).unwrap();
+    assert!(snapshot(&workspace.0).is_err());
+}
+
+#[test]
 fn deleted_tracked_or_missing_git_inputs_cannot_report_freshness() {
     let workspace = Workspace::new();
     fs::remove_file(workspace.0.join("Cargo.lock")).unwrap();

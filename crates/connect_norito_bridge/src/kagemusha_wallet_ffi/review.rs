@@ -517,10 +517,10 @@ mod tests {
             // foreign execute route cannot reach a Native monetary owner for these actions.
             let error = execute(
                 u64::MAX,
-                state::OperationRequestV1 {
+                requests::Call::Operation(state::OperationRequestV1 {
                     request_id: [1; 32],
                     action,
-                },
+                }),
             )
             .unwrap_err();
             assert_eq!(error.status, INVALID);

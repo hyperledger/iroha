@@ -193,7 +193,6 @@ impl DynamicStatementCells {
             Variant::Retiring,
             Variant::RefreshCredential,
             Variant::RefreshSchemePolicy,
-            Variant::RefreshBlacklist,
             Variant::RefreshQuotaShare,
             Variant::RefreshTimeAnchor,
         ];
@@ -344,9 +343,8 @@ fn variant_predicate(
             let kind = match variant {
                 Variant::RefreshCredential => 1,
                 Variant::RefreshSchemePolicy => 2,
-                Variant::RefreshBlacklist => 3,
-                Variant::RefreshQuotaShare => 4,
-                Variant::RefreshTimeAnchor => 5,
+                Variant::RefreshQuotaShare => 3,
+                Variant::RefreshTimeAnchor => 4,
                 _ => return Err(Error::Synthesis),
             };
             checks.push(is_constant(uint.glue(), region, &e[0], kind)?);
@@ -372,7 +370,7 @@ fn layout(variant: Variant) -> (u64, usize, [Option<usize>; 26]) {
         (8, 8),
         (9, 128),
         (10, 128),
-        (11, 3),
+        (11, 2),
         (12, 128),
         (16, 8),
     ] {

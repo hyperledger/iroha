@@ -328,7 +328,7 @@ fn qualify_authenticated(
 }
 
 #[test]
-#[ignore = "strict complete52 engineering acceptance from independently pinned persisted originals; no key regeneration or deployment authority"]
+#[ignore = "strict complete22 engineering acceptance from independently pinned persisted originals; no key regeneration or deployment authority"]
 fn qualify_signed_wallet_catalog_from_pinned_originals() {
     let output = PathBuf::from(std::env::var_os("KAGEMUSHA_WALLET_ACCEPTANCE_OUTPUT").unwrap());
     let (_installed, _qualified, _native, _originals) =

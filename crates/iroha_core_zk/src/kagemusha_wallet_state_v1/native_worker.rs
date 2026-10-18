@@ -7,6 +7,11 @@
 //! verification and yielding a durable checkpoint, all without the wallet owner. Sealed
 //! custody selects inputs; neither checkpoint metadata nor an operation caller supplies proof
 //! acceptance.
+//!
+//! Between the sub-proofs of one step the worker may resume what the previous one verified
+//! (D6b, module `retention`): only for the same durable inputs and a byte-exact durable prefix,
+//! and only state in restore form. Every key import, strict restore of a later durable
+//! payload and native check still runs.
 
 use std::sync::Arc;
 
@@ -24,7 +29,8 @@ use iroha_plonk_recursion::{FoldConfig, FoldTape};
 use sha2::{Digest, Sha256};
 
 use super::{
-    Cancellation, CheckpointLayout, Error, FoldPhaseV1, PrivateArchiveBytes, fold_metrics,
+    Cancellation, CheckpointLayout, Error, FoldPhaseV1, FoldRetentionV1, PrivateArchiveBytes,
+    fold_metrics,
 };
 use crate::kagemusha_wallet_advance_v1::{
     KagemushaWalletProviderErrorV1, KagemushaWalletUnavailableV1,
@@ -42,7 +48,11 @@ mod incoming_inputs;
 mod inputs;
 mod q;
 mod q_checkpoint;
+mod retention;
 mod stages;
+
+#[cfg(test)]
+pub(crate) use retention::{FoldRetentionCountsV1, perturb_retained_key_for_test};
 
 /// Metadata-only execution owner; the admitted wallet retains the only original store.
 /// A prepared job holds its own copy, which shares the installed sources.
@@ -221,7 +231,7 @@ impl NativeFoldWorkerV1 {
                 q_checkpoint::Layout::new(
                     stage,
                     key,
-                    stage == 0 && q.sigma().requires_private_fold(),
+                    stage == 0 && q.sigma().is_some_and(|sigma| sigma.requires_private_fold()),
                 )
                 .map(|l| l.custody)
             })

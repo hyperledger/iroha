@@ -40,8 +40,9 @@
 //! reuse the parameter owner's process-local memos of accepted verifications and
 //! accepted folded generators `<s(u), g>` (bounded, filled only after acceptance,
 //! never serialized); a hit returns the verdict of an earlier full verification
-//! of byte-identical inputs on the same owner. The oracle, filtered, succinct and
-//! batch paths never use them.
+//! of byte-identical inputs on the same owner. Generator-opening extraction may
+//! reuse that same accepted opening but never populates the memo on a succinct-only
+//! result. The oracle, filtered, other succinct and batch paths never use them.
 
 use core::fmt;
 
@@ -573,6 +574,17 @@ fn full_verification_key<C: PastaCurve>(
     hash.finalize().into()
 }
 
+#[cfg(test)]
+thread_local! {
+    static PROOF_READS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Number of actual transcript reads on this test thread; never verification authority.
+#[cfg(test)]
+pub(crate) fn proof_reads_for_test() -> u64 {
+    PROOF_READS.with(std::cell::Cell::get)
+}
+
 /// Steps 1-8 of the checklist; returns the pending opening and the suffix.
 /// `filter` is [`AllTerms`] for every real verification; the
 /// malicious-prover tests omit terms to show which one rejects.
@@ -597,6 +609,8 @@ where
     let protocol = admit_statement(params, binding, vk, instances, proof)?;
     let shape = *protocol.shape();
 
+    #[cfg(test)]
+    PROOF_READS.with(|reads| reads.set(reads.get().saturating_add(1)));
     let hash = DescriptorHash::<C>::production(descriptor.transcript);
     let mut transcript = TranscriptReader::<C, _>::new(hash, proof);
     #[cfg(test)]
@@ -920,13 +934,22 @@ where
         cancellation,
     )?;
     iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    // Capture values before the pending opening is consumed, but construct no decided
+    // opening and publish no memo entry until full verification has accepted.
+    let opening = read
+        .suffix
+        .map(|g| (read.pending.k(), g, read.pending.challenges().to_vec()));
     read.pending.verify_full_memoized_cancellable(
         params,
         read.suffix.as_ref(),
         budget,
         cancellation,
     )?;
-    params.remember_verified_proof(key);
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    params.remember_verified_proof(
+        key,
+        opening.map(|(k, g, challenges)| VerifiedOpening::new(k, g, challenges)),
+    );
     Ok(())
 }
 
@@ -1001,6 +1024,14 @@ where
     if binding.descriptor().proof_suffix != ProofSuffixV1::FoldedGenerator {
         return Err(VerifyError::SuffixRequired);
     }
+    admit_statement(params, binding, vk, instances, proof)?;
+    let key = full_verification_key(params, binding, vk, instances, proof);
+    if let Some(opening) = params.remembered_verified_opening(&key) {
+        let opening = opening.as_ref().clone();
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+        crate::verification_counters::record_reused_verification();
+        return Ok(opening);
+    }
     let read = read_proof(
         params,
         binding,
@@ -1018,8 +1049,10 @@ where
     let challenges = read.pending.challenges().to_vec();
     read.pending
         .verify_full_memoized_cancellable(params, Some(&suffix), budget, cancellation)?;
-    params.remember_verified_proof(full_verification_key(params, binding, vk, instances, proof));
-    Ok(VerifiedOpening::new(k, suffix, challenges))
+    iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+    let opening = VerifiedOpening::new(k, suffix, challenges);
+    params.remember_verified_proof(key, Some(opening.clone()));
+    Ok(opening)
 }
 
 /// Succinct accumulation (spec section 11): steps 1-8, then the opening
@@ -1349,6 +1382,19 @@ where
     if binding.descriptor().proof_suffix != ProofSuffixV1::FoldedGenerator {
         return Err(VerifyError::SuffixRequired);
     }
+    admit_statement(params, binding, vk, instances, proof)?;
+    let key = full_verification_key(params, binding, vk, instances, proof);
+    if let Some(opening) = params.remembered_verified_opening(&key) {
+        let claim = crate::pcs::ipa::GeneratorClaim::new(
+            opening.k(),
+            *opening.g(),
+            opening.challenges().to_vec(),
+        )?;
+        iroha_pasta::CancellationToken::checkpoint(cancellation)?;
+        return Ok(claim);
+    }
+    // Preserve the succinct-only miss path: Corrected incoming mode can require an
+    // equation-satisfying but undecidable original. A miss must not demand full acceptance.
     let read = read_proof(
         params,
         binding,

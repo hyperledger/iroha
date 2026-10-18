@@ -436,14 +436,14 @@ impl KagemushaWalletEnrollmentPolicyV1 {
     }
 
     /// Exact NEW transcript; regulator bytes and durations follow the selected platform.
-    /// Android is `140 + Σ root entries` bytes (a Google entry 34, a Vendor entry
-    /// `38 + adapter_id`); Apple is exactly 167.
+    /// Android is `132 + Σ root entries` bytes (a Google entry 34, a Vendor entry
+    /// `38 + adapter_id`); Apple is exactly 159.
     ///
     /// # Errors
     /// Rejects invalid fields before writing the transcript.
     pub fn transcript(&self) -> WalletResult<Vec<u8>> {
         self.validate()?;
-        let base = WalletTranscriptV1::with_capacity(572)
+        let base = WalletTranscriptV1::with_capacity(564)
             .u16(self.version)
             .digest(&self.scheme_id)
             .digest(&self.asset_digest)

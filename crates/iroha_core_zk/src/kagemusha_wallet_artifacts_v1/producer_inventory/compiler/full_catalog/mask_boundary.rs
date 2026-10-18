@@ -332,11 +332,11 @@ fn sigma_source_descriptor(selector: usize) -> Check<DescriptorBinding> {
     match selector {
         0 => administrative!(BootstrapProver),
         1 => administrative!(LoadProver),
-        12 => administrative!(ArchiveProver),
-        13 => administrative!(UnloadProver),
-        14 => administrative!(RefreshProver),
-        15 => administrative!(RetiringProver),
-        2..=11 => {
+        7 => administrative!(ArchiveProver),
+        8 => administrative!(UnloadProver),
+        9 => administrative!(RefreshProver),
+        10 => administrative!(RetiringProver),
+        2..=6 => {
             let shape =
                 super::super::sigma::monetary_shape(selector).map_err(|error| error.to_string())?;
             source_descriptor::<Eq, _>(&SigmaCircuit::<Fp>::keygen(shape.params), shape.k, types)
@@ -403,11 +403,8 @@ pub(super) fn assert_public_sigmas(
         assert_eq!(d.instance_lengths, [1]);
         require_source_descriptor(&binding, &sigma_source_descriptor(selector).unwrap()).unwrap();
         assert_eq!(d.blinding_factors, 5);
-        let expected_k = if matches!(selector, 4 | 5 | 8 | 9) {
-            14
-        } else {
-            12
-        };
+        // Quota-enabled Send masks 1 and 3 (selectors 3 and 5) use k14.
+        let expected_k = if matches!(selector, 3 | 5) { 14 } else { 12 };
         assert_eq!(d.k, expected_k);
         let key = read(source, original.verifying_key, VERIFYING_KEY_MAX_BYTES_V1).unwrap();
         VerifyingKey::<Eq>::read(&key, &binding).unwrap();
@@ -879,6 +876,6 @@ mod tests {
                 assert!(require_source_descriptor(&changed, &expected).is_err());
             }
         }
-        assert!(sigma_source_descriptor(16).is_err());
+        assert!(sigma_source_descriptor(11).is_err());
     }
 }

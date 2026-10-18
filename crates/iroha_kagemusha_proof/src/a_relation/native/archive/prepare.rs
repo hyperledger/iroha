@@ -2,6 +2,7 @@
 //!
 //! These checks authenticate predecessor and Q proofs, but incoming result bits,
 //! decoded fields and object semantics still require every compiled A owner.
+//! No own sigma is checked: A proves the own step inline (lean lineage).
 
 use ff::Field;
 use iroha_pasta::msm::MemoryBudget;
@@ -14,6 +15,16 @@ use crate::{
     operation_relation::objects::ObjectKind,
 };
 
+// The pinned trivial Vesta claim, forwarded as the part when no `Q_sigma` exists.
+fn trivial_part() -> Result<FoldInput<Eq>, Error> {
+    let g = iroha_plonk::transcript::decode_point::<Eq>(
+        &iroha_plonk_recursion::VESTA_TRIVIAL_GENERATOR,
+    )
+    .map_err(|_| Error::Artifact)?;
+    FoldInput::<Eq>::from_normalized(g, 16, [Fp::ONE; iroha_plonk_recursion::K])
+        .map_err(|_| Error::Artifact)
+}
+
 /// Verified hard originals with exact source proposals for the compiled Archive owners.
 /// No method on this type certifies the incoming evidence or authorizes a wallet commit.
 #[derive(Clone, Debug)]
@@ -23,7 +34,7 @@ pub struct Prepared {
     commitments: Vec<[Fp; 3]>,
     predecessor: (AccumulatorT<Ep>, AccumulatorT<Eq>),
     predecessor_opening: FoldInput<Ep>,
-    q_openings: [FoldInput<Ep>; 3],
+    q_openings: Vec<FoldInput<Ep>>,
     part: FoldInput<Eq>,
     selected_status: Option<([FoldInput<Ep>; 2], FoldInput<Eq>)>,
 }
@@ -42,8 +53,8 @@ impl Prepared {
         let operation = plan.context().operation();
         let specs = plan.context().object_specs();
         let state = StateWitness {
-            core: [Fp::ZERO; 33],
-            rest: [Fp::ZERO; 8],
+            core: [Fp::ZERO; 29],
+            rest: [Fp::ZERO; 6],
             lineage: [Fp::ZERO; 18],
         };
         let path = IndexedRemove {
@@ -54,9 +65,9 @@ impl Prepared {
             slot: 1,
             leaf_siblings: [Fp::ZERO; 32],
         };
-        let mut qs = Vec::with_capacity(3);
-        let mut openings = Vec::with_capacity(3);
-        for index in 0..3 {
+        let mut qs = Vec::with_capacity(operation.q_count());
+        let mut openings = Vec::with_capacity(operation.q_count());
+        for index in 0..operation.q_count() {
             let fixed = operation.q(index).ok_or(Error::Artifact)?.verifier();
             qs.push(QInput {
                 proof: vec![0; fixed.proof_length()],
@@ -83,18 +94,18 @@ impl Prepared {
         let evidence = match operation.frame().variant() {
             Variant::ArchiveReceive => Evidence::Receive {
                 statement: [Fp::ZERO; 26],
-                receipt: vec![0; specs[12].capacity as usize],
+                receipt: vec![0; specs[10].capacity as usize],
                 sigma: vec![],
-                credited: vec![0; specs[15].capacity as usize],
+                credited: vec![0; specs[13].capacity as usize],
                 mode: IncomingMode::Trivial,
             },
             Variant::ArchiveStatus => Evidence::Status {
                 statement: [Fp::ZERO; 26],
-                receipt: vec![0; specs[12].capacity as usize],
+                receipt: vec![0; specs[10].capacity as usize],
                 omega: vec![],
-                credited: vec![0; specs[15].capacity as usize],
-                status: vec![0; specs[16].capacity as usize],
-                credit_opening: vec![0; specs[17].capacity as usize],
+                credited: vec![0; specs[13].capacity as usize],
+                status: vec![0; specs[14].capacity as usize],
+                credit_opening: vec![0; specs[15].capacity as usize],
                 witness: Box::new(StatusWitness {
                     public: [Fp::ZERO; 18],
                     public_valid: false,
@@ -115,26 +126,17 @@ impl Prepared {
                 statement: [Fp::ZERO; 26],
             },
             removals: [path; 2],
-            own: core::array::from_fn(|i| vec![0; specs[i].capacity as usize]),
-            sigma: vec![
-                0;
-                operation
-                    .sigma
-                    .class(0)
-                    .ok_or(Error::Artifact)?
-                    .verifier()
-                    .proof_length()
-            ],
+            own: vec![0; specs[0].capacity as usize],
             retained: RetainedPayment {
-                signed: core::array::from_fn(|i| vec![0; specs[i + 3].capacity as usize]),
-                payment: vec![0; specs[7].capacity as usize],
+                signed: core::array::from_fn(|i| vec![0; specs[i + 1].capacity as usize]),
+                payment: vec![0; specs[5].capacity as usize],
                 statement: [Fp::ZERO; 26],
                 omega: vec![0; 320],
                 sigma: vec![],
             },
             evidence,
             results: [false; 3],
-            q: qs.try_into().map_err(|_| Error::Artifact)?,
+            q: qs,
             predecessor: PredecessorInput {
                 proof: vec![0; operation.omega().ok_or(Error::Artifact)?.proof_length()],
                 pallas: p.to_bytes(),
@@ -143,7 +145,7 @@ impl Prepared {
         };
         let part = FoldInput::from_opening(
             *v.g(),
-            &vec![Fp::ONE; operation.sigma.part_source_k() as usize],
+            &vec![Fp::ONE; operation.frame().part_source_k() as usize],
         )
         .map_err(|_| Error::Artifact)?;
         Ok(Arc::new(Self {
@@ -152,7 +154,7 @@ impl Prepared {
             commitments: vec![[Fp::ZERO; 3]; specs.len()],
             predecessor_opening: p.as_input(),
             predecessor: (p, v),
-            q_openings: openings.try_into().map_err(|_| Error::Artifact)?,
+            q_openings: openings,
             part,
             selected_status: None,
         }))
@@ -236,11 +238,12 @@ impl Prepared {
     pub const fn predecessor_opening(&self) -> &FoldInput<Ep> {
         &self.predecessor_opening
     }
-    /// Actual openings of Q0, Q1 and Q2; none may be dropped or deduplicated.
-    pub const fn q_openings(&self) -> &[FoldInput<Ep>; 3] {
+    /// Actual openings of every installed Q; none may be dropped or deduplicated.
+    pub fn q_openings(&self) -> &[FoldInput<Ep>] {
         &self.q_openings
     }
-    /// Exact deciding source part exported by Q0.
+    /// Exact deciding source part: the incoming-only `Q_sigma` fold for
+    /// `ArchiveReceive`, the pinned trivial claim for `ArchiveStatus`.
     pub const fn part(&self) -> &FoldInput<Eq> {
         &self.part
     }
@@ -271,17 +274,21 @@ impl Plan {
         self.validate_original_shapes(&input)?;
         let program = self.context().operation();
         let omega = program.omega().ok_or(Error::Artifact)?;
-        support::check_hard_own_tapes(
-            input.own.each_ref().map(Vec::as_slice),
-            &input.q[1].instances,
+        if input.q.len() != program.q_count() {
+            return Err(Error::Input);
+        }
+        let signature_q = self.stage.signature_q();
+        // The own receipt is hard slot 0 of the merged leaf, under the payment
+        // key carried by the predecessor lineage; slot 1 is the soft incoming one.
+        support::check_hard_own_receipt_slot(
+            &input.own,
+            &input.q[signature_q].instances,
+            self.stage
+                .signature_schema(signature_q)
+                .ok_or(Error::Artifact)?
+                .slots()
+                .len(),
             core::array::from_fn(|i| input.state.predecessor.lineage[9 + i]),
-            [self.policy.root.x, self.policy.root.y],
-        )?;
-        support::check_own_sigma_tape(
-            &input.q[0].instances,
-            program.sigma.chunk_range(0).ok_or(Error::Artifact)?,
-            &input.state.statement,
-            &input.sigma,
         )?;
         let pallas =
             AccumulatorT::<Ep>::from_bytes(&input.predecessor.pallas).map_err(|_| Error::Input)?;
@@ -344,7 +351,7 @@ impl Plan {
             budget,
             cancellation,
         )?;
-        let mut q_openings = Vec::with_capacity(3);
+        let mut q_openings = Vec::with_capacity(input.q.len());
         for (index, source) in input.q.iter().enumerate() {
             let fixed = program.q(index).ok_or(Error::Artifact)?;
             iroha_plonk::verifier::verify_full_cancellable(
@@ -373,15 +380,22 @@ impl Plan {
                 cancellation,
             )?);
         }
-        let part = support::q_sigma_part(&input.q[0].instances, &program.sigma)?;
-        part.decide_cancellable(&self.vesta, budget, cancellation)
-            .map_err(|error| {
-                if error.is_cancelled() {
-                    Error::Cancelled
-                } else {
-                    Error::Proof
-                }
-            })?;
+        // ArchiveReceive forwards its incoming-only Q_sigma fold (k16); without a
+        // Q_sigma the part is the pinned trivial claim the first W folds.
+        let part = if let Some(sigma) = program.sigma() {
+            let part = support::q_sigma_part(&input.q[0].instances, sigma)?;
+            part.decide_cancellable(&self.vesta, budget, cancellation)
+                .map_err(|error| {
+                    if error.is_cancelled() {
+                        Error::Cancelled
+                    } else {
+                        Error::Proof
+                    }
+                })?;
+            part
+        } else {
+            trivial_part()?
+        };
         let selected_status = if let Evidence::Status { witness, .. } = &input.evidence {
             if witness.pallas.as_input().source_k() != 16
                 || witness.vesta.as_input().source_k() != 16
@@ -427,7 +441,7 @@ impl Plan {
             commitments,
             predecessor: (pallas, vesta),
             predecessor_opening,
-            q_openings: q_openings.try_into().map_err(|_| Error::Input)?,
+            q_openings,
             part,
             selected_status,
         })
@@ -452,21 +466,14 @@ impl Plan {
     // rebinds its named original tape after Q production.
     pub(super) fn original_commitments_from_parts(
         &self,
-        own: &[Vec<u8>; 3],
+        own: &[u8],
         retained: &RetainedPayment,
         evidence: &Evidence,
         result_bits: [bool; 3],
     ) -> Result<Vec<[Fp; 3]>, Error> {
         let specs = self.context().object_specs();
         let mut out = Vec::with_capacity(specs.len());
-        for (kind, raw) in [
-            ObjectKind::Credential,
-            ObjectKind::Certificate,
-            ObjectKind::Receipt,
-        ]
-        .into_iter()
-        .zip(own)
-        .chain(
+        for (kind, raw) in core::iter::once((ObjectKind::Receipt, own)).chain(
             [
                 ObjectKind::Request,
                 ObjectKind::Credential,
@@ -474,7 +481,7 @@ impl Plan {
                 ObjectKind::Credential,
             ]
             .into_iter()
-            .zip(&retained.signed),
+            .zip(retained.signed.iter().map(Vec::as_slice)),
         ) {
             out.push(support::exact_context(
                 specs[out.len()],
@@ -485,19 +492,19 @@ impl Plan {
         let digest =
             |domain: [u8; 8], bytes: &[u8]| p_bytes_native(u64::from_le_bytes(domain), bytes);
         out.push(support::exact_context(
-            specs[7],
+            specs[5],
             digest(*b"kgwpay_1", &retained.payment),
             &retained.payment,
         )?);
-        out.push(support::internal_context(specs[8], &retained.statement)?);
+        out.push(support::internal_context(specs[6], &retained.statement)?);
         let mut proof_tape = support::frame(&retained.omega)?;
         proof_tape.extend(support::frame(&retained.sigma)?);
         let proof_digest = digest(*b"kgwprf_1", &proof_tape);
-        for (slot, raw) in [(9, &retained.omega), (10, &retained.sigma)] {
+        for (slot, raw) in [(7, &retained.omega), (8, &retained.sigma)] {
             out.push(support::active_context(specs[slot], proof_digest, raw)?);
         }
         out.push(support::internal_context(
-            specs[11],
+            specs[9],
             &retained.statement[17..24],
         )?);
         let (statement, receipt, raw, credited, raw_digest) = match evidence {
@@ -529,14 +536,14 @@ impl Plan {
             ),
         };
         out.push(support::exact_context(
-            specs[12],
+            specs[10],
             support::object_digest(ObjectKind::Receipt, receipt)?,
             receipt,
         )?);
-        out.push(support::active_context(specs[13], raw_digest, raw)?);
-        out.push(support::internal_context(specs[14], statement)?);
+        out.push(support::active_context(specs[11], raw_digest, raw)?);
+        out.push(support::internal_context(specs[12], statement)?);
         out.push(support::exact_context(
-            specs[15],
+            specs[13],
             digest(*b"kgwcrdd1", credited),
             credited,
         )?);
@@ -547,12 +554,12 @@ impl Plan {
         } = evidence
         {
             out.push(support::exact_context(
-                specs[16],
+                specs[14],
                 digest(*b"kgwcsts1", status),
                 status,
             )?);
             out.push(support::exact_context(
-                specs[17],
+                specs[15],
                 digest(*b"kgwcopn1", credit_opening),
                 credit_opening,
             )?);

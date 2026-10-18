@@ -13,10 +13,6 @@
 //!
 //! A relation with a control gets consistent control state:
 //!
-//! - blacklist: a held list of three accounts that excludes the
-//!   counterparty, its gap-tree root in the core and the counterparty's gap
-//!   opening; the list was issued within the maximum age before the
-//!   accepted upper time;
 //! - attestation lease: an expiry after the accepted upper time;
 //! - quotas: consecutive daily windows around the accepted interval and one
 //!   monthly window covering it, their window-tree root in the core, a
@@ -30,14 +26,11 @@ use iroha_plonk_gadgets::statement::StepRelation;
 
 use crate::{
     controls::{QuotaCharge, QuotaWitness, WindowSegment, WindowSlot},
-    tree::{
-        BlacklistGap, BlacklistTree, QuotaUsageTree, QuotaWindow, QuotaWindowTree, WINDOW_DAILY,
-        WINDOW_MONTHLY,
-    },
+    tree::{QuotaUsageTree, QuotaWindow, QuotaWindowTree, WINDOW_DAILY, WINDOW_MONTHLY},
     witness::{
-        CONTROL_ATTESTATION_LEASE, CONTROL_BLACKLIST, CONTROL_QUOTAS, Controls, CoreState,
-        Identity, LIFECYCLE_ACTIVE, LineageInputs, MapRoots, ReceiveInputs, RequestTerms,
-        SendInputs, SigmaRelation, StateRest, StateV1, StepInputs, StepWitness,
+        CONTROL_ATTESTATION_LEASE, CONTROL_QUOTAS, Controls, CoreState, Identity, LIFECYCLE_ACTIVE,
+        LineageInputs, MapRoots, ReceiveInputs, RequestTerms, SendInputs, SigmaRelation, StateRest,
+        StateV1, StepInputs, StepWitness,
     },
 };
 
@@ -66,18 +59,9 @@ pub enum Mutation {
     /// The counterparty wallet is the wallet's own (payer = receiver).
     SelfPayment,
     /// `sigma_send`: the core's enabled-controls mask differs from the
-    /// relation's in the blacklist bit.
+    /// relation's in the quota bit; `sigma_recv`: the core's mask has an
+    /// undefined bit.
     ControlsMismatch,
-    /// `sigma_send` with the blacklist control: the held list is one
-    /// millisecond older than the maximum age at the accepted upper time.
-    StaleBlacklist,
-    /// `sigma_send` with the blacklist control: the held list was issued one
-    /// millisecond after the accepted upper time.
-    FutureBlacklist,
-    /// The blacklist control: the counterparty's account is listed (the
-    /// receiver's for `sigma_send`, the payer's for `sigma_recv`), and the
-    /// witness opens the gap just below it.
-    Listed,
     /// `sigma_send` with the lease control: the lease expires at the
     /// accepted upper time.
     LeaseExpired,
@@ -91,7 +75,7 @@ pub enum Mutation {
 
 impl Mutation {
     /// Every mutation, honest first.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 11] = [
         Self::None,
         Self::Overdraft,
         Self::Overflow,
@@ -100,9 +84,6 @@ impl Mutation {
         Self::Burned,
         Self::SelfPayment,
         Self::ControlsMismatch,
-        Self::StaleBlacklist,
-        Self::FutureBlacklist,
-        Self::Listed,
         Self::LeaseExpired,
         Self::QuotaExceeded,
         Self::QuotaUntouched,
@@ -168,34 +149,6 @@ pub const SAMPLE_RELATION_ID: [u8; 32] = *b"kagemusha-sample-relation-id-v1!";
 
 /// One day in milliseconds.
 pub const DAY_MS: u64 = 86_400_000;
-
-/// The blacklist state of a sample: the held list and the counterparty's
-/// gap opening (`Listed`: the counterparty is listed, and the opening is the
-/// gap below it).
-fn sample_blacklist<F: PoseidonField>(
-    rng: &mut SplitMix64,
-    counterparty_account: &[u8; 32],
-    mutation: Mutation,
-) -> (F, BlacklistGap<F>) {
-    let mut entries = vec![rng.next_bytes(), rng.next_bytes(), rng.next_bytes()];
-    entries.retain(|entry| entry != counterparty_account);
-    if mutation == Mutation::Listed {
-        entries.push(*counterparty_account);
-    }
-    let tree = BlacklistTree::new(entries).unwrap_or_else(|| unreachable!("distinct entries"));
-    let gap = if mutation == Mutation::Listed {
-        // The gap whose upper bound is the listed account.
-        let mut below = *counterparty_account;
-        if let Some(byte) = below.iter_mut().find(|byte| **byte != 0) {
-            *byte -= 1;
-        }
-        tree.gap(&below).unwrap_or_else(BlacklistGap::unused)
-    } else {
-        tree.gap(counterparty_account)
-            .unwrap_or_else(BlacklistGap::unused)
-    };
-    (tree.root(), gap)
-}
 
 /// The quota state of a sample Send over `[lower, upper]` with gross
 /// `gross`: the windows root, the usage root before and the witness.
@@ -351,19 +304,10 @@ pub fn sample_witness<F: PoseidonField>(
         _ => request_time.saturating_add(rng.next_u64() & 0xffff),
     };
     let accepted_upper = accepted_lower.saturating_add(600_000);
-    // A held blacklist under a maximum age of at least one day, issued
-    // within it before the accepted upper time (or just outside it).
-    let max_age = (rng.next_u64() >> 40).saturating_add(DAY_MS);
-    let age = match mutation {
-        Mutation::StaleBlacklist => max_age.saturating_add(1),
-        _ => rng.next_u64() % max_age,
-    };
-    let issued_at = match mutation {
-        Mutation::FutureBlacklist => accepted_upper.saturating_add(1),
-        _ => accepted_upper.saturating_sub(age),
-    };
-    let enabled = match mutation {
-        Mutation::ControlsMismatch => relation.enabled_controls() ^ 1,
+    let enabled = match (mutation, relation.step()) {
+        (Mutation::ControlsMismatch, StepRelation::Send) => relation.enabled_controls() ^ 1,
+        // Receive has no relation mask; an undefined core bit is the mismatch.
+        (Mutation::ControlsMismatch, StepRelation::Receive) => 1 << 2,
         _ => relation.enabled_controls(),
     };
     let lease_expires_at_ms = match mutation {
@@ -393,10 +337,6 @@ pub fn sample_witness<F: PoseidonField>(
             quota_windows_root: rng.next_field(),
             quota_share_expires_at_ms: accepted_upper.saturating_add(DAY_MS),
             time_anchor_max_response_ms: 600_000,
-            blacklist_version: (rng.next_u64() >> 40).saturating_add(1),
-            blacklist_root: rng.next_field(),
-            blacklist_issued_at_ms: issued_at,
-            blacklist_max_age_ms: max_age,
             lease_expires_at_ms,
         },
         policy_epoch,
@@ -404,24 +344,20 @@ pub fn sample_witness<F: PoseidonField>(
         state_nonce: rng.next_field(),
     };
     let rest = StateRest {
-        permitted_controls: u32::try_from(rng.next_u64() & 7).unwrap_or(0),
+        permitted_controls: u32::try_from(rng.next_u64() & 3).unwrap_or(0),
         scheme_policy: rng.next_digest(),
         fee_schedule: rng.next_digest(),
-        blacklist: rng.next_digest(),
         quota_share: rng.next_digest(),
         quota_share_id: rng.next_u64() >> 32,
         time_anchor: rng.next_digest(),
-        blacklist_history_root: rng.next_digest(),
     };
-    let mut request = RequestTerms {
+    let request = RequestTerms {
         amount,
         fee,
         fee_schedule: rng.next_digest(),
         policy_epoch: request_policy_epoch,
         scheme_policy: rng.next_digest(),
         request_time,
-        receiver_blacklist_version: 0,
-        receiver_blacklist_root: [0; 32],
         certificates: rng.next_digest(),
         nonce: rng.next_bytes(),
     };
@@ -432,13 +368,6 @@ pub fn sample_witness<F: PoseidonField>(
     };
     let own_account = rng.next_bytes();
     let counterparty_account = rng.next_bytes();
-    let blacklist = if relation.enforces(CONTROL_BLACKLIST) {
-        let (root, gap) = sample_blacklist(&mut rng, &counterparty_account, mutation);
-        core.controls.blacklist_root = root;
-        gap
-    } else {
-        BlacklistGap::unused()
-    };
     let quota = if relation.enforces(CONTROL_QUOTAS) && relation.step() == StepRelation::Send {
         let (windows_root, usage_root, quota) = sample_quota(
             &mut rng,
@@ -457,16 +386,6 @@ pub fn sample_witness<F: PoseidonField>(
     debug_assert!(
         relation.enforces(CONTROL_ATTESTATION_LEASE) || core.controls.lease_expires_at_ms != 0
     );
-    if relation.step() == StepRelation::Receive {
-        let recorded =
-            relation.enforces(CONTROL_BLACKLIST) ^ (mutation == Mutation::ControlsMismatch);
-        if recorded {
-            request.receiver_blacklist_version = core.controls.blacklist_version;
-            let limbs = core.controls.blacklist_root.to_canonical_limbs();
-            request.receiver_blacklist_root =
-                core::array::from_fn(|i| limbs[i / 8].to_le_bytes()[i % 8]);
-        }
-    }
     let inputs = match relation.step() {
         StepRelation::Send => StepInputs::Send(Box::new(SendInputs {
             payer_account_digest: own_account,
@@ -484,7 +403,6 @@ pub fn sample_witness<F: PoseidonField>(
             },
             successor_pending_outgoing: rng.next_field(),
             successor_fee_claim: rng.next_field(),
-            blacklist,
             quota: Box::new(quota),
         })),
         StepRelation::Receive => StepInputs::Receive(Box::new(ReceiveInputs {
@@ -496,7 +414,6 @@ pub fn sample_witness<F: PoseidonField>(
             receiver_credential_digest: identity.credential_digest,
             request,
             successor_consumed_credit: rng.next_field(),
-            blacklist,
         })),
     };
     StepWitness {
@@ -537,14 +454,12 @@ mod tests {
     }
 
     /// The relations the samples cover.
-    const RELATIONS: [SigmaRelation; 7] = [
+    const RELATIONS: [SigmaRelation; 5] = [
         SigmaRelation::SEND,
-        SigmaRelation::send(CONTROL_BLACKLIST),
         SigmaRelation::send(CONTROL_ATTESTATION_LEASE),
         SigmaRelation::send(CONTROL_QUOTAS),
         SigmaRelation::send(CONTROLS_DEFINED),
         SigmaRelation::RECEIVE,
-        SigmaRelation::receive(CONTROL_BLACKLIST),
     ];
 
     #[test]
@@ -561,8 +476,6 @@ mod tests {
                 assert!(witness.evaluate(relation).is_honest(), "seed {seed}");
                 let controls = witness.predecessor.core.controls;
                 assert_eq!(controls.enabled, relation.enabled_controls());
-                assert!(controls.blacklist_version > 0);
-                assert!(controls.blacklist_max_age_ms > 0);
             }
         }
         assert_ne!(
@@ -602,34 +515,12 @@ mod tests {
                 .checked_add(receive.inputs.amount() - 1),
             Some(u128::MAX)
         );
-        // The blacklist mutations sit one millisecond outside the rule.
-        let blacklist = SigmaRelation::send(CONTROL_BLACKLIST);
-        for (mutation, outside) in [
-            (Mutation::StaleBlacklist, true),
-            (Mutation::FutureBlacklist, false),
-        ] {
-            let witness = sample_witness::<Fp>(4, blacklist, mutation);
-            let StepInputs::Send(inputs) = &witness.inputs else {
-                panic!("send");
-            };
-            let controls = witness.predecessor.core.controls;
-            if outside {
-                assert_eq!(
-                    inputs.accepted_upper - controls.blacklist_issued_at_ms,
-                    controls.blacklist_max_age_ms + 1
-                );
-            } else {
-                assert_eq!(controls.blacklist_issued_at_ms, inputs.accepted_upper + 1);
-            }
-        }
         // The send-only mutations leave a receive honest.
         for mutation in [
             Mutation::Overdraft,
             Mutation::StaleEpoch,
             Mutation::EarlyTime,
             Mutation::Burned,
-            Mutation::StaleBlacklist,
-            Mutation::FutureBlacklist,
         ] {
             let receive = sample_witness::<Fp>(4, SigmaRelation::RECEIVE, mutation);
             assert!(
@@ -657,7 +548,7 @@ mod tests {
                 vec![Violation::SelfPayment]
             );
         }
-        assert_eq!(Mutation::ALL.len(), 14);
+        assert_eq!(Mutation::ALL.len(), 11);
         assert_eq!(Mutation::default(), Mutation::None);
     }
 }

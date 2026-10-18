@@ -619,6 +619,7 @@ fn publish_after(wallet: &mut Wallet, leave: impl FnOnce(&mut TestCustody)) -> E
     let refused = wallet.fold_publish(proved).expect_err("never published");
     wallet.custody.status = released;
     wallet.custody.unavailable = false;
+    wallet.custody.status_error = None;
     refused
 }
 
@@ -641,28 +642,41 @@ fn a_proof_is_never_published_once_custody_leaves_its_released_head() {
             custody.status = SlotStatus::Terminal(terminal);
         }),
         publish_after(&mut wallet, |custody| custody.unavailable = true),
+        publish_after(&mut wallet, |custody| {
+            custody.status_error = Some(ProviderError::Uncertain(
+                crate::kagemusha_wallet_advance_v1::KagemushaWalletUnavailableV1::Io(5),
+            ));
+        }),
     ];
     assert!(matches!(
         refusals,
         [
-            Error::Pending,
+            Error::Cancelled,
             Error::NoHead,
             Error::Provider(ProviderError::Unavailable(_)),
+            Error::Provider(ProviderError::Uncertain(_)),
         ]
     ));
-    // None of them changed anything durable, and each turn failed rather than discarded.
+    // Pending discards the proof; terminal custody and real provider failures remain errors.
     assert_eq!(wallet.custody.checkpoint, selected);
     assert_eq!(checkpoint_at(&mut wallet, 1), None, "never published");
     let metrics = observed.metrics();
-    assert!(
+    assert_eq!(
         metrics
             .records()
             .iter()
             .rev()
-            .take(3)
-            .all(|turn| (turn.ordinal, turn.outcome) == (1, FoldOutcomeV1::Failed))
+            .take(4)
+            .map(|turn| (turn.ordinal, turn.outcome))
+            .collect::<Vec<_>>(),
+        vec![
+            (1, FoldOutcomeV1::Failed),
+            (1, FoldOutcomeV1::Failed),
+            (1, FoldOutcomeV1::Failed),
+            (1, FoldOutcomeV1::Discarded)
+        ],
     );
-    assert_eq!(metrics.counts().discarded, 0);
+    assert_eq!(metrics.counts().discarded, 1);
     // The next turn proves the same sub-proof again from durable state.
     assert_eq!(
         wallet.fold_once().unwrap(),
@@ -671,7 +685,7 @@ fn a_proof_is_never_published_once_custody_leaves_its_released_head() {
             ordinal: 1
         }
     );
-    assert_eq!(calls.load(Ordering::SeqCst), 5);
+    assert_eq!(calls.load(Ordering::SeqCst), 6);
 }
 
 #[test]

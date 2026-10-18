@@ -87,7 +87,7 @@ enum class KagemushaWalletSigningDomainV1(
     @JvmField val transcriptBytes: Int,
 ) {
     CERTIFICATE("kgwcert1", 108),
-    CREDENTIAL("kgwcred1", 476),
+    CREDENTIAL("kgwcred1", 468),
     RENEWAL_CHALLENGE("kgwrnch1", 130),
     RENEWAL_KEY_BINDING("kgwrnkb1", 163),
     ARTIFACT_MANIFEST("kgwartf1", 290),
@@ -100,7 +100,7 @@ enum class KagemushaWalletSigningDomainV1(
     CHARGE_QUOTE("kgwchgq1", 219),
     OFFER("kgwoffr1", 194),
     SESSION_CONTROL("kgwsctl1", 197),
-    REQUEST("kgwrqst1", 458),
+    REQUEST("kgwrqst1", 418),
     LEDGER_CONTROL("kgwlctl1", 211),
     ;
 
@@ -259,7 +259,7 @@ object KagemushaWalletWireV1 {
     const val MESSAGE_MAX_BYTES: Int = 10_000
 
     /** `F_payment`: the bytes of a Payment envelope frame other than its Ω and σ_send proofs. */
-    const val PAYMENT_FIXED_BYTES: Int = 1_436
+    const val PAYMENT_FIXED_BYTES: Int = 1_394
 
     /** Joint budget of the Ω transport proof and the largest σ_send (R9): `10,000 − F_payment`. */
     const val PAYMENT_PROOF_BUDGET_BYTES: Int = MESSAGE_MAX_BYTES - PAYMENT_FIXED_BYTES
@@ -268,7 +268,7 @@ object KagemushaWalletWireV1 {
     const val PAYMENT_SIGMA_PROOF_CAP_BYTES: Int = 3_520
 
     /** Source role maximum for a Payment's Ω predecessor transport proof. */
-    const val PAYMENT_OMEGA_PROOF_CAP_BYTES: Int = 5_044
+    const val PAYMENT_OMEGA_PROOF_CAP_BYTES: Int = 5_086
 
     /** Bytes of a Credited::Receive envelope other than its σ proof. */
     const val CREDITED_RECEIVE_FIXED_BYTES: Int = 679
@@ -286,10 +286,10 @@ object KagemushaWalletWireV1 {
     const val LINEAGE_PROOF_CAP_BYTES: Int = MESSAGE_MAX_BYTES - CREDITED_STATUS_FIXED_BYTES
 
     /**
-     * Maximum σ entries of the verifying-key allowlist: one per operation, Send also once per
-     * supported enabled-controls mask, and Receive also once with the blacklist bit.
+     * Maximum σ entries of the verifying-key allowlist: one per operation (8), and Send also
+     * once per supported nonzero enabled-controls mask (3).
      */
-    const val VERIFYING_KEY_ENTRIES_MAX: Int = 16
+    const val VERIFYING_KEY_ENTRIES_MAX: Int = 11
 
     /** Maximum standalone canonical frame of the σ verifying-key allowlist. */
     const val VERIFYING_KEY_ALLOWLIST_MAX_BYTES: Int = 2_048
@@ -355,7 +355,7 @@ object KagemushaWalletWireV1 {
     private const val REQUEST_FIELDS: Int = 5
     private const val REQUEST_BODY_FIELD: Int = 0
     private const val REQUEST_SIGNATURE_FIELD: Int = 4
-    private const val REQUEST_BODY_FIELDS: Int = 19
+    private const val REQUEST_BODY_FIELDS: Int = 17
     private const val REQUEST_BODY_SCHEME_FIELD: Int = 1
     private const val REQUEST_BODY_AMOUNT_FIELD: Int = 9
     private const val PAYMENT_FIELDS: Int = 3
@@ -385,9 +385,9 @@ object KagemushaWalletWireV1 {
      *
      * Every Poseidon value of the protocol (`credit_id`, `proof_digest`, the Payment, lineage,
      * credit-opening, credit-status and credited digests, every signing message, the state
-     * commitment, chains, map, blacklist, quota-window and credit-digest roots and their opening
-     * siblings) is computed by the native Rust core; Kotlin checks only this encoding and
-     * otherwise treats the value as opaque.
+     * commitment, chains, map, quota-window and credit-digest roots and their opening siblings,
+     * and a signed blacklist's entries root) is computed by the native Rust core; Kotlin checks
+     * only this encoding and otherwise treats the value as opaque.
      */
     @JvmStatic
     fun isCanonicalFieldValue(value: ByteArray): Boolean =
@@ -613,9 +613,9 @@ object KagemushaWalletWireV1 {
      *
      * Each frame is first checked by [inspectEnvelope], must have the kind of its parameter and
      * must split into exactly the record fields of its message (wire record section 3.4: Request
-     * `{body, receiver_credential, fee_schedule, certificates, signature}` with a 19-field body,
+     * `{body, receiver_credential, fee_schedule, certificates, signature}` with a 17-field body,
      * Payment `{version, request: PaymentRequest, send}` and Credited `{version, scheme_id,
-     * evidence}`). Payment reconstructs the exact 19 signed Request fields from its unique
+     * evidence}`). Payment reconstructs the exact 17 signed Request fields from its unique
      * Request fields and the Send statement/effect/lineage, then compares every field and the
      * original signature. Credited's scheme must match the Request. A carrier thus
      * rejects a Payment that belongs to another Request, and Credited evidence under another
@@ -679,7 +679,7 @@ object KagemushaWalletWireV1 {
 
     /** Reconstruct exact signed field bytes; this structural operation authenticates nothing. */
     private fun paymentSignedRequestFields(payment: List<ByteArray>): Pair<List<ByteArray>, ByteArray> {
-        val unique = recordFields(payment[PAYMENT_REQUEST_FIELD], 12, "Payment Request")
+        val unique = recordFields(payment[PAYMENT_REQUEST_FIELD], 10, "Payment Request")
         val send = recordFields(payment[2], 5, "Payment Send package")
         val statement = recordFields(send[1], 14, "Send statement")
         val effect = taggedRecordFields(statement[13], 3, 8, "Send effect")
@@ -687,8 +687,8 @@ object KagemushaWalletWireV1 {
         val omega = recordFields(lineage[0], 13, "lineage public")
         val body = listOf(payment[0], statement[1], statement[4], omega[4], unique[0],
             effect[1], unique[1], effect[2], unique[2], effect[3], unique[3], effect[4],
-            unique[4], unique[5], unique[6], unique[7], unique[8], unique[9], unique[10])
-        return body to unique[11]
+            unique[4], unique[5], unique[6], unique[7], unique[8])
+        return body to unique[9]
     }
 
     private fun taggedRecordFields(bytes: ByteArray, tag: Int, count: Int, label: String): List<ByteArray> {

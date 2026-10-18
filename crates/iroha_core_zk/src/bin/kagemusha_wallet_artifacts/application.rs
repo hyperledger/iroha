@@ -38,7 +38,6 @@ struct Apple {
 #[norito(deny_unknown_fields)]
 struct Controls {
     permitted_controls: u32,
-    blacklist_max_age_ms: u64,
     time_anchor_max_response_ms: u64,
     challenge_lifetime_ms: u64,
     attestation_lease_lifetime_ms: u64,
@@ -253,7 +252,6 @@ fn policy(
         platform,
         regulatory_policy: KagemushaWalletRegulatoryPolicyV1 {
             permitted_controls: controls.permitted_controls,
-            blacklist_max_age_ms: controls.blacklist_max_age_ms,
             time_anchor_max_response_ms: controls.time_anchor_max_response_ms,
         },
         challenge_lifetime_ms: controls.challenge_lifetime_ms,

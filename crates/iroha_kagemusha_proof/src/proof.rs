@@ -44,7 +44,7 @@ use iroha_plonk_gadgets::statement::StepRelation;
 use crate::{
     circuit::{ParamsError, SigmaCircuit},
     shape::SigmaShape,
-    witness::{CONTROL_BLACKLIST, SigmaRelation, StepPublic, StepWitness, Violation},
+    witness::{SigmaRelation, StepPublic, StepWitness, Violation},
 };
 
 /// Why a step-relation operation failed.
@@ -764,8 +764,7 @@ pub const VERIFYING_KEY_ENTRY_TRANSCRIPT_BYTES: usize = 1 + 4 + 32 + 4;
 pub struct VerifyingKeyEntry {
     /// The operation tag.
     pub kind: u8,
-    /// The enabled-controls mask of a Send relation, the blacklist bit of a
-    /// Receive relation; zero otherwise.
+    /// The enabled-controls mask of a Send relation; zero otherwise.
     pub enabled_controls: u32,
     /// The verifying-key digest.
     pub verifying_key_digest: [u8; 32],
@@ -792,22 +791,14 @@ impl VerifyingKeyEntry {
     }
 }
 
-/// The G1 selector of a consumer's statement: Send uses the core mask
-/// (equal to Ω(pred)'s by the consumer checks); Receive uses only the
-/// Request's recorded blacklist version (B6), independent of the core mask.
+/// The G1 selector of a consumer's statement: Send uses the core mask (equal
+/// to Ω(pred)'s by the consumer checks); Receive has its one relation,
+/// independent of the core mask.
 #[must_use]
-pub const fn selector_for(
-    step: StepRelation,
-    enabled_controls: u32,
-    receiver_blacklist_version: u64,
-) -> SigmaRelation {
+pub const fn selector_for(step: StepRelation, enabled_controls: u32) -> SigmaRelation {
     match step {
         StepRelation::Send => SigmaRelation::send(enabled_controls),
-        StepRelation::Receive => SigmaRelation::receive(if receiver_blacklist_version == 0 {
-            0
-        } else {
-            CONTROL_BLACKLIST
-        }),
+        StepRelation::Receive => SigmaRelation::RECEIVE,
     }
 }
 
@@ -895,7 +886,7 @@ mod tests {
     use iroha_pasta::Fp;
 
     use super::*;
-    use crate::witness::CONTROL_BLACKLIST;
+    use crate::witness::CONTROL_QUOTAS;
 
     #[test]
     fn instances_are_the_statement_digest() {
@@ -905,15 +896,14 @@ mod tests {
 
     #[test]
     fn selectors_follow_g1() {
-        assert_eq!(selector_for(StepRelation::Send, 0, 1), SigmaRelation::SEND);
+        assert_eq!(selector_for(StepRelation::Send, 0), SigmaRelation::SEND);
         assert_eq!(
-            selector_for(StepRelation::Send, CONTROL_BLACKLIST, 0).selector(),
+            selector_for(StepRelation::Send, CONTROL_QUOTAS).selector(),
             (3, 1)
         );
-        // Receive selects by the Request version regardless of its core mask.
-        assert_eq!(selector_for(StepRelation::Receive, 0, 1).selector(), (4, 1));
+        // Receive has one relation, regardless of its core mask.
         assert_eq!(
-            selector_for(StepRelation::Receive, crate::witness::CONTROLS_DEFINED, 0),
+            selector_for(StepRelation::Receive, crate::witness::CONTROLS_DEFINED),
             SigmaRelation::RECEIVE
         );
         let entry = VerifyingKeyEntry {

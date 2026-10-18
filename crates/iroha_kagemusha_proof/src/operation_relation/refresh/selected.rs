@@ -2,8 +2,7 @@
 //!
 //! The operation kind comes from the constrained statement. Projected fields are
 //! witnesses, not authenticated facts: A must bind them and every state effect to
-//! the exact signed update, credential renewal, blacklist insertion and quota
-//! rebuild. Native Advance authenticates every changed root before persistence.
+//! the exact signed update, credential renewal and quota rebuild. Native Advance authenticates every changed root before persistence.
 
 use ff::Field;
 use iroha_pasta::Fp;
@@ -46,7 +45,7 @@ fn gate_equal(
 fn selected(
     uint: &mut UintChip<'_, Fp>,
     region: &mut Region<'_, Fp>,
-    kinds: &[Bit<Fp>; 5],
+    kinds: &[Bit<Fp>; 4],
     indices: &[usize],
 ) -> Result<Bit<Fp>, Error> {
     let terms: Vec<_> = indices
@@ -69,12 +68,12 @@ fn projection(
     GlueChip::assert_equal(region, &expected, new)
 }
 
-/// Constrain all five refresh state effects in one witness-independent layout.
+/// Constrain all four refresh state effects in one witness-independent layout.
 ///
-/// Every selector derives from the statement's kind1..5; neither Rust dispatch
+/// Every selector derives from the statement's kind1..4; neither Rust dispatch
 /// nor a host validity bit selects source rules. Signed-object authentication,
-/// credential renewal identity, blacklist-history insertion and the complete
-/// quota-array rebuild remain hard obligations of A.
+/// credential renewal identity and the complete quota-array rebuild remain hard
+/// obligations of A.
 ///
 /// # Errors
 /// Layout failure; bad projection padding, identities, counters, permission
@@ -93,7 +92,7 @@ pub fn constrain_selected(
         transition.successor.lineage,
     )?;
     let kinds = transition.statement.kinds();
-    let [credential, policy, blacklist, quota, anchor] = kinds;
+    let [credential, policy, quota, anchor] = kinds;
     let before = transition.predecessor.state.core();
     let after = transition.successor.state.core();
     let old_rest = transition.predecessor.state.rest();
@@ -101,12 +100,12 @@ pub fn constrain_selected(
     let zero = uint.glue().constant(region, Fp::ZERO)?;
     let one = uint.glue().constant(region, Fp::ONE)?;
     let scheme = uint.glue().not(region, credential)?;
-    let asset = selected(uint, region, kinds, &[1, 3])?;
-    let wallet = selected(uint, region, kinds, &[3, 4])?;
-    let counter = selected(uint, region, kinds, &[1, 2, 3])?;
+    let asset = selected(uint, region, kinds, &[1, 2])?;
+    let wallet = selected(uint, region, kinds, &[2, 3])?;
+    let counter = selected(uint, region, kinds, &[1, 2])?;
     let issued = uint.glue().not(region, policy)?;
-    let expires = selected(uint, region, kinds, &[0, 3])?;
-    let root = selected(uint, region, kinds, &[2, 3])?;
+    let expires = selected(uint, region, kinds, &[0, 2])?;
+    let root = selected(uint, region, kinds, &[2])?;
     // Canonical inactive projections prevent hidden alternate facts in a branch.
     for (active, indices) in [
         (&scheme, &[1, 2][..]),
@@ -148,13 +147,10 @@ pub fn constrain_selected(
     // Reuse the strict counter rule; inactive kinds prove the fixed harmless 0<1.
     let old_counter = uint.glue().select(
         region,
-        quota,
+        policy,
+        &before[core::POLICY_EPOCH],
         &old_rest[rest::QUOTA_SHARE_ID],
-        &before[core::BLACKLIST_VERSION],
     )?;
-    let old_counter =
-        uint.glue()
-            .select(region, policy, &before[core::POLICY_EPOCH], &old_counter)?;
     let old_counter = uint.glue().select(region, &counter, &old_counter, &zero)?;
     let new_counter = uint.glue().select(region, &counter, &fields[7], &one)?;
     super::increasing(uint, region, &old_counter, &new_counter)?;
@@ -169,8 +165,8 @@ pub fn constrain_selected(
 
     let controls = super::mask(uint, region, &fields[11])?;
     let permitted = super::mask(uint, region, &old_rest[rest::PERMITTED])?;
-    let mut intersection = Vec::with_capacity(3);
-    for i in 0..3 {
+    let mut intersection = Vec::with_capacity(2);
+    for i in 0..2 {
         intersection.push(
             uint.glue()
                 .mul(region, controls[i].word(), permitted[i].word())?,
@@ -178,11 +174,7 @@ pub fn constrain_selected(
     }
     let enabled = uint.glue().linear(
         region,
-        &[
-            (Fp::ONE, &intersection[0]),
-            (Fp::from(2), &intersection[1]),
-            (Fp::from(4), &intersection[2]),
-        ],
+        &[(Fp::ONE, &intersection[0]), (Fp::from(2), &intersection[1])],
         Fp::ZERO,
     )?;
     let signed_time = uint
@@ -203,9 +195,6 @@ pub fn constrain_selected(
             core::LEASE_EXPIRY => Some((credential, &fields[9])),
             core::POLICY_EPOCH => Some((policy, &fields[7])),
             core::ENABLED_CONTROLS => Some((policy, &enabled)),
-            core::BLACKLIST_VERSION => Some((blacklist, &fields[7])),
-            core::BLACKLIST_ROOT => Some((blacklist, &fields[10])),
-            core::BLACKLIST_ISSUED_AT => Some((blacklist, &fields[8])),
             core::QUOTA_WINDOWS_ROOT => Some((quota, &fields[10])),
             core::QUOTA_SHARE_EXPIRY => Some((quota, &fields[9])),
             core::QUOTA_USAGE_ROOT => {
@@ -229,15 +218,9 @@ pub fn constrain_selected(
         let selection = match index {
             rest::SCHEME_POLICY => Some((policy, &fields[0])),
             rest::FEE_SCHEDULE => Some((policy, &fields[12])),
-            rest::BLACKLIST => Some((blacklist, &fields[0])),
             rest::QUOTA_SHARE => Some((quota, &fields[0])),
             rest::QUOTA_SHARE_ID => Some((quota, &fields[7])),
             rest::TIME_ANCHOR => Some((anchor, &fields[0])),
-            rest::BLACKLIST_HISTORY => {
-                let unchanged = uint.glue().not(region, blacklist)?;
-                gate_equal(uint, region, &unchanged, old, &new_rest[index])?;
-                continue;
-            }
             _ => None,
         };
         if let Some((kind, value)) = selection {

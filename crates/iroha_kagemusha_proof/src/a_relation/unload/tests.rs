@@ -1,11 +1,8 @@
 //! Fixed task/descriptor rejection tests; metadata keys never authorize lineage.
 
 use super::*;
-use crate::{
-    a_relation::{AProofPlan, QProofPlan},
-    q_sigma::{QSigmaPlan, SigmaClass},
-};
-use iroha_pasta::{Eq, Fq, PastaCurve, PastaField};
+use crate::a_relation::{AProofPlan, QProofPlan};
+use iroha_pasta::{PastaCurve, PastaField};
 use iroha_plonk::{
     cs::{Column, ConstraintSystem, Instance, InstanceType},
     frontend::{Circuit, Layouter, SimpleFloorPlanner},
@@ -69,23 +66,6 @@ fn program<C: PastaCurve>(
 
 fn operation(variant: Variant, signature_words: usize) -> AProofPlan {
     let p = PinnedParams::<Ep>::derive(16).unwrap();
-    let v = PinnedParams::<Eq>::derive(16).unwrap();
-    let (leaf, _) = program(
-        &PinnedParams::<Eq>::derive(12).unwrap(),
-        vec![1],
-        vec![InstanceType::Bounded],
-    );
-    let sigma = QSigmaPlan::new(
-        SigmaClass::new(leaf, vec![(13, Fq::from(19))]).unwrap(),
-        None,
-        &v,
-    )
-    .unwrap();
-    let (q, key) = program(
-        &p,
-        sigma.instance_lengths().to_vec(),
-        QSigmaPlan::instance_types().to_vec(),
-    );
     let (signatures, signature_key) = program(
         &p,
         vec![signature_words],
@@ -100,13 +80,10 @@ fn operation(variant: Variant, signature_words: usize) -> AProofPlan {
             InstanceType::Bounded,
         ],
     );
-    AProofPlan::new(
+    // Lean lineage: no own sigma verifier; the only Q is the own receipt.
+    AProofPlan::inline(
         variant,
-        sigma,
-        vec![
-            QProofPlan::new(q, key).unwrap(),
-            QProofPlan::new(signatures, signature_key).unwrap(),
-        ],
+        vec![QProofPlan::new(signatures, signature_key).unwrap()],
         Some(omega),
         &p,
     )
@@ -115,35 +92,25 @@ fn operation(variant: Variant, signature_words: usize) -> AProofPlan {
 
 fn tasks(variant: Variant) -> Vec<Vec<OperationTask>> {
     vec![
-        vec![OperationTask::UnloadProof],
-        vec![OperationTask::UnloadAuthorization],
         vec![if variant == Variant::Unload {
             OperationTask::UnloadRecovery
         } else {
             OperationTask::RetiringState
         }],
+        vec![OperationTask::UnloadAuthorization],
     ]
 }
 
 #[test]
-fn unload_and_retiring_require_exact_own_authorization_and_proof_owners() {
+fn unload_and_retiring_require_exact_lean_owner_and_one_own_receipt() {
     let policy = OwnPolicy::new([3, 4], Affine::GENERATOR).unwrap();
-    let schema = UnloadStagePlan::signature_schema(policy).unwrap();
-    assert_eq!(schema.slots().len(), 3);
+    let schema = UnloadStagePlan::signature_schema().unwrap();
+    assert_eq!(schema.slots().len(), 1);
     assert_eq!(schema.slots()[0].key, SignatureKey::Variable);
-    assert_eq!(schema.slots()[1].key, SignatureKey::Variable);
-    assert_eq!(
-        schema.slots()[2].key,
-        SignatureKey::Fixed(Affine::GENERATOR)
-    );
-    assert!(
-        schema
-            .slots()
-            .iter()
-            .all(|slot| slot.mode == VerifyMode::Hard)
-    );
+    assert_eq!(schema.slots()[0].mode, VerifyMode::Hard);
     for variant in [Variant::Unload, Variant::Retiring] {
         let operation = operation(variant, schema.instance_length());
+        assert!(operation.is_inline());
         let specs = UnloadObjects::context_specs().unwrap().to_vec();
         let context = |operation: AProofPlan, partition, owner, specs| {
             ContextPlan::with_schedule(operation, partition, owner, specs)
@@ -151,13 +118,14 @@ fn unload_and_retiring_require_exact_own_authorization_and_proof_owners() {
                 .with_operation_tasks(tasks(variant))
                 .unwrap()
         };
-        let partition = vec![vec![0], vec![1], vec![]];
+        let partition = vec![vec![], vec![0]];
         let honest = context(operation.clone(), partition.clone(), Some(0), specs.clone());
         let plan = UnloadStagePlan::new(honest, policy).unwrap();
-        assert_eq!(plan.context().stage_count(), 3);
+        assert_eq!(plan.context().stage_count(), 2);
         assert_eq!(plan.context().object_specs(), specs);
-        assert_eq!(specs.iter().map(|s| s.tag).collect::<Vec<_>>(), [1, 2, 3]);
+        assert_eq!(specs.iter().map(|s| s.tag).collect::<Vec<_>>(), [1]);
         for (spec, kind) in specs.iter().zip(KINDS) {
+            assert_eq!(kind, ObjectKind::Receipt);
             assert_eq!(
                 usize::try_from(spec.capacity).unwrap(),
                 kind.body_len() + 64
@@ -167,25 +135,24 @@ fn unload_and_retiring_require_exact_own_authorization_and_proof_owners() {
             let mut wrong = specs.clone();
             match mutation {
                 0 => wrong[0].capacity += 1,
-                1 => wrong.swap(0, 1),
+                1 => wrong[0].tag += 10,
                 2 => {
                     wrong.pop();
                 }
-                _ => wrong[2].tag += 10,
+                _ => wrong.push(specs[0]),
             }
             assert!(
-                UnloadStagePlan::new(
-                    context(operation.clone(), partition.clone(), Some(0), wrong),
-                    policy
-                )
-                .is_err()
+                ContextPlan::with_schedule(operation.clone(), partition.clone(), Some(0), wrong)
+                    .and_then(|c| c.with_operation_tasks(tasks(variant)))
+                    .map_or(true, |c| UnloadStagePlan::new(c, policy).is_err())
             );
         }
+        // The own receipt leaf belongs to A2, never beside the predecessor in A1.
         assert!(
             UnloadStagePlan::new(
                 context(
                     operation.clone(),
-                    vec![vec![1], vec![0], vec![]],
+                    vec![vec![0], vec![]],
                     Some(0),
                     specs.clone()
                 ),
@@ -193,14 +160,17 @@ fn unload_and_retiring_require_exact_own_authorization_and_proof_owners() {
             )
             .is_err()
         );
+        // A1 owns no Q, so the hard predecessor must be verified there.
         assert!(
-            UnloadStagePlan::new(
-                context(operation.clone(), partition.clone(), Some(1), specs.clone()),
-                policy
+            ContextPlan::with_schedule(
+                operation.clone(),
+                partition.clone(),
+                Some(1),
+                specs.clone()
             )
             .is_err()
         );
-        for index in 0..3 {
+        for index in 0..2 {
             let mut missing = tasks(variant);
             missing[index].clear();
             assert!(
@@ -229,6 +199,20 @@ fn unload_and_retiring_require_exact_own_authorization_and_proof_owners() {
                 .is_err()
             );
         }
+        // Swapped stage owners keep the task set but not the fixed layout.
+        let mut swapped = tasks(variant);
+        swapped.swap(0, 1);
+        assert!(
+            ContextPlan::with_schedule(
+                operation.clone(),
+                partition.clone(),
+                Some(0),
+                specs.clone()
+            )
+            .unwrap()
+            .with_operation_tasks(swapped)
+            .map_or(true, |c| UnloadStagePlan::new(c, policy).is_err())
+        );
         let wrong_effect = if variant == Variant::Unload {
             Variant::Retiring
         } else {
@@ -249,7 +233,7 @@ fn unload_and_retiring_require_exact_own_authorization_and_proof_owners() {
     let wrong = operation(Variant::Unload, schema.instance_length() - 1);
     let context = ContextPlan::with_schedule(
         wrong,
-        vec![vec![0], vec![1], vec![]],
+        vec![vec![], vec![0]],
         Some(0),
         UnloadObjects::context_specs().unwrap().to_vec(),
     )

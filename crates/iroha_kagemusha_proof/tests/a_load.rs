@@ -64,16 +64,10 @@ fn genuine_load_sigma_signed_objects_and_recovery_share_exact_roots() {
 }
 
 #[test]
-fn actual_load_signature_q_proves_own_receipt_and_current_enrollment() {
+fn actual_load_signature_q_proves_own_receipt() {
+    // Lean Load has one signature leaf: the credential is carried by continuity.
     let (circuit, _) = fixture();
     let (signature, instances) = load_objects::own_signature(circuit.objects[0].signature);
-    let (current, current_instances) = load_objects::current_signatures(&[
-        circuit.objects[2].signature,
-        circuit.objects[1].signature,
-    ]);
-    let current_report =
-        check_circuit(&current, 16, &current_instances, CheckMode::Strict).unwrap();
-    assert!(current_report.is_satisfied(), "{current_report:?}");
     let params = PinnedParams::<Ep>::derive(16).unwrap();
     let config = KeygenConfigV2::pipa_r(
         iroha_kagemusha_proof::q_signature::QSignaturePlan::instance_types().to_vec(),

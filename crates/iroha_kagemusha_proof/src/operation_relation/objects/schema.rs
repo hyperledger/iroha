@@ -33,8 +33,6 @@ pub enum ObjectKind {
     SchemePolicy,
     /// Fee formula and beneficiary.
     FeeSchedule,
-    /// Blacklist version/root descriptor.
-    Blacklist,
     /// Quota-window root descriptor.
     QuotaShare,
     /// Wallet-bound issuer time.
@@ -46,13 +44,12 @@ pub enum ObjectKind {
 }
 impl ObjectKind {
     /// Every schema, in domain-table order.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 9] = [
         Self::Certificate,
         Self::Credential,
         Self::Receipt,
         Self::SchemePolicy,
         Self::FeeSchedule,
-        Self::Blacklist,
         Self::QuotaShare,
         Self::TimeAnchor,
         Self::ChargeQuote,
@@ -85,7 +82,6 @@ impl ObjectKind {
                 D,
                 U(4),
                 U(8),
-                U(8),
                 D,
                 U(8),
                 U(4),
@@ -95,7 +91,6 @@ impl ObjectKind {
             Self::Receipt => &[U(2), D, D, D, U(16), P, P, P, P, P, D, P],
             Self::SchemePolicy => &[U(2), D, D, U(8), U(4), P, P],
             Self::FeeSchedule => &[U(2), D, D, U(8), D, U(4), U(16), U(16), U(16), U(1), P],
-            Self::Blacklist => &[U(2), D, U(8), U(8), U(4), P, P],
             Self::QuotaShare => &[U(2), D, D, D, U(8), U(8), U(8), P, U(4), P],
             Self::TimeAnchor => &[U(2), D, D, D, U(8), P],
             Self::ChargeQuote => &[U(2), D, D, D, U(1), U(16), U(16), U(16), D, U(8), P],
@@ -115,8 +110,6 @@ impl ObjectKind {
                 U(8),
                 P,
                 U(8),
-                U(8),
-                P,
                 P,
                 D,
             ],
@@ -134,7 +127,6 @@ impl ObjectKind {
             Self::Receipt => *b"kgwrcpt1",
             Self::SchemePolicy => *b"kgwspol1",
             Self::FeeSchedule => *b"kgwfsch1",
-            Self::Blacklist => *b"kgwblst1",
             Self::QuotaShare => *b"kgwqshr1",
             Self::TimeAnchor => *b"kgwtanc1",
             Self::ChargeQuote => *b"kgwchgq1",
@@ -149,7 +141,6 @@ impl ObjectKind {
             Self::Receipt => *b"kgworcp1",
             Self::SchemePolicy => *b"kgwopol1",
             Self::FeeSchedule => *b"kgwofee1",
-            Self::Blacklist => *b"kgwoblk1",
             Self::QuotaShare => *b"kgwoqsh1",
             Self::TimeAnchor => *b"kgwotim1",
             Self::ChargeQuote => *b"kgwochg1",

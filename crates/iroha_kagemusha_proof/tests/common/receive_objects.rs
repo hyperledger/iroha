@@ -1,13 +1,18 @@
-//! Genuine Receive sigma/state and depth32 maps for an exactly signed Request.
+//! Genuine Receive step, state and depth32 maps for an exactly signed Request.
 //!
+//! A1 proves this step relation inline (`ReceiveTransition`, lean lineage); the
+//! wallet still produces σ_recv from the same step for the payer's ArchiveReceive.
 //! The supplied Payment digest is an operation input, not authenticated by this
 //! fixture. The full A owner must derive it from the same original byte tapes.
 
 use ff::Field;
 use iroha_kagemusha_proof::{
     admin_sigma::{BootstrapWitness, StateWitness},
-    operation_relation::map_effects::{CONSUMED_DOMAIN, CREDIT_DOMAIN},
-    tree::{BlacklistGap, IndexedInsert, IndexedLeaf, IndexedTree},
+    operation_relation::{
+        map_effects::{CONSUMED_DOMAIN, CREDIT_DOMAIN},
+        objects::ObjectKind,
+    },
+    tree::{IndexedInsert, IndexedLeaf, IndexedTree},
     witness::{ReceiveInputs, SigmaRelation, StepInputs, StepWitness},
 };
 use iroha_pasta::{Fp, poseidon::hash_with_domain};
@@ -37,9 +42,26 @@ pub fn receiver() -> (
     enrolled
 }
 
-/// Build the same committed sigma transition for accept or structurally valid
+/// The receiver credential re-signed by its issuer, as a renewed Request quotes
+/// it: a distinct content address with the same wallet, account, key and
+/// certificate. Ordinary Receive quotes the current credential itself.
+#[allow(dead_code)] // Used only by renewed Receive consumers of this shared fixture.
+pub fn renewed_credential() -> bootstrap_objects::Signed {
+    let (_, _, current) = receiver();
+    let renewed = bootstrap_objects::sign(
+        ObjectKind::Credential,
+        current.bytes[..ObjectKind::Credential.body_len()].to_vec(),
+        17,
+        79,
+    );
+    assert_ne!(renewed.digest(), current.digest());
+    renewed
+}
+
+/// Build the same committed step transition for accept or structurally valid
 /// burn. The `valid` value is used only to construct a witness; the circuit's
-/// terminal predicate must derive its own value from all five result owners.
+/// terminal predicate must derive its own value from all four result owners.
+/// The returned step evaluates, rule for rule, to the returned statement.
 pub fn from_send(
     send: &send_objects::SendFixture,
     before: &StateWitness,
@@ -87,7 +109,6 @@ pub fn from_send(
             receiver_credential_digest: input.receiver_credential_digest,
             request: input.request,
             successor_consumed_credit: consumed_tree.root(),
-            blacklist: BlacklistGap::unused(),
         })),
     };
     let evaluated = step.evaluate(SigmaRelation::RECEIVE);
