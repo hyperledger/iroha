@@ -2,7 +2,6 @@
 
 use super::*;
 use iroha_model_base::state_path::StatePath;
-use mv::storage::StorageReadOnly as _;
 
 fn addresses(policy: &StaticExecutionPolicy) -> [usize; 7] {
     [

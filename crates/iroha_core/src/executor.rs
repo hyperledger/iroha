@@ -17675,7 +17675,7 @@ mod tests {
     }
     #[test]
     fn protocol_fee_exempt_draft_returns_zero_quote_in_direct_mode() {
-        let (world, mut nexus, pipeline, mut payload) = multi_component_fee_quote_fixture();
+        let (world, nexus, pipeline, mut payload) = multi_component_fee_quote_fixture();
         let fee_asset = nexus.fees.fee_asset_id.clone();
         payload.fee_payment = FeePaymentIntent::authority(
             vec![FeeChargeLimit::new(
@@ -17712,7 +17712,7 @@ mod tests {
     include!("executor_fee_quote_tests.rs");
     #[test]
     fn missing_committed_policy_rejects_quotes_before_signing() {
-        let (world, mut nexus, pipeline, payload) = multi_component_fee_quote_fixture();
+        let (world, nexus, pipeline, payload) = multi_component_fee_quote_fixture();
         let mut parameters = world.parameters.block();
         parameters.remove_custom_parameter(&RootFeePolicy::parameter_id());
         parameters.commit();

@@ -1213,7 +1213,7 @@ pub fn authorize_orchard_bundle_v1(
         .validate(consensus_limits)
         .map_err(|_| OrchardProverErrorV1::ConsensusBinding)?;
     let public = OrchardBundlePublicV1 {
-        consensus_binding: consensus_binding.clone(),
+        consensus_binding,
         anchor: prepared.draft.anchor,
         value_balance: prepared.draft.value_balance,
         actions: prepared.draft.actions.clone(),
@@ -1399,7 +1399,7 @@ pub(crate) mod tests {
         // proof-independent public action bytes.
         let draft = public_draft_from_bundle_v1(&proven);
         let raw = OrchardBundlePublicV1 {
-            consensus_binding: consensus_binding.clone(),
+            consensus_binding,
             anchor: draft.anchor,
             value_balance: draft.value_balance,
             actions: draft.actions,
@@ -1832,7 +1832,7 @@ pub(crate) mod tests {
         assert_eq!(draft.actions.len(), 1);
         assert_eq!(draft.value_balance, -23);
         let binding = consensus_binding(0x72);
-        let proved = authorize_orchard_bundle_v1(prepared, binding.clone(), &consensus_limits())
+        let proved = authorize_orchard_bundle_v1(prepared, binding, &consensus_limits())
             .expect("consume prepared state and authorize exact actions");
         assert_eq!(
             entropy.requests,

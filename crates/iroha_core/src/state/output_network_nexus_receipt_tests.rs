@@ -115,7 +115,7 @@ fn healthy_output_overflow_discards_the_unpaid_receipt_and_actual_burn() {
 #[test]
 fn failed_charge_has_no_fee_receipt_or_balance_supply_effect() {
     let _guard = crate::status::nexus_fee_test_lock().lock().unwrap();
-    let (mut state, asset) = priced(65_536, None);
+    let (state, asset) = priced(65_536, None);
     // Sign a valid nonzero cap, then reject it against the actual configured fee.
     {
         let mut fees = state.nexus_snapshot().fees;

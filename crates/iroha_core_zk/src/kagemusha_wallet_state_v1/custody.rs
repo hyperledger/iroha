@@ -231,7 +231,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> Custody for AdvanceHa
         &mut self,
     ) -> Result<crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1, ProviderError>
     {
-        self.lock()?.runtime_resources()
+        let mut provider = self.lock()?;
+        // The capacity check reads free space after the open call's staged records are on
+        // disk, so it never admits an operation that their publication would leave short.
+        provider.drain_archive(&self.slot)?;
+        provider.runtime_resources()
     }
     fn lookup(
         &mut self,
@@ -578,17 +582,31 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> super::ArchiveStore
         let encoded = PrivateArchiveBytes::encode(&envelope)
             .map_err(|_| super::Error::Invalid("private archive encoding"))?;
         drop(envelope);
-        let mut provider = self.lock()?;
-        provider.with_archive_phase(&self.slot, |archive| {
-            archive.write_record(&identity, &encoded)
-        })?;
-        // Both copies are durable: an object's exact content stays readable for the phase.
-        if let super::ArchiveKey::Object(object) = key
-            && crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(bytes)
-                == object
-        {
-            provider.keep_archive_phase_object(&self.slot, self.object_key(identity), bytes)?;
+        // An object's exact content stays readable for the phase once both copies are durable.
+        let object = match key {
+            super::ArchiveKey::Object(object)
+                if crate::kagemusha_wallet_advance_v1::kagemusha_wallet_archive_object_digest_v1(
+                    bytes,
+                ) == object =>
+            {
+                Some((self.object_key(identity), bytes))
+            }
+            _ => None,
+        };
+        // Inside an open call the record is staged and published with the call's other
+        // records behind one directory sync; without one it is durable on return.
+        self.lock()?
+            .stage_archive_record(&self.slot, &identity, encoded.as_slice(), object)?;
+        Ok(())
+    }
+    fn open_call(&mut self) {
+        // A poisoned provider refuses every later access, so no record can be staged.
+        if let Ok(mut provider) = self.lock() {
+            provider.open_archive_call(&self.slot);
         }
+    }
+    fn close_call(&mut self, succeeded: bool) -> Result<(), super::Error> {
+        self.lock()?.close_archive_call(&self.slot, succeeded)?;
         Ok(())
     }
 }

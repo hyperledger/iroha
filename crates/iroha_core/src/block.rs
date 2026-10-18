@@ -4724,7 +4724,6 @@ pub(crate) mod valid {
 
         fn validate_staged_execution_controls(
             block: &SignedBlock,
-            state: &StateBlock<'_>,
         ) -> Result<(), BlockValidationError> {
             Self::checked_execution_context_header(block)?;
 
@@ -4942,7 +4941,7 @@ pub(crate) mod valid {
             if !block.header().is_genesis() {
                 state_block.mark_network_signatures_prechecked();
             }
-            if let Err(error) = Self::validate_staged_execution_controls(&block, &state_block) {
+            if let Err(error) = Self::validate_staged_execution_controls(&block) {
                 drop(state_block);
                 record_timings(&mut timings, stateless_elapsed, Some(execution_start));
                 emit_rejection(&block, &error);
@@ -6682,7 +6681,7 @@ pub(crate) mod valid {
             state_block: &mut StateBlock<'_>,
             _recorder: &crate::exec_witness::ExecWitnessGuard,
         ) -> Result<(), BlockValidationError> {
-            Self::validate_staged_execution_controls(block, state_block)?;
+            Self::validate_staged_execution_controls(block)?;
             Self::execute_and_record_canonical_outputs(block, state_block, None, None)?;
             validate_axt_envelopes(block, state_block)?;
             state_block

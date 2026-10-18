@@ -240,31 +240,31 @@ pub const FIXTURE_BALLOTS: [FixtureBallot; 5] = [
         member: 0,
         vote: BallotChoiceV1::Aye,
         tape: 0x10,
-        nonce: offset_nonce(7_679_395),
+        nonce: offset_nonce(110_609_495),
     },
     FixtureBallot {
         member: 1,
         vote: BallotChoiceV1::Nay,
         tape: 0x11,
-        nonce: offset_nonce(50_651_859),
+        nonce: offset_nonce(400_695_293),
     },
     FixtureBallot {
         member: 2,
         vote: BallotChoiceV1::Aye,
         tape: 0x12,
-        nonce: offset_nonce(23_963_018),
+        nonce: offset_nonce(812_400_381),
     },
     FixtureBallot {
         member: 3,
         vote: BallotChoiceV1::Abstain,
         tape: 0x13,
-        nonce: offset_nonce(517_584_961),
+        nonce: offset_nonce(153_706_119),
     },
     FixtureBallot {
         member: 0,
         vote: BallotChoiceV1::Nay,
         tape: 0x14,
-        nonce: offset_nonce(146_243_166),
+        nonce: offset_nonce(213_200_714),
     },
 ];
 
@@ -272,7 +272,7 @@ pub const FIXTURE_BALLOTS: [FixtureBallot; 5] = [
 pub const FORGED_PROOF_BYTE: usize = 1_000;
 
 /// Pinned 28-bit stamp nonce of the forged ballot.
-pub const FORGED_NONCE: [u8; 32] = offset_nonce(933_383_097);
+pub const FORGED_NONCE: [u8; 32] = offset_nonce(202_597_833);
 
 /// The authorization (every field but the stamp) of fixture ballot `index`, proved once.
 pub fn fixture_authorization(index: usize) -> AnonymousBallotAuthorizationV1 {

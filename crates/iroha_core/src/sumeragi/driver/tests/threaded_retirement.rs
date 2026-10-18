@@ -624,3 +624,167 @@ fn retired_directory_sync_does_not_block_other_lane_transaction_delivery() {
     assert_driver_retired(&a_handle, &a_fakes);
     assert_driver_retired(&b_handle, &b_fakes);
 }
+
+#[test]
+fn final_driver_shutdown_preserves_original_pending_store_for_existing_registry_continuation() {
+    crate::sumeragi::lanes::registry::observe_retired_sync_for_test(|observation| {
+        let Instance { running, fakes, .. } = spawn_retiring_store_driver(
+            observation.instance,
+            Arc::clone(observation.store),
+            observation.budget.clone(),
+        );
+        let handle = running.handle();
+        running.shutdown();
+        let height_after_stop = observation.store.height();
+        let remaining_owners = Arc::strong_count(observation.store);
+        // Release before any assertion or synchronous orphan continuation.
+        observation.gate.release();
+        observation.runner.drive_retirement_for_test();
+        assert_driver_retired(&handle, &fakes);
+        assert_eq!(
+            height_after_stop, 0,
+            "final shutdown must not claim an unperformed publication"
+        );
+        assert_eq!(
+            remaining_owners, 2,
+            "the original registry and fixture retain the exact pending store after driver shutdown"
+        );
+        assert_eq!(
+            observation.store.height(),
+            1,
+            "the original pending write survives final driver cancellation for registry continuation"
+        );
+        // The enclosing owner independently authenticates the original body/QC and
+        // verifies sole backend ownership after the registry itself drops.
+    });
+}
+
+#[test]
+fn final_shutdown_recognizes_original_publication_joiner_and_finishes_inflight_sync() {
+    crate::sumeragi::lanes::registry::observe_retired_sync_for_test(|observation| {
+        let Instance {
+            mut running, fakes, ..
+        } = spawn_retiring_store_driver(
+            observation.instance,
+            Arc::clone(observation.store),
+            observation.budget.clone(),
+        );
+        let handle = running.handle();
+        let original = running.joiner.as_ref().unwrap().thread.thread().id();
+        let original_is_owned = running.owns_thread(original);
+        let caller_is_owned = running.owns_thread(std::thread::current().id());
+        let handed_off = observed_within(Duration::from_secs(5), || {
+            running.poll_shutdown();
+            running.joining.is_some()
+        });
+        let entered = observation.gate.wait_entered();
+        let joining_is_owned = running.joining.as_ref().is_some_and(|thread| {
+            thread.thread().id() == original && running.owns_thread(thread.thread().id())
+        });
+        let height_while_held = observation.store.height();
+        if let Some(owner) = &running.retirement {
+            owner.stop();
+        }
+        observation.gate.release();
+        // Final shutdown may wait for this original native syscall, but never self-joins
+        // if invoked from its publication/refund callback. The exact helper is checked below.
+        running.shutdown();
+        assert_driver_retired(&handle, &fakes);
+        assert!(handed_off);
+        entered.unwrap();
+        assert!(
+            original_is_owned && joining_is_owned,
+            "both ownership phases must recognize the original publication joiner as a self-worker"
+        );
+        assert!(!caller_is_owned);
+        assert_eq!(height_while_held, 0);
+        assert_eq!(observation.store.height(), 1);
+    });
+}
+
+struct StopStartupSyncOnDrop<'a> {
+    stop: &'a std::sync::atomic::AtomicBool,
+    gate: Arc<crate::sumeragi::lanes::registry::StartupSyncGate>,
+}
+impl Drop for StopStartupSyncOnDrop<'_> {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        self.gate.release();
+    }
+}
+
+#[test]
+fn native_lane_startup_sync_does_not_block_other_lane_transaction_delivery() {
+    let (handle, fakes, entered, progressed, original_opening, joined) =
+        crate::sumeragi::lanes::registry::observe_startup_sync_for_test(|fixture| {
+            let runner = fixture.runner;
+            let live = spawn_instance(241, Arc::new(SystemClock::new()), |_| {});
+            let handle = live.handle();
+            assert!(observed_within(Duration::from_secs(5), || handle
+                .waiting_after_empty_for_test()));
+            runner.install_retirement_driver_for_test(fixture.active, live.instance, live.running);
+            let stop = std::sync::atomic::AtomicBool::new(false);
+            let requested_turn = std::sync::atomic::AtomicBool::new(false);
+            let (acknowledge_turn, observed_turn) = std::sync::mpsc::sync_channel(1);
+            let _setup_release = StopStartupSyncOnDrop {
+                stop: &stop,
+                gate: Arc::clone(fixture.gate),
+            };
+            let observation = std::thread::scope(|scope| {
+                // This releases the actual I/O before scope joins during every unwind.
+                let _scope_release = StopStartupSyncOnDrop {
+                    stop: &stop,
+                    gate: Arc::clone(fixture.gate),
+                };
+                let lifecycle = scope.spawn(|| {
+                    while !stop.load(Ordering::Acquire) {
+                        let acknowledge = requested_turn.swap(false, Ordering::AcqRel);
+                        runner.drive_retirement_for_test();
+                        if acknowledge {
+                            let _ = acknowledge_turn.send(());
+                        }
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                });
+                let entered = fixture.gate.wait_entered();
+                let original_opening = entered.is_ok() && fixture.original_opening_is_busy();
+                live.fakes.exec.add_tx(2);
+                runner.handle().transactions_available();
+                requested_turn.store(true, Ordering::Release);
+                let mut turn_observed = false;
+                let progressed = entered.is_ok()
+                    && observed_within(Duration::from_secs(1), || {
+                        turn_observed |= observed_turn.try_recv().is_ok();
+                        turn_observed
+                            && handle
+                                .status()
+                                .is_some_and(|status| status.committed_height >= 1)
+                            && live.fakes.exec.state.lock().txs.is_empty()
+                    });
+                stop.store(true, Ordering::Release);
+                fixture.gate.release();
+                (entered, progressed, original_opening, lifecycle.join())
+            });
+            (
+                handle,
+                live.fakes,
+                observation.0,
+                observation.1,
+                observation.2,
+                observation.3,
+            )
+        });
+    // The fixture released I/O, joined the lifecycle, dropped the real coordinator and
+    // joined both original drivers before returning any causal observation.
+    joined.unwrap();
+    assert_driver_retired(&handle, &fakes);
+    entered.unwrap();
+    assert!(
+        original_opening,
+        "actual eligible startup must retain its authenticated in-flight native opening"
+    );
+    assert!(
+        progressed,
+        "original native startup SyncFile must not block another lane's actual lifecycle turn and transaction commit"
+    );
+}

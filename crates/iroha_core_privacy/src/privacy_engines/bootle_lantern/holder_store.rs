@@ -3801,7 +3801,7 @@ mod tests {
                 &response_bytes,
             )
             .expect("idempotent finalized response retry");
-        let statement = presentation_statement_v1(context.clone(), &policy);
+        let statement = presentation_statement_v1(context, &policy);
         let mut presentation_rng = TestRng::healthy(0x510e_527f_ade6_82d1);
         let proof = holder
             .prove_presentation_encoded_with_rng_v1(

@@ -135,7 +135,7 @@ fn fee_sponsor_custody_state() -> (State, AccountId, AssetDefinitionId, AssetId)
         [Asset::new(source_id.clone(), Quantity::from(10_u32))],
         [],
     );
-    let mut state = State::new(
+    let state = State::new(
         world,
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),

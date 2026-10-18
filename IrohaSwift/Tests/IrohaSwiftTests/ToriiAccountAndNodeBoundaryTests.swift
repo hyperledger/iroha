@@ -1930,6 +1930,98 @@ final class ToriiAccountAndNodeBoundaryTests: XCTestCase {
         }
         XCTAssertEqual(requestCount, 1)
     }
+    @available(iOS 15.0, macOS 12.0, *)
+    func testGetUaidBindingsSignsConfiguredAccountReadForDataspaceVisibility() async throws {
+        let uaidHex = String(repeating: "a", count: 63) + "1"
+        let uaid = "uaid:" + uaidHex
+        let encodedPath = "/v1/space-directory/uaids/uaid%3A" + uaidHex
+        let expectedURL = "https://example.test" + encodedPath
+        let expectedAccount = try AccountAddress.fromI105(authority).canonicalHex()
+        let publicKey = try Curve25519.Signing.PrivateKey(rawRepresentation: canonicalSigningSeed).publicKey
+        let emptyBodyHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        let exactSuffix = Data("GET\n\(encodedPath)\n\n\(emptyBodyHash)\n4102444801000\ncanonical-read-test".utf8)
+        // Deliberately independent of ToriiCanonicalRequest and buildHeaders:
+        // domain + exact network + method/path/query/body digest + freshness.
+        var exactFrame = Data("iroha.app.request.network.v1\0".utf8)
+        exactFrame.append(TestNetworkIds.canonical.bytes)
+        exactFrame.append(exactSuffix)
+        var foreignNetworkFrame = Data("iroha.app.request.network.v1\0".utf8)
+        foreignNetworkFrame.append(TestNetworkIds.other.bytes)
+        foreignNetworkFrame.append(exactSuffix)
+        var decodedPathFrame = Data("iroha.app.request.network.v1\0".utf8)
+        decodedPathFrame.append(TestNetworkIds.canonical.bytes)
+        decodedPathFrame.append(Data("GET\n/v1/space-directory/uaids/\(uaid)\n\n\(emptyBodyHash)\n4102444801000\ncanonical-read-test".utf8))
+        var requests = 0
+        StubURLProtocol.handler = { request in
+            requests += 1
+            XCTAssertEqual(request.url?.absoluteString, expectedURL)
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertNil(request.url?.query)
+            XCTAssertNil(request.url?.fragment)
+            XCTAssertNil(request.httpBody)
+            XCTAssertNil(request.httpBodyStream)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Iroha-Account"), expectedAccount)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Iroha-Timestamp-Ms"), "4102444801000")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Iroha-Nonce"), "canonical-read-test")
+            for name in ["Authorization", "X-API-Token", "X-Iroha-Witness",
+                         "X-Iroha-Operator-Public-Key", "X-Iroha-Operator-Signature",
+                         "X-Iroha-Operator-Timestamp-Ms", "X-Iroha-Operator-Nonce"] {
+                XCTAssertNil(request.value(forHTTPHeaderField: name), name)
+            }
+            let signature = try XCTUnwrap(Data(base64Encoded: XCTUnwrap(
+                request.value(forHTTPHeaderField: "X-Iroha-Signature"))))
+            XCTAssertEqual(signature.count, 64)
+            XCTAssertTrue(publicKey.isValidSignature(signature, for: exactFrame))
+            XCTAssertFalse(publicKey.isValidSignature(signature, for: foreignNetworkFrame))
+            XCTAssertFalse(publicKey.isValidSignature(signature, for: decodedPathFrame))
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200,
+                httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
+            return (response, Data("{\"uaid\":\"\(uaid)\",\"dataspaces\":[]}".utf8))
+        }
+        let client = makeClient()
+        defer { client.invalidateAndCancel() }
+        let result = try await client.getUaidBindings(uaid: uaid, query: ToriiUaidBindingsQuery())
+        XCTAssertEqual(result.uaid, uaid)
+        XCTAssertTrue(result.dataspaces.isEmpty)
+        XCTAssertEqual(requests, 1, "The configured signer must authenticate the one directory read")
+    }
+
+    @available(iOS 15.0, macOS 12.0, *)
+    func testGetUaidBindingsWithoutSignerRetainsAnonymousPublicRead() async throws {
+        let uaid = "uaid:" + String(repeating: "b", count: 63) + "1"
+        let expectedURL = "https://example.test/v1/space-directory/uaids/uaid%3A" + String(repeating: "b", count: 63) + "1"
+        var requests = 0
+        StubURLProtocol.handler = { request in
+            requests += 1
+            XCTAssertEqual(request.url?.absoluteString, expectedURL)
+            XCTAssertEqual(request.httpMethod, "GET")
+            XCTAssertNil(request.url?.query)
+            XCTAssertNil(request.url?.fragment)
+            XCTAssertNil(request.httpBody)
+            XCTAssertNil(request.httpBodyStream)
+            for name in ["X-Iroha-Account", "X-Iroha-Signature", "X-Iroha-Timestamp-Ms", "X-Iroha-Nonce",
+                         "Authorization", "X-API-Token", "X-Iroha-Witness",
+                         "X-Iroha-Operator-Public-Key", "X-Iroha-Operator-Signature",
+                         "X-Iroha-Operator-Timestamp-Ms", "X-Iroha-Operator-Nonce"] {
+                XCTAssertNil(request.value(forHTTPHeaderField: name), name)
+            }
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200,
+                httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
+            return (response, Data("{\"uaid\":\"\(uaid)\",\"dataspaces\":[]}".utf8))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let client = ToriiClient(baseURL: URL(string: "https://example.test")!, session: session,
+            localSigningContext: ToriiLocalSigningContext(networkId: TestNetworkIds.canonical),
+            canonicalRequestAuth: nil)
+        defer { client.invalidateAndCancel(); session.invalidateAndCancel() }
+        let result = try await client.getUaidBindings(uaid: uaid)
+        XCTAssertEqual(result.uaid, uaid)
+        XCTAssertTrue(result.dataspaces.isEmpty)
+        XCTAssertEqual(requests, 1, "Public directory reads remain available without a configured signer")
+    }
+
     func testGetUaidBindingsReturnsDataspaces() async throws {
         let uaidHex = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
         let payload = """

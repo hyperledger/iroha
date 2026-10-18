@@ -689,7 +689,7 @@ def synthetic_jvm_native_manifest(tmp_path, monkeypatch):
     symbols = contract.REQUIRED_SYMBOLS["c-jni"] + contract.APPROVED_PRIVACY_C_EXPORTS
     manifest = contract.build_manifest(
         sdk="c-jni", target="x86_64-unknown-linux-gnu", artifact_path=artifact,
-        source_root=ROOT, probe=lambda sdk, path: 29, symbol_inventory=lambda path: symbols,
+        source_root=ROOT, probe=lambda sdk, path: 30, symbol_inventory=lambda path: symbols,
     )
     return contract, artifact, manifest, symbols
 

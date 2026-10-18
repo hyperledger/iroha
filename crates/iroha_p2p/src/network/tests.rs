@@ -159,52 +159,47 @@ fn connect_has_a_separate_reliable_low_priority_frame_bound() {
     );
 }
 #[test]
-fn reliable_progress_class_matches_actor_reservations_exactly() {
+fn reliable_progress_routes_refine_into_actor_reservation_classes() {
     use message::{SubscriberRoute as Route, Topic};
-    for (topic, route, expected) in [
+    for (topic, route, expected, actor_class) in [
         (
             Topic::ConsensusSafety,
             Route::General,
             Some(ReliableProgressClass::Safety),
+            Some(ActorProgressClass::Safety),
         ),
         (
             Topic::Consensus,
             Route::General,
             Some(ReliableProgressClass::Lane),
+            Some(ActorProgressClass::Lane),
         ),
         (
             Topic::ConsensusPayload,
             Route::General,
             Some(ReliableProgressClass::Bulk),
+            Some(ActorProgressClass::Payload),
         ),
         (
             Topic::ConsensusChunk,
             Route::General,
             Some(ReliableProgressClass::Bulk),
+            Some(ActorProgressClass::Payload),
         ),
         (
             Topic::BlockSync,
             Route::General,
             Some(ReliableProgressClass::Bulk),
+            Some(ActorProgressClass::BlockSync),
         ),
-        (Topic::Control, Route::General, None),
-        (Topic::Health, Route::General, None),
-        (Topic::Connect, Route::Connect, None),
-        (Topic::Other, Route::General, None),
+        (Topic::Control, Route::General, None, None),
+        (Topic::Health, Route::General, None, None),
+        (Topic::Connect, Route::Connect, None, None),
+        (Topic::Other, Route::General, None, None),
     ] {
         assert_eq!(reliable_progress_class(topic, route), expected);
         assert_eq!(is_reliable_progress_route(topic, route), expected.is_some());
-        // The actor splits bulk progress by its peer-writer class, so block
-        // sync responses never hold proposals or chunks behind them.
-        assert_eq!(
-            ActorProgressClass::for_route(topic, route),
-            expected.map(|class| match (class, topic) {
-                (ReliableProgressClass::Safety, _) => ActorProgressClass::Safety,
-                (ReliableProgressClass::Lane, _) => ActorProgressClass::Lane,
-                (ReliableProgressClass::Bulk, Topic::BlockSync) => ActorProgressClass::BlockSync,
-                (ReliableProgressClass::Bulk, _) => ActorProgressClass::Payload,
-            })
-        );
+        assert_eq!(ActorProgressClass::for_route(topic, route), actor_class);
     }
 }
 #[derive(norito::NoritoSchema)]
@@ -495,6 +490,41 @@ macro_rules! reserve_direct_lane_lease {
         };
         direct_admission.commit();
     };
+}
+/// Keep the production item window while byte pressure admits only one lane frame per source.
+fn set_one_frame_lane_source_budget(
+    handle: &mut NetworkBaseHandle<DeferredProgressMsg, ChaCha20Poly1305>,
+    target: &PeerId,
+) {
+    let direct = NetworkMessage::Post(Post {
+        data: DeferredProgressMsg::Lane(0),
+        peer_id: target.clone(),
+        priority: Priority::High,
+    });
+    let broadcast = NetworkMessage::Broadcast(Broadcast {
+        data: DeferredProgressMsg::Lane(0),
+        priority: Priority::High,
+    });
+    let direct_bytes = handle
+        .outbound_actor_wire_bytes_recoverable(&direct, message::Topic::Consensus)
+        .expect("count the direct lane fixture's complete stream charge");
+    let broadcast_bytes = handle
+        .outbound_actor_wire_bytes_recoverable(&broadcast, message::Topic::Consensus)
+        .expect("count the broadcast lane fixture's complete stream charge");
+    // Direct frames include the target identity; broadcasts have a smaller
+    // envelope. Every u8 lane marker has the same encoded length.
+    let source_bytes = direct_bytes.max(broadcast_bytes);
+    assert!(
+        direct_bytes.min(broadcast_bytes) > source_bytes / 2,
+        "the source must fit either exact frame but never two of the smaller frame"
+    );
+    handle.network_actor_progress_budget = NetworkActorProgressBudget::new_with_window(
+        source_bytes,
+        8,
+        8,
+        RELIABLE_ACTOR_SOURCE_WINDOW,
+    )
+    .expect("one-frame lane byte cap with independent target sources");
 }
 type TestPeerReceivers<T> = crate::peer::handles::TestPeerHandleReceivers<WireMessage<T>>;
 fn random_node_key_pair() -> KeyPair {
@@ -2168,7 +2198,7 @@ fn reply_actor_admission_does_not_complete_writer_flush_ack() {
 }
 #[test]
 fn reply_timeout_attempt_is_retained_by_actor_admission_ticket() {
-    let (handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
+    let (mut handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
         handle_with_network_receivers::<DeferredProgressMsg>();
     let delivery_peer = random_peer_id();
     let semantic_target = random_peer_id();
@@ -2179,6 +2209,20 @@ fn reply_timeout_attempt_is_retained_by_actor_admission_ticket() {
         peer_id: semantic_target.clone(),
         priority: Priority::High,
     };
+    // Force byte backpressure while retaining the production item window.
+    let stream_wire_bytes = handle
+        .outbound_actor_wire_bytes_recoverable(
+            &NetworkMessage::Post(post(90)),
+            message::Topic::Consensus,
+        )
+        .expect("count the exact reply timeout fixture");
+    handle.network_actor_progress_budget = NetworkActorProgressBudget::new_with_window(
+        stream_wire_bytes,
+        8,
+        8,
+        RELIABLE_ACTOR_SOURCE_WINDOW,
+    )
+    .expect("one reply frame per source must fit the timeout fixture");
     let _first_completion = handle
         .post_reply_recoverable_with_flush_ack_at_attempt(post(90), &route, None, 0)
         .expect("first reply occupies the source lane")
@@ -2230,7 +2274,7 @@ fn reply_timeout_attempt_is_retained_by_actor_admission_ticket() {
 }
 #[test]
 fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurrence() {
-    let (handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
+    let (mut handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
         handle_with_network_receivers::<DeferredProgressMsg>();
     let authenticated_source_a = random_peer_id();
     let authenticated_source_b = random_peer_id();
@@ -2263,6 +2307,25 @@ fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurren
         ),
         73,
     );
+    // This identity test needs byte backpressure after one retained reply;
+    // production permits several small items within each source's byte cap.
+    let stream_wire_bytes = handle
+        .outbound_actor_wire_bytes_recoverable(
+            &NetworkMessage::Post(Post {
+                data: DeferredProgressMsg::Lane(80),
+                peer_id: semantic_target.clone(),
+                priority: Priority::Low,
+            }),
+            message::Topic::Consensus,
+        )
+        .expect("count the exact reply identity fixture");
+    handle.network_actor_progress_budget = NetworkActorProgressBudget::new_with_window(
+        stream_wire_bytes,
+        8,
+        8,
+        RELIABLE_ACTOR_SOURCE_WINDOW,
+    )
+    .expect("one reply frame per source must fit the identity fixture");
     let first = handle
         .post_reply_recoverable_with_flush_ack(
             Post {
@@ -2294,6 +2357,10 @@ fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurren
         }) => (message, ticket),
         other => panic!("same-source reply must retain its rank-one ticket: {other:?}"),
     };
+    assert_eq!(
+        handle.network_actor_progress_budget.retained(),
+        stream_wire_bytes
+    );
     drop(first_actor_item);
     let later = handle
         .post_reply_recoverable_with_flush_ack(later_post, &later_route, Some(later_ticket))
@@ -2304,6 +2371,7 @@ fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurren
             .try_recv()
             .expect("later delivery must retain the admitted actor item"),
     );
+    assert_eq!(handle.network_actor_progress_budget.retained(), 0);
     let mut admit = |route: &NetworkReplyRoute, marker: u8| {
         let completion = handle
             .post_reply_recoverable_with_flush_ack(
@@ -2400,6 +2468,39 @@ fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurren
     assert!(!first_identity.same_ticket_identity(reconnected.identity()));
     assert!(!first_identity.same_ticket_identity(other_source.identity()));
     assert!(!first_identity.same_ticket_identity(other_payload.identity()));
+    // Hold the topic, request, target, budget and ticket tenure constant so
+    // only the actor class can distinguish these process-local projections.
+    let class_identities = ActorProgressClass::ALL.map(|class| {
+        let mut identity = first_identity.ticket.clone();
+        identity.source.class = class;
+        identity
+    });
+    for (index, identity) in class_identities.iter().enumerate() {
+        let identical = identity.clone();
+        assert!(identity.same_ticket(&identical));
+        assert_eq!(
+            identity.process_local_identity_hash(),
+            identical.process_local_identity_hash()
+        );
+        for other in class_identities.iter().skip(index + 1) {
+            assert!(!identity.same_ticket(other));
+            assert_ne!(
+                identity.process_local_identity_hash(),
+                other.process_local_identity_hash(),
+                "each actor class must have a distinct process-local identity tag"
+            );
+        }
+    }
+    for class in ActorProgressClass::ALL {
+        let mut changed_class = first_identity.clone();
+        changed_class.ticket.source.class = class;
+        assert_eq!(
+            first_identity.process_local_writer_occurrence_identity_hash()
+                == changed_class.process_local_writer_occurrence_identity_hash(),
+            first_identity.ticket.source.class == class,
+            "the writer occurrence must retain its exact actor scheduling class"
+        );
+    }
     let mut foreign_budget_only = first_identity.clone();
     foreign_budget_only.ticket.budget = NetworkActorProgressBudget::new(1, 1, 1)
         .expect("foreign identity budget geometry must be valid");
@@ -3983,9 +4084,14 @@ fn replacement_connection_tracks_predecessor_until_termination() {
         target: Some(peer.id().clone()),
         class: ActorProgressClass::Lane,
     };
+    // Occupy the source's byte cap, independently of its small-item window.
+    let retained_bytes = network
+        .network_actor_progress_budget
+        .per_class_max_bytes
+        .for_class(old_reply_source.class);
     let retained_shape = ProgressTicketShape {
         topic: message::Topic::Consensus,
-        stream_wire_bytes: 1,
+        stream_wire_bytes: retained_bytes,
         broadcast: false,
         reply_writer_timeout_attempt: Some(0),
         request_digest: Hash::new(b"old-reply-retained"),
@@ -3997,7 +4103,7 @@ fn replacement_connection_tracks_predecessor_until_termination() {
     } = network
         .network_actor_progress_budget
         .try_reserve_for_source(
-            1,
+            retained_bytes,
             retained_shape,
             old_reply_source.clone(),
             Some(&old_reply_authority),
@@ -4017,7 +4123,7 @@ fn replacement_connection_tracks_predecessor_until_termination() {
     } = network
         .network_actor_progress_budget
         .try_reserve_for_source(
-            1,
+            retained_bytes,
             waiting_shape,
             old_reply_source,
             Some(&old_reply_authority),
@@ -4263,9 +4369,14 @@ fn network_actor_drop_retires_routes_and_only_its_waiters() {
             target: Some(delivery_peer),
             class: ActorProgressClass::Lane,
         };
+        // Teardown must cancel a waiter blocked on bytes, not an old item limit.
+        let retained_bytes = actor
+            .network_actor_progress_budget
+            .per_class_max_bytes
+            .for_class(source.class);
         let retained_shape = ProgressTicketShape {
             topic: message::Topic::Consensus,
-            stream_wire_bytes: 1,
+            stream_wire_bytes: retained_bytes,
             broadcast: false,
             reply_writer_timeout_attempt: Some(0),
             request_digest: Hash::new_from_chunks(&[label, b"retained"]),
@@ -4275,7 +4386,7 @@ fn network_actor_drop_retires_routes_and_only_its_waiters() {
             lease,
             ticket: mut retained_ticket,
         } = actor.network_actor_progress_budget.try_reserve_for_source(
-            1,
+            retained_bytes,
             retained_shape,
             source.clone(),
             Some(&authority),
@@ -4293,7 +4404,7 @@ fn network_actor_drop_retires_routes_and_only_its_waiters() {
             ticket: Some(waiter),
             rank: 1,
         } = actor.network_actor_progress_budget.try_reserve_for_source(
-            1,
+            retained_bytes,
             waiting_shape,
             source,
             Some(&authority),
@@ -7867,10 +7978,11 @@ fn actor_broadcast_retry_targets_only_failed_peers() {
 }
 #[test]
 fn distinct_broadcast_residual_is_target_isolated_and_its_rank_decreases() {
-    let (handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
+    let (mut handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
         handle_with_network_receivers::<DeferredProgressMsg>();
     let blocked_peer = random_peer_id();
     let live_peer = random_peer_id();
+    set_one_frame_lane_source_budget(&mut handle, &blocked_peer);
     reconcile_test_topology!(
         handle.reliable_broadcast_topology,
         &HashSet::from([blocked_peer.clone(), live_peer.clone()])
@@ -8071,11 +8183,16 @@ fn configured_peer_generation_callback_holds_membership_stable() {
 }
 #[test]
 fn exact_broadcast_retry_coalesces_but_distinct_and_direct_requests_do_not() {
-    let (handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
+    let (mut handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
         handle_with_network_receivers::<DeferredProgressMsg>();
     let target = random_peer_id();
+    set_one_frame_lane_source_budget(&mut handle, &target);
     reconcile_test_topology!(
         handle.reliable_broadcast_topology,
+        &HashSet::from([target.clone()])
+    );
+    reconcile_test_topology!(
+        handle.reliable_direct_topology,
         &HashSet::from([target.clone()])
     );
     let broadcast = |tag| Broadcast {
@@ -8108,7 +8225,11 @@ fn exact_broadcast_retry_coalesces_but_distinct_and_direct_requests_do_not() {
             },
             None,
         ),
-        Err(NetworkActorAdmissionError::Backpressured { .. })
+        Err(NetworkActorAdmissionError::Backpressured {
+            ticket: Some(_),
+            rank: 2,
+            ..
+        })
     ));
     drop(first);
     handle
@@ -8118,9 +8239,10 @@ fn exact_broadcast_retry_coalesces_but_distinct_and_direct_requests_do_not() {
 }
 #[test]
 fn removed_membership_cancels_only_old_broadcast_debt_across_readd() {
-    let (handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
+    let (mut handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
         handle_with_network_receivers::<DeferredProgressMsg>();
     let target = random_peer_id();
+    set_one_frame_lane_source_budget(&mut handle, &target);
     let topology = HashSet::from([target.clone()]);
     reconcile_test_topology!(handle.reliable_broadcast_topology, &topology);
     reconcile_test_topology!(handle.reliable_direct_topology, &topology);
@@ -8287,7 +8409,7 @@ fn cancelled_target_child_with_pending_flush_ack_releases_exactly_once() {
 }
 #[test]
 fn requested_topology_is_not_authority_and_closed_fanout_returns_all_targets() {
-    let (handle, _safety_rx, _progress_rx, _high_rx, _low_rx) =
+    let (mut handle, _safety_rx, _progress_rx, _high_rx, _low_rx) =
         handle_with_network_receivers::<DeferredProgressMsg>();
     let requested = random_peer_id();
     handle.update_topology(UpdateTopology(HashSet::from([requested])));
@@ -8390,6 +8512,7 @@ fn requested_topology_is_not_authority_and_closed_fanout_returns_all_targets() {
     ));
     drop(closed_owned_child);
     let target = random_peer_id();
+    set_one_frame_lane_source_budget(&mut handle, &target);
     reconcile_test_topology!(
         handle.reliable_broadcast_topology,
         &HashSet::from([target.clone()])

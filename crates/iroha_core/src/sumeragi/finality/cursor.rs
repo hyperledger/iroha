@@ -1151,7 +1151,13 @@ mod tests {
             .take_genesis_execution()
             .expect("actual H2 prefix anchor");
         let handle_count = genesis._decode._charges.as_slice().len();
-        let retained_genesis_bytes = size_of::<GenesisExecutionAnchor>()
+        let original_body = genesis.committed().block().clone();
+        assert!(original_body.belongs_to(&budget));
+        // The canonical native acquisition prepays its shared block shell separately
+        // from the conservative nested-decoder envelope. Both original charges survive
+        // exporting this anchor; neither can be omitted from the exact custody oracle.
+        let retained_genesis_bytes = SharedSignedBlock::allocation_layout().size()
+            + size_of::<GenesisExecutionAnchor>()
             + handle_count * size_of::<ChargedShared<AllocationCharge>>()
             + handle_count * ChargedShared::<AllocationCharge>::allocation_layout().size()
             + original_increment_bytes;
@@ -1160,6 +1166,9 @@ mod tests {
             "original anchor transfers exactly once"
         );
         let execution = genesis.into_authenticated_execution();
+        assert!(SharedSignedBlock::ptr_eq(execution.block(), &original_body));
+        assert!(execution.block().belongs_to(&budget));
+        drop(original_body);
         assert_eq!(execution.committed().height(), 1);
         assert_eq!(
             execution.committed().block_hash(),

@@ -30,9 +30,9 @@ use std::{
 mod carrier;
 mod observation;
 mod session;
-pub use session::NativePaymentSession;
 pub use observation::NativePaymentObservationError;
 use observation::{NativePaymentLedger, OnlinePaymentSource, PaymentSource};
+pub use session::NativePaymentSession;
 #[cfg(test)]
 mod online_tests;
 #[cfg(test)]
@@ -309,9 +309,7 @@ impl NativePaymentOperation {
         }
         let plan = request.plan()?;
         let account = Arc::new(carrier::NativePaymentAccount::new(account, request.clone()));
-        let ledger = Arc::new(NativePaymentLedger::new(
-            request, session, dispatch, source,
-        ));
+        let ledger = Arc::new(NativePaymentLedger::new(request, session, dispatch, source));
         let resume_account = Arc::new(carrier::ResumePaymentAccount::new(
             account.binding(),
             ledger.request.clone(),

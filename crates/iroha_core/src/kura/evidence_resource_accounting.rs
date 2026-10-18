@@ -14,13 +14,6 @@ impl Kura {
     }
 }
 
-fn evidence_resource_hex(text: &str, bytes: usize) -> bool {
-    text.len() == bytes * 2
-        && text
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
 /// Classify exact existing standalone record formats, with no payload decoding.
 ///
 /// The caller separately binds the path to the complete authenticated Kura scope.

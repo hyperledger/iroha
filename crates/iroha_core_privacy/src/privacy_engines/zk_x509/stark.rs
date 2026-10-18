@@ -6379,7 +6379,7 @@ fn build_zk_x509_der_segmented_stark_proof_v1_with_rng<R: TryRngCore>(
         .map_err(|_| ZkX509StarkErrorV1::InvalidStatement)?;
     let base =
         build_zk_x509_der_stark_base_v1(documents).map_err(|_| ZkX509StarkErrorV1::DerWitness)?;
-    let schedule = compile_zk_x509_der_stark_fixed_schedule_v1(shape.clone())
+    let schedule = compile_zk_x509_der_stark_fixed_schedule_v1(*shape)
         .map_err(|_| ZkX509StarkErrorV1::InvalidStatement)?;
     let layout = SegmentLayoutV1::for_der(schedule.active_rows())?;
     layout.validate()?;
@@ -11526,7 +11526,7 @@ pub fn verify_zk_x509_der_segmented_stark_v1(
     shape
         .validate()
         .map_err(|_| ZkX509StarkErrorV1::InvalidStatement)?;
-    let schedule = compile_zk_x509_der_stark_fixed_schedule_v1(shape.clone())
+    let schedule = compile_zk_x509_der_stark_fixed_schedule_v1(*shape)
         .map_err(|_| ZkX509StarkErrorV1::InvalidStatement)?;
     let layout = SegmentLayoutV1::for_der(schedule.active_rows())?;
     layout.validate()?;

@@ -62,7 +62,7 @@ impl LaneFrameRead {
     /// schedule and BLS keys must come from authenticated authority, never the inspected frame.
     ///
     /// # Errors
-    /// I/O, a non-regular artifact or an oversized frame.
+    /// Initial absence returns `NotFound`; other I/O, a non-regular artifact or an oversized frame.
     pub fn open(
         path: &Path,
         height: u64,
@@ -558,7 +558,31 @@ impl FileLaneBlockStore {
     }
 }
 
+impl crate::sumeragi::driver::traits::RetiredPublication for FileLaneBlockStore {
+    fn instance(&self) -> Hash32 {
+        self.instance
+    }
+    fn belongs_to(&self, budget: &AllocationBudget) -> bool {
+        self.budget.same_pool(budget)
+    }
+    fn resume(&self) -> Result<(), Attempt<io::Error>> {
+        self.resume_retired_publication()
+    }
+}
+
 impl BlockStore for FileLaneBlockStore {
+    fn retired_publication(
+        self: std::sync::Arc<Self>,
+    ) -> Option<std::sync::Arc<dyn crate::sumeragi::driver::traits::RetiredPublication>> {
+        #[cfg(all(test, sumeragi_core_mutation = "HC414"))]
+        {
+            None
+        }
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC414")))]
+        {
+            Some(self)
+        }
+    }
     fn committed_body(
         &self,
         height: u64,

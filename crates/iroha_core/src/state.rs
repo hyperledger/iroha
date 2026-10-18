@@ -7760,7 +7760,10 @@ fn insert_set_index_member<K, M>(
     K: mv::Key,
     M: Ord + Clone + Send + Sync + 'static,
 {
-    if index.get(key).is_some_and(|members| members.contains(member)) {
+    if index
+        .get(key)
+        .is_some_and(|members| members.contains(member))
+    {
         return;
     }
     if let Some(members) = index.get_mut(key) {
@@ -7780,7 +7783,10 @@ fn remove_set_index_member<K, M>(
     K: mv::Key,
     M: Ord + Clone + Send + Sync + 'static,
 {
-    if !index.get(key).is_some_and(|members| members.contains(member)) {
+    if !index
+        .get(key)
+        .is_some_and(|members| members.contains(member))
+    {
         return;
     }
     let emptied = index.get_mut(key).is_some_and(|members| {

@@ -326,7 +326,7 @@ mod tests {
         let value = crate::privacy_engines::ivm_private_note::test_fixtures::fixture();
         let (binding, limits) = consensus_material(&value.statement);
         let mut substitutions = Vec::new();
-        let mut changed = binding.clone();
+        let mut changed = binding;
         changed.network_id =
             iroha_data_model::NetworkId::from_genesis_hash(iroha_crypto::HashOf::<
                 iroha_data_model::block::BlockHeader,
@@ -339,56 +339,56 @@ mod tests {
             changed,
             PrivacyNativeConsensusBindingValidationErrorV1::NetworkIdMismatch,
         ));
-        let mut changed = binding.clone();
+        let mut changed = binding;
         changed.genesis_hash[0] ^= 1;
         substitutions.push((
             "genesis hash without its network id",
             changed,
             PrivacyNativeConsensusBindingValidationErrorV1::NetworkGenesisMismatch,
         ));
-        let mut changed = binding.clone();
+        let mut changed = binding;
         changed.action_index ^= 1;
         substitutions.push((
             "action index",
             changed,
             PrivacyNativeConsensusBindingValidationErrorV1::ActionIndexMismatch,
         ));
-        let mut changed = binding.clone();
+        let mut changed = binding;
         changed.transaction_intent_digest = PrivacyTransactionIntentDigestV1::new([0xD1; 32]);
         substitutions.push((
             "transaction intent digest",
             changed,
             PrivacyNativeConsensusBindingValidationErrorV1::TransactionIntentDigestMismatch,
         ));
-        let mut changed = binding.clone();
+        let mut changed = binding;
         changed.parameter_id = PrivacyParameterIdV1::new([0xD2; 32]);
         substitutions.push((
             "parameter id",
             changed,
             PrivacyNativeConsensusBindingValidationErrorV1::ParameterIdMismatch,
         ));
-        let mut changed = binding.clone();
+        let mut changed = binding;
         changed.parameter_digest = PrivacyParameterDigestV1::new([0xD3; 32]);
         substitutions.push((
             "parameter digest",
             changed,
             PrivacyNativeConsensusBindingValidationErrorV1::ParameterDigestMismatch,
         ));
-        let mut changed = binding.clone();
+        let mut changed = binding;
         changed.verifier_digest = PrivacyVerifierDigestV1::new([0xD4; 32]);
         substitutions.push((
             "verifier digest",
             changed,
             PrivacyNativeConsensusBindingValidationErrorV1::VerifierDigestMismatch,
         ));
-        let mut changed = binding.clone();
+        let mut changed = binding;
         changed.statement_schema_digest = PrivacyStatementSchemaDigestV1::new([0xD5; 32]);
         substitutions.push((
             "statement schema digest",
             changed,
             PrivacyNativeConsensusBindingValidationErrorV1::StatementSchemaDigestMismatch,
         ));
-        let mut changed = binding.clone();
+        let mut changed = binding;
         changed.engine_manifest_digest = PrivacyEngineManifestDigestV1::new([0xD6; 32]);
         substitutions.push((
             "engine manifest digest",

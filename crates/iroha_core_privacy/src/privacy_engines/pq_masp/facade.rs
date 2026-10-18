@@ -600,7 +600,7 @@ mod tests {
             Err(PqMaspProofErrorV1::Relation(_))
         ));
         assert_eq!(relation_rng.requests, 0);
-        let mut invalid_binding = binding.clone();
+        let mut invalid_binding = binding;
         invalid_binding.genesis_hash = [0; 32];
         let mut binding_rng = PartitionFaultRngV1::new(PartitionFaultV1::SecondPartialFailure);
         assert!(matches!(
@@ -660,14 +660,14 @@ mod tests {
             crate::privacy_engines::pq_masp::relation::test_fixtures::valid_fixture();
         let (binding, limits) = consensus_material(&statement);
         let mut substitutions = Vec::new();
-        let mut zero_genesis = binding.clone();
+        let mut zero_genesis = binding;
         zero_genesis.genesis_hash = [0; 32];
         substitutions.push((
             "genesis_hash",
             zero_genesis,
             PrivacyNativeConsensusBindingValidationErrorV1::ZeroGenesisHash,
         ));
-        let mut network_id = binding.clone();
+        let mut network_id = binding;
         network_id.network_id =
             iroha_data_model::NetworkId::from_genesis_hash(iroha_crypto::HashOf::<
                 iroha_data_model::block::BlockHeader,
@@ -680,14 +680,14 @@ mod tests {
             network_id,
             PrivacyNativeConsensusBindingValidationErrorV1::NetworkIdMismatch,
         ));
-        let mut action_index = binding.clone();
+        let mut action_index = binding;
         action_index.action_index += 1;
         substitutions.push((
             "action_index",
             action_index,
             PrivacyNativeConsensusBindingValidationErrorV1::ActionIndexMismatch,
         ));
-        let mut transaction_intent = binding.clone();
+        let mut transaction_intent = binding;
         transaction_intent.transaction_intent_digest =
             iroha_data_model::privacy::PrivacyTransactionIntentDigestV1::new([0xE1; 32]);
         substitutions.push((
@@ -695,7 +695,7 @@ mod tests {
             transaction_intent,
             PrivacyNativeConsensusBindingValidationErrorV1::TransactionIntentDigestMismatch,
         ));
-        let mut parameter_id = binding.clone();
+        let mut parameter_id = binding;
         parameter_id.parameter_id =
             iroha_data_model::privacy::PrivacyParameterIdV1::new([0xE2; 32]);
         substitutions.push((
@@ -703,7 +703,7 @@ mod tests {
             parameter_id,
             PrivacyNativeConsensusBindingValidationErrorV1::ParameterIdMismatch,
         ));
-        let mut parameter_digest = binding.clone();
+        let mut parameter_digest = binding;
         parameter_digest.parameter_digest =
             iroha_data_model::privacy::PrivacyParameterDigestV1::new([0xE3; 32]);
         substitutions.push((
@@ -711,7 +711,7 @@ mod tests {
             parameter_digest,
             PrivacyNativeConsensusBindingValidationErrorV1::ParameterDigestMismatch,
         ));
-        let mut verifier_digest = binding.clone();
+        let mut verifier_digest = binding;
         verifier_digest.verifier_digest =
             iroha_data_model::privacy::PrivacyVerifierDigestV1::new([0xE4; 32]);
         substitutions.push((
@@ -719,7 +719,7 @@ mod tests {
             verifier_digest,
             PrivacyNativeConsensusBindingValidationErrorV1::VerifierDigestMismatch,
         ));
-        let mut schema_digest = binding.clone();
+        let mut schema_digest = binding;
         schema_digest.statement_schema_digest =
             iroha_data_model::privacy::PrivacyStatementSchemaDigestV1::new([0xE5; 32]);
         substitutions.push((

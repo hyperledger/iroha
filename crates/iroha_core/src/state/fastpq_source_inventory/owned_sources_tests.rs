@@ -73,7 +73,7 @@ fn fixture_with_effects_in_root(
     // The maintained signed-genesis owner establishes the original native root.
     // Callback fixtures are registered only after genesis, so their exact once
     // actions belong to this successor rather than the bootstrap carrier.
-    let mut state = State::new_for_testing(
+    let state = State::new_for_testing(
         World::new(),
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),

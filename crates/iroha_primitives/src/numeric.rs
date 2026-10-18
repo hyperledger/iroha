@@ -1920,10 +1920,13 @@ impl Quantity {
             let mut carry = 0_u128;
             for (limb, source) in result.iter_mut().zip(aligned) {
                 let value = u128::from(source) * u128::from(multiplier) + carry;
-                *limb = value as u64;
+                *limb = u64::try_from(value & u128::from(u64::MAX))
+                    .expect("masked product limb fits u64");
                 carry = value >> 64;
             }
-            result[QUANTITY_SUM_RELATION_LIMBS] = carry as u64;
+            // (2^64 - 1)^2 + (2^64 - 1) < 2^128, so the carry is below 2^64.
+            result[QUANTITY_SUM_RELATION_LIMBS] =
+                u64::try_from(carry).expect("final product carry fits one limb");
             result
         };
         product(self, self_multiplier)

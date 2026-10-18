@@ -48,7 +48,7 @@ def test_hedging_plan_uses_the_current_bridge_abi() -> None:
     assert source_match is not None
     assert canonical_match is not None
     assert header_match is not None
-    assert canonical_match.group(1) == header_match.group(1) == "29"
+    assert canonical_match.group(1) == header_match.group(1) == "30"
     assert "bridge source ABI is now 12" not in plan
     assert "sole first-release ABI, version 30" in plan
 

@@ -282,6 +282,12 @@ trait Wallet: Send {
     fn require_custody_operations(&self) -> Result<()> {
         Ok(())
     }
+    /// Open the archive call of one wallet-owner acquisition; see [`archive_call`].
+    fn open_archive_call(&mut self) {}
+    /// Close it before the owner is released: success publishes the staged records.
+    fn close_archive_call(&mut self, _succeeded: bool) -> Result<()> {
+        Ok(())
+    }
     fn snapshot(&mut self) -> Result<state::Snapshot>;
     fn review(&mut self, _input: review::Input) -> Result<Response> {
         Err(Failure::code(INVALID))
@@ -351,6 +357,12 @@ impl<P: advance::KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send> Wallet
 {
     fn require_custody_operations(&self) -> Result<()> {
         Ok(self.wallet.require_custody_operations()?)
+    }
+    fn open_archive_call(&mut self) {
+        self.wallet.open_archive_call();
+    }
+    fn close_archive_call(&mut self, succeeded: bool) -> Result<()> {
+        Ok(self.wallet.close_archive_call(succeeded)?)
     }
     fn observe(&mut self, selector: u32, identity: &[u8]) -> Result<Response> {
         self.observe_inner(selector, identity)
@@ -541,7 +553,23 @@ fn with_wallet_owner<T>(
     owner.closing.require_open()?;
     let wallet = guard.as_deref_mut().ok_or(Failure::code(CLOSED))?;
     wallet.require_custody_operations()?;
-    action(wallet)
+    archive_call(wallet, action)
+}
+/// Run one wallet-owner acquisition as one archive call: the coordinator's archive stages the
+/// call's records and publishes them together, behind one directory sync per barrier, at its
+/// custody authority entries and before the owner is released. A failed action discards what
+/// it staged; a failed publication replaces an `Ok` answer, so no caller ever sees success for
+/// records that are not durable.
+fn archive_call<T>(
+    wallet: &mut dyn Wallet,
+    action: impl FnOnce(&mut dyn Wallet) -> Result<T>,
+) -> Result<T> {
+    wallet.open_archive_call();
+    let result = action(&mut *wallet);
+    let closed = wallet.close_archive_call(result.is_ok());
+    let value = result?;
+    closed?;
+    Ok(value)
 }
 pub(crate) fn snapshot(id: u64) -> Result<state::Snapshot> {
     // A view does not cancel a useful background fold. Call off the UI thread.

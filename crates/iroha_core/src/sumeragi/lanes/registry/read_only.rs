@@ -182,3 +182,11 @@ impl LaneBlockSource for LaneFrameSource {
         })
     }
 }
+
+#[cfg(test)]
+impl LaneFrameSource {
+    /// Probe the actual read mutex without blocking a failing destructor control.
+    pub(super) fn read_lock_available_for_test(&self) -> bool {
+        self.read.try_lock().is_some()
+    }
+}

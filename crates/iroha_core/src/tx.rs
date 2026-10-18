@@ -8803,9 +8803,8 @@ pub mod tests {
             prechecked.is_ok(),
             "an attested precheck replaces only the signature verification: {prechecked:?}"
         );
-        let expired = now
-            + signed.time_to_live().expect("builder binds a TTL")
-            + Duration::from_millis(1);
+        let expired =
+            now + signed.time_to_live().expect("builder binds a TTL") + Duration::from_millis(1);
         assert!(matches!(
             accept(&genuine, true, expired),
             Err(AcceptTransactionFail::TransactionExpired { .. })

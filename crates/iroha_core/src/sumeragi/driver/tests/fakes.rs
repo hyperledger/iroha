@@ -253,6 +253,11 @@ fn take(counter: &Mutex<u32>) -> bool {
 }
 
 impl BlockStore for FakeBlocks {
+    fn retired_publication(
+        self: std::sync::Arc<Self>,
+    ) -> Option<std::sync::Arc<dyn crate::sumeragi::driver::traits::RetiredPublication>> {
+        None
+    }
     fn committed_body(
         &self,
         height: u64,

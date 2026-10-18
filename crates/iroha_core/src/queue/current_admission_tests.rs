@@ -752,7 +752,7 @@ fn ordinary_sccp_admission_needs_no_history_but_exempt_shapes_bind_original_time
         isi::sccp::SubmitSccpForgeryEvidenceV1, sccp::params::SccpParametersV1,
     };
 
-    let (mut state, time) = current_admission_queue_fixture();
+    let (state, time) = current_admission_queue_fixture();
     {
         let mut fees = state.nexus_snapshot().fees;
         fees.base_fee = Quantity::from(1_u32);

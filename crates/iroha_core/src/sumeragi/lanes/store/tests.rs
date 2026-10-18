@@ -1332,3 +1332,59 @@ fn pending_lane_reader_retains_the_actual_lock_after_the_store_is_dropped() {
     assert_eq!(reopened.height(), 1);
     assert_eq!(reopened.entry(1).unwrap().unwrap().commit_qc, qc);
 }
+
+#[test]
+fn read_only_missing_frame_preserves_not_found_and_reopens_after_publication() {
+    let dir = tempfile::tempdir().unwrap();
+    let (body, qc, source, budget, crypto) = fixture(1025);
+    let crypto: SharedCrypto = Arc::new(crypto);
+    let store = open(
+        dir.path(),
+        &source,
+        Arc::clone(&crypto),
+        &budget,
+        Arc::new(NoFaults),
+    );
+    let path = store.dir.join(frame_name(1));
+    let baseline = budget.reserved_bytes();
+    let missing = LaneFrameRead::open(
+        &path,
+        1,
+        Arc::clone(&crypto),
+        budget.clone(),
+        schedule(&source),
+    );
+    let error = match missing {
+        Err(error) => error,
+        Ok(mut read) => {
+            // Dispose the original failed read before asserting its wrong classification.
+            let error = read
+                .poll()
+                .err()
+                .expect("missing frame cannot authenticate");
+            drop(read);
+            io::Error::new(error.io_kind(), "read-only missing source classification")
+        }
+    };
+    assert_eq!(
+        error.kind(),
+        io::ErrorKind::NotFound,
+        "read-only absent frame must remain NotFound before any retained restore job"
+    );
+    assert!(!path.exists());
+    assert_eq!(budget.reserved_bytes(), baseline);
+    assert_eq!(store.height(), 0);
+    store.append(&body, &qc).unwrap();
+    let bytes = fs::read(&path).unwrap();
+    let mut read =
+        LaneFrameRead::open(&path, 1, crypto, budget.clone(), schedule(&source)).unwrap();
+    let (restored, certificate) = read.poll().unwrap();
+    assert_eq!(restored, body);
+    assert_eq!(certificate, qc);
+    assert_eq!(store.height(), 1);
+    assert_eq!(fs::read(&path).unwrap(), bytes);
+    drop(restored);
+    drop(certificate);
+    drop(read);
+    assert_eq!(budget.reserved_bytes(), baseline);
+}

@@ -7469,7 +7469,6 @@ pub mod tests {
             CheckedTransaction::new_unchecked(tx),
             RoutingPlan::single(RoutingDecision::new(LaneId::new(1), DataSpaceId::UNIVERSAL)),
             &mut state_access,
-            None,
             #[cfg(feature = "telemetry")]
             telemetry_handle,
         ) {

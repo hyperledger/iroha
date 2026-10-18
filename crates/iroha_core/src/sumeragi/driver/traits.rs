@@ -154,9 +154,27 @@ pub trait BodyStore: BodyReader {
     }
 }
 
+/// The exact store capability for an in-memory publication already admitted by its driver.
+/// It cannot accept a replacement body, certificate, authority or disk-discovered write.
+pub trait RetiredPublication: Send + Sync {
+    /// The immutable consensus instance whose write this store retains.
+    fn instance(&self) -> Hash32;
+    /// Whether this store uses the exact original allocation pool.
+    fn belongs_to(&self, budget: &iroha_allocation::AllocationBudget) -> bool;
+    /// Continue the retained publication, after every original driver worker was joined.
+    ///
+    /// # Errors
+    /// Preserves original resource refusal, lock contention, namespace or I/O failure.
+    /// Failure retains the same unfinished store owner and never advertises completion.
+    fn resume(&self) -> Result<(), Attempt<io::Error>>;
+}
+
 /// The committed chain (Kura in the node): one block and its `CommitQC` per height above
 /// genesis, written durably and in height order.
 pub trait BlockStore: BodyReader {
+    /// Transfer an existing reference to this exact store as its retirement capability.
+    /// Stores without a retained lane publication explicitly return `None`.
+    fn retired_publication(self: Arc<Self>) -> Option<Arc<dyn RetiredPublication>>;
     /// Highest stored height (the genesis height when nothing is stored above it).
     fn height(&self) -> u64;
     /// Take the fully authenticated body and certificate at this committed height.
