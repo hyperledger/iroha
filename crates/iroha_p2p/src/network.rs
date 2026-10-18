@@ -597,7 +597,7 @@ impl<T: Encode> RelayMessage<T> {
         frame.try_sign_in_place(key_pair)?;
         Ok(frame)
     }
-    #[cfg(any(test, feature = "test-fixtures"))]
+    #[cfg(test)]
     pub(crate) fn new_signed(key_pair: &KeyPair, target: RelayTarget, ttl: u8, payload: T) -> Self {
         Self::try_new(key_pair, target, ttl, payload)
             .expect("a validated local P2P key pair must sign relay-origin material")
@@ -6782,7 +6782,7 @@ struct TransportQueueGeometry {
     safety_reserve_bytes: usize,
     /// Per-authenticated-peer reserve used by every reliable high/progress frame.
     progress_reserve_bytes: usize,
-    /// Exact per-source actor limits for safety, lane, payload, and block sync.
+    /// Exact per-source actor limits for safety, lane, payload, and block-sync progress.
     actor_progress_bytes: ActorProgressByteLimits,
 }
 /// Deferred ownership limits measured before transport tasks are spawned.
@@ -8252,11 +8252,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             && reply_flush_ack.is_none()
             && reply_writer_timeout_attempt.is_none()
         {
-            match self.network_actor_progress_budget.try_reserve_unqueued(
-                wire_bytes,
-                &source,
-                &authority,
-            ) {
+            match self
+                .network_actor_progress_budget
+                .try_reserve_unqueued(wire_bytes, &source, &authority)
+            {
                 UnqueuedReservation::CancelledMembership => return Ok(None),
                 UnqueuedReservation::Ready(lease) => {
                     let admitted = AdmittedNetworkMessage::new_targeted_post(

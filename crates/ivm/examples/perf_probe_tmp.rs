@@ -54,7 +54,12 @@ fn main() {
     });
 
     // Warm runtime reset: one tiny invocation, then restore the captured baseline.
-    let tiny = program(&[wide::encode_ri(instruction::wide::arithmetic::ADDI, 7, 7, 1)]);
+    let tiny = program(&[wide::encode_ri(
+        instruction::wide::arithmetic::ADDI,
+        7,
+        7,
+        1,
+    )]);
     let mut vm = IVM::new(1_000_000);
     vm.load_program(&tiny).expect("load");
     let template = vm.try_runtime_template().expect("template");
@@ -93,8 +98,10 @@ fn main() {
     let digests = vec![digest; leaves];
     let start = Instant::now();
     for _ in 0..constructions {
-        black_box(MerkleTree::<[u8; 32]>::try_from_hashed_leaves_sha256(&digests))
-            .expect("full rebuild");
+        black_box(MerkleTree::<[u8; 32]>::try_from_hashed_leaves_sha256(
+            &digests,
+        ))
+        .expect("full rebuild");
     }
     println!(
         "full parent rebuild ({leaves} leaves): {:.2} ms",

@@ -17064,7 +17064,7 @@ fn leave_hf_shared_lease_last_member_uses_configured_drain_grace() -> Result<(),
 }
 #[test]
 fn hf_shared_lease_registration_does_not_create_runtime_service() -> Result<(), eyre::Report> {
-    permissioned_soracloud_state!(kura, mut state);
+    permissioned_soracloud_state!(kura, state);
     {
         let mut fees = state.nexus_snapshot().fees;
         fees.fee_sink_account_id = ALICE_ID.clone();
@@ -17141,7 +17141,7 @@ fn hf_shared_lease_registration_does_not_create_runtime_service() -> Result<(), 
 }
 #[test]
 fn renew_hf_shared_lease_active_window_queues_next_window() -> Result<(), eyre::Report> {
-    permissioned_soracloud_state!(kura, mut state);
+    permissioned_soracloud_state!(kura, state);
     {
         let mut fees = state.nexus_snapshot().fees;
         fees.fee_sink_account_id = BOB_ID.clone();

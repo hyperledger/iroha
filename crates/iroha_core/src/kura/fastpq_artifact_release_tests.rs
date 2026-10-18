@@ -198,6 +198,10 @@ fn original_artifact_quota_refusal_notifies_after_storage_fences() {
     let _receipt = kura.persist_fastpq_artifact(b"retained").unwrap();
     let before = inventory(&kura);
     let result = observe_original_release(&kura, 3, || kura.persist_fastpq_artifact(b"additional"));
+    assert_eq!(
+        result.as_ref().unwrap_err().to_string(),
+        "FASTPQ aggregate quota is full: 1 records retaining 8 bytes plus 10 incoming bytes under limits 1/256"
+    );
     assert!(matches!(
         result,
         Err(Error::FastpqArtifactQuota {

@@ -95,10 +95,14 @@ fn main() {
         "[u8; 32]: encode fast {enc_array_fast:.0} ns, generic {enc_array_generic:.0} ns; canonical field decode {dec_array:.0} ns"
     );
     let static_hash = best(200000, || {
-        std::hint::black_box(norito::schema::identity::frame_hash::<norito::schema::SamplePayload>());
+        std::hint::black_box(norito::schema::identity::frame_hash::<
+            norito::schema::SamplePayload,
+        >());
     });
     let generic_hash = best(200000, || {
-        std::hint::black_box(norito::schema::identity::frame_hash::<Vec<Option<(u32, String)>>>());
+        std::hint::black_box(norito::schema::identity::frame_hash::<
+            Vec<Option<(u32, String)>>,
+        >());
     });
     let name = <Vec<Option<(u32, String)>> as NoritoSchema>::frame_name();
     let sha_only = best(200000, || {

@@ -54,8 +54,7 @@ fn perf_probe_field_overheads() {
                     .ok();
             });
             let inspect = best(n, || {
-                std::hint::black_box(inspect_len_from_slice(std::hint::black_box(&[4_u8, 0])))
-                    .ok();
+                std::hint::black_box(inspect_len_from_slice(std::hint::black_box(&[4_u8, 0]))).ok();
             });
             eprintln!(
                 "check {check:.1} ns, depth {depth:.1} ns, reserve {reserve:.1} ns, ctx_state {ctx_state:.1} ns, ctx_guard {ctx_guard:.1} ns, flags {flags:.1} ns, catch_unwind {catch:.1} ns, inspect_len {inspect:.1} ns, decode_field_canonical<u32> {canonical_u32:.1} ns"

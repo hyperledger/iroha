@@ -19,16 +19,17 @@ pub(super) struct ThreadWake {
 }
 
 impl ThreadWake {
+    pub(super) const fn new() -> Self {
+        Self {
+            thread: OnceLock::new(),
+            pending: AtomicBool::new(false),
+        }
+    }
+
     pub(super) fn admit(budget: &AllocationBudget) -> Result<ChargedShared<Self>, DriverError> {
         let mut reservation = budget.try_reserve(ChargedShared::<Self>::allocation_layout())?;
-        ChargedShared::from_reservation(
-            Self {
-                thread: OnceLock::new(),
-                pending: AtomicBool::new(false),
-            },
-            &mut reservation,
-        )
-        .map_err(|(_, error)| error.into())
+        ChargedShared::from_reservation(Self::new(), &mut reservation)
+            .map_err(|(_, error)| error.into())
     }
 
     pub(super) fn bind_current(&self) {

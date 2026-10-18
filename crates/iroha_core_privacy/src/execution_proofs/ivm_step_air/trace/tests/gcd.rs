@@ -276,7 +276,7 @@ fn gcd_cycle_limit_allows_last_crossing_and_rejects_a_later_attempt() {
         vm.run_with_host_diagnostic_steps(&mut DefaultHost::default(), &mut recorder)
             .is_err()
     );
-    let first = recorder.records()[0].clone();
+    let first = recorder.records()[0];
     assert_eq!(first.outcome, DiagnosticStepOutcome::Completed);
     assert_eq!(first.after.cycles, 12);
     let segment = ScalarSegment::new(

@@ -14,7 +14,9 @@ use crate::amx_harness::owned_task::owned_payment_until;
 use eyre::{Result, ensure, eyre};
 use iroha::{
     blocking::Client,
-    client::{NativePaymentRequest, NativePaymentRunOptions, NativePaymentSession, VerifiedPaymentReceipt},
+    client::{
+        NativePaymentRequest, NativePaymentRunOptions, NativePaymentSession, VerifiedPaymentReceipt,
+    },
     workflow::{FileWorkflowStorage, WorkflowRunOptions},
 };
 use iroha_data_model::{

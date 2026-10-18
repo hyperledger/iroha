@@ -486,7 +486,7 @@ fn complete_oods_fixture_with_supplemental_v1(selected: Option<AggregateSuppleme
             };
             parameters.security_lanes
         ];
-        let mut verifier_transcript = transcript.clone();
+        let mut verifier_transcript = transcript;
         let lanes = masks
             .iter()
             .enumerate()

@@ -711,7 +711,7 @@ mod tests {
         let mut restored_statement = other_statement.clone();
         restored_statement.context.network_id = statement.context.network_id;
         assert_eq!(restored_statement, statement);
-        let mut restored_binding = other_binding.clone();
+        let mut restored_binding = other_binding;
         restored_binding.network_id = binding.network_id;
         restored_binding.genesis_hash = binding.genesis_hash;
         assert_eq!(restored_binding, binding);
@@ -1057,7 +1057,7 @@ mod tests {
             >::from_untyped_unchecked(
                 iroha_crypto::Hash::prehashed([0xC3; 32]),
             ));
-        let mut substituted_network_binding = binding.clone();
+        let mut substituted_network_binding = binding;
         substituted_network_binding.network_id = substituted_network_statement.context.network_id;
         substituted_network_binding.genesis_hash = [0xC3; 32];
         context_substitutions.push((
@@ -1111,7 +1111,7 @@ mod tests {
         }
         let mut substituted_action_statement = statement.clone();
         substituted_action_statement.context.action_index = statement.context.action_index + 1;
-        let mut substituted_action_binding = binding.clone();
+        let mut substituted_action_binding = binding;
         substituted_action_binding.action_index = substituted_action_statement.context.action_index;
         assert_eq!(
             super::super::verify_pq_masp_v1(
@@ -1130,7 +1130,7 @@ mod tests {
             )),
             "the only alternate first-release action index escaped its hard ceiling"
         );
-        let mut other_genesis = binding.clone();
+        let mut other_genesis = binding;
         other_genesis.genesis_hash[0] ^= 1;
         assert!(
             other_genesis.genesis_hash.iter().any(|byte| *byte != 0),

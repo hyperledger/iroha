@@ -1949,8 +1949,8 @@ mod tests {
         second_authority
             .validate()
             .expect("second dataspace authority");
-        let first_leg = manifest.legs[0].clone();
-        let second_leg = manifest.legs[1].clone();
+        let first_leg = manifest.legs[0];
+        let second_leg = manifest.legs[1];
         let first_prepared = rebind_prepared_leg_fixture_v1(
             base_prepared.clone(),
             &manifest,

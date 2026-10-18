@@ -218,7 +218,7 @@ fn mean_native_cycle_policy_allows_last_crossing_and_refuses_next_attempt() {
         Err(ivm::VMError::ExceededMaxCycles)
     ));
     assert_eq!(recorder.records().len(), 1);
-    let record = recorder.records()[0].clone();
+    let record = recorder.records()[0];
     assert_eq!(record.before.cycles, 0);
     assert_eq!(record.after.cycles, 3);
     assert_eq!(record.before.gas_remaining, 20);
@@ -288,7 +288,7 @@ fn mean_native_gas_failure_keeps_cycles_and_cannot_follow_a_limit_crossing() {
             let actual =
                 vm.run_with_host_diagnostic_steps(&mut DefaultHost::default(), &mut recorder);
             assert_eq!(recorder.records().len(), 1);
-            let record = recorder.records()[0].clone();
+            let record = recorder.records()[0];
             let outcome = if gas < 2 {
                 assert!(matches!(actual, Err(ivm::VMError::OutOfGas)));
                 assert_eq!(record.before, record.after);

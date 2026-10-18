@@ -175,13 +175,13 @@ fn extracted_projection_witness_clears_partial_disclosures_and_owned_success() {
         assert!(observed.iter().any(|item| item.nonzero_before > 0));
         assert!(observed.iter().all(|item| item.nonzero_after == 0));
     }
-    let mut second = fixture.statement.disclosed_attributes[0].clone();
+    let mut second = fixture.statement.disclosed_attributes[0];
     second.index = 1;
     fixture.statement.disclosed_attributes.push(second);
     fixture
         .witness
         .attribute_openings
-        .push(fixture.witness.attribute_openings[0].clone());
+        .push(fixture.witness.attribute_openings[0]);
     let first_cells = expected.disclosed_attribute_values[0].len() + 1;
     let (result, observed) = inspection::observe_v1(|| {
         projection_witness_v1(&fixture.statement, &trace, &fixture.witness)
