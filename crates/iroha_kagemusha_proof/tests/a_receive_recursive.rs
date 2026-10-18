@@ -462,7 +462,7 @@ fn source_with_correction(
     incoming.extend(&incoming_head.proof);
     incoming.extend(incoming_head.pallas.to_bytes());
     incoming.extend(incoming_head.vesta.to_bytes());
-    assert!(incoming.len() - 320 <= 4_821);
+    assert!(incoming.len() <= MAX_OMEGA_RAW_BYTES);
     assert!(incoming.len() - 320 + own.incoming_sigma.len() <= PAYMENT_PROOF_BUDGET);
     let proof_digest = p_bytes_native(
         u64::from_le_bytes(*b"kgwprf_1"),
@@ -1934,7 +1934,7 @@ pub fn genuine_omega_can_carry_a_succinct_but_nondeciding_vesta_claim(
         compact_catalog::compact_payer_load_and_receiver_with_bad_vesta(fixture);
     let (receiver, payer) = shared_wallet_heads(&wallets);
     assert_eq!(receiver.key.to_bytes(), payer.key.to_bytes());
-    assert_eq!(payer.proof.len(), 3712);
+    assert_eq!(payer.proof.len(), 3904);
     let params = common::vesta_params(16);
     assert!(payer.vesta.decide(&params, MemoryBudget::DEFAULT).is_err());
     assert_ne!(*payer.vesta.g(), correction);
@@ -1942,7 +1942,7 @@ pub fn genuine_omega_can_carry_a_succinct_but_nondeciding_vesta_claim(
         FoldInput::<Eq>::from_normalized(correction, 16, *payer.vesta.challenges()).unwrap();
     corrected.decide(&params, MemoryBudget::DEFAULT).unwrap();
     eprintln!(
-        "GENUINE_NONDECIDING_VESTA_OMEGA actual_proof=3712 original_V_fails_decide=true distinct_same_challenges_correction_decides=true explicit_native_Load_originals=true full_Receive=false"
+        "GENUINE_NONDECIDING_VESTA_OMEGA actual_proof=3904 original_V_fails_decide=true distinct_same_challenges_correction_decides=true explicit_native_Load_originals=true full_Receive=false"
     );
 }
 

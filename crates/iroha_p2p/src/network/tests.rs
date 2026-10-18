@@ -159,48 +159,49 @@ fn connect_has_a_separate_reliable_low_priority_frame_bound() {
     );
 }
 #[test]
-fn reliable_progress_class_matches_actor_reservations_exactly() {
+fn reliable_progress_routes_refine_into_actor_reservation_classes() {
     use message::{SubscriberRoute as Route, Topic};
-    for (topic, route, expected) in [
+    for (topic, route, expected, actor_class) in [
         (
             Topic::ConsensusSafety,
             Route::General,
             Some(ReliableProgressClass::Safety),
+            Some(ActorProgressClass::Safety),
         ),
         (
             Topic::Consensus,
             Route::General,
             Some(ReliableProgressClass::Lane),
+            Some(ActorProgressClass::Lane),
         ),
         (
             Topic::ConsensusPayload,
             Route::General,
             Some(ReliableProgressClass::Bulk),
+            Some(ActorProgressClass::Payload),
         ),
         (
             Topic::ConsensusChunk,
             Route::General,
             Some(ReliableProgressClass::Bulk),
+            Some(ActorProgressClass::Payload),
         ),
         (
             Topic::BlockSync,
             Route::General,
             Some(ReliableProgressClass::Bulk),
+            Some(ActorProgressClass::BlockSync),
         ),
-        (Topic::Control, Route::General, None),
-        (Topic::Health, Route::General, None),
-        (Topic::Connect, Route::Connect, None),
-        (Topic::Other, Route::General, None),
+        (Topic::Control, Route::General, None, None),
+        (Topic::Health, Route::General, None, None),
+        (Topic::Connect, Route::Connect, None, None),
+        (Topic::Other, Route::General, None, None),
     ] {
         assert_eq!(reliable_progress_class(topic, route), expected);
         assert_eq!(is_reliable_progress_route(topic, route), expected.is_some());
         assert_eq!(
             ActorProgressClass::for_route(topic, route),
-            expected.map(|class| match class {
-                ReliableProgressClass::Safety => ActorProgressClass::Safety,
-                ReliableProgressClass::Lane => ActorProgressClass::Lane,
-                ReliableProgressClass::Bulk => ActorProgressClass::Bulk,
-            })
+            actor_class
         );
     }
 }
@@ -2227,7 +2228,7 @@ fn reply_timeout_attempt_is_retained_by_actor_admission_ticket() {
 }
 #[test]
 fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurrence() {
-    let (handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
+    let (mut handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
         handle_with_network_receivers::<DeferredProgressMsg>();
     let authenticated_source_a = random_peer_id();
     let authenticated_source_b = random_peer_id();
@@ -2260,6 +2261,21 @@ fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurren
         ),
         73,
     );
+    // This identity test needs byte backpressure after one retained reply;
+    // production permits several small items within each source's byte cap.
+    let stream_wire_bytes = handle
+        .outbound_actor_wire_bytes_recoverable(
+            &NetworkMessage::Post(Post {
+                data: DeferredProgressMsg::Lane(80),
+                peer_id: semantic_target.clone(),
+                priority: Priority::Low,
+            }),
+            message::Topic::Consensus,
+        )
+        .expect("count the exact reply identity fixture");
+    handle.network_actor_progress_budget =
+        NetworkActorProgressBudget::new(stream_wire_bytes, 8, 8)
+            .expect("one reply frame per source must fit the identity fixture");
     let first = handle
         .post_reply_recoverable_with_flush_ack(
             Post {
@@ -2291,6 +2307,7 @@ fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurren
         }) => (message, ticket),
         other => panic!("same-source reply must retain its rank-one ticket: {other:?}"),
     };
+    assert_eq!(handle.network_actor_progress_budget.retained(), stream_wire_bytes);
     drop(first_actor_item);
     let later = handle
         .post_reply_recoverable_with_flush_ack(later_post, &later_route, Some(later_ticket))
@@ -2301,6 +2318,7 @@ fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurren
             .try_recv()
             .expect("later delivery must retain the admitted actor item"),
     );
+    assert_eq!(handle.network_actor_progress_budget.retained(), 0);
     let mut admit = |route: &NetworkReplyRoute, marker: u8| {
         let completion = handle
             .post_reply_recoverable_with_flush_ack(
@@ -2397,6 +2415,29 @@ fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurren
     assert!(!first_identity.same_ticket_identity(reconnected.identity()));
     assert!(!first_identity.same_ticket_identity(other_source.identity()));
     assert!(!first_identity.same_ticket_identity(other_payload.identity()));
+    // Hold the topic, request, target, budget and ticket tenure constant so
+    // only the actor class can distinguish these process-local projections.
+    let class_identities = ActorProgressClass::ALL.map(|class| {
+        let mut identity = first_identity.ticket.clone();
+        identity.source.class = class;
+        identity
+    });
+    for (index, identity) in class_identities.iter().enumerate() {
+        let identical = identity.clone();
+        assert!(identity.same_ticket(&identical));
+        assert_eq!(
+            identity.process_local_identity_hash(),
+            identical.process_local_identity_hash()
+        );
+        for other in class_identities.iter().skip(index + 1) {
+            assert!(!identity.same_ticket(other));
+            assert_ne!(
+                identity.process_local_identity_hash(),
+                other.process_local_identity_hash(),
+                "each actor class must have a distinct process-local identity tag"
+            );
+        }
+    }
     let mut foreign_budget_only = first_identity.clone();
     foreign_budget_only.ticket.budget = NetworkActorProgressBudget::new(1, 1, 1)
         .expect("foreign identity budget geometry must be valid");

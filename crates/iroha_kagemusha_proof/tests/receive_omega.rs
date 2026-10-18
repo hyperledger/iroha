@@ -187,10 +187,10 @@ pub(crate) fn wrap_receive(
         opening: outer.opening,
     };
     let transport = output.transport();
-    assert_eq!(transport.len(), 4800);
+    assert_eq!(transport.len(), 4992);
     let mut raw = receive_chain::public_bytes(&source.state.lineage);
     raw.extend_from_slice(&transport);
-    assert_eq!(raw.len(), 5120);
+    assert_eq!(raw.len(), 5312);
     let credit_leaf = IndexedLeaf {
         key: source.statement[17],
         value: hash_with_domain(
@@ -215,7 +215,7 @@ pub(crate) fn wrap_receive(
         source.state.lineage[16]
     );
     eprintln!(
-        "RECEIVE_OMEGA_CLOSURE corrected={corrected} accepted_credit={} incoming_mode={:?} actual_proof=3712 transport=4800 four_inputs_decide=true fourth_slot_drop_rejected=true immutable_native_catalog=true exact_terminal_VK=true credit_membership=true full_catalog=false release_qualified=false",
+        "RECEIVE_OMEGA_CLOSURE corrected={corrected} accepted_credit={} incoming_mode={:?} actual_proof=3904 transport=4992 four_inputs_decide=true fourth_slot_drop_rejected=true immutable_native_catalog=true exact_terminal_VK=true credit_membership=true full_catalog=false release_qualified=false",
         source.accepted_credit, terminal.incoming_mode
     );
     CompactReceiveOmega {
