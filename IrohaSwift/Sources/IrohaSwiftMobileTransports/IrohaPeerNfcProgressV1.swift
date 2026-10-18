@@ -581,6 +581,18 @@ struct IrohaPeerNfcTerminalEventGateV1: Sendable {
         return true
     }
 
+    /// Expiry is actionable only after this presentation started. A canceled
+    /// or replaced presentation cannot authorize recovery of a current one.
+    mutating func claimSessionDurationFailurePublication(
+        isMaximumDuration: Bool, didStartEmulation: Bool,
+        isCurrentSession: Bool, stopRequested: Bool
+    ) -> Bool {
+        guard isMaximumDuration, didStartEmulation, isCurrentSession, !stopRequested else {
+            return false
+        }
+        return claimFailurePublication()
+    }
+
     mutating func claimEndedPublication() -> Bool {
         guard !didPublish else { return false }
         didPublish = true

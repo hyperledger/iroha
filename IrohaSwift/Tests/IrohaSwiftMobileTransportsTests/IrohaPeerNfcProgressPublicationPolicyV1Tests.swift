@@ -405,6 +405,62 @@ final class IrohaPeerNfcTerminalEventGateV1Tests: XCTestCase {
         XCTAssertFalse(gate.claimFailurePublication())
         XCTAssertFalse(gate.claimEndedPublication())
     }
+
+    func testEstablishedMaximumDurationPublishesOneFailureBeforeEnded() {
+        var gate = IrohaPeerNfcTerminalEventGateV1()
+
+        XCTAssertTrue(gate.claimSessionDurationFailurePublication(
+            isMaximumDuration: true, didStartEmulation: true,
+            isCurrentSession: true, stopRequested: false))
+        XCTAssertFalse(gate.claimSessionDurationFailurePublication(
+            isMaximumDuration: true, didStartEmulation: true,
+            isCurrentSession: true, stopRequested: false))
+        XCTAssertFalse(gate.claimFailurePublication(), "generic transport failure must not replace expiry")
+        XCTAssertTrue(gate.claimEndedPublication())
+        XCTAssertFalse(gate.claimEndedPublication())
+    }
+
+    func testStartupMaximumDurationDoesNotBecomeEstablishedExpiry() {
+        var gate = IrohaPeerNfcTerminalEventGateV1()
+
+        XCTAssertFalse(gate.claimSessionDurationFailurePublication(
+            isMaximumDuration: true, didStartEmulation: false,
+            isCurrentSession: true, stopRequested: false))
+        XCTAssertFalse(gate.didPublishFailure)
+        XCTAssertTrue(gate.claimFailurePublication(), "startup retains its existing failure mapping")
+    }
+
+    func testOtherPlatformTerminalsCannotPublishDurationExpiry() {
+        var gate = IrohaPeerNfcTerminalEventGateV1()
+
+        XCTAssertFalse(gate.claimSessionDurationFailurePublication(
+            isMaximumDuration: false, didStartEmulation: true,
+            isCurrentSession: true, stopRequested: false))
+        XCTAssertFalse(gate.didPublishFailure)
+        XCTAssertTrue(gate.claimEndedPublication(), "user invalidation can end without an expiry failure")
+    }
+
+    func testStoppedOrReplacedPresentationCannotPublishDurationExpiry() {
+        for (isCurrent, stopped) in [(true, true), (false, false), (false, true)] {
+            var gate = IrohaPeerNfcTerminalEventGateV1()
+            XCTAssertFalse(gate.claimSessionDurationFailurePublication(
+                isMaximumDuration: true, didStartEmulation: true,
+                isCurrentSession: isCurrent, stopRequested: stopped))
+            XCTAssertFalse(gate.didPublishFailure)
+            XCTAssertTrue(gate.claimEndedPublication())
+        }
+    }
+
+    func testDurationExpiryCannotReplaceAnEarlierFailureOrEnded() {
+        for ended in [false, true] {
+            var gate = IrohaPeerNfcTerminalEventGateV1()
+            if ended { XCTAssertTrue(gate.claimEndedPublication()) }
+            else { XCTAssertTrue(gate.claimFailurePublication()) }
+            XCTAssertFalse(gate.claimSessionDurationFailurePublication(
+                isMaximumDuration: true, didStartEmulation: true,
+                isCurrentSession: true, stopRequested: false))
+        }
+    }
 }
 
 final class IrohaPeerNfcRetryGateV1Tests: XCTestCase {

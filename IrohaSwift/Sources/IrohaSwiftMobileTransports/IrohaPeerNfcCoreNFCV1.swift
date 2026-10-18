@@ -126,10 +126,17 @@ final class IrohaPeerNfcPendingDurabilityV1<Context: Equatable & Sendable, Value
     init(
         context: Context,
         leaseGate: IrohaPeerNfcDurabilityLeaseGateV1 = .shared,
+        settlement: IrohaPeerNfcCardSessionSettlementV1? = nil,
         operation: @escaping @Sendable () async throws -> Value
     ) throws {
         guard let lease = leaseGate.acquire() else {
             throw IrohaPeerNfcDurabilityDeadlineErrorV1.saturated
+        }
+        let callback: IrohaPeerNfcCardSessionSettlementV1.Callback?
+        do { callback = try settlement?.reserveCallback() }
+        catch {
+            leaseGate.release(lease)
+            throw error
         }
         self.context = context
         Task.detached { [self] in
@@ -138,6 +145,7 @@ final class IrohaPeerNfcPendingDurabilityV1<Context: Equatable & Sendable, Value
             catch { result = .failure(error) }
             leaseGate.release(lease)
             complete(result)
+            callback?.finish()
         }
     }
 
@@ -525,6 +533,9 @@ public enum IrohaPeerNfcCardFailureV1: Error, Equatable, Sendable {
     case durableCommitTimedOut
     case durableCommitCancelled
     case invalidDurableCommitResult
+    /// The established CardSession reached Apple's maximum emulation duration.
+    /// This is distinct from user cancellation and startup failure.
+    case sessionDurationReached
     case platformCallTimedOut
     case transportFailure
 }
@@ -590,6 +601,17 @@ public final class IrohaPeerNfcCardSessionControllerV1: @unchecked Sendable {
     private let configuration: IrohaPeerNfcCoreNFCConfigurationV1
     private let lock = NSLock()
     private var runtime: IrohaPeerNfcCardRuntimeV1?
+    private var latestSettlement: IrohaPeerNfcCardSessionSettlementV1?
+
+    /// The last accepted presentation's callback settlement handle. It is
+    /// available before that presentation emits any event, remains available
+    /// after `.ended` or a startup failure, and changes only when a replacement
+    /// runtime is accepted. Capture it before starting another presentation.
+    public var latestSessionSettlement: IrohaPeerNfcCardSessionSettlementV1? {
+        lock.lock()
+        defer { lock.unlock() }
+        return latestSettlement
+    }
 
     public init(configuration: IrohaPeerNfcCoreNFCConfigurationV1) {
         self.configuration = configuration
@@ -702,6 +724,7 @@ public final class IrohaPeerNfcCardSessionControllerV1: @unchecked Sendable {
             throw IrohaPeerNfcCoreNFCErrorV1.operationInProgress
         }
         runtime = replacement
+        latestSettlement = replacement.settlement
         lock.unlock()
         do {
             try await withTaskCancellationHandler {
@@ -764,6 +787,7 @@ public final class IrohaPeerNfcCardSessionControllerV1: @unchecked Sendable {
 
 @available(iOS 17.4, *)
 private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
+    let settlement = IrohaPeerNfcCardSessionSettlementV1()
     private weak var owner: IrohaPeerNfcCardSessionControllerV1?
     private let configuration: IrohaPeerNfcCoreNFCConfigurationV1
     /// Mutated only by the event loop; a finished Request preparation is
@@ -815,6 +839,15 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
     }
 
     func start(startupBudget: IrohaPeerNfcDeadlineBudgetV1) async throws {
+        // Once installed, only the event loop can certify that it will dispatch
+        // no more callbacks. Earlier failures have no dispatcher to drain.
+        var installedEventLoop = false
+        defer {
+            if !installedEventLoop {
+                owner?.runtimeDidSettle(self)
+                settlement.seal()
+            }
+        }
         lock.lock()
         let mayStart = startGate.beginStart()
         lock.unlock()
@@ -869,6 +902,7 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
             await run(session)
             finishEventLoop()
         }
+        installedEventLoop = true
         lock.unlock()
 
         let remaining = startupBudget.remainingNanoseconds(
@@ -926,7 +960,11 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
             NotificationCenter.default.removeObserver(backgroundObserver)
         }
         startupSignal.resolve(.failure(CancellationError()))
-        if shouldPublishEnded { publishEndedOnce() }
+        if shouldPublishEnded {
+            owner?.runtimeDidSettle(self)
+            settlement.seal()
+            publishEndedOnce()
+        }
     }
 
     private func run(_ session: CardSession) async {
@@ -958,7 +996,11 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
                         response = IrohaPeerNfcAPDUResponseV1(statusWord: .conditionsNotSatisfied)
                     } else if let command, Self.exposesRequest(command), !requestAuthorized {
                         do {
-                            try await authorizeRequest()
+                            let callback = try settlement.reserveCallback()
+                            do {
+                                defer { callback.finish() }
+                                try await authorizeRequest()
+                            }
                             try Task.checkCancellation()
                             guard mayContinue(session) else { return }
                             requestAuthorized = true
@@ -992,6 +1034,7 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
                                     if pendingAdmission == nil {
                                         pendingAdmission = try IrohaPeerNfcPendingDurabilityV1(
                                             context: context,
+                                            settlement: settlement,
                                             operation: { [admitPayment] in
                                                 try await admitPayment(context)
                                             })
@@ -1065,6 +1108,7 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
                                     if pendingCommit == nil {
                                         pendingCommit = try IrohaPeerNfcPendingDurabilityV1(
                                             context: context,
+                                            settlement: settlement,
                                             operation: { [durableCommit] in
                                                 try await durableCommit(context)
                                             })
@@ -1150,6 +1194,7 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
                         guard error == .transmissionError else {
                             if protectedCommand, response.statusWord == .success {
                                 _ = finishProtectedBoundary(session)
+                                publishSessionDurationFailureIfNeeded(error, session: session)
                                 session.invalidate()
                                 return
                             }
@@ -1214,6 +1259,7 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
                     startupSignal.resolve(
                         .failure(Self.mapCardStartupError(reason))
                     )
+                    publishSessionDurationFailureIfNeeded(reason, session: session)
                     return
                 @unknown default:
                     break
@@ -1230,6 +1276,7 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
             session.invalidate()
         } catch {
             startupSignal.resolve(.failure(error))
+            publishSessionDurationFailureIfNeeded(error, session: session)
             publishFailureOnce(Self.mapCardFailure(error))
             session.invalidate()
         }
@@ -1272,6 +1319,23 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
         let shouldPublish = terminalEventGate.claimEndedPublication()
         lock.unlock()
         if shouldPublish { onEvent(.ended) }
+    }
+
+    /// Only an actual maximum-duration platform error from this established
+    /// presentation may identify a recoverable expiry. No restart is performed.
+    private func publishSessionDurationFailureIfNeeded(
+        _ error: Error, session: CardSession
+    ) {
+        let isMaximumDuration = (error as? CardSession.Error) == .maxSessionDurationReached
+        lock.lock()
+        let shouldPublish = terminalEventGate.claimSessionDurationFailurePublication(
+            isMaximumDuration: isMaximumDuration,
+            didStartEmulation: didPublishEmulation,
+            isCurrentSession: cardSession === session,
+            stopRequested: startGate.stopRequested
+        )
+        lock.unlock()
+        if shouldPublish { onEvent(.failed(.sessionDurationReached)) }
     }
 
     private func publishFailureOnce(_ failure: IrohaPeerNfcCardFailureV1) {
@@ -1336,6 +1400,7 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
         }
         startupSignal.resolve(.failure(CancellationError()))
         owner?.runtimeDidSettle(self)
+        settlement.seal()
         publishEndedOnce()
     }
 
@@ -1433,12 +1498,18 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
         let context = IrohaPeerNfcOfferIntakeContextV1(sessionID: endpoint.sessionID, offer: offer)
         let timeout = configuration.requestPreparationTimeoutNanoseconds
         onEvent(.offerReceived)
+        // Reserve before dispatch and launch the actual callback independently
+        // of its deadline waiter. A cancelled waiter can skip its own operation,
+        // but cannot hide a queued or still-running wallet callback from settlement.
+        guard let preparation = try? settlement.startCallback(operation: {
+            try await prepareRequest(context)
+        }) else { return }
         let task = Task.detached { [weak self] in
             let result: Result<Data, Error>
             do {
                 result = .success(try await irohaPeerNfcWithDeadlineV1(
                     timeoutNanoseconds: timeout,
-                    operation: { try await prepareRequest(context) }
+                    operation: { try await preparation.value }
                 ))
             } catch {
                 result = .failure(error)
