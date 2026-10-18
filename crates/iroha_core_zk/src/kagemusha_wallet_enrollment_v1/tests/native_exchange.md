@@ -136,7 +136,14 @@ compiler consumed-input attestation. It cannot promote historical producer
 evidence into a current-candidate lifecycle result. Its proof verification is
 not a new native message/operation-admission verdict. Both archive-recovery
 continuations require this same pinned manifest at entry. They check roles,
-bounds, hashes and source pins before opening custody, then require equality
+bounds, hashes and source pins before opening custody. Both also compare the
+exact A→B Offer and Request hashes against `retained_offer_sha256` and
+`retained_request_sha256` in the pinned selected-Send continuation. The
+interrupted archive continuation requires the exact manifest hash recorded as
+`message_originals_manifest_sha256` by its preceding archive continuation;
+missing or changed pins are refused before custody opens. These producer pins
+prevent substituting a different valid same-payer Offer whose nonce is not bound
+by Payment. The continuations then require equality
 with the retained monetary originals and authenticate the session bindings
 before resuming archives, folds or Unload. A missing original is not replaced
 by another wallet operation.
@@ -144,7 +151,8 @@ by another wallet operation.
 The ordinary `message_census` regressions use clearly labelled structural
 vectors, never genuine-proof qualification. They check exact signed-Request
 linkage (including a different valid Request signed by the same receiver),
-manifest substitution, Offer/Request frame bounds, and retention of oversized
+valid same-payer Offer substitution against the producer pin, missing or changed
+predecessor manifest pins, manifest substitution, Offer/Request frame bounds, and retention of oversized
 Offer and Payment frames. A payload that fits while its complete carrying
 envelope exceeds the bound is still rejected.
 

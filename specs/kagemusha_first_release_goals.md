@@ -76,6 +76,14 @@ The supplied older capture is not the current catalog or size authority:
   It is a counterexample under modeled storage loss, not proof that stock iOS
   permits that schedule. Physical adapter probes alone do not test native Payment
   release or establish the missing persistence guarantee.
+- Apple's [Keychain data-protection contract](https://support.apple.com/guide/security/keychain-data-protection-secb0694df1a/web)
+  excludes the selected `kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly` class
+  from backups, synchronization and escrow, and makes its items unusable on
+  passcode removal/reset. That supports the adapter's restore-policy choice;
+  it does not establish durability of an acknowledged anchor update. Apple's
+  [disk-write guidance](https://developer.apple.com/documentation/xcode/reducing-disk-writes)
+  also describes `F_FULLFSYNC` as best effort under sudden power loss. Neither
+  API acknowledgement closes the physical refinement required by KR1.
 
 ## External dependencies and owner decisions
 

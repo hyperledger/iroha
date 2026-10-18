@@ -84,6 +84,11 @@ fn continue_retained_archives_then_unload_without_repeating_transfers() {
         prior["schema"].as_str(),
         Some("iroha.kagemusha.selected-send-continuation.v1")
     );
+    message_census::require_selected_send_session(
+        &census_originals[4],
+        &census_originals[5],
+        &prior,
+    );
     let custody = selected_path("KAGEMUSHA_NATIVE_RETAINED_EXCHANGE");
     assert_eq!(prior["prior_custody_root"].as_str(), custody.to_str());
     let sources = Sources::admit(&output.join("source-admission"));

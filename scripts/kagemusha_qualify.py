@@ -10,12 +10,18 @@ prepare builds the test executable and binds it to source/compiler provenance.
 run executes the predeclared three-block schedule, retaining every raw attempt.
 summarize can recompute verdicts without rerunning proofs. Qualification uses
 observed values only; calibration never normalizes a failure into a pass.
+Each proof specimen must match the scheduled process seed and sample index;
+fixture derivation never replaces the prover's fresh hedged randomness.
+Native generated identity is admitted only after the maintained Rust source
+snapshot, exact Cargo output, host target and executable identity agree. This
+also binds the generator's wider prerequisites during component qualification.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -47,7 +53,7 @@ CONFIGS = {
 }
 PREFIX = "M3_GATE_JSON "
 GIB = 1 << 30
-SOURCE_POLICY = "cargo-local-input-closure-v1"
+SOURCE_POLICY = "cargo-local-input-closure-native-identity-v1"
 MEMORY_ACTIVITY_POLICY = "unchanged-compressions-pageouts-swapouts;monotonic-swapins"
 QUIET_MEMORY_COUNTERS = ("Compressions", "Pageouts", "Swapouts")
 PROBES = {
@@ -176,6 +182,203 @@ def metadata_roots(metadata: dict) -> list[str]:
     return sorted(roots)
 
 
+def native_admin_watchers() -> dict[str, str | None]:
+    """Bind the two Git census controls without treating them as Rust inputs."""
+    values = {}
+    for name in (".git/index", ".git/info/exclude"):
+        path = local_path(name, missing=True)
+        values[name] = file_hash(path) if path.exists() else None
+    return values
+
+
+def native_audit_module():
+    """Reuse the maintained Rust snapshot evaluator, not a second source census."""
+    path = local_path("scripts/audit_native_source_inputs.py")
+    spec = importlib.util.spec_from_file_location("m3_native_source_audit", path)
+    if spec is None or spec.loader is None:
+        raise ValueError("cannot load maintained native source audit")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def native_host_target() -> dict:
+    """Derive Cargo's native qualification target from the pinned host compiler."""
+    version = command(["rustc", "-Vv"])
+    version.check_returncode()
+    hosts = re.findall(r"^host: ([a-zA-Z0-9_.-]+)$", version.stdout, re.MULTILINE)
+    if len(hosts) != 1:
+        raise ValueError("missing or ambiguous native rustc host")
+    result = command(["rustc", "--print", "cfg", "--target", hosts[0]])
+    result.check_returncode()
+    fields = {}
+    for name in ("target_arch", "target_os", "target_pointer_width", "target_endian"):
+        values = re.findall(rf'^{name}="([a-zA-Z0-9_]+)"$', result.stdout, re.MULTILINE)
+        if len(values) != 1:
+            raise ValueError(f"missing or ambiguous native rustc cfg: {name}")
+        fields[name] = values[0]
+    if (fields["target_arch"] not in ("aarch64", "x86_64") or fields["target_os"] != "macos" or
+            fields["target_pointer_width"] != "64" or fields["target_endian"] != "little"):
+        raise ValueError("M3 resource qualification requires a supported native macOS target")
+    return {"triple": hosts[0], "cfg": fields, "cfg_stdout": result.stdout,
+            "environment": {"TARGET": hosts[0], **{
+                "CARGO_CFG_" + name.upper(): value
+                for name, value in fields.items()
+            }}}
+
+
+def native_identity_source(digest: str, target: dict) -> str:
+    """The exact maintained build.rs output for a complete supported native build."""
+    if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise ValueError("malformed maintained native source digest")
+    values = ", ".join(str(value) for value in bytes.fromhex(digest))
+    return ("// Generated from actual workspace inputs, not an environment digest.\n"
+            f"pub(super) const CURRENT_NATIVE_SOURCE_DIGEST: [u8; 32] = [{values}];\n"
+            "pub(super) const NATIVE_SOURCE_CLOSURE_COMPLETE: bool = true;\n"
+            "pub(super) const BUILTIN_TARGET_SUPPORTED: bool = true;\n"
+            "#[allow(dead_code)]\n"
+            f"pub(super) const NATIVE_SOURCE_TARGET: &str = {json.dumps(target['triple'])};\n")
+
+
+def native_output_inventory(out: Path) -> dict[str, str]:
+    """Allow precisely one regular output, with no skipped subdirectories."""
+    entries = list(local_path(out).iterdir())
+    if len(entries) != 1 or entries[0].name != "native_source_identity.rs":
+        raise ValueError("native OUT_DIR contains an unverified generated output")
+    path = local_path(entries[0])
+    return {path.relative_to(ROOT).as_posix(): "file:" + file_hash(path)}
+
+
+def native_snapshot(tool: Path, record: dict, record_sha256: str) -> tuple[str, list[str]]:
+    """Check evaluator, helper and exact selected sha2 custody around each scan."""
+    audit = native_audit_module()
+    if (local_path(record["helperPath"]) != audit.HELPER or
+            local_path(record["driverPath"]) != audit.DRIVER or
+            local_path(record["sha2Path"]) != Path(record["sha2Path"])):
+        raise ValueError("native snapshot evaluator has foreign input paths")
+    protected = {"helper": (audit.HELPER, record["helperSha256"]),
+                 "driver": (audit.DRIVER, record["driverSha256"]),
+                 "binary": (tool, record["binarySha256"]),
+                 "sha2": (Path(record["sha2Path"]), record["sha2Sha256"])}
+    for path, expected in protected.values():
+        if file_hash(path) != expected:
+            raise ValueError("native snapshot evaluator input changed")
+    record_path = tool.with_name("source-snapshot-build.json")
+    if file_hash(record_path) != record_sha256:
+        raise ValueError("native snapshot evaluator record changed")
+    actual_record = json.loads(record_path.read_text())
+    if actual_record != record or Path(record["binaryPath"]) != tool:
+        raise ValueError("native snapshot evaluator record changed")
+    digest, watched = audit.actual_snapshot(tool)
+    paths = sorted(local_path(path, missing=True).relative_to(ROOT).as_posix() for path in watched)
+    for path, expected in protected.values():
+        if file_hash(path) != expected:
+            raise ValueError("native snapshot evaluator input changed during scan")
+    if file_hash(record_path) != record_sha256 or json.loads(record_path.read_text()) != record:
+        raise ValueError("native snapshot evaluator record changed during scan")
+    return digest, paths
+
+
+def capture_native_source(metadata: dict, artifacts: list[dict], build_scripts: list[dict], output: Path) -> dict | None:
+    """Admit only the selected plonk generator and its maintained prerequisites."""
+    packages = {package["id"]: package for package in metadata["packages"]}
+    plonk_ids = {key for key, package in packages.items()
+                 if package["source"] is None and package["name"] == "iroha_plonk" and
+                 local_path(package["manifest_path"]) == ROOT / "crates/iroha_plonk/Cargo.toml"}
+    selected = [item for item in build_scripts if item["package_id"] in plonk_ids]
+    compiled = {item["package_id"] for item in artifacts if item["package_id"] in plonk_ids}
+    if not compiled and not selected:
+        return None
+    if len(plonk_ids) != 1 or compiled != plonk_ids or not selected:
+        raise ValueError("native identity lacks exact selected plonk build")
+    directory = output / "native-source-evaluator"
+    directory.mkdir()
+    audit = native_audit_module()
+    tool = audit.build_snapshot_tool(directory, [*artifacts, *build_scripts])
+    record = json.loads(tool.with_name("source-snapshot-build.json").read_text())
+    record_sha256 = file_hash(tool.with_name("source-snapshot-build.json"))
+    digest, watched = native_snapshot(tool, record, record_sha256)
+    result = {"policy": "complete-native-source-identity-v1", "tool": str(tool), "evaluator": record,
+              "evaluator_record_sha256": record_sha256,
+              "source_digest": digest, "watched": watched, "admin_watchers": native_admin_watchers(),
+              "target": native_host_target(), "builds": []}
+    required = {"crates/iroha_plonk/build.rs", "crates/iroha_plonk/build_support/source_identity.rs",
+                "crates/iroha_plonk/src/keys/keygen/builtin/generated.rs", "scripts/audit_native_source_inputs.py",
+                "scripts/native_source_snapshot.rs", *result["admin_watchers"]}
+    if not required.issubset(watched):
+        raise ValueError("native snapshot omits mandatory generator or admin watchers")
+    expected_source = native_identity_source(digest, result["target"])
+    seen = set()
+    for item in selected:
+        out = local_path(item["out_dir"])
+        if out in seen or out.name != "out" or not out.is_relative_to(ROOT / "target"):
+            raise ValueError("native identity has foreign or duplicate Cargo OUT_DIR")
+        seen.add(out)
+        identity = local_path(out / "native_source_identity.rs")
+        original = identity.read_text()
+        if original != expected_source:
+            raise ValueError("native generated identity differs from complete current snapshot and target")
+        identity_hash = file_hash(identity)
+        if hashlib.sha256(original.encode()).hexdigest() != identity_hash:
+            raise ValueError("native generated identity changed while reading")
+        expected_files = {identity.relative_to(ROOT).as_posix(): "file:" + identity_hash}
+        if native_output_inventory(out) != expected_files:
+            raise ValueError("native OUT_DIR contains an unverified generated output")
+        rescan = local_path(out / "native-source-rescan-required", missing=True)
+        if rescan.exists():
+            raise ValueError("intentionally absent native rescan watcher exists")
+        build_output = local_path(out.parent / "output")
+        text = build_output.read_text()
+        declared, environment = set(), set()
+        for line in text.splitlines():
+            directive = line.removeprefix("cargo::").removeprefix("cargo:")
+            if directive.startswith("rerun-if-changed="):
+                raw = Path(directive.partition("=")[2])
+                path = local_path(raw, missing=True)
+                if not raw.is_absolute() or raw != path:
+                    raise ValueError("native build watcher is not an exact canonical path")
+                declared.add(path.relative_to(ROOT).as_posix())
+            elif directive.startswith("rerun-if-env-changed="):
+                environment.add(directive.partition("=")[2])
+        if declared != set(watched) | {rescan.relative_to(ROOT).as_posix()}:
+            raise ValueError("native build watchers differ from maintained snapshot and exact rescan marker")
+        if environment != set(result["target"]["environment"]):
+            raise ValueError("native build environment declarations differ from native target inputs")
+        output_hash = file_hash(build_output)
+        if hashlib.sha256(text.encode()).hexdigest() != output_hash:
+            raise ValueError("native build output changed while reading")
+        result["builds"].append({"package_id": item["package_id"], "out_dir": str(out),
+                                 "identity": str(identity), "identity_sha256": identity_hash,
+                                 "rescan": str(rescan), "output": str(build_output),
+                                 "output_sha256": output_hash, "inventory": expected_files})
+    if native_snapshot(tool, record, record_sha256) != (digest, watched) or native_admin_watchers() != result["admin_watchers"]:
+        raise ValueError("native source changed during generated-input audit")
+    return recheck_native_source(result)
+
+
+def recheck_native_source(value: dict | None) -> dict:
+    """Recheck exact generated outputs, absent watchers and current source identity."""
+    if value is None:
+        return {}
+    if value.get("policy") != "complete-native-source-identity-v1":
+        raise ValueError("unknown generated native input policy")
+    def check_outputs():
+        if native_admin_watchers() != value["admin_watchers"]:
+            raise ValueError("native Git admin watcher changed")
+        for item in value["builds"]:
+            if local_path(item["rescan"], missing=True).exists():
+                raise ValueError("intentionally absent native rescan watcher exists")
+            if (file_hash(local_path(item["identity"])) != item["identity_sha256"] or
+                    file_hash(local_path(item["output"])) != item["output_sha256"] or
+                    native_output_inventory(Path(item["out_dir"])) != item["inventory"]):
+                raise ValueError("native generated input or build output changed")
+    check_outputs()
+    if native_snapshot(Path(value["tool"]), value["evaluator"], value["evaluator_record_sha256"]) != (value["source_digest"], value["watched"]):
+        raise ValueError("native source identity changed")
+    check_outputs()
+    return value
+
+
 def cargo_configuration() -> dict:
     """Pin Cargo's config hierarchy, including absent optional candidates.
 
@@ -275,8 +478,16 @@ def selected_sources(manifest: dict, scope: dict | None) -> dict:
     selected = {name: value for name, value in manifest.items()
                 if scope["kind"] == "whole_checkout" or name in scope["files"] or
                 any(name == root or name.startswith(root + "/") for root in scope["roots"])}
-    if any(value.startswith("symlink:") for value in selected.values()):
-        raise ValueError("selected source contains a symlink")
+    for name, value in selected.items():
+        if not value.startswith("symlink:"):
+            continue
+        # The maintained native census binds this exact shipped-output link's
+        # spelling without following its target, avoiding a binary self-hash.
+        if (scope.get("native_source") is not None and name == "IrohaSwift/NoritoBridge.xcframework" and
+                value == "symlink:../dist/NoritoBridge.xcframework"):
+            local_path("IrohaSwift")
+            continue
+        raise ValueError("selected source contains an unclassified symlink")
     return selected
 
 
@@ -292,10 +503,27 @@ def source_digest(scope: dict | None = None) -> str:
     selected["@cargo_metadata"] = manifest_digest(cargo_metadata())
     selected["@tools"] = manifest_digest(tool_identity())
     selected["@build_environment"] = manifest_digest({key: os.environ.get(key) for key in scope["build_environment"]})
+    selected["@generated_native_inputs"] = manifest_digest(recheck_native_source(scope.get("native_source")))
+    selected["@cargo_build_inputs"] = manifest_digest(recheck_build_inputs(scope))
     return manifest_digest(selected)
 
 
-def depfile_inputs(depinfo: Path, artifact: Path) -> set[str]:
+def recheck_build_inputs(scope: dict) -> dict:
+    """Keep retained compiler dependency and build-output originals bound."""
+    values = {}
+    for name, record in scope["depfiles"].items():
+        values[name] = file_hash(local_path(name))
+        if values[name] != record["sha256"]:
+            raise ValueError("captured compiler depfile changed")
+    for record in scope["build_script_outputs"]:
+        name = record["path"]
+        values[name] = file_hash(local_path(name))
+        if values[name] != record["sha256"]:
+            raise ValueError("captured build-script output changed")
+    return values
+
+
+def depfile_inputs(depinfo: Path, artifact: Path, absent_watchers: set[str] = frozenset()) -> set[str]:
     """Require a rule for the exact emitted artifact, never a nearby stale .d."""
     text = depinfo.read_text().replace("\\\n", " ")
     inputs = set()
@@ -310,13 +538,22 @@ def depfile_inputs(depinfo: Path, artifact: Path) -> set[str]:
         if artifact not in targets:
             continue
         matched = True
-        inputs.update(local_path(name).relative_to(ROOT).as_posix() for name in shlex.split(right))
+        for name in shlex.split(right):
+            path = local_path(name, missing=True)
+            relative = path.relative_to(ROOT).as_posix()
+            if relative in absent_watchers:
+                if path.exists():
+                    raise ValueError("intentionally absent native rescan watcher exists")
+            else:
+                local_path(path)
+            inputs.add(relative)
     if not matched or not inputs:
         raise ValueError(f"depfile does not bind artifact: {artifact}")
     return inputs
 
 
-def component_scope(metadata: dict, artifacts: list[dict], build_scripts: list[dict] = ()) -> dict:
+def component_scope(metadata: dict, artifacts: list[dict], build_scripts: list[dict] = (),
+                    native_source: dict | None = None) -> dict:
     """Bind actual local artifacts and fail closed on uncovered/generated inputs."""
     packages = {package["id"]: package for package in metadata["packages"]}
     roots = {".cargo"} if (ROOT / ".cargo").exists() else set()
@@ -326,6 +563,16 @@ def component_scope(metadata: dict, artifacts: list[dict], build_scripts: list[d
     compiled, depfiles, aliases, required = {}, {}, [], set()
     compiler_environment = {}
     script_packages = set()
+    native = recheck_native_source(native_source)
+    native_builds = native.get("builds", [])
+    native_outputs = {item["out_dir"]: item for item in native_builds}
+    native_identities = {Path(item["identity"]).relative_to(ROOT).as_posix(): item for item in native_builds}
+    native_rescans = {Path(item["rescan"]).relative_to(ROOT).as_posix() for item in native_builds}
+    admin = set(native.get("admin_watchers", {}))
+    observed_native = set()
+    if native:
+        required.update(set(native["watched"]) - admin)
+        files.update(("scripts/audit_native_source_inputs.py", "scripts/native_source_snapshot.rs"))
     for artifact in artifacts:
         package = packages[artifact["package_id"]]
         compiled[package["id"]] = {key: package[key] for key in ("name", "version", "source", "manifest_path")}
@@ -355,21 +602,30 @@ def component_scope(metadata: dict, artifacts: list[dict], build_scripts: list[d
                 depinfo = actual.with_suffix(".d")
                 aliases.append({"alias": str(path), "actual": str(actual), "sha256": artifact_hash})
             depinfo = local_path(depinfo)
-            inputs = depfile_inputs(depinfo, actual)
+            depinfo_hash = file_hash(depinfo)
+            owner_builds = [item for item in native_builds if item["package_id"] == package["id"]]
+            native_consumer = (bool(owner_builds) and artifact.get("target", {}).get("kind") == ["lib"] and
+                               artifact.get("target", {}).get("name") == "iroha_plonk")
+            absent = native_rescans if owner_builds else set()
+            inputs = depfile_inputs(depinfo, actual, absent)
             generated = sorted(name for name in inputs if name.startswith("target/"))
-            if generated:
-                # M3 currently has no generated Rust inputs. Do not grant a
-                # blanket target/ exemption; a future producer needs a reviewed
-                # reproducible transform and independently captured prerequisites.
+            admitted = {name for name in generated if name in native_identities and
+                        native_consumer and native_identities[name]["package_id"] == package["id"]}
+            if set(generated) - admitted - absent:
                 raise ValueError(f"generated compiler input has no verified disposition: {generated}")
-            required.update(inputs)
+            observed_native.update(admitted)
+            required.update(inputs - admitted - absent - admin)
             derived_environment = {}
             for line in depinfo.read_text().splitlines():
                 if not line.startswith("# env-dep:"):
                     continue
                 name, separator, value = line.removeprefix("# env-dep:").partition("=")
                 expected = value if separator else None
-                if name == "CARGO_MANIFEST_DIR":
+                if name == "OUT_DIR" and native_consumer:
+                    if expected not in {item["out_dir"] for item in owner_builds}:
+                        raise ValueError("native compiler OUT_DIR differs from selected Cargo output")
+                    derived_environment[name] = expected
+                elif name == "CARGO_MANIFEST_DIR":
                     if expected != str(manifest.parent):
                         raise ValueError("depfile has foreign manifest environment")
                     derived_environment[name] = expected
@@ -383,10 +639,17 @@ def component_scope(metadata: dict, artifacts: list[dict], build_scripts: list[d
                     if os.environ.get(name) != expected:
                         raise ValueError(f"compiler environment differs: {name}")
                     compiler_environment[name] = expected
-            depfiles[str(depinfo)] = {"sha256": file_hash(depinfo), "inputs": sorted(inputs),
+            if admitted and (len(admitted) != 1 or derived_environment.get("OUT_DIR") !=
+                             native_identities[next(iter(admitted))]["out_dir"]):
+                raise ValueError("native generated input lacks its exact compiler OUT_DIR binding")
+            if file_hash(depinfo) != depinfo_hash:
+                raise ValueError("compiler depfile changed during capture")
+            depfiles[str(depinfo)] = {"sha256": depinfo_hash, "inputs": sorted(inputs),
                                      "derived_environment": derived_environment}
     if not any(package["name"] == "iroha_plonk_gadgets" for package in compiled.values()):
         raise ValueError("component artifact set omits its measurement driver")
+    if observed_native != set(native_identities):
+        raise ValueError("selected native generated identity is absent from exact compiler depfiles")
     outputs, environment = [], compiler_environment
     observed_scripts = set()
     for item in build_scripts:
@@ -398,8 +661,13 @@ def component_scope(metadata: dict, artifacts: list[dict], build_scripts: list[d
         observed_scripts.add(package["id"])
         out = local_path(item["out_dir"])
         output = local_path(out.parent / "output")
-        generated = scan_local_root(out.relative_to(ROOT).as_posix())
-        if generated:
+        output_hash = file_hash(output)
+        native_output = native_outputs.get(str(out))
+        generated = (native_output_inventory(out) if native_output else
+                     scan_local_root(out.relative_to(ROOT).as_posix()))
+        if native_output and native_output["package_id"] != package["id"]:
+            raise ValueError("native OUT_DIR belongs to a different Cargo package")
+        if generated and (native_output is None or generated != native_output["inventory"]):
             raise ValueError("local generated build output has no verified disposition")
         text = output.read_text()
         for line in text.splitlines():
@@ -407,7 +675,13 @@ def component_scope(metadata: dict, artifacts: list[dict], build_scripts: list[d
             if directive.startswith("rerun-if-changed="):
                 name = directive.partition("=")[2]
                 base = local_path(package["manifest_path"]).parent
-                path = local_path(base / name)
+                path = local_path(base / name, missing=True)
+                relative = path.relative_to(ROOT).as_posix()
+                if native_output and relative in native_rescans | admin:
+                    # Only capture_native_source's exact rescan and two separately
+                    # bound Git census controls have a non-source disposition.
+                    continue
+                path = local_path(path)
                 if path.is_dir():
                     roots.add(path.relative_to(ROOT).as_posix())
                     required.update(scan_local_root(path.relative_to(ROOT).as_posix()))
@@ -415,16 +689,21 @@ def component_scope(metadata: dict, artifacts: list[dict], build_scripts: list[d
                     required.add(path.relative_to(ROOT).as_posix())
             elif directive.startswith("rerun-if-env-changed="):
                 name = directive.partition("=")[2]
+                if native_output and name in native["target"]["environment"]:
+                    continue  # Cargo-derived, bound to the selected host compiler.
                 environment[name] = os.environ.get(name)
-        outputs.append({"record": item, "path": str(output), "sha256": file_hash(output), "text": text,
-                        "generated_disposition": "empty output directory; no generated compiler inputs"})
+        if hashlib.sha256(text.encode()).hexdigest() != output_hash or file_hash(output) != output_hash:
+            raise ValueError("build-script output changed during capture")
+        outputs.append({"record": item, "path": str(output), "sha256": output_hash, "text": text,
+                        "generated_disposition": ("exact complete native source identity" if native_output else
+                                                  "empty output directory; no generated compiler inputs")})
     if observed_scripts != script_packages:
         raise ValueError("local build script lacks its executed output record")
     files.update(required)
     return {"kind": "cargo_component", "roots": sorted(roots), "files": sorted(files),
             "required_inputs": sorted(required), "packages": [compiled[key] for key in sorted(compiled)],
             "depfiles": depfiles, "build_script_aliases": aliases, "build_script_outputs": outputs,
-            "build_environment": environment}
+            "build_environment": environment, "native_source": native_source}
 
 
 def ignored_output(path: Path) -> Path:
@@ -442,6 +721,66 @@ def ignored_output(path: Path) -> Path:
     return path
 
 
+def parse_native_identity(text: str, native: dict, binary_sha256: str) -> dict:
+    """Join actual executable identity to the audited generated Cargo input."""
+    prefix = "M3_SOURCE_JSON "
+    lines = [line[line.index(prefix) + len(prefix):] for line in text.splitlines() if prefix in line]
+    if len(lines) != 1:
+        raise ValueError("expected one compiled native source identity record")
+    value = json.loads(lines[0])
+    cfg = native["target"]["cfg"]
+    expected = {"schema": "kagemusha.m3.native-source.v1", "native_source_digest": native["source_digest"],
+                "binary_sha256": binary_sha256, "target_arch": cfg["target_arch"], "target_os": cfg["target_os"],
+                "pointer_width": int(cfg["target_pointer_width"]), "little_endian": cfg["target_endian"] == "little"}
+    if (not isinstance(value, dict) or value.keys() != expected.keys() or
+            any(type(value[key]) is not type(item) or value[key] != item for key, item in expected.items())):
+        raise ValueError("compiled native source identity differs from audited Cargo inputs")
+    return value
+
+
+def candidate_native_reasons(candidate: dict) -> list[str]:
+    """Require retained successful executable identity and its audited native scope."""
+    try:
+        if candidate["source_scope"].get("kind") not in ("cargo_component", "whole_checkout"):
+            raise ValueError("missing captured Cargo source scope")
+        native = candidate["source_scope"]["native_source"]
+        if not isinstance(native, dict) or native.get("policy") != "complete-native-source-identity-v1":
+            raise ValueError("missing complete audited native source scope")
+        for key in ("source_digest", "evaluator_record_sha256"):
+            if not isinstance(native.get(key), str) or re.fullmatch(r"[0-9a-f]{64}", native[key]) is None:
+                raise ValueError(f"missing native provenance digest: {key}")
+        if (not isinstance(native.get("builds"), list) or not native["builds"] or
+                any(not isinstance(item, dict) or not item for item in native["builds"]) or
+                not isinstance(native.get("evaluator"), dict) or not native["evaluator"] or
+                not isinstance(native.get("tool"), str) or not native["tool"] or
+                not isinstance(native.get("watched"), list) or not native["watched"]):
+            raise ValueError("missing selected native generator or snapshot evaluator evidence")
+        admin = native["admin_watchers"]
+        if (not isinstance(admin, dict) or set(admin) != {".git/index", ".git/info/exclude"} or
+                any(item is not None and (not isinstance(item, str) or re.fullmatch(r"[0-9a-f]{64}", item) is None)
+                    for item in admin.values())):
+            raise ValueError("missing native admin watcher evidence")
+        cfg = native["target"]["cfg"]
+        if (cfg.get("target_arch") not in ("aarch64", "x86_64") or cfg.get("target_os") != "macos" or
+                cfg.get("target_pointer_width") != "64" or cfg.get("target_endian") != "little"):
+            raise ValueError("unsupported native qualification target")
+        if (not isinstance(candidate.get("binary_sha256"), str) or
+                re.fullmatch(r"[0-9a-f]{64}", candidate["binary_sha256"]) is None):
+            raise ValueError("missing native executable digest")
+        process = candidate["native_identity_process"]
+        if (type(process["code"]) is not int or process["code"] != 0 or
+                not isinstance(process["stdout"], str) or not isinstance(process["stderr"], str)):
+            raise ValueError("compiled native identity process did not succeed")
+        parsed = parse_native_identity(process["stdout"], native, candidate["binary_sha256"])
+        retained = candidate["native_identity"]
+        if (not isinstance(retained, dict) or retained.keys() != parsed.keys() or
+                any(type(retained[key]) is not type(item) or retained[key] != item for key, item in parsed.items())):
+            raise ValueError("retained native identity differs from raw executable output")
+    except (KeyError, TypeError, ValueError, AttributeError) as error:
+        return [f"candidate native identity invalid: {error}"]
+    return []
+
+
 def prepare(output: Path, *, component: bool = False, target_slot: str = "m3b") -> None:
     output = ignored_output(output)
     candidate_path = output / "candidate.json"
@@ -450,6 +789,7 @@ def prepare(output: Path, *, component: bool = False, target_slot: str = "m3b") 
     metadata = cargo_metadata()
     roots = metadata_roots(metadata)
     before_tools = tool_identity()
+    before_admin = native_admin_watchers()
     before_manifest = source_manifest(roots)
     before = manifest_digest(before_manifest)
     write_json(output / "cargo-metadata-before.json", metadata)
@@ -489,7 +829,12 @@ def prepare(output: Path, *, component: bool = False, target_slot: str = "m3b") 
     write_json(output / "source-after.json", after_manifest)
     if metadata != after_metadata or before_tools != after_tools:
         raise ValueError("metadata or tools changed during build")
-    scope = component_scope(metadata, artifacts, build_scripts)
+    native = capture_native_source(metadata, artifacts, build_scripts, output)
+    if native is None:
+        raise ValueError("M3 qualification requires the selected iroha_plonk native source identity")
+    if native["admin_watchers"] != before_admin:
+        raise ValueError("native Git admin watchers changed during build")
+    scope = component_scope(metadata, artifacts, build_scripts, native)
     if not component:
         scope["kind"] = "whole_checkout"
         scope["roots"] = roots
@@ -499,6 +844,8 @@ def prepare(output: Path, *, component: bool = False, target_slot: str = "m3b") 
         values["@cargo_metadata"] = manifest_digest(metadata)
         values["@tools"] = manifest_digest(before_tools)
         values["@build_environment"] = manifest_digest(scope["build_environment"])
+        values["@generated_native_inputs"] = manifest_digest(recheck_native_source(native))
+        values["@cargo_build_inputs"] = manifest_digest(recheck_build_inputs(scope))
     write_json(output / "source-provenance.json", {
         "source_policy": SOURCE_POLICY, "scope": scope,
         "before": before_selected, "after": source_files,
@@ -527,6 +874,17 @@ def prepare(output: Path, *, component: bool = False, target_slot: str = "m3b") 
     for config in CONFIGS.values():
         if f"{config['test']}: test" not in listing.stdout:
             raise ValueError(f"missing benchmark {config['test']}")
+    test = "qualification_candidate_identity"
+    if f"{test}: test" not in listing.stdout:
+        raise ValueError("measurement executable lacks compiled native source identity test")
+    identity = command([str(binary), "--ignored", "--exact", test, "--nocapture", "--test-threads=1"])
+    (output / "native-identity.stdout.log").write_text(identity.stdout)
+    (output / "native-identity.stderr.log").write_text(identity.stderr)
+    identity.check_returncode()
+    native_identity = parse_native_identity(identity.stdout, native, binary_sha256)
+    write_json(output / "native-identity.json", native_identity)
+    if source_digest(scope) != after or file_hash(binary) != binary_sha256:
+        raise ValueError("source or executable changed during native identity inventory")
     inventory = command([
         str(binary), "--ignored", "--exact", "qualification_candidate_layouts",
         "--nocapture", "--test-threads=1",
@@ -539,10 +897,12 @@ def prepare(output: Path, *, component: bool = False, target_slot: str = "m3b") 
         raise ValueError("source changed during descriptor inventory; candidate is not frozen")
     if file_hash(binary) != binary_sha256:
         raise ValueError("executable changed during descriptor inventory; candidate is not frozen")
-    write_json(candidate_path, {
+    candidate = {
         "schema": "kagemusha.m3.candidate.v1", "source_policy": SOURCE_POLICY, "source_sha256": after,
         "source_scope": scope, "qualification_scope": "component" if component else "whole_checkout",
         "binary": str(binary), "binary_sha256": binary_sha256,
+        "native_identity": native_identity,
+        "native_identity_process": {"code": identity.returncode, "stdout": identity.stdout, "stderr": identity.stderr},
         "compiler": compiler.stdout, "build_command": argv,
         "profile": "release", "features": "default",
         "memory_activity_policy": MEMORY_ACTIVITY_POLICY,
@@ -551,7 +911,11 @@ def prepare(output: Path, *, component: bool = False, target_slot: str = "m3b") 
         "build_flags": {key: os.environ.get(key) for key in (
             "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_PROFILE_RELEASE_LTO",
         )},
-    })
+    }
+    reasons = candidate_native_reasons(candidate)
+    if reasons:
+        raise ValueError("; ".join(reasons))
+    write_json(candidate_path, candidate)
     print(candidate_path)
 
 
@@ -681,8 +1045,23 @@ def parse_layouts(text: str) -> dict:
     return layouts
 
 
+def sample_fixture_seed(seed: int, index: int) -> int:
+    """Reproduce m3_gates.rs mix(seed, index, 0) with wrapping u64 arithmetic."""
+    if type(seed) is not int or not 0 <= seed < 1 << 64:
+        raise ValueError("process seed must be a u64")
+    if type(index) is not int or index not in (0, 1):
+        raise ValueError("proof sample index must be zero or one")
+    mask = (1 << 64) - 1
+    value = seed ^ (index << 40) ^ 0x9E3779B97F4A7C15
+    value = ((value ^ (value >> 30)) * 0xBF58476D1CE4E5B9) & mask
+    value = ((value ^ (value >> 27)) * 0x94D049BB133111EB) & mask
+    return value ^ (value >> 31)
+
+
 def report_reasons(report: dict, config: dict, candidate: dict, seed: int) -> list[str]:
     reasons = []
+    if type(seed) is not int or not 0 <= seed < 1 << 64:
+        return ["invalid scheduled process seed"]
     expected = {
         "workers": config["workers"], "binary_sha256": candidate["binary_sha256"],
         "witness_api": "owned", "coset_cache": "on_demand", "commitment_tables": False,
@@ -690,6 +1069,7 @@ def report_reasons(report: dict, config: dict, candidate: dict, seed: int) -> li
         "quotient_workspace": "caller_owned", "quotient_workspace_budget_bytes": 256 << 20,
         "msm_process_budget_bytes": 64 << 20,
         "msm_process_retained_bytes": 0, "seed": seed, "transcript_profile": "pipa-r",
+        "randomness": "fresh-hedged", "fixture_seed_derivation": "splitmix64-process-sample-v1",
         **candidate["layouts"][config["gate"]],
     }
     for name, value in expected.items():
@@ -705,9 +1085,14 @@ def report_reasons(report: dict, config: dict, candidate: dict, seed: int) -> li
         return reasons + ["malformed proof samples"]
     if len(samples) != 2:
         reasons.append("exactly the first two proofs must be retained")
-    if [sample.get("index") for sample in samples] != [0, 1]:
+    if (any(type(sample.get("index")) is not int for sample in samples) or
+            [sample.get("index") for sample in samples] != [0, 1]):
         reasons.append("proof sample order or identity differs")
-    for sample in samples:
+    for index, sample in enumerate(samples):
+        fixture_seed = sample.get("fixture_seed")
+        if (type(fixture_seed) is not int or not 0 <= fixture_seed < 1 << 64 or
+                index >= 2 or fixture_seed != sample_fixture_seed(seed, index)):
+            reasons.append(f"proof sample fixture seed differs: {index}")
         if sample.get("verified") is not True:
             reasons.append("unverified measured proof")
         for metric in ("cpu_ns", "total_ns"):
@@ -876,6 +1261,7 @@ def summarize(path: Path) -> dict:
         ledger_reasons.append("candidate does not bind the current source policy")
     if ledger["candidate"].get("memory_activity_policy") != MEMORY_ACTIVITY_POLICY:
         ledger_reasons.append("candidate does not bind the current memory activity policy")
+    ledger_reasons.extend(candidate_native_reasons(ledger["candidate"]))
     seed = ledger.get("shuffle_seed")
     rng = random.Random(seed) if type(seed) is int else None
     if rng is None or ledger.get("schedule") != schedule(rng):
@@ -956,6 +1342,9 @@ def run(candidate_path: Path, seed: int, *, stop_on_hard_failure: bool = False) 
         raise ValueError("candidate does not bind the current source policy; prepare a fresh candidate")
     if candidate.get("memory_activity_policy") != MEMORY_ACTIVITY_POLICY:
         raise ValueError("candidate does not bind the current memory activity policy; prepare a fresh candidate")
+    reasons = candidate_native_reasons(candidate)
+    if reasons:
+        raise ValueError("; ".join(reasons) + "; prepare a fresh candidate")
     output = candidate_path.parent
     if (output / "runs.json").exists():
         raise ValueError("runs.json already exists; retained attempts may not be overwritten")

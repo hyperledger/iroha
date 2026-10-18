@@ -394,21 +394,29 @@ pub fn start_with_backpressure(
     cfg: &Fastpq,
     backpressure: Option<crate::queue::BackpressureHandle>,
 ) -> Option<(FastpqLaneHandle, tokio::task::JoinHandle<()>)> {
-    start_with_options(cfg, backpressure, None, None)
+    start_with_options(cfg, backpressure, None, None, None)
 }
 /// Start the sole prover worker with exact State/Kura discovery and node shutdown ownership.
 pub fn start_with_backpressure_and_shutdown(
     cfg: &Fastpq,
     backpressure: Option<crate::queue::BackpressureHandle>,
     state: Arc<crate::state::State>,
+    replay_seed: crate::sumeragi::node::NativeReplaySeed,
     shutdown: ShutdownSignal,
 ) -> Option<(FastpqLaneHandle, tokio::task::JoinHandle<()>)> {
-    start_with_options(cfg, backpressure, Some(state), Some(shutdown))
+    start_with_options(
+        cfg,
+        backpressure,
+        Some(state),
+        Some(replay_seed),
+        Some(shutdown),
+    )
 }
 fn start_with_options(
     cfg: &Fastpq,
     backpressure: Option<crate::queue::BackpressureHandle>,
     state: Option<Arc<crate::state::State>>,
+    replay_seed: Option<crate::sumeragi::node::NativeReplaySeed>,
     external_shutdown: Option<ShutdownSignal>,
 ) -> Option<(FastpqLaneHandle, tokio::task::JoinHandle<()>)> {
     let mut cfg = cfg.clone();
@@ -421,7 +429,8 @@ fn start_with_options(
                 .min(state.kura().fastpq_object_max_bytes().get() as u64),
         );
     }
-    let producer = state.map(|state| producer::Producer::new(state, cfg.producer.clone()));
+    let producer =
+        state.map(|state| producer::Producer::new(state, cfg.producer.clone(), replay_seed));
     start_with_builder(backpressure, producer, external_shutdown, move || {
         build_engine(&cfg)
     })
@@ -2099,3 +2108,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) use producer::isolated_replay_retryable_for_test;

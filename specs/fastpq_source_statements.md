@@ -285,8 +285,9 @@ is invalid. Final-capture limits alone cannot provide proposal liveness.
 
 Prepared complete D7 contents now join original capture and authenticated native
 source finality before entering the bounded Kura producer outbox described below.
-TODO: finish missing-tape reconstruction, authority-aware retention and the separate
-exact AXT spending/replay integration; artifact storage alone grants none of them.
+TODO: qualify isolated missing-tape reconstruction, finish authority-aware retention
+and the separate exact AXT spending/replay integration; artifact storage alone
+grants none of them.
 
 Current-branch compilation, all affected tests, fresh complete artifacts,
 independent cryptographic qualification, release-hardware CPU/Metal/CUDA parity
@@ -304,8 +305,6 @@ turns and exports the actual H2-authenticated genesis anchor with original decod
 No decoded checkpoint or file cursor imports trust. Existing Global-only discovery callers
 select Global explicitly. The producer reads complete D7 source inventories and complete
 effect tapes through the existing funded native-context reader. A Complete manifest with
-an exact canonical empty statement root may advance without an optional tape, after its
-full ordinary-write root and bounds are authenticated. It grants no entry/effect inventory. A Complete manifest with
 an exact canonical empty statement root may advance without an optional tape, after its
 full ordinary-write root and bounds are authenticated. It grants no entry/effect inventory.
 
@@ -330,12 +329,50 @@ nothing. Proof output is bounded by both its configured carrier ceiling and the 
 immutable Kura object ceiling before generation.
 
 Optional tape size/admission/publication failure cannot strand mandatory native context
-publication or change certified D7/outputs. It leaves that source unresolved. **Read-only
-regeneration of a missing tape is still unfinished:** it must reuse authenticated signed
-policy installation and canonical execution/result preparation in isolated replay State,
-without invoking a normal second Worker against live Kura or publishing lane/SCCP effects.
-The existing startup replay can republish original tapes on a genuine restart, but is not
-that autonomous service. A nonempty unavailable source is never skipped; later producer
-work remains pending behind it. Authority-aware retention and complete nested cryptographic
-allocation accounting also remain open. Source tests and formatting do not establish
-compiled, whole-node, or payment-release qualification.
+publication or change certified D7/outputs. It leaves that source unresolved. The
+producer retains an original replay seed captured before native genesis execution.
+The seed contains the original Kura owner, network/chain identity and startup policies;
+it contains no current World rows, imported checkpoint, signing key or transaction
+builder. Exact file absence may request reconstruction. Corruption, changed bindings,
+invalid proofs and fixed resource limits cannot be reclassified as missing transport.
+
+Reconstruction uses the existing canonical signed-genesis preparation and serialized
+State executor in a disposable Kura destination. Each continuation retains one original
+certified body and its exact target, then prepares, appends and replays that body through
+the normal execution and publication owners. Public lane references use the canonical
+RS16 frame reader with historical authority derived from the replayed prefix; the
+reader never opens the live lane writer or imports a directory tip as authority.
+Earlier heights still compute their complete native commitments. Only the target's
+optional tape is retained, including nonempty H1. A completed reconstruction must
+match the independently authenticated height, carrier, core hash, execution result and
+root scope before the same complete D7/tape reader can use its temporary transport.
+The original source is never overwritten and a nonempty unavailable source is never
+skipped. The existing idle worker owns all scheduling; no additional work queue or
+relay service is introduced.
+
+The isolated State shares the retained original allocation pool without resizing it,
+and leaves process cache, prover and cryptographic settings with the running node.
+Its diagnostics are isolated on the canonical executor thread and inherited by its
+transaction-validation jobs, so historical fee, staking and settlement observations do
+not update the live counters. Original temporary pool refusals retain their typed
+cause. Before isolated genesis preparation returns an executor, validation, lane
+proof, result preimage, certificate and State publication failures retain their
+original error types. An actual temporary resource refusal can discard that
+unfinished temporary destination and retry the same pinned genesis and target.
+Malformed witnesses, fixed bounds, allocation demand overflow and local invariants
+remain terminal; diagnostic text grants no retry authority.
+
+After preparation, mandatory native-context and optional tape publication preserve
+original I/O errors. Interrupted/WouldBlock publication retries retain the same
+`PendingCommit` and charged bytes without executing or publishing State again.
+Namespace replacement and corrupt records remain terminal. Only a completed optional
+capture carrying original pool contention permits rebuilding an existing isolated
+continuation; other retryable projection/storage failures keep its existing owner.
+These local scheduling decisions never become execution verdicts.
+
+TODO: execute the isolated reconstruction regressions, missing-tape restart/idle
+campaigns and genuine proof generation on the reconciled source candidate. This is
+canonical replay from signed genesis, not accelerated complete-State restoration.
+Authority-aware retention and complete nested cryptographic allocation accounting
+also remain open. Source tests and formatting do not establish compiled, whole-node,
+or payment-release qualification.

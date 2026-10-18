@@ -59,6 +59,7 @@ fn continue_retained_b_archive_then_unload_without_repeating_transfers() {
         prior["schema"].as_str(),
         Some("iroha.kagemusha.retained-archive-continuation.v1")
     );
+    message_census::require_manifest_continuity(&census_manifest, &prior);
     for field in ["new_enrollments", "new_loads", "new_transfers"] {
         assert_eq!(prior[field].as_u64(), Some(0));
     }
@@ -72,6 +73,11 @@ fn continue_retained_b_archive_then_unload_without_repeating_transfers() {
     assert_eq!(
         previous["schema"].as_str(),
         Some("iroha.kagemusha.selected-send-continuation.v1")
+    );
+    message_census::require_selected_send_session(
+        &census_originals[4],
+        &census_originals[5],
+        &previous,
     );
     let completed_path = selected_path("KAGEMUSHA_NATIVE_COMPLETED_SEND_CONTINUATION");
     let completed_bytes = read_pin(

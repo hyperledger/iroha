@@ -89,7 +89,7 @@ fn private_genesis_seeds_signed_namespace_currency_before_global_defaults_withou
     .unwrap();
     ensure_default_namespace_policies_match_configured(
         &world.view(),
-        &policy.asset_definition_id.to_string(),
+        &policy.fee_asset_id.canonical_address(),
     )
     .unwrap();
     let before = world

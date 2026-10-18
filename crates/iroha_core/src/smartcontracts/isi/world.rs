@@ -18884,7 +18884,7 @@ pub mod isi {
         impl ValidSingularQuery for FindParameters {
             #[metrics(+"find_parameters")]
             fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Parameters, Error> {
-                let params = state_ro.world().parameters();
+                let params: &Parameters = state_ro.world().parameters();
                 iroha_logger::debug!(
                     max_tx = params.block().max_transactions().get(),
                     sc_depth = params.smart_contract().execution_depth(),

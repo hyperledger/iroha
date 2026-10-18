@@ -23,6 +23,7 @@ fn fixture(bytes: &[u8], budget: AllocationBudget) -> (tempfile::TempDir, Native
         namespace: "native-contexts",
         // Same context-only policy as open_read_only: no optional FASTPQ capture.
         fastpq_maximum: None,
+        fastpq_replay_target: None,
     };
     fs::write(canonical_path(directory.path()), bytes).unwrap();
     let read = archive.read_job(2, hash());

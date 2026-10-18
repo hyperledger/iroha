@@ -26096,7 +26096,7 @@
           ]
         },
         {
-          "reason": "Committee and epoch geometry of the first release (specs/sumeragi.md, section 1): a voting committee has 3f + 1 members with f from 1 to 10, so at least 4 and at most 31, and an epoch has at least three blocks. They are the structure of the protocol, fixed with it. The wire ceiling of a signer set is the listed transport.max_committee_size (1,024), far above them. The fault bound f is written `(n - 1) / 3` where a readiness quorum of n - f is counted, and the KAGEMUSHA mint-finality committee has the same least size of 4.",
+          "reason": "Committee and epoch geometry of the first release (specs/sumeragi.md, section 1): a voting committee has 3f + 1 members with f from 1 to 10, so at least 4 and at most 31, and an epoch has at least three blocks. They are the structure of the protocol, fixed with it. The wire ceiling of a signer set is the listed transport.max_committee_size (1,024), far above them. The fault bound f is written `(n - 1) / 3` where a readiness quorum of n - f is counted.",
           "files": [
             {
               "path": "crates/iroha_core/src/beacon/ceremony.rs",

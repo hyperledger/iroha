@@ -1794,7 +1794,7 @@ def test_token_issuance_policy_reads_cannot_be_reordered_or_move_outside_worker(
     "crates/iroha_core/src/executor_stream_token_gateway_direct_source_tests.rs",
     "crates/iroha_core/src/executor_stream_token_gateway_permission_tests.rs",
     "crates/iroha_core/src/executor_stream_token_gateway_check_permission_tests.rs",
-    "crates/iroha_core/src/executor/private_fees.rs",
+    "crates/iroha_core/src/executor/root_fees.rs",
 ])
 def test_current_core_recovery_children_are_explicit_finite_support_paths(tmp_path: Path, relative: str) -> None:
     module = load_guard_module()
@@ -1802,6 +1802,51 @@ def test_current_core_recovery_children_are_explicit_finite_support_paths(tmp_pa
     assert module.AUDITED_SOURCE_PATHS.count(Path(relative)) == 1
     assert Path("crates/iroha_core/src") not in module.AUDITED_SOURCE_PATHS
     test_core_recovery_support_seals_exact_permission_include(tmp_path, relative)
+
+
+def test_root_fee_owner_seals_the_current_module_and_full_source(tmp_path: Path) -> None:
+    """The real executor module path retains complete fee-policy coverage."""
+    module = load_guard_module()
+    parent = tmp_path / "crates/iroha_core/src"
+    owner = parent / "executor/root_fees.rs"
+    owner.parent.mkdir(parents=True)
+    (parent / "executor.rs").write_text("pub(crate) mod root_fees;\n", encoding="utf-8")
+    owner.write_text("fn fee_policy() { original_policy(); }\n", encoding="utf-8")
+
+    sources, failures = module.torii_rust_source_closure(tmp_path)
+    assert failures == []
+    assert owner.resolve() in sources
+    reviewed = module.torii_boundary_inventory(tmp_path, sources)
+    owner.write_text("fn fee_policy() { substituted_policy(); }\n", encoding="utf-8")
+    changed = module.torii_boundary_inventory(tmp_path)
+    assert changed[2] == reviewed[2], "fee-policy drift needs no added panic boundary"
+    assert any(
+        "source inventory drifted" in failure
+        for failure in module.closed_torii_boundary_inventory_failures(
+            tmp_path, reviewed[0], observed_inventory=changed,
+        )
+    )
+
+
+@pytest.mark.parametrize("declaration", (
+    "pub(crate) mod private_fees;\n",
+    '#[path = "executor/private_fees.rs"]\npub(crate) mod root_fees;\n',
+))
+def test_root_fee_owner_refuses_retired_module_and_path_alias(
+    tmp_path: Path, declaration: str,
+) -> None:
+    """A returned retired owner cannot inherit the current owner's review."""
+    module = load_guard_module()
+    parent = tmp_path / "crates/iroha_core/src"
+    retired = parent / "executor/private_fees.rs"
+    retired.parent.mkdir(parents=True)
+    (parent / "executor.rs").write_text(declaration, encoding="utf-8")
+    retired.write_text("fn retired_fee_policy() {}\n", encoding="utf-8")
+
+    sources, failures = module.torii_rust_source_closure(tmp_path)
+    assert retired.resolve() not in sources
+    assert any("source path escapes the audited source roots" in failure for failure in failures)
+    assert retired.relative_to(tmp_path) not in module.CORE_RECOVERY_SUPPORT_PATHS
 
 
 def test_current_raw_review_accepts_complete_shared_owner_move_and_refuses_legacy_return(

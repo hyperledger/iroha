@@ -18,7 +18,7 @@ fn scope(
 
 /// Validate the captured predecessor policy without reading a later parameter value.
 /// Presence is mandatory; the only unconfigured context is H1, whose caller skips fees.
-pub(super) fn effective(
+pub(crate) fn effective(
     world: &impl WorldReadOnly,
     captured: &RootFeePolicy,
 ) -> Result<RootFeePolicy, ExecutionAttemptError<NexusFeeAdmissionError>> {

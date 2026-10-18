@@ -10,7 +10,7 @@ use core::marker::PhantomData;
 use iroha_pasta::{Fp, Fq};
 use iroha_plonk::{
     check::{CheckMode, check_circuit},
-    cs::{Column, ConstraintSystem, Instance},
+    cs::{Column, ConstraintSystem, Expression, Instance},
     frontend::{Circuit, Layouter, SimpleFloorPlanner, Value, configure, synthesize},
 };
 
@@ -203,16 +203,51 @@ fn q_leaf_shape_matches_the_plan() {
     };
     assert_eq!(named("ff c_0 range + sha256 spread").width(), 3);
     assert_eq!(named("ff u_0 range + p256 window").width(), 8);
-    for lookup in cs.lookups() {
+    // The chip's arithmetic bound stays six. The native norm-product lookup
+    // argument separately doubles its input/table expression degrees.
+    for gate in cs.gates() {
         assert!(
-            lookup.required_degree() <= crate::MAX_GATE_DEGREE,
-            "{}",
+            gate.polynomials()
+                .iter()
+                .all(|polynomial| polynomial.degree() <= crate::MAX_GATE_DEGREE)
+        );
+    }
+    for lookup in cs.lookups() {
+        let expected = match lookup.name() {
+            "ff c_0 range + sha256 spread"
+            | "ff c_1 range"
+            | "ff c_2 range"
+            | "ff q_0 range"
+            | "ff q_1 range"
+            | "ff q_2 range" => (3, 1, 10),
+            "ff u_0 range + p256 window" => (2, 2, 10),
+            "ff u_1 range" | "ff u_2 range" | "ff u_3 range" => (2, 1, 8),
+            other => panic!("unexpected Q-leaf lookup: {other}"),
+        };
+        assert_eq!(
+            (
+                lookup
+                    .input_expressions()
+                    .iter()
+                    .map(Expression::degree)
+                    .max()
+                    .expect("nonempty lookup"),
+                lookup
+                    .table_expressions()
+                    .iter()
+                    .map(Expression::degree)
+                    .max()
+                    .expect("nonempty lookup"),
+                lookup.required_degree(),
+            ),
+            expected,
+            "{}: active/product columns add two to twice each factor's degree",
             lookup.name()
         );
     }
-    assert_eq!(named("ff c_0 range + sha256 spread").required_degree(), 6);
-    assert_eq!(named("ff u_0 range + p256 window").required_degree(), 6);
-    assert_eq!(cs.degree(), 6);
+    assert_eq!(named("ff c_0 range + sha256 spread").required_degree(), 10);
+    assert_eq!(named("ff u_0 range + p256 window").required_degree(), 10);
+    assert_eq!(cs.degree(), 10);
     assert_eq!(cs.blinding_factors(), 5);
     // Raw fixed columns: the shared table (8), the foreign-field patterns
     // (4), the glue coefficients (6), the constants column, the window's

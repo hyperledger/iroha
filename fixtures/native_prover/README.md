@@ -26,11 +26,9 @@ Field elements are canonical little-endian `to_repr` hex. Points are compressed
 | `kagemusha_v1_poseidon` | Vectors of the KAGEMUSHA domain hash `hash([domain, len, inputs...])` on the vendored sponge, and the empty depth-256 replay root. The shared sponge is anchored through the confidential section; `production_anchors` names the native consumers that assert every vector. |
 | `confidential_v3_poseidon` | Vectors of the oracle reproduction of `confidential_poseidon_hash_v3` for every V3 domain, and the empty subtree roots up to depth 16. `production_anchors` names the three production KATs the reproduction is checked against. |
 
-Consumers: `crates/iroha_plonk_oracle/tests/pasta_parity/` checks
-`iroha_pasta` against the `params_ipa` digests, the `poseidon_constants`
-tables, the `poseidon_transcript` challenges and the `kagemusha_v1_poseidon`
-and `confidential_v3_poseidon` vectors, besides comparing it with the vendored
-crates directly. `iroha_plonk` replays both transcript sections
+Current consumers: `iroha_pasta` replays retained RP57 known answers and
+regenerates the pinned constant tables (`tests/poseidon_kat.rs`).
+`iroha_plonk` replays both transcript sections
 (`src/transcript/kat_tests.rs`) and checks its pinned params against the
 `params_ipa` digests (`tests/pinned_params.rs`). The `iroha_plonk_gadgets`
 sponge chip and `iroha_kagemusha_proof` assert the `kagemusha_v1_poseidon`

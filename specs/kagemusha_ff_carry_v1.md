@@ -23,6 +23,22 @@ moved from block row 6 to row 0. Limb geometry (87/87/82), quotient
 capacity (`2^261`), carry offset and width (`2^104`, seven 15-bit
 sublimbs), padding and every numeric bound below are unchanged.
 
+**Current native argument boundary.** The native prover now uses nonzero norm
+factors `N(x) = x^2 - 5` in its lookup products. For input/table expression
+degrees `d_a,d_s`, the required argument degree is
+`max(6, 2 + 2 max(1,d_a) + 2 max(1,d_s))`; the two extra degrees come from
+the active-row and product polynomials. This changes the proof argument's
+degree and descriptors, not the fused chip's carry equations, interval bounds,
+range membership predicates, shared-table layout or row/column counts.
+The carry and range-binding derivations below retain only that narrow scope;
+they assume the native lookup/permutation arguments establish their stated
+relations. They do not supply a new soundness review of the norm arguments.
+`MAX_GATE_DEGREE = 6` continues to bound ordinary fused-leaf arithmetic polynomials, not the
+total norm lookup argument. Earlier descriptor/key/proof sizes, performance
+records and source-specific sign-offs below remain evidence for their captured
+sources only. They are not transferred to the current native argument; current
+descriptors, proofs and resource gates require fresh qualification.
+
 ## 1. Parameters
 
 | Symbol | Value | Enforced by |
@@ -81,8 +97,10 @@ below `2^105 < N`. So `z_0` is an integer in `[0, 2^{15(L-1)+w})`: `2^87`
 the equivalence exhaustively for `w in {7, 12}` and the widths
 `15 * 5 + {12, 12, 7} = 87, 87, 82`, `15 * 5 + 12 = 87`, `15 * 7 = 105`.
 
-Degrees: `C`/`Q` inputs have degree 3 (lookup degree `2 + 3 + 1 = 6`), `U`
-inputs degree 2 (5). Advice queries per operand column: rotations 0, 1, 6
+Degrees: `C`/`Q` inputs have degree 3 and fixed-table degree 1, giving current
+norm lookup degree `2 + 2*3 + 2*1 = 10`. `U` inputs have degree 2 and
+fixed-table degree 1, giving `2 + 2*2 + 2*1 = 8`. Advice queries per operand
+column: rotations 0, 1, 6
 (three, as before: blinding stays 5; a `Rotation::prev` design would have
 needed a fourth query and six blinding rows).
 
@@ -186,7 +204,7 @@ shape), never witness-dependent.
 - Exact (synthesis inventory, `ff_inventory_per_operation`): 70 advice cells per
   multiplication or division (7 rows x 10 columns, no idle cell); proper witness
   18; canonical witness 36; comparison of an existing value 21. Gates degree 3,
-  `C`/`Q` lookups degree 6 and `U` lookups degree 5 (10 width-1 range lookups,
+  current norm `C`/`Q` lookups degree 10 and `U` lookups degree 8 (10 width-1 range lookups,
   one per column), 4 fixed pattern columns plus one table column (32,768
   rows, `k >= 16`), 3 queries per operand column (blinding 5, unchanged).
   G3.4 threshold <= 100 cells: met (70).
@@ -227,6 +245,16 @@ value `< 2^15`":
   which matches only rows with `T = 0`; those are the range rows (all other
   components zero) and all-zero rows. SHA tags are `2^33 + w`, dynamic window
   tags `2^32 + row`, fixed window tags in `[1, 2^32)`.
+
+The merged `c_0` input/table maximum degrees are `(3,1)`, so its norm
+argument degree is 10. The `u_0` window input/table degrees are `(2,2)`:
+the dynamic table term includes `q_dyn * advice`, so its norm argument
+degree is also 10. The five other C/Q arguments have `(3,1)` and degree10;
+the three unmerged U arguments have `(2,1)` and degree8. Thus the current
+Q leaf has total circuit degree10 while its arithmetic polynomials remain
+bounded by six. Its 17 advice, 26 raw fixed, 12 equality columns and ten
+lookup arguments are unchanged. This degree reconciliation changes neither
+the carry/range bounds nor any measurement limit.
 
 `QLeafConfig::audit` checks these conditions on the synthesized fixed
 columns (row-disjoint activation of host and guest in both merged arguments,
@@ -275,16 +303,19 @@ deployment authorization; those gates remain separate.
 ### Current fused-leaf review (2026-10-09)
 
 The two 2026-10-09 source reviews and an independent 2026-10-10 source/integer
-re-review found no carry/range-binding defect in the actual M3
-`G3.6/q_leaf_chips` path, descriptor
+re-review found no carry/range-binding defect in the then-captured M3
+`G3.6/q_leaf_chips` path, whose pre-norm descriptor was
 `0ffa6d0a7a3a2449e092b21dcb9201c75f2c6fdf3305717b955b67a72e724070`.
-Its Q-leaf source still matches `ac22585f…ab2d5`; the current FF source is
+The review bound Q-leaf source `ac22585f…ab2d5` and FF source
 `d9fac96aab07d5af33921651c720530e26a7ddbed9d75d8bdac2eef5ea520a5b`.
-Eighteen arithmetic, range, configuration and copy functions match the earlier
-reviewed FF source. Inspection of the changed wrappers confirms that this leaf
-selects `serialized=None`, retaining the fused bounds and gates.
+At that review, eighteen arithmetic, range, configuration and copy functions
+matched the earlier reviewed FF source. Inspection of its changed wrappers
+confirmed that the leaf selected `serialized=None`, retaining the fused bounds
+and gates. The current norm lookup wrapper changes total degree and requires
+new descriptor/key/proof qualification; this historical acceptance is not a
+sign-off on that wrapper or the current complete source.
 
-The current independent acceptance is confined to this fused arithmetic,
+That independent acceptance is confined to the reviewed fused arithmetic,
 two-membership range binding, canonical comparison and shared-table construction.
 Its self-contained exact-integer rederivation matches all four modulus padding
 multipliers and carry intervals against both native orders: the largest local
@@ -917,9 +948,14 @@ Additional equations are `I_3(p)*z*(z-1)=0` and
 existing tuple `(15,0)`. Thus every step is an exact 15-bit digit, and the last
 state has its exact top width. Telescoping gives the same integer bound below
 `2^bits<=2^252<N`; neither integer wrap nor a different tuple tag can weaken it.
-Checks now use `ceil(bits/15)` rows. The lookup input degree is five, its
-argument degree is eight, and the narrow-root gates have degree at most eight.
-The complete compact degree remains nine. Direct-public overlays multiply by
+Checks use `ceil(bits/15)` rows. The lookup input degree is five and the
+fixed table degree is one: under current norm products this particular tagged
+profile requires argument degree `2 + 2*5 + 2*1 = 14`. The narrow-root gates
+remain degree at most eight. The degree-nine compact descriptor recorded for
+this section's earlier source is not the descriptor of that tagged profile
+under the current norm argument. Its recorded byte counts and proofs below
+remain captured-source evidence and need fresh qualification after rebinding.
+Direct-public overlays multiply by
 all four active-pattern roots and therefore remain disabled on every range row.
 
 The root reviewer checked these equations and then independently read

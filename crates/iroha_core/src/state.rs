@@ -20638,8 +20638,8 @@ macro_rules! world_ro_accessors {
     };
     (configuration, $mode:ident) => {
         world_ro_accessors!(@items $mode;
-            /// Global parameters registry.
-            cell_ref parameters: Parameters;
+            /// Committed parameters and their validated execution projections.
+            cell_ref parameters: StateParameters;
             /// Lag-2 Sumeragi height-configuration schedule (read-only).
             cell_ref consensus_schedule: crate::sumeragi::schedule::RetainedConsensusSchedule;
             /// Dataspace alias catalog used to qualify domain-scoped aliases.
@@ -27447,6 +27447,7 @@ impl State {
         kura: Arc<Kura>,
         query_handle: LiveQueryStoreHandle,
         exact_durable_height: usize,
+        process_runtime: ProcessRuntimeInstallation,
         chain_id: iroha_model_base::chain::ChainId,
         network_id: iroha_data_model::NetworkId,
         #[cfg(feature = "telemetry")] telemetry: StateTelemetry,
@@ -28050,7 +28051,7 @@ impl State {
             telemetry_seed.seed_space_directory_manifests(&manifest_view);
         }
         #[cfg(feature = "sm")]
-        {
+        if process_runtime.installs() {
             Sm2PublicKey::set_default_distid(initial_crypto.sm2_distid_default.clone())
                 .expect("sm2_distid_default must be valid");
         }
@@ -28088,13 +28089,15 @@ impl State {
             wtx.apply();
             wblock.commit();
         }
-        // Initialize the global IVM pre-decode cache with configured limits.
-        ivm::ivm_cache::configure_limits(ivm::ivm_cache::CacheLimits {
-            capacity: s.pipeline.cache_size,
-            max_bytes: s.pipeline.ivm_cache_max_bytes,
-            max_decoded_ops: s.pipeline.ivm_cache_max_decoded_ops,
-        });
-        ivm::zk::set_prover_threads(s.pipeline.ivm_prover_threads);
+        if process_runtime.installs() {
+            // Only the live node installs process-wide execution resources.
+            ivm::ivm_cache::configure_limits(ivm::ivm_cache::CacheLimits {
+                capacity: s.pipeline.cache_size,
+                max_bytes: s.pipeline.ivm_cache_max_bytes,
+                max_decoded_ops: s.pipeline.ivm_cache_max_decoded_ops,
+            });
+            ivm::zk::set_prover_threads(s.pipeline.ivm_prover_threads);
+        }
         Ok(s)
     }
     /// Synchronize Kura lane storage and manifests after an in-process test catalog mutation.
@@ -28332,6 +28335,7 @@ impl State {
             kura,
             query_handle,
             exact_durable_height,
+            ProcessRuntimeInstallation::Install,
             chain_id,
             network_id,
             #[cfg(feature = "telemetry")]
@@ -28404,6 +28408,47 @@ impl State {
             #[cfg(feature = "telemetry")]
             StateTelemetry::default(),
         )
+    }
+    /// Construct the original empty reconstruction State in a physically isolated store.
+    /// The same canonical constructor and pipeline policy validation run, but the
+    /// live process cache, prover settings and original pool limit retain their
+    /// current owners. This is not a selectable execution/consensus mode.
+    pub(crate) fn try_new_for_isolated_replay(
+        execution_budget: AllocationBudget,
+        world: World,
+        kura: Arc<Kura>,
+        query_handle: LiveQueryStoreHandle,
+        chain_id: iroha_model_base::chain::ChainId,
+        network_id: iroha_data_model::NetworkId,
+        pipeline: iroha_config::parameters::actual::Pipeline,
+    ) -> Result<Self, IsolatedReplayStateError> {
+        if !kura.is_temporary_staging() {
+            return Err(MergeLedgerCommitError::ExecutionStatePublication(
+                "isolated replay requires an original temporary destination".into(),
+            )
+            .into());
+        }
+        let exact_durable_height = kura
+            .exact_durable_blocks_count()
+            .map_err(MergeLedgerCommitError::from)?;
+        let mut state = Self::new_inner(
+            execution_budget,
+            world,
+            kura,
+            query_handle,
+            exact_durable_height,
+            ProcessRuntimeInstallation::Preserve,
+            chain_id,
+            network_id,
+            #[cfg(feature = "telemetry")]
+            StateTelemetry::default(),
+        )?;
+        state.world.parameters.view().pipeline_policy().validate()?;
+        state.install_pipeline_settings(
+            crate::pipeline_validity_policy::node_local_resources(pipeline),
+            ProcessRuntimeInstallation::Preserve,
+        );
+        Ok(state)
     }
     /// _(test only)_ Create state with mock telemetry (depends on features)
     #[must_use]
@@ -32242,6 +32287,14 @@ impl State {
     /// Access the current cryptography configuration snapshot.
     pub fn crypto(&self) -> Arc<iroha_config::parameters::actual::Crypto> {
         self.crypto.read().clone()
+    }
+    /// Retain the original startup crypto snapshot in a separately owned replay
+    /// State without reconfiguring the running process's acceleration/SM defaults.
+    pub(crate) fn install_crypto_snapshot_for_isolated_replay(
+        &self,
+        crypto: iroha_config::parameters::actual::Crypto,
+    ) {
+        self.commit_crypto_snapshot(crypto);
     }
     /// Update cryptography settings using loaded configuration.
     pub fn set_crypto(&self, crypto: iroha_config::parameters::actual::Crypto) {

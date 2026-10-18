@@ -530,7 +530,11 @@ pub(crate) fn validate_executed_genesis(
         .map_err(|error| ScheduleError::Epoch(error.into()))?;
     crate::resource_coherence::validate_final_policy(world, 1)
         .map_err(|error| ScheduleError::Epoch(error.to_string()))?;
-    crate::executor::private_fees::policy(world).map_err(|error| {
+    let fees = world
+        .parameters()
+        .root_fees()
+        .ok_or_else(|| ScheduleError::Epoch("executed genesis root fee policy is absent".into()))?;
+    crate::executor::root_fees::effective(world, fees).map_err(|error| {
         error.map_rejection(|error| {
             ScheduleError::Epoch(format!(
                 "executed genesis fee policy is invalid: {}",

@@ -292,3 +292,9 @@ mod tests {
         );
     }
 }
+
+/// Inspect the actual durable position without introducing a test-side encoder.
+#[cfg(test)]
+pub(super) fn position_for_test(job: &FastpqWitnessJob) -> Result<Hash, DurableError> {
+    position(job)
+}

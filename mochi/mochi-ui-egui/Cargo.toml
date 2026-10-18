@@ -23,6 +23,7 @@ hex = { workspace = true }
 norito = { workspace = true, default-features = false, features = ["node-codec"] }
 
 [dev-dependencies]
+iroha_deploy = { workspace = true }
 iroha_test_samples = { path = "../../crates/iroha_test_samples" }
 iroha_torii_shared = { workspace = true }
 mochi-core = { path = "../mochi-core", features = ["test"] }

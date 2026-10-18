@@ -21,6 +21,11 @@
 //!   checks on three running-sum tables) filled to capacity, and the exact
 //!   shape (32 / 44 / 10 / 3).
 //!
+//! The arithmetic gates remain degree at most six. The current nonzero norm
+//! lookup products require degree ten for the fused Q leaf and degree eight
+//! for both synthetic shapes and the A load. These are the current workloads;
+//! their resource limits are unchanged and their descriptors must be recaptured.
+//!
 //! Each proof test emits a `M3_GATE_JSON` record. CPU comes directly from
 //! the process clock, RSS from the kernel's lifetime high-water figure,
 //! and each proof is verified outside its timed synthesis/proving/cleanup
@@ -50,7 +55,10 @@ use std::{
 };
 
 use ::ff::{Field as _, PrimeField as _};
-use iroha_measurement::probe::ProcessSnapshot;
+use iroha_measurement::{
+    ThermalState,
+    probe::{ProbeError, ProcessSnapshot},
+};
 use iroha_pasta::{
     Ep as Pallas, Eq as Vesta, Fp, Fq, PastaCurve, PastaField,
     msm::{MemoryBudget, SharedMemoryBudget},
@@ -353,6 +361,36 @@ where
     );
 }
 
+/// Bind the measured executable to its complete compiled native source identity.
+fn native_source_report(digest: [u8; 32], binary_sha256: &str) -> norito::json::Value {
+    norito::json!({
+        "schema": "kagemusha.m3.native-source.v1",
+        "native_source_digest": (hex(&digest)),
+        "binary_sha256": binary_sha256,
+        "target_arch": (std::env::consts::ARCH),
+        "target_os": (std::env::consts::OS),
+        "pointer_width": (usize::BITS),
+        "little_endian": (cfg!(target_endian = "little")),
+    })
+}
+
+/// Reject every failed or thermally invalid observation before extracting a metric.
+/// An intermediate failure invalidates the process even if its boundary readings
+/// are nominal; the runner retains the failed process and its phase diagnostic.
+fn checked_resource_probe(
+    observed: Result<ProcessSnapshot, ProbeError>,
+    phase: &str,
+) -> ProcessSnapshot {
+    let snapshot =
+        observed.unwrap_or_else(|error| panic!("{phase}: resource probe failed: {error:?}"));
+    assert_eq!(
+        snapshot.thermal,
+        ThermalState::Nominal,
+        "{phase}: non-nominal or unavailable thermal probe"
+    );
+    snapshot
+}
+
 /// Synthesis through witness cleanup is timed independently for each proof.
 /// Parameters/keygen and each verification are outside that interval.
 fn measure_in_pool<C, Ci>(
@@ -367,21 +405,19 @@ fn measure_in_pool<C, Ci>(
     C::ScalarExt: PoseidonField,
     Ci: Circuit<C::ScalarExt>,
 {
-    let process_before = ProcessSnapshot::capture().expect("valid starting resource probes");
+    let process_before = checked_resource_probe(ProcessSnapshot::capture(), "process start");
     let (cs, _) = configure(circuit).expect("configure");
     let started = Instant::now();
     let (params, params_source) = pinned_params::<C>(K);
     let params_ns = elapsed_ns(started);
-    let rss_after_params = ProcessSnapshot::capture()
-        .expect("post-params probes")
-        .peak_rss_bytes;
+    let rss_after_params =
+        checked_resource_probe(ProcessSnapshot::capture(), "post-params").peak_rss_bytes;
     let started = Instant::now();
     let config = measurement_key_config();
     let pk = keygen_pk_v2(&params, &circuit.without_witnesses(), &config).expect("proving key");
     let keygen_ns = elapsed_ns(started);
-    let rss_after_keygen = ProcessSnapshot::capture()
-        .expect("post-keygen probes")
-        .peak_rss_bytes;
+    let rss_after_keygen =
+        checked_resource_probe(ProcessSnapshot::capture(), "post-keygen").peak_rss_bytes;
     let key_cs = pk.constraint_system().constraint_system();
     let compiled = CompiledExpressions::<C::ScalarExt>::compile(pk.binding().descriptor(), true)
         .expect("compiled expressions");
@@ -394,13 +430,12 @@ fn measure_in_pool<C, Ci>(
         let (sample, public) = make_sample(fixture_seed);
         let instances = vec![public];
         let workspace_before_bytes = quotient_workspace.allocated_bytes();
-        let before = ProcessSnapshot::capture().expect("valid pre-proof resource probes");
+        let before = checked_resource_probe(ProcessSnapshot::capture(), "pre-proof");
         let started = Instant::now();
         let witness = Witness::from_circuit(&pk, &sample, &instances).expect("witness");
         let synthesis_ns = elapsed_ns(started);
-        let rss_after_witness = ProcessSnapshot::capture()
-            .expect("post-witness probes")
-            .peak_rss_bytes;
+        let rss_after_witness =
+            checked_resource_probe(ProcessSnapshot::capture(), "post-witness").peak_rss_bytes;
         let randomness = ProverRandomness::hedged();
         let proving = Instant::now();
         let output = create_proof_owned_with_workspace(
@@ -419,7 +454,7 @@ fn measure_in_pool<C, Ci>(
         let create_proof_ns = elapsed_ns(proving);
         // The consumed witness has already been released here.
         let total_ns = elapsed_ns(started);
-        let after = ProcessSnapshot::capture().expect("valid post-proof resource probes");
+        let after = checked_resource_probe(ProcessSnapshot::capture(), "post-proof");
         let cpu_ns = after.cpu_since(before).expect("monotonic process CPU");
         let verifying = Instant::now();
         assert_eq!(
@@ -435,9 +470,8 @@ fn measure_in_pool<C, Ci>(
             "{gate}: proof {index} rejected",
         );
         let verify_ns = elapsed_ns(verifying);
-        let rss_after_verify = ProcessSnapshot::capture()
-            .expect("post-verify probes")
-            .peak_rss_bytes;
+        let rss_after_verify =
+            checked_resource_probe(ProcessSnapshot::capture(), "post-verify").peak_rss_bytes;
         let mut wrong = instances.clone();
         wrong[0][0] += C::ScalarExt::ONE;
         assert!(
@@ -457,7 +491,7 @@ fn measure_in_pool<C, Ci>(
             "thermal_before": (before.thermal.as_str()), "thermal_after": (after.thermal.as_str()),
         }));
     }
-    let process_after = ProcessSnapshot::capture().expect("valid final resource probes");
+    let process_after = checked_resource_probe(ProcessSnapshot::capture(), "process end");
     let scratch = SharedMemoryBudget::process_default();
     assert_eq!(scratch.in_use_bytes(), 0, "all MSM scratch released");
     assert!(scratch.peak_bytes() <= scratch.limit_bytes());
@@ -496,6 +530,19 @@ fn measure_in_pool<C, Ci>(
 // ---------------------------------------------------------------------------
 // G3.6: the Q leaf filled with the P-256 and SHA-256 chips.
 // ---------------------------------------------------------------------------
+
+/// Inspect the exact compiled source identity without deriving workload keys.
+#[test]
+#[ignore = "explicit complete-source identity join before qualification"]
+fn qualification_candidate_identity() {
+    let digest = iroha_plonk::keys::builtin_source_identity_v1()
+        .expect("qualification requires a complete compiled native source closure");
+    let report = native_source_report(digest, &binary_digest());
+    println!(
+        "M3_SOURCE_JSON {}",
+        norito::json::to_json(&report).expect("native source JSON")
+    );
+}
 
 /// Freeze all four workload descriptors from actual keys before qualification.
 #[test]
@@ -1587,6 +1634,154 @@ fn qualification_a_samples_preserve_geometry_and_change_roots() {
     assert_eq!(first.lanes[0][0].root(), replay.lanes[0][0].root());
 }
 
+/// Pin the actual current workload costs introduced by nonzero norm products.
+/// The lookup constraint is `active * (z_next N(A') N(S') - z N(A) N(S))`;
+/// `N(x) = x^2 - 5` doubles expression degrees. The active and product columns
+/// add two, giving `2 + 2*input_degree + 2*table_degree`. Do not lower this bound
+/// to preserve historical degree-six descriptors or their performance records.
+#[test]
+fn qualification_workload_degrees_include_norm_lookup_products() {
+    fn check<F: PastaField>(
+        cs: &ConstraintSystem<F>,
+        columns: (usize, usize, usize, usize),
+        mut lookup_expression_degrees: Vec<(usize, usize)>,
+        degree: usize,
+    ) {
+        assert_eq!(
+            (
+                cs.num_advice_columns(),
+                cs.num_fixed_columns(),
+                cs.permutation().columns().len(),
+                cs.lookups().len(),
+            ),
+            columns
+        );
+        assert!(
+            cs.gates()
+                .iter()
+                .flat_map(iroha_plonk::cs::Gate::polynomials)
+                .all(|polynomial| polynomial.degree() <= 6)
+        );
+        let mut actual: Vec<_> = cs
+            .lookups()
+            .iter()
+            .map(|lookup| {
+                let input = lookup
+                    .input_expressions()
+                    .iter()
+                    .map(Expression::degree)
+                    .max()
+                    .unwrap();
+                let table = lookup
+                    .table_expressions()
+                    .iter()
+                    .map(Expression::degree)
+                    .max()
+                    .unwrap();
+                assert_eq!(lookup.required_degree(), 2 + 2 * input + 2 * table);
+                (input, table)
+            })
+            .collect();
+        actual.sort_unstable();
+        lookup_expression_degrees.sort_unstable();
+        assert_eq!(actual, lookup_expression_degrees);
+        assert_eq!(cs.degree(), degree);
+    }
+
+    let (q, _) = configure(&q_leaf(Q_VARIABLE, Q_FIXED, 60)).unwrap();
+    let mut q_lookups = vec![(3, 1); 6];
+    q_lookups.extend([(2, 1); 3]);
+    q_lookups.push((2, 2));
+    check(&q, (17, 26, 12, 10), q_lookups, 10);
+
+    let (a, _) = configure(&a_load(70)).unwrap();
+    check(&a, (31, 19, 15, 3), vec![(2, 1); 3], 8);
+
+    let (q, _) = configure(&ExactCircuit::<Fq>::new(Q_SHAPE, 0, 66)).unwrap();
+    check(&q, (22, 32, 8, 3), vec![(2, 1); 3], 8);
+    let (a, _) = configure(&ExactCircuit::<Fp>::new(A_SHAPE, 0, 77)).unwrap();
+    check(&a, (32, 44, 10, 3), vec![(2, 1); 3], 8);
+}
+
+#[test]
+fn qualification_native_source_record_binds_digest_binary_and_target() {
+    let digest = std::array::from_fn(|index| u8::try_from(index).expect("32-byte index"));
+    let binary = "a5".repeat(32);
+    let record = native_source_report(digest, &binary);
+    let encoded = norito::json::to_json(&record).expect("source JSON");
+    let decoded: norito::json::Value =
+        norito::json::from_str(&encoded).expect("source JSON decode");
+    assert_eq!(decoded, record);
+    assert_eq!(record.as_object().expect("source object").len(), 7);
+    assert_eq!(
+        record["schema"].as_str(),
+        Some("kagemusha.m3.native-source.v1")
+    );
+    assert_eq!(
+        record["native_source_digest"].as_str(),
+        Some("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+    );
+    assert_eq!(record["binary_sha256"].as_str(), Some(binary.as_str()));
+    assert_eq!(record["target_arch"].as_str(), Some(std::env::consts::ARCH));
+    assert_eq!(record["target_os"].as_str(), Some(std::env::consts::OS));
+    assert_eq!(
+        record["pointer_width"].as_u64(),
+        Some(u64::from(usize::BITS))
+    );
+    assert_eq!(
+        record["little_endian"].as_bool(),
+        Some(cfg!(target_endian = "little"))
+    );
+    assert_ne!(native_source_report([0xff; 32], &binary), record);
+    assert_ne!(native_source_report(digest, &"5a".repeat(32)), record);
+}
+
+#[test]
+fn qualification_rejects_invalid_intermediate_resource_probes() {
+    let nominal = ProcessSnapshot {
+        cpu_ns: 10,
+        peak_rss_bytes: 4096,
+        load_milli: Some(1500),
+        thermal: ThermalState::Nominal,
+    };
+    let phases = ["post-params", "post-keygen", "post-witness", "post-verify"];
+    for phase in phases {
+        assert_eq!(checked_resource_probe(Ok(nominal), phase), nominal);
+        for thermal in [
+            ThermalState::Unavailable,
+            ThermalState::Fair,
+            ThermalState::Serious,
+            ThermalState::Critical,
+        ] {
+            let observations = [
+                ("process start", nominal),
+                (phase, ProcessSnapshot { thermal, ..nominal }),
+                ("process end", nominal),
+            ];
+            let failure = std::panic::catch_unwind(|| {
+                for (label, snapshot) in observations {
+                    checked_resource_probe(Ok(snapshot), label);
+                }
+            })
+            .expect_err("a nominal final reading cannot excuse an invalid intermediate probe");
+            let message = failure.downcast_ref::<String>().expect("phase diagnostic");
+            assert!(message.contains(phase));
+            assert!(message.contains("thermal probe"));
+        }
+        for error in [
+            ProbeError::CpuUnavailable,
+            ProbeError::PeakRssUnavailable,
+            ProbeError::CpuWentBackwards,
+        ] {
+            let failure = std::panic::catch_unwind(|| checked_resource_probe(Err(error), phase))
+                .expect_err("probe failures invalidate the measurement process");
+            let message = failure.downcast_ref::<String>().expect("phase diagnostic");
+            assert!(message.contains(phase));
+            assert!(message.contains("resource probe failed"));
+        }
+    }
+}
+
 #[test]
 fn qualification_workers_are_explicit_and_actual() {
     assert_eq!(worker_count(None), Ok(1));
@@ -1751,7 +1946,22 @@ fn exact_shape_matches_its_counts_and_pins_every_cell() {
     assert_eq!(cs.num_fixed_columns(), shape.fixed);
     assert_eq!(cs.permutation().columns().len(), shape.equality);
     assert_eq!(cs.lookups().len(), shape.lookups);
-    assert_eq!(cs.degree(), 6);
+    // The S-box gates have degree six; each gated range input has degree two.
+    // The current norm lookup product therefore requires 2 + 2*2 + 2*1 = 8.
+    assert_eq!(
+        cs.gates()
+            .iter()
+            .flat_map(iroha_plonk::cs::Gate::polynomials)
+            .map(Expression::degree)
+            .max(),
+        Some(6)
+    );
+    assert!(
+        cs.lookups()
+            .iter()
+            .all(|lookup| lookup.required_degree() == 8)
+    );
+    assert_eq!(cs.degree(), 8);
     let public = vec![circuit.output()];
     let accepts = |circuit: &ExactCircuit<Fp>, public: &[Fp]| {
         check_circuit(circuit, k, &[public.to_vec()], CheckMode::Strict)
@@ -1774,7 +1984,7 @@ fn exact_shape_matches_its_counts_and_pins_every_cell() {
                 cs.lookups().len(),
                 cs.degree()
             ),
-            (shape.advice, shape.fixed, shape.equality, shape.lookups, 6)
+            (shape.advice, shape.fixed, shape.equality, shape.lookups, 8)
         );
     }
 }
@@ -1930,10 +2140,11 @@ fn g3_7_a_exact_shape_proof() {
 #[test]
 #[ignore = "k = 16 strict checks of the exact shapes; run in release"]
 fn exact_shapes_check_at_k16() {
-    for (name, shape) in [("q_exact_shape", Q_SHAPE), ("a_exact_shape", A_SHAPE)] {
-        let rows = ExactCircuit::<Fq>::usable_rows(shape, K);
-        let circuit = ExactCircuit::<Fq>::new(shape, rows, 5);
-        let public = vec![circuit.output()];
-        inventory(name, &circuit, &public, &[]);
-    }
+    let q_rows = ExactCircuit::<Fq>::usable_rows(Q_SHAPE, K);
+    let q = ExactCircuit::<Fq>::new(Q_SHAPE, q_rows, 5);
+    inventory("q_exact_shape", &q, &[q.output()], &[]);
+
+    let a_rows = ExactCircuit::<Fp>::usable_rows(A_SHAPE, K);
+    let a = ExactCircuit::<Fp>::new(A_SHAPE, a_rows, 5);
+    inventory("a_exact_shape", &a, &[a.output()], &[]);
 }

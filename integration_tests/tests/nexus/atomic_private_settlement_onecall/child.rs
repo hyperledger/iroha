@@ -3,10 +3,7 @@
 //! Child success is a normal process exit, not an injected crash. Journal acknowledgement
 //! loss and actual validator restarts are recorded as distinct failure boundaries.
 use super::*;
-use iroha::client::{
-    FilePrivateSettlementArtifacts, OneCallPrivateSettlementRequest,
-    PrivateSettlementBusinessTerms, PrivateSettlementRunOptions,
-};
+use iroha::client::PrivateSettlementRunOptions;
 use iroha::workflow::{
     Digest32, FileWorkflowStorage, WorkflowId, WorkflowJournalV1, WorkflowRunnerLease,
     WorkflowStorage, WorkflowStorageDurability, WorkflowStorageError, WorkflowStorageErrorKind,
@@ -17,6 +14,10 @@ use iroha_data_model::{
     sumeragi_finality::{
         SignedGenesisPinsV1, SumeragiFinalityVerifier, authenticate_signed_genesis_v1,
     },
+};
+use iroha_private_settlement::{
+    FilePrivateSettlementArtifacts, OneCallPrivateSettlementOperation,
+    OneCallPrivateSettlementRequest, PrivateSettlementBusinessTerms,
 };
 use std::{
     io::Read,
@@ -531,7 +532,8 @@ fn execute(input: ChildInput) -> Result<ChildReport> {
         128 * 1024 * 1024,
     )?;
     let account = client(&input)?;
-    let operation = account.private_settlement_one_call(
+    let operation = OneCallPrivateSettlementOperation::new(
+        account.clone(),
         request,
         storage.clone(),
         artifacts,
@@ -562,7 +564,7 @@ fn execute(input: ChildInput) -> Result<ChildReport> {
             None
         } else if input.mode == Mode::Unaudited {
             ensure!(
-                matches!(&result, Err(iroha::client::OneCallPrivateSettlementError::Settlement(iroha::client::PrivateSettlementError::Workflow(error))) if error.step_index == Some(1) && error.code == iroha::workflow::WorkflowErrorCode::LocalResourceUnavailable),
+                matches!(&result, Err(iroha_private_settlement::OneCallPrivateSettlementError::Settlement(iroha::client::PrivateSettlementError::Workflow(error))) if error.step_index == Some(1) && error.code == iroha::workflow::WorkflowErrorCode::LocalResourceUnavailable),
                 "unaudited original must stop at Prepare: {result:?}"
             );
             None

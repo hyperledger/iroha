@@ -154,8 +154,7 @@ fn snapshot_owner_policy_fixture_with_stored_history(
     let (validator, keypair) = bls_account_in("snapshot-owner");
     let npos = SumeragiNposParameters::default();
     assert_eq!(
-        npos.xor_asset_definition_id.to_string(),
-        configured.fees.fee_asset_id,
+        npos.xor_asset_definition_id, configured.fees.fee_asset_id,
         "fixture staking and fee policies select the same canonical network XOR"
     );
     let custody_asset = AssetId::new(npos.xor_asset_definition_id.clone(), validator.clone());

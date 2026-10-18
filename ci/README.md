@@ -191,6 +191,15 @@ a failure. Use `--offline` after dependencies have been fetched and
 with `--write-baseline`. Extend the owned package and configuration inventory
 when introducing a new SDK, model, or runtime compilation unit.
 
+`python3 -I -S scripts/check_release_feature_graph.py` separately validates the
+reviewed shipping recipes and their source seal. Android release packaging must
+use `compileNativeLibs` with its canonical `android-cargo` profile. The shared
+task's `android-armv7-diagnostic-cargo` branch remains diagnostic; neither its
+default selection nor its output may replace the shipping recipe. Both profiles
+must authenticate the root Cargo arguments and lock. Updating declaration checks
+does not refresh the source seal or the release pipeline's helper pins; those
+require review of the complete final source.
+
 `python3 scripts/sdk_operation_inventory.py` checks the complete Torii route
 inventory before lane classification. It compiles only the `std`-based route
 descriptors and requires no node binaries. The [SDK inventory guide](../docs/sdk_inventory.md)
