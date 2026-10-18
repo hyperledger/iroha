@@ -30,12 +30,116 @@ use std::{
     time::Duration,
 };
 
+// These are source failures only; no synthetic success or consensus branch is added.
+#[derive(Clone, Copy, Debug)]
+enum ApprovalFailure {
+    Capacity,
+    CutChanged,
+    Unclassified,
+    Permission,
+    Signing,
+    Proof,
+    FinalityProof,
+    MalformedProof,
+    ResponseBinding,
+    Listener,
+}
+impl ApprovalFailure {
+    fn report(self, approval: &AmxDebitApprovalV1, relay: &AccountId, height: u64) -> eyre::Report {
+        match self {
+            Self::Capacity => iroha_torii_shared::amx_approval_read::AmxApprovalReadFailureV1::new(
+                approval,
+                relay,
+                height,
+                iroha_torii_shared::amx_approval_read::AmxApprovalReadReasonV1::Capacity,
+                None,
+            )
+            .unwrap()
+            .into(),
+            Self::CutChanged => {
+                iroha_torii_shared::amx_approval_read::AmxApprovalReadFailureV1::new(
+                    approval,
+                    relay,
+                    height,
+                    iroha_torii_shared::amx_approval_read::AmxApprovalReadReasonV1::CutChanged,
+                    Some(height + 1),
+                )
+                .unwrap()
+                .into()
+            }
+            Self::Unclassified => iroha::Error::Http {
+                operation: "amx.debit_approval",
+                status: 503,
+                retry_after: None,
+                body: vec![],
+            }
+            .into(),
+            Self::Permission => iroha::Error::Http {
+                operation: "amx.debit_approval",
+                status: 403,
+                retry_after: None,
+                body: vec![],
+            }
+            .into(),
+            Self::Signing => iroha::Error::RequestSigning {
+                operation: "amx.debit_approval",
+                details: "fixture signing custody unavailable".into(),
+            }
+            .into(),
+            Self::Proof => iroha_data_model::sumeragi_finality::FinalityError(
+                "approval proof substituted its certified root".into(),
+            )
+            .into(),
+            Self::FinalityProof => iroha_data_model::sumeragi_finality::FinalityReadError::Invalid(
+                iroha_data_model::sumeragi_finality::FinalityError(
+                    "original finality trust binding failed".into(),
+                ),
+            )
+            .into(),
+            Self::MalformedProof => {
+                iroha::Error::CanonicalDecode(Box::new(iroha::CanonicalDecodeFailure {
+                    operation: "amx.debit_approval",
+                    source: norito::core::classify_decode_attempt(|| {
+                        AmxDebitApprovalProofV1::decode_frame(b"malformed canonical AMX proof")
+                    })
+                    .unwrap_err(),
+                }))
+                .into()
+            }
+            Self::ResponseBinding => iroha::Error::ResponseBinding {
+                operation: "amx.debit_approval",
+                field: "independently selected relay and bank root",
+            }
+            .into(),
+            Self::Listener => iroha::Error::Http {
+                operation: "amx.debit_approval",
+                status: 404,
+                retry_after: None,
+                body: vec![],
+            }
+            .into(),
+        }
+    }
+    fn code(self) -> WorkflowErrorCode {
+        match self {
+            Self::Capacity => WorkflowErrorCode::LocalResourceUnavailable,
+            Self::CutChanged | Self::Unclassified => WorkflowErrorCode::EvidenceUnavailable,
+            Self::Permission | Self::Signing => WorkflowErrorCode::AuthorizationDenied,
+            Self::Proof | Self::FinalityProof => WorkflowErrorCode::ProofInvalid,
+            Self::MalformedProof => WorkflowErrorCode::NonCanonicalEncoding,
+            Self::ResponseBinding => WorkflowErrorCode::BindingMismatch,
+            Self::Listener => WorkflowErrorCode::UnsupportedOperation,
+        }
+    }
+}
+
 struct ApprovalSource {
     proofs: BTreeMap<u64, SumeragiFinalityProof>,
     proof: AmxDebitApprovalProofV1,
     available: Arc<AtomicBool>,
     reported_height: AtomicU64,
     approval_heights: Mutex<Vec<u64>>,
+    failure: Mutex<ApprovalFailure>,
 }
 impl Source for ApprovalSource {
     fn applied_height(&self) -> WorkflowFuture<'_, Result<u64>> {
@@ -62,7 +166,11 @@ impl Source for ApprovalSource {
         Box::pin(async move {
             self.approval_heights.lock().unwrap().push(block.height());
             if !self.available.load(Ordering::Relaxed) {
-                return Err(eyre!("current permission cut unavailable"));
+                return Err(self
+                    .failure
+                    .lock()
+                    .unwrap()
+                    .report(approval, relay, block.height()));
             }
             Ok(self.proof.verify(approval, relay, schema, block)?)
         })
@@ -281,6 +389,7 @@ fn fixture() -> (
         available,
         reported_height: AtomicU64::new(2),
         approval_heights: Mutex::new(vec![]),
+        failure: Mutex::new(ApprovalFailure::Capacity),
     });
     let ledger = Arc::new(RelayLedger {
         source: source.clone(),
@@ -420,7 +529,7 @@ async fn approval_status_cannot_roll_back_an_authenticated_revoke_cut() {
     };
     let payload = norito::encode_canonical(custody.signed.payload()).unwrap();
     let error = account.sign(&payload).await.unwrap_err();
-    assert_eq!(error.code, WorkflowErrorCode::LocalResourceUnavailable);
+    assert_eq!(error.code, WorkflowErrorCode::ProofInvalid);
     assert_eq!(
         source.approval_heights.lock().unwrap().as_slice(),
         [2, 3],
@@ -428,4 +537,201 @@ async fn approval_status_cannot_roll_back_an_authenticated_revoke_cut() {
     );
     assert_eq!(custody.signs.load(Ordering::Relaxed), 0);
     assert_eq!(custody.sends.load(Ordering::Relaxed), 0);
+}
+
+// A restart discards the HTTP workflow handle, storage handle and destination
+// verifier cursor. Only configured trust and the file-backed exact payload remain.
+fn restart_ledger(original: &RelayLedger, trust: &SumeragiFinalityVerifier) -> Arc<RelayLedger> {
+    Arc::new(RelayLedger {
+        source: original.source.clone(),
+        dispatch: original.dispatch.clone(),
+        verifier: Mutex::new(trust.clone()),
+        network: original.network,
+        authority: original.authority.clone(),
+        fee_payment: original.fee_payment.clone(),
+        instruction: Mutex::new(*original.instruction.lock().unwrap()),
+        approval: Mutex::new(original.approval.lock().unwrap().clone()),
+        handoff_scan: Mutex::new(HandoffScan::default()),
+        max_reads: original.max_reads,
+        reads: AtomicUsize::new(original.max_reads),
+    })
+}
+
+#[tokio::test]
+async fn approval_gate_failures_preserve_exact_reservations_across_file_restart() {
+    use iroha::workflow::{TransactionStateV1, WorkflowJournalV1, WorkflowStage, WorkflowStorage};
+    for cause in [
+        ApprovalFailure::Capacity,
+        ApprovalFailure::CutChanged,
+        ApprovalFailure::Unclassified,
+        ApprovalFailure::Permission,
+        ApprovalFailure::Signing,
+        ApprovalFailure::Proof,
+        ApprovalFailure::FinalityProof,
+        ApprovalFailure::MalformedProof,
+        ApprovalFailure::ResponseBinding,
+        ApprovalFailure::Listener,
+    ] {
+        for before_sign in [true, false] {
+            let (original, custody, _, source) = fixture();
+            let trust = original.verifier.lock().unwrap().clone();
+            *source.failure.lock().unwrap() = cause;
+            source.available.store(!before_sign, Ordering::Relaxed);
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("classified-approval");
+            let plan = WorkflowPlanV1 {
+                kind: WorkflowKindV1::AmxRelay,
+                instance: "classified-original-approval".into(),
+                driver: super::super::driver_identity(),
+                request_context_digest: [71; 32],
+                steps: vec![StepDescriptorV1::transaction("relay", [71; 32])],
+            };
+            let unsigned = norito::encode_canonical(custody.signed.payload()).unwrap();
+            let signed = custody.signed.encode_wire_v1().unwrap();
+            let driver = Driver(unsigned.clone());
+            let options = WorkflowRunOptions {
+                observation_timeout: Duration::from_millis(1),
+                poll_interval: Duration::from_millis(1),
+                retransmit_identical_bytes: false,
+                retry_rejected_step: false,
+            };
+            let mut retained = None;
+            for restarted in [false, true] {
+                let ledger = restart_ledger(&original, &trust);
+                let storage = Arc::new(FileWorkflowStorage::open_or_create(&path).unwrap());
+                let engine = WorkflowEngine::new(
+                    storage.clone(),
+                    Arc::new(RelayAccount {
+                        account: custody.clone(),
+                        ledger: ledger.clone(),
+                    }),
+                    ledger,
+                    Arc::new(Clock::default()),
+                );
+                let handle = engine.workflow(plan.clone()).unwrap();
+                let failure = handle.run(&driver, &options).await.unwrap_err();
+                assert_eq!(
+                    failure.code,
+                    cause.code(),
+                    "cause {cause:?}, before_sign {before_sign}, restarted {restarted}"
+                );
+                assert_eq!(
+                    failure.stage,
+                    if before_sign {
+                        WorkflowStage::Sign
+                    } else {
+                        WorkflowStage::Submit
+                    }
+                );
+                assert_eq!(
+                    custody.signs.load(Ordering::Relaxed),
+                    usize::from(!before_sign)
+                );
+                assert_eq!(
+                    custody.sends.load(Ordering::Relaxed),
+                    0,
+                    "failed evidence cannot reach transport"
+                );
+                let record = storage.load(&handle.id()).unwrap().unwrap();
+                let journal = WorkflowJournalV1::decode_record(&record).unwrap();
+                let operation = journal.steps[0].transaction.as_ref().unwrap();
+                assert_eq!(
+                    operation.state,
+                    if before_sign {
+                        TransactionStateV1::ReadyToSign
+                    } else {
+                        TransactionStateV1::Signed
+                    }
+                );
+                assert_eq!(
+                    operation.attempts.len(),
+                    1,
+                    "refusal cannot open replacement authority"
+                );
+                let attempt = &operation.attempts[0];
+                assert_eq!(attempt.dispatch_ordinal, 0);
+                assert_eq!(attempt.possible_admissions, 0);
+                assert!(
+                    attempt.evidence.is_none(),
+                    "a read failure cannot close monetary evidence"
+                );
+                if before_sign {
+                    assert_eq!(operation.unsigned_payload.as_ref(), Some(&unsigned));
+                    assert!(operation.signed_transaction.is_none());
+                    assert!(operation.current_identity().is_none());
+                } else {
+                    assert!(operation.unsigned_payload.is_none());
+                    assert_eq!(operation.signed_transaction.as_ref(), Some(&signed));
+                    assert_eq!(operation.current_identity(), Some(custody.identity()));
+                }
+                if let Some(previous) = &retained {
+                    assert_eq!(
+                        operation, previous,
+                        "restart must preserve the exact reservation"
+                    );
+                }
+                retained = Some(operation.clone());
+                drop(handle);
+                drop(engine);
+                drop(storage);
+            }
+        }
+    }
+}
+
+#[test]
+fn original_finality_errors_keep_completed_invalid_and_resource_categories() {
+    use iroha_data_model::sumeragi_finality::{FinalityError, FinalityReadError, GenesisReadError};
+    let errors = [
+        FinalityReadError::Invalid(FinalityError("original certified root mismatch".into())),
+        FinalityReadError::Genesis(GenesisReadError::Invalid("invalid signed genesis".into())),
+        FinalityReadError::Genesis(GenesisReadError::Json(norito::json::Error::InvalidUtf8)),
+    ];
+    for error in errors {
+        assert_eq!(
+            approval_evidence_failure(error.into()).code,
+            WorkflowErrorCode::ProofInvalid
+        );
+    }
+    let resource = norito::core::with_decode_limits_scope(
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+        || norito::core::classify_decode_attempt(|| norito::core::reserve_decode_allocation(1)),
+    )
+    .unwrap_err();
+    assert_eq!(
+        resource.kind(),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit
+    );
+    assert_eq!(
+        approval_evidence_failure(FinalityReadError::from(resource).into()).code,
+        WorkflowErrorCode::LocalResourceUnavailable
+    );
+    // These typed transport controls test classification without inducing physical OOM.
+    let local_refusals = [
+        FinalityReadError::ScratchLimit(iroha_allocation::AllocationRefusal::ExceedsLimit {
+            requested_bytes: 2,
+            limit_bytes: 1,
+        }),
+        FinalityReadError::Allocator(
+            iroha_allocation::AllocatorRefusal::try_from(
+                iroha_allocation::ChargedBufferError::Allocator { requested_bytes: 2 },
+            )
+            .unwrap(),
+        ),
+    ];
+    for refusal in local_refusals {
+        assert_eq!(
+            approval_evidence_failure(refusal.into()).code,
+            WorkflowErrorCode::LocalResourceUnavailable,
+            "an unfinished local allocation is not an invalid proof"
+        );
+    }
+    let json_limit = FinalityReadError::Genesis(GenesisReadError::Json(
+        norito::json::Error::DecodeResourceLimit,
+    ));
+    assert_eq!(
+        approval_evidence_failure(json_limit.into()).code,
+        WorkflowErrorCode::EvidenceUnavailable,
+        "an unscoped JSON bound is not an authenticated local-capacity witness"
+    );
 }

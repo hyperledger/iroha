@@ -176,6 +176,20 @@ impl AdmissionRead {
         carrier: u64,
         proofs: &[Evidence],
     ) -> Result<Self, EvidenceAdmissionError> {
+        Self::capture_observing(state, view, generation, carrier, proofs, |_| {})
+    }
+
+    // The observer only borrows the actual charged decoder source. It cannot
+    // substitute a native proof or return a syntax/authority verdict. Production
+    // supplies no observation; every path invokes the same canonical decoder.
+    fn capture_observing(
+        state: &State,
+        view: &StateView<'_>,
+        generation: u64,
+        carrier: u64,
+        proofs: &[Evidence],
+        mut observe: impl FnMut(&ChargedBuffer<u8>),
+    ) -> Result<Self, EvidenceAdmissionError> {
         if !crate::state::is_stable_state_view_generation(generation, state.state_view_generation())
         {
             return Err(EvidencePreparationError::OriginalHistoryPending.into());
@@ -311,9 +325,7 @@ impl AdmissionRead {
             frame
                 .append(proof.native_frame())
                 .map_err(|_| EvidencePreparationError::Invariant)?;
-            let native = proof
-                .decode_native()
-                .map_err(EvidenceAdmissionError::from)?;
+            let native = decode_candidate_source(&frame, &mut observe)?;
             let (instance, height, _) = super::super::evidence_history::subject(&native);
             let mut matching = view
                 .world()
@@ -502,6 +514,19 @@ impl AdmissionRead {
     }
 }
 
+// This helper has no offered/unfunded proof input. Both observation and the
+// mandatory canonical reader borrow this one charged backing. The completed
+// candidate retains it; a failed initial capture retires it normally.
+// TODO: retain unfinished decoded graphs across refusal and physically fund
+// native descendants, model clone and canonical pair-comparison scratch.
+fn decode_candidate_source(
+    frame: &ChargedBuffer<u8>,
+    observe: &mut impl FnMut(&ChargedBuffer<u8>),
+) -> Result<NativeEvidence, EvidenceAdmissionError> {
+    observe(frame);
+    Evidence::decode_native_frame(frame.as_slice()).map_err(EvidenceAdmissionError::from)
+}
+
 /// The State owns one bounded original request. A newer publication cancels the obsolete cut;
 /// a competing request cannot replace in-progress native acquisition from the same cut.
 #[derive(Default)]
@@ -541,7 +566,6 @@ pub(super) fn retryable(error: &EvidenceAdmissionError) -> bool {
         EvidenceAdmissionError::Preparation(
             EvidencePreparationError::Admission(AllocationRefusal::Capacity { .. } | AllocationRefusal::ExceedsLimit { .. })
             | EvidencePreparationError::Allocator { .. }
-            | EvidencePreparationError::DecodeScope { .. }
             | EvidencePreparationError::DecodeResource(_)
             | EvidencePreparationError::OriginalHistoryPending
         ) => true,
@@ -628,3 +652,6 @@ mod tests;
 
 #[cfg(test)]
 mod frame_tests;
+
+#[cfg(test)]
+mod source_tests;

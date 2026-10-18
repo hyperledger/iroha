@@ -229,3 +229,72 @@ them through different funded participant accounts, replays the participant from
 genesis, and recovers both effects with a fresh verifier at the final tip. Its DKG sessions
 are explicitly proved component prestate. These tests do not establish whole-network
 payment qualification.
+
+
+### AMX approval read observations
+
+The first-release approval SDK performs one signed read per invocation. Only the
+closed `amx_approval_read_failure` Norito envelope permits bounded read scheduling:
+`CutChanged` (409) follows validation of the original stable native publication,
+including a valid genesis peer behind the selected tip; `Capacity` (429) retains a
+named local read/admission/allocation/egress refusal. The exact canonical request
+and canonical account header are hashed into the observation. Before account
+authentication completes these are request identities only. The unsigned response
+never proves account authorization, observed finality, proof absence, or any
+monetary outcome. Successful responses retain independent finality and exact
+approval verification.
+
+Current full-ledger permission is acquired through the existing nonblocking
+State authorization owner at entry, after projection and after exact-byte egress.
+Only the AMX route uses this scoped helper. Core cut acquisition validates the
+same native publication before reporting a differing height, rechecks a captured
+generation race, and preserves a producer's original rejection before its final
+revalidation. Missing capture, same-height corruption, scope mismatch, bad proof,
+poisoned/changed readers and invalid encoding remain terminal.
+
+The network fixture retains one absolute phase deadline across HTTP, polling and
+`retry_after_ms`; deadline diagnostics retain the original typed acquisition
+cause. It authenticates the World before recognizing explicitly named prior
+balance tuples as pending. Unknown balances and invalid proof are terminal.
+Daemon workflow classification is a separate owner: this change does not claim
+that existing daemon reservation recovery distinguishes every terminal SDK error.
+
+Snapshot construction preserves the original request pool's `AllocationRefusal` and
+`ChargedBufferError` through the existing World projection visitor. Occupied finite
+capacity and an admitted backing allocator failure are temporary read refusals;
+`ExceedsLimit`, demand overflow, malformed rows, custody mismatch and invalid proof
+remain terminal. An empty request budget therefore remains a typed policy refusal,
+not a retryable capacity observation. The retained native-cut mutex still uses its
+existing blocking acquisition: this change does not promise a nonblocking route or
+complete retry coverage of every concurrent publication schedule.
+
+The AMX permission consumer also preserves its original scratch-pool refusal,
+prepaid decoder-control refusal, checked comparator `AmxError::Resource`, and
+response producer's typed query failure. Counter admission uses the existing
+Norito prepaid-context owner with the request's original pool. Only actual
+capacity/allocator/enclosing codec refusals permit bounded read retries; short
+reservation geometry, AMX validation/proof rejection and encoding failures stay
+terminal. Consumer errors win over later cut revalidation. Other resource-name,
+reserve and authority projections still map their existing String callback
+errors to terminal snapshot errors; this AMX correction does not broaden them.
+
+Early request decoding and native source admission retain the same distinction.
+The original body, decoder scratch, decoder-counter and source charges preserve
+`AllocationRefusal`: a demand exceeding the pool policy or overflowing its geometry
+is terminal, while sufficient finite capacity occupied by retained work is temporary.
+The counter uses Norito's original prepaid owner, preserving actual allocator
+refusal separately from short reservation geometry. Oversized canonical bodies and
+invalid native source limits are terminal before proof production. Temporary early
+refusals can carry the same exact request-bound unsigned observation; terminal
+refusals never acquire that retryable envelope. These changes preserve the original
+request, worker and response lifetimes and the current-permission checks.
+
+Shared native projection producers retain one typed error through their existing
+encoder and root reader. Fixed response or source bounds, impossible backing
+demand, committee geometry, unsupported checked JSON and serialization drift are
+terminal. Occupied-pool, original admitted allocator and enclosing codec refusals
+retain their original causes until HTTP projection. The second current-root read
+uses the same canonical root parser and preserves its local refusal. AMX passes
+encoder failures as callback errors, so later cut rechecks cannot replace them.
+The existing response backing and aggregate memory permit still survive through
+the last transmitted byte; no alternate encoder or changed proof limit is introduced.

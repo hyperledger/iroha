@@ -1,20 +1,17 @@
 //! Native global carrier execution for atomic private settlement.
 
 use super::*;
-use crate::private_settlement::{
-    carrier::{
-        private_settlement_abort_carrier_instruction_digest_v1,
-        private_settlement_carrier_instruction_digest_v1,
-        private_settlement_commit_bundle_digest_v1,
-        private_settlement_prepare_lock_carrier_instruction_digest_v1,
-    },
-    state::PrivateSettlementPoolGovernanceProjectionV1,
+use crate::private_settlement::carrier::{
+    private_settlement_abort_carrier_instruction_digest_v1,
+    private_settlement_carrier_instruction_digest_v1, private_settlement_commit_bundle_digest_v1,
+    private_settlement_prepare_lock_carrier_instruction_digest_v1,
 };
 use iroha_data_model::isi::private_settlement::{
     AbortAtomicPrivateSettlementV1, ActivatePrivateSettlementPoolV1,
     FinalizeAtomicPrivateSettlementV1, RegisterAtomicPrivateSettlementPrepareV1,
     RotatePrivateSettlementPoolPolicyV1,
 };
+use iroha_data_model::nexus::PrivateSettlementPoolGovernanceProjectionV1;
 use iroha_data_model::nexus::{
     ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1, PrivateSettlementAbortReasonV1,
     PrivateSettlementAbortReceiptV1,

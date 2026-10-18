@@ -105,9 +105,12 @@ What exists so far:
   protection and explicit network reset identity. `ParentFinalityStore` retains
   the advancing native prefix separately and publishes before returning fresh
   readiness; reopening an older release never rewinds it. The Taira installation profile is
-  bundled from its committed image, and the published checkpoint has passed native verification.
-  Authenticated bundle distribution, recurring signed checkpoint publication and combined
-  parent-provisioning qualification remain outstanding.
+  bundled from its committed image. A previously retrieved checkpoint passed native
+  verification but has expired; attachment requires a fresh signed checkpoint at the
+  confirmed `https://taira.sora.org/bootstrap/checkpoint.nrt` location, which currently
+  returns HTTP 404 from the validation host. Authenticated bundle distribution,
+  recurring signed checkpoint publication and combined parent-provisioning
+  qualification remain outstanding.
   Native installation profiles and bounded unsigned HTTPS retrieval select the release
   independently. Signed account profiles, committee endpoints and optional faucet
   allowances feed exact parent SDK contexts without forwarding child credentials.

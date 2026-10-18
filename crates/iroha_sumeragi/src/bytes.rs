@@ -296,10 +296,17 @@ mod tests {
         let bytes = value.encode();
         let error = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(7, usize::MAX, usize::MAX, usize::MAX, usize::MAX),
-            || RowBytes::decode_all(&mut bytes.as_slice()),
+            || {
+                norito::core::classify_decode_attempt(|| {
+                    RowBytes::decode_all(&mut bytes.as_slice())
+                })
+            },
         )
         .unwrap_err();
-        assert!(error.is_decode_resource_limit(), "{error:?}");
+        assert_eq!(
+            error.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
         assert!(matches!(
             crate::message::CodecError::from(error),
             crate::message::CodecError::Resource(_)

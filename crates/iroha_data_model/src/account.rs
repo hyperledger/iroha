@@ -24,6 +24,7 @@ pub mod address;
 pub mod admission;
 pub mod controller;
 pub mod curve;
+pub(crate) mod prepared_decode;
 
 mod i105_json;
 pub mod recovery;

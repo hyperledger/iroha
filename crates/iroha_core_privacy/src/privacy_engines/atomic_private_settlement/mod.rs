@@ -18,8 +18,10 @@ mod stark;
 mod wallet;
 
 pub use facade::{
-    AtomicPrivateSettlementProofErrorV1, prove_atomic_private_settlement_v1,
-    prove_atomic_private_settlement_v1_with_rng, verify_atomic_private_settlement_v1,
+    AtomicPrivateSettlementProofErrorV1, prove_atomic_private_settlement_intent_v1,
+    prove_atomic_private_settlement_intent_v1_with_rng, prove_atomic_private_settlement_v1,
+    prove_atomic_private_settlement_v1_with_rng, verify_atomic_private_settlement_intent_v1,
+    verify_atomic_private_settlement_v1,
 };
 #[doc(hidden)]
 pub use relation::validate_audit_openings_v1;
@@ -32,22 +34,24 @@ pub use relation::{
 #[cfg(test)]
 pub use wallet::AtomicPrivateSettlementBootstrapPlanV1;
 pub use wallet::{
-    ATOMIC_PRIVATE_SETTLEMENT_WALLET_BUNDLE_MAX_BYTES_V1, AtomicPrivateSettlementInputSecretV1,
-    AtomicPrivateSettlementPreparedLegV1, AtomicPrivateSettlementPreparedProofV1,
-    AtomicPrivateSettlementProvisionalBundleV1, AtomicPrivateSettlementProvisionalLegInputV1,
-    AtomicPrivateSettlementWalletErrorV1, AtomicPrivateSettlementWalletInspectionV1,
-    complete_atomic_private_settlement_prepared_leg_v1,
+    ATOMIC_PRIVATE_SETTLEMENT_WALLET_BUNDLE_MAX_BYTES_V1,
+    AtomicPrivateSettlementAuthorizedWalletLegV1, AtomicPrivateSettlementInputSecretV1,
+    AtomicPrivateSettlementPreparationErrorV1, AtomicPrivateSettlementPreparedLegV1,
+    AtomicPrivateSettlementPreparedProofV1, AtomicPrivateSettlementProvisionalBundleV1,
+    AtomicPrivateSettlementProvisionalLegInputV1, AtomicPrivateSettlementWalletErrorV1,
+    AtomicPrivateSettlementWalletInspectionV1, complete_atomic_private_settlement_prepared_leg_v1,
     consume_atomic_private_settlement_wallet_bundle_v1,
+    derive_atomic_private_settlement_input_nullifiers_v1,
     finalize_atomic_private_settlement_provisional_bundle_v1,
     inspect_atomic_private_settlement_wallet_bundle_v1,
+    prepare_atomic_private_settlement_authorization_inputs_v1,
+    prepare_atomic_private_settlement_funding_note_v1,
+    prepare_atomic_private_settlement_input_openings_v1, prepare_atomic_private_settlement_leg_v1,
+    prepare_atomic_private_settlement_outputs_v1,
 };
 #[cfg(any(test, feature = "test-utils"))]
 pub use wallet::{
-    derive_atomic_private_settlement_input_nullifiers_v1,
-    encode_atomic_private_settlement_wallet_bundle_v1, plan_atomic_private_settlement_bootstrap_v1,
-    prepare_atomic_private_settlement_funding_note_v1,
-    prepare_atomic_private_settlement_input_openings_v1,
-    prepare_atomic_private_settlement_outputs_v1,
+    plan_atomic_private_settlement_bootstrap_v1, plan_atomic_private_settlement_initial_inputs_v1,
 };
 
 /// Validate the closed settlement-only two-input/three-output proof profile.
@@ -66,3 +70,6 @@ pub fn validate_atomic_private_settlement_profile_v1()
     stark::validate_atomic_private_settlement_stark_profile_v1()
         .map_err(|_| AtomicPrivateSettlementProofErrorV1::ProverInvariant)
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+pub use wallet::encode_atomic_private_settlement_wallet_bundle_v1;

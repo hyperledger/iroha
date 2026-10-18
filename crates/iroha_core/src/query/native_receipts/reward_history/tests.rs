@@ -100,12 +100,20 @@ fn reward_archive_capacity_preserves_original_pool_refusal() {
     let budget = AllocationBudget::new(32);
     let held = budget.try_reserve_bytes(32).unwrap();
     let expected = budget.try_reserve_bytes(1).unwrap_err();
-    let actual = ChargedBuffer::<u8>::new(1, &budget)
-        .err()
-        .expect("zero-capacity pool refuses the original buffer");
-    let error = archive_error(NativeContextArchiveError::Allocation(actual));
-    assert!(matches!(error, ExecutionAttemptError::Deferred(reason)
-        if reason.allocation_refusal() == Some(&expected)));
+    for via_storage in [false, true] {
+        let actual = ChargedBuffer::<u8>::new(1, &budget)
+            .err()
+            .expect("zero-capacity pool refuses the original buffer");
+        let original = if via_storage {
+            NativeContextArchiveError::Storage(crate::kura::Error::NativeFrameAllocation(actual))
+        } else {
+            NativeContextArchiveError::Allocation(actual)
+        };
+        let error = archive_error(original);
+        assert!(matches!(error, ExecutionAttemptError::Deferred(reason)
+            if reason.allocation_refusal() == Some(&expected)));
+        assert_eq!(budget.reserved_bytes(), 32);
+    }
     for via_archive in [false, true] {
         let actual = ChargedBuffer::<u8>::new(1, &budget)
             .err()
@@ -197,5 +205,71 @@ fn reward_archive_proof_decoder_preserves_retired_scope_and_refuses_corrupt_comm
             if reason.reason() == ExecutionDeferral::CanonicalHistoryUnavailable
                 && reason.allocation_refusal().is_none()));
         assert_eq!(budget.reserved_bytes(), 0);
+    }
+}
+
+#[test]
+fn reward_archive_storage_retains_original_decode_and_allocator_causes() {
+    use crate::kura::Error as KuraError;
+    let bytes = norito::encode_canonical(&vec![19_u8; 32]).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    let attempt = norito::with_decode_limits_scope(limits, || {
+        norito::decode_canonical_for_admission::<Vec<u8>>(
+            &bytes,
+            norito::canonical_decode_limits(bytes.len()),
+        )
+    })
+    .unwrap_err();
+    let expected = attempt.local_refusal().unwrap();
+    let error = archive_error(NativeContextArchiveError::Storage(KuraError::CodecAttempt(
+        attempt,
+    )));
+    assert!(matches!(error, ExecutionAttemptError::Deferred(reason)
+        if reason.reason() == ExecutionDeferral::ActiveMemoryCapacity
+            && reason.decode_refusal() == Some(&expected)
+            && reason.allocation_refusal().is_none()));
+
+    // Transport the existing allocator report; this does not inject a physical failure.
+    let error = archive_error(NativeContextArchiveError::Storage(
+        KuraError::NativeFrameAllocation(ChargedBufferError::Allocator {
+            requested_bytes: 73,
+        }),
+    ));
+    let ExecutionAttemptError::Deferred(reason) = error else {
+        panic!("original allocator refusal must defer");
+    };
+    assert_eq!(reason.reason(), ExecutionDeferral::AllocationUnavailable);
+    assert!(matches!(
+        reason.allocator_refusal().unwrap().buffer_error(),
+        Some(ChargedBufferError::Allocator {
+            requested_bytes: 73
+        })
+    ));
+    assert!(reason.allocation_refusal().is_none());
+
+    let protocol = norito::decode_canonical_for_admission::<Vec<u8>>(&bytes, limits).unwrap_err();
+    assert!(protocol.local_refusal().is_none());
+    for original in [
+        KuraError::CodecAttempt(protocol),
+        KuraError::NoritoFrame(norito::Error::InvalidMagic),
+        KuraError::CanonicalBlockWireMismatch { height: 2 },
+        KuraError::IO(
+            std::io::ErrorKind::NotFound.into(),
+            "original-archive".into(),
+        ),
+        KuraError::FastpqArtifactQuota {
+            stable_count: 1,
+            retained_bytes: 8,
+            incoming_bytes: 1,
+            maximum_records: 1,
+            maximum_bytes: 8,
+        },
+    ] {
+        let error = archive_error(NativeContextArchiveError::Storage(original));
+        assert!(matches!(error, ExecutionAttemptError::Deferred(reason)
+            if reason.reason() == ExecutionDeferral::CanonicalHistoryUnavailable
+                && reason.allocation_refusal().is_none()
+                && reason.allocator_refusal().is_none()
+                && reason.decode_refusal().is_none()));
     }
 }

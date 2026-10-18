@@ -127,7 +127,7 @@ impl QuantitySourceCensus {
         budget: &AllocationBudget,
     ) -> Result<Self, QuantityCaptureIssue> {
         let archive = &block.fastpq_quantity_candidate;
-        if let Some(issue) = archive.issue {
+        if let Some(issue) = archive.issue.clone() {
             return Err(issue);
         }
         let inventory = block
@@ -165,10 +165,10 @@ impl QuantitySourceCensus {
         // allocating either. The role scratch is freed after its digest is made.
         let mut reservation = budget
             .try_reserve_bytes(required)
-            .map_err(|_| QuantityCaptureIssue::Capacity)?;
+            .map_err(QuantityCaptureIssue::Admission)?;
         let mut entries =
             ChargedBuffer::from_reservation(inventory.entries().len(), &mut reservation)
-                .map_err(|_| QuantityCaptureIssue::Capacity)?;
+                .map_err(QuantityCaptureIssue::from_prepaid)?;
         let pending_archive = ChargedShared::reserve_from(&mut reservation)
             .map_err(|_| QuantityCaptureIssue::Capacity)?;
         let mut usage = QuantityCandidateUsage::default();

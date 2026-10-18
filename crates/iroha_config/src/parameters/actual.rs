@@ -2358,9 +2358,37 @@ pub enum FastpqPoseidonMode {
     /// Force GPU hashing; startup fails if kernels or preflight are unavailable.
     Gpu,
 }
+/// Finite scheduling/admission of the existing autonomous FASTPQ producer.
+#[derive(Debug, Clone, Copy)]
+pub struct FastpqProducer {
+    /// Interval between finite attempts, including when no new block arrives.
+    pub poll_interval: std::time::Duration,
+    /// Monotonic budget for one source/proof-dispatch attempt; never a payment deadline.
+    pub step_timeout: std::time::Duration,
+    /// Number of native prefix steps in one attempt (at most 64).
+    pub max_native_steps: std::num::NonZeroU16,
+    /// Complete source entries admitted before allocation.
+    pub max_source_entries: std::num::NonZeroU32,
+    /// Complete nonempty source statements admitted before allocation.
+    pub max_source_statements: std::num::NonZeroU32,
+}
+impl Default for FastpqProducer {
+    fn default() -> Self {
+        use crate::parameters::defaults::zk::fastpq as d;
+        Self {
+            poll_interval: d::PRODUCER_POLL_INTERVAL,
+            step_timeout: d::PRODUCER_STEP_TIMEOUT,
+            max_native_steps: d::PRODUCER_MAX_NATIVE_STEPS,
+            max_source_entries: d::PRODUCER_MAX_SOURCE_ENTRIES,
+            max_source_statements: d::PRODUCER_MAX_SOURCE_STATEMENTS,
+        }
+    }
+}
 /// FASTPQ prover configuration.
 #[derive(Debug, Clone)]
 pub struct Fastpq {
+    /// Original-source autonomous producer scheduling and finite source admission.
+    pub producer: FastpqProducer,
     /// Execution mode used when initialising the prover backend.
     pub execution_mode: FastpqExecutionMode,
     /// Poseidon pipeline override.

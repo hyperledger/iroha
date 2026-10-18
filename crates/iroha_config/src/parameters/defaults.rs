@@ -4146,6 +4146,16 @@ pub mod zk {
         use iroha_config_base::util::Bytes;
         use nonzero_ext::nonzero;
         use std::num::NonZeroUsize;
+        /// Retry unresolved local proof work even while the native chain is idle.
+        pub const PRODUCER_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+        /// Maximum cooperative monotonic budget for one producer attempt.
+        pub const PRODUCER_STEP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+        /// Finite native prefix work per attempt (the canonical owner caps this at 64).
+        pub const PRODUCER_MAX_NATIVE_STEPS: std::num::NonZeroU16 = nonzero!(16_u16);
+        /// Finite admitted canonical source entry count.
+        pub const PRODUCER_MAX_SOURCE_ENTRIES: std::num::NonZeroU32 = nonzero!(65_536_u32);
+        /// Finite admitted canonical nonempty statement count.
+        pub const PRODUCER_MAX_SOURCE_STATEMENTS: std::num::NonZeroU32 = nonzero!(16_384_u32);
         /// Default execution mode for the FASTPQ prover (`cpu` or `gpu`).
         pub const EXECUTION_MODE: &str = "cpu";
         /// Default Poseidon pipeline mode (`cpu` or `gpu`).

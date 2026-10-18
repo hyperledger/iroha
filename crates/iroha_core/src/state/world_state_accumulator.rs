@@ -429,7 +429,9 @@ impl Builder<'_> {
             snapshot: None,
             snapshot_field: None,
         };
-        world.project_world(&mut builder)?;
+        world
+            .project_world(&mut builder)
+            .map_err(|error| error.to_string())?;
         builder.finish()
     }
 
@@ -476,7 +478,7 @@ impl Builder<'_> {
         key: Option<&Hash>,
         before: Option<Hash>,
         after: Option<Hash>,
-    ) -> Result<(), String> {
+    ) -> Result<(), world_state_snapshot::WorldStateSnapshotError> {
         if before == after {
             return Ok(());
         }
@@ -507,7 +509,7 @@ impl Builder<'_> {
 }
 
 impl WorldProjection for Builder<'_> {
-    type Error = String;
+    type Error = world_state_snapshot::WorldStateSnapshotError;
 
     /// Block passes follow the execution seal's and publication surface's net-delta passes over
     /// the same trigger stores, which already ran the full contract-row check.

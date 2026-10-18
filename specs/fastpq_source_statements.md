@@ -283,13 +283,59 @@ these journals to atomic D7 publication. The combined implementation is applied;
 its actual Core tests remain pending. Truncation or omission of an applied source
 is invalid. Final-capture limits alone cannot provide proposal liveness.
 
-TODO: bind prepared D7 contents to checked capture, authoritative source finality,
-exact AXT spending/replay protection and durable archive publication/retention.
-The separate Kura content store uses current ownership locks and composite
-capacity reservations but does not provide these source-owner lifecycle hooks.
+Prepared complete D7 contents now join original capture and authenticated native
+source finality before entering the bounded Kura producer outbox described below.
+TODO: finish missing-tape reconstruction, authority-aware retention and the separate
+exact AXT spending/replay integration; artifact storage alone grants none of them.
 
 Current-branch compilation, all affected tests, fresh complete artifacts,
 independent cryptographic qualification, release-hardware CPU/Metal/CUDA parity
 and a same-source four-validator recovery/adversarial corridor remain required.
 The earlier 544-test/two-artifact reference gate is not evidence that this
 integration candidate passed those gates or is production ready.
+
+
+## Local durable producer
+
+The existing FASTPQ lane owns one autonomous source at a time and its original typed
+failure. It uses `NativeFinalityCursorV1` from the independently pinned signed genesis,
+with an explicit selected root. The cursor keeps its authenticated prefix across finite
+turns and exports the actual H2-authenticated genesis anchor with original decoder custody.
+No decoded checkpoint or file cursor imports trust. Existing Global-only discovery callers
+select Global explicitly. The producer reads complete D7 source inventories and complete
+effect tapes through the existing funded native-context reader. A Complete manifest with
+an exact canonical empty statement root may advance without an optional tape, after its
+full ordinary-write root and bounds are authenticated. It grants no entry/effect inventory. A Complete manifest with
+an exact canonical empty statement root may advance without an optional tape, after its
+full ordinary-write root and bounds are authenticated. It grants no entry/effect inventory.
+
+Kura's `fastpq_artifacts_v1` namespace is the sole aggregate store for content artifacts,
+source tapes (`.fqs`), and producer artifacts (`.producer`). All stable objects and the
+existing single publication temporary share the configured count/byte quota. A producer
+key commits the actual carrier, certified R, complete manifest and exact statement leaf.
+Its object is the complete canonical verified artifact, so a crash cannot split artifact
+bytes from cursor metadata. The ordered verified objects form the disk cursor: every
+restart first authenticates the source and freshly verifies each offered artifact before
+advancing. Local file absence only requests production; it is never ledger absence or
+successful execution evidence. Persisted artifact receipts are exact issuer/byte durability
+facts, not settlement or transaction-submission receipts.
+
+`[zk.fastpq.producer]` configures `poll_interval_ms`, `step_timeout_ms`,
+`max_native_steps` (at most 64), `max_source_entries`, and `max_source_statements`.
+One absolute monotonic budget spans a worker attempt; it is checked around bounded reads
+and proof work. Synchronous filesystem or proof work cannot be preempted, so this is a
+cooperative bound, not a wall-clock execution guarantee or a renewed payment deadline.
+The same supervised worker polls while the native chain is idle. It signs and submits
+nothing. Proof output is bounded by both its configured carrier ceiling and the actual
+immutable Kura object ceiling before generation.
+
+Optional tape size/admission/publication failure cannot strand mandatory native context
+publication or change certified D7/outputs. It leaves that source unresolved. **Read-only
+regeneration of a missing tape is still unfinished:** it must reuse authenticated signed
+policy installation and canonical execution/result preparation in isolated replay State,
+without invoking a normal second Worker against live Kura or publishing lane/SCCP effects.
+The existing startup replay can republish original tapes on a genuine restart, but is not
+that autonomous service. A nonempty unavailable source is never skipped; later producer
+work remains pending behind it. Authority-aware retention and complete nested cryptographic
+allocation accounting also remain open. Source tests and formatting do not establish
+compiled, whole-node, or payment-release qualification.

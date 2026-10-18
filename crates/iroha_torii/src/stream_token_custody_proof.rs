@@ -123,11 +123,7 @@ pub async fn handler(
                     |world, owner, current| {
                         let payload = StreamTokenCustodyProofRefV1::new(world, owner, current);
                         crate::native_projection_response::encode(
-                            &payload,
-                            format,
-                            maximum,
-                            &budget,
-                            unavailable,
+                            &payload, format, maximum, &budget,
                         )
                         .map_err(|_| "custody proof encoding refused".to_owned())
                     },

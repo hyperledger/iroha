@@ -309,9 +309,10 @@ impl HistoryScope {
         }
         Ok(())
     }
-    // Invoked only by the graph-specific capability after fresh validate_local above.
-    // Keep the caller's exact operation path, purpose and semantic joined to this evidence;
-    // validate_local retains both native identity checks at the local entry and exit.
+    // Pure exact-owner eligibility for graph Original coverage and local census grouping.
+    // This does not establish currentness: both callers retain fresh validate_local at
+    // local entry and exit, including the original native identity and binding checks.
+    // Keep the operation path, purpose and semantic joined to this immutable evidence.
     pub(super) fn covers_semantic_original(
         &self,
         pass: &SnapshotReadPass<'_>,

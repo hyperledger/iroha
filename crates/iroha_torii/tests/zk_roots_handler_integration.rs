@@ -27,6 +27,7 @@ fn zk_config_with_tree_roots_history_len(
         ipa_commitment: iroha_config::parameters::actual::IpaCommitment::default(),
         max_verify_batch: iroha_config::parameters::defaults::zk::MAX_VERIFY_BATCH,
         fastpq: iroha_config::parameters::actual::Fastpq {
+            producer: iroha_config::parameters::actual::FastpqProducer::default(),
             execution_mode: iroha_config::parameters::actual::FastpqExecutionMode::Cpu,
             poseidon_mode: iroha_config::parameters::actual::FastpqPoseidonMode::Cpu,
             proof_sidecar_queue_cap:

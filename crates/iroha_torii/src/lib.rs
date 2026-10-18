@@ -5674,6 +5674,29 @@ fn canonical_error_response(
         let (code, message) = generic_error_for_status(parts.status);
         envelope = ErrorEnvelope::new(code, message);
     }
+    // AMX acquisition observations also own one closed detail and their original delay.
+    // Generic 429 normalization would append a second retry owner and break exact binding.
+    let amx_read_failure = if envelope.code()
+        == iroha_torii_shared::amx_approval_read::AMX_APPROVAL_READ_FAILURE_CODE
+    {
+        let mut details = envelope.details.take().unwrap_or_default();
+        details.amx_approval_read_failure.take().filter(|failure| {
+            details.is_empty()
+                && failure.is_valid()
+                && failure.reason.http_status() == parts.status.as_u16()
+        })
+    } else {
+        None
+    };
+    let exact_amx_read_failure = amx_read_failure.is_some();
+    if let Some(failure) = amx_read_failure {
+        envelope = failure.into_error_envelope();
+    } else if envelope.code()
+        == iroha_torii_shared::amx_approval_read::AMX_APPROVAL_READ_FAILURE_CODE
+    {
+        let (code, message) = generic_error_for_status(parts.status);
+        envelope = ErrorEnvelope::new(code, message);
+    }
     if parts.status == StatusCode::INTERNAL_SERVER_ERROR {
         if !exact_finality_failure {
             envelope = ErrorEnvelope::new(
@@ -5712,15 +5735,16 @@ fn canonical_error_response(
         let (_, message) = generic_error_for_status(parts.status);
         message.clone_into(&mut envelope.message);
     }
-    // Finality reasons own their retry semantics. The canonical dedicated detail
+    // Closed finality/AMX observations own their retry semantics. Their dedicated detail
     // stays sole; generic 503/429 errors retain their existing Retry-After fields.
-    if exact_finality_failure {
+    if exact_finality_failure || exact_amx_read_failure {
         parts.headers.remove(axum::http::header::RETRY_AFTER);
     }
     if matches!(
         parts.status,
         StatusCode::TOO_MANY_REQUESTS | StatusCode::SERVICE_UNAVAILABLE
     ) && !exact_finality_failure
+        && !exact_amx_read_failure
     {
         let seconds = retry_after_seconds(&parts.headers);
         let details = envelope.details.get_or_insert_with(Default::default);
@@ -5781,6 +5805,9 @@ fn canonical_error_response(
         }
         if !exact_finality_failure {
             details.finality_attestation_failure = None;
+        }
+        if !exact_amx_read_failure {
+            details.amx_approval_read_failure = None;
         }
         sanitize_error_details(details);
     }
@@ -39200,6 +39227,14 @@ impl Torii {
                 )
             })?;
         builder.route(
+            &routes::CONTEXT,
+            catalog_post(private_settlement::handler_context)
+                .layer(DefaultBodyLimit::max(
+                    iroha_data_model::nexus::PRIVATE_SETTLEMENT_CONTEXT_REQUEST_MAX_BYTES_V1,
+                ))
+                .authenticated_in_handler(HandlerAuthentication::CanonicalAccountSignature),
+        );
+        builder.route(
             &routes::AVAILABILITY_SHARE,
             catalog_post(private_settlement::handler_availability_share)
                 .layer(axum::Extension(runtime.clone()))
@@ -43787,6 +43822,8 @@ fn build_gc_runtime(
 pub enum Error {
     /// Failed to process query
     Query(#[from] iroha_data_model::ValidationFail),
+    /// Original native evidence decode is locally refused: {0}
+    NativeEvidenceDecode(#[source] norito::core::DecodeLocalRefusal),
     /// Validation error for app-facing query parameters `{code}`: {message}
     AppQueryValidation {
         /// Stable machine-readable code.
@@ -44293,6 +44330,17 @@ impl Error {
                 let status = Self::query_status_code(&err);
                 public_validation_fail_envelope(&err, status)
             }
+            Self::NativeEvidenceDecode(original) => {
+                // Keep original counter custody through response preparation.
+                let envelope = public_validation_fail_envelope(
+                    &iroha_data_model::ValidationFail::QueryFailed(
+                        iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded,
+                    ),
+                    StatusCode::TOO_MANY_REQUESTS,
+                );
+                drop(original);
+                envelope
+            }
             Self::AcceptTransaction(err) => {
                 iroha_logger::warn!(?err, "Transaction rejected during admission");
                 let (code, detail) = accept_transaction_metadata(&err);
@@ -44414,6 +44462,7 @@ impl Error {
         use Error::*;
         match self {
             Query(e) => Self::query_status_code(e),
+            NativeEvidenceDecode(_) => StatusCode::TOO_MANY_REQUESTS,
             AcceptTransaction(_) => StatusCode::BAD_REQUEST,
             AppQueryValidation { .. } => StatusCode::BAD_REQUEST,
             #[cfg(feature = "app_api")]

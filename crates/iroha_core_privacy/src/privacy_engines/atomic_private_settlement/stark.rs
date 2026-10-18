@@ -26,13 +26,13 @@ use crate::privacy_engines::{
     },
 };
 use iroha_data_model::{
-    nexus::{AtomicPrivateSettlementV1, PrivateSettlementProofStatementV1},
+    nexus::{PrivateSettlementProofIntentV1, PrivateSettlementProofStatementV1},
     privacy::{IrohaIvmPrivateNoteStarkStatementV1, PrivacyProtocolIdV1},
 };
 use rand::TryRngCore;
 
 /// Exact settlement proof relation and transcript descriptor.
-pub const ATOMIC_PRIVATE_SETTLEMENT_STARK_PROFILE_DESCRIPTOR_V1: &[u8] = b"iroha-atomic-private-settlement-stark-v1:wire=APZ1-v1:shared-proof-managed-note-geometry:trace=2^14:base=556:profile-aux=1:profile-fixed=123:profile-constraints=1375:constraint-degree=4:max-proof=8388608:relation=ivm-private-note-fixed-2-input-3-output-balanced-with-virtual-zero-inputs-and-audited-input-openings:public-input=sha3-384-opaque48(canonical-manifest-intent-proof-binding,canonical-leg-statement-including-successor-root+epoch,canonical-internal-statement,canonical-genesis):successor-correctness=validator-derived-frontier:post-proof-artifacts=manifest+committee-qc+carrier:output-memos=auditor-plaintext-commitment+payer-change-role+sponsor-reimbursement-terms+success-fee-carriers-2:transparent-amx=separate:governed-disabled-by-default";
+pub(crate) const ATOMIC_PRIVATE_SETTLEMENT_STARK_PROFILE_DESCRIPTOR_V1: &[u8] = b"iroha-atomic-private-settlement-stark-v1:wire=APZ1-v1:shared-proof-managed-note-geometry:trace=2^14:base=556:profile-aux=1:profile-fixed=123:profile-constraints=1375:constraint-degree=4:max-proof=8388608:relation=ivm-private-note-fixed-2-input-3-output-balanced-with-virtual-zero-inputs-and-audited-input-openings:public-input=sha3-384-opaque48(canonical-manifest-intent-proof-binding,canonical-leg-statement-including-successor-root+epoch,canonical-internal-statement,canonical-genesis):successor-correctness=validator-derived-frontier:post-proof-artifacts=manifest+committee-qc+carrier:output-memos=auditor-plaintext-commitment+payer-change-role+sponsor-reimbursement-terms+success-fee-carriers-2:transparent-amx=separate:governed-disabled-by-default";
 
 const SETTLEMENT_PARAMETERS_V1: aggregate::AggregateStarkParametersV1 =
     aggregate::AggregateStarkParametersV1 {
@@ -95,7 +95,7 @@ pub(super) fn validate_atomic_private_settlement_stark_profile_v1()
 }
 
 struct AtomicPrivateSettlementStarkAdapterV1<'a> {
-    manifest: &'a AtomicPrivateSettlementV1,
+    manifest: &'a PrivateSettlementProofIntentV1,
     statement: &'a PrivateSettlementProofStatementV1,
     internal_statement: &'a IrohaIvmPrivateNoteStarkStatementV1,
     canonical_genesis_hash: [u8; 32],
@@ -105,7 +105,7 @@ struct AtomicPrivateSettlementStarkAdapterV1<'a> {
 
 impl<'a> AtomicPrivateSettlementStarkAdapterV1<'a> {
     fn new(
-        manifest: &'a AtomicPrivateSettlementV1,
+        manifest: &'a PrivateSettlementProofIntentV1,
         statement: &'a PrivateSettlementProofStatementV1,
         internal_statement: &'a IrohaIvmPrivateNoteStarkStatementV1,
         canonical_genesis_hash: [u8; 32],
@@ -241,8 +241,8 @@ impl ProofManagedNoteStarkAdapterV1 for AtomicPrivateSettlementStarkAdapterV1<'_
     }
 }
 
-pub fn prove_atomic_private_settlement_stark_v1_with_rng<R: TryRngCore>(
-    manifest: &AtomicPrivateSettlementV1,
+pub(crate) fn prove_atomic_private_settlement_stark_v1_with_rng<R: TryRngCore>(
+    manifest: &PrivateSettlementProofIntentV1,
     statement: &PrivateSettlementProofStatementV1,
     canonical_genesis_hash: [u8; 32],
     current_height: u64,
@@ -265,8 +265,8 @@ pub fn prove_atomic_private_settlement_stark_v1_with_rng<R: TryRngCore>(
     )
 }
 
-pub fn verify_atomic_private_settlement_stark_v1(
-    manifest: &AtomicPrivateSettlementV1,
+pub(crate) fn verify_atomic_private_settlement_stark_v1(
+    manifest: &PrivateSettlementProofIntentV1,
     statement: &PrivateSettlementProofStatementV1,
     canonical_genesis_hash: [u8; 32],
     current_height: u64,
@@ -290,8 +290,8 @@ pub fn verify_atomic_private_settlement_stark_v1(
 }
 
 /// Independently reconstruct the public adapter and consume one unverified candidate.
-pub fn verify_constructed_atomic_private_settlement_stark_v1(
-    manifest: &AtomicPrivateSettlementV1,
+pub(crate) fn verify_constructed_atomic_private_settlement_stark_v1(
+    manifest: &PrivateSettlementProofIntentV1,
     statement: &PrivateSettlementProofStatementV1,
     canonical_genesis_hash: [u8; 32],
     current_height: u64,
@@ -321,7 +321,8 @@ mod tests {
         run: impl FnOnce(&AtomicPrivateSettlementStarkAdapterV1<'_>) -> R,
     ) -> R {
         let fixture = sidecar_fixture();
-        let manifest = &fixture.sidecar.manifest;
+        let intent = fixture.sidecar.manifest.proof_intent();
+        let manifest = &intent;
         let statement = &fixture.sidecar.payload.statement;
         let internal = internal_statement_v1(manifest, statement).expect("internal statement");
         let profile = relation_profile_v1(manifest, statement).expect("relation profile");
@@ -372,7 +373,8 @@ mod tests {
     #[test]
     fn public_input_is_stable_when_post_proof_artifacts_are_finalized() {
         let fixture = sidecar_fixture();
-        let manifest = &fixture.sidecar.manifest;
+        let intent = fixture.sidecar.manifest.proof_intent();
+        let manifest = &intent;
         let statement = &fixture.sidecar.payload.statement;
         let canonical_genesis_hash = *manifest.network_id.as_genesis_hash().as_ref();
         let internal = internal_statement_v1(manifest, statement).expect("internal statement");
@@ -388,12 +390,14 @@ mod tests {
         .public_input_digest_v1()
         .expect("provisional public input");
 
-        let mut finalized_manifest = manifest.clone();
+        let mut finalized_manifest = fixture.sidecar.manifest.clone();
         finalized_manifest.legs[0].payload_digest = iroha_crypto::Hash::new(b"final payload");
         finalized_manifest.legs[0].availability_certificate_digest =
             iroha_crypto::Hash::new(b"final availability certificate");
         finalized_manifest.legs[0].delta_digest = iroha_crypto::Hash::new(b"final delta");
-        let finalized_internal = internal_statement_v1(&finalized_manifest, statement)
+        let finalized_intent = finalized_manifest.proof_intent();
+        let finalized_manifest = &finalized_intent;
+        let finalized_internal = internal_statement_v1(finalized_manifest, statement)
             .expect("finalized internal statement");
         let finalized_profile =
             relation_profile_v1(&finalized_manifest, statement).expect("finalized profile");
@@ -414,7 +418,8 @@ mod tests {
     #[test]
     fn public_input_and_action_digest_bind_successor_root_and_epoch() {
         let fixture = sidecar_fixture();
-        let manifest = &fixture.sidecar.manifest;
+        let intent = fixture.sidecar.manifest.proof_intent();
+        let manifest = &intent;
         let statement = &fixture.sidecar.payload.statement;
         let canonical_genesis_hash = *manifest.network_id.as_genesis_hash().as_ref();
         let internal = internal_statement_v1(manifest, statement).expect("internal statement");

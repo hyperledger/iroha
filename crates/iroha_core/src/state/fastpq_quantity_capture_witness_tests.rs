@@ -568,3 +568,77 @@ fn genuine_call_and_protocol_source_openings_preserve_native_kind() {
         );
     }
 }
+
+#[test]
+fn optional_archive_pool_refusal_keeps_original_release_owner_through_witness() {
+    with_sealed_quantity_source_census(|block, _, _, _| {
+        let original = block.finalized_quantity_source_for_test().unwrap().0;
+        let pool = block.pipeline_ivm_prepared_cache.execution_budget().clone();
+        let mut registration = crate::unit_test_support::release_registration(&pool);
+        let occupied = pool
+            .try_reserve_bytes(pool.limit_bytes() - pool.reserved_bytes())
+            .unwrap();
+        let issue = QuantityArchiveMap::<u8>::reserve(1, &pool)
+            .err()
+            .expect("actual optional map refusal");
+        let QuantityCaptureIssue::Admission(refusal) = &issue else {
+            panic!("original pool cause erased into optional diagnostic: {issue:?}")
+        };
+        let iroha_allocation::AllocationRefusal::Capacity { release, .. } = refusal else {
+            panic!("occupied original pool, not immutable geometry")
+        };
+        let original_refusal = refusal.clone();
+        let wait = release.clone();
+        let mut task = std::task::Context::from_waker(std::task::Waker::noop());
+        assert!(registration.poll_wait(&wait, &mut task).is_pending());
+        block.fastpq_quantity_candidate.source_census = QuantitySourceCensusState::Failed;
+        block.fastpq_quantity_candidate.issue = Some(issue);
+        drop(occupied);
+        assert!(registration.poll_wait(&wait, &mut task).is_ready());
+        block.capture_exec_witness().unwrap();
+        let witness = block.take_exec_witness().unwrap();
+        assert_eq!(
+            witness.manifest(),
+            &original,
+            "optional refusal cannot alter canonical D7"
+        );
+        assert!(witness.verify_source_binding().is_ok());
+        let retained = witness.admit_quantity_archive().err().unwrap();
+        assert_eq!(retained, QuantityCaptureIssue::Admission(original_refusal));
+        assert_eq!(witness.quantity_entry(0).err(), Some(retained.clone()));
+        assert_eq!(block.fastpq_quantity_candidate.issue, Some(retained));
+    });
+}
+
+#[test]
+fn optional_archive_keeps_original_oversize_separate_from_pool_capacity() {
+    let pool = iroha_allocation::AllocationBudget::new(0);
+    let issue = QuantityArchiveMap::<u8>::reserve(1, &pool).err().unwrap();
+    assert!(matches!(
+        issue,
+        QuantityCaptureIssue::Admission(iroha_allocation::AllocationRefusal::ExceedsLimit { .. })
+    ));
+    assert_eq!(pool.reserved_bytes(), 0);
+    assert_ne!(
+        issue,
+        QuantityCaptureIssue::Capacity,
+        "diagnostic geometry is never original pool evidence"
+    );
+}
+
+#[test]
+fn optional_refusal_adapter_never_invents_evidence_for_physical_or_erased_capacity() {
+    assert_eq!(
+        QuantityCaptureIssue::from_buffer(iroha_allocation::ChargedBufferError::Allocator {
+            requested_bytes: 16
+        }),
+        QuantityCaptureIssue::Capacity
+    );
+    let original = iroha_allocation::AllocationRefusal::DemandOverflow;
+    assert_eq!(
+        QuantityCaptureIssue::from_prepaid(iroha_allocation::PrepaidBufferError::Allocation(
+            iroha_allocation::ChargedBufferError::Admission(original.clone())
+        )),
+        QuantityCaptureIssue::Admission(original)
+    );
+}

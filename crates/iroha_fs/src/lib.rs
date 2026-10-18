@@ -437,12 +437,45 @@ impl PrivateReadTreeScope<'_> {
     where
         E: From<io::Error>,
     {
-        self.with_directory_custody(directory, || {
+        Self::with_directory_custody(self.directory, directory, || {
             let mut lease = ();
             read(&mut PrivateReadScope {
                 directory: &directory.inner,
                 _lease: &mut lease,
             })
+        })
+    }
+
+    /// Read one directory while inspecting further descendants under this same tree owner.
+    ///
+    /// The directory reader and tree are borrowed only for this synchronous read-only callback.
+    /// This uses the same original suffix admission and ordinary-result exit as [`Self::read_scope`].
+    /// Each descendant and leaf keeps its fresh checks; a nonshared directory falls back to
+    /// full ancestry validation. No reader, descriptor or validation verdict can escape.
+    /// Signing, publication, writes and network actions must remain outside the callback.
+    /// An intermediate directory change wholly restored inside this scope may go unseen.
+    ///
+    /// # Errors
+    /// Refuses unsafe or changed original custody at entry or exit. Directory exit refusal
+    /// overrides every ordinary callback result, including an error from a nested read.
+    pub fn read_scope_with_tree<T, E>(
+        &mut self,
+        directory: &PrivateDirectory,
+        read: impl for<'scope> FnOnce(&mut Self, &mut PrivateReadScope<'scope>) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<io::Error>,
+    {
+        let anchor = self.directory;
+        Self::with_directory_custody(anchor, directory, || {
+            let mut lease = ();
+            read(
+                self,
+                &mut PrivateReadScope {
+                    directory: &directory.inner,
+                    _lease: &mut lease,
+                },
+            )
         })
     }
 
@@ -457,23 +490,23 @@ impl PrivateReadTreeScope<'_> {
     /// Refuses changed or unsafe native custody at either observation. This does not promise
     /// an atomic snapshot or detection of an interior change restored between observations.
     pub fn revalidate_directory(&self, directory: &PrivateDirectory) -> io::Result<()> {
-        self.with_directory_custody(directory, || Ok(()))
+        Self::with_directory_custody(self.directory, directory, || Ok(()))
     }
 
     // One closed owner for both actual reads and empty directory checks. Keep the native
     // relationship admission and all-result exit in this private recipe; no public nested
     // directory view or parallel read/entries/comparison implementation is retained.
     fn with_directory_custody<T, E>(
-        &self,
+        anchor: &platform::Directory,
         directory: &PrivateDirectory,
         read: impl FnOnce() -> Result<T, E>,
     ) -> Result<T, E>
     where
         E: From<io::Error>,
     {
-        directory.inner.revalidate_in_tree(self.directory)?;
+        directory.inner.revalidate_in_tree(anchor)?;
         let result = read();
-        if let Err(error) = directory.inner.revalidate_in_tree(self.directory) {
+        if let Err(error) = directory.inner.revalidate_in_tree(anchor) {
             drop(result);
             return Err(error.into());
         }

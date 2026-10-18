@@ -20,7 +20,9 @@ use crate::privacy_engines::{
     },
     prover_randomness::{HealthCheckedTryCryptoRngV1, TryCryptoProverRandomnessErrorV1},
 };
-use iroha_data_model::nexus::{AtomicPrivateSettlementV1, PrivateSettlementProofStatementV1};
+use iroha_data_model::nexus::{
+    AtomicPrivateSettlementV1, PrivateSettlementProofIntentV1, PrivateSettlementProofStatementV1,
+};
 use rand::{TryCryptoRng, rngs::OsRng};
 use thiserror::Error;
 
@@ -127,6 +129,31 @@ pub fn prove_atomic_private_settlement_v1_with_rng<R: TryCryptoRng + ?Sized>(
     witness: &AtomicPrivateSettlementProverWitnessV1,
     randomness: &mut R,
 ) -> Result<Vec<u8>, AtomicPrivateSettlementProofErrorV1> {
+    manifest
+        .validate()
+        .map_err(|_| AtomicPrivateSettlementRelationErrorV1::InvalidManifest)?;
+    prove_atomic_private_settlement_intent_v1_with_rng(
+        &manifest.proof_intent(),
+        statement,
+        canonical_genesis_hash,
+        current_height,
+        witness,
+        randomness,
+    )
+}
+
+/// Prove a distinct pre-proof public intent, using the same canonical native relation.
+/// No incomplete full manifest is constructed or accepted.
+/// # Errors
+/// Exact intent/statement/witness, entropy, resource, prover or self-verification failure.
+pub fn prove_atomic_private_settlement_intent_v1_with_rng<R: TryCryptoRng + ?Sized>(
+    manifest: &PrivateSettlementProofIntentV1,
+    statement: &PrivateSettlementProofStatementV1,
+    canonical_genesis_hash: [u8; 32],
+    current_height: u64,
+    witness: &AtomicPrivateSettlementProverWitnessV1,
+    randomness: &mut R,
+) -> Result<Vec<u8>, AtomicPrivateSettlementProofErrorV1> {
     validate_public_binding_v1(manifest, statement, canonical_genesis_hash, current_height)?;
     let compiled = compile_witness_v1(manifest, statement, witness)?;
     let mut checked_randomness =
@@ -204,6 +231,28 @@ pub fn verify_atomic_private_settlement_v1(
     current_height: u64,
     proof: &[u8],
 ) -> Result<(), AtomicPrivateSettlementProofErrorV1> {
+    manifest
+        .validate()
+        .map_err(|_| AtomicPrivateSettlementRelationErrorV1::InvalidManifest)?;
+    verify_atomic_private_settlement_intent_v1(
+        &manifest.proof_intent(),
+        statement,
+        canonical_genesis_hash,
+        current_height,
+        proof,
+    )
+}
+
+/// Verify the exact pre-proof intent through the same native public relation and STARK owner.
+/// # Errors
+/// Malformed, expired, substituted, noncanonical or cryptographically invalid evidence.
+pub fn verify_atomic_private_settlement_intent_v1(
+    manifest: &PrivateSettlementProofIntentV1,
+    statement: &PrivateSettlementProofStatementV1,
+    canonical_genesis_hash: [u8; 32],
+    current_height: u64,
+    proof: &[u8],
+) -> Result<(), AtomicPrivateSettlementProofErrorV1> {
     validate_public_binding_v1(manifest, statement, canonical_genesis_hash, current_height)?;
     verify_atomic_private_settlement_stark_v1(
         manifest,
@@ -213,6 +262,21 @@ pub fn verify_atomic_private_settlement_v1(
         proof,
     )
     .map_err(map_verifier_error_v1)
+}
+
+/// Prove one pre-proof intent with operating-system entropy and independent self-verification.
+/// # Errors
+/// The same closed errors as the injected-entropy producer.
+pub fn prove_atomic_private_settlement_intent_v1(
+    intent: &PrivateSettlementProofIntentV1,
+    statement: &PrivateSettlementProofStatementV1,
+    genesis: [u8; 32],
+    height: u64,
+    witness: &AtomicPrivateSettlementProverWitnessV1,
+) -> Result<Vec<u8>, AtomicPrivateSettlementProofErrorV1> {
+    prove_atomic_private_settlement_intent_v1_with_rng(
+        intent, statement, genesis, height, witness, &mut OsRng,
+    )
 }
 
 #[cfg(test)]

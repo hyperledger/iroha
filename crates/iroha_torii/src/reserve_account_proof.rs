@@ -160,11 +160,7 @@ pub async fn handler(
                                 world, owner, policy, current, credit, capacity, pricing,
                             );
                             crate::native_projection_response::encode(
-                                &payload,
-                                format,
-                                maximum,
-                                &budget,
-                                unavailable,
+                                &payload, format, maximum, &budget,
                             )
                             .map_err(|_| "reserve account proof encoding refused".to_owned())
                         },

@@ -231,4 +231,155 @@ async fn assert_amx_approval_async_read(base: &str, route_prefix: &str) {
             );
         }
     }
+
+    // A non-success observation is never a successful proof. Only its exact
+    // request-bound classification can allow the caller to schedule another read.
+    use iroha_torii_shared::amx_approval_read::{
+        AmxApprovalReadFailureV1, AmxApprovalReadReasonV1,
+    };
+    for reason in [
+        AmxApprovalReadReasonV1::CutChanged,
+        AmxApprovalReadReasonV1::Capacity,
+    ] {
+        let failure = AmxApprovalReadFailureV1::new(
+            &approval,
+            &client.account,
+            verified.height(),
+            reason,
+            (reason == AmxApprovalReadReasonV1::CutChanged).then_some(verified.height() - 1),
+        )
+        .unwrap();
+        for corrupt_binding in [false, true] {
+            let mut sent = failure.clone();
+            if corrupt_binding {
+                sent.requested_height += 1;
+            }
+            let transport = Arc::new(Transport {
+                response: Mutex::new(Some(
+                    Response::builder()
+                        .status(reason.http_status())
+                        .header("content-type", APPLICATION_NORITO)
+                        .body(norito::encode_canonical(&sent.into_error_envelope()).unwrap())
+                        .unwrap(),
+                )),
+                requests: Mutex::new(vec![]),
+            });
+            let selected = client
+                .clone()
+                .with_test_http_transport(DefaultHttpTransport::from_shared(transport.clone()));
+            mark_data_model_compatible(&selected);
+            let error = selected
+                .get_amx_debit_approval_state_async(&approval, &selected.account, schema, &verified)
+                .await
+                .unwrap_err();
+            assert_eq!(
+                error.downcast_ref::<AmxApprovalReadFailureV1>().is_some(),
+                !corrupt_binding
+            );
+            if corrupt_binding {
+                assert!(
+                    matches!(
+                        error.downcast_ref::<crate::Error>(),
+                        Some(crate::Error::Decode { .. })
+                    ),
+                    "malformed/nonbinding availability cannot lose its typed rejection"
+                );
+            }
+            if !corrupt_binding {
+                assert_eq!(
+                    error.downcast_ref::<AmxApprovalReadFailureV1>().unwrap(),
+                    &failure
+                );
+            }
+            assert_eq!(
+                transport.requests.lock().unwrap().len(),
+                1,
+                "one proof read cannot autonomously retry"
+            );
+        }
+    }
+    for status in [401, 403, 404, 503] {
+        let transport = Arc::new(Transport {
+            response: Mutex::new(Some(
+                Response::builder()
+                    .status(status)
+                    .header("content-type", "text/plain")
+                    .body(b"original refusal".to_vec())
+                    .unwrap(),
+            )),
+            requests: Mutex::new(vec![]),
+        });
+        let selected = client
+            .clone()
+            .with_test_http_transport(DefaultHttpTransport::from_shared(transport.clone()));
+        mark_data_model_compatible(&selected);
+        let error = selected
+            .get_amx_debit_approval_state_async(&approval, &selected.account, schema, &verified)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error.downcast_ref::<crate::Error>(), Some(crate::Error::Http { status: actual, body, .. })
+            if *actual == status && body.as_slice() == b"original refusal"),
+            "original HTTP status/body was erased: {error:?}"
+        );
+        assert!(
+            error.downcast_ref::<AmxApprovalReadFailureV1>().is_none(),
+            "generic HTTP refusal is not classified capacity"
+        );
+        assert_eq!(transport.requests.lock().unwrap().len(), 1);
+    }
+    let transport = Arc::new(Transport {
+        response: Mutex::new(Some(
+            Response::builder()
+                .status(200)
+                .header("content-type", "text/plain")
+                .body(b"not a proof".to_vec())
+                .unwrap(),
+        )),
+        requests: Mutex::new(vec![]),
+    });
+    let selected = client
+        .clone()
+        .with_test_http_transport(DefaultHttpTransport::from_shared(transport.clone()));
+    mark_data_model_compatible(&selected);
+    let error = selected
+        .get_amx_debit_approval_state_async(&approval, &selected.account, schema, &verified)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(
+            error.downcast_ref::<crate::Error>(),
+            Some(crate::Error::Decode { .. })
+        ),
+        "invalid success boundary must retain a typed proof decoding failure: {error:?}"
+    );
+    assert_eq!(transport.requests.lock().unwrap().len(), 1);
+
+    let transport = Arc::new(Transport {
+        response: Mutex::new(Some(
+            Response::builder()
+                .status(200)
+                .header("content-type", APPLICATION_NORITO)
+                .body(b"malformed canonical AMX proof".to_vec())
+                .unwrap(),
+        )),
+        requests: Mutex::new(vec![]),
+    });
+    let selected = client
+        .clone()
+        .with_test_http_transport(DefaultHttpTransport::from_shared(transport.clone()));
+    mark_data_model_compatible(&selected);
+    let error = selected
+        .get_amx_debit_approval_state_async(&approval, &selected.account, schema, &verified)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error.downcast_ref::<crate::Error>(),
+        Some(crate::Error::CanonicalDecode(original))
+        if original.operation == "amx.debit_approval"
+            && original.source.kind() == norito::core::DecodeAttemptErrorKind::Invalid),
+        "a malformed proof must retain its original canonical decoder category: {error:?}"
+    );
+    assert!(error.downcast_ref::<AmxApprovalReadFailureV1>().is_none());
+    assert_eq!(transport.requests.lock().unwrap().len(), 1);
 }

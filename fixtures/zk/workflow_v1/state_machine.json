@@ -48,6 +48,10 @@
       "shared_operation_code": true
     },
     {
+      "id": "EvidenceUnavailable",
+      "shared_operation_code": true
+    },
+    {
       "id": "SubmissionOutcomeUnknown",
       "shared_operation_code": true
     },

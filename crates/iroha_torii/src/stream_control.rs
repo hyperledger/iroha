@@ -276,12 +276,12 @@ fn scalar_permission<T: norito::json::JsonSerialize>(
         .map_err(|_| capacity())?;
     Ok(output.matches && output.position == output.expected.len())
 }
-fn can_read_all(world: &impl WorldReadOnly, caller: &AccountId) -> Result<bool, Error> {
+pub(crate) fn can_read_all(world: &impl WorldReadOnly, caller: &AccountId) -> Result<bool, Error> {
     account_permission_matches(world, caller, |permission| {
         scalar_permission(permission, "CanReadAllLedgerData", &CanReadAllLedgerData)
     })
 }
-fn can_read_dataspace(
+pub(crate) fn can_read_dataspace(
     world: &impl WorldReadOnly,
     caller: &AccountId,
     id: DataSpaceId,

@@ -1,7 +1,7 @@
 //! Borrowed tree prefixes preserve original suffix, leaf, inventory and Result custody.
 
 use super::*;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 fn store() -> (
     tempfile::TempDir,
@@ -496,4 +496,158 @@ fn tree_comparison_closes_actual_boolean_error_and_empty_outcomes_before_anchor_
             .unwrap()
         );
     }
+}
+
+#[test]
+fn tree_operation_reader_and_descendants_keep_one_original_custody_recipe() {
+    let (_temporary, root, operation, _other) = store();
+    let child = operation.create_child("attempt").unwrap();
+    child
+        .write_atomic("row", b"row", PublishMode::CreateNew)
+        .unwrap();
+    let order = RefCell::new(Vec::new());
+    let value = root
+        .read_tree_scope(|tree| {
+            tree.read_scope_with_tree(&operation, |tree, reader| {
+                let before = reader.entries(2)?;
+                reader.read("record", 8, |bytes| {
+                    assert_eq!(bytes, b"original");
+                    order.borrow_mut().push(1);
+                })?;
+                tree.read_scope(&child, |row| {
+                    row.read("row", 3, |bytes| {
+                        assert_eq!(bytes, b"row");
+                        order.borrow_mut().push(2);
+                    })
+                })?;
+                reader.read("record", 8, |bytes| {
+                    assert_eq!(bytes, b"original");
+                    order.borrow_mut().push(3);
+                })?;
+                assert_eq!(reader.entries(2)?, before);
+                Ok::<_, io::Error>(8)
+            })
+        })
+        .unwrap();
+    assert_eq!(value, 8);
+    assert_eq!(*order.borrow(), [1, 2, 3]);
+    for (name, maximum) in [("missing", 8), ("record", 7), ("../escape", 8)] {
+        let ordinary = operation.read(name, maximum).unwrap_err();
+        let shared = root
+            .read_tree_scope(|tree| {
+                tree.read_scope_with_tree(&operation, |_, reader| {
+                    reader.read(name, maximum, |_| ())
+                })
+            })
+            .unwrap_err();
+        assert_eq!(shared.kind(), ordinary.kind());
+        assert_eq!(shared.to_string(), ordinary.to_string());
+    }
+    let error = root
+        .read_tree_scope(|tree| {
+            tree.read_scope_with_tree(&operation, |tree, reader| {
+                reader.read("record", 8, |_| ())?;
+                tree.read_scope(&child, |_| {
+                    Err::<(), _>(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "nested native reader semantic refusal",
+                    ))
+                })
+            })
+        })
+        .unwrap_err();
+    assert_eq!(error.to_string(), "nested native reader semantic refusal");
+    operation.revalidate().unwrap();
+    child.revalidate().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn tree_operation_reader_closes_renamed_replaced_and_unsafe_originals_on_every_result() {
+    use std::os::unix::fs::PermissionsExt as _;
+    for attack in ["permission", "missing", "replacement"] {
+        for result_kind in ["some", "none", "native_error", "semantic_error"] {
+            let (temporary, root, operation, _other) = store();
+            let child = operation.create_child("attempt").unwrap();
+            child
+                .write_atomic("row", b"row", PublishMode::CreateNew)
+                .unwrap();
+            let path = operation.path().to_owned();
+            let moved = temporary.path().join("moved-original-operation");
+            let result = root.read_tree_scope(|tree| {
+                tree.read_scope_with_tree(&operation, |tree, reader| {
+                    tree.read_scope(&child, |row| row.read("row", 3, |_| ()))?;
+                    let value = match result_kind {
+                        "some" => reader.read("record", 8, |_| Some(8)),
+                        "none" => reader.read_optional("absent", 8, |_| 8),
+                        "native_error" => reader.read("record", 7, |_| Some(8)),
+                        _ => Err(io::Error::new(io::ErrorKind::InvalidData, "inner refusal")),
+                    };
+                    match attack {
+                        "permission" => {
+                            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                                .unwrap()
+                        }
+                        _ => {
+                            std::fs::rename(&path, &moved).unwrap();
+                            if attack == "replacement" {
+                                std::fs::create_dir(&path).unwrap();
+                                std::fs::set_permissions(
+                                    &path,
+                                    std::fs::Permissions::from_mode(0o700),
+                                )
+                                .unwrap();
+                            }
+                        }
+                    }
+                    value
+                })
+            });
+            match attack {
+                "permission" => {
+                    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap()
+                }
+                _ => {
+                    if attack == "replacement" {
+                        std::fs::remove_dir(&path).unwrap();
+                    }
+                    std::fs::rename(&moved, &path).unwrap();
+                }
+            }
+            let error = result.unwrap_err();
+            assert_eq!(
+                error.kind(),
+                match attack {
+                    "permission" => io::ErrorKind::PermissionDenied,
+                    "missing" => io::ErrorKind::NotFound,
+                    _ => io::ErrorKind::Other,
+                }
+            );
+            assert_eq!(operation.read("record", 8).unwrap().as_slice(), b"original");
+            assert_eq!(child.read("row", 3).unwrap().as_slice(), b"row");
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn tree_operation_reader_reopened_owner_keeps_full_ancestry_fallback() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let (_temporary, root, operation, _other) = store();
+    let reopened = PrivateDirectory::open(operation.path()).unwrap();
+    let visited = Cell::new(false);
+    root.read_tree_scope(|tree| {
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o777)).unwrap();
+        let expected = reopened.revalidate().unwrap_err();
+        let actual = tree.read_scope_with_tree(&reopened, |_, reader| {
+            reader.read("record", 8, |_| visited.set(true))
+        });
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let actual = actual.unwrap_err();
+        assert_eq!(expected.kind(), actual.kind());
+        assert_eq!(expected.to_string(), actual.to_string());
+        assert!(!visited.get());
+        Ok::<_, io::Error>(())
+    })
+    .unwrap();
 }

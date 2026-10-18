@@ -143,7 +143,7 @@ impl CapturedExecWitness {
         if self.source.manifest.coverage != FastpqSourceEffectCoverageV1::Complete {
             return Err(QuantityCaptureIssue::UnownedMutation);
         }
-        let archive = self.archive.as_ref().map_err(|error| *error)?;
+        let archive = self.archive.as_ref().map_err(Clone::clone)?;
         checked_entry(&self.source, archive, statement_index)
     }
     #[cfg(test)]
@@ -163,7 +163,7 @@ impl CapturedExecWitness {
         let archive = if self.source.leaves.as_slice().is_empty() {
             None
         } else {
-            let archive = self.archive.as_ref().map_err(|error| *error)?;
+            let archive = self.archive.as_ref().map_err(Clone::clone)?;
             for index in 0..self.source.leaves.as_slice().len() {
                 let _checked = checked_entry(&self.source, archive, index)?;
             }
@@ -419,6 +419,7 @@ impl StateBlock<'_> {
             _ => Err(self
                 .fastpq_quantity_candidate
                 .issue
+                .clone()
                 .unwrap_or(QuantityCaptureIssue::InvalidFacts)),
         };
         let wire = assembly.finish(pool)?;

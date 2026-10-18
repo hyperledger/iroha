@@ -327,7 +327,11 @@ These are fresh clarity findings, not a reconstruction of the missing four:
    checks cover all 12 supported combinations: all four moduli in both fields
    on private tables, and P-256 p/n in both fields on the shared table. Carry
    endpoint checks cover both fields and both table layouts. Both fused
-   every-cell sweeps and the 9,000-product proof remain ignored. The sweeps
+   every-cell sweeps and the 9,000-product proof were ignored in that ordinary
+   component run, then explicitly executed and passed among all thirteen selected
+   cases in `target/qualification/m3-streaming-msm-heavy-gadgets-3`. Its FF/Q-leaf
+   sources remain unchanged; its transitive engine source interval predates the
+   current lookup-FFT/merged changes. The sweeps
    select a `+1` mutation at every assigned advice cell only for Fq-in-Fp and
    P-256 p-in-Fq; there is no dedicated exhaustive FF sweep for Fp-in-Fq or
    P-256 n, or the full field/table matrix. The P-256 leaf mutation suite samples
@@ -344,8 +348,14 @@ These are fresh clarity findings, not a reconstruction of the missing four:
    `b60ed10a22f1905a131093cee8424570715b5a69c122730ac25c348b90e983f7`.
    The runner ended after 362 selected test passes with a strict-lint failure
    in the MSM fallback (`clippy::option_if_let_else`). Its result remains
-   unsuccessful; the equivalent style repair requires fresh focused checks.
-   These component passes do not replace the ignored adversarial/proof cases, recover the
+   unsuccessful. Subsequent focused checks and
+   `m3-lookup-fft-engine-validation-4` pass strict all-target
+   Pasta/PLONK/Gadgets/Recursion lint; engine4 also passes 317 ordinary PLONK cases
+   with six declared ignores. These later successes do not rewrite the earlier
+   failure or rerun the ordinary FF/Gadgets namespace. The reconciled source
+   intervals and raw heavy results are recorded in
+   `target/qualification/carry-current-coverage-reconciliation-1`.
+   These component passes do not supply the absent exhaustive matrix, recover the
    original four-item wording checklist, qualify other FF backends, recursive
    Q, complete P-256, privacy or devices, or establish release readiness.
 

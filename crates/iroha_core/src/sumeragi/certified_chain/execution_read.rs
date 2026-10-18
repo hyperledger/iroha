@@ -5,21 +5,56 @@ use super::*;
 ///
 /// This receipt is never decoded or publicly constructed. Ordinary blocks require their native
 /// quorum; genesis requires its verified H2 successor because genesis signatures do not bind R.
-#[derive(Debug)]
 pub struct AuthenticatedExecutionBlock {
-    committed: CommittedBlock,
+    original: AuthenticatedExecutionOwner,
+}
+enum AuthenticatedExecutionOwner {
+    Native(CommittedBlock),
+    // Keep the actual native/portable cursor output AND its original decode custody.
+    // No CommittedBlock clone, re-read, or decoded checkpoint can construct this branch.
+    Cursor(crate::sumeragi::finality::NativeFinalityAtHeightV1),
+    Genesis(crate::sumeragi::finality::NativeGenesisExecutionV1),
+}
+impl std::fmt::Debug for AuthenticatedExecutionBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthenticatedExecutionBlock")
+            .field("committed", self.committed())
+            .finish()
+    }
 }
 impl AuthenticatedExecutionBlock {
     /// Original authenticated block graph, including the exact node-local certificate.
     #[must_use]
     pub fn block(&self) -> &iroha_data_model::block::SharedSignedBlock {
-        self.committed.block()
+        self.committed().block()
     }
 
     /// The authenticated execution result and exact source identity.
     #[must_use]
     pub fn committed(&self) -> &CommittedBlock {
-        &self.committed
+        match &self.original {
+            AuthenticatedExecutionOwner::Native(value) => value,
+            AuthenticatedExecutionOwner::Cursor(value) => value.native_block(),
+            AuthenticatedExecutionOwner::Genesis(value) => value.committed(),
+        }
+    }
+
+    /// Retain the canonical H2 prefix step and all original genesis decoder custody.
+    pub(crate) fn from_genesis_cursor(
+        original: crate::sumeragi::finality::NativeGenesisExecutionV1,
+    ) -> Self {
+        Self {
+            original: AuthenticatedExecutionOwner::Genesis(original),
+        }
+    }
+
+    /// Consume the canonical cursor's actual historical authority without releasing its custody.
+    pub(crate) fn from_finality_cursor(
+        original: crate::sumeragi::finality::NativeFinalityAtHeightV1,
+    ) -> Self {
+        Self {
+            original: AuthenticatedExecutionOwner::Cursor(original),
+        }
     }
 }
 impl CertifiedBlock {
@@ -37,7 +72,7 @@ impl CertifiedBlock {
             });
         }
         Ok(AuthenticatedExecutionBlock {
-            committed: self.committed,
+            original: AuthenticatedExecutionOwner::Native(self.committed),
         })
     }
 }
@@ -46,7 +81,7 @@ impl GenesisExecutionAnchor {
     #[must_use]
     pub fn into_authenticated_execution(self) -> AuthenticatedExecutionBlock {
         AuthenticatedExecutionBlock {
-            committed: self.committed,
+            original: AuthenticatedExecutionOwner::Native(self.committed),
         }
     }
 }

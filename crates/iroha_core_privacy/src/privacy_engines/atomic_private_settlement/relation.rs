@@ -17,9 +17,9 @@ use iroha_data_model::{
     asset::{AssetBalanceScope, AssetDefinitionId},
     block::BlockHeader,
     nexus::{
-        AtomicPrivateSettlementV1, PRIVATE_SETTLEMENT_INPUT_SLOTS_V1,
-        PRIVATE_SETTLEMENT_OUTPUT_SLOTS_V1, PRIVATE_SETTLEMENT_PROOF_PROFILE_DESCRIPTOR_V1,
-        PrivateSettlementAuditNoteOpeningV1, PrivateSettlementAuditPlaintextV1,
+        PRIVATE_SETTLEMENT_INPUT_SLOTS_V1, PRIVATE_SETTLEMENT_OUTPUT_SLOTS_V1,
+        PRIVATE_SETTLEMENT_PROOF_PROFILE_DESCRIPTOR_V1, PrivateSettlementAuditNoteOpeningV1,
+        PrivateSettlementAuditPlaintextV1, PrivateSettlementProofIntentV1,
         PrivateSettlementProofStatementV1,
     },
     privacy::{
@@ -48,7 +48,7 @@ const SETTLEMENT_DUMMY_INPUT_MEMO_DOMAIN_V1: &[u8] =
     b"iroha.atomic-private-settlement.input.dummy.v1";
 
 /// Semantic descriptor for the settlement-only IVM relation binding.
-pub const ATOMIC_PRIVATE_SETTLEMENT_RELATION_DESCRIPTOR_V1: &[u8] = b"iroha-atomic-private-settlement-relation-v1:separate-from-transparent-amx:ivm-private-note-fixed-2-input-3-output:balanced-only:positive-input-membership-only:zero-valued-virtual-dummies-with-nonzero-authority-rho-blinding-and-path:input-openings=public-air-sha256-binding-of-exact-ordered-value-authority-rho-blinding-memo:payer=purpose-separated-fixed-input-controller-authorization:output-memos=auditor-plaintext-commitment+payer-change-role+sponsor-reimbursement-terms:reimbursement-success-fee-carriers=2:asset=salted-auditor-approved-pool-binding:public=canonical-manifest-intent-proof-binding+statement+genesis:post-proof-artifacts=manifest+committee-qc+carrier:successor=proof-statement-bound-root+epoch:successor-correctness=validator-derived-frontier";
+pub(crate) const ATOMIC_PRIVATE_SETTLEMENT_RELATION_DESCRIPTOR_V1: &[u8] = b"iroha-atomic-private-settlement-relation-v1:separate-from-transparent-amx:ivm-private-note-fixed-2-input-3-output:balanced-only:positive-input-membership-only:zero-valued-virtual-dummies-with-nonzero-authority-rho-blinding-and-path:input-openings=public-air-sha256-binding-of-exact-ordered-value-authority-rho-blinding-memo:payer=purpose-separated-fixed-input-controller-authorization:output-memos=auditor-plaintext-commitment+payer-change-role+sponsor-reimbursement-terms:reimbursement-success-fee-carriers=2:asset=salted-auditor-approved-pool-binding:public=canonical-manifest-intent-proof-binding+statement+genesis:post-proof-artifacts=manifest+committee-qc+carrier:successor=proof-statement-bound-root+epoch:successor-correctness=validator-derived-frontier";
 
 /// Public, redacted failure at the settlement proof relation boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
@@ -215,8 +215,8 @@ fn synthetic_asset_v1() -> Result<AssetDefinitionId, AtomicPrivateSettlementRela
     Ok(AssetDefinitionId::derive_from_components(domain, name))
 }
 
-pub fn validate_public_binding_v1(
-    manifest: &AtomicPrivateSettlementV1,
+pub(crate) fn validate_public_binding_v1(
+    manifest: &PrivateSettlementProofIntentV1,
     statement: &PrivateSettlementProofStatementV1,
     canonical_genesis_hash: [u8; 32],
     current_height: u64,
@@ -262,8 +262,8 @@ pub fn validate_public_binding_v1(
 /// Slot zero binds all non-circular auditor material, slot one binds the
 /// payer-change role to the exact leg, and slot two binds the private sponsor
 /// reimbursement terms selected by the public bundle.
-pub fn atomic_private_settlement_output_memo_digests_v1(
-    manifest: &AtomicPrivateSettlementV1,
+pub(super) fn atomic_private_settlement_output_memo_digests_v1_for_intent(
+    manifest: &PrivateSettlementProofIntentV1,
     statement: &PrivateSettlementProofStatementV1,
 ) -> Result<[[u8; 32]; PRIVATE_SETTLEMENT_OUTPUT_SLOTS_V1], AtomicPrivateSettlementRelationErrorV1>
 {
@@ -273,50 +273,25 @@ pub fn atomic_private_settlement_output_memo_digests_v1(
     statement
         .validate()
         .map_err(|_| AtomicPrivateSettlementRelationErrorV1::InvalidStatement)?;
-    let change_material = norito::encode_canonical(&(
-        (
-            statement.network_id,
-            statement.bundle_id,
-            statement.leg_ordinal,
-            statement.route,
-            statement.authority_context_height,
-            statement.pool_id,
-            statement.asset_binding_commitment,
-            statement.audit_plaintext_commitment,
-            statement.audit_input_commitment,
-        ),
-        (
-            statement.audit_policy_digest,
-            statement.audit_key_epoch,
-            statement.fee_intent_digest,
-            statement.reimbursement_terms_commitment,
-            statement.reimbursement_leg_ordinal,
-            statement.expiry_height,
-            statement.proof_profile_digest,
-        ),
-    ))
-    .map_err(|_| AtomicPrivateSettlementRelationErrorV1::CanonicalEncoding)?;
-    let change = framed_digest_v1(
-        SETTLEMENT_CHANGE_MEMO_DOMAIN_V1,
-        &[
-            &change_material,
-            PRIVATE_SETTLEMENT_PROOF_PROFILE_DESCRIPTOR_V1,
-        ],
-    )?;
-    Ok([
-        *statement.audit_plaintext_commitment.as_ref(),
-        change,
-        *statement.reimbursement_terms_commitment.as_ref(),
-    ])
+    output_memo_digests_from_bound_preparation_v1(statement)
 }
 
 /// Derive the unique memo digest for one zero-valued input cover note.
 ///
 /// The digest commits the bundle, leg, fixed slot index, and auditor-visible
 /// nonzero dummy domain without exposing that domain on the public plane.
-pub fn atomic_private_settlement_dummy_input_memo_digest_v1(
-    manifest: &AtomicPrivateSettlementV1,
+pub(super) fn atomic_private_settlement_dummy_input_memo_digest_v1_for_intent(
+    manifest: &PrivateSettlementProofIntentV1,
     statement: &PrivateSettlementProofStatementV1,
+    input_index: usize,
+    dummy_domain: Hash,
+) -> Result<[u8; 32], AtomicPrivateSettlementRelationErrorV1> {
+    dummy_input_memo_from_bound_leg_v1(manifest, statement.leg_ordinal, input_index, dummy_domain)
+}
+
+pub(super) fn dummy_input_memo_from_bound_leg_v1(
+    manifest: &PrivateSettlementProofIntentV1,
+    leg_ordinal: u8,
     input_index: usize,
     dummy_domain: Hash,
 ) -> Result<[u8; 32], AtomicPrivateSettlementRelationErrorV1> {
@@ -324,7 +299,7 @@ pub fn atomic_private_settlement_dummy_input_memo_digest_v1(
         SETTLEMENT_DUMMY_INPUT_MEMO_DOMAIN_V1,
         &[
             manifest.bundle_id.as_ref(),
-            &[statement.leg_ordinal],
+            &[leg_ordinal],
             &u64::try_from(input_index)
                 .map_err(|_| AtomicPrivateSettlementRelationErrorV1::Invariant)?
                 .to_be_bytes(),
@@ -344,8 +319,8 @@ fn context_digest_v1(
     Ok(digest)
 }
 
-pub fn internal_statement_v1(
-    manifest: &AtomicPrivateSettlementV1,
+pub(crate) fn internal_statement_v1(
+    manifest: &PrivateSettlementProofIntentV1,
     statement: &PrivateSettlementProofStatementV1,
 ) -> Result<IrohaIvmPrivateNoteStarkStatementV1, AtomicPrivateSettlementRelationErrorV1> {
     let proof_binding_digest = manifest
@@ -410,12 +385,12 @@ pub fn internal_statement_v1(
     Ok(internal)
 }
 
-pub fn relation_profile_v1(
-    manifest: &AtomicPrivateSettlementV1,
+pub(crate) fn relation_profile_v1(
+    manifest: &PrivateSettlementProofIntentV1,
     statement: &PrivateSettlementProofStatementV1,
 ) -> Result<PrivateNoteRelationProfileV1, AtomicPrivateSettlementRelationErrorV1> {
     Ok(PrivateNoteRelationProfileV1::exact_three_output_balanced(
-        atomic_private_settlement_output_memo_digests_v1(manifest, statement)?,
+        atomic_private_settlement_output_memo_digests_v1_for_intent(manifest, statement)?,
         statement.audit_input_commitment,
     ))
 }
@@ -479,12 +454,12 @@ pub fn atomic_private_settlement_audit_input_commitment_v1(
 }
 
 fn validate_audit_plaintext_against_statement_v1(
-    manifest: &AtomicPrivateSettlementV1,
+    manifest: &PrivateSettlementProofIntentV1,
     statement: &PrivateSettlementProofStatementV1,
     plaintext: &PrivateSettlementAuditPlaintextV1,
 ) -> Result<(), AtomicPrivateSettlementRelationErrorV1> {
     plaintext
-        .validate_against_manifest(manifest)
+        .validate_against_proof_intent(manifest)
         .map_err(|_| AtomicPrivateSettlementRelationErrorV1::InvalidAuditMaterial)?;
     let commitment = plaintext
         .commitment()
@@ -634,8 +609,8 @@ fn validate_payer_input_authorization_v1(
 /// output recipients, and ciphertext encryption openings are checked here
 /// without revealing a spending secret to ordinary committee validators.
 #[doc(hidden)]
-pub fn validate_audit_openings_v1(
-    manifest: &AtomicPrivateSettlementV1,
+pub(super) fn validate_audit_openings_v1_for_intent(
+    manifest: &PrivateSettlementProofIntentV1,
     statement: &PrivateSettlementProofStatementV1,
     plaintext: &PrivateSettlementAuditPlaintextV1,
 ) -> Result<(), AtomicPrivateSettlementRelationErrorV1> {
@@ -651,7 +626,7 @@ pub fn validate_audit_openings_v1(
     for (index, opening) in plaintext.inputs.iter().enumerate() {
         if !opening.active
             && opening.memo_digest
-                != atomic_private_settlement_dummy_input_memo_digest_v1(
+                != atomic_private_settlement_dummy_input_memo_digest_v1_for_intent(
                     manifest,
                     statement,
                     index,
@@ -678,7 +653,8 @@ pub fn validate_audit_openings_v1(
             return Err(AtomicPrivateSettlementRelationErrorV1::InvalidAuditMaterial);
         }
     }
-    let fixed_memos = atomic_private_settlement_output_memo_digests_v1(manifest, statement)?;
+    let fixed_memos =
+        atomic_private_settlement_output_memo_digests_v1_for_intent(manifest, statement)?;
     let program_id = atomic_private_settlement_program_id_v1()?;
     for (index, (output, expected_memo)) in plaintext.outputs.iter().zip(fixed_memos).enumerate() {
         if output.note.memo_digest != expected_memo
@@ -719,21 +695,22 @@ pub fn validate_audit_openings_v1(
     Ok(())
 }
 
-pub struct CompiledAtomicPrivateSettlementRelationV1 {
+pub(crate) struct CompiledAtomicPrivateSettlementRelationV1 {
     pub(crate) internal_statement: IrohaIvmPrivateNoteStarkStatementV1,
     pub(crate) witness: IvmPrivateNoteWitnessV1,
     pub(crate) profile: PrivateNoteRelationProfileV1,
 }
 
-pub fn compile_witness_v1(
-    manifest: &AtomicPrivateSettlementV1,
+pub(crate) fn compile_witness_v1(
+    manifest: &PrivateSettlementProofIntentV1,
     statement: &PrivateSettlementProofStatementV1,
     witness: &AtomicPrivateSettlementProverWitnessV1,
 ) -> Result<CompiledAtomicPrivateSettlementRelationV1, AtomicPrivateSettlementRelationErrorV1> {
-    validate_audit_openings_v1(manifest, statement, &witness.audit_plaintext)?;
+    validate_audit_openings_v1_for_intent(manifest, statement, &witness.audit_plaintext)?;
     let internal_statement = internal_statement_v1(manifest, statement)?;
     let profile = relation_profile_v1(manifest, statement)?;
-    let fixed_memos = atomic_private_settlement_output_memo_digests_v1(manifest, statement)?;
+    let fixed_memos =
+        atomic_private_settlement_output_memo_digests_v1_for_intent(manifest, statement)?;
 
     let mut inputs = Vec::with_capacity(PRIVATE_SETTLEMENT_INPUT_SLOTS_V1);
     for (index, (opening, spend)) in witness
@@ -745,7 +722,7 @@ pub fn compile_witness_v1(
     {
         if !opening.active
             && opening.memo_digest
-                != atomic_private_settlement_dummy_input_memo_digest_v1(
+                != atomic_private_settlement_dummy_input_memo_digest_v1_for_intent(
                     manifest,
                     statement,
                     index,
@@ -846,6 +823,52 @@ pub fn compile_witness_v1(
         witness: private_witness,
         profile,
     })
+}
+
+/// Verify complete-manifest private audit bindings before using the shared intent relation.
+/// # Errors
+/// Invalid complete manifest, substituted terms or invalid original authorizations.
+pub fn validate_audit_openings_v1(
+    manifest: &iroha_data_model::nexus::AtomicPrivateSettlementV1,
+    statement: &PrivateSettlementProofStatementV1,
+    plaintext: &PrivateSettlementAuditPlaintextV1,
+) -> Result<(), AtomicPrivateSettlementRelationErrorV1> {
+    manifest
+        .validate()
+        .map_err(|_| AtomicPrivateSettlementRelationErrorV1::InvalidManifest)?;
+    validate_audit_openings_v1_for_intent(&manifest.proof_intent(), statement, plaintext)
+}
+/// Derive fixed output memos from a fully validated complete manifest.
+/// # Errors
+/// Invalid manifest or statement.
+pub fn atomic_private_settlement_output_memo_digests_v1(
+    manifest: &iroha_data_model::nexus::AtomicPrivateSettlementV1,
+    statement: &PrivateSettlementProofStatementV1,
+) -> Result<[[u8; 32]; PRIVATE_SETTLEMENT_OUTPUT_SLOTS_V1], AtomicPrivateSettlementRelationErrorV1>
+{
+    manifest
+        .validate()
+        .map_err(|_| AtomicPrivateSettlementRelationErrorV1::InvalidManifest)?;
+    atomic_private_settlement_output_memo_digests_v1_for_intent(&manifest.proof_intent(), statement)
+}
+/// Derive an input cover memo from a fully validated complete manifest.
+/// # Errors
+/// Invalid manifest or canonical framing failure.
+pub fn atomic_private_settlement_dummy_input_memo_digest_v1(
+    manifest: &iroha_data_model::nexus::AtomicPrivateSettlementV1,
+    statement: &PrivateSettlementProofStatementV1,
+    input_index: usize,
+    dummy_domain: Hash,
+) -> Result<[u8; 32], AtomicPrivateSettlementRelationErrorV1> {
+    manifest
+        .validate()
+        .map_err(|_| AtomicPrivateSettlementRelationErrorV1::InvalidManifest)?;
+    atomic_private_settlement_dummy_input_memo_digest_v1_for_intent(
+        &manifest.proof_intent(),
+        statement,
+        input_index,
+        dummy_domain,
+    )
 }
 
 #[cfg(test)]
@@ -1082,7 +1105,8 @@ mod tests {
                 .iter()
                 .position(|commitment| *commitment == plaintext.inputs[0].commitment)
                 .expect("the actual funding note is already in the pool");
-            let internal = internal_statement_v1(&manifest, &statement).expect("current statement");
+            let internal = internal_statement_v1(&(manifest).proof_intent(), &statement)
+                .expect("current statement");
             let (root, path) =
                 continuation_membership_path(&internal, &historical_commitments, active_position);
             assert_eq!(
@@ -1107,7 +1131,7 @@ mod tests {
                     .expect("virtual dummy secret and fixed-shape path"),
                 ],
             );
-            compile_witness_v1(&manifest, &statement, &witness)
+            compile_witness_v1(&(manifest).proof_intent(), &statement, &witness)
                 .unwrap_or_else(|error| {
                     panic!(
                         "full audit validation and relation preflight reject settlement {settlement}: {error:?}"
@@ -1235,7 +1259,7 @@ mod tests {
         statement.audit_plaintext_commitment =
             plaintext.commitment().expect("refreshed capsule hash");
         validate_audit_plaintext_against_statement_v1(
-            &fixture.sidecar.manifest,
+            &(fixture.sidecar.manifest).proof_intent(),
             &statement,
             &plaintext,
         )
@@ -1260,21 +1284,31 @@ mod tests {
         let manifest = &fixture.sidecar.manifest;
         let statement = &fixture.sidecar.payload.statement;
         let canonical_genesis_hash = *manifest.network_id.as_genesis_hash().as_ref();
-        validate_public_binding_v1(manifest, statement, canonical_genesis_hash, 10)
-            .expect("provisional manifest binds public intent");
-        let provisional =
-            internal_statement_v1(manifest, statement).expect("provisional statement compiles");
+        validate_public_binding_v1(
+            &(manifest).proof_intent(),
+            statement,
+            canonical_genesis_hash,
+            10,
+        )
+        .expect("provisional manifest binds public intent");
+        let provisional = internal_statement_v1(&(manifest).proof_intent(), statement)
+            .expect("provisional statement compiles");
 
         let mut finalized_manifest = manifest.clone();
         finalized_manifest.legs[0].payload_digest = iroha_crypto::Hash::new(b"final payload");
         finalized_manifest.legs[0].availability_certificate_digest =
             iroha_crypto::Hash::new(b"final availability certificate");
         finalized_manifest.legs[0].delta_digest = iroha_crypto::Hash::new(b"final delta");
-        validate_public_binding_v1(&finalized_manifest, statement, canonical_genesis_hash, 10)
-            .expect("finalized manifest binds the same public intent");
+        validate_public_binding_v1(
+            &(finalized_manifest).proof_intent(),
+            statement,
+            canonical_genesis_hash,
+            10,
+        )
+        .expect("finalized manifest binds the same public intent");
         assert_eq!(
             provisional,
-            internal_statement_v1(&finalized_manifest, statement)
+            internal_statement_v1(&(finalized_manifest).proof_intent(), statement)
                 .expect("finalized statement compiles")
         );
     }
@@ -1514,4 +1548,46 @@ mod tests {
             Err(AtomicPrivateSettlementRelationErrorV1::InvalidAuditMaterial)
         );
     }
+}
+
+// Used only while the native preparation owner is filling a statement; it is never a verifier.
+pub(super) fn output_memo_digests_from_bound_preparation_v1(
+    statement: &PrivateSettlementProofStatementV1,
+) -> Result<[[u8; 32]; PRIVATE_SETTLEMENT_OUTPUT_SLOTS_V1], AtomicPrivateSettlementRelationErrorV1>
+{
+    let change_material = norito::encode_canonical(&(
+        (
+            statement.network_id,
+            statement.bundle_id,
+            statement.leg_ordinal,
+            statement.route,
+            statement.authority_context_height,
+            statement.pool_id,
+            statement.asset_binding_commitment,
+            statement.audit_plaintext_commitment,
+            statement.audit_input_commitment,
+        ),
+        (
+            statement.audit_policy_digest,
+            statement.audit_key_epoch,
+            statement.fee_intent_digest,
+            statement.reimbursement_terms_commitment,
+            statement.reimbursement_leg_ordinal,
+            statement.expiry_height,
+            statement.proof_profile_digest,
+        ),
+    ))
+    .map_err(|_| AtomicPrivateSettlementRelationErrorV1::CanonicalEncoding)?;
+    let change = framed_digest_v1(
+        SETTLEMENT_CHANGE_MEMO_DOMAIN_V1,
+        &[
+            &change_material,
+            PRIVATE_SETTLEMENT_PROOF_PROFILE_DESCRIPTOR_V1,
+        ],
+    )?;
+    Ok([
+        *statement.audit_plaintext_commitment.as_ref(),
+        change,
+        *statement.reimbursement_terms_commitment.as_ref(),
+    ])
 }

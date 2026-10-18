@@ -74,7 +74,11 @@ pub(super) fn signed(profile: &str) -> SignedTransaction {
             },
         }
         .into(),
-        "large" => Log::new(Level::INFO, "x".repeat(8_192)).into(),
+        "large" | "large-one-over" => Log::new(
+            Level::INFO,
+            "x".repeat(8_192 + usize::from(profile == "large-one-over")),
+        )
+        .into(),
         "multisig-a" | "multisig-b" => {
             Log::new(Level::INFO, "same payload, different authorization".into()).into()
         }

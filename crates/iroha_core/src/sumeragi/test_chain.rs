@@ -29,6 +29,10 @@ pub(crate) mod kagemusha_setup;
 mod local_certificate;
 /// Genuine paid private-root approval source for downstream HTTP permission tests.
 pub use amx_approval::native_amx_approval_route_fixture;
+#[path = "test_chain/private_context.rs"]
+mod private_context;
+/// Real paid, certified private context for downstream HTTP authorization tests.
+pub use private_context::native_private_context_route_fixture;
 #[path = "test_chain/retail_multisig.rs"]
 mod retail_multisig;
 #[cfg(test)]

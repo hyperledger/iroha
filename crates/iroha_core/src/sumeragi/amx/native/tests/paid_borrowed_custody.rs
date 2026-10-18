@@ -1706,3 +1706,6 @@ pub(super) fn with_paid_global_begin_fixture(
 
 #[path = "paid_borrowed_custody/time_expiry.rs"]
 mod time_expiry;
+
+#[path = "paid_borrowed_custody/private_pool_cut.rs"]
+mod private_pool_cut;

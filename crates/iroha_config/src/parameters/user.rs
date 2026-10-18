@@ -5082,9 +5082,91 @@ impl json::JsonDeserialize for FastpqPoseidonMode {
         })
     }
 }
+/// Autonomous FASTPQ producer scheduling and source limits (node-local only).
+#[derive(Debug, ReadConfig, Clone, Copy)]
+pub struct FastpqProducer {
+    /// Retry interval including idle final-tip recovery.
+    #[config(default = "defaults::zk::fastpq::PRODUCER_POLL_INTERVAL.into()")]
+    pub poll_interval_ms: DurationMs,
+    /// Cooperative monotonic bound on one attempt.
+    #[config(default = "defaults::zk::fastpq::PRODUCER_STEP_TIMEOUT.into()")]
+    pub step_timeout_ms: DurationMs,
+    /// Native prefix steps per attempt (1 through 64).
+    #[config(default = "defaults::zk::fastpq::PRODUCER_MAX_NATIVE_STEPS")]
+    pub max_native_steps: std::num::NonZeroU16,
+    /// Maximum full source entries admitted before allocation.
+    #[config(default = "defaults::zk::fastpq::PRODUCER_MAX_SOURCE_ENTRIES")]
+    pub max_source_entries: std::num::NonZeroU32,
+    /// Maximum nonempty complete-effect statements admitted before allocation.
+    #[config(default = "defaults::zk::fastpq::PRODUCER_MAX_SOURCE_STATEMENTS")]
+    pub max_source_statements: std::num::NonZeroU32,
+}
+impl FastpqProducer {
+    fn parse(self) -> actual::FastpqProducer {
+        assert!(
+            !self.poll_interval_ms.get().is_zero(),
+            "fastpq.producer.poll_interval_ms must be nonzero"
+        );
+        assert!(
+            !self.step_timeout_ms.get().is_zero(),
+            "fastpq.producer.step_timeout_ms must be nonzero"
+        );
+        assert!(
+            self.max_native_steps.get() <= 64,
+            "fastpq.producer.max_native_steps must not exceed 64"
+        );
+        actual::FastpqProducer {
+            poll_interval: self.poll_interval_ms.get(),
+            step_timeout: self.step_timeout_ms.get(),
+            max_native_steps: self.max_native_steps,
+            max_source_entries: self.max_source_entries,
+            max_source_statements: self.max_source_statements,
+        }
+    }
+}
+#[cfg(test)]
+mod fastpq_producer_policy_tests {
+    use super::*;
+    fn policy() -> FastpqProducer {
+        FastpqProducer {
+            poll_interval_ms: defaults::zk::fastpq::PRODUCER_POLL_INTERVAL.into(),
+            step_timeout_ms: defaults::zk::fastpq::PRODUCER_STEP_TIMEOUT.into(),
+            max_native_steps: defaults::zk::fastpq::PRODUCER_MAX_NATIVE_STEPS,
+            max_source_entries: defaults::zk::fastpq::PRODUCER_MAX_SOURCE_ENTRIES,
+            max_source_statements: defaults::zk::fastpq::PRODUCER_MAX_SOURCE_STATEMENTS,
+        }
+    }
+    #[test]
+    fn producer_policy_uses_finite_canonical_owner_bounds() {
+        let actual = policy().parse();
+        assert!(!actual.poll_interval.is_zero());
+        assert!(!actual.step_timeout.is_zero());
+        assert!(actual.max_native_steps.get() <= 64);
+        assert_eq!(
+            actual.max_source_entries,
+            actual::FastpqProducer::default().max_source_entries
+        );
+    }
+    #[test]
+    fn producer_policy_rejects_unbounded_native_turns_and_zero_timers() {
+        for field in [0, 1, 2] {
+            let mut value = policy();
+            match field {
+                0 => value.poll_interval_ms = std::time::Duration::ZERO.into(),
+                1 => value.step_timeout_ms = std::time::Duration::ZERO.into(),
+                _ => value.max_native_steps = std::num::NonZeroU16::new(65).unwrap(),
+            }
+            assert!(std::panic::catch_unwind(|| value.parse()).is_err());
+        }
+    }
+}
+
 /// FASTPQ prover configuration (user view).
 #[derive(Debug, ReadConfig, Clone)]
 pub struct Fastpq {
+    /// Autonomous source discovery and bounded proof dispatch.
+    #[config(nested)]
+    pub producer: FastpqProducer,
     /// Execution mode used when initialising the FASTPQ prover backend.
     #[config(
         env = "FASTPQ_EXECUTION_MODE",
@@ -5157,6 +5239,7 @@ impl Fastpq {
             "fastpq.proof_sidecar_max_bytes must be greater than zero"
         );
         actual::Fastpq {
+            producer: self.producer.parse(),
             execution_mode: self.execution_mode.into_actual(),
             poseidon_mode: self.poseidon_mode.into_actual(),
             proof_sidecar_queue_cap: self.proof_sidecar_queue_cap,

@@ -314,9 +314,24 @@ digests independently of the Rust generator.
 The shared operation codes: `InvalidInput`, `NonCanonicalEncoding`,
 `UnsupportedOperation`, `BindingMismatch`, `ResourceLimitExceeded`,
 `ProofInvalid`, `AuthorizationDenied`, `Expired`, `ReplayRejected`,
-`LocalResourceUnavailable`, `SubmissionOutcomeUnknown`, `FinalityPending`,
+`LocalResourceUnavailable`, `EvidenceUnavailable`, `SubmissionOutcomeUnknown`, `FinalityPending`,
 `Rejected`, `CancelledBeforeSubmission`. Workflow extensions:
 `StorageCorrupted`, `JournalConflict`, `RoundPending`.
+
+`EvidenceUnavailable` means a required evidence read did not complete with a
+classified proof or resource result. It does not establish proof absence, ledger
+rejection or successful settlement. At the AMX signing and dispatch gates, typed
+permission or signing failures use `AuthorizationDenied`; locally rejected proofs
+use `ProofInvalid`; generic listener/read failures retain `EvidenceUnavailable`
+unless an exact existing code describes the cause. An unsigned changed-cut
+observation also provides no proof and retains `EvidenceUnavailable`.
+
+These operational failures stop that attempt while preserving the current unsigned
+reservation or exact signed bytes. They cannot create a replacement identity or
+close an unresolved obligation. The supervisor may revisit the original obligation,
+but must expose the cause for operator diagnosis; it cannot relabel an unclassified
+remote failure as finite local capacity. Authorization denial here is operational
+evidence failure, never authoritative ledger rejection.
 
 An error carries code, stage, step index, the transaction identity when one
 exists, actual and maximum for a bound, a diagnostic, and the progress of the

@@ -7886,7 +7886,7 @@ pub mod isi {
             let invocation = state.retain_quantity_retirement_invocation();
             let lifecycles = (|| {
                 use crate::state::QuantityCaptureIssue;
-                invocation.as_ref().map_err(|error| *error)?;
+                invocation.as_ref().map_err(Clone::clone)?;
                 let mut retained =
                     state.reserve_quantity_retirement_lifecycles(definitions.len())?;
                 for id in definitions {
@@ -7932,7 +7932,7 @@ pub mod isi {
         ) -> Result<(Hash, Hash), crate::state::QuantityCaptureIssue> {
             use crate::state::QuantityCaptureIssue;
             let hash = state.validate_quantity_retirement_invocation(
-                self.invocation.as_ref().map_err(|error| *error)?,
+                self.invocation.as_ref().map_err(Clone::clone)?,
             )?;
             let (purpose, domain) = match self.scope {
                 QuantityRetirementScope::Definition(expected) if expected == id => {
@@ -7945,7 +7945,7 @@ pub mod isi {
                 }
                 _ => return Err(QuantityCaptureIssue::InvalidFacts),
             };
-            let lifecycles = self.lifecycles.as_ref().map_err(|error| *error)?.as_slice();
+            let lifecycles = self.lifecycles.as_ref().map_err(Clone::clone)?.as_slice();
             let position = lifecycles
                 .binary_search_by(|(definition, _)| definition.cmp(id))
                 .map_err(|_| QuantityCaptureIssue::MissingIncarnation)?;

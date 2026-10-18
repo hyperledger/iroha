@@ -2,8 +2,8 @@
 //!
 //! This owner exposes no submit operation or transfer-only artifact projection. It
 //! preserves the exact D7/source/tape/allocation graph for the complete-effect backend.
-//! TODO: promote that backend and retain this owner through durable artifact admission
-//! before adding any finalized-source queue handoff.
+//! The existing lane now retains original or independently recovered complete sources
+//! through exact artifact persistence. Native validity never waits for optional proof work.
 
 use crate::{
     state::{AdmittedQuantityArchive, CapturedExecWitness, CapturedQuantityEntry},

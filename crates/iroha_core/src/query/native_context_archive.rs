@@ -5,6 +5,7 @@
 //! record, and retains that exact allocation through publication retries. Readers never
 //! substitute current State or reconstruct missing historical values from a root.
 
+pub(crate) mod fastpq_source;
 pub(crate) mod prepared_intents;
 #[cfg(test)]
 pub(crate) mod process_crash;
@@ -61,6 +62,9 @@ pub enum NativeContextArchiveError {
     /// Durable publication or exact read failed.
     #[error(transparent)]
     Io(#[from] io::Error),
+    /// Original bounded Kura artifact-store refusal for optional source transport.
+    #[error(transparent)]
+    Storage(#[from] crate::kura::Error),
 }
 
 impl NativeContextArchiveError {
@@ -153,6 +157,9 @@ pub struct PreparedNativeContext {
     // The complete context stays owned if later intent admission refuses.
     prepared_intents: Option<ChargedBuffer<u8>>,
     intents_complete: bool,
+    // Optional source tapes never grant completion by their presence or absence.
+    fastpq_source: Option<ChargedBuffer<u8>>,
+    fastpq_capture_complete: bool,
 }
 impl PreparedNativeContext {
     /// Exact original canonical projection; exposure grants no finality.
@@ -182,6 +189,8 @@ pub struct NativeContextArchive {
     budget: AllocationBudget,
     maximum: NonZeroUsize,
     writable: bool,
+    namespace: &'static str,
+    fastpq_maximum: Option<NonZeroUsize>,
 }
 impl NativeContextArchive {
     /// Open the exact canonical Kura namespace using the original execution pool and finite limit.
@@ -201,6 +210,8 @@ impl NativeContextArchive {
             budget,
             maximum,
             writable: true,
+            namespace: "native-contexts",
+            fastpq_maximum: Some(kura.fastpq_object_max_bytes()),
         })
     }
 
@@ -222,6 +233,28 @@ impl NativeContextArchive {
             budget,
             maximum,
             writable: false,
+            namespace: "native-contexts",
+            fastpq_maximum: None,
+        })
+    }
+
+    /// Acquire source transport in the sole Kura artifact namespace under its aggregate cap.
+    /// The same descriptor/partial-read owner performs acquisition; it grants no source truth.
+    pub(crate) fn open_existing_fastpq(
+        kura: &Kura,
+        budget: AllocationBudget,
+    ) -> Result<Self, NativeContextArchiveError> {
+        let root = kura.fastpq_source_archive_root()?;
+        let namespace = Kura::fastpq_source_namespace();
+        let directory = open_archive_directory_named(&root, namespace, false)?;
+        Ok(Self {
+            root,
+            directory,
+            budget,
+            namespace,
+            maximum: kura.fastpq_object_max_bytes(),
+            writable: false,
+            fastpq_maximum: None,
         })
     }
 
@@ -243,6 +276,8 @@ impl NativeContextArchive {
             budget,
             maximum,
             writable: false,
+            namespace: "native-contexts",
+            fastpq_maximum: None,
         })
     }
 
@@ -253,7 +288,7 @@ impl NativeContextArchive {
     /// # Errors
     /// The archive namespace was removed or substituted after acquisition.
     pub fn recheck_namespace(&self) -> Result<(), NativeContextArchiveError> {
-        verify_named_file(&self.root, "native-contexts", &self.directory)?;
+        verify_named_file(&self.root, self.namespace, &self.directory)?;
         Ok(())
     }
 
@@ -365,6 +400,9 @@ impl NativeContextArchive {
             carrier_hash: projection.carrier_hash,
             bytes,
             prepared_intents: None,
+            fastpq_source: None,
+            fastpq_capture_complete: !projection.ordinary_writes.0.iter().any(|write|
+                write.key.as_slice() == iroha_data_model::execution_witness::FASTPQ_ORDINARY_SOURCE_STATEMENTS_WITNESS_KEY_V1),
             intents_complete: !projection
                 .ordinary_writes
                 .0
@@ -394,7 +432,7 @@ impl NativeContextArchive {
                 "foreign archive backing pool",
             ));
         }
-        if !original.intents_complete {
+        if !original.intents_complete || !original.fastpq_capture_complete {
             return Err(NativeContextArchiveError::Source(
                 "original intent capture is incomplete",
             ));
@@ -420,6 +458,37 @@ impl NativeContextArchive {
                 )?;
             }
         }
+        self.recheck_namespace()?;
+        Ok(())
+    }
+
+    /// Publish optional tape transport through Kura's aggregate artifact owner.
+    /// Call only after mandatory context publication. Refusal leaves the native result
+    /// unchanged and proof work unresolved; no caller may report artifact completion.
+    pub(crate) fn publish_fastpq_source(
+        &self,
+        kura: &Kura,
+        original: &PreparedNativeContext,
+    ) -> Result<(), NativeContextArchiveError> {
+        self.recheck_namespace()?;
+        if !self.writable || !original.fastpq_capture_complete {
+            return Err(NativeContextArchiveError::Source(
+                "original FASTPQ capture is incomplete",
+            ));
+        }
+        let Some(source) = &original.fastpq_source else {
+            return Ok(());
+        };
+        if !source.belongs_to(&self.budget) {
+            return Err(NativeContextArchiveError::Source(
+                "foreign FASTPQ source backing",
+            ));
+        }
+        kura.persist_fastpq_source_record(
+            original.height,
+            original.carrier_hash,
+            source.as_slice(),
+        )?;
         self.recheck_namespace()?;
         Ok(())
     }
@@ -547,6 +616,12 @@ impl RecordName {
         name.bytes[start..name.len].copy_from_slice(b".ami");
         name
     }
+    fn fastpq(height: u64, hash: HashOf<BlockHeader>, staged: bool) -> Self {
+        let mut name = Self::new(height, hash, staged);
+        let start = name.len - 4;
+        name.bytes[start..name.len].copy_from_slice(b".fqs");
+        name
+    }
     fn as_str(&self) -> &str {
         std::str::from_utf8(&self.bytes[..self.len]).expect("fixed ASCII record identity")
     }
@@ -565,14 +640,14 @@ fn open_directory(store_root: &Path, create: bool) -> io::Result<(File, File)> {
 }
 #[cfg(unix)]
 fn open_archive_directory(root: &File, create: bool) -> io::Result<File> {
+    open_archive_directory_named(root, "native-contexts", create)
+}
+#[cfg(unix)]
+fn open_archive_directory_named(root: &File, namespace: &str, create: bool) -> io::Result<File> {
     use rustix::fs::{AtFlags, Mode, OFlags};
     use std::os::unix::fs::MetadataExt as _;
     if create {
-        match rustix::fs::mkdirat(
-            &root,
-            "native-contexts",
-            Mode::RUSR | Mode::WUSR | Mode::XUSR,
-        ) {
+        match rustix::fs::mkdirat(&root, namespace, Mode::RUSR | Mode::WUSR | Mode::XUSR) {
             Ok(()) => root.sync_all()?,
             Err(rustix::io::Errno::EXIST) => {}
             Err(error) => return Err(error.into()),
@@ -580,11 +655,11 @@ fn open_archive_directory(root: &File, create: bool) -> io::Result<File> {
     }
     let directory = File::from(rustix::fs::openat(
         &root,
-        "native-contexts",
+        namespace,
         OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
         Mode::empty(),
     )?);
-    let entry = rustix::fs::statat(&root, "native-contexts", AtFlags::SYMLINK_NOFOLLOW)?;
+    let entry = rustix::fs::statat(&root, namespace, AtFlags::SYMLINK_NOFOLLOW)?;
     let actual = directory.metadata()?;
     if !actual.is_dir()
         || crate::kura::unix_device_identity(entry.st_dev) != actual.dev()
@@ -745,6 +820,13 @@ fn open_directory(_store_root: &Path, _create: bool) -> io::Result<(File, File)>
 }
 #[cfg(not(unix))]
 fn open_archive_directory(_root: &File, _create: bool) -> io::Result<File> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "descriptor-relative native context archive is required",
+    ))
+}
+#[cfg(not(unix))]
+fn open_archive_directory_named(_root: &File, _namespace: &str, _create: bool) -> io::Result<File> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "descriptor-relative native context archive is required",

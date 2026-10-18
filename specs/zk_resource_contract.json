@@ -674,7 +674,7 @@
     {
       "id": "transaction.config_private_settlement_max_carrier_bytes",
       "group": "transaction",
-      "what": "Largest atomic private settlement carrier: the canonical settlement instruction, and the signed transaction that carries it when its binding is consumed.",
+      "what": "Largest canonical private settlement instruction frame and, independently, largest complete signed V1 wire that carries it when its binding is consumed.",
       "unit": "bytes",
       "value": 4194304,
       "source": "node_local",
@@ -698,7 +698,7 @@
         "id": "nexus_consensus_policy_v1",
         "field": "atomic_private_settlement.max_carrier_bytes"
       },
-      "framing": "Measured on the canonical Norito encoding of the settlement instruction (prepare barrier or receipt) and, when the carrier binding is consumed, on the framed signed transaction.",
+      "framing": "Instruction checks count the canonical Norito frame of the prepare barrier or receipt. Torii and the consumed Core carrier binding count the complete signed V1 wire: one version byte plus the canonical bare signed payload. Canonical signed-frame admission replaces that prefix with Header::SIZE plus the checked type padding, adding transaction.signed_frame_overhead_bytes (39); the 4 MiB wire limit therefore implies 4,194,343 framed bytes, not 4,194,304.",
       "enforcement": [
         {
           "stage": "follower",
@@ -720,7 +720,19 @@
       "test_gap": {
         "owner": "P.20",
         "summary": "No test submits a carrier of exactly the limit and one byte more through the State transition. substitution_expiry_and_carrier_bounds_fail_closed refuses a bundle against a one-byte limit in the coordinator, and Torii's carrier_wire_bound_counts_the_versioned_signed_envelope covers the service's copy."
-      }
+      },
+      "observations": [
+        {
+          "path": "crates/iroha_core/src/private_settlement/carrier.rs",
+          "contains": "let encoded_transaction = transaction.encode_wire_v1().map_err(|error| {",
+          "what": "The original transaction-scoped carrier binding retains the complete V1 signed wire length."
+        },
+        {
+          "path": "crates/iroha_torii/src/private_settlement.rs",
+          "contains": "private_settlement_carrier_within_wire_bound_v1",
+          "what": "Torii checks the same complete V1 wire unit."
+        }
+      ]
     },
     {
       "id": "transaction.ivm_bytecode_size",
@@ -826,6 +838,102 @@
           "name": "transaction_cap_is_exact_at_admission_and_block_validation"
         }
       ]
+    },
+    {
+      "id": "transaction.signed_wire_prefix_bytes",
+      "group": "transaction",
+      "what": "Sole fixed-V1 signed-transaction version prefix; replaced by the Norito header when measuring canonical frame admission.",
+      "unit": "bytes",
+      "value": 1,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/transaction/signed/wire_v1.rs",
+        "symbol": "SIGNED_TRANSACTION_WIRE_PREFIX_BYTES_V1",
+        "kind": "const",
+        "expr": "1"
+      },
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/transaction/signed/wire_v1.rs",
+          "contains": "writer.write_all(&VERSION_PREFIX_V1)?;"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed/wire_v1_tests.rs",
+          "name": "canonical_signed_frame_and_wire_share_checked_geometry_and_roundtrips"
+        }
+      ],
+      "observations": [
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed/wire_v1.rs",
+          "contains": "const VERSION_PREFIX_V1: [u8; SIGNED_TRANSACTION_WIRE_PREFIX_BYTES_V1] = [1];",
+          "what": "The writer emits exactly one version byte; its array extent is compile-time bound to the public geometry owner."
+        }
+      ]
+    },
+    {
+      "id": "transaction.signed_frame_padding_bytes",
+      "group": "transaction",
+      "what": "Canonical SignedTransaction header padding fixed to zero by the compile-time native type-alignment invariant. Unsupported changed layouts fail compilation before size admission changes.",
+      "unit": "bytes",
+      "value": 0,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/transaction/signed/wire_v1.rs",
+        "symbol": "SIGNED_TRANSACTION_FRAME_PADDING_BYTES_V1",
+        "kind": "const",
+        "expr": "0"
+      },
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/transaction/signed/wire_v1.rs",
+          "contains": "assert!(padding == SIGNED_TRANSACTION_FRAME_PADDING_BYTES_V1);"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed/wire_v1_tests.rs",
+          "name": "canonical_signed_frame_and_wire_share_checked_geometry_and_roundtrips"
+        }
+      ]
+    },
+    {
+      "id": "transaction.signed_frame_overhead_bytes",
+      "group": "transaction",
+      "what": "Exact bytes added when replacing the complete signed V1 wire prefix by its canonical Norito header and supported type padding.",
+      "unit": "bytes",
+      "value": 39,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/transaction/signed/wire_v1.rs",
+        "symbol": "SIGNED_TRANSACTION_FRAME_OVERHEAD_BYTES_V1",
+        "kind": "const",
+        "expr": "norito::core::Header::SIZE + SIGNED_TRANSACTION_FRAME_PADDING_BYTES_V1 - SIGNED_TRANSACTION_WIRE_PREFIX_BYTES_V1"
+      },
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/transaction/signed/wire_v1_api.rs",
+          "contains": "wire_bytes.checked_add(SIGNED_TRANSACTION_FRAME_OVERHEAD_BYTES_V1)"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed/wire_v1_tests.rs",
+          "name": "canonical_signed_frame_and_wire_share_checked_geometry_and_roundtrips"
+        }
+      ],
+      "refs": {
+        "norito::core::Header::SIZE": "transaction.norito_header_bytes",
+        "SIGNED_TRANSACTION_FRAME_PADDING_BYTES_V1": "transaction.signed_frame_padding_bytes",
+        "SIGNED_TRANSACTION_WIRE_PREFIX_BYTES_V1": "transaction.signed_wire_prefix_bytes"
+      }
     },
     {
       "id": "block.max_block_bytes",
@@ -11949,8 +12057,8 @@
     },
     {
       "id": "private_settlement_carrier_within_includable_transaction",
-      "expr": "transaction.config_private_settlement_max_carrier_bytes + block.payload_transaction_reserve_bytes <= block.max_block_bytes",
-      "why": "A settlement carrier travels in one signed transaction and must fit the proposer selection bound. The current 4 MiB carrier default fits the 16 MiB payload and fixed 10 MiB transaction cap.",
+      "expr": "transaction.config_private_settlement_max_carrier_bytes + transaction.signed_frame_overhead_bytes + block.payload_transaction_reserve_bytes <= block.max_block_bytes",
+      "why": "Convert the private signed V1 wire limit to its exact supported canonical frame before adding the global selection reserve. Current bounds yield 4,259,879 bytes including reserve; fixed 16 MiB block and 10 MiB transaction caps remain unchanged.",
       "expect": {
         "today": "holds",
         "x2_target": "holds"
@@ -11962,8 +12070,8 @@
     },
     {
       "id": "private_settlement_carrier_within_transaction_cap",
-      "expr": "transaction.config_private_settlement_max_carrier_bytes <= transaction.max_tx_bytes",
-      "why": "The settlement carrier is one signed transaction and cannot exceed the transaction cap.",
+      "expr": "transaction.config_private_settlement_max_carrier_bytes + transaction.signed_frame_overhead_bytes <= transaction.max_tx_bytes",
+      "why": "Convert the complete private signed V1 wire to its canonical signed frame before comparing transaction admission. Header and compile-time checked type padding replace the sole version prefix; no cap is raised.",
       "expect": {
         "today": "holds",
         "x2_target": "holds"
@@ -23780,17 +23888,19 @@
         ]
       },
       {
-        "reason": "SCCP history read-cache geometry: cache subtrees from level 5 (32 leaves), hashing smaller intervals directly. This changes local read work granularity, not the authenticated root or generic admission.",
+        "reason": "SCCP history read-cache geometry: cache subtrees from level 5 (32 leaves), hashing smaller intervals directly. This changes local read work granularity, not the authenticated root or generic admission. CHUNK_LEN is the same 32-leaf geometry represented as a physical usize element count; request_demand charges that scratch and materialize_checked retains the original reservation before constructing it. CHUNK remains the u64 history-position geometry.",
         "files": [
           {
             "path": "crates/iroha_core/src/smartcontracts/isi/sccp/read/history/funded.rs",
             "symbols": [
               "MIN_LEVEL",
-              "CHUNK"
+              "CHUNK",
+              "CHUNK_LEN"
             ],
             "exprs": {
               "MIN_LEVEL": "5",
-              "CHUNK": "1 << MIN_LEVEL"
+              "CHUNK": "1 << MIN_LEVEL",
+              "CHUNK_LEN": "1 << MIN_LEVEL"
             }
           }
         ]
@@ -24191,6 +24301,64 @@
         ],
         "exprs": {
           "ANCHOR_PATH_LEN": "12"
+        }
+      },
+      {
+        "reason": "Private-settlement context read request: 64 KiB bounds one canonical list of at most 255 unique pool selectors, before Torii decoding and in the Rust SDK before submission. This is a read-only proof-selection request, not a transaction carrier or proof result. The protocol leg bound remains independently enforced by PrivateSettlementContextRequestV1::validate, and the complete-World response retains its separate 32 MiB ceiling. No transaction, block or settlement validity limit is increased.",
+        "files": [
+          {
+            "path": "crates/iroha_data_model/src/nexus/private_settlement/context/selected.rs",
+            "symbols": [
+              "PRIVATE_SETTLEMENT_CONTEXT_REQUEST_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "PRIVATE_SETTLEMENT_CONTEXT_REQUEST_MAX_BYTES_V1": "64 * 1024"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Kura eviction-file digest framing: each chained hash commits a chunk length and at most 64 KiB of file data. The independent streaming I/O scratch is 8 KiB. DIGEST_CHUNK_BYTES selects the stable local compaction-journal digest framing; it is neither a file-size refusal nor an admission, transaction, block or proof allowance. The streaming digest test preserves exact framing and total read length, including truncated-source refusal.",
+        "files": [
+          {
+            "path": "crates/iroha_core/src/kura.rs",
+            "symbols": [
+              "DIGEST_CHUNK_BYTES"
+            ],
+            "exprs": {
+              "DIGEST_CHUNK_BYTES": "64 * 1024"
+            }
+          }
+        ]
+      },
+      {
+        "path": "crates/iroha_config/src/parameters/defaults.rs",
+        "module": [
+          "pub mod zk {",
+          "pub mod fastpq {"
+        ],
+        "reason": "Autonomous FASTPQ producer local scheduling: the default 16 native-prefix steps bounds one NativeFinalityCursorV1 turn, under its independent maximum of 64. Reaching this work count keeps the original retained prefix and continues on the existing worker timer. It is not a source, block, proof or payment-validity ceiling and does not authorize dropping unresolved work.",
+        "symbols": [
+          "PRODUCER_MAX_NATIVE_STEPS"
+        ],
+        "exprs": {
+          "PRODUCER_MAX_NATIVE_STEPS": "nonzero!(16_u16)"
+        }
+      },
+      {
+        "path": "crates/iroha_config/src/parameters/defaults.rs",
+        "module": [
+          "pub mod zk {",
+          "pub mod fastpq {"
+        ],
+        "reason": "Autonomous FASTPQ source-reader policy: the default 65,536 full entries and 16,384 nonempty statements are finite node-local decode admission counts passed through SourceReadLimits to the complete manifest reader. Exceeding either is a terminal unresolved operational source under the configured policy: the worker retains that source, stops dispatch, and does not advance its produced statement/height position or reject the certified block. These are not consensus limits or guarantees that every valid complete source fits this local reader; the committed FastpqSourcePolicyV1 owners separately bound execution.",
+        "symbols": [
+          "PRODUCER_MAX_SOURCE_ENTRIES",
+          "PRODUCER_MAX_SOURCE_STATEMENTS"
+        ],
+        "exprs": {
+          "PRODUCER_MAX_SOURCE_ENTRIES": "nonzero!(65_536_u32)",
+          "PRODUCER_MAX_SOURCE_STATEMENTS": "nonzero!(16_384_u32)"
         }
       },
       {
@@ -24624,6 +24792,18 @@
               "path": "crates/iroha_core/src/sumeragi/executor.rs",
               "sites": {
                 "height > 2": 3
+              }
+            },
+            {
+              "path": "crates/iroha_data_model/src/nexus/private_settlement/context/proof.rs",
+              "sites": {
+                "block.height() < 2": 1
+              }
+            },
+            {
+              "path": "crates/iroha_torii/src/private_settlement_context.rs",
+              "sites": {
+                "*h >= 2": 1
               }
             }
           ]
@@ -27290,6 +27470,28 @@
               "sites": {
                 "text.len() > 1024": 1,
                 "text.len() > 128": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "Private-settlement context finality reader partition: unit is the original request working-set budget divided by eight; twice unit is clamped to the existing native finality journal ceiling and reserved together with four units of decoded storage from that same AllocationBudget. The factor partitions local read capacity; it does not change either the 64 MiB journal reader ceiling or a transaction, block or settlement validity rule. The division by eight bounds the multiplication and combined demand within the original finite budget.",
+          "files": [
+            {
+              "path": "crates/iroha_torii/src/private_settlement_context.rs",
+              "sites": {
+                "(unit * 2).min(NATIVE_FINALITY_MAX_JOURNAL_BYTES)": 1
+              }
+            }
+          ]
+        },
+        {
+          "reason": "Autonomous FASTPQ original genesis selection: both self.height.max(2) sites require the authenticated H2 successor before consuming the retained original genesis execution anchor. One gates available committed height and the other selects the exact cursor target; neither is a configurable reader window, work cap or validity ceiling. Later heights preserve their exact original target.",
+          "files": [
+            {
+              "path": "crates/iroha_core/src/fastpq/lane/producer.rs",
+              "sites": {
+                "self.height.max(2)": 2
               }
             }
           ]
