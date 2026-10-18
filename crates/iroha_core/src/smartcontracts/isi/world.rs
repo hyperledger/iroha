@@ -16818,12 +16818,9 @@ pub mod isi {
             if state_transaction
                 .world
                 .accounts
-                .get(
-                    &state_transaction
-                        .nexus
-                        .fees
-                        .sponsor_vault_custody_account_id,
-                )
+                .get(crate::executor::root_fees::sponsor_vault_custody(
+                    state_transaction,
+                )?)
                 .is_none()
             {
                 return Err(invalid_fee_sponsor_program(
@@ -16850,11 +16847,7 @@ pub mod isi {
                 Transfer::<Asset, Quantity, Account>::asset_quantity(
                     source,
                     self.amount().clone(),
-                    state_transaction
-                        .nexus
-                        .fees
-                        .sponsor_vault_custody_account_id
-                        .clone(),
+                    crate::executor::root_fees::sponsor_vault_custody(state_transaction)?.clone(),
                 )
                 .execute(authority, state_transaction)?;
             }
@@ -16958,11 +16951,7 @@ pub mod isi {
                 .unwrap_or(iroha_model_base::topology::DataSpaceId::UNIVERSAL);
             let source = AssetId::with_scope(
                 self.asset_definition_id().clone(),
-                state_transaction
-                    .nexus
-                    .fees
-                    .sponsor_vault_custody_account_id
-                    .clone(),
+                crate::executor::root_fees::sponsor_vault_custody(state_transaction)?.clone(),
                 fee_sponsor_asset_scope(&definition, dataspace),
             );
             let withdrawal = VerifiedFeeSponsorVaultWithdrawal::new(
