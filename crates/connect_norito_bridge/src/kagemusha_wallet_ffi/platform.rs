@@ -170,6 +170,10 @@ impl CallbackPlatform {
         if bytes.len() > advance::KAGEMUSHA_WALLET_ANCHOR_MAX_BYTES_V1 {
             return Publish::NotPublished(NotPublished::Failed(Unavailable::Platform(0)));
         }
+        // An anchor may only name a durable marker.
+        if let Err(reason) = fenced() {
+            return Publish::NotPublished(NotPublished::Failed(reason));
+        }
         let (reply, bytes) = self.call(operation, Some(slot), bytes, 0, 0);
         if !bytes.is_empty() {
             return Publish::Uncertain(Unavailable::Platform(0));
@@ -190,6 +194,11 @@ impl Drop for CallbackPlatform {
         // SAFETY: the retained context remains valid until this matching release.
         unsafe { (self.callbacks.release.expect("validated release"))(self.callbacks.context) };
     }
+}
+/// Persist the ordered wallet-storage syncs before a Keychain or Secure Enclave effect that a
+/// power loss could not undo. A failed fence is a refusal: the effect is not attempted.
+fn fenced() -> std::result::Result<(), Unavailable> {
+    super::durability_fence().map_err(|error| Unavailable::Io(error.raw_os_error().unwrap_or(0)))
 }
 pub(crate) fn reason(reply: PlatformReply) -> Unavailable {
     match reply.reason {
@@ -241,6 +250,10 @@ impl Platform for CallbackPlatform {
         request: &advance::KagemushaWalletKeyGenerationRequestV1,
     ) -> advance::KagemushaWalletKeyGenerationV1 {
         use advance::KagemushaWalletKeyGenerationV1 as G;
+        // A key is generated only for a durably selected intent.
+        if let Err(reason) = fenced() {
+            return G::Unavailable(reason);
+        }
         let (reply, bytes) = self.call(
             1,
             Some(slot),
@@ -294,6 +307,10 @@ impl Platform for CallbackPlatform {
     }
     fn key_delete(&self, slot: &Slot) -> advance::KagemushaWalletRemoveOutcomeV1 {
         use advance::KagemushaWalletRemoveOutcomeV1 as R;
+        // A key is deleted only under a durable terminal marker.
+        if let Err(reason) = fenced() {
+            return R::NotRemoved(reason);
+        }
         let (reply, _) = self.call(3, Some(slot), &[], 0, 0);
         match reply.tag {
             0 => R::Removed,

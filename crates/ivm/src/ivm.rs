@@ -2034,12 +2034,6 @@ impl IVM {
         // Recompute the INPUT bump allocator based on any preloaded TLVs so that
         // host allocations append instead of overwriting existing entries.
         self.recompute_input_bump_from_memory()?;
-        if crate::dev_env::decode_trace_enabled() {
-            eprintln!(
-                "[IVM] input_bump_next set to 0x{off:x}",
-                off = self.input_bump_next
-            );
-        }
         self.memory.commit();
         self.memory.mark_template_clean();
         Ok(())
@@ -2115,13 +2109,6 @@ impl IVM {
         {
             self.predecoded_misses += 1;
         }
-        #[cfg(any(test, debug_assertions))]
-        eprintln!(
-            "[ivm] predecoded miss: has_predecoded={} contains_pc={} pc=0x{pc:x}",
-            self.prepared.is_some(),
-            self.prepared_contains_pc(self.pc),
-            pc = self.pc
-        );
         if self.prepared_required {
             return Err(VMError::MemoryAccessViolation {
                 addr: self.pc as u32,
@@ -2199,14 +2186,19 @@ impl IVM {
             self.registers.set_tag(rd, tag);
         }
     }
+    #[inline]
     fn memory_privacy_range(addr: u64, len: u64) -> Result<std::ops::Range<u64>, VMError> {
-        let end = addr.checked_add(len).ok_or(VMError::PrivacyViolation)?;
-        Ok(addr..end)
+        // Every store reaches this: build the error only on overflow.
+        match addr.checked_add(len) {
+            Some(end) => Ok(addr..end),
+            None => Err(VMError::PrivacyViolation),
+        }
     }
     /// Return the privacy tag for a scalar memory load.
     ///
     /// A partially overwritten private word is rejected rather than silently
     /// downgrading it to public data or exposing a fragment of the secret.
+    #[inline]
     fn memory_load_privacy_tag(&self, addr: u64, len: u64) -> Result<bool, VMError> {
         if !self.zk_mode {
             return Ok(false);
@@ -4029,6 +4021,9 @@ impl IVM {
         } else {
             None
         };
+        // The installed scope fixes this policy for every step; host callbacks
+        // only mask it. An untraced run therefore never needs register rows.
+        let traced = invocation_log.is_some();
         let _reg_logger_guard = zk::RegLoggerGuard::install(invocation_log);
         // Proof-facing accessors describe the most recent invocation. Clear
         // prior artifacts even when this run has tracing disabled.
@@ -4079,7 +4074,9 @@ impl IVM {
                         )?;
                 }
                 self.native_finish_step();
-                drop(pending_register_batch.take());
+                if let Some(batch) = pending_register_batch.take() {
+                    drop(batch);
+                }
                 self.publish_trace_cycles(&invocation_trace, &mut last_logged_cycle)?;
                 // Stop the loop if HALT was executed. When a cycle limit is set we
                 // continue executing even after a failed assertion so the trace
@@ -4106,22 +4103,16 @@ impl IVM {
                 }
                 let length = WIDE_INSTRUCTION_LEN;
                 let wide_op = fetched.wide_op;
-                if crate::dev_env::decode_trace_enabled() {
-                    eprintln!(
-                        "pc=0x{pc:08x} instr=0x{w:08x} len={len}",
-                        pc = self.pc,
-                        w = instr,
-                        len = WIDE_INSTRUCTION_LEN
-                    );
-                }
-                let opcode_hi = (instr >> 24) as u8;
                 if !instruction::wide::is_valid_opcode(wide_op) {
                     return Err(VMError::InvalidOpcode((instr & 0xFFFF) as u16));
                 }
                 // Determine the gas cost for this operation and deduct it.
                 // Scale vector op costs by the current logical vector length.
-                let cost = gas::cost_from_parts(fetched.base_gas, wide_op, self.vector_length)
-                    .ok_or(VMError::InvalidOpcode((instr & 0xFFFF) as u16))?;
+                let Some(cost) =
+                    gas::cost_from_parts(fetched.base_gas, wide_op, self.vector_length)
+                else {
+                    return Err(VMError::InvalidOpcode((instr & 0xFFFF) as u16));
+                };
                 if let Some(step) = pending_step.as_mut() {
                     step.priced(cost);
                 }
@@ -4130,8 +4121,12 @@ impl IVM {
                 }
                 let prepared_host_log =
                     self.prepare_trace_instruction(&invocation_trace, instr, |vm| {
-                        pending_register_batch =
-                            Some(vm.prepare_instruction_register_events(instr)?);
+                        // Every admitted opcode has a finite row bound, so an
+                        // untraced run skips only an inactive batch here.
+                        if traced {
+                            pending_register_batch =
+                                Some(vm.prepare_instruction_register_events(instr)?);
+                        }
                         // Shell, shared-cycle and native capture demand all precede
                         // base gas and execute under the same observation quota.
                         let prepared_host_log = matches!(
@@ -4151,9 +4146,6 @@ impl IVM {
                 self.gas_remaining -= cost;
                 // Execute the instruction
                 let opcode = instr & 0x7F;
-                if crate::dev_env::decode_trace_enabled() {
-                    eprintln!("[IVM] opcode_lo=0x{opcode:02x} opcode_hi=0x{opcode_hi:02x}");
-                }
                 // Dispatch via the canonical wide (8-bit opcode) instruction table. Classic
                 // encodings are no longer executable; unknown opcodes trap with `InvalidOpcode`.
                 match wide_op {

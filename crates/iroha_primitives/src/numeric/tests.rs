@@ -2183,3 +2183,193 @@ fn manual_decode_numeric_spec_returns_missing_context_and_retries_same_payload()
         Err(Error::Message(_))
     ));
 }
+/// The unbounded add/subtract path, independent of the `i128` fast path.
+fn unbounded_combine_observed<E>(
+    lhs: &Numeric,
+    rhs: &Numeric,
+    subtract: bool,
+    observer: &mut impl FnMut(NumericWorkStep) -> Result<(), E>,
+) -> Result<Numeric, ObservedNumericError<E>> {
+    lhs.validate_decimal_observed(observer)?;
+    rhs.validate_decimal_observed(observer)?;
+    let target_scale = lhs.scale.max(rhs.scale);
+    let lhs_aligned =
+        scale_unbounded_observed(lhs.mantissa.inner(), target_scale - lhs.scale, observer)?;
+    let rhs_aligned =
+        scale_unbounded_observed(rhs.mantissa.inner(), target_scale - rhs.scale, observer)?;
+    let lhs_limbs = logical_limbs(&lhs_aligned);
+    let rhs_limbs = logical_limbs(&rhs_aligned);
+    let (step, combined) = if subtract {
+        (
+            NumericWorkStep::Subtract {
+                lhs_limbs,
+                rhs_limbs,
+            },
+            lhs_aligned - rhs_aligned,
+        )
+    } else {
+        (
+            NumericWorkStep::Add {
+                lhs_limbs,
+                rhs_limbs,
+            },
+            lhs_aligned + rhs_aligned,
+        )
+    };
+    observer(step).map_err(ObservedNumericError::Observer)?;
+    canonical_decimal_from_unbounded_observed(combined, target_scale, observer)
+}
+fn observed_combine<E>(
+    lhs: &Numeric,
+    rhs: &Numeric,
+    subtract: bool,
+    observer: &mut impl FnMut(NumericWorkStep) -> Result<(), E>,
+) -> Result<Numeric, ObservedNumericError<E>> {
+    if subtract {
+        lhs.try_decimal_sub_observed(rhs, observer)
+    } else {
+        lhs.try_decimal_add_observed(rhs, observer)
+    }
+}
+/// Canonical operands on both sides of every `i128` fast-path boundary.
+fn small_path_boundary_operands() -> Vec<Numeric> {
+    let wide = |value: ReferenceInt| BigInt::from_inner(value).expect("bounded wide mantissa");
+    let power_two = |shift: u32| ReferenceInt::from(1_u8) << shift;
+    let max_at_full_scale = i128::MAX / 10_i128.pow(MAX_DECIMAL_SCALE);
+    let mut mantissas = Vec::new();
+    for value in [
+        1_i128,
+        9,
+        10,
+        11,
+        120,
+        1_000_000_007,
+        i128::from(u64::MAX),
+        i128::from(u64::MAX) + 1,
+        max_at_full_scale,
+        max_at_full_scale + 1,
+        i128::MAX / 10,
+        i128::MAX,
+    ] {
+        mantissas.push(BigInt::from(value));
+        mantissas.push(BigInt::from(-value));
+    }
+    mantissas.push(BigInt::zero());
+    mantissas.push(BigInt::from(i128::MIN));
+    mantissas.push(wide(power_two(127)));
+    mantissas.push(wide(-power_two(127) - 1_u8));
+    mantissas.push(wide(power_two(300)));
+    mantissas.push(signed_maximum());
+    mantissas.push(signed_minimum());
+    let mut operands = Vec::new();
+    for mantissa in mantissas {
+        for scale in [0, 1, 9, MAX_DECIMAL_SCALE] {
+            operands.push(Numeric::new(mantissa.clone(), scale));
+        }
+    }
+    operands
+}
+#[test]
+fn small_add_and_subtract_match_the_unbounded_path_and_its_observed_work() {
+    let operands = small_path_boundary_operands();
+    for lhs in &operands {
+        for rhs in &operands {
+            for subtract in [false, true] {
+                let context = format!("{lhs:?} {} {rhs:?}", if subtract { '-' } else { '+' });
+                let mut expected_steps = Vec::new();
+                let expected = unbounded_combine_observed(lhs, rhs, subtract, &mut |step| {
+                    expected_steps.push(step);
+                    Ok::<_, ()>(())
+                });
+                let mut actual_steps = Vec::new();
+                let actual = observed_combine(lhs, rhs, subtract, &mut |step| {
+                    actual_steps.push(step);
+                    Ok::<_, ()>(())
+                });
+                assert_eq!(actual, expected, "{context}");
+                assert_eq!(actual_steps, expected_steps, "{context}");
+                // A refusal at any step must stop both paths at the same work.
+                for refuse_at in 0..expected_steps.len() {
+                    let mut calls = 0_usize;
+                    let actual = observed_combine(lhs, rhs, subtract, &mut |_| {
+                        calls += 1;
+                        if calls > refuse_at {
+                            Err(refuse_at)
+                        } else {
+                            Ok(())
+                        }
+                    });
+                    let actual_calls = calls;
+                    calls = 0;
+                    let expected = unbounded_combine_observed(lhs, rhs, subtract, &mut |_| {
+                        calls += 1;
+                        if calls > refuse_at {
+                            Err(refuse_at)
+                        } else {
+                            Ok(())
+                        }
+                    });
+                    assert_eq!((actual, actual_calls), (expected, calls), "{context}");
+                }
+            }
+        }
+    }
+}
+#[test]
+fn small_comparison_matches_unbounded_alignment() {
+    let operands = small_path_boundary_operands();
+    for lhs in &operands {
+        for rhs in &operands {
+            let target_scale = lhs.scale.max(rhs.scale);
+            let expected = scale_unbounded(lhs.mantissa.inner(), target_scale - lhs.scale).cmp(
+                &scale_unbounded(rhs.mantissa.inner(), target_scale - rhs.scale),
+            );
+            assert_eq!(lhs.cmp(rhs), expected, "{lhs:?} vs {rhs:?}");
+        }
+    }
+}
+#[test]
+fn small_combination_engages_only_when_every_intermediate_fits_i128() {
+    let mut ignore = |_| Ok::<_, ()>(());
+    let typical = (decimal("12.5"), decimal("0.25"));
+    assert!(
+        small_decimal_combine_observed(&typical.0, &typical.1, 2, SmallCombine::Add, &mut ignore)
+            .is_some()
+    );
+    let maximum = Numeric::new(i128::MAX, 0);
+    assert!(
+        small_decimal_combine_observed(
+            &maximum,
+            &Numeric::one(),
+            0,
+            SmallCombine::Add,
+            &mut ignore
+        )
+        .is_none(),
+        "an overflowing sum must use the unbounded path"
+    );
+    let unaligned = Numeric::new(i128::MAX / 10 + 1, 0);
+    let fractional = Numeric::new(1, 1);
+    assert!(
+        small_decimal_combine_observed(
+            &unaligned,
+            &fractional,
+            1,
+            SmallCombine::Subtract,
+            &mut ignore
+        )
+        .is_none(),
+        "an overflowing alignment must use the unbounded path"
+    );
+    let wide = Numeric::new(signed_maximum(), 0);
+    assert!(
+        small_decimal_combine_observed(
+            &wide,
+            &Numeric::one(),
+            0,
+            SmallCombine::Subtract,
+            &mut ignore
+        )
+        .is_none()
+    );
+}

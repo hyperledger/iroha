@@ -768,3 +768,6 @@ fn check_control(control: SccpNativeReadControl<'_>) -> Result<()> {
 #[cfg(test)]
 #[path = "forgery/tests.rs"]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod reference_fixtures;

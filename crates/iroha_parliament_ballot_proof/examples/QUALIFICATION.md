@@ -9,13 +9,13 @@ resulting binary. Use a stable target slot for repeated builds; do not use
 `--stable-local-metadata` for an identified qualification artifact.
 
 ```sh
-scripts/cargo_fast.sh --target-slot parliament-ballot --incremental -- build --release -p iroha_parliament_ballot_proof --example parliament_ballot_qualify --features accel
+scripts/cargo_fast.sh --target-slot parliament-ballot --incremental -- build --release -p iroha_parliament_ballot_proof --example parliament_ballot_qualify --features accel,diagnostics
 # Locate target directory from the wrapper output; record binary SHA-256.
 <target-directory>/release/examples/parliament_ballot_qualify --row candidate --samples 31 --source-id <source-manifest-sha256> --run-id <machine-build-label> > observations.jsonl
 <target-directory>/release/examples/parliament_ballot_qualify --row comparator --samples 3 --source-id <source-manifest-sha256> --run-id <machine-build-label> > comparator-observations.jsonl
 ```
 
-Omit `--features accel` for a portable build and record its separate binary hash.
+Use `--features diagnostics` alone for a portable build and record its separate binary hash. The tool compares both rows, so it requires the `diagnostics` feature, which compiles the comparator row; production builds of the proof crate contain the candidate row only.
 `--case registration|vote3|vote500|vote1000` restricts work; `all` is the default
 for both case and row. `--samples` accepts 1 through 1001 and defaults to 31.
 Every sample uses a distinct reproducible test tape. Deterministic tapes must
@@ -116,8 +116,8 @@ serialize runs and flush its writer when requested.
 Validation:
 
 ```sh
-scripts/cargo_fast.sh --target-slot parliament-ballot --incremental -- test --release -p iroha_parliament_ballot_proof --example parliament_ballot_qualify -- --test-threads=1
-scripts/cargo_fast.sh --target-slot parliament-ballot --incremental -- clippy -p iroha_parliament_ballot_proof --example parliament_ballot_qualify --features accel -- -D warnings
+scripts/cargo_fast.sh --target-slot parliament-ballot --incremental -- test --release -p iroha_parliament_ballot_proof --features diagnostics --example parliament_ballot_qualify -- --test-threads=1
+scripts/cargo_fast.sh --target-slot parliament-ballot --incremental -- clippy -p iroha_parliament_ballot_proof --example parliament_ballot_qualify --features accel,diagnostics -- -D warnings
 ```
 
 Retain raw JSON lines, the exact command, compiler and OS versions, hardware

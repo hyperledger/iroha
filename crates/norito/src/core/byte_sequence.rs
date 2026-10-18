@@ -54,6 +54,140 @@ pub(super) fn read_byte_value(bytes: &[u8]) -> Result<u8, Error> {
     bytes.first().copied().ok_or(Error::LengthMismatch)
 }
 
+/// Little-endian fixed-width length one; its first byte is also the compact varint `1`.
+const LENGTH_ONE: [u8; 8] = 1_u64.to_le_bytes();
+
+/// Per-element stride of canonical `[len = 1][byte]` framing under `flags`.
+fn byte_element_stride(flags: u8) -> usize {
+    if compact_len_enabled_for_flags(flags) {
+        2
+    } else {
+        LENGTH_ONE.len() + 1
+    }
+}
+
+/// Whether `body` is exactly a run of canonical `[len = 1][byte]` elements.
+///
+/// The compact prefix of length one is the single shortest varint `0x01`; the fixed prefix is
+/// the eight-byte little-endian one. Any other prefix, including an overlong varint or another
+/// length, is left to the per-element decoder and its original rejection.
+fn canonical_byte_element_body(body: &[u8], flags: u8) -> bool {
+    if compact_len_enabled_for_flags(flags) {
+        body.len().is_multiple_of(2)
+            && body
+                .chunks_exact(2)
+                .all(|element| element[0] == LENGTH_ONE[0])
+    } else {
+        let stride = byte_element_stride(flags);
+        body.len().is_multiple_of(stride)
+            && body
+                .chunks_exact(stride)
+                .all(|element| element[..LENGTH_ONE.len()] == LENGTH_ONE)
+    }
+}
+
+/// Yield the byte of every canonical element in `body`.
+fn byte_element_values(body: &[u8], flags: u8) -> impl Iterator<Item = u8> + '_ {
+    let stride = byte_element_stride(flags);
+    body.chunks_exact(stride)
+        .map(move |element| element[stride - 1])
+}
+
+/// Decode an element-framed `[u8; N]` value whose framing is canonical.
+///
+/// Returns `Ok(None)` without side effects for any other input; the per-element decoder then
+/// accepts or rejects it exactly as before. For canonical input this performs that decoder's
+/// per-element field ceiling check once (it is identical for every element) and records the
+/// same consumed range.
+pub(super) fn decode_canonical_byte_array<const N: usize>(
+    bytes: &[u8],
+) -> Result<Option<([u8; N], usize)>, Error> {
+    let flags = effective_layout_flags();
+    let Some(used) = N.checked_mul(byte_element_stride(flags)) else {
+        return Ok(None);
+    };
+    let Some(body) = bytes.get(..used) else {
+        return Ok(None);
+    };
+    if !canonical_byte_element_body(body, flags) {
+        return Ok(None);
+    }
+    if N != 0 {
+        check_decode_field_length(1)?;
+    }
+    let mut out = [0_u8; N];
+    for (slot, byte) in out.iter_mut().zip(byte_element_values(body, flags)) {
+        *slot = byte;
+    }
+    record_slice_access(bytes, used);
+    Ok(Some((out, used)))
+}
+
+/// Decode a canonically framed one-byte element sequence without per-element field decoders.
+///
+/// Returns `Ok(None)` without side effects unless the count header is followed by exactly
+/// canonical `[len = 1][byte]` elements; the generic decoder then owns every rejection. For
+/// canonical input this performs the generic decoder's checks and budget charges in their
+/// original order: count admission, span planning storage, each element's field ceiling and
+/// one-byte body charge, the output storage, and the element nesting level.
+#[inline(never)]
+pub(super) fn decode_byte_element_sequence<'a, T>(
+    bytes: &[u8],
+) -> Result<Option<(Vec<T>, usize)>, Error>
+where
+    T: DeserializePayload<'a>,
+{
+    let flags = effective_decode_flags().unwrap_or_else(default_encode_flags);
+    if validate_header_flags(flags).is_err() {
+        return Ok(None);
+    }
+    let Some(header) = bytes.get(..8) else {
+        return Ok(None);
+    };
+    let declared = u64::from_le_bytes(header.try_into().expect("eight-byte count header"));
+    let Ok(count) = usize::try_from(declared) else {
+        return Ok(None);
+    };
+    let Some(used) = count
+        .checked_mul(byte_element_stride(flags))
+        .and_then(|body| body.checked_add(header.len()))
+    else {
+        return Ok(None);
+    };
+    let Some(body) = bytes.get(header.len()..used) else {
+        return Ok(None);
+    };
+    if !canonical_byte_element_body(body, flags) {
+        return Ok(None);
+    }
+    let (admitted, _) = read_seq_len_slice(bytes)?;
+    debug_assert_eq!(admitted, count);
+    if crate::debug_trace_enabled() {
+        trace_sequence_decode(core::any::type_name::<T>(), count);
+    }
+    reserve_decode_sequence_storage::<SequenceSpan>(count)?;
+    if count != 0 {
+        check_decode_field_length(1)?;
+        reserve_decode_allocation_units(count)?;
+    }
+    note_payload_access(bytes, used);
+    let storage = reserve_decode_sequence_storage::<T>(count)?;
+    let mut values = Vec::new();
+    values
+        .try_reserve(count)
+        .map_err(|_| Error::AllocationFailed {
+            bytes: limit_to_u64(storage),
+        })?;
+    if count != 0 {
+        // Every element enters the same single nesting level and leaves it again.
+        drop(DecodeDepthGuard::enter()?);
+    }
+    values.extend(byte_element_values(body, flags));
+    T::__norito_from_byte_elements(values)
+        .map(|values| Some((values, used)))
+        .map_err(|_| Error::LengthMismatch)
+}
+
 /// Visit every length-prefixed element span of a sequence with a known count.
 ///
 /// Returns the total sequence payload length consumed from the front of `bytes`.

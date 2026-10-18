@@ -18,7 +18,7 @@ challenge/proof pairs, PDP commitments/challenges/proofs, PoTR receipts, repair 
 governance log nodes, governance DAG blocks and signed-head chains, runtime
 signing helpers, C FFI validation, cookbook fixtures, and manifest/CAR replay.
 Remaining SF-11 work is native qualification, release evidence, and SDK
-distribution: clean five-target ABI-29 rebuilds, skip-free parity replay,
+distribution: clean five-target ABI-30 rebuilds, skip-free parity replay,
 published archives and bindings, signed manifests, and live operator smokes.
 The checked-in, test-only signed and sealed cross-domain fixture inventory binds
 85 payload artifacts, 35 `ValidationOutcomeV1` outcomes, and 41 negative
@@ -89,7 +89,7 @@ Python, Swift, Kotlin/JVM, mirrored Java Android, and C# expose the native
 bundle and governance-log-node validation
 surfaces with byte-exact fixture tests checked in. Those source and fixture
 assets do not constitute a native release run: every native-dependent parity
-suite now fails when the ABI-29 bridge or required symbols are unavailable, so
+suite now fails when the ABI-30 bridge or required symbols are unavailable, so
 missing, ignored-local, or stale native artifacts remain an explicit red gate
 until rebuilt from the final source state and accompanied by authenticated
 execution evidence.
@@ -97,7 +97,7 @@ execution evidence.
 Host-native evidence now uses
 `scripts/check_native_sdk_artifact.py`. For C/JNI, C#, Node, and Python it
 binds one non-linked artifact's stable byte length and SHA-256 to the exact clean
-Git commit, calls the bridge probe, requires ABI **exactly** 29, and verifies the
+Git commit, calls the bridge probe, requires ABI **exactly** 30, and verifies the
 lane's appeal-finance entrypoint inventory. Canonical evidence is reverified
 after the build and before the native-dependent suite; noncanonical manifests,
 symlinks, hardlinks, byte replacement, source drift, ABI 19/20/21/22, and missing
@@ -106,21 +106,21 @@ also reject missing, dirty, or stale build provenance. The Python native lane is
 pinned to Python 3.12 and rejects any skipped reference-validation test.
 Apple/Swift and packaged Android/JNI artifacts remain covered by the separate
 source-sealed `check_mobile_sdk_artifacts.sh` contract, which verifies every
-slice, exact ABI 29, the Android `NativeSignerBridge` JNI contract revision 5,
+slice, exact ABI 30, the Android `NativeSignerBridge` JNI contract revision 5,
 symbols, hashes, and source identity; they are not represented as host-manifest
 lanes. Swift package admission also requires the XCFramework's embedded
-`NoritoBridge.artifacts.json` to declare exact ABI 29, and the runtime loader
+`NoritoBridge.artifacts.json` to declare exact ABI 30, and the runtime loader
 rejects a parsed manifest whose ABI is missing or differs from the binary
 identifier's required ABI before accepting its hash.
 
 These gates deliberately do not qualify ignored, dirty-source, or locally
-rebuilt artifacts. No checked-in, clean-source, five-target ABI-29 release
+rebuilt artifacts. No checked-in, clean-source, five-target ABI-30 release
 inventory or authenticated execution record currently exists. Clean native
 artifacts still must be produced and exercised for Linux x86_64, Linux aarch64,
 macOS x86_64, macOS aarch64, and Windows x86_64 before this lane can close.
 
 The C# NuGet source path now consumes exactly those five target-host
-`iroha.native-sdk-abi29-artifact.v1` manifests, maps them to `linux-x64`,
+`iroha.native-sdk-abi30-artifact.v1` manifests, maps them to `linux-x64`,
 `linux-arm64`, `osx-x64`, `osx-arm64`, and `win-x64`, and packages only the
 matching `runtimes/<rid>/native/` libraries. The assembler and pre-pack/project
 gate reject missing or extra targets/files, source-commit drift, noncanonical
@@ -133,7 +133,7 @@ has been collected.
 
 SwiftPM is the sole supported Swift packaging path. `IrohaSwift/VERSION` owns
 the Swift package, tag and XCFramework archive version. The package owner
-authenticates the immutable ZIP, embedded ABI-29 manifest, closed inventory,
+authenticates the immutable ZIP, embedded ABI-30 manifest, closed inventory,
 source, locks and tools. Qualify both the archive consumer and an ordinary
 public `IrohaSwift` dependency in Release with real native execution and no
 unsafe linker flags. Public native Swift readiness still requires an immutable
@@ -469,14 +469,14 @@ convert decoded or raw Norito payloads into the shared validation functions.
   without network access. JavaScript/TypeScript, Python, Swift, Kotlin/JVM,
   mirrored Java Android, and C# have native wrapper and byte-exact fixture test
   coverage checked in. JavaScript/TypeScript, Swift, Kotlin/JVM, mirrored Java
-  Android, C#, and Python native-dependent tests fail when the exact ABI-29
+  Android, C#, and Python native-dependent tests fail when the exact ABI-30
   bridge or required symbols are absent; a source-contract regression gate pins
   those fail-closed markers, and the Python lane additionally rejects any
   skipped reference test.
   These are source and workflow contracts, not freshness evidence. The
   available Node, Python, C/JNI, Swift, and C# outputs are stale or mixed, so no
   native-dependent suite is qualified. Qualification requires one clean
-  pinned-commit ABI-29 rebuild and skip-free parity replay across the five
+  pinned-commit ABI-30 rebuild and skip-free parity replay across the five
   native release targets.
 - **Release packaging:** `scripts/package_iroha_cli_release.sh` builds or
   packages `iroha`, stages `include/sorafs_reference.h`, runs fixture
@@ -761,7 +761,7 @@ The release evidence scripts have focused Python coverage in:
 
 ## Rollout Status
 Implemented locally:
-- Strict Node and Python SoraFS orderbook submit helpers now require a caller-signed canonical transaction, expected network context, and an expected Torii receipt signer before HTTP. Native ABI-29 inspectors enforce exact route/singleton/network/signature/owner bindings and derive the three authoritative identities; the response path accepts only one bounded `202 application/x-norito` receipt with all three exact raw-lowercase identity headers, verifies the pinned signer and receipt signature, and reports every post-dispatch failure as an ambiguous outcome that must be reconciled rather than retried. The source tests and required-symbol probes are wired into existing SDK lanes, but native artifacts have not been rebuilt or qualified.
+- Strict Node and Python SoraFS orderbook submit helpers now require a caller-signed canonical transaction, expected network context, and an expected Torii receipt signer before HTTP. Native ABI-30 inspectors enforce exact route/singleton/network/signature/owner bindings and derive the three authoritative identities; the response path accepts only one bounded `202 application/x-norito` receipt with all three exact raw-lowercase identity headers, verifies the pinned signer and receipt signature, and reports every post-dispatch failure as an ambiguous outcome that must be reconciled rather than retried. The source tests and required-symbol probes are wired into existing SDK lanes, but native artifacts have not been rebuilt or qualified.
 - Reference validation APIs for adverts, admission envelopes, admission
   renewals/revocations, orders, signed orders, orderbook payloads, PoR, PDP,
   PoTR, repair, governance nodes, governance DAG blocks and signed-head chains,

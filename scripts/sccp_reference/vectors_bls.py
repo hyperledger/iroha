@@ -1,7 +1,7 @@
 """Builder of `fixtures/sccp/bls_consensus_v1.json`.
 
 Consensus-suite vectors (`specs/sccp.md` §3.8, `specs/sumeragi.md` §1 item 6):
-imported RFC 9380 vectors, hash-to-G2 traces under `DST_SIG` with the EIP-2537
+imported RFC 9380 and Ethereum bls12-381-tests v0.1.2 vectors, hash-to-G2 traces under `DST_SIG` with the EIP-2537
 `MAP_FP2_TO_G2` inputs and outputs, `KeyGen`/`Sign`/`Verify`,
 `FastAggregateVerify`, `AggregateVerify`, the consensus preimage allowlist, and
 a real Ethereum mainnet sync-committee aggregate verified under the same IETF
@@ -44,9 +44,6 @@ from .common import hx, rep, sha256
 from .finality import TAG_SIG
 from .hash_to_curve import DST_SIG, expand_message_xmd, hash_to_g2_trace, iso_map_g2, map_to_curve_sswu
 from .imported_vectors import (
-    ETHEREUM_PUBLISHED_SIGNATURES,
-    ETHEREUM_STANDARD_MESSAGES,
-    ETHEREUM_STANDARD_PRIVKEYS,
     EXPAND_MESSAGE_XMD_DST,
     EXPAND_MESSAGE_XMD_SHA256,
     HASH_TO_G2_RO,
@@ -54,6 +51,8 @@ from .imported_vectors import (
 )
 from .taira import test_public, test_secret
 from .vectors_finality import SPEC_M, g1_json, g2_json
+from .vectors_bls_malformed import build as malformed_inputs
+from .vectors_bls_ethereum import build as ethereum_vectors
 
 ROOT = Path(__file__).resolve().parents[2]
 ETH_CAPTURE = ROOT / "fixtures" / "sccp" / "rpc" / "eth"
@@ -323,40 +322,6 @@ def allowlist_vectors() -> list[dict]:
     return rows
 
 
-def ethereum_standard_inputs() -> dict:
-    """The ethereum/bls12-381-tests private keys and messages under `DST_SIG`, with the published outputs asserted."""
-    sks = [int(k, 16) for k in ETHEREUM_STANDARD_PRIVKEYS]
-    msgs = [bytes.fromhex(m) for m in ETHEREUM_STANDARD_MESSAGES]
-    pks = [sk_to_pk(sk) for sk in sks]
-    signatures = []
-    table = {}
-    for i, sk in enumerate(sks):
-        for j, msg in enumerate(msgs):
-            sig = sign(sk, msg)
-            table[(i, j)] = sig
-            if (i, j) in ETHEREUM_PUBLISHED_SIGNATURES:
-                assert sig.hex() == ETHEREUM_PUBLISHED_SIGNATURES[(i, j)], ("published Ethereum signature", i, j)
-            assert verify(pks[i], msg, sig)
-            signatures.append({"key": i, "msg": hx(msg), "signature": hx(sig)})
-    aggregates = []
-    for j, msg in enumerate(msgs):
-        agg = aggregate([table[(i, j)] for i in range(3)])
-        assert fast_aggregate_verify(pks, msg, agg)
-        aggregates.append({"msg": hx(msg), "keys": [0, 1, 2], "signature": hx(agg), "fast_aggregate_verify": True})
-    agg_distinct = aggregate([table[(i, i)] for i in range(3)])
-    assert aggregate_verify(pks, msgs, agg_distinct)
-    return {
-        "source": "ethereum/bls12-381-tests generator private keys and messages; the outputs for (key 0, 0x00…00) and "
-        "(key 2, 0xab…ab) equal the published sign vectors",
-        "privkeys": [hx(sk.to_bytes(32, "big")) for sk in sks],
-        "pubkeys": [hx(pk) for pk in pks],
-        "messages": [hx(m) for m in msgs],
-        "signatures": signatures,
-        "fast_aggregates": aggregates,
-        "aggregate_verify": {"keys": [0, 1, 2], "msgs": [hx(m) for m in msgs], "signature": hx(agg_distinct), "result": True},
-    }
-
-
 def ethereum_mainnet_vector() -> dict:
     """A captured Ethereum mainnet sync-committee aggregate: FastAggregateVerify under the same DST."""
     update = json.loads((ETH_CAPTURE / "finality_update.json").read_text())["data"]
@@ -419,7 +384,7 @@ def build() -> dict:
         "generator": "scripts/sccp_reference/generate.py (independent Python reference) writes this file alone; "
         "iroha_crypto::bls::consensus reproduces every row "
         "(crates/iroha_crypto/src/signature/bls/consensus/tests/python_reference.rs)",
-        "conventions": "byte strings are 0x-prefixed lowercase hex; field elements are 0x-prefixed hex integers; G1 points are "
+        "conventions": "upstream input/output values retain their original JSON conventions; other byte strings are 0x-prefixed lowercase hex; field elements are 0x-prefixed hex integers; G1 points are "
         "{compressed (ZCash 48 B), eip2537 (128 B)} and G2 points {compressed (ZCash 96 B), evm192 (x.c0‖x.c1‖y.c0‖y.c1, "
         "48 B limbs), eip2537 (256 B)}",
         "imported_rfc9380": imported_rfc9380(),
@@ -427,7 +392,8 @@ def build() -> dict:
         "sign_verify": sign_verify_vectors(),
         "aggregates": aggregate_vectors(),
         "consensus_allowlist": allowlist_vectors(),
-        "ethereum_standard_inputs": ethereum_standard_inputs(),
+        "ethereum_bls12_381_tests": ethereum_vectors(),
+        "sccp_extra_malformed_inputs": malformed_inputs(),
         "ethereum_mainnet_sync_committee": ethereum_mainnet_vector(),
         "rust_only_vectors": "the vectors that need the w3f transcript of iroha_crypto (pinned w3f proofs of "
         "possession, a w3f-transcript signature over a consensus digest, a DST_SIG signature presented to the generic "
@@ -437,9 +403,4 @@ def build() -> dict:
         "file it can decide without the w3f transcript: the standard sign, verify and aggregate vectors, the "
         "allowlist rows and rejections, and the key and consensus-API negatives; the proofs of possession and the "
         "verdict of the generic-API negative stay Rust-only",
-        "todo": [
-            "TODO: import the remaining ethereum/bls12-381-tests release cases (its malformed-input verify and "
-            "deserialization cases) once the archive is vendored; the standard inputs and the captured mainnet "
-            "aggregate above are the current Ethereum cross-checks",
-        ],
     }

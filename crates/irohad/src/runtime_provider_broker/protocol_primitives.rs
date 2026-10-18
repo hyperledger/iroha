@@ -106,8 +106,6 @@ pub(super) const OPERATION_BOOTLE_LANTERN_ISSUANCE_PREPARE_AUTHORIZATION_V1: u16
 pub(super) const OPERATION_BOOTLE_LANTERN_ISSUANCE_VALIDATE_REQUEST_V1: u16 = 121;
 pub(super) const OPERATION_BOOTLE_LANTERN_ISSUANCE_ISSUE_VALIDATED_V1: u16 = 122;
 pub(super) const OPERATION_GLOBAL_BEACON_PARTIAL_SIGN_V1: u16 = 123;
-pub(super) const OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1: u16 = 124;
-pub(super) const OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1: u16 = 125;
 pub(super) const OPERATION_STREAM_TOKEN_RECOVER_V1: u16 = 126;
 pub(super) const OPERATION_STREAM_TOKEN_OBSERVE_V1: u16 = 127;
 pub(super) const OPERATION_GLOBAL_BEACON_CAPABILITY_ATTEST_V1: u16 = 128;
@@ -142,21 +140,6 @@ define_broker_wire_struct!(owned frame "irohad::runtime_provider_broker::protoco
 });
 define_broker_wire_struct!(copy frame "irohad::runtime_provider_broker::protocol::primitives::GlobalBeaconPartialSignResultWireV1"; pub(super) GlobalBeaconPartialSignResultWireV1 {
     pub(super) partial: iroha_data_model::consensus::GlobalThresholdBeaconPartialSignatureV1,
-});
-define_broker_wire_struct!(owned frame "irohad::runtime_provider_broker::protocol::primitives::ParliamentTlePartialReleaseSignRequestWireV1"; pub(super) ParliamentTlePartialReleaseSignRequestWireV1 {
-    pub(super) projection: iroha_core_timed_ovn::tle::AuthorizedTleReleaseProjectionV1,
-});
-define_broker_wire_struct!(owned frame "irohad::runtime_provider_broker::protocol::primitives::ParliamentTlePartialReleaseSignResultWireV1"; pub(super) ParliamentTlePartialReleaseSignResultWireV1 {
-    pub(super) partial: iroha_core_timed_ovn::tle::TlePartialReleaseShareV1,
-});
-define_broker_wire_struct!(owned frame "irohad::runtime_provider_broker::protocol::primitives::ParliamentTleCapabilityAttestRequestWireV1"; pub(super) ParliamentTleCapabilityAttestRequestWireV1 {
-    pub(super) key_session: iroha_core_timed_ovn::tle::TleKeySessionPublicStateV1,
-    pub(super) participant_index: u16,
-});
-define_broker_wire_struct!(owned frame "irohad::runtime_provider_broker::protocol::primitives::ParliamentTleCapabilityAttestResultWireV1"; pub(super) ParliamentTleCapabilityAttestResultWireV1 {
-    pub(super) key_session_id: iroha_data_model::governance::types::TleKeySessionId,
-    pub(super) transcript_hash: [u8; 32],
-    pub(super) participant_index: u16,
 });
 define_broker_wire_struct!(owned frame "irohad::runtime_provider_broker::protocol::primitives::GlobalBeaconCapabilityAttestRequestWireV1"; pub(super) GlobalBeaconCapabilityAttestRequestWireV1 {
     pub(super) session: iroha_data_model::consensus::GlobalThresholdBeaconKeySessionV1,
@@ -195,12 +178,9 @@ pub(super) struct GlobalBeaconSeatReadinessRequestRefV1<'a> {
         'a,
         iroha_data_model::consensus::GlobalThresholdBeaconKeySessionV1,
     >,
-    pub(super) authority: norito::core::PayloadRef<
-        'a,
-        iroha_data_model::sumeragi::epoch::ValidatorGenerationV1,
-    >,
-    pub(super) context:
-        iroha_data_model::nexus::ValidatorSeatReadinessContextV1,
+    pub(super) authority:
+        norito::core::PayloadRef<'a, iroha_data_model::sumeragi::epoch::ValidatorGenerationV1>,
+    pub(super) context: iroha_data_model::nexus::ValidatorSeatReadinessContextV1,
 }
 
 // Borrowed serialization view of the sole canonical request frame.
@@ -499,8 +479,6 @@ mod operation_ordinal_tests {
             (OPERATION_BOOTLE_LANTERN_ISSUANCE_VALIDATE_REQUEST_V1, 121),
             (OPERATION_BOOTLE_LANTERN_ISSUANCE_ISSUE_VALIDATED_V1, 122),
             (OPERATION_GLOBAL_BEACON_PARTIAL_SIGN_V1, 123),
-            (OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1, 124),
-            (OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1, 125),
             (OPERATION_STREAM_TOKEN_RECOVER_V1, 126),
             (OPERATION_STREAM_TOKEN_OBSERVE_V1, 127),
             (OPERATION_GLOBAL_BEACON_CAPABILITY_ATTEST_V1, 128),
@@ -514,7 +492,7 @@ mod operation_ordinal_tests {
         assert!(super::super::operation_is_known(
             OPERATION_POP_RUNTIME_OPEN_V1
         ));
-        for unsupported in [107, 108, 109, 110, 131] {
+        for unsupported in [107, 108, 109, 110, 124, 125, 131] {
             assert!(!super::super::operation_is_known(unsupported));
         }
     }

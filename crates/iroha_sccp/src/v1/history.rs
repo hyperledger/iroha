@@ -151,7 +151,7 @@ pub fn history_root(leaves: &[[u8; 32]]) -> Result<[u8; 32], HistoryError> {
 }
 
 /// The history path of leaf `index` in the history of `leaves` (all leaves up to the size the
-/// verifier's attestation names).
+/// verified native finality header names).
 ///
 /// # Errors
 ///

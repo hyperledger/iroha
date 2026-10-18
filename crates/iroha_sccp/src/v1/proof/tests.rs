@@ -121,7 +121,7 @@ fn direct_transfer_and_control() {
     history
         .append(&hashes::history_leaf(50, &block.tree.root(), 4))
         .unwrap();
-    let attestation = header(50, block.tree.root(), 4, &history);
+    let finality_header = header(50, block.tree.root(), 4, &history);
     let dest = destination();
     let proof = MessageProofV1 {
         payload: block.payloads[1].clone(),
@@ -129,7 +129,7 @@ fn direct_transfer_and_control() {
         path: block.tree.path(1).unwrap(),
         block: block_ref(50, block.tree.root(), 4),
     };
-    let verified = verify_transfer(&attestation, &proof, &TAIRA, &dest).unwrap();
+    let verified = verify_transfer(&finality_header, &proof, &TAIRA, &dest).unwrap();
     assert_eq!(verified.payload.nonce, 1);
     assert_eq!(verified.leaf, block.leaves[1]);
     let wrong_index = MessageProofV1 {
@@ -137,7 +137,7 @@ fn direct_transfer_and_control() {
         ..proof.clone()
     };
     assert_eq!(
-        verify_transfer(&attestation, &wrong_index, &TAIRA, &dest),
+        verify_transfer(&finality_header, &wrong_index, &TAIRA, &dest),
         Err(ProofError::BadBlockPath)
     );
     let control = ControlProofV1 {
@@ -152,7 +152,7 @@ fn direct_transfer_and_control() {
         ..ControlProofV1::default()
     };
     assert_eq!(
-        verify_control(&attestation, &control, &TAIRA, &dest),
+        verify_control(&finality_header, &control, &TAIRA, &dest),
         Ok(block.leaves[3])
     );
     // The same fields with the other pause value, or another revision, do not verify.
@@ -161,7 +161,7 @@ fn direct_transfer_and_control() {
         ..control.clone()
     };
     assert_eq!(
-        verify_control(&attestation, &resumed, &TAIRA, &dest),
+        verify_control(&finality_header, &resumed, &TAIRA, &dest),
         Err(ProofError::BadBlockPath)
     );
     let other_revision = DestinationV1 {
@@ -169,7 +169,7 @@ fn direct_transfer_and_control() {
         ..dest
     };
     assert_eq!(
-        verify_control(&attestation, &control, &TAIRA, &other_revision),
+        verify_control(&finality_header, &control, &TAIRA, &other_revision),
         Err(ProofError::BadBlockPath)
     );
     // A transfer proof offered at the control leaf position fails.
@@ -180,7 +180,7 @@ fn direct_transfer_and_control() {
         block: block_ref(50, block.tree.root(), 4),
     };
     assert_eq!(
-        verify_transfer(&attestation, &at_control, &TAIRA, &dest),
+        verify_transfer(&finality_header, &at_control, &TAIRA, &dest),
         Err(ProofError::BadBlockPath)
     );
     let empty = header(50, [0; 32], 0, &history);
@@ -191,19 +191,19 @@ fn direct_transfer_and_control() {
     let mut extra = proof.clone();
     extra.block.history_path.push([1; 32]);
     assert_eq!(
-        verify_transfer(&attestation, &extra, &TAIRA, &dest),
+        verify_transfer(&finality_header, &extra, &TAIRA, &dest),
         Err(ProofError::BadBlockReference)
     );
     let mut extra = proof.clone();
     extra.block.history_index = 1;
     assert_eq!(
-        verify_transfer(&attestation, &extra, &TAIRA, &dest),
+        verify_transfer(&finality_header, &extra, &TAIRA, &dest),
         Err(ProofError::BadBlockReference)
     );
     let mut altered = proof.clone();
     altered.block.sccp_root = [1; 32];
     assert_eq!(
-        verify_transfer(&attestation, &altered, &TAIRA, &dest),
+        verify_transfer(&finality_header, &altered, &TAIRA, &dest),
         Err(ProofError::BadBlockReference)
     );
     for change in 0..5 {
@@ -216,7 +216,7 @@ fn direct_transfer_and_control() {
             _ => altered.control_nonce += 1,
         }
         assert_eq!(
-            verify_control(&attestation, &altered, &TAIRA, &dest),
+            verify_control(&finality_header, &altered, &TAIRA, &dest),
             Err(ProofError::BadBlockPath)
         );
     }

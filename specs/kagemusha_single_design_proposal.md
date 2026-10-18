@@ -1394,6 +1394,11 @@ speculative entry instead replay native validation on fresh custody, and that on
 derivation is reused through proving. Before the capsule is published, the
 retained draft is checked against the proven successor state on durable custody.
 Commit derives the operation again, independently, from the durable plan.
+A review's speculative σ_send (§5.1) is proved from its own throwaway derivation, off the
+wallet owner, while no payment holds priority; payments wait for it rather than cancel it.
+Execution after confirmation plans with its nonce (a Send whose controls need a clock
+reading is not speculated), and freezes its σ only for an identical derived statement and
+relation; otherwise it proves. A declined or stale speculation is dropped unsigned.
 
 The runtime capacity owner checks the bounded intake workspace before fresh
 allocation, and checks memory before reading a retained batch. Fresh admission

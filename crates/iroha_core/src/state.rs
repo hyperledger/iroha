@@ -7746,6 +7746,57 @@ impl Drop for GovernanceProposalsMutForTesting<'_, '_, '_> {
         }
     }
 }
+/// Add `member` to the set indexed at `key`, writing only when it is absent.
+///
+/// A transaction's first `get_mut` of a key copies the whole value into the
+/// block's undo preimage and the copy-on-write path, so a read-only membership
+/// check first keeps an already-present member (every transfer between existing
+/// holders) from costing O(set size).
+fn insert_set_index_member<K, M>(
+    index: &mut StorageTransaction<'_, K, BTreeSet<M>>,
+    key: &K,
+    member: &M,
+) where
+    K: mv::Key,
+    M: Ord + Clone + Send + Sync + 'static,
+{
+    if index
+        .get(key)
+        .is_some_and(|members| members.contains(member))
+    {
+        return;
+    }
+    if let Some(members) = index.get_mut(key) {
+        members.insert(member.clone());
+    } else {
+        index.insert(key.clone(), BTreeSet::from([member.clone()]));
+    }
+}
+/// Remove `member` from the set indexed at `key`, dropping the emptied set.
+///
+/// Like [`insert_set_index_member`], this writes only when `member` is present.
+fn remove_set_index_member<K, M>(
+    index: &mut StorageTransaction<'_, K, BTreeSet<M>>,
+    key: &K,
+    member: &M,
+) where
+    K: mv::Key,
+    M: Ord + Clone + Send + Sync + 'static,
+{
+    if !index
+        .get(key)
+        .is_some_and(|members| members.contains(member))
+    {
+        return;
+    }
+    let emptied = index.get_mut(key).is_some_and(|members| {
+        members.remove(member);
+        members.is_empty()
+    });
+    if emptied {
+        index.remove(key.clone());
+    }
+}
 #[allow(single_use_lifetimes)]
 impl<'block> WorldTransaction<'block, '_> {
     fn observe_axt_authorization_identities(&mut self) {
@@ -8193,56 +8244,32 @@ impl<'block> WorldTransaction<'block, '_> {
     }
     /// Record that the given account now holds at least one balance partition of the definition.
     pub(crate) fn track_asset_holder(&mut self, asset_id: &AssetId) {
-        if let Some(holders) = self.asset_definition_holders.get_mut(asset_id.definition()) {
-            holders.insert(asset_id.account().clone());
-        } else {
-            self.asset_definition_holders.insert(
-                asset_id.definition().clone(),
-                BTreeSet::from([asset_id.account().clone()]),
-            );
-        }
-        if let Some(asset_ids) = self.asset_definition_assets.get_mut(asset_id.definition()) {
-            asset_ids.insert(asset_id.clone());
-        } else {
-            self.asset_definition_assets.insert(
-                asset_id.definition().clone(),
-                BTreeSet::from([asset_id.clone()]),
-            );
-        }
-        if let Some(asset_ids) = self.assets_by_account.get_mut(asset_id.account()) {
-            asset_ids.insert(asset_id.clone());
-        } else {
-            self.assets_by_account.insert(
-                asset_id.account().clone(),
-                BTreeSet::from([asset_id.clone()]),
-            );
-        }
+        insert_set_index_member(
+            &mut self.asset_definition_holders,
+            asset_id.definition(),
+            asset_id.account(),
+        );
+        insert_set_index_member(
+            &mut self.asset_definition_assets,
+            asset_id.definition(),
+            asset_id,
+        );
+        insert_set_index_member(&mut self.assets_by_account, asset_id.account(), asset_id);
         if let Some(domain_id) = self
             .asset_definition_domains
             .get(asset_id.definition())
             .cloned()
         {
-            if let Some(asset_ids) = self.assets_by_domain.get_mut(&domain_id) {
-                asset_ids.insert(asset_id.clone());
-            } else {
-                self.assets_by_domain
-                    .insert(domain_id, BTreeSet::from([asset_id.clone()]));
-            }
+            insert_set_index_member(&mut self.assets_by_domain, &domain_id, asset_id);
         }
     }
     /// Record that the given account has a non-zero balance for the definition.
     pub(crate) fn track_nonzero_asset_holder(&mut self, asset_id: &AssetId) {
-        if let Some(holders) = self
-            .asset_definition_nonzero_holders
-            .get_mut(asset_id.definition())
-        {
-            holders.insert(asset_id.account().clone());
-        } else {
-            self.asset_definition_nonzero_holders.insert(
-                asset_id.definition().clone(),
-                BTreeSet::from([asset_id.account().clone()]),
-            );
-        }
+        insert_set_index_member(
+            &mut self.asset_definition_nonzero_holders,
+            asset_id.definition(),
+            asset_id.account(),
+        );
     }
     /// Drop a non-zero holder entry when no remaining partition for that account is non-zero.
     pub(crate) fn refresh_nonzero_asset_holder(&mut self, asset_id: &AssetId) {
@@ -8256,57 +8283,27 @@ impl<'block> WorldTransaction<'block, '_> {
             self.track_nonzero_asset_holder(asset_id);
             return;
         }
-        let remove_index_entry = self
-            .asset_definition_nonzero_holders
-            .get_mut(asset_id.definition())
-            .is_some_and(|holders| {
-                holders.remove(asset_id.account());
-                holders.is_empty()
-            });
-        if remove_index_entry {
-            self.asset_definition_nonzero_holders
-                .remove(asset_id.definition().clone());
-        }
+        remove_set_index_member(
+            &mut self.asset_definition_nonzero_holders,
+            asset_id.definition(),
+            asset_id.account(),
+        );
     }
     /// Drop asset-id linkage, then remove the holder linkage when the account no longer has any
     /// remaining balance partition for the definition.
     pub(crate) fn untrack_asset_holder_if_empty(&mut self, asset_id: &AssetId) {
-        let remove_asset_index_entry = self
-            .asset_definition_assets
-            .get_mut(asset_id.definition())
-            .is_some_and(|asset_ids| {
-                asset_ids.remove(asset_id);
-                asset_ids.is_empty()
-            });
-        if remove_asset_index_entry {
-            self.asset_definition_assets
-                .remove(asset_id.definition().clone());
-        }
-        let remove_account_entry = self
-            .assets_by_account
-            .get_mut(asset_id.account())
-            .is_some_and(|asset_ids| {
-                asset_ids.remove(asset_id);
-                asset_ids.is_empty()
-            });
-        if remove_account_entry {
-            self.assets_by_account.remove(asset_id.account().clone());
-        }
+        remove_set_index_member(
+            &mut self.asset_definition_assets,
+            asset_id.definition(),
+            asset_id,
+        );
+        remove_set_index_member(&mut self.assets_by_account, asset_id.account(), asset_id);
         if let Some(domain_id) = self
             .asset_definition_domains
             .get(asset_id.definition())
             .cloned()
         {
-            let remove_domain_entry =
-                self.assets_by_domain
-                    .get_mut(&domain_id)
-                    .is_some_and(|asset_ids| {
-                        asset_ids.remove(asset_id);
-                        asset_ids.is_empty()
-                    });
-            if remove_domain_entry {
-                self.assets_by_domain.remove(domain_id);
-            }
+            remove_set_index_member(&mut self.assets_by_domain, &domain_id, asset_id);
         }
         let has_remaining_for_definition =
             self.assets
@@ -8318,17 +8315,11 @@ impl<'block> WorldTransaction<'block, '_> {
         if has_remaining_for_definition {
             return;
         }
-        let remove_index_entry = self
-            .asset_definition_holders
-            .get_mut(asset_id.definition())
-            .is_some_and(|holders| {
-                holders.remove(asset_id.account());
-                holders.is_empty()
-            });
-        if remove_index_entry {
-            self.asset_definition_holders
-                .remove(asset_id.definition().clone());
-        }
+        remove_set_index_member(
+            &mut self.asset_definition_holders,
+            asset_id.definition(),
+            asset_id.account(),
+        );
     }
     /// Remove an asset entry and any attached asset metadata.
     pub(crate) fn remove_asset_and_metadata(&mut self, asset_id: &AssetId) -> Option<AssetValue> {
@@ -12834,6 +12825,9 @@ pub struct StateBlockFields<'state> {
         Option<carrier_source_admission::PrepaidOrdinaryCarrierMembership>,
     /// Original physical policy routes captured before any carrier prefix effect.
     network_policy_routes: Option<network_policy_routes::CapturedNetworkPolicyRoutes>,
+    /// Set once static validation of the block this scope executes verified every
+    /// signature of its Network inputs; execution then skips only that verify.
+    network_signatures_prechecked: bool,
     /// Topology used to commit latest block
     pub commit_topology: block_field::CellField<'state, Vec<PeerId>>,
     /// Topology used to commit previous block
@@ -13077,6 +13071,17 @@ impl<'state> StateBlock<'state> {
             world_cut_capture: None,
             publication: None,
         }
+    }
+    /// Record that static validation of the exact block this scope will execute
+    /// verified the signature of every one of its Network inputs.
+    ///
+    /// Only the caller that ran that validation on this block may set this.
+    pub(crate) fn mark_network_signatures_prechecked(&mut self) {
+        self.network_signatures_prechecked = true;
+    }
+    /// Consume the static-validation signature attestation for one execution.
+    pub(crate) fn take_network_signatures_prechecked(&mut self) -> bool {
+        core::mem::take(&mut self.network_signatures_prechecked)
     }
 }
 
@@ -25769,6 +25774,24 @@ impl WorldTransaction<'_, '_> {
             .extend(shared_events.iter().cloned().map(EventBox::Data));
         self.internal_event_buf.extend(shared_events);
     }
+    /// Publish the already funded forgery graph without copying accounts or shared shells.
+    /// SCCP events have no account/directory projection side effects.
+    pub(crate) fn emit_sccp_forgery_events(
+        &mut self,
+        events: impl ExactSizeIterator<Item = SharedDataEvent>,
+    ) {
+        // TODO(S8): original-pool custody for the transaction/block output vector
+        // backing must follow those buffers through apply, take and last-reader drop.
+        for event in events {
+            debug_assert!(matches!(event.as_ref(), DataEvent::Sccp(_)));
+            #[cfg(feature = "telemetry")]
+            if let Some(telemetry) = self.telemetry {
+                telemetry.ingest_data_event(&event);
+            }
+            self.external_event_buf.push(EventBox::Data(event.clone()));
+            self.internal_event_buf.push(event);
+        }
+    }
     /// Publish data events to native trigger processing without exposing them
     /// through the externally retained event buffer.
     ///
@@ -31248,6 +31271,13 @@ impl State {
     pub const fn installed_pipeline(&self) -> &iroha_config::parameters::actual::Pipeline {
         &self.pipeline
     }
+    /// Worker pool sized by the installed pipeline, shared by every block validation.
+    ///
+    /// Reusing one pool keeps workers (and their thread-local verification caches)
+    /// warm instead of spawning and joining threads for each block.
+    pub(crate) const fn pipeline_parallelism(&self) -> &PipelineParallelism {
+        &self.pipeline_parallelism
+    }
     /// Snapshot the current pipeline settings.
     ///
     /// This avoids acquiring a full [`StateView`] when only query/pipeline limits are needed.
@@ -35966,7 +35996,11 @@ pub trait StateReadOnly: WorldStateSnapshot {
     fn axt_execution_policy_snapshot(&self) -> Option<AxtPolicySnapshot> {
         None
     }
-    /// Cached snapshot of all account identifiers currently known to the state view.
+    /// Cached canonical-order prefix of the account identifiers known to the state view.
+    ///
+    /// It holds at most
+    /// [`CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS`](crate::smartcontracts::ivm::host::CREATE_NFTS_FOR_ALL_MAX_RECIPIENTS)
+    /// entries: the only consumer, `CREATE_NFTS_FOR_ALL_USERS`, observes no later account.
     fn accounts_snapshot(&self) -> Arc<Vec<AccountId>>;
     /// Resolve the exact canonical `3f+1` committee for a lane/dataspace route
     /// at an explicit consensus height.
@@ -36239,11 +36273,8 @@ macro_rules! impl_state_ro {
             }
             fn accounts_snapshot(&self) -> Arc<Vec<AccountId>> {
                 Arc::clone(self.accounts_snapshot_cache.get_or_init(|| {
-                    Arc::new(
-                        self.world
-                            .accounts_iter()
-                            .map(|entry| entry.id().clone())
-                            .collect(),
+                    crate::smartcontracts::ivm::host::create_nfts_for_all_recipient_snapshot(
+                        &self.world,
                     )
                 }))
             }
@@ -43360,15 +43391,10 @@ impl StateTransaction<'_, '_> {
         self.last_tx_gas_used = self.last_tx_gas_used.saturating_add(gas);
         Ok(())
     }
-    /// Build or fetch the cached snapshot of accounts available for trigger execution.
+    /// Build or fetch the cached bounded account prefix available for trigger execution.
     fn trigger_accounts_snapshot(&mut self) -> Arc<Vec<AccountId>> {
         Arc::clone(self.accounts_snapshot_cache.get_or_init(|| {
-            Arc::new(
-                self.world
-                    .accounts_iter()
-                    .map(|entry| entry.id().clone())
-                    .collect(),
-            )
+            crate::smartcontracts::ivm::host::create_nfts_for_all_recipient_snapshot(&self.world)
         }))
     }
     fn trigger_args_from_event(
@@ -43645,12 +43671,15 @@ impl StateTransaction<'_, '_> {
             host.set_zk_config(&self.zk);
             host.set_chain_id(self.chain_id());
             host.set_public_inputs_from_parameters(self.world.parameters.get());
-            host.set_vrf_epoch_seeds_from_state(self).map_err(|error| {
+            let vrf_epoch_length = crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(
+                self,
+            )
+            .map_err(|error| {
                 self.attempt_error_to_validation_fail(
                     error.map_rejection(ValidationFail::InternalError),
                 )
             })?;
-            host.set_query_state(self);
+            host.set_query_state_with_vrf_epoch_seeds(self, vrf_epoch_length);
             host.set_bound_contract_records_by_subject_snapshot(bound_contract_records);
             crate::pipeline::overlay::apply_streaming_metadata(&mut host, streaming_metadata);
             host.set_zk_snapshots_from_world(&self.world, &self.zk)
@@ -44175,12 +44204,15 @@ impl StateTransaction<'_, '_> {
                 host.set_zk_config(&self.zk);
                 host.set_chain_id(self.chain_id());
                 host.set_public_inputs_from_parameters(self.world.parameters.get());
-                host.set_vrf_epoch_seeds_from_state(self).map_err(|error| {
-                    self.attempt_error_to_validation_fail(
-                        error.map_rejection(ValidationFail::InternalError),
-                    )
-                })?;
-                host.set_query_state(self);
+                let vrf_epoch_length =
+                    crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(self).map_err(
+                        |error| {
+                            self.attempt_error_to_validation_fail(
+                                error.map_rejection(ValidationFail::InternalError),
+                            )
+                        },
+                    )?;
+                host.set_query_state_with_vrf_epoch_seeds(self, vrf_epoch_length);
                 host.set_contract_runtime_context(contract_runtime_context.clone());
                 host.set_contract_entrypoint_authorization(Some(entrypoint_authorization));
                 host.set_zk_snapshots_from_world(&self.world, &self.zk)
@@ -44468,12 +44500,14 @@ impl StateTransaction<'_, '_> {
                             host.set_zk_config(&self.zk);
                             host.set_chain_id(self.chain_id());
                             host.set_public_inputs_from_parameters(self.world.parameters.get());
-                            host.set_vrf_epoch_seeds_from_state(self).map_err(|error| {
-                                self.attempt_error_to_validation_fail(
-                                    error.map_rejection(ValidationFail::InternalError),
-                                )
-                            })?;
-                            host.set_query_state(self);
+                            let vrf_epoch_length =
+                                crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(self)
+                                    .map_err(|error| {
+                                        self.attempt_error_to_validation_fail(
+                                            error.map_rejection(ValidationFail::InternalError),
+                                        )
+                                    })?;
+                            host.set_query_state_with_vrf_epoch_seeds(self, vrf_epoch_length);
                             host.set_contract_runtime_context(contract_runtime_context.clone());
                             host.set_contract_entrypoint_authorization(Some(
                                 entrypoint_authorization,

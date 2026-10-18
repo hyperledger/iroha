@@ -55,6 +55,10 @@ tempfile = { workspace = true }
 name = "smallvec"
 harness = false
 
+[[bench]]
+name = "rs16"
+harness = false
+
 [[test]]
 name = "addr_parsing"
 path = "tests/addr_parsing.rs"

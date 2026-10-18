@@ -56,84 +56,6 @@ fn governance_capability_proposal_kinds_match_the_first_release_inventory() {
     );
 }
 
-#[test]
-fn casting_context_route_holds_heavy_admission_through_blocking_replay() {
-    let route_source = include_str!("../lib.rs");
-    let handler = route_source
-        .split("async fn handler_gov_parliament_timed_ovn_casting_context_read")
-        .nth(1)
-        .and_then(|tail| {
-            tail.split("async fn handler_gov_parliament_tle_release_context_read")
-                .next()
-        })
-        .expect("casting-context route source");
-    let access = handler
-        .find("check_access(")
-        .expect("canonical access gate");
-    let admission = handler
-        .find("let replay_admission = acquire_query_admission(app.as_ref(), true).await?;")
-        .expect("heavy admission gate");
-    let joined = handler
-        .find("crate::panic_recovery::join_recoverable(")
-        .expect("recoverable replay join boundary");
-    let blocking = handler
-        .find("crate::panic_recovery::spawn_blocking_recoverable(")
-        .expect("reviewed blocking replay isolation");
-    let retained = handler
-        .find("let _replay_admission = replay_admission;")
-        .expect("permit retained by physical replay task");
-    assert!(access < admission && admission < joined && joined < blocking && blocking < retained);
-}
-
-#[test]
-fn release_context_route_holds_heavy_admission_through_blocking_replay() {
-    let route_source = include_str!("../lib.rs");
-    let handler = route_source
-        .split("async fn handler_gov_parliament_tle_release_context_read")
-        .nth(1)
-        .and_then(|tail| {
-            tail.split("async fn handler_gov_parliament_tle_partial_release")
-                .next()
-        })
-        .expect("release-context route source");
-    let access = handler
-        .find("check_access(")
-        .expect("canonical access gate");
-    let admission = handler
-        .find("let replay_admission = acquire_query_admission(app.as_ref(), true).await?;")
-        .expect("heavy admission gate");
-    let joined = handler
-        .find("crate::panic_recovery::join_recoverable(")
-        .expect("recoverable replay join boundary");
-    let blocking = handler
-        .find("crate::panic_recovery::spawn_blocking_recoverable(")
-        .expect("reviewed blocking replay isolation");
-    let retained = handler
-        .find("let _replay_admission = replay_admission;")
-        .expect("permit retained by physical replay task");
-    assert!(access < admission && admission < joined && joined < blocking && blocking < retained);
-}
-
-#[test]
-fn release_context_handler_validates_its_public_projection() {
-    let source = include_str!("../gov.rs");
-    let handler = source
-        .split("pub fn handle_gov_parliament_tle_release_context_read")
-        .nth(1)
-        .and_then(|tail| {
-            tail.split("/// Strict citizen registration draft request.")
-                .next()
-        })
-        .expect("release-context handler source");
-    let validation = handler
-        .find("validate_for_ballot(ballot_attempt_id)")
-        .expect("public response validation");
-    let returned = handler
-        .find("Ok(JsonBody(response))")
-        .expect("validated public response return");
-    assert!(validation < returned);
-}
-
 fn generic_lock_custody(state: &State) -> GovernanceLockCustody {
     GovernanceLockCustody {
         escrowed: true,
@@ -143,11 +65,7 @@ fn generic_lock_custody(state: &State) -> GovernanceLockCustody {
     }
 }
 #[test]
-fn first_release_capabilities_expose_only_attempt_based_private_parliament() {
-    assert_eq!(
-        GOVERNANCE_APPROVAL_MODE_V1,
-        "PARLIAMENT_ATTEMPT_TIMED_OVN_V1"
-    );
+fn first_release_capabilities_expose_only_attempt_based_parliament() {
     let source = include_str!("../gov.rs");
     let retired_mode = ["LEGACY", "COUNCIL", "EPOCH"].join("_");
     let retired_resolver = ["fn governance", "approval", "mode"].join("_");
@@ -176,10 +94,6 @@ fn first_release_capabilities_expose_only_attempt_based_private_parliament() {
             "/v1/gov/parliament/attempts/draft",
             "/v1/gov/parliament/attempts/{governance_attempt_id}",
             "/v1/gov/parliament/attempts/{governance_attempt_id}/plan",
-            "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context",
-            "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof",
-            "/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context",
-            "/v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release",
             "/v1/gov/parliament/transitions/draft",
         ]
     );

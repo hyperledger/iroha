@@ -36,7 +36,7 @@ fn fixture_with_policy(
     fee_asset: Option<iroha_data_model::asset::AssetDefinitionId>,
     configure: impl FnOnce(&mut crate::pipeline_validity_policy::PipelineValidityPolicyV1),
 ) -> State {
-    let mut state = state(row_bytes);
+    let state = state(row_bytes);
     let mut expected_policy = state
         .world
         .parameters

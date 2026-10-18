@@ -75,6 +75,8 @@ iroha_zkp_poseidon = { path = "crates/iroha_zkp_poseidon" }
 # Experimental VOLE-in-the-head backend and Parliament ballot relations; no profile is selected.
 iroha_zkp_vole = { path = "crates/iroha_zkp_vole", default-features = false }
 iroha_parliament_ballot_proof = { path = "crates/iroha_parliament_ballot_proof", default-features = false }
+# Typed anonymous-ballot protocol layer over the proof crate; binding use stays gated off.
+iroha_parliament_ballot = { path = "crates/iroha_parliament_ballot", default-features = false }
 # Native PLONK/IPA stack; one first-release proof implementation.
 iroha_pasta = { path = "crates/iroha_pasta" }
 iroha_plonk = { path = "crates/iroha_plonk" }

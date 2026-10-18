@@ -464,8 +464,6 @@ fn generic_verify_proof_syscall_rejects_injected_non_production_vk_snapshot() {
             vk_bytes,
         );
         let record = Arc::new(rec);
-        host.verifying_keys
-            .insert(VerifyingKeyId::new(backend, "vk"), Arc::clone(&record));
         host.prepared_verifying_keys.insert(
             commitment,
             PreparedVerifyingKey {
@@ -514,10 +512,6 @@ fn generic_verify_proof_revalidates_injected_native_material_at_dispatch() {
     host.set_current_manifest_id(Some("core".to_owned()));
     // Simulate a corrupt in-memory snapshot that bypassed installation.
     // Dispatch must still invoke the shared strict material validator.
-    host.verifying_keys.insert(
-        VerifyingKeyId::new(backend, "forged-inline-key"),
-        Arc::clone(&record),
-    );
     host.prepared_verifying_keys.insert(
         commitment,
         PreparedVerifyingKey {

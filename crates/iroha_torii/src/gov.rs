@@ -11,22 +11,19 @@
 //! - JSON parsing uses Norito's serde wrappers via the `NoritoJson` extractor.
 //! - Keep responses stable and explicit; map input errors to 400.
 use crate::{
-    JsonBody, NoritoBody, NoritoJson, NoritoJsonWithBytes,
+    JsonBody, NoritoJson, NoritoJsonWithBytes,
     json_macros::{JsonDeserialize, JsonSerialize},
     routing::{MaybeTelemetry, parse_account_literal_with_state},
 };
 use base64::Engine as _;
-use iroha_core::governance::parliament::ParliamentBallotStateV1;
 use iroha_core::governance::parliament::ParliamentDecisionModeV1;
-use iroha_core::kura::Kura;
 use iroha_core::state::StateReadOnly;
 use iroha_core::state::WorldReadOnly;
-use iroha_core_timed_ovn::evidence::TimedOvnLifecycleStateV1;
 use iroha_data_model::{
     governance::types::{
         AbiVersion, ContractAbiHash, ContractCodeHash, DeployContractProposal,
         MAX_PARLIAMENT_ATTEMPT_STATE_BYTES_V1, MAX_PARLIAMENT_GOVERNANCE_ATTEMPT_RETRIES_V1,
-        ParliamentNoResultKindV1, ProposalContentId, ProposalKind, SccpRouteGovernanceProposal,
+        ProposalContentId, ProposalKind, SccpRouteGovernanceProposal,
     },
     ministry::{AgendaProposalRecordV1, AgendaProposalV1},
     smart_contract::manifest::{EntryPointKind, ManifestProvenance},
@@ -38,20 +35,12 @@ use iroha_torii_shared::governance_proposal_api::{
     SccpRouteGovernanceProposalDraftResponseV1,
 };
 use iroha_torii_shared::parliament_api::{
-    PARLIAMENT_API_VERSION_V1, PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_FINALITY_CHAIN_BYTES_V1,
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_RESPONSE_BYTES_V1,
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_VERSION_V1, ParliamentAttemptDraftRequestV1,
-    ParliamentAttemptDraftResponseV1, ParliamentAttemptPlanResponseV1,
-    ParliamentAttemptReadResponseV1, ParliamentBodyStateProjectionV1,
-    ParliamentDecisionModeProjectionV1, ParliamentExactTransitionProjectionV1,
-    ParliamentInstructionDraftV1, ParliamentTimedOvnCastingContextResponseV1,
-    ParliamentTimedOvnCastingPhaseProjectionV1, ParliamentTimedOvnCastingProofRequestV1,
-    ParliamentTimedOvnCastingProofResponseV1, ParliamentTimedOvnProgressProjectionV1,
-    ParliamentTimedOvnReleaseIdentityProjectionV1, ParliamentTimedOvnSessionProjectionV1,
-    ParliamentTleAdaptiveDealerCommitmentV1, ParliamentTleAdaptivePublicShareV1,
-    ParliamentTleKeySessionBindingV1, ParliamentTleReleaseContextResponseV1,
+    PARLIAMENT_API_VERSION_V1, ParliamentAttemptDraftRequestV1, ParliamentAttemptDraftResponseV1,
+    ParliamentAttemptPlanResponseV1, ParliamentAttemptReadResponseV1,
+    ParliamentBodyStateProjectionV1, ParliamentDecisionModeProjectionV1,
+    ParliamentExactTransitionProjectionV1, ParliamentInstructionDraftV1,
     ParliamentTransitionDraftRequestV1, ParliamentTransitionDraftResponseV1,
-    RequiredParliamentBodyProjectionV1, parliament_timed_ovn_casting_proof_page_tip,
+    RequiredParliamentBodyProjectionV1,
 };
 use mv::storage::StorageReadOnly;
 use norito::{
@@ -640,12 +629,6 @@ pub struct GovernanceCapabilitiesV1 {
     pub abi_version: String,
     /// Data-model compatibility version.
     pub data_model_version: String,
-    /// Exact configured governance approval mode.
-    pub approval_mode: String,
-    /// Mandatory private binding-ballot protocol.
-    pub private_ballot_protocol: String,
-    /// Whether every binding Parliament ballot is private and timed-opened.
-    pub mandatory_private_ballots: bool,
     /// Whether proposal-backed referendum ballot routes may replace Parliament.
     pub proposal_backed_referendum_ballots_supported: bool,
     /// Whether explicitly standalone PLAIN referenda retain their separate route.
@@ -668,20 +651,6 @@ pub struct GovernanceCapabilitiesV1 {
     pub min_enactment_delay: String,
     /// Invitation-response window in blocks.
     pub invitation_phase_blocks: String,
-    /// Timed-OVN proof-registration window in blocks.
-    pub registration_phase_blocks: String,
-    /// Timed-OVN authenticated-dropout/survivor window in blocks.
-    pub survivor_freeze_phase_blocks: String,
-    /// Timed-OVN masked-ballot commitment window in blocks.
-    pub commitment_phase_blocks: String,
-    /// Delay from commitment close to threshold release in blocks.
-    pub release_delay_blocks: String,
-    /// Timed-OVN aggregate-opening window in blocks.
-    pub opening_phase_blocks: String,
-    /// Retry attempts permitted after the initial private ballot.
-    pub max_ballot_retries: String,
-    /// Hard participant/corpus entry bound.
-    pub max_corpus_entries: String,
     /// Configured targets; actual proposal rosters are capped by eligible citizens.
     pub target_body_sizes: GovernanceTargetBodySizesV1,
     /// Typed proposal kinds supported by the first release.
@@ -689,7 +658,6 @@ pub struct GovernanceCapabilitiesV1 {
     /// Canonical public governance routes supported by the node.
     pub supported_routes: Vec<String>,
 }
-const GOVERNANCE_APPROVAL_MODE_V1: &str = "PARLIAMENT_ATTEMPT_TIMED_OVN_V1";
 const GOVERNANCE_SUPPORTED_PROPOSAL_KINDS_V1: [&str; 10] = [
     "DEPLOY_CONTRACT",
     "RUNTIME_UPGRADE",
@@ -728,9 +696,6 @@ pub async fn handle_gov_capabilities(
         network_prefix: iroha_data_model::account::address::chain_discriminant().to_string(),
         abi_version: world.abi_version().to_string(),
         data_model_version: iroha_data_model::DATA_MODEL_VERSION.to_string(),
-        approval_mode: GOVERNANCE_APPROVAL_MODE_V1.to_owned(),
-        private_ballot_protocol: "TIMED_OVN_TLE_THRESHOLD_BLS_V1".to_owned(),
-        mandatory_private_ballots: true,
         proposal_backed_referendum_ballots_supported: false,
         standalone_plain_ballots_supported: gov.plain_voting_enabled,
         standalone_zk_ballots_supported: true,
@@ -742,19 +707,6 @@ pub async fn handle_gov_capabilities(
         bond_escrow_account: gov.bond_escrow_account.to_string(),
         min_enactment_delay: gov.min_enactment_delay.to_string(),
         invitation_phase_blocks: gov.parliament_invitation_phase_blocks.to_string(),
-        registration_phase_blocks: gov
-            .parliament_timed_ovn
-            .registration_phase_blocks
-            .to_string(),
-        survivor_freeze_phase_blocks: gov
-            .parliament_timed_ovn
-            .survivor_freeze_phase_blocks
-            .to_string(),
-        commitment_phase_blocks: gov.parliament_timed_ovn.commitment_phase_blocks.to_string(),
-        release_delay_blocks: gov.parliament_timed_ovn.release_delay_blocks.to_string(),
-        opening_phase_blocks: gov.parliament_timed_ovn.opening_phase_blocks.to_string(),
-        max_ballot_retries: gov.parliament_timed_ovn.max_ballot_retries.to_string(),
-        max_corpus_entries: gov.parliament_timed_ovn.max_corpus_entries.to_string(),
         target_body_sizes: GovernanceTargetBodySizesV1 {
             rules_committee: gov.rules_committee_size.to_string(),
             agenda_council: gov.agenda_council_size.to_string(),
@@ -777,10 +729,6 @@ pub async fn handle_gov_capabilities(
             "/v1/gov/parliament/attempts/draft".to_owned(),
             "/v1/gov/parliament/attempts/{governance_attempt_id}".to_owned(),
             "/v1/gov/parliament/attempts/{governance_attempt_id}/plan".to_owned(),
-            "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context".to_owned(),
-            "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof".to_owned(),
-            "/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context".to_owned(),
-            "/v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release".to_owned(),
             "/v1/gov/parliament/transitions/draft".to_owned(),
             "/v1/gov/ballots/plain".to_owned(),
             "/v1/gov/ballots/zk-v1".to_owned(),
@@ -917,16 +865,14 @@ pub async fn handle_gov_parliament_attempt_plan(
                 transition: exact.transition,
             })
             .collect(),
-        relay_ballots: plan.relay_ballots,
-        finalize_ballots: plan.finalize_ballots,
     }))
 }
 
 /// GET `/v1/gov/parliament/attempts/{governance_attempt_id}` — read one attempt.
 ///
 /// The typed summary and complete reducer bytes come from one committed query
-/// view. The payload is canonical Norito and never includes secret DKG shares,
-/// plaintext ballots, or a recovery fallback.
+/// view. The payload is canonical Norito and never includes secret ballot
+/// material or a recovery fallback.
 ///
 /// # Errors
 /// Returns a conversion error for a noncanonical identifier, a missing attempt,
@@ -990,37 +936,11 @@ pub async fn handle_gov_parliament_attempt_read(
         .iter()
         .map(|entry| {
             let state = attempt.sealed_body_for_role(entry.body);
-            let ballot = state.and_then(|body| attempt.active_ballot_for_body(&body.instance().id));
             let no_result_kind = state
-                .and_then(iroha_core::governance::parliament::ParliamentBodyStateV1::public_finding_no_result_kind)
-                .or_else(|| {
-                    ballot
-                        .and_then(iroha_core::governance::parliament::ParliamentBallotStateV1::failure_kind)
-                        .map(ParliamentNoResultKindV1::from)
-                });
+                .and_then(iroha_core::governance::parliament::ParliamentBodyStateV1::public_finding_no_result_kind);
             let no_result_height = state
-                .and_then(iroha_core::governance::parliament::ParliamentBodyStateV1::public_finding_no_result_height)
-                .or_else(|| {
-                    ballot.and_then(
-                        iroha_core::governance::parliament::ParliamentBallotStateV1::failure_height,
-                    )
-                });
-            let timed_ovn_progress = ballot
-                .map(|ballot| {
-                    let ballot_attempt_id = ballot.attempt().id;
-                    let lifecycle = view
-                        .world()
-                        .timed_ovn_evidence()
-                        .get(&ballot_attempt_id)
-                        .ok_or_else(|| {
-                            parliament_attempt_projection_error(
-                                "active Parliament ballot has no timed-OVN lifecycle",
-                            )
-                        })?;
-                    project_parliament_timed_ovn_progress_v1(ballot, lifecycle)
-                })
-                .transpose()?;
-            Ok(ParliamentBodyStateProjectionV1 {
+                .and_then(iroha_core::governance::parliament::ParliamentBodyStateV1::public_finding_no_result_height);
+            ParliamentBodyStateProjectionV1 {
                 body: entry.body,
                 body_instance_id: state.map(|body| body.instance().id),
                 status: state.map(|body| body.instance().status),
@@ -1032,10 +952,9 @@ pub async fn handle_gov_parliament_attempt_read(
                     .and_then(iroha_core::governance::parliament::ParliamentBodyStateV1::public_finding_deadline_height),
                 no_result_kind,
                 no_result_height,
-                timed_ovn_progress,
-            })
+            }
         })
-        .collect::<Result<Vec<_>, crate::Error>>()?;
+        .collect::<Vec<_>>();
     Ok(JsonBody(ParliamentAttemptReadResponseV1 {
         version: PARLIAMENT_API_VERSION_V1,
         current_height: u64::try_from(view.height()).unwrap_or(u64::MAX),
@@ -1051,492 +970,6 @@ pub async fn handle_gov_parliament_attempt_read(
     }))
 }
 
-fn parliament_attempt_projection_error(message: &'static str) -> crate::Error {
-    crate::Error::Query(iroha_data_model::ValidationFail::InternalError(
-        message.into(),
-    ))
-}
-
-fn project_parliament_timed_ovn_progress_v1(
-    ballot: &ParliamentBallotStateV1,
-    lifecycle: &TimedOvnLifecycleStateV1,
-) -> Result<ParliamentTimedOvnProgressProjectionV1, crate::Error> {
-    let ballot_attempt_id = ballot.attempt().id;
-    if lifecycle.ballot_attempt_id() != *ballot_attempt_id.as_bytes() {
-        return Err(parliament_attempt_projection_error(
-            "active Parliament ballot and timed-OVN lifecycle identifiers disagree",
-        ));
-    }
-    let survivor_count = match lifecycle {
-        TimedOvnLifecycleStateV1::Registered(_)
-        | TimedOvnLifecycleStateV1::RegistrationClosed(_) => None,
-        TimedOvnLifecycleStateV1::SurvivorsFrozen(state) => {
-            Some(state.survivor_participant_hashes().len())
-        }
-        TimedOvnLifecycleStateV1::CorpusOpen(state) => {
-            Some(state.frozen().survivor_participant_hashes().len())
-        }
-        TimedOvnLifecycleStateV1::Sealed(state) => Some(state.survivor_participant_hashes.len()),
-        TimedOvnLifecycleStateV1::Released(state) => {
-            Some(state.sealed.survivor_participant_hashes.len())
-        }
-    }
-    .map(|count| {
-        u32::try_from(count).map_err(|_| {
-            parliament_attempt_projection_error(
-                "timed-OVN frozen survivor count exceeds the public projection width",
-            )
-        })
-    })
-    .transpose()?;
-    let projection = ParliamentTimedOvnProgressProjectionV1 {
-        ballot_attempt_id,
-        status: ballot.attempt().status,
-        frozen_survivor_count: survivor_count,
-        accepted_ballot_prefix_count: lifecycle.accepted_ballot_prefix_count(),
-    };
-    projection.validate_static().map_err(|_| {
-        parliament_attempt_projection_error(
-            "active Parliament ballot has phase-inconsistent timed-OVN progress",
-        )
-    })?;
-    Ok(projection)
-}
-
-fn project_parliament_tle_key_session_v1(
-    session: &iroha_core_timed_ovn::tle::TleKeySessionPublicStateV1,
-) -> ParliamentTleKeySessionBindingV1 {
-    ParliamentTleKeySessionBindingV1 {
-        version: session.version,
-        key_session_id: session.key_session_id,
-        network_id: session.network_id,
-        roster_hash: session.roster_hash,
-        committee_size: session.committee_size,
-        threshold: session.threshold,
-        generator_h: session.generator_h,
-        generator_v: session.generator_v,
-        qualified_dealers: session.qualified_dealers.clone(),
-        qualified_dealer_commitments: session
-            .qualified_dealer_commitments
-            .iter()
-            .map(|dealer| ParliamentTleAdaptiveDealerCommitmentV1 {
-                dealer_index: dealer.dealer_index,
-                coefficient_commitments: dealer.coefficient_commitments.clone(),
-                constant_pok_commitment: dealer.constant_pok_commitment,
-                constant_pok_response: dealer.constant_pok_response,
-            })
-            .collect(),
-        dkg_event_hash: session.dkg_event_hash,
-        group_public_key: session.group_public_key,
-        public_shares: session
-            .public_shares
-            .iter()
-            .map(|share| ParliamentTleAdaptivePublicShareV1 {
-                index: share.index,
-                participant_hash: share.participant_hash,
-                public_key_share: share.public_key_share,
-            })
-            .collect(),
-        transcript_hash: session.transcript_hash,
-    }
-}
-
-fn project_parliament_timed_ovn_release_identity_v1(
-    identity: &iroha_core_timed_ovn::evidence::TimedOvnReleaseIdentityPublicV1,
-) -> ParliamentTimedOvnReleaseIdentityProjectionV1 {
-    use iroha_data_model::governance::types::{
-        BallotAttemptId, BodyInstanceId, GovernanceAttemptId,
-    };
-
-    ParliamentTimedOvnReleaseIdentityProjectionV1 {
-        tle_key_session_id: identity.tle_key_session_id,
-        governance_attempt_id: GovernanceAttemptId::new(identity.governance_attempt_id),
-        body_instance_id: BodyInstanceId::new(identity.body_instance_id),
-        ballot_attempt_id: BallotAttemptId::new(identity.ballot_attempt_id),
-        survivor_corpus_root: identity.survivor_corpus_root,
-        no_recovery_root: identity.no_recovery_root,
-        target_finalized_height: identity.target_finalized_height,
-        parameter_hash: identity.parameter_hash,
-    }
-}
-
-/// GET `/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context`.
-///
-/// Core admits only the three pre-seal timed-OVN phases and replays the exact
-/// lifecycle and complete public TLE transcript before this projection is
-/// built. This node-local projection is diagnostic only and is never sufficient
-/// native-wallet or seed-unsealing input. Wallets consume the finality-bound
-/// casting-proof route, verify an externally pinned consensus chain, and replay
-/// its archive before touching secret material.
-///
-/// # Errors
-/// Returns a conversion error for a noncanonical identifier or unavailable,
-/// terminal, cross-bound, or replay-invalid committed state.
-pub fn handle_gov_parliament_timed_ovn_casting_context_read(
-    state: Arc<iroha_core::state::State>,
-    ballot_attempt_id: String,
-) -> Result<JsonBody<ParliamentTimedOvnCastingContextResponseV1>, crate::Error> {
-    use base64::Engine as _;
-    use iroha_core_timed_ovn::casting::ParliamentTimedOvnCastingPhaseV1;
-    use iroha_data_model::governance::types::{
-        BallotAttemptId, BodyInstanceId, GovernanceAttemptId, ProposalContentId,
-    };
-
-    let ballot_attempt_id = ballot_attempt_id.parse::<BallotAttemptId>().map_err(|_| {
-        crate::routing::conversion_error(
-            "ballot_attempt_id must be exactly 64 lowercase hexadecimal characters".to_owned(),
-        )
-    })?;
-    if ballot_attempt_id.as_bytes().iter().all(|byte| *byte == 0) {
-        return Err(crate::routing::conversion_error(
-            "ballot_attempt_id must be non-zero".to_owned(),
-        ));
-    }
-
-    let view = state.query_view();
-    let context = iroha_core::tle_release::authorize_parliament_timed_ovn_casting_context_v1(
-        &view,
-        ballot_attempt_id,
-    )
-    .map_err(|error| {
-        crate::routing::conversion_error(format!(
-            "Parliament timed-OVN casting context is not authorized: {error}"
-        ))
-    })?;
-    let archive = context.archive_v1();
-    let archive_bytes = archive.to_canonical_bytes_v1().map_err(|error| {
-        crate::Error::Query(iroha_data_model::ValidationFail::InternalError(format!(
-            "authorized Parliament timed-OVN casting archive could not be framed: {error}"
-        )))
-    })?;
-    let session = context.session();
-    let phase = match context.phase() {
-        ParliamentTimedOvnCastingPhaseV1::Registered => {
-            ParliamentTimedOvnCastingPhaseProjectionV1::Registered
-        }
-        ParliamentTimedOvnCastingPhaseV1::RegistrationClosed => {
-            ParliamentTimedOvnCastingPhaseProjectionV1::RegistrationClosed
-        }
-        ParliamentTimedOvnCastingPhaseV1::SurvivorsFrozen => {
-            ParliamentTimedOvnCastingPhaseProjectionV1::SurvivorsFrozen
-        }
-    };
-    let response = ParliamentTimedOvnCastingContextResponseV1 {
-        version: PARLIAMENT_API_VERSION_V1,
-        current_height: context.finalized_height(),
-        phase,
-        session: ParliamentTimedOvnSessionProjectionV1 {
-            network_id: session.network_id,
-            proposal_content_id: ProposalContentId::new(session.proposal_content_id),
-            governance_attempt_id: GovernanceAttemptId::new(session.governance_attempt_id),
-            body_instance_id: BodyInstanceId::new(session.body_instance_id),
-            ballot_attempt_id: BallotAttemptId::new(session.ballot_attempt_id),
-            parameter_hash: session.parameter_hash,
-            tle_key_session_id: session.tle_key_session_id,
-            tle_key_transcript_hash: session.tle_key_transcript_hash,
-            tle_master_public_key: session.tle_master_public_key,
-        },
-        registration_opened_at_finalized_height: context.registration_opened_at_finalized_height(),
-        target_finalized_height: context.target_finalized_height(),
-        tle_key_session: project_parliament_tle_key_session_v1(
-            context.tle_key_session().public_state(),
-        ),
-        registration_records_hex: context
-            .registration_records()
-            .iter()
-            .map(hex::encode)
-            .collect(),
-        survivor_participant_hashes: context.survivor_participant_hashes().map(<[_]>::to_vec),
-        release_identity: context
-            .release_identity()
-            .map(project_parliament_timed_ovn_release_identity_v1),
-        archive_norito_base64: base64::engine::general_purpose::STANDARD.encode(archive_bytes),
-    };
-    response
-        .validate_for_ballot(ballot_attempt_id)
-        .map_err(|reason| {
-            crate::Error::Query(iroha_data_model::ValidationFail::InternalError(
-                reason.into(),
-            ))
-        })?;
-    Ok(JsonBody(response))
-}
-
-/// POST `/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof`.
-///
-/// A bounded intermediate page carries only consecutive finality proofs for
-/// durable checkpoint promotion. The terminal page additionally carries the
-/// replay-validated public archive, its exact compact binding, membership in
-/// the per-block casting root, and the fixed ordinary-write witness.
-///
-/// # Errors
-/// Returns a conversion error for an invalid request/identifier and a stable
-/// service error when finalized proof material is unavailable or inconsistent.
-pub fn handle_gov_parliament_timed_ovn_casting_proof(
-    state: Arc<iroha_core::state::State>,
-    kura: Arc<Kura>,
-    ballot_attempt_id: String,
-    request: ParliamentTimedOvnCastingProofRequestV1,
-) -> Result<NoritoBody<ParliamentTimedOvnCastingProofResponseV1>, crate::Error> {
-    use iroha_data_model::governance::types::BallotAttemptId;
-
-    let inconsistent = |message: String| crate::Error::AppServiceUnavailable {
-        code: "parliament_timed_ovn_casting_proof_inconsistent",
-        message,
-    };
-    if request.version != PARLIAMENT_TIMED_OVN_CASTING_PROOF_VERSION_V1
-        || request.trusted_checkpoint_height == 0
-    {
-        return Err(crate::routing::conversion_error(
-            "Parliament casting proof version or checkpoint height is invalid".to_owned(),
-        ));
-    }
-    let ballot_attempt_id = ballot_attempt_id.parse::<BallotAttemptId>().map_err(|_| {
-        crate::routing::conversion_error(
-            "ballot_attempt_id must be exactly 64 lowercase hexadecimal characters".to_owned(),
-        )
-    })?;
-    if ballot_attempt_id.as_bytes().iter().all(|byte| *byte == 0) {
-        return Err(crate::routing::conversion_error(
-            "ballot_attempt_id must be non-zero".to_owned(),
-        ));
-    }
-
-    let state_view = state.query_view();
-    let observed_ledger_tip_height = u64::try_from(state_view.height()).map_err(|_| {
-        inconsistent("ledger height does not fit the Parliament casting proof".to_owned())
-    })?;
-    if request.trusted_checkpoint_height > observed_ledger_tip_height {
-        return Err(crate::routing::conversion_error(
-            "trusted checkpoint is newer than the observed ledger tip".to_owned(),
-        ));
-    }
-    let evaluated_height = parliament_timed_ovn_casting_proof_page_tip(
-        request.trusted_checkpoint_height,
-        observed_ledger_tip_height,
-    )
-    .ok_or_else(|| {
-        crate::routing::conversion_error(
-            "trusted checkpoint cannot begin a Parliament casting finality page".to_owned(),
-        )
-    })?;
-
-    let terminal_archive = if evaluated_height == observed_ledger_tip_height {
-        let authorized =
-            iroha_core::tle_release::authorize_parliament_timed_ovn_casting_context_v1(
-                &state_view,
-                ballot_attempt_id,
-            )
-            .map_err(|error| {
-                crate::routing::conversion_error(format!(
-                    "Parliament timed-OVN casting context is not authorized: {error}"
-                ))
-            })?;
-        let archive = authorized.archive_v1();
-        let archive_bytes = archive.to_canonical_bytes_v1().map_err(|error| {
-            inconsistent(format!(
-                "authorized Parliament casting archive could not be framed: {error}"
-            ))
-        })?;
-        Some((archive, archive_bytes))
-    } else {
-        None
-    };
-    let proof_view = state_view;
-    if !std::ptr::eq(kura.as_ref(), proof_view.kura()) {
-        return Err(inconsistent(
-            "casting proof storage differs from the selected State".to_owned(),
-        ));
-    }
-
-    let terminal_fields = if let Some((archive, archive_bytes)) = terminal_archive {
-        let proof = iroha_core::query::native_receipts::parliament_casting_proof(
-            &proof_view,
-            evaluated_height,
-            ballot_attempt_id,
-        )
-        .map_err(|error| {
-            inconsistent(format!(
-                "evaluated Parliament casting proof is invalid: {error}"
-            ))
-        })?
-        .ok_or_else(|| {
-            inconsistent(
-                "authorized ballot has no retained finalized casting membership proof".to_owned(),
-            )
-        })?;
-        let validated_archive = archive.validate_v1().map_err(|error| {
-            inconsistent(format!(
-                "authorized Parliament casting archive failed replay: {error}"
-            ))
-        })?;
-        if !validated_archive.matches_compact_binding_v1(&proof.binding) {
-            return Err(inconsistent(
-                "authorized casting archive differs from its finalized compact binding".to_owned(),
-            ));
-        }
-        (
-            Some(archive_bytes),
-            Some(proof.binding),
-            Some(proof.membership_proof),
-            Some(proof.snapshot_witness),
-        )
-    } else {
-        (None, None, None, None)
-    };
-
-    let proof_count = evaluated_height
-        .checked_sub(request.trusted_checkpoint_height)
-        .and_then(|gap| gap.checked_add(1))
-        .and_then(|count| usize::try_from(count).ok())
-        .ok_or_else(|| {
-            crate::routing::conversion_error(
-                "trusted checkpoint is newer than the evaluated casting block".to_owned(),
-            )
-        })?;
-    let chain = iroha_core::sumeragi::certified_chain::CertifiedChain::new(&proof_view)
-        .map_err(|error| inconsistent(format!("native finality source is unavailable: {error}")))?;
-    let mut finality_chain = Vec::with_capacity(proof_count);
-    for height in request.trusted_checkpoint_height..=evaluated_height {
-        finality_chain.push(
-            iroha_core::sumeragi::finality::build_proof(&proof_view, height).map_err(|error| {
-                inconsistent(format!(
-                    "Parliament casting finality proof at height {height} is unavailable: {error}"
-                ))
-            })?,
-        );
-    }
-    let finality_encoded_bytes =
-        norito::core::encoded_frame_len(&finality_chain).map_err(|error| {
-            inconsistent(format!(
-                "Parliament casting finality chain cannot be encoded: {error}"
-            ))
-        })?;
-    if finality_encoded_bytes > PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_FINALITY_CHAIN_BYTES_V1 {
-        return Err(crate::Error::AppConflict {
-            code: "parliament_timed_ovn_casting_finality_page_too_large",
-            message: "The bounded Parliament casting finality page exceeds its byte budget."
-                .to_owned(),
-        });
-    }
-    let evaluated = finality_chain
-        .last()
-        .ok_or_else(|| inconsistent("Parliament casting finality chain is empty".to_owned()))?;
-    let evaluated_native = chain.committed(evaluated_height).map_err(|error| {
-        inconsistent(format!(
-            "evaluated native commitment is unavailable: {error}"
-        ))
-    })?;
-    let evaluated_context_id = iroha_crypto::Hash::from(evaluated_native.id().0);
-    let evaluated_block_hash = evaluated.block_header.hash();
-    let response = ParliamentTimedOvnCastingProofResponseV1 {
-        version: PARLIAMENT_TIMED_OVN_CASTING_PROOF_VERSION_V1,
-        casting_context_archive: terminal_fields.0,
-        casting_context_binding: terminal_fields.1,
-        context_membership_proof: terminal_fields.2,
-        casting_witness: terminal_fields.3,
-        finality_chain,
-        evaluated_context_id,
-        evaluated_block_height: evaluated_height,
-        evaluated_block_hash: hex::encode(evaluated_block_hash.as_ref()),
-        observed_ledger_tip_height,
-        more_available: evaluated_height < observed_ledger_tip_height,
-    };
-    let checkpoint = iroha_core::sumeragi::finality::build_checkpoint(
-        &proof_view,
-        request.trusted_checkpoint_height,
-    )
-    .map_err(|error| inconsistent(format!("trusted native prefix is unavailable: {error}")))?;
-    response
-        .verify_consensus_page_against(checkpoint.network_id(), &checkpoint, ballot_attempt_id)
-        .map_err(|error| inconsistent(format!("constructed casting proof failed: {error}")))?;
-    let response_encoded_bytes = norito::core::encoded_frame_len(&response).map_err(|error| {
-        inconsistent(format!(
-            "Parliament casting proof response cannot be encoded: {error}"
-        ))
-    })?;
-    if response_encoded_bytes > PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_RESPONSE_BYTES_V1 {
-        return Err(crate::Error::AppConflict {
-            code: "parliament_timed_ovn_casting_proof_too_large",
-            message: "The Parliament casting proof exceeds its response byte budget.".to_owned(),
-        });
-    }
-    Ok(NoritoBody(response))
-}
-
-/// GET `/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context`.
-///
-/// Core returns a context only for a replay-valid sealed timed-OVN corpus whose
-/// committed ballot is already `Opening`, whose release height has arrived,
-/// and whose inclusive opening deadline has not passed. The response contains
-/// public transcript and identity bindings only; it excludes every corpus,
-/// share, secret, and individual opening.
-///
-/// # Errors
-/// Returns a conversion error for a noncanonical identifier or when Core does
-/// not authorize release from the point-in-time committed query view.
-pub fn handle_gov_parliament_tle_release_context_read(
-    state: Arc<iroha_core::state::State>,
-    ballot_attempt_id: String,
-) -> Result<JsonBody<ParliamentTleReleaseContextResponseV1>, crate::Error> {
-    use iroha_data_model::governance::types::{
-        BallotAttemptId, BallotAttemptStatusV1, BodyInstanceId, GovernanceAttemptId,
-    };
-    use sha2::{Digest as _, Sha256};
-
-    let ballot_attempt_id = ballot_attempt_id.parse::<BallotAttemptId>().map_err(|_| {
-        crate::routing::conversion_error(
-            "ballot_attempt_id must be exactly 64 lowercase hexadecimal characters".to_owned(),
-        )
-    })?;
-    if ballot_attempt_id.as_bytes().iter().all(|byte| *byte == 0) {
-        return Err(crate::routing::conversion_error(
-            "ballot_attempt_id must be non-zero".to_owned(),
-        ));
-    }
-
-    let view = state.query_view();
-    let context =
-        iroha_core::tle_release::authorize_parliament_tle_release_v1(&view, ballot_attempt_id)
-            .map_err(|error| {
-                crate::routing::conversion_error(format!(
-                    "Parliament TLE release context is not authorized: {error}"
-                ))
-            })?;
-    let release_identity = context.public_release_identity();
-    let session = context.session().public_state();
-    let identity_payload = context.identity().payload_bytes();
-    let identity_digest: [u8; 32] =
-        Sha256::digest(context.identity().release_message().map_err(|error| {
-            crate::Error::Query(iroha_data_model::ValidationFail::InternalError(format!(
-                "authorized Parliament TLE release message could not be framed: {error}"
-            )))
-        })?)
-        .into();
-
-    let response = ParliamentTleReleaseContextResponseV1 {
-        version: PARLIAMENT_API_VERSION_V1,
-        current_height: context.finalized_height(),
-        ballot_attempt_id,
-        governance_attempt_id: GovernanceAttemptId::new(release_identity.governance_attempt_id),
-        body_instance_id: BodyInstanceId::new(release_identity.body_instance_id),
-        status: BallotAttemptStatusV1::Opening,
-        release_height: release_identity.target_finalized_height,
-        opening_deadline_height: context.opening_deadline_height(),
-        tle_key_session: project_parliament_tle_key_session_v1(session),
-        release_identity: project_parliament_timed_ovn_release_identity_v1(release_identity),
-        identity_digest,
-        identity_payload_hex: hex::encode(identity_payload),
-    };
-    response
-        .validate_for_ballot(ballot_attempt_id)
-        .map_err(|reason| {
-            crate::Error::Query(iroha_data_model::ValidationFail::InternalError(
-                reason.into(),
-            ))
-        })?;
-    Ok(JsonBody(response))
-}
 /// Strict citizen registration draft request.
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_torii::gov::CitizenDraftRequestV1")]

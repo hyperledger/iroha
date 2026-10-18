@@ -222,6 +222,7 @@ impl Memory {
         }
     }
 
+    #[inline]
     pub(crate) fn diagnostic_classify_last_access(
         &self,
         addr: u64,
@@ -661,10 +662,6 @@ impl Memory {
             )?;
         }
         self.data[start..end].copy_from_slice(bytes);
-        if crate::dev_env::decode_trace_enabled() {
-            let h = &self.data[start..(start + bytes.len().min(7))];
-            eprintln!("preload_input off=0x{offset:x} wrote header bytes: {h:02x?}");
-        }
         self.update_merkle(start, bytes.len());
         Ok(())
     }
@@ -835,28 +832,6 @@ impl Memory {
         if modified_len != 0 {
             self.update_merkle(0, modified_len);
         }
-        if crate::dev_env::debug_wsv_enabled() {
-            let dump = |start: usize, count: usize| {
-                if start >= len {
-                    let end = start + count;
-                    eprintln!(
-                        "[mem.load_code] bytes[0x{start:x}..0x{end:x}] skipped (len=0x{len:x})"
-                    );
-                    return;
-                }
-                let end = (start + count).min(len);
-                let mut s = String::new();
-                for b in &self.data[start..end] {
-                    use core::fmt::Write as _;
-                    let _ = write!(&mut s, "{b:02x}");
-                }
-                eprintln!("[mem.load_code] bytes[0x{start:x}..0x{end:x}] = {s}");
-            };
-            let ranges = [(0usize, 64usize), (0x1c, 16), (0x20, 64), (0x28, 64)];
-            for (st, cnt) in ranges {
-                dump(st, cnt);
-            }
-        }
         Ok(())
     }
     /// Determine the permissions for the address range `[addr, addr + size)`.
@@ -944,14 +919,27 @@ impl Memory {
 
     /// Record a prepared instruction against the loaded code image without
     /// changing the ordinary prepared path's read set.
+    ///
+    /// Every prepared fetch calls this; only an attached diagnostic recorder
+    /// leaves the inline fast path.
+    #[inline]
     pub(crate) fn diagnostic_record_prepared_fetch(
         &self,
         pc: u64,
         instruction: u32,
     ) -> Result<(), VMError> {
-        let Some(recorder) = &self.diagnostic_access_recorder else {
-            return Ok(());
-        };
+        match &self.diagnostic_access_recorder {
+            None => Ok(()),
+            Some(recorder) => self.diagnostic_record_attached_fetch(recorder, pc, instruction),
+        }
+    }
+
+    fn diagnostic_record_attached_fetch(
+        &self,
+        recorder: &DiagnosticMemoryAccessRecorder,
+        pc: u64,
+        instruction: u32,
+    ) -> Result<(), VMError> {
         let end = pc.checked_add(4).ok_or(VMError::DecodeError)?;
         // The prepared-program owner already authenticates the instruction
         // boundary relative to its admitted executable origin. A variable-size
@@ -1066,18 +1054,6 @@ impl Memory {
     pub fn load_region(&self, addr: u64, len: u64) -> Result<&[u8], VMError> {
         let (start, end) = self.checked_region_bounds(addr, len)?;
         self.record_read_range(addr, len, DiagnosticMemoryAccessKind::HostRead)?;
-        if crate::dev_env::debug_wsv_enabled() && len <= 64 {
-            let win_start = start.saturating_sub(16);
-            let win_end = (end + 16).min(self.data.len());
-            let mut s = String::new();
-            for b in &self.data[win_start..win_end] {
-                use core::fmt::Write as _;
-                let _ = write!(&mut s, "{b:02x}");
-            }
-            eprintln!(
-                "[mem.load_region] addr=0x{addr:x} len={len} window[0x{win_start:x}..0x{win_end:x}] = {s}"
-            );
-        }
         Ok(&self.data[start..end])
     }
     /// Copy bytes from `bytes` into memory starting at `addr`.
@@ -1454,7 +1430,7 @@ impl Memory {
     ) -> Result<WriteLogEntry, VMError> {
         let unavailable =
             || VMError::ExecutionDeferred(crate::error::ExecutionDeferral::AllocationUnavailable);
-        let copied = self.with_write_log(|log| log.prepare(addr, bytes))?;
+        let copied = self.with_exclusive_write_log(|log| log.prepare(addr, bytes))?;
         let start = usize::try_from(addr).map_err(|_| unavailable())?;
         let end = start.checked_add(bytes.len()).ok_or_else(unavailable)?;
         if let Some(recorder) = &self.diagnostic_access_recorder {
@@ -1468,8 +1444,21 @@ impl Memory {
         self.call_frames
             .record_write(entry.address(), entry.bytes().len() as u64);
         // The prepared-capacity invariant normally makes this infallible. Keep
-        // payload refunds outside the mutex even if that invariant unwinds.
-        self.with_write_log(|log| log.record_prepared(entry));
+        // payload refunds deferred even if that invariant unwinds.
+        self.with_exclusive_write_log(|log| log.record_prepared(entry));
+    }
+
+    /// Run a store's write-log step through `&mut Memory` without locking.
+    ///
+    /// Exclusive access already rules out every concurrent log user, so only
+    /// the original pool's deferred refund scope remains: capacity-waiter
+    /// callbacks still run after the operation, exactly as on the locked path.
+    fn with_exclusive_write_log<R>(&mut self, operation: impl FnOnce(&mut WriteLog) -> R) -> R {
+        let log = self.write_log.get_mut();
+        match self.call_frames.allocation_budget() {
+            Some(budget) => budget.with_deferred_refund_notifications(|_| operation(log)),
+            None => operation(log),
+        }
     }
     /// Overwrite just the code region with bytes from another Memory.
     pub fn overlay_code(&mut self, src: &Memory) -> Result<(), VMError> {
@@ -1678,6 +1667,37 @@ mod tests {
         drop(owner);
         assert_eq!(budget.reserved_bytes(), total_bytes + log_bytes);
         drop(borrower);
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn exclusive_store_tracking_records_every_store_and_refunds_payloads_on_clear() {
+        let budget = AllocationBudget::new(64 * 1024 * 1024);
+        let mut memory =
+            Memory::new_with_stack_limit_funded(Memory::MIN_STACK_SIZE, &budget).unwrap();
+        let baseline = budget.reserved_bytes();
+        memory.store_u8(Memory::OUTPUT_START, 1).unwrap();
+        memory.store_u64(Memory::STACK_START, 0x0102).unwrap();
+        memory.store_bytes(Memory::HEAP_START, &[7, 8, 9]).unwrap();
+        let snapshot = memory.try_write_log_snapshot().unwrap();
+        let rows: Vec<(u64, Vec<u8>)> = snapshot
+            .iter()
+            .map(|entry| (entry.address(), entry.bytes().to_vec()))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                (Memory::OUTPUT_START, vec![1]),
+                (Memory::STACK_START, 0x0102_u64.to_le_bytes().to_vec()),
+                (Memory::HEAP_START, vec![7, 8, 9]),
+            ]
+        );
+        drop(snapshot);
+        let row_bytes = 4 * std::mem::size_of::<WriteLogEntry>();
+        assert_eq!(budget.reserved_bytes(), baseline + row_bytes + 1 + 8 + 3);
+        memory.clear_tracking();
+        assert_eq!(budget.reserved_bytes(), baseline + row_bytes);
+        drop(memory);
         assert_eq!(budget.reserved_bytes(), 0);
     }
 

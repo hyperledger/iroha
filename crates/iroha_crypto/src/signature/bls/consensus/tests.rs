@@ -4,7 +4,8 @@
 //! private keys and three 32-byte messages). Every expected output below was cross-checked
 //! against an independent implementation of the IETF min-pk proof-of-possession suite (Apache Milagro via
 //! `snowbridge-milagro-bls` 1.5.4).
-//! `TODO:` import the complete released `bls12-381-tests` archive once vendoring it is approved.
+//! `python_reference` replays every imported Ethereum v0.1.2 row from the pinned archive,
+//! together with SCCP-specific cases and explicit consensus admission outcomes.
 
 use super::*;
 use crate::{

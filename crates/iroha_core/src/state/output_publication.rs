@@ -8,6 +8,43 @@
 use super::world_projection::{WorldPublicationDelta, hash_value};
 use super::*;
 
+/// Fold the local deferred slash surface using bounded inline hashes. This is a
+/// local publication seal, not a wire-format or consensus commitment. Neither
+/// the slash list nor any per-slash field list needs a temporary allocation.
+fn slash_observability_hash(
+    slashes: &[PendingPublicLaneSlashObservability],
+) -> Result<Hash, String> {
+    let mut folded = Hash::new(b"iroha:local-slash-publication:v1");
+    for slash in slashes {
+        let PendingPublicLaneSlashObservability {
+            lane_id,
+            #[cfg(feature = "telemetry")]
+            previous_status,
+            #[cfg(feature = "telemetry")]
+            slashed_status,
+            bonded_amount,
+            pending_unbond_amount,
+        } = slash;
+        #[cfg(all(test, sumeragi_core_mutation = "HC406"))]
+        let pending = hash_value(&())?;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC406")))]
+        let pending = hash_value(pending_unbond_amount)?;
+        #[cfg(all(test, sumeragi_core_mutation = "HC406"))]
+        let _ = pending_unbond_amount;
+        let parts = [hash_value(lane_id)?, hash_value(bonded_amount)?, pending];
+        #[cfg(feature = "telemetry")]
+        let parts = (
+            parts,
+            [hash_value(previous_status)?, hash_value(slashed_status)?],
+        );
+        folded = hash_value(&(folded, parts))?;
+    }
+    hash_value(&(
+        folded,
+        u64::try_from(slashes.len()).map_err(|_| "slash count overflow")?,
+    ))
+}
+
 /// Move-only comparison surface for one actual execution carrier.
 #[derive(Debug, PartialEq)]
 pub(in crate::state) struct FinalizedPublicationSurface {
@@ -257,30 +294,6 @@ impl FinalizedPublicationSurface {
                 ))
             })
             .transpose()?;
-        let mut slashes = Vec::with_capacity(block.pending_public_lane_slash_observability.len());
-        for slash in &block.pending_public_lane_slash_observability {
-            let PendingPublicLaneSlashObservability {
-                lane_id,
-                #[cfg(feature = "telemetry")]
-                previous_status,
-                #[cfg(feature = "telemetry")]
-                slashed_status,
-                bonded_amount,
-                pending_unbond_amount,
-            } = slash;
-            let parts = vec![
-                hash_value(lane_id)?,
-                hash_value(bonded_amount)?,
-                hash_value(pending_unbond_amount)?,
-            ];
-            #[cfg(feature = "telemetry")]
-            let parts = [
-                parts,
-                vec![hash_value(previous_status)?, hash_value(slashed_status)?],
-            ]
-            .concat();
-            slashes.push(hash_value(&parts)?);
-        }
         Ok(Self {
             chain_id: block.chain_id.clone(),
             network_id: block.network_id,
@@ -363,7 +376,9 @@ impl FinalizedPublicationSurface {
             axt_transitions: block.axt_authorization_transitioned.clone(),
             axt_ratchets_finalized: block.axt_policy_transition_ratchets_finalized,
             fee_receipt_sources: block.pending_nexus_fee_receipt_source_ids.clone(),
-            slash_observability: hash_value(&slashes)?,
+            slash_observability: slash_observability_hash(
+                &block.pending_public_lane_slash_observability,
+            )?,
             #[cfg(feature = "telemetry")]
             parliament_observability: hash_value(&block.pending_parliament_telemetry_events)?,
         })
@@ -405,6 +420,43 @@ impl StateBlock<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slash_surface_binds_pending_amount_order_and_count_without_scratch() {
+        use iroha_primitives::numeric::Quantity;
+        let slash = |bonded, pending| PendingPublicLaneSlashObservability {
+            lane_id: LaneId::SINGLE,
+            #[cfg(feature = "telemetry")]
+            previous_status: iroha_data_model::nexus::PublicLaneValidatorStatus::Active,
+            #[cfg(feature = "telemetry")]
+            slashed_status: iroha_data_model::nexus::PublicLaneValidatorStatus::Slashed(Hash::new(
+                b"slash",
+            )),
+            bonded_amount: Quantity::from(bonded),
+            pending_unbond_amount: Quantity::from(pending),
+        };
+        let mut values = [slash(4_u64, 7_u64), slash(8_u64, 9_u64)];
+        let original = slash_observability_hash(&values).unwrap();
+        assert_eq!(
+            crate::test_allocations::allocations_during(|| {
+                assert_eq!(slash_observability_hash(&values).unwrap(), original);
+            }),
+            0
+        );
+        values[0].pending_unbond_amount = Quantity::from(6_u64);
+        assert_ne!(
+            slash_observability_hash(&values).unwrap(),
+            original,
+            "HC406 local slash publication must bind the exact pending-unbond amount"
+        );
+        values[0].pending_unbond_amount = Quantity::from(7_u64);
+        values.swap(0, 1);
+        assert_ne!(slash_observability_hash(&values).unwrap(), original);
+        values.swap(0, 1);
+        assert_ne!(slash_observability_hash(&values[..1]).unwrap(), original);
+        assert_ne!(slash_observability_hash(&[]).unwrap(), original);
+        assert_eq!(slash_observability_hash(&values).unwrap(), original);
+    }
 
     fn state() -> State {
         State::new_for_testing(
@@ -458,6 +510,32 @@ mod tests {
         );
         assert!(surface.verify(&block).is_err());
         block.pending_da_commitments = None;
+        surface.verify(&block).unwrap();
+
+        // A local slash seal follows the same original carrier through a
+        // temporary move and restore, without cloning its quantity graph.
+        block
+            .pending_public_lane_slash_observability
+            .push(PendingPublicLaneSlashObservability {
+                lane_id: LaneId::SINGLE,
+                #[cfg(feature = "telemetry")]
+                previous_status: iroha_data_model::nexus::PublicLaneValidatorStatus::Active,
+                #[cfg(feature = "telemetry")]
+                slashed_status: iroha_data_model::nexus::PublicLaneValidatorStatus::Slashed(
+                    Hash::new(b"restored-slash"),
+                ),
+                bonded_amount: iroha_primitives::numeric::Quantity::from(7_u64),
+                pending_unbond_amount: iroha_primitives::numeric::Quantity::from(11_u64),
+            });
+        let surface = FinalizedPublicationSurface::capture(&block).unwrap();
+        let backing = block.pending_public_lane_slash_observability.as_ptr();
+        let original = block.pending_public_lane_slash_observability.pop().unwrap();
+        assert!(surface.verify(&block).is_err());
+        block.pending_public_lane_slash_observability.push(original);
+        assert_eq!(
+            block.pending_public_lane_slash_observability.as_ptr(),
+            backing
+        );
         surface.verify(&block).unwrap();
     }
 

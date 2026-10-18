@@ -218,8 +218,11 @@ pub trait KagemushaWalletFsV1 {
     ///
     /// Returns the OS error; some bytes may have been written.
     fn write_all(&self, file: &mut Self::StagedFile, bytes: &[u8]) -> io::Result<()>;
-    /// Sync a staging file's data and metadata (`File::sync_all`: `fsync` on Android,
-    /// `F_FULLFSYNC` on Apple).
+    /// Sync a staging file's data and metadata before any later step: `fsync` on Android. On Apple
+    /// it is `F_BARRIERFSYNC`, which orders without waiting for media; the native bridge flushes
+    /// with `iroha_fs::durability_fence` (`F_FULLFSYNC`) before every Keychain anchor write, every
+    /// Secure Enclave key generation or deletion and every result that leaves a call, so those
+    /// effects only follow durable files.
     ///
     /// # Errors
     ///
@@ -272,7 +275,8 @@ pub trait KagemushaWalletFsV1 {
     ///
     /// Returns the OS error, `NotFound` when `name` is absent.
     fn unlink(&self, dir: &KagemushaWalletCustodyDirV1, name: &str) -> io::Result<()>;
-    /// Sync directory `dir` (`File::sync_all` on the directory).
+    /// Sync directory `dir` before any later step, with the same Android/Apple classes as
+    /// [`Self::sync_staged`].
     ///
     /// # Errors
     ///

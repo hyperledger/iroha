@@ -23,10 +23,6 @@ use iroha_crypto::PublicKey;
 use iroha_data_model::{
     account::AccountAddress, governance::types::MAX_PARLIAMENT_GOVERNANCE_ATTEMPT_RETRIES_V1,
 };
-use iroha_torii_shared::parliament_api::{
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_NAME_V1,
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_VERSION_V1, ParliamentTimedOvnCastingProofRequestV1,
-};
 use iroha_torii_shared::{
     PipelineTransactionStatusResponse,
     route_catalog::{
@@ -1095,10 +1091,6 @@ pub fn build_tool_specs(cfg: &iroha_config::parameters::actual::ToriiMcp) -> Vec
     tools.push(iroha_gov_proposals_deploy_contract_tool());
     tools.push(iroha_gov_parliament_attempt_draft_tool());
     tools.push(iroha_gov_parliament_attempt_get_tool());
-    tools.push(iroha_gov_parliament_timed_ovn_casting_context_get_tool());
-    tools.push(iroha_gov_parliament_timed_ovn_casting_proof_get_tool());
-    tools.push(iroha_gov_parliament_tle_release_context_get_tool());
-    tools.push(iroha_gov_parliament_tle_partial_release_create_tool());
     tools.push(iroha_gov_parliament_transition_draft_tool());
     tools.push(iroha_gov_proposals_get_tool());
     tools.push(iroha_gov_locks_get_tool());
@@ -1567,7 +1559,6 @@ fn is_audited_manual_read_tool_name(name: &str) -> bool {
             | "iroha.da.pin_intents.prove"
             | "iroha.da.pin_intents.verify"
             | "iroha.proofs.query"
-            | "iroha.gov.parliament.ballots.timed_ovn_casting_proof.get"
             | "iroha.gov.ballots.zk_v1"
             | "iroha.gov.ballots.zk_v1.ballot_proof"
             | "iroha.gov.ballots.plain"
@@ -2618,30 +2609,6 @@ fn select_purpose_built_tool_dispatch<'a>(
             inbound_headers,
             arguments,
         )),
-        "iroha.gov.parliament.ballots.timed_ovn_casting_context.get" => {
-            Box::pin(dispatch_iroha_gov_parliament_timed_ovn_casting_context_get(
-                app,
-                inbound_headers,
-                arguments,
-            ))
-        }
-        "iroha.gov.parliament.ballots.timed_ovn_casting_proof.get" => {
-            Box::pin(dispatch_iroha_gov_parliament_timed_ovn_casting_proof_get(
-                app,
-                inbound_headers,
-                arguments,
-            ))
-        }
-        "iroha.gov.parliament.ballots.tle_release_context.get" => Box::pin(
-            dispatch_iroha_gov_parliament_tle_release_context_get(app, inbound_headers, arguments),
-        ),
-        "iroha.gov.parliament.ballots.tle_partial_release.create" => {
-            Box::pin(dispatch_iroha_gov_parliament_tle_partial_release_create(
-                app,
-                inbound_headers,
-                arguments,
-            ))
-        }
         "iroha.gov.parliament.transitions.draft" => Box::pin(
             dispatch_iroha_gov_parliament_transition_draft(app, inbound_headers, arguments),
         ),
@@ -5985,153 +5952,6 @@ async fn dispatch_iroha_gov_parliament_attempt_get(
     )
     .await
 }
-fn extract_parliament_ballot_attempt_id_argument(
-    arguments: &Map,
-    context: &str,
-) -> Result<String, String> {
-    reject_unknown_arguments(arguments, &["path", "headers", "accept"], context)?;
-    extract_parliament_ballot_attempt_id_path(arguments, context)
-}
-fn extract_parliament_ballot_attempt_id_path(
-    arguments: &Map,
-    context: &str,
-) -> Result<String, String> {
-    let path = arguments
-        .get("path")
-        .and_then(Value::as_object)
-        .ok_or_else(|| format!("`path` must be an object for {context}"))?;
-    reject_unknown_arguments(path, &["ballot_attempt_id"], &format!("{context} path"))?;
-    let ballot_attempt_id = path
-        .get("ballot_attempt_id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "string `path.ballot_attempt_id` is required".to_owned())?;
-    require_governance_proposal_id_v1("ballot attempt id", ballot_attempt_id)?;
-    if ballot_attempt_id.bytes().all(|byte| byte == b'0') {
-        return Err("`ballot attempt id` must not be the zero identifier".to_owned());
-    }
-    Ok(ballot_attempt_id.to_owned())
-}
-async fn dispatch_iroha_gov_parliament_tle_release_context_get(
-    app: &SharedAppState,
-    inbound_headers: &HeaderMap,
-    arguments: &Map,
-) -> Result<Value, String> {
-    let ballot_attempt_id = extract_parliament_ballot_attempt_id_argument(
-        arguments,
-        "Parliament TLE release-context read",
-    )?;
-    let path = format!("/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context");
-    dispatch_route(
-        app,
-        inbound_headers,
-        Method::GET,
-        &path,
-        arguments.get("headers"),
-        Vec::new(),
-        None,
-        arguments
-            .get("accept")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-    )
-    .await
-}
-async fn dispatch_iroha_gov_parliament_timed_ovn_casting_context_get(
-    app: &SharedAppState,
-    inbound_headers: &HeaderMap,
-    arguments: &Map,
-) -> Result<Value, String> {
-    let ballot_attempt_id = extract_parliament_ballot_attempt_id_argument(
-        arguments,
-        "Parliament timed-OVN casting-context read",
-    )?;
-    let path = format!("/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context");
-    dispatch_route(
-        app,
-        inbound_headers,
-        Method::GET,
-        &path,
-        arguments.get("headers"),
-        Vec::new(),
-        None,
-        arguments
-            .get("accept")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-    )
-    .await
-}
-fn parliament_timed_ovn_casting_proof_request(
-    arguments: &Map,
-) -> Result<ParliamentTimedOvnCastingProofRequestV1, String> {
-    reject_unknown_arguments(
-        arguments,
-        &["path", "trusted_checkpoint_height", "headers"],
-        "Parliament timed-OVN casting-proof read",
-    )?;
-    let trusted_checkpoint_height = arguments
-        .get("trusted_checkpoint_height")
-        .and_then(Value::as_u64)
-        .filter(|height| *height != 0)
-        .ok_or_else(|| "non-zero integer `trusted_checkpoint_height` is required".to_owned())?;
-    Ok(ParliamentTimedOvnCastingProofRequestV1 {
-        version: PARLIAMENT_TIMED_OVN_CASTING_PROOF_VERSION_V1,
-        trusted_checkpoint_height,
-    })
-}
-fn parliament_timed_ovn_casting_proof_request_bytes(arguments: &Map) -> Result<Vec<u8>, String> {
-    let request = parliament_timed_ovn_casting_proof_request(arguments)?;
-    norito::to_bytes(&request)
-        .map_err(|error| format!("failed to frame Parliament casting-proof request: {error}"))
-}
-async fn dispatch_iroha_gov_parliament_timed_ovn_casting_proof_get(
-    app: &SharedAppState,
-    inbound_headers: &HeaderMap,
-    arguments: &Map,
-) -> Result<Value, String> {
-    let ballot_attempt_id = extract_parliament_ballot_attempt_id_path(
-        arguments,
-        "Parliament timed-OVN casting-proof read",
-    )?;
-    let request = parliament_timed_ovn_casting_proof_request_bytes(arguments)?;
-    let path = format!("/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof");
-    dispatch_route(
-        app,
-        inbound_headers,
-        Method::POST,
-        &path,
-        arguments.get("headers"),
-        request,
-        Some(crate::utils::NORITO_MIME_TYPE.to_owned()),
-        Some(crate::utils::NORITO_MIME_TYPE.to_owned()),
-    )
-    .await
-}
-async fn dispatch_iroha_gov_parliament_tle_partial_release_create(
-    app: &SharedAppState,
-    inbound_headers: &HeaderMap,
-    arguments: &Map,
-) -> Result<Value, String> {
-    let ballot_attempt_id = extract_parliament_ballot_attempt_id_argument(
-        arguments,
-        "Parliament TLE partial-release request",
-    )?;
-    let path = format!("/v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release");
-    dispatch_route(
-        app,
-        inbound_headers,
-        Method::POST,
-        &path,
-        arguments.get("headers"),
-        Vec::new(),
-        None,
-        arguments
-            .get("accept")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-    )
-    .await
-}
 async fn dispatch_iroha_gov_parliament_transition_draft(
     app: &SharedAppState,
     inbound_headers: &HeaderMap,
@@ -8730,26 +8550,6 @@ const INLINE_PURPOSE_BUILT_DISPATCH_ROUTES: &[(&str, &str, &str)] = &[
         "/v1/gov/parliament/attempts/{governance_attempt_id}",
     ),
     (
-        "iroha.gov.parliament.ballots.timed_ovn_casting_context.get",
-        "GET",
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context",
-    ),
-    (
-        "iroha.gov.parliament.ballots.timed_ovn_casting_proof.get",
-        "POST",
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof",
-    ),
-    (
-        "iroha.gov.parliament.ballots.tle_release_context.get",
-        "GET",
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context",
-    ),
-    (
-        "iroha.gov.parliament.ballots.tle_partial_release.create",
-        "POST",
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release",
-    ),
-    (
         "iroha.gov.parliament.transitions.draft",
         "POST",
         "/v1/gov/parliament/transitions/draft",
@@ -9780,153 +9580,6 @@ fn iroha_gov_parliament_attempt_get_tool() -> ToolSpec {
         }),
     )
 }
-fn iroha_gov_parliament_tle_release_context_get_tool() -> ToolSpec {
-    ToolSpec::route(
-        "iroha.gov.parliament.ballots.tle_release_context.get".to_owned(),
-        "Read one Core-authorized bounded public TLE release context for a Parliament ballot already in Opening. No ballot corpora, shares, secrets, or individual openings are returned."
-            .to_owned(),
-        ToolEffect::Read,
-        Method::GET,
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context".to_owned(),
-        norito::json!({
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["path"],
-            "properties": {
-                "path": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["ballot_attempt_id"],
-                    "properties": {
-                        "ballot_attempt_id": {
-                            "type": "string",
-                            "minLength": 64,
-                            "maxLength": 64,
-                            "pattern": "^[0-9a-f]{64}$"
-                        }
-                    }
-                },
-                "headers": {
-                    "type": "object",
-                    "additionalProperties": { "type": "string" }
-                },
-                "accept": { "type": "string", "const": "application/json" }
-            }
-        }),
-    )
-}
-fn iroha_gov_parliament_timed_ovn_casting_context_get_tool() -> ToolSpec {
-    ToolSpec::route(
-        "iroha.gov.parliament.ballots.timed_ovn_casting_context.get".to_owned(),
-        "Inspect one node-local Core-replay-validated public timed-OVN casting context. This unauthenticated-by-consensus view is for diagnostics only and MUST NOT be used as native-wallet or seed-unsealing input."
-            .to_owned(),
-        ToolEffect::Read,
-        Method::GET,
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context".to_owned(),
-        norito::json!({
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["path"],
-            "properties": {
-                "path": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["ballot_attempt_id"],
-                    "properties": {
-                        "ballot_attempt_id": {
-                            "type": "string",
-                            "minLength": 64,
-                            "maxLength": 64,
-                            "pattern": "^[0-9a-f]{64}$"
-                        }
-                    }
-                },
-                "headers": {
-                    "type": "object",
-                    "additionalProperties": { "type": "string" }
-                },
-                "accept": { "type": "string", "const": "application/json" }
-            }
-        }),
-    )
-}
-fn iroha_gov_parliament_timed_ovn_casting_proof_get_tool() -> ToolSpec {
-    ToolSpec::route(
-        "iroha.gov.parliament.ballots.timed_ovn_casting_proof.get".to_owned(),
-        format!(
-            "Transport one bounded consensus-authenticated Parliament casting-proof page as canonical Norito (`{PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_NAME_V1}`). The MCP response body is base64 canonical Norito, not a verified wallet context: native code MUST independently pin the network id and exact checkpoint context, verify every finality proof and membership witness, and replay the archive before accessing seed material."
-        ),
-        manual_tool_effect_from_name("iroha.gov.parliament.ballots.timed_ovn_casting_proof.get"),
-        Method::POST,
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof".to_owned(),
-        norito::json!({
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["path", "trusted_checkpoint_height"],
-            "properties": {
-                "path": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["ballot_attempt_id"],
-                    "properties": {
-                        "ballot_attempt_id": {
-                            "type": "string",
-                            "minLength": 64,
-                            "maxLength": 64,
-                            "pattern": "^[0-9a-f]{64}$"
-                        }
-                    }
-                },
-                "trusted_checkpoint_height": {
-                    "type": "integer",
-                    "format": "uint64",
-                    "minimum": 1,
-                    "description": "Height of the caller's externally pinned finality checkpoint; the exact trusted context id stays local to the native verifier."
-                },
-                "headers": {
-                    "type": "object",
-                    "additionalProperties": { "type": "string" },
-                    "description": "Canonical account authentication for the exact POST target and canonical Norito request bytes."
-                }
-            }
-        }),
-    )
-}
-fn iroha_gov_parliament_tle_partial_release_create_tool() -> ToolSpec {
-    ToolSpec::route(
-        "iroha.gov.parliament.ballots.tle_partial_release.create".to_owned(),
-        "Request this node's Core-authorized proof-carrying TLE partial release for one Parliament ballot in Opening. The request has no body and returns no secret-share material."
-            .to_owned(),
-        ToolEffect::Write,
-        Method::POST,
-        "/v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release".to_owned(),
-        norito::json!({
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["path"],
-            "properties": {
-                "path": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["ballot_attempt_id"],
-                    "properties": {
-                        "ballot_attempt_id": {
-                            "type": "string",
-                            "minLength": 64,
-                            "maxLength": 64,
-                            "pattern": "^[0-9a-f]{64}$"
-                        }
-                    }
-                },
-                "headers": {
-                    "type": "object",
-                    "additionalProperties": { "type": "string" }
-                },
-                "accept": { "type": "string", "const": "application/json" }
-            }
-        }),
-    )
-}
 fn iroha_gov_parliament_transition_draft_tool() -> ToolSpec {
     ToolSpec::route(
         "iroha.gov.parliament.transitions.draft".to_owned(),
@@ -10857,72 +10510,6 @@ mod tests {
             vpn_canonical_auth_headers(arguments.as_object().expect("arguments"))
                 .expect_err("noncanonical typed authentication must fail before dispatch");
         }
-    }
-
-    #[test]
-    fn parliament_casting_proof_tool_builds_one_canonical_checkpoint_request() {
-        let arguments = norito::json!({
-            "path": {
-                "ballot_attempt_id": "0101010101010101010101010101010101010101010101010101010101010101"
-            },
-            "trusted_checkpoint_height": 17_u64,
-            "headers": {}
-        });
-        let arguments = arguments.as_object().expect("arguments");
-        let request = parliament_timed_ovn_casting_proof_request(arguments)
-            .expect("bounded casting-proof request");
-        assert_eq!(
-            request.version,
-            PARLIAMENT_TIMED_OVN_CASTING_PROOF_VERSION_V1
-        );
-        assert_eq!(request.trusted_checkpoint_height, 17);
-        let encoded = parliament_timed_ovn_casting_proof_request_bytes(arguments)
-            .expect("framed casting-proof request");
-        assert_eq!(
-            hex::encode(&encoded),
-            "4e5254300000adccf322a5fcf43040e20bea238f55f3000c00000000000000dfab61022cefc29f02020100081100000000000000"
-        );
-        assert_eq!(
-            norito::decode_from_bytes::<ParliamentTimedOvnCastingProofRequestV1>(&encoded)
-                .expect("canonical casting-proof request"),
-            request
-        );
-    }
-
-    #[test]
-    fn parliament_casting_proof_tool_rejects_unpinned_or_ambiguous_requests() {
-        for arguments in [
-            norito::json!({
-                "path": {
-                    "ballot_attempt_id": "0101010101010101010101010101010101010101010101010101010101010101"
-                },
-                "trusted_checkpoint_height": 0_u64
-            }),
-            norito::json!({
-                "path": {
-                    "ballot_attempt_id": "0101010101010101010101010101010101010101010101010101010101010101"
-                },
-                "trusted_checkpoint_height": 41_u64,
-                "network_id": "node-selected-network"
-            }),
-        ] {
-            parliament_timed_ovn_casting_proof_request(arguments.as_object().expect("arguments"))
-                .expect_err("untrusted or ambiguous checkpoint request must fail closed");
-        }
-        let tool = iroha_gov_parliament_timed_ovn_casting_proof_get_tool();
-        let (_, method, _) = tool
-            .route_backing()
-            .expect("casting-proof tool must be route-backed");
-        assert_eq!(method, &Method::POST);
-        assert!(
-            tool.description
-                .contains("MUST independently pin the network id")
-        );
-        assert!(
-            iroha_gov_parliament_timed_ovn_casting_context_get_tool()
-                .description
-                .contains("MUST NOT be used")
-        );
     }
 }
 

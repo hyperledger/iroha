@@ -366,8 +366,14 @@ async fn original_history_pool_refusal_preserves_pending_status_and_refuses_visi
         dataspace_id: DataSpaceId::new(0),
         status: TransactionStatus::Approved,
     };
+    let mut scopes = None;
     let Err(ExecutionAttemptError::Deferred(reason)) =
-        ToriiDataspaceReadContext::transaction_event_scope(&app.kura, &event, &pool)
+        crate::stream_read_authorization::transaction_event_scope(
+            &app.kura,
+            &event,
+            &pool,
+            &mut scopes,
+        )
     else {
         panic!("occupied history cannot become global-reader fallback or absent scope");
     };
@@ -470,7 +476,23 @@ async fn original_history_pool_refusal_preserves_pending_status_and_refuses_visi
         cache.lookup(&tx_hash).unwrap().kind,
         PipelineStatusKind::Applied
     );
-    assert!(ToriiDataspaceReadContext::transaction_event_scope(&app.kura, &event, &pool).is_ok());
+    assert!(
+        scopes.is_none(),
+        "a refused history read caches no block scope"
+    );
+    assert!(
+        crate::stream_read_authorization::transaction_event_scope(
+            &app.kura,
+            &event,
+            &pool,
+            &mut scopes,
+        )
+        .is_ok()
+    );
+    assert!(
+        scopes.is_some(),
+        "the readable block scope is cached for later events"
+    );
     assert_eq!(
         owner
             .scope(|| {

@@ -117,14 +117,14 @@ SDK_FIXTURE_READERS = {
 STRICT_NATIVE_PROFILE_MARKERS = {
     "IrohaSwift/Tests/IrohaSwiftTests/SorafsReferenceValidatorsTests.swift": (
         "guard SorafsReferenceValidators.isAppealFinanceNativeAvailable else {",
-        'return XCTFail("ABI-29 appeal-finance reference bridge is required")',
+        'return XCTFail("ABI-30 appeal-finance reference bridge is required")',
     ),
     (
         "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/"
         "sorafs/SorafsReferenceValidatorsTest.kt"
     ): (
         "SorafsReferenceValidators.isNativeAvailable()",
-        '"ABI-29 appeal-finance reference bridge is required"',
+        '"ABI-30 appeal-finance reference bridge is required"',
     ),
     (
         "java/iroha_android/src/test/java/org/hyperledger/iroha/android/"
@@ -132,11 +132,11 @@ STRICT_NATIVE_PROFILE_MARKERS = {
     ): (
         "requireNativeBridge();",
         "throw new AssertionError(",
-        '"ABI-29 connect_norito_bridge with all SoraFS reference symbols is required."',
+        '"ABI-30 connect_norito_bridge with all SoraFS reference symbols is required."',
     ),
     "csharp/tests/Hyperledger.Iroha.Sdk.Tests/SoraFsReferenceValidatorsTests.cs": (
         "SoraFsReferenceValidators.IsAppealFinanceAvailable()",
-        '"ABI-29 appeal-finance reference bridge is required."',
+        '"ABI-30 appeal-finance reference bridge is required."',
     ),
     "javascript/iroha_js/test/helpers/nativeRequirements.js": (
         "registerNativeRequirementFailure(",
@@ -485,7 +485,7 @@ def test_native_appeal_finance_profiles_fail_instead_of_skipping(
     test_path: str,
     required_markers: tuple[str, ...],
 ) -> None:
-    """A missing ABI-29 bridge is a parity failure in every native SDK lane."""
+    """A missing ABI-30 bridge is a parity failure in every native SDK lane."""
 
     source = read(test_path)
     for marker in required_markers:
@@ -737,7 +737,7 @@ def test_parity_fixture_snapshot_rejects_missing_inputs() -> None:
 
 
 def test_native_release_jobs_build_and_require_the_bridge() -> None:
-    """C# and both mobile jobs fail closed when the ABI-29 bridge is absent."""
+    """C# and both mobile jobs fail closed when the ABI-30 bridge is absent."""
 
     csharp = read(".github/workflows/pr_csharp.yml")
     mobile = read(".github/workflows/mobile_sdk_artifacts.yml")
@@ -787,7 +787,7 @@ def test_native_release_jobs_build_and_require_the_bridge() -> None:
     assert "swift test --filter SorafsOrchestratorParityTests" in parity_runner
     assert "swift test --filter CancelAssetLockV1Tests" in parity_runner
     assert "swift test --filter SorafsReferenceValidatorsTests" in parity_runner
-    assert "name: Build exact ABI-29 NoritoBridge XCFramework" in parity
+    assert "name: Build exact ABI-30 NoritoBridge XCFramework" in parity
     assert "check_mobile_sdk_artifacts.sh --apple-only" in parity
     assert parity.count("IROHA_JS_NATIVE_BUILD_PROFILE:") == 1
     assert 'IROHA_JS_NATIVE_BUILD_PROFILE: "release"' in parity
@@ -817,7 +817,7 @@ def test_native_release_jobs_build_and_require_the_bridge() -> None:
     )
     assert "check_native_sdk_artifact.py record" in parity
     assert "check_native_sdk_artifact.py verify" in parity
-    assert "native-sdk-abi29.json" in parity
+    assert "native-sdk-abi30.json" in parity
     assert "ABI-21" not in parity
     assert (
         "dotnet build Hyperledger.Iroha.Sdk.sln -c Release --no-restore "
@@ -913,7 +913,7 @@ def test_swift_native_bridge_contract_requires_universal_macos_slice() -> None:
 
 
 def test_python_native_lane_covers_appeal_finance_and_provider_ingest_without_skips() -> None:
-    """The Python ABI-29 lane must exercise every native SoraFS V1 profile."""
+    """The Python ABI-30 lane must exercise every native SoraFS V1 profile."""
 
     runner = read("ci/check_sorafs_python_native_sdk.sh")
     ignore_rules = read(".gitignore")
@@ -926,7 +926,7 @@ def test_python_native_lane_covers_appeal_finance_and_provider_ingest_without_sk
         assert (
             f"python/iroha_python/src/iroha_python/{native_pattern}" in ignore_rules
         )
-    assert "Python native SDK artifacts must be rebuilt in the ABI-29 lane, not tracked" in runner
+    assert "Python native SDK artifacts must be rebuilt in the ABI-30 lane, not tracked" in runner
     assert 'export VIRTUAL_ENV="${SDK_SESSION}/venv"' in runner
     assert 'export PATH="${VIRTUAL_ENV}/bin:${PATH}"' in runner
     assert 'cd "${ROOT_DIR}/python/iroha_native"' in runner

@@ -282,6 +282,12 @@ trait Wallet: Send {
     fn require_custody_operations(&self) -> Result<()> {
         Ok(())
     }
+    /// Open the archive call of one wallet-owner acquisition; see [`archive_call`].
+    fn open_archive_call(&mut self) {}
+    /// Close it before the owner is released: success publishes the staged records.
+    fn close_archive_call(&mut self, _succeeded: bool) -> Result<()> {
+        Ok(())
+    }
     fn snapshot(&mut self) -> Result<state::Snapshot>;
     fn review(&mut self, _input: review::Input) -> Result<Response> {
         Err(Failure::code(INVALID))
@@ -291,6 +297,19 @@ trait Wallet: Send {
     }
     fn discard_review(&mut self, _token: u64) -> Result<()> {
         Err(Failure::code(INVALID))
+    }
+    /// The job that may prove retained review `token`'s σ_send speculatively, taken under
+    /// the owner right after the review was retained.
+    fn review_speculation(&mut self, _token: u64) -> Option<state::SpeculativeSendJobV1> {
+        None
+    }
+    /// Locked prepare of a speculative σ_send; its proof waits for the scheduler and runs
+    /// after the owner is released.
+    fn prepare_speculation(
+        &mut self,
+        _job: &state::SpeculativeSendJobV1,
+    ) -> Result<Option<state::SpeculativeProofV1>> {
+        Ok(None)
     }
     fn observe(&mut self, _selector: u32, _identity: &[u8]) -> Result<Response> {
         Err(Failure::code(INVALID))
@@ -352,6 +371,12 @@ impl<P: advance::KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send> Wallet
     fn require_custody_operations(&self) -> Result<()> {
         Ok(self.wallet.require_custody_operations()?)
     }
+    fn open_archive_call(&mut self) {
+        self.wallet.open_archive_call();
+    }
+    fn close_archive_call(&mut self, succeeded: bool) -> Result<()> {
+        Ok(self.wallet.close_archive_call(succeeded)?)
+    }
     fn observe(&mut self, selector: u32, identity: &[u8]) -> Result<Response> {
         self.observe_inner(selector, identity)
     }
@@ -365,7 +390,17 @@ impl<P: advance::KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send> Wallet
         self.execute_reviewed_inner(token, request)
     }
     fn discard_review(&mut self, token: u64) -> Result<()> {
+        // Dropping the review cancels its speculation and drops any σ unsigned.
         self.reviews.take(token).map(drop)
+    }
+    fn review_speculation(&mut self, token: u64) -> Option<state::SpeculativeSendJobV1> {
+        self.reviews.get(token)?.speculation()
+    }
+    fn prepare_speculation(
+        &mut self,
+        job: &state::SpeculativeSendJobV1,
+    ) -> Result<Option<state::SpeculativeProofV1>> {
+        Ok(self.wallet.prepare_speculation(job)?)
     }
     fn snapshot(&mut self) -> Result<state::Snapshot> {
         Ok(self.wallet.snapshot()?)
@@ -541,7 +576,23 @@ fn with_wallet_owner<T>(
     owner.closing.require_open()?;
     let wallet = guard.as_deref_mut().ok_or(Failure::code(CLOSED))?;
     wallet.require_custody_operations()?;
-    action(wallet)
+    archive_call(wallet, action)
+}
+/// Run one wallet-owner acquisition as one archive call: the coordinator's archive stages the
+/// call's records and publishes them together, behind one directory sync per barrier, at its
+/// custody authority entries and before the owner is released. A failed action discards what
+/// it staged; a failed publication replaces an `Ok` answer, so no caller ever sees success for
+/// records that are not durable.
+fn archive_call<T>(
+    wallet: &mut dyn Wallet,
+    action: impl FnOnce(&mut dyn Wallet) -> Result<T>,
+) -> Result<T> {
+    wallet.open_archive_call();
+    let result = action(&mut *wallet);
+    let closed = wallet.close_archive_call(result.is_ok());
+    let value = result?;
+    closed?;
+    Ok(value)
 }
 pub(crate) fn snapshot(id: u64) -> Result<state::Snapshot> {
     // A view does not cancel a useful background fold. Call off the UI thread.
@@ -673,7 +724,24 @@ pub(crate) fn credit(id: u64, credit: &[u8], payment: &[u8]) -> Result<Response>
 pub fn wallet_fold_metrics(handle: u64) -> std::result::Result<state::FoldMetricsV1, Failure> {
     Ok(owner(handle)?.background.fold_metrics())
 }
+#[cfg(test)]
+thread_local! {
+    /// Durability fences issued on this thread; tests observe where they happen.
+    pub(crate) static DURABILITY_FENCES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+/// Persist this process's ordered wallet-storage syncs (`iroha_fs::durability_fence`: on Apple one
+/// `F_FULLFSYNC` per device, elsewhere nothing). Wallet storage syncs only order on Apple, so every
+/// effect outside the store follows a fence: a call's result, and each Keychain anchor write and
+/// Secure Enclave key generation or deletion.
+pub(crate) fn durability_fence() -> std::io::Result<()> {
+    #[cfg(test)]
+    DURABILITY_FENCES.with(|fences| fences.set(fences.get() + 1));
+    iroha_fs::durability_fence().map(|_| ())
+}
 pub(crate) fn run<T>(action: impl FnOnce() -> Result<T>) -> Result<T> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(action))
-        .unwrap_or(Err(Failure::code(INTERNAL)))
+    let value = std::panic::catch_unwind(std::panic::AssertUnwindSafe(action))
+        .unwrap_or(Err(Failure::code(INTERNAL)))?;
+    // The result may carry or name what this call wrote: never release it before durability.
+    durability_fence().map_err(|_| Failure::code(UNAVAILABLE))?;
+    Ok(value)
 }

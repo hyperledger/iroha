@@ -282,16 +282,19 @@ mod handle_update_tests {
             ActorProgressByteLimits {
                 safety: 1,
                 lane: 2,
-                bulk: 4,
+                payload: 4,
+                block_sync: 8,
             },
             2,
-            390,
+            520,
         )
         .expect("small classed geometry must fit");
-        assert_eq!(classed.max_sources, 6);
+        assert_eq!(classed.max_sources, 8);
         assert_eq!(classed.max_sources_per_class, 2);
-        assert_eq!(classed.max_total_bytes, 14);
-        assert_eq!(classed.max_waiters_per_source, [65, 65, 65]);
+        assert_eq!(classed.max_items_per_source, RELIABLE_ACTOR_SOURCE_WINDOW);
+        assert_eq!(classed.max_items, 8 * RELIABLE_ACTOR_SOURCE_WINDOW);
+        assert_eq!(classed.max_total_bytes, 30);
+        assert_eq!(classed.max_waiters_per_source, [65, 65, 65, 65]);
         let budget = NetworkActorProgressBudget::new(10, 1, 1).expect("small progress budget");
         let shape = ProgressTicketShape {
             topic: message::Topic::BlockSync,
@@ -397,6 +400,61 @@ mod handle_update_tests {
         assert_eq!(budget.retained(), 0);
     }
     #[test]
+    fn small_source_frames_pipeline_only_within_original_byte_and_item_caps() {
+        for ceiling in [
+            RELIABLE_ACTOR_SOURCE_WINDOW,
+            RELIABLE_ACTOR_SOURCE_WINDOW + 1,
+        ] {
+            let budget = NetworkActorProgressBudget::new_with_window(
+                ceiling,
+                1,
+                1,
+                RELIABLE_ACTOR_SOURCE_WINDOW,
+            )
+            .expect("one source with the production item window");
+            let shape = |index: usize| ProgressTicketShape {
+                topic: message::Topic::Consensus,
+                stream_wire_bytes: 1,
+                broadcast: false,
+                reply_writer_timeout_attempt: None,
+                request_digest: Hash::new(index.to_le_bytes()),
+                authority: None,
+            };
+            let mut retained = Vec::new();
+            for index in 0..RELIABLE_ACTOR_SOURCE_WINDOW {
+                let ProgressLeaseAttempt::Ready { lease, mut ticket } =
+                    budget.try_reserve(1, shape(index), None)
+                else {
+                    panic!("small original frames must fit the existing source window");
+                };
+                ticket.commit();
+                retained.push(lease);
+            }
+            assert_eq!(budget.retained(), RELIABLE_ACTOR_SOURCE_WINDOW);
+            let pending = shape(RELIABLE_ACTOR_SOURCE_WINDOW);
+            let ProgressLeaseAttempt::Waiting {
+                ticket: Some(ticket),
+                rank: 1,
+            } = budget.try_reserve(1, pending, None)
+            else {
+                panic!("an additional frame must wait even when one byte remains");
+            };
+            drop(retained.pop().unwrap());
+            let ProgressLeaseAttempt::Ready {
+                lease,
+                ticket: mut admitted,
+            } = budget.try_reserve(1, pending, Some(ticket))
+            else {
+                panic!("the original rank-one ticket acquires the released source slot");
+            };
+            admitted.commit();
+            assert_eq!(budget.retained(), RELIABLE_ACTOR_SOURCE_WINDOW);
+            drop(lease);
+            drop(retained);
+            assert_eq!(budget.retained(), 0);
+        }
+    }
+    #[test]
     fn configured_producer_geometry_gives_six_same_source_waiters_decreasing_ranks() {
         let waiters_per_source = RELIABLE_PROGRESS_WAITERS_PER_SOURCE;
         assert!(
@@ -496,9 +554,16 @@ mod handle_update_tests {
     }
     #[test]
     fn targetized_broadcast_coalesces_only_the_same_digest_and_membership() {
-        let budget =
-            NetworkActorProgressBudget::new_classed(ActorProgressByteLimits::uniform(1), 1, 195)
-                .expect("one target per class must fit");
+        let max_waiters = actor_waiter_limits()
+            .expect("production class waiter geometry")
+            .into_iter()
+            .sum();
+        let budget = NetworkActorProgressBudget::new_classed(
+            ActorProgressByteLimits::uniform(1),
+            1,
+            max_waiters,
+        )
+        .expect("one target per class must fit");
         let target = random_node_peer_id();
         let source = ActorProgressSource {
             target: Some(target.clone()),
@@ -603,9 +668,16 @@ mod handle_update_tests {
             request_digest: Hash::new(b"membership-cancellation-direct-owner"),
             authority: None,
         };
-        let budget =
-            NetworkActorProgressBudget::new_classed(ActorProgressByteLimits::uniform(1), 1, 195)
-                .expect("one target with production class waiter ranks must fit");
+        let max_waiters = actor_waiter_limits()
+            .expect("production class waiter geometry")
+            .into_iter()
+            .sum();
+        let budget = NetworkActorProgressBudget::new_classed(
+            ActorProgressByteLimits::uniform(1),
+            1,
+            max_waiters,
+        )
+        .expect("one target with production class waiter ranks must fit");
         let ProgressLeaseAttempt::Ready {
             lease: direct_lease,
             ticket: mut direct_ticket,
@@ -732,9 +804,16 @@ mod handle_update_tests {
     }
     #[test]
     fn progress_class_geometry_reserves_safety_from_arbitrary_lane_sources() {
-        let budget =
-            NetworkActorProgressBudget::new_classed(ActorProgressByteLimits::uniform(1), 1, 195)
-                .expect("single-target class geometry must fit");
+        let max_waiters = actor_waiter_limits()
+            .expect("production class waiter geometry")
+            .into_iter()
+            .sum();
+        let budget = NetworkActorProgressBudget::new_classed(
+            ActorProgressByteLimits::uniform(1),
+            1,
+            max_waiters,
+        )
+        .expect("single-target class geometry must fit");
         let first_target = random_node_peer_id();
         let second_target = random_node_peer_id();
         let lane_shape = ProgressTicketShape {
@@ -804,6 +883,169 @@ mod handle_update_tests {
         safety_admission.commit();
         drop((lane_waiter, lane_lease, safety_lease));
         assert_eq!(budget.retained(), 0);
+    }
+    #[test]
+    fn payload_and_block_sync_isolate_same_peer_bytes_waiters_release_and_cancellation() {
+        let waiter_limits = actor_waiter_limits().expect("production class waiter geometry");
+        let budget = NetworkActorProgressBudget::new_classed(
+            ActorProgressByteLimits {
+                safety: 1,
+                lane: 2,
+                payload: 4,
+                block_sync: 8,
+            },
+            1,
+            waiter_limits.into_iter().sum(),
+        )
+        .expect("one target with independent payload and block-sync limits");
+        let peer = random_node_peer_id();
+        let payload_source = ActorProgressSource {
+            target: Some(peer.clone()),
+            class: ActorProgressClass::Payload,
+        };
+        let block_sync_source = ActorProgressSource {
+            target: Some(peer),
+            class: ActorProgressClass::BlockSync,
+        };
+        let shape = |topic, bytes, tag: u8| ProgressTicketShape {
+            topic,
+            stream_wire_bytes: bytes,
+            broadcast: false,
+            reply_writer_timeout_attempt: None,
+            request_digest: Hash::new([tag]),
+            authority: None,
+        };
+        for (source, topic, bytes) in [
+            (&payload_source, message::Topic::ConsensusChunk, 5),
+            (&block_sync_source, message::Topic::BlockSync, 9),
+        ] {
+            assert!(matches!(
+                budget.try_reserve_for_source(
+                    bytes,
+                    shape(topic, bytes, 0),
+                    source.clone(),
+                    None,
+                    None,
+                ),
+                ProgressLeaseAttempt::Oversize
+            ));
+        }
+        let reserve_initial = |source: &ActorProgressSource, topic, bytes| {
+            let ProgressLeaseAttempt::Ready {
+                lease,
+                ticket: mut admitted,
+            } = budget.try_reserve_for_source(
+                bytes,
+                shape(topic, bytes, 0),
+                source.clone(),
+                None,
+                None,
+            )
+            else {
+                panic!("the other class must not consume this source's byte or waiter reserve");
+            };
+            admitted.commit();
+            lease
+        };
+        let fill_waiters = |source: &ActorProgressSource, topic, bytes| {
+            let limit = waiter_limits[source.class.index()];
+            let mut waiters = Vec::new();
+            for expected_rank in 1..=limit {
+                let request_shape = shape(
+                    topic,
+                    bytes,
+                    u8::try_from(expected_rank).expect("bounded production waiter rank"),
+                );
+                let ProgressLeaseAttempt::Waiting {
+                    ticket: Some(ticket),
+                    rank,
+                } = budget.try_reserve_for_source(bytes, request_shape, source.clone(), None, None)
+                else {
+                    panic!("every class must retain its complete independent waiter envelope");
+                };
+                assert_eq!(rank, expected_rank);
+                waiters.push((request_shape, ticket));
+            }
+            assert!(matches!(
+                budget.try_reserve_for_source(
+                    bytes,
+                    shape(topic, bytes, u8::MAX),
+                    source.clone(),
+                    None,
+                    None,
+                ),
+                ProgressLeaseAttempt::Waiting { ticket: None, rank } if rank == limit + 1
+            ));
+            waiters
+        };
+        let payload_lease = reserve_initial(&payload_source, message::Topic::ConsensusChunk, 4);
+        let mut payload_waiters = fill_waiters(&payload_source, message::Topic::ConsensusChunk, 4);
+        let block_sync_lease = reserve_initial(&block_sync_source, message::Topic::BlockSync, 8);
+        assert_eq!(budget.retained(), 12);
+        let mut block_sync_waiters = fill_waiters(&block_sync_source, message::Topic::BlockSync, 8);
+
+        // Cancelling one class's head advances only that class's FIFO ranks.
+        drop(payload_waiters.remove(0));
+        assert_eq!(payload_waiters[0].1.rank(), Some(1));
+        assert_eq!(block_sync_waiters[0].1.rank(), Some(1));
+        assert_eq!(block_sync_waiters[1].1.rank(), Some(2));
+        drop(block_sync_waiters.remove(0));
+        assert_eq!(block_sync_waiters[0].1.rank(), Some(1));
+        assert_eq!(payload_waiters[0].1.rank(), Some(1));
+        drop(payload_lease);
+        assert_eq!(budget.retained(), 8);
+        let (payload_shape, payload_ticket) = payload_waiters.remove(0);
+        let ProgressLeaseAttempt::Ready {
+            lease: payload_lease,
+            ticket: mut payload_ticket,
+        } = budget.try_reserve_for_source(
+            4,
+            payload_shape,
+            payload_source,
+            None,
+            Some(payload_ticket),
+        )
+        else {
+            panic!("payload must reacquire released bytes while block-sync remains saturated");
+        };
+        payload_ticket.commit();
+        assert_eq!(budget.retained(), 12);
+        assert_eq!(payload_waiters[0].1.rank(), Some(1));
+        assert_eq!(block_sync_waiters[0].1.rank(), Some(1));
+        drop((payload_lease, payload_waiters));
+        assert_eq!(budget.retained(), 8);
+        assert_eq!(block_sync_waiters[0].1.rank(), Some(1));
+
+        drop(block_sync_lease);
+        let (block_sync_shape, block_sync_ticket) = block_sync_waiters.remove(0);
+        let ProgressLeaseAttempt::Ready {
+            lease: block_sync_lease,
+            ticket: mut block_sync_ticket,
+        } = budget.try_reserve_for_source(
+            8,
+            block_sync_shape,
+            block_sync_source,
+            None,
+            Some(block_sync_ticket),
+        )
+        else {
+            panic!("block-sync must retain its head and reacquire its own full byte cap");
+        };
+        block_sync_ticket.commit();
+        assert_eq!(budget.retained(), 8);
+        assert_eq!(block_sync_waiters[0].1.rank(), Some(1));
+        drop((block_sync_lease, block_sync_waiters));
+        assert_eq!(budget.retained(), 0);
+        let state = budget
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(state.waiter_count, 0);
+        assert_eq!(state.waiters_by_class, [0; ActorProgressClass::COUNT]);
+        assert_eq!(
+            state.retained_sources_by_class,
+            [0; ActorProgressClass::COUNT]
+        );
     }
     #[test]
     fn progress_ticket_allocation_never_wraps_and_resets_only_when_empty() {
@@ -2094,7 +2336,7 @@ mod handle_update_tests {
             .expect("first progress post must be queued");
         assert!(matches!(
             &first.message,
-            Some(AdmittedNetworkPayload::Unsigned(NetworkMessage::Post(
+            Some(AdmittedNetworkPayload::Pending(NetworkMessage::Post(
                 Post {
                     priority: Priority::High,
                     ..
@@ -2323,7 +2565,7 @@ mod handle_update_tests {
             .expect("responsive target is independently admitted");
         assert!(matches!(
             &second.message,
-            Some(AdmittedNetworkPayload::Unsigned(NetworkMessage::Post(Post { peer_id, .. })))
+            Some(AdmittedNetworkPayload::Pending(NetworkMessage::Post(Post { peer_id, .. })))
                 if peer_id == &responsive_peer
         ));
         drop(first);
@@ -2387,7 +2629,7 @@ mod handle_update_tests {
     }
     #[tokio::test(flavor = "current_thread")]
     async fn ordinary_control_overflow_cannot_consume_source_isolated_safety_capacity() {
-        let (handle, mut safety_rx, mut progress_rx, mut high_rx, _low_rx) =
+        let (mut handle, mut safety_rx, mut progress_rx, mut high_rx, _low_rx) =
             handle_with_network_receivers::<RoutedActorDummy>();
         let peer_id = random_node_peer_id();
         accept_direct_targets(&handle, HashSet::from([peer_id.clone()]));
@@ -2396,6 +2638,22 @@ mod handle_update_tests {
             peer_id: peer_id.clone(),
             priority: Priority::High,
         };
+        let fixture = NetworkMessage::Post(post(RoutedActorDummy::Safety));
+        let plaintext_frame_bytes =
+            outbound_actor_message_wire_bytes(&fixture, &handle.self_id, handle.relay_ttl)
+                .expect("count exact safety-isolation fixture");
+        let stream_wire_bytes =
+            crate::frame_queue_charge_for::<ChaCha20Poly1305>(plaintext_frame_bytes)
+                .expect("small safety-isolation fixture must have a stream charge");
+        // Saturate the byte cap with one frame while retaining the production
+        // item window; ordinary overflow must not consume this safety reserve.
+        handle.network_actor_progress_budget = NetworkActorProgressBudget::new_with_window(
+            stream_wire_bytes,
+            8,
+            8,
+            RELIABLE_ACTOR_SOURCE_WINDOW,
+        )
+        .expect("one-frame safety byte budget");
         handle.post(post(RoutedActorDummy::Control));
         handle.post(post(RoutedActorDummy::Control));
         assert_eq!(
@@ -2429,6 +2687,10 @@ mod handle_update_tests {
             1,
             "a second item from one safety source must remain with its caller"
         );
+        assert_eq!(
+            handle.network_actor_progress_budget.retained(),
+            stream_wire_bytes
+        );
         assert!(matches!(
             progress_rx.try_recv(),
             Err(mpsc::error::TryRecvError::Empty)
@@ -2453,6 +2715,7 @@ mod handle_update_tests {
                 ..
             }))
         ));
+        assert_eq!(handle.network_actor_progress_budget.retained(), 0);
     }
     #[tokio::test(flavor = "current_thread")]
     async fn low_priority_post_still_drops_when_actor_queue_is_full() {

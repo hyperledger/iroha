@@ -273,7 +273,7 @@ verified native artifact directory.
 ## Native SoraFS Reference Validation
 
 The repository SoraFS qualification runner pins
-`IROHA_JS_NATIVE_BUILD_PROFILE=release` for its authenticated ABI-29 host
+`IROHA_JS_NATIVE_BUILD_PROFILE=release` for its authenticated ABI-30 host
 artifact. Plain source-checkout builds remain `debug` unless the profile is
 selected explicitly.
 
@@ -772,7 +772,7 @@ manifest through the Node/N-API client with an HTTPS origin and immutable
 `LocalSigningContext`. Explicit custom fetch implementations are trusted transport
 dependencies and must preserve HTTPS authentication, response URL, and redirect semantics.
 Public archive decoding is inspection-only; copying or re-decoding transport
-bytes loses admission authority. The authenticated ABI29 binding applies
+bytes loses admission authority. The authenticated ABI30 binding applies
 the bounded canonical decoder; transaction construction must then call
 `requirePrivacyExact12CapabilityAdmissionV1`, which requires committed Active
 state, registered production qualification, and byte-exact equality with the
@@ -3776,7 +3776,7 @@ proofs while that relation remains incomplete.
 Validation-fee authority is ledger-native. Applications obtain bounded policy
 proof pages with `ToriiClient.getValidationFeeCurrentPolicyProofPage`, anchored
 to an immutable exact `NetworkId`/policy-chain binding and a durable checkpoint.
-The ABI 29 native bridge verifies the Norito proof against the complete
+The ABI 30 native bridge verifies the Norito proof against the complete
 independently selected native checkpoint and returns the policy projection together
 with its promoted canonical checkpoint bytes. A checkpoint is exactly
 `{ checkpointNorito: bytes }`; a height/context pair cannot replace it. Persist every
@@ -3816,7 +3816,9 @@ record: `proposal_kind`, `proposal_operator`, `proposal_id`, `payload_hash`,
 `certified_at_height`, and `enacted_at_height`. The SDK rejects missing,
 unknown, and structurally invalid nested fields, recursively checks the complete
 certificate, and binds the proposal and canonical decimal-string heights to its
-retained certificate.
+retained certificate. Until the anonymous-ballot result binding is supported,
+the SDK admits only certificates whose bodies are all public-finding bodies and
+rejects a certificate that contains a private-jury body.
 
 Callers cannot provide validation-fee policy signatures, governance keysets, or
 reserved policy metadata. Validator admission derives the active policy from

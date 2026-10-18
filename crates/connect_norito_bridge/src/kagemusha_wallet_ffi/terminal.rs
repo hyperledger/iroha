@@ -24,10 +24,9 @@ pub(super) fn dispatch(id: u64, input: setup::Setup) -> Result<Response> {
         .payment(&owner.scheduler, state::FoldCallClassV1::Payment);
     let mut guard = owner.wallet.lock().map_err(|_| Failure::code(INTERNAL))?;
     owner.closing.require_open()?;
-    guard
-        .as_deref_mut()
-        .ok_or(Failure::code(CLOSED))?
-        .setup(input)
+    // Deleting custody discards the open call's staged records with the slot.
+    let wallet = guard.as_deref_mut().ok_or(Failure::code(CLOSED))?;
+    archive_call(wallet, |wallet| wallet.setup(input))
 }
 
 /// Carries only a newly issued unused destructive review across foreign response delivery.

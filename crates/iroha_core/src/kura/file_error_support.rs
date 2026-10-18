@@ -349,7 +349,7 @@ pub enum Error {
         source: Arc<Error>,
     },
 
-    /// FASTPQ aggregate quota is full: {stable_count} records plus {incoming_bytes} incoming bytes under limits {maximum_records}/{maximum_bytes}
+    /// FASTPQ aggregate quota is full: {stable_count} records retaining {retained_bytes} bytes plus {incoming_bytes} incoming bytes under limits {maximum_records}/{maximum_bytes}
     FastpqArtifactQuota {
         /// Exact original stable object count.
         stable_count: usize,

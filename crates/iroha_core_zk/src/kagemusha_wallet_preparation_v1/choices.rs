@@ -123,6 +123,35 @@ impl NativeChoicesV1 {
         Ok(value)
     }
 
+    /// Whether this request's choices carry a clock reading: a Send whose source holds an
+    /// active quota or lease control. Such a Send is never proved speculatively, because its
+    /// σ binds the accepted time interval of that reading.
+    pub(crate) fn needs_clock(request: &NativeIntentV1, source: &PreparationSourceV1<'_>) -> bool {
+        needs_time(request, source)
+    }
+
+    /// The choices of a Send whose review proved its σ speculatively: the nonce that review
+    /// sampled with [`Self::fresh_nonce`] and no clock reading, bound to this exact request
+    /// and source exactly like fresh choices.
+    pub(crate) fn speculated(
+        manifest: [u8; 32],
+        request: &NativeIntentV1,
+        source: &PreparationSourceV1<'_>,
+        nonce: [u8; 32],
+    ) -> Result<Self> {
+        let (source_digest, request_digest) = bindings(request, source)?;
+        let value = Self {
+            version: 1,
+            manifest,
+            source: source_digest,
+            request: request_digest,
+            nonce,
+            observation: None,
+        };
+        value.require(manifest, request, source)?;
+        Ok(value)
+    }
+
     pub(crate) fn decode(
         bytes: &[u8],
         manifest: [u8; 32],

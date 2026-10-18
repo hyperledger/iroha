@@ -95,7 +95,7 @@ fn reject_non_filter_controls(query: &ListQuery) -> Result<()> {
 
 struct AccountHistorySseState<F> {
     source: Arc<CoreState>,
-    visibility: ToriiDataspaceReadContext,
+    authorization: crate::stream_read_authorization::ToriiStreamReadAuthorization,
     request: Arc<AccountHistorySseRequest>,
     acquire: Arc<F>,
     pending: VecDeque<norito::json::Map>,
@@ -112,9 +112,10 @@ struct AccountHistorySseState<F> {
 /// published height is projected once with the history row producer, under the
 /// reader's current visibility and a fresh query-memory owner, and matching rows
 /// are sent oldest first as `event: movement` frames. Authorization is rechecked
-/// continuously; a backlog beyond the history serving limit, a revoked
-/// authorization or an unreadable height ends the stream with a terminal
-/// `stream_error`.
+/// before every frame, from a decision refreshed whenever a block commits and
+/// at least once per authorization interval; a backlog beyond the history
+/// serving limit, a revoked authorization or an unreadable height ends the
+/// stream with a terminal `stream_error`.
 pub fn handle_v1_account_history_sse(
     source: Arc<CoreState>,
     visibility: ToriiDataspaceReadContext,
@@ -154,7 +155,9 @@ where
     let stream = stream::unfold(
         AccountHistorySseState {
             source,
-            visibility,
+            authorization: crate::stream_read_authorization::ToriiStreamReadAuthorization::new(
+                visibility,
+            ),
             request: Arc::new(request),
             acquire: Arc::new(acquire),
             pending: VecDeque::new(),
@@ -164,11 +167,12 @@ where
             terminal: false,
         },
         |mut state| async move {
+            use crate::stream_read_authorization::StreamAuthorization as _;
             if state.terminal {
                 return None;
             }
             loop {
-                if !state.visibility.authorization_is_current() {
+                if !state.authorization.authorization_is_current() {
                     state.pending.clear();
                     state.terminal = true;
                     return Some((Ok(stream_authorization_revoked_event()), state));
@@ -224,7 +228,7 @@ where
                                 ));
                             }
                         };
-                        let current = state.visibility.current_visibility();
+                        let current = state.authorization.visibility().clone();
                         let request = Arc::clone(&state.request);
                         let worker_source = Arc::clone(&source);
                         let worker = crate::panic_recovery::spawn_blocking_recoverable(move || {
@@ -246,7 +250,13 @@ where
                             }
                         }
                     }
-                    _ = state.authorization_interval.tick() => {}
+                    _ = state.authorization_interval.tick() => {
+                        if !state.authorization.revalidate() {
+                            state.pending.clear();
+                            state.terminal = true;
+                            return Some((Ok(stream_authorization_revoked_event()), state));
+                        }
+                    }
                 }
             }
         },

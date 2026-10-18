@@ -30956,3 +30956,25 @@ fn sccp_derived_indexes_bind_inserted_keys_and_deletions_in_merge_write_sets() {
         );
     }
 }
+#[test]
+fn set_index_members_write_only_when_membership_changes() {
+    let storage: Storage<u32, BTreeSet<u32>> = [(1, BTreeSet::from([10]))].into_iter().collect();
+    let mut block = storage.block();
+    let mut transaction = block.transaction();
+    insert_set_index_member(&mut transaction, &1, &10);
+    remove_set_index_member(&mut transaction, &1, &11);
+    remove_set_index_member(&mut transaction, &2, &10);
+    assert_eq!(
+        transaction.touched_entries().len(),
+        0,
+        "unchanged membership must not copy or touch the indexed set"
+    );
+    insert_set_index_member(&mut transaction, &1, &11);
+    insert_set_index_member(&mut transaction, &2, &20);
+    assert_eq!(transaction.get(&1), Some(&BTreeSet::from([10, 11])));
+    assert_eq!(transaction.get(&2), Some(&BTreeSet::from([20])));
+    remove_set_index_member(&mut transaction, &2, &20);
+    assert_eq!(transaction.get(&2), None, "an emptied set leaves the index");
+    assert_eq!(transaction.touched_entries().len(), 2);
+    transaction.apply();
+}

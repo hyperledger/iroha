@@ -29,9 +29,68 @@ from unittest.mock import MagicMock, patch
 EXPECTED_BEACON_NETWORK_TEST = (
     'production_beacon_bootstrap::four_peer_fresh_custody_bootstrap_reaches_mandatory_pulse'
 )
-PLATFORM_REGRESSION_COUNT = 1 if sys.platform == "linux" else 0
-EXPECTED_BASIC_REGRESSION_COUNT = 2182 + PLATFORM_REGRESSION_COUNT
-EXPECTED_REGRESSION_COUNT = 2215 + PLATFORM_REGRESSION_COUNT
+# Independent reviewed harness ownership, rather than a historical aggregate total.
+# Exact source leaves and named controls are checked below; counts are derived only
+# after comparing the full selected mapping with this independent scope contract.
+EXPECTED_HARNESS_STAGE_GROUPS = {
+    'norito-exact-field': 'NORITO_RETAINED_SEQUENCE_STAGES',
+    'primitives-quantity': 'PRIMITIVES_QUANTITY_STAGES',
+    'primitives-quantity-allocations': 'PRIMITIVES_QUANTITY_ALLOCATION_STAGES',
+    'allocation': 'ALLOCATION_OWNERSHIP_STAGES',
+    'allocation-shared': 'ALLOCATION_SHARED_STAGES',
+    'mv': 'MV_OWNERSHIP_STAGES',
+    'mv-ebr': 'MV_EBR_STAGES',
+    'mv-map': 'MV_MAP_STAGES',
+    'mv-admitted-map': 'MV_ADMITTED_MAP_STAGES',
+    'concread': 'CONCREAD_STAGES',
+    'config': 'CONFIG_STAGES',
+    'config-fixtures': 'CONFIG_FIXTURE_STAGES',
+    'config-unit': 'CONFIG_UNIT_STAGES',
+    'genesis': 'GENESIS_STAGES',
+    'data-model': 'DATA_MODEL_STAGES',
+    'kagami': 'KAGAMI_STAGES',
+    'deploy': 'DEPLOY_STAGES',
+    'proof': 'PROOF_STAGES',
+    'proof-flows': 'PROOF_FLOW_STAGES',
+    'crypto': 'CRYPTO_STAGES',
+    'p2p': 'P2P_STAGES',
+    'core': 'CORE_STAGES',
+    'core-zk': 'CORE_ZK_STAGES',
+    'sumeragi': 'CURRENT_CONSENSUS_STAGES',
+    'schema': 'SCHEMA_STAGES',
+    'test-network': 'TEST_NETWORK_STAGES',
+    'client': 'CLIENT_STAGES',
+    'wallet': 'WALLET_STAGES',
+    'torii-unit': 'TORII_UNIT_STAGES',
+    'torii': 'TORII_STAGES',
+    'torii-shared': 'TORII_SHARED_STAGES',
+    'torii-lifecycle': 'TORII_LIFECYCLE_STAGES',
+    'daemon': 'DAEMON_STAGES',
+    'network': 'NETWORK_STAGES',
+    'cli': 'STAGES',
+}
+BASIC_STAGE_OVERRIDES = {
+    'core': 'CORE_ADMISSION_STARTUP_STAGES',
+    'proof-flows': None,
+    'network': 'BASIC_NETWORK_STAGES',
+}
+
+
+def reviewed_qualification_stages(module, scope):
+    """Independent stage ownership oracle; never call the selector being checked."""
+    if scope not in ("basic", "full"):
+        raise ValueError("unreviewed qualification scope")
+    groups = dict(EXPECTED_HARNESS_STAGE_GROUPS)
+    if scope == "basic":
+        groups.update(BASIC_STAGE_OVERRIDES)
+    return {harness: () if group is None else getattr(module, group)
+            for harness, group in groups.items()}
+
+
+def reviewed_regression_count(module, scope):
+    """Count the independent explicit stage mapping after source/selector review."""
+    return sum(len(names) for stages in reviewed_qualification_stages(module, scope).values()
+               for _, names in stages)
 
 REWARD_ACCOUNTING_SOURCE_TESTS = {
     'smartcontracts/isi/multisig.rs': ('smartcontracts::isi::multisig::tests::', (
@@ -162,7 +221,7 @@ SPEC.loader.exec_module(gate)
 def production_library_events():
     return [{"reason": "compiler-artifact", "target": {"name": name, "kind": ["lib"]},
              "profile": {"test": False}, "features": ["default"]}
-            for name in ("iroha_core", "iroha_core_zk", "iroha_core_privacy", "iroha_core_timed_ovn", "iroha_torii")]
+            for name in ("iroha_core", "iroha_core_zk", "iroha_core_privacy", "iroha_torii")]
 
 
 def isolate_shipping_fixture(case, *, keep_network_prerequisites=False):
@@ -233,6 +292,68 @@ def assert_native_coverage(case, labels=None):
 
 
 class BeaconGateTests(unittest.TestCase):
+    def test_current_declared_owner_and_runtime_controls_are_required_exactly_once(self):
+        required = (
+            'kagemusha_wallet_v1::tests::wsv_tests::compact_fee_claim_routes_by_the_validated_send_asset_and_permanent_scope',
+            'sumeragi::executor::preparation::tests::original_evidence_decode_owner_survives_worker_deferral_until_its_last_reader',
+            'sumeragi::schedule::execution::tests::executed_genesis_requires_committed_fee_policy_without_defaults',
+            'sumeragi::executor::proposal_publication::tests::execution_reuses_recovered_proposal_decode_and_keeps_signing_admission',
+            'sumeragi::executor::proposal_publication::tests::recovery_decode_handoff_retains_refusals_and_requires_exact_source',
+            'sumeragi::lanes::executor::native_decode_tests::startup_refusal_observation_borrows_the_original_native_recovery_carrier',
+            'sumeragi::lanes::registry::tests::proposal_reads::cancelled_proposal_releases_actual_ready_read_and_native_lock_without_another_driver_tick',
+            'sumeragi::lanes::registry::tests::proposal_reads::historical_join_retains_exact_authenticated_body_after_proposal_cancellation',
+            'sumeragi::lanes::registry::tests::proposal_reads::successor_proposal_cannot_consume_live_or_incompatible_original_read',
+            'sumeragi::executor::proposal_read_tests::original_lane_read_request_survives_refusal_busy_state_and_incidental_publication',
+            'sumeragi::lanes::store::refund_tests::busy_original_native_operation_inherits_cancelled_read_cleanup_before_returning',
+            'sumeragi::lanes::registry::tests::proposal_reads::compatible_cancelled_proposal_adoption_preserves_original_body_certificate_and_pool',
+            'sumeragi::lanes::store::refund_tests::cancelled_proposal_read_refund_reenters_only_after_both_native_guards_release',
+            'sumeragi::executor::proposal_read_tests::final_global_worker_drop_cancels_its_actual_ready_lane_read_without_a_runner_tick',
+            'sumeragi::executor::proposal_read_tests::successful_parent_commit_cancels_proposal_read_only_after_original_publication',
+            'smartcontracts::isi::domain::isi::private_root_home_tests::original_private_root_registers_confined_home_and_never_creates_global_bucket',
+            'smartcontracts::isi::domain::isi::private_root_home_tests::restricted_home_requires_original_private_root_not_global_missing_or_foreign_scope',
+            'smartcontracts::isi::domain::isi::private_root_home_tests::original_private_home_requires_both_exact_captured_routes',
+            'smartcontracts::isi::domain::isi::private_root_home_tests::original_private_home_requires_canonical_single_root_geometry',
+            'smartcontracts::isi::domain::isi::private_root_home_tests::original_private_home_root_decode_refusal_remains_local_and_global_policy_stays_refused',
+            'smartcontracts::isi::retail_daily_limit::finality_tests::finalized_activation_evidence_is_anchored_on_native_certified_finality',
+            'smartcontracts::isi::retail_daily_limit::finality_tests::restricted_home_on_global_root_has_certified_rejection_without_activation_evidence',
+            'smartcontracts::isi::retail_daily_limit::finality_tests::activation_evidence_refuses_substituted_coordinates_entries_and_carriers',
+        )
+        root = SCRIPT.resolve().parents[1]
+        gate.validate_native_consensus_test_registration(root)
+        gate.validate_selected_source_test_inventory(
+            root, {"core": (("current owner and runtime controls", required),)})
+        for scope in ("basic", "full"):
+            stages = gate.qualification_stages(scope)["core"]
+            selected = [name for _, names in stages for name in names]
+            for regression in required:
+                with self.subTest(scope=scope, regression=regression):
+                    self.assertEqual(selected.count(regression), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + regression,))
+                    self.assertEqual([name for _, names in focused["core"] for name in names], [regression])
+                    listing = "\n".join(name + ": test" for name in selected if name != regression)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, stages)
+        # Complete retail declarations include an explicit fixture generator, which must
+        # remain ignored and excluded rather than silently treated as executable coverage.
+        retail = root / "crates/iroha_core/src/smartcontracts/isi/retail_daily_limit/finality_tests.rs"
+        parent = retail.parent.parent / "retail_daily_limit.rs"
+        mask = gate._native_inventory["rust_source_masker"](root)
+        self.assertRegex(mask(parent.read_text()), r"#\[cfg\(test\)\]\s+mod finality_tests;")
+        source = retail.read_text()
+        leaves = re.findall(r"#\[test\]\s*(?:#\[ignore[^\]]*\]\s*)?fn (\w+)\(", mask(source))
+        expected = (
+            'finalized_activation_evidence_is_anchored_on_native_certified_finality',
+            'restricted_home_on_global_root_has_certified_rejection_without_activation_evidence',
+            'activation_evidence_refuses_substituted_coordinates_entries_and_carriers',
+        )
+        generator = "capture_merged_lane_finality_proof_fixture"
+        self.assertCountEqual(leaves, (*expected, generator))
+        self.assertRegex(source, r'#\[test\]\s*#\[ignore = "explicit deterministic fixture capture, not a qualification gate"\]\s*fn ' + generator + r'\(')
+        for scope in ("basic", "full"):
+            selected = [name for stages in gate.qualification_stages(scope).values()
+                        for _, names in stages for name in names]
+            self.assertNotIn("smartcontracts::isi::retail_daily_limit::finality_tests::" + generator, selected)
+
     def test_native_clock_controls_are_required_once_in_both_scopes(self):
         labels = {
             'native original proposal recovery scheduling',
@@ -246,7 +367,12 @@ class BeaconGateTests(unittest.TestCase):
         assert_native_coverage(self, labels)
         required = {name for label, names in gate.native_owner_stages()
                     if label in labels for name in names}
-        self.assertEqual(len(required), 42)
+        owners = tuple(owner for owner in gate._native_inventory["NATIVE_CORE_TEST_OWNERS"]
+                       if owner[0] in labels)
+        self.assertEqual({owner[0] for owner in owners}, labels)
+        declared = gate._native_inventory["validate_native_source_inventory"](
+            SCRIPT.resolve().parents[1], owners=owners)
+        self.assertEqual(required, declared)
         startup = [test for _, tests in gate.CORE_STARTUP_STAGES for test in tests]
         for name in required:
             self.assertEqual(startup.count(name), 1)
@@ -2035,24 +2161,24 @@ class BasicReleaseQualificationTests(unittest.TestCase):
             "darwin": 'production_beacon_bootstrap::four_peer_fresh_custody_bootstrap_reaches_mandatory_pulse',
             "linux": 'production_beacon_bootstrap::four_peer_fresh_custody_bootstrap_reaches_mandatory_pulse',
         }
-        portable_counts = (
-            EXPECTED_BASIC_REGRESSION_COUNT - PLATFORM_REGRESSION_COUNT,
-            EXPECTED_REGRESSION_COUNT - PLATFORM_REGRESSION_COUNT,
-        )
-        for platform, counts in (
-            ("darwin", portable_counts),
-            ("linux", tuple(count + 1 for count in portable_counts)),
-        ):
+        platform_selections = {}
+        for platform in ("darwin", "linux"):
             spec = importlib.util.spec_from_file_location("platform_taira_release_check", gate.__file__)
             self.assertIsNotNone(spec)
             self.assertIsNotNone(spec.loader)
             selected_gate = importlib.util.module_from_spec(spec)
             with self.subTest(platform=platform), patch.object(sys, "platform", platform):
                 spec.loader.exec_module(selected_gate)
-                for scope, count in zip(gate.QUALIFICATION_SCOPES, counts):
+                for scope in ("basic", "full"):
                     selected = selected_gate.qualification_stages(scope)
                     names = [name for _, tests in selected["cli"] for name in tests]
-                    self.assertEqual(selected_gate.selected_regression_count(scope), count)
+                    self.assertEqual(selected, reviewed_qualification_stages(selected_gate, scope))
+                    self.assertEqual(selected_gate.selected_regression_count(scope),
+                                     reviewed_regression_count(selected_gate, scope))
+                    observed = [(harness, name) for harness, stages in selected.items()
+                                for _, tests in stages for name in tests]
+                    self.assertEqual(len(observed), len(set(observed)))
+                    platform_selections[platform, scope] = set(observed)
                     network = [name for _, tests in selected["network"] for name in tests]
                     expensive = [name for _, tests in selected_gate.BEACON_NETWORK_STAGES for name in tests]
                     self.assertEqual(expensive, [fixtures[platform]])
@@ -2084,6 +2210,11 @@ class BasicReleaseQualificationTests(unittest.TestCase):
                         listing = "\n".join(name + ": test" for name in names if name != openssh)
                         with self.assertRaisesRegex(selected_gate.CheckError, "required regressions missing"):
                             selected_gate.require_tests(listing, selected["cli"])
+
+        for scope in ("basic", "full"):
+            self.assertEqual(platform_selections["linux", scope],
+                             platform_selections["darwin", scope] | {("cli", openssh)})
+            self.assertNotIn(("cli", openssh), platform_selections["darwin", scope])
 
     def test_basic_census_keeps_security_and_application_checks_and_defers_advanced_core(self):
         basic = gate.qualification_stages("basic")
@@ -3844,14 +3975,29 @@ class EarlyReleaseCheckTests(unittest.TestCase):
         self.assertEqual(tuple(focused), ("torii-shared",))
 
     def test_complete_regression_census_tracks_every_native_stage_group(self):
-        self.assertEqual(gate.selected_regression_count("full"), EXPECTED_REGRESSION_COUNT)
-        for group in ("NORITO_RETAINED_SEQUENCE_STAGES", "PRIMITIVES_QUANTITY_STAGES", "PRIMITIVES_QUANTITY_ALLOCATION_STAGES", "ALLOCATION_OWNERSHIP_STAGES", "ALLOCATION_SHARED_STAGES", "MV_OWNERSHIP_STAGES", "MV_EBR_STAGES", "MV_MAP_STAGES", "MV_ADMITTED_MAP_STAGES", "CONCREAD_STAGES", "STAGES", "CONFIG_STAGES", "CONFIG_FIXTURE_STAGES", "GENESIS_STAGES", "CONFIG_UNIT_STAGES", "DATA_MODEL_STAGES", "SCHEMA_STAGES", "CRYPTO_STAGES", "P2P_STAGES", "CORE_STAGES", "CORE_ZK_STAGES", "CURRENT_CONSENSUS_STAGES",
-                      "TEST_NETWORK_STAGES", "NETWORK_STAGES", "PROOF_STAGES",
-                      "PROOF_FLOW_STAGES", "TORII_STAGES", "TORII_SHARED_STAGES", "CLIENT_STAGES", "WALLET_STAGES", "TORII_UNIT_STAGES", "DAEMON_STAGES", "KAGAMI_STAGES", "DEPLOY_STAGES"):
-            original_count = sum(len(names) for _, names in getattr(gate, group))
-            with self.subTest(group=group), patch.object(gate, group, (("fixture", ("one", "two")),)):
-                self.assertEqual(gate.selected_regression_count("full"), EXPECTED_REGRESSION_COUNT - original_count + 2)
-
+        for scope in ("basic", "full"):
+            expected = reviewed_qualification_stages(gate, scope)
+            self.assertEqual(gate.qualification_stages(scope), expected)
+            baseline = reviewed_regression_count(gate, scope)
+            self.assertEqual(gate.selected_regression_count(scope), baseline)
+            selected = [(harness, name) for harness, stages in expected.items()
+                        for _, names in stages for name in names]
+            self.assertEqual(len(selected), len(set(selected)))
+            groups = dict(EXPECTED_HARNESS_STAGE_GROUPS)
+            if scope == "basic":
+                groups.update(BASIC_STAGE_OVERRIDES)
+            for harness, group in groups.items():
+                if group is None:
+                    self.assertEqual(expected[harness], ())
+                    continue
+                original_count = sum(len(names) for _, names in getattr(gate, group))
+                replacement = (("fixture", ("one", "two")),)
+                with self.subTest(scope=scope, group=group), patch.object(gate, group, replacement):
+                    changed = dict(expected)
+                    changed[harness] = replacement
+                    self.assertEqual(gate.qualification_stages(scope), changed)
+                    self.assertEqual(gate.selected_regression_count(scope),
+                                     baseline - original_count + 2)
 
     def test_exact_one_test_passes(self):
         result = subprocess.CompletedProcess([], 0,
@@ -4665,7 +4811,8 @@ class EarlyConfigurationGateTests(unittest.TestCase):
                 self.assertEqual(batch.call_args.kwargs["harnesses"], ("config", "network", "cli"))
                 checkpoint.assert_not_called()
                 separate.assert_not_called()
-        self.assertEqual(gate.selected_regression_count("full"), EXPECTED_REGRESSION_COUNT)
+        self.assertEqual(gate.qualification_stages("full"), reviewed_qualification_stages(gate, "full"))
+        self.assertEqual(gate.selected_regression_count("full"), reviewed_regression_count(gate, "full"))
 
 
 
@@ -5384,7 +5531,7 @@ class ShippingMetadataCheckTests(unittest.TestCase):
         self.assertNotIn("[taira-check] PASS:", output.getvalue())
 
     def test_shipping_metadata_refuses_core_and_torii_fixture_feature_leaks(self):
-        for library, feature in (("iroha_core", "iroha-core-tests"), ("iroha_core_zk", "test-utils"), ("iroha_core_privacy", "test-utils"), ("iroha_core_timed_ovn", "test-utils"),
+        for library, feature in (("iroha_core", "iroha-core-tests"), ("iroha_core_zk", "test-utils"), ("iroha_core_privacy", "test-utils"),
                                  ("iroha_torii", "test-fixtures")):
             event = {"reason": "compiler-artifact", "package_id": "opaque-cargo-package-identity",
                      "target": {"name": library, "kind": ["lib"]}, "profile": {"test": False},
@@ -5406,7 +5553,6 @@ class ShippingMetadataCheckTests(unittest.TestCase):
                       ("iroha_core", "lib", ["default", "json"]),
                       ("iroha_core_zk", "lib", ["default"]),
                       ("iroha_core_privacy", "lib", ["default"]),
-                      ("iroha_core_timed_ovn", "lib", ["default"]),
                       ("iroha_torii", "lib", ["default", "app_api"]),
                       ("another_library", "lib", ["test-fixtures", "iroha-core-tests"]),
                       ("iroha_torii", "bin", ["test-fixtures"]),

@@ -27,7 +27,7 @@ import org.junit.runner.RunWith
 class ConfidentialWalletPhysicalDeviceTest {
     @Before
     fun requireNativeBridge() {
-        assertTrue("The packaged ABI-29 native bridge is required", PrivacyNativeBridge.isNativeAvailable())
+        assertTrue("The packaged ABI-30 native bridge is required", PrivacyNativeBridge.isNativeAvailable())
     }
 
     @Test

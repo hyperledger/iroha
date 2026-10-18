@@ -114,16 +114,24 @@ impl Queue {
     /// Capture exact rows admitted no later than the original pre-selection high-water.
     /// No queue or accepted-input graph is retained or cloned by this lease.
     ///
+    /// `selected` may hold shared queue handles or owned copies. Each row is matched to its
+    /// resident admission by canonical entrypoint bytes: copies taken from the queue share the
+    /// resident frame, so the comparison is a pointer check and never re-encodes or walks the
+    /// instruction graph under the mutation fence.
+    ///
     /// # Errors
     /// Keeps the original physical pool/allocator refusal before any payload is constructed.
-    pub(crate) fn capture_pending_payload_lease(
+    pub(crate) fn capture_pending_payload_lease<T>(
         &self,
         state: &State,
         selection: PendingPayloadSelection,
         view: &StateView<'_>,
-        selected: &[AcceptedTransaction<'static>],
+        selected: &[T],
         budget: &AllocationBudget,
-    ) -> Result<Option<PendingPayloadLease>, ChargedBufferError> {
+    ) -> Result<Option<PendingPayloadLease>, ChargedBufferError>
+    where
+        T: std::borrow::Borrow<AcceptedTransaction<'static>>,
+    {
         if selected.is_empty() || selected.len() > crate::sumeragi::payload::MAX_QUEUE_SCAN.get() {
             return Ok(None);
         }
@@ -150,39 +158,32 @@ impl Queue {
             let now = self.time_source.get_unix_time();
             let mut expires_at = None::<Duration>;
             for original in selected {
+                let original: &AcceptedTransaction<'static> = std::borrow::Borrow::borrow(original);
                 let hash = original.hash_as_entrypoint();
                 let Some(tracked) = self.txs.get(&hash) else {
                     return Ok(None);
                 };
                 if (!cfg!(all(test, sumeragi_core_mutation = "HC141"))
                     && tracked.incarnation() > selection.admission_high_water)
-                    || tracked.as_accepted().entrypoint() != original.entrypoint()
+                    || tracked.as_accepted().entrypoint_bytes() != original.entrypoint_bytes()
                     || tracked.is_in_blockchain(view)
                     || self.is_expired_at(tracked.as_accepted(), now)
                 {
                     return Ok(None);
                 }
-                let deadline = if matches!(
+                let enqueue_timestamp_ms = self.tx_enqueued_at_ms.get(&hash).map(|row| *row);
+                if matches!(
                     original.entrypoint(),
                     TransactionEntrypoint::SealedCommitment(_)
-                ) {
-                    let Some(timestamp) = self.tx_enqueued_at_ms.get(&hash) else {
-                        return Ok(None);
-                    };
-                    // Original sealed residence expires when the integer millisecond
-                    // age exceeds the actual Queue TTL, including its rounding rule.
-                    timestamp
-                        .value()
-                        .checked_add(Self::duration_to_millis(self.tx_time_to_live))
-                        .and_then(|last_live_ms| last_live_ms.checked_add(1))
-                        .map(Duration::from_millis)
-                } else {
-                    original
-                        .creation_time()
-                        .checked_add(self.effective_tx_time_to_live(original))
-                        .and_then(|limit| limit.checked_add(Duration::from_nanos(1)))
-                };
-                let Some(deadline) = deadline else {
+                ) && enqueue_timestamp_ms.is_none()
+                {
+                    return Ok(None);
+                }
+                // The same deadline the expiry index and `is_expired_at` use, including the
+                // integer-millisecond residence rule of sealed commitments.
+                let Some(deadline) =
+                    self.expiry_deadline_with_enqueue_timestamp(original, enqueue_timestamp_ms)
+                else {
                     return Ok(None);
                 };
                 expires_at = Some(expires_at.map_or(deadline, |prior| prior.min(deadline)));
@@ -398,6 +399,59 @@ mod tests {
         assert!(queue.contains_entrypoint_hash(original.hash_as_entrypoint()));
     }
 
+    #[test]
+    fn pending_payload_lease_accepts_shared_queue_handles_and_their_copies() {
+        let config = TestChainConfig::new(World::new(), 1_000);
+        let key = config.genesis_key.clone();
+        let chain = CertifiedTestChain::start(config).unwrap();
+        let (_, time) = TimeSource::new_mock(Duration::from_millis(2_100));
+        let queue = Arc::new(Queue::test(Config::default(), &time));
+        let accepted = AcceptedTransaction::accept_with_time_source(
+            signed_work(&chain, &key, 2_000),
+            &chain.network_id(),
+            Duration::from_secs(1),
+            chain.state().view().world().parameters().transaction(),
+            &iroha_config::parameters::actual::Crypto::default(),
+            &time,
+        )
+        .unwrap();
+        queue.push(accepted, chain.state().view()).unwrap();
+        let view = chain.state().view();
+        let selection = queue
+            .begin_pending_payload_selection(chain.state(), chain.state().state_view_generation())
+            .unwrap();
+        let handles = queue
+            .bounded_pending_inputs(&view, crate::sumeragi::payload::MAX_QUEUE_SCAN)
+            .unwrap();
+        assert_eq!(handles.len(), 1);
+        let budget = chain.state().ivm_execution_budget();
+        let lease = queue
+            .capture_pending_payload_lease(chain.state(), selection, &view, &handles, &budget)
+            .unwrap()
+            .expect("shared handles identify their exact resident admissions");
+        assert!(queue.pending_payload_lease_is_current(chain.state(), &view, &lease));
+        let copies = handles
+            .iter()
+            .map(|tx| tx.as_accepted().clone())
+            .collect::<Vec<_>>();
+        drop(handles);
+        assert!(
+            Arc::ptr_eq(
+                &copies[0].entrypoint_bytes(),
+                &queue
+                    .txs
+                    .get(&copies[0].hash_as_entrypoint())
+                    .unwrap()
+                    .entrypoint_bytes()
+            ),
+            "copies share the resident canonical frame, so matching them is a pointer check"
+        );
+        assert!(
+            capture_current(&queue, chain.state(), &view, &copies, &budget)
+                .unwrap()
+                .is_some()
+        );
+    }
     #[test]
     fn pending_payload_lease_keeps_exact_original_custody_across_unrelated_admissions() {
         let config = TestChainConfig::new(World::new(), 1_000);

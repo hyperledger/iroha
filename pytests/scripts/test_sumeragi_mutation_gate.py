@@ -140,6 +140,67 @@ def test_actual_availability_boundaries_have_separate_strict_kill_tests():
         assert gate.has_switch(mutation)
 
 
+@pytest.mark.parametrize("mid,tests,hook", [
+    ("MS51", (
+        "sim::world::clock_guard::tests::f33_hidden_prepareqc_due_work_block_commits_after_lag",
+        "machine::tests::liveness::det_s51_execute_certified_flag",
+        "machine::tests::liveness::det_s51_reproposal_q_certifies_without_matching_lock",
+    ), "machine/proposal.rs"),
+    ("MS52", (
+        "sim::world::clock_guard::tests::guard_rules_and_leads",
+        "sim::world::clock_guard::tests::clock_guard_certified_time_within_two_drifts",
+        "sim::world::clock_guard::tests::clock_guard_liveness_with_f_plus_one_slow_clocks",
+    ), "sim/world/clock_guard.rs"),
+    ("MS65", (
+        "sim::world::clock_guard::tests::clock_guard_due_work_lower_bound_at_first_prepare",
+    ), "sim/world/clock_guard.rs"),
+    ("MS66", (
+        "sim::world::clock_guard::tests::clock_guard_accepts_exact_drift_allowance",
+        "sim::world::clock_guard::tests::clock_guard_liveness_with_f_plus_one_slow_clocks",
+    ), "sim/world/clock_guard.rs"),
+    ("MS80", (
+        "machine::tests::liveness::det_s80_unrelated_lock_does_not_certify_execution",
+    ), "machine/proposal.rs"),
+    ("MS81", (
+        "machine::tests::recovery::det_s81_unsigned_proposal_restart_refuses_mismatched_high_pqc",
+        "machine::tests::recovery::det_s81_signed_proposal_restart_refuses_mismatched_high_pqc",
+    ), "safety.rs"),
+])
+def test_clock_guard_mutations_pin_exact_controls_and_owning_hooks(mid, tests, hook):
+    rule = gate.BY_ID[mid]
+    assert rule.tests == tests
+    assert rule.scenarios == (() if mid in {"MS80", "MS81"} else ("f39",))
+    source = (gate.CRATE_SRC / hook).read_text()
+    assert re.search(r'sumeragi_mutation\s*=\s*"' + mid + r'"', source)
+    assert gate.has_switch(mid)
+    assert not gate.has_switch(mid, core=True)
+    assert not gate.has_switch(mid, model=True)
+
+
+def test_unrelated_lock_mutation_requires_original_certification_failure():
+    rule = gate.BY_ID["MS80"]
+    cause = "a held PrepareQC must certify the executed block, not merely its height"
+    source = "crates/iroha_sumeragi/src/machine/tests/liveness.rs"
+    assert rule.causes == (gate.ExpectedFailure(cause, source),)
+    body = named_rust_function(
+        (ROOT / source).read_text(), "det_s80_unrelated_lock_does_not_certify_execution"
+    )
+    assert cause in body
+
+
+def test_restored_proposal_mutation_requires_original_block_binding_failure():
+    rule = gate.BY_ID["MS81"]
+    cause = "a restored proposal must name the block certified by its TC high-PQC before signing or execution"
+    source = "crates/iroha_sumeragi/src/machine/tests/recovery.rs"
+    assert rule.causes == (gate.ExpectedFailure(cause, source),) * 2
+    text = (ROOT / source).read_text()
+    body = named_rust_function(text, "rejects_mismatched_proposal_justify")
+    assert cause in body
+    for signed, selector in zip((False, True), rule.tests):
+        control = named_rust_function(text, selector.rsplit("::", 1)[1])
+        assert f"rejects_mismatched_proposal_justify({str(signed).lower()})" in control
+
+
 @pytest.mark.parametrize("mid,test,cause,source", [
     ("MX13", "sim::tests::amx_final_payment::amx_final_payment_silent_participant_requires_actionable_abort",
      "healthy global root must resolve the due final obligation without unrelated height advancement",
@@ -6763,11 +6824,11 @@ def test_native_cursor_pending_retention_accounts_every_named_control(monkeypatc
 
 
 @pytest.mark.parametrize("mid,owner", [
-    ("HC237", "smartcontracts/isi/world.rs"),
+    ("HC237", "smartcontracts/isi/sccp/governance.rs"),
     ("HC238", "smartcontracts/isi/sccp/controls.rs"),
 ])
 def test_sccp_control_mutation_preserves_original_cause_and_pause_owner(mid, owner):
-    name = "smartcontracts::isi::world::isi::tests::parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state"
+    name = "smartcontracts::isi::world::isi::tests::sccp_enactment_component_binds_exact_certificate_and_complete_pause_state"
     rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
     assert rule.tests == (name,) and not rule.scenarios
     assert gate.has_switch(mid, core=True)
@@ -6783,22 +6844,20 @@ def test_sccp_control_mutation_preserves_original_cause_and_pause_owner(mid, own
     compact = re.sub(r"\s+", "", source)
     assert f'all(test,{needle.replace(" ", "")})' in compact
     if mid == "HC237":
-        effect = source.split("fn apply_parliament_proposal_effect_v1(", 1)[1]
-        effect = effect.split("ProposalKind::SccpRouteGovernance(payload) => {", 1)[1]
-        effect = effect.split("ProposalKind::SorafsProviderGovernance", 1)[0]
+        effect = named_rust_function(source, "enact")
         compact_effect = re.sub(r"\s+", "", effect)
-        assert "ControlCauseV1::from_parliament_certificate(certificate)?" in compact_effect
-        assert "ControlCauseV1::for_test(proposal_id,certificate.effect_preimage_hash,)" in compact_effect
+        assert "letcertificate_id={let_=certificate_id;proposal_id};" in compact_effect
+        assert "ControlCauseV1::from_parliament(certificate_id,effect_hash)?" in compact_effect
+        assert effect.index(needle) < effect.index("ControlCauseV1::from_parliament")
+        assert effect.index("ControlCauseV1::from_parliament") < effect.index("apply_action(")
         cause_source = (core / "smartcontracts/isi/sccp/controls.rs").read_text()
-        constructor = cause_source.split("fn from_parliament_certificate(", 1)[1].split("fn require_supported(", 1)[0]
+        constructor = named_rust_function(cause_source, "from_parliament")
         compact_constructor = re.sub(r"\s+", "", constructor)
-        assert re.search(r"GovernanceCertificateId::derive_v1\(certificate,?\)\.as_bytes\(\)", compact_constructor)
-        assert "effect_hash:certificate.effect_preimage_hash" in compact_constructor
-        assert "certificate.validate()" in compact_constructor
-        assert "cause.require_supported()?" in compact_constructor
-        assert effect.index("ControlCauseV1::from_parliament_certificate") < effect.index(needle)
-        assert effect.index(needle) < effect.index("sccp::governance::enact(")
-        assert "exact_due_parliament_certificate_context_v1(governance_attempt_id,state_transaction)?" in compact
+        assert "certificate_id:[u8;32],effect_hash:[u8;32]," in compact_constructor
+        assert "certificate_id==[0;32]||effect_hash==[0;32]" in compact_constructor
+        assert "Ok(Self{track:iroha_sccp::v1::control::TRACK_PARLIAMENT,certificate_id,effect_hash,})" in compact_constructor
+        assert "GovernanceCertificateV1" not in cause_source
+        assert "GovernanceCertificateId" not in cause_source
     else:
         assert f'ifcfg!(all(test,{needle.replace(" ", "")})){{0}}else{{' in compact
         assert "store::fast_pauses::get(&*state_transaction.world,&network).map_or(0,|pause|" in compact
@@ -6807,12 +6866,11 @@ def test_sccp_control_mutation_preserves_original_cause_and_pause_owner(mid, own
         assert "destination_paused =" not in production
         assert "fast_pauses::insert(" not in production
     tests = (core / "smartcontracts/isi/world_sccp_governance_tests.rs").read_text()
-    control = tests.split("fn parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state()", 1)[1]
-    control = control.split("\n#[test]", 1)[0]
+    control = named_rust_function(tests, name.rsplit("::", 1)[-1])
     compact_control = re.sub(r"\s+", "", control)
     for obligation in (
         "seed_due_sccp_control_certificate(&mut seed, paused)",
-        "execute_due_parliament_certificate_v1(fixture.governance_attempt_id, &mut execution)",
+        "enact_sccp_control_component(&fixture, &mut execution)",
         "GovernanceCertificateId::derive_v1(&fixture.certificate).as_bytes()",
         "assert_ne!(expected_id, fixture.proposal_id)",
         'assert_eq!(row.certificate_id, expected_id, "control record must bind the exact enacting governance certificate")',
@@ -6823,6 +6881,9 @@ def test_sccp_control_mutation_preserves_original_cause_and_pause_owner(mid, own
         "event.certificate_id == expected_id", "event.fast_pause_until_ms == original_pause.until_ms",
     ):
         assert re.sub(r"\s+", "", obligation) in compact_control
+    component = re.sub(r"\s+", "", named_rust_function(tests, "enact_sccp_control_component"))
+    assert "fixture.certificate.validate()" in component
+    assert "governance::enact(execution,*GovernanceCertificateId::derive_v1(&fixture.certificate).as_bytes(),fixture.certificate.effect_preimage_hash,s0,&payload.proposal,)" in component
     spec = (ROOT / "specs/sumeragi.md").read_text()
     rows = re.findall(rf"^\| {mid} \|.*$", spec, re.M)
     assert len(rows) == 1 and name in rows[0]
@@ -6830,6 +6891,154 @@ def test_sccp_control_mutation_preserves_original_cause_and_pause_owner(mid, own
     assert "| SC6 (HC259, HC260, HC264) | CT3 builder pacing disabled |" in spec
     # The existing pending-proof custody rule remains an independent live rule.
     assert len(gate.index_mutations(gate.CORE_MUTATIONS)["HC236"].tests) == 3
+
+
+def test_sccp_parliament_boundary_owns_certificate_checks_and_requires_original_s0():
+    core = ROOT / "crates/iroha_core/src"
+    world = (core / "smartcontracts/isi/world.rs").read_text()
+    effect = named_rust_function(world, "apply_parliament_proposal_effect_v1")
+    adapter = effect.split("ProposalKind::SccpRouteGovernance(payload) => {", 1)[1]
+    adapter = adapter.split("ProposalKind::SorafsProviderGovernance", 1)[0]
+    compact_adapter = re.sub(r"\s+", "", adapter)
+    assert "payload.proposal.network_id!=state_transaction.network_id" in compact_adapter
+    assert "certificate.validate()" in compact_adapter
+    assert "GovernanceCertificateId::derive_v1(certificate,).as_bytes()" in compact_adapter
+    assert "None::<iroha_data_model::governance::GovernanceAnchorV1>.ok_or_else(" in compact_adapter
+    assert "casting-open source is unavailable" in adapter
+    assert "sccp::governance::enact(state_transaction,certificate_id,certificate.effect_preimage_hash,s0,&payload.proposal,)" in compact_adapter
+    assert adapter.index("certificate.validate()") < adapter.index("GovernanceCertificateId::derive_v1")
+    assert adapter.index("GovernanceCertificateId::derive_v1") < adapter.index("let s0")
+    assert adapter.index("let s0") < adapter.index("sccp::governance::enact(")
+    for fabrication in ("GovernanceAnchorV1 {", "GovernanceAnchorV1::", "for_test", "#[cfg(test)]"):
+        assert fabrication not in adapter
+
+    context = re.sub(r"\s+", "", named_rust_function(world, "exact_due_parliament_certificate_context_v1"))
+    for obligation in (
+        "attempt.validate().map_err(parliament_reducer_error)?",
+        "attempt.attempt().status != GovernanceAttemptStatusV1::Certified",
+        "certificate.validate()",
+        "certificate.enact_at_height != current_height",
+        "ensure_certificate_only_proposal_v1(proposal_id, &proposal, state_transaction)?",
+        "validate_proposal_bindings_v1(&proposal.kind)",
+        "certificate.proposal_content_id != attempt.proposal_content_id()",
+        "certificate.governance_attempt_id != governance_attempt_id",
+        "certificate.governance_attempt_sequence != attempt.attempt().sequence",
+        "certificate.effect_preimage_hash != proposal.kind.effect_preimage_hash_v1()",
+        "proposal.kind.fingerprint() != proposal_id",
+    ):
+        assert re.sub(r"\s+", "", obligation) in context
+    executor = named_rust_function(world, "execute_due_parliament_certificate_v1")
+    compact_executor = re.sub(r"\s+", "", executor)
+    assert "exact_due_parliament_certificate_context_v1(governance_attempt_id,state_transaction)?" in compact_executor
+    assert "observed_head!=certificate.expected_head" in compact_executor
+    assert executor.index("exact_due_parliament_certificate_context_v1(") < executor.index("observed_head != certificate.expected_head")
+    assert executor.index("observed_head != certificate.expected_head") < executor.index("apply_parliament_proposal_effect_v1(")
+
+    governance = (core / "smartcontracts/isi/sccp/governance.rs").read_text()
+    enact = named_rust_function(governance, "enact")
+    signature = enact.split("->", 1)[0]
+    assert "GovernanceCertificateV1" not in enact and "GovernanceCertificateId" not in enact
+    assert "certificate_id:[u8;32],effect_hash:[u8;32],s0:GovernanceAnchorV1,proposal:&SccpGovernanceProposalV1," in re.sub(r"\s+", "", signature)
+    assert "apply_action(state_transaction,action,proposal_id,cause,s0)" in re.sub(r"\s+", "", enact)
+    action = re.sub(r"\s+", "", named_rust_function(governance, "apply_action"))
+    assert action.count("super::fast_pause::lift(") == 2
+    assert "SccpFastPausePartV1::Taira,s0,)?" in action
+    assert "SccpFastPausePartV1::Destination{revision:action.revision,},s0,)?" in action
+    pause = (core / "smartcontracts/isi/sccp/fast_pause.rs").read_text()
+    lift = named_rust_function(pause, "lift")
+    assert "precedes_casting_open(s0)" in lift
+    assert 'sumeragi_core_mutation = "HC298"' in lift
+    assert "policy_jury_casting_open" not in pause
+    iface = (core / "smartcontracts/isi/sccp/parliament_iface.rs").read_text()
+    assert "PolicyJuryOpening" not in iface and "policy_jury_casting_open" not in iface
+
+    tests = (core / "smartcontracts/isi/world_sccp_governance_tests.rs").read_text()
+    closed = re.sub(r"\s+", "", named_rust_function(
+        tests, "parliament_due_sccp_certificate_without_casting_open_anchor_fails_without_effects"
+    ))
+    for obligation in (
+        "for paused in [false, true]",
+        "fixture.certificate.validate()",
+        "apply_parliament_proposal_effect_v1(",
+        "execute_due_parliament_certificate_v1(fixture.governance_attempt_id, &mut execution)",
+        "DueParliamentCertificateExecutionV1::EffectFailed",
+        "parliament_execution_failure_root_v1(&fixture.certificate, PARLIAMENT_DUE_CERTIFICATE_HEIGHT,)",
+        "Some(&original_route)", "Some(&original_pause)", "Some(&original_attempt)",
+        "Some(norito::codec::Encode::encode(&original_proposal))",
+        "assert_eq!(execution.world.internal_event_buf.len(), original_events)",
+        "SccpGovernanceSubjectV1::RouteControl(network)", "SccpGovernanceSubjectV1::FastHold(network)",
+        "assert!(store::control_messages::is_empty(&*execution.world))",
+        "assert_eq!(leaves::leaf_count_at(&*execution.world, PARLIAMENT_DUE_CERTIFICATE_HEIGHT), 0)",
+        "assert_eq!(original_route.revisions[&1].next_control_nonce, 1)",
+    ):
+        assert re.sub(r"\s+", "", obligation) in closed
+
+
+@pytest.mark.parametrize("mid,name,cause,path", [
+    ("HC400", "registration_requires_both_launch_gates_even_after_native_preconditions",
+     "SCCP registration must require both launch gates after native preconditions pass",
+     "installation_tests"),
+    ("HC401", "enactment_preserves_casting_open_anchor_for_each_pause_part",
+     "SCCP enactment must preserve the authenticated casting-open anchor for the requested pause part",
+     "anchor_tests"),
+])
+def test_sccp_registration_and_anchor_mutations_keep_exact_owners_and_failures(mid, name, cause, path):
+    core = ROOT / "crates/iroha_core/src"
+    owner = "smartcontracts/isi/sccp/governance.rs"
+    control_path = f"crates/iroha_core/src/smartcontracts/isi/sccp/governance/{path}.rs"
+    qualified = f"smartcontracts::isi::sccp::governance::{path}::{name}"
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    assert rule.tests == (qualified,) and not rule.scenarios
+    assert rule.causes == (gate.ExpectedFailure(cause, control_path),)
+    assert gate.has_switch(mid, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True},
+                   {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch(mid, **family)
+    needle = f'sumeragi_core_mutation = "{mid}"'
+    owners = {p.relative_to(core).as_posix() for p in core.rglob("*.rs") if needle in p.read_text()}
+    assert owners == {owner}
+    source = (core / owner).read_text()
+    assert source.count(needle) == 1
+    assert f'all(test,{needle.replace(" ", "")})' in re.sub(r"\s+", "", source)
+    controls = (ROOT / control_path).read_text()
+    control = named_rust_function(controls, name)
+    assert json.dumps(cause) in control
+    compact_control = re.sub(r"\s+", "", control)
+    if mid == "HC400":
+        registration = named_rust_function(source, "register_route")
+        compact_registration = re.sub(r"\s+", "", registration)
+        assert 'if!(cfg!(all(test,sumeragi_core_mutation="HC400"))||gates.0&&gates.1)' in compact_registration
+        assert registration.index("registration::validate_available(") < registration.index(needle)
+        assert registration.index(needle) < registration.index("store::routes::insert(")
+        assert '#[cfg(test)]letgates=tests::LAUNCH_GATES.with(' in compact_registration
+        assert "forgatesin[(true,false),(false,true)]" in compact_control
+        assert "super::tests::with_launch_gates(gates," in compact_control
+        assert "Some(&before)" in compact_control
+        assert "store::destination_words::is_empty(&*stx.world)" in compact_control
+        assert "stx.world.take_external_events().is_empty()" in compact_control
+        initialize = named_rust_function(controls, "initialize")
+        assert "registration::validate_available(stx, &register)" in initialize
+        closed = named_rust_function(controls, "registration_with_real_launch_gates_fails_closed_without_state_or_events")
+        assert "with_launch_gates" not in closed
+        iface = (core / "smartcontracts/isi/sccp/parliament_iface.rs").read_text()
+        for gate_source, function in ((source, "sccp_reconciliation_available"),
+                                      (iface, "parliament_binding_ballot_available")):
+            assert named_rust_function(gate_source, function).split("{", 1)[1].strip() == "false\n}"
+    else:
+        enact = named_rust_function(source, "enact")
+        compact_enact = re.sub(r"\s+", "", enact)
+        assert '#[cfg(all(test,sumeragi_core_mutation="HC401"))]lets0={let_=s0;GovernanceAnchorV1{height:0,position:0,timestamp_ms:0,}};' in compact_enact
+        assert "apply_action(state_transaction,action,proposal_id,cause,s0)" in compact_enact
+        assert "forpartin[Part::Taira,Part::Destination{revision:1}]" in compact_control
+        for anchor in ("(1,u32::MAX,false)", "(2,4,false)", "(2,5,false)", "(2,6,true)", "(3,0,true)"):
+            assert anchor in compact_control
+        assert "fortimestamp_msin[0,8_000,u64::MAX]" in compact_control
+        assert "enact(&mutstx,CERTIFICATE_ID,EFFECT_HASH,GovernanceAnchorV1{height,position,timestamp_ms,},&proposal,)" in compact_control
+        assert "assert_eq!(control.certificate_id,CERTIFICATE_ID)" in compact_control
+        assert "assert_eq!(control.effect_hash,EFFECT_HASH)" in compact_control
+        assert "control.fast_pause_until_ms,iflifted{0}else{source.until_ms}" in compact_control
+    rows = re.findall(rf"^\| {mid} \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and qualified in rows[0]
 
 
 @pytest.mark.parametrize("mid", ["HC237", "HC238"])
@@ -8335,11 +8544,12 @@ def test_lane_retirement_refunds_cover_original_registry_and_enclosing_runner(mi
     registry = (root / "sumeragi/lanes/registry.rs").read_text()
     runner = (root / "sumeragi/lanes/runner.rs").read_text()
     controls = (root / "sumeragi/lanes/registry/tests.rs").read_text()
-    original_refund_owners = ("store_with_runtime_owner", "release", "release_retired")
+    original_refund_owners = ("store_with_runtime_owner", "release", "release_retired",
+                              "clean_cancelled_proposal_reads")
     for function in original_refund_owners:
         assert named_rust_function(registry, function).count("self.with_original_refunds(|| {") == 1
     assert named_rust_function(registry, "resume_retired_publications").count("self.with_original_refunds(|| {") == 1
-    assert registry.count("self.with_original_refunds(|| {") == 4
+    assert registry.count("self.with_original_refunds(|| {") == 5
     assert "self.budget" in registry and "with_deferred_refund_notifications" in registry
     assert "let retired = { self.running.lock().remove(&key) };" in runner
     assert "let replaced = { self.running.lock().insert(key, lane) };" in runner
@@ -8377,12 +8587,19 @@ def test_direct_lane_store_refunds_cover_state_batch_and_original_opening():
     recovery = (root / "sumeragi/lanes/store/recovery.rs").read_text()
     controls = (root / "sumeragi/lanes/store/refund_tests.rs").read_text()
     inherent, trait = store.split("impl BlockStore for FileLaneBlockStore {", 1)
-    for function in ("committed_body", "committed_batch", "authenticated_height"):
+    for function in ("committed_body", "batch_with_interest", "authenticated_height", "release_cancelled_reads"):
         assert named_rust_function(inherent, function).count("Self::with_original_refunds(&self.budget, || {") == 1
     for function in ("entry", "append"):
         assert named_rust_function(trait, function).count("Self::with_original_refunds(&self.budget, || {") == 1
     assert named_rust_function(inherent, "resume_retired_publication").count("Self::with_original_refunds(&self.budget, || {") == 1
-    assert store.count("Self::with_original_refunds(&self.budget, || {") == 6
+    notification = named_rust_function(inherent, "notify_retired_publication")
+    assert notification.count("Self::with_original_refunds(&self.budget, || {") == 1
+    assert ('#[cfg(all(test, sumeragi_core_mutation = "HC423"))]\n'
+            '        Self::with_original_refunds(&self.budget, || {') in notification
+    assert "self.batch_with_interest(height, ReadInterest::Historical)" in named_rust_function(inherent, "committed_batch")
+    assert "self.batch_with_interest(height, requested)" in named_rust_function(inherent, "proposal_batch")
+    # Seven production operations plus the independently guarded HC423 negative control.
+    assert store.count("Self::with_original_refunds(&self.budget, || {") == 8
     assert "FileLaneBlockStore::with_original_refunds(&budget, || {" in recovery
     assert "let budget = self.store.budget.clone();" in recovery
     for obligation in (
@@ -8770,7 +8987,7 @@ def test_durable_publication_notifications_outlive_outer_storage_writers():
 
 
 def test_fastpq_artifact_notifications_outlive_all_original_storage_fences():
-    names = ['kura::fastpq_artifact_store::original_release_tests::original_artifact_persist_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_exact_retry_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_quota_refusal_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_content_conflict_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_refusals_retain_exact_errors_and_bytes', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_partial_refusals_retain_exact_storage_errors', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_unwind_notifies_after_each_acquired_prefix']
+    names = ['kura::fastpq_artifact_store::original_release_tests::original_artifact_persist_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_exact_retry_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_quota_refusal_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_content_conflict_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_success_notifies_after_storage_fences', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_read_refusals_retain_exact_errors_and_bytes', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_partial_refusals_retain_exact_storage_errors', 'kura::fastpq_artifact_store::original_release_tests::original_artifact_unwind_notifies_after_each_acquired_prefix', 'kura::fastpq_artifact_store::original_release_tests::original_producer_read_success_and_absence_notify_after_storage_fences']
     rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC358"]
     assert rule.tests == tuple(names)
     assert rule.causes == tuple(gate.ExpectedFailure(
@@ -8784,14 +9001,26 @@ def test_fastpq_artifact_notifications_outlive_all_original_storage_fences():
               if re.search(r'sumeragi_core_mutation\s*=\s*"HC358"', path.read_text())}
     assert owners == {"kura/fastpq_artifact_store.rs"}
     source = (ROOT / 'crates/iroha_core/src/kura/fastpq_artifact_store.rs').read_text()
-    persisted = source[source.index("pub fn persist_fastpq_artifact("):source.index("pub fn read_fastpq_artifact(")]
-    recovered = source[source.index("pub fn read_fastpq_artifact("):source.index("fn validate_fastpq_artifact_limits(")]
-    for implementation in (persisted, recovered):
+    persisted = named_rust_function(source, "persist_fastpq_object")
+    recovered = named_rust_function(source, "read_fastpq_artifact")
+    producer_read = named_rust_function(source, "read_fastpq_producer_record")
+    for wrapper in ("persist_fastpq_artifact", "persist_fastpq_producer_record", "persist_fastpq_source_record"):
+        assert "self.persist_fastpq_object(" in named_rust_function(source, wrapper)
+    for implementation in (persisted, recovered, producer_read):
         first_guard = implementation.index("let _prune_guard =")
-        for field, batch in (("prune_lock", "prune_releases"), ("canonical_chain_lock", "canonical_releases"),
-                             ("sidecar_lock", "sidecar_releases")):
+        for field, batch, guard in (("prune_lock", "prune_releases", "_prune_guard"),
+                                    ("canonical_chain_lock", "canonical_releases", "_canonical_guard"),
+                                    ("sidecar_lock", "sidecar_releases", "_sidecar_guard")):
             assert implementation.index("self." + field + ".defer_notifications()") < first_guard
             assert batch + ".lock()" in implementation
+            assert re.search(
+                re.escape('#[cfg(not(all(test, sumeragi_core_mutation = "HC358")))]')
+                + r"\s*" + re.escape(f"let {guard} = {batch}.lock();"), implementation
+            )
+            assert re.search(
+                re.escape('#[cfg(all(test, sumeragi_core_mutation = "HC358"))]')
+                + r"\s*" + re.escape(f"let {guard} = self.{field}.lock();"), implementation
+            )
         assert "ensure_prune_recovery_not_required()?" in implementation
         assert "durable_mutation_authorized()?" in implementation
     assert persisted.index("self.lane_geometry_lock.defer_notifications()") < persisted.index("let _prune_guard =")
@@ -8803,9 +9032,40 @@ def test_fastpq_artifact_notifications_outlive_all_original_storage_fences():
                        "Error::PruneRecoveryRequired", "Error::CanonicalStoragePoisoned", "catch_unwind",
                        "registration.belongs_to(&budget)", "reserved - charge", "unrelated physical release",
                        "receipt.is_from(&kura)", "inventory(&kura)", "source.kind() == ErrorKind::InvalidData",
-                       "FASTPQ artifact storage quota exhausted", "FASTPQ content address contains different bytes",
+                       "Error::FastpqArtifactQuota", "FASTPQ content address contains different bytes",
                        "FASTPQ artifact reference is absent", "FASTPQ artifact content or exact length differs from reference"):
         assert obligation in controls
+    quota = named_rust_function(controls, "original_artifact_quota_refusal_notifies_after_storage_fences")
+    compact_quota = re.sub(r"\s+", "", quota)
+    assert "letkura=fixture(1);" in compact_quota
+    assert 'kura.persist_fastpq_artifact(b"retained").unwrap()' in compact_quota
+    assert 'observe_original_release(&kura,3,||kura.persist_fastpq_artifact(b"additional"))' in compact_quota
+    assert (
+        "assert!(matches!(result,Err(Error::FastpqArtifactQuota{"
+        "stable_count:1,retained_bytes:8,incoming_bytes:10,maximum_records:1,maximum_bytes:256,})));"
+    ) in compact_quota
+    assert "assert_eq!(inventory(&kura),before);" in compact_quota
+    assert (
+        "returnErr(Error::FastpqArtifactQuota{stable_count:inventory.stable_count,"
+        "retained_bytes:inventory.total_bytes,incoming_bytes:reference.byte_len,"
+        "maximum_records:limits.max_artifacts.get(),maximum_bytes:limits.max_total_bytes.get(),});"
+    ) in re.sub(r"\s+", "", persisted)
+    producer_control = named_rust_function(
+        controls, "original_producer_read_success_and_absence_notify_after_storage_fences"
+    )
+    for obligation in (
+        "assert!(missing.is_none());", "assert!(inventory(&kura).is_empty());",
+        "observe_original_release(&kura, 3, || kura.read_fastpq_producer_record(key))",
+        "observe_original_release(&kura, 3, || kura.read_fastpq_producer_record(selected))",
+        "(key, Some(bytes.to_vec()))", '(Hash::new(b"absent producer position"), None)',
+        "assert_eq!(read, expected);", "assert_eq!(inventory(&kura), before);",
+    ):
+        assert obligation in producer_control
+    for control in (
+        "original_artifact_partial_refusals_retain_exact_storage_errors",
+        "original_artifact_unwind_notifies_after_each_acquired_prefix",
+    ):
+        assert 'for operation in ["persist", "artifact-read", "producer-read"]' in named_rust_function(controls, control)
     assert "stack_size" not in controls and "RUST_MIN_STACK" not in controls
     selected = (ROOT / "scripts/taira_release_check.py").read_text()
     for name in names:
@@ -9058,11 +9318,12 @@ def test_lane_recovery_keeps_exact_per_key_owner_without_shared_map_io():
     assert "StoreSlot::Ready(Arc::clone(&store))" in completion
     assert registry.count("Arc::strong_count(opening) > 1") == 2
     assert registry.count("#[inline(never)]") == 2
-    original_refund_owners = ("store_with_runtime_owner", "release", "release_retired")
+    original_refund_owners = ("store_with_runtime_owner", "release", "release_retired",
+                              "clean_cancelled_proposal_reads")
     for function in original_refund_owners:
         assert named_rust_function(registry, function).count("self.with_original_refunds(|| {") == 1
     assert named_rust_function(registry, "resume_retired_publications").count("self.with_original_refunds(|| {") == 1
-    assert registry.count("self.with_original_refunds(|| {") == 4
+    assert registry.count("self.with_original_refunds(|| {") == 5
     probe = (root / "sumeragi/lanes/registry/tests.rs").read_text()
     assert "opening.progress.try_lock().is_some()" in probe
     controls = (root / "sumeragi/lanes/registry/isolation_tests.rs").read_text()
@@ -10102,7 +10363,22 @@ def test_lane_wait_retirement_and_debug_mutations_keep_exact_original_owners(
     assert code.count(f'sumeragi_core_mutation = "{identifier}"') == 1
     if identifier == "HC390":
         guard = f'#[cfg(not(all(test, sumeragi_core_mutation = "{identifier}")))]'
-        assert re.search(re.escape(guard) + r"\s*self\s*\.\s*inputs\s*\.\s*stores\s*\.\s*resume_retired_publications\(&lanes,\s*\|key\|\s*!self\.running\.lock\(\)\.contains_key\(key\)\);", code)
+
+
+        continuation = re.search(
+            re.escape(guard)
+            + r"\s*self\s*\.\s*inputs\s*\.\s*stores\s*\.\s*resume_retired_publications\(&lanes,\s*\|key\|\s*\{(?P<predicate>.*?)\}\);",
+            code, re.DOTALL,
+        )
+        assert continuation is not None
+        predicate = re.sub(r"//[^\n]*", "", continuation.group("predicate"))
+        # Each probe yields a bool at its own semicolon. No map guard or callback
+        # can survive the predicate into original native publication continuation.
+        assert "".join(predicate.split()) == (
+            'letrunning=self.running.lock().contains_key(key);'
+            'letstarting=self.starting.lock().contains_key(key);'
+            '!running&&!starting'
+        )
         assert code.index(guard) < code.index('if cfg!(all(test, sumeragi_core_mutation = "HC349"))')
     else:
         guard = f'#[cfg(all(test, sumeragi_core_mutation = "{identifier}"))]'
@@ -10124,7 +10400,11 @@ def test_lane_wait_retirement_and_debug_mutations_keep_exact_original_owners(
     elif identifier == "HC390":
         body = named_rust_function(control, "retired_publication_continuation_control")
         assert re.search(r"runner\.running_count\(\),\s*0\b", body)
-        assert body.count("runner.reconcile();") == 2
+        assert body.count("runner.reconcile();") == 3
+        assert body.index("let completed =") < body.index("publication.retire();") < body.index("publication.join().unwrap();")
+        assert body.index("publication.join().unwrap();") < body.index(json.dumps(cause))
+        assert "faults.attempts.load(Ordering::SeqCst) >= 2" in body
+        assert "notified && completed && released" in body
         assert "budget.reserved_bytes(), limit" in body
         assert "original.upgrade().is_none()" in body
         assert re.search(r"Arc::ptr_eq\(\s*&same\b", body)
@@ -10179,7 +10459,6 @@ def test_lane_custody_kills_require_normal_complete_exact_causal_failures(monkey
 @pytest.mark.parametrize("identifier,owner,control,cause", [
     ('HC393', 'crates/iroha_core/src/sumeragi/driver/mod.rs', 'sumeragi::driver::tests::threaded::retirement_tests::retiring_executor_does_not_block_other_lane_transaction_delivery', 'retired worker joins must not block the actual lane lifecycle turn'),
     ('HC394', 'crates/iroha_core/src/sumeragi/lanes/runner.rs', 'sumeragi::driver::tests::threaded::retirement_tests::retiring_incarnation_blocks_same_lane_start_until_original_workers_finish', 'a new incarnation must not acquire startup authority before its same-lane predecessor physically finishes'),
-    ('HC395', 'crates/iroha_core/src/sumeragi/lanes/registry.rs', 'sumeragi::driver::tests::threaded::retirement_tests::pending_publication_waits_for_its_original_retiring_driver', 'a still-owned retiring driver must exclude its original pending publication from lifecycle continuation')
 ])
 def test_lane_shutdown_mutations_keep_independent_original_owners(identifier, owner, control, cause):
     source = "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"
@@ -10203,26 +10482,12 @@ def test_lane_shutdown_mutations_keep_independent_original_owners(identifier, ow
         assert "!thread.is_finished()" in body and "joiner.handoff" in body
     elif identifier == "HC394":
         assert re.search(r'if cfg!\(all\(test, sumeragi_core_mutation = "HC394"\)\)\s*\{\s*self\s*\.\s*running\s*\.\s*lock\(\)\s*\.\s*contains_key\(&key\)\s*\}\s*else\s*\{\s*self\s*\.\s*running\s*\.\s*lock\(\)\s*\.\s*keys\(\)\s*\.\s*any\(\|\(lane, _\)\| \*lane == record\.lane\)\s*\}', code)
-    else:
-        body = named_rust_function(code, "resume_retired_publications")
-        assert re.search(r'physically_retired\(&key\)\s*\|\| cfg!\(all\(test, sumeragi_core_mutation = "HC395"\)\)\)\s*&& let Err\(error\) = store\.resume_retired_publication\(\)', body)
-        assert body.index("self.with_original_refunds") < body.index("physically_retired(&key)")
     controls = (ROOT / source).read_text()
     body = named_rust_function(controls, control.rsplit("::", 1)[-1])
     assert body.index("lifecycle.join()") < body.index("joined.unwrap();") < body.index(json.dumps(cause))
-    if identifier == "HC395":
-        assert body.index("clock.release();") < body.index("lifecycle.join()")
-        assert "ReleasePendingClockOnDrop" in body
-        assert "let height = store.height();" in body
-        fixture = (ROOT / "crates/iroha_core/src/sumeragi/lanes/registry/tests.rs").read_text()
-        original = named_rust_function(fixture, "observe_pending_lane_retirement_for_test")
-        assert 'assert_eq!(body, fixture.body);' in original
-        assert 'assert_eq!(certificate, fixture.qc);' in original
-        assert 'faults.armed.store(true, Ordering::SeqCst);' in original
-    else:
-        assert body.index("release.0.set_open(true);") < body.index("lifecycle.join()")
-        assert "OpenExecutorOnDrop(release.0.clone())" in body
-        assert "runner.shutdown();" in body
+    assert body.index("release.0.set_open(true);") < body.index("lifecycle.join()")
+    assert "OpenExecutorOnDrop(release.0.clone())" in body
+    assert "runner.shutdown();" in body
     spec_rows = re.findall(r"^\| " + identifier + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
     assert len(spec_rows) == 1 and control.rsplit("::", 1)[-1] in spec_rows[0]
     build = (ROOT / "crates/iroha_core/build.rs").read_text()
@@ -10259,3 +10524,501 @@ def test_lane_shutdown_kills_require_normal_complete_causal_failure(monkeypatch,
     assert result["verdict"] == verdict, result
     if defect == "none":
         assert result["named"]["causal_failures"] == dict.fromkeys(rule.tests, True)
+
+
+
+
+@pytest.mark.parametrize("defect", ["none", "unrelated", "wrong-source", "missing-terminal", "one-passes", "abort", "timeout"])
+def test_retired_publication_kill_requires_complete_exact_causal_terminal(monkeypatch, tmp_path, defect):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC414"]
+    rows = [(name, "ok" if defect == "one-passes" else "FAILED") for name in rule.tests]
+    if defect == "missing-terminal":
+        rows.pop()
+    code, output = causal_control_output(rule, rows)
+    expected = rule.causes[0]
+    if defect == "unrelated":
+        output = output.replace(expected.cause, "unrelated setup refusal", 1)
+    elif defect == "wrong-source":
+        output = output.replace(expected.source + ':123:', 'foreign.rs:123:', 1)
+    elif defect == "abort":
+        code = -6
+    elif defect == "timeout":
+        code = None
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    verdict = "killed_by_test" if defect == "none" else "survived" if defect == "one-passes" else "error"
+    assert result["verdict"] == verdict, result
+    if defect == "none":
+        assert result["named"]["causal_failures"] == dict.fromkeys(rule.tests, True)
+
+
+@pytest.mark.parametrize("verdict", ["ok", "FAILED", "missing"])
+def test_retired_publication_baseline_requires_its_original_complete_control(monkeypatch, tmp_path, verdict):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC414"]
+    rows = [] if verdict == "missing" else [(name, verdict) for name in rule.tests]
+    code, output = causal_control_output(rule, rows)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate_baseline(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, [rule])
+    assert result["verdict"] == ("pass" if verdict == "ok" else "fail"), result
+    assert result["named"]["steps"][0]["filters"] == list(rule.tests)
+
+
+def test_lane_registry_final_destructor_mutation_has_exact_native_owners():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC415"]
+    source = "crates/iroha_core/src/sumeragi/lanes/registry/destruction_tests.rs"
+    controls = (ROOT / source).read_text()
+    names = re.findall(r"#\[test\]\s+fn (\w+)\(", controls)
+    assert len(names) == len(set(names)) == 4
+    assert rule.tests == tuple("sumeragi::lanes::registry::tests::destruction_tests::" + name for name in names)
+    assert rule.causes == (gate.ExpectedFailure("final original lane authority destructor must run after registry unlock", source),) * 4
+    assert not rule.scenarios and gate.has_switch("HC415", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch("HC415", **family)
+    registry = (ROOT / "crates/iroha_core/src/sumeragi/lanes/registry.rs").read_text()
+    assert registry.count('sumeragi_core_mutation = "HC415"') == 2
+    for name in ("release", "release_retired"):
+        drop_owner = named_rust_function(registry, name)
+        compact = re.sub(r"\s+", "", drop_owner)
+        compact = re.sub(r",(?=\))", "", compact)
+        assert '#[cfg(all(test,any(sumeragi_core_mutation="HC348",sumeragi_core_mutation="HC415")))]' in compact
+        assert drop_owner.index("let _original_map = self.stores.lock();") < drop_owner.index("drop(retired);")
+    assert "fixture.stores.stores.try_lock()" in controls
+    assert "impl Drop for DestructionSchedule" in controls
+    assert controls.index("drop(guard);") < controls.index("fixture.stores.release(LANE, &INCARNATION);")
+    assert "baseline + original.len()" in controls
+    assert '"final original lane authority can reenter the released registry"' in controls
+    assert "fs::read(fixture.path()).unwrap(), original" in controls
+
+
+def test_read_only_absent_frame_mutation_preserves_exact_native_cause():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC403"]
+    owner = "crates/iroha_core/src/sumeragi/lanes/store/tests.rs"
+    assert rule.tests == ("sumeragi::lanes::store::tests::read_only_missing_frame_preserves_not_found_and_reopens_after_publication",)
+    assert rule.causes == (gate.ExpectedFailure("read-only absent frame must remain NotFound before any retained restore job", owner),)
+    assert gate.has_switch("HC403", core=True) and not rule.scenarios
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch("HC403", **family)
+    source = (ROOT / "crates/iroha_core/src/sumeragi/lanes/store/read.rs").read_text()
+    assert source.count('sumeragi_core_mutation = "HC403"') == 1
+    assert '#[cfg(not(all(test, sumeragi_core_mutation = "HC403")))]' in source
+    assert '"committed lane frame disappeared"' in source
+
+
+@pytest.mark.parametrize("mutation_id,selector,cause,owner", [
+    ("HC404", "sumeragi::driver::tests::threaded::retirement_tests::native_lane_startup_sync_does_not_block_other_lane_transaction_delivery", "original native startup SyncFile must not block another lane's actual lifecycle turn and transaction commit", "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),
+    ("HC405", "sumeragi::driver::tests::threaded::retirement_tests::ready_transfer_reissues_consumed_transaction_wake_to_original_workers", "Ready transfer must redeliver the consumed transaction wake to the original workers", "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),
+    ("HC406", "sumeragi::driver::startup::tests::pending_ready_with_finished_original_joiner_stays_owned_and_unexposed", "Ready must remain unexposed with exact workers when its original joiner already ended", "crates/iroha_core/src/sumeragi/driver/startup/tests.rs"),
+    ("HC407", "sumeragi::driver::startup::tests::pending_transfer_retains_original_startup_charge_until_worker_join", "original startup registration and control charge must survive transfer until workers join", "crates/iroha_core/src/sumeragi/driver/startup/tests.rs"),
+    ("HC408", "sumeragi::lanes::runner::startup::tests::original_record_log_os_failure_retries_same_stage_and_store", "original custody log I/O must retry without replacing the startup generation", "crates/iroha_core/src/sumeragi/lanes/runner/startup/tests.rs"),
+    ("HC409", "sumeragi::lanes::runner::startup::tests::changed_original_directory_custody_is_terminal_without_native_retry", "actual changed directory custody must remain a typed terminal refusal", "crates/iroha_core/src/sumeragi/lanes/runner/startup/tests.rs"),
+    ("HC410", "sumeragi::driver::tests::threaded::retirement_tests::stale_failed_startup_releases_same_lane_only_after_original_workers_join", "committed retirement must release the original failed startup after successful physical cleanup", "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs"),
+    ("HC411", "sumeragi::lanes::runner::startup::tests::custom_custody_other_stays_terminal_with_its_original_source", "terminal native source must remain typed", "crates/iroha_core/src/sumeragi/lanes/runner/startup/tests.rs"),
+    ("HC412", "sumeragi::driver::persist::tests::installation_encoding_refusal_preserves_original_record_error", "installation encoding refusal must stay deterministic InvalidData", "crates/iroha_core/src/sumeragi/driver/persist.rs"),
+    ("HC413", "sumeragi::driver::startup::tests::cancelled_failed_joiner_cannot_report_startup_retirement_success", "failed or missing original joiner must never certify retired startup success", "crates/iroha_core/src/sumeragi/driver/startup/tests.rs"),
+ ])
+def test_original_startup_mutations_require_exact_native_ownership_causes(mutation_id, selector, cause, owner):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mutation_id]
+    assert rule.tests == (selector,)
+    assert rule.causes == (gate.ExpectedFailure(cause, owner),)
+    assert not rule.scenarios and gate.has_switch(mutation_id, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch(mutation_id, **family)
+    controls = (ROOT / owner).read_text()
+    assert "fn " + selector.rsplit("::", 1)[1] + "(" in controls
+    assert cause in controls
+
+
+def test_original_startup_transfer_cancellation_mutation_preserves_physical_join_cause():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC416"]
+    owner = "crates/iroha_core/src/sumeragi/driver/startup/tests.rs"
+    assert rule.tests == ("sumeragi::driver::startup::tests::cancelled_ready_transfer_keeps_original_joiner_until_every_worker_finishes",)
+    assert rule.causes == (gate.ExpectedFailure("cancelled Ready transfer must retain its original physical joining owner", owner),)
+    assert not rule.scenarios and gate.has_switch("HC416", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch("HC416", **family)
+    source = (ROOT / "crates/iroha_core/src/sumeragi/driver/startup/pending.rs").read_text()
+    assert source.count('sumeragi_core_mutation = "HC416"') == 1
+    assert 'cfg!(all(test, sumeragi_core_mutation = "HC416"))' in source
+    controls = (ROOT / owner).read_text()
+    assert 'TRANSFER_OBSERVATION' in controls and "cancelled Ready transfer must retain its original physical joining owner" in controls
+
+
+def test_read_only_lane_authority_destruction_mutation_retains_native_owners():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC402"]
+    source = "crates/iroha_core/src/sumeragi/lanes/registry/read_only_destruction_tests.rs"
+    names = (
+        "completed_read_only_frame_destroys_final_authority_after_read_unlock",
+        "missing_read_only_frame_destroys_final_authority_after_read_unlock",
+        "reselected_read_only_frame_destroys_each_final_authority_after_read_unlock",
+    )
+    assert rule.tests == tuple("sumeragi::lanes::registry::tests::read_only_destruction_tests::" + name for name in names)
+    assert rule.causes == (gate.ExpectedFailure("final original read-only authority destructor must run after read mutex unlock", source),) * 3
+    assert not rule.scenarios and gate.has_switch("HC402", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch("HC402", **family)
+    owner = (ROOT / "crates/iroha_core/src/sumeragi/lanes/registry/read_only.rs").read_text()
+    assert owner.count('sumeragi_core_mutation = "HC402"') == 2
+    assert owner.count('#[cfg(all(test, sumeragi_core_mutation = "HC402"))]') == 2
+    assert owner.count("let _held_read_mutex = self.read.lock();") == 2
+    controls = (ROOT / source).read_text()
+    assert "impl Drop for ReadDropSchedule" in controls
+    assert "source.read_lock_available_for_test()" in controls
+    assert "read_only_capacity_retry_retains_the_original_authority_and_partial_frame" in controls
+
+
+
+
+def test_hc418_preserves_exact_original_owner_control():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC418"]
+    assert rule.tests == ("sumeragi::lanes::registry::tests::read_only_destruction_tests::read_only_post_open_not_found_retains_original_source",)
+    assert rule.causes == (gate.ExpectedFailure("post-open NotFound must retain the original funded frame and authority without recapture", "crates/iroha_core/src/sumeragi/lanes/registry/read_only_destruction_tests.rs"),)
+    assert not rule.scenarios and gate.has_switch("HC418", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch("HC418", **family)
+    source = (ROOT / "crates/iroha_core/src/sumeragi/lanes/registry/read_only.rs").read_text()
+    assert source.count('sumeragi_core_mutation = "HC418"') == 1
+    assert 'cfg!(all(test, sumeragi_core_mutation = "HC418"))' in source
+    controls = (ROOT / "crates/iroha_core/src/sumeragi/lanes/registry/read_only_destruction_tests.rs").read_text()
+    assert "fn read_only_post_open_not_found_retains_original_source(" in controls
+    assert "post-open NotFound must retain the original funded frame and authority without recapture" in controls
+
+
+@pytest.mark.parametrize("identifier,selector,cause,source,owner", [
+    ('HC419', 'sumeragi::driver::tests::threaded::retirement_tests::retired_startup_keeps_publication_on_its_original_joiner', 'committed startup retirement must finish publication on its original joiner without blocking another lane', 'crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs', 'crates/iroha_core/src/sumeragi/driver/startup/pending.rs'),
+    ('HC420', 'sumeragi::driver::tests::threaded::retirement_tests::final_startup_shutdown_preserves_unpublished_original_store', 'final startup shutdown must stop its admitted job and preserve the original unpublished store', 'crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs', 'crates/iroha_core/src/sumeragi/driver/startup/pending.rs'),
+    ('HC421', 'sumeragi::driver::retirement::tests::original_worker_panic_never_authorizes_publication_or_retirement_success', 'a failed original worker join must retain failure and never authorize publication', 'crates/iroha_core/src/sumeragi/driver/retirement/tests.rs', 'crates/iroha_core/src/sumeragi/driver/mod.rs'),
+ ])
+def test_startup_retirement_publication_mutations_require_exact_original_causes(identifier, selector, cause, source, owner):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[identifier]
+    assert rule.tests == (selector,) and not rule.scenarios
+    assert rule.causes == (gate.ExpectedFailure(cause, source),)
+    assert gate.has_switch(identifier, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch(identifier, **family)
+    code = (ROOT / owner).read_text()
+    assert code.count(f'sumeragi_core_mutation = "{identifier}"') == 1
+    assert f'cfg!(all(test, sumeragi_core_mutation = "{identifier}"))' in code
+    controls = (ROOT / source).read_text()
+    body = named_rust_function(controls, selector.rsplit("::", 1)[-1])
+    assert body.index("budget.reserved_bytes(), 0") < body.index(json.dumps(cause))
+    if identifier == "HC419":
+        assert "fixture.gate.synchronizer() == Some(joiner)" in body
+        assert "Duration::from_secs(1)" in body
+        assert "shutdown_startup_for_test(fixture.retired)" in body
+    elif identifier == "HC420":
+        assert body.index("original.cancel();") < body.index("fixture.gate.release();") < body.index("drop(original);")
+    else:
+        assert body.index("release.send(())") < body.index("thread.join()") < body.index(json.dumps(cause))
+    rows = re.findall(r"^\| " + identifier + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and selector.rsplit("::", 1)[-1] in rows[0]
+
+
+@pytest.mark.parametrize("identifier", ["HC419", "HC420", "HC421"])
+@pytest.mark.parametrize("defect", ["none", "unrelated", "wrong-source", "missing-terminal", "one-passes", "abort", "timeout"])
+def test_startup_retirement_kills_require_normal_completed_causal_failures(monkeypatch, tmp_path, identifier, defect):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[identifier]
+    rows = [(name, "ok" if defect == "one-passes" else "FAILED") for name in rule.tests]
+    if defect == "missing-terminal":
+        rows.pop()
+    code, output = causal_control_output(rule, rows)
+    expected = rule.causes[0]
+    if defect == "unrelated":
+        output = output.replace(expected.cause, "unrelated setup refusal", 1)
+    elif defect == "wrong-source":
+        output = output.replace(expected.source + ':123:', 'foreign.rs:123:', 1)
+    elif defect == "abort":
+        code = -6
+    elif defect == "timeout":
+        code = None
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    verdict = "killed_by_test" if defect == "none" else "survived" if defect == "one-passes" else "error"
+    assert result["verdict"] == verdict, result
+
+
+@pytest.mark.parametrize("identifier,owner,selector,cause,source", [('HC395', 'crates/iroha_core/src/sumeragi/driver/mod.rs', 'sumeragi::driver::retirement::tests::original_joiner_physically_joins_workers_before_running_exact_publication', 'original publication must wait for every successful physical worker join', 'crates/iroha_core/src/sumeragi/driver/retirement/tests.rs'), ('HC414', 'crates/iroha_core/src/sumeragi/lanes/store.rs', 'sumeragi::driver::tests::threaded::retirement_tests::native_driver_binds_original_publication_before_its_first_append', 'native driver readiness must bind its exact funded joining owner before the first append', 'crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs'), ('HC422', 'crates/iroha_core/src/sumeragi/lanes/store.rs', 'sumeragi::lanes::store::owner_tests::native_append_without_original_joiner_refuses_before_any_write_or_tip_change', 'ownerless append must refuse before any native write, retained write or tip mutation', 'crates/iroha_core/src/sumeragi/lanes/store/owner_tests.rs'), ('HC423', 'crates/iroha_core/src/sumeragi/lanes/store.rs', 'sumeragi::driver::tests::threaded::retirement_tests::original_orphan_publication_does_not_block_other_lane_transaction_delivery', "original orphan SyncDir must not block another lane's actual lifecycle turn and transaction commit", 'crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs'), ('HC424', 'crates/iroha_core/src/sumeragi/lanes/store.rs', 'sumeragi::lanes::store::owner_tests::native_owner_binding_refuses_repeated_concurrent_and_foreign_admission', 'a second original joining owner must fail before replacing or acknowledging a bound store', 'crates/iroha_core/src/sumeragi/lanes/store/owner_tests.rs'), ('HC425', 'crates/iroha_core/src/sumeragi/driver/retirement.rs', 'sumeragi::lanes::store::owner_tests::stopped_original_owner_refuses_append_and_stays_bound_until_final_store_release', 'a stopped original publication owner must never admit another append', 'crates/iroha_core/src/sumeragi/lanes/store/owner_tests.rs'), ('HC426', 'crates/iroha_core/src/sumeragi/driver/retirement.rs', 'sumeragi::driver::retirement::tests::retirement_waits_for_every_original_append_permit_before_native_continuation', 'original retirement must wait for every admitted append permit before native continuation', 'crates/iroha_core/src/sumeragi/driver/retirement/tests.rs')])
+def test_original_publication_owner_mutations_use_current_causal_boundaries(identifier, owner, selector, cause, source):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[identifier]
+    expected_tests = (selector,)
+    expected_causes = (gate.ExpectedFailure(cause, source),)
+    if identifier == "HC426":
+        expected_tests += ("sumeragi::driver::retirement::tests::final_stop_drains_original_append_permit_without_retrying_publication",)
+        expected_causes += (gate.ExpectedFailure("final stop must drain every admitted append permit without retrying publication", source),)
+    assert rule.tests == expected_tests and not rule.scenarios
+    assert rule.causes == expected_causes
+    assert gate.has_switch(identifier, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch(identifier, **family)
+    owners = {path.relative_to(ROOT).as_posix() for path in (ROOT / "crates/iroha_core/src").rglob("*.rs")
+        if re.search(r'sumeragi_core_mutation\s*=\s*"' + identifier + '"', path.read_text())}
+    assert owners == {owner}
+    code = (ROOT / owner).read_text()
+    assert code.count(f'sumeragi_core_mutation = "{identifier}"') == (3 if identifier == "HC426" else 2 if identifier == "HC414" else 1)
+    controls = (ROOT / source).read_text()
+    body = named_rust_function(controls, selector.rsplit("::", 1)[-1])
+    assert body.index("budget.reserved_bytes(), 0") < body.index(json.dumps(cause))
+    if identifier == "HC395":
+        join = named_rust_function(code, "join_workers")
+        assert join.index('sumeragi_core_mutation = "HC395"') < join.index("join_original_workers(threads)") < join.index("error.resume()")
+        cleanup = (ROOT / "crates/iroha_core/src/sumeragi/driver/worker_panic.rs").read_text()
+        physical = named_rust_function(cleanup, "join_original_workers")
+        assert physical.index("thread.join()") < physical.index("drop(failures);") < physical.index("\n    first")
+        assert "calls.recv_timeout(Duration::from_millis(30))" in body
+        executable_body = rust_index.mask(body)
+        joined = re.search(r"\blet\s+joined\s*=\s*thread\s*\.\s*join\s*\(\s*\)\s*;", executable_body)
+        assert joined is not None
+        assert executable_body.index("release.send(())") < joined.start() < body.index(json.dumps(cause))
+    elif identifier == "HC423":
+        assert "full_turn&&live_handle.status()" in "".join(body.split())
+        assert "Duration::from_secs(1)" in body
+        assert "publication.original_thread()" in body and "publication.finished()" in body
+    elif identifier == "HC414":
+        assert "spawn_retiring_store_driver" in body and "store.append(&body, &certificate)" in body
+        assert "instance.running.shutdown();" in body and "original.admitted_to(&budget)" in body
+    elif identifier == "HC426":
+        assert body.index("drop(last);") < body.index("thread.join()") < body.index(json.dumps(cause))
+        assert "complete_with_both" in body and "complete_with_last" in body
+        final_stop = named_rust_function(controls, "final_stop_drains_original_append_permit_without_retrying_publication")
+        assert final_stop.index("drop(original);") < final_stop.index("thread.join()") < final_stop.index("budget.reserved_bytes(), 0")
+        assert final_stop.index("budget.reserved_bytes(), 0") < final_stop.index(json.dumps(expected_causes[1].cause))
+        assert "rejects_new" in final_stop and "calls_while_held" in final_stop and "!resumed" in final_stop
+    rows = re.findall(r"^\| " + identifier + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and all(name.rsplit("::", 1)[-1] in rows[0] for name in expected_tests)
+
+
+def test_obsolete_map_publication_mutation_is_replaced_by_original_join_ownership():
+    assert "HC417" not in gate.index_mutations(gate.CORE_MUTATIONS)
+    assert not gate.has_switch("HC417", core=True)
+    runner = (ROOT / "crates/iroha_core/src/sumeragi/lanes/runner.rs").read_text()
+    assert "!running && !starting" in runner
+    controls = (ROOT / "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs").read_text()
+    assert "an original pending startup must exclude its publication until every acquired worker is physically joined" in controls
+    assert "a still-owned retiring driver must exclude its original pending publication from lifecycle continuation" in controls
+
+
+@pytest.mark.parametrize("identifier", ["HC422", "HC423", "HC424", "HC425", "HC426"])
+@pytest.mark.parametrize("defect", ["none", "unrelated", "wrong-source", "missing-terminal", "one-passes", "abort", "timeout"])
+def test_original_publication_kills_require_completed_named_causal_failure(monkeypatch, tmp_path, identifier, defect):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[identifier]
+    rows = [(name, "ok" if defect == "one-passes" and index == 0 else "FAILED") for index, name in enumerate(rule.tests)]
+    if defect == "missing-terminal": rows.pop()
+    code, output = causal_control_output(rule, rows)
+    expected = rule.causes[0]
+    if defect == "unrelated": output = output.replace(expected.cause, "unrelated setup refusal", 1)
+    elif defect == "wrong-source": output = output.replace(expected.source + ':123:', 'foreign.rs:123:', 1)
+    elif defect == "abort": code = -6
+    elif defect == "timeout": code = None
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    verdict = "killed_by_test" if defect == "none" else "survived" if defect == "one-passes" and len(rule.tests) == 1 else "error"
+    assert result["verdict"] == verdict, result
+    if defect == "none": assert result["named"]["causal_failures"] == dict.fromkeys(rule.tests, True)
+
+
+def test_secondary_worker_panic_mutation_keeps_exact_physical_join_cause():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC427"]
+    selector = "sumeragi::driver::retirement::tests::original_worker_panics_keep_secondary_payloads_until_every_physical_join_finishes"
+    cause = "secondary panic payloads must remain owned until every original worker physically joins"
+    source = "crates/iroha_core/src/sumeragi/driver/retirement/tests.rs"
+    assert rule.tests == (selector,)
+    assert rule.causes == (gate.ExpectedFailure(cause, source),)
+    assert not rule.scenarios and gate.has_switch("HC427", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch("HC427", **family)
+    owner = (ROOT / "crates/iroha_core/src/sumeragi/driver/worker_panic.rs").read_text()
+    assert owner.count('sumeragi_core_mutation = "HC427"') == 1
+    body = named_rust_function(owner, "join_original_workers")
+    assert "[Option<OriginalWorkerPanic>; Worker::COUNT]" in body
+    assert body.index("thread.join()") < body.index('sumeragi_core_mutation = "HC427"') < body.index("drop(failure);")
+    assert body.index("let first =") < body.index("drop(failures);")
+    controls = named_rust_function((ROOT / source).read_text(), selector.rsplit("::", 1)[-1])
+    assert controls.index("workers.release();") < controls.index("thread.join()") < controls.index("workers.assert_clean();") < controls.index(json.dumps(cause))
+    assert "Arc::ptr_eq(error, &workers.original)" in controls
+    assert "!completed && append_refused && publication_calls == 0" in controls
+    rows = re.findall(r"^\| HC427 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and selector.rsplit("::", 1)[-1] in rows[0]
+
+
+@pytest.mark.parametrize("defect", ["none", "unrelated", "wrong-source", "missing-terminal", "one-passes", "abort", "timeout"])
+def test_secondary_worker_panic_kill_requires_completed_causal_failure(monkeypatch, tmp_path, defect):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC427"]
+    rows = [(name, "ok" if defect == "one-passes" else "FAILED") for name in rule.tests]
+    if defect == "missing-terminal":
+        rows.pop()
+    code, output = causal_control_output(rule, rows)
+    expected = rule.causes[0]
+    if defect == "unrelated":
+        output = output.replace(expected.cause, "unrelated setup refusal", 1)
+    elif defect == "wrong-source":
+        output = output.replace(expected.source + ':123:', 'foreign.rs:123:', 1)
+    elif defect == "abort":
+        code = -6
+    elif defect == "timeout":
+        code = None
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    verdict = "killed_by_test" if defect == "none" else "survived" if defect == "one-passes" else "error"
+    assert result["verdict"] == verdict, result
+
+
+def test_proposal_tip_retirement_mutation_preserves_real_history_and_exact_cause():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC428"]
+    selector = "sumeragi::lanes::merge::tests::opening_retirement::abandoned_proposal_tip_releases_original_opening_after_certified_retirement"
+    cause = "an abandoned proposal tip must release its original opening after certified retirement"
+    source = "crates/iroha_core/src/sumeragi/lanes/merge_tests/opening_retirement.rs"
+    assert rule.tests == (selector,)
+    assert rule.causes == (gate.ExpectedFailure(cause, source),)
+    assert not rule.scenarios and gate.has_switch("HC428", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch("HC428", **family)
+    registry = (ROOT / "crates/iroha_core/src/sumeragi/lanes/registry.rs").read_text()
+    tip = named_rust_function(registry, "tip")
+    assert 'let runtime_owner = !cfg!(all(test, sumeragi_core_mutation = "HC428"));' in tip
+    assert "self.store_with_runtime_owner(lane, incarnation, runtime_owner)" in tip
+    assert "store.authenticated_height()" in tip
+    assert "self.store(lane, incarnation)?.committed_batch(height)" in registry
+    assert "self.store(lane, incarnation)?.wait_for(height, timeout)" in registry
+    controls = (ROOT / source).read_text()
+    native = named_rust_function(controls, selector.rsplit("::", 1)[-1])
+    assert "commit_independent_global_work(&mut closed.fixture)" in native
+    assert "closed.record.retirement_height()" in native
+    assert "Some(closed.frame.len())" in native
+    assert native.index("drop((body, certificate, replay, closed));") < native.index("assert_eq!(budget.reserved_bytes(), 0);") < native.index(json.dumps(cause))
+    assert "refunded && released_lock" in native
+    assert "closed_unhosted_lane_proposal_retries_original_opening_and_preserves_certified_backlog" in controls
+    rows = re.findall(r"^\| HC428 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and selector.rsplit("::", 1)[-1] in rows[0]
+
+
+@pytest.mark.parametrize("defect", ["none", "unrelated", "wrong-source", "missing-terminal", "one-passes", "abort", "timeout"])
+def test_proposal_tip_retirement_kill_requires_completed_causal_failure(monkeypatch, tmp_path, defect):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC428"]
+    rows = [(name, "ok" if defect == "one-passes" else "FAILED") for name in rule.tests]
+    if defect == "missing-terminal":
+        rows.pop()
+    code, output = causal_control_output(rule, rows)
+    expected = rule.causes[0]
+    if defect == "unrelated":
+        output = output.replace(expected.cause, "unrelated setup refusal", 1)
+    elif defect == "wrong-source":
+        output = output.replace(expected.source + ':123:', 'foreign.rs:123:', 1)
+    elif defect == "abort":
+        code = -6
+    elif defect == "timeout":
+        code = None
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    verdict = "killed_by_test" if defect == "none" else "survived" if defect == "one-passes" else "error"
+    assert result["verdict"] == verdict, result
+
+
+def test_lane_startup_decode_refusal_mutation_preserves_original_carrier():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC432"]
+    selector = "sumeragi::lanes::executor::native_decode_tests::startup_refusal_observation_borrows_the_original_native_recovery_carrier"
+    cause = "lane startup must retain its original decode refusal through the public startup projection"
+    source = "crates/iroha_core/src/sumeragi/lanes/executor/native_decode_tests.rs"
+    assert rule.tests == (selector,) and not rule.scenarios
+    assert rule.causes == (gate.ExpectedFailure(cause, source),)
+    assert gate.has_switch("HC432", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch("HC432", **family)
+    owner = (ROOT / "crates/iroha_core/src/sumeragi/lanes/executor.rs").read_text()
+    assert owner.count('sumeragi_core_mutation = "HC432"') == 1
+    assert "Err(AdmissionAttemptError::Deferred(original))" in owner
+    assert "return Err(Attempt::Deferred(original.into()));" in owner
+    native = named_rust_function((ROOT / source).read_text(), selector.rsplit("::", 1)[-1])
+    assert "recovery.original_startup_refusal()" in native
+    assert "std::ptr::eq(borrowed, stored)" in native
+    assert "original.decode_refusal().is_some()" in native
+    assert native.index("drop((lane, fixture));") < native.index("assert_eq!(budget.reserved_bytes(), 0);") < native.index(json.dumps(cause))
+    rows = re.findall(r"^\| HC432 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and selector.rsplit("::", 1)[-1] in rows[0]
+
+
+@pytest.mark.parametrize("defect", ["none", "unrelated", "wrong-source", "missing-terminal", "one-passes", "abort", "timeout"])
+def test_lane_startup_decode_refusal_kill_requires_completed_cause(monkeypatch, tmp_path, defect):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC432"]
+    rows = [(name, "ok" if defect == "one-passes" else "FAILED") for name in rule.tests]
+    if defect == "missing-terminal": rows.pop()
+    code, output = causal_control_output(rule, rows)
+    expected = rule.causes[0]
+    if defect == "unrelated": output = output.replace(expected.cause, "unrelated setup refusal", 1)
+    elif defect == "wrong-source": output = output.replace(expected.source + ':123:', 'foreign.rs:123:', 1)
+    elif defect == "abort": code = -6
+    elif defect == "timeout": code = None
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    verdict = "killed_by_test" if defect == "none" else "survived" if defect == "one-passes" else "error"
+    assert result["verdict"] == verdict, result
+
+
+PROPOSAL_READ_RULES = (('HC429', 'sumeragi::lanes::registry::tests::proposal_reads::cancelled_proposal_releases_actual_ready_read_and_native_lock_without_another_driver_tick', 'cancelled proposal reads must release original ready custody without successor traffic', 'crates/iroha_core/src/sumeragi/lanes/registry/proposal_reads.rs'), ('HC430', 'sumeragi::lanes::registry::tests::proposal_reads::historical_join_retains_exact_authenticated_body_after_proposal_cancellation', 'historical joining must retain the exact original authenticated proposal read', 'crates/iroha_core/src/sumeragi/lanes/registry/proposal_reads.rs'), ('HC431', 'sumeragi::lanes::registry::tests::proposal_reads::successor_proposal_cannot_consume_live_or_incompatible_original_read', 'a successor proposal must not consume another live or incompatible original read', 'crates/iroha_core/src/sumeragi/lanes/registry/proposal_reads.rs'), ('HC433', 'sumeragi::executor::proposal_read_tests::original_lane_read_request_survives_refusal_busy_state_and_incidental_publication', 'the original lane read request must survive refusal and incidental publication until explicit cancellation', 'crates/iroha_core/src/sumeragi/executor/proposal_read_tests.rs'), ('HC434', 'sumeragi::lanes::store::refund_tests::busy_original_native_operation_inherits_cancelled_read_cleanup_before_returning', 'the original busy native operation must finish cancelled read cleanup before returning', 'crates/iroha_core/src/sumeragi/lanes/store/refund_tests.rs'))
+
+@pytest.mark.parametrize("mid,selector,cause,source", PROPOSAL_READ_RULES)
+def test_original_proposal_read_rule_requires_complete_native_custody(mid, selector, cause, source):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    assert rule.tests == (selector,) and not rule.scenarios
+    assert rule.causes == (gate.ExpectedFailure(cause, source),)
+    assert gate.has_switch(mid, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch(mid, **family)
+    native = named_rust_function((ROOT / source).read_text(), selector.rsplit("::", 1)[-1])
+    assert native.index("assert_eq!(budget.reserved_bytes(), 0);") < native.index(json.dumps(cause))
+    rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and selector in rows[0]
+
+
+@pytest.mark.parametrize("mid,selector,cause,source", PROPOSAL_READ_RULES)
+@pytest.mark.parametrize("defect", ["none", "unrelated", "wrong-source", "missing-terminal", "one-passes", "abort", "timeout"])
+def test_original_proposal_read_kill_requires_exact_completed_cause(monkeypatch, tmp_path, mid, selector, cause, source, defect):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    rows = [(name, "ok" if defect == "one-passes" else "FAILED") for name in rule.tests]
+    if defect == "missing-terminal": rows.pop()
+    code, output = causal_control_output(rule, rows)
+    if defect == "unrelated": output = output.replace(cause, "unrelated fixture failure", 1)
+    elif defect == "wrong-source": output = output.replace(source + ':123:', 'foreign.rs:123:', 1)
+    elif defect == "abort": code = -6
+    elif defect == "timeout": code = None
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    verdict = "killed_by_test" if defect == "none" else "survived" if defect == "one-passes" else "error"
+    assert result["verdict"] == verdict, result
+
+
+def test_original_proposal_read_lifecycle_has_one_explicit_owner_and_no_historical_fallback():
+    lanes = ROOT / "crates/iroha_core/src/sumeragi/lanes"
+    merge = (lanes / "merge.rs").read_text()
+    proposal = named_rust_function(merge, "propose")
+    assert "request: &mut ProposalReadScope" in proposal
+    assert "request.admit(&view.execution_budget())?" in proposal
+    assert re.search(r"source\.proposal_block\(\s*record\.lane,\s*&record\.incarnation,\s*lane_height,\s*request,?\s*\)", proposal)
+    assert "source.block(" not in proposal
+    registry = (lanes / "registry.rs").read_text()
+    cleanup = named_rust_function(registry, "clean_cancelled_proposal_reads")
+    assert "Arc::ptr_eq(original, &store)" in cleanup and "Arc::strong_count(original) == 2" in cleanup
+    assert "store.release_cancelled_reads();" in cleanup and "drop(retired);" in cleanup
+    owner = (ROOT / "crates/iroha_core/src/sumeragi/executor/payload_owner.rs").read_text()
+    request = owner.split("pub(super) struct ProposalReadRequest", 1)[1].split("}", 1)[0]
+    assert "applied: (u64, Hash32)" in request and "generation" not in request
+    cancellation = named_rust_function(owner, "cancel_proposal_reads")
+    assert cancellation.index("drop(self.proposal_reads.take());") < cancellation.index("release_cancelled_proposal_reads()")
+    store = (lanes / "store.rs").read_text()
+    cleanup = named_rust_function(store, "release_cancelled_reads")
+    assert "self.state.try_lock()" in cleanup and "self.batch_read.try_lock()" in cleanup
+    assert cleanup.index("drop(read);") > cleanup.index("self.batch_read.try_lock()")
+    assert "drop(batch);" in cleanup and ".cancelled()" in cleanup

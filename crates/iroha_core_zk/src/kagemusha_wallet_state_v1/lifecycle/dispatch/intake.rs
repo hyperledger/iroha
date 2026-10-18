@@ -234,6 +234,7 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
         entry: &mut Entry,
         selected: &mut [u8; 32],
         manifest: &mut manifest::Manifest,
+        speculative: Option<&N::Speculative>,
     ) -> Result<Option<(Plan, N::Prepared)>, Error> {
         let key = ArchiveKey::PreparationDraft(request.request_id());
         let source_digest = source.released().frozen.capsule.custody_digest();
@@ -255,9 +256,16 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
                     manifest.finality_epochs,
                     manifest.blacklist.clone(),
                 )?;
-                let (native, prepared) =
-                    self.proofs
-                        .plan_preparation(request, source, &mut custody)?;
+                let (native, prepared) = match speculative {
+                    // A review's speculation supplies its own choices for this exact request.
+                    Some(speculative) => {
+                        self.proofs
+                            .plan_speculated(request, source, &mut custody, speculative)?
+                    }
+                    None => self
+                        .proofs
+                        .plan_preparation(request, source, &mut custody)?,
+                };
                 // Planned in this call: this one derivation is reused through proving.
                 planned = Some(prepared);
                 let native = PrivateArchiveBytes::from_guarded(zeroize::Zeroizing::new(native));

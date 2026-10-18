@@ -46,8 +46,6 @@ mod native_projection_response;
 mod nft_market;
 mod operator_auth;
 mod operator_signatures;
-#[cfg(feature = "app_api")]
-mod parliament_tle_release;
 pub mod privacy_issuance_api;
 mod private_dataspaces;
 mod private_root_export;
@@ -73,6 +71,7 @@ mod sccp;
 mod sns_lease;
 mod staking_preparation;
 mod stream_control;
+mod stream_read_authorization;
 mod stream_token_custody_proof;
 mod torii_mutation_guard;
 #[cfg(feature = "app_api")]
@@ -1235,9 +1234,8 @@ pub use gov::{
     handle_gov_citizen_status, handle_gov_contract_get, handle_gov_get_locks,
     handle_gov_get_proposal, handle_gov_get_referendum, handle_gov_get_tally,
     handle_gov_parliament_attempt_draft, handle_gov_parliament_attempt_plan,
-    handle_gov_parliament_attempt_read, handle_gov_parliament_tle_release_context_read,
-    handle_gov_parliament_transition_draft, handle_gov_protected_get, handle_gov_protected_set,
-    handle_gov_unlock_stats,
+    handle_gov_parliament_attempt_read, handle_gov_parliament_transition_draft,
+    handle_gov_protected_get, handle_gov_protected_set, handle_gov_unlock_stats,
 };
 // Routing helpers used by integration tests
 #[cfg(any(test, feature = "test-fixtures"))]
@@ -2455,8 +2453,6 @@ struct AppState {
     transaction_batch_max_transactions: usize,
     transaction_batch_max_bytes: usize,
     state: Arc<CoreState>,
-    #[cfg(feature = "app_api")]
-    parliament_tle_release_coordinator: Arc<iroha_core::tle_release::TleReleaseCoordinatorV1>,
     #[cfg(feature = "app_api")]
     musubi_search: Arc<RwLock<iroha_core::musubi_search::MusubiSearchIndexV1>>,
     bootle_lantern_issuance_runtime:
@@ -8079,159 +8075,6 @@ async fn handler_gov_parliament_attempt_plan(
     )
     .await?;
     crate::gov::handle_gov_parliament_attempt_plan(app.state.clone(), governance_attempt_id).await
-}
-
-#[cfg(feature = "app_api")]
-async fn handler_gov_parliament_timed_ovn_casting_context_read(
-    State(app): State<SharedAppState>,
-    headers: axum::http::HeaderMap,
-    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
-    AxPath(ballot_attempt_id): AxPath<String>,
-) -> Result<
-    JsonBody<iroha_torii_shared::parliament_api::ParliamentTimedOvnCastingContextResponseV1>,
-    Error,
-> {
-    check_access(
-        &app,
-        &headers,
-        Some(remote.ip()),
-        "v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context",
-    )
-    .await?;
-    let replay_admission = acquire_query_admission(app.as_ref(), true).await?;
-    let state = app.state.clone();
-    crate::panic_recovery::join_recoverable(crate::panic_recovery::spawn_blocking_recoverable(
-        move || {
-            // Keep heavy replay capacity reserved even if cancellation detaches the
-            // blocking task from its HTTP request future.
-            let _replay_admission = replay_admission;
-            crate::gov::handle_gov_parliament_timed_ovn_casting_context_read(
-                state,
-                ballot_attempt_id,
-            )
-        },
-    ))
-    .await
-    .map_err(|error| Error::AppServiceUnavailable {
-        code: "parliament_timed_ovn_casting_context_worker_unavailable",
-        message: error.to_string(),
-    })?
-}
-
-#[cfg(feature = "app_api")]
-async fn handler_gov_parliament_timed_ovn_casting_proof(
-    State(app): State<SharedAppState>,
-    headers: axum::http::HeaderMap,
-    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
-    AxPath(ballot_attempt_id): AxPath<String>,
-    crate::utils::extractors::NoritoOnly(request): crate::utils::extractors::NoritoOnly<
-        iroha_torii_shared::parliament_api::ParliamentTimedOvnCastingProofRequestV1,
-    >,
-) -> Result<
-    NoritoBody<iroha_torii_shared::parliament_api::ParliamentTimedOvnCastingProofResponseV1>,
-    Error,
-> {
-    check_access(
-        &app,
-        &headers,
-        Some(remote.ip()),
-        "v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof",
-    )
-    .await?;
-    let replay_admission = acquire_query_admission(app.as_ref(), true).await?;
-    let state = app.state.clone();
-    let kura = app.kura.clone();
-    crate::panic_recovery::join_recoverable(crate::panic_recovery::spawn_blocking_recoverable(
-        move || {
-            // Keep proof construction capacity reserved after request cancellation.
-            let _replay_admission = replay_admission;
-            crate::gov::handle_gov_parliament_timed_ovn_casting_proof(
-                state,
-                kura,
-                ballot_attempt_id,
-                request,
-            )
-        },
-    ))
-    .await
-    .map_err(|error| Error::AppServiceUnavailable {
-        code: "parliament_timed_ovn_casting_proof_worker_unavailable",
-        message: error.to_string(),
-    })?
-}
-
-#[cfg(feature = "app_api")]
-async fn handler_gov_parliament_tle_release_context_read(
-    State(app): State<SharedAppState>,
-    headers: axum::http::HeaderMap,
-    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
-    AxPath(ballot_attempt_id): AxPath<String>,
-) -> Result<
-    JsonBody<iroha_torii_shared::parliament_api::ParliamentTleReleaseContextResponseV1>,
-    Error,
-> {
-    check_access(
-        &app,
-        &headers,
-        Some(remote.ip()),
-        "v1/gov/parliament/ballots/{ballot_attempt_id}/release-context",
-    )
-    .await?;
-    let replay_admission = acquire_query_admission(app.as_ref(), true).await?;
-    let state = app.state.clone();
-    crate::panic_recovery::join_recoverable(crate::panic_recovery::spawn_blocking_recoverable(
-        move || {
-            // Keep heavy replay capacity reserved even if cancellation detaches the
-            // blocking task from its HTTP request future.
-            let _replay_admission = replay_admission;
-            crate::gov::handle_gov_parliament_tle_release_context_read(state, ballot_attempt_id)
-        },
-    ))
-    .await
-    .map_err(|error| Error::AppServiceUnavailable {
-        code: "parliament_tle_release_context_worker_unavailable",
-        message: error.to_string(),
-    })?
-}
-
-#[cfg(feature = "app_api")]
-async fn handler_gov_parliament_tle_partial_release(
-    State(app): State<SharedAppState>,
-    headers: axum::http::HeaderMap,
-    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
-    AxPath(ballot_attempt_id): AxPath<String>,
-    request: axum::http::Request<Body>,
-) -> Result<JsonBody<iroha_torii_shared::parliament_api::ParliamentTlePartialReleaseShareV1>, Error>
-{
-    check_access(
-        &app,
-        &headers,
-        Some(remote.ip()),
-        "v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release",
-    )
-    .await?;
-    crate::parliament_tle_release::require_empty_body_v1(request.into_body()).await?;
-    let signer_admission = acquire_query_admission(app.as_ref(), true).await?;
-    let share = crate::parliament_tle_release::request_local_partial_release_v1(
-        app.state.clone(),
-        app.parliament_tle_release_coordinator.clone(),
-        ballot_attempt_id,
-        signer_admission,
-    )
-    .await?;
-    Ok(JsonBody(
-        iroha_torii_shared::parliament_api::ParliamentTlePartialReleaseShareV1 {
-            key_session_id: share.key_session_id,
-            identity_digest: share.identity_digest,
-            participant_index: share.participant_index,
-            sigma: share.sigma,
-            proof_x: share.proof_x,
-            proof_y: share.proof_y,
-            z_s: share.z_s,
-            z_r: share.z_r,
-            z_u: share.z_u,
-        },
-    ))
 }
 
 #[cfg(feature = "app_api")]
@@ -15127,7 +14970,9 @@ impl ToriiAccountReadVisibility {
 ///
 /// The visible set is deliberately recomputed from current state instead of
 /// being frozen at connection time, so permission revocation takes effect for
-/// the next emitted item.
+/// the next emitted item. Long-lived streams own a
+/// [`stream_read_authorization::ToriiStreamReadAuthorization`], which reuses
+/// one decision until a block commits or the authorization interval elapses.
 #[derive(Clone)]
 pub(crate) struct ToriiDataspaceReadContext {
     app: SharedAppState,
@@ -15137,60 +14982,57 @@ pub(crate) struct ToriiDataspaceReadContext {
     fixed_visibility: Option<routing::DataspaceReadVisibility>,
 }
 
-/// Event plus the complete authorization scope resolved before any
-/// subscriber-controlled filtering or projection.
-struct ScopedEvent {
-    event: EventBox,
-    scope: ScopedEventScope,
-}
-
-enum ScopedEventScope {
-    /// Block lifecycle notices are public and carry no transaction body.
-    Public,
-    /// Every named dataspace must be visible to the current reader.
-    Dataspaces(BTreeSet<DataSpaceId>),
-    /// Missing, malformed, or intrinsically global provenance is visible only
-    /// to a caller that still holds `CanReadAllLedgerData`.
-    GlobalReaderOnly,
-}
-
-impl ScopedEvent {
-    fn into_visible(self, visibility: &routing::DataspaceReadVisibility) -> Option<EventBox> {
-        let visible = match &self.scope {
-            ScopedEventScope::Public => true,
-            ScopedEventScope::Dataspaces(dataspaces) => dataspaces
-                .iter()
-                .all(|dataspace| visibility.allows_dataspace(*dataspace)),
-            ScopedEventScope::GlobalReaderOnly => visibility.can_read_all(),
-        };
-        visible.then_some(self.event)
-    }
-}
-
 impl ToriiDataspaceReadContext {
     fn caller(&self) -> Option<&AccountId> {
         self.caller.as_ref()
     }
 
     fn current_visibility(&self) -> routing::DataspaceReadVisibility {
-        #[cfg(test)]
-        if let Some(visibility) = &self.fixed_visibility {
-            return visibility.clone();
-        }
-        torii_dataspace_read_visibility(self.app.as_ref(), self.caller())
+        self.visibility_in(&self.app.state.view())
     }
 
     /// Revalidate the exact principal and route scope that admitted a
     /// long-lived stream.
     fn authorization_is_current(&self) -> bool {
-        if let Some(caller) = self.caller() {
-            let state_view = self.app.state.view();
-            if state_view.world().accounts().get(caller).is_none() {
-                return false;
-            }
+        let state_view = self.app.state.view();
+        let visibility = self.visibility_in(&state_view);
+        self.retains_admission_in(&state_view, &visibility)
+    }
+
+    /// Resolve the current visibility, and whether it still retains the
+    /// admitted principal and scope, from one State view whose committed
+    /// height is returned with them.
+    fn current_read_scope(&self) -> (usize, routing::DataspaceReadVisibility, bool) {
+        let state_view = self.app.state.view();
+        let visibility = self.visibility_in(&state_view);
+        let authorized = self.retains_admission_in(&state_view, &visibility);
+        (state_view.height(), visibility, authorized)
+    }
+
+    fn visibility_in(
+        &self,
+        state_view: &iroha_core::state::StateView<'_>,
+    ) -> routing::DataspaceReadVisibility {
+        #[cfg(test)]
+        if let Some(visibility) = &self.fixed_visibility {
+            return visibility.clone();
         }
-        self.current_visibility()
-            .retains_authorized_scope(&self.admitted_visibility)
+        torii_dataspace_read_visibility_in(state_view, self.caller())
+    }
+
+    /// The admitted caller still exists and `visibility` still contains the
+    /// scope that admitted it.
+    fn retains_admission_in(
+        &self,
+        state_view: &iroha_core::state::StateView<'_>,
+        visibility: &routing::DataspaceReadVisibility,
+    ) -> bool {
+        if let Some(caller) = self.caller()
+            && state_view.world().accounts().get(caller).is_none()
+        {
+            return false;
+        }
+        visibility.retains_authorized_scope(&self.admitted_visibility)
     }
 
     #[cfg(test)]
@@ -15201,124 +15043,6 @@ impl ToriiDataspaceReadContext {
             admitted_visibility: routing::DataspaceReadVisibility::all_for_tests(),
             fixed_visibility: Some(routing::DataspaceReadVisibility::all_for_tests()),
         }
-    }
-
-    fn filter_event(
-        &self,
-        kura: &Kura,
-        event: EventBox,
-    ) -> std::result::Result<
-        Option<EventBox>,
-        iroha_core::execution_attempt::ExecutionAttemptError<iroha_core::kura::Error>,
-    > {
-        let visibility = self.current_visibility();
-        match event {
-            EventBox::PipelineBatch(events) => {
-                let mut visible = Vec::new();
-                for event in events {
-                    if let Some(EventBox::Pipeline(event)) = self
-                        .scope_pipeline_event(kura, event)?
-                        .into_visible(&visibility)
-                    {
-                        visible.push(event);
-                    }
-                }
-                Ok((!visible.is_empty()).then_some(EventBox::PipelineBatch(visible)))
-            }
-            EventBox::Pipeline(event) => Ok(self
-                .scope_pipeline_event(kura, event)?
-                .into_visible(&visibility)),
-            // Data, trigger, and clock events do not yet carry committed route
-            // provenance. The explicit envelope fails them closed to a global
-            // reader instead of guessing scope from payload data.
-            other @ (EventBox::Data(_)
-            | EventBox::Time(_)
-            | EventBox::ExecuteTrigger(_)
-            | EventBox::TriggerCompleted(_)) => Ok(ScopedEvent {
-                event: other,
-                scope: ScopedEventScope::GlobalReaderOnly,
-            }
-            .into_visible(&visibility)),
-        }
-    }
-
-    fn filter_current_event(
-        &self,
-        event: EventBox,
-    ) -> std::result::Result<
-        Option<EventBox>,
-        iroha_core::execution_attempt::ExecutionAttemptError<iroha_core::kura::Error>,
-    > {
-        self.filter_event(self.app.kura.as_ref(), event)
-    }
-
-    fn scope_pipeline_event(
-        &self,
-        kura: &Kura,
-        event: PipelineEventBox,
-    ) -> std::result::Result<
-        ScopedEvent,
-        iroha_core::execution_attempt::ExecutionAttemptError<iroha_core::kura::Error>,
-    > {
-        let scope = match &event {
-            PipelineEventBox::Block(_) => ScopedEventScope::Public,
-            PipelineEventBox::Transaction(transaction) => Self::transaction_event_scope(
-                kura,
-                transaction,
-                &self.app.state.ivm_execution_budget(),
-            )?,
-            PipelineEventBox::Warning(_) | PipelineEventBox::Witness(_) => {
-                ScopedEventScope::GlobalReaderOnly
-            }
-        };
-        Ok(ScopedEvent {
-            event: EventBox::Pipeline(event),
-            scope,
-        })
-    }
-
-    fn transaction_event_scope(
-        kura: &Kura,
-        transaction: &iroha_data_model::events::pipeline::TransactionEvent,
-        execution_budget: &iroha_core::state::AllocationBudget,
-    ) -> std::result::Result<
-        ScopedEventScope,
-        iroha_core::execution_attempt::ExecutionAttemptError<iroha_core::kura::Error>,
-    > {
-        let Some(height) = transaction.block_height() else {
-            return Ok(ScopedEventScope::GlobalReaderOnly);
-        };
-        let Ok(height) = usize::try_from(height.get()) else {
-            return Ok(ScopedEventScope::GlobalReaderOnly);
-        };
-        let Some(height) = NonZeroUsize::new(height) else {
-            return Ok(ScopedEventScope::GlobalReaderOnly);
-        };
-        let Some(block) = kura.get_block(height, execution_budget)? else {
-            return Ok(ScopedEventScope::GlobalReaderOnly);
-        };
-        let mut matched = false;
-        let mut dataspaces = BTreeSet::new();
-        for index in 0..block.external_entrypoint_count() {
-            let Some(candidate) = block.external_signed_transaction_ref_at(index) else {
-                return Ok(ScopedEventScope::GlobalReaderOnly);
-            };
-            if candidate.hash() != *transaction.hash() {
-                continue;
-            }
-            matched = true;
-            let Some(entrypoint_dataspaces) =
-                routing::DataspaceReadVisibility::external_entrypoint_dataspaces(&block, index)
-            else {
-                return Ok(ScopedEventScope::GlobalReaderOnly);
-            };
-            dataspaces.extend(entrypoint_dataspaces);
-        }
-        Ok(if !matched || dataspaces.is_empty() {
-            ScopedEventScope::GlobalReaderOnly
-        } else {
-            ScopedEventScope::Dataspaces(dataspaces)
-        })
     }
 }
 #[cfg(feature = "app_api")]
@@ -15413,7 +15137,14 @@ fn torii_visible_account_read_routes(
     app: &AppState,
     caller: Option<&AccountId>,
 ) -> Vec<RoutingDecision> {
-    let state_view = app.state.view();
+    torii_visible_account_read_routes_in(&app.state.view(), caller)
+}
+
+/// Account-read routes visible to `caller`, all resolved from one State view.
+fn torii_visible_account_read_routes_in(
+    state_view: &iroha_core::state::StateView<'_>,
+    caller: Option<&AccountId>,
+) -> Vec<RoutingDecision> {
     let world = state_view.world();
     match iroha_core::sumeragi::lanes::routing::committed_root_scope(world) {
         Some(iroha_data_model::block::consensus::SumeragiRootScope::Dataspace {
@@ -15435,7 +15166,7 @@ fn torii_visible_account_read_routes(
             {
                 return Vec::new();
             }
-            return resolve_torii_private_root_account_route(&state_view, dataspace_id)
+            return resolve_torii_private_root_account_route(state_view, dataspace_id)
                 .ok()
                 .into_iter()
                 .collect();
@@ -15443,7 +15174,8 @@ fn torii_visible_account_read_routes(
         Some(iroha_data_model::block::consensus::SumeragiRootScope::Global) => {}
         None => return Vec::new(),
     }
-    let mut visible_dataspaces = torii_public_dataspace_ids(app);
+    let all_routes = torii_all_dataspace_routes_in(state_view);
+    let mut visible_dataspaces = torii_public_dataspace_ids_in(state_view);
     if let Some(caller) = caller
         && let Ok(account) = world.account(caller)
         && let Some(uaid) = account.value().uaid().copied()
@@ -15454,11 +15186,11 @@ fn torii_visible_account_read_routes(
     if let Some(caller) = caller {
         let can_read_all: Permission = CanReadAllLedgerData.into();
         if torii_account_has_permission(world, caller, &can_read_all) {
-            return torii_all_dataspace_routes(app);
+            return all_routes;
         }
         visible_dataspaces.extend(
-            torii_all_dataspace_routes(app)
-                .into_iter()
+            all_routes
+                .iter()
                 .filter(|route| {
                     let permission: Permission = CanReadRestrictedDataspace {
                         dataspace: route.dataspace_id,
@@ -15469,7 +15201,7 @@ fn torii_visible_account_read_routes(
                 .map(|route| route.dataspace_id),
         );
     }
-    torii_all_dataspace_routes(app)
+    all_routes
         .into_iter()
         .filter(|route| visible_dataspaces.contains(&route.dataspace_id))
         .collect()
@@ -15479,12 +15211,19 @@ fn torii_dataspace_read_visibility(
     app: &AppState,
     caller: Option<&AccountId>,
 ) -> routing::DataspaceReadVisibility {
+    torii_dataspace_read_visibility_in(&app.state.view(), caller)
+}
+
+/// The dataspace visibility of `caller`, resolved from one State view.
+fn torii_dataspace_read_visibility_in(
+    state_view: &iroha_core::state::StateView<'_>,
+    caller: Option<&AccountId>,
+) -> routing::DataspaceReadVisibility {
     let can_read_all = caller.is_some_and(|caller| {
         let permission: Permission = CanReadAllLedgerData.into();
-        let state_view = app.state.view();
         torii_account_has_permission(state_view.world(), caller, &permission)
     });
-    let visible_dataspaces = torii_visible_account_read_routes(app, caller)
+    let visible_dataspaces = torii_visible_account_read_routes_in(state_view, caller)
         .into_iter()
         .map(|route| route.dataspace_id)
         .collect();
@@ -15534,12 +15273,18 @@ fn torii_dataspace_read_visibility_for_scope(
     }
 }
 fn torii_public_dataspace_ids(app: &AppState) -> BTreeSet<DataSpaceId> {
-    let state_view = app.state.view();
+    torii_public_dataspace_ids_in(&app.state.view())
+}
+
+/// Dataspaces of the public lanes active at the view's committed height.
+fn torii_public_dataspace_ids_in(
+    state_view: &iroha_core::state::StateView<'_>,
+) -> BTreeSet<DataSpaceId> {
     let nexus = state_view.nexus();
     let mut dataspaces = BTreeSet::new();
     for lane in nexus.lane_catalog.lanes() {
         if lane.visibility == iroha_data_model::nexus::LaneVisibility::Public
-            && torii_lane_active_for_routing(app, lane.id)
+            && state_view.is_lane_active_for_authority(lane.id)
         {
             dataspaces.insert(lane.dataspace_id);
         }
@@ -15652,10 +15397,10 @@ fn torii_global_signed_query_read_routes(
     app: &AppState,
     authority: &AccountId,
 ) -> Vec<RoutingDecision> {
-    let public_dataspaces = torii_public_dataspace_ids(app);
     let state_view = app.state.view();
+    let public_dataspaces = torii_public_dataspace_ids_in(&state_view);
     let world = state_view.world();
-    torii_all_dataspace_routes(app)
+    torii_all_dataspace_routes_in(&state_view)
         .into_iter()
         .filter(|route| {
             public_dataspaces.contains(&route.dataspace_id)
@@ -16129,14 +15874,20 @@ fn torii_account_read_route_scope(
     }
 }
 fn torii_all_dataspace_routes(app: &AppState) -> Vec<RoutingDecision> {
-    let state_view = app.state.view();
+    torii_all_dataspace_routes_in(&app.state.view())
+}
+
+/// The lowest active lane of every dataspace at the view's committed height.
+fn torii_all_dataspace_routes_in(
+    state_view: &iroha_core::state::StateView<'_>,
+) -> Vec<RoutingDecision> {
     let nexus = state_view.nexus();
     let mut routes = BTreeMap::<
         iroha_model_base::topology::DataSpaceId,
         iroha_model_base::topology::LaneId,
     >::new();
     for lane in nexus.lane_catalog.lanes() {
-        if !torii_lane_active_for_routing(app, lane.id) {
+        if !state_view.is_lane_active_for_authority(lane.id) {
             continue;
         }
         routes
@@ -17304,15 +17055,6 @@ fn torii_authorized_signed_query_routes(
     };
     torii_authorize_signed_query_routes(app, request, scope, routes)
 }
-#[cfg(test)]
-fn clone_verified_query_request(
-    request: &iroha_data_model::query::QueryRequestWithAuthority,
-) -> iroha_data_model::query::QueryRequestWithAuthority {
-    let bytes = norito::to_bytes(request)
-        .expect("verified routed query requests should encode deterministically");
-    norito::decode_from_bytes(&bytes)
-        .expect("verified routed query requests should decode deterministically")
-}
 #[expect(
     clippy::result_large_err,
     reason = "HTTP rejections retain the complete Axum response at this transport boundary."
@@ -17399,102 +17141,8 @@ fn clone_verified_query_request_bounded(
             )
         })
 }
-#[cfg(test)]
-#[expect(
-    clippy::result_large_err,
-    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-)]
-fn fanout_route_scan_query_request(
-    request: &iroha_data_model::query::QueryRequestWithAuthority,
-) -> Result<iroha_data_model::query::QueryRequestWithAuthority, Response> {
-    prepare_fanout_route_scan_query_request(clone_verified_query_request(request))
-}
-#[expect(
-    clippy::result_large_err,
-    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-)]
-fn fanout_route_scan_query_request_bounded(
-    request: &iroha_data_model::query::QueryRequestWithAuthority,
-    envelope: QueryFanoutMemoryEnvelope,
-) -> Result<iroha_data_model::query::QueryRequestWithAuthority, Response> {
-    prepare_fanout_route_scan_query_request(clone_verified_query_request_bounded(
-        request, envelope,
-    )?)
-}
-#[expect(
-    clippy::result_large_err,
-    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-)]
-fn prepare_fanout_route_scan_query_request(
-    mut request: iroha_data_model::query::QueryRequestWithAuthority,
-) -> Result<iroha_data_model::query::QueryRequestWithAuthority, Response> {
-    if let iroha_data_model::query::QueryRequest::Start(start) = &mut request.request {
-        let signed_pagination = start.params.pagination.clone();
-        let fetch_size_cap = crate::routing::app_query_limits().max_fetch_size.max(1);
-        let scan_limit = match signed_pagination.limit {
-            Some(limit) => {
-                let window = signed_pagination
-                    .offset
-                    .checked_add(limit.get())
-                    .ok_or_else(|| {
-                        torii_proxy_error_response(
-                            StatusCode::BAD_REQUEST,
-                            "invalid_pagination",
-                            "routed query pagination window overflows",
-                        )
-                    })?;
-                if window > fetch_size_cap {
-                    return Err(torii_proxy_error_response(
-                        StatusCode::BAD_REQUEST,
-                        "invalid_pagination",
-                        format!(
-                            "routed query offset plus limit must not exceed the configured fetch budget of {fetch_size_cap} rows"
-                        ),
-                    ));
-                }
-                std::num::NonZeroU64::new(window)
-                    .expect("a non-zero signed limit produces a non-zero route-scan bound")
-            }
-            None => {
-                if signed_pagination.offset > fetch_size_cap {
-                    return Err(torii_proxy_error_response(
-                        StatusCode::BAD_REQUEST,
-                        "invalid_pagination",
-                        format!(
-                            "routed query offset must not exceed the configured fetch budget of {fetch_size_cap} rows"
-                        ),
-                    ));
-                }
-                std::num::NonZeroU64::new(fetch_size_cap)
-                    .expect("the route-scan fetch budget is non-zero")
-            }
-        };
-        start.params.pagination =
-            iroha_data_model::query::parameters::Pagination::new(Some(scan_limit), 0);
-        let fetch_size = scan_limit.get().min(fetch_size_cap);
-        start.params.fetch_size = iroha_data_model::query::parameters::FetchSize::new(
-            std::num::NonZeroU64::new(fetch_size),
-        );
-    }
-    Ok(request)
-}
 fn unsupported_routed_query_response(message: impl Into<String>) -> Response {
     torii_proxy_error_response(StatusCode::CONFLICT, "query_unsupported", message)
-}
-fn canonical_fanout_error_response(
-    error: iroha_data_model::query::error::QueryExecutionFail,
-) -> Response {
-    use iroha_data_model::query::error::QueryExecutionFail;
-    match error {
-        QueryExecutionFail::GasBudgetExceeded | QueryExecutionFail::CapacityLimit => {
-            torii_proxy_error_response(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                "query_capacity_exceeded",
-                "bounded canonical routed-query execution exceeded its deterministic work or memory budget",
-            )
-        }
-        _ => unsupported_canonical_iterable_fanout_response(),
-    }
 }
 fn unsupported_canonical_iterable_fanout_response() -> Response {
     torii_proxy_error_response(
@@ -17503,35 +17151,11 @@ fn unsupported_canonical_iterable_fanout_response() -> Response {
         "cross-dataspace iterable fanout is unavailable for canonical opaque query envelopes",
     )
 }
-// TODO: routed iterable fanout is parked (`bounded_canonical_iterable_fanout_variant`
-// rejects every iterable start); only the encoder tests construct these variants
-// until the canonical iterable projection is enabled.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "routed iterable fanout is parked; tests exercise the encoder"
-    )
-)]
-enum BoundedCanonicalFanoutVariant {
-    RoleId,
-    TriggerId,
-}
-impl BoundedCanonicalFanoutVariant {
-    fn matches(self, batch: &iroha_data_model::query::QueryOutputBatchBox) -> bool {
-        matches!(
-            (self, batch),
-            (
-                Self::RoleId,
-                iroha_data_model::query::QueryOutputBatchBox::RoleId(_)
-            ) | (
-                Self::TriggerId,
-                iroha_data_model::query::QueryOutputBatchBox::TriggerId(_)
-            )
-        )
-    }
-}
+/// Admit a query for cross-dataspace fanout.
+///
+/// Only singular queries fan out: every route's result is compared and one is
+/// retained. Iterable starts are refused because no canonical cross-route
+/// iterable projection exists, and clients cannot supply continuations.
 #[expect(
     clippy::result_large_err,
     reason = "HTTP rejections retain the complete Axum response at this transport boundary."
@@ -17539,24 +17163,10 @@ impl BoundedCanonicalFanoutVariant {
 fn ensure_bounded_fanout_query(
     request: &iroha_data_model::query::QueryRequestWithAuthority,
 ) -> Result<(), Response> {
-    bounded_fanout_query_kind(request).map(drop)
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BoundedFanoutQueryKind {
-    Iterable(BoundedCanonicalFanoutVariant),
-    Singular,
-}
-#[expect(
-    clippy::result_large_err,
-    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-)]
-fn bounded_fanout_query_kind(
-    request: &iroha_data_model::query::QueryRequestWithAuthority,
-) -> Result<BoundedFanoutQueryKind, Response> {
     match &request.request {
-        iroha_data_model::query::QueryRequest::Singular(_) => Ok(BoundedFanoutQueryKind::Singular),
+        iroha_data_model::query::QueryRequest::Singular(_) => Ok(()),
         iroha_data_model::query::QueryRequest::Start(_) => {
-            bounded_canonical_iterable_fanout_variant(request).map(BoundedFanoutQueryKind::Iterable)
+            Err(unsupported_canonical_iterable_fanout_response())
         }
         iroha_data_model::query::QueryRequest::Continue(_) => {
             Err(unsupported_routed_query_response(
@@ -17564,31 +17174,6 @@ fn bounded_fanout_query_kind(
             ))
         }
     }
-}
-#[expect(
-    clippy::result_large_err,
-    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-)]
-fn bounded_canonical_iterable_fanout_variant(
-    _request: &iroha_data_model::query::QueryRequestWithAuthority,
-) -> Result<BoundedCanonicalFanoutVariant, Response> {
-    Err(unsupported_canonical_iterable_fanout_response())
-}
-#[expect(
-    clippy::result_large_err,
-    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-)]
-fn push_bounded_canonical_fanout_batch(
-    accumulator: &mut iroha_core::smartcontracts::isi::query::CanonicalQueryOutputAccumulator,
-    expected_variant: BoundedCanonicalFanoutVariant,
-    batch: iroha_data_model::query::QueryOutputBatchBox,
-) -> Result<(), Response> {
-    if !expected_variant.matches(&batch) {
-        return Err(unsupported_canonical_iterable_fanout_response());
-    }
-    accumulator
-        .push_batch(batch)
-        .map_err(canonical_fanout_error_response)
 }
 fn incompatible_routed_query_response(expected: &'static str) -> Response {
     torii_proxy_error_response(
@@ -17682,267 +17267,6 @@ fn decode_verified_singular_fanout_request_bounded(
                 "failed to decode the bounded singular routed query request",
             )
         })
-}
-fn canonical_fanout_len_prefixed(payload_len: usize) -> Option<usize> {
-    norito::core::len_prefix_len(payload_len).checked_add(payload_len)
-}
-#[derive(Clone, Copy)]
-enum CanonicalFanoutBatchRef<'a> {
-    RoleId(&'a Vec<iroha_data_model::role::RoleId>),
-    TriggerId(&'a Vec<iroha_data_model::trigger::TriggerId>),
-}
-impl CanonicalFanoutBatchRef<'_> {
-    #[expect(
-        clippy::result_large_err,
-        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-    )]
-    fn from_batch(
-        batch: &iroha_data_model::query::QueryOutputBatchBox,
-        expected: BoundedCanonicalFanoutVariant,
-    ) -> Result<CanonicalFanoutBatchRef<'_>, Response> {
-        match (expected, batch) {
-            (
-                BoundedCanonicalFanoutVariant::RoleId,
-                iroha_data_model::query::QueryOutputBatchBox::RoleId(values),
-            ) => Ok(CanonicalFanoutBatchRef::RoleId(values)),
-            (
-                BoundedCanonicalFanoutVariant::TriggerId,
-                iroha_data_model::query::QueryOutputBatchBox::TriggerId(values),
-            ) => Ok(CanonicalFanoutBatchRef::TriggerId(values)),
-            _ => Err(unsupported_canonical_iterable_fanout_response()),
-        }
-    }
-    fn discriminant(self) -> u32 {
-        // Keep these in lockstep with QueryOutputBatchBox. Golden parity tests
-        // below fail if the data-model enum order changes.
-        match self {
-            Self::RoleId(_) => 28,
-            Self::TriggerId(_) => 29,
-        }
-    }
-    fn values_encoded_len_exact(self) -> Option<usize> {
-        fn sequence<T: norito::core::SerializePayload>(values: &[T]) -> Option<usize> {
-            let mut total = norito::core::seq_len_prefix_len(values.len());
-            for value in values {
-                let item_len = value.encoded_len_exact()?;
-                total = total.checked_add(canonical_fanout_len_prefixed(item_len)?)?;
-            }
-            Some(total)
-        }
-        match self {
-            Self::RoleId(values) => sequence(values),
-            Self::TriggerId(values) => sequence(values),
-        }
-    }
-    fn serialize_values(
-        self,
-        writer: &mut norito::core::Encoder<'_>,
-    ) -> Result<(), norito::core::Error> {
-        fn sequence<T: norito::core::SerializePayload>(
-            values: &[T],
-            writer: &mut norito::core::Encoder<'_>,
-        ) -> Result<(), norito::core::Error> {
-            norito::core::write_seq_len(
-                writer,
-                u64::try_from(values.len()).map_err(|_| norito::core::Error::LengthMismatch)?,
-            )?;
-            for value in values {
-                norito::core::write_len_prefixed(writer, value)?;
-            }
-            Ok(())
-        }
-        match self {
-            Self::RoleId(values) => sequence(values, writer),
-            Self::TriggerId(values) => sequence(values, writer),
-        }
-    }
-}
-impl norito::core::SerializePayload for CanonicalFanoutBatchRef<'_> {
-    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::core::Error> {
-        norito::core::SerializePayload::serialize(&self.discriminant(), writer)?;
-        let values = CanonicalFanoutValuesRef(*self);
-        norito::core::write_len_prefixed(writer, &values)
-    }
-    fn encoded_len_hint(&self) -> Option<usize> {
-        self.encoded_len_exact()
-    }
-    fn encoded_len_exact(&self) -> Option<usize> {
-        let values_len = self.values_encoded_len_exact()?;
-        4_usize.checked_add(canonical_fanout_len_prefixed(values_len)?)
-    }
-}
-#[derive(Clone, Copy)]
-struct CanonicalFanoutValuesRef<'a>(CanonicalFanoutBatchRef<'a>);
-impl norito::core::SerializePayload for CanonicalFanoutValuesRef<'_> {
-    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::core::Error> {
-        self.0.serialize_values(writer)
-    }
-    fn encoded_len_hint(&self) -> Option<usize> {
-        self.encoded_len_exact()
-    }
-    fn encoded_len_exact(&self) -> Option<usize> {
-        self.0.values_encoded_len_exact()
-    }
-}
-#[derive(Clone, Copy)]
-struct CanonicalFanoutOneColumnRef<'a>(CanonicalFanoutBatchRef<'a>);
-impl norito::core::SerializePayload for CanonicalFanoutOneColumnRef<'_> {
-    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::core::Error> {
-        norito::core::write_seq_len(writer, 1)?;
-        norito::core::write_len_prefixed(writer, &self.0)
-    }
-    fn encoded_len_hint(&self) -> Option<usize> {
-        self.encoded_len_exact()
-    }
-    fn encoded_len_exact(&self) -> Option<usize> {
-        let batch_len = self.0.encoded_len_exact()?;
-        norito::core::seq_len_prefix_len(1).checked_add(canonical_fanout_len_prefixed(batch_len)?)
-    }
-}
-#[derive(Clone, Copy)]
-struct CanonicalFanoutBatchTupleRef<'a>(CanonicalFanoutBatchRef<'a>);
-impl norito::core::SerializePayload for CanonicalFanoutBatchTupleRef<'_> {
-    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::core::Error> {
-        norito::core::write_len_prefixed(writer, &CanonicalFanoutOneColumnRef(self.0))
-    }
-    fn encoded_len_hint(&self) -> Option<usize> {
-        self.encoded_len_exact()
-    }
-    fn encoded_len_exact(&self) -> Option<usize> {
-        let columns_len = CanonicalFanoutOneColumnRef(self.0).encoded_len_exact()?;
-        canonical_fanout_len_prefixed(columns_len)
-    }
-}
-#[derive(Clone, Copy)]
-struct CanonicalFanoutOutputRef<'a> {
-    batch: CanonicalFanoutBatchRef<'a>,
-    remaining_items: &'a Option<u64>,
-    has_more: &'a bool,
-    continue_cursor: &'a Option<iroha_data_model::query::parameters::ForwardCursor>,
-}
-impl norito::core::SerializePayload for CanonicalFanoutOutputRef<'_> {
-    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::core::Error> {
-        norito::core::write_len_prefixed(writer, &CanonicalFanoutBatchTupleRef(self.batch))?;
-        norito::core::write_len_prefixed(writer, self.remaining_items)?;
-        norito::core::write_len_prefixed(writer, self.has_more)?;
-        norito::core::write_len_prefixed(writer, self.continue_cursor)
-    }
-    fn encoded_len_hint(&self) -> Option<usize> {
-        self.encoded_len_exact()
-    }
-    fn encoded_len_exact(&self) -> Option<usize> {
-        let mut total = 0_usize;
-        for field_len in [
-            CanonicalFanoutBatchTupleRef(self.batch).encoded_len_exact()?,
-            self.remaining_items.encoded_len_exact()?,
-            self.has_more.encoded_len_exact()?,
-            self.continue_cursor.encoded_len_exact()?,
-        ] {
-            total = total.checked_add(canonical_fanout_len_prefixed(field_len)?)?;
-        }
-        Some(total)
-    }
-}
-/// Exact, one-buffer writer for the only two iterable output arms admitted by
-/// canonical fanout. The transparent representation preserves QueryResponse's
-/// outer Norito alignment while the custom serializer avoids every full-batch
-/// derived-codec staging buffer.
-#[repr(transparent)]
-#[derive(Debug)]
-struct BoundedCanonicalIterableFanoutResponse(iroha_data_model::query::QueryResponse);
-impl BoundedCanonicalIterableFanoutResponse {
-    #[expect(
-        clippy::result_large_err,
-        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-    )]
-    fn new(
-        response: iroha_data_model::query::QueryResponse,
-        expected: BoundedCanonicalFanoutVariant,
-    ) -> Result<Self, Response> {
-        let iroha_data_model::query::QueryResponse::Iterable(output) = &response else {
-            return Err(incompatible_routed_query_response(
-                "an iterable query output",
-            ));
-        };
-        if output.remaining_items != Some(0)
-            || output.has_more
-            || output.continue_cursor.is_some()
-            || output.batch.column_count() != 1
-        {
-            return Err(unsupported_canonical_iterable_fanout_response());
-        }
-        CanonicalFanoutBatchRef::from_batch(&output.batch.columns()[0], expected)?;
-        Ok(Self(response))
-    }
-    fn output_ref(&self) -> CanonicalFanoutOutputRef<'_> {
-        let iroha_data_model::query::QueryResponse::Iterable(output) = &self.0 else {
-            unreachable!("bounded canonical response constructor pins iterable output")
-        };
-        let batch = match &output.batch.columns()[0] {
-            iroha_data_model::query::QueryOutputBatchBox::RoleId(values) => {
-                CanonicalFanoutBatchRef::RoleId(values)
-            }
-            iroha_data_model::query::QueryOutputBatchBox::TriggerId(values) => {
-                CanonicalFanoutBatchRef::TriggerId(values)
-            }
-            _ => unreachable!("bounded canonical response constructor pins batch arm"),
-        };
-        CanonicalFanoutOutputRef {
-            batch,
-            remaining_items: &output.remaining_items,
-            has_more: &output.has_more,
-            continue_cursor: &output.continue_cursor,
-        }
-    }
-}
-impl norito::NoritoSchema for BoundedCanonicalIterableFanoutResponse {
-    fn nominal_name() -> String {
-        "iroha_torii::BoundedCanonicalIterableFanoutResponse".to_owned()
-    }
-    fn frame_name() -> String {
-        <iroha_data_model::query::QueryResponse as norito::NoritoSchema>::frame_name()
-    }
-}
-impl norito::core::SerializePayload for BoundedCanonicalIterableFanoutResponse {
-    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::core::Error> {
-        // QueryResponse::Iterable is the second data-model variant.
-        norito::core::SerializePayload::serialize(&1_u32, writer)?;
-        norito::core::write_len_prefixed(writer, &self.output_ref())
-    }
-    fn encoded_len_hint(&self) -> Option<usize> {
-        self.encoded_len_exact()
-    }
-    fn encoded_len_exact(&self) -> Option<usize> {
-        let output_len = self.output_ref().encoded_len_exact()?;
-        4_usize.checked_add(canonical_fanout_len_prefixed(output_len)?)
-    }
-}
-fn bounded_canonical_iterable_fanout_response(
-    query_response: iroha_data_model::query::QueryResponse,
-    expected: BoundedCanonicalFanoutVariant,
-    format: ResponseFormat,
-    max_body_bytes: usize,
-) -> Response {
-    let bounded = match BoundedCanonicalIterableFanoutResponse::new(query_response, expected) {
-        Ok(response) => response,
-        Err(response) => return response,
-    };
-    match format {
-        ResponseFormat::Norito => {
-            let _canonical_flags =
-                norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
-            match crate::utils::encode_norito_bounded(&bounded, max_body_bytes) {
-                Ok(bytes) => signed_query_fanout_response_from_norito_bytes(bytes),
-                Err(error) => bounded_signed_query_fanout_encode_error_response(error),
-            }
-        }
-        ResponseFormat::Json => {
-            match crate::utils::encode_json_bounded(&bounded.0, max_body_bytes) {
-                Ok(json) => signed_query_fanout_response_from_json(json),
-                Err(error) => bounded_signed_query_fanout_json_encode_error_response(error),
-            }
-        }
-    }
 }
 fn bounded_singular_fanout_response(
     query_response: iroha_data_model::query::QueryResponse,
@@ -18041,10 +17365,6 @@ fn signed_query_fanout_response_from_json(json: String) -> Response {
         )
         .body(Body::from(json))
         .expect("build preflighted signed-query fanout JSON response")
-}
-fn should_skip_iterable_routed_query_route_error(response: &Response) -> bool {
-    response.status() == StatusCode::NOT_FOUND
-        || torii_response_has_reject_code(response, "route_unavailable")
 }
 fn torii_response_has_reject_code(response: &Response, code: &str) -> bool {
     if !(response.status().is_client_error() || response.status().is_server_error()) {
@@ -18163,10 +17483,9 @@ async fn execute_incoming_torii_signed_query_route_scan(
     if let Err(response) = reject_proxy_client_continuation(&request, "signed route scan") {
         return hold_query_fanout_memory_in_response_body(response, permit);
     }
-    let expected_kind = match bounded_fanout_query_kind(&request) {
-        Ok(kind) => kind,
-        Err(response) => return hold_query_fanout_memory_in_response_body(response, permit),
-    };
+    if let Err(response) = ensure_bounded_fanout_query(&request) {
+        return hold_query_fanout_memory_in_response_body(response, permit);
+    }
     let scope = match signed_query_scope_for_app_bounded(
         app.as_ref(),
         &request,
@@ -18205,7 +17524,7 @@ async fn execute_incoming_torii_signed_query_route_scan(
         Ok(envelope) => envelope,
         Err(response) => return hold_query_fanout_memory_in_response_body(response, permit),
     };
-    let route_request = match fanout_route_scan_query_request_bounded(&request, envelope) {
+    let route_request = match clone_verified_query_request_bounded(&request, envelope) {
         Ok(request) => request,
         Err(response) => return hold_query_fanout_memory_in_response_body(response, permit),
     };
@@ -18227,17 +17546,8 @@ async fn execute_incoming_torii_signed_query_route_scan(
         Ok(response) => response,
         Err(response) => return hold_query_fanout_memory_in_response_body(response, permit),
     };
-    let mut response = match expected_kind {
-        BoundedFanoutQueryKind::Iterable(expected) => bounded_canonical_iterable_fanout_response(
-            query_response,
-            expected,
-            format,
-            envelope.route_body_bytes,
-        ),
-        BoundedFanoutQueryKind::Singular => {
-            bounded_singular_fanout_response(query_response, format, envelope.route_body_bytes)
-        }
-    };
+    let mut response =
+        bounded_singular_fanout_response(query_response, format, envelope.route_body_bytes);
     insert_routing_headers(&mut response, routing_decision, "proxy");
     hold_query_fanout_memory_in_response_body(response, permit)
 }
@@ -18316,23 +17626,9 @@ async fn execute_torii_verified_query_route_scan_locally(
     envelope: QueryFanoutMemoryEnvelope,
     fanout_reservation: QueryFanoutMemoryReservation,
 ) -> Result<iroha_data_model::query::QueryResponse, Response> {
-    let output_limits = match bounded_fanout_query_kind(&request)? {
-        BoundedFanoutQueryKind::Iterable(_) => {
-            let max_items = match &request.request {
-                iroha_data_model::query::QueryRequest::Start(start) => start
-                    .params
-                    .pagination
-                    .limit_value()
-                    .map(std::num::NonZeroU64::get)
-                    .unwrap_or_else(|| crate::routing::app_query_limits().max_fetch_size),
-                _ => unreachable!("bounded iterable fanout kind pins a start request"),
-            };
-            routing::FanoutQueryOutputLimits::Iterable(envelope.canonical_output_limits(max_items))
-        }
-        BoundedFanoutQueryKind::Singular => {
-            routing::FanoutQueryOutputLimits::Singular(envelope.singular_output_limits())
-        }
-    };
+    ensure_bounded_fanout_query(&request)?;
+    let output_limits =
+        routing::FanoutQueryOutputLimits::Singular(envelope.singular_output_limits());
     let authority = request.authority.clone();
     admit_signed_query_authority(app.as_ref(), &authority)
         .await
@@ -18511,7 +17807,6 @@ async fn execute_torii_query_via_fanout_for_routes_admitted(
     proxy_memory: Option<ToriiProxyMemoryReservation>,
 ) -> Response {
     debug_assert!(!routes.is_empty());
-    let routed_by = routed_by_for_routes(app, &routes);
     if matches!(
         &verified_query.request,
         iroha_data_model::query::QueryRequest::Continue(_)
@@ -18537,151 +17832,13 @@ async fn execute_torii_query_via_fanout_for_routes_admitted(
         )
         .await;
     }
-    let final_pagination = match &verified_query.request {
-        iroha_data_model::query::QueryRequest::Start(start) => start.params.pagination.clone(),
-        _ => unreachable!("continuation and singular requests were handled above"),
-    };
+    // Iterable starts have no canonical cross-route projection.
     let mut diagnostics = ToriiFanoutDiagnostics::default();
-    let expected_variant = match bounded_canonical_iterable_fanout_variant(&verified_query) {
-        Ok(variant) => variant,
-        Err(response) => {
-            diagnostics.record_failure_class("query_unsupported");
-            return with_torii_fanout_headers(response, diagnostics);
-        }
-    };
-    // Consume the originally decoded verified request. Only one bounded local
-    // clone exists beside it at a time; remote routes use the shared raw Arc.
-    let fanout_request = match prepare_fanout_route_scan_query_request(verified_query) {
-        Ok(request) => request,
-        Err(response) => return with_torii_fanout_headers(response, diagnostics),
-    };
-    let keep = match &fanout_request.request {
-        iroha_data_model::query::QueryRequest::Start(scan) => scan
-            .params
-            .pagination
-            .limit_value()
-            .map(std::num::NonZeroU64::get)
-            .unwrap_or_else(|| crate::routing::app_query_limits().max_fetch_size),
-        _ => unreachable!("fanout route scan preserves a start request"),
-    };
-    let mut accumulator =
-        iroha_core::smartcontracts::isi::query::CanonicalQueryOutputAccumulator::new(
-            keep,
-            u64::try_from(envelope.candidate_encoded_bytes).unwrap_or(u64::MAX),
-            u64::try_from(envelope.accumulator_retained_bytes).unwrap_or(u64::MAX),
-            u64::try_from(envelope.decode_allocated_bytes).unwrap_or(u64::MAX),
-        );
-    let mut successful_route = false;
-    let mut skipped = SkippedRoutedQueryErrors::default();
-    for route in routes {
-        diagnostics.record_attempt();
-        let request = if should_execute_route_locally(app.as_ref(), route) {
-            match clone_verified_query_request_bounded(&fanout_request, envelope) {
-                Ok(request) => Some(request),
-                Err(response) => {
-                    diagnostics.record_failure_class("query_capacity_exceeded");
-                    return with_torii_fanout_headers(response, diagnostics);
-                }
-            }
-        } else {
-            None
-        };
-        let outcome = execute_torii_signed_query_route_scan_for_route(
-            app,
-            Arc::clone(&query_bytes),
-            request,
-            route,
-            envelope,
-            fanout_reservation.clone(),
-            proxy_memory.clone(),
-        )
-        .await;
-        match outcome {
-            Ok(iroha_data_model::query::QueryResponse::Iterable(output)) => {
-                let (batch_tuple, _, cursor) = output.into_parts();
-                if cursor.is_some() {
-                    diagnostics.record_failure_class("query_conflict");
-                    return with_torii_fanout_headers(
-                        unsupported_routed_query_response(
-                            "bounded routed query scans must not return a continuation cursor",
-                        ),
-                        diagnostics,
-                    );
-                }
-                let mut columns = batch_tuple.into_columns();
-                if columns.len() != 1 {
-                    diagnostics.record_failure_class("query_conflict");
-                    return with_torii_fanout_headers(
-                        unsupported_routed_query_response(
-                            "routed iterable queries support exactly one projected batch",
-                        ),
-                        diagnostics,
-                    );
-                }
-                let route_batch = columns
-                    .pop()
-                    .expect("one checked routed query batch column exists");
-                if !expected_variant.matches(&route_batch) {
-                    diagnostics.record_failure_class("query_unsupported");
-                    return with_torii_fanout_headers(
-                        unsupported_canonical_iterable_fanout_response(),
-                        diagnostics,
-                    );
-                }
-                if let Err(response) = push_bounded_canonical_fanout_batch(
-                    &mut accumulator,
-                    expected_variant,
-                    route_batch,
-                ) {
-                    diagnostics.record_failure_class("query_capacity_exceeded");
-                    return with_torii_fanout_headers(response, diagnostics);
-                }
-                successful_route = true;
-                diagnostics.record_success();
-            }
-            Ok(_other) => {
-                diagnostics.record_failure_class("query_conflict");
-                return with_torii_fanout_headers(
-                    incompatible_routed_query_response("an iterable query output"),
-                    diagnostics,
-                );
-            }
-            Err(response) if should_skip_iterable_routed_query_route_error(&response) => {
-                diagnostics.record_skipped_response(&response);
-                skipped.record_and_drop(response);
-            }
-            Err(response) => {
-                diagnostics.record_skipped_response(&response);
-                return with_torii_fanout_headers(response, diagnostics);
-            }
-        }
-    }
-    if !successful_route {
-        return with_torii_fanout_headers(skipped.into_response(), diagnostics);
-    }
-    drop(fanout_request);
-    drop(query_bytes);
-    let batch = match accumulator.finish(final_pagination) {
-        Ok(batch) => batch,
-        Err(error) => {
-            return with_torii_fanout_headers(canonical_fanout_error_response(error), diagnostics);
-        }
-    };
-    let mut response = bounded_canonical_iterable_fanout_response(
-        iroha_data_model::query::QueryResponse::Iterable(
-            iroha_data_model::query::QueryOutput::new(
-                iroha_data_model::query::QueryOutputBatchBoxTuple::from_batch(batch),
-                0,
-                None,
-            ),
-        ),
-        expected_variant,
-        format,
-        envelope.final_body_bytes,
-    );
-    insert_routed_by_header(&mut response, routed_by);
-    insert_torii_fanout_headers(&mut response, diagnostics);
-    response
+    diagnostics.record_failure_class("query_unsupported");
+    with_torii_fanout_headers(
+        unsupported_canonical_iterable_fanout_response(),
+        diagnostics,
+    )
 }
 #[cfg(feature = "connect")]
 #[expect(
@@ -25094,10 +24251,11 @@ async fn handler_blocks_stream_ws(
             let _preauth_guard = preauth_guard;
             let stream = routing::block::handle_blocks_stream(
                 kura,
+                Arc::clone(&app.state),
                 app.state.ivm_execution_budget(),
                 ws,
                 app.ws_message_timeout,
-                move || visibility.authorization_is_current(),
+                stream_read_authorization::ToriiStreamReadAuthorization::new(visibility),
             );
             let result = tokio::select! {
                 () = shutdown.receive() => return,
@@ -35532,9 +34690,6 @@ pub struct Torii {
     address: WithOrigin<SocketAddr>,
     state: Arc<CoreState>,
     #[cfg(feature = "app_api")]
-    parliament_tle_release_coordinator:
-        Arc<iroha_core::tle_release::TleReleaseCoordinatorV1>,
-    #[cfg(feature = "app_api")]
     musubi_search: Arc<RwLock<iroha_core::musubi_search::MusubiSearchIndexV1>>,
     #[cfg(feature = "app_api")]
     private_settlement_runtime: private_settlement::PrivateSettlementToriiRuntimeV1,
@@ -35723,9 +34878,6 @@ pub struct ToriiRuntimeDeps {
     #[cfg(feature = "app_api")]
     private_settlement_phase_signer:
         Option<Arc<iroha_core::private_settlement::PrivateSettlementPhaseSignerV1>>,
-    #[cfg(feature = "app_api")]
-    parliament_tle_release_coordinator:
-        Arc<iroha_core::tle_release::TleReleaseCoordinatorV1>,
     bootle_lantern_issuance_provider_registry: Option<
         Arc<dyn privacy_issuance_api::BootleLanternIssuanceRuntimeProviderRegistryV1>,
     >,
@@ -35854,10 +35006,6 @@ impl ToriiRuntimeDeps {
             private_settlement_availability_signer: None,
             #[cfg(feature = "app_api")]
             private_settlement_phase_signer: None,
-            #[cfg(feature = "app_api")]
-            parliament_tle_release_coordinator: Arc::new(
-                iroha_core::tle_release::TleReleaseCoordinatorV1::without_signer(),
-            ),
             bootle_lantern_issuance_provider_registry: None,
             soracloud_runtime: None,
             sorafs_node: None,
@@ -35949,20 +35097,6 @@ impl ToriiRuntimeDeps {
     /// boundary. The normal Strict restart reconstructs and validates them.
     fn into_emergency_fast(self) -> Self {
         Self::new(self.build_identity, self.telemetry)
-    }
-    /// Attach the deployment-owned Parliament TLE partial-release coordinator.
-    ///
-    /// The coordinator retains the runtime signer behind its opaque Core
-    /// boundary. Torii accepts only ballot identifiers and never receives a
-    /// caller-selected release identity, transcript, participant seat, or key.
-    #[cfg(feature = "app_api")]
-    #[must_use]
-    pub fn with_parliament_tle_release_coordinator(
-        mut self,
-        coordinator: Arc<iroha_core::tle_release::TleReleaseCoordinatorV1>,
-    ) -> Self {
-        self.parliament_tle_release_coordinator = coordinator;
-        self
     }
     /// Attach the node-owned bounded BLS signer for private-settlement DA shares.
     ///
@@ -39174,10 +38308,6 @@ impl Torii {
                 GOV_PARLIAMENT_ATTEMPT_DRAFT => canonical_account_post(handler_gov_parliament_attempt_draft, app_state, runtime_governance_body_limit);
                 GOV_PARLIAMENT_ATTEMPT_READ => canonical_account_get(handler_gov_parliament_attempt_read, app_state, 0);
                 GOV_PARLIAMENT_ATTEMPT_PLAN => canonical_account_get(handler_gov_parliament_attempt_plan, app_state, 0);
-                GOV_PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_READ => canonical_account_get(handler_gov_parliament_timed_ovn_casting_context_read, app_state, 0);
-                GOV_PARLIAMENT_TIMED_OVN_CASTING_PROOF => canonical_account_post(handler_gov_parliament_timed_ovn_casting_proof, app_state, runtime_governance_body_limit);
-                GOV_PARLIAMENT_TLE_RELEASE_CONTEXT_READ => canonical_account_get(handler_gov_parliament_tle_release_context_read, app_state, 0);
-                GOV_PARLIAMENT_TLE_PARTIAL_RELEASE => canonical_account_post(handler_gov_parliament_tle_partial_release, app_state, 1);
                 GOV_PARLIAMENT_TRANSITION_DRAFT => canonical_account_post(handler_gov_parliament_transition_draft, app_state, runtime_governance_body_limit);
                 VALIDATION_FEE_CURRENT_POLICY_PROOF => canonical_account_post(validation_fee_api::handler_current_policy_proof, app_state, runtime_governance_body_limit);
                 VALIDATION_FEE_RETAIL_QUOTE => canonical_account_post(validation_fee_api::handler_retail_quote, app_state, 256 * 1024);
@@ -39494,9 +38624,6 @@ impl Torii {
         };
         let build_identity = runtime_deps.build_identity;
         let telemetry = runtime_deps.telemetry.clone();
-        #[cfg(feature = "app_api")]
-        let parliament_tle_release_coordinator =
-            runtime_deps.parliament_tle_release_coordinator.clone();
         let pipeline_status_cache = Arc::new(PipelineStatusCache::with_limits(
             queue.current_backpressure().capacity().get(),
             PIPELINE_STATUS_CACHE_TTL,
@@ -40888,8 +40015,6 @@ ingress,
             kura,
             state: state.clone(),
             #[cfg(feature = "app_api")]
-            parliament_tle_release_coordinator,
-            #[cfg(feature = "app_api")]
             musubi_search,
             #[cfg(feature = "app_api")]
             private_settlement_runtime,
@@ -41824,8 +40949,6 @@ ingress,
             transaction_batch_max_transactions: self.transaction_batch_max_transactions,
             transaction_batch_max_bytes: self.transaction_max_content_len,
             state: self.state.clone(),
-            #[cfg(feature = "app_api")]
-            parliament_tle_release_coordinator: self.parliament_tle_release_coordinator.clone(),
             #[cfg(feature = "app_api")]
             musubi_search: self.musubi_search.clone(),
             bootle_lantern_issuance_runtime: self.bootle_lantern_issuance_runtime.clone(),

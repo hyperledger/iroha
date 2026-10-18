@@ -152,6 +152,9 @@ impl<T> Tokens<T> {
     pub(super) fn take(&mut self, token: u64) -> Result<T> {
         self.values.remove(&token).ok_or(Failure::code(INVALID))
     }
+    pub(super) fn get(&self, token: u64) -> Option<&T> {
+        self.values.get(&token)
+    }
 }
 fn projection(value: &state::NativeOperationReviewV1) -> Result<Vec<u8>> {
     let selector = match value.kind {
@@ -235,7 +238,48 @@ impl<P: advance::KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send> NativeWa
     }
 }
 pub(crate) fn review(id: u64, input: Input) -> Result<Response> {
-    with_wallet_owner(owner(id)?, Priority::Ingest, |wallet| wallet.review(input))
+    let owner = owner(id)?;
+    let (response, speculation) =
+        with_wallet_owner(Arc::clone(&owner), Priority::Ingest, |wallet| {
+            let response = wallet.review(input)?;
+            let speculation = u64::try_from(response.sequence)
+                .ok()
+                .and_then(|token| wallet.review_speculation(token));
+            Ok((response, speculation))
+        })?;
+    if let Some(job) = speculation {
+        speculate(&owner, job);
+    }
+    Ok(response)
+}
+/// Prove one Send review's σ_send speculatively on its own thread, the way a fold turn
+/// proves: it prepares under the wallet owner, then waits for the scheduler's speculation slot
+/// (payment priority over folds; payments wait for it) and proves without the owner. A
+/// refusal, a failure or a thread that cannot start only leaves execution to prove; nothing
+/// reaches the review's caller.
+fn speculate(owner: &Arc<Owner>, job: state::SpeculativeSendJobV1) {
+    let owner = Arc::downgrade(owner);
+    let _ = std::thread::Builder::new()
+        .name("kagemusha-speculate".into())
+        .spawn(move || {
+            let Some(owner) = owner.upgrade() else {
+                return;
+            };
+            // The owner is used only before admission: a payment waiting for the admitted
+            // proof may hold the owner.
+            let prepared = run(|| {
+                with_wallet_owner(Arc::clone(&owner), Priority::None, |wallet| {
+                    wallet.prepare_speculation(&job)
+                })
+            });
+            drop(job);
+            if let Ok(Some(proof)) = prepared {
+                let scheduler = owner.scheduler.clone();
+                let _ = run(move || Ok(proof.prove(&scheduler)?));
+                // Folds waited while the speculation held its slot.
+                owner.background.wake();
+            }
+        });
 }
 pub(crate) fn execute_reviewed(id: u64, token: u64, request: &[u8]) -> Result<Response> {
     let request = request.try_into().map_err(|_| Failure::code(INVALID))?;

@@ -2552,13 +2552,17 @@ general) is carried in `params`, `bootstrap` and `checkpoint` as opaque bytes
    `Superseded`. Otherwise Core calls `sccp::governance::enact(certificate_id,
    effect_hash, s0, proposal)` in the isolated effect transaction of that
    certificate: `certificate_id` is the 32-byte
-   `GovernanceCertificateId::derive_v1`, `effect_hash` is the certificate's
+   `GovernanceCertificateId::derive_v1`, computed by the Parliament adapter
+   after certificate validation; `effect_hash` is that certificate's
    `effect_preimage_hash`, and `s0: GovernanceAnchorV1 { height, position,
    timestamp_ms }` is the casting-open anchor of the approving Policy Jury
    ballot behind the certificate (the height, the opening transition's position
    in that block's pass, and the block's time). A Confirmation Jury ballot,
    outcome evidence and enactment never move it, and a retry attempt has its
-   own. SCCP parses no other certificate internals.
+   own. SCCP parses no other certificate internals. The adapter fails closed
+   before calling SCCP if the ballot cannot supply its genuine casting-open
+   anchor; legacy ballot evidence, certification time and enactment position
+   cannot substitute for `s0`.
    `enact` applies every action in order and increments
    `sccp_governance_revisions[s]` by one for each subject `s` of the proposal,
    inside the same effect transaction. If any action's precondition fails at
@@ -2653,8 +2657,10 @@ semantics or name the exact state they act on (`SetTairaPaused`,
 time `T`):
 
 - `RegisterRoute` → `Staged`:
-  - **P0.** The launch gate of §10.2 is open, which includes reconciliation
-    (§4.10).
+  - **P0.** Both `parliament_binding_ballot_available()` and
+    `sccp_reconciliation_available()` (§10.2) return true. Production keeps
+    both closed until their owning implementations are qualified; neither
+    P1–P5 nor an authenticated enactment bypasses either gate.
   - **P1.** `initial_committee.generation` is retained; `committee_root` and
     `start_height` match its record; `until_ms = deadline_ms(generation)`; and
     every member of every generation from it to the current one resolved (no
@@ -2690,7 +2696,12 @@ time `T`):
   - `revision = latest + 1` for the route; `destination_word` is unused in
     `sccp_destination_words`; `0 < max_wrapped_supply < 2^128`, and for TON `<
     2^96`. `forgery_floor` starts at the pinned generation and `quarantine` at
-    `None`.
+    `None`. The same effect transaction persists the full staged revision,
+    reserves `destination_word`, sets zero liability and outbound nonce, the
+    first control nonce, false pause/frozen/ever-activated flags and the
+    enacting height, and emits `SccpRevisionActivationChanged { from: None,
+    to: Some(Staged), … }`. These effects and the proposal's subject increments
+    roll back together if any later action or increment fails.
   - **Why the pin need not be current.** A deployment pinned to a past
     generation `g` is reachable only through genuine handoffs from `g`, and P2
     keeps that path open. A handoff that `g` forges before registration is
@@ -3003,7 +3014,10 @@ sccp_control_messages: (SccpNetworkV1, u32 revision, u64 control_nonce) → Sccp
 certificate_id, effect_hash }) -> Result<u64, Error>` records one control in
 block `h`. It never writes pause state: the caller writes its own state first
 (the Parliament flag, or the fast-pause record), and the leaf captures the
-resulting complete state.
+resulting complete state. For track 1, `enact` constructs this cause from
+only the authenticated `certificate_id` and `effect_hash` passed by the
+Parliament adapter; the recorder receives no Parliament certificate. The
+separate `s0` input governs selective fast-pause lifts before recording.
 
 1. `control_nonce = next_control_nonce(r)`, then `next_control_nonce(r) += 1`.
 2. The leaf (§3.4) has `target = network`, `r`'s destination word,
@@ -3273,7 +3287,8 @@ its expiry only consumes its nonce.
   the network's active fast pause `fp` iff `(fp.enacted_at.height,
   fp.enacted_at.position) < (s0.height, s0.position)` lexicographically, where
   `s0` is the casting-open anchor of the approving Policy Jury ballot (§4.14.3
-  item 4). The active record is by construction the current head of
+  item 4), passed unchanged from the Parliament adapter through `enact` to
+  each matching lift. The active record is by construction the current head of
   `FastHold(network)`, because every enactment, renewal and clear bumps that
   head, which satisfies the ballot spec's condition that the pause instance is
   the current head.
@@ -5495,8 +5510,9 @@ bounds it in time. For liveness, honest clocks are within `max_clock_drift_ms /
 any individual honest clock (§4.3).
 
 **Removed assumptions:** honest bridge keys, attestor liveness and bridge-key
-fault economics. **Consensus keys are now bridge keys.** They are hot,
-in-process keys; external custody of vote keys is out of scope (§13). An
+fault economics. **Destinations verify consensus certificates directly.** The
+consensus vote keys are hot, in-process keys; external custody of vote keys is
+out of scope (§13). An
 operator is liable for every signature of its consensus key while any
 generation that contained it is liable, so operators MUST keep a retired key
 secret until then and SHOULD destroy it afterwards; by then every destination
@@ -5859,8 +5875,12 @@ The Parliament's ballot and certificates are owned by the Parliament workstream
   predicate SCCP owns (§4.7.3);
 - `parliament_binding_ballot_available() -> bool` (§10.2).
 
-SCCP parses no other certificate internals, so ballot-binding fields can change
-without touching SCCP.
+The Parliament adapter owns certificate validation and id derivation, retains
+all due-certificate, attempt, effect and expected-head checks, and supplies the
+authenticated scalars and source-bound `s0`. If its ballot cannot supply a
+genuine casting-open anchor, it fails closed without invoking SCCP. SCCP parses
+no other certificate internals, so ballot-binding fields can change without
+touching SCCP.
 
 **Interface items with the Parliament workstream.** Confirmed on 2026-10-05:
 (1) `enact` takes the full `s0` anchor, which the lift rule needs (§4.14.7;
@@ -5945,6 +5965,17 @@ them, and every file has a generator with a drift check:
   test.
 - **`bls_consensus_v1.json`** is written by the Python reference alone, and the
   `iroha_crypto::bls::consensus` tests reproduce it row by row.
+- **Core reference files.** `governance_v1.json`, `fast_pause_v1.json`,
+  `forgery_evidence_v1.json` and `liability_v1.json` also have independent
+  Python and Rust generators with byte-identical canonical JSON. Their Rust
+  drift and ignored regeneration tests live with Core's SCCP governance,
+  fast-pause certification, forgery and liability owners and run with
+  `cargo test -p iroha_core --lib sccp`. Component rows supply authenticated
+  certificate id, effect hash and casting-open `s0`, or explicit panel and
+  eligibility observations, as DATA; they do not manufacture Parliament
+  authority or open either launch gate. The native forgery-record row projects
+  original offence attribution and retained G6 custody, not native genesis
+  hashes. The other forgery rows include their exact certificate bytes.
 - **Rust-only files.** `finality_rust_v1.json` and
   `bls_consensus_rust_v1.json` carry the vectors that need the w3f transcript
   of `iroha_crypto`, which the Python reference does not implement. Rust
@@ -5963,8 +5994,8 @@ them, and every file has a generator with a drift check:
   payload, commitment-tree and history vectors among them. The TON StateInit
   vectors come from the contracts themselves.
 
-The Rust drift tests run in CI with the crate tests of `iroha_sccp` and
-`iroha_crypto` (`scripts/rust_ci.py`). `.github/workflows/sccp.yml` also runs
+The Rust drift tests run in CI with the crate tests of `iroha_sccp`,
+`iroha_core` and `iroha_crypto` (`scripts/rust_ci.py`). `.github/workflows/sccp.yml` also runs
 the independent Python reference suite, including in-memory regeneration and
 byte-for-byte comparison of every Python-owned fixture, and retains its test
 record alongside the Rust and destination-contract qualification artifacts.
@@ -5993,9 +6024,9 @@ cargo test -p iroha_sccp --test v1_reference_finality \
 | `forgery_evidence_v1.json`, `liability_v1.json` | the §4.8–§4.9 rows (below) |
 | `evm_calldata_v1.json` | golden calldata of every §5.2.2 entry point, every selector and event topic, the view returns, `SccpTransferToTaira`, `SccpVoided` and `SccpCertificate` logs, the P4 CREATE2 address of a sample pin, and `calldata_conformance`: the shared table of `transferToTaira` and `voidFrozen` encodings (canonical, trailing byte and word, truncation, a dirty high bit in every integer field, every dynamic offset moved past an inserted word, nonzero padding of every `bytes`, recipient length and amount bounds, `voidFrozen` counts 0/1/256/257 and the `2^64` end) with the Rust decoder's and the contract's verdicts, which accept exactly the same entries |
 | `ton_boc_v1.json`, `ton_stateinit_v1.json` | BoCs of every §5.3.3 op, including `sccp_checkpoint` with and without `next_keys` and `sccp_retry`; snake-cell negatives; canonical minter initial data with an empty `retries` and the minter address for a fixed pin, `NetworkId`, `I`, revision, cap and code refs |
-| `native_transfer_event_v1.json` | inbound transfer and void vectors per source with the normalized event: `SccpTransferToTaira`/`SccpVoided` logs (ETH, BSC) and the `sccp_transfer_to_taira` external-out body (TON); the Rust light clients verify the ETH and TON vectors |
+| `native_transfer_event_v1.json` | inbound transfer and void vectors per source with the normalized event: `SccpTransferToTaira`/`SccpVoided` logs (ETH, BSC) and the `sccp_transfer_to_taira` external-out body (TON); the Rust light clients verify the ETH, BSC and TON vectors |
 | `rpc/{eth,bsc,ton}/` | captured public-RPC responses for real mainnet blocks, driving the proof builders and verifiers: finality, ancestry and inclusion. The recorded TON liteserver answers (`rpc/ton/transport`) also replay through the TON light client: a key-block bootstrap, the config-28 shuffle against real headers' subset hashes, Simplex signatures of a block and of a key-block hop, and header, shard and transaction proofs that prune `state_update` |
-| `bls_consensus_v1.json` | `Sign`, `Verify`, `FastAggregateVerify` and `AggregateVerify` under `DST_SIG` over SHA-256 digests; imported Ethereum `bls12-381-tests`; each allowlist row positive, plus off-by-one lengths and wrong kinds; negatives: the identity key, non-canonical and non-subgroup points. Written by the Python reference; `iroha_crypto::bls::consensus` reproduces it row by row |
+| `bls_consensus_v1.json` | `Sign`, `Verify`, `FastAggregateVerify` and `AggregateVerify` under `DST_SIG` over SHA-256 digests; all 98 imported Ethereum `bls12-381-tests` v0.1.2 rows from the pinned, byte-preserved `fixtures/sccp/ethereum-bls12-381-tests/v0.1.2/` corpus (13 G1/15 G2 deserialization, 10 sign, 29 verify, 6 aggregate, 12 fast aggregate, 5 aggregate verify, 4 batch verify and 4 hash-to-G2); upstream expectations reproduced before generation, with a checked per-file SHA-256 manifest; the hash-to-G2 rows retain their RFC QUUX domain and text inputs; each allowlist row positive, plus off-by-one lengths and wrong kinds; negatives: the identity key, non-canonical and non-subgroup points. Written by the Python reference; the `iroha_crypto` consensus tests reproduce it row by row, using the consensus API where it exposes the operation and recording stricter admission outcomes |
 | `bls_consensus_rust_v1.json` | the vectors that need the w3f transcript: pinned w3f PoP vectors (algorithm unchanged); negatives: a w3f-transcript signature over a consensus digest, a `DST_SIG` signature presented to the generic API, a PoP used as a signature. Rust-generated by `iroha_crypto`; the Python reference checks every row it can decide without the w3f transcript (above) |
 
 `eip712_v1.json` and `roster_v1.json` are deleted with the attestation
@@ -6182,8 +6213,8 @@ valid signer keys that sum to the identity (`BadCommittee` on EVM,
 (`BadCommittee`: `apk = O` is reported first). `flavor_specific_certificates`
 holds `signer_keys_outside_g1_cancelling`: two signer keys shifted by `T` and
 `−T`, which an EVM destination accepts because it observes the aggregate only;
-its TON outcome is `null` until the Acton harness confirms the per-key checks
-of the opcode (§5.3.4 item 5). The invalid headers of the file add
+its TON outcome is `BadSignature`, pinned by the Acton harness against the
+opcode’s per-key checks (§5.3.4 item 5). The invalid headers of the file add
 `rotation_at_max_height` and `rotation_at_max_generation`: `ROTATION` at
 height or at generation `2^64 − 1`, which X6 refuses, and the rows named
 `<a>_and_<b>`, which violate two checks each and report the earlier one. A
@@ -6198,10 +6229,11 @@ because only `iroha_crypto` produces that transcript.
    destination_abi}` and `iroha_crypto::bls::consensus` are the reference.
 2. `scripts/sccp_reference/*.py` is an independent, dependency-free Python
    reference: its own Keccak-256, BLS12-381 arithmetic and pairing, RFC 9380
-   hash-to-G2 under `DST_SIG`, and an executable model of §5.1. It derives
-   every contract-visible vector and the anchor vectors, writes the three
-   reference files byte for byte as the Rust reference does, and verifies the
-   rows of the Rust-only files (§11).
+   hash-to-G2 under `DST_SIG`, executable models of §5.1 and the source-side
+   governance, fast-pause, forgery and liability rules. It writes the seven
+   shared reference files byte for byte as their Rust producers do, generates
+   the BLS fixture reproduced by Rust, and verifies the rows of the Rust-only
+   files (§11).
 3. **The Solidity EDR harness** (Prague and Osaka) runs every calldata vector,
    certificate and scenario, including dirty-memory runs (memory pre-filled
    before verification) for `n ∈ {4, 7, 31}` and 16-certificate batches. It
@@ -6217,16 +6249,30 @@ because only `iroha_crypto` produces that transcript.
    Rust, EDR and Acton.
 6. `BlsCrypto` and `ProofCrypto` parity: one shared certificate verifies
    identically through both.
-7. **`integration_tests/tests/sccp_lanes`** runs 4 peers through: an epoch
-   boundary with a key change; an idle period crossing a heartbeat, with a
-   keepalive; a fast pause on an idle chain (seat acceptance, endorsements,
-   keepalive, certification and enactment, then the lapse with no block); a
-   forged certificate signed by a test quorum of an earlier generation,
-   submitted as evidence with an anchor witness (record, per-revision hold, and
-   the penalty after the slashing delay); and a Parliament attestation that
-   releases the hold. It extracts bundles from Torii, verifies them with the
-   reference, and replays them into EDR and Acton: finalize, rotation,
-   heartbeat, control, void and latch.
+7. **The four-peer harness and companion targets** cover the currently
+   executable native-finality path. `integration_tests/tests/sccp_lanes`
+   publishes native certificates, verifies Torii bundles with the reference,
+   and refuses unqualified route governance. Its idle-chain test observes no
+   early block, submits a due Keepalive as the sole transaction, and checks a
+   same-key heartbeat rotation and successor certificate. It submits a forged
+   certificate signed by a test quorum of an earlier generation with a
+   retained anchor witness, then checks the pending penalty, delayed application
+   and stake reduction. Holds remain empty because no route is registered.
+   `integration_tests/tests/sccp_key_transition/main.rs`, included by
+   `sumeragi_npos_committee_transition.rs`, separately exercises the actual
+   four-to-seven-validator epoch/key transition and exports its Torii bundles.
+   The EDR consumers `contracts/evm/sccp/test/sccp_live_fourpeer.js` and
+   `sccp_live_heartbeat.js`, and the Acton consumer
+   `scripts/sccp_ton_live_replay.py`, replay native checkpoints, key-change or
+   heartbeat rotations and successor/refusal cases. Their latch certificate is
+   explicitly malicious test evidence (`runtime_test_quorum_not_chain_output`),
+   not a finalized chain output; these replays have no monetary effects.
+   The idle fast-pause lifecycle (acceptance, endorsements, certification,
+   enactment and blockless lapse), per-revision hold and Parliament release,
+   and original live finalize/control/void bundles cannot run end to end before
+   the qualified post-quantum Parliament ballot supplies genuine authority and
+   routes. Its draw, eligibility, casting-open anchor and shared-pass positions
+   are external dependencies. The harness supplies no launch bypass.
 
 ### 11.5 Required tests
 
@@ -6443,61 +6489,60 @@ they never substitute an empty pass or a fabricated ballot anchor.
 
 ## 12. Phasing and implementation status
 
-This revision is the implementation baseline. The table describes the current
-candidate source. Component test results do not establish whole-node, corridor,
-deployment or settlement readiness. The remaining internal integration and
-qualification work is stated separately from external Parliament authority.
+The table describes implemented source and its tests, not a release verdict.
+Current-candidate workspace, lint, mutation and network qualification remain
+required. Component fixtures and local four-peer replays do not establish
+ballot authority, mainnet deployment or settlement readiness. Internal work
+still missing is named separately from external authority and audit gates.
 
 | Area | Status |
 |---|---|
-| Payload codec, amounts, transfer leaf, commitment tree, history accumulator (§3.1–§3.5) | Implemented with the sole 199-byte control leaf, complete independent pause state and exact authenticated cause. Native message/control/history proofs and wire fixtures cover the current layouts. |
-| `RecordSccpMessage`, signed-only execution and the ABI closure for contract-originated sends (§4.4) | Implemented. Original-parent degradation, permanent forgery/quarantine and active pause gates run before monetary, nonce or leaf writes. The instruction frame authenticates signed-only pause operations and prevents nested or repeated dispatch from substituting authority. |
-| Inbound prove and settle, self-claim, bounce, holds, liability shortfall, escrow guards, voids, refunds, strands and FASTPQ-bounded refunds (§4.12, §4.15, §4.16) | Accounting consumers and R1–R6 reconciliation are implemented, including exact proven payload binding, pending-refund reservation, floor-rounded U256 payouts and refusal without advancing claims. Native proof admission and self-claim retain their original allocation and work custody; current Core execution component qualification passes; end-to-end monetary enactment still requires qualified Parliament authority. |
-| Exempt eligibility predicate and charge-on-failure (§4.19) | Original-parent predicates, class quotas, any-authority keeper advances, shared Keepalive and R-EX are implemented. The admitted native proof pipeline and its original-budget queue/execution controls pass Core component qualification. |
-| Light clients for Ethereum, BSC and TON; profiles, aged-proof builders and RPC hygiene (§4.13, §8) | Protocol verifiers and builders are implemented. All three native kernels use original-pool admission and retained storage, including bootstrap, advance, proofs and equivocation. Component and Core dispatch tests cover the current kernels. Live RPC and real fork activation evidence remain external qualification. |
-| Light-client keeper task | Node-generated keeper key, independent light-client advance, Keepalive, bounded destination-watch and L5 duties are implemented. Watch queues retain verified evidence through publication or expiry, and endpoint rotation/health telemetry expose unavailable duties. Daemon component qualification passes; live source-network progress remains externally qualified. |
-| Parliament SCCP payload, subjects, attempts, `OnlyGenesis` grant and CLI (§4.14.3, §4.14.5) | Native actions, per-subject heads, monotone deployment progress, permanent quarantine, reconciliation opening and bounded pause suspension are implemented. Retired bridge-key fault clearing is removed. Proposer permission does not bypass the ballot launch gate. The actual binding certificate and casting-open provenance must come from the Parliament owner. |
-| Torii read routes and Rust SDK (§6) | Native finality, committee DATA, message/control/history, anchor, forgery-hold, fast-pause and reconciliation views are implemented with request admission and retained response custody. The current-generation coalition slashable-floor projection reads the original staking, incarnation and offence records and is implemented. SDK, Torii and daemon component qualification passes. CLI observers authenticate terminal state against the original certified source cut and retained signed submission. |
-| Wallet and CLI flows (§7) | Implemented with durable original signed submissions, authenticated native/EVM/TON terminal proofs, retained source-trust preimages and bounded confirmation deadlines. Recovery, maintenance and deployment read the exact locked journal step, including cached deployment outcomes. Current CLI regressions and independent step-selection review pass; live monetary flows still require qualified Parliament authority and external deployment evidence. |
-| EVM contract (§5.1–§5.2) | Native EIP-2537 verification, committee handoff/checkpoints, exact calldata, consumed bitmap, supply cap and CREATE2 deployment are implemented. Locked Prague/Osaka suites exercise authenticated deployment and native certificate/control artifacts. A genuine four-validator native certificate passes local chain-id-1 checkpoint replay on both forks, with signature, network, replay and expired-committee refusals. Monetary routes remain launch-gated; independent audit and live deployment/value qualification remain open. |
-| TON contracts (§5.3) | Minter, wallet and consumed buckets implement bounded 512-entry recovery with authenticated acknowledgements and exact finalized-event behavior. The minter storage allowance is 2,380 cells/790,000 bits; worst-case retained recovery and measured gas have native emulator coverage. Tolk/Python/Rust StateInit and message fixtures are updated. Independent audit and live deployment/value qualification remain open. |
-| Consensus signing API and `DST_SIG` (§3.8) | The native allowlisted consensus BLS suite is used by signers, certificate readers and model proof verification. Old-suite and invalid-input rejection controls remain. Crypto component and current full certified-clock simulator qualification pass; the four-peer candidate exports a genuine native certificate for local EVM replay. |
-| Finality header, certified result `R` and every reader (§3.6, §4.6) | Native producer/readers bind `X` into `R` and derive scope from original genesis/chain custody. Core, private-scope and publication tests cover the boundary; the four-peer native export and local EVM replay exercise the actual certificate boundary. The 31-seat body measurement is 30,763 of 65,315 bytes (§13 item 5). |
-| `iroha_sccp::v1` reference and cross-language fixtures (§8, §11) | Native finality, committee, control and destination models and generators are implemented. SCCP CI runs independent Python drift checks, Rust/BLS fixtures, native EVM and native TON suites. Current combined-candidate qualification remains required. |
-| Certified time CT1–CT5 and `Execute.certified` (§4.3) | Original-parent bounded due observations and source-bound first-Prepare admission are implemented; only a matching held PrepareQC exempts signing from local-clock freshness. Native admission survives encoding and allocation waits, cached execution and stage delay; authenticated persisted signature bytes authorize retransmission after restart. The simulator retains original work and completed payloads, captures fresh-view proposal time above the immutable creation floor, and rechecks the clock immediately before fresh proposal signing. The merged candidate requires new simulator, native Core, mutation and real-network qualification; earlier clock results belong to the pre-merge candidate. |
-| Genesis and Kagami SCCP staking profile (§4.8 L1) | Implemented with matching epoch geometry of at least one hour, 21-day unbonding, nonzero slash policy, original G1 staking bindings and fresh durable reset identities whose nonces are consumed exactly once. Kagami places initialization after automatic NPoS bootstrap. No routes are seeded. Current profile, signing-order and reset-history regressions pass; the real four-validator SCCP candidate also starts and publishes native finality while refusing unqualified route governance. |
-| Frozen-surface golden tests and mutation entries (§11.6) | Native wire/reference fixtures and SCCP clock/Core mutation entries are registered. Current clock controls pass with a passing baseline and causal named-test kills; the full current Core mutation gate remains open. Compiler failures never count as mutation kills. |
-| Self-contained penalty records, L3 release gate and daemon L1 refusal (§4.8–§4.9) | Native forgery evidence, permanent offence ownership, closed penalty records, retained liability release checks and configuration refusal are implemented. Current node/network qualification remains open. |
-| Committee generations, anchors, `X`, degradation/resync and pruning (§4.2, §4.5, §4.6, §4.11) | Original-pool SCCP records and current/undo custody, genesis/key/heartbeat/resync transitions, destination clearance, original-parent anchors and sealed `X` publication are implemented. Bounded pruning reads the actual pending-forgery owner. Current combined candidate qualification remains open. |
-| Shared Keepalive, `governance_due`, positions and millisecond clock (§4.7) | SCCP original-parent due work, quotas, certified-time handling and positioned rank-3 pause/reconciliation consumers are implemented. The minimum work budget is ten. The actual Parliament due iterator, ranks 0–2 and carried remaining budget are external owner inputs; unavailable authority is never treated as an empty set or a successful pass. |
-| Control leaf and fast-pause track (§3.4, §4.14.6–§4.14.7) | Funded panels, acceptance/replacement, endorsement rounds, original-source certification, suspension, capacity/nonce preflight, enactment, expiry and selective lift consumers are implemented. Drawing reads the original verified pulse at its carrying height. Parliament must supply eligible citizens, the draw, shared positions and genuine Policy Jury casting-open provenance before this lifecycle can run end to end. |
-| Liability clock, L5, evidence and L1 checks (§4.8–§4.9) | Parent-time clamping, retained-generation parameter bounds, keeper L5 feed, original forgery floor and release guards are implemented. Daemon component qualification passes; monetary corridor qualification still requires qualified Parliament authority and live deployment evidence. |
-| Per-revision holds, quarantine and reconciliation (§4.10) | Original permanent causes and monotone floors, proof-window accounting and bounded shared due settlement are implemented. Opening/enactment require authentic external Parliament authority and cannot be manufactured by a component test. |
-| Launch gates (§10.2) | Both readiness gates remain `false`. Native proposer/registration paths fail closed; no interim governance or genesis route can substitute for the missing qualified Parliament authority. |
-| SCCP-owned governance specification | `specs/governance_pipeline.md` describes the implemented SCCP consumers and the explicit external Parliament interfaces. Full shared-pass qualification is still required. |
-| First-release retirement | EIP-712 attestations, rosters, bridge-key files/signature sets and their obsolete readers are removed. CLI and contracts use native committees/certificates. Ethereum transaction signing remains. Cross-workspace validation must establish that no retired surface remains. |
-| Parliament post-quantum ballot | External launch dependency. Standalone proof work does not supply a qualified binding ballot, authoritative eligibility/draw/due positions, casting-open anchor or finite attempt-latency contract. |
+| Payload codec, amounts, transfer leaf, commitment tree, history accumulator (§3.1–§3.5) | Implemented. The sole 199-byte control leaf binds both pause tracks and the exact cause; Rust/Python fixtures and applicable Solidity/Tolk replays cover payloads, tree/history paths and confusion negatives. |
+| `RecordSccpMessage`, signed-only execution and the ABI closure for contract-originated sends (§4.4) | Implemented. Original-parent degradation, forgery/quarantine and pause checks precede monetary, nonce and leaf writes. Tests cover signed instruction custody, nested/repeated dispatch refusal and rollback. |
+| Inbound prove and settle, self-claim, bounce, holds, liability shortfall, escrow guards, voids, refunds, strands and FASTPQ-bounded refunds (§4.12, §4.15, §4.16) | Implemented consumers with original proof/work custody, exact payload binding, pending-refund reservation, floor-rounded U256 reconciliation payouts and refusal without advancing claims. Component tests cover accounting and rollback. End-to-end monetary enactment requires the external qualified Parliament ballot. |
+| Exempt eligibility predicate and charge-on-failure (§4.19) | Implemented. Shared original-parent predicates, class quotas, keeper advances, Keepalive and R-EX have queue/execution and charge-on-failure tests. |
+| Light clients for Ethereum, BSC and TON; profiles, aged-proof builders and RPC hygiene (§4.13, §8) | Implemented verifiers/builders and Parliament-enacted profile activation, with bootstrap, advance, inclusion, equivocation and profile-switch tests. External gates: BSC/TON live-RPC captures and verified real light-client fork dates. Synthetic and transport fixtures do not complete those captures. |
+| Light-client keeper task | Implemented key generation, independent advances, due Keepalive, bounded destination watches and L5 progress. Tests cover evidence retention, endpoint rotation and unavailable duties. Live deployment and source-network progress qualification remain external. |
+| Parliament SCCP payload, subjects, attempts, `OnlyGenesis` grant and CLI (§4.14.3, §4.14.5) | Implemented actions, subject heads and atomic staged route installation, including destination-word reservation and activation events. Tests cover installation, rollback and both launch gates. Parliament validates its certificate and derives its id; SCCP consumes only that id, the effect hash and casting-open `GovernanceAnchorV1` (`s0`). The genuine ballot/anchor producer is external and its absence refuses enactment. |
+| Torii read routes and Rust SDK (§6) | Implemented native finality, committee, message/control/history, anchor, hold, fast-pause, reconciliation and coalition-floor views with request admission and retained custody. Evidence projection borrows validated records into fallible bounded response encoding; tests cover malformed shapes and restrictive input decode limits without panics. |
+| Wallet and CLI flows (§7) | Implemented durable signed submissions, authenticated native/EVM/TON terminal proofs, retained source-trust preimages, bounded confirmation and locked-step recovery/deployment. Tests cover recovery and concurrent journal selection. Live monetary flows require external ballot-authorized routes and deployment evidence. |
+| EVM contract (§5.1–§5.2) | Implemented native EIP-2537 CommitQC verification, committee handoff/checkpoints, exact calldata, consumed bitmap, supply cap and CREATE2 deployment. Prague/Osaka fixtures and native-certificate replay tools exist. External gates: EIP-2537 glue audit, Ethereum/BSC mainnet deployments and value canaries. |
+| TON contracts (§5.3) | Implemented minter, wallet and consumed buckets with bounded 512-entry recovery, authenticated acknowledgements and finalized-event behavior. Acton tests cover recovery, gas and the 790,000-bit/2,380-cell minter bound; Rust/Python/Tolk fixtures cover messages and StateInit. External gates: Tolk-binding audit, TON mainnet deployment and value canaries. |
+| Consensus signing API and `DST_SIG` (§3.8) | Implemented IETF POP-suite signing only for allowlisted Sumeragi votes and RS16 statements, with cross-suite, malformed-input and allowlist tests. Other contexts retain their own signing transcripts. External gate: consensus-transcript audit. |
+| Finality header, certified result `R` and every reader (§3.6, §4.6) | Implemented native production and verification of the 221-byte `X` bound into `R`, with exact `q = n - f` CommitQC verification and original genesis/scope custody. Core/private-scope/publication tests and native replay tools cover the boundary; the maximal 31-seat body has a golden test (§13 item 5). External gate: X-producer audit. |
+| `iroha_sccp::v1` reference and cross-language fixtures (§8, §11) | Implemented reference models, generators, drift checks and applicable Rust/Python/Solidity/Tolk consumers, including governance, fast-pause, forgery and liability fixtures, all tree/history paths and native ETH/BSC/TON event replay. The 98 pinned upstream Ethereum BLS v0.1.2 rows are imported byte-for-byte, independently reproduced in Python and replayed through applicable Rust, EVM and TON operations with explicit destination outcomes and skip ledgers. |
+| Certified time CT1–CT5 and `Execute.certified` (§4.3) | Implemented original-parent due observations, source-bound first-Prepare admission, fresh-clock resampling, matching held-PrepareQC exemption and authenticated restart/retransmission. Native and simulator tests cover queue/worker waits, cached execution, fresh-view proposal time and final signing checks. External gate: clock-guard audit; current-candidate qualification is separate. |
+| Genesis and Kagami SCCP staking profile (§4.8 L1) | Implemented matching epoch geometry of at least one hour, 21-day unbonding, nonzero slash policy, original G1 staking bindings and once-only reset identities. Profile/signing-order/reset tests and four-peer startup cover initialization. No route revision is registered in genesis. |
+| Frozen-surface golden tests and mutation entries (§11.6) | Implemented native wire/reference goldens and named SCCP/Core/clock mutation controls, including HC400 for both registration gates and HC401 for casting-open anchor propagation. Qualification requires passing current baselines and causal named-test kills; compiler failures are never kills. |
+| Self-contained penalty records, L3 release gate and daemon L1 refusal (§4.8–§4.9) | Implemented forgery evidence, immutable offence ownership, closed penalty records, liability release checks and configuration refusal. Unit tests and the four-peer earlier-generation forgery scenario cover delayed penalty/stake reduction. Remaining internal shared S8 work: original-pool ownership of generic evidence/history graphs and penalty-action arithmetic, also used by SCCP. External gate: liability audit. |
+| Committee generations, anchors, `X`, degradation/resync and pruning (§4.2, §4.5, §4.6, §4.11) | Implemented retained current/undo custody, genesis/key/heartbeat/resync transitions, destination clearance, original-parent anchors and sealed X publication. Tests cover bounded pruning, sparse generations and pending-penalty retention. Current-candidate combined qualification remains required. |
+| Shared Keepalive, `governance_due`, positions and millisecond clock (§4.7) | Implemented SCCP due predicates, quotas, certified-time handling and positioned rank-3 pause/reconciliation consumers, with boundary and unavailable-owner tests. External gate: Parliament's authenticated due iterator, ranks 0–2, carried remaining budget and shared-pass positions; missing authority never means an empty or successful pass. |
+| Control leaf and fast-pause track (§3.4, §4.14.6–§4.14.7) | Implemented pause-only consumers for funded panels, acceptance/replacement, endorsements, certification, suspension, capacity/nonce checks, enactment, expiry and selective lift. Tests and shared fixtures bind certificate id/effect/s0 and the original pulse. External gates: qualified Parliament eligibility/draw, casting-open authority and shared-pass positions for the complete lifecycle. |
+| Liability clock, L5, evidence and L1 checks (§4.8–§4.9) | Implemented parent-time clamping, generation parameter bounds, keeper L5 progress, forgery floors and release guards, with shared liability fixtures and component tests. External gates: liability audit and ballot-authorized monetary deployment/value qualification. |
+| Per-revision holds, quarantine and reconciliation (§4.10) | Implemented permanent causes, monotone floors, proof-window accounting and bounded due settlement, with forged-mint, reservation and refused-credit tests. External gates: qualified Parliament enactment/shared-pass authority and reconciliation audit. |
+| Launch gates (§10.2) | Implemented fail-closed stubs: both `parliament_binding_ballot_available()` and `sccp_reconciliation_available()` return `false`. Tests refuse proposal/registration without authority. No interim governance or genesis-seeded route exists. Opening requires the external qualified post-quantum ballot and authenticated shared pass. |
+| SCCP-owned governance specification | Implemented contract in this specification and `specs/governance_pipeline.md`: SCCP consumes certificate id, effect hash and source-bound casting-open s0, with no Parliament key or certificate cryptography in SCCP. Full authentic shared-pass integration and qualification remain external. |
+| First-release retirement | Implemented removal of TRON, EIP-712 attestations, attestor rosters, bridge-key files/signature sets and obsolete readers. Live OpenAPI, inventory and test descriptions name native finality. Remaining rejection/removal references, native validator schedules and ordinary EVM signing/recovery serve distinct current purposes. |
+| Parliament post-quantum ballot | External launch dependency. Proof components do not supply the qualified binding ballot, authoritative eligibility/draw/due positions, casting-open anchor or finite attempt-latency contract. Both SCCP launch gates stay false until those authorities are integrated and qualified. |
 
-**Order of work.** M0 freezes the interfaces (the consensus API constants and
-allowlist; the `CertifiedResultV1` types; the `Execute.certified` API; the
-`iroha_sccp::v1` reference with the hash-only vectors and the state-machine,
-control, fast-pause and liability rows; the TON wrapper test and exit-code
-table; verification of `SCCP_EVM_DEPLOYER` on Ethereum and BSC) and asks the
-Parliament workstream to confirm the interface items of §10.1. M1 implements
-the core and contract work packages above in parallel. M2 produces
-real-certificate vectors, the Torii routes, the original retained rotation projection, `monitor`,
-evidence and deployment tooling, gas baselines and the Python re-derivation. M3
-runs the 4-peer integration test and the three-way cross-check, rewrites
-`status.md` and `roadmap.md` in place, and starts external audits (EIP-2537
-glue, the Tolk binding, the consensus transcript change, the `X` producer and
-clock guards, anchors and liability, holds and reconciliation). Launch stays
-gated on the Parliament ballot and reconciliation (§10.2).
+**Order of work.** Complete the shared S8 penalty allocation ownership, then
+qualify the current
+combined candidate: workspace compilation/tests/lint,
+registered mutations with named causal kills, native four-peer targets and
+cross-language replay. The reference, native producers/readers, route
+installation, narrow Parliament consumer interface and destination tooling
+already have source and tests. Integrate the Parliament owner's qualified
+post-quantum ballot and authenticated shared pass without opening either gate
+early. External release work comprises EIP-2537 glue, Tolk binding,
+consensus-transcript, X-producer/clock-guard, liability and reconciliation audits;
+BSC/TON live-RPC captures and real profile fork dates; and Ethereum/BSC/TON
+mainnet deployments and value canaries. Only genuine ballot-authorized routes
+can qualify the monetary, hold-release and full fast-pause scenarios of §11.4.
 
 **Later.** SDK parity (§8) and MCP `iroha.*` read tools; destination-state
 proofs through the inbound light clients, so that Taira can detect captured or
 diverged destinations on chain and automate `AttestSccpDeploymentProgress`;
-external custody of consensus vote keys; unifying every BLS signature on RFC
-9380 suites; finalizer and claim tips (deferred by decision; a later payload
+external custody of consensus vote keys; finalizer and claim tips (deferred by decision; a later payload
 version, since no backward compatibility is required).
 
 ## 13. Open questions
@@ -6505,17 +6550,20 @@ version, since no backward compatibility is required).
 1. **Fast pause panel term (resolved).** The default is 7 d. The first
    epoch-boundary pulse at or after its end draws the replacement (§4.14.7).
    An epoch-length term remains a supported Parliament parameter change.
-2. **Parliament interface items.** Item 6 of §10.1 (the G2 segment order of
-   ballot closures and openings with the capacity rule and positions) needs
-   the Parliament workstream's confirmation before the interfaces freeze.
-   Items 1, 2, 4 and 5 were confirmed on 2026-10-05; item 3 is settled above.
+2. **Parliament authority integration.** SCCP consumes the certificate id,
+   effect hash and original casting-open `s0` through the implemented narrow
+   interface. The Parliament owner must still supply the qualified ballot,
+   eligibility/draw, attempt-latency bound and authenticated G1–G3 shared pass,
+   including the G2 ordering, remaining capacity and positions of §10.1 item 6.
+   The current adapter refuses an unavailable casting-open anchor.
 3. **Reconciliation (launch blocker).** R1–R6 (§4.10) are normative: the
    quarantine's hold on settlement ends at the window end, later claims settle
    at the fixed rate with the payout of R4, and the quarantine record and the
    outbound refusal never end. The layouts, routes and reconciliation commands
    implement this rule. Liability that no genuine mint or void can reach may
-   keep the revision retained indefinitely under R5. The remaining launch
-   dependency is the authentic Parliament shared pass and its qualification.
+   keep the revision retained indefinitely under R5. The remaining authority
+   dependency is the authentic Parliament shared pass and its qualification;
+   reconciliation audit and monetary deployment qualification also remain open.
 4. **The Parliament ballot (launch blocker).** `fast_pause_hold_ms` is pinned
    only once the ballot's windows are fixed; if one full-track attempt
    (`parliament_sccp_attempt_latency_ms()`) takes more than about 27 d, SCCP

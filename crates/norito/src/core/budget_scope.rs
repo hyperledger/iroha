@@ -32,11 +32,17 @@ impl CounterOwner {
     }
 }
 
+/// Deduplicated layers cached in a scope node for constant-time lookup.
+const VISIBLE_LAYERS: usize = 8;
+
 struct ScopeNode<'a> {
     previous: Option<&'a ScopeNode<'a>>,
     layers: &'a [ActiveDecodeBudgetLayer],
     prior_count: usize,
     count: usize,
+    // The complete source-order view, computed once when the immutable chain
+    // is installed. Valid when `count <= VISIBLE_LAYERS`; longer chains walk.
+    visible: [Option<&'a ActiveDecodeBudgetLayer>; VISIBLE_LAYERS],
 }
 
 thread_local! {
@@ -71,6 +77,15 @@ impl<'a> BudgetLayers<'a> {
         false
     }
     fn get(self, index: usize) -> Option<&'a ActiveDecodeBudgetLayer> {
+        if let Some(head) = self.head
+            && head.count <= VISIBLE_LAYERS
+        {
+            return head.visible.get(index).copied().flatten();
+        }
+        self.walk(index)
+    }
+    /// Resolve `index` by walking the chain; the reference for the cached view.
+    fn walk(self, index: usize) -> Option<&'a ActiveDecodeBudgetLayer> {
         let mut node = self.head;
         while let Some(current) = node {
             if index >= current.prior_count {
@@ -126,24 +141,31 @@ pub(super) fn with_layers<R>(
     // until it returns/unwinds. No mutable reference to its node is created.
     let parent = unsafe { previous.as_ref() };
     let prior = BudgetLayers { head: parent };
-    let additional = layers
-        .iter()
-        .enumerate()
-        .filter(|(position, candidate)| {
-            !prior.contains(candidate)
-                && !layers[..*position]
-                    .iter()
-                    .any(|layer| layer.budget.counters.ptr_eq(&candidate.budget.counters))
-        })
-        .count();
+    let mut visible = [None; VISIBLE_LAYERS];
+    for (slot, layer) in visible.iter_mut().zip(prior.iter()) {
+        *slot = Some(layer);
+    }
+    let mut count = prior.len();
+    for (position, candidate) in layers.iter().enumerate() {
+        if !prior.contains(candidate)
+            && !layers[..position]
+                .iter()
+                .any(|layer| layer.budget.counters.ptr_eq(&candidate.budget.counters))
+        {
+            if let Some(slot) = visible.get_mut(count) {
+                *slot = Some(candidate);
+            }
+            count = count
+                .checked_add(1)
+                .expect("live layer slice count fits usize");
+        }
+    }
     let node = ScopeNode {
         previous: parent,
         layers,
         prior_count: prior.len(),
-        count: prior
-            .len()
-            .checked_add(additional)
-            .expect("live layer slice count fits usize"),
+        count,
+        visible,
     };
     struct Restore {
         previous: *const ScopeNode<'static>,
@@ -168,4 +190,60 @@ pub(super) fn with_layers<R>(
     let value = body();
     drop(restore);
     value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_cached_view_matches_walk() -> usize {
+        with_active(|layers| {
+            for index in 0..=layers.len() {
+                let cached = layers.get(index).map(core::ptr::from_ref);
+                let walked = layers.walk(index).map(core::ptr::from_ref);
+                assert_eq!(cached, walked, "index {index} of {}", layers.len());
+            }
+            layers.len()
+        })
+    }
+
+    fn nest(contexts: &[DecodeBudgetContext], visible: &mut Vec<usize>) {
+        let Some((first, rest)) = contexts.split_first() else {
+            return;
+        };
+        first.with(|| {
+            visible.push(assert_cached_view_matches_walk());
+            // Reapplying an active context adds no visible layer.
+            first.with(|| visible.push(assert_cached_view_matches_walk()));
+            nest(rest, visible);
+        });
+    }
+
+    #[test]
+    fn cached_layer_view_matches_chain_walk_with_duplicates_and_long_chains() {
+        let limits = DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 32);
+        let contexts = (0..VISIBLE_LAYERS + 3)
+            .map(|_| DecodeBudgetContext::new(limits))
+            .collect::<Vec<_>>();
+        let mut visible = Vec::new();
+        nest(&contexts, &mut visible);
+        let expected = (1..=contexts.len())
+            .flat_map(|depth| [depth, depth])
+            .collect::<Vec<_>>();
+        assert_eq!(visible, expected);
+        assert_eq!(assert_cached_view_matches_walk(), 0);
+        // A multi-layer node mixes new, duplicated and previously active counters.
+        let shared = DecodeBudgetContext::new(limits);
+        shared.with(|| {
+            let layers = [
+                contexts[0].layer.clone(),
+                shared.layer.clone(),
+                contexts[0].layer.clone(),
+                contexts[1].layer.clone(),
+            ];
+            with_layers(&layers, 0, || {
+                assert_eq!(assert_cached_view_matches_walk(), 3);
+            });
+        });
+    }
 }

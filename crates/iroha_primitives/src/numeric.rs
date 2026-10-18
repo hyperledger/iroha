@@ -16,7 +16,7 @@ use norito::{
     json::{self, FastJsonWrite, JsonDeserialize, JsonSerialize},
 };
 use num_bigint::{BigInt as UnboundedBigInt, BigUint as UnboundedBigUint, Sign as UnboundedSign};
-use num_traits::{One as _, Signed as _, Zero as _};
+use num_traits::{One as _, Signed as _, ToPrimitive as _, Zero as _};
 pub use prepared_quantity::{
     ChargedQuantity, PreparedQuantityDecode, QuantityBackingError, QuantityDecodeAdmissionError,
     QuantityDecodePlan, QuantityDestinationError, QuantityJsonAdmissionError,
@@ -668,6 +668,11 @@ impl Numeric {
         self.validate_decimal_observed(observer)?;
         other.validate_decimal_observed(observer)?;
         let target_scale = self.scale.max(other.scale);
+        if let Some(result) =
+            small_decimal_combine_observed(self, other, target_scale, SmallCombine::Add, observer)
+        {
+            return result;
+        }
         let lhs =
             scale_unbounded_observed(self.mantissa.inner(), target_scale - self.scale, observer)?;
         let rhs =
@@ -703,6 +708,15 @@ impl Numeric {
         self.validate_decimal_observed(observer)?;
         other.validate_decimal_observed(observer)?;
         let target_scale = self.scale.max(other.scale);
+        if let Some(result) = small_decimal_combine_observed(
+            self,
+            other,
+            target_scale,
+            SmallCombine::Subtract,
+            observer,
+        ) {
+            return result;
+        }
         let lhs =
             scale_unbounded_observed(self.mantissa.inner(), target_scale - self.scale, observer)?;
         let rhs =
@@ -1896,13 +1910,29 @@ impl Quantity {
         other_multiplier: u64,
     ) -> Ordering {
         let common_scale = self.scale().max(other.scale());
-        let lhs = self.mantissa().inner()
-            * UnboundedBigInt::from(self_multiplier)
-            * UnboundedBigInt::from(10_u8).pow(common_scale - self.scale());
-        let rhs = other.mantissa().inner()
-            * UnboundedBigInt::from(other_multiplier)
-            * UnboundedBigInt::from(10_u8).pow(common_scale - other.scale());
-        lhs.cmp(&rhs)
+        // Alignment needs at most 605 bits; multiplying by a u64 needs at most
+        // 669 bits. Eleven inline limbs cover the complete comparison domain,
+        // including products which cannot themselves be canonical quantities.
+        let product = |quantity: &Self, multiplier: u64| {
+            let aligned = aligned_quantity_sum_limbs(quantity, common_scale)
+                .expect("canonical quantity alignment fits ten limbs");
+            let mut result = [0_u64; QUANTITY_SUM_RELATION_LIMBS + 1];
+            let mut carry = 0_u128;
+            for (limb, source) in result.iter_mut().zip(aligned) {
+                let value = u128::from(source) * u128::from(multiplier) + carry;
+                *limb = u64::try_from(value & u128::from(u64::MAX))
+                    .expect("masked product limb fits u64");
+                carry = value >> 64;
+            }
+            // (2^64 - 1)^2 + (2^64 - 1) < 2^128, so the carry is below 2^64.
+            result[QUANTITY_SUM_RELATION_LIMBS] =
+                u64::try_from(carry).expect("final product carry fits one limb");
+            result
+        };
+        product(self, self_multiplier)
+            .iter()
+            .rev()
+            .cmp(product(other, other_multiplier).iter().rev())
     }
     /// Divide a quantity by a decimal factor exactly.
     ///
@@ -1955,7 +1985,7 @@ impl PartialOrd for Quantity {
 }
 impl Ord for Quantity {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.0.cmp(&other.0)
+        self.cmp_mul_u64(1, other, 1)
     }
 }
 impl core::fmt::Display for Quantity {
@@ -2427,6 +2457,141 @@ fn logical_limbs(value: &UnboundedBigInt) -> u16 {
     let bits = value.bits();
     let limbs = bits.max(1).div_ceil(64);
     u16::try_from(limbs).unwrap_or(u16::MAX)
+}
+/// Decimal powers `10^0..=10^28`; the largest is below `2^94`.
+const SMALL_DECIMAL_POWERS: [i128; MAX_DECIMAL_SCALE as usize + 1] = {
+    let mut powers = [1_i128; MAX_DECIMAL_SCALE as usize + 1];
+    let mut index = 1;
+    while index < powers.len() {
+        powers[index] = powers[index - 1] * 10;
+        index += 1;
+    }
+    powers
+};
+/// [`logical_limbs`] of the same conceptual integer held in `i128`.
+fn small_logical_limbs(value: i128) -> u16 {
+    if value.unsigned_abs() >> 64 == 0 {
+        1
+    } else {
+        2
+    }
+}
+/// Mantissa aligned to `target_scale`, when the aligned value fits `i128`.
+fn small_aligned_mantissa(value: &Numeric, target_scale: u32) -> Option<i128> {
+    let shift = usize::try_from(target_scale.checked_sub(value.scale)?).ok()?;
+    value
+        .mantissa
+        .inner()
+        .to_i128()?
+        .checked_mul(*SMALL_DECIMAL_POWERS.get(shift)?)
+}
+#[derive(Clone, Copy)]
+enum SmallCombine {
+    Add,
+    Subtract,
+}
+/// Add or subtract two validated decimals entirely on `i128`.
+///
+/// Returns `None`, before reporting any work, when an operand, an aligned
+/// operand or the combined value needs the unbounded representation. Otherwise
+/// it reports exactly the steps of the unbounded path, in the same order and
+/// with the same widths, so observers (gas meters) cannot tell them apart.
+fn small_decimal_combine_observed<E, F>(
+    lhs: &Numeric,
+    rhs: &Numeric,
+    target_scale: u32,
+    combine: SmallCombine,
+    observer: &mut F,
+) -> Option<Result<Numeric, ObservedNumericError<E>>>
+where
+    F: FnMut(NumericWorkStep) -> Result<(), E>,
+{
+    let lhs_value = lhs.mantissa.inner().to_i128()?;
+    let rhs_value = rhs.mantissa.inner().to_i128()?;
+    let lhs_scaled = small_aligned_mantissa(lhs, target_scale)?;
+    let rhs_scaled = small_aligned_mantissa(rhs, target_scale)?;
+    let combined = match combine {
+        SmallCombine::Add => lhs_scaled.checked_add(rhs_scaled)?,
+        SmallCombine::Subtract => lhs_scaled.checked_sub(rhs_scaled)?,
+    };
+    let mut report = || {
+        small_alignment_step_observed(lhs_value, target_scale - lhs.scale, observer)?;
+        small_alignment_step_observed(rhs_value, target_scale - rhs.scale, observer)?;
+        let lhs_limbs = small_logical_limbs(lhs_scaled);
+        let rhs_limbs = small_logical_limbs(rhs_scaled);
+        observer(match combine {
+            SmallCombine::Add => NumericWorkStep::Add {
+                lhs_limbs,
+                rhs_limbs,
+            },
+            SmallCombine::Subtract => NumericWorkStep::Subtract {
+                lhs_limbs,
+                rhs_limbs,
+            },
+        })
+        .map_err(ObservedNumericError::Observer)?;
+        small_canonical_decimal_observed(combined, target_scale, observer)
+    };
+    Some(report())
+}
+/// The alignment step [`scale_unbounded_observed`] reports for this operand.
+fn small_alignment_step_observed<E, F>(
+    value: i128,
+    decimal_places: u32,
+    observer: &mut F,
+) -> Result<(), ObservedNumericError<E>>
+where
+    F: FnMut(NumericWorkStep) -> Result<(), E>,
+{
+    let value_limbs = small_logical_limbs(value);
+    observer(if decimal_places == 0 || value == 0 {
+        NumericWorkStep::Materialize { value_limbs }
+    } else {
+        NumericWorkStep::ScaleByPowerOfTen {
+            value_limbs,
+            exponent: u8::try_from(decimal_places).unwrap_or(u8::MAX),
+        }
+    })
+    .map_err(ObservedNumericError::Observer)
+}
+/// [`canonical_decimal_from_unbounded_observed`] for a mantissa held in `i128`.
+fn small_canonical_decimal_observed<E, F>(
+    mut mantissa: i128,
+    mut scale: u32,
+    observer: &mut F,
+) -> Result<Numeric, ObservedNumericError<E>>
+where
+    F: FnMut(NumericWorkStep) -> Result<(), E>,
+{
+    if mantissa == 0 {
+        scale = 0;
+    }
+    while scale > 0 {
+        observer(NumericWorkStep::Normalize {
+            mantissa_limbs: small_logical_limbs(mantissa),
+            remaining_scale: u8::try_from(scale).unwrap_or(u8::MAX),
+        })
+        .map_err(ObservedNumericError::Observer)?;
+        if mantissa % 10 != 0 {
+            break;
+        }
+        mantissa /= 10;
+        scale -= 1;
+    }
+    if scale > MAX_DECIMAL_SCALE {
+        return Err(ObservedNumericError::Numeric(
+            NumericOperationError::ScaleOverflow,
+        ));
+    }
+    observer(NumericWorkStep::Finalize {
+        value_limbs: small_logical_limbs(mantissa),
+    })
+    .map_err(ObservedNumericError::Observer)?;
+    // Every `i128` lies inside the signed 512-bit mantissa domain.
+    Ok(Numeric {
+        mantissa: BigInt::from_i128(mantissa),
+        scale,
+    })
 }
 fn quotient_remainder(
     numerator: &UnboundedBigInt,
@@ -2900,6 +3065,12 @@ impl TryFrom<Numeric> for u64 {
 impl Ord for Numeric {
     fn cmp(&self, other: &Self) -> Ordering {
         let target_scale = self.scale.max(other.scale);
+        if let (Some(lhs), Some(rhs)) = (
+            small_aligned_mantissa(self, target_scale),
+            small_aligned_mantissa(other, target_scale),
+        ) {
+            return lhs.cmp(&rhs);
+        }
         let lhs = scale_unbounded(self.mantissa.inner(), target_scale - self.scale);
         let rhs = scale_unbounded(other.mantissa.inner(), target_scale - other.scale);
         lhs.cmp(&rhs)

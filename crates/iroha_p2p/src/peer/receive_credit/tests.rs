@@ -664,3 +664,92 @@ fn mandatory_writer_geometry_rejects_unfunded_bytes_counts_and_overflow() {
     assert!(writer_partitions([usize::MAX; CLASS_COUNT], limits).is_err());
     assert!(writer_partitions([0; CLASS_COUNT], limits).is_err());
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn grant_release_wakes_streams_only_while_one_waits_for_capacity() {
+    use std::future::Future as _;
+    use std::task::{Context, Poll};
+    let p = pool(3);
+    let source = p.bind(peer(91).id()).unwrap();
+    let poll_once = |notified: &mut std::pin::Pin<&mut tokio::sync::futures::Notified<'_>>| {
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        notified.as_mut().poll(&mut context)
+    };
+    // Nobody waits: a release must not wake the registered notification.
+    let idle = p.changed.notified();
+    tokio::pin!(idle);
+    idle.as_mut().enable();
+    drop(source.reserve(Class::Lane, 200).expect("free capacity"));
+    assert_eq!(p.blocked.load(Ordering::SeqCst), 0);
+    assert!(
+        matches!(poll_once(&mut idle), Poll::Pending),
+        "an idle pool release must not wake every peer task"
+    );
+    // A registered waiter is woken by the next release.
+    let waiting = p.changed.notified();
+    tokio::pin!(waiting);
+    let registration = BlockedOnRelease::register(&p);
+    waiting.as_mut().enable();
+    drop(source.reserve(Class::Lane, 200).expect("free capacity"));
+    assert!(
+        matches!(poll_once(&mut waiting), Poll::Ready(())),
+        "released capacity must wake a stream waiting for a grant"
+    );
+    drop(registration);
+    assert_eq!(p.blocked.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn sealed_record_is_one_buffer_with_the_canonical_wire_layout() {
+    let cipher = crypto();
+    let header = Header::request([7; 32], Class::Lane, 1, 3)
+        .unwrap()
+        .with_kind(Kind::Data);
+    let record = record::seal_record(&cipher, &header, b"abc").unwrap();
+    let header_bytes = header.bytes().unwrap();
+    assert_eq!(
+        record[..4],
+        u32::try_from(header_bytes.len()).unwrap().to_be_bytes()
+    );
+    assert_eq!(&record[4..4 + header_bytes.len()], header_bytes.as_slice());
+    let mut sealed = record[4 + header_bytes.len()..].to_vec();
+    assert_eq!(
+        sealed.len(),
+        record::encrypted_len::<Cipher>(3).unwrap(),
+        "nothing but the sealed body follows the header"
+    );
+    assert_eq!(
+        record::open(&cipher, &header_bytes, &mut sealed).unwrap(),
+        b"abc"
+    );
+    let mut tampered = record[4 + header_bytes.len()..].to_vec();
+    let altered = header.with_kind(Kind::Grant).bytes().unwrap();
+    assert!(
+        record::open(&cipher, &altered, &mut tampered).is_err(),
+        "the header remains authenticated as AAD"
+    );
+    assert!(
+        record::seal_record(&cipher, &header.with_kind(Kind::Request), b"x").is_err(),
+        "control records carry only an authenticated empty body"
+    );
+    assert!(record::seal_record(&cipher, &header, b"ab").is_err());
+}
+
+#[test]
+fn reader_places_every_sealed_body_for_aligned_in_place_decoding() {
+    let buffer = vec![0_u8; 512];
+    for align in [1_usize, 2, 4, 8, 16, 32, 64] {
+        for nonce in [0_usize, 12, 24] {
+            for skew in 0..8 {
+                let slice = &buffer[skew..];
+                let start = stream::aligned_body_start(slice, nonce, align);
+                assert!(start < align);
+                assert_eq!(
+                    (slice.as_ptr() as usize + start + nonce) % align,
+                    0,
+                    "the decrypted payload starts at an aligned address"
+                );
+            }
+        }
+    }
+}

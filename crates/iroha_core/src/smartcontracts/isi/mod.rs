@@ -180,11 +180,89 @@ pub(crate) enum NativeInstructionAssetEffect {
     /// The handler can cause numeric asset effects not exposed as signed transfer coordinates.
     MayAffectNumericAssets,
 }
+/// Native handler and reviewed Initial disposition of one concrete instruction type.
+#[derive(Clone, Copy)]
+struct NativeInstruction {
+    handler: InstructionHandler,
+    initial_admission: Option<InitialNativeInstructionAdmission>,
+}
+/// One `define_instruction_handlers!` entry, before indexing.
+struct NativeRegistration {
+    type_id: core::any::TypeId,
+    handler: InstructionHandler,
+    initial_admission: Option<InitialNativeInstructionAdmission>,
+}
+impl NativeRegistration {
+    fn of<T: 'static>(
+        handler: InstructionHandler,
+        initial_admission: Option<InitialNativeInstructionAdmission>,
+    ) -> Self {
+        Self {
+            type_id: core::any::TypeId::of::<T>(),
+            handler,
+            initial_admission,
+        }
+    }
+}
+/// Registered native instructions sorted by concrete type for one binary search per lookup.
+struct NativeInstructionTable(Vec<(core::any::TypeId, NativeInstruction)>);
+impl NativeInstructionTable {
+    /// Index registrations in declaration order.
+    ///
+    /// The first registration of a type supplies its handler and the first annotated
+    /// registration its Initial disposition, exactly as an ordered scan would find them.
+    fn new(registrations: impl IntoIterator<Item = NativeRegistration>) -> Self {
+        let mut registrations: Vec<_> = registrations.into_iter().collect();
+        // Stable: repeated registrations of one type keep their declaration order.
+        registrations.sort_by_key(|registration| registration.type_id);
+        let mut entries: Vec<(core::any::TypeId, NativeInstruction)> =
+            Vec::with_capacity(registrations.len());
+        for registration in registrations {
+            match entries.last_mut() {
+                Some((known, native)) if *known == registration.type_id => {
+                    native.initial_admission =
+                        native.initial_admission.or(registration.initial_admission);
+                }
+                _ => entries.push((
+                    registration.type_id,
+                    NativeInstruction {
+                        handler: registration.handler,
+                        initial_admission: registration.initial_admission,
+                    },
+                )),
+            }
+        }
+        Self(entries)
+    }
+    fn get(&self, instruction: &InstructionBox) -> Option<&NativeInstruction> {
+        self.get_type(core::any::Any::type_id(instruction.as_any()))
+    }
+    fn get_type(&self, type_id: core::any::TypeId) -> Option<&NativeInstruction> {
+        self.0
+            .binary_search_by_key(&type_id, |(known, _)| *known)
+            .ok()
+            .map(|index| &self.0[index].1)
+    }
+}
+macro_rules! optional_initial_admission {
+    () => {
+        None
+    };
+    ($admission:ident) => {
+        Some(InitialNativeInstructionAdmission::$admission)
+    };
+}
 macro_rules! define_instruction_handlers {
     ($($handler:ident::<$instruction:ty $(,)?> $(=> $admission:ident)? $([asset_effect = $asset_effect:ident])?),* $(,)?) => {
-        const INSTRUCTION_HANDLERS: &[InstructionHandler] = &[
-            $($handler::<$instruction>),*
-        ];
+        static NATIVE_INSTRUCTIONS: std::sync::LazyLock<NativeInstructionTable> =
+            std::sync::LazyLock::new(|| {
+                NativeInstructionTable::new([
+                    $(NativeRegistration::of::<$instruction>(
+                        $handler::<$instruction>,
+                        optional_initial_admission!($($admission)?),
+                    )),*
+                ])
+            });
         #[cfg(test)]
         trait NativeInstructionRegistered {}
         $(
@@ -194,6 +272,15 @@ macro_rules! define_instruction_handlers {
         #[cfg(test)]
         fn registered_native_instruction_type_names() -> Vec<&'static str> {
             vec![$(core::any::type_name::<$instruction>()),*]
+        }
+        #[cfg(test)]
+        fn registered_native_instruction_registrations()
+            -> Vec<(core::any::TypeId, Option<InitialNativeInstructionAdmission>)>
+        {
+            vec![$((
+                core::any::TypeId::of::<$instruction>(),
+                optional_initial_admission!($($admission)?),
+            )),*]
         }
         #[cfg(test)]
         fn registered_native_instruction_asset_effects()
@@ -211,14 +298,9 @@ macro_rules! define_instruction_handlers {
         pub(crate) fn registered_native_instruction_initial_admission(
             instruction: &InstructionBox,
         ) -> Option<InitialNativeInstructionAdmission> {
-            $(
-                $(
-                    if instruction.as_any().downcast_ref::<$instruction>().is_some() {
-                        return Some(InitialNativeInstructionAdmission::$admission);
-                    }
-                )?
-            )*
-            None
+            NATIVE_INSTRUCTIONS
+                .get(instruction)
+                .and_then(|native| native.initial_admission)
         }
         #[cfg(test)]
         fn registered_native_instruction_initial_dispositions()
@@ -775,9 +857,9 @@ pub(crate) fn execute_borrowed_instruction(
     crate::executor::root_scope::ensure_instruction_scope(instruction, state_transaction)
         .map_err(|error| Error::from(error.to_string()))?;
     iroha_logger::debug!(isi=%instruction, "Executing");
-    if let Some(result) = INSTRUCTION_HANDLERS
-        .iter()
-        .find_map(|handler| handler(instruction, authority, state_transaction))
+    if let Some(result) = NATIVE_INSTRUCTIONS
+        .get(instruction)
+        .and_then(|native| (native.handler)(instruction, authority, state_transaction))
     {
         return result;
     }
@@ -800,6 +882,69 @@ mod registry_dispatch_tests {
     use std::collections::BTreeSet;
     fn has_dispatch_handler(type_name: &str) -> bool {
         registered_native_instruction_type_names().contains(&type_name)
+    }
+    #[test]
+    fn native_instruction_table_matches_an_ordered_registration_scan() {
+        let registrations = registered_native_instruction_registrations();
+        for (type_id, _) in &registrations {
+            let expected = registrations
+                .iter()
+                .filter(|(known, _)| known == type_id)
+                .find_map(|(_, admission)| *admission);
+            let native = NATIVE_INSTRUCTIONS
+                .get_type(*type_id)
+                .expect("every registered native instruction type is indexed");
+            assert_eq!(native.initial_admission, expected);
+        }
+        let distinct: BTreeSet<_> = registrations.iter().map(|(type_id, _)| *type_id).collect();
+        assert_eq!(NATIVE_INSTRUCTIONS.0.len(), distinct.len());
+        assert!(
+            NATIVE_INSTRUCTIONS
+                .get(&InstructionBox::from(CustomInstruction::new(
+                    "unregistered"
+                )))
+                .is_none(),
+            "custom instructions have no native handler"
+        );
+    }
+    #[test]
+    fn native_instruction_table_keeps_the_first_handler_and_reviewed_disposition() {
+        fn unused_handler(
+            _: &InstructionBox,
+            _: &AccountId,
+            _: &mut StateTransaction<'_, '_>,
+        ) -> Option<Result<(), Error>> {
+            None
+        }
+        let first = core::any::TypeId::of::<u8>();
+        let second = core::any::TypeId::of::<u16>();
+        let table = NativeInstructionTable::new([
+            NativeRegistration::of::<u8>(unused_handler, None),
+            NativeRegistration::of::<u16>(
+                unused_handler,
+                Some(InitialNativeInstructionAdmission::Closed),
+            ),
+            NativeRegistration::of::<u8>(
+                unused_handler,
+                Some(InitialNativeInstructionAdmission::CoreAuthorized),
+            ),
+            NativeRegistration::of::<u8>(
+                unused_handler,
+                Some(InitialNativeInstructionAdmission::Closed),
+            ),
+        ]);
+        assert_eq!(table.0.len(), 2);
+        assert_eq!(
+            table.get_type(first).map(|native| native.initial_admission),
+            Some(Some(InitialNativeInstructionAdmission::CoreAuthorized))
+        );
+        assert_eq!(
+            table
+                .get_type(second)
+                .map(|native| native.initial_admission),
+            Some(Some(InitialNativeInstructionAdmission::Closed))
+        );
+        assert!(table.get_type(core::any::TypeId::of::<u32>()).is_none());
     }
     fn assert_native_registration<T: NativeInstructionRegistered>() {}
     fn assert_reviewed_initial_family(family: &str, expected_closed: BTreeSet<&str>) {

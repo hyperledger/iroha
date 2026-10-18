@@ -932,8 +932,6 @@ pub async fn execute_verified_query_with_opts(
 /// Output-specific Core limits carried by one server-owned fanout execution.
 #[derive(Clone, Copy, Debug)]
 pub enum FanoutQueryOutputLimits {
-    /// Canonical top-k retention limits for an admitted iterable query.
-    Iterable(iroha_core::smartcontracts::isi::query::CanonicalQueryOutputLimits),
     /// Bounded producer/ownership limits for an admitted singular query.
     Singular(iroha_core::smartcontracts::isi::query::SingularQueryOutputLimits),
 }
@@ -1073,15 +1071,8 @@ async fn execute_verified_query_with_opts_inner(
     };
     let mut limits =
         QueryLimits::new(app_query_limits().max_fetch_size).with_count_mode(count_mode);
-    if let Some((output_limits, _, _)) = fanout_execution.as_ref() {
-        limits = match output_limits {
-            FanoutQueryOutputLimits::Iterable(canonical) => {
-                limits.with_canonical_output_limits(*canonical)
-            }
-            FanoutQueryOutputLimits::Singular(singular) => {
-                limits.with_singular_output_limits(*singular)
-            }
-        };
+    if let Some((FanoutQueryOutputLimits::Singular(singular), _, _)) = fanout_execution.as_ref() {
+        limits = limits.with_singular_output_limits(*singular);
     }
     let resp = crate::panic_recovery::join_recoverable(
         crate::panic_recovery::spawn_blocking_recoverable(move || {

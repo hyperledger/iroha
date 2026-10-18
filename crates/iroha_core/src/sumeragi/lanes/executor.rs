@@ -737,6 +737,14 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
 }
 
 impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneRecovery<A, C, T> {
+    /// Borrow the exact original local refusal while this startup retains its recovery.
+    /// This observation neither moves its source nor grants publication authority.
+    pub(super) fn original_startup_refusal(
+        &self,
+    ) -> Option<&crate::execution_attempt::ExecutionDeferred> {
+        self.refusal.as_ref()
+    }
+
     /// Continue the same startup owner, preserving every completed prefix and partial read.
     ///
     /// # Errors
@@ -808,8 +816,11 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneRecov
             };
             let batch = match LaneBatch::from_payload(body.payload().as_slice()) {
                 Ok(batch) => batch,
-                Err(AdmissionAttemptError::Deferred(_)) => {
-                    return Err(io::Error::from(io::ErrorKind::WouldBlock).into());
+                Err(AdmissionAttemptError::Deferred(original)) => {
+                    if cfg!(all(test, sumeragi_core_mutation = "HC432")) {
+                        return Err(io::Error::from(io::ErrorKind::WouldBlock).into());
+                    }
+                    return Err(Attempt::Deferred(original.into()));
                 }
                 Err(AdmissionAttemptError::ResourceDeferred(reason)) => {
                     return Err(Attempt::Deferred(reason));
@@ -1235,6 +1246,12 @@ mod tests {
         }
     }
     impl BlockStore for NoStore {
+        fn retired_publication(
+            self: std::sync::Arc<Self>,
+        ) -> Option<std::sync::Arc<dyn crate::sumeragi::driver::traits::RetiredPublication>>
+        {
+            None
+        }
         fn committed_body(
             &self,
             _: u64,

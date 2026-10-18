@@ -50,6 +50,18 @@ fun blsDstPrime(): slice {
 fun blsMapToG2(fieldElement: slice): slice
     asm "BLS_MAP_TO_G2"
 
+/// Generic compressed G1 decoding and subgroup check; infinity is a group point.
+// SAFETY: the opcode pops one slice and pushes one boolean.
+@pure
+fun blsG1InGroup(point: slice): bool
+    asm "BLS_G1_INGROUP"
+
+/// Generic compressed G2 decoding and subgroup check; infinity is a group point.
+// SAFETY: the opcode pops one slice and pushes one boolean.
+@pure
+fun blsG2InGroup(point: slice): bool
+    asm "BLS_G2_INGROUP"
+
 /// `BLS_G2_ADD`: the sum of two G2 points in compressed form.
 // SAFETY: the opcode pops two slices and pushes one slice.
 @pure
@@ -65,14 +77,21 @@ fun blsG2Mul(point: slice, scalar: int): slice
 /// The eight SHA-256 blocks `b_1 … b_8` of `expand_message_xmd(m, DST_SIG,
 /// 256)` (RFC 9380 §5.3.1) for a 32-byte message, as 256-bit integers.
 fun blsExpandMessage(m: slice): array<int> {
-    val dst = blsDstPrime();
+    return blsExpandMessageWithDst([m], blsDstPrime());
+}
+
+/// Test-only XMD with explicit `DST_prime` and message pieces, including the
+/// upstream RFC QUUX text messages that do not use the consensus POP domain.
+fun blsExpandMessageWithDst(pieces: array<slice>, dst: slice): array<int> {
     // b_0 = H(Z_pad(64) ‖ m ‖ I2OSP(256, 2) ‖ I2OSP(0, 1) ‖ DST_prime)
-    val b0 = sha256Parts(
-        [
-            beginCell().storeUint(0, 256).storeUint(0, 256).storeSlice(m),
-            beginCell().storeUint(256, 16).storeUint(0, 8).storeSlice(dst),
-        ],
-    );
+    var parts: array<builder> = [beginCell().storeUint(0, 256).storeUint(0, 256)];
+    var piece = 0;
+    repeat (pieces.size()) {
+        parts.push(beginCell().storeSlice(pieces.get(piece)));
+        piece += 1;
+    }
+    parts.push(beginCell().storeUint(256, 16).storeUint(0, 8).storeSlice(dst));
+    val b0 = sha256Parts(parts);
     var blocks: array<int> = [];
     var previous = 0;
     var i = 1;
@@ -124,7 +143,11 @@ fun blsFieldElement(high: int, low: int): builder {
 /// each as the 96 bytes `c_0 ‖ c_1` that `BLS_MAP_TO_G2` reads: `u_0 = (e_0,
 /// e_1)` and `u_1 = (e_2, e_3)` with `e_j = OS2IP(b_{2j+1} ‖ b_{2j+2}) mod p`.
 fun blsHashToField(m: slice): (slice, slice) {
-    val b = blsExpandMessage(m);
+    return blsBlocksToField(blsExpandMessage(m));
+}
+
+/// Reduce the eight XMD blocks into two `Fp2` inputs for either test domain.
+fun blsBlocksToField(b: array<int>): (slice, slice) {
     val u0 = beginCell()
         .storeBuilder(blsFieldElement(b.get(0), b.get(1)))
         .storeBuilder(blsFieldElement(b.get(2), b.get(3)))

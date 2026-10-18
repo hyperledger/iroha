@@ -2560,7 +2560,6 @@ mod tests {
         };
         for slot in [
             IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner,
-            IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner,
             IrohaRuntimeProviderSlotV1::PrivacyCyclePrfProvider,
         ] {
             let mut catalog = IrohaRuntimeProviderBindingsV1::qualified_for_test(

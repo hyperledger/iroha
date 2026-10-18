@@ -30,7 +30,7 @@ test("proof page captures original trust bytes, credentials and request before l
     localSigningContext: new LocalSigningContext(network, 753),
     fetchImpl: async () => assert.fail("the captured request owner must be used"),
     [TORII_TEST_NATIVE_BINDING]: {
-      connectNoritoBridgeAbiVersion: () => 29,
+      connectNoritoBridgeAbiVersion: () => 30,
       validationFeeCurrentPolicyProofRequestV1(bytes) {
         assert.deepEqual(bytes, Buffer.from([100, 57])); return Buffer.of(8);
       },

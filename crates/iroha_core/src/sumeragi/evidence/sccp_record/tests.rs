@@ -77,6 +77,74 @@ pub(super) fn claim() -> EvidenceRecord {
         penalty_status: iroha_data_model::block::consensus::EvidencePenaltyStatus::Pending,
     }
 }
+#[test]
+fn offender_preflight_rejects_each_oversized_graph_before_nested_decode() {
+    for field in ["material", "attribution"] {
+        for count in [31, 32, 64] {
+            // Deliberately invalid account/peer objects: the fence only counts raw
+            // rows, so an overlong graph is refused before any nested decoding.
+            let rows = std::iter::repeat_n("{}", count)
+                .collect::<Vec<_>>()
+                .join(",");
+            let raw = if field == "material" {
+                format!(
+                    "{{\"evidence\":{{\"kind\":\"sccp_forgery\",\"value\":{{\"offenders\":[{rows}]}}}}}}"
+                )
+            } else {
+                format!("{{\"attribution\":{{\"offenders\":[{rows}]}}}}")
+            };
+            let mut result = None;
+            let allocations = crate::test_allocations::allocations_during(|| {
+                result = Some(preflight_offenders(&raw));
+            });
+            assert_eq!(
+                allocations, 0,
+                "offender preflight and count refusal allocate nothing"
+            );
+            let result = result.unwrap();
+            if count > 31 {
+                assert!(
+                    matches!(
+                        result,
+                        Err(Error::Json(json::Error::WithPos {
+                            msg: "evidence offender array exceeds committee bound",
+                            ..
+                        }))
+                    ),
+                    "oversized SCCP graph is refused before nested decode"
+                );
+            } else {
+                assert!(result.is_ok());
+            }
+        }
+    }
+    let raw = json::to_json(&claim()).unwrap();
+    assert_eq!(
+        crate::test_allocations::allocations_during(|| {
+            preflight_offenders(&raw).unwrap();
+        }),
+        0,
+        "valid raw offender preflight needs no allocation"
+    );
+    let rows = std::iter::repeat_n("{}", 32).collect::<Vec<_>>().join(",");
+    let reordered = format!(
+        "{{\"attribution\":{{\"offenders\":[{rows}]}},\"evidence\":{{\"kind\":\"sccp_forgery\",\"value\":{{}}}}}}"
+    );
+    let budget = AllocationBudget::new(1 << 20);
+    let error = super::super::parse_record(&mut Parser::new(&reordered), &budget).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            Error::Json(json::Error::WithPos {
+                msg: "evidence offender array exceeds committee bound",
+                ..
+            })
+        ),
+        "discriminator prefix cannot decode oversized attribution before the fence"
+    );
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
 fn parse(
     record: &EvidenceRecord,
     budget: &AllocationBudget,

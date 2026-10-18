@@ -208,8 +208,7 @@ fn owned_pointer_decoders_charge_their_wrapper_allocations() {
         DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes - 1, usize::MAX)
     }
     reset_decode_state();
-    // Use an alignment-one payload so this regression isolates the owned
-    // wrapper allocation rather than also charging a field realignment copy.
+    // Use a one-byte payload so this regression isolates the owned wrapper allocation.
     let mut bytes = Vec::new();
     serialize_to_buffer(&Box::new(7_u8), &mut bytes).expect("serialize Box");
     let box_bytes = owned_box_allocation_bytes::<u8>();
@@ -273,13 +272,6 @@ fn crc64_matches_digest() {
     let mut digest = Digest::new();
     digest.write(data);
     assert_eq!(crc64(data), digest.sum64());
-}
-#[test]
-fn copy_from_payload_allows_zero_len() {
-    let mut out = 0u8;
-    let ptr = core::ptr::NonNull::<u8>::dangling().as_ptr();
-    let res = unsafe { copy_from_payload(ptr, &mut out as *mut u8, 0) };
-    assert!(res.is_ok());
 }
 #[cfg(feature = "compression")]
 #[test]
@@ -471,161 +463,157 @@ fn erased_field_decoder_preserves_panic_type_name() {
             if context == core::any::type_name::<PanicDuringFieldDecode>()
     ));
 }
-#[test]
-fn decode_archived_field_owns_realigns_and_installs_payload_context() {
-    reset_decode_state();
-    let expected = String::from("shared archived field helper");
-    let mut encoded = Vec::new();
-    serialize_to_buffer(&expected, &mut encoded).expect("encode string");
-    let mut storage = Vec::with_capacity(encoded.len() + 1);
-    storage.push(0xAA);
-    storage.extend_from_slice(&encoded);
-    let misaligned = &storage[1..];
-    assert_ne!(
-        misaligned.as_ptr() as usize % archived_payload_align::<String>(),
-        0,
-        "test payload must exercise the realignment path"
-    );
-    let decoded = decode_archived_field::<String>(misaligned).expect("decode archived field copy");
-    assert_eq!(decoded, expected);
-}
-#[test]
-fn decode_archived_field_uses_one_charged_overaligned_copy() {
-    static DECODED_ADDRESS: AtomicUsize = AtomicUsize::new(0);
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    #[repr(C, align(64))]
-    struct OveralignedField([u8; 64]);
+/// Over-aligned probe used to prove borrowed decoding at misaligned addresses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(C, align(64))]
+struct OveralignedField([u8; 64]);
 
-    impl<'de> DeserializePayload<'de> for OveralignedField {
-        fn deserialize(archived: &'de Archived<Self>) -> Self {
-            DECODED_ADDRESS.store(
-                archived as *const Archived<Self> as usize,
-                Ordering::Relaxed,
-            );
-            let bytes = payload_range_from_ptr(
-                core::ptr::from_ref(archived).cast::<u8>(),
-                core::mem::size_of::<Self>(),
-            )
-            .expect("overaligned test field payload");
-            let mut field = [0_u8; 64];
-            field.copy_from_slice(bytes);
-            Self(field)
-        }
+static OVERALIGNED_DECODED_ADDRESS: AtomicUsize = AtomicUsize::new(0);
+
+impl SerializePayload for OveralignedField {
+    fn serialize(&self, encoder: &mut Encoder<'_>) -> Result<(), Error> {
+        encoder.write_all(&self.0)?;
+        Ok(())
     }
-    assert_eq!(archived_payload_size::<OveralignedField>(), 64);
-    let bytes = [0xA5_u8; 64];
-    let limits = DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes.len(), usize::MAX);
-    let decoded = with_decode_limits(limits, || decode_archived_field::<OveralignedField>(&bytes))
-        .expect("one exactly budgeted aligned copy should decode");
-    let decoded_address = DECODED_ADDRESS.load(Ordering::Relaxed);
-    assert_eq!(decoded, OveralignedField(bytes));
-    assert_ne!(decoded_address, bytes.as_ptr() as usize);
-    assert_eq!(
-        decoded_address % archived_payload_align::<OveralignedField>(),
+}
+
+impl<'de> DeserializePayload<'de> for OveralignedField {
+    fn deserialize(archived: &'de Archived<Self>) -> Self {
+        Self::try_deserialize(archived).expect("overaligned test field payload")
+    }
+    fn try_deserialize(archived: &'de Archived<Self>) -> Result<Self, Error> {
+        OVERALIGNED_DECODED_ADDRESS.store(
+            archived as *const Archived<Self> as usize,
+            Ordering::Relaxed,
+        );
+        let bytes = payload_range_from_ptr(core::ptr::from_ref(archived).cast::<u8>(), 64)?;
+        let mut field = [0_u8; 64];
+        field.copy_from_slice(bytes);
+        Ok(Self(field))
+    }
+}
+
+impl<'a> DecodeFromSlice<'a> for OveralignedField {
+    fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), Error> {
+        let bytes = bytes.get(..64).ok_or(Error::LengthMismatch)?;
+        let mut field = [0_u8; 64];
+        field.copy_from_slice(bytes);
+        Ok((Self(field), 64))
+    }
+}
+
+/// Copy `encoded` to an address that is misaligned for a 64-byte alignment.
+fn misaligned_copy(encoded: &[u8]) -> (Vec<u8>, usize) {
+    let mut storage = vec![0_u8; encoded.len() + 64];
+    let base = storage.as_ptr() as usize;
+    let offset = (0..64)
+        .find(|offset| !(base + offset).is_multiple_of(64))
+        .expect("a 64-byte window contains a misaligned offset");
+    storage[offset..offset + encoded.len()].copy_from_slice(encoded);
+    (storage, offset)
+}
+
+#[test]
+fn decode_field_canonical_borrows_misaligned_field_without_allocation() {
+    reset_decode_state();
+    let value = OveralignedField([0x5A; 64]);
+    let (storage, offset) = misaligned_copy(&value.0);
+    let field = &storage[offset..offset + 64];
+    assert_ne!(
+        field.as_ptr() as usize % archived_payload_align::<OveralignedField>(),
         0
     );
-    DECODED_ADDRESS.store(0, Ordering::Relaxed);
-    let limits = DecodeLimits::new(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        bytes.len() - 1,
-        usize::MAX,
-    );
-    let error = with_decode_limits(limits, || decode_archived_field::<OveralignedField>(&bytes))
-        .expect_err("the owned copy must consume the active allocation budget");
-    assert!(matches!(
-        error,
-        Error::TotalAllocationExceeded { attempted, limit }
-            if attempted == bytes.len() as u64 && limit == (bytes.len() - 1) as u64
-    ));
+    // A zero allocation budget proves that no alignment copy is made or charged.
+    let limits = DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    let (decoded, usage) =
+        with_decode_limits_measured(limits, || decode_field_canonical::<OveralignedField>(field));
+    let (decoded, used) = decoded.expect("misaligned field decodes in place");
+    assert_eq!(decoded, value);
+    assert_eq!(used, field.len());
+    assert_eq!(usage.total_allocated_bytes(), 0);
     assert_eq!(
-        DECODED_ADDRESS.load(Ordering::Relaxed),
-        0,
-        "budget rejection must happen before deserialization"
+        OVERALIGNED_DECODED_ADDRESS.load(Ordering::Relaxed),
+        field.as_ptr() as usize,
+        "the decoder must observe the original field address"
     );
-}
-#[test]
-fn decode_archived_field_charges_padding_and_aligned_copy() {
-    #[derive(Debug, PartialEq, Eq)]
-    #[repr(C, align(64))]
-    struct ShortOveralignedField([u8; 64]);
-
-    impl<'de> DeserializePayload<'de> for ShortOveralignedField {
-        fn deserialize(_archived: &'de Archived<Self>) -> Self {
-            Self([0; 64])
-        }
-    }
-
-    let bytes = [0xA5];
-    let allocation_bytes = 2 * archived_payload_size::<ShortOveralignedField>();
-    let limits = DecodeLimits::new(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        allocation_bytes,
-        usize::MAX,
-    );
-    let (decoded, usage) = with_decode_limits_measured(limits, || {
-        decode_archived_field::<ShortOveralignedField>(&bytes)
-    });
-    assert_eq!(
-        decoded.expect("an exact budget must cover padding and its aligned copy"),
-        ShortOveralignedField([0; 64])
-    );
-    assert_eq!(usage.total_allocated_bytes(), allocation_bytes);
-
-    let limits = DecodeLimits::new(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        allocation_bytes - 1,
-        usize::MAX,
-    );
-    let error = with_decode_limits(limits, || {
-        decode_archived_field::<ShortOveralignedField>(&bytes)
-    })
-    .expect_err("one byte less must reject the second temporary allocation");
+    // Trailing bytes inside the field are still rejected by canonical comparison.
+    let mut longer = value.0.to_vec();
+    longer.push(0);
+    let (storage, offset) = misaligned_copy(&longer);
     assert!(matches!(
-        error,
-        Error::TotalAllocationExceeded { attempted, limit }
-            if attempted == allocation_bytes as u64 && limit == (allocation_bytes - 1) as u64
+        decode_field_canonical::<OveralignedField>(&storage[offset..offset + longer.len()]),
+        Err(Error::LengthMismatch)
     ));
 }
-#[test]
-fn decode_archived_field_preserves_deserializer_errors() {
-    #[derive(Debug)]
-    struct Rejected;
 
-    impl<'de> DeserializePayload<'de> for Rejected {
-        fn deserialize(_archived: &'de Archived<Self>) -> Self {
-            unreachable!("the fallible implementation is used by the helper")
-        }
-        fn try_deserialize(_archived: &'de Archived<Self>) -> Result<Self, Error> {
-            Err(Error::LengthMismatch)
-        }
+#[test]
+fn composite_children_decode_in_place_without_alignment_copies() {
+    reset_decode_state();
+    let first = OveralignedField([0x11; 64]);
+    let second = OveralignedField([0x22; 64]);
+    let element = core::mem::size_of::<OveralignedField>();
+    let unbounded = DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX);
+    // Decode `value` from a misaligned copy, returning the exact allocation charge.
+    fn measured<T>(value: &T, limits: DecodeLimits) -> (T, usize)
+    where
+        T: for<'de> DeserializePayload<'de> + SerializePayload,
+    {
+        let mut encoded = Vec::new();
+        serialize_to_buffer(value, &mut encoded).expect("encode composite");
+        let (storage, offset) = misaligned_copy(&encoded);
+        let bytes = &storage[offset..offset + encoded.len()];
+        let (decoded, usage) =
+            with_decode_limits_measured(limits, || decode_field_canonical::<T>(bytes));
+        let (decoded, used) = decoded.expect("composite children decode in place");
+        assert_eq!(used, encoded.len());
+        (decoded, usage.total_allocated_bytes())
     }
-    let error = decode_archived_field::<Rejected>(&[0])
-        .expect_err("fallible archived decoder must reject the payload");
-    assert!(matches!(error, Error::LengthMismatch));
+    for flags in [0, header_flags::COMPACT_LEN] {
+        let _flags = DecodeFlagsGuard::enter(flags);
+        // Tuple and result element prefixes charge their declared bodies once;
+        // no additional realignment copy is charged for the over-aligned child.
+        let tuple = (first, 7_u8);
+        assert_eq!(measured(&tuple, unbounded), (tuple, element + 1));
+        for result in [Ok(first), Err(second)] {
+            assert_eq!(
+                measured::<Result<OveralignedField, OveralignedField>>(&result, unbounded),
+                (result, element)
+            );
+        }
+        // Fixed arrays borrow element prefixes without any charge.
+        let array = [first, second];
+        assert_eq!(measured(&array, unbounded), (array, 0));
+        let zero_allocation = DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        assert_eq!(measured(&array, zero_allocation), (array, 0));
+        // Heaps charge the element count, declared element bodies and owned storage.
+        let (heap, charged) = measured(&BinaryHeap::from(vec![first, second]), unbounded);
+        assert_eq!(heap.into_sorted_vec(), vec![first, second]);
+        assert_eq!(charged, 2 + 2 * element + 2 * element);
+    }
 }
 #[test]
-fn decode_archived_field_contains_deserializer_panics() {
-    #[derive(Debug)]
-    struct PanicDuringArchivedFieldDecode;
-
-    impl<'de> DeserializePayload<'de> for PanicDuringArchivedFieldDecode {
-        fn deserialize(_archived: &'de Archived<Self>) -> Self {
-            panic!("intentional archived-field panic")
-        }
+fn empty_children_of_over_aligned_types_decode_independently_of_alignment() {
+    reset_decode_state();
+    // An empty child span is borrowed at its own address, so a zero-payload child
+    // decodes the same way whatever its type's in-memory alignment is.
+    for flags in [0, header_flags::COMPACT_LEN] {
+        let _flags = DecodeFlagsGuard::enter(flags);
+        let tuple: ([u64; 0], u8) = ([], 9);
+        let mut encoded = Vec::new();
+        serialize_to_buffer(&tuple, &mut encoded).expect("encode tuple");
+        assert_eq!(
+            decode_field_canonical::<([u64; 0], u8)>(&encoded).expect("empty aligned child"),
+            (tuple, encoded.len())
+        );
+        let result: Result<[u128; 0], u8> = Ok([]);
+        let mut encoded = Vec::new();
+        serialize_to_buffer(&result, &mut encoded).expect("encode result");
+        assert_eq!(
+            decode_field_canonical::<Result<[u128; 0], u8>>(&encoded)
+                .expect("empty aligned branch"),
+            (result, encoded.len())
+        );
     }
-    let error = decode_archived_field::<PanicDuringArchivedFieldDecode>(&[])
-        .expect_err("archived-field decoding must contain panics");
-    assert!(matches!(
-        error,
-        Error::DecodePanic { context }
-            if context == core::any::type_name::<PanicDuringArchivedFieldDecode>()
-    ));
 }
 #[test]
 fn decode_vec_from_slice_serial_reports_prefix_used() {
@@ -1481,9 +1469,12 @@ fn recursive_encode_fails_before_exhausting_the_native_stack() {
 }
 #[test]
 fn truncated_derived_enum_tag_is_a_length_error() {
-    let error = decode_archived_field::<BadExactEnum>(&[])
-        .expect_err("an enum archive without its four-byte tag must be rejected");
-    assert!(matches!(error, Error::LengthMismatch));
+    for truncated in [&[][..], &[0, 0, 0][..]] {
+        let _payload = PayloadCtxGuard::enter(truncated);
+        let error = BadExactEnum::try_deserialize(borrowed_archived_marker(truncated))
+            .expect_err("an enum archive without its four-byte tag must be rejected");
+        assert!(matches!(error, Error::LengthMismatch));
+    }
 }
 #[test]
 fn result_uses_actual_length_prefix() {
@@ -1568,7 +1559,7 @@ fn archived_cast_is_an_opaque_address_marker_and_cannot_bypass_bounds() {
     assert!(matches!(bounded, Error::LengthMismatch));
 }
 #[test]
-fn archived_from_slice_propagates_realign_allocation_limit() {
+fn archived_from_slice_borrows_misaligned_payload_without_allocation() {
     let align = archived_payload_align::<u128>();
     let mut storage = vec![0_u8; core::mem::size_of::<u128>() + align];
     let base = storage.as_mut_ptr() as usize;
@@ -1577,18 +1568,15 @@ fn archived_from_slice_propagates_realign_allocation_limit() {
         .expect("u128 has a misaligned offset");
     let end = offset + core::mem::size_of::<u128>();
     let misaligned = &storage[offset..end];
+    // Borrowing requires no realignment copy, so a zero allocation budget suffices.
     let limits = DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
-    let error = with_decode_limits(limits, || {
-        archived_from_slice::<u128>(misaligned).map(|_| ())
-    })
-    .expect_err("realignment must honor the active allocation limit");
-    assert!(matches!(
-        error,
-        Error::TotalAllocationExceeded {
-            attempted,
-            limit: 0
-        } if attempted == core::mem::size_of::<u128>() as u64
-    ));
+    let archived = with_decode_limits(limits, || archived_from_slice::<u128>(misaligned))
+        .expect("borrowed archive needs no allocation");
+    assert_eq!(archived.bytes().as_ptr(), misaligned.as_ptr());
+    assert_eq!(
+        core::ptr::from_ref(archived.archived()).cast::<u8>(),
+        misaligned.as_ptr()
+    );
 }
 
 #[test]
@@ -1617,7 +1605,7 @@ fn archived_from_slice_does_not_overalign_borrowed_payload() {
 }
 
 #[test]
-fn archived_from_slice_realigns_payload() {
+fn archived_from_slice_decodes_misaligned_payload_in_place() {
     #[derive(Debug, PartialEq, NoritoSerialize, NoritoDeserialize)]
     #[cfg_attr(feature = "schema-structural", derive(::iroha_schema::IntoSchema))]
     struct AlignSensitive {
@@ -1643,7 +1631,8 @@ fn archived_from_slice_realigns_payload() {
         "expected misaligned payload for test coverage"
     );
     let archived =
-        archived_from_slice::<AlignSensitive>(misaligned).expect("realign archived payload");
+        archived_from_slice::<AlignSensitive>(misaligned).expect("borrow archived payload");
+    assert_eq!(archived.bytes().as_ptr(), misaligned.as_ptr());
     let _flags = DecodeFlagsGuard::enter(flags);
     let _payload = PayloadCtxGuard::enter(archived.bytes());
     let decoded = <AlignSensitive as DeserializePayload>::try_deserialize(archived.as_ref())
@@ -1888,11 +1877,19 @@ fn from_compressed_bytes_rejects_length_mismatch() {
 #[repr(align(64))]
 struct Align64(u8);
 #[test]
-fn archived_box_aligns_payload() {
-    let archived = ArchivedBox::<Align64>::from_payload(vec![0xAA]);
+fn archived_box_owns_payload_without_realignment() {
+    let payload = vec![0xAA];
+    let address = payload.as_ptr() as usize;
+    let archived = ArchivedBox::<Align64>::from_payload(payload);
     let ptr = archived.archived() as *const Archived<Align64> as usize;
-    assert_eq!(ptr % archived_payload_align::<Align64>(), 0);
+    assert_eq!(ptr, address, "the owned payload is used in place");
     assert_eq!(archived.bytes(), &[0xAA]);
+    let empty = ArchivedBox::<Align64>::from_payload(Vec::new());
+    assert!(empty.bytes().is_empty());
+    assert_eq!(
+        empty.archived() as *const Archived<Align64> as usize,
+        empty.bytes().as_ptr() as usize
+    );
 }
 #[test]
 fn write_bare_frame_with_header_flags_matches_vec_framer() {

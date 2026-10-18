@@ -399,9 +399,10 @@ mod view {
             match &self.blocks {
                 ViewInner::Txn(txn) => txn.last_key_value(),
                 // `concread` does not expose endpoint lookup on a write-backed
-                // snapshot. Such snapshots only exist inside an in-flight state
-                // transaction; persistent read views take the indexed branch.
-                ViewInner::Snapshot(snapshot) => snapshot.iter().last(),
+                // snapshot (it exists only inside an in-flight state transaction),
+                // but its iterator is double-ended: take the last entry directly
+                // instead of walking every entry.
+                ViewInner::Snapshot(snapshot) => snapshot.iter().next_back(),
             }
         }
         /// Get amount of entries in the storage
@@ -1443,7 +1444,20 @@ mod tests {
             transaction.insert(12, 120);
             assert_eq!(transaction.first_key_value(), Some((&1, &10)));
             assert_eq!(transaction.last_key_value(), Some((&12, &120)));
+            // A view of an in-flight transaction reads the write-backed snapshot.
+            let snapshot = transaction.view();
+            assert_eq!(snapshot.first_key_value(), Some((&1, &10)));
+            assert_eq!(snapshot.last_key_value(), Some((&12, &120)));
         }
+        drop(block);
+        // Many leaves: the snapshot endpoint is still the greatest key.
+        let mut block = storage.block();
+        let mut transaction = block.transaction();
+        for key in 100..1_100 {
+            transaction.insert(key, key * 10);
+        }
+        assert_eq!(transaction.view().last_key_value(), Some((&1_099, &10_990)));
+        assert_eq!(transaction.view().first_key_value(), Some((&2, &20)));
     }
     #[test]
     fn transaction_step() {

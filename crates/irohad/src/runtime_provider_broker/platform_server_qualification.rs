@@ -120,32 +120,6 @@ fn requalify_consensus_threshold_signer_binding(
         }
         return Ok(true);
     }
-    if binding.slot == IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner.wire_id() {
-        let signer = broker_backend!(state, parliament_tle_partial_release_signer);
-        let qualification = signer.qualification().map_err(|error| match error {
-            ParliamentTlePartialReleaseSignerBrokerBackendErrorV1::Unavailable => {
-                BrokerError::Unavailable
-            }
-            ParliamentTlePartialReleaseSignerBrokerBackendErrorV1::Rejected => {
-                BrokerError::StaleOrRevoked
-            }
-        })?;
-        if !consensus_signer_qualification_matches(binding, signer.handle(), qualification) {
-            return Err(BrokerError::StaleOrRevoked);
-        }
-        let qualification_after = signer.qualification().map_err(|error| match error {
-            ParliamentTlePartialReleaseSignerBrokerBackendErrorV1::Unavailable => {
-                BrokerError::Unavailable
-            }
-            ParliamentTlePartialReleaseSignerBrokerBackendErrorV1::Rejected => {
-                BrokerError::StaleOrRevoked
-            }
-        })?;
-        if signer.handle() != binding.handle || qualification_after != qualification {
-            return Err(BrokerError::StaleOrRevoked);
-        }
-        return Ok(true);
-    }
     Ok(false)
 }
 fn qualify_native_transaction_signer_backend(
@@ -1328,21 +1302,6 @@ fn make_server_observation(
                 return Err(RuntimeProviderBrokerServerErrorV1::BindingMismatch);
             }
         }
-        slot if slot == IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner.wire_id() => {
-            let signer = server_backend!(backends, parliament_tle_partial_release_signer);
-            let qualification = signer
-                .qualification()
-                .map_err(|_| RuntimeProviderBrokerServerErrorV1::BindingMismatch)?;
-            if !consensus_signer_qualification_matches(binding, signer.handle(), qualification) {
-                return Err(RuntimeProviderBrokerServerErrorV1::BindingMismatch);
-            }
-            let qualification_after = signer
-                .qualification()
-                .map_err(|_| RuntimeProviderBrokerServerErrorV1::BindingMismatch)?;
-            if signer.handle() != binding.handle || qualification_after != qualification {
-                return Err(RuntimeProviderBrokerServerErrorV1::BindingMismatch);
-            }
-        }
         _ => return Err(RuntimeProviderBrokerServerErrorV1::UnsupportedRole),
     }
     let metadata_digest = provider_metadata_digest(
@@ -1540,9 +1499,7 @@ fn validate_exact_backend_set(
             && requested(IrohaRuntimeProviderSlotV1::SoracloudRuntimeMutationSigner)
                 == backends.soracloud_runtime_mutation_signer.is_some()
             && requested(IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner)
-                == backends.global_beacon_partial_signer.is_some()
-            && requested(IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner)
-                == backends.parliament_tle_partial_release_signer.is_some();
+                == backends.global_beacon_partial_signer.is_some();
     if !exact_backend_set {
         return Err(RuntimeProviderBrokerServerErrorV1::BackendSetMismatch);
     }

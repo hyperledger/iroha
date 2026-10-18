@@ -60,7 +60,6 @@ impl<'a> BorrowedCryptoPolicy<'a> {
 impl norito::SerializePayload for BorrowedCryptoPolicy<'_> {
     fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::Error> {
         use super::policy_borrowed::{Payload, Ref, Seq, record};
-        use std::io::Write as _;
         let curves = Payload(|writer: &mut norito::core::Encoder<'_>| {
             let values = self.curves.unique();
             norito::core::write_seq_len(

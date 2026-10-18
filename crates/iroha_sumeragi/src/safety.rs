@@ -232,7 +232,8 @@ impl SafetyRecord {
     /// Internal consistency of a decoded record.
     // SPEC: §7.4 R1 only names checksum/decode failures and instance/key mismatches. A record
     // that decodes but contradicts itself (certificates of other heights, instances or kinds; a
-    // timeout carrying a QC above its view; a justify that is not for `view − 1`) was not written
+    // timeout carrying a QC above its view; a justify that is not for `view − 1` or whose
+    // high-PQC names another proposal block) was not written
     // by an honest core, so it is treated as corrupt (halt) rather than trusted (Appendix E, E17).
     fn check_consistency(&self) -> Result<(), RecordError> {
         let prepare_qc_here = |qc: &Qc| {
@@ -268,7 +269,15 @@ impl SafetyRecord {
             && self.proposal.as_ref().is_none_or(|proposal| {
                 match (&proposal.justify, proposal.view.checked_sub(1)) {
                     (None, None) => true,
-                    (Some(tc), Some(prev)) => tc_here(tc) && tc.view == prev,
+                    (Some(tc), Some(prev)) => {
+                        tc_here(tc)
+                            && tc.view == prev
+                            && (cfg!(sumeragi_mutation = "MS81")
+                                || tc
+                                    .high_pqc
+                                    .as_ref()
+                                    .is_none_or(|qc| qc.block_hash == proposal.block_hash))
+                    }
                     _ => false,
                 }
             });
@@ -571,7 +580,7 @@ mod tests {
 
     fn full_record(v: &FakeValidators, height: u64) -> SafetyRecord {
         let lock = v.qc(VoteKind::Prepare, &I, height, 3, &h(2), &h(3), &[0, 1, 2]);
-        let older = v.qc(VoteKind::Prepare, &I, height, 1, &h(4), &h(5), &[0, 1, 2]);
+        let older = v.qc(VoteKind::Prepare, &I, height, 1, &h(2), &h(3), &[0, 1, 2]);
         let tc = v.tc(
             &I,
             height,

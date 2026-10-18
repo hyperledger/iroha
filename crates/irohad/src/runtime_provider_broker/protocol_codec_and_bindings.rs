@@ -1618,9 +1618,7 @@ fn validate_observation(
                 return Err(BrokerError::BindingMismatch);
             }
         }
-        slot if slot == IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner.wire_id()
-            || slot == IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner.wire_id() =>
-        {
+        slot if slot == IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner.wire_id() => {
             if observed.signer_metadata.is_some()
                 || observed.governance_request_ingress_qualification.is_some()
                 || observed.moderation_quarantine_active_key_id.is_some()

@@ -14,7 +14,10 @@
 //! [`ProviderArchive`] and [`AdvanceHandle`] share one exclusive provider. Archive calls between
 //! two custody calls share one protected-data bracket (an archive phase: one reconcile, then a
 //! storage probe after every call that touches storage); fixed manifests bind index roots in
-//! source-selected metadata generations and the existing iOS rollback anchor. [`FsArchive`] is a low-level
+//! source-selected metadata generations and the existing iOS rollback anchor. The embedder runs
+//! each wallet-owner acquisition as one archive call ([`Coordinator::open_archive_call`]): its
+//! records are staged and published together, behind one directory sync, at the provider's
+//! authority entries and at the call's successful close. [`FsArchive`] is a low-level
 //! standalone store for tests/diagnostics and does not itself provide those brackets.
 //! No archive record grants monetary authority independently of Advance.
 //!
@@ -61,8 +64,8 @@ pub use native_owner::{
     NativeOpenFailureV1, NativeOperationReviewV1, NativePreparedLedgerLoadV1,
     NativeReleasedOutputV1, NativeStartupFailureV1, NativeWalletCoordinatorV1,
     NativeWalletMetadataV1, NativeWalletProofsV1, NativeWalletRuntimeV1,
-    PAYOUT_RECORD_MAX_BYTES_V1, PendingNativeWalletOpenV1, ReviewedOperationV1,
-    UnloadFinalityProgressV1,
+    PAYOUT_RECORD_MAX_BYTES_V1, PendingNativeWalletOpenV1, ReviewedOperationV1, SpeculativeProofV1,
+    SpeculativeSendJobV1, SpeculativeSendV1, UnloadFinalityProgressV1,
 };
 mod preparation_custody;
 mod scheduling;
@@ -98,7 +101,10 @@ pub(crate) use native_worker::NativeFoldWorkerV1;
 #[cfg(test)]
 pub(crate) use native_worker::{FoldRetentionCountsV1, perturb_retained_key_for_test};
 pub use preparation_custody::{PreparationCustodyV1, PreparationOriginalV1};
-pub use scheduling::{Cancellation, FoldRetentionV1, PaymentGuard, Scheduler};
+pub use scheduling::{
+    Cancellation, FoldRetentionV1, PaymentGuard, Scheduler, Speculation, SpeculationJob,
+    SpeculationRun,
+};
 pub use session_custody::DirectTimeExchangeV1;
 pub use snapshot::{Snapshot, SnapshotFold};
 pub use transition_custody::TransitionCustodyV1;
@@ -595,6 +601,23 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
     #[must_use]
     pub fn scheduler(&self) -> Scheduler {
         self.scheduler.clone()
+    }
+
+    /// Open one archive call for an externally visible call made while the embedder holds
+    /// exclusive access to this wallet: until [`Self::close_archive_call`] the archive may stage
+    /// its records and publish them together ([`ArchiveStore::open_call`]).
+    pub fn open_archive_call(&mut self) {
+        self.archive.open_call();
+    }
+
+    /// Close the call opened by [`Self::open_archive_call`] before releasing exclusive access.
+    /// A successful call publishes its staged records durably first; a failed one discards them.
+    ///
+    /// # Errors
+    /// When `succeeded`, the failed publication of the staged records, which replaces the call's
+    /// answer.
+    pub fn close_archive_call(&mut self, succeeded: bool) -> Result<(), Error> {
+        self.archive.close_call(succeeded)
     }
 
     fn status(&mut self) -> Result<SlotStatus, Error> {

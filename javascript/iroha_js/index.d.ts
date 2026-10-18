@@ -164,7 +164,7 @@ export const SM2_PRIVATE_KEY_LENGTH: number;
 export const SM2_PUBLIC_KEY_LENGTH: number;
 export const SM2_SIGNATURE_LENGTH: number;
 export const SM2_DEFAULT_DISTINGUISHED_ID: string;
-export const PRIVACY_REQUIRED_BRIDGE_ABI_VERSION: 29;
+export const PRIVACY_REQUIRED_BRIDGE_ABI_VERSION: 30;
 
 export interface SignedTransactionResult {
   /** Exact canonical VersionedSignedTransaction V1 bytes. */
@@ -4631,31 +4631,11 @@ export interface ToriiGovernanceProposalDraftResponseV1 {
 export const PARLIAMENT_API_VERSION_V1: 1;
 export const PARLIAMENT_ATTEMPT_DRAFT_PATH_V1: "/v1/gov/parliament/attempts/draft";
 export const PARLIAMENT_ATTEMPT_READ_PATH_V1: "/v1/gov/parliament/attempts/{governance_attempt_id}";
-export const PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_READ_PATH_V1: "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context";
-export const PARLIAMENT_TIMED_OVN_CASTING_PROOF_PATH_V1: "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof";
-export const PARLIAMENT_TIMED_OVN_CASTING_PROOF_VERSION_V1: 1;
-export const PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_NAME_V1: "iroha.torii.v1.parliament.timed_ovn_casting_proof.request";
-export const PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_HASH_HEX_V1: "adccf322a5fcf43040e20bea238f55f3";
-export const PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_NAME_V1: "iroha.torii.v1.parliament.timed_ovn_casting_proof.response";
-export const PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_HASH_HEX_V1: "46d29299272433b1299646bee722bd11";
-export const PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_FLAGS_V1: 2;
-export const PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_PAYLOAD_ALIGNMENT_V1: 8;
-export const PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_PADDING_BYTES_V1: 0;
-export const PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_BYTES_V1: 52;
-export const PARLIAMENT_TLE_RELEASE_CONTEXT_READ_PATH_V1: "/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context";
-export const PARLIAMENT_TLE_PARTIAL_RELEASE_PATH_V1: "/v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release";
 export const PARLIAMENT_TRANSITION_DRAFT_PATH_V1: "/v1/gov/parliament/transitions/draft";
 export const PARLIAMENT_ATTEMPT_CREATE_WIRE_ID_V1: "iroha.governance.parliament.attempt.create.v1";
 export const PARLIAMENT_TRANSITION_SUBMIT_WIRE_ID_V1: "iroha.governance.parliament.transition.submit.v1";
 export const PARLIAMENT_ATTEMPT_STATE_MAX_BYTES_V1: 16777216;
 export const PARLIAMENT_GOVERNANCE_ATTEMPT_SEQUENCE_MAX_V1: 16;
-export const PARLIAMENT_TIMED_OVN_REGISTRATION_RECORD_BYTES_V1: 3624;
-export const PARLIAMENT_TIMED_OVN_BALLOT_RECORD_BYTES_V1: 2858;
-export const PARLIAMENT_TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS_V1: 32;
-export const PARLIAMENT_TIMED_OVN_CORPUS_ENTRIES_V1: 1000;
-export const PARLIAMENT_TLE_MAX_COMMITTEE_SIZE_V1: 31;
-export const PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_ARCHIVE_MAX_BYTES_V1: 4194304;
-export const PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_MAX_BYTES_V1: 8388608;
 
 export type ParliamentProposalTagV1 =
   | "DeployContract"
@@ -4692,16 +4672,7 @@ export type ParliamentPublicTransitionTagV1 =
   | "AdvanceBodyPhase"
   | "RecordAttemptAbsence"
   | "EndorsePublicFinding"
-  | "RegisterBallotAttempt"
-  | "CloseBallotRegistration"
-  | "FreezeBallotSurvivors"
-  | "FreezeTimedOvnCorpus"
-  | "BeginBallotOpeningBatch"
-  | "FailBallotNoResult"
-  | "FinalizeOpenedBallot"
   | "RecordInvitationResponse"
-  | "RegisterBallotParticipant"
-  | "RecordBallotDropout"
   | "FailPublicFindingNoResult"
   | "RegisterInitialSortition";
 
@@ -4717,17 +4688,12 @@ export interface ParliamentAutomaticExecutionOutcomeLayoutV1 {
   readonly jsonTag: "Enacted" | "Superseded" | "ExecutionFailed";
   readonly jsonPayloadRequired: boolean;
   readonly eventKind: "MarkEnacted" | "MarkSuperseded" | "MarkExecutionFailed";
-  readonly eventKindIndex: 17 | 18 | 19;
+  readonly eventKindIndex: 10 | 11 | 12;
 }
 
 export type ParliamentNoResultKindTagV1 =
   | "PublicFindingQuorumUnreachable"
   | "PublicFindingDeadlineExpired"
-  | "BallotRegistrationDeadlineExpired"
-  | "BallotSurvivorDeadlineExpired"
-  | "BallotCommitmentDeadlineExpired"
-  | "BallotReleasePulseUnavailable"
-  | "BallotOpeningDeadlineExpired"
   | "SortitionRetriesExhausted"
   | "ConfirmationJuryCapacityUnavailable"
   | "RandomnessRedrawBudgetExhausted";
@@ -4764,7 +4730,6 @@ export const PARLIAMENT_BODY_STATE_FIELDS_V1: ReadonlyArray<
   | "public_finding_deadline_height"
   | "no_result_kind"
   | "no_result_height"
-  | "timed_ovn_progress"
 >;
 export const PARLIAMENT_CERTIFICATE_BODY_BINDING_FIELDS_V1: ReadonlyArray<string>;
 export const PARLIAMENT_PUBLIC_FINDING_CERTIFICATE_FIELDS_V1: ReadonlyArray<
@@ -4958,125 +4923,6 @@ export interface ParliamentBodyStateProjectionV1 {
   public_finding_deadline_height: number | bigint | null;
   no_result_kind: { reason: ParliamentNoResultKindTagV1 } | null;
   no_result_height: number | bigint | null;
-  timed_ovn_progress: ParliamentTimedOvnProgressProjectionV1 | null;
-}
-
-export type ParliamentBallotAttemptStatusTagV1 =
-  | "Registration"
-  | "SurvivorFreeze"
-  | "TimedCommitment"
-  | "AwaitingRelease"
-  | "Opening"
-  | "Finalized"
-  | "NoResult"
-  | "Superseded";
-
-/** Aggregate-only next-offset projection; contains no ballot or participant evidence. */
-export interface ParliamentTimedOvnProgressProjectionV1 {
-  ballot_attempt_id: string;
-  status: { status: ParliamentBallotAttemptStatusTagV1 };
-  frozen_survivor_count: number | null;
-  accepted_ballot_prefix_count: number | null;
-}
-
-export interface ParliamentTleAdaptiveDealerCommitmentV1 {
-  dealer_index: number;
-  coefficient_commitments: ReadonlyArray<ReadonlyArray<number>>;
-  constant_pok_commitment: ReadonlyArray<number>;
-  constant_pok_response: ReadonlyArray<number>;
-}
-
-export interface ParliamentTleAdaptivePublicShareV1 {
-  index: number;
-  participant_hash: ReadonlyArray<number>;
-  public_key_share: ReadonlyArray<number>;
-}
-
-/** Complete public transcript required for independent adaptive-partial verification. */
-export interface ParliamentTleKeySessionPublicStateV1 {
-  version: 1;
-  key_session_id: string;
-  network_id: ReadonlyArray<number>;
-  roster_hash: ReadonlyArray<number>;
-  committee_size: number;
-  threshold: number;
-  generator_h: ReadonlyArray<number>;
-  generator_v: ReadonlyArray<number>;
-  qualified_dealers: ReadonlyArray<number>;
-  qualified_dealer_commitments: ReadonlyArray<ParliamentTleAdaptiveDealerCommitmentV1>;
-  dkg_event_hash: ReadonlyArray<number>;
-  group_public_key: ReadonlyArray<number>;
-  public_shares: ReadonlyArray<ParliamentTleAdaptivePublicShareV1>;
-  transcript_hash: ReadonlyArray<number>;
-}
-
-export interface ParliamentTimedOvnReleaseIdentityProjectionV1 {
-  tle_key_session_id: string;
-  governance_attempt_id: string;
-  body_instance_id: string;
-  ballot_attempt_id: string;
-  survivor_corpus_root: ReadonlyArray<number>;
-  no_recovery_root: ReadonlyArray<number>;
-  target_finalized_height: number | bigint;
-  parameter_hash: ReadonlyArray<number>;
-}
-
-export type ParliamentTimedOvnCastingPhaseV1 =
-  | "Registered"
-  | "RegistrationClosed"
-  | "SurvivorsFrozen";
-
-export interface ParliamentTimedOvnSessionProjectionV1 {
-  network_id: ReadonlyArray<number>;
-  proposal_content_id: string;
-  governance_attempt_id: string;
-  body_instance_id: string;
-  ballot_attempt_id: string;
-  parameter_hash: ReadonlyArray<number>;
-  tle_key_session_id: string;
-  tle_key_transcript_hash: ReadonlyArray<number>;
-  tle_master_public_key: ReadonlyArray<number>;
-}
-
-export interface ParliamentTimedOvnCastingContextResponseV1 {
-  version: 1;
-  current_height: number | bigint;
-  phase: ParliamentTimedOvnCastingPhaseV1;
-  session: ParliamentTimedOvnSessionProjectionV1;
-  registration_opened_at_finalized_height: number | bigint;
-  target_finalized_height: number | bigint;
-  tle_key_session: ParliamentTleKeySessionPublicStateV1;
-  registration_records_hex: ReadonlyArray<string>;
-  survivor_participant_hashes: ReadonlyArray<ReadonlyArray<number>> | null;
-  release_identity: ParliamentTimedOvnReleaseIdentityProjectionV1 | null;
-  archive_norito_base64: string;
-}
-
-export interface ParliamentTleReleaseContextResponseV1 {
-  version: 1;
-  current_height: number | bigint;
-  ballot_attempt_id: string;
-  governance_attempt_id: string;
-  body_instance_id: string;
-  status: { status: "Opening" };
-  release_height: number | bigint;
-  opening_deadline_height: number | bigint;
-  tle_key_session: ParliamentTleKeySessionPublicStateV1;
-  release_identity: ParliamentTimedOvnReleaseIdentityProjectionV1;
-  identity_digest: ReadonlyArray<number>;
-  identity_payload_hex: string;
-}
-
-export interface ParliamentTlePartialReleaseShareV1 {
-  key_session_id: string;
-  identity_digest: ReadonlyArray<number>;
-  participant_index: number;
-  sigma: ReadonlyArray<number>;
-  proof_x: ReadonlyArray<number>;
-  proof_y: ReadonlyArray<number>;
-  z_s: ReadonlyArray<number>;
-  z_r: ReadonlyArray<number>;
-  z_u: ReadonlyArray<number>;
 }
 
 export interface ParliamentAttemptDraftOptionsV1 extends RequiredCanonicalRequestOptions {
@@ -5088,23 +4934,7 @@ export interface ParliamentTransitionDraftOptionsV1 extends RequiredCanonicalReq
   expectedTransitionDigest: BinaryLike;
 }
 
-export interface ParliamentTlePartialReleaseOptionsV1 extends RequiredCanonicalRequestOptions {
-  expectedKeySessionId: string;
-  expectedIdentityDigest: BinaryLike;
-  committeeSize: number;
-}
-
 export function parliamentAttemptReadPathV1(governanceAttemptId: string): string;
-export function parliamentTimedOvnCastingContextReadPathV1(ballotAttemptId: string): string;
-export function parliamentTimedOvnCastingProofPathV1(ballotAttemptId: string): string;
-export function encodeParliamentTimedOvnCastingProofRequestV1(
-  trustedCheckpointHeight: number | bigint,
-): Buffer;
-export function validateParliamentTimedOvnCastingProofResponseFrameV1(
-  value: Buffer | ArrayBuffer | ArrayBufferView,
-): Buffer;
-export function parliamentTleReleaseContextReadPathV1(ballotAttemptId: string): string;
-export function parliamentTlePartialReleasePathV1(ballotAttemptId: string): string;
 export function buildParliamentAttemptDraftRequestV1(
   proposal: ParliamentProposalV1,
   attemptSequence: number,
@@ -5132,22 +4962,6 @@ export function normalizeParliamentAttemptReadResponseV1(
   value: unknown,
   expectedGovernanceAttemptId: string,
 ): ParliamentAttemptReadResponseV1;
-export function normalizeParliamentTimedOvnCastingContextResponseV1(
-  value: unknown,
-  expectedBallotAttemptId: string,
-): ParliamentTimedOvnCastingContextResponseV1;
-export function normalizeParliamentTleReleaseContextResponseV1(
-  value: unknown,
-  expectedBallotAttemptId: string,
-): ParliamentTleReleaseContextResponseV1;
-export function normalizeParliamentTlePartialReleaseShareV1(
-  value: unknown,
-  bindings: {
-    expectedKeySessionId: string;
-    expectedIdentityDigest: BinaryLike;
-    committeeSize: number;
-  },
-): ParliamentTlePartialReleaseShareV1;
 
 export interface MinistryAgendaProposalDraftRequest {
   proposal: MinistryAgendaProposalV1;
@@ -11046,23 +10860,6 @@ export declare class ToriiClient {
     governanceAttemptId: string,
     options: RequiredCanonicalRequestOptions,
   ): Promise<ParliamentAttemptReadResponseV1>;
-  getParliamentTimedOvnCastingContextV1(
-    ballotAttemptId: string,
-    options: RequiredCanonicalRequestOptions,
-  ): Promise<ParliamentTimedOvnCastingContextResponseV1>;
-  getParliamentTimedOvnCastingProofPageV1(
-    ballotAttemptId: string,
-    trustedCheckpointHeight: number | bigint,
-    options: RequiredCanonicalRequestOptions,
-  ): Promise<Buffer>;
-  getParliamentTleReleaseContextV1(
-    ballotAttemptId: string,
-    options: RequiredCanonicalRequestOptions,
-  ): Promise<ParliamentTleReleaseContextResponseV1>;
-  requestParliamentTlePartialReleaseV1(
-    ballotAttemptId: string,
-    options: ParliamentTlePartialReleaseOptionsV1,
-  ): Promise<ParliamentTlePartialReleaseShareV1>;
   draftParliamentTransitionV1(
     governanceAttemptId: string,
     transition: ParliamentLifecycleTransitionV1,
@@ -12201,7 +11998,7 @@ export function signQuotedIvmProvedTransactionPayload(
 export const VALIDATION_FEE_CURRENT_POLICY_PROOF_PATH: "/v1/validation-fee/policy/current/proof";
 export const VALIDATION_FEE_LEDGER_BINDING_SCHEMA: "iroha.validation-fee-ledger-binding.v1";
 export const VALIDATION_FEE_POLICY_PROOF_MAX_RESPONSE_BYTES: 4194304;
-export const VALIDATION_FEE_REQUIRED_BRIDGE_ABI_VERSION: 29;
+export const VALIDATION_FEE_REQUIRED_BRIDGE_ABI_VERSION: 30;
 export const VALIDATION_FEE_VERIFIED_POLICY_PROJECTION_SCHEMA: "iroha.validation_fee.verified_policy_projection.v1";
 
 export function normalizeValidationFeeCheckpointV1(

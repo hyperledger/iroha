@@ -7,10 +7,7 @@ use super::{
     tests::delta,
     *,
 };
-use crate::{
-    exec_witness,
-    state::{State, WorldReadOnly},
-};
+use crate::{exec_witness, state::State};
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     asset::AssetId,

@@ -86,6 +86,7 @@ def test_manifest_retains_root_overrides_and_acceleration():
     assert result["package"]["name"] == prepare.PACKAGE
     assert result["features"]["accel"] == ["iroha_parliament_ballot_proof/accel"]
     assert result["dependencies"]["norito"]["default-features"] is False
+    assert result["dependencies"]["iroha_parliament_ballot_proof"]["features"] == ["diagnostics"]
     assert result["workspace"] == {}
     for name, entry in original["patch"]["crates-io"].items():
         assert result["patch"]["crates-io"][name]["path"] == str((prepare.ROOT / entry["path"]).resolve())

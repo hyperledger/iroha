@@ -10,7 +10,7 @@ APIs using the JDK 21 toolchain. Run the Norito consumer suite with:
 ./gradlew :core-jvm:test --tests 'org.hyperledger.iroha.sdk.norito.*' --console=plain
 ```
 
-Account and public-key admission requires the ABI-29 `connect_norito_bridge`
+Account and public-key admission requires the ABI-30 `connect_norito_bridge`
 native library, including `nativeValidateAccountAddressCanonical`. Address
 construction and parsing use Rust to validate every key and complete multisig
 policy, then require identical canonical bytes. The V1 identity catalog includes
@@ -41,7 +41,7 @@ choice-free conviction update to Kotlin and Java callers. It emits the registere
 transaction encoding reject direction fields, noncanonical selectors, account
 addresses, quantities, durations, and malformed frames. The focused
 `UpdatePlainConviction*` Kotlin/Java-source tests compiled on 2026-09-24, but
-execution still requires a same-source ABI-29 native bridge for account
+execution still requires a same-source ABI-30 native bridge for account
 admission. This SDK slice does not establish Rust fixture parity or complete
 private standalone elections.
 
@@ -270,21 +270,10 @@ generating under an occupied alias replaces its key (keystore2 `rebind_alias`;
 keystore1 deletes the alias first). `client-android` therefore decides existence
 only through `KeyStore.getKey(alias, null)`: a key is present, null is absent and
 any throw stops the call. Only keystore2 (API 31+) makes that null definitive, so
-`SystemAndroidKeystoreBackend` and the `ParliamentTimedOvnWalletV1` seed vault refuse
-below API 31. There `KeystoreKeyProvider.maybeCreate`
+`SystemAndroidKeystoreBackend` refuses below API 31. There `KeystoreKeyProvider.maybeCreate`
 returns null, so `IrohaKeyManager.withDefaultProviders` keeps only its software provider. On API 31+
 `IrohaKeyManager.generateOrLoad` stops instead of generating when the Keystore cannot
 answer. No key is deleted or regenerated in response to a Keystore error.
-
-The Parliament timed-OVN seed vault wraps every stored seed under one AES-GCM
-Keystore key, so replacing that key would make every seed undecryptable. Seed
-creation, registration, ballot and deletion of a stored seed throw
-`IllegalStateException` below API 31 without touching the Keystore; the wallet
-module's floor stays at API 24 because proof-page verification needs no Keystore.
-On API 31+ decryption only loads the wrapping key, and a missing key is an error.
-Seed creation reuses the present key and generates one only after `getKey`
-returns a definitive null. An entry under the alias that is not a secret key is an
-error on both paths and is never replaced.
 
 ### Attestation command
 

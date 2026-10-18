@@ -9,7 +9,7 @@ private enum ParityHarnessError: Error {
 final class SorafsOrchestratorParityTests: XCTestCase {
     func testLocalFetchParityIsDeterministic() async throws {
         guard NoritoNativeBridge.shared.isAvailable else {
-            XCTFail("ABI-29 NoritoBridge is required on this platform")
+            XCTFail("ABI-30 NoritoBridge is required on this platform")
             return
         }
 

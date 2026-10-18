@@ -6769,13 +6769,14 @@ impl Executor {
         host.set_crypto_config(Arc::clone(&state_transaction.crypto));
         host.set_zk_config(&state_transaction.zk);
         host.set_public_inputs_from_parameters(state_transaction.world.parameters.get());
-        host.set_vrf_epoch_seeds_from_state(state_transaction)
-            .map_err(|error| {
-                state_transaction.attempt_error_to_validation_fail(
-                    error.map_rejection(ValidationFail::InternalError),
-                )
-            })?;
-        host.set_query_state(state_transaction);
+        let vrf_epoch_length =
+            crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(state_transaction)
+                .map_err(|error| {
+                    state_transaction.attempt_error_to_validation_fail(
+                        error.map_rejection(ValidationFail::InternalError),
+                    )
+                })?;
+        host.set_query_state_with_vrf_epoch_seeds(state_transaction, vrf_epoch_length);
         host.set_contract_runtime_context(contract_runtime_context.clone());
         host.set_contract_entrypoint_authorization(Some(entrypoint_authorization));
         if let Some(pending) = lifecycle_transition {
@@ -7791,13 +7792,16 @@ impl Executor {
                 host.set_crypto_config(Arc::clone(&state_transaction.crypto));
                 host.set_zk_config(&state_transaction.zk);
                 host.set_public_inputs_from_parameters(state_transaction.world.parameters.get());
-                host.set_vrf_epoch_seeds_from_state(state_transaction)
+                let vrf_epoch_length =
+                    crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(
+                        state_transaction,
+                    )
                     .map_err(|error| {
                         state_transaction.attempt_error_to_validation_fail(
                             error.map_rejection(ValidationFail::InternalError),
                         )
                     })?;
-                host.set_query_state(state_transaction);
+                host.set_query_state_with_vrf_epoch_seeds(state_transaction, vrf_epoch_length);
                 host.set_bound_contract_records_by_subject_snapshot(bound_contract_records);
                 crate::pipeline::overlay::apply_streaming_metadata(&mut host, streaming_metadata);
                 host.set_chain_id(&state_transaction.chain_id);
@@ -8008,13 +8012,14 @@ impl Executor {
         host.set_crypto_config(Arc::clone(&state_transaction.crypto));
         host.set_zk_config(&state_transaction.zk);
         host.set_public_inputs_from_parameters(state_transaction.world.parameters.get());
-        host.set_vrf_epoch_seeds_from_state(state_transaction)
-            .map_err(|error| {
-                state_transaction.attempt_error_to_validation_fail(
-                    error.map_rejection(ValidationFail::InternalError),
-                )
-            })?;
-        host.set_query_state(state_transaction);
+        let vrf_epoch_length =
+            crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(state_transaction)
+                .map_err(|error| {
+                    state_transaction.attempt_error_to_validation_fail(
+                        error.map_rejection(ValidationFail::InternalError),
+                    )
+                })?;
+        host.set_query_state_with_vrf_epoch_seeds(state_transaction, vrf_epoch_length);
         host.set_contract_runtime_context(contract_runtime_context.clone());
         host.set_contract_entrypoint_authorization(Some(entrypoint_authorization));
         // Keep the human-readable label available through SYSVAR_CHAIN_ID; AXT
@@ -9387,13 +9392,7 @@ fn authority_has_permission(
     authority: &AccountId,
     target: &Permission,
 ) -> Result<bool, ValidationFail> {
-    let permissions = world
-        .account_permissions_iter(authority)
-        .map_err(|err| ValidationFail::InstructionFailed(InstructionExecutionError::Find(err)))?;
-    if permissions
-        .into_iter()
-        .any(|permission| permission == target)
-    {
+    if authority_has_direct_permission(world, authority, target)? {
         return Ok(true);
     }
     for role_id in world.account_roles_iter(authority) {
@@ -9405,19 +9404,19 @@ fn authority_has_permission(
     }
     Ok(false)
 }
+/// Whether `authority` holds `target` directly (not through a role).
+///
+/// The account must exist. Membership is one ordered-set lookup rather than a
+/// scan of every permission granted to the account.
 fn authority_has_direct_permission(
     world: &impl WorldReadOnly,
     authority: &AccountId,
     target: &Permission,
 ) -> Result<bool, ValidationFail> {
     world
-        .account_permissions_iter(authority)
-        .map_err(|err| ValidationFail::InstructionFailed(InstructionExecutionError::Find(err)))
-        .map(|permissions| {
-            permissions
-                .into_iter()
-                .any(|permission| permission == target)
-        })
+        .account(authority)
+        .map_err(|err| ValidationFail::InstructionFailed(InstructionExecutionError::Find(err)))?;
+    Ok(world.account_contains_inherent_permission(authority, target))
 }
 fn authority_has_role(world: &impl WorldReadOnly, authority: &AccountId, role_id: &RoleId) -> bool {
     world
@@ -17676,7 +17675,7 @@ mod tests {
     }
     #[test]
     fn protocol_fee_exempt_draft_returns_zero_quote_in_direct_mode() {
-        let (world, mut nexus, pipeline, mut payload) = multi_component_fee_quote_fixture();
+        let (world, nexus, pipeline, mut payload) = multi_component_fee_quote_fixture();
         let fee_asset = nexus.fees.fee_asset_id.clone();
         payload.fee_payment = FeePaymentIntent::authority(
             vec![FeeChargeLimit::new(
@@ -17713,7 +17712,7 @@ mod tests {
     include!("executor_fee_quote_tests.rs");
     #[test]
     fn missing_committed_policy_rejects_quotes_before_signing() {
-        let (world, mut nexus, pipeline, payload) = multi_component_fee_quote_fixture();
+        let (world, nexus, pipeline, payload) = multi_component_fee_quote_fixture();
         let mut parameters = world.parameters.block();
         parameters.remove_custom_parameter(&RootFeePolicy::parameter_id());
         parameters.commit();

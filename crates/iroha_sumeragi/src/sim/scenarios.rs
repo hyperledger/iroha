@@ -1601,8 +1601,9 @@ pub fn f38(seed: u64) -> Scenario {
 /// jumps 30 s ahead (outside the assumption) for 15 s, then converges back; (2) a Byzantine
 /// proxy tail hides `PrepareQC`s (F33) of blocks that all apply due work, so their
 /// re-proposals are older than the lag and execute only as certified (§4.5 "Certified
-/// re-proposals", MS51). Oracles: O-TIME, O-LIVE, O-AGR, O-FAULT (the guard's refusals are
-/// local faults).
+/// re-proposals", MS51). Oracles: O-TIME, O-LIVE, O-AGR, O-FAULT (only `ExecutorFailed`
+/// is permitted for guard refusals). A late progress window checks every run after clock
+/// convergence or network healing, before the conservative O-LIVE deadline can expire.
 pub fn f39(seed: u64) -> Scenario {
     let n = pick(seed / 3, &[4, 7, 10]);
     let mut sc = sized("F39", seed, n);
@@ -1670,13 +1671,15 @@ pub fn f39(seed: u64) -> Scenario {
         wall_offsets,
         leads,
     });
-    sc.checks.may_fault = (0..n).collect();
+    sc.checks.may_executor_fail = (0..n).collect();
     sc.demotion_window = 8;
     if variant == 2 {
         sc.heal_at = 45_000;
         sc.duration = 95_000;
     }
     sc.checks.progress = 5;
+    let recovered_at = if variant == 2 { sc.heal_at } else { 30_000 };
+    sc.checks.windows = vec![(0, recovered_at, sc.duration, 5)];
     sc
 }
 

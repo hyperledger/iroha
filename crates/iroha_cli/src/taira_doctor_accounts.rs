@@ -204,17 +204,16 @@ fn append_parliament_checks(
 /// Live seating requirements that no signer-free public route exposes today.
 ///
 /// `/v1/gov/capabilities` does return the live `citizenship_bond_amount`, citizenship escrow,
-/// every timed-OVN window, `max_corpus_entries` and the target body sizes, but it is an
+/// the invitation window and the target body sizes, but it is an
 /// account-signed route and Torii's canonical-request check rejects an account that is not
 /// registered, so an ephemeral doctor key cannot read it; the doctor deliberately loads no
 /// signer. `/v1/gov/citizens` is signed too and returns only the registry total, not the citizens
-/// bonded at `citizenship_bond_amount`; no route or client method reads the global-beacon session
-/// or the Parliament TLE key sessions, and no route exposes the adaptive faucet window.
+/// bonded at `citizenship_bond_amount`; no route or client method reads the global-beacon session,
+/// and no route exposes the adaptive faucet window.
 /// TODO(ws35): serve a signer-free Parliament readiness projection from Torii (eligible citizen
 /// census against every body size, the live `[gov]` seating profile and citizenship escrow, the
-/// adaptive faucet policy and anchor age, the active global-beacon session and its roster, and
-/// the active Parliament TLE session with its remaining fresh-ballot capacity and lifetime), then
-/// turn these warnings and the two `canonical_*` checks into live checks.
+/// adaptive faucet policy and anchor age, and the active global-beacon session and its roster),
+/// then turn these warnings and the two `canonical_*` checks into live checks.
 /// TODO(ws42): report every active SCCP attempt with its next due checkpoint height, its last
 /// progress height, and fail when an attempt is active and the tip is not growing.
 pub(super) fn parliament_warnings() -> Result<Vec<String>> {
@@ -228,7 +227,6 @@ pub(super) fn parliament_warnings() -> Result<Vec<String>> {
         ),
         "parliament_live_profile: not verified; the live [gov] seating profile, citizenship escrow and adaptive faucet policy are only on the account-signed /v1/gov/capabilities or on no route (canonical_profile_seating and canonical_bond_faucet_reach judge the compiled canonical profile)".to_owned(),
         "parliament_global_beacon_session: not verified; signer-free routes expose no active global-beacon session or its roster".to_owned(),
-        "parliament_tle_session: not verified; signer-free routes expose no active Parliament TLE session, fresh-ballot capacity or lifetime".to_owned(),
     ])
 }
 

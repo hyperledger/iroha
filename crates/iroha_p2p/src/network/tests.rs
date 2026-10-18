@@ -159,49 +159,47 @@ fn connect_has_a_separate_reliable_low_priority_frame_bound() {
     );
 }
 #[test]
-fn reliable_progress_class_matches_actor_reservations_exactly() {
+fn reliable_progress_routes_refine_into_actor_reservation_classes() {
     use message::{SubscriberRoute as Route, Topic};
-    for (topic, route, expected) in [
+    for (topic, route, expected, actor_class) in [
         (
             Topic::ConsensusSafety,
             Route::General,
             Some(ReliableProgressClass::Safety),
+            Some(ActorProgressClass::Safety),
         ),
         (
             Topic::Consensus,
             Route::General,
             Some(ReliableProgressClass::Lane),
+            Some(ActorProgressClass::Lane),
         ),
         (
             Topic::ConsensusPayload,
             Route::General,
             Some(ReliableProgressClass::Bulk),
+            Some(ActorProgressClass::Payload),
         ),
         (
             Topic::ConsensusChunk,
             Route::General,
             Some(ReliableProgressClass::Bulk),
+            Some(ActorProgressClass::Payload),
         ),
         (
             Topic::BlockSync,
             Route::General,
             Some(ReliableProgressClass::Bulk),
+            Some(ActorProgressClass::BlockSync),
         ),
-        (Topic::Control, Route::General, None),
-        (Topic::Health, Route::General, None),
-        (Topic::Connect, Route::Connect, None),
-        (Topic::Other, Route::General, None),
+        (Topic::Control, Route::General, None, None),
+        (Topic::Health, Route::General, None, None),
+        (Topic::Connect, Route::Connect, None, None),
+        (Topic::Other, Route::General, None, None),
     ] {
         assert_eq!(reliable_progress_class(topic, route), expected);
         assert_eq!(is_reliable_progress_route(topic, route), expected.is_some());
-        assert_eq!(
-            ActorProgressClass::for_route(topic, route),
-            expected.map(|class| match class {
-                ReliableProgressClass::Safety => ActorProgressClass::Safety,
-                ReliableProgressClass::Lane => ActorProgressClass::Lane,
-                ReliableProgressClass::Bulk => ActorProgressClass::Bulk,
-            })
-        );
+        assert_eq!(ActorProgressClass::for_route(topic, route), actor_class);
     }
 }
 #[derive(norito::NoritoSchema)]
@@ -492,6 +490,45 @@ macro_rules! reserve_direct_lane_lease {
         };
         direct_admission.commit();
     };
+}
+/// Keep the production item window while byte pressure admits only one lane frame per source.
+fn set_one_frame_lane_source_budget(
+    handle: &mut NetworkBaseHandle<DeferredProgressMsg, ChaCha20Poly1305>,
+    target: &PeerId,
+) {
+    let direct = NetworkMessage::Post(Post {
+        data: DeferredProgressMsg::Lane(0),
+        peer_id: target.clone(),
+        priority: Priority::High,
+    });
+    let broadcast = NetworkMessage::Broadcast(Broadcast {
+        data: DeferredProgressMsg::Lane(0),
+        priority: Priority::High,
+    });
+    let direct_bytes = handle
+        .outbound_actor_wire_bytes_recoverable(&direct, message::Topic::Consensus)
+        .expect("count the direct lane fixture's complete stream charge");
+    let broadcast_bytes = handle
+        .outbound_actor_wire_bytes_recoverable(&broadcast, message::Topic::Consensus)
+        .expect("count the broadcast lane fixture's complete stream charge");
+    // Direct frames include the target identity; broadcasts have a smaller
+    // envelope. Every u8 lane marker has the same encoded length.
+    let source_bytes = direct_bytes.max(broadcast_bytes);
+    assert!(
+        direct_bytes.min(broadcast_bytes) > source_bytes / 2,
+        "the source must fit either exact frame but never two of the smaller frame"
+    );
+    handle.network_actor_progress_budget = NetworkActorProgressBudget::new_with_window(
+        source_bytes,
+        8,
+        8,
+        RELIABLE_ACTOR_SOURCE_WINDOW,
+    )
+    .expect("one-frame lane byte cap with independent target sources");
+    assert_eq!(
+        handle.network_actor_progress_budget.max_items_per_source,
+        RELIABLE_ACTOR_SOURCE_WINDOW,
+    );
 }
 type TestPeerReceivers<T> = crate::peer::handles::TestPeerHandleReceivers<WireMessage<T>>;
 fn random_node_key_pair() -> KeyPair {
@@ -2165,7 +2202,7 @@ fn reply_actor_admission_does_not_complete_writer_flush_ack() {
 }
 #[test]
 fn reply_timeout_attempt_is_retained_by_actor_admission_ticket() {
-    let (handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
+    let (mut handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
         handle_with_network_receivers::<DeferredProgressMsg>();
     let delivery_peer = random_peer_id();
     let semantic_target = random_peer_id();
@@ -2176,6 +2213,20 @@ fn reply_timeout_attempt_is_retained_by_actor_admission_ticket() {
         peer_id: semantic_target.clone(),
         priority: Priority::High,
     };
+    // Force byte backpressure while retaining the production item window.
+    let stream_wire_bytes = handle
+        .outbound_actor_wire_bytes_recoverable(
+            &NetworkMessage::Post(post(90)),
+            message::Topic::Consensus,
+        )
+        .expect("count the exact reply timeout fixture");
+    handle.network_actor_progress_budget = NetworkActorProgressBudget::new_with_window(
+        stream_wire_bytes,
+        8,
+        8,
+        RELIABLE_ACTOR_SOURCE_WINDOW,
+    )
+    .expect("one reply frame per source must fit the timeout fixture");
     let _first_completion = handle
         .post_reply_recoverable_with_flush_ack_at_attempt(post(90), &route, None, 0)
         .expect("first reply occupies the source lane")
@@ -2227,7 +2278,7 @@ fn reply_timeout_attempt_is_retained_by_actor_admission_ticket() {
 }
 #[test]
 fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurrence() {
-    let (handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
+    let (mut handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
         handle_with_network_receivers::<DeferredProgressMsg>();
     let authenticated_source_a = random_peer_id();
     let authenticated_source_b = random_peer_id();
@@ -2260,6 +2311,25 @@ fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurren
         ),
         73,
     );
+    // This identity test needs byte backpressure after one retained reply;
+    // production permits several small items within each source's byte cap.
+    let stream_wire_bytes = handle
+        .outbound_actor_wire_bytes_recoverable(
+            &NetworkMessage::Post(Post {
+                data: DeferredProgressMsg::Lane(80),
+                peer_id: semantic_target.clone(),
+                priority: Priority::Low,
+            }),
+            message::Topic::Consensus,
+        )
+        .expect("count the exact reply identity fixture");
+    handle.network_actor_progress_budget = NetworkActorProgressBudget::new_with_window(
+        stream_wire_bytes,
+        8,
+        8,
+        RELIABLE_ACTOR_SOURCE_WINDOW,
+    )
+    .expect("one reply frame per source must fit the identity fixture");
     let first = handle
         .post_reply_recoverable_with_flush_ack(
             Post {
@@ -2291,6 +2361,10 @@ fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurren
         }) => (message, ticket),
         other => panic!("same-source reply must retain its rank-one ticket: {other:?}"),
     };
+    assert_eq!(
+        handle.network_actor_progress_budget.retained(),
+        stream_wire_bytes
+    );
     drop(first_actor_item);
     let later = handle
         .post_reply_recoverable_with_flush_ack(later_post, &later_route, Some(later_ticket))
@@ -2301,6 +2375,7 @@ fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurren
             .try_recv()
             .expect("later delivery must retain the admitted actor item"),
     );
+    assert_eq!(handle.network_actor_progress_budget.retained(), 0);
     let mut admit = |route: &NetworkReplyRoute, marker: u8| {
         let completion = handle
             .post_reply_recoverable_with_flush_ack(
@@ -2397,6 +2472,39 @@ fn reply_flush_identity_binds_ticket_tenure_source_payload_and_delivery_occurren
     assert!(!first_identity.same_ticket_identity(reconnected.identity()));
     assert!(!first_identity.same_ticket_identity(other_source.identity()));
     assert!(!first_identity.same_ticket_identity(other_payload.identity()));
+    // Hold the topic, request, target, budget and ticket tenure constant so
+    // only the actor class can distinguish these process-local projections.
+    let class_identities = ActorProgressClass::ALL.map(|class| {
+        let mut identity = first_identity.ticket.clone();
+        identity.source.class = class;
+        identity
+    });
+    for (index, identity) in class_identities.iter().enumerate() {
+        let identical = identity.clone();
+        assert!(identity.same_ticket(&identical));
+        assert_eq!(
+            identity.process_local_identity_hash(),
+            identical.process_local_identity_hash()
+        );
+        for other in class_identities.iter().skip(index + 1) {
+            assert!(!identity.same_ticket(other));
+            assert_ne!(
+                identity.process_local_identity_hash(),
+                other.process_local_identity_hash(),
+                "each actor class must have a distinct process-local identity tag"
+            );
+        }
+    }
+    for class in ActorProgressClass::ALL {
+        let mut changed_class = first_identity.clone();
+        changed_class.ticket.source.class = class;
+        assert_eq!(
+            first_identity.process_local_writer_occurrence_identity_hash()
+                == changed_class.process_local_writer_occurrence_identity_hash(),
+            first_identity.ticket.source.class == class,
+            "the writer occurrence must retain its exact actor scheduling class"
+        );
+    }
     let mut foreign_budget_only = first_identity.clone();
     foreign_budget_only.ticket.budget = NetworkActorProgressBudget::new(1, 1, 1)
         .expect("foreign identity budget geometry must be valid");
@@ -3131,6 +3239,7 @@ pub(super) fn network_fixture_with_listener<T: Pload + message::ClassifyTopic>(
         mpsc::channel::<ServiceMessage<WireMessage<T>>>(4);
     let (_network_hi_tx, network_message_high_rx) = net_channel::channel_with_capacity(1);
     let (_network_lo_tx, network_message_low_rx) = net_channel::channel_with_capacity(1);
+    let (reliable_flush_notice_sender, reliable_flush_notice_receiver) = mpsc::unbounded_channel();
     let (online_peers_tx, _online_peers_rx) = watch::channel(HashSet::new());
     let (online_peer_capabilities_tx, _online_peer_capabilities_rx) =
         watch::channel(HashMap::new());
@@ -3191,6 +3300,9 @@ pub(super) fn network_fixture_with_listener<T: Pload + message::ClassifyTopic>(
             pending_reply_source_authority: PendingReplySourceAuthority::default(),
             pending_configured_hub_source: None,
             network_actor_progress_budget: test_network_actor_progress_budget(),
+            reliable_flush_notice_sender,
+            reliable_flush_notice_receiver,
+            reliable_topology_dirty: true,
             update_topology_receiver: update_topology_rx,
             update_peers_receiver: update_peers_rx,
             update_validator_dial_roster_receiver,
@@ -3976,9 +4088,14 @@ fn replacement_connection_tracks_predecessor_until_termination() {
         target: Some(peer.id().clone()),
         class: ActorProgressClass::Lane,
     };
+    // Occupy the source's byte cap, independently of its small-item window.
+    let retained_bytes = network
+        .network_actor_progress_budget
+        .per_class_max_bytes
+        .for_class(old_reply_source.class);
     let retained_shape = ProgressTicketShape {
         topic: message::Topic::Consensus,
-        stream_wire_bytes: 1,
+        stream_wire_bytes: retained_bytes,
         broadcast: false,
         reply_writer_timeout_attempt: Some(0),
         request_digest: Hash::new(b"old-reply-retained"),
@@ -3990,7 +4107,7 @@ fn replacement_connection_tracks_predecessor_until_termination() {
     } = network
         .network_actor_progress_budget
         .try_reserve_for_source(
-            1,
+            retained_bytes,
             retained_shape,
             old_reply_source.clone(),
             Some(&old_reply_authority),
@@ -4010,7 +4127,7 @@ fn replacement_connection_tracks_predecessor_until_termination() {
     } = network
         .network_actor_progress_budget
         .try_reserve_for_source(
-            1,
+            retained_bytes,
             waiting_shape,
             old_reply_source,
             Some(&old_reply_authority),
@@ -4256,9 +4373,14 @@ fn network_actor_drop_retires_routes_and_only_its_waiters() {
             target: Some(delivery_peer),
             class: ActorProgressClass::Lane,
         };
+        // Teardown must cancel a waiter blocked on bytes, not an old item limit.
+        let retained_bytes = actor
+            .network_actor_progress_budget
+            .per_class_max_bytes
+            .for_class(source.class);
         let retained_shape = ProgressTicketShape {
             topic: message::Topic::Consensus,
-            stream_wire_bytes: 1,
+            stream_wire_bytes: retained_bytes,
             broadcast: false,
             reply_writer_timeout_attempt: Some(0),
             request_digest: Hash::new_from_chunks(&[label, b"retained"]),
@@ -4268,7 +4390,7 @@ fn network_actor_drop_retires_routes_and_only_its_waiters() {
             lease,
             ticket: mut retained_ticket,
         } = actor.network_actor_progress_budget.try_reserve_for_source(
-            1,
+            retained_bytes,
             retained_shape,
             source.clone(),
             Some(&authority),
@@ -4286,7 +4408,7 @@ fn network_actor_drop_retires_routes_and_only_its_waiters() {
             ticket: Some(waiter),
             rank: 1,
         } = actor.network_actor_progress_budget.try_reserve_for_source(
-            1,
+            retained_bytes,
             waiting_shape,
             source,
             Some(&authority),
@@ -4872,8 +4994,9 @@ async fn low_byte_posts_and_broadcasts_charge_materialized_data_framing() {
         } else {
             RelayTarget::Direct(peer.id().clone())
         };
+        // A non-hub peer consumes the frame itself, so it stays link-local.
         let relay =
-            RelayMessage::new_signed(&network.key_pair, target, network.relay_ttl, DummyMsg);
+            RelayMessage::new_link(network.self_id.clone(), target, network.relay_ttl, DummyMsg);
         let plaintext = crate::peer::materialized_data_message_wire_len(relay).unwrap();
         network.low_bytes_per_sec = Some(1.0);
         network.low_bytes_burst = f64::from(u32::try_from(plaintext).unwrap());
@@ -7587,32 +7710,32 @@ fn cap_one_blocked_source_cannot_prevent_live_source_service() {
 }
 #[test]
 fn admitted_reliable_payload_materializes_once_and_reuses_its_allocation() {
-    let key_pair = random_node_key_pair();
-    let unsigned = AdmittedNetworkPayload::from_network(NetworkMessage::Broadcast(Broadcast {
+    let origin = random_peer_id();
+    let pending = AdmittedNetworkPayload::from_network(NetworkMessage::Broadcast(Broadcast {
         data: DeferredProgressMsg::Lane(40),
         priority: Priority::High,
     }));
 
-    let first_state = unsigned.materialize(&key_pair, 8);
-    let first = Arc::clone(first_state.signed_frame());
-    let signature_allocation = first.origin_signature.as_ptr();
-    let second_state = first_state.materialize(&key_pair, 8);
-    let second = second_state.signed_frame();
+    let first_state = pending.materialize(&origin, 8);
+    let first = Arc::clone(first_state.frame());
+    let second_state = first_state.materialize(&origin, 8);
+    let second = second_state.frame();
 
-    // A repeated `new_signed` call would necessarily create a distinct
-    // live relay allocation and signature buffer while `first` is held.
-    // These pointer checks therefore pin the retry materialization count
-    // to one without adding production-only instrumentation.
+    // A repeated materialization would necessarily create a distinct live
+    // relay allocation while `first` is held. These pointer checks therefore
+    // pin the retry materialization count to one without adding
+    // production-only instrumentation.
     assert!(Arc::ptr_eq(&first, second));
     assert_eq!(Arc::strong_count(&first), 2);
-    assert_eq!(second.origin_signature.as_ptr(), signature_allocation);
     assert!(matches!(&second.target, RelayTarget::Broadcast));
-    second
-        .verify_origin_signature()
-        .expect("the one retained envelope remains validly signed");
+    assert_eq!(second.origin, origin);
+    assert!(
+        !second.is_relay_signed(),
+        "materialization creates a link-local frame; only a forwarding hop signs it"
+    );
 }
 #[test]
-fn reliable_direct_retry_reuses_the_signed_envelope_allocation() {
+fn reliable_direct_retry_reuses_the_link_envelope_without_signing() {
     let_deferred_test_network!(network, DeferredProgressMsg);
     let target = random_peer_id();
     let (admitted, actor_budget, retained_bytes) = admitted_with_exact_actor_bytes(
@@ -7632,9 +7755,8 @@ fn reliable_direct_retry_reuses_the_signed_envelope_allocation() {
             .message
             .as_ref()
             .expect("first dispatch retains one payload")
-            .signed_frame(),
+            .frame(),
     );
-    let signature_allocation = first.origin_signature.as_ptr();
     let retained = network
         .dispatch_reliable_actor_message(retained)
         .expect_err("the unavailable direct target must remain retryable");
@@ -7642,14 +7764,14 @@ fn reliable_direct_retry_reuses_the_signed_envelope_allocation() {
         .message
         .as_ref()
         .expect("retry retains the payload")
-        .signed_frame();
+        .frame();
 
     assert!(Arc::ptr_eq(&first, second));
-    assert_eq!(second.origin_signature.as_ptr(), signature_allocation);
     assert!(matches!(&second.target, RelayTarget::Direct(peer) if peer == &target));
-    second
-        .verify_origin_signature()
-        .expect("the retained direct envelope remains validly signed");
+    assert!(
+        !second.is_relay_signed(),
+        "a direct frame for its own target never needs an origin signature"
+    );
     assert_eq!(
         actor_budget.retained(),
         NetworkActorRetainedBytes {
@@ -7659,7 +7781,7 @@ fn reliable_direct_retry_reuses_the_signed_envelope_allocation() {
     );
 }
 #[test]
-fn reliable_broadcast_retry_reuses_the_signed_envelope_allocation() {
+fn reliable_broadcast_retry_reuses_the_link_envelope_allocation() {
     let_deferred_test_network!(network, DeferredProgressMsg);
     let blocked_peer = random_peer_id();
     network.current_topology = HashSet::from([blocked_peer]);
@@ -7679,12 +7801,12 @@ fn reliable_broadcast_retry_reuses_the_signed_envelope_allocation() {
             .message
             .as_ref()
             .expect("first dispatch retains one payload")
-            .signed_frame(),
+            .frame(),
     );
-    let signature_allocation = first.origin_signature.as_ptr();
-    first
-        .verify_origin_signature()
-        .expect("cached envelope remains validly signed");
+    assert!(
+        !first.is_relay_signed(),
+        "no hop received the broadcast, so nothing required an origin signature"
+    );
 
     let retained = network
         .dispatch_reliable_actor_message(retained)
@@ -7693,10 +7815,9 @@ fn reliable_broadcast_retry_reuses_the_signed_envelope_allocation() {
         .message
         .as_ref()
         .expect("retry retains the payload")
-        .signed_frame();
+        .frame();
 
     assert!(Arc::ptr_eq(&first, second));
-    assert_eq!(second.origin_signature.as_ptr(), signature_allocation);
     assert!(matches!(&second.target, RelayTarget::Broadcast));
     assert_eq!(
         actor_budget.retained(),
@@ -7743,8 +7864,11 @@ fn reliable_hub_routed_retry_reuses_the_signed_envelope_allocation() {
             .message
             .as_ref()
             .expect("hub-routed dispatch retains one payload")
-            .signed_frame(),
+            .frame(),
     );
+    first
+        .verify_origin_signature()
+        .expect("the hub relays this frame, so its hand-off adds a valid origin signature");
     let signature_allocation = first.origin_signature.as_ptr();
     let first_delivery = hub_receivers
         .try_recv_any()
@@ -7762,7 +7886,7 @@ fn reliable_hub_routed_retry_reuses_the_signed_envelope_allocation() {
         .message
         .as_ref()
         .expect("hub retry retains the payload")
-        .signed_frame();
+        .frame();
     assert!(Arc::ptr_eq(&first, second));
     assert_eq!(second.origin_signature.as_ptr(), signature_allocation);
     assert_eq!(
@@ -7858,10 +7982,11 @@ fn actor_broadcast_retry_targets_only_failed_peers() {
 }
 #[test]
 fn distinct_broadcast_residual_is_target_isolated_and_its_rank_decreases() {
-    let (handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
+    let (mut handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
         handle_with_network_receivers::<DeferredProgressMsg>();
     let blocked_peer = random_peer_id();
     let live_peer = random_peer_id();
+    set_one_frame_lane_source_budget(&mut handle, &blocked_peer);
     reconcile_test_topology!(
         handle.reliable_broadcast_topology,
         &HashSet::from([blocked_peer.clone(), live_peer.clone()])
@@ -8062,11 +8187,16 @@ fn configured_peer_generation_callback_holds_membership_stable() {
 }
 #[test]
 fn exact_broadcast_retry_coalesces_but_distinct_and_direct_requests_do_not() {
-    let (handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
+    let (mut handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
         handle_with_network_receivers::<DeferredProgressMsg>();
     let target = random_peer_id();
+    set_one_frame_lane_source_budget(&mut handle, &target);
     reconcile_test_topology!(
         handle.reliable_broadcast_topology,
+        &HashSet::from([target.clone()])
+    );
+    reconcile_test_topology!(
+        handle.reliable_direct_topology,
         &HashSet::from([target.clone()])
     );
     let broadcast = |tag| Broadcast {
@@ -8099,7 +8229,11 @@ fn exact_broadcast_retry_coalesces_but_distinct_and_direct_requests_do_not() {
             },
             None,
         ),
-        Err(NetworkActorAdmissionError::Backpressured { .. })
+        Err(NetworkActorAdmissionError::Backpressured {
+            ticket: Some(_),
+            rank: 2,
+            ..
+        })
     ));
     drop(first);
     handle
@@ -8109,9 +8243,10 @@ fn exact_broadcast_retry_coalesces_but_distinct_and_direct_requests_do_not() {
 }
 #[test]
 fn removed_membership_cancels_only_old_broadcast_debt_across_readd() {
-    let (handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
+    let (mut handle, _safety_rx, mut progress_rx, _high_rx, _low_rx) =
         handle_with_network_receivers::<DeferredProgressMsg>();
     let target = random_peer_id();
+    set_one_frame_lane_source_budget(&mut handle, &target);
     let topology = HashSet::from([target.clone()]);
     reconcile_test_topology!(handle.reliable_broadcast_topology, &topology);
     reconcile_test_topology!(handle.reliable_direct_topology, &topology);
@@ -8278,7 +8413,7 @@ fn cancelled_target_child_with_pending_flush_ack_releases_exactly_once() {
 }
 #[test]
 fn requested_topology_is_not_authority_and_closed_fanout_returns_all_targets() {
-    let (handle, _safety_rx, _progress_rx, _high_rx, _low_rx) =
+    let (mut handle, _safety_rx, _progress_rx, _high_rx, _low_rx) =
         handle_with_network_receivers::<DeferredProgressMsg>();
     let requested = random_peer_id();
     handle.update_topology(UpdateTopology(HashSet::from([requested])));
@@ -8381,6 +8516,7 @@ fn requested_topology_is_not_authority_and_closed_fanout_returns_all_targets() {
     ));
     drop(closed_owned_child);
     let target = random_peer_id();
+    set_one_frame_lane_source_budget(&mut handle, &target);
     reconcile_test_topology!(
         handle.reliable_broadcast_topology,
         &HashSet::from([target.clone()])
@@ -10946,3 +11082,5 @@ fn pending_connects_drop_outside_topology() {
         "connect should not be attempted for peers outside topology"
     );
 }
+include!("link_frame_tests.rs");
+include!("actor_window_tests.rs");

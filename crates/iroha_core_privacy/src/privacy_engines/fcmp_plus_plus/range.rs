@@ -385,9 +385,7 @@ static AMOUNT_GENERATOR: OnceLock<Result<EdwardsPoint, FcmpNativeErrorV1>> = Onc
 static BP_PLUS_GENERATORS: OnceLock<Result<BpPlusGenerators, FcmpNativeErrorV1>> = OnceLock::new();
 static BP_PLUS_TRANSCRIPT_PREFIX: OnceLock<Result<[u8; 32], FcmpNativeErrorV1>> = OnceLock::new();
 pub(super) fn amount_generator() -> Result<EdwardsPoint, FcmpNativeErrorV1> {
-    AMOUNT_GENERATOR
-        .get_or_init(|| decode_edwards_point(MONERO_H_BYTES_V1, false))
-        .clone()
+    *AMOUNT_GENERATOR.get_or_init(|| decode_edwards_point(MONERO_H_BYTES_V1, false))
 }
 fn keccak256(bytes: &[u8]) -> [u8; 32] {
     Keccak256::digest(bytes).into()
@@ -488,12 +486,10 @@ fn bp_plus_generators() -> Result<&'static BpPlusGenerators, FcmpNativeErrorV1> 
         .map_err(Clone::clone)
 }
 fn transcript_prefix() -> Result<[u8; 32], FcmpNativeErrorV1> {
-    BP_PLUS_TRANSCRIPT_PREFIX
-        .get_or_init(|| {
-            monero_hash_to_point(keccak256(BP_PLUS_TRANSCRIPT_DOMAIN_V1))
-                .map(|point| point.compress().to_bytes())
-        })
-        .clone()
+    *BP_PLUS_TRANSCRIPT_PREFIX.get_or_init(|| {
+        monero_hash_to_point(keccak256(BP_PLUS_TRANSCRIPT_DOMAIN_V1))
+            .map(|point| point.compress().to_bytes())
+    })
 }
 /// Digest the complete Monero BP+ basis used by the FCMP profile.
 pub fn fcmp_bp_plus_generator_digest_v1() -> Result<[u8; 32], FcmpNativeErrorV1> {

@@ -136,6 +136,10 @@ impl Background {
         }
         Ok(())
     }
+    /// Resume the worker after a speculative σ_send released the scheduler's slot.
+    pub(super) fn wake(&self) {
+        self.inner.wake();
+    }
     pub(super) fn stop(&self) {
         let mut state = self.inner.lock();
         state.stopped = true;
@@ -271,7 +275,8 @@ fn worker(owner: Weak<Owner>, inner: Arc<Inner>) {
                         return Ok((6, None));
                     }
                 }
-                match wallet.fold()? {
+                // Each owner acquisition is one archive call, published before its release.
+                match archive_call(wallet, |wallet| wallet.fold())? {
                     ControlFlow::Break(response) => return finished(&response),
                     ControlFlow::Continue(proof) => proof,
                 }
@@ -281,7 +286,7 @@ fn worker(owner: Weak<Owner>, inner: Arc<Inner>) {
             let publication = proof()?;
             let mut wallet = owner.wallet.lock().map_err(|_| Failure::code(INTERNAL))?;
             let wallet = wallet.as_deref_mut().ok_or(Failure::code(CLOSED))?;
-            finished(&publication(wallet)?)
+            finished(&archive_call(wallet, publication)?)
         });
         drop(owner); // Never keep custody alive while parked on the condition variable.
         let mut state = inner.lock();

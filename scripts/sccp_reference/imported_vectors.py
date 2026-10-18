@@ -1,13 +1,19 @@
-"""Published vectors imported verbatim for cross-checks (RFC 9380).
+"""Published vectors imported verbatim for cross-checks (RFC 9380 and Ethereum BLS).
 
 * `EXPAND_MESSAGE_XMD_SHA256`: RFC 9380 Appendix K.1 (`expand_message_xmd`, SHA-256,
   DST `QUUX-V01-CS02-with-expander-SHA256-128`).
 * `HASH_TO_G2_RO`: RFC 9380 Appendix J.10.1 (`BLS12381G2_XMD:SHA-256_SSWU_RO_`, DST
   `QUUX-V01-CS02-with-BLS12381G2_XMD:SHA-256_SSWU_RO_`). Field elements are
   `(c0, c1)` hex pairs; points are `((x.c0, x.c1), (y.c0, y.c1))`.
+* `load_ethereum_vectors`: all 98 JSON files from ethereum/bls12-381-tests
+  v0.1.2, authenticated by a pinned manifest before any vector is consumed.
 """
 
 from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
 
 EXPAND_MESSAGE_XMD_DST = b"QUUX-V01-CS02-with-expander-SHA256-128"
 
@@ -114,16 +120,40 @@ HASH_TO_G2_RO = [
     },
 ]
 
-# ethereum/bls12-381-tests generator inputs (the private keys and 32-byte messages every
-# sign/verify/aggregate case is built from), with two published `sign` outputs
-# (`sign_case_*` for key 0 over 0x00…00 and key 2 over 0xab…ab).
-ETHEREUM_STANDARD_PRIVKEYS = [
-    "263dbd792f5b1be47ed85f8938c0f29586af0d3ac7b977f21c278fe1462040e3",
-    "47b8192d77bf871b62e87859d653922725724a5c031afeabc60bcef5ff665138",
-    "328388aff0d4a5b7dc9205abd374e7e98f3cd9f3418edb4eafda5fb16473d216",
-]
-ETHEREUM_STANDARD_MESSAGES = ["00" * 32, "56" * 32, "ab" * 32]
-ETHEREUM_PUBLISHED_SIGNATURES = {
-    (0, 0): "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55",
-    (2, 2): "ae82747ddeefe4fd64cf9cedb9b04ae3e8a43420cd255e3c7cd06a8d88b7c7f8638543719981c5d16fa3527c468c25f0026704a6951bde891360c7e8d12ddee0559004ccdbe6046b55bae1b257ee97f7cdb955773d7cf29adf3ccbb9975e4eb9",
+ETHEREUM_VECTOR_COUNTS = {
+    "aggregate": 6,
+    "aggregate_verify": 5,
+    "batch_verify": 4,
+    "deserialization_G1": 13,
+    "deserialization_G2": 15,
+    "fast_aggregate_verify": 12,
+    "hash_to_G2": 4,
+    "sign": 10,
+    "verify": 29,
 }
+ETHEREUM_VECTOR_ROOT = Path(__file__).resolve().parents[2] / "fixtures/sccp/ethereum-bls12-381-tests/v0.1.2"
+ETHEREUM_MANIFEST_SHA256 = "0c3af1075957b1a133f7349467395207ea579a00cfb95a4a7eb8505e7ec9ff06"
+
+
+def load_ethereum_vectors(directory: Path = ETHEREUM_VECTOR_ROOT) -> dict[str, list[dict]]:
+    """Read only the pinned upstream data after checking the manifest and every byte."""
+    manifest_bytes = (directory / "manifest.json").read_bytes()
+    if hashlib.sha256(manifest_bytes).hexdigest() != ETHEREUM_MANIFEST_SHA256:
+        raise ValueError("Ethereum BLS vector manifest SHA-256 differs from the pinned release")
+    files = json.loads(manifest_bytes)["files"]
+    actual_files = {path.relative_to(directory).as_posix() for path in directory.glob("*/*.json")}
+    if actual_files != set(files):
+        raise ValueError("Ethereum BLS vector file set differs from the pinned release")
+    groups = {group: [] for group in ETHEREUM_VECTOR_COUNTS}
+    for relative, expected_sha256 in sorted(files.items()):
+        data = (directory / relative).read_bytes()
+        if hashlib.sha256(data).hexdigest() != expected_sha256:
+            raise ValueError(f"Ethereum BLS vector SHA-256 mismatch: {relative}")
+        source = json.loads(data)
+        if set(source) != {"input", "output"}:
+            raise ValueError(f"Ethereum BLS vector has unexpected fields: {relative}")
+        group = relative.split("/", 1)[0]
+        groups[group].append({"label": Path(relative).stem, "source_file": relative, **source})
+    if {group: len(rows) for group, rows in groups.items()} != ETHEREUM_VECTOR_COUNTS:
+        raise ValueError("Ethereum BLS vector group counts differ from the pinned release")
+    return groups

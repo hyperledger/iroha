@@ -5,16 +5,33 @@
 //!
 //! # Status
 //!
-//! **No proof profile is selected or qualified.** The construction is frozen so
-//! that it can be implemented, measured and reviewed; it is not the normative
-//! profile, its `profile_id` is not allocated, and its security arguments
-//! (`specs/parliament_ballot_proof_arguments.md`) await independent review.
-//! Binding governance does not use this crate: it is not a dependency of Core or
-//! of any node crate, it validates no on-chain ballot, and nothing it accepts or
-//! rejects has governance effect. The parameter rows are the fast row
+//! **No proof profile is qualified.** The construction is frozen so that it can
+//! be implemented, measured and reviewed, and its security arguments
+//! (`specs/parliament_ballot_proof_arguments.md`) await independent review. The
+//! candidate row's descriptor digest `D` is the public profile identifier
+//! (`ProofProfileIdV1::V1` in the data model); integrating that row is not
+//! qualifying it. Its typed caller is the protocol crate
+//! `iroha_parliament_ballot`, which supplies the canonical `Enc` inputs, obtains
+//! `B`, `R`, `scope`, `policy_hash`, `D_reg` and `D_v` from this crate and
+//! compiles only the candidate row; no node crate depends on this crate
+//! directly. Binding governance stays disabled while the data-model launch gate
+//! `PARLIAMENT_BALLOT_QUALIFICATION_V1` is `None`: nothing accepted or rejected
+//! here has governance effect. The parameter rows are the fast row
 //! ([`profile::Row::Candidate`], the sole integration candidate) and the small
-//! row ([`profile::Row::Comparator`], a measurement comparator); neither is
-//! selected.
+//! row (`profile::Row::Comparator`, a measurement comparator for tests and
+//! diagnostics); neither is qualified. The comparator row is compiled only for
+//! this crate's unit tests and with the non-default `diagnostics` feature, which
+//! only the measurement and diagnostic tooling enables; production builds,
+//! including every node, wallet and native-bridge dependency, contain the
+//! candidate row only.
+//!
+//! # Features
+//!
+//! * `accel` forwards hardware acceleration to the backend; outputs are unchanged.
+//! * `diagnostics` compiles the comparator row for the measurement examples, the
+//!   comparator integration tests and the fuzz crate. Run the complete suite with
+//!   `cargo test --release -p iroha_parliament_ballot_proof --features diagnostics`;
+//!   without the feature the same command runs the candidate-row suite.
 //!
 //! Proofs produced here are *FAEST-derived*: they reuse the FAEST v3.0 proof
 //! machinery with custom relations, a literal role prefix on every hash call and
@@ -23,7 +40,7 @@
 //!
 //! # What is here
 //!
-//! * [`profile`]: the two rows, the descriptor `DESC`, its digest `D`, the CRT
+//! * [`profile`]: the rows, the descriptor `DESC`, its digest `D`, the CRT
 //!   table digest `T_crt`, the role namespaces and 77-byte prefixes, the proof
 //!   lengths.
 //! * [`framing`]: `Frame` and the bounded opaque public inputs.

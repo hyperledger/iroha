@@ -1,6 +1,8 @@
 //! Reproducible, bounded mutation campaign for standalone statement and proof inputs.
 //!
-//! A pinned corpus/acceptance digest must agree in portable and accelerated builds.
+//! A pinned corpus/acceptance digest must agree in portable and accelerated builds:
+//! one covers both rows (with the `diagnostics` feature), one the candidate row of
+//! production builds.
 //! This does not establish exhaustive fuzz coverage, memory ceilings, or security
 //! qualification. Run with `--release --test adversarial -- --nocapture`.
 
@@ -316,6 +318,7 @@ fn seeded_statements_records_and_proofs_campaign() {
         let case = reg_case(row);
         let proof: &[u8] = match row {
             Row::Candidate => include_bytes!("fixtures/reg_fast.proof"),
+            #[cfg(feature = "diagnostics")]
             Row::Comparator => include_bytes!("fixtures/reg_comparator.proof"),
         };
         let encoded = test_codec::encode_registration(&profile, &case.statement).expect("valid");
@@ -326,6 +329,7 @@ fn seeded_statements_records_and_proofs_campaign() {
         let case = vote_case(row, 3, 1);
         let proof: &[u8] = match row {
             Row::Candidate => include_bytes!("fixtures/vote_S3_i1_fast.proof"),
+            #[cfg(feature = "diagnostics")]
             Row::Comparator => include_bytes!("fixtures/vote_S3_i1_comparator.proof"),
         };
         let encoded = test_codec::encode_vote(&profile, &case.statement).expect("valid");
@@ -345,5 +349,13 @@ fn seeded_statements_records_and_proofs_campaign() {
             );
         }
     }
-    campaign.finish("cace017fe544236ec94320349a6a6617c8df88d2ae0e149ce767c73dbad2a862");
+    campaign.finish(CAMPAIGN_DIGEST);
 }
+
+/// The pinned digest of the campaign over both rows (`diagnostics` feature).
+#[cfg(feature = "diagnostics")]
+const CAMPAIGN_DIGEST: &str = "cace017fe544236ec94320349a6a6617c8df88d2ae0e149ce767c73dbad2a862";
+
+/// The pinned digest of the candidate-row campaign of production builds.
+#[cfg(not(feature = "diagnostics"))]
+const CAMPAIGN_DIGEST: &str = "CANDIDATE_ONLY_DIGEST_TO_PIN";

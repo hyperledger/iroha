@@ -64,7 +64,6 @@ pub(in crate::state) struct AuthorizedExecutionOutputs {
 pub(in crate::state) struct FinalizedExecutionOutputs {
     authorized: AuthorizedExecutionOutputs,
     surface: Box<crate::state::output_publication::FinalizedPublicationSurface>,
-    _events_hash: Hash,
 }
 
 /// Owns both the State borrow and its only mutable output budget. It cannot be

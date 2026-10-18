@@ -1,6 +1,6 @@
 # Native SDK bridge
 
-`connect_norito_bridge` exposes the current ABI-29 C and JNI bridge to the SDKs.
+`connect_norito_bridge` exposes the current ABI-30 C and JNI bridge to the SDKs.
 The ordinary Rust target emits `cdylib`, `staticlib`, and `rlib` outputs; Rust
 consumers and tests retain the `rlib` interface.
 

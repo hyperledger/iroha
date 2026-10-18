@@ -51,7 +51,7 @@ accel-cuda = ["fastpq-gpu", "iroha_core/cuda", "ivm/cuda", "norito/codec-gpu-cud
 # Non-shipping daemon controlling authenticated private-settlement HTTP requests.
 test-network-private-settlement-route-control = ["iroha_torii/test-network-private-settlement-route-control"]
 # Dedicated non-shipping daemon used only by the four-validator Parliament
-# integration corridor. It injects proof-valid beacon and TLE shares for this
+# integration corridor. It injects proof-valid beacon shares for this
 # daemon's exact roster seat and does not alter consensus verification.
 test-network-parliament-signers = ["iroha_core/test-network-parliament-signers"]
 # Separate non-shipping broker process for unprivileged multi-peer network qualification.
@@ -119,7 +119,6 @@ maintenance = { status = "actively-developed" }
 iroha = { workspace = true }
 iroha_fs = { workspace = true }
 iroha_core_privacy = { workspace = true, default-features = false }
-iroha_core_timed_ovn = { workspace = true }
 iroha_allocation = { workspace = true }
 iroha_model_base = { workspace = true }
 iroha_musubi_service = { workspace = true }

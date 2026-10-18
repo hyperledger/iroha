@@ -33,7 +33,6 @@ ATTEMPT = "11" * 32
 ELECTION = "22" * 32
 INSTANCE = "33" * 32
 ROOT_HASH = "ab" * 32
-BALLOT = "44" * 32
 
 
 def canonical_config() -> dict[str, Any]:
@@ -63,8 +62,6 @@ def seated_peer_text() -> str:
         f"{key} = {gov[key]}"
         for key in (*devnet.PARLIAMENT_PUBLIC_BODY_KEYS, "policy_jury_size", "confirmation_jury_size")
     ]
-    lines.append("[gov.parliament_timed_ovn]")
-    lines += [f"{key} = {value}" for key, value in gov["parliament_timed_ovn"].items()]
     return "\n".join(lines) + "\n"
 
 
@@ -82,7 +79,7 @@ class FakeRunner:
         self.commands.append(command)
         if "--help" in command:
             if not self.help_text:
-                raise devnet.DevnetError("unrecognized subcommand 'ballot'")
+                raise devnet.DevnetError("unrecognized subcommand 'respond-invitation'")
             return subprocess.CompletedProcess(command, 0, self.help_text, "")
         config = command[command.index("-c") + 1] if "-c" in command else ""
         if any(marker in config for marker in self.fail_for):
@@ -177,21 +174,6 @@ class TairaDevnetParliamentProfileTests(unittest.TestCase):
         self.assertEqual(gov["parliament_public_finding_phase_blocks"], 900)
         self.assertEqual(gov["min_enactment_delay"], 50)
         self.assertEqual(gov["citizenship_bond_amount"], "1000000")
-        self.assertEqual(
-            gov["parliament_timed_ovn"],
-            {
-                "max_corpus_entries": 16,
-                "registration_phase_blocks": 300,
-                "survivor_freeze_phase_blocks": 100,
-                "commitment_phase_blocks": 300,
-                "release_delay_blocks": 50,
-                "opening_phase_blocks": 300,
-            },
-        )
-        self.assertEqual(
-            gov["parliament_tle_key_lifecycle"],
-            {"max_fresh_ballots_per_session": 8, "session_lifetime_blocks": 7200},
-        )
         faucet = config["torii"]["faucet"]
         self.assertGreater(faucet["pow_adaptive_claims_per_extra_bit"], 0)
         self.assertGreater(faucet["pow_adaptive_max_extra_bits"], 0)
@@ -248,30 +230,10 @@ class TairaDevnetParliamentProfileTests(unittest.TestCase):
             ["adaptive_faucet_difficulty"],
         )
         self.assertEqual(
-            failures(
-                seated.replace(
-                    "survivor_freeze_phase_blocks = 100", "survivor_freeze_phase_blocks = 15"
-                )
-            ),
-            ["windows_cover_corpus"],
-        )
-        self.assertEqual(
-            failures(
-                seated.replace("registration_phase_blocks = 300", "registration_phase_blocks = 16")
-            ),
-            ["windows_cover_corpus"],
-        )
-        self.assertEqual(
-            failures(seated.replace("max_corpus_entries = 16", "max_corpus_entries = 8")),
-            ["corpus_covers_juries"],
-        )
-        self.assertEqual(
             failures(seated.replace("confirmation_jury_size = 7", "confirmation_jury_size = 2")),
             ["hidden_ballot_anonymity"],
         )
-        large = seated.replace("policy_jury_size = 9", "policy_jury_size = 25").replace(
-            "max_corpus_entries = 16", "max_corpus_entries = 25"
-        )
+        large = seated.replace("policy_jury_size = 9", "policy_jury_size = 25")
         self.assertEqual(failures(large, 27), ["policy_jury_confirmation_margin"])
         self.assertEqual(failures(large, 28), [])
         self.assertEqual(
@@ -314,7 +276,9 @@ class TairaDevnetParliamentSeatingTests(unittest.TestCase):
         )
         citizens = devnet.parliament_citizens(self.target)
         self.assertEqual([citizen["index"] for citizen in citizens], list(range(16)))
-        self.assertTrue(str(citizens[3]["ballot_key_file"]).endswith("citizen-03.ballot.key"))
+        self.assertTrue(
+            str(citizens[3]["client_config"]).endswith("citizen-03.client.toml")
+        )
 
     def test_taira_devnet_refuses_too_few_citizens(self) -> None:
         self.network.write_citizens(8)
@@ -433,21 +397,10 @@ ALL_CITIZEN_OPTIONS = "\n".join(
 
 
 class ScriptedRunner(FakeRunner):
-    """A fake CLI with every documented option, a fixed anchor and ballot-record writes."""
+    """A fake CLI that documents every citizen command option."""
 
-    def __init__(self, *, fail_for: set[str] | None = None, anchor: object | None = None) -> None:
+    def __init__(self, *, fail_for: set[str] | None = None) -> None:
         super().__init__(help_text=ALL_CITIZEN_OPTIONS, fail_for=fail_for)
-        self.anchor = anchor if anchor is not None else {"height": 7, "context_id": "ab" * 32}
-
-    def __call__(self, command, **kwargs):
-        command = [str(part) for part in command]
-        if "--help" not in command and "anchor" in command:
-            self.commands.append(command)
-            return subprocess.CompletedProcess(command, 0, json.dumps(self.anchor) + "\n", "")
-        if "--help" not in command and "--record-out" in command:
-            # `cast` writes the public record before it submits or refuses to submit.
-            Path(command[command.index("--record-out") + 1]).write_text("00\n", encoding="utf-8")
-        return super().__call__(command, **kwargs)
 
 
 def citizen_config(command: list[str]) -> str:
@@ -556,164 +509,39 @@ class TairaDevnetCitizenHelperTests(unittest.TestCase):
 
     def test_taira_devnet_citizen_commands_require_the_documented_cli(self) -> None:
         with self.assertRaisesRegex(devnet.DevnetError, "not available in this CLI build"):
-            devnet.register_ballot_keys(
+            devnet.endorse_public_finding(
                 self.target,
                 self.iroha,
                 FakeRunner(),
-                lambda url, payload: (200, 7),
-                ballot_attempt_id=BALLOT,
+                governance_attempt_id=ATTEMPT,
+                body_instance_id=INSTANCE,
+                result_root=ROOT_HASH,
             )
-        with self.assertRaisesRegex(devnet.DevnetError, "lacks its documented options: --record-out"):
-            devnet.cast_ballots(
+        with self.assertRaisesRegex(devnet.DevnetError, "lacks its documented options: --result-root"):
+            devnet.endorse_public_finding(
                 self.target,
                 self.iroha,
-                FakeRunner(help_text="--ballot-attempt-id\n--key-file\n--state-file\n--choice"),
-                ballot_attempt_id=BALLOT,
-                choice="reject",
-            )
-        with self.assertRaisesRegex(devnet.DevnetError, "must be one of"):
-            devnet.cast_ballots(
-                self.target, self.iroha, ScriptedRunner(), ballot_attempt_id=BALLOT, choice="maybe"
+                FakeRunner(help_text="--governance-attempt-id\n--body-instance-id"),
+                governance_attempt_id=ATTEMPT,
+                body_instance_id=INSTANCE,
+                result_root=ROOT_HASH,
             )
         with self.assertRaisesRegex(devnet.DevnetError, "unknown Parliament citizen action"):
             devnet.require_citizen_command(self.iroha, "vote", ScriptedRunner())
-
-    def test_taira_devnet_ballot_registration_pins_one_anchor_for_new_state_files(self) -> None:
-        citizens = devnet.parliament_citizens(self.target)
-        citizens[1]["ballot_state_file"].write_text("{}\n", encoding="utf-8")
-        heights: list[str] = []
-
-        def request(url: str, payload: object | None) -> tuple[int, object | None]:
-            heights.append(url)
-            return 200, 7
-
-        runner = ScriptedRunner()
-        results = devnet.register_ballot_keys(
-            self.target, self.iroha, runner, request, ballot_attempt_id=BALLOT, indices=[0, 1, 2]
-        )
-        self.assertTrue(all(result["ok"] for result in results))
-        self.assertEqual(len(heights), 1)
-        self.assertTrue(heights[0].endswith("/status/blocks"))
-        anchors = [command for command in runner.commands if "anchor" in command and "--help" not in command]
-        self.assertEqual(len(anchors), 1)
-        self.assertEqual(anchors[0][anchors[0].index("--height") + 1], "7")
-        registers = [
-            command
-            for command in runner.commands
-            if "register" in command and "--help" not in command
-        ]
-        self.assertEqual(len(registers), 3)
-        first, existing, third = registers
-        self.assertEqual(first[first.index("--trusted-checkpoint-height") + 1], "7")
-        self.assertEqual(first[first.index("--trusted-checkpoint-context-id") + 1], "ab" * 32)
-        self.assertNotIn("--trusted-checkpoint-height", existing)
-        self.assertIn("--trusted-checkpoint-context-id", third)
-        self.assertTrue(first[first.index("--key-file") + 1].endswith("citizen-00.ballot.key"))
-        self.assertTrue(
-            existing[existing.index("--state-file") + 1].endswith("citizen-01.ballot-state.json")
-        )
-
-        pinned = ScriptedRunner()
-        devnet.register_ballot_keys(
-            self.target,
-            self.iroha,
-            pinned,
-            lambda url, payload: self.fail("an explicit anchor height needs no height read"),
-            ballot_attempt_id=BALLOT,
-            anchor_height=7,
-            indices=[0],
-        )
-        with self.assertRaisesRegex(devnet.DevnetError, "no exact anchor at height 7"):
-            devnet.register_ballot_keys(
-                self.target,
-                self.iroha,
-                ScriptedRunner(anchor={"height": 7, "context_id": "AB" * 32}),
-                request,
-                ballot_attempt_id=BALLOT,
-                indices=[0],
-            )
-        for citizen in devnet.parliament_citizens(self.target):
-            citizen["ballot_state_file"].write_text("{}\n", encoding="utf-8")
-        settled = ScriptedRunner()
-        devnet.register_ballot_keys(
-            self.target,
-            self.iroha,
-            settled,
-            lambda url, payload: self.fail("existing state files need no anchor"),
-            ballot_attempt_id=BALLOT,
-        )
-        self.assertFalse(any("anchor" in command for command in settled.commands))
-
-    def test_taira_devnet_out_of_order_ballots_are_relayed(self) -> None:
-        runner = ScriptedRunner(fail_for={"citizen-03.client.toml"})
-        report = devnet.cast_ballots(
-            self.target,
-            self.iroha,
-            runner,
-            ballot_attempt_id=BALLOT,
-            choice="approve",
-            indices=[3, 4],
-        )
-        self.assertEqual([result["ok"] for result in report["results"]], [False, True])
-        self.assertEqual(report["relay"], {"ok": True, "records": 2})
-        self.assertTrue(citizen_config(runner.commands[-1]).endswith("citizen-04.client.toml"))
-        casts = [command for command in runner.commands if "cast" in command and "--help" not in command]
-        self.assertEqual(len(casts), 2)
-        cast = casts[0]
-        self.assertEqual(cast[4:8], ["gov", "parliament", "ballot", "cast"])
-        self.assertEqual(cast[cast.index("--choice") + 1], "approve")
-        self.assertTrue(
-            cast[cast.index("--record-out") + 1].endswith(f"citizen-03.ballot-{BALLOT}.record")
-        )
-        relay = runner.commands[-1]
-        self.assertEqual(relay[4:8], ["gov", "parliament", "ballot", "relay"])
-        self.assertEqual(relay.count("--record"), 2)
-
-        in_order = ScriptedRunner()
-        report = devnet.cast_ballots(
-            self.target, self.iroha, in_order, ballot_attempt_id="55" * 32, choice="reject"
-        )
-        self.assertTrue(all(result["ok"] for result in report["results"]))
-        self.assertIsNone(report["relay"], "no relay when every citizen submitted its own ballot")
-
-    def test_taira_devnet_dropout_and_status_use_their_own_arguments(self) -> None:
-        runner = ScriptedRunner()
-        devnet.drop_out_of_ballot(
-            self.target, self.iroha, runner, ballot_attempt_id=BALLOT, indices=[6]
-        )
-        dropout = runner.commands[-1]
-        self.assertEqual(dropout[4:8], ["gov", "parliament", "ballot", "dropout"])
-        self.assertNotIn("--key-file", dropout)
-        runner = ScriptedRunner()
-        runner.stdout = json.dumps({"ballots": []}) + "\n"
-        results = devnet.ballot_status(
-            self.target, self.iroha, runner, governance_attempt_id=ATTEMPT, indices=[6]
-        )
-        self.assertEqual(results[0]["output"], {"ballots": []})
-        status = runner.commands[-1]
-        self.assertEqual(status[status.index("--governance-attempt-id") + 1], ATTEMPT)
-        self.assertNotIn("--ballot-attempt-id", status)
-        devnet.ballot_status(
-            self.target,
-            self.iroha,
-            runner,
-            governance_attempt_id=ATTEMPT,
-            ballot_attempt_id=BALLOT,
-            indices=[6],
-        )
-        self.assertIn("--ballot-attempt-id", runner.commands[-1])
 
     def test_taira_devnet_citizens_parser(self) -> None:
         args = devnet.parser().parse_args(
             [
                 "citizens",
-                "ballot-cast",
+                "endorse",
                 "--iroha",
                 "/opt/iroha",
-                "--ballot-attempt-id",
-                BALLOT,
-                "--choice",
-                "abstain",
+                "--governance-attempt-id",
+                ATTEMPT,
+                "--body-instance-id",
+                INSTANCE,
+                "--result-root",
+                ROOT_HASH,
                 "--citizen",
                 "2",
                 "--citizen",
@@ -722,33 +550,12 @@ class TairaDevnetCitizenHelperTests(unittest.TestCase):
         )
         self.assertIs(args.handler, devnet.citizens)
         self.assertEqual(args.citizen, [2, 5])
-        self.assertEqual(args.choice, "abstain")
-        args = devnet.parser().parse_args(
-            [
-                "citizens",
-                "ballot-register",
-                "--iroha",
-                "/opt/iroha",
-                "--ballot-attempt-id",
-                BALLOT,
-                "--anchor-height",
-                "12",
-            ]
-        )
-        self.assertEqual(args.anchor_height, 12)
-        args = devnet.parser().parse_args(
-            ["citizens", "ballot-status", "--iroha", "/x", "--governance-attempt-id", ATTEMPT]
-        )
-        self.assertIsNone(args.ballot_attempt_id)
+        self.assertEqual(args.result_root, ROOT_HASH)
         args = devnet.parser().parse_args(["citizens", "list"])
         self.assertEqual(args.action, "list")
         with self.assertRaises(SystemExit):
             devnet.parser().parse_args(
                 ["citizens", "respond-invitation", "--iroha", "/x", "--body", "jury"]
-            )
-        with self.assertRaises(SystemExit):
-            devnet.parser().parse_args(
-                ["citizens", "ballot-dropout", "--iroha", "/x", "--key-file", "k"]
             )
 
     def test_taira_devnet_cli_surfaces_cover_seating(self) -> None:
@@ -759,7 +566,7 @@ class TairaDevnetCitizenHelperTests(unittest.TestCase):
         ):
             self.assertIn(surface, surfaces)
         # Citizen commands come with `iroha gov parliament` and are proven lazily, so a
-        # devnet can start before the timed-OVN ballot commands ship.
+        # devnet can start before the citizen commands ship.
         self.assertFalse(any(subcommands[:1] == ("gov",) for _, subcommands in surfaces))
         for subcommands, _options in devnet.PARLIAMENT_CITIZEN_COMMANDS.values():
             self.assertEqual(subcommands[:2], ("gov", "parliament"))

@@ -9,6 +9,13 @@
 //! sub-proof under its own attempt, atomically with releasing the background slot; only that
 //! attempt's successful checkpoint publication promotes it. Payment priority, inactivity and
 //! close invalidate it, so payment proving never runs beside retained fold memory.
+//!
+//! One speculative proof slot sits between the two (design §5.1, Payment row): a review's
+//! σ_send proved before the user confirms. It is admitted only while no payment holds
+//! priority, takes payment priority over the fold, and every payment waits for it instead of
+//! cancelling it, so a confirmed payment finds the proof finished and no two provers overlap.
+//! Its job uses the wallet owner only before admission, so that wait never needs the owner.
+//! Close cancels it; dropping its [`Speculation`] cancels it and discards what it made.
 
 use std::{
     any::Any,
@@ -100,6 +107,10 @@ struct State {
     retained: Option<Slot>,
     // The identity of the last sub-proof attempt this scheduler started; never reused.
     attempts: u64,
+    // The signal of the admitted speculative proof while it holds the speculation slot.
+    speculating: Option<Cancellation>,
+    // Close admits no later speculation.
+    closed: bool,
 }
 
 impl State {
@@ -170,14 +181,21 @@ impl Scheduler {
     }
 
     /// The owner is closing: leave both states like [`Self::set_activity`], reporting a
-    /// cancelled sub-proof as closed.
+    /// cancelled sub-proof as closed. A running speculative proof is cancelled and no later
+    /// one is admitted.
     pub fn close(&self) {
         let released = {
             let mut state = self.0.lock();
             state.eligible = false;
+            state.closed = true;
             state.cancel(FoldCancelCauseV1::Close);
+            if let Some(token) = &state.speculating {
+                token.cancel();
+            }
             state.retained.take()
         };
+        // A speculation still waiting for admission observes close and ends.
+        self.0.idle.notify_all();
         drop(released);
     }
 
@@ -189,12 +207,15 @@ impl Scheduler {
 
     /// [`Self::payment`] for a host call of `class`. The class only labels a cancelled
     /// sub-proof in fold telemetry; priority, cancellation and the join are identical.
+    ///
+    /// An admitted speculative proof is joined without being cancelled: it finishes, so a
+    /// confirmed payment can use it, and only then may this payment prove.
     #[must_use]
     pub fn payment_for(&self, class: FoldCallClassV1) -> PaymentGuard {
         let mut state = self.0.lock();
         state.payments += 1;
         state.cancel(class.cause());
-        while state.running.is_some() {
+        while state.running.is_some() || state.speculating.is_some() {
             state = self
                 .0
                 .idle
@@ -247,7 +268,11 @@ impl Scheduler {
 
     pub(super) fn start(&self) -> Option<FoldGuard> {
         let mut state = self.0.lock();
-        if !state.eligible || state.payments != 0 || state.running.is_some() {
+        if !state.eligible
+            || state.payments != 0
+            || state.running.is_some()
+            || state.speculating.is_some()
+        {
             return None;
         }
         let token = Cancellation::new();
@@ -293,6 +318,209 @@ impl Drop for PaymentGuard {
         let mut state = self.0.0.lock();
         state.payments -= 1;
         self.0.0.idle.notify_all();
+    }
+}
+
+/// One speculative proof shared by the call that may use it and the job that makes it.
+///
+/// The call keeps this value; the job holds a [`SpeculationJob`] and proves only after
+/// [`Scheduler::speculate`] admits it. Dropping this value cancels the proof and drops any
+/// finished result, so nothing a dropped speculation made is used, signed or kept. It is
+/// process-local and move-only: never serialized, persisted or exposed over FFI.
+pub struct Speculation<T>(Arc<Shared<T>>);
+
+/// The job side of one [`Speculation`]: it can only run or abandon that one proof.
+pub struct SpeculationJob<T>(Arc<Shared<T>>);
+
+impl<T> Clone for SpeculationJob<T> {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+}
+
+impl<T> SpeculationJob<T> {
+    /// The proof's cooperative cancellation signal: its call ended it, or close cancelled
+    /// the admitted proof.
+    pub(super) fn token(&self) -> &Cancellation {
+        &self.0.token
+    }
+
+    /// Whether its call already ended the speculation or a job was admitted for it.
+    pub(super) fn ended(&self) -> bool {
+        self.0.token.check().is_err() || !matches!(*self.0.lock(), Speculated::Waiting)
+    }
+}
+
+struct Shared<T> {
+    token: Cancellation,
+    state: Mutex<Speculated<T>>,
+}
+
+enum Speculated<T> {
+    /// Not admitted yet.
+    Waiting,
+    /// Admitted: preparing or proving.
+    Proving,
+    /// Finished, for its call.
+    Done(T),
+    /// Cancelled, failed, abandoned or taken. Final.
+    Ended,
+}
+
+impl<T> Shared<T> {
+    fn lock(&self) -> MutexGuard<'_, Speculated<T>> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    // Cancel and end; the caller drops the returned state (a finished value) after the lock.
+    fn end(&self) -> Speculated<T> {
+        self.token.cancel();
+        core::mem::replace(&mut *self.lock(), Speculated::Ended)
+    }
+}
+
+impl<T> Speculation<T> {
+    /// A speculation whose job has not been admitted.
+    pub(super) fn new() -> Self {
+        Self(Arc::new(Shared {
+            token: Cancellation::new(),
+            state: Mutex::new(Speculated::Waiting),
+        }))
+    }
+
+    /// The job side, for the thread that proves.
+    pub(super) fn job(&self) -> SpeculationJob<T> {
+        SpeculationJob(Arc::clone(&self.0))
+    }
+
+    /// End the speculation and return its finished result, if its job published one.
+    /// Payment priority joins an admitted job first, so a call holding it never finds the
+    /// proof still running; a job not yet admitted then finds its speculation ended.
+    pub(super) fn take(self) -> Option<T> {
+        match self.0.end() {
+            Speculated::Done(value) => Some(value),
+            ended => {
+                debug_assert!(
+                    !matches!(ended, Speculated::Proving),
+                    "payment priority joins an admitted speculation before its call takes it"
+                );
+                None
+            }
+        }
+    }
+}
+
+impl<T> Drop for Speculation<T> {
+    fn drop(&mut self) {
+        drop(self.0.end());
+    }
+}
+
+/// An admitted speculative proof. It holds the scheduler's speculation slot until dropped:
+/// meanwhile no fold sub-proof starts and every payment waits for it.
+pub struct SpeculationRun<T> {
+    scheduler: Scheduler,
+    shared: Arc<Shared<T>>,
+}
+
+impl<T> SpeculationRun<T> {
+    /// The proof's cooperative cancellation signal: its call ended it, or the owner closes.
+    #[must_use]
+    pub fn token(&self) -> &Cancellation {
+        &self.shared.token
+    }
+
+    /// Publish the finished `value` for its call, then release the slot. A speculation its
+    /// call already ended drops `value` instead.
+    pub fn finish(self, value: T) {
+        let rejected = {
+            let mut speculated = self.shared.lock();
+            if matches!(*speculated, Speculated::Proving) && self.shared.token.check().is_ok() {
+                *speculated = Speculated::Done(value);
+                None
+            } else {
+                Some(value)
+            }
+        };
+        // Released after the lock; the slot is released when `self` drops.
+        drop(rejected);
+    }
+}
+
+impl<T> Drop for SpeculationRun<T> {
+    fn drop(&mut self) {
+        let unfinished = {
+            let mut speculated = self.shared.lock();
+            matches!(*speculated, Speculated::Proving)
+                .then(|| core::mem::replace(&mut *speculated, Speculated::Ended))
+        };
+        drop(unfinished);
+        self.scheduler.0.lock().speculating = None;
+        self.scheduler.0.idle.notify_all();
+    }
+}
+
+impl Scheduler {
+    /// Admit `job`'s speculative proof. It waits until no payment holds priority and no other
+    /// speculation runs, then cancels and joins a running fold sub-proof and drops the
+    /// retained fold state, like payment priority. `None` after close, or once the job's call
+    /// has ended its speculation.
+    ///
+    /// Call it without the wallet owner, and keep the admitted proof off that owner: payments
+    /// wait for the proof while possibly holding it.
+    #[must_use]
+    pub fn speculate<T>(&self, job: &SpeculationJob<T>) -> Option<SpeculationRun<T>> {
+        let mut state = self.0.lock();
+        loop {
+            if state.closed || job.0.token.check().is_err() {
+                return None;
+            }
+            if state.payments == 0 && state.speculating.is_none() {
+                break;
+            }
+            state = self
+                .0
+                .idle
+                .wait(state)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        {
+            let mut speculated = job.0.lock();
+            if !matches!(*speculated, Speculated::Waiting) {
+                return None;
+            }
+            *speculated = Speculated::Proving;
+        }
+        state.speculating = Some(job.0.token.clone());
+        state.cancel(FoldCallClassV1::Payment.cause());
+        while state.running.is_some() {
+            state = self
+                .0
+                .idle
+                .wait(state)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        // The speculative prover never runs beside retained fold memory either.
+        let released = state.retained.take();
+        drop(state);
+        drop(released);
+        Some(SpeculationRun {
+            scheduler: self.clone(),
+            shared: Arc::clone(&job.0),
+        })
+    }
+
+    /// Whether a payment holds priority now; a speculation it would only wait for is skipped.
+    pub(super) fn payment_pending(&self) -> bool {
+        self.0.lock().payments != 0
+    }
+
+    /// Whether a speculative proof holds the speculation slot.
+    #[cfg(test)]
+    pub(super) fn speculating_for_test(&self) -> bool {
+        self.0.lock().speculating.is_some()
     }
 }
 
@@ -539,3 +767,188 @@ mod cancellation_tests {
 
 #[cfg(test)]
 mod retention_tests;
+
+#[cfg(test)]
+mod speculation_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    // Counts its drops, so a test sees exactly when a finished result is released.
+    struct Counted(Arc<AtomicUsize>);
+    impl Drop for Counted {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    fn wait_until(condition: impl Fn() -> bool) {
+        for _ in 0..2_000 {
+            if condition() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        panic!("condition not reached");
+    }
+
+    #[test]
+    fn a_payment_joins_an_admitted_speculation_without_cancelling_it() {
+        let scheduler = Scheduler::new();
+        let speculation = Speculation::<u32>::new();
+        let run = scheduler.speculate(&speculation.job()).unwrap();
+        assert!(scheduler.speculating_for_test());
+        let payer = scheduler.clone();
+        let paid = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&paid);
+        let payment = std::thread::spawn(move || {
+            let guard = payer.payment();
+            observed.store(1, Ordering::SeqCst);
+            guard
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(
+            paid.load(Ordering::SeqCst),
+            0,
+            "the payment waits for the proof"
+        );
+        run.token().check().unwrap();
+        run.finish(7);
+        let guard = payment.join().unwrap();
+        assert!(!scheduler.speculating_for_test());
+        assert_eq!(
+            speculation.take(),
+            Some(7),
+            "the confirmed payment finds the proof"
+        );
+        drop(guard);
+    }
+
+    #[test]
+    fn close_cancels_an_admitted_speculation_and_admits_no_later_one() {
+        let scheduler = Scheduler::new();
+        let speculation = Speculation::<u32>::new();
+        let run = scheduler.speculate(&speculation.job()).unwrap();
+        scheduler.close();
+        assert!(matches!(run.token().check(), Err(Error::Cancelled)));
+        let closer = scheduler.clone();
+        let join = std::thread::spawn(move || drop(closer.payment()));
+        // A cancelled job publishes nothing; releasing its slot lets close join it.
+        run.finish(7);
+        join.join().unwrap();
+        assert_eq!(speculation.take(), None);
+        let later = Speculation::<u32>::new();
+        assert!(scheduler.speculate(&later.job()).is_none());
+    }
+
+    #[test]
+    fn a_speculation_cancels_and_joins_a_fold_and_blocks_new_folds() {
+        let scheduler = Scheduler::new();
+        scheduler.set_activity(true, false);
+        let fold = scheduler.start().unwrap();
+        let speculation = Speculation::<u32>::new();
+        let job = speculation.job();
+        let admitting = scheduler.clone();
+        let admitted = std::thread::spawn(move || admitting.speculate(&job));
+        wait_until(|| fold.token.check().is_err());
+        assert_eq!(fold.cause(), Some(FoldCancelCauseV1::Payment));
+        drop(fold);
+        let run = admitted.join().unwrap().unwrap();
+        assert!(scheduler.speculating_for_test());
+        assert!(
+            scheduler.start().is_none(),
+            "no fold beside the speculative prover"
+        );
+        drop(speculation);
+        assert!(matches!(run.token().check(), Err(Error::Cancelled)));
+        drop(run);
+        assert!(!scheduler.speculating_for_test());
+        assert!(scheduler.start().is_some());
+    }
+
+    #[test]
+    fn a_dropped_speculation_cancels_its_proof_and_releases_any_result() {
+        let scheduler = Scheduler::new();
+        let drops = Arc::new(AtomicUsize::new(0));
+        let speculation = Speculation::<Counted>::new();
+        let run = scheduler.speculate(&speculation.job()).unwrap();
+        drop(speculation);
+        assert!(matches!(run.token().check(), Err(Error::Cancelled)));
+        run.finish(Counted(Arc::clone(&drops)));
+        assert_eq!(
+            drops.load(Ordering::SeqCst),
+            1,
+            "a declined proof is dropped"
+        );
+        assert!(!scheduler.speculating_for_test());
+
+        let speculation = Speculation::<Counted>::new();
+        let run = scheduler.speculate(&speculation.job()).unwrap();
+        run.finish(Counted(Arc::clone(&drops)));
+        assert_eq!(
+            drops.load(Ordering::SeqCst),
+            1,
+            "a finished proof waits for its call"
+        );
+        drop(speculation);
+        assert_eq!(drops.load(Ordering::SeqCst), 2, "and is dropped with it");
+    }
+
+    #[test]
+    fn admission_waits_for_payments_and_ends_for_a_taken_speculation() {
+        let scheduler = Scheduler::new();
+        let payment = scheduler.payment();
+        assert!(
+            scheduler.payment_pending(),
+            "a locked prepare skips its speculation"
+        );
+        let speculation = Speculation::<u32>::new();
+        let job = speculation.job();
+        let admitting = scheduler.clone();
+        let admitted = std::thread::spawn(move || admitting.speculate(&job).is_some());
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(
+            !scheduler.speculating_for_test(),
+            "no admission beside a payment"
+        );
+        // The payment's call ends the speculation it found unadmitted, then proves itself.
+        assert_eq!(speculation.take(), None);
+        drop(payment);
+        assert!(!admitted.join().unwrap());
+        assert!(!scheduler.speculating_for_test());
+        assert!(!scheduler.payment_pending());
+    }
+
+    #[test]
+    fn one_speculation_runs_at_a_time() {
+        let scheduler = Scheduler::new();
+        let first = Speculation::<u32>::new();
+        let second = Speculation::<u32>::new();
+        let run = scheduler.speculate(&first.job()).unwrap();
+        let job = second.job();
+        let admitting = scheduler.clone();
+        let next = std::thread::spawn(move || {
+            let run = admitting.speculate(&job).unwrap();
+            run.finish(2);
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(
+            second.0.lock().is_waiting(),
+            "the second waits for the first"
+        );
+        run.finish(1);
+        next.join().unwrap();
+        assert!(
+            scheduler.speculate(&first.job()).is_none(),
+            "one admission per job"
+        );
+        assert_eq!(first.take(), Some(1));
+        assert_eq!(second.take(), Some(2));
+    }
+
+    impl<T> Speculated<T> {
+        fn is_waiting(&self) -> bool {
+            matches!(self, Self::Waiting)
+        }
+    }
+}

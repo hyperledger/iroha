@@ -180,7 +180,7 @@ fn sccp_pause_lift_compares_original_height_position_and_removes_only_the_matchi
     .unwrap();
     store::fast_pauses::insert(&mut tx, network, original.clone()).unwrap();
     for (height, position) in [(1, 99), (2, 4), (2, 5)] {
-        lift_at(
+        lift(
             &mut tx,
             network,
             Part::Taira,
@@ -206,22 +206,95 @@ fn sccp_pause_lift_compares_original_height_position_and_removes_only_the_matchi
         position: 6,
         timestamp_ms: 0,
     };
-    lift_at(&mut tx, network, Part::Destination { revision: 1 }, newer).unwrap();
+    lift(&mut tx, network, Part::Destination { revision: 2 }, newer).unwrap();
+    assert_eq!(
+        store::fast_pauses::get(&*tx.world, &network),
+        Some(&original),
+        "lifting an unheld part must preserve the complete hold"
+    );
+    assert_eq!(
+        store::governance_revision(&*tx.world, &SccpGovernanceSubjectV1::FastHold(network)),
+        0
+    );
+    lift(&mut tx, network, Part::Destination { revision: 1 }, newer).unwrap();
     let remaining = store::fast_pauses::get(&*tx.world, &network).unwrap();
     assert!(remaining.taira);
     assert_eq!(remaining.revisions, [3]);
-    lift_at(&mut tx, network, Part::Taira, newer).unwrap();
+    lift(&mut tx, network, Part::Taira, newer).unwrap();
     assert_eq!(
         store::fast_pauses::get(&*tx.world, &network)
             .unwrap()
             .revisions,
         [3]
     );
-    lift_at(&mut tx, network, Part::Destination { revision: 3 }, newer).unwrap();
+    lift(&mut tx, network, Part::Destination { revision: 3 }, newer).unwrap();
     assert!(store::fast_pauses::get(&*tx.world, &network).is_none());
     assert_eq!(
         store::governance_revision(&*tx.world, &SccpGovernanceSubjectV1::FastHold(network)),
         3
+    );
+    lift(&mut tx, network, Part::Taira, newer).unwrap();
+    assert_eq!(
+        store::governance_revision(&*tx.world, &SccpGovernanceSubjectV1::FastHold(network)),
+        3,
+        "an absent hold must not consume a FastHold revision"
+    );
+}
+
+#[test]
+fn sccp_pause_lift_uses_s0_height_before_position_and_preserves_expired_hold() {
+    use iroha_data_model::{
+        governance::GovernanceAnchorV1,
+        sccp::{events::SccpFastPausePartV1 as Part, fast_pause::SccpPassPositionV1},
+    };
+    let state = blank_state();
+    let mut block = state.block(header(2));
+    let mut tx = block.transaction();
+    let network = SccpNetworkV1::TonMainnet;
+    let mut source = sample_fast_pause(1);
+    source.enacted_at = SccpPassPositionV1 {
+        height: 1,
+        position: u32::MAX,
+    };
+    let s0 = GovernanceAnchorV1 {
+        height: 2,
+        position: 0,
+        timestamp_ms: 0,
+    };
+    let original = super::super::pause_record::RetainedSccpFastPause::admit(
+        &source,
+        tx.sccp_evidence_preparation_budget(),
+    )
+    .unwrap();
+    store::fast_pauses::insert(&mut tx, network, original).unwrap();
+    lift(&mut tx, network, Part::Taira, s0).unwrap();
+    let remaining = store::fast_pauses::get(&*tx.world, &network).unwrap();
+    assert!(
+        !remaining.taira,
+        "s0 height must take precedence over position"
+    );
+    assert_eq!(remaining.revisions, [1, 3]);
+    assert_eq!(
+        store::governance_revision(&*tx.world, &SccpGovernanceSubjectV1::FastHold(network)),
+        1
+    );
+
+    source.until_ms = tx.block_unix_timestamp_ms();
+    let expired = super::super::pause_record::RetainedSccpFastPause::admit(
+        &source,
+        tx.sccp_evidence_preparation_budget(),
+    )
+    .unwrap();
+    store::fast_pauses::insert(&mut tx, network, expired.clone()).unwrap();
+    lift(&mut tx, network, Part::Taira, s0).unwrap();
+    assert_eq!(
+        store::fast_pauses::get(&*tx.world, &network),
+        Some(&expired),
+        "lifting never cleans up an expired fast-pause owner"
+    );
+    assert_eq!(
+        store::governance_revision(&*tx.world, &SccpGovernanceSubjectV1::FastHold(network)),
+        1
     );
 }
 

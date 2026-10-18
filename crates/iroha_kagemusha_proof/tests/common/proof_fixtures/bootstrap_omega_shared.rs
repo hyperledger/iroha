@@ -19,97 +19,6 @@ use iroha_plonk_recursion::{
     AccumulatorT, FoldConfig, FoldTape, terminal::TerminalPlan, verifier::CompactSpans,
 };
 
-// Greedy structural projection with actual retained-primary top locations.
-// This does not assign constraints or establish a production schedule.
-fn secondary_aligned_projection(
-    widths: &[usize],
-    segments: &[(bool, usize, usize)],
-) -> (usize, std::collections::BTreeMap<usize, usize>, bool) {
-    let mut target = std::collections::BTreeMap::<usize, usize>::new();
-    for bits in widths {
-        *target.entry(*bits).or_default() += 1;
-    }
-    // A forced secondary step must not read a next-state port owned by
-    // another lane. Conservatively exclude every eligible-segment end.
-    let forbidden_tops = segments
-        .iter()
-        .filter(|(_, _, length)| *length > 0)
-        .map(|(_, start, length)| start + length - 1)
-        .collect::<std::collections::BTreeSet<_>>();
-    let mut previous = usize::MAX;
-    for _ in 0..64 {
-        let mut discard = target.clone();
-        let mut pattern = vec![0_u8; 300_000];
-        let mut primary_end = 16;
-        for bits in widths {
-            if let Some(count) = discard.get_mut(bits)
-                && *count > 0
-            {
-                *count -= 1;
-                continue;
-            }
-            let rows = bits.div_ceil(15);
-            if !matches!(bits % 15, 1 | 2) {
-                while forbidden_tops.contains(&(primary_end + rows - 1)) {
-                    primary_end += 1;
-                }
-            }
-            pattern[primary_end..primary_end + rows - 1].fill(1);
-            pattern[primary_end + rows - 1] = if bits % 15 == 1 {
-                3
-            } else if bits % 15 == 2 {
-                4
-            } else {
-                2
-            };
-            primary_end += rows;
-        }
-        let mut remaining = target.clone();
-        let mut placed = std::collections::BTreeMap::<usize, usize>::new();
-        for (pow, start, length) in segments {
-            let end = start + length;
-            let mut row = *start;
-            let order: &[usize] = if *pow {
-                &[128, 87, 81]
-            } else {
-                &[93, 81, 128, 87]
-            };
-            while row < end {
-                let candidate = order
-                    .iter()
-                    .find(|bits| {
-                        let count = remaining.get(bits).copied().unwrap_or(0);
-                        let rows = bits.div_ceil(if *pow { 15 } else { 12 });
-                        count > 0 && row + rows <= end && pattern[row + rows - 1] != 2
-                    })
-                    .copied();
-                if let Some(bits) = candidate {
-                    row += bits.div_ceil(if *pow { 15 } else { 12 });
-                    *remaining.get_mut(&bits).unwrap() -= 1;
-                    *placed.entry(bits).or_default() += 1;
-                } else {
-                    row += 1;
-                }
-            }
-        }
-        let count = placed.values().sum::<usize>();
-        if count == previous {
-            return (primary_end, placed, true);
-        }
-        previous = count;
-        target = placed;
-    }
-    let saved = target
-        .iter()
-        .map(|(bits, count)| bits.div_ceil(15) * count)
-        .sum::<usize>();
-    (
-        16 + widths.iter().map(|bits| bits.div_ceil(15)).sum::<usize>() - saved,
-        target,
-        false,
-    )
-}
-
 /// Selects the exact compact layout after checking its complete predicate.
 pub fn compact_layout(
     circuit: &OmegaCircuit,
@@ -211,101 +120,17 @@ pub fn compact_layout(
         })
         .count();
     eprintln!(
-        "AUTHENTICATED_SOURCE_COMPACT_SPARE pure_glue_rows={pure_glue} staged_ff_rows={} sponge_six_spare_rows={sponge_spare} optimistic_87bit_secondary_checks={} secondary_not_implemented=true",
-        arithmetic - pure_glue,
-        pure_glue / 8 + sponge_spare / 6
-    );
-
-    // Structural component placement estimate. Only wholly unused state/digit
-    // ports count; no query, cell or phase is overwritten by this diagnostic.
-    let mut segments = Vec::<(bool, usize, usize)>::new();
-    let mut segment_start = 0;
-    let mut current = None;
-    let mut length = 0;
-    for (packed_row, row) in (0..sponge).chain(32_768..32_768 + arithmetic).enumerate() {
-        let phase = if fixed[1][row] == Fq::ONE
-            && [0, 1, 2, 4, 5, 9]
-                .iter()
-                .all(|column| !assigned_rows[*column][row])
-        {
-            Some(true)
-        } else if fixed[0][row] == Fq::ZERO
-            && fixed[1][row] == Fq::ZERO
-            && [4, 5, 6, 7, 8, 9]
-                .iter()
-                .all(|column| !assigned_rows[*column][row])
-        {
-            Some(false)
-        } else {
-            None
-        };
-        if phase == current && phase.is_some() {
-            length += 1;
-        } else {
-            if let Some(previous) = current {
-                segments.push((previous, segment_start, length));
-            }
-            current = phase;
-            segment_start = packed_row;
-            length = usize::from(phase.is_some());
-        }
-    }
-    if let Some(previous) = current {
-        segments.push((previous, segment_start, length));
-    }
-    let mut pool = widths
-        .iter()
-        .map(|(bits, (count, _))| (*bits, *count))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    let mut saved = 0;
-    let mut used_secondary = 0;
-    let mut selected = std::collections::BTreeMap::<usize, usize>::new();
-    let mut available = [0_usize; 2];
-    for (is_sponge, _, length) in &segments {
-        available[usize::from(*is_sponge)] += length;
-        let mut remaining = *length;
-        let order: &[usize] = if *is_sponge {
-            &[128, 87, 81]
-        } else {
-            &[93, 81, 128, 87]
-        };
-        for bits in order {
-            let rows = bits.div_ceil(if *is_sponge { 15 } else { 12 });
-            let Some(count) = pool.get_mut(bits) else {
-                continue;
-            };
-            let chosen = (*count).min(remaining / rows);
-            *count -= chosen;
-            remaining -= chosen * rows;
-            used_secondary += chosen * rows;
-            saved += chosen * bits.div_ceil(15);
-            *selected.entry(*bits).or_default() += chosen;
-        }
-    }
-    eprintln!(
-        "AUTHENTICATED_SOURCE_SECONDARY_PLACEMENT eligible_glue_pow={available:?} segments={} selected={selected:?} secondary_rows={used_secondary} optimistic_saved_primary={saved} remaining_primary={} primary_top_alignment_not_yet_applied=true",
-        segments.len(),
-        range - saved
+        "AUTHENTICATED_SOURCE_COMPACT_SPARE pure_glue_rows={pure_glue} staged_ff_rows={} sponge_six_spare_rows={sponge_spare} exact_secondary_schedule_follows=true",
+        arithmetic - pure_glue
     );
 
     let total = sponge + arithmetic + curve;
-    // Reserve37 rows for the real public-prefix/Poseidon separation. The
-    // remainder may become an explicit empty-Glue span in the candidate.
+    // The production scheduler uses fifteen-bit secondary rows in both Glue
+    // and Poseidon and supports all current exact widths. Only its guarded
+    // replay establishes range capacity; the retired twelve-bit projection
+    // rejected fitting sources before that replay could run.
     let padding = 65_530_usize.saturating_sub(total + 37);
-    let mut padded = segments
-        .iter()
-        .map(|(pow, start, len)| (*pow, start + 37, *len))
-        .collect::<Vec<_>>();
-    padded.push((false, sponge + arithmetic + 37, padding));
-    let aligned = secondary_aligned_projection(&event_widths, &padded);
-    eprintln!(
-        "AUTHENTICATED_SOURCE_SECONDARY_ALIGNED primary_remaining={} selected={:?} fixed_point={} padding_glue={padding} source_trace_only=true checked_replay_follows=true",
-        aligned.0, aligned.1, aligned.2
-    );
-    // Executable replay candidate. Its immutable plan is built solely from
-    // this fixed tape and spare-port occupancy, then checked by guards during
-    // both actual and unknown synthesis.
-    if aligned.2 && aligned.0 <= 65_530 && total + 37 <= 65_530 {
+    if total + 37 <= 65_530 {
         use iroha_plonk_gadgets::range::secondary::{SecondaryPhase, SecondaryPlan};
         let mut phases = vec![None; 65_530];
         for (packed_row, row) in (0..sponge).chain(32_768..32_768 + arithmetic).enumerate() {
@@ -393,9 +218,14 @@ pub fn compact_layout(
             key_config.compress_selectors = false;
             let key = keygen_pk_v2(&params, &candidate, &key_config).unwrap();
             let protocol = Protocol::new(key.binding().descriptor()).unwrap();
-            assert_eq!(protocol.shape().degree, 9);
+            assert_eq!(protocol.shape().k, 16);
+            assert_eq!(protocol.shape().degree, 14);
             assert_eq!(protocol.shape().lookups, 1);
-            assert_eq!(protocol.proof_length() + 1088, 4800);
+            assert!(
+                protocol.proof_length() + 2 * iroha_plonk_recursion::ACCUMULATOR_BYTES
+                    <= iroha_kagemusha_proof::a_relation::receive::OMEGA_TRANSPORT_CAP
+            );
+            assert_eq!(protocol.proof_length() + 1088, 4992);
             let output = create_proof_owned_with_claim(
                 &params,
                 &key,
@@ -449,7 +279,7 @@ pub fn compact_layout(
     .unwrap();
     let protocol = Protocol::new(&descriptor).unwrap();
     eprintln!(
-        "AUTHENTICATED_SOURCE_COMPACT_OMEGA sponge={sponge} arithmetic={arithmetic} curve={curve} shared_total={total} range={range} shape={:?} descriptor_transport={} actual_outer_proof=false actual_authenticated_terminal_A=true production_k16_fit={}",
+        "AUTHENTICATED_SOURCE_COMPACT_OMEGA sponge={sponge} arithmetic={arithmetic} curve={curve} shared_total={total} range={range} shape={:?} descriptor_transport={} actual_outer_proof=false actual_authenticated_terminal_A=true primary_only_k16_fit={}",
         protocol.shape(),
         protocol.proof_length() + 1088,
         total <= protocol.shape().usable_rows && range <= protocol.shape().usable_rows

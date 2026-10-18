@@ -28,42 +28,17 @@ import {
   PARLIAMENT_PROPOSAL_KINDS_V1,
   PARLIAMENT_PUBLIC_FINDING_CERTIFICATE_FIELDS_V1,
   PARLIAMENT_PUBLIC_TRANSITIONS_V1,
-  PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_READ_PATH_V1,
-  PARLIAMENT_TIMED_OVN_CASTING_PROOF_PATH_V1,
-  PARLIAMENT_TIMED_OVN_CASTING_PROOF_VERSION_V1,
-  PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_NAME_V1,
-  PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_HASH_HEX_V1,
-  PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_NAME_V1,
-  PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_HASH_HEX_V1,
-  PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_FLAGS_V1,
-  PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_PAYLOAD_ALIGNMENT_V1,
-  PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_PADDING_BYTES_V1,
-  PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_BYTES_V1,
-  PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_MAX_BYTES_V1,
-  PARLIAMENT_TIMED_OVN_BALLOT_RECORD_BYTES_V1,
-  PARLIAMENT_TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS_V1,
-  PARLIAMENT_TIMED_OVN_CORPUS_ENTRIES_V1,
-  PARLIAMENT_TLE_PARTIAL_RELEASE_PATH_V1,
-  PARLIAMENT_TLE_RELEASE_CONTEXT_READ_PATH_V1,
   PARLIAMENT_TRANSITION_DRAFT_PATH_V1,
   PARLIAMENT_TRANSITION_SUBMIT_WIRE_ID_V1,
   ToriiClient,
   buildParliamentAttemptDraftRequestV1,
   buildParliamentTransitionDraftRequestV1,
-  encodeParliamentTimedOvnCastingProofRequestV1,
   normalizeParliamentAttemptDraftResponseV1,
   normalizeParliamentAttemptReadResponseV1,
-  normalizeParliamentTimedOvnCastingContextResponseV1,
-  normalizeParliamentTlePartialReleaseShareV1,
-  normalizeParliamentTleReleaseContextResponseV1,
   normalizeParliamentTransitionDraftResponseV1,
   parliamentAttemptReadPathV1,
-  parliamentTimedOvnCastingContextReadPathV1,
-  parliamentTimedOvnCastingProofPathV1,
-  parliamentTlePartialReleasePathV1,
-  parliamentTleReleaseContextReadPathV1,
-  validateParliamentTimedOvnCastingProofResponseFrameV1,
 } from "../src/index.js";
+import { normalizeParliamentGovernanceCertificateV1 } from "../src/parliamentApiV1.js";
 
 const ATTEMPT_ID = "ab".repeat(32);
 const PROPOSAL_ID = "cd".repeat(32);
@@ -88,17 +63,6 @@ const ACCOUNTS = Object.freeze([
 const fixturePath = fileURLToPath(
   new URL("../../../fixtures/governance/parliament_api_v1.json", import.meta.url),
 );
-function exactNoritoFrame(payload, schemaHashHex, { flags = 0x02, padding = 0 } = {}) {
-  const body = Buffer.from(payload);
-  const frame = Buffer.alloc(40 + padding + body.length);
-  frame.write("NRT0", 0, "ascii");
-  Buffer.from(schemaHashHex, "hex").copy(frame, 6);
-  frame.writeBigUInt64LE(BigInt(body.length), 23);
-  frame.writeBigUInt64LE(crc64Xz(body), 31);
-  frame[39] = flags;
-  body.copy(frame, 40 + padding);
-  return frame;
-}
 
 test("shared Parliament fixture pins routes, all transition inventories, and certificate supporters", () => {
   const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
@@ -107,10 +71,6 @@ test("shared Parliament fixture pins routes, all transition inventories, and cer
   assert.deepEqual(fixture.routes, {
     attempt_draft: PARLIAMENT_ATTEMPT_DRAFT_PATH_V1,
     attempt_read: PARLIAMENT_ATTEMPT_READ_PATH_V1,
-    timed_ovn_casting_context_read: PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_READ_PATH_V1,
-    timed_ovn_casting_proof: PARLIAMENT_TIMED_OVN_CASTING_PROOF_PATH_V1,
-    tle_release_context_read: PARLIAMENT_TLE_RELEASE_CONTEXT_READ_PATH_V1,
-    tle_partial_release: PARLIAMENT_TLE_PARTIAL_RELEASE_PATH_V1,
     transition_draft: PARLIAMENT_TRANSITION_DRAFT_PATH_V1,
   });
   assert.deepEqual(fixture.wire_ids, {
@@ -122,19 +82,10 @@ test("shared Parliament fixture pins routes, all transition inventories, and cer
     fixture.contract_lifecycle_actions,
     PARLIAMENT_CONTRACT_LIFECYCLE_ACTIONS_V1,
   );
-  assert.equal(fixture.limits.attempt_state_bytes, PARLIAMENT_ATTEMPT_STATE_MAX_BYTES_V1);
-  assert.equal(
-    fixture.limits.governance_attempt_sequence_max,
-    PARLIAMENT_GOVERNANCE_ATTEMPT_SEQUENCE_MAX_V1,
-  );
-  assert.equal(
-    fixture.limits.timed_ovn_ballot_chunk_max_records,
-    PARLIAMENT_TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS_V1,
-  );
-  assert.equal(
-    fixture.limits.timed_ovn_corpus_entries,
-    PARLIAMENT_TIMED_OVN_CORPUS_ENTRIES_V1,
-  );
+  assert.deepEqual(fixture.limits, {
+    attempt_state_bytes: PARLIAMENT_ATTEMPT_STATE_MAX_BYTES_V1,
+    governance_attempt_sequence_max: PARLIAMENT_GOVERNANCE_ATTEMPT_SEQUENCE_MAX_V1,
+  });
   assert.equal(fixture.public_transitions.length, PARLIAMENT_PUBLIC_TRANSITIONS_V1.length);
   for (const [index, layout] of PARLIAMENT_PUBLIC_TRANSITIONS_V1.entries()) {
     const entry = fixture.public_transitions[index];
@@ -201,11 +152,11 @@ test("shared Parliament fixture pins routes, all transition inventories, and cer
 
 test("initial sortition draft accepts only the enclosing attempt binding", () => {
   const transition = { transition: "RegisterInitialSortition" };
-  assert.deepEqual(PARLIAMENT_PUBLIC_TRANSITIONS_V1[21], {
-    noritoIndex: 21,
+  assert.deepEqual(PARLIAMENT_PUBLIC_TRANSITIONS_V1[12], {
+    noritoIndex: 12,
     jsonTag: "RegisterInitialSortition",
     jsonPayloadRequired: false,
-    eventKindIndex: 24,
+    eventKindIndex: 15,
   });
   assert.deepEqual(
     buildParliamentTransitionDraftRequestV1(ATTEMPT_ID, transition),
@@ -301,112 +252,55 @@ test("request builders expose only canonical V1 fields and reject removed aliase
   );
 });
 
-test("casting-proof request and response frames match the shared Rust contract", () => {
+test("transition drafts reject every unknown or removed tag named by the shared negative cases", () => {
   const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
-  const wallet = fixture.timed_ovn_native_wallet;
-  const golden = wallet.casting_proof_request_golden;
-  assert.equal(
-    wallet.request_norito_schema,
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_NAME_V1,
-  );
-  assert.equal(
-    wallet.response_norito_schema,
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_NAME_V1,
-  );
-  assert.equal(
-    wallet.casting_proof_request_schema_hash_hex,
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_HASH_HEX_V1,
-  );
-  assert.equal(
-    wallet.casting_proof_response_schema_hash_hex,
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_HASH_HEX_V1,
-  );
-  assert.equal(wallet.casting_proof_request_version, PARLIAMENT_TIMED_OVN_CASTING_PROOF_VERSION_V1);
-  assert.equal(wallet.casting_proof_request_flags, PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_FLAGS_V1);
-  assert.equal(
-    wallet.casting_proof_request_payload_alignment,
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_PAYLOAD_ALIGNMENT_V1,
-  );
-  assert.equal(
-    wallet.casting_proof_request_padding_bytes,
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_PADDING_BYTES_V1,
-  );
-  assert.equal(
-    fixture.limits.timed_ovn_casting_proof_request_bytes,
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_BYTES_V1,
-  );
-  assert.equal(
-    fixture.limits.timed_ovn_casting_proof_response_bytes,
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_MAX_BYTES_V1,
-  );
-  assert.equal(golden.frame_bytes, PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_BYTES_V1);
-  const request = encodeParliamentTimedOvnCastingProofRequestV1(
-    golden.trusted_checkpoint_height,
-  );
-  assert.equal(request.toString("hex"), golden.frame_hex);
-  assert.equal(request.subarray(40).toString("hex"), golden.payload_hex);
-
-  for (const invalid of [0, -1, 2 ** 53, -1n, 1n << 64n, "17"]) {
-    assert.throws(
-      () => encodeParliamentTimedOvnCastingProofRequestV1(invalid),
-      /trustedCheckpointHeight/u,
-    );
-  }
-
-  const response = exactNoritoFrame(
-    Buffer.from([1]),
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_HASH_HEX_V1,
-  );
-  assert.deepEqual(validateParliamentTimedOvnCastingProofResponseFrameV1(response), response);
-  assert.throws(
-    () => validateParliamentTimedOvnCastingProofResponseFrameV1(
-      exactNoritoFrame(Buffer.from([1]), PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_HASH_HEX_V1),
-    ),
-    /schema hash/u,
-  );
-  assert.throws(
-    () => validateParliamentTimedOvnCastingProofResponseFrameV1(
-      exactNoritoFrame(
-        Buffer.from([1]),
-        PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_HASH_HEX_V1,
-        { flags: 0 },
-      ),
-    ),
-    /canonical Norito flags/u,
-  );
-  assert.throws(
-    () => validateParliamentTimedOvnCastingProofResponseFrameV1(
-      exactNoritoFrame(
-        Buffer.from([1]),
-        PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_HASH_HEX_V1,
-        { padding: 1 },
-      ),
-    ),
-    /exactly 0 bytes of header padding/u,
-  );
-});
-
-test("timed-OVN corpus transitions preflight one through 32 records per chunk", () => {
-  const record = Array(PARLIAMENT_TIMED_OVN_BALLOT_RECORD_BYTES_V1).fill(1);
-  for (const count of [1, PARLIAMENT_TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS_V1]) {
-    assert.doesNotThrow(() => buildParliamentTransitionDraftRequestV1(
-      ATTEMPT_ID,
-      {
-        transition: "FreezeTimedOvnCorpus",
-        payload: { ballot_attempt_id: ID(1), ballot_records: Array(count).fill(record) },
-      },
-    ));
-  }
-  for (const count of [0, PARLIAMENT_TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS_V1 + 1]) {
+  const tags = fixture.negative_json_cases
+    .filter(({ name }) => name.endsWith("_tag"))
+    .map(({ value }) => value);
+  assert.deepEqual(tags, [
+    "PlainBallotFallback",
+    "ConstructCertificate",
+    "MarkEnacted",
+    "MarkSuperseded",
+    "MarkExecutionFailed",
+  ]);
+  for (const tag of tags) {
     assert.throws(
       () => buildParliamentTransitionDraftRequestV1(
         ATTEMPT_ID,
-        {
-          transition: "FreezeTimedOvnCorpus",
-          payload: { ballot_attempt_id: ID(1), ballot_records: Array(count).fill(record) },
-        },
+        { transition: tag, payload: {} },
       ),
-      /one through 32 records/u,
+      /unknown, removed, or automatic-only/u,
+      tag,
+    );
+  }
+});
+
+test("transition payload validators keep their identifier, root, height, and list bounds", () => {
+  const cases = [
+    ["RecordAttemptAbsence", { body_instance_id: ID(1), assignment_id: ID(0) }, /assignment_id/u],
+    ["BeginInvitationAcceptance", { election_attempt_id: "AB".repeat(32) }, /election_attempt_id/u],
+    [
+      "EndorsePublicFinding",
+      { body_instance_id: ID(1), result_root: Array(31).fill(1) },
+      /result_root must contain exactly 32 bytes/u,
+    ],
+    [
+      "ConsumeSortitionPulseBatch",
+      { request_ids: [ID(2), ID(1)], beacon_session_id: ID(1), pulse_height: 1, pulse_id: ID(2) },
+      /request_ids must be strictly increasing/u,
+    ],
+    [
+      "ConsumeSortitionPulseBatch",
+      { request_ids: [ID(1)], beacon_session_id: ID(1), pulse_height: -1, pulse_id: ID(2) },
+      /pulse_height must be a losslessly decoded unsigned integer/u,
+    ],
+  ];
+  for (const [tag, payload, pattern] of cases) {
+    assert.throws(
+      () => buildParliamentTransitionDraftRequestV1(ATTEMPT_ID, { transition: tag, payload }),
+      pattern,
+      tag,
     );
   }
 });
@@ -635,11 +529,11 @@ test("attempt read validates NRT0 and the exact canonical public-finding support
   const parsed = normalizeParliamentAttemptReadResponseV1(response, ATTEMPT_ID);
   assert.deepEqual(
     parsed.required_bodies.map(({ body }) => body),
-    ["rules-committee", "policy-jury"],
+    ["rules-committee", "agenda-council"],
   );
   assert.deepEqual(
     parsed.certificate.body_bindings.map(({ body }) => body),
-    ["rules-committee", "policy-jury"],
+    ["rules-committee", "agenda-council"],
   );
   assert.deepEqual(
     parsed.certificate.body_bindings[0].public_finding.endorsing_assignments,
@@ -667,7 +561,6 @@ test("attempt read validates NRT0 and the exact canonical public-finding support
     public_finding_deadline_height: null,
     no_result_kind: null,
     no_result_height: null,
-    timed_ovn_progress: null,
   }));
   const fullOrderParsed = normalizeParliamentAttemptReadResponseV1(fullOrder, ATTEMPT_ID);
   assert.deepEqual(
@@ -723,68 +616,6 @@ test("attempt read validates NRT0 and the exact canonical public-finding support
   );
 });
 
-test("attempt read accepts terminal commitment chunks only inside the frozen liveness window", () => {
-  const early = hiddenBallotReadResponse(10);
-  const parsed = normalizeParliamentAttemptReadResponseV1(early, ATTEMPT_ID);
-  assert.equal(
-    parsed.certificate.body_bindings[0].ballot.commitment_closed_at_height,
-    10,
-  );
-  for (const invalidHeight of [8, 14]) {
-    assert.throws(
-      () => normalizeParliamentAttemptReadResponseV1(
-        hiddenBallotReadResponse(invalidHeight),
-        ATTEMPT_ID,
-      ),
-      /frozen ballot lifecycle/u,
-    );
-  }
-});
-
-test("attempt read exposes only phase-bound aggregate timed-OVN progress", () => {
-  const finalized = hiddenBallotReadResponse(10);
-  assert.equal(
-    normalizeParliamentAttemptReadResponseV1(finalized, ATTEMPT_ID)
-      .body_states[0].timed_ovn_progress.accepted_ballot_prefix_count,
-    3,
-  );
-
-  const active = hiddenBallotReadResponse(10);
-  active.attempt.status = { status: "Active" };
-  active.certificate = null;
-  active.body_states[0].status = { status: "Balloting" };
-  active.body_states[0].timed_ovn_progress.status = { status: "TimedCommitment" };
-  active.body_states[0].timed_ovn_progress.accepted_ballot_prefix_count = 1;
-  assert.equal(
-    normalizeParliamentAttemptReadResponseV1(active, ATTEMPT_ID)
-      .body_states[0].timed_ovn_progress.accepted_ballot_prefix_count,
-    1,
-  );
-  active.body_states[0].timed_ovn_progress.accepted_ballot_prefix_count = 0;
-  assert.doesNotThrow(() => normalizeParliamentAttemptReadResponseV1(active, ATTEMPT_ID));
-
-  const malformed = [
-    (response) => { response.body_states[0].timed_ovn_progress.accepted_ballot_prefix_count = 3; },
-    (response) => { response.body_states[0].timed_ovn_progress.frozen_survivor_count = null; },
-    (response) => { response.body_states[0].timed_ovn_progress.ballot_records = []; },
-  ];
-  for (const mutate of malformed) {
-    const response = structuredClone(active);
-    mutate(response);
-    assert.throws(
-      () => normalizeParliamentAttemptReadResponseV1(response, ATTEMPT_ID),
-      /prefix|appear together|unknown, aliased, or missing/u,
-    );
-  }
-
-  const forgedBinding = hiddenBallotReadResponse(10);
-  forgedBinding.body_states[0].timed_ovn_progress.ballot_attempt_id = ID(0xfe);
-  assert.throws(
-    () => normalizeParliamentAttemptReadResponseV1(forgedBinding, ATTEMPT_ID),
-    /differs from timed_ovn_progress/u,
-  );
-});
-
 test("attempt read rejects forged certificate cross-bindings and lifecycle fields", () => {
   const mutations = [
     [
@@ -825,8 +656,8 @@ test("attempt read rejects forged certificate cross-bindings and lifecycle field
     ],
     [
       (response) => {
-        response.certificate.body_bindings[0].body = "agenda-council";
-        response.certificate.body_bindings[0].sortition_request.body = "agenda-council";
+        response.certificate.body_bindings[1].body = "interest-panel";
+        response.certificate.body_bindings[1].sortition_request.body = "interest-panel";
       },
       /differs from required_bodies/u,
     ],
@@ -864,21 +695,43 @@ test("attempt read rejects forged certificate cross-bindings and lifecycle field
   );
 
   const duplicateBinding = readResponse();
-  duplicateBinding.required_bodies.splice(1, 0, {
-    body: "agenda-council",
+  duplicateBinding.required_bodies.push({
+    body: "interest-panel",
     decision_mode: { mode: "PublicFinding" },
   });
-  const secondState = structuredClone(duplicateBinding.body_states[0]);
-  secondState.body = "agenda-council";
-  duplicateBinding.body_states.splice(1, 0, secondState);
-  const secondBinding = structuredClone(duplicateBinding.certificate.body_bindings[0]);
-  secondBinding.body = "agenda-council";
-  secondBinding.sortition_request.body = "agenda-council";
-  duplicateBinding.certificate.body_bindings.splice(1, 0, secondBinding);
+  const thirdState = structuredClone(duplicateBinding.body_states[0]);
+  thirdState.body = "interest-panel";
+  duplicateBinding.body_states.push(thirdState);
+  const thirdBinding = structuredClone(duplicateBinding.certificate.body_bindings[0]);
+  thirdBinding.body = "interest-panel";
+  thirdBinding.sortition_request.body = "interest-panel";
+  duplicateBinding.certificate.body_bindings.push(thirdBinding);
   assert.throws(
     () => normalizeParliamentAttemptReadResponseV1(duplicateBinding, ATTEMPT_ID),
     /reuse bodyInstanceId/u,
   );
+});
+
+test("certificates containing a private-jury binding are rejected until the anonymous-ballot binding is supported", () => {
+  for (const body of ["policy-jury", "confirmation-jury"]) {
+    const response = readResponse();
+    response.required_bodies[1] = { body, decision_mode: { mode: "HiddenBindingBallot" } };
+    response.body_states[1].body = body;
+    response.certificate.body_bindings[1].body = body;
+    response.certificate.body_bindings[1].sortition_request.body = body;
+    const message =
+      "certificate.body_bindings[1] private-jury result binding is not admitted until the anonymous-ballot result binding is supported";
+    assert.throws(
+      () => normalizeParliamentAttemptReadResponseV1(response, ATTEMPT_ID),
+      { name: "TypeError", message },
+      body,
+    );
+    assert.throws(
+      () => normalizeParliamentGovernanceCertificateV1(response.certificate),
+      { name: "TypeError", message },
+      body,
+    );
+  }
 });
 
 test("certificate admission pins policy V1, retry ceilings, and nonzero present heads", () => {
@@ -915,177 +768,9 @@ test("certificate admission pins policy V1, retry ceilings, and nonzero present 
   );
 });
 
-test("narrow policy certificates enforce atomic initial and delayed retry confirmation heights", () => {
-  assert.doesNotThrow(() => normalizeParliamentAttemptReadResponseV1(
-    narrowPolicyReadResponse(),
-    ATTEMPT_ID,
-  ));
-  assert.throws(
-    () => normalizeParliamentAttemptReadResponseV1(
-      narrowPolicyReadResponse({ confirmationRequestHeight: 53 }),
-      ATTEMPT_ID,
-    ),
-    /atomic initial request/u,
-  );
-  assert.doesNotThrow(() => normalizeParliamentAttemptReadResponseV1(
-    narrowPolicyReadResponse({ confirmationSequence: 1, confirmationRequestHeight: 53 }),
-    ATTEMPT_ID,
-  ));
-  assert.throws(
-    () => normalizeParliamentAttemptReadResponseV1(
-      narrowPolicyReadResponse({ confirmationSequence: 1 }),
-      ATTEMPT_ID,
-    ),
-    /follow it on retry/u,
-  );
-  assert.throws(
-    () => normalizeParliamentAttemptReadResponseV1(
-      narrowPolicyReadResponse({ includeConfirmation: false }),
-      ATTEMPT_ID,
-    ),
-    /confirmation-jury presence/u,
-  );
-  const reusedPulse = narrowPolicyReadResponse();
-  reusedPulse.certificate.body_bindings[1].beacon_pulse_id =
-    reusedPulse.certificate.body_bindings[0].beacon_pulse_id;
-  assert.throws(
-    () => normalizeParliamentAttemptReadResponseV1(reusedPulse, ATTEMPT_ID),
-    /fresh pulse/u,
-  );
-});
-
-test("attempt read rejects malformed hidden-ballot retry, corpus, tally, and outcome", () => {
-  const mutations = [
-    [
-      (response) => { response.certificate.body_bindings[0].ballot.ballot_attempt_sequence = 17; },
-      /retri/u,
-    ],
-    [
-      (response) => { response.certificate.body_bindings[0].ballot.max_corpus_entries = 2; },
-      /frozen ballot lifecycle/u,
-    ],
-    [
-      (response) => { response.certificate.body_bindings[0].ballot.tally.abstain = 1; },
-      /tally/u,
-    ],
-    [
-      (response) => { response.certificate.body_bindings[0].ballot.outcome = { outcome: "Rejected", details: null }; },
-      /approving aggregate outcome/u,
-    ],
-    [
-      (response) => { response.certificate.body_bindings[0].ballot.outcome = { outcome: "Rejected" }; },
-      /ballot\.outcome contains unknown, aliased, or missing fields/u,
-    ],
-  ];
-  for (const [mutate, expected] of mutations) {
-    const forged = hiddenBallotReadResponse(10);
-    mutate(forged);
-    assert.throws(
-      () => normalizeParliamentAttemptReadResponseV1(forged, ATTEMPT_ID),
-      expected,
-    );
-  }
-});
-
-test("release context exposes a complete bounded transcript and partials remain context-bound", () => {
-  const response = tleReleaseContextResponse();
-  const parsed = normalizeParliamentTleReleaseContextResponseV1(response, ID(0x33));
-  assert.equal(parsed.tle_key_session.public_shares.length, 4);
-  assert.equal(parsed.tle_key_session.qualified_dealer_commitments.length, 2);
-  assert.equal(
-    parliamentTleReleaseContextReadPathV1(ID(0x33)),
-    `/v1/gov/parliament/ballots/${ID(0x33)}/release-context`,
-  );
-  assert.equal(
-    parliamentTlePartialReleasePathV1(ID(0x33)),
-    `/v1/gov/parliament/ballots/${ID(0x33)}/partial-release`,
-  );
-  const partial = tlePartialReleaseResponse(response);
-  assert.equal(normalizeParliamentTlePartialReleaseShareV1(partial, {
-    expectedKeySessionId: response.tle_key_session.key_session_id,
-    expectedIdentityDigest: response.identity_digest,
-    committeeSize: response.tle_key_session.committee_size,
-  }).participant_index, 1);
-
-  const missingShare = structuredClone(response);
-  missingShare.tle_key_session.public_shares.pop();
-  assert.throws(
-    () => normalizeParliamentTleReleaseContextResponseV1(missingShare, ID(0x33)),
-    /complete ordered committee/u,
-  );
-  const aliasedDealer = structuredClone(response);
-  aliasedDealer.tle_key_session.qualified_dealer_commitments[0].dealerIndex = 1;
-  assert.throws(
-    () => normalizeParliamentTleReleaseContextResponseV1(aliasedDealer, ID(0x33)),
-    /unknown, aliased, or missing/u,
-  );
-  const wrongDigest = structuredClone(response);
-  wrongDigest.identity_digest[0] ^= 1;
-  assert.throws(
-    () => normalizeParliamentTleReleaseContextResponseV1(wrongDigest, ID(0x33)),
-    /threshold-session-framed/u,
-  );
-  const crossBound = structuredClone(partial);
-  crossBound.key_session_id = ID(0x77);
-  assert.throws(
-    () => normalizeParliamentTlePartialReleaseShareV1(crossBound, {
-      expectedKeySessionId: response.tle_key_session.key_session_id,
-      expectedIdentityDigest: response.identity_digest,
-      committeeSize: 4,
-    }),
-    /authorized release context/u,
-  );
-});
-
-test("casting context is strict, phase-safe, and carries one bounded canonical archive", () => {
-  const response = timedOvnCastingContextResponse();
-  const parsed = normalizeParliamentTimedOvnCastingContextResponseV1(response, ID(0x33));
-  assert.equal(parsed.phase, "Registered");
-  assert.equal(parsed.registration_records_hex[0].length, 2 * 3_624);
-  assert.equal(
-    parliamentTimedOvnCastingContextReadPathV1(ID(0x33)),
-    `/v1/gov/parliament/ballots/${ID(0x33)}/casting-context`,
-  );
-  assert.equal(
-    parliamentTimedOvnCastingProofPathV1(ID(0x33)),
-    `/v1/gov/parliament/ballots/${ID(0x33)}/casting-proof`,
-  );
-  const wrongPhase = structuredClone(response);
-  wrongPhase.phase = "SurvivorsFrozen";
-  assert.throws(
-    () => normalizeParliamentTimedOvnCastingContextResponseV1(wrongPhase, ID(0x33)),
-    /requires bounded survivor/u,
-  );
-  const emptyFrozen = structuredClone(response);
-  emptyFrozen.phase = "SurvivorsFrozen";
-  emptyFrozen.survivor_participant_hashes = [];
-  emptyFrozen.release_identity = tleReleaseContextResponse().release_identity;
-  assert.throws(
-    () => normalizeParliamentTimedOvnCastingContextResponseV1(emptyFrozen, ID(0x33)),
-    /requires bounded survivor/u,
-  );
-  const alias = structuredClone(response);
-  alias.archiveNoritoBase64 = alias.archive_norito_base64;
-  delete alias.archive_norito_base64;
-  assert.throws(
-    () => normalizeParliamentTimedOvnCastingContextResponseV1(alias, ID(0x33)),
-    /unknown, aliased, or missing/u,
-  );
-  const noncanonicalArchive = structuredClone(response);
-  noncanonicalArchive.archive_norito_base64 = "TlJUMA";
-  assert.throws(
-    () => normalizeParliamentTimedOvnCastingContextResponseV1(noncanonicalArchive, ID(0x33)),
-    /canonical padded standard base64/u,
-  );
-});
-
 test("ToriiClient exposes every canonical authenticated Parliament path", async () => {
   const canonicalAuth = { accountId: "alice-1@wonderland", privateKey: Buffer.alloc(32, 7) };
   const calls = [];
-  const castingProofResponse = exactNoritoFrame(
-    Buffer.from([1]),
-    PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_HASH_HEX_V1,
-  );
   const client = new ToriiClient("https://example.invalid");
   client._expectStatus = async () => {};
   client._readBoundedLosslessIntegerJson = async (response) => response.payload;
@@ -1108,22 +793,6 @@ test("ToriiClient exposes every canonical authenticated Parliament path", async 
         tx_instructions: [{ wire_id: PARLIAMENT_TRANSITION_SUBMIT_WIRE_ID_V1, payload_hex: "0304" }],
       } };
     }
-    if (path.endsWith("/release-context")) {
-      return { payload: tleReleaseContextResponse() };
-    }
-    if (path.endsWith("/casting-context")) {
-      return { payload: timedOvnCastingContextResponse() };
-    }
-    if (path.endsWith("/casting-proof")) {
-      return new Response(castingProofResponse, {
-        status: 200,
-        headers: { "Content-Type": "application/x-norito" },
-      });
-    }
-    if (path.endsWith("/partial-release")) {
-      const context = tleReleaseContextResponse();
-      return { payload: tlePartialReleaseResponse(context) };
-    }
     return { payload: readResponse() };
   };
   await client.draftParliamentAttemptV1(
@@ -1136,20 +805,6 @@ test("ToriiClient exposes every canonical authenticated Parliament path", async 
     },
   );
   await client.getParliamentAttemptV1(ATTEMPT_ID, { canonicalAuth });
-  await client.getParliamentTimedOvnCastingContextV1(ID(0x33), { canonicalAuth });
-  assert.deepEqual(
-    await client.getParliamentTimedOvnCastingProofPageV1(ID(0x33), 17, { canonicalAuth }),
-    castingProofResponse,
-  );
-  const releaseContext = await client.getParliamentTleReleaseContextV1(ID(0x33), {
-    canonicalAuth,
-  });
-  await client.requestParliamentTlePartialReleaseV1(ID(0x33), {
-    canonicalAuth,
-    expectedKeySessionId: releaseContext.tle_key_session.key_session_id,
-    expectedIdentityDigest: releaseContext.identity_digest,
-    committeeSize: releaseContext.tle_key_session.committee_size,
-  });
   await client.draftParliamentTransitionV1(
     ATTEMPT_ID,
     { transition: "CompleteQualification" },
@@ -1158,27 +813,11 @@ test("ToriiClient exposes every canonical authenticated Parliament path", async 
   assert.deepEqual(calls.map(({ method, path }) => [method, path]), [
     ["POST", PARLIAMENT_ATTEMPT_DRAFT_PATH_V1],
     ["GET", `/v1/gov/parliament/attempts/${ATTEMPT_ID}`],
-    ["GET", `/v1/gov/parliament/ballots/${ID(0x33)}/casting-context`],
-    ["POST", `/v1/gov/parliament/ballots/${ID(0x33)}/casting-proof`],
-    ["GET", `/v1/gov/parliament/ballots/${ID(0x33)}/release-context`],
-    ["POST", `/v1/gov/parliament/ballots/${ID(0x33)}/partial-release`],
     ["POST", PARLIAMENT_TRANSITION_DRAFT_PATH_V1],
   ]);
   const attemptBody = JSON.parse(calls[0].options.body);
   assert.deepEqual(Object.keys(attemptBody), ["version", "proposal", "attempt_sequence"]);
-  assert.equal(
-    Buffer.from(calls[3].options.body).toString("hex"),
-    encodeParliamentTimedOvnCastingProofRequestV1(17).toString("hex"),
-  );
-  assert.deepEqual(calls[3].options.headers, {
-    "Content-Type": "application/x-norito",
-    Accept: "application/x-norito",
-    "Accept-Encoding": "identity",
-  });
-  assert.equal(calls[3].options.disableRetries, true);
-  assert.equal(calls[3].options.redirect, "error");
-  assert.equal(calls[5].options.body, undefined);
-  const transitionBody = JSON.parse(calls[6].options.body);
+  const transitionBody = JSON.parse(calls[2].options.body);
   assert.deepEqual(Object.keys(transitionBody), ["version", "governance_attempt_id", "transition"]);
 });
 
@@ -1436,46 +1075,11 @@ function transitionFixture(tag) {
     AdvanceBodyPhase: { body_instance_id: one, target: { phase: "Evidence" } },
     RecordAttemptAbsence: { body_instance_id: one, assignment_id: two },
     EndorsePublicFinding: { body_instance_id: one, result_root: ROOT },
-    RegisterBallotAttempt: {
-      body_instance_id: one,
-      ballot_attempt_id: two,
-      sequence: 0,
-      tle_session_id: one,
-      tle_key_session_id: two,
-      release_beacon_session_id: one,
-      release_height: 1,
-    },
-    CloseBallotRegistration: { ballot_attempt_id: one },
-    FreezeBallotSurvivors: { ballot_attempt_id: one },
-    FreezeTimedOvnCorpus: {
-      ballot_attempt_id: one,
-      ballot_records: [Array(2_858).fill(1)],
-    },
-    BeginBallotOpeningBatch: {
-      ballot_attempt_ids: [one],
-      release_beacon_session_id: two,
-      release_height: 1,
-      pulse_id: one,
-    },
-    FailBallotNoResult: { ballot_attempt_id: one },
-    FinalizeOpenedBallot: {
-      ballot_attempt_id: one,
-      final_release: {
-        key_session_id: two,
-        identity_digest: ROOT,
-        signature: Array(48).fill(1),
-      },
-    },
     RecordInvitationResponse: {
       election_attempt_id: one,
       body: "rules-committee",
       decision: { decision: "Accept" },
     },
-    RegisterBallotParticipant: {
-      ballot_attempt_id: one,
-      registration_record: Array(3_624).fill(1),
-    },
-    RecordBallotDropout: { ballot_attempt_id: one },
     FailPublicFindingNoResult: { body_instance_id: one },
   };
   return tag === "CompleteQualification" || tag === "RegisterInitialSortition"
@@ -1484,7 +1088,7 @@ function transitionFixture(tag) {
 }
 
 function readResponse() {
-  const response = {
+  return {
     version: 1,
     current_height: 20,
     attempt: {
@@ -1492,63 +1096,27 @@ function readResponse() {
       proposal_content_id: PROPOSAL_ID,
       sequence: 0,
       risk_tier: { tier: "Standard" },
-      stage: { stage: "Rules" },
+      stage: { stage: "Certification" },
       status: { status: "Certified" },
     },
     policy_version: 1,
-    required_bodies: [{
-      body: "rules-committee",
-      decision_mode: { mode: "PublicFinding" },
-    }],
-    body_states: [{
-      body: "rules-committee",
-      body_instance_id: ID(1),
-      status: { status: "Approved" },
-      public_finding_opened_at_height: 1,
-      public_finding_phase_blocks: 7,
-      public_finding_deadline_height: 8,
-      no_result_kind: null,
-      no_result_height: null,
-      timed_ovn_progress: null,
-    }],
+    required_bodies: [
+      { body: "rules-committee", decision_mode: { mode: "PublicFinding" } },
+      { body: "agenda-council", decision_mode: { mode: "PublicFinding" } },
+    ],
+    body_states: [
+      publicBodyState("rules-committee", ID(1), 1, 7),
+      publicBodyState("agenda-council", ID(0x21), 10, 8),
+    ],
     certificate: {
       proposal_content_id: PROPOSAL_ID,
       governance_attempt_id: ATTEMPT_ID,
       governance_attempt_sequence: 0,
       risk_tier: { tier: "Standard", details: null },
-      body_bindings: [{
-        body_instance_id: ID(1),
-        election_attempt_id: ID(2),
-        election_attempt_sequence: 0,
-        sortition_request_id: ID(3),
-        sortition_request: {
-          id: ID(3),
-          governance_attempt_id: ATTEMPT_ID,
-          body_election_attempt_id: ID(2),
-          body: "rules-committee",
-          candidate_root: ROOT,
-          candidate_count: 3,
-          target_seats: 3,
-          request_height: 1,
-          pulse_height: 2,
-          beacon_session_id: ID(4),
-        },
-        body: "rules-committee",
-        original_seats: 3,
-        beacon_session_id: ID(4),
-        beacon_pulse_id: ID(5),
-        roster_root: ROOT,
-        assignment_root: ROOT,
-        result_root: ROOT,
-        result_height: 8,
-        public_finding: {
-          endorsement_root: ROOT,
-          endorsing_assignments: [ID(0x11), ID(0x12)],
-          endorsements: 2,
-          quorum: 2,
-        },
-        ballot: null,
-      }],
+      body_bindings: [
+        publicBodyBinding("rules-committee", 1, 8, [ID(0x11), ID(0x12)]),
+        publicBodyBinding("agenda-council", 0x21, 18, [ID(0x31), ID(0x32)]),
+      ],
       policy_version: 1,
       effect_preimage_hash: ROOT,
       expected_head: { state: "Absent", head: { subject_id: ROOT } },
@@ -1560,346 +1128,58 @@ function readResponse() {
     superseding_head: null,
     state_payload_hex: stateFrame().toString("hex"),
   };
-  const policy = policyJuryCertificateComponents(10);
-  response.required_bodies.push(policy.requiredBody);
-  response.body_states.push(policy.bodyState);
-  response.certificate.body_bindings.push(policy.binding);
-  return response;
 }
 
-function policyJuryCertificateComponents(commitmentClosedAtHeight) {
-  const requiredBody = {
-    body: "policy-jury",
-    decision_mode: { mode: "HiddenBindingBallot" },
-  };
-  const bodyState = {
-    body: "policy-jury",
-    body_instance_id: ID(0x21),
+function publicBodyState(body, bodyInstanceId, openedAtHeight, phaseBlocks) {
+  return {
+    body,
+    body_instance_id: bodyInstanceId,
     status: { status: "Approved" },
-    public_finding_opened_at_height: null,
-    public_finding_phase_blocks: null,
-    public_finding_deadline_height: null,
+    public_finding_opened_at_height: openedAtHeight,
+    public_finding_phase_blocks: phaseBlocks,
+    public_finding_deadline_height: openedAtHeight + phaseBlocks,
     no_result_kind: null,
     no_result_height: null,
-    timed_ovn_progress: {
-      ballot_attempt_id: ID(0x26),
-      status: { status: "Finalized" },
-      frozen_survivor_count: 3,
-      accepted_ballot_prefix_count: 3,
-    },
   };
-  const binding = {
-    body_instance_id: ID(0x21),
-    election_attempt_id: ID(0x22),
+}
+
+// One public-finding binding whose five repeated identifiers are the consecutive bytes
+// starting at `firstId`: body instance, election attempt, sortition request, beacon
+// session and beacon pulse.
+function publicBodyBinding(body, firstId, resultHeight, supporters) {
+  return {
+    body_instance_id: ID(firstId),
+    election_attempt_id: ID(firstId + 1),
     election_attempt_sequence: 0,
-    sortition_request_id: ID(0x23),
+    sortition_request_id: ID(firstId + 2),
     sortition_request: {
-      id: ID(0x23),
+      id: ID(firstId + 2),
       governance_attempt_id: ATTEMPT_ID,
-      body_election_attempt_id: ID(0x22),
-      body: "policy-jury",
+      body_election_attempt_id: ID(firstId + 1),
+      body,
       candidate_root: ROOT,
       candidate_count: 3,
       target_seats: 3,
       request_height: 1,
       pulse_height: 2,
-      beacon_session_id: ID(0x24),
+      beacon_session_id: ID(firstId + 3),
     },
-    body: "policy-jury",
+    body,
     original_seats: 3,
-    beacon_session_id: ID(0x24),
-    beacon_pulse_id: ID(0x25),
+    beacon_session_id: ID(firstId + 3),
+    beacon_pulse_id: ID(firstId + 4),
     roster_root: ROOT,
     assignment_root: ROOT,
     result_root: ROOT,
-    result_height: 18,
-    public_finding: null,
-    ballot: {
-    ballot_attempt_id: ID(0x26),
-    ballot_attempt_sequence: 0,
-    tle_session_id: ID(0x27),
-    tle_key_session_id: ID(0x28),
-    registration_root: Array(32).fill(0x41),
-    dropout_root: Array(32).fill(0x42),
-    survivor_root: Array(32).fill(0x43),
-    corpus_root: Array(32).fill(0x44),
-    no_recovery_root: Array(32).fill(0x45),
-    timed_commitment_root: Array(32).fill(0x46),
-    release_beacon_session_id: ID(0x29),
-    registered_at_height: 1,
-    registration_close_height: 5,
-    survivor_freeze_height: 8,
-    commitment_close_height: 13,
-    registration_closed_at_height: 5,
-    survivors_frozen_at_height: 8,
-    commitment_closed_at_height: commitmentClosedAtHeight,
-    max_ballot_retries: 16,
-    max_corpus_entries: 3,
-    release_height: 15,
-    opening_deadline_height: 21,
-    release_pulse_id: ID(0x2a),
-    opening_height: 16,
-    opening_root: Array(32).fill(0x47),
-    tally: {
-      original_seats: 3,
-      accepted_ballots: 3,
-      aye: 2,
-      nay: 1,
-      abstain: 0,
+    result_height: resultHeight,
+    public_finding: {
+      endorsement_root: ROOT,
+      endorsing_assignments: supporters,
+      endorsements: 2,
+      quorum: 2,
     },
-    outcome: { outcome: "Approved", details: null },
-    },
+    ballot: null,
   };
-  return { binding, bodyState, requiredBody };
-}
-
-function hiddenBallotReadResponse(commitmentClosedAtHeight) {
-  const response = readResponse();
-  response.attempt.stage = { stage: "PolicyJury" };
-  response.attempt.status = { status: "Certified" };
-  response.required_bodies = [response.required_bodies.at(-1)];
-  response.body_states = [response.body_states.at(-1)];
-  response.certificate.body_bindings = [response.certificate.body_bindings.at(-1)];
-  response.certificate.body_bindings[0].ballot.commitment_closed_at_height =
-    commitmentClosedAtHeight;
-  response.certificate.certified_at_height = 18;
-  response.certificate.enact_at_height = 30;
-  return response;
-}
-
-function narrowPolicyReadResponse({
-  confirmationSequence = 0,
-  confirmationRequestHeight = 52,
-  includeConfirmation = true,
-} = {}) {
-  const response = hiddenBallotReadResponse(47);
-  const policy = response.certificate.body_bindings[0];
-  policy.original_seats = 21;
-  policy.sortition_request.candidate_count = 21;
-  policy.sortition_request.target_seats = 21;
-  policy.result_height = 52;
-  Object.assign(policy.ballot, {
-    registered_at_height: 3,
-    registration_close_height: 25,
-    survivor_freeze_height: 46,
-    commitment_close_height: 47,
-    registration_closed_at_height: 25,
-    survivors_frozen_at_height: 46,
-    commitment_closed_at_height: 47,
-    max_corpus_entries: 21,
-    release_height: 49,
-    opening_deadline_height: 55,
-    opening_height: 50,
-    tally: {
-      original_seats: 21,
-      accepted_ballots: 21,
-      aye: 11,
-      nay: 10,
-      abstain: 0,
-    },
-  });
-  response.body_states[0].timed_ovn_progress.frozen_survivor_count = 21;
-  response.body_states[0].timed_ovn_progress.accepted_ballot_prefix_count = 21;
-  response.current_height = 110;
-  response.certificate.certified_at_height = 52;
-  response.certificate.enact_at_height = 120;
-  if (!includeConfirmation) return response;
-
-  const confirmation = structuredClone(policy);
-  confirmation.body = "confirmation-jury";
-  confirmation.body_instance_id = ID(0x31);
-  confirmation.election_attempt_id = ID(0x32);
-  confirmation.election_attempt_sequence = confirmationSequence;
-  confirmation.sortition_request_id = ID(0x33);
-  Object.assign(confirmation.sortition_request, {
-    id: ID(0x33),
-    body_election_attempt_id: ID(0x32),
-    body: "confirmation-jury",
-    request_height: confirmationRequestHeight,
-    pulse_height: confirmationRequestHeight + 1,
-    beacon_session_id: ID(0x34),
-  });
-  confirmation.beacon_session_id = ID(0x34);
-  confirmation.beacon_pulse_id = ID(0x35);
-  confirmation.result_height = 103;
-  Object.assign(confirmation.ballot, {
-    ballot_attempt_id: ID(0x36),
-    tle_session_id: ID(0x37),
-    tle_key_session_id: ID(0x38),
-    release_beacon_session_id: ID(0x39),
-    registered_at_height: 55,
-    registration_close_height: 77,
-    survivor_freeze_height: 98,
-    commitment_close_height: 99,
-    registration_closed_at_height: 77,
-    survivors_frozen_at_height: 98,
-    commitment_closed_at_height: 99,
-    release_height: 101,
-    opening_deadline_height: 106,
-    release_pulse_id: ID(0x3a),
-    opening_height: 102,
-  });
-  response.required_bodies.push({
-    body: "confirmation-jury",
-    decision_mode: { mode: "HiddenBindingBallot" },
-  });
-  response.body_states.push({
-    ...structuredClone(response.body_states[0]),
-    body: "confirmation-jury",
-    body_instance_id: confirmation.body_instance_id,
-    timed_ovn_progress: {
-      ...structuredClone(response.body_states[0].timed_ovn_progress),
-      ballot_attempt_id: confirmation.ballot.ballot_attempt_id,
-    },
-  });
-  response.certificate.body_bindings.push(confirmation);
-  response.certificate.certified_at_height = confirmation.result_height;
-  return response;
-}
-
-function tleReleaseContextResponse() {
-  const ballotAttemptId = ID(0x33);
-  const bodyInstanceId = ID(0x22);
-  const keySessionId = ID(0x44);
-  const releaseHeight = 40;
-  const survivorRoot = Array(32).fill(0x61);
-  const noRecoveryRoot = Array(32).fill(0x62);
-  const parameterHash = Array(32).fill(0x63);
-  const identityPayload = Buffer.concat([
-    Buffer.from("iroha.parliament.tle.identity-payload.v1\0", "utf8"),
-    uint16be(1),
-    Buffer.from(ATTEMPT_ID, "hex"),
-    Buffer.from(bodyInstanceId, "hex"),
-    Buffer.from(ballotAttemptId, "hex"),
-    Buffer.from(survivorRoot),
-    Buffer.from(noRecoveryRoot),
-    uint64be(releaseHeight),
-    Buffer.from(parameterHash),
-  ]);
-  assert.equal(identityPayload.length, 243);
-  const tleKeySession = {
-    version: 1,
-    key_session_id: keySessionId,
-    network_id: Array(32).fill(0x45),
-    roster_hash: Array(32).fill(0x46),
-    committee_size: 4,
-    threshold: 2,
-    generator_h: Array(96).fill(0x47),
-    generator_v: Array(96).fill(0x48),
-    qualified_dealers: [1, 2],
-    qualified_dealer_commitments: [1, 2].map((dealerIndex) => ({
-      dealer_index: dealerIndex,
-      coefficient_commitments: [
-        Array(96).fill(0x50 + dealerIndex),
-        Array(96).fill(0x60 + dealerIndex),
-      ],
-      constant_pok_commitment: Array(96).fill(0x70 + dealerIndex),
-      constant_pok_response: Array(32).fill(0x80 + dealerIndex),
-    })),
-    dkg_event_hash: Array(32).fill(0x49),
-    group_public_key: Array(96).fill(0x4a),
-    public_shares: [1, 2, 3, 4].map((index) => ({
-      index,
-      participant_hash: Array(32).fill(0x20 + index),
-      public_key_share: Array(96).fill(0x30 + index),
-    })),
-    transcript_hash: Array(32).fill(0x4b),
-  };
-  const message = Buffer.concat([
-    Buffer.from("iroha.threshold-bls.message.v1\0", "utf8"),
-    Buffer.from("iroha.threshold-bls.session.v1\0", "utf8"),
-    uint16be(1),
-    Buffer.from([2]),
-    Buffer.from(tleKeySession.network_id),
-    Buffer.from(keySessionId, "hex"),
-    Buffer.from(tleKeySession.roster_hash),
-    uint16be(tleKeySession.committee_size),
-    uint16be(tleKeySession.threshold),
-    uint32be(identityPayload.length),
-    identityPayload,
-  ]);
-  return {
-    version: 1,
-    current_height: 42,
-    ballot_attempt_id: ballotAttemptId,
-    governance_attempt_id: ATTEMPT_ID,
-    body_instance_id: bodyInstanceId,
-    status: { status: "Opening" },
-    release_height: releaseHeight,
-    opening_deadline_height: 45,
-    tle_key_session: tleKeySession,
-    release_identity: {
-      tle_key_session_id: keySessionId,
-      governance_attempt_id: ATTEMPT_ID,
-      body_instance_id: bodyInstanceId,
-      ballot_attempt_id: ballotAttemptId,
-      survivor_corpus_root: survivorRoot,
-      no_recovery_root: noRecoveryRoot,
-      target_finalized_height: releaseHeight,
-      parameter_hash: parameterHash,
-    },
-    identity_digest: [...sha256(message)],
-    identity_payload_hex: identityPayload.toString("hex"),
-  };
-}
-
-function timedOvnCastingContextResponse() {
-  const release = tleReleaseContextResponse();
-  return {
-    version: 1,
-    current_height: 20,
-    phase: "Registered",
-    session: {
-      network_id: release.tle_key_session.network_id,
-      proposal_content_id: PROPOSAL_ID,
-      governance_attempt_id: ATTEMPT_ID,
-      body_instance_id: release.body_instance_id,
-      ballot_attempt_id: release.ballot_attempt_id,
-      parameter_hash: release.release_identity.parameter_hash,
-      tle_key_session_id: release.tle_key_session.key_session_id,
-      tle_key_transcript_hash: release.tle_key_session.transcript_hash,
-      tle_master_public_key: release.tle_key_session.group_public_key,
-    },
-    registration_opened_at_finalized_height: 10,
-    target_finalized_height: 40,
-    tle_key_session: release.tle_key_session,
-    registration_records_hex: [Buffer.alloc(3_624, 0x81).toString("hex")],
-    survivor_participant_hashes: null,
-    release_identity: null,
-    archive_norito_base64: Buffer.from("NRT0", "ascii").toString("base64"),
-  };
-}
-
-function tlePartialReleaseResponse(context) {
-  return {
-    key_session_id: context.tle_key_session.key_session_id,
-    identity_digest: context.identity_digest,
-    participant_index: 1,
-    sigma: Array(48).fill(0x91),
-    proof_x: Array(96).fill(0x92),
-    proof_y: Array(48).fill(0x93),
-    z_s: Array(32).fill(0x94),
-    z_r: Array(32).fill(0x95),
-    z_u: Array(32).fill(0x96),
-  };
-}
-
-function uint16be(value) {
-  const bytes = Buffer.alloc(2);
-  bytes.writeUInt16BE(value);
-  return bytes;
-}
-
-function uint32be(value) {
-  const bytes = Buffer.alloc(4);
-  bytes.writeUInt32BE(value);
-  return bytes;
-}
-
-function uint64be(value) {
-  const bytes = Buffer.alloc(8);
-  bytes.writeBigUInt64BE(BigInt(value));
-  return bytes;
 }
 
 function stateFrame() {

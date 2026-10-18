@@ -135,6 +135,27 @@ impl LaneStoreAuthorities for DisjointAuthorities {
         self.first.authority(lane, incarnation, instance)
     }
 }
+// The retained retired fixture has its own independently signed source. Every
+// other lane is selected from the actual committed native State, never that fixture.
+struct FixtureAndNativeAuthorities {
+    retired: Arc<Authorities>,
+    native: crate::sumeragi::runtime_availability::NativeLaneStoreAuthorities,
+}
+impl LaneStoreAuthorities for FixtureAndNativeAuthorities {
+    fn authority(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        instance: Hash32,
+    ) -> Result<Option<LaneStoreAuthority>, Attempt<io::Error>> {
+        if lane == LANE && *incarnation == INCARNATION {
+            self.retired.authority(lane, incarnation, instance)
+        } else {
+            self.native.authority(lane, incarnation, instance)
+        }
+    }
+}
+
 impl LaneStoreAuthorities for Authorities {
     fn authority(
         &self,
@@ -290,11 +311,11 @@ impl Fixture {
             .join("00000000000000000001.frame")
     }
     fn publish(&self) {
-        self.stores
-            .store(LANE, &INCARNATION)
-            .unwrap()
-            .append(&self.body, &self.qc)
-            .unwrap();
+        let store = self.stores.store(LANE, &INCARNATION).unwrap();
+        let publication =
+            crate::sumeragi::driver::PublicationSession::start(store.clone(), &self.stores.budget);
+        store.append(&self.body, &self.qc).unwrap();
+        drop(publication);
     }
 
     fn lane_state(&self) -> SumeragiLaneState {
@@ -390,12 +411,12 @@ fn authenticated_registry_batch_decode_refusal_is_retryable_not_byzantine() {
         let read = slot
             .as_ref()
             .expect("batch decode retains the original ready body");
-        assert_eq!(read.body.header().height, 1);
-        assert_eq!(read.body.source(), &f.source);
-        assert!(read.body.admitted_to(&f.stores.budget));
+        assert_eq!(read.read.body.header().height, 1);
+        assert_eq!(read.read.body.source(), &f.source);
+        assert!(read.read.body.admitted_to(&f.stores.budget));
         (
-            read.body.payload().as_slice().as_ptr(),
-            read.qc.signers.as_bytes().as_ptr(),
+            read.read.body.payload().as_slice().as_ptr(),
+            read.read.qc.signers.as_bytes().as_ptr(),
         )
     };
     let retained = f.stores.budget.reserved_bytes();
@@ -413,6 +434,7 @@ fn authenticated_registry_batch_decode_refusal_is_retryable_not_byzantine() {
             .lock()
             .as_ref()
             .unwrap()
+            .read
             .body
             .payload()
             .as_slice()
@@ -452,9 +474,9 @@ fn authenticated_registry_batch_decode_refusal_is_retryable_not_byzantine() {
         assert!(matches!(error, Attempt::Deferred(_)));
         let slot = store.batch_read.lock();
         let read = slot.as_ref().unwrap();
-        assert_eq!(read.body.header().height, 1);
-        assert_eq!(read.body.payload().as_slice().as_ptr(), body_pointer);
-        assert_eq!(read.qc.signers.as_bytes().as_ptr(), signers_pointer);
+        assert_eq!(read.read.body.header().height, 1);
+        assert_eq!(read.read.body.payload().as_slice().as_ptr(), body_pointer);
+        assert_eq!(read.read.qc.signers.as_bytes().as_ptr(), signers_pointer);
         assert_eq!(f.stores.budget.reserved_bytes(), retained);
     }
     assert_eq!(store.height(), 1);
@@ -804,6 +826,9 @@ fn retired_ready_store_preserves_original_read_refusal_before_batch_population()
         let store = f.stores.runtime_store(LANE, &INCARNATION).unwrap();
         let weak = Arc::downgrade(&store);
         let baseline = f.stores.budget.reserved_bytes();
+        let retired_baseline = baseline
+            .checked_sub(crate::sumeragi::driver::PublicationSession::retained_bytes())
+            .unwrap();
         let ceiling = f.stores.budget.limit_bytes();
         let occupied = f
             .stores
@@ -881,7 +906,7 @@ fn retired_ready_store_preserves_original_read_refusal_before_batch_population()
             weak.upgrade().is_none(),
             "a completed read can release its final store owner"
         );
-        assert_eq!(f.stores.budget.reserved_bytes(), baseline);
+        assert_eq!(f.stores.budget.reserved_bytes(), retired_baseline);
         assert_eq!(f.stores.budget.limit_bytes(), ceiling);
         assert_eq!(fs::read(f.path()).unwrap(), frame);
         let replay = f.stores.block(LANE, &INCARNATION, 1).unwrap().unwrap();
@@ -942,6 +967,8 @@ fn retired_ready_store_preserves_original_unfinished_publication_until_exact_ret
         let weak = Arc::downgrade(&store);
         let baseline = f.stores.budget.reserved_bytes();
         let ceiling = f.stores.budget.limit_bytes();
+        let publication =
+            crate::sumeragi::driver::PublicationSession::start(store.clone(), &f.stores.budget);
         faults.armed.store(true, Ordering::SeqCst);
         let error = store.append(&f.body, &f.qc).unwrap_err();
         assert_eq!(error.io_kind(), io::ErrorKind::Other);
@@ -1005,6 +1032,7 @@ fn retired_ready_store_preserves_original_unfinished_publication_until_exact_ret
         assert!(f.path().exists());
         drop(occupied);
         drop(same);
+        drop(publication);
         retire_exact_ready_owner(&f.stores, explicit_release);
         assert!(weak.upgrade().is_none());
         assert_eq!(f.stores.budget.reserved_bytes(), baseline);
@@ -1133,6 +1161,9 @@ fn ready_tip_retains_original_pool_refusal_and_completed_read_until_normal_consu
     let weak = Arc::downgrade(&store);
     let authority_calls = f.authorities.calls.load(Ordering::SeqCst);
     let baseline = f.stores.budget.reserved_bytes();
+    let retired_baseline = baseline
+        .checked_sub(crate::sumeragi::driver::PublicationSession::retained_bytes())
+        .unwrap();
     let ceiling = f.stores.budget.limit_bytes();
     let occupied = f
         .stores
@@ -1233,7 +1264,7 @@ fn ready_tip_retains_original_pool_refusal_and_completed_read_until_normal_consu
         weak.upgrade().is_none(),
         "normal read completion permits final idle retirement"
     );
-    assert_eq!(f.stores.budget.reserved_bytes(), baseline);
+    assert_eq!(f.stores.budget.reserved_bytes(), retired_baseline);
     assert_eq!(f.stores.budget.limit_bytes(), ceiling);
     assert_eq!(fs::read(f.path()).unwrap(), frame);
     assert_eq!(f.stores.tip(LANE, &INCARNATION).unwrap(), Some(1));
@@ -1945,6 +1976,33 @@ fn retired_publication_runner(
     })
 }
 
+struct RetiredContinuationFault {
+    step: crate::sumeragi::records::FsStep,
+    armed: AtomicBool,
+    attempts: AtomicUsize,
+}
+impl crate::sumeragi::records::Faults for RetiredContinuationFault {
+    fn before(&self, step: crate::sumeragi::records::FsStep, _: &Path) -> io::Result<()> {
+        if step == self.step && self.armed.load(Ordering::SeqCst) {
+            self.attempts.fetch_add(1, Ordering::SeqCst);
+            return Err(io::Error::other("retained ready publication refusal"));
+        }
+        Ok(())
+    }
+}
+fn await_retired_observation(mut observed: impl FnMut() -> bool) -> bool {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if observed() {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::yield_now();
+    }
+}
+
 fn retired_publication_continuation_control(step: crate::sumeragi::records::FsStep) {
     use crate::sumeragi::records::FsStep;
     use crate::{
@@ -1957,9 +2015,10 @@ fn retired_publication_continuation_control(step: crate::sumeragi::records::FsSt
     assert!(state.view().world().sumeragi_lanes().lanes.is_empty());
     let fixture = Fixture::with_transactions_for_state(true, Vec::new(), Some(state));
     let path = fixture.path();
-    let faults = Arc::new(RetiredReadyPublicationFault {
+    let faults = Arc::new(RetiredContinuationFault {
         step,
         armed: AtomicBool::new(false),
+        attempts: AtomicUsize::new(0),
     });
     let store = Arc::new(
         FileLaneBlockStore::begin_open_with_faults(
@@ -1997,9 +2056,10 @@ fn retired_publication_continuation_control(step: crate::sumeragi::records::FsSt
     assert_eq!(
         runner.running_count(),
         0,
-        "this is the actual post-shutdown reconcile seam"
+        "the original publication job has no running protocol owner"
     );
     let baseline = budget.reserved_bytes();
+    let publication = crate::sumeragi::driver::PublicationSession::start(store.clone(), &budget);
     faults.armed.store(true, Ordering::SeqCst);
     assert_eq!(
         store.append(&body, &qc).unwrap_err().to_string(),
@@ -2024,6 +2084,7 @@ fn retired_publication_continuation_control(step: crate::sumeragi::records::FsSt
     // owner and prepared bytes, rather than drop custody to make release appear done.
     faults.armed.store(true, Ordering::SeqCst);
     runner.reconcile();
+    let notified = await_retired_observation(|| faults.attempts.load(Ordering::SeqCst) >= 2);
     let same = original
         .upgrade()
         .expect("a refused original publication remains owned");
@@ -2049,12 +2110,17 @@ fn retired_publication_continuation_control(step: crate::sumeragi::records::FsSt
     );
     drop(same);
 
-    // No live driver or manual append is allowed to supply a replacement input.
+    // No live driver or manual append supplies a replacement input. Only the
+    // original pre-admitted job may continue after this precise refusal clears.
+    faults.armed.store(false, Ordering::SeqCst);
     runner.reconcile();
-    assert!(
-        original.upgrade().is_none(),
-        "retired reconciliation must finish the original pending publication after refusal clears, then release only its idle in-memory owner"
-    );
+    let completed = await_retired_observation(|| publication.finished() && publication.complete());
+    // Negative-control cleanup uses the same original job, after capturing the
+    // automatic continuation verdict. It cannot turn that verdict into success.
+    publication.retire();
+    publication.join().unwrap();
+    runner.reconcile();
+    let released = original.upgrade().is_none();
     assert_eq!(budget.reserved_bytes(), baseline + occupied_bytes);
     assert_eq!(
         authorities.calls.load(Ordering::SeqCst),
@@ -2073,6 +2139,10 @@ fn retired_publication_continuation_control(step: crate::sumeragi::records::FsSt
     assert_eq!(certificate, qc);
     assert_eq!(replay.height(), 1);
     assert_eq!(budget.limit_bytes(), limit);
+    assert!(
+        notified && completed && released,
+        "retired reconciliation must finish the original pending publication after refusal clears, then release only its idle in-memory owner"
+    );
 }
 
 #[test]
@@ -2142,6 +2212,8 @@ fn retired_reconcile_does_not_wait_for_an_in_flight_original_publication() {
     );
     let stores = Arc::new(fixture.stores);
     let runner = retired_publication_runner(&chain, Arc::clone(&stores), fixture.dir.path());
+    let publication_owner =
+        crate::sumeragi::driver::PublicationSession::start(store.clone(), &stores.budget);
     *faults.entered.lock() = Some(entered);
     let (finished, observed) = std::sync::mpsc::sync_channel(1);
     let (acquired, completed, resumed, publication, reconciliation) = std::thread::scope(|scope| {
@@ -2162,6 +2234,7 @@ fn retired_reconcile_does_not_wait_for_an_in_flight_original_publication() {
     resumed.unwrap();
     publication.unwrap().unwrap();
     reconciliation.unwrap();
+    drop(publication_owner);
     assert_eq!(
         completed,
         Ok(()),
@@ -2255,83 +2328,23 @@ fn runner_debug_releases_original_map_before_field_callback() {
     );
 }
 
-/// Exercise an actual admitted pending lane write while observing the real coordinator.
-pub fn observe_pending_lane_retirement_for_test(
-    observe: impl FnOnce(
-        &crate::sumeragi::lanes::runner::LaneRunner,
-        (LaneId, [u8; 32]),
-        &Arc<FileLaneBlockStore>,
-    ),
-) {
-    use crate::{
-        state::World,
-        sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
-    };
-    let chain = CertifiedTestChain::start(TestChainConfig::new(World::default(), 1)).unwrap();
-    let fixture = Fixture::with_transactions_for_state(true, Vec::new(), Some(chain.state()));
-    let faults = Arc::new(RetiredReadyPublicationFault {
-        step: crate::sumeragi::records::FsStep::CreateTemp,
-        armed: AtomicBool::new(false),
-    });
-    let store = Arc::new(
-        FileLaneBlockStore::begin_open_with_faults(
-            fixture.dir.path(),
-            &fixture.source.instance(),
-            fixture.stores.crypto.clone(),
-            fixture.stores.budget.clone(),
-            fixture.authorities.schedule.clone(),
-            faults.clone(),
-        )
-        .unwrap()
-        .complete()
-        .unwrap_or_else(|(_, error)| panic!("original empty store: {error}")),
-    );
-    assert!(
-        fixture
-            .stores
-            .stores
-            .lock()
-            .insert((LANE, INCARNATION), StoreSlot::Ready(Arc::clone(&store)))
-            .is_none()
-    );
-    faults.armed.store(true, Ordering::SeqCst);
-    assert_eq!(
-        store
-            .append(&fixture.body, &fixture.qc)
-            .unwrap_err()
-            .to_string(),
-        "retained ready publication refusal"
-    );
-    assert_eq!(store.height(), 0);
-    assert!(!fixture.path().exists());
-    let calls = fixture.authorities.calls.load(Ordering::SeqCst);
-    let budget = fixture.stores.budget.clone();
-    let limit = budget.limit_bytes();
-    let stores = Arc::new(fixture.stores);
-    let runner = retired_publication_runner(&chain, stores, fixture.dir.path());
-    runner.observe_runner_debug(|runner, _| observe(runner, (LANE, INCARNATION), &store));
-    assert_eq!(store.height(), 1);
-    let (body, certificate) = store.committed_body(1).unwrap().unwrap();
-    assert_eq!(body, fixture.body);
-    assert_eq!(certificate, fixture.qc);
-    assert_eq!(
-        fixture.authorities.calls.load(Ordering::SeqCst),
-        calls,
-        "the admitted write retains its independent original source"
-    );
-    assert_eq!(budget.limit_bytes(), limit);
-}
-
 /// A single armed native directory synchronization of an original retired store.
 pub struct RetiredSyncGate {
     refuse_create: AtomicBool,
+    refuse_sync: AtomicBool,
     block_sync: AtomicBool,
+    synchronizer: std::sync::OnceLock<std::thread::ThreadId>,
     entered: std::sync::mpsc::SyncSender<()>,
     observed: Mutex<std::sync::mpsc::Receiver<()>>,
     resume: Mutex<std::sync::mpsc::Receiver<()>>,
     release: Mutex<Option<std::sync::mpsc::SyncSender<()>>>,
 }
 impl RetiredSyncGate {
+    /// Identity of the physical thread which entered the original native SyncDir.
+    pub fn synchronizer(&self) -> Option<std::thread::ThreadId> {
+        self.synchronizer.get().copied()
+    }
+
     /// Observe the exact native SyncDir boundary without changing its original deadline.
     ///
     /// # Errors
@@ -2354,7 +2367,13 @@ impl crate::sumeragi::records::Faults for RetiredSyncGate {
                 "original retired-sync fixture admission refusal",
             ));
         }
+        if step == FsStep::SyncDir && self.refuse_sync.swap(false, Ordering::SeqCst) {
+            return Err(io::Error::other(
+                "original retired-sync fixture admission refusal",
+            ));
+        }
         if step == FsStep::SyncDir && self.block_sync.swap(false, Ordering::SeqCst) {
+            self.synchronizer.set(std::thread::current().id()).unwrap();
             self.entered.send(()).map_err(io::Error::other)?;
             self.resume
                 .lock()
@@ -2387,28 +2406,85 @@ pub struct RetiredSyncObservation<'a> {
     pub budget: AllocationBudget,
     /// Real native synchronization observation and cleanup gate.
     pub gate: &'a Arc<RetiredSyncGate>,
+    body: &'a AvailableBody,
+    qc: &'a Qc,
+    durable_restart: bool,
+    path: &'a Path,
+}
+impl RetiredSyncObservation<'_> {
+    /// Admit the genuine original write only after its actual joiner has bound the store.
+    pub fn admit_pending(&self) {
+        if self.durable_restart {
+            self.gate.refuse_sync.store(true, Ordering::SeqCst);
+        } else {
+            self.gate.refuse_create.store(true, Ordering::SeqCst);
+        }
+        assert_eq!(
+            self.store
+                .append(self.body, self.qc)
+                .unwrap_err()
+                .to_string(),
+            "original retired-sync fixture admission refusal"
+        );
+        assert_eq!(self.store.height(), 0);
+        assert_eq!(self.path.exists(), self.durable_restart);
+        self.gate.block_sync.store(true, Ordering::SeqCst);
+    }
 }
 
 /// Exercise original retired SyncDir alongside an already active independent lane.
 pub fn observe_retired_sync_for_test<R>(
     observe: impl FnOnce(RetiredSyncObservation<'_>) -> R,
 ) -> R {
+    observe_original_sync(false, false, observe)
+}
+
+/// Final node stop keeps the original visible frame for authenticated restart.
+pub fn observe_shutdown_sync_for_test<R>(
+    observe: impl FnOnce(RetiredSyncObservation<'_>) -> R,
+) -> R {
+    observe_original_sync(true, false, observe)
+}
+
+/// A failed original startup is physically closed before harness-only replay cleanup.
+/// The caller must capture its automatic publication verdict before returning.
+pub fn observe_retired_sync_with_restart_cleanup_for_test<R>(
+    observe: impl FnOnce(RetiredSyncObservation<'_>) -> R,
+) -> R {
+    observe_original_sync(false, true, observe)
+}
+
+fn observe_original_sync<R>(
+    durable_restart: bool,
+    restart_cleanup: bool,
+    observe: impl FnOnce(RetiredSyncObservation<'_>) -> R,
+) -> R {
     let (chain, active, _epoch) =
         crate::sumeragi::runtime_availability::tests::npos_fixed_lane_chain_at(4);
     assert_ne!(active.lane, LANE);
-    let fixture = Fixture::with_transactions_for_state(true, Vec::new(), Some(chain.state()));
+    let mut fixture = Fixture::with_transactions_for_state(true, Vec::new(), Some(chain.state()));
+    fixture.stores.authorities = Arc::new(FixtureAndNativeAuthorities {
+        retired: fixture.authorities.clone(),
+        native: crate::sumeragi::runtime_availability::NativeLaneStoreAuthorities::new(
+            Arc::clone(chain.state()),
+            Arc::new(crate::sumeragi::crypto::BlsCrypto::new()),
+        ),
+    });
+    let path = fixture.path();
     let (entered, observed) = std::sync::mpsc::sync_channel(1);
     let (release, resume) = std::sync::mpsc::sync_channel(1);
     let gate = Arc::new(RetiredSyncGate {
         refuse_create: AtomicBool::new(false),
+        refuse_sync: AtomicBool::new(false),
         block_sync: AtomicBool::new(false),
+        synchronizer: std::sync::OnceLock::new(),
         entered,
         observed: Mutex::new(observed),
         resume: Mutex::new(resume),
         release: Mutex::new(Some(release)),
     });
     let _release = ReleaseRetiredSyncOnDrop(Arc::clone(&gate));
-    let store = Arc::new(
+    let mut store = Arc::new(
         FileLaneBlockStore::begin_open_with_faults(
             fixture.dir.path(),
             &fixture.source.instance(),
@@ -2429,20 +2505,10 @@ pub fn observe_retired_sync_for_test<R>(
             .insert((LANE, INCARNATION), StoreSlot::Ready(Arc::clone(&store)))
             .is_none()
     );
-    gate.refuse_create.store(true, Ordering::SeqCst);
-    assert_eq!(
-        store
-            .append(&fixture.body, &fixture.qc)
-            .unwrap_err()
-            .to_string(),
-        "original retired-sync fixture admission refusal"
-    );
-    assert_eq!(store.height(), 0);
-    assert!(!fixture.path().exists());
-    gate.block_sync.store(true, Ordering::SeqCst);
     let calls = fixture.authorities.calls.load(Ordering::SeqCst);
     let budget = fixture.stores.budget.clone();
     let limit = budget.limit_bytes();
+    let original_crypto = fixture.stores.crypto.clone();
     let runner = retired_publication_runner(&chain, Arc::new(fixture.stores), fixture.dir.path());
     let result = runner.observe_runner_debug(|runner, _| {
         observe(RetiredSyncObservation {
@@ -2453,6 +2519,10 @@ pub fn observe_retired_sync_for_test<R>(
             store: &store,
             budget: budget.clone(),
             gate: &gate,
+            body: &fixture.body,
+            qc: &fixture.qc,
+            durable_restart,
+            path: &path,
         })
     });
     // The coordinator and both original drivers are dropped before these final assertions.
@@ -2461,10 +2531,59 @@ pub fn observe_retired_sync_for_test<R>(
         1,
         "all original driver and registry references to the actual retired file store must be released"
     );
-    assert_eq!(store.height(), 1);
-    let (body, certificate) = store.committed_body(1).unwrap().unwrap();
-    assert_eq!(body, fixture.body);
-    assert_eq!(certificate, fixture.qc);
+    if durable_restart {
+        // The caller captured the final-stop verdict before cleanup. Both a
+        // retained pending frame and a wrongly completed mutant must be reopened
+        // and independently authenticated before that causal verdict is asserted.
+        assert_eq!(store.retains_pending_work(), store.height() == 0);
+        let original = fs::read(&path).unwrap();
+        drop(store);
+        let reopened = FileLaneBlockStore::begin_open(
+            fixture.dir.path(),
+            &fixture.source.instance(),
+            original_crypto,
+            budget.clone(),
+            fixture.authorities.schedule.clone(),
+        )
+        .unwrap()
+        .complete()
+        .unwrap_or_else(|(_, error)| panic!("original final-stop frame restart: {error}"));
+        assert_eq!(reopened.height(), 1);
+        let (body, certificate) = reopened.committed_body(1).unwrap().unwrap();
+        assert_eq!(body, fixture.body);
+        assert_eq!(certificate, fixture.qc);
+        assert!(body.admitted_to(&budget));
+        assert_eq!(fs::read(&path).unwrap(), original);
+    } else {
+        if restart_cleanup && store.height() == 0 {
+            // All original workers and the original joining thread have already
+            // ended. This genuine reopen is harness cleanup, never the captured
+            // automatic-retirement verdict. Reuse the exact original signed input
+            // and schedule; do not authorize the ended store or revive its token.
+            assert!(store.retains_pending_work());
+            drop(store);
+            store = Arc::new(
+                FileLaneBlockStore::begin_open(
+                    fixture.dir.path(),
+                    &fixture.source.instance(),
+                    original_crypto,
+                    budget.clone(),
+                    fixture.authorities.schedule.clone(),
+                )
+                .unwrap()
+                .complete()
+                .unwrap_or_else(|(_, error)| panic!("original refusal restart cleanup: {error}")),
+            );
+            let cleanup =
+                crate::sumeragi::driver::PublicationSession::start(store.clone(), &budget);
+            store.append(&fixture.body, &fixture.qc).unwrap();
+            drop(cleanup);
+        }
+        assert_eq!(store.height(), 1);
+        let (body, certificate) = store.committed_body(1).unwrap().unwrap();
+        assert_eq!(body, fixture.body);
+        assert_eq!(certificate, fixture.qc);
+    }
     assert_eq!(fixture.authorities.calls.load(Ordering::SeqCst), calls);
     assert_eq!(budget.limit_bytes(), limit);
     result
@@ -2507,3 +2626,12 @@ fn isolated_frame_source_reads_authenticated_frame_without_acquiring_live_writer
     );
     drop(source_writer);
 }
+
+#[path = "destruction_tests.rs"]
+mod destruction_tests;
+
+#[path = "read_only_destruction_tests.rs"]
+mod read_only_destruction_tests;
+
+#[path = "proposal_reads.rs"]
+mod proposal_reads;

@@ -341,3 +341,64 @@ fn allocation_refund_reenters_without_logger_mutex_or_tls_borrow_and_cannot_mint
     drop(registration);
     assert_eq!(original.reserved_bytes(), 0);
 }
+
+fn counted_on_this_thread() -> usize {
+    THREAD_EVENT_SCOPES.with(std::cell::Cell::get)
+}
+
+#[test]
+fn only_event_capable_scopes_are_counted_and_every_exit_releases_them() {
+    let (_original, log) = fresh(2);
+    assert_eq!(counted_on_this_thread(), 0);
+    {
+        let _off = RegLoggerGuard::install(None);
+        let _mask = RegLoggerGuard::mask();
+        assert_eq!(counted_on_this_thread(), 0);
+    }
+    let outer = RegLoggerGuard::install(Some(log.clone()));
+    assert_eq!(counted_on_this_thread(), 1);
+    assert!(!no_event_scopes());
+    {
+        // A masked invocation keeps its count; TLS alone suppresses emission.
+        let _mask = RegLoggerGuard::mask();
+        assert_eq!(counted_on_this_thread(), 1);
+        assert!(event_reg_logger().is_none());
+        let _same = RegLoggerGuard::install(Some(log.clone()));
+        assert_eq!(counted_on_this_thread(), 2);
+    }
+    assert_eq!(counted_on_this_thread(), 1);
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _nested = RegLoggerGuard::install(Some(log.clone()));
+        assert_eq!(counted_on_this_thread(), 2);
+        panic!("unwind through a counted scope");
+    }));
+    assert!(unwound.is_err());
+    assert_eq!(counted_on_this_thread(), 1);
+    assert!(SharedRegLog::ptr_eq(&event_reg_logger().unwrap(), &log));
+    drop(outer);
+    assert_eq!(counted_on_this_thread(), 0);
+}
+
+#[test]
+fn another_threads_scope_only_disables_the_fast_path_here() {
+    let (_original, log) = fresh(1);
+    let (installed_tx, installed_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    let holder = std::thread::spawn(move || {
+        let _scope = RegLoggerGuard::install(Some(log));
+        installed_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+    });
+    installed_rx.recv().unwrap();
+    // The process-wide count is live, so this thread takes the exact TLS
+    // fallback, which finds no scope of its own and emits nothing.
+    assert!(!no_event_scopes());
+    assert_eq!(counted_on_this_thread(), 0);
+    assert!(event_reg_logger().is_none());
+    assert_eq!(scoped_reg_logger_enabled(), None);
+    let batch = RegEventBatch::begin(usize::MAX).unwrap();
+    record_register_event(|| panic!("a foreign scope must not enable this thread"));
+    drop(batch);
+    release_tx.send(()).unwrap();
+    holder.join().unwrap();
+}

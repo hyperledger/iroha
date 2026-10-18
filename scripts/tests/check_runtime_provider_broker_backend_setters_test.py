@@ -69,7 +69,6 @@ EXPECTED_OPTIONAL_METHODS = (
     "with_evidence_viewer_transparency_publisher",
     "with_soracloud_runtime_mutation_signer",
     "with_global_beacon_partial_signer",
-    "with_parliament_tle_partial_release_signer",
 )
 EXPECTED_REPEATED_RECORD = (
     "appeal_finance_transaction_signers",
@@ -84,14 +83,9 @@ EXPECTED_CONSENSUS_SIGNERS = {
         "Arc<dynGlobalBeaconPartialSignerBrokerBackendV1>",
         "signer",
     ),
-    "with_parliament_tle_partial_release_signer": (
-        "parliament_tle_partial_release_signer",
-        "Arc<dynParliamentTlePartialReleaseSignerBrokerBackendV1>",
-        "signer",
-    ),
 }
 EXPECTED_INVENTORY_SHA256 = (
-    "11664b2cc43b6fb6ddddfddba62ca8e7f7595d9fc6c2f510df0f3ff1232394df"
+    "09ad68b7bc1d61fcdc6947def1ade5c06ae7722a41bcbf02e6efdfb1b062f64f"
 )
 GENERATOR_MACROS = (
     "runtime_provider_backend_collection_v1",
@@ -195,7 +189,7 @@ def _generator_hashes(source: str) -> dict[str, str]:
 
 def _validate_source(source: str) -> None:
     records = _inventory(source)
-    _require(len(records) == 56, f"expected 56 frozen backends, found {len(records)}")
+    _require(len(records) == 55, f"expected 55 frozen backends, found {len(records)}")
     _require(
         len({record[2] for record in records}) == len(records),
         "backend fields must be unique",
@@ -207,7 +201,7 @@ def _validate_source(source: str) -> None:
 
     optional = [record for record in records if record[1] == "optional"]
     repeated = [record for record in records if record[1] == "repeated"]
-    _require(len(optional) == 55, f"expected 55 optional backends, found {len(optional)}")
+    _require(len(optional) == 54, f"expected 54 optional backends, found {len(optional)}")
     _require(len(repeated) == 1, f"expected one repeated backend, found {len(repeated)}")
     _require(
         tuple(record[5] for record in optional) == EXPECTED_OPTIONAL_METHODS,
@@ -283,9 +277,6 @@ class RuntimeProviderBrokerBackendSetterSourceTests(unittest.TestCase):
             "missing beacon signer": _remove_inventory_entry(
                 source, "with_global_beacon_partial_signer"
             ),
-            "missing TLE signer": _remove_inventory_entry(
-                source, "with_parliament_tle_partial_release_signer"
-            ),
             "missing independent stream observer": _remove_inventory_entry(
                 source, "with_stream_token_state_observer"
             ),
@@ -306,7 +297,7 @@ class RuntimeProviderBrokerBackendSetterSourceTests(unittest.TestCase):
             ),
             "mis-mapped consensus signer": source.replace(
                 "optional global_beacon_partial_signer:",
-                "optional parliament_tle_partial_release_signer:",
+                "optional soracloud_runtime_mutation_signer:",
                 1,
             ),
             "changed rustdoc": source.replace(

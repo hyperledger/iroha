@@ -72,7 +72,10 @@ jobs:
       - name: Check payload, tree, history, finality, transition and control fixtures
         run: |
           mkdir -p target/qualification/sccp
-          cargo test --locked -p iroha_sccp --lib --test v1_vectors --test v1_reference_finality --test v1_reference_transitions --test v1_reference_control 2>&1 | tee target/qualification/sccp/rust-reference.log
+          cargo test --locked -p iroha_sccp --lib --test v1_vectors --test v1_reference_finality --test v1_reference_transitions --test v1_reference_control --test ethereum_light_client 2>&1 | tee target/qualification/sccp/rust-reference.log
+      - name: Check Core governance, fast-pause, forgery and liability fixtures
+        run: |
+          cargo test --locked -p iroha_core --lib sccp 2>&1 | tee target/qualification/sccp/core-reference.log
       - name: Reproduce Python BLS vectors and check the Rust-owned BLS fixture
         run: |
           cargo test --locked -p iroha_crypto --lib signature::bls::consensus::tests:: 2>&1 | tee target/qualification/sccp/bls-reference.log

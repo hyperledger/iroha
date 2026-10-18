@@ -40,31 +40,3 @@ where
     assert!(norito::decode_canonical::<T>(&trailing).is_err());
     encoded
 }
-
-/// Check nominal composition without requiring clone or a decoder for signing views.
-pub fn assert_nominal_container_frames<T: norito::NoritoSerialize>(
-    make: impl Fn() -> T,
-    nominal: &str,
-    frame: &str,
-) {
-    // This is a test of a source-derived declaration, not an identity fallback.
-    assert!(
-        std::any::type_name::<T>() == nominal,
-        "unexpected source owner"
-    );
-    assert!(nominal != frame, "fixture must exercise a projected root");
-    assert_frame_encoding(&make(), nominal, frame);
-    let option_name = format!("core::option::Option<{nominal}>");
-    let vec_name = format!("alloc::vec::Vec<{nominal}>");
-    let option_hash = norito::schema::identity::frame_hash::<Option<T>>();
-    let vec_hash = norito::schema::identity::frame_hash::<Vec<T>>();
-    assert!(
-        option_hash
-            != norito::core::schema_hash_for_name(&format!("core::option::Option<{frame}>"))
-    );
-    assert!(vec_hash != norito::core::schema_hash_for_name(&format!("alloc::vec::Vec<{frame}>")));
-    assert_frame_encoding(&None::<T>, &option_name, &option_name);
-    assert_frame_encoding(&Some(make()), &option_name, &option_name);
-    assert_frame_encoding(&Vec::<T>::new(), &vec_name, &vec_name);
-    assert_frame_encoding(&vec![make(), make()], &vec_name, &vec_name);
-}

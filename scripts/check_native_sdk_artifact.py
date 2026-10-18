@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record and verify fail-closed ABI-29 native SDK artifact evidence.
+"""Record and verify fail-closed ABI-30 native SDK artifact evidence.
 
 This checker is intentionally host-only.  It authenticates the exact native
 artifact exercised by a Node, Python, C/JNI, or C# test lane, calls that
@@ -55,8 +55,8 @@ else:
     )
 
 
-SCHEMA = "iroha.native-sdk-abi29-artifact.v1"
-REQUIRED_BRIDGE_ABI_VERSION = 29
+SCHEMA = "iroha.native-sdk-abi30-artifact.v1"
+REQUIRED_BRIDGE_ABI_VERSION = 30
 MAX_MANIFEST_BYTES = 64 * 1024
 MAX_SYMBOL_TOOL_OUTPUT_BYTES = 16 * 1024 * 1024
 MAX_ABI_PROBE_OUTPUT_BYTES = 4096
@@ -896,7 +896,7 @@ def probe_node_abi(
     forbidden_symbols: Sequence[str] = (),
     node: str = "node",
 ) -> int:
-    """Load one Node addon and call its exact ABI-29 probe."""
+    """Load one Node addon and call its exact ABI-30 probe."""
 
     source = r"""
 const artifact = process.argv[1];
@@ -950,7 +950,7 @@ def probe_python_abi(
     forbidden_symbols: Sequence[str] = (),
     python: str = sys.executable,
 ) -> int:
-    """Load one Python extension directly and call its exact ABI-29 probe."""
+    """Load one Python extension directly and call its exact ABI-30 probe."""
 
     source = r"""
 import importlib.machinery
@@ -963,7 +963,7 @@ path = pathlib.Path(sys.argv[1])
 required = json.loads(sys.argv[2])
 forbidden = json.loads(sys.argv[3])
 if path.suffix == ".py":
-    name = "_iroha_native_abi29_fixture"
+    name = "_iroha_native_abi30_fixture"
     loader = importlib.machinery.SourceFileLoader(name, str(path))
 else:
     name = "iroha_native._crypto"
@@ -1116,7 +1116,7 @@ def canonical_manifest_bytes(manifest: Mapping[str, object]) -> bytes:
 
 
 def validate_manifest(value: object) -> dict[str, object]:
-    """Validate the exact ABI-29 artifact evidence schema."""
+    """Validate the exact ABI-30 artifact evidence schema."""
 
     manifest = _plain_object(value, "native artifact manifest")
     expected_keys = {
@@ -1693,7 +1693,7 @@ def retain_verified_manifest(
             or (created.st_dev, created.st_ino) != (current.st_dev, current.st_ino)
         ):
             fail("native artifact evidence directory changed while it was created")
-        output_name = f"{validated['sdk']}-native-abi29.json"
+        output_name = f"{validated['sdk']}-native-abi30.json"
         _exclusive_write_at(
             directory_descriptor,
             output_name,
@@ -1711,7 +1711,7 @@ def retain_verified_manifest(
             os.close(directory_descriptor)
         os.close(parent_descriptor)
 
-    retained_path = canonical_output / f"{validated['sdk']}-native-abi29.json"
+    retained_path = canonical_output / f"{validated['sdk']}-native-abi30.json"
     if load_manifest(retained_path) != validated:
         fail("retained native artifact manifest does not match verified evidence")
     return retained_path
@@ -1821,5 +1821,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except ArtifactContractError as error:
-        print(f"native SDK ABI-29 artifact check failed: {error}", file=sys.stderr)
+        print(f"native SDK ABI-30 artifact check failed: {error}", file=sys.stderr)
         raise SystemExit(1) from error

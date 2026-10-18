@@ -46,6 +46,8 @@ fn path_with_root(selected_root: Option<OsString>, relative: &str) -> PathBuf {
     root.join(relative)
 }
 
-pub(crate) fn path(relative: &str) -> PathBuf {
+/// The path of the cohort fixture `relative` under the selected fixture root. The module is
+/// private, so `pub` here is crate-visible through the parent's `pub(crate)` re-export.
+pub fn path(relative: &str) -> PathBuf {
     path_with_root(std::env::var_os(ROOT_VARIABLE), relative)
 }

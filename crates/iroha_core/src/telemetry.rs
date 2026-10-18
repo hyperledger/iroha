@@ -5423,6 +5423,9 @@ struct Actor {
     last_sync_hash: Option<HashOf<BlockHeader>>,
     /// Original local history refusal retained independently of an HTTP waiter's lifetime.
     status_read_refusal: Option<(NonZeroUsize, crate::execution_attempt::ExecutionDeferred)>,
+    /// Creation time of the committed genesis block. Genesis never changes, so
+    /// its body is read from Kura once instead of on every sync.
+    genesis_creation_time: Option<Duration>,
     #[cfg(test)]
     status_chunk_barrier: Option<(oneshot::Sender<usize>, oneshot::Receiver<()>)>,
     last_online_peers: BTreeSet<PeerId>,
@@ -5887,11 +5890,16 @@ impl Actor {
         #[allow(clippy::cast_possible_truncation)]
         if self.state.committed_height() > 0 {
             let index = NonZeroUsize::MIN;
-            let genesis_timestamp = if self.kura.is_canonical_body_missing(index) {
-                None
+            let genesis_timestamp = if self.genesis_creation_time.is_some()
+                || self.kura.is_canonical_body_missing(index)
+            {
+                self.genesis_creation_time
             } else {
-                self.read_status_block(index)?
-                    .map(|genesis_block| genesis_block.header().creation_time())
+                let timestamp = self
+                    .read_status_block(index)?
+                    .map(|genesis_block| genesis_block.header().creation_time());
+                self.genesis_creation_time = timestamp;
+                timestamp
             };
             if let Some(timestamp) = genesis_timestamp {
                 let curr_time = self.time_source.get_unix_time();
@@ -5914,7 +5922,10 @@ impl Actor {
         // These metrics may briefly lead "latest block" when the world snapshot is ahead;
         // that observation window should remain very narrow.
         self.metrics.domains.set(world_view.domains().len() as u64);
-        for domain in world_view.domains_iter() {
+        // Domains are registered by users: export a bounded label set, and
+        // count each domain from the account-scope index instead of visiting
+        // its accounts.
+        for domain in world_view.domains_iter().take(ACCOUNTS_GAUGE_MAX_DOMAINS) {
             match self
                 .metrics
                 .accounts
@@ -5927,7 +5938,7 @@ impl Actor {
                     iroha_logger::error!(?err, "Failed to compose domains")
                 }
                 Ok(metrics) => {
-                    metrics.set(world_view.accounts_in_domain_iter(domain.id()).count() as u64);
+                    metrics.set(domain_account_count(world_view, domain.id()) as u64);
                 }
             }
         }
@@ -5938,6 +5949,22 @@ impl Actor {
         refresh_ivm_cache_metrics(&self.metrics);
         Ok(target)
     }
+}
+/// Most domains exported with a per-domain `accounts` gauge, in domain-id order.
+///
+/// Domains are registered on chain, so an unbounded label set would grow the
+/// metrics registry, every scrape and every status sync with each new domain.
+const ACCOUNTS_GAUGE_MAX_DOMAINS: usize = 256;
+/// Number of accounts bound to `domain` through its account-scope index.
+///
+/// The index is maintained with every alias, label and account change, so its
+/// size equals the accounts `accounts_in_domain_iter` yields without looking up
+/// each of them.
+fn domain_account_count(world: &impl WorldReadOnly, domain: &DomainId) -> usize {
+    world
+        .account_scope_domain_key(domain)
+        .and_then(|key| world.account_scope_accounts().get(&key))
+        .map_or(0, BTreeSet::len)
 }
 fn refresh_ivm_cache_metrics(metrics: &Metrics) {
     let stats = ivm::ivm_cache::global_stats();
@@ -6092,6 +6119,7 @@ pub fn start(
                     last_sync_block: 0,
                     last_sync_hash: None,
                     status_read_refusal: None,
+                    genesis_creation_time: None,
                     #[cfg(test)]
                     status_chunk_barrier: None,
                     last_online_peers: BTreeSet::new(),
@@ -9253,6 +9281,80 @@ mod tests {
         assert_eq!(metrics.last_non_empty_block_committed_at_ms.get(), 0);
         assert_eq!(metrics.domains.get(), 0);
         assert_eq!(metrics.connected_peers.get(), 0);
+    }
+    #[tokio::test]
+    async fn uptime_since_genesis_reads_the_genesis_body_once() {
+        let sut = SystemUnderTest::new_native();
+        let genesis = NonZeroUsize::MIN;
+        let genesis_time = sut
+            .kura
+            .get_block(genesis, &sut.state.ivm_execution_budget())
+            .expect("funded genesis read")
+            .expect("committed genesis")
+            .header()
+            .creation_time();
+        sut.mock_time_handle
+            .set(genesis_time + Duration::from_millis(1_500));
+        sut.force_sync().await;
+        let metrics = sut.telemetry.metrics();
+        assert_eq!(metrics.uptime_since_genesis_ms.get(), 1_500);
+        // A later sync could not read the genesis body: the resident copy is
+        // dropped and the history read pool is fully occupied.
+        sut.kura
+            .forget_cached_block_for_testing(genesis)
+            .expect("drop the resident genesis body");
+        let pool = sut.state.ivm_execution_budget();
+        let _occupied = pool
+            .try_reserve_bytes(pool.limit_bytes() - pool.reserved_bytes())
+            .expect("occupy the history read pool");
+        sut.mock_time_handle.advance(Duration::from_millis(500));
+        sut.force_sync().await;
+        assert_eq!(
+            metrics.uptime_since_genesis_ms.get(),
+            2_000,
+            "uptime reuses the cached genesis creation time"
+        );
+    }
+    #[test]
+    fn domain_account_count_reads_the_account_scope_index() {
+        use iroha_data_model::{
+            account::rekey::{AccountAlias, AccountAliasDomain},
+            domain::Domain,
+        };
+        let wonderland = DomainId::try_new("wonderland", "universal").expect("domain id");
+        let garden = DomainId::try_new("garden", "universal").expect("domain id");
+        let (labelled, _) = gen_account_in("wonderland");
+        let (unlabelled, _) = gen_account_in("wonderland");
+        let label = AccountAlias::new(
+            "alice".parse().expect("label"),
+            Some(AccountAliasDomain::new(
+                "wonderland".parse().expect("domain name"),
+            )),
+            DataSpaceId::UNIVERSAL,
+        );
+        let world = World::with(
+            [
+                Domain::new(wonderland.clone()).build(&labelled),
+                Domain::new(garden.clone()).build(&labelled),
+            ],
+            [
+                Account::new(labelled.clone())
+                    .with_label(Some(label))
+                    .build(&labelled),
+                Account::new(unlabelled.clone()).build(&unlabelled),
+            ],
+            [],
+        );
+        let view = world.view();
+        for domain in [&wonderland, &garden] {
+            assert_eq!(
+                domain_account_count(&view, domain),
+                view.accounts_in_domain_iter(domain).count(),
+                "{domain}"
+            );
+        }
+        assert_eq!(domain_account_count(&view, &wonderland), 1);
+        assert_eq!(domain_account_count(&view, &garden), 0);
     }
     #[tokio::test]
     async fn telemetry_start_rejects_a_second_resource_owner() {

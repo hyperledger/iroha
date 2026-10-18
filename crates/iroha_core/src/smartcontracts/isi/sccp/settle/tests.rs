@@ -867,23 +867,38 @@ fn release_stranded_pays_out_only_stranded_value() {
     let recipient = authority(40);
     governance::enact(
         &mut stx,
+        [0x31; 32],
+        [0x33; 32],
+        iroha_data_model::governance::GovernanceAnchorV1 {
+            height: 1,
+            position: 0,
+            timestamp_ms: 1,
+        },
         &release(3 * ONE_XOR + 1, &recipient),
-        [1; 32],
-        crate::smartcontracts::isi::sccp::test_support::effect_cause(),
     )
     .expect_err("only 3 XOR is stranded");
     governance::enact(
         &mut stx,
+        [0x31; 32],
+        [0x33; 32],
+        iroha_data_model::governance::GovernanceAnchorV1 {
+            height: 1,
+            position: 0,
+            timestamp_ms: 1,
+        },
         &release(ONE_XOR, &escrow),
-        [2; 32],
-        crate::smartcontracts::isi::sccp::test_support::effect_cause(),
     )
     .expect_err("an escrow recipient");
     governance::enact(
         &mut stx,
+        [0x31; 32],
+        [0x33; 32],
+        iroha_data_model::governance::GovernanceAnchorV1 {
+            height: 1,
+            position: 0,
+            timestamp_ms: 1,
+        },
         &release(2 * ONE_XOR, &recipient),
-        [3; 32],
-        crate::smartcontracts::isi::sccp::test_support::effect_cause(),
     )
     .expect("release");
     assert_eq!(xor_balance(&*stx.world, &recipient), 2 * ONE_XOR);

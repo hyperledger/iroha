@@ -2176,7 +2176,6 @@ pub mod extractors {
             Error::InvalidTag { .. } => "invalid_tag",
             Error::InvalidNonZero => "invalid_non_zero",
             Error::DecodePanic { .. } => "decode_panic",
-            Error::Misaligned { .. } => "misaligned",
             Error::Io(_) => "io_error",
             Error::Message(_) => "message",
             _ => "other",

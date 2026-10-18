@@ -577,6 +577,22 @@ where
         witness: &StepWitness<C::ScalarExt>,
         randomness: ProverRandomness,
     ) -> Result<SigmaProof<C::ScalarExt>, SigmaError> {
+        self.prove_with_config(witness, randomness, ProverConfig::default())
+    }
+
+    /// [`Self::prove`] under an explicit engine configuration. The configuration selects
+    /// memory, speed and cooperative cancellation only, never a key, witness or proof byte.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::prove`]; a cancelled `config` signal ends with a cancelled
+    /// [`SigmaError::Prover`] and no proof.
+    pub fn prove_with_config(
+        &self,
+        witness: &StepWitness<C::ScalarExt>,
+        randomness: ProverRandomness,
+        config: ProverConfig<'_>,
+    ) -> Result<SigmaProof<C::ScalarExt>, SigmaError> {
         let circuit = self.circuit(witness)?;
         let native = circuit
             .native()
@@ -592,7 +608,7 @@ where
             &circuit,
             &instances,
             randomness,
-            ProverConfig::default(),
+            config,
         )
         .map_err(SigmaError::Prover)?;
         Ok(SigmaProof { public, bytes })

@@ -53,11 +53,7 @@ mpc_committee_size = 5
 fma_committee_size = 5
 oversight_committee_size = 5
 policy_jury_size = 9
-confirmation_jury_size = 7
-[gov.parliament_timed_ovn]
-max_corpus_entries = 16
-registration_phase_blocks = 300
-survivor_freeze_phase_blocks = 100";
+confirmation_jury_size = 7";
 const ADAPTIVE_FAUCET: &str = "pow_adaptive_lookback_blocks = 64
 pow_adaptive_claims_per_extra_bit = 2
 pow_adaptive_max_extra_bits = 8";
@@ -73,9 +69,6 @@ fn canonical_profile_is_the_recommended_taira_profile() {
     assert!(profile.coordination_explicit);
     assert_eq!(profile.policy_jury_size, 9);
     assert_eq!(profile.confirmation_jury_size, 7);
-    assert_eq!(profile.max_corpus_entries, 16);
-    assert_eq!(profile.registration_phase_blocks, 300);
-    assert_eq!(profile.survivor_freeze_phase_blocks, 100);
     assert_eq!(profile.citizenship_bond, Quantity::from(1_000_000_u32));
     assert_eq!(profile.citizenship_asset_id, CANONICAL_XOR);
     let faucet = profile
@@ -340,21 +333,6 @@ fn canonical_gov_table_parses_through_iroha_config() {
     assert_eq!(gov.min_enactment_delay, 50);
     assert_eq!(gov.parliament_invitation_phase_blocks, 300);
     assert_eq!(gov.parliament_public_finding_phase_blocks, 900);
-    assert_eq!(gov.parliament_timed_ovn.max_corpus_entries, 16);
-    assert_eq!(gov.parliament_timed_ovn.registration_phase_blocks, 300);
-    assert_eq!(gov.parliament_timed_ovn.survivor_freeze_phase_blocks, 100);
-    assert_eq!(gov.parliament_timed_ovn.commitment_phase_blocks, 300);
-    assert_eq!(gov.parliament_timed_ovn.release_delay_blocks, 50);
-    assert_eq!(gov.parliament_timed_ovn.opening_phase_blocks, 300);
-    assert_eq!(
-        gov.parliament_tle_key_lifecycle
-            .max_fresh_ballots_per_session,
-        8
-    );
-    assert_eq!(
-        gov.parliament_tle_key_lifecycle.session_lifetime_blocks,
-        7_200
-    );
     assert_eq!(gov.citizenship_bond_amount, Quantity::from(1_000_000_u32));
 }
 
@@ -409,7 +387,7 @@ fn bond_reach_and_adaptive_difficulty_follow_the_faucet() {
 }
 
 #[test]
-fn juries_windows_and_coordination_are_enforced() {
+fn juries_and_coordination_are_enforced() {
     let unset = profile(
         &SEATED_GOV.replace("coordination_council_size = 5\n", ""),
         ADAPTIVE_FAUCET,
@@ -418,39 +396,13 @@ fn juries_windows_and_coordination_are_enforced() {
         failed(&unset, Some(16)),
         ["citizens_cover_bodies", "coordination_council_explicit"]
     );
-    let short_window = profile(
-        &SEATED_GOV.replace(
-            "survivor_freeze_phase_blocks = 100",
-            "survivor_freeze_phase_blocks = 15",
-        ),
-        ADAPTIVE_FAUCET,
-    );
-    assert_eq!(failed(&short_window, Some(16)), ["windows_cover_corpus"]);
-    let tight_registration = profile(
-        &SEATED_GOV.replace(
-            "registration_phase_blocks = 300",
-            "registration_phase_blocks = 16",
-        ),
-        ADAPTIVE_FAUCET,
-    );
-    assert_eq!(
-        failed(&tight_registration, Some(16)),
-        ["windows_cover_corpus"]
-    );
-    let small_corpus = profile(
-        &SEATED_GOV.replace("max_corpus_entries = 16", "max_corpus_entries = 8"),
-        ADAPTIVE_FAUCET,
-    );
-    assert_eq!(failed(&small_corpus, Some(16)), ["corpus_covers_juries"]);
     let anonymous = profile(
         &SEATED_GOV.replace("confirmation_jury_size = 7", "confirmation_jury_size = 2"),
         ADAPTIVE_FAUCET,
     );
     assert_eq!(failed(&anonymous, Some(16)), ["hidden_ballot_anonymity"]);
     let large_jury = profile(
-        &SEATED_GOV
-            .replace("policy_jury_size = 9", "policy_jury_size = 25")
-            .replace("max_corpus_entries = 16", "max_corpus_entries = 25"),
+        &SEATED_GOV.replace("policy_jury_size = 9", "policy_jury_size = 25"),
         ADAPTIVE_FAUCET,
     );
     assert_eq!(large_jury.minimum_citizens(), 28);

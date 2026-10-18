@@ -766,7 +766,7 @@ mod tests {
             [8; 32],
         )
         .unwrap();
-        let mut reference = actual_transcript.clone();
+        let mut reference = actual_transcript;
         reference
             .absorb(LINK_DOMAIN_V1, &[LINK_DESCRIPTOR_V1])
             .unwrap();

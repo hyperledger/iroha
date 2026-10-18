@@ -55,13 +55,13 @@ enum StoreCompletion {
 fn original_store_refund_control(completion: StoreCompletion) {
     let dir = tempfile::tempdir().unwrap();
     let (body, qc, source, budget, crypto) = fixture(1025);
-    let store = Arc::new(open(
+    let store = open(
         dir.path(),
         &source,
         Arc::new(crypto),
         &budget,
         Arc::new(NoFaults),
-    ));
+    );
     if !matches!(completion, StoreCompletion::NewAppend) {
         store.append(&body, &qc).unwrap();
     }
@@ -292,4 +292,171 @@ fn original_lane_opening_refund_follows_complete_recovery_cleanup() {
     assert_eq!(budget.reserved_bytes(), initial);
     drop((store, body, qc));
     assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn cancelled_proposal_read_refund_reenters_only_after_both_native_guards_release() {
+    let dir = tempfile::tempdir().unwrap();
+    let (body, qc, source, budget, crypto) = fixture(1025);
+    let store = open(
+        dir.path(),
+        &source,
+        Arc::new(crypto),
+        &budget,
+        Arc::new(NoFaults),
+    );
+    store.append(&body, &qc).unwrap();
+    let initial = budget.reserved_bytes();
+    let ceiling = budget.limit_bytes();
+    let mut request = ProposalReadScope::new();
+    request.admit(&budget).unwrap();
+    let mut registration = crate::unit_test_support::release_registration(&budget);
+    let retained = budget.reserved_bytes();
+    let raw = usize::try_from(fs::metadata(store.dir.join(frame_name(1))).unwrap().len()).unwrap();
+    let pressure = budget.try_reserve_bytes(ceiling - retained - raw).unwrap();
+    let refused = store.proposal_batch(1, &request).unwrap_err();
+    let Attempt::Deferred(original) = refused else {
+        panic!("original read Capacity");
+    };
+    let Some(AllocationRefusal::Capacity { release, .. }) = original.allocation_refusal() else {
+        panic!("actual original pool wait");
+    };
+    let probe = Arc::new(StoreRefundProbe {
+        store: Arc::downgrade(&store),
+        calls: AtomicUsize::new(0),
+        state_free: AtomicBool::new(false),
+        batch_free: AtomicBool::new(false),
+        reentered: AtomicBool::new(false),
+    });
+    let waker = Waker::from(probe.clone());
+    assert!(
+        registration
+            .poll_wait(release, &mut Context::from_waker(&waker))
+            .is_pending()
+    );
+    drop(request);
+    store.release_cancelled_reads();
+    assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
+    assert!(probe.state_free.load(Ordering::SeqCst) && probe.batch_free.load(Ordering::SeqCst));
+    assert!(probe.reentered.load(Ordering::SeqCst));
+    assert_eq!(
+        budget.reserved_bytes(),
+        ceiling - raw - ProposalReadScope::admission_bytes()
+    );
+    assert!(!store.retains_pending_work());
+    drop((registration, original, pressure, probe, waker));
+    assert_eq!(budget.reserved_bytes(), initial);
+    drop((store, body, qc));
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+struct HeldReadAuthority {
+    source: AvailabilitySource,
+    armed: AtomicBool,
+    state: Mutex<(bool, bool)>,
+    changed: Condvar,
+}
+impl AvailabilitySchedule for HeldReadAuthority {
+    fn instance(&self) -> Hash32 {
+        self.source.instance()
+    }
+    fn height_config(
+        &self,
+        _: u64,
+    ) -> Result<Option<iroha_sumeragi::types::HeightConfig>, Attempt<io::Error>> {
+        if self.armed.swap(false, Ordering::SeqCst) {
+            let mut state = self.state.lock();
+            state.0 = true;
+            self.changed.notify_all();
+            while !state.1 {
+                self.changed.wait(&mut state);
+            }
+        }
+        Ok(Some(self.source.config().clone()))
+    }
+}
+
+#[test]
+fn busy_original_native_operation_inherits_cancelled_read_cleanup_before_returning() {
+    let root = tempfile::tempdir().unwrap();
+    let (body, qc, source, budget, crypto) = fixture(1025);
+    let authority = Arc::new(HeldReadAuthority {
+        source: source.clone(),
+        armed: AtomicBool::new(false),
+        state: Mutex::new((false, false)),
+        changed: Condvar::new(),
+    });
+    let store = FileLaneBlockStore::begin_open(
+        root.path(),
+        &source.instance(),
+        Arc::new(crypto),
+        budget.clone(),
+        authority.clone(),
+    )
+    .unwrap()
+    .complete()
+    .unwrap_or_else(|(_, error)| panic!("original native store: {error}"));
+    let store = super::tests::LiveStore::new(store);
+    store.append(&body, &qc).unwrap();
+    let baseline = budget.reserved_bytes();
+    let ceiling = budget.limit_bytes();
+    let raw = usize::try_from(fs::metadata(store.dir.join(frame_name(1))).unwrap().len()).unwrap();
+    let mut request = ProposalReadScope::new();
+    request.admit(&budget).unwrap();
+    let pressure = budget
+        .try_reserve_bytes(ceiling - budget.reserved_bytes() - raw)
+        .unwrap();
+    assert!(matches!(
+        store.proposal_batch(1, &request),
+        Err(Attempt::Deferred(_))
+    ));
+    drop(pressure);
+    assert_eq!(
+        budget.reserved_bytes(),
+        baseline + raw + ProposalReadScope::admission_bytes()
+    );
+    authority.armed.store(true, Ordering::SeqCst);
+    let (entered, returned, result) = std::thread::scope(|threads| {
+        // The already-owned authenticated-height operation takes the real state mutex and
+        // exact original schedule; no proposal token borrow prevents actual cancellation.
+        let original = threads.spawn(|| store.authenticated_height());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut state = authority.state.lock();
+        while !state.0 && Instant::now() < deadline {
+            authority.changed.wait_until(&mut state, deadline);
+        }
+        let entered = state.0;
+        drop(state);
+        drop(request);
+        // Nonblocking cleanup returns while the original native operation remains held.
+        let (send, receive) = std::sync::mpsc::channel();
+        let cleanup_store = &*store;
+        let cleanup = threads.spawn(move || {
+            cleanup_store.release_cancelled_reads();
+            send.send(()).unwrap();
+        });
+        let returned = receive.recv_timeout(Duration::from_secs(5)).is_ok();
+        let mut state = authority.state.lock();
+        state.1 = true;
+        authority.changed.notify_all();
+        drop(state);
+        // Preserve both causal observations, always release the native boundary, then join
+        // both actual workers before any assertion (including a failed timeout observation).
+        let original = original.join();
+        let cleanup = cleanup.join();
+        cleanup.unwrap();
+        (entered, returned, original.unwrap())
+    });
+    assert_eq!(result.unwrap(), 1);
+    let cleaned = !store.retains_pending_work() && budget.reserved_bytes() == baseline;
+    // A mutant's naturally joined original read is explicitly released only after verdict.
+    store.release_cancelled_reads();
+    assert_eq!(budget.reserved_bytes(), baseline);
+    assert_eq!(store.height(), 1);
+    drop((store, authority, body, qc));
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert!(
+        entered && returned && cleaned,
+        "the original busy native operation must finish cancelled read cleanup before returning"
+    );
 }

@@ -42,8 +42,9 @@ function completeParliamentProposal(kind, proposalOctet, offset) {
   const beaconSessionId = id(offset + 4);
   const beaconPulseId = id(offset + 5);
   const root = (delta) => Array(32).fill(offset + delta);
-  // Synthetic projection only: a three-seat corpus keeps its lifecycle below
-  // result/certification 119 without changing the mocked proof-page heights.
+  // Synthetic projection only: a three-seat public-finding body keeps its lifecycle below
+  // result/certification 119 without changing the mocked proof-page heights. The private-jury
+  // binding has no SDK parser until the anonymous-ballot result binding is supported.
   return {
     proposal_kind: kind,
     proposal_operator: proposalOperator,
@@ -64,7 +65,7 @@ function completeParliamentProposal(kind, proposalOctet, offset) {
           id: sortitionRequestId,
           governance_attempt_id: governanceAttemptId,
           body_election_attempt_id: electionAttemptId,
-          body: "policy-jury",
+          body: "rules-committee",
           candidate_root: root(7),
           candidate_count: 3,
           target_seats: 3,
@@ -72,7 +73,7 @@ function completeParliamentProposal(kind, proposalOctet, offset) {
           pulse_height: 11,
           beacon_session_id: beaconSessionId,
         },
-        body: "policy-jury",
+        body: "rules-committee",
         original_seats: 3,
         beacon_session_id: beaconSessionId,
         beacon_pulse_id: beaconPulseId,
@@ -80,42 +81,13 @@ function completeParliamentProposal(kind, proposalOctet, offset) {
         assignment_root: root(9),
         result_root: root(10),
         result_height: 119,
-        public_finding: null,
-        ballot: {
-          ballot_attempt_id: id(offset + 11),
-          ballot_attempt_sequence: 0,
-          tle_session_id: id(offset + 12),
-          tle_key_session_id: id(offset + 13),
-          registration_root: root(14),
-          dropout_root: root(15),
-          survivor_root: root(16),
-          corpus_root: root(17),
-          no_recovery_root: root(18),
-          timed_commitment_root: root(19),
-          release_beacon_session_id: id(offset + 20),
-          registered_at_height: 20,
-          registration_close_height: 24,
-          survivor_freeze_height: 27,
-          commitment_close_height: 28,
-          registration_closed_at_height: 24,
-          survivors_frozen_at_height: 27,
-          commitment_closed_at_height: 28,
-          max_ballot_retries: 3,
-          max_corpus_entries: 3,
-          release_height: 29,
-          opening_deadline_height: 119,
-          release_pulse_id: id(offset + 21),
-          opening_height: 29,
-          opening_root: root(22),
-          tally: {
-            original_seats: 3,
-            accepted_ballots: 3,
-            aye: 2,
-            nay: 1,
-            abstain: 0,
-          },
-          outcome: { outcome: "Approved", details: null },
+        public_finding: {
+          endorsement_root: root(11),
+          endorsing_assignments: [id(offset + 12), id(offset + 13)],
+          endorsements: 2,
+          quorum: 2,
         },
+        ballot: null,
       }],
       policy_version: 1,
       effect_preimage_hash: root(23),
@@ -179,13 +151,13 @@ function withNativeBinding(native, body) {
 test("validation-fee consensus factories isolate immutable native runtimes", async () => {
   const checkpoint = { checkpointNorito: Buffer.from([100, 3]) };
   const bindingA = {
-    connectNoritoBridgeAbiVersion: () => 29,
+    connectNoritoBridgeAbiVersion: () => 30,
     validationFeeCurrentPolicyProofRequestV1: () => Buffer.from([0xa1]),
     validationFeeVerifyCurrentPolicyProofV1() {},
   };
   const apiA = createValidationFeeConsensusApi(createNativeRuntime(bindingA));
   const apiB = createValidationFeeConsensusApi(createNativeRuntime({
-    connectNoritoBridgeAbiVersion: () => 29,
+    connectNoritoBridgeAbiVersion: () => 30,
     validationFeeCurrentPolicyProofRequestV1: () => Buffer.from([0xb2]),
     validationFeeVerifyCurrentPolicyProofV1() {},
   }));
@@ -210,7 +182,7 @@ function verifyProjectionFixture(projection) {
   return withNativeBinding(
     {
       connectNoritoBridgeAbiVersion() {
-        return 28;
+        return 30;
       },
       validationFeeCurrentPolicyProofRequestV1() {},
       validationFeeVerifyCurrentPolicyProofV1() {
@@ -261,7 +233,7 @@ test("request encoder delegates only full independently retained checkpoint byte
   checkpoint.checkpointNorito.fill(0);
   withNativeBinding(
     {
-      connectNoritoBridgeAbiVersion: () => 29,
+      connectNoritoBridgeAbiVersion: () => 30,
       validationFeeCurrentPolicyProofRequestV1(checkpointNorito) {
         nativeCalls += 1;
         assert.deepEqual(checkpointNorito, Buffer.from([100, 3]));
@@ -307,7 +279,7 @@ test("native verified projection remains bound to the release checkpoint", () =>
   withNativeBinding(
     {
       connectNoritoBridgeAbiVersion() {
-        return 28;
+        return 30;
       },
       validationFeeCurrentPolicyProofRequestV1() {},
       validationFeeVerifyCurrentPolicyProofV1(
@@ -371,7 +343,7 @@ test("verified current policy enforces and freezes the complete nested projectio
   assert.equal(
     verified.conversion_policy.authority
       .governance_certificate.body_bindings[0].body,
-    "policy-jury",
+    "rules-committee",
   );
   assert.equal(
     verified.current_policy.retail_schedule.included_payments,
@@ -388,7 +360,7 @@ test("verified current policy enforces and freezes the complete nested projectio
   assert.equal(
     Object.isFrozen(
       verified.current_policy.parliament
-        .governance_certificate.body_bindings[0].ballot.tally,
+        .governance_certificate.body_bindings[0].public_finding.endorsing_assignments,
     ),
     true,
   );
@@ -442,30 +414,6 @@ test("verified current policy rejects missing, extra, and mistyped nested fields
       error: /sortition_request contains unknown, aliased, or missing fields/u,
     },
     {
-      label: "extra ballot field",
-      mutate(projection) {
-        projection.current_policy.parliament
-          .governance_certificate.body_bindings[0].ballot.raw = {};
-      },
-      error: /ballot contains unknown, aliased, or missing fields/u,
-    },
-    {
-      label: "legacy flattened ballot outcome",
-      mutate(projection) {
-        projection.current_policy.parliament
-          .governance_certificate.body_bindings[0].ballot.outcome = "Approved";
-      },
-      error: /ballot\.outcome must be a plain object/u,
-    },
-    {
-      label: "ballot retry ceiling exceeds the Rust contract",
-      mutate(projection) {
-        projection.current_policy.parliament
-          .governance_certificate.body_bindings[0].ballot.max_ballot_retries = 17;
-      },
-      error: /max_ballot_retries must be an integer from 0 through 16/u,
-    },
-    {
       label: "sortition target exceeds the Rust contract",
       mutate(projection) {
         projection.current_policy.parliament
@@ -475,13 +423,14 @@ test("verified current policy rejects missing, extra, and mistyped nested fields
       error: /target_seats must be an integer from 1 through 1000/u,
     },
     {
-      label: "release pulse reuses a sortition pulse",
+      label: "private-jury result binding is not admitted",
       mutate(projection) {
         const body = projection.current_policy.parliament
           .governance_certificate.body_bindings[0];
-        body.ballot.release_pulse_id = body.beacon_pulse_id;
+        body.body = "policy-jury";
+        body.sortition_request.body = "policy-jury";
       },
-      error: /sortition and release pulse identifiers disjoint/u,
+      error: /private-jury result binding is not admitted until the anonymous-ballot result binding is supported/u,
     },
     {
       label: "retired SBD payout field",
@@ -523,27 +472,6 @@ test("verified current policy rejects missing, extra, and mistyped nested fields
       error: /certified_at_height must be a canonical unsigned decimal string/u,
     },
     {
-      label: "non-approving certificate ballot",
-      mutate(projection) {
-        projection.current_policy.parliament
-          .governance_certificate.body_bindings[0].ballot.outcome = {
-            outcome: "Rejected",
-            details: null,
-          };
-      },
-      error: /approving aggregate outcome/u,
-    },
-    {
-      label: "missing native ballot outcome details",
-      mutate(projection) {
-        projection.current_policy.parliament
-          .governance_certificate.body_bindings[0].ballot.outcome = {
-            outcome: "Rejected",
-          };
-      },
-      error: /ballot\.outcome contains unknown, aliased, or missing fields/u,
-    },
-    {
       label: "conversion authority is not available at its enactment height",
       mutate(projection) {
         projection.evaluated_block_height = 120;
@@ -563,28 +491,31 @@ test("verified current policy rejects missing, extra, and mistyped nested fields
 });
 
 test("validation-fee proof path rejects a stale native bridge ABI", () => {
-  withNativeBinding(
-    {
-      connectNoritoBridgeAbiVersion() {
-        return 20;
+  for (const abiVersion of [20, 29, 31]) {
+    withNativeBinding(
+      {
+        connectNoritoBridgeAbiVersion() {
+          return abiVersion;
+        },
+        validationFeeCurrentPolicyProofRequestV1() {
+          return Buffer.from([1]);
+        },
+        validationFeeVerifyCurrentPolicyProofV1() {},
       },
-      validationFeeCurrentPolicyProofRequestV1() {
-        return Buffer.from([1]);
+      ({ encodeValidationFeeCurrentPolicyProofRequestV1: encode }) => {
+        assert.throws(
+          () => encode(binding.checkpoint),
+          /ABI 30/u,
+          String(abiVersion),
+        );
       },
-      validationFeeVerifyCurrentPolicyProofV1() {},
-    },
-    ({ encodeValidationFeeCurrentPolicyProofRequestV1: encode }) => {
-      assert.throws(
-        () => encode(binding.checkpoint),
-        /ABI 29/u,
-      );
-    },
-  );
+    );
+  }
 });
 
 test("Torii validation-fee proofs use the client native runtime", async () => {
   const native = {
-    connectNoritoBridgeAbiVersion: () => 29,
+    connectNoritoBridgeAbiVersion: () => 30,
     validationFeeCurrentPolicyProofRequestV1(checkpointNorito) {
       assert.deepEqual(checkpointNorito, binding.checkpoint.checkpointNorito);
       return Buffer.from([1, 2, 3]);
@@ -684,7 +615,7 @@ function proofPageClient(response, verifyProof = () => {
   assert.fail("rejected proof responses must not reach the native verifier");
 }) {
   const native = {
-    connectNoritoBridgeAbiVersion: () => 29,
+    connectNoritoBridgeAbiVersion: () => 30,
     validationFeeCurrentPolicyProofRequestV1: () => Buffer.from([1, 2, 3]),
     validationFeeVerifyCurrentPolicyProofV1(proofNorito) {
       verifyProof(proofNorito);
@@ -876,7 +807,7 @@ test("native promotion is required and cannot be synthesized from projection sca
     nativePage(projection, Buffer.alloc(0)),
   ]) {
     withNativeBinding({
-      connectNoritoBridgeAbiVersion: () => 29,
+      connectNoritoBridgeAbiVersion: () => 30,
       validationFeeCurrentPolicyProofRequestV1() {},
       validationFeeVerifyCurrentPolicyProofV1() { return result; },
     }, ({ verifyValidationFeeCurrentPolicyProofV1: verify }) => {

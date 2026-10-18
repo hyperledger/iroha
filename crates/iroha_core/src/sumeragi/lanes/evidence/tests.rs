@@ -91,6 +91,11 @@ impl BodyReader for EmptyStore {
     }
 }
 impl BlockStore for EmptyStore {
+    fn retired_publication(
+        self: std::sync::Arc<Self>,
+    ) -> Option<std::sync::Arc<dyn crate::sumeragi::driver::traits::RetiredPublication>> {
+        None
+    }
     fn committed_body(&self, _: u64) -> Result<Option<(AvailableBody, Qc)>, Attempt<io::Error>> {
         Ok(None)
     }

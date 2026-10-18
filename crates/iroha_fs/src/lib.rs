@@ -38,6 +38,30 @@ use windows as platform;
 #[cfg(not(any(unix, windows)))]
 compile_error!("iroha_fs requires a native Unix or Windows host");
 
+/// Order one open file's data and metadata before any later I/O on its device.
+///
+/// On Apple this is `F_BARRIERFSYNC`: nothing is known persisted when it returns, and
+/// [`durability_fence`] makes it durable. Elsewhere it is the platform's durable sync. Use it for
+/// publication steps whose durability is only needed at a later commit point.
+///
+/// # Errors
+/// Returns the native sync error; the ordering of this file's writes is then unknown.
+pub fn sync_file_ordered(file: &File) -> io::Result<()> {
+    platform::sync_file_ordered(file)
+}
+
+/// Persist every ordered sync of this process, as a commit point needs before anything that
+/// depends on it leaves the process.
+///
+/// On Apple this issues one `F_FULLFSYNC` per device with ordered syncs since its last fence and
+/// returns how many devices it flushed. Elsewhere ordered syncs are already durable: it returns 0.
+///
+/// # Errors
+/// Returns the native flush error; the durability of earlier ordered syncs is then unknown.
+pub fn durability_fence() -> io::Result<u64> {
+    platform::durability_fence()
+}
+
 /// Whether atomic publication must create a new name or may replace an existing owned file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PublishMode {
@@ -1048,6 +1072,15 @@ impl PrivateDirectory {
     /// Returns an error if custody changed or native durability cannot be completed.
     pub fn sync(&self) -> io::Result<()> {
         self.inner.sync()
+    }
+
+    /// Order this directory's entries before any later I/O on its device (see
+    /// [`sync_file_ordered`]); [`Self::sync`] or [`durability_fence`] makes them durable.
+    ///
+    /// # Errors
+    /// Returns an error if custody changed or the native sync failed.
+    pub fn sync_ordered(&self) -> io::Result<()> {
+        self.inner.sync_ordered()
     }
 }
 

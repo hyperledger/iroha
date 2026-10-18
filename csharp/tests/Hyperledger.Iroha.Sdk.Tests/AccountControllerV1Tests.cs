@@ -165,7 +165,7 @@ public sealed class AccountControllerV1Tests
     [Fact]
     public void CompleteNativeAdmissionRejectsMalformedCurvePoints()
     {
-        Assert.True(AccountAddressNative.IsAvailable, "The final SDK requires the real ABI-29 address validator.");
+        Assert.True(AccountAddressNative.IsAvailable, "The final SDK requires the real ABI-30 address validator.");
         var cases = new List<(CurveId Curve, byte[] Key)>
         {
             (CurveId.Ed25519, new byte[] { 1 }.Concat(new byte[31]).ToArray()),

@@ -121,14 +121,32 @@ fn sccp_liable_unbond_keeps_exact_pending_request_and_both_balances() {
     let destination = AssetId::new(asset_definition, validator.clone());
     let source_before = stx.world.assets.get(&source).unwrap().clone();
     let destination_before = stx.world.assets.get(&destination).unwrap().clone();
-    let result = FinalizePublicLaneUnbond {
+    let instruction = FinalizePublicLaneUnbond {
         monetary_plan: fixture_unbond_plan(&stx, lane_id, &validator, &validator, request_id),
         lane_id,
         validator: validator.clone(),
         staker: validator.clone(),
         request_id,
-    }
-    .execute(&validator, &mut stx);
+    };
+    let retention_policy = stx.world.sumeragi_npos_parameters().unwrap();
+    let allocations = crate::test_allocations::allocations_during(|| {
+        let preflight =
+            original_unbond_liability(&stx, &instruction, retention_policy.as_ref()).unwrap();
+        assert_eq!(
+            preflight.activation_height,
+            validator_before.activation_height
+        );
+        assert_eq!(
+            preflight.release.unwrap(),
+            Some(super::super::sccp::liability::ReleaseBlocker::LiabilityActive),
+            "SC15 must retain an unbond while its original SCCP generation is liable"
+        );
+    });
+    assert_eq!(
+        allocations, 0,
+        "HC407 L3 caller must inspect original unbond graphs without copying before refusal"
+    );
+    let result = instruction.execute(&validator, &mut stx);
     assert!(
         matches!(&result, Err(Error::InvariantViolation(message)) if message.starts_with("SccpLiabilityActive:")),
         "SC15 must retain an unbond while its original SCCP generation is liable"

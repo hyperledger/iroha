@@ -208,7 +208,8 @@ fn operation(
     let handle = NativePaymentOperation::create(
         request,
         storage,
-        NativePaymentSession::new(native.verifier(), std::num::NonZeroUsize::new(64).unwrap()).unwrap(),
+        NativePaymentSession::new(native.verifier(), std::num::NonZeroUsize::new(64).unwrap())
+            .unwrap(),
         account.clone(),
         account.clone(),
         source,

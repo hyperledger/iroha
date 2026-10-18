@@ -210,7 +210,7 @@ async fn queue_pressure_counters_track_committed_removal_before_hash_drain() {
     assert_eq!(snapshot.tracked_tx_count, 1);
     assert_eq!(snapshot.queued_tx_count, 1);
     assert_eq!(queue.active_len(), queue.txs.len());
-    assert_eq!(queue.queued_len(), queue.queued_tx_enqueued_at_ms.len());
+    assert_eq!(queue.queued_len(), queue.pending_order.lock().len());
     queue.assert_pressure_counters_consistent_for_tests();
 }
 #[tokio::test]
@@ -240,10 +240,10 @@ async fn queue_pressure_counters_restore_age_after_enqueue_compaction_retry() {
     let second_hash = second.hash_as_entrypoint();
     queue
         .push(second, state.view())
-        .expect("second push compacts stale hash and succeeds");
+        .expect("committed removal frees the only FIFO slot by key");
     assert_eq!(queue.active_len(), 1);
     assert_eq!(queue.queued_len(), 1);
-    assert!(queue.queued_tx_enqueued_at_ms.contains_key(&second_hash));
+    assert!(queue.pending_order.lock().contains_hash(&second_hash));
     assert_eq!(queue.pressure_snapshot().queued_tx_count, 1);
     queue.assert_pressure_counters_consistent_for_tests();
 }

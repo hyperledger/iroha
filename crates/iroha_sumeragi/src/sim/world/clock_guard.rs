@@ -127,6 +127,12 @@ pub struct GuardEvent {
     pub height: u64,
     /// `AvailableBody` hash of the block.
     pub block_hash: Hash32,
+    /// Original block time, retained to distinguish future proposals from later retries.
+    pub t: u64,
+    /// The honest executor's wall clock at this decision.
+    pub wall: i64,
+    /// Machine of the original proposer, if known from the height's committee.
+    pub proposer: Option<usize>,
     /// The rule that applies to the block at this wall time.
     pub rule: GuardRule,
     /// The execution was certified, so the rule was skipped and the block executed; otherwise
@@ -708,6 +714,11 @@ impl World {
         let t = block_time(payload)?;
         let wall = self.wall_ms(m);
         let now = self.now;
+        let proposer = self.instances[self.replicas[r].inst]
+            .committee(block.header().height)
+            .get(block.header().proposer)
+            .and_then(|key| self.key_owner.get(key))
+            .copied();
         let guard = self.clock_guard.as_mut()?;
         let rule = guard.violated(t, payload_due(payload), wall)?;
         guard.events.push(GuardEvent {
@@ -715,6 +726,9 @@ impl World {
             replica: r,
             height: block.header().height,
             block_hash: *bh,
+            t,
+            wall,
+            proposer,
             rule,
             certified,
         });

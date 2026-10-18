@@ -55,7 +55,7 @@ fn request(track: ClassedRaceTrackV1, players: u8, refund: bool) -> ClassedRaceP
                     .clone(),
                 application_data: ClassedRaceParticipantDataV1 {
                     skin: slot % 6,
-                    ..data.clone()
+                    ..data
                 }
                 .encode(),
             })

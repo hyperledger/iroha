@@ -332,11 +332,9 @@ fn verify_bad_sigma(
     );
     ensure!(
         matches!(
-            installed.verifier().verify_package_proofs(
-                &bad_sigma.package,
-                None,
-                Default::default()
-            ),
+            installed
+                .verifier()
+                .verify_package_proofs(&bad_sigma.package, Default::default()),
             Err(iroha_core_zk::kagemusha_wallet_proofs_v1::Error::Proof)
         ),
         "model-valid negative must fail the actual installed proof verifier"
@@ -424,7 +422,7 @@ pub(super) fn run(
     // Genuine proof verification is mandatory even when no adversarial input is selected.
     installed
         .verifier()
-        .verify_package_proofs(&claim.package, None, Default::default())?;
+        .verify_package_proofs(&claim.package, Default::default())?;
     let bad_sigma_bytes = if let Some(selection) = adversarial_selection(command)? {
         let (_, bytes) = selected(
             selection,

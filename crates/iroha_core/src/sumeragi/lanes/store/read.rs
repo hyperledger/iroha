@@ -224,10 +224,21 @@ impl RestoreFrame {
         schedule: Arc<dyn AvailabilitySchedule>,
         crypto: SharedCrypto,
     ) -> io::Result<Self> {
+        let read = ReadRecord::open(path, budget)?;
+        // Read-only source inspection has not certified this path as committed.
+        // Initial absence must be retried after publication, never retained as a
+        // corrupt committed-history job. Exclusive recovery keeps its own rule.
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC403")))]
+        if matches!(read.state, RecordState::Absent) {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "read-only lane frame is not available",
+            ));
+        }
         Ok(Self {
             height,
             custody: None,
-            state: RestoreState::Reading(ReadRecord::open(path, budget)?),
+            state: RestoreState::Reading(read),
             schedule,
             crypto,
         })

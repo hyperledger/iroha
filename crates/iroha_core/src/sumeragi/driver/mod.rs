@@ -50,9 +50,16 @@ pub mod payload_worker;
 #[cfg(test)]
 mod payload_worker_tests;
 pub mod persist;
+mod retirement;
 pub mod serve;
+mod startup;
+pub(in crate::sumeragi) use startup::{
+    DriverPreparation, PendingDriver, StartupContext, StartupPoll, StartupPreparationError,
+    StartupRetirement,
+};
 pub mod traits;
 mod wake;
+mod worker_panic;
 pub use node_gate::NodeGate;
 
 #[cfg(test)]
@@ -108,7 +115,12 @@ use self::{
     },
 };
 use super::metrics::InstanceMetrics;
+pub use retirement::OriginalPublicationOwner;
+#[cfg(any(test, feature = "iroha-core-tests"))]
+pub(in crate::sumeragi) use retirement::PublicationSession;
+use retirement::{RetirementControl, RetirementJob};
 use wake::ThreadWake;
+use worker_panic::{OriginalWorkerPanic, discard_join_result, join_original_workers};
 
 /// Longest idle wait of the event loop before it re-reads the clock.
 const MAX_IDLE_WAIT_MS: Millis = 1_000;
@@ -128,6 +140,20 @@ pub enum Worker {
     Exec,
     /// The serve thread.
     Serve,
+}
+
+impl Worker {
+    // One private authority for original worker membership and bounded join custody.
+    const COUNT: usize = Self::Loop.index() + 1;
+
+    const fn index(self) -> usize {
+        match self {
+            Self::Persist => 0,
+            Self::Exec => 1,
+            Self::Serve => 2,
+            Self::Loop => 3,
+        }
+    }
 }
 
 /// O10 at run time: a committed configuration needs larger frames than the transport accepts,
@@ -774,6 +800,40 @@ pub fn assemble_init(
     configs: Vec<(u64, ConfigSlot)>,
     nonce: u64,
 ) -> Result<Init, crate::execution_attempt::ExecutionAttemptError<StartupHistoryError>> {
+    let StartupHistory {
+        tip,
+        recent_headers,
+    } = assemble_startup_history(blocks, genesis_height, genesis, demotion_window)?;
+    Ok(Init {
+        instance,
+        records,
+        genesis_height,
+        demotion_window,
+        nonce,
+        tip,
+        configs,
+        recent_headers,
+    })
+}
+
+/// Read-only certified startup history, before consuming installed record/configuration owners.
+pub(in crate::sumeragi) struct StartupHistory {
+    /// Exact original committed tip returned by the block store.
+    pub(in crate::sumeragi) tip: CommittedTip,
+    /// Original authenticated headers in the unchanged demotion window.
+    pub(in crate::sumeragi) recent_headers: Vec<iroha_sumeragi::message::BlockHeader>,
+}
+
+/// Read the same startup history without consuming previously installed inputs.
+///
+/// # Errors
+/// Preserves the original local read refusal or exact completed history error.
+pub(in crate::sumeragi) fn assemble_startup_history(
+    blocks: &(impl BlockStore + ?Sized),
+    genesis_height: u64,
+    genesis: (Hash32, Hash32),
+    demotion_window: u64,
+) -> Result<StartupHistory, crate::execution_attempt::ExecutionAttemptError<StartupHistoryError>> {
     let t = blocks.height().max(genesis_height);
     let tip = if t == genesis_height {
         CommittedTip {
@@ -801,17 +861,15 @@ pub fn assemble_init(
         let entry = startup_entry(blocks, height)?;
         recent_headers.push(entry.manifest.header);
     }
-    Ok(Init {
-        instance,
-        records,
-        genesis_height,
-        demotion_window,
-        nonce,
+    Ok(StartupHistory {
         tip,
-        configs,
         recent_headers,
     })
 }
+
+#[cfg(test)]
+#[path = "startup/history_tests.rs"]
+mod startup_history_tests;
 
 /// Why a driver did not start.
 #[derive(Debug, thiserror::Error)]
@@ -828,6 +886,15 @@ pub enum DriverError {
     /// The fixed peer-slot backing could not be constructed from its original prepaid credit.
     #[error("sumeragi peer-slot backing: {0}")]
     Buffer(#[from] iroha_allocation::PrepaidBufferError),
+    /// The original retirement store does not belong to this exact instance and pool.
+    #[error("sumeragi retirement store does not belong to the original instance and resource pool")]
+    RetirementIdentity,
+    /// The exact original native store refused its joining-thread owner.
+    #[error("sumeragi original publication binding failed: {0}")]
+    RetirementBinding(#[source] std::io::Error),
+    /// Prepared startup belongs to a different original instance or resource pool.
+    #[error("sumeragi startup inputs do not belong to the original instance and resource pool")]
+    StartupIdentity,
     /// Canonical storage failed; this storage owner cannot start another instance.
     #[error("sumeragi canonical storage is closed; restart is required")]
     StorageClosed,
@@ -1462,16 +1529,45 @@ struct DriverJoiner {
 }
 
 impl DriverJoiner {
-    fn start() -> std::io::Result<Self> {
+    fn start(retirement: Option<RetirementJob>) -> std::io::Result<Self> {
+        Self::start_with(move |receive| Self::join_workers(receive, retirement))
+    }
+
+    // Ordinary and prepared startup create this same one physical joiner/channel.
+    fn start_with(
+        run: impl FnOnce(mpsc::Receiver<Vec<JoinHandle<()>>>) + Send + 'static,
+    ) -> std::io::Result<Self> {
         let (workers, receive) = mpsc::sync_channel::<Vec<JoinHandle<()>>>(1);
-        let thread = super::threads::sumeragi_thread_builder("sumeragi-join").spawn(move || {
-            if let Ok(threads) = receive.recv() {
-                for thread in threads {
-                    let _ = thread.join();
-                }
-            }
-        })?;
+        let thread =
+            super::threads::sumeragi_thread_builder("sumeragi-join").spawn(move || run(receive))?;
         Ok(Self { workers, thread })
+    }
+
+    fn join_workers(
+        receive: mpsc::Receiver<Vec<JoinHandle<()>>>,
+        mut retirement: Option<RetirementJob>,
+    ) {
+        if let Some(job) = retirement.as_mut() {
+            job.bind_current();
+        }
+        if let Ok(threads) = receive.recv() {
+            if cfg!(all(test, sumeragi_core_mutation = "HC395"))
+                && let Some(job) = retirement.take()
+            {
+                job.run();
+            }
+            let failure = join_original_workers(threads);
+            if let Some(error) = failure
+                && !cfg!(all(test, sumeragi_core_mutation = "HC421"))
+            {
+                // All original handles were joined, but a panic cannot
+                // authorize publication or a successful retirement receipt.
+                error.resume();
+            }
+            if let Some(job) = retirement {
+                job.run();
+            }
+        }
     }
 
     fn handoff(self, threads: Vec<JoinHandle<()>>) -> Result<JoinHandle<()>, FailedDriverHandoff> {
@@ -1492,15 +1588,13 @@ impl DriverJoiner {
                 // callback shutdown. Lifecycle polling retains a failed handoff instead.
                 iroha_logger::error!("sumeragi joining control stopped before receiving workers");
                 if !on_worker {
-                    for worker in workers {
-                        let _ = worker.join();
-                    }
+                    drop(join_original_workers(workers));
                 }
                 thread
             }
         };
         if !on_worker {
-            let _ = thread.join();
+            discard_join_result(thread.join());
         }
     }
 }
@@ -1525,6 +1619,10 @@ pub struct RunningDriver {
     joining: Option<JoinHandle<()>>,
     shutdown_requested: bool,
     handoff_failed: bool,
+    // Retain the original joining/worker panic until final owner destruction.
+    join_failure: Option<OriginalWorkerPanic>,
+    // Keeps the exact store and prepaid control through refusal or joiner unwind.
+    retirement: Option<RetirementControl>,
 }
 
 impl RunningDriver {
@@ -1554,6 +1652,9 @@ impl RunningDriver {
     pub(in crate::sumeragi) fn poll_shutdown(&mut self) -> bool {
         #[cfg(all(test, sumeragi_core_mutation = "HC393"))]
         self.stop_and_join();
+        if let Some(retirement) = &self.retirement {
+            retirement.retire();
+        }
         self.request_shutdown();
         let current = std::thread::current().id();
         if self.handoff_failed
@@ -1586,18 +1687,44 @@ impl RunningDriver {
             return false;
         }
         if let Some(thread) = self.joining.take() {
-            let _ = thread.join();
+            self.join_failure = thread.join().err().map(OriginalWorkerPanic::new);
+            if self.join_failure.is_some()
+                || self
+                    .retirement
+                    .as_ref()
+                    .is_some_and(|owner| !owner.complete())
+            {
+                self.handoff_failed = true;
+                iroha_logger::error!(
+                    "sumeragi joining control ended without completing original retirement; original store remains owned until shutdown"
+                );
+                return false;
+            }
         }
         true
     }
 
+    fn owns_thread(&self, current: std::thread::ThreadId) -> bool {
+        self.threads
+            .iter()
+            .any(|thread| thread.thread().id() == current)
+            || self
+                .joiner
+                .as_ref()
+                .is_some_and(|joiner| joiner.thread.thread().id() == current)
+            || self
+                .joining
+                .as_ref()
+                .is_some_and(|thread| thread.thread().id() == current)
+    }
+
     fn stop_and_join(&mut self) {
         self.request_shutdown();
+        if let Some(retirement) = &self.retirement {
+            retirement.stop();
+        }
         let current = std::thread::current().id();
-        let on_worker = self
-            .threads
-            .iter()
-            .any(|thread| thread.thread().id() == current);
+        let on_worker = self.owns_thread(current);
         if let Some(joiner) = self.joiner.take() {
             joiner.finish(std::mem::take(&mut self.threads), on_worker);
         } else if self.handoff_failed {
@@ -1605,14 +1732,12 @@ impl RunningDriver {
             // join/self-worker behavior; never silently restart the failed handoff.
             let workers = std::mem::take(&mut self.threads);
             if !on_worker {
-                for worker in workers {
-                    let _ = worker.join();
-                }
+                drop(join_original_workers(workers));
             }
         }
         if let Some(thread) = self.joining.take() {
             if !on_worker {
-                let _ = thread.join();
+                discard_join_result(thread.join());
             }
         }
     }
@@ -1688,237 +1813,14 @@ where
     ///
     /// # Errors
     /// An invalid configuration, a frame limit below the parameters' needs, or a thread that
-    /// could not be spawned.
-    #[allow(clippy::too_many_lines)] // one block per thread
+    /// could not be spawned. Retirement capability identity and its original pool
+    /// admission must also succeed before any worker starts.
     pub fn spawn(
         self,
         config: DriverConfig,
         start: DriverStart,
     ) -> Result<RunningDriver, DriverError> {
-        check_frame_limit(&config, &start)?;
-        if start.node_gate.is_closed() {
-            return Err(DriverError::StorageClosed);
-        }
-        // Admit the original wake control before any worker can publish a completion.
-        let wake = ThreadWake::admit(&start.allocation_budget)?;
-        let pending_admission = PendingAdmission::admit(&start.allocation_budget, config.backoff)?;
-        let instance = start.init.instance;
-        let own: Vec<PublicKey> = start
-            .init
-            .records
-            .iter()
-            .map(|(k, _, _)| k.clone())
-            .collect();
-        let ingress = Arc::new(Mutex::new(Ingress::new(config.ingress)));
-        let metrics = self.metrics;
-        let shared = Arc::new(Shared {
-            node_gate: Arc::clone(&start.node_gate),
-            allocation_budget: start.allocation_budget.clone(),
-            pending_admission: Mutex::new(pending_admission),
-            instance,
-            own,
-            ingress: Arc::clone(&ingress),
-            frame_limit: usize::try_from(config.frame_limit).unwrap_or(usize::MAX),
-            status: Mutex::new(None),
-            backlog: Mutex::new(Backlog::default()),
-            wake: wake.clone(),
-            transactions_pending: AtomicBool::new(false),
-            #[cfg(test)]
-            empty_waiting: AtomicBool::new(false),
-            #[cfg(test)]
-            empty_epoch: std::sync::atomic::AtomicU64::new(0),
-            alive: AtomicBool::new(true),
-            stopped: Mutex::new(None),
-            metrics: metrics.as_ref().map(|metrics| metrics.series().clone()),
-        });
-        let net: Arc<dyn Net> = Arc::new(NodeNet {
-            net: Arc::clone(&self.net),
-            gate: Arc::clone(&shared.node_gate),
-        });
-        let (sender, rx) = mpsc::channel();
-        let inputs = DriverInputs { sender, wake };
-        // Create the joiner before any worker. Declaring this owner before the
-        // worker channels also closes those channels before its Drop on a spawn
-        // error, so partially started workers can be joined instead of detached.
-        let mut running = RunningDriver {
-            handle: DriverHandle {
-                shared: Arc::clone(&shared),
-                inputs: inputs.clone(),
-            },
-            threads: Vec::new(),
-            joiner: Some(DriverJoiner::start()?),
-            joining: None,
-            shutdown_requested: false,
-            handoff_failed: false,
-        };
-        let (persist_tx, persist_rx) = mpsc::channel::<(u64, Write)>();
-        {
-            let (records, bodies, crypto) = (
-                self.records,
-                Arc::clone(&self.bodies),
-                Arc::clone(&start.crypto),
-            );
-            let tx = inputs.clone();
-            let gate = Arc::clone(&shared.node_gate);
-            running.threads.push(
-                super::threads::sumeragi_thread_builder("sumeragi-persist").spawn(move || {
-                    let _exit = ExitGuard {
-                        worker: Worker::Persist,
-                        tx: tx.clone(),
-                    };
-                    for (seq, write) in persist_rx {
-                        let Some(_operation) = gate.enter() else {
-                            break;
-                        };
-                        let result = persist::perform(&*records, &*bodies, &*crypto, write);
-                        if tx
-                            .send(Input::Done(Completion::Persisted { seq, result }))
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                })?,
-            );
-        }
-        let (exec_tx, exec_rx) = mpsc::channel::<ExecOp>();
-        {
-            let (mut executor, blocks) = (self.executor, Arc::clone(&self.blocks));
-            let tx = inputs.clone();
-            let gate = Arc::clone(&shared.node_gate);
-            running.threads.push(
-                super::threads::sumeragi_thread_builder("sumeragi-exec").spawn(move || {
-                    let _exit = ExitGuard {
-                        worker: Worker::Exec,
-                        tx: tx.clone(),
-                    };
-                    for op in exec_rx {
-                        let Some(_operation) = gate.enter() else {
-                            break;
-                        };
-                        let done = run_exec(&mut executor, &*blocks, op);
-                        if tx.send(Input::Done(Completion::Exec(done))).is_err() {
-                            break;
-                        }
-                    }
-                })?,
-            );
-        }
-        let (serve_tx, serve_rx) = mpsc::channel::<ServeRequest>();
-        {
-            let (bodies, blocks, net) = (self.bodies, self.blocks, Arc::clone(&net));
-            let mut payloads = payload_worker::PayloadWorker::new(
-                instance,
-                start.allocation_budget.clone(),
-                Arc::clone(&start.crypto),
-                start.signers.clone(),
-                config.serve.max_peers,
-                start.init.tip.height,
-            );
-            let tx = inputs.clone();
-            let gate = Arc::clone(&shared.node_gate);
-            running.threads.push(
-                super::threads::sumeragi_thread_builder("sumeragi-serve").spawn(move || {
-                    let _exit = ExitGuard {
-                        worker: Worker::Serve,
-                        tx: tx.clone(),
-                    };
-                    for request in serve_rx {
-                        let Some(_operation) = gate.enter() else {
-                            break;
-                        };
-                        let served = catch_unwind(AssertUnwindSafe(|| {
-                            serve::serve(request, instance, &*bodies, &*blocks, &*net, &mut payloads)
-                        }))
-                        .unwrap_or_else(|_| Err(std::io::Error::other("sumeragi serving panicked")));
-                        let served = match served {
-                            Ok(served) => served,
-                            Err(error) => { iroha_logger::error!(%error, "sumeragi availability/storage worker failed"); break; }
-                        };
-                        if tx.send(Input::Done(Completion::Served(served))).is_err() {
-                            break;
-                        }
-                    }
-                })?,
-            );
-        }
-        let (ready_tx, ready_rx) = mpsc::sync_channel::<Result<(), DriverError>>(1);
-        {
-            let (clock, net, observer) = (self.clock, net, self.observer);
-            let shared = Arc::clone(&shared);
-            running.threads.push(
-                super::threads::sumeragi_thread_builder("sumeragi-loop").spawn(move || {
-                    shared.wake.bind_current();
-                    let _guard = LoopGuard {
-                        shared: Arc::clone(&shared),
-                        observer: Arc::clone(&observer),
-                    };
-                    let workers = Workers {
-                        node_gate: Arc::clone(&shared.node_gate),
-                        net,
-                        observer,
-                        persist: persist_tx,
-                        exec: exec_tx,
-                        serve: serve_tx,
-                    };
-                    let Some(startup) = shared.node_gate.enter() else {
-                        let _ = ready_tx.send(Err(DriverError::StorageClosed));
-                        return;
-                    };
-                    let kernel = Kernel::start(KernelStart {
-                        local: start.local,
-                        init: start.init,
-                        allocation_budget: start.allocation_budget,
-                        signers: start.signers,
-                        crypto: Box::new(CryptoRef(Arc::clone(&start.crypto))),
-                        hasher: Box::new(CryptoRef(start.crypto)),
-                        now: clock.now(),
-                        ingress,
-                        config,
-                    });
-                    drop(startup);
-                    match kernel {
-                        Ok((mut kernel, _)) => {
-                            kernel
-                                .exec
-                                .bind_release_waker(shared.wake.clone().into_waker());
-                            kernel
-                                .exec
-                                .bind_release_thread(shared.wake.original_thread());
-                            shared
-                                .pending_admission
-                                .lock()
-                                .registration
-                                .bind_thread(shared.wake.original_thread());
-                            if let Some(metrics) = metrics {
-                                kernel.attach_metrics(metrics);
-                            }
-                            shared.publish(&mut kernel);
-                            let _ = ready_tx.send(Ok(()));
-                            if let Err(worker) = run_loop(kernel, &rx, &shared, &*clock, &workers) {
-                                stop(&shared, &*workers.observer, worker);
-                            }
-                        }
-                        Err(error) => {
-                            let _ = ready_tx.send(Err(error.into()));
-                        }
-                    }
-                })?,
-            );
-        }
-        match ready_rx.recv() {
-            Ok(Ok(())) => Ok(running),
-            Ok(Err(error)) => {
-                running.shutdown();
-                Err(error)
-            }
-            Err(_) => {
-                running.shutdown();
-                Err(DriverError::Config(ConfigError::InvalidInit(
-                    "event loop died",
-                )))
-            }
-        }
+        startup::spawn(self, config, start)
     }
 }
 

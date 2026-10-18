@@ -122,7 +122,10 @@ pub(super) struct QueueAdmission {
 }
 
 /// The production Queue's sole shared accepted owner; cloning retains the original graph.
-pub(super) struct QueuedTransaction {
+///
+/// Proposal builders and gossip borrow these handles instead of copying transaction graphs;
+/// a handle keeps the original resident charge until its last reader drops it.
+pub(crate) struct QueuedTransaction {
     original: Shared<QueueAdmission, QueueResidentCharge>,
 }
 
@@ -176,8 +179,8 @@ impl QueuedTransaction {
         }
     }
 
-    #[cfg(test)]
-    pub(super) fn ptr_eq(first: &Self, second: &Self) -> bool {
+    /// Whether both handles share the exact same original admission.
+    pub(crate) fn ptr_eq(first: &Self, second: &Self) -> bool {
         Shared::ptr_eq(&first.original, &second.original)
     }
 }
@@ -200,6 +203,13 @@ impl std::ops::Deref for QueuedTransaction {
 impl AsRef<CheckedTransaction<'static>> for QueuedTransaction {
     fn as_ref(&self) -> &CheckedTransaction<'static> {
         self
+    }
+}
+
+/// Let selection and lease code take shared handles and owned copies alike.
+impl std::borrow::Borrow<crate::tx::AcceptedTransaction<'static>> for QueuedTransaction {
+    fn borrow(&self) -> &crate::tx::AcceptedTransaction<'static> {
+        self.original.checked.as_accepted()
     }
 }
 

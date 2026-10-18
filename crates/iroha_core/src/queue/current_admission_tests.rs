@@ -61,11 +61,10 @@ fn current_admission_preserves_original_input_across_direct_queue_boundaries() {
                 .push_with_lane_with_state(transaction.clone(), &state)
                 .map(|_| ()),
             2 => queue
-                .push_with_gossip_payload_with_state_and_routing_plan(
+                .push_with_lane_with_state_and_routing_plan(
                     transaction.clone(),
                     &state,
                     plan.clone(),
-                    None,
                 )
                 .map(|_| ()),
             _ => queue
@@ -753,7 +752,7 @@ fn ordinary_sccp_admission_needs_no_history_but_exempt_shapes_bind_original_time
         isi::sccp::SubmitSccpForgeryEvidenceV1, sccp::params::SccpParametersV1,
     };
 
-    let (mut state, time) = current_admission_queue_fixture();
+    let (state, time) = current_admission_queue_fixture();
     {
         let mut fees = state.nexus_snapshot().fees;
         fees.base_fee = Quantity::from(1_u32);

@@ -4447,6 +4447,108 @@ pub mod isi {
     ) -> Result<(), Error> {
         execute_verified_staking_slash_transfer_inner(state_transaction, authorization, false)
     }
+    use iroha_model_base::topology::LaneId;
+
+    /// The existing canonical tuple identity, projected by the borrowed encoder.
+    type StakingSlashBindingFields = (
+        LaneId,
+        AccountId,
+        Hash,
+        AssetId,
+        AssetId,
+        Quantity,
+        Quantity,
+    );
+
+    /// Borrow the original slash fields without changing their framed tuple identity.
+    /// The zero-length owned marker preserves that tuple's archive alignment without
+    /// constructing any of its fields or allocating their backing.
+    struct StakingSlashBindingRef<'a> {
+        lane_id: LaneId,
+        validator: &'a AccountId,
+        slash_id: Hash,
+        source: &'a AssetId,
+        destination: &'a AssetId,
+        amount: &'a Quantity,
+        exposure: &'a Quantity,
+        _alignment: [StakingSlashBindingFields; 0],
+    }
+    impl norito::NoritoSchema for StakingSlashBindingRef<'_> {
+        fn nominal_name() -> String {
+            <StakingSlashBindingFields as norito::NoritoSchema>::nominal_name()
+        }
+        fn frame_name() -> String {
+            #[cfg(all(test, sumeragi_core_mutation = "HC408"))]
+            {
+                "iroha_core::StakingSlashBindingRef".into()
+            }
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC408")))]
+            {
+                <StakingSlashBindingFields as norito::NoritoSchema>::frame_name()
+            }
+        }
+    }
+    impl norito::core::SerializePayload for StakingSlashBindingRef<'_> {
+        fn serialize(&self, out: &mut norito::core::Encoder<'_>) -> Result<(), norito::Error> {
+            use norito::core::PayloadRef;
+            norito::core::SerializePayload::serialize(
+                &(
+                    self.lane_id,
+                    PayloadRef(self.validator),
+                    self.slash_id,
+                    PayloadRef(self.source),
+                    PayloadRef(self.destination),
+                    PayloadRef(self.amount),
+                    PayloadRef(self.exposure),
+                ),
+                out,
+            )
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn borrowed_slash_binding_preserves_exact_canonical_frame_and_alignment() {
+        let validator = iroha_test_samples::ALICE_ID.clone();
+        let definition = iroha_data_model::parameter::system::SumeragiNposParameters::default()
+            .xor_asset_definition_id;
+        let source = AssetId::new(definition.clone(), validator.clone());
+        let destination = AssetId::new(definition, iroha_test_samples::BOB_ID.clone());
+        let amount: Quantity = "18446744073709551616.25".parse().unwrap();
+        let exposure = amount.checked_add(&Quantity::from(1_u64)).unwrap();
+        let slash_id = Hash::new(b"borrowed-slash-binding");
+        let original = (
+            LaneId::SINGLE,
+            validator.clone(),
+            slash_id,
+            source.clone(),
+            destination.clone(),
+            amount.clone(),
+            exposure.clone(),
+        );
+        let borrowed = StakingSlashBindingRef {
+            lane_id: LaneId::SINGLE,
+            validator: &validator,
+            slash_id,
+            source: &source,
+            destination: &destination,
+            amount: &amount,
+            exposure: &exposure,
+            _alignment: [],
+        };
+        assert_eq!(
+            norito::core::archived_payload_align::<StakingSlashBindingFields>(),
+            norito::core::archived_payload_align::<StakingSlashBindingRef<'_>>()
+        );
+        assert_eq!(
+            canonical_numeric_movement_binding(&borrowed).unwrap(),
+            canonical_numeric_movement_binding(&original).unwrap(),
+            "HC408 borrowed slash binding must preserve the exact original canonical frame"
+        );
+        assert!(std::ptr::eq(borrowed.validator, &validator));
+        assert!(std::ptr::eq(borrowed.amount, &amount));
+    }
+
     fn execute_verified_staking_slash_transfer_inner(
         state_transaction: &mut StateTransaction<'_, '_>,
         authorization: crate::smartcontracts::isi::staking::VerifiedStakingSlashDebit,
@@ -4479,15 +4581,19 @@ pub mod isi {
                     .into(),
             ));
         }
-        let binding = canonical_numeric_movement_binding(&(
+        // TODO(S8): the borrowed fields avoid graph copies, but canonical frame
+        // bytes and cold schema-name scratch still need original-pool custody.
+        let binding = canonical_numeric_movement_binding(&StakingSlashBindingRef {
             lane_id,
-            validator.clone(),
+            validator: &validator,
             slash_id,
-            source_id.clone(),
-            destination_id.clone(),
-            amount.clone(),
-            slashable_exposure,
-        ))?;
+            source: &source_id,
+            destination: &destination_id,
+            amount: &amount,
+            exposure: &slashable_exposure,
+            _alignment: [],
+        })?;
+        drop(slashable_exposure);
         let custody = crate::smartcontracts::isi::staking::prepare_stake_custody_debit(
             &state_transaction.world,
             lane_id,

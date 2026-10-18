@@ -223,9 +223,12 @@ impl IVM {
             return Ok(());
         }
         let index = self.callable_index(target)?;
+        // A transient reference avoids the process-wide accounting lock that a
+        // registered clone would take on every nested call.
         let interface = self
             .contract_interface
-            .clone()
+            .as_ref()
+            .map(crate::cache_memory::SharedValue::transient)
             .ok_or(VMError::DecodeError)?;
         let callable = &interface.callables[index];
         let layout = self
@@ -300,7 +303,8 @@ impl IVM {
         let entry_pc = self.memory.call_frames.entry_pc()?;
         let interface = self
             .contract_interface
-            .clone()
+            .as_ref()
+            .map(crate::cache_memory::SharedValue::transient)
             .ok_or(VMError::DecodeError)?;
         let index = interface
             .callables

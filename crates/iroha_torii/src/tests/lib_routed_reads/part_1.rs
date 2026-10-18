@@ -274,71 +274,6 @@ fn routed_read_test_account_uses_stable_checked_seed_material() {
     );
 }
 #[test]
-fn fanout_route_scan_query_request_is_bounded_by_signed_window() {
-    let request = authorize_query_for_test(
-        iroha_data_model::query::json::IterableQueryJson {
-            kind: iroha_data_model::query::json::IterableQueryKind::FindDomains,
-            params: iroha_data_model::query::json::IterableQueryParamsJson {
-                limit: Some(3),
-                offset: Some(7),
-                fetch_size: Some(1),
-                sort_by_metadata_key: None,
-                order: None,
-            },
-            predicate: None,
-        }
-        .into_request()
-        .expect("iterable request should build"),
-        iroha_test_samples::ALICE_ID.clone(),
-    );
-    let request = fanout_route_scan_query_request(&request).expect("pagination should fit");
-    let iroha_data_model::query::QueryRequest::Start(start) = request.request else {
-        panic!("expected iterable routed query");
-    };
-    assert_eq!(
-        start.params.pagination,
-        iroha_data_model::query::parameters::Pagination::new(std::num::NonZeroU64::new(10), 0,)
-    );
-    assert_eq!(
-        start.params.fetch_size.fetch_size,
-        std::num::NonZeroU64::new(crate::routing::app_query_limits().max_fetch_size.min(10),)
-    );
-}
-#[test]
-fn fanout_route_scan_without_client_limit_uses_configured_fetch_budget() {
-    let request = authorize_query_for_test(
-        iroha_data_model::query::json::IterableQueryJson {
-            kind: iroha_data_model::query::json::IterableQueryKind::FindDomains,
-            params: iroha_data_model::query::json::IterableQueryParamsJson {
-                limit: None,
-                offset: Some(7),
-                fetch_size: Some(1),
-                sort_by_metadata_key: None,
-                order: None,
-            },
-            predicate: None,
-        }
-        .into_request()
-        .expect("iterable request should build"),
-        iroha_test_samples::ALICE_ID.clone(),
-    );
-    let request = fanout_route_scan_query_request(&request).expect("default budget should fit");
-    let iroha_data_model::query::QueryRequest::Start(start) = request.request else {
-        panic!("expected iterable routed query");
-    };
-    assert_eq!(
-        start.params.pagination,
-        iroha_data_model::query::parameters::Pagination::new(
-            std::num::NonZeroU64::new(crate::routing::app_query_limits().max_fetch_size.max(1)),
-            0,
-        ),
-    );
-    assert_eq!(
-        start.params.fetch_size.fetch_size,
-        std::num::NonZeroU64::new(crate::routing::app_query_limits().max_fetch_size.max(1)),
-    );
-}
-#[test]
 fn unsupported_routed_query_response_is_conflict_not_not_implemented() {
     let response = unsupported_routed_query_response("unsupported routed query shape");
     assert_eq!(response.status(), StatusCode::CONFLICT);
@@ -377,44 +312,6 @@ fn app_api_required_torii_proxy_response_is_route_unavailable() {
     );
 }
 #[test]
-fn iterable_routed_query_skips_not_found_and_route_unavailable_errors() {
-    assert!(should_skip_iterable_routed_query_route_error(
-        &torii_proxy_error_response(StatusCode::NOT_FOUND, "not_found", "missing")
-    ));
-    assert!(should_skip_iterable_routed_query_route_error(
-        &torii_proxy_error_response(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "route_unavailable",
-            "offline",
-        )
-    ));
-    assert!(!should_skip_iterable_routed_query_route_error(
-        &torii_proxy_error_response(StatusCode::BAD_REQUEST, "invalid", "bad request")
-    ));
-    let mut duplicate = torii_proxy_error_response(
-        StatusCode::SERVICE_UNAVAILABLE,
-        "route_unavailable",
-        "offline",
-    );
-    duplicate.headers_mut().append(
-        "x-iroha-reject-code",
-        axum::http::HeaderValue::from_static("route_unavailable"),
-    );
-    assert!(
-        !should_skip_iterable_routed_query_route_error(&duplicate),
-        "ambiguous duplicate reject codes must not suppress a route error"
-    );
-    let success_with_reject = Response::builder()
-        .status(StatusCode::OK)
-        .header("x-iroha-reject-code", "route_unavailable")
-        .body(Body::empty())
-        .expect("response");
-    assert!(
-        !should_skip_iterable_routed_query_route_error(&success_with_reject),
-        "success responses cannot advertise a trusted reject code"
-    );
-}
-#[test]
 fn singleton_routed_query_skips_not_found_and_route_unavailable_errors() {
     assert!(should_skip_singleton_routed_query_route_error(
         &torii_proxy_error_response(StatusCode::NOT_FOUND, "not_found", "missing")
@@ -429,6 +326,28 @@ fn singleton_routed_query_skips_not_found_and_route_unavailable_errors() {
     assert!(!should_skip_singleton_routed_query_route_error(
         &torii_proxy_error_response(StatusCode::BAD_REQUEST, "invalid", "bad request")
     ));
+    let mut duplicate = torii_proxy_error_response(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "route_unavailable",
+        "offline",
+    );
+    duplicate.headers_mut().append(
+        "x-iroha-reject-code",
+        axum::http::HeaderValue::from_static("route_unavailable"),
+    );
+    assert!(
+        !should_skip_singleton_routed_query_route_error(&duplicate),
+        "ambiguous duplicate reject codes must not suppress a route error"
+    );
+    let success_with_reject = Response::builder()
+        .status(StatusCode::OK)
+        .header("x-iroha-reject-code", "route_unavailable")
+        .body(Body::empty())
+        .expect("response");
+    assert!(
+        !should_skip_singleton_routed_query_route_error(&success_with_reject),
+        "success responses cannot advertise a trusted reject code"
+    );
 }
 #[cfg(feature = "app_api")]
 #[tokio::test]

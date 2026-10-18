@@ -21,7 +21,8 @@ use job::{Cancellation, Computation, Input, Job, Outcome, Statement};
 use probe::Buffer;
 use std::sync::{Arc, Barrier};
 
-const ROWS: [Row; 2] = [Row::Candidate, Row::Comparator];
+/// Every compiled row: the comparator joins with the `diagnostics` feature.
+const ROWS: [Row; Row::ALL.len()] = Row::ALL;
 const ROLES: [Role; 2] = [Role::Registration, Role::Vote];
 
 #[test]
@@ -104,8 +105,10 @@ fn assert_input_erased() {
 fn expected_proof(row: Row, role: Role) -> Vec<u8> {
     let bytes: &[u8] = match (row, role) {
         (Row::Candidate, Role::Registration) => include_bytes!("fixtures/reg_fast.proof"),
+        #[cfg(feature = "diagnostics")]
         (Row::Comparator, Role::Registration) => include_bytes!("fixtures/reg_comparator.proof"),
         (Row::Candidate, Role::Vote) => include_bytes!("fixtures/vote_S3_i1_fast.proof"),
+        #[cfg(feature = "diagnostics")]
         (Row::Comparator, Role::Vote) => include_bytes!("fixtures/vote_S3_i1_comparator.proof"),
     };
     bytes.to_vec()

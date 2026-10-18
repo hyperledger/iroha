@@ -17,9 +17,9 @@ from zk_source_tokens import rust_tokens, token_hash
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_PATH = Path("crates/irohad/src/main/runtime_deps.rs")
 SOURCE = ROOT / SOURCE_PATH
-SETTER_COUNT = 60
-INVENTORY_SHA256 = "93540ddc9bdafbbbcd87ff58c1d133d563c0d3d8e088dc1f5b1dded63376c099"
-OUTSIDE_PRODUCTION_SHA256 = "25b21b74fcf192624dbba145233dbd3b945a2da24ec7968492c09d4cd1ab8541"
+SETTER_COUNT = 59
+INVENTORY_SHA256 = "5217ffd2e8e6236589bea0986633d9a81fa70734e166949fd739c1847b4255aa"
+OUTSIDE_PRODUCTION_SHA256 = "594619f97860376fff748dde54821152754d3dd0d6e0c452b4b5f4e2a4e7e156"
 MACRO = """macro_rules! define_runtime_dep_setters_v1 {
     (
         $(
@@ -199,7 +199,6 @@ class RuntimeDepsSetterSourceTest(unittest.TestCase):
     def test_every_new_custody_owner_is_mandatory(self) -> None:
         methods = (
             "with_sumeragi_global_beacon_partial_signer",
-            "with_parliament_tle_partial_release_signer",
             "with_sorafs_stream_token_signer_client",
             "with_sorafs_stream_token_state_observer",
             "with_sorafs_stream_token_approved_anchor",

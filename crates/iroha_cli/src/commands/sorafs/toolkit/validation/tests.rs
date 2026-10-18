@@ -1032,12 +1032,7 @@ fn canonical_toolkit_clap_tree_owns_all_artifact_operations() {
         };
         assert!(command.is_artifact_tool());
     }
-    for operation in [
-        "sign",
-        "release-manifest",
-        "release-manifest-receipt",
-        "timed-ovn-release-audit",
-    ] {
+    for operation in ["sign", "release-manifest", "release-manifest-receipt"] {
         let error =
             crate::Args::try_parse_from(["iroha", "app", "sorafs", "toolkit", operation, "--help"])
                 .unwrap_err();

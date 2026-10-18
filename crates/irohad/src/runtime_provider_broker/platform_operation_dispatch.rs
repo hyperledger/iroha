@@ -125,13 +125,8 @@ fn dispatch_server_operation_with_session(
         IrohaRuntimeProviderSlotV1::BootleLanternIssuanceProviderRegistry.wire_id();
     let global_beacon_partial_signer_slot =
         IrohaRuntimeProviderSlotV1::GlobalBeaconPartialSigner.wire_id();
-    let parliament_tle_partial_release_signer_slot =
-        IrohaRuntimeProviderSlotV1::ParliamentTlePartialReleaseSigner.wire_id();
     let result = match (request.binding.slot, request.operation) {
-        (slot, OPERATION_QUALIFY_V1)
-            if slot == global_beacon_partial_signer_slot
-                || slot == parliament_tle_partial_release_signer_slot =>
-        {
+        (slot, OPERATION_QUALIFY_V1) if slot == global_beacon_partial_signer_slot => {
             consensus_operations::qualify_consensus_signer(state, request)
         }
         (slot, OPERATION_GLOBAL_BEACON_PARTIAL_SIGN_V1)
@@ -143,16 +138,6 @@ fn dispatch_server_operation_with_session(
             if slot == global_beacon_partial_signer_slot =>
         {
             consensus_operations::global_beacon_seat_readiness(state, request)
-        }
-        (slot, OPERATION_PARLIAMENT_TLE_PARTIAL_RELEASE_SIGN_V1)
-            if slot == parliament_tle_partial_release_signer_slot =>
-        {
-            consensus_operations::parliament_tle_partial_release_sign(state, request)
-        }
-        (slot, OPERATION_PARLIAMENT_TLE_CAPABILITY_ATTEST_V1)
-            if slot == parliament_tle_partial_release_signer_slot =>
-        {
-            consensus_operations::parliament_tle_capability_attest(state, request)
         }
         (slot, OPERATION_GLOBAL_BEACON_CAPABILITY_ATTEST_V1)
             if slot == global_beacon_partial_signer_slot =>

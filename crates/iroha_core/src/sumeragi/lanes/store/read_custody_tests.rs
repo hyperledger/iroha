@@ -69,6 +69,7 @@ fn completed_restoration_retains_its_exact_body_before_switching_requested_heigh
     store.append(&body, &qc).unwrap();
     let mut state = store.state.lock();
     state.read = Some(super::super::PendingRead {
+        interest: super::super::ReadInterest::Historical,
         height: 1,
         job: store.restore(1).unwrap(),
         ready: None,
@@ -76,7 +77,7 @@ fn completed_restoration_retains_its_exact_body_before_switching_requested_heigh
     concrete.armed.store(true, Ordering::SeqCst);
     assert_eq!(
         store
-            .read_prepared(&mut state, 2)
+            .read_prepared(&mut state, 2, &super::super::ReadInterest::Historical)
             .err()
             .expect("completed original must remain retained")
             .io_kind(),
@@ -99,7 +100,11 @@ fn completed_restoration_retains_its_exact_body_before_switching_requested_heigh
         "the original manifest and real signed rows must all verify"
     );
     assert_eq!(
-        store.read_prepared(&mut state, 2).err().unwrap().io_kind(),
+        store
+            .read_prepared(&mut state, 2, &super::super::ReadInterest::Historical)
+            .err()
+            .unwrap()
+            .io_kind(),
         io::ErrorKind::Other
     );
     assert_eq!(budget.reserved_bytes(), charged);
@@ -107,7 +112,9 @@ fn completed_restoration_retains_its_exact_body_before_switching_requested_heigh
     assert_eq!(fs::read_dir(&concrete.selected).unwrap().count(), 0);
     fs::remove_dir(&concrete.selected).unwrap();
     fs::rename(&concrete.retained, &concrete.selected).unwrap();
-    let prepared = store.read_prepared(&mut state, 1).unwrap();
+    let prepared = store
+        .read_prepared(&mut state, 1, &super::super::ReadInterest::Historical)
+        .unwrap();
     assert_eq!(prepared.body().payload().as_slice().as_ptr(), pointer);
     assert_eq!(prepared.body(), &body);
     assert_eq!(prepared.commit_qc(), &qc);

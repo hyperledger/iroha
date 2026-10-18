@@ -34,6 +34,71 @@ impl QuantityAccumulator {
         }
     }
 
+    /// Copy a canonical quantity into bounded inline arithmetic scratch.
+    #[must_use]
+    pub fn from_quantity(quantity: &Quantity) -> Self {
+        Self {
+            limbs: aligned_quantity_sum_limbs(quantity, quantity.scale())
+                .expect("a canonical quantity fits the inline magnitude"),
+            scale: quantity.scale(),
+        }
+    }
+
+    /// Whether this aggregate is the canonical zero, without materializing it.
+    #[must_use]
+    pub fn is_zero(&self) -> bool {
+        self.limbs.iter().all(|limb| *limb == 0)
+    }
+
+    /// Subtract a borrowed quantity without allocating arithmetic scratch.
+    ///
+    /// # Errors
+    /// Preserves the original aggregate on underflow or canonical-domain overflow.
+    pub fn try_sub(&mut self, quantity: &Quantity) -> Result<(), NumericOperationError> {
+        self.try_sub_accumulator(&Self::from_quantity(quantity))
+    }
+
+    /// Subtract another inline aggregate, normalizing only the final difference.
+    ///
+    /// # Errors
+    /// Preserves both operands on underflow or canonical-domain overflow.
+    pub fn try_sub_accumulator(&mut self, other: &Self) -> Result<(), NumericOperationError> {
+        let scale = self.scale.max(other.scale);
+        let mut difference = Self::align_limbs(self.limbs, self.scale, scale)?;
+        let rhs = Self::align_limbs(other.limbs, other.scale, scale)?;
+        let mut borrow = false;
+        for (limb, rhs) in difference.iter_mut().zip(rhs) {
+            let (value, first) = limb.overflowing_sub(rhs);
+            let (value, second) = value.overflowing_sub(u64::from(borrow));
+            *limb = value;
+            borrow = first || second;
+        }
+        if borrow {
+            // Match ordinary decimal subtraction's error order: canonical-domain
+            // overflow precedes the nominal nonnegative-quantity check. The
+            // wrapped two's-complement difference gives the absolute magnitude
+            // without allocating a signed BigInt.
+            let mut carry = true;
+            for limb in &mut difference {
+                let (value, overflow) = (!*limb).overflowing_add(u64::from(carry));
+                *limb = value;
+                carry = overflow;
+            }
+            Self::normalize(difference, scale, true)?;
+            return Err(NumericOperationError::QuantityUnderflow);
+        }
+        let mut result = Self::zero();
+        result.add_aligned(difference, scale)?;
+        *self = result;
+        Ok(())
+    }
+
+    /// Compare against a borrowed canonical quantity without heap scratch.
+    #[must_use]
+    pub fn cmp_quantity(&self, other: &Quantity) -> core::cmp::Ordering {
+        self.cmp_value(&Self::from_quantity(other))
+    }
+
     /// Add a borrowed quantity without cloning it or allocating scratch.
     ///
     /// # Errors
@@ -125,7 +190,7 @@ impl QuantityAccumulator {
     fn add_aligned(
         &mut self,
         rhs: [u64; QUANTITY_SUM_RELATION_LIMBS],
-        mut scale: u32,
+        scale: u32,
     ) -> Result<(), NumericOperationError> {
         let mut sum = Self::align_limbs(self.limbs, self.scale, scale)?;
         let mut carry = 0_u128;
@@ -137,6 +202,15 @@ impl QuantityAccumulator {
         if carry != 0 {
             return Err(NumericOperationError::MantissaOverflow);
         }
+        *self = Self::normalize(sum, scale, false)?;
+        Ok(())
+    }
+
+    fn normalize(
+        mut sum: [u64; QUANTITY_SUM_RELATION_LIMBS],
+        mut scale: u32,
+        negative: bool,
+    ) -> Result<Self, NumericOperationError> {
         if sum.iter().all(|limb| *limb == 0) {
             scale = 0;
         }
@@ -154,12 +228,12 @@ impl QuantityAccumulator {
             sum = quotient;
             scale -= 1;
         }
-        if sum[8..].iter().any(|limb| *limb != 0) || sum[7] >> 63 != 0 {
+        let negative_minimum =
+            negative && sum[7] == 1_u64 << 63 && sum[..7].iter().all(|limb| *limb == 0);
+        if sum[8..].iter().any(|limb| *limb != 0) || (sum[7] >> 63 != 0 && !negative_minimum) {
             return Err(NumericOperationError::MantissaOverflow);
         }
-        self.limbs = sum;
-        self.scale = scale;
-        Ok(())
+        Ok(Self { limbs: sum, scale })
     }
 
     /// Exact native-digit backing needed by [`Self::try_into_quantity`].
@@ -190,6 +264,88 @@ impl QuantityAccumulator {
 mod tests {
     use super::*;
     use std::str::FromStr as _;
+
+    #[test]
+    fn inline_subtraction_preserves_canonical_results_and_both_operands_on_refusal() {
+        let max = Quantity::try_from_numeric(Numeric::new(
+            BigInt::from_inner((super::super::UnboundedBigInt::from(1_u64) << 511_usize) - 1_u8)
+                .unwrap(),
+            0,
+        ))
+        .unwrap();
+        let values = [
+            Quantity::zero(),
+            Quantity::one(),
+            "0.0000000000000000000000000001".parse().unwrap(),
+            "18446744073709551616.25".parse().unwrap(),
+            max,
+        ];
+        for left in &values {
+            for right in &values {
+                let mut result = QuantityAccumulator::from_quantity(left);
+                let original = result;
+                let rhs = QuantityAccumulator::from_quantity(right);
+                assert_eq!(result.is_zero(), left.is_zero());
+                assert_eq!(result.cmp_quantity(right), left.cmp(right));
+                let expected = left.checked_sub(right);
+                let actual = result.try_sub(right);
+                match expected {
+                    Ok(expected) => {
+                        actual.unwrap();
+                        assert_eq!(result.try_into_quantity().unwrap(), expected);
+                        let mut second = original;
+                        second.try_sub_accumulator(&rhs).unwrap();
+                        assert_eq!(result, second);
+                    }
+                    Err(expected) => {
+                        assert_eq!(actual, Err(expected));
+                        assert_eq!(result, original);
+                    }
+                }
+                assert_eq!(rhs, QuantityAccumulator::from_quantity(right));
+            }
+        }
+    }
+
+    #[test]
+    fn inline_scaled_comparison_matches_unbounded_products_at_full_width() {
+        use super::super::UnboundedBigInt;
+        let max = (UnboundedBigInt::from(1_u64) << 511_usize) - 1_u8;
+        for left_scale in 0..=28 {
+            let left = Quantity::try_from_numeric(Numeric::new(
+                BigInt::from_inner(max.clone()).unwrap(),
+                left_scale,
+            ))
+            .unwrap();
+            for right_scale in 0..=28 {
+                let right = Quantity::try_from_numeric(Numeric::new(
+                    BigInt::from_inner(&max - 2_u8).unwrap(),
+                    right_scale,
+                ))
+                .unwrap();
+                for (a, b) in [
+                    (0, 0),
+                    (0, u64::MAX),
+                    (1, 10_000),
+                    (10_000, 9_999),
+                    (u64::MAX, 1),
+                    (u64::MAX, u64::MAX),
+                ] {
+                    let scale = left.scale().max(right.scale());
+                    let expected_left = left.mantissa().inner()
+                        * a
+                        * UnboundedBigInt::from(10_u8).pow(scale - left.scale());
+                    let expected_right = right.mantissa().inner()
+                        * b
+                        * UnboundedBigInt::from(10_u8).pow(scale - right.scale());
+                    assert_eq!(
+                        left.cmp_mul_u64(a, &right, b),
+                        expected_left.cmp(&expected_right)
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn inline_comparison_and_basis_points_match_canonical_mixed_scale_arithmetic() {

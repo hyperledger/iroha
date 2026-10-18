@@ -1802,7 +1802,7 @@ pub fn holder_finalize_blind_issuance_v1(
         signature_two: response.signature_two,
         attributes: state.attributes,
     };
-    let statement = validation_statement_v1(context.clone(), policy, &state.attributes);
+    let statement = validation_statement_v1(*context, policy, &state.attributes);
     let matrix_seed = matrix_seed_v1(*context.parameter_digest.as_bytes())
         .map_err(|_| BootleLanternIssuanceErrorV1::TranscriptFailed)?;
     let relation =
@@ -2861,7 +2861,7 @@ mod tests {
             ),
             Err(BootleLanternIssuanceStoreErrorV1::AuthorizationExists)
         );
-        let mut substituted_context = fixture.context.clone();
+        let mut substituted_context = fixture.context;
         substituted_context.parameter_digest = PrivacyParameterDigestV1::new(raw(0x87));
         assert_eq!(
             issuer_validate_prepared_blind_issuance_authorization_v1(
@@ -3443,10 +3443,10 @@ mod tests {
     #[test]
     fn action_and_intent_change_reuses_credential_and_existing_p1() {
         let fixture = issuance_fixture_v1();
-        let mut context = fixture.context.clone();
+        let mut context = fixture.context;
         context.action_index = context.action_index.wrapping_add(19);
         context.transaction_intent_digest = PrivacyTransactionIntentDigestV1::new(raw(0xA1));
-        let statement = presentation_statement_v1(context.clone(), &fixture.policy);
+        let statement = presentation_statement_v1(context, &fixture.policy);
         fixture
             .credential
             .presentation_witness_v1(&statement, &fixture.policy, fixture.genesis_hash)
@@ -3467,22 +3467,22 @@ mod tests {
     fn every_reusable_scope_change_fails_before_claim_or_rng() {
         let fixture = issuance_fixture_v1();
         let mut contexts = Vec::new();
-        let mut network = fixture.context.clone();
+        let mut network = fixture.context;
         network.network_id = network_id(0x33);
         contexts.push(network);
-        let mut parameter_id = fixture.context.clone();
+        let mut parameter_id = fixture.context;
         parameter_id.parameter_id = PrivacyParameterIdV1::new(raw(0x81));
         contexts.push(parameter_id);
-        let mut parameter_digest = fixture.context.clone();
+        let mut parameter_digest = fixture.context;
         parameter_digest.parameter_digest = PrivacyParameterDigestV1::new(raw(0x82));
         contexts.push(parameter_digest);
-        let mut verifier = fixture.context.clone();
+        let mut verifier = fixture.context;
         verifier.verifier_digest = PrivacyVerifierDigestV1::new(raw(0x83));
         contexts.push(verifier);
-        let mut schema = fixture.context.clone();
+        let mut schema = fixture.context;
         schema.statement_schema_digest = PrivacyStatementSchemaDigestV1::new(raw(0x84));
         contexts.push(schema);
-        let mut manifest = fixture.context.clone();
+        let mut manifest = fixture.context;
         manifest.engine_manifest_digest = PrivacyEngineManifestDigestV1::new(raw(0x85));
         contexts.push(manifest);
         for context in contexts {
@@ -3531,7 +3531,7 @@ mod tests {
         .expect_err("genesis substitution must fail before issuer RNG");
         assert_eq!(error, BootleLanternIssuanceErrorV1::CredentialScopeFailed);
         assert_store_remained_fresh_v1(fixture, &store);
-        let statement = presentation_statement_v1(fixture.context.clone(), &fixture.policy);
+        let statement = presentation_statement_v1(fixture.context, &fixture.policy);
         assert_eq!(
             fixture
                 .credential
@@ -3579,7 +3579,7 @@ mod tests {
             BootleLanternIssuanceErrorV1::AuthorizationBindingMismatch
         );
         assert_store_remained_fresh_v1(fixture, &rotated_store);
-        let rotated_statement = presentation_statement_v1(fixture.context.clone(), &rotated_policy);
+        let rotated_statement = presentation_statement_v1(fixture.context, &rotated_policy);
         assert_eq!(
             fixture.credential.presentation_witness_v1(
                 &rotated_statement,

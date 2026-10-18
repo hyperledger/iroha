@@ -9,7 +9,7 @@ public integration guidance.
 
 The pure `iroha-python` wheel depends on the separate `iroha-native` wheel,
 whose `iroha_native._crypto` extension owns all cryptographic identity admission.
-Account constructors and exact I105 parsers require ABI 29 and preserve all eleven
+Account constructors and exact I105 parsers require ABI 30 and preserve all eleven
 key algorithms and complete weighted multisig policies. `AccountId` is always
 domainless. Missing native validation fails explicitly, and canonical parsers
 reject surrounding whitespace.
@@ -1368,7 +1368,7 @@ atomically with the accepted application result. The low-level
 inputs with exact committed-query response bytes for offline consumers. Both
 helpers authenticate rejected results; check `result_ok` before treating an
 operation as successful. Header signatures alone do not authenticate outputs.
-The ABI-29 native call returns projection JSON and checkpoint bytes separately.
+The ABI-30 native call returns projection JSON and checkpoint bytes separately.
 An authenticated contract rejection includes a nullable `message` from the
 contract's static error catalog, preserving its exact Unicode text and spacing.
 
@@ -2281,7 +2281,7 @@ Connect frame encoding and crypto helpers require the compiled
 `iroha-native` wheel from `../iroha_native` before running tests that exercise Connect payloads.
 
 From the repository root, the SoraFS V1 native parity lane uses exact Python
-3.12 and rebuilds the ABI-29 extension from the current clean source revision:
+3.12 and rebuilds the ABI-30 extension from the current clean source revision:
 
 ```bash
 SORAFS_PYTHON_SDK_PYTHON_BIN=/path/to/python3.12 \
@@ -2429,7 +2429,7 @@ The workflow now:
 
 1. Builds exactly one wheel candidate with `python -m build` and seals and structurally preflights it before installation.
 2. Installs the wheel into a fresh virtualenv, authenticates the complete installed package and native-extension provenance against that seal, and rejects path or file aliases.
-3. Requires the installed native extension to expose bridge ABI 29 and a non-empty compiled-profile catalog accepted by its native validator, then runs the Norito RPC parity suite.
+3. Requires the installed native extension to expose bridge ABI 30 and a non-empty compiled-profile catalog accepted by its native validator, then runs the Norito RPC parity suite.
 4. Runs `twine check` followed by a `twine upload --dry-run` call so PyPI metadata and credentials are validated ahead of time.
 
 The smoke harness accepts no signing, provenance, key, or manifest-output

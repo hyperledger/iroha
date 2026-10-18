@@ -19,6 +19,25 @@ use crate::{
     },
 };
 
+#[test]
+fn certified_id_streams_exact_preimage_without_heap_allocation() {
+    let block = Hash32([0x41; 32]);
+    let result = Hash32([0x72; 32]);
+    let mut preimage = [0u8; CERTIFIED_BLOCK_ID_TAG.len() + 64];
+    let boundary = CERTIFIED_BLOCK_ID_TAG.len();
+    preimage[..boundary].copy_from_slice(CERTIFIED_BLOCK_ID_TAG);
+    preimage[boundary..boundary + 32].copy_from_slice(&block.0);
+    preimage[boundary + 32..].copy_from_slice(&result.0);
+    let expected = HeightContextId(HashOf::from_untyped_unchecked(Hash::new(preimage)));
+    assert_eq!(
+        crate::test_allocations::allocations_during(|| {
+            assert_eq!(certified_block_id(&block, &result), expected);
+        }),
+        0,
+        "certified prefix identifiers need no unfunded concatenation buffer"
+    );
+}
+
 /// Genesis and four certified blocks; block 3 carries a transaction.
 fn chain() -> (CertifiedTestChain, HashOf<TransactionEntrypoint>) {
     let mut chain =

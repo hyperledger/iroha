@@ -279,6 +279,8 @@ struct CallbackState {
     calls: AtomicUsize,
     invocations: Mutex<Vec<(u32, Vec<u8>, usize)>>,
     answer: Mutex<(PlatformReply, Vec<u8>)>,
+    // This thread's durability-fence count when each callback ran.
+    fences: Mutex<Vec<(u32, u64)>>,
 }
 unsafe extern "C" fn retain(pointer: *mut std::ffi::c_void) {
     unsafe { &*pointer.cast::<CallbackState>() }
@@ -303,6 +305,11 @@ unsafe extern "C" fn invoke(
 ) {
     let state = unsafe { &*pointer.cast::<CallbackState>() };
     state.calls.fetch_add(1, Ordering::SeqCst);
+    state
+        .fences
+        .lock()
+        .unwrap()
+        .push((operation, DURABILITY_FENCES.with(std::cell::Cell::get)));
     state.invocations.lock().unwrap().push((
         operation,
         unsafe { std::slice::from_raw_parts(input, input_length) }.to_vec(),
@@ -323,6 +330,63 @@ fn callbacks(state: &CallbackState) -> PlatformCallbacks {
         release: Some(release),
         invoke: Some(invoke),
     }
+}
+#[test]
+fn results_and_platform_effects_follow_a_durability_fence_and_refusals_and_reads_do_not() {
+    let fences = || DURABILITY_FENCES.with(std::cell::Cell::get);
+    let before = fences();
+    assert_eq!(run(|| Ok(7)).unwrap(), 7);
+    assert_eq!(fences(), before + 1, "a result leaves only after a fence");
+    assert_eq!(
+        run(|| -> Result<()> { Err(Failure::code(INVALID)) }).unwrap_err(),
+        Failure::code(INVALID)
+    );
+    assert_eq!(fences(), before + 1, "a refusal releases nothing to fence");
+
+    let state = CallbackState::default();
+    let adapter = unsafe { CallbackPlatform::new(callbacks(&state)) }.unwrap();
+    let slot = advance::KagemushaWalletSlotIdV1([3; 32]);
+    *state.answer.lock().unwrap() = (
+        PlatformReply {
+            tag: 0,
+            ..PlatformReply::default()
+        },
+        vec![],
+    );
+    let request = advance::KagemushaWalletKeyGenerationRequestV1 {
+        challenge_digest: [4; 32],
+        profile: advance::KagemushaWalletKeyProfileV1::SecureElementOrTee,
+    };
+    let start = fences();
+    let _ = adapter.key_generate(&slot, &request);
+    assert_eq!(
+        adapter.key_delete(&slot),
+        advance::KagemushaWalletRemoveOutcomeV1::Removed
+    );
+    assert_eq!(
+        adapter.anchor_create(&slot, b"a"),
+        advance::KagemushaWalletPublishOutcomeV1::Published
+    );
+    assert_eq!(
+        adapter.anchor_update(&slot, b"b"),
+        advance::KagemushaWalletPublishOutcomeV1::Published
+    );
+    let _ = adapter.anchor_read(&slot);
+    let _ = adapter.key_probe(&slot);
+    let _ = adapter.key_recover_generation_reply(&slot, &request);
+    assert_eq!(
+        *state.fences.lock().unwrap(),
+        [
+            (1, start + 1),
+            (3, start + 2),
+            (5, start + 3),
+            (6, start + 4),
+            (4, start + 4),
+            (0, start + 4),
+            (13, start + 4)
+        ],
+        "each key or anchor effect runs after its own fence; reads and probes need none"
+    );
 }
 #[test]
 fn callback_tri_state_bounds_anchor_policy_and_lifetime_are_explicit() {
@@ -1356,4 +1420,68 @@ fn custody_failure_reasons_preserve_other_failure_contracts() {
     ] {
         assert_eq!(Failure::from(error), Failure::code(status));
     }
+}
+
+#[test]
+fn archive_call_publishes_on_success_discards_on_failure_and_reports_publication_failure() {
+    struct Bracket {
+        events: Vec<&'static str>,
+        close_failure: Option<Failure>,
+    }
+    impl Wallet for Bracket {
+        fn open_archive_call(&mut self) {
+            self.events.push("open");
+        }
+        fn close_archive_call(&mut self, succeeded: bool) -> Result<()> {
+            self.events
+                .push(if succeeded { "publish" } else { "discard" });
+            self.close_failure.map_or(Ok(()), Err)
+        }
+        fn setup(&mut self, _: setup::Setup) -> Result<Response> {
+            unreachable!()
+        }
+        fn snapshot(&mut self) -> Result<state::Snapshot> {
+            unreachable!()
+        }
+        fn execute(&mut self, _: state::OperationRequestV1) -> Result<Response> {
+            unreachable!()
+        }
+        fn request_status(&mut self, _: &[u8; 32]) -> Result<Response> {
+            unreachable!()
+        }
+        fn retry(&mut self, _: &[u8; 32]) -> Result<Response> {
+            unreachable!()
+        }
+        fn resume(&mut self) -> Result<Response> {
+            unreachable!()
+        }
+        fn fold(&mut self) -> Result<ControlFlow<Response, FoldProof>> {
+            unreachable!()
+        }
+        fn credit(&mut self, _: &[u8; 32], _: &[u8; 32]) -> Result<Response> {
+            unreachable!()
+        }
+    }
+    let run = |close_failure: Option<Failure>, answer: Result<u8>| {
+        let mut wallet = Bracket {
+            events: Vec::new(),
+            close_failure,
+        };
+        let result = archive_call(&mut wallet, |_| answer);
+        (result, wallet.events)
+    };
+    // The answer is returned only after the call's staged records were published.
+    assert_eq!(run(None, Ok(7)), (Ok(7), vec!["open", "publish"]));
+    // A failed call discards what it staged and keeps its own error.
+    let refused = Failure::code(PROOF_REJECTED);
+    assert_eq!(
+        run(Some(Failure::code(UNCERTAIN)), Err(refused)),
+        (Err(refused), vec!["open", "discard"])
+    );
+    // A publication failure replaces the answer: no success without durable records.
+    let uncertain = Failure::code(UNCERTAIN);
+    assert_eq!(
+        run(Some(uncertain), Ok(7)),
+        (Err(uncertain), vec!["open", "publish"])
+    );
 }

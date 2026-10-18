@@ -1058,7 +1058,7 @@ mod tests {
             Ok(expected)
         );
         for axis in CONSENSUS_BINDING_AXES_V1 {
-            let mut binding_only = binding.clone();
+            let mut binding_only = binding;
             axis.mutate_binding(&mut binding_only);
             if let Some(expected_error) = axis.mismatch_error() {
                 assert_eq!(
@@ -1079,7 +1079,7 @@ mod tests {
                 let mut invalid_statement = value.statement.clone();
                 axis.mutate_context(&mut invalid_statement.context);
                 redigest_statement_v1(&mut invalid_statement);
-                let mut invalid_binding = binding.clone();
+                let mut invalid_binding = binding;
                 axis.mutate_binding(&mut invalid_binding);
                 assert!(
                     invalid_binding
@@ -1279,7 +1279,7 @@ mod tests {
             "public nullifier",
             verify_private_note_stark_v1(&changed_statement, &binding, &limits, &proof),
         );
-        let mut other_genesis = binding.clone();
+        let mut other_genesis = binding;
         other_genesis.genesis_hash[0] ^= 1;
         assert_eq!(
             other_genesis.validate_against_context(&value.statement.context, &limits),

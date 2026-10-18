@@ -324,7 +324,7 @@ mod tests {
         state.cars[0].lateral_mm = 0;
         state.cars[1].lateral_mm = 0;
         apply_race_dnf_v1(&mut state, &[0]).expect("remove");
-        let removed = state.cars[0].clone();
+        let removed = state.cars[0];
         step_race_v1(
             &mut state,
             &RaceInputFrameV1 {
@@ -520,7 +520,7 @@ mod tests {
         )
         .expect("finish");
         assert_eq!(race_result_v1(&state).expect("result").winners, vec![0, 1]);
-        let first = state.cars[0].clone();
+        let first = state.cars[0];
         step_race_v1(
             &mut state,
             &RaceInputFrameV1 {

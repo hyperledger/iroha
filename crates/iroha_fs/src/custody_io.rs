@@ -235,6 +235,14 @@ impl PrivateDirectory {
     pub fn sync_custody_file(&self, name: impl AsRef<OsStr>) -> io::Result<()> {
         self.inner.sync_custody_file(checked_name(name.as_ref())?)
     }
+    /// [`Self::sync_custody_file`] with ordering only (see [`crate::sync_file_ordered`]);
+    /// [`crate::durability_fence`] makes it durable.
+    /// # Errors
+    /// Refuses missing, shared or changed originals, insufficient native sync rights and failures.
+    pub fn sync_custody_file_ordered(&self, name: impl AsRef<OsStr>) -> io::Result<()> {
+        self.inner
+            .sync_custody_file_ordered(checked_name(name.as_ref())?)
+    }
     /// Consume this original empty journal directory, without the caller's parent sync.
     /// # Errors
     /// Refuses live descendants, nonempty or replaced originals and native deletion errors.

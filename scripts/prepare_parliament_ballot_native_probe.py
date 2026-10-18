@@ -65,6 +65,8 @@ def prepare(output:Path, root:Path=ROOT)->dict:
     manifest='''[package]\nname = "parliament-native-probe"\nversion = "0.0.0"\nedition = "2024"\npublish = false\n\n[workspace]\n\n[features]\ndefault = []\naccel = ["iroha_parliament_ballot_proof/accel"]\n\n[[bin]]\nname = "parliament-native-probe"\npath = "driver.rs"\n\n[dependencies]\n'''
     for name in ['iroha_parliament_ballot_proof','iroha_zkp_vole','norito']:
         features=', features = ["json"], default-features = false' if name=='norito' else ''
+        # The driver selects either row, so it needs the diagnostic comparator row.
+        if name=='iroha_parliament_ballot_proof':features=', features = ["diagnostics"]'
         manifest+=f'{name} = {{ path = {json.dumps(str(root/"crates"/name))}{features} }}\n'
     manifest+='libc = "0.2.177"\nthiserror = "2.0"\nsha3 = { version = "0.10.8", default-features = false, features = ["std"] }\n\n[patch.crates-io]\n'
     root_manifest=tomllib.loads((root/'Cargo.toml').read_text())

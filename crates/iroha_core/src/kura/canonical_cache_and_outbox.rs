@@ -110,44 +110,6 @@ impl BlockData {
         }
     }
 
-    fn cache_body_if_hash(
-        &mut self,
-        index: usize,
-        hash: HashOf<BlockHeader>,
-        body: iroha_data_model::block::SharedSignedBlock,
-    ) -> bool {
-        match self {
-            Self::Dense(entries) => {
-                let Some((known, cached)) = entries.get_mut(index) else {
-                    return false;
-                };
-                if *known != hash {
-                    return false;
-                }
-                *cached = Some(body);
-                true
-            }
-            Self::Deferred { len, entries } => {
-                if index >= *len {
-                    return false;
-                }
-                match entries.entry(index) {
-                    std::collections::btree_map::Entry::Vacant(slot) => {
-                        slot.insert((hash, Some(body)));
-                        true
-                    }
-                    std::collections::btree_map::Entry::Occupied(mut slot) => {
-                        if slot.get().0 != hash {
-                            return false;
-                        }
-                        slot.get_mut().1 = Some(body);
-                        true
-                    }
-                }
-            }
-        }
-    }
-
     /// Borrow the complete canonical history when Strict startup materialized it.
     fn dense_entries(&self) -> Option<&[BlockDataEntry]> {
         match self {

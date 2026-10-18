@@ -1,8 +1,12 @@
 //! Deterministic `NPoS` consensus-evidence slashing.
 //!
 //! Parent validator locators retain exact original-pool backing and nested key custody.
-//! TODO(S8): evidence/history graphs, penalty-action arithmetic
-//! still need complete original-pool owners; this locator owner does not fund those graphs.
+//! Action ordering and quantity comparisons use no allocator scratch.
+//! TODO(S8): action backing and nested account/key/amount custody, and slash
+//! planning/application still need complete original-pool owners. The bare Vec
+//! action/effects handoff must retain those owners through the payload and
+//! pristine-evidence callers; the locator owner does not fund them. Evidence and
+//! history ownership is tracked by their respective modules.
 #[cfg(test)]
 use crate::state::StateBlock;
 #[cfg(feature = "telemetry")]
@@ -815,11 +819,21 @@ impl<'a> PenaltyApplier<'a> {
                 },
             ));
         }
-        actions.sort();
-        actions.dedup();
+        canonicalize_penalty_actions(&mut actions);
         Ok((actions, snapshot.stake_index))
     }
 }
+
+/// Canonical action order needs no stable-sort scratch: equal actions are identical
+/// protocol values and are immediately deduplicated.
+fn canonicalize_penalty_actions(actions: &mut Vec<NposPenaltyAction>) {
+    #[cfg(all(test, sumeragi_core_mutation = "HC405"))]
+    actions.sort();
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC405")))]
+    actions.sort_unstable();
+    actions.dedup();
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_npos_consensus_effects_to_transaction(
     tx: &mut StateTransaction<'_, '_>,
@@ -1338,6 +1352,56 @@ pub(crate) fn pending_payload_penalty_fixture(state: &State) -> (Hash, usize) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn canonical_action_order_deduplicates_without_allocator_scratch() {
+        use super::*;
+        let mut actions: Vec<_> = (0_u64..96)
+            .rev()
+            .map(|height| {
+                NposPenaltyAction::MarkConsensusEvidenceApplied(
+                    NposMarkConsensusEvidenceAppliedAction {
+                        evidence_key: Hash::new(height.to_le_bytes()),
+                        height: height % 7,
+                    },
+                )
+            })
+            .collect();
+        // Equal prefixes force comparison through the actual peer/account
+        // graphs and a wide quantity, rather than testing marker hashes only.
+        let base: Quantity = "340282366920938463463374607431768211456.25"
+            .parse()
+            .unwrap();
+        let peer_id = PeerId::new(iroha_test_samples::ALICE_KEYPAIR.public_key().clone());
+        for amount in (0_u64..96).rev() {
+            actions.push(NposPenaltyAction::ConsensusSlash(
+                NposConsensusSlashAction {
+                    evidence_key: Hash::new(b"same-evidence-prefix"),
+                    signer: 0,
+                    peer_id: peer_id.clone(),
+                    lane_id: LaneId::SINGLE,
+                    validator: iroha_test_samples::ALICE_ID.clone(),
+                    slash_id: Hash::new(b"same-slash-prefix"),
+                    amount: base.checked_add(&Quantity::from(amount)).unwrap(),
+                },
+            ));
+        }
+        actions.extend_from_within(..);
+        let mut expected = actions.clone();
+        expected.sort();
+        expected.dedup();
+        let pointer = actions.as_ptr();
+        let capacity = actions.capacity();
+        let allocations = crate::test_allocations::allocations_during(|| {
+            canonicalize_penalty_actions(&mut actions);
+        });
+        assert_eq!(
+            allocations, 0,
+            "HC405 canonical penalty sorting must not allocate stable-sort scratch"
+        );
+        assert_eq!(actions, expected);
+        assert_eq!(actions.as_ptr(), pointer);
+        assert_eq!(actions.capacity(), capacity);
+    }
     use super::*;
     include!("penalties/sccp_tests.rs");
     use crate::{

@@ -118,7 +118,8 @@ pub fn address_of_secret(secret: &[u8; 32]) -> Result<[u8; 20], SignatureError> 
 // Single signatures
 // ---------------------------------------------------------------------------------------------
 
-/// Check the §3.8 form of a signature: `v ∈ {27, 28}`, `1 ≤ r < N`, `1 ≤ s ≤ HALF_N`.
+/// Check an ordinary EVM transaction signature: `v ∈ {27, 28}`, `1 ≤ r < N`,
+/// `1 ≤ s ≤ HALF_N`.
 ///
 /// # Errors
 ///
@@ -146,7 +147,7 @@ fn split_rs(signature: &[u8; 65]) -> ([u8; 32], [u8; 32]) {
     (r, s)
 }
 
-/// Recover the signer address of a §3.8 signature over `digest`.
+/// Recover the signer address of an ordinary EVM transaction signature over `digest`.
 ///
 /// # Errors
 ///
@@ -208,8 +209,8 @@ pub fn normalize_low_s(signature: &[u8; 65]) -> [u8; 65] {
 // Signing
 // ---------------------------------------------------------------------------------------------
 
-/// Sign `digest` with `secret` (§3.8): RFC 6979 deterministic first, and while the recovery id
-/// is 2 or 3, re-sign with fresh RFC 6979 extra entropy from the OS.
+/// Sign an ordinary EVM transaction `digest` with `secret`: RFC 6979 deterministic first,
+/// and while the recovery id is 2 or 3, re-sign with fresh RFC 6979 extra entropy from the OS.
 ///
 /// # Errors
 ///

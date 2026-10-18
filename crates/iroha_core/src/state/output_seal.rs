@@ -314,8 +314,6 @@ impl StateBlock<'_> {
             FinalizedExecutionOutputs {
                 authorized,
                 surface: Box::new(surface),
-                _events_hash: crate::state::world_projection::hash_value(&events)
-                    .map_err(invalid)?,
             },
         ));
         owner.finished = true;

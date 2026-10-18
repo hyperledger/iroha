@@ -17,7 +17,7 @@ fn priced_fixture(callback_bytes: Option<usize>) -> (State, AssetDefinitionId) {
         &iroha_config::parameters::defaults::nexus::fees::fee_asset_id(),
     )
     .expect("canonical network XOR fee asset");
-    let mut state = fixture_with_fee_asset(65_536, callback_bytes, Some(asset.clone()));
+    let state = fixture_with_fee_asset(65_536, callback_bytes, Some(asset.clone()));
     {
         let mut fees = state.nexus_snapshot().fees;
         fees.per_instruction_fee = Quantity::from(1_u32);
@@ -451,6 +451,7 @@ fn actual_failed_execution_fee_authority_is_once_only_and_bound_to_its_source_co
             parameters.transaction(),
             &block.crypto,
             source.header().creation_time(),
+            false,
         )
         .unwrap();
         let mut cache = IvmCache::with_prepared_contract_cache(

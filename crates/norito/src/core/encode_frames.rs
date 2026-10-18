@@ -105,11 +105,7 @@ where
     validate_header_flags(base_flags)?;
     let first_guard = EncodeContextGuard::enter();
     let mut discard = std::io::sink();
-    let mut first_payload = FramedPayloadWriter {
-        inner: &mut discard,
-        len: 0,
-        digest: crc64fast::Digest::new(),
-    };
+    let mut first_payload = FramedPayloadWriter::new(&mut discard);
     {
         let _flags = DecodeFlagsGuard::enter(base_flags);
         let mut encoder = Encoder::new(&mut first_payload);
@@ -144,11 +140,7 @@ where
     }
 
     let second_guard = EncodeContextGuard::enter();
-    let mut second_payload = FramedPayloadWriter {
-        inner: writer,
-        len: 0,
-        digest: crc64fast::Digest::new(),
-    };
+    let mut second_payload = FramedPayloadWriter::new(writer);
     let (serialize_result, written_len, rejected_write) = {
         let mut exact = ExactLengthWriter::new(&mut second_payload, payload_len);
         let result = {

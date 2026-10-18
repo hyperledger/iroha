@@ -396,6 +396,50 @@ fn genuine_send_sigma_and_same_tape_depth32_maps() {
 }
 
 #[test]
+fn a_cancelled_send_sigma_ends_without_a_proof_and_a_live_signal_changes_nothing() {
+    fn config(signal: &iroha_pasta::CancellationToken) -> iroha_plonk::ProverConfig<'_> {
+        iroha_plonk::ProverConfig {
+            cancellation: Some(signal),
+            ..iroha_plonk::ProverConfig::default()
+        }
+    }
+    // A wallet's speculative Send proof runs under its review's signal (design §5.1).
+    let circuit = fixture();
+    let shape = common::pinned_shape(common::folded(SigmaRelation::SEND), (12, 1));
+    let prover = SigmaProver::<Eq>::keygen_with_params(shape, common::vesta_params(12)).unwrap();
+    let cancelled = iroha_pasta::CancellationToken::new();
+    cancelled.cancel();
+    let Err(error) = prover.prove_with_config(
+        &circuit.witness.step,
+        common::fresh_randomness(),
+        config(&cancelled),
+    ) else {
+        panic!("a cancelled signal produced a proof");
+    };
+    assert!(error.is_cancelled(), "{error:?}");
+    let live = iroha_pasta::CancellationToken::new();
+    let sigma = prover
+        .prove_with_config(
+            &circuit.witness.step,
+            common::fresh_randomness(),
+            config(&live),
+        )
+        .unwrap();
+    let opening = accumulate_generator(
+        prover.params(),
+        prover.proving_key().binding(),
+        prover.proving_key().vk(),
+        &[sigma.public.instance()],
+        &sigma.bytes,
+        MemoryBudget::DEFAULT,
+    )
+    .unwrap();
+    opening
+        .decide(prover.params(), MemoryBudget::DEFAULT)
+        .unwrap();
+}
+
+#[test]
 fn send_held_fee_cannot_skip_or_replace_either_map_obligation() {
     let (bootstrap, _, _) = bootstrap_objects::enrollment();
     let (load, _, _) = load_objects::funded(&bootstrap);

@@ -180,26 +180,23 @@ impl Registers {
     }
 
     /// Restore zero registers while retaining the existing Merkle backing and charge.
+    ///
+    /// The retained nodes are rewritten lazily: the next root or path read
+    /// rebuilds them from these values, so a reset nobody reads hashes nothing.
     pub(crate) fn reset_to_zero(&mut self) {
         self.gpr = [0; 256];
         self.tags = [false; 256];
-        let zero_leaf: [u8; 32] = Sha256::digest([0_u8; 9]).into();
-        self.tree
-            .get_mut()
-            .rewrite_hashed_leaves_sha256(&[zero_leaf; 256])
-            .expect("register tree has fixed SHA-256 geometry");
-        self.dirty.store(false, Ordering::Release);
+        *self.dirty.get_mut() = true;
     }
 
     /// Restore a runtime baseline without replacing the worker's Merkle backing.
+    ///
+    /// Like [`Self::reset_to_zero`], the retained nodes are rebuilt only when a
+    /// root or path is next read, yielding the template's canonical root.
     pub(crate) fn restore_from_template(&mut self, template: &Self) {
         self.gpr = template.gpr;
         self.tags = template.tags;
-        self.tree
-            .get_mut()
-            .rewrite_hashed_leaves_sha256(&register_leaf_digests(&self.gpr, &self.tags))
-            .expect("register tree has fixed SHA-256 geometry");
-        self.dirty.store(false, Ordering::Release);
+        *self.dirty.get_mut() = true;
     }
     /// Get the value of register `idx`.
     #[inline]
@@ -226,14 +223,15 @@ impl Registers {
         debug_assert!(idx < 256);
         if idx != 0 {
             self.gpr[idx] = value;
-            let was_dirty = self.dirty.swap(true, Ordering::AcqRel);
+            // Exclusive access needs no atomic read-modify-write.
+            let was_dirty = std::mem::replace(self.dirty.get_mut(), true);
             record_register_event(|| {
                 if !was_dirty {
                     self.tree.get_mut().update_hashed_leaf_sha256(
                         idx,
                         register_leaf_digest(value, self.tags[idx]),
                     );
-                    self.dirty.store(false, Ordering::Release);
+                    *self.dirty.get_mut() = false;
                 }
                 let (root, path) = self
                     .merkle_root_and_path(idx)
@@ -260,13 +258,13 @@ impl Registers {
         debug_assert!(idx < 256);
         if idx != 0 {
             self.tags[idx] = value;
-            let was_dirty = self.dirty.swap(true, Ordering::AcqRel);
+            let was_dirty = std::mem::replace(self.dirty.get_mut(), true);
             record_register_event(|| {
                 if !was_dirty {
                     self.tree
                         .get_mut()
                         .update_hashed_leaf_sha256(idx, register_leaf_digest(self.gpr[idx], value));
-                    self.dirty.store(false, Ordering::Release);
+                    *self.dirty.get_mut() = false;
                 }
                 let (root, path) = self
                     .merkle_root_and_path(idx)
@@ -315,7 +313,7 @@ impl Registers {
             if self.tags[index] {
                 iroha_crypto::zeroize_value_for_confidential_discard(&mut self.gpr[index]);
                 self.tags[index] = false;
-                self.dirty.store(true, Ordering::Release);
+                *self.dirty.get_mut() = true;
             }
         }
     }
@@ -583,6 +581,61 @@ mod tests {
         assert_logged_event_matches(&log.as_slice()[1], &after_tag);
         assert_eq!(regs.merkle_root(), after_tag.0);
     }
+    #[test]
+    fn lazy_reset_and_template_restore_hash_nothing_until_a_root_is_read() {
+        let mut template = Registers::new();
+        template.set(9, 0x99);
+        template.set_tag(9, true);
+        let template_root = template.merkle_root();
+        let zero_root = Registers::new().merkle_root();
+        let mut worker = Registers::new();
+        worker.set(3, 7);
+        assert_ne!(worker.merkle_root(), zero_root);
+
+        reset_register_leaf_digest_count();
+        worker.reset_to_zero();
+        worker.restore_from_template(&template);
+        assert_eq!(register_leaf_digest_count(), 0);
+        assert_eq!(worker.snapshot(), template.snapshot());
+        assert_eq!(worker.snapshot_tags(), template.snapshot_tags());
+        assert_eq!(worker.merkle_root(), template_root);
+        assert_eq!(register_leaf_digest_count(), 256);
+
+        worker.reset_to_zero();
+        assert_eq!(register_leaf_digest_count(), 256);
+        assert_eq!(worker.merkle_root(), zero_root);
+        let (root, path) = worker.merkle_root_and_path(9).unwrap();
+        let canonical = canonical_root_and_path(&worker, 9);
+        assert_eq!(root, canonical.0);
+        assert_eq!(path.as_slice(), canonical.1.as_slice());
+    }
+
+    #[test]
+    fn logged_writes_after_a_lazy_restore_report_canonical_roots_and_paths() {
+        let mut template = Registers::new();
+        template.set(4, 44);
+        let mut regs = Registers::new();
+        regs.set(5, 55);
+        let _ = regs.merkle_root();
+        regs.restore_from_template(&template);
+        let log = crate::zk::SharedRegLog::try_new(None).expect("test logger allocation");
+        let guard = crate::zk::RegLoggerGuard::install(Some(log.clone()));
+        let batch = crate::zk::RegEventBatch::begin(2).unwrap();
+
+        regs.set(7, 42);
+        let after_set = canonical_root_and_path(&regs, 7);
+        regs.set_tag(7, true);
+        let after_tag = canonical_root_and_path(&regs, 7);
+        drop(batch);
+        drop(guard);
+
+        let log = log.lock();
+        assert_eq!(log.as_slice().len(), 2);
+        assert_logged_event_matches(&log.as_slice()[0], &after_set);
+        assert_logged_event_matches(&log.as_slice()[1], &after_tag);
+        assert_eq!(regs.merkle_root(), after_tag.0);
+    }
+
     #[test]
     fn merkle_proof_apis_reject_out_of_range_indices_without_aliasing() {
         let regs = Registers::new();

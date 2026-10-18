@@ -176,11 +176,11 @@ def verify_java_consumer(index: PackageIndex, opened: OpenedIndexFiles, *, trust
         raise IndexError("Java executed packages differ from the actual Kotlin distribution")
     native_raw = original(manifest["native_artifact"], "native artifact", MAX_ARCHIVE_BYTES)
     native_manifest = original(manifest["native_manifest"], "native manifest", 64 * 1024)
-    if members.get("inputs/native-abi29.json") != native_manifest:
+    if members.get("inputs/native-abi30.json") != native_manifest:
         raise IndexError("Java retained native manifest is a different original")
     native = parse_native_manifest(native_manifest)
     if native["sdk"] != "c-jni" or native["source_commit"] != index.source_commit or native["workspace_source_manifest_sha256"] != index.workspace_source_manifest_sha256 or native["artifact_sha256"] != identity(native_raw)["sha256"] or native["artifact_size"] != len(native_raw):
-        raise IndexError("Java native artifact is not the original candidate ABI-29 input")
+        raise IndexError("Java native artifact is not the original candidate ABI-30 input")
     dependency_raw = original(manifest["dependency_manifest"], "dependency manifest", 64 * 1024)
     if members.get("inputs/dependencies.json") != dependency_raw:
         raise IndexError("Java retained dependency manifest is a different original")
@@ -219,7 +219,7 @@ def verify_java_consumer(index: PackageIndex, opened: OpenedIndexFiles, *, trust
     source = trusted["sources/SorafsReferenceValidatorsJavaConsumerTest.java"]
     if tuple(re.findall(rb"@Test\s+(?:public\s+)?void\s+(\w+)\s*\(", source)) != tuple(name.encode() for name in GROUPS):
         raise IndexError("Java source no longer contains the exact 25 original assertions")
-    expected_members = set(trusted) | {"manifest.json", "inputs/dependencies.json", "inputs/native-abi29.json"}
+    expected_members = set(trusted) | {"manifest.json", "inputs/dependencies.json", "inputs/native-abi30.json"}
     executions = manifest["executions"]
     if type(executions) is not list or len(executions) != 2:
         raise IndexError("Java executions must contain exactly two original lanes")

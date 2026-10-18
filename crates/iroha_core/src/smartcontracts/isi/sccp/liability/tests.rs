@@ -288,3 +288,6 @@ fn stored_offender_must_name_the_exact_captured_signer_slot() {
         Err(ForgeryStorageError::Invalid)
     );
 }
+
+#[path = "reference_fixtures.rs"]
+mod reference_fixtures;

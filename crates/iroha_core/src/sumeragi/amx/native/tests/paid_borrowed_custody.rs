@@ -461,6 +461,7 @@ fn native_amx_persisted_paid_borrowed_prepared_proof_clone_retains_original_grap
             view.world().parameters().transaction(),
             &view.crypto(),
             Duration::from_millis(5_000),
+            false,
         )
         .expect("the original paid source passes actual borrowed envelope/signature/TTL admission")
             };

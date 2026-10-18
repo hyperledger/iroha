@@ -244,9 +244,9 @@ world_test!(sccp_governance_proposals_list_open_proposals_with_their_admissibili
     assert!(!listed[0].admissible);
 });
 
-// This fixture establishes a route and retained pause before running the real stored,
-// validated due-certificate executor. It qualifies effect/cause binding and rollback, not
-// route registration, current PQ ballot production, or emergency-pause establishment.
+// This fixture establishes route/pause DATA and a legacy validated certificate. The real
+// due-certificate executor must refuse it without the source-bound casting-open anchor.
+// Component tests supply explicit anchor DATA; they do not qualify ballot production.
 fn seed_due_sccp_control_certificate(
     stx: &mut StateTransaction<'_, '_>,
     paused: bool,
@@ -288,8 +288,47 @@ fn seed_due_sccp_control_certificate(
     seed_due_parliament_certificate(stx, sccp_route_governance_test_kind(&proposal))
 }
 
+fn enact_sccp_control_component(
+    fixture: &DueParliamentCertificateFixture,
+    execution: &mut StateTransaction<'_, '_>,
+) -> Result<(), Error> {
+    use crate::smartcontracts::isi::sccp::{governance, store};
+    use iroha_data_model::{bridge::SccpNetworkV1, governance::GovernanceAnchorV1};
+
+    fixture
+        .certificate
+        .validate()
+        .expect("valid certificate DATA");
+    let ProposalKind::SccpRouteGovernance(payload) = execution
+        .world
+        .governance_proposals
+        .get(&fixture.proposal_id)
+        .unwrap()
+        .kind
+        .clone()
+    else {
+        panic!("SCCP component proposal");
+    };
+    let pause =
+        store::fast_pauses::get(&*execution.world, &SccpNetworkV1::EthereumMainnet).unwrap();
+    // Explicit test DATA, never a replacement for the missing Parliament-owned producer.
+    // Equal positions intentionally retain the original pause on a resume.
+    let s0 = GovernanceAnchorV1 {
+        height: pause.enacted_at.height,
+        position: pause.enacted_at.position,
+        timestamp_ms: pause.enacted_at_ms,
+    };
+    governance::enact(
+        execution,
+        *GovernanceCertificateId::derive_v1(&fixture.certificate).as_bytes(),
+        fixture.certificate.effect_preimage_hash,
+        s0,
+        &payload.proposal,
+    )
+}
+
 #[test]
-fn parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state() {
+fn sccp_enactment_component_binds_exact_certificate_and_complete_pause_state() {
     use crate::smartcontracts::isi::sccp::store;
     use iroha_data_model::{bridge::SccpNetworkV1, sccp::events::SccpEvent};
     use iroha_sccp::v1::control::{ControlLeafV1, control_leaf};
@@ -310,30 +349,8 @@ fn parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state(
             .unwrap()
             .clone();
         let mut execution = state_block.transaction();
-        let outcome =
-            execute_due_parliament_certificate_v1(fixture.governance_attempt_id, &mut execution)
-                .unwrap();
-        if !paused {
-            assert!(
-                matches!(
-                    outcome,
-                    DueParliamentCertificateExecutionV1::EffectFailed { .. }
-                ),
-                "an approving certificate without its original Policy Jury opening cannot lift fast-pause state"
-            );
-            assert_eq!(
-                store::fast_pauses::get(&*execution.world, &network),
-                Some(&original_pause)
-            );
-            let revision = &store::routes::get(&*execution.world, &network)
-                .unwrap()
-                .revisions[&1];
-            assert!(revision.destination_paused);
-            assert_eq!(revision.next_control_nonce, 1);
-            assert!(store::control_messages::get(&*execution.world, &(network, 1, 1)).is_none());
-            continue;
-        }
-        assert_eq!(outcome, DueParliamentCertificateExecutionV1::Applied);
+        enact_sccp_control_component(&fixture, &mut execution)
+            .expect("isolated SCCP effect with explicit test-only casting-open DATA");
         let expected_id = *GovernanceCertificateId::derive_v1(&fixture.certificate).as_bytes();
         assert_ne!(expected_id, fixture.proposal_id);
         let row = *store::control_messages::get(&*execution.world, &(network, 1, 1)).unwrap();
@@ -384,19 +401,34 @@ fn parliament_due_sccp_control_binds_exact_certificate_and_complete_pause_state(
                     && event.parliament_paused == paused
                     && event.fast_pause_until_ms == original_pause.until_ms)
         ));
-        assert_automatic_parliament_execution_event(
-            &execution,
-            &fixture,
-            gov::ParliamentAutomaticExecutionOutcomeV1::Enacted,
+        assert!(execution.world.internal_event_buf.iter().any(
+            |event| matches!(event.as_ref(), DataEvent::Sccp(SccpEvent::GovernanceEnacted(event))
+                if event.proposal_id == fixture.proposal_id)
+        ));
+        let proposal = execution
+            .world
+            .governance_proposals
+            .get(&fixture.proposal_id)
+            .unwrap()
+            .clone();
+        let before_replay_events = execution.world.internal_event_buf.len();
+        apply_parliament_proposal_effect_v1(
+            fixture.proposal_id,
+            &proposal,
+            &fixture.certificate,
+            &mut execution,
+        )
+        .expect_err("the legacy adapter cannot replay the component's certificate without s0");
+        assert_eq!(
+            execution.world.internal_event_buf.len(),
+            before_replay_events
         );
-        execute_due_parliament_certificate_v1(fixture.governance_attempt_id, &mut execution)
-            .expect_err("the same certificate cannot record a second control");
         assert_eq!(store::control_messages::len(&*execution.world), 1);
     }
 }
 
 #[test]
-fn parliament_due_sccp_control_full_block_rolls_back_flag_nonce_and_cause() {
+fn sccp_enactment_component_full_block_rolls_back_flag_nonce_and_cause() {
     use crate::smartcontracts::isi::sccp::{leaves, store};
     use iroha_data_model::{bridge::SccpNetworkV1, sccp::control::SccpLeafRefV1};
     let state = blank_test_state();
@@ -425,12 +457,9 @@ fn parliament_due_sccp_control_full_block_rolls_back_flag_nonce_and_cause() {
         .clone();
     {
         let mut execution = state_block.transaction();
-        assert!(
-            matches!(execute_due_parliament_certificate_v1(fixture.governance_attempt_id, &mut execution).unwrap(),
-            DueParliamentCertificateExecutionV1::EffectFailed { failure_root }
-                if failure_root == parliament_execution_failure_root_v1(&fixture.certificate, PARLIAMENT_DUE_CERTIFICATE_HEIGHT))
-        );
-        // The actual production block-start caller drops this isolated effect on failure.
+        enact_sccp_control_component(&fixture, &mut execution)
+            .expect_err("a full block cannot allocate the component's control leaf");
+        // The owner drops the isolated effect on failure, just as the block-start caller does.
     }
     assert_eq!(
         store::routes::get(&state_block.world, &network),
@@ -445,4 +474,110 @@ fn parliament_due_sccp_control_full_block_rolls_back_flag_nonce_and_cause() {
         leaves::leaf_count_at(&state_block.world, PARLIAMENT_DUE_CERTIFICATE_HEIGHT),
         leaves::MAX_LEAVES_PER_BLOCK as usize
     );
+}
+
+#[test]
+fn parliament_due_sccp_certificate_without_casting_open_anchor_fails_without_effects() {
+    use crate::smartcontracts::isi::sccp::{leaves, store};
+    use iroha_data_model::{bridge::SccpNetworkV1, sccp::governance::SccpGovernanceSubjectV1};
+
+    for paused in [false, true] {
+        let state = blank_test_state();
+        let block =
+            new_dummy_block_at_height(NonZeroU64::new(PARLIAMENT_DUE_CERTIFICATE_HEIGHT).unwrap());
+        let mut state_block = state.block(block.as_ref().header());
+        let mut execution = state_block.transaction();
+        let fixture = seed_due_sccp_control_certificate(&mut execution, paused);
+        fixture
+            .certificate
+            .validate()
+            .expect("complete legacy certificate");
+        let network = SccpNetworkV1::EthereumMainnet;
+        let original_route = store::routes::get(&*execution.world, &network)
+            .unwrap()
+            .clone();
+        let original_pause = store::fast_pauses::get(&*execution.world, &network)
+            .unwrap()
+            .clone();
+        let original_proposal = execution
+            .world
+            .governance_proposals
+            .get(&fixture.proposal_id)
+            .unwrap()
+            .clone();
+        let original_attempt = execution
+            .world
+            .parliament_attempts
+            .get(&fixture.governance_attempt_id)
+            .unwrap()
+            .clone();
+        let original_events = execution.world.internal_event_buf.len();
+        let error = apply_parliament_proposal_effect_v1(
+            fixture.proposal_id,
+            &original_proposal,
+            &fixture.certificate,
+            &mut execution,
+        )
+        .expect_err("neither pause nor resume may fabricate a casting-open anchor");
+        assert!(
+            error
+                .to_string()
+                .contains("casting-open source is unavailable")
+        );
+        assert_eq!(
+            execute_due_parliament_certificate_v1(fixture.governance_attempt_id, &mut execution)
+                .expect("validated exact-due certificate reaches the adapter"),
+            DueParliamentCertificateExecutionV1::EffectFailed {
+                failure_root: parliament_execution_failure_root_v1(
+                    &fixture.certificate,
+                    PARLIAMENT_DUE_CERTIFICATE_HEIGHT,
+                ),
+            },
+        );
+        assert_eq!(
+            store::routes::get(&*execution.world, &network),
+            Some(&original_route)
+        );
+        assert_eq!(
+            store::fast_pauses::get(&*execution.world, &network),
+            Some(&original_pause)
+        );
+        assert_eq!(
+            execution
+                .world
+                .governance_proposals
+                .get(&fixture.proposal_id)
+                .map(norito::codec::Encode::encode),
+            Some(norito::codec::Encode::encode(&original_proposal))
+        );
+        assert_eq!(
+            execution
+                .world
+                .parliament_attempts
+                .get(&fixture.governance_attempt_id),
+            Some(&original_attempt)
+        );
+        assert_eq!(execution.world.internal_event_buf.len(), original_events);
+        assert_eq!(
+            store::governance_revision(
+                &*execution.world,
+                &SccpGovernanceSubjectV1::RouteControl(network)
+            ),
+            0
+        );
+        assert_eq!(
+            store::governance_revision(
+                &*execution.world,
+                &SccpGovernanceSubjectV1::FastHold(network)
+            ),
+            0
+        );
+        assert!(store::control_messages::is_empty(&*execution.world));
+        assert_eq!(
+            leaves::leaf_count_at(&*execution.world, PARLIAMENT_DUE_CERTIFICATE_HEIGHT),
+            0
+        );
+        assert_eq!(original_route.revisions[&1].destination_paused, !paused);
+        assert_eq!(original_route.revisions[&1].next_control_nonce, 1);
+    }
 }
