@@ -720,6 +720,7 @@ mod tests {
     }
     #[test]
     fn large_accelerated_merkle_paths_match_canonical() {
+        let _serial = crate::vector::forced_simd_test_lock();
         let mut data = vec![0u8; 8_193 * 32];
         for (index, byte) in data.iter_mut().enumerate() {
             *byte = (index as u8).wrapping_mul(17).wrapping_add(3);

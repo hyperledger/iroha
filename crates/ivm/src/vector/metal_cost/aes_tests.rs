@@ -87,6 +87,7 @@ fn retained_work_defines_every_direction_round_count_and_fused_pipeline() {
 
 #[test]
 fn qualified_owner_can_sample_aes_without_production_receipts() {
+    let _serial = crate::vector::forced_simd_test_lock();
     if !super::super::metal_available() {
         return;
     }
