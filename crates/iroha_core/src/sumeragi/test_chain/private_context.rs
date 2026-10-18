@@ -54,13 +54,21 @@ fn paid_global_config() -> TestChainConfig {
     )
     .unwrap();
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
-    nexus.fees.settlement_mode = iroha_config::parameters::actual::NexusFeeSettlementMode::Direct;
-    nexus.fees.fee_asset_id = fee_asset().canonical_address();
-    nexus.fees.fee_sink_account_id = account(&config.genesis_key).to_string();
+    nexus.fees.fee_asset_id = fee_asset().clone();
+    nexus.fees.fee_sink_account_id = account(&config.genesis_key).clone();
     nexus.fees.base_fee = GLOBAL_FEE.into();
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
+    config
+        .genesis_parameters
+        .push(iroha_data_model::parameter::Parameter::Custom(
+            nexus
+                .fees
+                .clone()
+                .into_custom_parameter()
+                .expect("original signed Global fee policy"),
+        ));
     config.nexus = Some(nexus);
     config.genesis_instructions.extend([
         Register::domain(iroha_data_model::domain::Domain::new(domain.clone())).into(),
@@ -265,9 +273,17 @@ pub fn native_private_context_route_fixture()
         receipt.settlement,
         iroha_data_model::block::consensus::NexusFeeSettlementV1::Burn,
     );
-    // TODO: Global Nexus fees still use configuration in the current production owner
-    // (F.4); the signed private-root policy does not apply to this Global context.
-    // Pin the exact existing schedule and fee independently of any balance delta.
+    // Pin the original H1-authored Global schedule and fee independently of balance deltas.
+    let authored = chain
+        .state()
+        .view()
+        .world()
+        .parameters()
+        .root_fees()
+        .cloned()
+        .expect("committed Global root fee policy");
+    assert_eq!(authored.base_fee, Quantity::from(GLOBAL_FEE));
+    assert_eq!(authored.fee_asset_id, fee_asset());
     assert_eq!(receipt.schedule.base_fee, Quantity::from(GLOBAL_FEE));
     assert_eq!(receipt.schedule.per_byte_fee, Quantity::zero());
     assert_eq!(receipt.schedule.per_instruction_fee, Quantity::zero());

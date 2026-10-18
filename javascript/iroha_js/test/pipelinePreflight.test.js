@@ -100,7 +100,6 @@ test("getPipelinePreflight parses every served field of the Rust sample", async 
     per_byte_fee: "0.0002",
     per_instruction_fee: "0.001",
     per_gas_unit_fee: "0.00005",
-    settlement_mode: "direct",
   });
   assert.equal(preflight.fees.successful_claim_fee_exempt_authorities.length, 1);
   assert.notEqual(
@@ -228,7 +227,6 @@ test("getPipelinePreflight requires the served fee strings", async () => {
   for (const [field, value, message] of [
     ["fee_asset_id", undefined, /fees\.fee_asset_id must be a non-empty string/u],
     ["base_fee", 0, /fees\.base_fee must be a non-empty string/u],
-    ["settlement_mode", "burn", /fees\.settlement_mode must be one of: direct, lane_relay_burn/u],
     [
       "successful_claim_fee_exempt_authorities",
       undefined,
@@ -245,5 +243,5 @@ test("getPipelinePreflight requires the served fee strings", async () => {
   }
   const relay = servedPayload();
   relay.fees.settlement_mode = "lane_relay_burn";
-  assert.equal((await fetchPreflight(relay)).fees.settlement_mode, "lane_relay_burn");
+  await assert.rejects(() => fetchPreflight(relay), /contains unknown field settlement_mode/u);
 });

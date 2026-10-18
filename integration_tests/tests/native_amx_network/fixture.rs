@@ -3,7 +3,7 @@
 use super::*;
 use iroha_config::base::toml::WriteExt as _;
 use iroha_data_model::{
-    block::consensus::{PrivateRootFeePolicy, SumeragiGenesisContextParameters},
+    block::consensus::{RootFeePolicy, SumeragiGenesisContextParameters},
     isi::{Grant, Mint, Register},
     parameter::Parameter,
     sns::{DATASPACE_ALIAS_SUFFIX_ID, NameSelectorV1},
@@ -374,18 +374,27 @@ impl Root {
         let mut context = SumeragiGenesisContextParameters::recommended();
         context.root_scope = scope;
         let mut parameters = Vec::new();
-        if bank.is_some() {
-            parameters.push(Parameter::Custom(
-                PrivateRootFeePolicy {
-                    asset_definition_id: fee_asset(),
-                    base_fee: Quantity::one(),
-                    per_byte_fee: Quantity::zero(),
-                    per_instruction_fee: Quantity::one(),
-                    per_gas_unit_fee: Quantity::one(),
-                }
-                .into_custom_parameter()?,
-            ));
-        }
+        parameters.push(Parameter::Custom(
+            iroha_data_model::block::consensus::RootFeePolicy {
+                fee_asset_id: fee_asset(),
+                fee_sink_account_id: account(&genesis_key(index)),
+                sponsor_vault_custody_account_id: account(&genesis_key(index)),
+                successful_claim_fee_exempt_authorities: Default::default(),
+                base_fee: Quantity::one(),
+                per_byte_fee: Quantity::zero(),
+                per_instruction_fee: if bank.is_some() {
+                    Quantity::one()
+                } else {
+                    Quantity::zero()
+                },
+                per_gas_unit_fee: if bank.is_some() {
+                    Quantity::one()
+                } else {
+                    Quantity::zero()
+                },
+            }
+            .into_custom_parameter()?,
+        ));
         // Author fee projection as signed genesis state, never a node-local override.
         for (name, value) in [
             (
@@ -456,24 +465,11 @@ impl Root {
                     .unwrap()
             })
             .with_config_layer(move |layer| {
-                layer
-                    .write("chain", chain.to_string())
-                    .write(
-                        ["nexus", "storage", "local_budget_bytes"],
-                        1024_i64 * 1024 * 1024,
-                    )
-                    .write(
-                        ["nexus", "fees", "fee_asset_id"],
-                        fee_asset().canonical_address(),
-                    )
-                    .write(
-                        ["nexus", "fees", "fee_sink_account_id"],
-                        account(&genesis_key(index)).to_string(),
-                    )
-                    .write(["nexus", "fees", "base_fee"], "1")
-                    .write(["nexus", "fees", "per_byte_fee"], "0")
-                    .write(["nexus", "fees", "per_instruction_fee"], "0")
-                    .write(["nexus", "fees", "per_gas_unit_fee"], "0");
+                layer.write("chain", chain.to_string()).write(
+                    ["nexus", "storage", "local_budget_bytes"],
+                    1024_i64 * 1024 * 1024,
+                );
+
                 if let Some(bank) = bank {
                     let mut catalog = private_root_catalog(bank);
                     for name in ["lane_catalog", "dataspace_catalog", "routing_policy"] {

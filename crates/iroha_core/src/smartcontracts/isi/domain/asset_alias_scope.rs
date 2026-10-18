@@ -828,7 +828,9 @@ pub(crate) fn is_permission_account_associated(
     {
         return account_subject_matches(&permission.account, account_id);
     }
-    if let Ok(permission) = iroha_executor_data_model::permission::amx::CanPrepareAmx::try_from(permission) {
+    if let Ok(permission) =
+        iroha_executor_data_model::permission::amx::CanPrepareAmx::try_from(permission)
+    {
         return account_subject_matches(permission.approval.debited_asset.account(), account_id);
     }
     if let Ok(permission) =
@@ -1003,7 +1005,9 @@ fn is_permission_asset_definition_associated(
     {
         return &permission.asset_definition == asset_definition_id;
     }
-    if let Ok(permission) = iroha_executor_data_model::permission::amx::CanPrepareAmx::try_from(permission) {
+    if let Ok(permission) =
+        iroha_executor_data_model::permission::amx::CanPrepareAmx::try_from(permission)
+    {
         return permission.approval.debited_asset.definition() == asset_definition_id;
     }
     if let Ok(permission) =
@@ -1705,14 +1709,7 @@ impl Execute for Unregister<Account> {
                 )
                 .into());
         }
-        let nexus_fee_sink_matches = config_account_matches(
-            &state_transaction.world,
-            &state_transaction.nexus.dataspace_catalog,
-            &state_transaction.nexus.fees.fee_sink_account_id,
-            &account_id,
-            "nexus.fees.fee_sink_account_id",
-            state_transaction.block_unix_timestamp_ms(),
-        )?;
+        let nexus_fee_sink_matches = state_transaction.nexus.fees.fee_sink_account_id == account_id;
         let nexus_stake_escrow_matches = config_account_matches(
             &state_transaction.world,
             &state_transaction.nexus.dataspace_catalog,
@@ -1732,7 +1729,7 @@ impl Execute for Unregister<Account> {
         if nexus_fee_sink_matches {
             return Err(InstructionExecutionError::InvariantViolation(
                     format!(
-                        "cannot unregister account {account_id}: it is configured as nexus fee sink account (`nexus.fees.fee_sink_account_id`); update nexus config first"
+                        "cannot unregister account {account_id}: it is the committed root fee sink; commit a replacement root fee policy first"
                     )
                     .into(),
                 )
@@ -2740,14 +2737,18 @@ impl Execute for Unregister<AssetDefinition> {
         }
         if parse_config_asset_definition_id(
             &state_transaction.world,
-            &state_transaction.nexus.fees.fee_asset_id,
+            &state_transaction
+                .nexus
+                .fees
+                .fee_asset_id
+                .canonical_address(),
             state_transaction.block_unix_timestamp_ms(),
         )
         .is_some_and(|configured| configured == asset_definition_id)
         {
             return Err(InstructionExecutionError::InvariantViolation(
                     format!(
-                        "cannot unregister asset definition {asset_definition_id}: it is configured as nexus fee asset definition (`nexus.fees.fee_asset_id`); update nexus config first"
+                        "cannot unregister asset definition {asset_definition_id}: it is the immutable committed root fee currency"
                     )
                     .into(),
                 )
@@ -3478,12 +3479,20 @@ mod amx_permission_association_tests {
         );
         let dataspace = DataSpaceId::new(7);
         let approval = AmxDebitApprovalV1 {
-            global_network: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(b"global"))),
-            participant_network: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(b"bank"))),
+            global_network: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+                Hash::new(b"global"),
+            )),
+            participant_network: NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+                Hash::new(b"bank"),
+            )),
             participant_instance: [1; 32],
             dataspace,
             transaction_id: [2; 32],
-            debited_asset: AssetId::with_scope(definition.clone(), ALICE_ID.clone(), AssetBalanceScope::Dataspace(dataspace)),
+            debited_asset: AssetId::with_scope(
+                definition.clone(),
+                ALICE_ID.clone(),
+                AssetBalanceScope::Dataspace(dataspace),
+            ),
         };
         (approval.permission().unwrap(), definition)
     }
@@ -3502,7 +3511,13 @@ mod amx_permission_association_tests {
             DomainId::try_new("bank", "universal").unwrap(),
             "other".parse().unwrap(),
         );
-        assert!(is_permission_asset_definition_associated(&permission, &definition));
-        assert!(!is_permission_asset_definition_associated(&permission, &other));
+        assert!(is_permission_asset_definition_associated(
+            &permission,
+            &definition
+        ));
+        assert!(!is_permission_asset_definition_associated(
+            &permission,
+            &other
+        ));
     }
 }

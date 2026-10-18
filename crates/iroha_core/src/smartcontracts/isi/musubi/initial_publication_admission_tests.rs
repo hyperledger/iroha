@@ -106,8 +106,8 @@ mod initial_publication_admission {
             nexus.fees.per_instruction_fee = 1_u32.into();
             nexus.fees.per_byte_fee = Quantity::zero();
             nexus.fees.per_gas_unit_fee = Quantity::zero();
-            nexus.fees.fee_asset_id = asset.to_string();
-            nexus.fees.fee_sink_account_id = account(SINK).to_string();
+            nexus.fees.fee_asset_id = asset.clone();
+            nexus.fees.fee_sink_account_id = account(SINK).clone();
             // Declare both targets so cross-scope admission exercises physical route
             // rejection rather than failing on an unknown dataspace. The namespace's
             // native home check is tested separately against this same catalog.

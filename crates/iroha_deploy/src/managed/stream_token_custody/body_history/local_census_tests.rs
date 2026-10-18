@@ -166,28 +166,40 @@ fn local_census_inherited_and_late_decode_owners_keep_original_work_and_errors()
     let snapshot = SnapshotReadPass {
         head: &history.bodies.last().unwrap().snapshots,
     };
+    fn with_native_work<T>(read: impl FnOnce() -> T) -> (T, iroha_fs::CustodyWorkV1) {
+        let before = iroha_fs::CustodyWorkV1::current_thread();
+        let result = read();
+        (
+            result,
+            iroha_fs::CustodyWorkV1::current_thread().since(before),
+        )
+    }
     let run = |original, allocation| {
         norito::core::with_decode_limits_measured(limits(allocation), || {
-            observe(original, None, || {
-                History::test_operation_records(|| outcome(native.test_local_census(&snapshot)))
+            with_native_work(|| {
+                observe(original, None, || {
+                    History::test_operation_records(|| outcome(native.test_local_census(&snapshot)))
+                })
             })
         })
     };
     let full = run(true, usize::MAX);
-    assert!(full.0.0.0.is_ok());
+    assert!(full.0.0.0.0.is_ok());
     assert_eq!(full, run(false, usize::MAX));
     let exact = full.1.total_allocated_bytes();
     for allocation in [0, 1, exact / 2, exact.saturating_sub(1), exact] {
         let old = run(true, allocation);
         assert_eq!(old, run(false, allocation));
         if allocation <= 1 {
-            assert!(old.0.0.0.is_err());
+            assert!(old.0.0.0.0.is_err());
         }
         let late = native
             .test_local_census_after_admission(&snapshot, |read| {
                 norito::core::with_decode_limits_measured(limits(allocation), || {
-                    observe(false, None, || {
-                        History::test_operation_records(|| outcome(read()))
+                    with_native_work(|| {
+                        observe(false, None, || {
+                            History::test_operation_records(|| outcome(read()))
+                        })
                     })
                 })
             })
@@ -349,4 +361,54 @@ fn local_census_keeps_fresh_metadata_and_leaf_custody_and_wallet_fences() {
         result.unwrap();
         assert_eq!(*calls.borrow(), [0, 0, 1, 1]);
     }
+}
+
+#[test]
+fn local_census_root_reader_removes_two_actual_root_walks_without_changing_records() {
+    use iroha_fs::CustodyWorkV1;
+    let _resources = crate::managed::native_test_guard();
+    let (_fixture, history) = shared_snapshot_tests::history_with_bodies(3);
+    let native = history
+        .current_history()
+        .unwrap()
+        .test_owned_predecessor_closure_history()
+        .unwrap();
+    let snapshot = SnapshotReadPass {
+        head: &history.bodies.last().unwrap().snapshots,
+    };
+    let before = CustodyWorkV1::current_thread();
+    history.root.revalidate().unwrap();
+    let root_walk = CustodyWorkV1::current_thread().since(before);
+    assert_eq!(root_walk.ancestry_walks, 1);
+    let run = |nested| {
+        let before = CustodyWorkV1::current_thread();
+        let result = observe(false, None, || {
+            operation_scope_tests::observe_leaves(
+                |_| Ok(()),
+                || {
+                    History::test_operation_records(|| {
+                        if nested {
+                            native.test_local_census_nested_root_reference(&snapshot)
+                        } else {
+                            native.test_local_census(&snapshot)
+                        }
+                    })
+                },
+            )
+        });
+        (result, CustodyWorkV1::current_thread().since(before))
+    };
+    let ((((nested, nested_records), nested_leaves), nested_counts), nested_work) = run(true);
+    let ((((shared, shared_records), shared_leaves), shared_counts), shared_work) = run(false);
+    nested.unwrap();
+    shared.unwrap();
+    assert_eq!(nested_records, shared_records);
+    assert_eq!(nested_leaves, shared_leaves);
+    assert_eq!(nested_counts, shared_counts);
+    assert_eq!((shared_counts.root, shared_counts.operation), (1, 1));
+    assert_eq!(nested_work.ancestry_walks, shared_work.ancestry_walks + 2);
+    assert_eq!(
+        nested_work.ancestry_opens,
+        shared_work.ancestry_opens + 2 * root_walk.ancestry_opens
+    );
 }

@@ -31314,7 +31314,7 @@ async fn handler_alias_setup_plan(
             if let Err(error) = iroha_core::alias_setup::validate_configured_alias_payment_asset(
                 world,
                 &target,
-                &state_view.nexus().fees.fee_asset_id,
+                &state_view.nexus().fees.fee_asset_id.canonical_address(),
             ) {
                 return Ok(alias_setup_plan_report_response(
                     StatusCode::CONFLICT,
@@ -31612,7 +31612,7 @@ async fn handler_alias_lease_renew_plan(
     if let Err(error) = iroha_core::alias_setup::validate_configured_alias_payment_asset(
         state_view.world(),
         &request.renewal.target,
-        &state_view.nexus().fees.fee_asset_id,
+        &state_view.nexus().fees.fee_asset_id.canonical_address(),
     ) {
         return Ok(alias_setup_plan_report_response(
             StatusCode::CONFLICT,
@@ -34474,7 +34474,7 @@ fn validate_account_onboarding_readiness(
                 iroha_core::sns::ensure_namespace_policy_payment_asset_matches_configured(
                     world,
                     iroha_core::sns::SnsNamespace::AccountAlias,
-                    &nexus.fees.fee_asset_id,
+                    &nexus.fees.fee_asset_id.canonical_address(),
                 )
             {
                 if matches!(&error, iroha_core::sns::SnsError::Deferred(_)) {

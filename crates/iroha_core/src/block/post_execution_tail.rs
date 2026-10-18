@@ -114,21 +114,6 @@ impl ValidBlock {
         }
     }
 
-    /// Native G execution settles fee transfers directly under signed charge limits.
-    /// A receipt-only debit cannot authorize a real XOR reserve change or finality.
-    fn validate_native_fee_settlement_mode(
-        state: &StateBlock<'_>,
-    ) -> Result<(), BlockValidationError> {
-        if state.nexus.fees.settlement_mode
-            != iroha_config::parameters::actual::NexusFeeSettlementMode::Direct
-        {
-            return Err(Self::execution_context_error(
-                "retired lane-relay-burn fee settlement is not admitted by native execution",
-            ));
-        }
-        Ok(())
-    }
-
     /// Shared deterministic metadata runs after actual Network/Pipeline/Time
     /// execution and before the one output seal captures its final World delta.
     fn finalize_common_execution_metadata(
@@ -138,7 +123,6 @@ impl ValidBlock {
         advertised_policy: Option<&AxtPolicySnapshot>,
         advertised_transitions: Option<&BTreeSet<DataSpaceId>>,
     ) -> Result<(), BlockValidationError> {
-        Self::validate_native_fee_settlement_mode(state)?;
         if routes.len() != block.network_entrypoint_count() {
             return Err(Self::execution_context_error(
                 "settlement lost its complete frozen Network routes",

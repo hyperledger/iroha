@@ -65,7 +65,7 @@ macro_rules! schema_types {
             iroha_data_model::nexus::PrivateSettlementProofIntentV1,
             // Independent private roots and body-free parent anchoring.
             iroha_data_model::block::consensus::SumeragiRootScope,
-            iroha_data_model::block::consensus::PrivateRootFeePolicy,
+            iroha_data_model::block::consensus::RootFeePolicy,
             iroha_data_model::private_dataspace::PrivateDataspaceRegistration,
             iroha_data_model::private_dataspace::PrivateDataspaceAnchor,
             iroha_data_model::private_dataspace::PrivateDataspaceAnchorState,

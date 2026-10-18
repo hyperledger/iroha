@@ -185,7 +185,6 @@ mod tests {
         operational_drift.registry.manifest_directory = Some(PathBuf::from("/srv/lane-manifests"));
         operational_drift.registry.cache_directory = Some(PathBuf::from("/var/cache/lanes"));
         operational_drift.registry.poll_interval = Duration::from_secs(17);
-        operational_drift.relay_worker.retry_backoff = Duration::from_secs(9);
         operational_drift.compliance.policy_dir = Some(PathBuf::from("/srv/lane-policies"));
         assert_eq!(
             nexus_consensus_policy_digest(&operational_drift).expect("valid operational drift"),
@@ -767,7 +766,7 @@ mod tests {
     fn sumeragi_default_nexus_amx_hash_is_stable() {
         assert_eq!(
             Nexus::default().staking.stake_asset_id,
-            Nexus::default().fees.fee_asset_id,
+            Nexus::default().fees.fee_asset_id.canonical_address(),
             "recommended staking custody and fees must use the canonical XOR asset",
         );
         let hash =

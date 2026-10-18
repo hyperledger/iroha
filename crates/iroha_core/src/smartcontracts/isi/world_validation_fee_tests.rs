@@ -1358,10 +1358,14 @@ fn prospective_fee_sponsor_enrollment_funds_only_exact_self_bootstrap() {
     .expect("funded program activates with exact prospective eligibility");
     let mut nexus = stx.nexus.clone();
     nexus.dataspace_fee_sponsor_program_ids.clear();
-    nexus.fees.fee_asset_id = vault_key.asset_definition_id.to_string();
+    nexus.fees.fee_asset_id = vault_key.asset_definition_id.clone();
     assert_eq!(
-        crate::block::resolve_network_xor_asset_definition(&stx.world, &nexus.fees.fee_asset_id, 0)
-            .expect("completed pin read"),
+        crate::block::resolve_network_xor_asset_definition(
+            &stx.world,
+            &nexus.fees.fee_asset_id.canonical_address(),
+            0
+        )
+        .expect("completed pin read"),
         Some(vault_key.asset_definition_id.clone()),
         "sponsor funding must use the network's exact XOR asset"
     );
@@ -1374,7 +1378,6 @@ fn prospective_fee_sponsor_enrollment_funds_only_exact_self_bootstrap() {
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = "0.001".parse().unwrap();
     nexus.fees.per_gas_unit_fee = "0.00005".parse().unwrap();
-    nexus.fees.settlement_mode = iroha_config::parameters::actual::NexusFeeSettlementMode::Direct;
     let pipeline = iroha_config::parameters::actual::Pipeline::default();
     for (authority, eligible) in [(&beneficiary, true), (&other, false)] {
         let mut payload = TransactionPayload {

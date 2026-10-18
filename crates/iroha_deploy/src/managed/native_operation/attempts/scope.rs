@@ -52,6 +52,10 @@ pub(in crate::managed) trait EnrollmentScopeEvidence:
     // Pure membership only; the graph caller retains fresh operation/scope validation.
     fn covers_semantic_original(&self, pass: &SnapshotReadPass<'_>, semantic: [u8; 32]) -> bool;
     fn require_active(&self) -> Result<()>;
+    fn require_active_with_snapshot_read_pass(
+        &self,
+        pass: Option<&SnapshotReadPass<'_>>,
+    ) -> Result<()>;
 }
 pub(in crate::managed) trait BodyReplacementTarget:
     sealed::BodyReplacementTarget
@@ -352,6 +356,32 @@ impl HistoryScope {
                 value.state.evidence.require_active()
             }
         }
+    }
+    // Only the callback-free current/active owner can borrow this exact scope. The owner
+    // closes the complete mutable graph and original snapshot on every ordinary result.
+    pub(super) fn require_active_in_current_read(
+        &self,
+        read: &current_active::CurrentActiveRead<'_, '_>,
+    ) -> Result<()> {
+        let Self::Enrollment(value) = self else {
+            return self.require_active();
+        };
+        if !read.covers(self) {
+            return self.require_active();
+        }
+        value.revalidate_local(read.snapshot(self))?;
+        if let Some(prior) = &value.state.predecessor {
+            // Recheck after the preceding native observation: a decoder installed after
+            // entry must regain its exact predecessor traversal and physical charges.
+            if !read.covers(self) {
+                retained_graph::validate_predecessor(prior)?;
+            }
+            value.revalidate_local(read.snapshot(self))?;
+        }
+        value
+            .state
+            .evidence
+            .require_active_with_snapshot_read_pass(read.snapshot(self))
     }
     pub(super) fn require_fees(&self, fees: &super::super::Fees) -> Result<()> {
         if let Self::Enrollment(value) = self

@@ -100,6 +100,18 @@ fn configured_builder(
             .into(),
             Grant::account_permission(proposal_permission, ALICE_ID.clone()).into(),
         ])
+        .with_genesis_instruction(iroha_data_model::isi::SetParameter::new(
+            iroha_data_model::parameter::Parameter::Custom({
+                let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+                fees.fee_sink_account_id = iroha_test_samples::ALICE_ID.clone();
+                fees.base_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_byte_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_instruction_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_gas_unit_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.into_custom_parameter()
+                    .expect("explicit signed fixture fee policy")
+            }),
+        ))
         .with_config_layer(move |layer| {
             layer
                 .write(
@@ -110,11 +122,7 @@ fn configured_builder(
                     ["nexus", "staking", "unbonding_delay_ms"],
                     1_814_400_000_i64,
                 )
-                .write(["nexus", "staking", "max_slash_bps"], max_slash_bps)
-                .write(["nexus", "fees", "base_fee"], "0")
-                .write(["nexus", "fees", "per_byte_fee"], "0")
-                .write(["nexus", "fees", "per_instruction_fee"], "0")
-                .write(["nexus", "fees", "per_gas_unit_fee"], "0");
+                .write(["nexus", "staking", "max_slash_bps"], max_slash_bps);
         })
 }
 

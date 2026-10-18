@@ -65,16 +65,23 @@ fn disjoint_builder() -> Result<NetworkBuilder> {
             LANES.len() * MEMBERS,
         )?)?
         .with_auto_populated_trusted_peers()
+        .with_genesis_instruction(iroha_data_model::isi::SetParameter::new(
+            iroha_data_model::parameter::Parameter::Custom({
+                let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+                fees.fee_sink_account_id = iroha_test_samples::ALICE_ID.clone();
+                fees.base_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_byte_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_instruction_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_gas_unit_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.into_custom_parameter()
+                    .expect("explicit signed fixture fee policy")
+            }),
+        ))
         .with_config_layer(|layer| {
-            layer
-                .write(
-                    ["nexus", "storage", "local_budget_bytes"],
-                    TEST_NEXUS_LOCAL_STORAGE_BUDGET_BYTES,
-                )
-                .write(["nexus", "fees", "base_fee"], "0")
-                .write(["nexus", "fees", "per_byte_fee"], "0")
-                .write(["nexus", "fees", "per_instruction_fee"], "0")
-                .write(["nexus", "fees", "per_gas_unit_fee"], "0");
+            layer.write(
+                ["nexus", "storage", "local_budget_bytes"],
+                TEST_NEXUS_LOCAL_STORAGE_BUDGET_BYTES,
+            );
         })
         .with_genesis_block_and_committee_validator_entries(|global, voters, participants| {
             let mut instructions = participants

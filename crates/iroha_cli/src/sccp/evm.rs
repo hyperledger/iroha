@@ -6,9 +6,6 @@
 
 use std::{collections::BTreeMap, path::Path};
 
-#[path = "evm_receipt.rs"]
-mod authenticated_receipt;
-
 use eyre::{Result, WrapErr as _, ensure, eyre};
 use iroha::data_model::{bridge::SccpNetworkV1, sccp::deployment::SccpCommitteePinV1};
 use iroha_sccp::{

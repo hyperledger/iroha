@@ -336,26 +336,38 @@ impl Exchange {
     ) -> Result<(AmxTransactionV1, [AmxDebitApprovalV1; 2])> {
         let (transaction, approvals) = self.intent(seconds_until_expiry, nonce)?;
         let global = &self.roots[0];
-        for bank in 0..2 {
-            let approved = submit(
-                &self.roots[bank + 1],
-                &payer(bank),
-                vec![
-                    Grant::account_permission(
-                        approvals[bank].permission()?,
-                        account(&relay(bank + 1)),
-                    )
-                    .into(),
-                ],
-                &self.runtime,
-            )?;
-            self.runtime
-                .block_on(proofs::assert_privileged_bank_approval(
-                    &self.roots[bank + 1],
-                    &approvals[bank],
-                    &approved,
-                ))?;
-        }
+        // Independent bank roots approve the same immutable intent concurrently.
+        // Each worker retains the ordinary successful-execution and authenticated
+        // approval checks. Join both before stopping a bank or submitting Begin;
+        // neither a first error nor a worker panic may leave approval work detached.
+        std::thread::scope(|scope| -> Result<()> {
+            let workers = [0, 1].map(|bank| {
+                let root = &self.roots[bank + 1];
+                let approval = &approvals[bank];
+                let runtime = &self.runtime;
+                scope.spawn(move || -> Result<()> {
+                    let approved = submit(
+                        root,
+                        &payer(bank),
+                        vec![
+                            Grant::account_permission(
+                                approval.permission()?,
+                                account(&relay(bank + 1)),
+                            )
+                            .into(),
+                        ],
+                        runtime,
+                    )?;
+                    runtime.block_on(proofs::assert_privileged_bank_approval(
+                        root, approval, &approved,
+                    ))
+                })
+            });
+            let [first, second] = workers.map(|worker| worker.join());
+            first.map_err(|_| eyre!("first bank approval worker panicked"))??;
+            second.map_err(|_| eyre!("second bank approval worker panicked"))??;
+            Ok(())
+        })?;
         if stop_second_bank {
             // The configured route remains present. Its actual transport and all
             // four validators disappear only after the original owner consent is durable.

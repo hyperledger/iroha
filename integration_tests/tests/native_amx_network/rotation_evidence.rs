@@ -341,10 +341,13 @@ pub(super) fn native_carrier_fee(
             let Parameter::Custom(parameter) = set.inner() else {
                 continue;
             };
-            if parameter.id()
-                == &iroha_data_model::block::consensus::PrivateRootFeePolicy::parameter_id()
+            if parameter.id() == &iroha_data_model::block::consensus::RootFeePolicy::parameter_id()
             {
-                policies.push(iroha_data_model::block::consensus::PrivateRootFeePolicy::from_custom_parameter(parameter)?);
+                policies.push(
+                    iroha_data_model::block::consensus::RootFeePolicy::from_custom_parameter(
+                        parameter,
+                    )?,
+                );
             }
         }
     }

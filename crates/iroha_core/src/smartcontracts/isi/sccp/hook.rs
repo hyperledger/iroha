@@ -790,7 +790,7 @@ mod tests {
         {
             use iroha_data_model::{
                 asset::{AssetBalancePolicy, AssetDefinition, AssetDefinitionId},
-                block::consensus::PrivateRootFeePolicy,
+                block::consensus::RootFeePolicy,
                 domain::Domain,
                 isi::Register,
                 nexus::{DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneConfig},
@@ -801,7 +801,7 @@ mod tests {
                 iroha_model_base::domain::DomainId::try_new("sccp", "sccp-private").unwrap();
             let asset =
                 AssetDefinitionId::derive_from_components(domain.clone(), "fee".parse().unwrap());
-            nexus.fees.fee_asset_id = asset.canonical_address();
+            nexus.fees.fee_asset_id = asset.clone();
             nexus.lane_catalog = LaneCatalog::new(
                 1_u32.try_into().unwrap(),
                 vec![LaneConfig {
@@ -824,12 +824,13 @@ mod tests {
             nexus.configured_dataspace_catalog = nexus.dataspace_catalog.clone();
             nexus.routing_policy.default_dataspace = dataspace_id;
             config.genesis_parameters.push(Parameter::Custom(
-                PrivateRootFeePolicy {
-                    asset_definition_id: asset.clone(),
+                RootFeePolicy {
+                    fee_asset_id: asset.clone(),
                     base_fee: 1_u32.into(),
                     per_byte_fee: 0_u32.into(),
                     per_instruction_fee: 1_u32.into(),
                     per_gas_unit_fee: 1_u32.into(),
+                    ..iroha_config::parameters::defaults::nexus::fees::genesis_policy()
                 }
                 .into_custom_parameter()
                 .unwrap(),

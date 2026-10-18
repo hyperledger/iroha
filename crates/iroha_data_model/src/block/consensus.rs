@@ -26,8 +26,8 @@ use std::{string::String, vec::Vec};
 pub mod fingerprint;
 mod root_scope;
 pub use root_scope::SumeragiRootScope;
-mod private_root_fees;
-pub use private_root_fees::{PrivateRootFeePolicy, PrivateRootFeePolicyError};
+mod root_fees;
+pub use root_fees::{RootFeePolicy, RootFeePolicyError};
 /// Height alias for consensus.
 pub type Height = u64;
 /// View/round number alias.
@@ -840,13 +840,13 @@ pub struct NexusFeeScheduleInputs {
     pub instruction_count: u64,
     /// Gas units used by the transaction.
     pub gas_used: u64,
-    /// Base fee from `nexus.fees.base_fee`.
+    /// Base fee from `root_fees_v1.base_fee`.
     pub base_fee: Quantity,
-    /// Per-byte fee from `nexus.fees.per_byte_fee`.
+    /// Per-byte fee from `root_fees_v1.per_byte_fee`.
     pub per_byte_fee: Quantity,
-    /// Per-instruction fee from `nexus.fees.per_instruction_fee`.
+    /// Per-instruction fee from `root_fees_v1.per_instruction_fee`.
     pub per_instruction_fee: Quantity,
-    /// Per-gas-unit fee from `nexus.fees.per_gas_unit_fee`.
+    /// Per-gas-unit fee from `root_fees_v1.per_gas_unit_fee`.
     pub per_gas_unit_fee: Quantity,
 }
 /// Actual native settlement performed for one Nexus charge.

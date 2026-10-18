@@ -788,9 +788,11 @@ class KagemushaWalletVectorsV1Test {
             assertEquals(KagemushaWalletMessageKindV1.PAYMENT, KagemushaWalletWireV1.inspectEnvelope(changed).kind)
             KagemushaWalletWireV1.requireExchangeBinding(request, changed)
         }
+        val sigmaCap = KagemushaWalletWireV1.PAYMENT_SIGMA_PROOF_CAP_BYTES
+        val omegaCap = KagemushaWalletWireV1.PAYMENT_OMEGA_PROOF_CAP_BYTES
         for ((sigma, omega, label) in listOf(
-            Triple(3521, 0, "sigma"), Triple(0, 5045, "Omega"),
-            Triple(3521, 5043, "sigma"), Triple(3519, 5045, "Omega"),
+            Triple(sigmaCap + 1, 0, "sigma"), Triple(0, omegaCap + 1, "Omega"),
+            Triple(sigmaCap + 1, omegaCap - 1, "sigma"), Triple(sigmaCap - 1, omegaCap + 1, "Omega"),
         )) {
             val changed = withPaymentProofVectors(payment, proofVector(sigma), proofVector(omega))
             assertTrue(changed.size <= KagemushaWalletWireV1.MESSAGE_MAX_BYTES)

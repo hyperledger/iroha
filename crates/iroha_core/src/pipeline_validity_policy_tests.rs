@@ -1062,8 +1062,8 @@ fn committed_fees_use_one_predecessor_for_quotes_execution_and_effects() {
         nexus.fees.per_byte_fee = Quantity::zero();
         nexus.fees.per_instruction_fee = Quantity::zero();
         nexus.fees.per_gas_unit_fee = Quantity::zero();
-        nexus.fees.fee_asset_id = asset.canonical_address();
-        nexus.fees.fee_sink_account_id = BOB_ID.to_string();
+        nexus.fees.fee_asset_id = asset.clone();
+        nexus.fees.fee_sink_account_id = BOB_ID.clone();
         config.nexus = Some(nexus);
         config.genesis_instructions = vec![
             Register::asset_definition(AssetDefinition::numeric(

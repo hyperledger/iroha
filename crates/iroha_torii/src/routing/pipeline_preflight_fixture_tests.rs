@@ -85,7 +85,6 @@ fn sample_response() -> PipelinePreflightResponse {
             per_instruction_fee: quantity("0.001"),
             per_gas_unit_fee: quantity("0.00005"),
             sponsor_vault_custody_account_id: fixture_account(0x52),
-            settlement_mode: "direct".to_owned(),
             successful_claim_fee_exempt_authorities: vec![fixture_account(0x53)],
         },
     }

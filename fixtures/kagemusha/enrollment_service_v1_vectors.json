@@ -1,8 +1,9 @@
 {
-  "bound_inputs": "Dispatch/Permit use byte 01; Evidence/Credential use byte 02, repeated to their inclusive original limits. Evidence is present only for its action.",
+  "bound_inputs": "Dispatch/Permit use byte 01; Evidence/Credential use byte 02; ExpiryProof uses byte 03, repeated to their inclusive original limits. Evidence is present only for its action.",
   "credential_hex": "090a",
   "dispatch_hex": "010203",
   "evidence_hex": "040506",
+  "expiry_proof_hex": "0b0c",
   "generator": "crates/iroha_torii_shared/examples/kagemusha_enrollment_vectors.rs",
   "inclusive_bounds": [
     {
@@ -35,6 +36,13 @@
     },
     {
       "flags": 2,
+      "header_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99001c40000000000000bbbace76c9121a3002",
+      "name": "request_expiry_proof",
+      "sha256": "7dcc1eaeff2658154c64b0d230e114a1580aad37b97fe5987f235ee561ead18d",
+      "wire_length": 16452
+    },
+    {
+      "flags": 2,
       "header_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed000e08000000000000df2154909fe27aa702",
       "name": "response_permit",
       "sha256": "7d6ae2b57058b1a4ba5d519a344b0e3258feb69d5e26e4d3994226c21644d9b3",
@@ -46,6 +54,13 @@
       "name": "response_credential",
       "sha256": "06dfa97e7d60e172e28b2cf01ae48d02fe38b45f1f35fa45fdc37e6766f70cb4",
       "wire_length": 262199
+    },
+    {
+      "flags": 2,
+      "header_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed000e1000000000000048a0be7bd7aad4fa02",
+      "name": "response_expiry_proof",
+      "sha256": "22be12fb9c4d8517590fd1fca06f63735b63cdd5a506db97d7f308dcf30251c9",
+      "wire_length": 4150
     }
   ],
   "permit_hex": "0708",
@@ -84,6 +99,14 @@
       "name": "deliver",
       "sha256": "7ef928bf2e29ce74dea1376227c6fd143cd258c3a4881e2bec0ac7fa31fb723a",
       "wire_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99001d00000000000000b5c936ec18eb566e0202010004030000000b0300000000000000010203080000000000000000",
+      "wire_length": 69
+    },
+    {
+      "flags": 2,
+      "header_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99001d000000000000006769a3f512554f1d02",
+      "name": "expiry_proof",
+      "sha256": "c94b806e350a43a5cec20fbc38e21cec842194087904df9e2d7b3097fd6d71ed",
+      "wire_hex": "4e5254300000ab0d30435eb0ec05aa9d05f739460b99001d000000000000006769a3f512554f1d0202010004040000000b0300000000000000010203080000000000000000",
       "wire_length": 69
     }
   ],
@@ -130,6 +153,14 @@
       "name": "credential",
       "sha256": "fe8c6327f095e625fef385161758bb82bbb8ce852f08fa6673af6bc4d24b6ed6",
       "wire_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed000f00000000000000d621e4ebd5938e6502040000000a0200000000000000090a",
+      "wire_length": 55
+    },
+    {
+      "flags": 2,
+      "header_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed000f000000000000005b808f5b8c717db302",
+      "name": "expiry_proof",
+      "sha256": "7b42ab399c5eb835e76c56f5bff8a4abc7c7daa0f5c6edfdee5cff3b97b6be17",
+      "wire_hex": "4e52543000007683d588995cfa1d8b79e057d8c288ed000f000000000000005b808f5b8c717db302050000000a02000000000000000b0c",
       "wire_length": 55
     }
   ],

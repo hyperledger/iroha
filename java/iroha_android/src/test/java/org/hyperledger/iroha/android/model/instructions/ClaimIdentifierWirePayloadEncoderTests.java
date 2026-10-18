@@ -112,7 +112,7 @@ public final class ClaimIdentifierWirePayloadEncoderTests {
     final String liveAccountId = canonicalI105AccountId(PARITY_ACCOUNT_MULTIHASH);
     final IdentifierResolutionPayload payload =
         new IdentifierResolutionPayload(
-            IdentifierOwnerInputV1.rawNetworkId(lines.get(4)),
+            IdentifierOwnerInputV1.INSTANCE.rawNetworkId(lines.get(4)),
             "email#retail",
             new IdentifierResolutionExecutionPayload(
                 "parity_test",

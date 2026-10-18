@@ -18,6 +18,61 @@ impl ValidBlock {
                     }
                 },
             )?;
+        // Exactly one original instruction owns the complete initial policy. Comparing
+        // its existing payload with the executed slot introduces no second policy decoder.
+        let fee_id = iroha_data_model::block::consensus::RootFeePolicy::parameter_id();
+        let mut originals = block
+            .external_transactions()
+            .filter_map(|transaction| match transaction.instructions() {
+                iroha_data_model::transaction::Executable::Instructions(instructions) => {
+                    Some(instructions)
+                }
+                _ => None,
+            })
+            .flat_map(|instructions| instructions.iter())
+            .filter_map(|instruction| {
+                instruction
+                    .as_any()
+                    .downcast_ref::<iroha_data_model::isi::SetParameter>()
+            })
+            .filter_map(|set| match set.inner() {
+                iroha_data_model::parameter::Parameter::Custom(custom)
+                    if custom.id() == &fee_id =>
+                {
+                    Some(custom)
+                }
+                _ => None,
+            });
+        let original = originals.next().ok_or_else(|| {
+            Self::execution_context_error("signed genesis omits its root fee policy")
+        })?;
+        if (!cfg!(all(test, sumeragi_core_mutation = "HC398")) && originals.next().is_some())
+            || state.world().parameters().custom().get(&fee_id) != Some(original)
+        {
+            return Err(Self::execution_context_error(
+                "signed genesis must execute exactly one original root fee policy",
+            ));
+        }
+        let fees = state.world().parameters().root_fees().ok_or_else(|| {
+            Self::execution_context_error("signed genesis root fee policy is absent")
+        })?;
+        fees.validate_for_scope(&metadata.sumeragi_context.root_scope)
+            .map_err(|error| Self::execution_context_error(error.to_string()))?;
+        if matches!(
+            metadata.sumeragi_context.root_scope,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global
+        ) && resolve_network_xor_asset_definition(
+            state.world(),
+            &fees.fee_asset_id.canonical_address(),
+            0,
+        )
+        .map_err(BlockValidationError::ExecutionDeferred)?
+            != Some(fees.fee_asset_id.clone())
+        {
+            return Err(Self::execution_context_error(
+                "Global genesis fee currency differs from its signed network XOR",
+            ));
+        }
         let actual_execution = crate::sumeragi::staged_genesis_execution_policy_hash(state)
             .map_err(|error| Self::execution_context_error(error.to_string()))?;
         let actual_nexus = crate::sumeragi::staged_genesis_nexus_amx_context_hash(state);
@@ -266,5 +321,111 @@ mod native_genesis_policy_tests {
         );
         assert_eq!(prepared.state.committed_height(), 0);
         assert_eq!(prepared.kura.exact_durable_blocks_count().unwrap(), 0);
+    }
+    #[test]
+    fn native_h1_rejects_missing_or_duplicate_original_root_fee_slots() {
+        use crate::{
+            state::World,
+            sumeragi::{
+                network_topology::Topology,
+                test_chain::{CertifiedTestChain, TestChainConfig},
+            },
+        };
+        use iroha_data_model::{
+            block::consensus::{RootFeePolicy, SumeragiRootScope},
+            isi::SetParameter,
+            parameter::Parameter,
+            transaction::{Executable, FeePaymentIntent, TransactionBuilder},
+        };
+        use iroha_primitives::time::TimeSource;
+        use std::sync::Arc;
+
+        for copies in [0_usize, 2] {
+            let config = TestChainConfig::new(World::new(), 1_000);
+            let key = config.genesis_key.clone();
+            let authority = AccountId::new(key.public_key().clone());
+            let mut prepared = CertifiedTestChain::prepare(config).unwrap();
+            let original = prepared.genesis.block();
+            let topology = Topology::new(
+                prepared
+                    .validator_keys
+                    .iter()
+                    .map(|key| PeerId::new(key.public_key().clone())),
+            );
+            let transactions = original
+                .external_transactions()
+                .map(|transaction| {
+                    let Executable::Instructions(instructions) = transaction.instructions() else {
+                        panic!("original native genesis has instruction batches")
+                    };
+                    let instructions = instructions
+                        .iter()
+                        .flat_map(|instruction| {
+                            let is_fee = instruction
+                                .as_any()
+                                .downcast_ref::<SetParameter>()
+                                .is_some_and(|set| {
+                                    matches!(set.inner(), Parameter::Custom(custom)
+                            if custom.id() == &RootFeePolicy::parameter_id())
+                                });
+                            std::iter::repeat_n(
+                                instruction.clone(),
+                                if is_fee { copies } else { 1 },
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    let mut builder = TransactionBuilder::new_genesis(
+                        authority.clone(),
+                        FeePaymentIntent::authority(Vec::new(), None),
+                    )
+                    .with_instructions(instructions)
+                    .with_metadata(transaction.metadata().clone());
+                    builder.set_creation_time(transaction.creation_time());
+                    builder.try_sign(key.private_key()).unwrap()
+                })
+                .collect();
+            let malformed = SignedBlock::try_genesis_with_da_proof_policies(
+                transactions,
+                key.private_key(),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            iroha_data_model::sumeragi_finality::authenticated_genesis(&malformed)
+                .expect("the malformed policy inventory retains genuine original signatures");
+            // A fresh bootstrap State belongs to this exact signed H1 identity. It has
+            // no committed effects, and every original instruction still executes below.
+            Arc::get_mut(&mut prepared.state).unwrap().network_id =
+                iroha_data_model::NetworkId::from_genesis_hash(malformed.hash());
+            let result = ValidBlock::validate_signed_genesis(
+                malformed,
+                &topology,
+                &authority,
+                &TimeSource::new_system(),
+                &prepared.state,
+                iroha_data_model::parameter::system::ConsensusMode::Permissioned,
+                SumeragiRootScope::Global,
+            )
+            .unpack(|_| {});
+            let error = match result {
+                Ok(_) => {
+                    panic!("native H1 must refuse missing or duplicate original root fee slots")
+                }
+                Err((_, error)) => error,
+            };
+            let expected = if copies == 0 {
+                "signed genesis omits its root fee policy"
+            } else {
+                "signed genesis must execute exactly one original root fee policy"
+            };
+            assert!(
+                matches!(*error, BlockValidationError::ExecutionContextInvalid(ref reason)
+                if reason == expected),
+                "unexpected native rejection: {error}"
+            );
+            assert_eq!(prepared.state.committed_height(), 0);
+            assert_eq!(prepared.kura.exact_durable_blocks_count().unwrap(), 0);
+        }
     }
 }

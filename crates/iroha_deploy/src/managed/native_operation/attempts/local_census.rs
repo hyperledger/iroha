@@ -35,7 +35,24 @@ impl<'history, 'snapshot> LocalHistoryCensus<'history, 'snapshot> {
                 history.semantic,
             )
     }
-    pub(super) fn read(&self, tree: &mut iroha_fs::PrivateReadTreeScope<'_>) -> Result<()> {
+    pub(super) fn read(&self) -> Result<()> {
+        if !self.covers(self.history) {
+            return retained_graph::with_native_read_tree(self.history, |tree| {
+                self.history
+                    .require_current_local_in_tree(Some(self.snapshot), tree, None, None)
+            });
+        }
+        let root = self.history.scope.enrollment()?.root();
+        root.read_tree_scope_with_root(|tree, reader| self.read_in_scope(tree, reader))
+    }
+    // The root reader is lent only by its actual owning boundary. Neither this body nor
+    // its operation census can invoke a wallet or effect. Recheck late decode ownership
+    // before lending either reader to the original local validation recipe.
+    fn read_in_scope(
+        &self,
+        tree: &mut iroha_fs::PrivateReadTreeScope<'_>,
+        reader: &mut iroha_fs::PrivateReadScope<'_>,
+    ) -> Result<()> {
         if !self.covers(self.history) {
             return self.history.require_current_local_in_tree(
                 Some(self.snapshot),
@@ -47,16 +64,14 @@ impl<'history, 'snapshot> LocalHistoryCensus<'history, 'snapshot> {
         let root = self.history.scope.enrollment()?.root();
         #[cfg(test)]
         local_census_tests::record(local_census_tests::Point::RootBracket);
-        root.read_scope(|reader| {
-            let mut root_read = GraphRootReadPass::new(root, reader);
-            self.history.require_current_local_admitted(
-                Some(self.snapshot),
-                Some(tree),
-                None,
-                Some(&mut root_read),
-                Some(self),
-            )
-        })
+        let mut root_read = GraphRootReadPass::new(root, reader);
+        self.history.require_current_local_admitted(
+            Some(self.snapshot),
+            Some(tree),
+            None,
+            Some(&mut root_read),
+            Some(self),
+        )
     }
     // The caller has already completed the original scope/binding entry. This is the sole
     // concrete operation body: there is no caller-supplied callback or effectful continuation.
@@ -118,10 +133,25 @@ impl History {
         run: impl FnOnce(&mut dyn FnMut() -> Result<()>) -> T,
     ) -> Result<T> {
         let census = LocalHistoryCensus::admit(self, snapshot).expect("genuine local census owner");
+        let root = self.scope.enrollment()?.root();
+        root.read_tree_scope_with_root(|tree, reader| {
+            let mut read = || census.read_in_scope(tree, reader);
+            Ok(run(&mut read))
+        })
+    }
+    // Test-only literal reference for the previously nested native root bracket. Both
+    // variants invoke the same sealed census body; only the duplicate root fence differs.
+    pub(in crate::managed) fn test_local_census_nested_root_reference(
+        &self,
+        snapshot: &SnapshotReadPass<'_>,
+    ) -> Result<()> {
+        let census = LocalHistoryCensus::admit(self, snapshot).expect("genuine local census owner");
         retained_graph::with_native_read_tree(self, |tree| {
             let tree = tree.expect("genuine inactive native tree");
-            let mut read = || census.read(tree);
-            Ok(run(&mut read))
+            self.scope
+                .enrollment()?
+                .root()
+                .read_scope(|reader| census.read_in_scope(tree, reader))
         })
     }
 }

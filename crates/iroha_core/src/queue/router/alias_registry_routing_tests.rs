@@ -134,7 +134,7 @@ fn fixture_config() -> (
     );
     sns::seed_default_namespace_policies(&mut world);
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
-    nexus.fees.fee_asset_id = payment_asset.to_string();
+    nexus.fees.fee_asset_id = payment_asset.clone();
     // Match the standard State test fixture's zero ordinary transaction fees. The independent
     // SNS quote/lease charge remains enabled and is asserted against actual global XOR balances.
     nexus.fees.base_fee = Quantity::zero();

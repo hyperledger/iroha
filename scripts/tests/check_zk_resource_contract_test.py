@@ -5900,10 +5900,11 @@ def test_every_receiver_of_a_cap_in_the_path_crates_is_read() -> None:
                     literals += 1
                     assert any(first <= start < last for first, last in pinned), (where, text)
     assert calls > 1000 and receivers > 1000 and broken > 250, (calls, receivers, broken)
-    # Consolidating production min/max callers leaves 98 named receiver operands.
-    # Every occurrence is still checked above, and the required source sites below
-    # independently prevent coverage from disappearing behind a census change.
-    assert names >= 98 and literals > 40, (names, literals)
+    # Entry-point creation-time accessors replace the two inline u64::MAX operands
+    # formerly in LaneBatch::creation_time and merge::time_floor receivers. Their
+    # checked Option<u64> conversion leaves 96 named receiver operands. Every
+    # occurrence above and required source site below remains independently checked.
+    assert names >= 96 and literals > 40, (names, literals)
     # Every integer constant that stands in such a receiver is classified.
     listed = {
         (item["owner"]["path"], item["owner"]["symbol"])

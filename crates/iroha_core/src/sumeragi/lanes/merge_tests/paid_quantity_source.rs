@@ -76,9 +76,9 @@ fn paid_fixture(dataspace: DataSpaceId) -> Fixture {
                     },
                 });
         }
-        nexus.fees.fee_asset_id = fee_asset().canonical_address();
+        nexus.fees.fee_asset_id = fee_asset().clone();
         nexus.fees.fee_sink_account_id =
-            AccountId::new(config.genesis_key.public_key().clone()).to_string();
+            AccountId::new(config.genesis_key.public_key().clone()).clone();
         nexus.fees.base_fee = Quantity::from(FEE);
         nexus.fees.per_byte_fee = Quantity::zero();
         nexus.fees.per_instruction_fee = Quantity::zero();

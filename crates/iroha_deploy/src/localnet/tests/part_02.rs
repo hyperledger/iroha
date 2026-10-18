@@ -2524,40 +2524,26 @@ fn npos_without_sora_profile_uses_mandatory_nexus() {
             .and_then(toml::Value::as_str),
         Some(gas_account_id.as_str())
     );
-    let fees = nexus
-        .get("fees")
-        .and_then(toml::Value::as_table)
-        .expect("nexus fees table");
-    assert_eq!(
-        fees.get("fee_asset_id").and_then(toml::Value::as_str),
-        Some(expected_fee_asset_id.as_str())
+    assert!(
+        nexus.get("fees").is_none(),
+        "node config cannot author monetary terms"
     );
+    let manifest = genesis_json_from_path(&temp.path().join("genesis.json"));
+    let fees = iroha_data_model::block::consensus::RootFeePolicy::from_parameters(
+        &genesis_parameters(&manifest),
+    )
+    .unwrap()
+    .expect("explicit signed root fee policy");
+    assert_eq!(fees.fee_asset_id.to_string(), expected_fee_asset_id);
+    assert_eq!(fees.base_fee, Quantity::zero());
+    assert_eq!(fees.per_byte_fee, Quantity::zero());
+    assert_eq!(fees.per_instruction_fee, "0.001".parse().unwrap());
+    assert_eq!(fees.per_gas_unit_fee, "0.00005".parse().unwrap());
+    assert!(fees.successful_claim_fee_exempt_authorities.is_empty());
+    assert_eq!(fees.fee_sink_account_id.to_string(), gas_account_id);
     assert_eq!(
-        fees.get("base_fee").and_then(toml::Value::as_str),
-        Some("0")
-    );
-    assert_eq!(
-        fees.get("per_instruction_fee")
-            .and_then(toml::Value::as_str),
-        Some("0.001")
-    );
-    assert_eq!(
-        fees.get("per_gas_unit_fee").and_then(toml::Value::as_str),
-        Some("0.00005")
-    );
-    assert_eq!(
-        fees.get("settlement_mode").and_then(toml::Value::as_str),
-        Some("direct")
-    );
-    assert_eq!(
-        fees.get("fee_sink_account_id")
-            .and_then(toml::Value::as_str),
-        Some(gas_account_id.as_str())
-    );
-    assert_eq!(
-        fees.get("sponsor_vault_custody_account_id")
-            .and_then(toml::Value::as_str),
-        Some(gas_account_id.as_str())
+        fees.sponsor_vault_custody_account_id.to_string(),
+        gas_account_id
     );
     let pipeline = peer_cfg
         .get("pipeline")

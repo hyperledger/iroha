@@ -616,6 +616,7 @@ pub struct NexusProfile {
     pub bootstrap_public_lanes: Vec<LaneId>,
     pub stake_asset_id: AssetDefinitionId,
     pub fee_asset_id: AssetDefinitionId,
+    pub root_fees: iroha_data_model::block::consensus::RootFeePolicy,
     pub config_layer: Table,
 }
 fn canonical_addr_literal(addr: &str) -> Result<String> {
@@ -832,12 +833,14 @@ impl NexusProfile {
             &nexus.staking.stake_asset_id,
             &iroha_config::parameters::defaults::nexus::staking::stake_asset_id(),
         )?;
-        let fee_asset_id = resolve_embedded_asset_selector(
-            "nexus.fees.fee_asset_id",
-            &nexus.fees.fee_asset_id,
-            &iroha_config::parameters::defaults::nexus::fees::fee_asset_id(),
-        )?;
-        let config_layer = build_nexus_layer(&nexus, &sumeragi, &stake_asset_id, &fee_asset_id);
+        let root_fees = iroha_config::profile::Profile::compiled(
+            iroha_config::profile::ProfileId::SoraNexusV1,
+        )?
+        .genesis_recipe()
+        .root_fees
+        .clone();
+        let fee_asset_id = root_fees.fee_asset_id.clone();
+        let config_layer = build_nexus_layer(&nexus, &sumeragi, &stake_asset_id);
         Ok(Self {
             #[cfg(test)]
             lane_catalog: nexus.lane_catalog,
@@ -845,6 +848,7 @@ impl NexusProfile {
             bootstrap_public_lanes,
             stake_asset_id,
             fee_asset_id,
+            root_fees,
             config_layer,
         })
     }
@@ -904,7 +908,6 @@ fn build_nexus_layer(
     nexus: &ActualNexus,
     sumeragi: &ActualSumeragi,
     stake_asset_id: &AssetDefinitionId,
-    fee_asset_id: &AssetDefinitionId,
 ) -> Table {
     let mut layer = Table::new();
     TomlWriter::new(&mut layer).write(
@@ -1010,7 +1013,6 @@ fn build_nexus_layer(
         ["nexus", "routing_policy", "rules"],
         Value::Array(rule_values),
     );
-    TomlWriter::new(&mut layer).write(["nexus", "fees", "fee_asset_id"], fee_asset_id.to_string());
     TomlWriter::new(&mut layer).write(
         ["nexus", "staking", "stake_asset_id"],
         stake_asset_id.to_string(),
@@ -1533,16 +1535,15 @@ mod tests {
     #[test]
     fn nexus_profile_preserves_effective_bootstrap_asset_ids() {
         let profile = NexusProfile::sora_defaults().expect("nexus profile should load");
-        let expected_fee_asset = profile.fee_asset_id.to_string();
+        assert_eq!(profile.root_fees.fee_asset_id, profile.fee_asset_id);
+        assert!(
+            profile
+                .config_layer
+                .get("nexus")
+                .and_then(Value::as_table)
+                .is_none_or(|nexus| !nexus.contains_key("fees"))
+        );
         let expected_stake_asset = profile.stake_asset_id.to_string();
-        let fee_asset = profile
-            .config_layer
-            .get("nexus")
-            .and_then(Value::as_table)
-            .and_then(|nexus| nexus.get("fees"))
-            .and_then(Value::as_table)
-            .and_then(|fees| fees.get("fee_asset_id"))
-            .and_then(Value::as_str);
         let stake_asset = profile
             .config_layer
             .get("nexus")
@@ -1551,7 +1552,6 @@ mod tests {
             .and_then(Value::as_table)
             .and_then(|staking| staking.get("stake_asset_id"))
             .and_then(Value::as_str);
-        assert_eq!(fee_asset, Some(expected_fee_asset.as_str()));
         assert_eq!(stake_asset, Some(expected_stake_asset.as_str()));
     }
     #[test]

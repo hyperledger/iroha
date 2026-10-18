@@ -545,7 +545,13 @@ impl EnrollmentScopeEvidence for ScopeEvidence {
             })
     }
     fn require_active(&self) -> Result<()> {
-        self.revalidate()?;
+        self.require_active_with_snapshot_read_pass(None)
+    }
+    fn require_active_with_snapshot_read_pass(
+        &self,
+        pass: Option<&SnapshotReadPass<'_>>,
+    ) -> Result<()> {
+        self.revalidate_with_snapshot_read_pass(pass)?;
         if !self.active {
             return Err(ManagedBootstrapFailure::TransitionPending.into());
         }
@@ -3003,3 +3009,7 @@ pub(in crate::managed) mod generated_phase_tests;
 #[cfg(test)]
 #[path = "body_history/finish_wallet_tests.rs"]
 mod finish_wallet_tests;
+
+#[cfg(test)]
+#[path = "body_history/current_active_tests.rs"]
+pub(in crate::managed) mod current_active_tests;

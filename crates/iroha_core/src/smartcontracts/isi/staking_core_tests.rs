@@ -351,8 +351,8 @@ fn configure_reward_fixture(
         .execute(&ALICE_ID, stx)
         .unwrap();
 
-    stx.nexus.fees.fee_sink_account_id = sink.to_string();
-    stx.nexus.fees.fee_asset_id = asset_def_id.to_string();
+    stx.nexus.fees.fee_sink_account_id = sink.clone();
+    stx.nexus.fees.fee_asset_id = asset_def_id.clone();
     stx.nexus.lane_catalog = LaneCatalog::new(
         nonzero!(64_u32),
         vec![LaneConfig {

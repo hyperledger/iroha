@@ -410,7 +410,10 @@ impl State {
         configured: &iroha_config::parameters::actual::Nexus,
     ) -> Result<CanonicalRuntimeProjection, LaneLifecycleError> {
         let catalog = runtime_catalog_from_world(world)?;
-        let nexus = record.nexus_projection_with_catalog(configured, catalog.as_ref())?;
+        let nexus = crate::pipeline_gas_policy::with_root_fees(
+            record.nexus_projection_with_catalog(configured, catalog.as_ref())?,
+            world.parameters(),
+        );
         if let Some(catalog) = &catalog
             && catalog.baseline_manifests_hash
                 != Hash::prehashed(baseline.baseline_consensus_policy_digest())

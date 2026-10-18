@@ -26,9 +26,10 @@ mod fee_audit;
 // third successor authority. The scenario submits no later Global work.
 const ROTATION_HISTORY_BOUND: u64 = 3 * EPOCH + 1;
 
+// Customer payments use the Global root's existing universal data space.
 fn customer_asset() -> AssetDefinitionId {
     AssetDefinitionId::derive_from_components(
-        DomainId::try_new("rotation", "customer").unwrap(),
+        DomainId::try_new("rotation", "universal").unwrap(),
         "credit".parse().unwrap(),
     )
 }
@@ -68,13 +69,14 @@ fn global_root() -> Result<amx::Root> {
         )))))
         .with_genesis_instruction(Register::account(Account::new(customer())))
         .with_genesis_instruction(Register::domain(Domain::new(DomainId::try_new(
-            "rotation", "customer",
+            "rotation",
+            "universal",
         )?)))
         .with_genesis_instruction(Register::asset_definition(AssetDefinition::numeric(
             customer_asset(),
             "Rotation customer credit",
             AssetBalancePolicy::Global,
-            Some(DomainId::try_new("rotation", "customer")?),
+            Some(DomainId::try_new("rotation", "universal")?),
         )))
         .with_genesis_instruction(Mint::asset_quantity(
             10_000_u32,
@@ -88,13 +90,21 @@ fn global_root() -> Result<amx::Root> {
             iroha_executor_data_model::permission::query::CanReadAllLedgerData,
             amx::account(&amx::genesis_key(0)),
         ))
+        .with_genesis_instruction(iroha_data_model::isi::SetParameter::new(
+            iroha_data_model::parameter::Parameter::Custom({
+                let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+                fees.fee_sink_account_id = iroha_test_samples::ALICE_ID.clone();
+                fees.base_fee = ("1").parse().expect("explicit fixture fee quantity");
+                fees.per_byte_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_instruction_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_gas_unit_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.into_custom_parameter()
+                    .expect("explicit signed fixture fee policy")
+            }),
+        ))
         .with_config_layer(|layer| {
             layer
                 .write(["nexus", "staking", "max_validators"], 8_i64)
-                .write(["nexus", "fees", "base_fee"], "1")
-                .write(["nexus", "fees", "per_byte_fee"], "0")
-                .write(["nexus", "fees", "per_instruction_fee"], "0")
-                .write(["nexus", "fees", "per_gas_unit_fee"], "0")
                 .write(
                     ["nexus", "storage", "local_budget_bytes"],
                     1024_i64 * 1024 * 1024,
@@ -260,6 +270,29 @@ fn original_epoch_zero_commit_releases_paid_escrow_after_real_four_seven_four_ro
         .enable_all()
         .build()?;
     let global = global_root()?;
+    let setup = prepare_rotation_exchange(global, runtime)?;
+    recover_original_decision_after_rotation(setup)
+}
+
+// Retain only the durable owners between phases. The original test held its
+// later proof and rotation frames while native genesis was still executing.
+struct RotationSetup {
+    exchange: amx::Exchange,
+    dkg: DisposableGenesisDkgOutput,
+    catalogs: BTreeMap<PeerId, Vec<u8>>,
+    admin: iroha::blocking::Client,
+    operators: BTreeMap<PeerId, Operator>,
+    workload: rotation_payments::CustomerWorkload,
+}
+
+// Both child roots finish ordinary genesis execution before the rotation proof
+// phase acquires its larger stack frame. This is a lifetime boundary, not a
+// different execution path or an increased thread stack.
+#[inline(never)]
+fn prepare_rotation_exchange(
+    global: amx::Root,
+    runtime: tokio::runtime::Runtime,
+) -> Result<RotationSetup> {
     let customer_journal = global.network.env_dir().join("rotation-customer-workflows");
     let workload = rotation_payments::CustomerWorkload::new(
         global.pins.clone(),
@@ -302,7 +335,7 @@ fn original_epoch_zero_commit_releases_paid_escrow_after_real_four_seven_four_ro
         &escrow,
     )?;
     let (genesis, successor) = parent_registration_sources(&global, &runtime)?;
-    let mut exchange = amx::Exchange::attach(
+    let exchange = amx::Exchange::attach(
         global,
         runtime,
         genesis,
@@ -313,6 +346,26 @@ fn original_epoch_zero_commit_releases_paid_escrow_after_real_four_seven_four_ro
         ],
         43_200_000,
     )?;
+    Ok(RotationSetup {
+        exchange,
+        dkg,
+        catalogs,
+        admin,
+        operators,
+        workload,
+    })
+}
+
+#[inline(never)]
+fn recover_original_decision_after_rotation(setup: RotationSetup) -> Result<()> {
+    let RotationSetup {
+        mut exchange,
+        dkg,
+        catalogs,
+        admin,
+        operators,
+        workload,
+    } = setup;
     // The P0 test deliberately pauses this real service between signing and
     // delivery. Give its ordinary bounded retry owner enough scheduling room to
     // capture the original identity; do not change its eight-dispatch contract.
@@ -596,6 +649,17 @@ fn original_epoch_zero_commit_releases_paid_escrow_after_real_four_seven_four_ro
     for (root, height) in exchange.roots.iter().zip(final_heights) {
         fee_audit::audit(root, height, &exchange.runtime)?;
     }
+    assert_final_customer_effects(&exchange, &workload)?;
+    exchange.assert_no_background_blocks(final_heights)
+}
+
+// The final complete-World proof is acquired only after the rotation and fee
+// checks finish; it need not enlarge either root construction or ceremony frames.
+#[inline(never)]
+fn assert_final_customer_effects(
+    exchange: &amx::Exchange,
+    workload: &rotation_payments::CustomerWorkload,
+) -> Result<()> {
     // Authenticate aggregate customer effects against the final complete World;
     // a query response or height locator alone cannot establish monetary credit.
     exchange.runtime.block_on(async {
@@ -620,7 +684,7 @@ fn original_epoch_zero_commit_releases_paid_escrow_after_real_four_seven_four_ro
         )?;
         Ok::<_, eyre::Report>(())
     })?;
-    exchange.assert_no_background_blocks(final_heights)
+    Ok(())
 }
 
 fn assert_same_original_receipts(

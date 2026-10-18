@@ -1,8 +1,8 @@
 //! Actual fee settlement custody between execution and its consensus output.
 
 use super::StateTransaction;
-use iroha_config::parameters::actual::NexusFees;
 use iroha_crypto::Hash;
+use iroha_data_model::block::consensus::RootFeePolicy;
 use iroha_data_model::{
     ValidationFail,
     account::AccountId,
@@ -24,7 +24,7 @@ impl StateTransaction<'_, '_> {
         sponsor: Option<&FeeSponsorProgramId>,
         asset: &AssetDefinitionId,
         amount: &Quantity,
-        cfg: &NexusFees,
+        cfg: &RootFeePolicy,
         tx_bytes_len: usize,
         instruction_count: usize,
         gas_used: u64,

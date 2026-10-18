@@ -22531,7 +22531,7 @@
       }
     ]
   },
-  "PrivateRootFeePolicy": {
+  "RootFeePolicy": {
     "Struct": [
       {
         "name": "asset_definition_id",

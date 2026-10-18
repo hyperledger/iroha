@@ -6,7 +6,6 @@ use iroha_crypto::Hash;
 use iroha_data_model::{
     NetworkId,
     account::address::ChainDiscriminantGuard,
-    asset::AssetDefinitionId,
     block::{BlockHeader, consensus::SumeragiRootScope},
     sumeragi_finality::authenticated_genesis,
     transaction::{FeeChargeKind, FeeChargeLimit},
@@ -85,7 +84,8 @@ pub(super) fn select(
         .collect();
     let mut seen = BTreeSet::new();
     let expected_policy = Hash::prehashed(metadata.sumeragi_context.execution_policy_hash);
-    let mut selected_asset = None;
+    let signed_fees =
+        iroha_genesis::signed_genesis_root_fee_policy(&block).map_err(|_| invalid())?;
     for (index, peer) in prepared.peers.iter().enumerate() {
         if peer.config_path != root.path().join(format!("peer{index}.toml")) {
             return Err(invalid());
@@ -130,21 +130,15 @@ pub(super) fn select(
             || *config.common.chain_discriminant.value() != client.account_chain_discriminant
             || !committee.contains(&validator)
             || !seen.insert(validator)
-            || crate::localnet::service_authorities::configured_execution_policy(&config)
-                .map_err(|_| invalid())?
+            || crate::localnet::service_authorities::configured_execution_policy(
+                &config,
+                &signed_fees,
+            )
+            .map_err(|_| invalid())?
                 != expected_policy
         {
             return Err(invalid());
         }
-        let asset = AssetDefinitionId::parse_address_literal(&config.nexus.fees.fee_asset_id)
-            .map_err(|_| invalid())?;
-        if selected_asset
-            .as_ref()
-            .is_some_and(|selected| selected != &asset)
-        {
-            return Err(invalid());
-        }
-        selected_asset = Some(asset);
     }
     if seen != committee {
         return Err(invalid());
@@ -156,7 +150,7 @@ pub(super) fn select(
         payment: FeePaymentIntent::authority(
             vec![FeeChargeLimit::new(
                 FeeChargeKind::Nexus,
-                selected_asset.ok_or_else(invalid)?,
+                signed_fees.fee_asset_id,
                 Quantity::from(1u64),
             )],
             None,

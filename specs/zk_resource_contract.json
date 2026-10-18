@@ -13415,17 +13415,9 @@
           ]
         },
         {
-          "reason": "The Nexus fee schedule and its accounts: who is paid and at what rate, not a resource bound. F.3 and F.4 own their committed source.",
+          "reason": "The committed root_fees_v1 schedule and exact typed custody accounts: monetary terms, not a resource bound. StateParameters validates this policy and each block freezes the predecessor projection for Global and Dataspace execution. No node-local monetary override is accepted.",
           "fields": [
-            "fees.fee_asset_id",
-            "fees.fee_sink_account_id",
-            "fees.base_fee",
-            "fees.per_byte_fee",
-            "fees.per_instruction_fee",
-            "fees.per_gas_unit_fee",
-            "fees.sponsor_vault_custody_account_id",
-            "fees.settlement_mode",
-            "fees.successful_claim_fee_exempt_authorities"
+            "fees"
           ]
         },
         {
@@ -14783,9 +14775,7 @@
         "symbols": [
           "BUDGET_ENFORCE_INTERVAL_BLOCKS",
           "MAX_WSV_MEMORY_BYTES",
-          "CONSENSUS_EVIDENCE_PENDING_PEER_KEYS_MAX_BYTES",
-          "MAX_PENDING_RELAYS",
-          "MAX_RETRY_ATTEMPTS"
+          "CONSENSUS_EVIDENCE_PENDING_PEER_KEYS_MAX_BYTES"
         ],
         "module": [
           "pub mod nexus {"
@@ -14793,9 +14783,7 @@
         "exprs": {
           "BUDGET_ENFORCE_INTERVAL_BLOCKS": "10",
           "MAX_WSV_MEMORY_BYTES": "Bytes(8 * 1024 * 1024 * 1024)",
-          "CONSENSUS_EVIDENCE_PENDING_PEER_KEYS_MAX_BYTES": "4 * 31 * iroha_data_model::sumeragi_lanes::MAX_LANE_CUSTODY_SIGNERS * CONSENSUS_EVIDENCE_PENDING_PEER_KEY_BYTES",
-          "MAX_PENDING_RELAYS": "1024",
-          "MAX_RETRY_ATTEMPTS": "10"
+          "CONSENSUS_EVIDENCE_PENDING_PEER_KEYS_MAX_BYTES": "4 * 31 * iroha_data_model::sumeragi_lanes::MAX_LANE_CUSTODY_SIGNERS * CONSENSUS_EVIDENCE_PENDING_PEER_KEY_BYTES"
         }
       },
       {

@@ -18,6 +18,8 @@ use iroha_wallet::operations::{
 };
 use std::ffi::OsStr;
 
+#[path = "attempts/current_active.rs"]
+mod current_active;
 #[path = "attempts/generated_read_phase.rs"]
 mod generated_read_phase;
 #[path = "attempts/local_census.rs"]
@@ -1180,12 +1182,12 @@ impl History {
         &self,
         pass: Option<&crate::managed::stream_token_custody::body_history::SnapshotReadPass<'_>>,
     ) -> Result<()> {
-        retained_graph::with_native_read_tree(self, |mut tree| {
-            if let (Some(snapshot), Some(tree)) = (pass, tree.as_deref_mut())
-                && let Some(census) = local_census::LocalHistoryCensus::admit(self, snapshot)
-            {
-                return census.read(tree);
-            }
+        if let Some(snapshot) = pass
+            && let Some(census) = local_census::LocalHistoryCensus::admit(self, snapshot)
+        {
+            return census.read();
+        }
+        retained_graph::with_native_read_tree(self, |tree| {
             self.require_current_local_in_tree(pass, tree, None, None)
         })
     }
@@ -1528,8 +1530,7 @@ impl History {
     }
 
     fn retain_root(&self, operation: &PrivateDirectory) -> Result<()> {
-        self.require_current()?;
-        self.scope.require_active()?;
+        self.require_current_and_active()?;
         if operation.identity()? != self.operation.identity()?
             || self
                 .dispatch
@@ -1619,9 +1620,10 @@ impl History {
         operation: &PrivateDirectory,
         closing: bool,
     ) -> Result<Option<Attempt>> {
-        self.require_current()?;
-        if !closing {
-            self.scope.require_active()?;
+        if closing {
+            self.require_current()?;
+        } else {
+            self.require_current_and_active()?;
         }
         if operation.identity()? != self.operation.identity()? {
             return Err(invalid("dispatch selected another operation custody"));
@@ -1676,8 +1678,7 @@ impl History {
         origin: Origin,
         terms: Terms,
     ) -> Result<()> {
-        self.require_current()?;
-        self.scope.require_active()?;
+        self.require_current_and_active()?;
         if self.closing.is_some() || self.closed.is_some() || self.reservation_pending() {
             return Err(ManagedBootstrapFailure::TransitionPending.into());
         }

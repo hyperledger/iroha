@@ -499,7 +499,7 @@ fn private_fixture() -> (CertifiedTestChain, KeyPair) {
             Asset, AssetBalancePolicy, AssetBalanceScope, AssetDefinition, AssetDefinitionId,
             AssetId,
         },
-        block::consensus::PrivateRootFeePolicy,
+        block::consensus::RootFeePolicy,
         domain::Domain,
         nexus::{DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneConfig, LaneVisibility},
         parameter::Parameter,
@@ -532,12 +532,13 @@ fn private_fixture() -> (CertifiedTestChain, KeyPair) {
     );
     let mut configuration = TestChainConfig::new(world, 1_000);
     configuration.genesis_parameters.push(Parameter::Custom(
-        PrivateRootFeePolicy {
-            asset_definition_id: asset.clone(),
+        RootFeePolicy {
+            fee_asset_id: asset.clone(),
             base_fee: 1_u32.into(),
             per_byte_fee: 0_u32.into(),
             per_instruction_fee: 1_u32.into(),
             per_gas_unit_fee: 1_u32.into(),
+            ..iroha_config::parameters::defaults::nexus::fees::genesis_policy()
         }
         .into_custom_parameter()
         .unwrap(),
@@ -549,7 +550,7 @@ fn private_fixture() -> (CertifiedTestChain, KeyPair) {
         dataspace_id: ds,
     };
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
-    nexus.fees.fee_asset_id = asset.to_string();
+    nexus.fees.fee_asset_id = asset.clone();
     nexus.lane_catalog = LaneCatalog::new(
         std::num::NonZeroU32::new(1).unwrap(),
         vec![LaneConfig {

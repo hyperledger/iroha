@@ -514,7 +514,7 @@ Starting points, not evidence that this protocol has passed:
 
 ## 8. Recorded results
 
-### Current first-release completion requirements (2026-10-16)
+### Current first-release completion requirements
 
 The selected [logical C12 composition](kagemusha_c12_composition_v1.md) retains
 its named setup, masking, valid-source, concrete-coin and causal-custody
@@ -526,6 +526,17 @@ DATA, native builds and host JNI tests. Genuine monetary execution across all
 supported variants, four-validator execution and physical carrier measurements
 remain open. Later source changes need matching validation; historical source
 and execution records below do not qualify a successor.
+
+The [first-release execution goals](kagemusha_first_release_goals.md) identify
+the current source and required evidence. The current complete-catalog test
+expects 22 routes / 16 programs, four Send sigma masks and one Receive sigma
+selector with ordinary/renewed recursive variants. The current compact Payment
+has 1,394 B fixed overhead, a 3,520 B sigma capacity and a 5,086 B Omega
+transport capacity. These source bounds do not constitute a genuine envelope
+measurement. Older 52-route / 32-program catalogs and 1,723 B Payment-overhead
+measurements below remain scoped to their captures. Fresh-ID duplicate Receive
+after receiver restart and reverse-direction received-value spending are present
+in the host harnesses; current-candidate execution is still required.
 
 The initial phones are Pixel 6 and the connected iPhone 16 Pro Max. Current
 candidate enrollment must carry actual platform evidence, including App Attest
