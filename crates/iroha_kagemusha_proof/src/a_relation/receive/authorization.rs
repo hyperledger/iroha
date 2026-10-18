@@ -215,7 +215,7 @@ impl ReceiveAuthorizationObjects {
         // Payment omits these tapes; bind their content addresses before any
         // soft semantic or signature verdict can participate in a burn.
         GlueChip::assert_equal(region, request.object().word(8)?, self.objects[1].digest())?;
-        GlueChip::assert_equal(region, self.objects[1].word(28)?, self.objects[2].digest())?;
+        GlueChip::assert_equal(region, self.objects[1].word(27)?, self.objects[2].digest())?;
         // Ordinary Receive quotes exactly the receiver's current credential,
         // whose digest the authenticated state carries; its certificate is then
         // the one that credential names. Renewed Receive quotes another one.

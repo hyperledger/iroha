@@ -357,21 +357,21 @@ impl RefreshObjects {
                 transition.successor.lineage,
             )?;
             GlueChip::assert_constant(region, valid.word(), Fp::ONE)?;
-            refresh::constrain(
-                &mut uint,
-                region,
-                transition,
-                RefreshUpdate::Credential {
-                    digest: self.originals()?[1].digest(),
-                    issued: self.originals()?[1].word(25)?,
-                    lease: self.originals()?[1].word(27)?,
-                },
-            )
+            refresh::constrain(&mut uint, region, transition, self.credential_update()?)
         } else {
             let update = PolicyCells::check(&mut uint, region, &self.originals()?[1])?;
             GlueChip::assert_constant(region, update.valid().word(), Fp::ONE)?;
             refresh::constrain(&mut uint, region, transition, update.refresh_update()?)
         }
+    }
+
+    fn credential_update(&self) -> Result<RefreshUpdate<'_>, Error> {
+        let credential = &self.originals()?[1];
+        Ok(RefreshUpdate::Credential {
+            digest: credential.digest(),
+            issued: credential.word(24)?,
+            lease: credential.word(26)?,
+        })
     }
 
     fn authenticate_update(
