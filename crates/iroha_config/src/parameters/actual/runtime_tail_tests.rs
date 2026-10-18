@@ -7,19 +7,23 @@ fn sorafs_site_binding_defaults_are_disabled_and_bounded() {
 }
 #[test]
 fn streaming_codec_default_entropy_mode_matches_build_flag() {
-    assert!(
-        norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
-        "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
-    );
+    const {
+        assert!(
+            norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
+            "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
+        );
+    };
     let codec = StreamingCodec::from_defaults();
     assert_eq!(codec.entropy_mode, EntropyMode::RansBundled);
 }
 #[test]
 fn streaming_default_entropy_string_tracks_build_flag() {
-    assert!(
-        norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
-        "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
-    );
+    const {
+        assert!(
+            norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
+            "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
+        );
+    };
     let default = defaults::streaming::codec::entropy_mode();
     assert_eq!(
         default,

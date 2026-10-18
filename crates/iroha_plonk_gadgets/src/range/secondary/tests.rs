@@ -334,11 +334,10 @@ fn forged_top<F: PastaField>() {
                 .collect::<Vec<_>>();
             let (column, bit) = match (phase, top) {
                 (_, 3) => (5, 3),
-                (_, 6) => (9, 3),
                 (SecondaryPhase::Glue, 8) => (6, 2),
                 (_, 8) => (2, 2),
                 (SecondaryPhase::Glue, 12) => (7, 3),
-                (_, 12) => (9, 3),
+                (_, 6 | 12) => (9, 3),
                 _ => unreachable!(),
             };
             tampers.push(crate::tamper::Tamper {

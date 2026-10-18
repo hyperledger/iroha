@@ -2371,7 +2371,7 @@ fn main_joined_row_order_and_base_aux_phase_are_domain_bound() {
         .collect::<Vec<_>>();
     let hash = |rows: &[Vec<F>]| {
         plan.leaf_hash_v1(
-            main_domains_v1(TEST_PROOF_INSTANCE_V1),
+            &main_domains_v1(TEST_PROOF_INSTANCE_V1),
             7,
             &rows.iter().map(Vec::as_slice).collect::<Vec<_>>(),
         )
@@ -2412,7 +2412,7 @@ fn main_joined_row_order_and_base_aux_phase_are_domain_bound() {
         .collect::<Vec<_>>();
     let auxiliary = aux
         .leaf_hash_v1(
-            main_domains_v1(TEST_PROOF_INSTANCE_V1),
+            &main_domains_v1(TEST_PROOF_INSTANCE_V1),
             7,
             &aux_rows.iter().map(Vec::as_slice).collect::<Vec<_>>(),
         )
@@ -2555,7 +2555,7 @@ fn main_phase_source_retains_original_masks_and_authenticates_replay() {
     );
     assert!(replay_source.contains("masks: Vec<ReplayableTraceMaskV1>"));
     let phase_start = source
-        .find("pub(crate) fn commit_zk_x509_main_base_phase_v1_with_rng")
+        .find("pub fn commit_zk_x509_main_base_phase_v1_with_rng")
         .expect("typed MAIN phase one");
     let phase_end = source[phase_start..]
         .find("/// Exact six-provider registry")
@@ -3011,7 +3011,7 @@ fn main_local_transcript_separates_binding_before_base_after_aux_and_wrong_outer
         }
         aggregate::absorb_base_roots_v1(
             &mut transcript,
-            main_domains_v1(TEST_PROOF_INSTANCE_V1),
+            &main_domains_v1(TEST_PROOF_INSTANCE_V1),
             &base_roots,
         )
         .expect("ordered base roots");
@@ -3021,7 +3021,7 @@ fn main_local_transcript_separates_binding_before_base_after_aux_and_wrong_outer
         }
         aggregate::absorb_aux_roots_v1(
             &mut transcript,
-            main_domains_v1(TEST_PROOF_INSTANCE_V1),
+            &main_domains_v1(TEST_PROOF_INSTANCE_V1),
             &base_roots,
         )
         .expect("ordered aux roots");

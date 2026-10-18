@@ -13,28 +13,28 @@ use super::{
 
 /// Allocation allowance for native MAIN providers built from an admitted
 /// assembly. Actual capacities are checked again at every phase transition.
-pub(crate) const MAIN_NATIVE_SOURCE_ALLOWANCE_BYTES_V1: usize = 6 << 30;
+pub const MAIN_NATIVE_SOURCE_ALLOWANCE_BYTES_V1: usize = 6 << 30;
 
 /// Separate allowance for serial source construction and column replay;
 /// native/coefficient/FFT columns are charged by the MAIN transform plan.
-pub(crate) const MAIN_SOURCE_SCRATCH_ALLOWANCE_BYTES_V1: usize = 1 << 30;
+pub const MAIN_SOURCE_SCRATCH_ALLOWANCE_BYTES_V1: usize = 1 << 30;
 
 /// Sum payload sizes without allowing overflow to reduce a resource charge.
-pub(crate) fn sum_v1(values: impl IntoIterator<Item = usize>) -> usize {
+pub fn sum_v1(values: impl IntoIterator<Item = usize>) -> usize {
     values.into_iter().fold(0, usize::saturating_add)
 }
 
 /// Allocated vector storage, including unused capacity and inline element data.
-pub(crate) fn vector_v1<T>(values: &Vec<T>) -> usize {
+pub fn vector_v1<T>(values: &Vec<T>) -> usize {
     values.capacity().saturating_mul(core::mem::size_of::<T>())
 }
 
-fn optional_vector_v1<T>(values: &Option<Vec<T>>) -> usize {
-    values.as_ref().map_or(0, vector_v1)
+fn optional_vector_v1<T>(values: Option<&Vec<T>>) -> usize {
+    values.map_or(0, vector_v1)
 }
 
 /// Allocation payload of the value-free P-256 verifier schedule.
-pub(crate) fn p256_topology_v1(value: &P256EcdsaTopologyV1) -> usize {
+pub fn p256_topology_v1(value: &P256EcdsaTopologyV1) -> usize {
     sum_v1([
         vector_v1(&value.initial_values),
         vector_v1(&value.linked_operations),
@@ -47,7 +47,7 @@ pub(crate) fn p256_topology_v1(value: &P256EcdsaTopologyV1) -> usize {
 }
 
 /// Allocation payload of native P-256 material borrowed by every proof phase.
-pub(crate) fn p256_material_v1(value: &P256EcdsaTraceMaterialV1) -> usize {
+pub fn p256_material_v1(value: &P256EcdsaTraceMaterialV1) -> usize {
     sum_v1([
         vector_v1(&value.initial_values),
         vector_v1(&value.linked_operations),
@@ -68,7 +68,13 @@ pub(crate) fn p256_material_v1(value: &P256EcdsaTraceMaterialV1) -> usize {
 fn name_v1(value: &ZkX509DerNameV1) -> usize {
     sum_v1([
         vector_v1(&value.encoded),
-        sum_v1(value.attributes.iter().map(optional_vector_v1)),
+        sum_v1(
+            value
+                .attributes
+                .iter()
+                .map(Option::as_ref)
+                .map(optional_vector_v1),
+        ),
     ])
 }
 
@@ -102,7 +108,7 @@ fn rfc_trace_v1(value: &ZkX509Rfc5280TraceV1) -> usize {
             signature_v1(&certificate.signature),
             vector_v1(&certificate.extensions.authority_key_identifier),
             vector_v1(&certificate.extensions.subject_key_identifier),
-            optional_vector_v1(&certificate.extensions.extended_key_usages),
+            optional_vector_v1(certificate.extensions.extended_key_usages.as_ref()),
         ])
     }));
     let crl = &value.crl;
@@ -133,10 +139,10 @@ fn rfc_trace_v1(value: &ZkX509Rfc5280TraceV1) -> usize {
 }
 
 /// Nested allocations owned by one canonical byte-channel declaration.
-pub(crate) fn declaration_v1(value: &ZkX509IoChannelDeclarationV1) -> usize {
+pub fn declaration_v1(value: &ZkX509IoChannelDeclarationV1) -> usize {
     sum_v1([
         vector_v1(&value.consumers),
-        optional_vector_v1(&value.public_value),
+        optional_vector_v1(value.public_value.as_ref()),
     ])
 }
 
@@ -164,7 +170,7 @@ impl ZkX509MainTraceAssemblyV1 {
                 sum_v1([
                     vector_v1(&channel.consumers),
                     vector_v1(&channel.value),
-                    optional_vector_v1(&channel.public_value),
+                    optional_vector_v1(channel.public_value.as_ref()),
                 ])
             })),
             sum_v1(
@@ -199,6 +205,24 @@ impl ZkX509MainTraceAssemblyV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn optional_payload_retains_original_vector_capacity() {
+        assert_eq!(optional_vector_v1::<u64>(None), 0);
+        let mut original = Vec::<u64>::with_capacity(37);
+        original.push(9);
+        let pointer = original.as_ptr();
+        let capacity = original.capacity();
+        assert_eq!(optional_vector_v1(Some(&original)), capacity * 8);
+        assert_eq!(original.as_slice(), &[9]);
+        original.clear();
+        assert_eq!(optional_vector_v1(Some(&original)), capacity * 8);
+        assert_eq!(original.as_ptr(), pointer);
+        assert_eq!(original.capacity(), capacity);
+        assert!(original.is_empty());
+        assert_eq!(optional_vector_v1(Some(&Vec::<u64>::new())), 0);
+        assert_eq!(optional_vector_v1(Some(&vec![(); 3])), 0);
+    }
 
     #[test]
     fn capacity_payload_counts_unused_capacity_and_saturates_overflow() {

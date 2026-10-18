@@ -855,7 +855,7 @@ pub struct RawGenesisTx {
     /// Initial topology (list of peers) to bootstrap the network.
     ///
     /// Entries are provided as `{ "peer": <PeerId>, "pop_hex": "<hex>" }` to keep
-    /// peers and their PoPs together. `pop_hex` may be omitted while composing
+    /// peers and their `PoPs` together. `pop_hex` may be omitted while composing
     /// manifests but must be present before signing.
     #[norito(default)]
     topology: Vec<GenesisTopologyEntry>,
@@ -908,7 +908,7 @@ impl RawGenesisTx {
         &self.topology
     }
 }
-/// Peer PoP entry used to merge PoPs into topology entries.
+/// Peer `PoP` entry used to merge `PoPs` into topology entries.
 #[cfg(test)]
 #[derive(
     Debug, Clone, PartialEq, Eq, JsonSerialize, JsonDeserialize, IntoSchema, Encode, Decode,
@@ -937,7 +937,7 @@ impl From<PeerId> for GenesisTopologyEntry {
     }
 }
 impl GenesisTopologyEntry {
-    /// Build a topology entry from raw PoP bytes.
+    /// Build a topology entry from raw `PoP` bytes.
     #[must_use]
     pub fn new(peer: PeerId, pop: Vec<u8>) -> Self {
         Self {
@@ -945,7 +945,10 @@ impl GenesisTopologyEntry {
             pop_hex: Some(hex::encode(pop)),
         }
     }
-    /// Decode the PoP hex string into bytes, if present.
+    /// Decode the `PoP` hex string into bytes, if present.
+    ///
+    /// # Errors
+    /// Returns an error if the hexadecimal proof is malformed or empty.
     pub fn pop_bytes(&self) -> Result<Option<Vec<u8>>> {
         let Some(pop_hex) = self.pop_hex.as_deref() else {
             return Ok(None);
@@ -1111,6 +1114,9 @@ impl NormalizedGenesis {
         Value::Object(map)
     }
     /// Render normalized genesis as pretty JSON.
+    ///
+    /// # Errors
+    /// Returns the Norito JSON serializer error if the normalized value cannot be encoded.
     pub fn to_pretty_json(&self) -> Result<String, norito::json::Error> {
         norito::json::to_json_pretty(&self.to_json_value())
     }
@@ -1183,7 +1189,7 @@ fn compute_consensus_parameters_fingerprint(
     iroha_data_model::block::consensus::fingerprint::compute(params)
         .map_err(|error| eyre!("invalid signed consensus parameters: {error}"))
 }
-/// Incomplete genesis source JSON whose consensus fingerprint and NPoS XOR pin are not yet bound.
+/// Incomplete genesis source JSON whose consensus fingerprint and `NPoS` XOR pin are not yet bound.
 ///
 /// Source templates are not [`RawGenesisTransaction`] values and cannot be signed. They must be
 /// materialized with the explicit network XOR selection before entering validation or signing.
@@ -1243,14 +1249,14 @@ impl GenesisSourceTemplate {
         })
     }
 
-    /// Pin the explicit NPoS XOR selection and produce a complete Raw manifest.
+    /// Pin the explicit `NPoS` XOR selection and produce a complete Raw manifest.
     ///
     /// The consensus fingerprint is recomputed after materialization. The signed handshake
     /// authenticates the result, and Core rechecks the genesis roster during startup.
     ///
     /// # Errors
     ///
-    /// Returns an error when the explicit NPoS XOR selection is invalid, or the completed JSON
+    /// Returns an error when the explicit `NPoS` XOR selection is invalid, or the completed JSON
     /// is not a valid [`RawGenesisTransaction`].
     pub fn materialize(
         mut self,
@@ -1324,7 +1330,7 @@ impl RawGenesisTransaction {
     ///
     /// # Errors
     ///
-    /// Returns an error when NPoS parameters disagree with the consensus mode, or the initial
+    /// Returns an error when `NPoS` parameters disagree with the consensus mode, or the initial
     /// epoch cannot contain the committed anchor and authenticated beacon pulse required before
     /// its boundary.
     pub fn validate_mode_specific_consensus_parameters(&self) -> Result<()> {
@@ -1612,7 +1618,7 @@ impl RawGenesisTransaction {
             block_max_transactions,
             mode,
             protocol_version: iroha_config::parameters::defaults::sumeragi::PROTOCOL_VERSION,
-            sumeragi_context: self.sumeragi_context.clone(),
+            sumeragi_context: self.sumeragi_context,
         };
         let fp = compute_consensus_parameters_fingerprint(&dm_params)?;
         self.wire_protocol_version = CONSENSUS_PROTOCOL_VERSION;
@@ -1627,7 +1633,7 @@ impl RawGenesisTransaction {
     /// # Errors
     ///
     /// - if consensus metadata cannot be populated
-    /// - if instruction injection fails (e.g., invalid topology PoPs)
+    /// - if instruction injection fails (e.g., invalid topology `PoPs`)
     pub fn normalize(self) -> Result<NormalizedGenesis> {
         self.validate_mode_specific_consensus_parameters()?;
         // Always refresh consensus metadata so fingerprints stay aligned with
@@ -1639,12 +1645,12 @@ impl RawGenesisTransaction {
                 "unsupported wire_protocol_version after normalization"
             ));
         }
-        let consensus_fingerprint = manifest.consensus_fingerprint.clone().ok_or_else(|| {
+        let consensus_fingerprint = manifest.consensus_fingerprint.ok_or_else(|| {
             eyre!(
                 "consensus_fingerprint missing after normalization; call with_consensus_meta first"
             )
         })?;
-        let sumeragi_context = manifest.sumeragi_context.clone();
+        let sumeragi_context = manifest.sumeragi_context;
         sumeragi_context
             .validate()
             .map_err(|error| eyre!("invalid signed Sumeragi context parameters: {error}"))?;
@@ -1759,6 +1765,11 @@ impl RawGenesisTransaction {
     /// This deliberately refuses to rewrite a transaction that also carries parameters, IVM
     /// triggers, or topology. Callers can therefore perform a narrow transaction-boundary migration
     /// without silently moving any other genesis semantics.
+    ///
+    /// # Errors
+    /// Returns an error for an absent transaction, empty replacement batches,
+    /// parameter instructions, or an original transaction containing parameters,
+    /// IVM triggers or topology.
     pub fn replace_instruction_only_transaction(
         &mut self,
         index: usize,
@@ -1979,7 +1990,6 @@ impl RawGenesisTransaction {
     }
 
     /// Iterate over all instructions contained in this manifest.
-    #[must_use]
     pub fn instructions(&self) -> impl Iterator<Item = &InstructionBox> {
         self.transactions
             .iter()
@@ -1988,7 +1998,7 @@ impl RawGenesisTransaction {
     /// Return the exact Sumeragi context parameters selected by this manifest.
     #[must_use]
     pub fn sumeragi_context_parameters(&self) -> SumeragiGenesisContextParameters {
-        self.sumeragi_context.clone()
+        self.sumeragi_context
     }
     /// Replace the Sumeragi context parameters that will be fingerprinted
     /// and signed with this manifest.
@@ -2574,7 +2584,6 @@ impl GenesisBuilder {
     }
     /// Select the exact Sumeragi context parameters which will be embedded
     /// in and signed by genesis.
-    #[must_use]
     pub fn with_sumeragi_context_parameters(
         mut self,
         parameters: SumeragiGenesisContextParameters,
@@ -2583,7 +2592,6 @@ impl GenesisBuilder {
         self
     }
     /// Select the signed immutable block cadence stored by genesis.
-    #[must_use]
     pub fn with_block_cadence_ms(mut self, block_cadence_ms: NonZeroU64) -> Self {
         self.block_cadence_ms = block_cadence_ms;
         self
@@ -2660,7 +2668,7 @@ impl GenesisBuilder {
         self.current_tx_mut().topology = topology.into_iter().map(Into::into).collect();
         self
     }
-    /// Merge PoPs into the topology entries of the current transaction.
+    /// Merge `PoPs` into the topology entries of the current transaction.
     ///
     /// # Panics
     ///
@@ -3507,10 +3515,12 @@ mod tests {
     #[test]
     fn genesis_epoch_reserves_a_committed_beacon_anchor_and_pulse() {
         for epoch_length in [1, 2, 3] {
-            let mut parameters = SumeragiNposParameters::default();
-            parameters.epoch_length_blocks = NonZeroU64::new(epoch_length).unwrap();
-            parameters.evidence_horizon_blocks = epoch_length;
-            parameters.slashing_delay_blocks = epoch_length;
+            let parameters = SumeragiNposParameters {
+                epoch_length_blocks: NonZeroU64::new(epoch_length).unwrap(),
+                evidence_horizon_blocks: epoch_length,
+                slashing_delay_blocks: epoch_length,
+                ..SumeragiNposParameters::default()
+            };
             let manifest = GenesisBuilder::new_without_executor(
                 ChainId::from("genesis-beacon-window"),
                 PathBuf::from("."),
@@ -3676,7 +3686,6 @@ mod tests {
             .clone()
             .with_consensus_meta()?
             .consensus_fingerprint
-            .clone()
             .expect("expected consensus fingerprint");
         manifest.consensus_fingerprint = Some(ConsensusFingerprint::new([0xDE; 32]));
         let genesis = with_test_signing_topology(manifest)
@@ -4217,16 +4226,14 @@ mod tests {
                 && let Ok(payload) = custom
                     .payload()
                     .try_into_any_norito::<norito::json::Value>()
-            {
-                if let Some(fingerprint) =
+                && let Some(fingerprint) =
                     payload
                         .get("consensus_fingerprint")
                         .and_then(|value: &norito::json::Value| {
                             value.as_str().map(std::string::ToString::to_string)
                         })
-                {
-                    found.push(fingerprint);
-                }
+            {
+                found.push(fingerprint);
             }
         }
         assert_eq!(found.len(), 1);
@@ -4467,8 +4474,10 @@ mod tests {
     fn parse_rejects_mismatched_crypto_manifest_metadata() {
         init_instruction_registry();
         let chain = ChainId::from("test-crypto-meta-mismatch");
-        let mut wrong_crypto = ManifestCrypto::default();
-        wrong_crypto.default_hash = "blake2b-512".to_owned();
+        let wrong_crypto = ManifestCrypto {
+            default_hash: "blake2b-512".to_owned(),
+            ..ManifestCrypto::default()
+        };
         let payload =
             norito::json::value::to_value(&wrong_crypto).expect("serialize mismatched crypto");
         let manual_param = Parameter::Custom(CustomParameter::new(

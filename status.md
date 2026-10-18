@@ -95,7 +95,9 @@ certified replay; accelerated complete-State restoration remains open.
 The runtime and trigger permission guards reject malformed recognized payloads before
 delegation; decoder refusals preserve local deferral. Recorded upstream-source checks
 passed strict workspace Clippy with default and supported features, and strict Clippy
-for the standalone daemon. Strict lint of this merged source remains unrun. The repaired Rust SDK client source
+for the standalone daemon. Strict workspace lint of the merged source fails;
+proof-engine numeric/ownership and transport repairs, followed by a fresh full
+run, remain open. The repaired Rust SDK client source
 passes its unit suite and strict lint; qualification of the final combined source, signed RS16
 loss/withholding and release remains open. Exact finalized-carrier retries retain
 original execution without requeueing or charging again; changed source requires fresh

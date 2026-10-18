@@ -183,7 +183,7 @@ fn sha_physical_padding_wrap_has_zero_residues_and_rejects_nonzero_cells() {
             &witness_for(manifest),
             word_challenges(),
             challenges(),
-            rfc_challenges(),
+            &rfc_challenges(),
             4,
         )
         .unwrap();
@@ -213,7 +213,7 @@ fn sha_physical_padding_wrap_has_zero_residues_and_rejects_nonzero_cells() {
                 &first,
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 terminal,
                 &boundaries,
             )
@@ -240,7 +240,7 @@ fn sha_physical_padding_wrap_has_zero_residues_and_rejects_nonzero_cells() {
                 &lift(&first),
                 word_challenges(),
                 challenges(),
-                rfc_challenges(),
+                &rfc_challenges(),
                 terminal,
                 &boundaries
             )

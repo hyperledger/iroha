@@ -1,6 +1,6 @@
-//! Byte-faithful, bounded holder-randomness sampler from pinned LaZeR.
+//! Byte-faithful, bounded holder-randomness sampler from pinned `LaZeR`.
 //!
-//! LaZeR's `polyvec_grandom(..., log2o = 1)` uses one AES-256-CTR stream per
+//! `LaZeR`'s `polyvec_grandom(..., log2o = 1)` uses one AES-256-CTR stream per
 //! degree-64 polynomial and a Gaussian-1.55 sign cache shared across those
 //! streams.  This module preserves that byte layout while replacing every
 //! unbounded retry with a public ceiling.  AES is CPU-only safe Rust with a
@@ -10,12 +10,12 @@ use super::{holder_aes256::ConstantTimeAes256KeyV1, ring::ApplicationPolynomialV
 use rand_core_06::{CryptoRng, RngCore};
 use thiserror::Error;
 use zeroize::{Zeroize, Zeroizing};
-pub(crate) const CREDENTIAL_RANDOMNESS_POLYNOMIALS_V1: usize = 16;
-pub(crate) const CREDENTIAL_RANDOMNESS_NORM_SQUARED_BOUND_V1: u64 =
+pub const CREDENTIAL_RANDOMNESS_POLYNOMIALS_V1: usize = 16;
+pub const CREDENTIAL_RANDOMNESS_NORM_SQUARED_BOUND_V1: u64 =
     super::params::RANDOMNESS_NORM_SQUARED_BOUND_V1;
-pub(crate) const MAX_CREDENTIAL_RANDOMNESS_VECTOR_ATTEMPTS_V1: u32 = 64;
-pub(crate) const MAX_CREDENTIAL_RANDOMNESS_COEFFICIENT_PROPOSALS_V1: u32 = 256;
-pub(crate) const BOOTLE_CREDENTIAL_RANDOMNESS_PROFILE_DESCRIPTOR_V1: &[u8] = b"lazer-10eafeca4cd53ff4fc54193dce904dbd0026fefd-polyvec-grandom-v1|ring:R64-q12289|shape:16x64|sigma:1.55*2|seed:32|rng:AES-256-CTR-domain-le64-zero64-counter-be128|domains:(outer<<32)|(poly+1)|rounding:8-bytes-lsb-first-per-poly|cdf155:21-pairs-u64le|berexp:fdlibm-exp-small-u64le|sign-cache:issuance-local-persistent-across-polynomials-and-vector-retries|norm2<=11881|vector-attempts:64|coefficient-proposals:256|aes:cpu-only-fixed-control-flow-algebraic-sbox";
+pub const MAX_CREDENTIAL_RANDOMNESS_VECTOR_ATTEMPTS_V1: u32 = 64;
+pub const MAX_CREDENTIAL_RANDOMNESS_COEFFICIENT_PROPOSALS_V1: u32 = 256;
+pub const BOOTLE_CREDENTIAL_RANDOMNESS_PROFILE_DESCRIPTOR_V1: &[u8] = b"lazer-10eafeca4cd53ff4fc54193dce904dbd0026fefd-polyvec-grandom-v1|ring:R64-q12289|shape:16x64|sigma:1.55*2|seed:32|rng:AES-256-CTR-domain-le64-zero64-counter-be128|domains:(outer<<32)|(poly+1)|rounding:8-bytes-lsb-first-per-poly|cdf155:21-pairs-u64le|berexp:fdlibm-exp-small-u64le|sign-cache:issuance-local-persistent-across-polynomials-and-vector-retries|norm2<=11881|vector-attempts:64|coefficient-proposals:256|aes:cpu-only-fixed-control-flow-algebraic-sbox";
 const DEGREE_V1: usize = 64;
 const CDF_155_V1: [(u64, u64); 21] = [
     (0x9731_fa96_ce33_beaa, 0x95f2_8503_ccbd_a2bd),
@@ -40,7 +40,7 @@ const CDF_155_V1: [(u64, u64); 21] = [
     (0, 0x0000_0000_0000_0062),
     (0, 0),
 ];
-pub(crate) struct CredentialRandomnessV1 {
+pub struct CredentialRandomnessV1 {
     polynomials: [ApplicationPolynomialV1; CREDENTIAL_RANDOMNESS_POLYNOMIALS_V1],
     norm_squared: u64,
 }
@@ -80,15 +80,15 @@ impl Drop for CredentialRandomnessV1 {
         self.zeroize();
     }
 }
-pub(crate) fn sample_credential_randomness_v1<R: CryptoRng + RngCore>(
+pub fn sample_credential_randomness_v1<R: CryptoRng + RngCore>(
     rng: &mut R,
 ) -> Result<CredentialRandomnessV1, CredentialRandomnessErrorV1> {
     let mut seed = Zeroizing::new([0_u8; 32]);
     rng.try_fill_bytes(seed.as_mut())
         .map_err(|_| CredentialRandomnessErrorV1::RandomnessUnavailable)?;
-    sample_credential_randomness_from_seed_v1(&*seed).map(|(sample, _)| sample)
+    sample_credential_randomness_from_seed_v1(&seed).map(|(sample, _)| sample)
 }
-pub(crate) fn sample_credential_randomness_from_seed_v1(
+pub fn sample_credential_randomness_from_seed_v1(
     seed: &[u8; 32],
 ) -> Result<
     (
@@ -344,7 +344,7 @@ fn increment_be(counter: &mut [u8; 16]) {
 }
 /// Bounded failure from the exact credential-randomness sampler.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
-pub(crate) enum CredentialRandomnessErrorV1 {
+pub enum CredentialRandomnessErrorV1 {
     #[error("credential-randomness source is unavailable")]
     RandomnessUnavailable,
     #[error("credential-randomness Gaussian coefficient exhausted its proposal budget")]

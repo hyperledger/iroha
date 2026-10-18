@@ -2,7 +2,7 @@
 //!
 //! The selected public artifact fixes the cycle horizon. All gas and retired
 //! cycles come from original packets constrained by the preceding banks, not
-//! from NativeInvocation's summary or a caller-provided expected outcome.
+//! from `NativeInvocation`'s summary or a caller-provided expected outcome.
 //! Statement/output commitment and general fault admission remain separate gates.
 
 use super::super::{bit, packet};

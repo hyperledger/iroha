@@ -636,9 +636,14 @@ pub mod telemetry {
 pub mod json {
     use std::cell::Cell;
     use url::Url;
+    #[cfg(test)]
+    mod decode_depth_tests;
     mod exact_string;
     mod key_codec;
     mod key_hash;
+    mod value_depth;
+    #[cfg(test)]
+    mod value_depth_tests;
     pub use super::{
         JsonDeserialize as Deserialize, JsonDeserialize, JsonSerialize as Serialize, JsonSerialize,
     };
@@ -2056,7 +2061,7 @@ pub mod json {
     }
     /// Convert a native JSON `Value` into `T` using `JsonDeserialize`.
     pub fn from_value<T: JsonDeserialize>(v: Value) -> Result<T, Error> {
-        let result = T::json_from_value(&v);
+        let result = value_depth::ensure(&v).and_then(|()| T::json_from_value(&v));
         drop_json_value_iteratively(v);
         result
     }
@@ -2113,7 +2118,10 @@ pub mod json {
                 context: "JSON value",
             });
         }
-        Ok(())
+        // JSON counts its root at one; the shared budget counts nested values beyond it.
+        crate::core::checked_decode_depth(depth.saturating_sub(1))
+            .map(|_| ())
+            .map_err(Error::from_decode_resource)
     }
     fn try_decode_vec_with_capacity<T>(entries: usize) -> Result<Vec<T>, Error> {
         let requested_bytes = entries
@@ -2152,6 +2160,7 @@ pub mod json {
         p.skip_ws();
         let (profile, _) = preflight::value_profile_at_depth(p.input(), p.position(), depth)
             .map_err(|error| p.lexical_preflight_error(error))?;
+        ensure_json_value_depth(profile.max_nesting_depth())?;
         let frame_capacity = profile.max_nesting_depth().saturating_sub(depth);
         let mut state = ValueParseState::with_frame_capacity(frame_capacity)?;
         let mut next_depth = depth;
@@ -3601,6 +3610,7 @@ pub mod json {
             Ok(Box::new(value))
         }
         fn json_from_value(value: &Value) -> Result<Self, Error> {
+            value_depth::ensure(value)?;
             let _depth_guard = OwnedValueDecodeDepthGuard::enter()?;
             crate::core::reserve_decode_box_allocation::<T>()
                 .map_err(Error::from_decode_resource)?;
@@ -4667,6 +4677,7 @@ pub mod json {
             }
             let (profile, _) = preflight::container_profile_at_depth(self.input(), self.i, 1)
                 .map_err(|error| self.lexical_preflight_error(error))?;
+            ensure_json_value_depth(profile.max_nesting_depth())?;
             let entries = profile.root_container_entries();
             crate::core::enforce_decode_sequence_length(
                 u64::try_from(entries).map_err(|_| Error::DecodeResourceLimit)?,
@@ -4692,8 +4703,9 @@ pub mod json {
         pub fn raw_value_slice(&mut self) -> Result<&'a str, Error> {
             self.skip_ws();
             let start = self.i;
-            let end = preflight::value_end_at_depth(self.input(), start, 1)
+            let (profile, end) = preflight::value_profile_at_depth(self.input(), start, 1)
                 .map_err(|error| self.lexical_preflight_error(error))?;
+            ensure_json_value_depth(profile.max_nesting_depth())?;
             self.i = end;
             Ok(&self.input()[start..end])
         }
@@ -4705,8 +4717,10 @@ pub mod json {
         pub fn skip_value_lexical(&mut self) -> Result<(), Error> {
             self.skip_ws();
             let start = self.i;
-            self.i = preflight::value_end_at_depth(self.input(), start, 1)
+            let (profile, end) = preflight::value_profile_at_depth(self.input(), start, 1)
                 .map_err(|error| self.lexical_preflight_error(error))?;
+            ensure_json_value_depth(profile.max_nesting_depth())?;
+            self.i = end;
             Ok(())
         }
         fn lexical_preflight_error(&self, error: preflight::JsonPreflightError) -> Error {
@@ -4772,6 +4786,11 @@ pub mod json {
                 ParseNext(usize),
                 Close,
             }
+            self.skip_ws();
+            let (profile, _) =
+                preflight::value_profile_at_depth(self.input(), self.position(), root_depth)
+                    .map_err(|error| self.lexical_preflight_error(error))?;
+            ensure_json_value_depth(profile.max_nesting_depth())?;
             let mut frames = Vec::<Frame>::new();
             let mut next_depth = root_depth;
             'parse: loop {
@@ -5015,6 +5034,7 @@ pub mod json {
     impl<T: JsonDeserialize> JsonDeserializeOwned for T {}
     pub use JsonDeserializeOwned as DeserializeOwned;
     fn json_from_value_via_string<T: JsonDeserialize>(value: &Value) -> Result<T, Error> {
+        value_depth::ensure(value)?;
         let json = to_json(value)?;
         let mut parser = Parser::new(&json);
         let result = T::json_deserialize(&mut parser)?;
@@ -5602,7 +5622,12 @@ pub mod json {
             p.parse_array::<T>()
         }
         fn json_from_value(value: &Value) -> Result<Self, Error> {
+            value_depth::ensure(value)?;
             if let Value::Array(items) = value {
+                crate::core::enforce_decode_sequence_length(
+                    u64::try_from(items.len()).map_err(|_| Error::DecodeResourceLimit)?,
+                )
+                .map_err(Error::from_decode_resource)?;
                 let mut out = try_decode_vec_with_capacity(items.len())?;
                 for item in items {
                     out.push(T::json_from_value(item)?);
@@ -5643,7 +5668,12 @@ pub mod json {
             Ok(set)
         }
         fn json_from_value(value: &Value) -> Result<Self, Error> {
+            value_depth::ensure(value)?;
             if let Value::Array(items) = value {
+                crate::core::enforce_decode_sequence_length(
+                    u64::try_from(items.len()).map_err(|_| Error::DecodeResourceLimit)?,
+                )
+                .map_err(Error::from_decode_resource)?;
                 crate::core::reserve_decode_btree_allocation::<T, ()>(items.len())
                     .map_err(Error::from_decode_resource)?;
                 let mut set = std::collections::BTreeSet::new();
@@ -5667,7 +5697,15 @@ pub mod json {
             drop_json_value_iteratively(self);
         }
         fn json_from_value(value: &Value) -> Result<Self, Error> {
-            Ok(value.clone())
+            value_depth::ensure(value)?;
+            match value {
+                Value::Null => Ok(Value::Null),
+                Value::Bool(value) => Ok(Value::Bool(*value)),
+                Value::Number(value) => Ok(Value::Number(*value)),
+                Value::String(value) => try_decode_string_copy(value).map(Value::String),
+                Value::Array(_) => Vec::<Value>::json_from_value(value).map(Value::Array),
+                Value::Object(_) => Map::json_from_value(value).map(Value::Object),
+            }
         }
     }
     /// Structural index (scalar) representing offsets of JSON structural characters
@@ -8393,6 +8431,8 @@ pub mod json {
     where
         T: FastFromJson<'a> + JsonDeserialize,
     {
+        // Refuse the complete document before Stage-1 can allocate its structural tape.
+        ensure_json_value_depth(document_json_value_depth(s))?;
         // Tape-first path: build structural index, then invoke the type's fast parser.
         let mut w = TapeWalker::new(s);
         w.ensure_document_depth()?;
@@ -8717,7 +8757,12 @@ pub mod json {
             Ok(map)
         }
         fn json_from_value(value: &Value) -> Result<Self, Error> {
+            value_depth::ensure(value)?;
             if let Value::Object(obj) = value {
+                crate::core::enforce_decode_sequence_length(
+                    u64::try_from(obj.len()).map_err(|_| Error::DecodeResourceLimit)?,
+                )
+                .map_err(Error::from_decode_resource)?;
                 crate::core::reserve_decode_hash_table_allocation::<(K, V)>(obj.len())
                     .map_err(Error::from_decode_resource)?;
                 let mut map = std::collections::HashMap::new();
@@ -8761,7 +8806,12 @@ pub mod json {
             Ok(map)
         }
         fn json_from_value(value: &Value) -> Result<Self, Error> {
+            value_depth::ensure(value)?;
             if let Value::Object(obj) = value {
+                crate::core::enforce_decode_sequence_length(
+                    u64::try_from(obj.len()).map_err(|_| Error::DecodeResourceLimit)?,
+                )
+                .map_err(Error::from_decode_resource)?;
                 crate::core::reserve_decode_btree_allocation::<K, V>(obj.len())
                     .map_err(Error::from_decode_resource)?;
                 let mut map = std::collections::BTreeMap::new();
@@ -8809,7 +8859,12 @@ pub mod json {
             Ok(set)
         }
         fn json_from_value(value: &Value) -> Result<Self, Error> {
+            value_depth::ensure(value)?;
             if let Value::Array(items) = value {
+                crate::core::enforce_decode_sequence_length(
+                    u64::try_from(items.len()).map_err(|_| Error::DecodeResourceLimit)?,
+                )
+                .map_err(Error::from_decode_resource)?;
                 crate::core::reserve_decode_hash_table_allocation::<T>(items.len())
                     .map_err(Error::from_decode_resource)?;
                 let mut set = std::collections::HashSet::new();
@@ -9497,11 +9552,36 @@ where
     for<'de> T: NoritoDeserialize<'de>,
 {
     let mut slot = core::TypedFieldSlot::<T>::new();
-    core::classify_decode_attempt(|| {
+    let decoded = core::classify_decode_attempt(|| {
         decode_canonical_with_limits_into_slot(bytes, limits, &mut slot)?;
-        slot.take_value()
-    })
-    .map(finish)
+        // Validate initialization under the original observer without returning the
+        // complete value through each of its framing and classification stack slots.
+        slot.value().map(|_| ())
+    });
+    match decoded {
+        Ok(()) => Ok(finish_canonical_admission(&mut slot, finish)),
+        Err(error) => {
+            // Release an uncalled consumer's captured owners before decoded-value cleanup,
+            // preserving the failure boundary of the original Result::map consumer.
+            drop(finish);
+            Err(error)
+        }
+    }
+}
+
+// Only the original initialized slot survives the decoder phase. The consumer and
+// the value's extraction temporaries exist after all decoder/observer scopes retire.
+#[inline(never)]
+fn finish_canonical_admission<T, Output>(
+    slot: &mut core::TypedFieldSlot<T>,
+    finish: impl FnOnce(T) -> Output,
+) -> Output {
+    // Initialization was checked by slot.value() in the original observer. No callback
+    // or mutable access to this exclusive slot can intervene before this sole take.
+    let value = slot
+        .take_value()
+        .expect("successful canonical decode retained its initialized value");
+    finish(value)
 }
 
 fn checked_canonical_header(bytes: &[u8]) -> Result<core::Header, Error> {

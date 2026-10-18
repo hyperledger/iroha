@@ -1728,7 +1728,7 @@ impl Prover {
 
 impl Plan {
     /// Reconstruct one fixed unknown source for sequential offline key tooling.
-    /// A1 has no prior wrapper; A2 through A4 require the exact preceding W.
+    /// A1 has no prior wrapper; A2 requires the exact preceding W0.
     /// This produces no prepared input, proof, checkpoint or monetary authority.
     /// # Errors
     /// Invalid stage, missing/extra wrapper or mismatched preceding stage/context.
@@ -2328,7 +2328,7 @@ impl Session<'_> {
             opening,
         })
     }
-    /// Restore A2-A4 from its verified source W and canonical new Pallas claim.
+    /// Restore A2 from its verified source W0 and canonical new Pallas claim.
     /// Every context/public field is derived from the retained source chain.
     /// # Errors
     /// Canonical claim, source/context, installed key, proof or complete decide mismatch.
@@ -2413,7 +2413,7 @@ impl Session<'_> {
             opening,
         })
     }
-    /// Export A4 and all distinct final Omega obligations after another full native check.
+    /// Export A2 and all distinct final Omega obligations after another full native check.
     /// This grants neither monetary completion nor a final transported Omega.
     /// # Errors
     /// A nonterminal/wrong source checkpoint or any failed native proof/decide.
@@ -2529,7 +2529,7 @@ fn object_kinds() -> [ObjectKind; 1] {
     [ObjectKind::Receipt]
 }
 
-// LoadObjects::bind_statement constrains the same digest at A3. Refuse changed
+// LoadObjects::bind_finalized_terms constrains the same digest at A2. Refuse changed
 // retained originals before verifying the predecessor/Q proofs, whose own
 // receipt binds this statement. This is not a native BLS/finality verdict: that
 // authority belongs to the wallet before it authorizes the original Advance.
@@ -2568,14 +2568,14 @@ fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) -> Result<(), Error> 
     }
     Ok(())
 }
-fn vesta_words(claim: &FoldInput<Eq>) -> Result<Vec<Fp>, Error> {
+fn vesta_words(claim: &FoldInput<Eq>) -> Vec<Fp> {
     let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(claim.g());
     let mut words = Vec::with_capacity(20);
     for value in [x, y] {
         words.extend(foreign_limbs(&value).map(Fp::from_u128));
     }
     words.extend(claim.challenges());
-    Ok(words)
+    words
 }
 
 fn context_digest(first: &First) -> Result<Fp, Error> {
@@ -2588,7 +2588,7 @@ fn context_digest(first: &First) -> Result<Fp, Error> {
     words.extend(old.rest);
     words.extend(old.lineage);
     push_pallas(&mut words, &source.predecessor.pallas.as_input())?;
-    words.extend(vesta_words(&source.predecessor.vesta.as_input())?);
+    words.extend(vesta_words(&source.predecessor.vesta.as_input()));
     words.extend(new.core);
     words.extend(new.rest);
     words.extend(new.lineage);
@@ -2637,11 +2637,11 @@ fn trivial_vesta_claim() -> Result<FoldInput<Eq>, Error> {
     FoldInput::<Eq>::from_normalized(g, 16, [Fp::ONE; K]).map_err(|_| Error::Artifact)
 }
 fn trivial_vesta_words() -> Result<Vec<Fp>, Error> {
-    vesta_words(&trivial_vesta_claim()?)
+    Ok(vesta_words(&trivial_vesta_claim()?))
 }
 fn internal_public(digest: Fp, part: &FoldInput<Eq>) -> Result<Vec<Fp>, Error> {
     let mut words = vec![digest, Fp::from(u64::from(part.source_k()))];
-    words.extend(vesta_words(part)?);
+    words.extend(vesta_words(part));
     let trivial = trivial_vesta_words()?;
     words.extend(&trivial);
     words.extend(&trivial);
@@ -2677,8 +2677,8 @@ fn continuation_public(c: &Continuation) -> Result<Vec<Fp>, Error> {
         )?,
         Fp::from(16),
     ];
-    words.extend(vesta_words(&c.vesta.as_input())?);
-    words.extend(vesta_words(&c.first.source.predecessor.vesta.as_input())?);
+    words.extend(vesta_words(&c.vesta.as_input()));
+    words.extend(vesta_words(&c.first.source.predecessor.vesta.as_input()));
     let trivial = trivial_vesta_words()?;
     words.extend(&trivial);
     words.extend([Fp::ZERO, Fp::ONE, Fp::ZERO]);

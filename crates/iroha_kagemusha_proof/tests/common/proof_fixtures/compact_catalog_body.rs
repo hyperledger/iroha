@@ -337,12 +337,8 @@ fn rebuild_bootstrap_load(
     initial_load: &load_chain::AuthenticatedLoad,
     fixture: &LoadFixture,
 ) -> DiagnosticLoadOmega {
-    let source = bootstrap_chain::authenticated_bootstrap_with_profile(
-        false,
-        program.digest(),
-        PROFILE,
-        Some(2),
-    );
+    let source =
+        bootstrap_chain::authenticated_bootstrap_with_profile(false, program.digest(), PROFILE);
     assert_eq!(source.binding, initial_bootstrap.binding);
     assert_eq!(source.key.to_bytes(), initial_bootstrap.key.to_bytes());
     assert_eq!(source.state.lineage[17], program.digest());
@@ -581,7 +577,6 @@ fn rebuild_receiver_bootstrap(
         false,
         program.digest(),
         PROFILE,
-        Some(2),
         bootstrap_chain::BootstrapIdentity::Receiver,
     );
     assert_eq!(&source.binding, expected_binding);
@@ -755,8 +750,7 @@ fn forged_fold<C: PastaCurve>(
     t.write_scalar(&C::ScalarExt::ONE);
     equation -= C::from(params.params().w()) * gamma;
     equation -= C::from(params.params().u()) * (fold_evaluation(z, &challenges) * zeta);
-    t.append_unabsorbed_generator(&equation.to_affine())
-        .unwrap();
+    t.append_unabsorbed_generator(&equation.to_affine());
     let mut original = t.finish();
     original.extend_from_slice(&tape.to_private_bytes());
     iroha_plonk_recursion::FoldWitness::from_private_bytes(&original).unwrap()

@@ -83,7 +83,7 @@ impl PreparedCanonicalDecode {
         for<'de> T: NoritoDeserialize<'de>,
     {
         let mut slot = TypedFieldSlot::<T>::new();
-        classify_decode_attempt(|| {
+        let decoded = classify_decode_attempt(|| {
             if bytes.len() != self.frame_bytes {
                 return Err(Error::LengthMismatch);
             }
@@ -95,9 +95,18 @@ impl PreparedCanonicalDecode {
                 CanonicalDecodeScope::Prepared(&self.defaults),
                 CanonicalDecodeScope::Prepared(&self.schema),
             )?;
-            slot.take_value()
-        })
-        .map(finish)
+            // Keep the initialized value in its original slot while the observer retires.
+            slot.value().map(|_| ())
+        });
+        match decoded {
+            Ok(()) => Ok(crate::finish_canonical_admission(&mut slot, finish)),
+            Err(error) => {
+                // The rejected graph must not clean up under an uncalled consumer's guards.
+                // Keep this decoder's original controls alive through both cleanups.
+                drop(finish);
+                Err(error)
+            }
+        }
     }
 }
 
@@ -196,6 +205,65 @@ mod tests {
         assert!(invalid.local_refusal().is_none());
         drop(invalid);
         assert_eq!(pool.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn prepared_canonical_consumer_preserves_fixed_value_scopes_and_original_controls() {
+        let value = [[7_u64; 32]; 32];
+        let frame = crate::encode_canonical(&value).unwrap();
+        let nested = crate::encode_canonical(&vec![5_u64; 64]).unwrap();
+        let canonical = canonical_decode_limits(frame.len());
+        let limits = DecodeLimits::new(
+            32,
+            canonical.max_field_bytes(),
+            canonical.max_total_elements(),
+            canonical.max_total_allocated_bytes(),
+            canonical.max_nesting_depth(),
+        );
+        let exact = PreparedCanonicalDecode::allocation_layouts()
+            .iter()
+            .map(Layout::size)
+            .sum();
+        let pool = AllocationBudget::new(exact);
+        let mut original = pool
+            .try_reserve_layouts(PreparedCanonicalDecode::allocation_layouts())
+            .unwrap();
+        let prepared =
+            PreparedCanonicalDecode::from_reservation(frame.len(), limits, &mut original).unwrap();
+        drop(original);
+        assert_eq!(pool.reserved_bytes(), exact);
+
+        let alternate_flags =
+            crate::core::default_encode_flags() ^ crate::core::header_flags::COMPACT_LEN;
+        let _ambient_flags = crate::core::DecodeFlagsGuard::enter(alternate_flags);
+        let ambient_payload = b"original prepared consumer context";
+        let _ambient_payload = crate::core::PayloadCtxGuard::enter(ambient_payload);
+        let context_before = crate::core::payload_ctx();
+        let encoding_before = crate::core::to_bytes(&value).unwrap();
+        let calls = std::cell::Cell::new(0);
+        let result = prepared
+            .decode_into(&frame, |decoded: [[u64; 32]; 32]| {
+                calls.set(calls.get() + 1);
+                assert_eq!(crate::encode_canonical(&decoded).unwrap(), frame);
+                assert_eq!(decoded.iter().flatten().sum::<u64>(), 7 * 32 * 32);
+                assert_eq!(crate::core::payload_ctx(), context_before);
+                assert_eq!(crate::core::to_bytes(&decoded).unwrap(), encoding_before);
+                // The consumer has a new decode scope, beyond the retired schema's 32 elements.
+                assert_eq!(
+                    crate::decode_canonical::<Vec<u64>>(&nested).unwrap(),
+                    vec![5; 64]
+                );
+                // Retired scopes must not refund the original decoder's counter controls early.
+                assert_eq!(pool.reserved_bytes(), exact);
+                assert!(pool.try_reserve_bytes(1).is_err());
+                Err::<u64, _>("consumer semantic failure")
+            })
+            .unwrap();
+        assert_eq!(result, Err("consumer semantic failure"));
+        assert_eq!(calls.get(), 1);
+        assert_eq!(pool.reserved_bytes(), 0);
+        assert_eq!(crate::core::payload_ctx(), context_before);
+        assert_eq!(crate::core::to_bytes(&value).unwrap(), encoding_before);
     }
 
     #[test]

@@ -24,7 +24,7 @@ fn event(space: Space, index: u32, before: u128, after: u128) -> Event {
 }
 
 fn fixture() -> PublicPacketBus {
-    let mut write = event(Space::Memory, 0x300000 / 16, 0, u128::MAX - 15);
+    let mut write = event(Space::Memory, 0x0030_0000 / 16, 0, u128::MAX - 15);
     write.after_private = u16::MAX;
     let mut read = write.clone();
     read.before = read.after;
@@ -33,7 +33,7 @@ fn fixture() -> PublicPacketBus {
     let mut clear = read.clone();
     clear.write = true;
     clear.after_private = 0;
-    let mut register = event(Space::Register, 255, 0, u64::MAX as u128);
+    let mut register = event(Space::Register, 255, 0, u128::from(u64::MAX));
     register.after_private = 1;
     PublicPacketBus::new(vec![
         Some(write),
@@ -41,11 +41,11 @@ fn fixture() -> PublicPacketBus {
         Some(register),
         Some(event(
             Space::Initialization,
-            0x300000 / 16,
+            0x0030_0000 / 16,
             0,
-            u16::MAX as u128,
+            u128::from(u16::MAX),
         )),
-        Some(event(Space::Owner, 4, 0, u64::MAX as u128)),
+        Some(event(Space::Owner, 4, 0, u128::from(u64::MAX))),
         Some(read),
         Some(clear),
         Some(event(Space::Memory, u32::MAX, 0, 3)),
@@ -103,7 +103,7 @@ fn typed_cells_holes_private_masks_and_full_width_values_are_consistent() {
     for bus in [fixture(), PublicPacketBus::new(Vec::new()).unwrap()] {
         assert_eq!(failures(&bus, &bus.columns(), &challenges()), 0);
     }
-    let mut boundary = event(Space::Owner, u32::MAX, 0, u64::MAX as u128);
+    let mut boundary = event(Space::Owner, u32::MAX, 0, u128::from(u64::MAX));
     boundary.vm = u8::MAX;
     boundary.generation = u16::MAX;
     let bus = PublicPacketBus::new(vec![Some(boundary)]).unwrap();

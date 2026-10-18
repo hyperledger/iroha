@@ -715,7 +715,7 @@ mod tests {
             ),
             Some(ZK_X509_MAXIMUM_ENCODED_X5S1_BYTES_V1 as usize)
         );
-        assert!(ZK_X509_MAXIMUM_ENCODED_X5S1_BYTES_V1 < ZK_X509_MAX_PROOF_BYTES_V1);
+        const { assert!(ZK_X509_MAXIMUM_ENCODED_X5S1_BYTES_V1 < ZK_X509_MAX_PROOF_BYTES_V1) };
         let main_bytes = ZK_X509_MAIN_AGGREGATE_MAX_PROOF_BYTES_V1;
         assert!(
             maximum_inner as usize - ZK_X509_CA_ACCUMULATOR_MAX_PROOF_BYTES_V1 <= main_bytes,

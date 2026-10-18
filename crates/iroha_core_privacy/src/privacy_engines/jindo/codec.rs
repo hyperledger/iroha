@@ -25,12 +25,12 @@ pub const JINDO_PROOF_BYTES_V1: usize = JINDO_PROOF_HEADER_BYTES_V1
     + JINDO_PROOF_OUTER_POLYNOMIALS_V1 * JINDO_PROOF_OUTER_POLYNOMIAL_BYTES_V1
     + JINDO_PROOF_INNER_POLYNOMIALS_V1 * JINDO_PROOF_INNER_POLYNOMIAL_BYTES_V1
     + JINDO_PROOF_FIELD_ELEMENTS_V1 * JINDO_FIELD_ELEMENT_BYTES_V1;
-pub(crate) const MASK_COMMITMENTS_PER_REPETITION: usize = 3;
-pub(crate) const PARTIALS_PER_REPETITION: usize = 1;
-pub(crate) const ENCODE_RESPONSES_PER_REPETITION: usize = 3;
-pub(crate) const MLWE_RESPONSES_PER_REPETITION: usize = 8;
-pub(crate) const INNER_COMMITMENTS_PER_REPETITION: usize = 4;
-pub(crate) const MASK_SPLIT_EVALUATIONS_PER_REPETITION: usize = JINDO_ENCODING_SLOTS_V1;
+pub const MASK_COMMITMENTS_PER_REPETITION: usize = 3;
+pub const PARTIALS_PER_REPETITION: usize = 1;
+pub const ENCODE_RESPONSES_PER_REPETITION: usize = 3;
+pub const MLWE_RESPONSES_PER_REPETITION: usize = 8;
+pub const INNER_COMMITMENTS_PER_REPETITION: usize = 4;
+pub const MASK_SPLIT_EVALUATIONS_PER_REPETITION: usize = JINDO_ENCODING_SLOTS_V1;
 const MASK_COMMITMENTS: usize = MASK_COMMITMENTS_PER_REPETITION * JINDO_PARALLEL_REPETITIONS_V1;
 const PARTIALS: usize = PARTIALS_PER_REPETITION * JINDO_PARALLEL_REPETITIONS_V1;
 const ENCODE_RESPONSES: usize = ENCODE_RESPONSES_PER_REPETITION * JINDO_PARALLEL_REPETITIONS_V1;
@@ -54,7 +54,7 @@ const _: () = {
     assert!(JINDO_OUTER_MODULI_V1[1].modulus() < (1_u64 << 40));
 };
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct JindoEvaluationProofRepetitionV1<'a> {
+pub struct JindoEvaluationProofRepetitionV1<'a> {
     pub(crate) mask_commitments: &'a [JindoRnsPolynomialV1],
     pub(crate) mask_split_evaluation: &'a [JindoFieldElementV1],
     pub(crate) partials: &'a [JindoRnsPolynomialV1],
@@ -63,7 +63,7 @@ pub(crate) struct JindoEvaluationProofRepetitionV1<'a> {
     pub(crate) inner_commitments: &'a [JindoRnsPolynomialV1],
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct JindoEvaluationProofV1 {
+pub struct JindoEvaluationProofV1 {
     pub(crate) mask_commitments: Vec<JindoRnsPolynomialV1>,
     pub(crate) mask_split_evaluation: Vec<JindoFieldElementV1>,
     pub(crate) partials: Vec<JindoRnsPolynomialV1>,
@@ -75,10 +75,10 @@ pub(crate) struct JindoEvaluationProofV1 {
 }
 impl JindoEvaluationProofV1 {
     pub(crate) fn repetition(&self, repetition: usize) -> JindoEvaluationProofRepetitionV1<'_> {
-        debug_assert!(repetition < JINDO_PARALLEL_REPETITIONS_V1);
         fn range(repetition: usize, width: usize) -> core::ops::Range<usize> {
             repetition * width..(repetition + 1) * width
         }
+        debug_assert!(repetition < JINDO_PARALLEL_REPETITIONS_V1);
         JindoEvaluationProofRepetitionV1 {
             mask_commitments: &self.mask_commitments
                 [range(repetition, MASK_COMMITMENTS_PER_REPETITION)],
@@ -167,7 +167,8 @@ impl JindoEvaluationProofV1 {
     ) -> Result<Self, JindoProofCodecErrorV1> {
         if expected_batch_count != JINDO_MAX_BATCH_SIZE_V1 {
             return Err(JindoProofCodecErrorV1::BatchCountMismatch {
-                proof: JINDO_MAX_BATCH_SIZE_V1 as u8,
+                proof: u8::try_from(JINDO_MAX_BATCH_SIZE_V1)
+                    .expect("fixed proof header count fits u8"),
                 statement: u8::try_from(expected_batch_count).unwrap_or(u8::MAX),
             });
         }
@@ -194,13 +195,15 @@ impl JindoEvaluationProofV1 {
         if bytes[5] as usize != JINDO_MAX_BATCH_SIZE_V1 {
             return Err(JindoProofCodecErrorV1::BatchCountMismatch {
                 proof: bytes[5],
-                statement: JINDO_MAX_BATCH_SIZE_V1 as u8,
+                statement: u8::try_from(JINDO_MAX_BATCH_SIZE_V1)
+                    .expect("fixed proof header count fits u8"),
             });
         }
         if bytes[6] as usize != JINDO_PARALLEL_REPETITIONS_V1 {
             return Err(JindoProofCodecErrorV1::ParallelRepetitionCountMismatch {
                 proof: bytes[6],
-                expected: JINDO_PARALLEL_REPETITIONS_V1 as u8,
+                expected: u8::try_from(JINDO_PARALLEL_REPETITIONS_V1)
+                    .expect("fixed proof header count fits u8"),
             });
         }
         if bytes[7] != 0 {
@@ -268,8 +271,8 @@ impl JindoEvaluationProofV1 {
         out.extend_from_slice(&JINDO_PROOF_MAGIC_V1);
         out.extend_from_slice(&[
             JINDO_PROOF_VERSION_V1,
-            JINDO_MAX_BATCH_SIZE_V1 as u8,
-            JINDO_PARALLEL_REPETITIONS_V1 as u8,
+            u8::try_from(JINDO_MAX_BATCH_SIZE_V1).expect("fixed proof header count fits u8"),
+            u8::try_from(JINDO_PARALLEL_REPETITIONS_V1).expect("fixed proof header count fits u8"),
             0,
         ]);
         write_polynomials(
@@ -321,8 +324,10 @@ fn read_polynomials(
                 if value >= modulus.modulus() {
                     return Err(JindoProofCodecErrorV1::NonCanonicalResidue {
                         polynomial_index: *polynomial_index,
-                        modulus_index: modulus_index as u8,
-                        coefficient_index: coefficient_index as u16,
+                        modulus_index: u8::try_from(modulus_index)
+                            .map_err(|_| JindoProofCodecErrorV1::LengthOverflow)?,
+                        coefficient_index: u16::try_from(coefficient_index)
+                            .map_err(|_| JindoProofCodecErrorV1::LengthOverflow)?,
                         residue: value,
                         modulus: modulus.modulus(),
                     });
@@ -347,7 +352,7 @@ fn read_fields(
         *cursor = end;
         out.push(JindoFieldElementV1::from_canonical_bytes(encoded).ok_or(
             JindoProofCodecErrorV1::NonCanonicalFieldElement {
-                index: index as u16,
+                index: u16::try_from(index).map_err(|_| JindoProofCodecErrorV1::LengthOverflow)?,
             },
         )?);
     }
@@ -368,17 +373,17 @@ fn write_fields(out: &mut Vec<u8>, values: &[JindoFieldElementV1]) {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 /// Fixed-width section of a canonical Jindo proof.
 pub enum JindoProofSectionV1 {
-    /// Outer ΠSplit mask commitments.
+    /// Outer `ΠSplit` mask commitments.
     MaskCommitments,
-    /// ΠSplit evaluations of the commitment masks.
+    /// `ΠSplit` evaluations of the commitment masks.
     MaskSplitEvaluation,
-    /// ΠAgg partial-evaluation polynomial.
+    /// `ΠAgg` partial-evaluation polynomial.
     Partials,
-    /// ΠQuad coefficient-encoding responses.
+    /// `ΠQuad` coefficient-encoding responses.
     EncodeResponses,
-    /// ΠQuad MLWE responses.
+    /// `ΠQuad` MLWE responses.
     MlweResponses,
-    /// ΠQuad inner commitments.
+    /// `ΠQuad` inner commitments.
     InnerCommitments,
     /// Evaluations of the commitment blinders.
     BlindEvaluations,
@@ -507,7 +512,12 @@ mod tests {
         assert_eq!(JINDO_PROOF_BYTES_V1, 7_159_944);
         let encoded = proof().encode();
         assert_eq!(
-            JindoEvaluationProofV1::decode_exact(&encoded, 4, encoded.len() as u32).unwrap(),
+            JindoEvaluationProofV1::decode_exact(
+                &encoded,
+                4,
+                u32::try_from(encoded.len()).expect("fixed proof fixture length fits u32")
+            )
+            .unwrap(),
             proof()
         );
     }
@@ -516,14 +526,32 @@ mod tests {
         let encoded = proof().encode();
         for end in [0, 1, 7, encoded.len() - 1] {
             assert!(
-                JindoEvaluationProofV1::decode_exact(&encoded[..end], 4, encoded.len() as u32)
-                    .is_err()
+                JindoEvaluationProofV1::decode_exact(
+                    &encoded[..end],
+                    4,
+                    u32::try_from(encoded.len()).expect("fixed proof fixture length fits u32")
+                )
+                .is_err()
             );
         }
         let mut trailing = encoded.clone();
         trailing.push(0);
-        assert!(JindoEvaluationProofV1::decode_exact(&trailing, 4, trailing.len() as u32).is_err());
-        assert!(JindoEvaluationProofV1::decode_exact(&encoded, 3, encoded.len() as u32).is_err());
+        assert!(
+            JindoEvaluationProofV1::decode_exact(
+                &trailing,
+                4,
+                u32::try_from(trailing.len()).expect("fixed proof fixture length fits u32")
+            )
+            .is_err()
+        );
+        assert!(
+            JindoEvaluationProofV1::decode_exact(
+                &encoded,
+                3,
+                u32::try_from(encoded.len()).expect("fixed proof fixture length fits u32")
+            )
+            .is_err()
+        );
     }
     #[test]
     fn every_header_field_and_legacy_magic_fail_closed() {
@@ -532,7 +560,11 @@ mod tests {
             let mut legacy = encoded.clone();
             legacy[..4].copy_from_slice(magic);
             assert_eq!(
-                JindoEvaluationProofV1::decode_exact(&legacy, 4, legacy.len() as u32),
+                JindoEvaluationProofV1::decode_exact(
+                    &legacy,
+                    4,
+                    u32::try_from(legacy.len()).expect("fixed proof fixture length fits u32")
+                ),
                 Err(JindoProofCodecErrorV1::InvalidMagic)
             );
         }
@@ -541,7 +573,11 @@ mod tests {
         exact_old_wire[4] = 2;
         exact_old_wire[5] = 4;
         assert_eq!(
-            JindoEvaluationProofV1::decode_exact(&exact_old_wire, 4, JINDO_PROOF_BYTES_V1 as u32,),
+            JindoEvaluationProofV1::decode_exact(
+                &exact_old_wire,
+                4,
+                u32::try_from(JINDO_PROOF_BYTES_V1).expect("fixed proof fixture length fits u32"),
+            ),
             Err(JindoProofCodecErrorV1::WrongLength {
                 bytes: 331_912,
                 expected: JINDO_PROOF_BYTES_V1 as u64,
@@ -578,15 +614,25 @@ mod tests {
             let mut mutated = encoded.clone();
             mutated[index] = replacement;
             assert_eq!(
-                JindoEvaluationProofV1::decode_exact(&mutated, 4, mutated.len() as u32),
+                JindoEvaluationProofV1::decode_exact(
+                    &mutated,
+                    4,
+                    u32::try_from(mutated.len()).expect("fixed proof fixture length fits u32")
+                ),
                 Err(expected)
             );
         }
         assert_eq!(
-            JindoEvaluationProofV1::decode_exact(&encoded, 4, (JINDO_PROOF_BYTES_V1 - 1) as u32,),
+            JindoEvaluationProofV1::decode_exact(
+                &encoded,
+                4,
+                u32::try_from(JINDO_PROOF_BYTES_V1 - 1)
+                    .expect("fixed proof fixture length fits u32"),
+            ),
             Err(JindoProofCodecErrorV1::TooLarge {
                 bytes: JINDO_PROOF_BYTES_V1 as u64,
-                max: (JINDO_PROOF_BYTES_V1 - 1) as u32,
+                max: u32::try_from(JINDO_PROOF_BYTES_V1 - 1)
+                    .expect("fixed proof fixture length fits u32"),
             })
         );
     }
@@ -629,7 +675,11 @@ mod tests {
             mutated[offset..offset + width]
                 .copy_from_slice(&modulus.modulus().to_le_bytes()[..width]);
             assert_eq!(
-                JindoEvaluationProofV1::decode_exact(&mutated, 4, mutated.len() as u32),
+                JindoEvaluationProofV1::decode_exact(
+                    &mutated,
+                    4,
+                    u32::try_from(mutated.len()).expect("fixed proof fixture length fits u32")
+                ),
                 Err(JindoProofCodecErrorV1::NonCanonicalResidue {
                     polynomial_index,
                     modulus_index: 0,
@@ -658,10 +708,55 @@ mod tests {
             let mut mutated = encoded.clone();
             mutated[offset..offset + JINDO_FIELD_ELEMENT_BYTES_V1].copy_from_slice(&modulus);
             assert_eq!(
-                JindoEvaluationProofV1::decode_exact(&mutated, 4, mutated.len() as u32),
+                JindoEvaluationProofV1::decode_exact(
+                    &mutated,
+                    4,
+                    u32::try_from(mutated.len()).expect("fixed proof fixture length fits u32")
+                ),
                 Err(JindoProofCodecErrorV1::NonCanonicalFieldElement { index: 0 })
             );
         }
+    }
+    #[test]
+    fn late_noncanonical_values_report_exact_wire_indices() {
+        let encoded = proof().encode();
+        let polynomial_index = MASK_COMMITMENTS - 1;
+        let modulus_index = 1;
+        let coefficient_index = JINDO_RING_DEGREE_V1 - 1;
+        let offset = MASK_COMMITMENTS_OFFSET
+            + polynomial_index * JINDO_PROOF_OUTER_POLYNOMIAL_BYTES_V1
+            + (modulus_index * JINDO_RING_DEGREE_V1 + coefficient_index)
+                * JINDO_PROOF_OUTER_RESIDUE_BYTES_V1;
+        let mut residue = encoded.clone();
+        let modulus = JINDO_OUTER_MODULI_V1[modulus_index].modulus();
+        residue[offset..offset + JINDO_PROOF_OUTER_RESIDUE_BYTES_V1]
+            .copy_from_slice(&modulus.to_le_bytes()[..JINDO_PROOF_OUTER_RESIDUE_BYTES_V1]);
+        let max_bytes = u32::try_from(encoded.len()).expect("fixed fixture length fits u32");
+        assert_eq!(
+            JindoEvaluationProofV1::decode_exact(&residue, JINDO_MAX_BATCH_SIZE_V1, max_bytes),
+            Err(JindoProofCodecErrorV1::NonCanonicalResidue {
+                polynomial_index: u16::try_from(polynomial_index).expect("fixed polynomial index"),
+                modulus_index: u8::try_from(modulus_index).expect("two RNS moduli"),
+                coefficient_index: u16::try_from(coefficient_index).expect("fixed ring degree"),
+                residue: modulus,
+                modulus,
+            })
+        );
+        let index = MASK_SPLIT_EVALUATIONS - 1;
+        let offset = MASK_SPLIT_EVALUATION_OFFSET + index * JINDO_FIELD_ELEMENT_BYTES_V1;
+        let mut field = encoded;
+        for (chunk, limb) in field[offset..offset + JINDO_FIELD_ELEMENT_BYTES_V1]
+            .chunks_exact_mut(8)
+            .zip(JindoFieldElementV1::MODULUS)
+        {
+            chunk.copy_from_slice(&limb.to_le_bytes());
+        }
+        assert_eq!(
+            JindoEvaluationProofV1::decode_exact(&field, JINDO_MAX_BATCH_SIZE_V1, max_bytes),
+            Err(JindoProofCodecErrorV1::NonCanonicalFieldElement {
+                index: u16::try_from(index).expect("fixed evaluation count"),
+            })
+        );
     }
     #[test]
     fn frozen_phase_offsets_cover_the_wire_without_gaps() {

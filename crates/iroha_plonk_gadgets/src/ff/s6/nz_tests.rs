@@ -28,55 +28,60 @@ impl<F: PastaField> Circuit<F> for Nz<F> {
             ..self.clone()
         }
     }
-    fn configure(m: &mut ConstraintSystem<F>) -> Self::Config {
-        let a = core::array::from_fn(|_| m.advice_column());
-        let f = m.fixed_column();
-        let g = GlueConfig::configure(m, a, f);
-        let r = m.advice_column();
+    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+        let advice = core::array::from_fn(|_| meta.advice_column());
+        let fixed = meta.fixed_column();
+        let glue = GlueConfig::configure(meta, advice, fixed);
+        let range = meta.advice_column();
         (
-            g,
-            RunningSumConfig::configure_compact(m, r, LimbBits::new(7).unwrap()),
+            glue,
+            RunningSumConfig::configure_compact(meta, range, LimbBits::new(7).unwrap()),
         )
     }
-    fn synthesize(&self, (g, r): Self::Config, mut l: impl Layouter<F>) -> Result<(), Error> {
-        let mut g = GlueChip::new(g);
-        let mut r = RunningSumChip::new(r);
-        r.load_table(&mut l)?;
-        l.assign_region(
+    fn synthesize(
+        &self,
+        (glue, range): Self::Config,
+        mut layouter: impl Layouter<F>,
+    ) -> Result<(), Error> {
+        let mut glue = GlueChip::new(glue);
+        let mut range = RunningSumChip::new(range);
+        range.load_table(&mut layouter)?;
+        layouter.assign_region(
             || "nz",
             |mut reg| {
-                let v = if self.known {
+                let value = if self.known {
                     Value::known(self.value)
                 } else {
                     Value::unknown()
                 };
-                let mut u = UintChip::new(&mut g, &mut r);
-                let lo = u.assign::<128>(&mut reg, v.map(|n| n.low_u128()))?;
-                let hi = u.assign::<127>(&mut reg, v.map(|n| n.shr(128).low_u128()))?;
-                let c = CanonicalS6::from_limbs(&mut u, &mut reg, self.modulus, &lo, &hi)?;
-                let mapped = c.nonzero_or_one(&mut u, &mut reg)?;
+                let mut uint = UintChip::new(&mut glue, &mut range);
+                let lo = uint.assign::<128>(&mut reg, value.map(|n| n.low_u128()))?;
+                let hi = uint.assign::<127>(&mut reg, value.map(|n| n.shr(128).low_u128()))?;
+                let canonical =
+                    CanonicalS6::from_limbs(&mut uint, &mut reg, self.modulus, &lo, &hi)?;
+                let mapped = canonical.nonzero_or_one(&mut uint, &mut reg)?;
                 let expected = if self.value == Nat::ZERO {
                     Nat::ONE
                 } else {
                     self.value
                 };
-                u.glue().enforce_constant(
+                uint.glue().enforce_constant(
                     &mut reg,
                     mapped.lo().word(),
                     F::from_u128(expected.low_u128()),
                 )?;
-                u.glue().enforce_constant(
+                uint.glue().enforce_constant(
                     &mut reg,
                     mapped.hi().word(),
                     F::from_u128(expected.shr(128).low_u128()),
                 )?;
                 // Fix the source too: returning a valid constant must not hide an omitted source tie.
-                u.glue().enforce_constant(
+                uint.glue().enforce_constant(
                     &mut reg,
                     lo.word(),
                     F::from_u128(self.value.low_u128()),
                 )?;
-                u.glue().enforce_constant(
+                uint.glue().enforce_constant(
                     &mut reg,
                     hi.word(),
                     F::from_u128(self.value.shr(128).low_u128()),

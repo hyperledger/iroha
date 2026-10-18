@@ -554,9 +554,9 @@ impl MainCaPrivatePlanV1 {
                     return Err(ZkX509StarkErrorV1::ProfileMismatch);
                 }
                 let mut endpoint = zeroize::Zeroizing::new([F::ZERO; 3]);
-                endpoint[0] = evaluate(&source, link.endpoint);
+                endpoint[0] = evaluate(source, link.endpoint);
                 endpoint[1] =
-                    gamma.map_or(F::ONE, |gamma| evaluate(&source, gamma.mul(link.endpoint)));
+                    gamma.map_or(F::ONE, |gamma| evaluate(source, gamma.mul(link.endpoint)));
                 endpoint[2] = evaluate(coefficients, target.multiplier.mul(link.endpoint));
                 if endpoint[0] != endpoint[1].mul(endpoint[2]).mul(link.public_factor) {
                     return Err(ZkX509StarkErrorV1::ConstraintOpening);
@@ -585,12 +585,12 @@ impl MainCaPrivatePlanV1 {
                     ordinal,
                 )?;
                 let inverse = &denominators[ordinal];
-                stripe.fold_into_v1(&source, &mut batch[0])?;
+                stripe.fold_into_v1(source, &mut batch[0])?;
                 batch[1].fill(F::ZERO);
                 if let Some(gamma) = gamma {
                     let mut translated = stripe;
                     translated.shift = translated.shift.mul(gamma);
-                    translated.fold_into_v1(&source, &mut batch[1])?;
+                    translated.fold_into_v1(source, &mut batch[1])?;
                 } else {
                     batch[1][0] = F::ONE;
                 }

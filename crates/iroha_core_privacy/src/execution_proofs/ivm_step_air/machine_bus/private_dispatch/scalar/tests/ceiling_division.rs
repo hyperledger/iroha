@@ -3,12 +3,12 @@
 use super::*;
 
 fn expected(left: u64, right: u64) -> Option<u64> {
-    let (left, right) = (left as i64, right as i64);
+    let (left, right) = (u64::cast_signed(left), u64::cast_signed(right));
     let quotient = left.checked_div(right)?;
     let remainder = left.checked_rem(right)?;
     quotient
         .checked_add(i64::from(remainder != 0 && (left < 0) == (right < 0)))
-        .map(|v| v as u64)
+        .map(|v| i64::cast_unsigned(v))
 }
 
 fn set_destination(fixture: &mut ScalarFixture, value: u64) {
@@ -87,20 +87,20 @@ fn private_divceil_native_signed_extremes_rounding_aliases_and_r0_match() {
             checked(
                 enc::encode_rr(wide::arithmetic::DIV_CEIL, rd, 2, 3),
                 &[
-                    (2, left as u64, false),
-                    (3, right as u64, false),
+                    (2, i64::cast_unsigned(left), false),
+                    (3, i64::cast_unsigned(right), false),
                     (4, 91, true),
                 ],
             );
         }
         checked(
             enc::encode_rr(wide::arithmetic::DIV_CEIL, 4, 0, 3),
-            &[(3, right as u64, false)],
+            &[(3, i64::cast_unsigned(right), false)],
         );
         if left != 0 {
             checked(
                 enc::encode_rr(wide::arithmetic::DIV_CEIL, 2, 2, 2),
-                &[(2, left as u64, false)],
+                &[(2, i64::cast_unsigned(left), false)],
             );
         }
     }
@@ -118,7 +118,10 @@ fn private_divceil_exact_nonzero_inverse_and_false_signed_rounding_reject() {
     for (left, right) in [(17_i64, 3_i64), (-17, -3), (17, -3), (-17, 3), (18, 3)] {
         let (program, fixture) = checked(
             instruction,
-            &[(2, left as u64, false), (3, right as u64, false)],
+            &[
+                (2, i64::cast_unsigned(left), false),
+                (3, i64::cast_unsigned(right), false),
+            ],
         );
         let shifts = &fixture.0.row[SCALAR + SHIFT..super::super::super::WIDTH];
         let bank = &fixture.0.row[SCALAR + MEAN..SCALAR + SHIFT];
@@ -221,7 +224,7 @@ fn private_divceil_native_private_arithmetic_and_gas_traps_refuse_completed_rows
             (17, 3, [false, true], 12),
             (17, 3, [true, true], 12),
             (17, 0, [false, false], 12),
-            (i64::MIN as u64, u64::MAX, [false, false], 12),
+            (i64::cast_unsigned(i64::MIN), u64::MAX, [false, false], 12),
             (17, 3, [false, false], 0),
             (17, 3, [false, false], 11),
         ] {

@@ -9,10 +9,10 @@ use super::params::{
 };
 use thiserror::Error;
 const POWER_OF_TWO_V1: u64 = 1_u64 << DECOMPOSITION_BITS_V1;
-const POWER_OF_TWO_HALF_V1: i64 = (POWER_OF_TWO_V1 / 2) as i64;
-const GAMMA_HALF_V1: i64 = (COMPRESSION_GAMMA_V1 / 2) as i64;
-const COMPRESSION_MODULUS_HALF_V1: i64 = (COMPRESSION_MODULUS_V1 / 2) as i64;
-const PROOF_MODULUS_HALF_V1: i64 = (PROOF_MODULUS_V1 / 2) as i64;
+const POWER_OF_TWO_HALF_V1: i64 = u64::cast_signed(POWER_OF_TWO_V1 / 2);
+const GAMMA_HALF_V1: i64 = u64::cast_signed(COMPRESSION_GAMMA_V1 / 2);
+const COMPRESSION_MODULUS_HALF_V1: i64 = u64::cast_signed(COMPRESSION_MODULUS_V1 / 2);
+const PROOF_MODULUS_HALF_V1: i64 = u64::cast_signed(PROOF_MODULUS_V1 / 2);
 /// Rounded high part and signed low part of one proof-ring residue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Power2RoundV1 {

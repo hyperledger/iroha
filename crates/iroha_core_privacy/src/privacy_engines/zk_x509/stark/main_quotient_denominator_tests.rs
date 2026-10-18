@@ -222,7 +222,7 @@ fn cached_composition_matches_direct_oracle_for_every_registration() {
         // These rows are synthetic public field data, not retained witness cells.
         let mut fields = |width| {
             (0..width)
-                .map(|_| F::reduce(rng.next_u64() as u128))
+                .map(|_| F::reduce(u128::from(rng.next_u64())))
                 .collect::<Vec<_>>()
         };
         let rows = [
@@ -242,8 +242,10 @@ fn cached_composition_matches_direct_oracle_for_every_registration() {
         };
         let alphas = (0..segment.constraint_count)
             .map(|_| {
-                E::from_coefficients(core::array::from_fn(|_| F::reduce(rng.next_u64() as u128)))
-                    .unwrap()
+                E::from_coefficients(core::array::from_fn(|_| {
+                    F::reduce(u128::from(rng.next_u64()))
+                }))
+                .unwrap()
             })
             .collect::<Vec<_>>();
         for ordinal in [0, first.count - 1] {

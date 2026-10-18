@@ -123,9 +123,10 @@ impl ZkX509ReleaseTimesV1 {
     }
 }
 #[derive(Clone)]
-enum ZkX509ReleaseCrlLineageV1 {
+// Fixture construction reads the original CRL synchronously; lineage does not own a copy.
+enum ZkX509ReleaseCrlLineageV1<'a> {
     Origin,
-    Successor(PrivacyZkX509CrlRecordV1),
+    Successor(&'a PrivacyZkX509CrlRecordV1),
 }
 /// Non-secret dimensions of one deterministic release fixture.
 ///
@@ -311,7 +312,7 @@ pub fn build_zk_x509_network_release_successor_fixture_v1(
     if times.crl_this_update_unix_seconds <= current_crl.this_update_unix_seconds {
         return Err("network release successor CRL thisUpdate did not increase");
     }
-    let crl_lineage = ZkX509ReleaseCrlLineageV1::Successor(current_crl.clone());
+    let crl_lineage = ZkX509ReleaseCrlLineageV1::Successor(&current_crl);
     let fixture =
         build_zk_x509_fixture_v1(context, false, &[], times, wallet_account, &crl_lineage)?;
     let successor = fixture.authoritative_state.crl_record();
@@ -330,7 +331,7 @@ fn build_zk_x509_fixture_v1(
     revoked_serials: &[Vec<u8>],
     times: ZkX509ReleaseTimesV1,
     wallet_account: AccountId,
-    crl_lineage: &ZkX509ReleaseCrlLineageV1,
+    crl_lineage: &ZkX509ReleaseCrlLineageV1<'_>,
 ) -> Result<ZkX509ReleaseFixtureV1, &'static str> {
     build_zk_x509_fixture_with_copy_capacity_v1(
         context,
@@ -346,7 +347,7 @@ fn build_zk_x509_fixture_v1(
 /// Genuine signed boundary fixture for both normalized copy-document layouts.
 ///
 /// Issuer/root Names reach 836 encoded bytes, all identifiers reach 64 bytes,
-/// every CA uses u32::MAX pathLen, the CRL number is u64::MAX and the leaf has
+/// every CA uses `u32::MAX` pathLen, the CRL number is `u64::MAX` and the leaf has
 /// all three admitted EKUs. The maximum variant also keeps all original maximum
 /// CRL, serial, disclosure and membership dimensions. Existing release fixtures
 /// continue through the identical canonical inputs with this option false.
@@ -390,7 +391,7 @@ fn build_zk_x509_fixture_with_copy_capacity_v1(
     revoked_serials: &[Vec<u8>],
     times: ZkX509ReleaseTimesV1,
     wallet_account: AccountId,
-    crl_lineage: &ZkX509ReleaseCrlLineageV1,
+    crl_lineage: &ZkX509ReleaseCrlLineageV1<'_>,
     maximum_copy_shape: bool,
 ) -> Result<ZkX509ReleaseFixtureV1, &'static str> {
     let root_key = p256_key(1)?;
@@ -964,7 +965,7 @@ fn authoritative_state_v1(
     )
     .map_err(|_| "release CA root provenance failed")?;
     let mut roots = Storage::<PrivacyRootKeyV1, PrivacyRootProvenanceV1>::new();
-    roots.insert(root_key, provenance);
+    roots.insert(root_key, provenance.clone());
     let mut root_heads = Storage::<PrivacyRootHeadKeyV1, PrivacyRootHeadRecordV1>::new();
     root_heads.insert(
         PrivacyRootHeadKeyV1::new(
@@ -1266,6 +1267,22 @@ mod tests {
         engine::{ZkX509EngineErrorV1, prepare_zk_x509_prover_input_v1},
         merkle::ZkX509MerkleErrorV1,
     };
+    #[test]
+    fn successor_lineage_borrows_the_original_crl_record() {
+        let fixture = build_zk_x509_reference_fixture_v1().expect("fixed reference fixture");
+        let original = fixture.authoritative_state.crl_record();
+        let lineage = ZkX509ReleaseCrlLineageV1::Successor(&original);
+        for candidate in [&lineage, &lineage.clone()] {
+            let ZkX509ReleaseCrlLineageV1::Successor(current) = candidate else {
+                panic!("successor lineage lost the current CRL");
+            };
+            assert!(core::ptr::eq(*current, &raw const original));
+            assert_eq!(current.record_digest, original.record_digest);
+            assert_eq!(current.record_epoch, original.record_epoch);
+            assert_eq!(current.crl_number, original.crl_number);
+        }
+    }
+
     #[test]
     fn signed_reference_path_len_slack_reaches_native_rfc_for_u32_boundaries() {
         use crate::privacy_engines::zk_x509::{

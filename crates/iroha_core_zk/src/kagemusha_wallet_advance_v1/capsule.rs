@@ -333,16 +333,18 @@ where
         }
         return Ok(KagemushaWalletPairReadV1::Missing(states));
     };
-    Ok(KagemushaWalletPairReadV1::Loaded(KagemushaWalletLoadedPairV1 {
-        value,
-        frame,
-        frame_digest,
-        selected_generation,
-        dir: dir.clone(),
-        names,
-        states,
-        valid,
-    }))
+    Ok(KagemushaWalletPairReadV1::Loaded(
+        KagemushaWalletLoadedPairV1 {
+            value,
+            frame,
+            frame_digest,
+            selected_generation,
+            dir: dir.clone(),
+            names,
+            states,
+            valid,
+        },
+    ))
 }
 
 /// Restore every copy of `pair` that is absent or invalid from the valid frame, stamped with

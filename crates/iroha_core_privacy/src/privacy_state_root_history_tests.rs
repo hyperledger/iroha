@@ -18,7 +18,7 @@ fn root_history_prunes_independently_per_namespace() {
                 epoch,
                 root_byte,
             ),
-            record,
+            record.clone(),
         );
         roots.insert(
             PrivacyRootKeyV1::new(
@@ -28,7 +28,7 @@ fn root_history_prunes_independently_per_namespace() {
                 PrivacyRootV1::new(nonzero(root_byte)),
             )
             .expect("independent root key"),
-            record,
+            record.clone(),
         );
     }
     let added = x509_root_key(PrivacyRootRoleV1::CertificateAuthorityMembership, 2_049, 43);
@@ -68,7 +68,7 @@ fn root_history_rejects_replays_epoch_conflicts_and_stale_epochs() {
     let exact_replay = x509_root_key(PrivacyRootRoleV1::CertificateAuthorityMembership, 7, 70);
     assert!(matches!(
         plan_privacy_root_history_update_v1(&roots.view(), &[exact_replay], 8),
-        Err(PrivacyRootHistoryErrorV1::ExistingRoot { key }) if key == exact_replay
+        Err(PrivacyRootHistoryErrorV1::ExistingRoot { key }) if *key == exact_replay
     ));
     assert!(matches!(
         plan_privacy_root_history_update_v1(
@@ -105,7 +105,7 @@ fn root_history_rejects_duplicate_and_over_capacity_effects() {
     let duplicate = x509_root_key(PrivacyRootRoleV1::CertificateAuthorityMembership, 1, 10);
     assert!(matches!(
         plan_privacy_root_history_update_v1(&roots.view(), &[duplicate, duplicate], 8),
-        Err(PrivacyRootHistoryErrorV1::DuplicateAddedRoot { key }) if key == duplicate
+        Err(PrivacyRootHistoryErrorV1::DuplicateAddedRoot { key }) if *key == duplicate
     ));
     let additions = [
         x509_root_key(PrivacyRootRoleV1::CertificateAuthorityMembership, 1, 10),
@@ -116,4 +116,31 @@ fn root_history_rejects_duplicate_and_over_capacity_effects() {
         plan_privacy_root_history_update_v1(&roots.view(), &additions, 2),
         Err(PrivacyRootHistoryErrorV1::AddedRootsExceedRetention { count: 3, max: 2 })
     ));
+}
+
+#[test]
+fn root_history_refusal_retains_exact_owned_key_after_inputs_drop() {
+    let exact_key = x509_root_key(PrivacyRootRoleV1::CertificateAuthorityMembership, 7, 70);
+    let refusal = {
+        let mut roots = Storage::new();
+        roots.insert(exact_key, root_provenance());
+        plan_privacy_root_history_update_v1(&roots.view(), &[exact_key], 8)
+            .expect_err("existing root refuses without changing its identity")
+    };
+    assert_eq!(
+        refusal.to_string(),
+        format!("privacy root is already retained: {exact_key:?}")
+    );
+    let cloned = refusal.clone();
+    assert_eq!(cloned, refusal);
+    match (refusal, cloned) {
+        (
+            PrivacyRootHistoryErrorV1::ExistingRoot { key: original },
+            PrivacyRootHistoryErrorV1::ExistingRoot { key: copied },
+        ) => {
+            assert_eq!(*original, exact_key);
+            assert_eq!(*copied, exact_key);
+        }
+        unexpected => panic!("unexpected root-history refusals: {unexpected:?}"),
+    }
 }

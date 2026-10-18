@@ -3,13 +3,13 @@ use super::*;
 
 /// Produces the single-terminal compact component with exact key continuity.
 /// Defaults and the oversized diagnostic helpers remain separate profiles.
-pub(crate) fn rooted_compact_bootstrap() -> RootedBootstrapOmega {
+pub fn rooted_compact_bootstrap() -> RootedBootstrapOmega {
     rooted_compact_bootstrap_with_identity(bootstrap_chain::BootstrapIdentity::Payer)
 }
 
 /// Rebuilds an independently enrolled wallet under its actual compact outer key.
 /// Identity changes only witnesses; all descriptor/key continuity checks remain.
-pub(crate) fn rooted_compact_bootstrap_with_identity(
+pub fn rooted_compact_bootstrap_with_identity(
     identity: bootstrap_chain::BootstrapIdentity,
 ) -> RootedBootstrapOmega {
     let profile = bootstrap_chain::SourceProfile::Tagged { buses: 3 };
@@ -17,7 +17,6 @@ pub(crate) fn rooted_compact_bootstrap_with_identity(
         false,
         Fp::from(91),
         profile,
-        Some(2),
         identity,
     );
     let (initial_circuit, initial_public, _) = wrapper(&initial);
@@ -84,13 +83,8 @@ pub(crate) fn rooted_compact_bootstrap_with_identity(
 
     // The signed credential, receipt, sigma, Q and the unsplit A are rebuilt
     // with the actual digest. No public word is changed after a proof exists.
-    let source = bootstrap_chain::authenticated_bootstrap_with_identity(
-        false,
-        digest,
-        profile,
-        Some(2),
-        identity,
-    );
+    let source =
+        bootstrap_chain::authenticated_bootstrap_with_identity(false, digest, profile, identity);
     assert_eq!(source.state.lineage[17], digest);
     assert_eq!(initial.binding, source.binding);
     assert_eq!(initial.key.to_bytes(), source.key.to_bytes());

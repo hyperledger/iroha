@@ -81,7 +81,7 @@ const G_MESSAGE_START_V1: usize = 9;
 const RELATION_DIGEST_DOMAIN_V1: &[u8] = b"iroha.privacy.bootle-lantern.application-relation.v1";
 /// The 50 short witness polynomials, zeroized on drop.
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ShortWitnessV1 {
+pub struct ShortWitnessV1 {
     polynomials: Box<[ProofPolynomialV1; TBOX_M1_V1]>,
 }
 impl core::fmt::Debug for ShortWitnessV1 {
@@ -110,7 +110,7 @@ impl Drop for ShortWitnessV1 {
 }
 /// Secret variables of the generic quadratic equation.
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct QuadraticVariablesV1 {
+pub struct QuadraticVariablesV1 {
     pub(crate) short: Box<[ProofPolynomialV1; TBOX_M1_V1]>,
     pub(crate) message: Box<[ProofPolynomialV1; QUADRATIC_MESSAGE_POLYNOMIALS_V1]>,
 }
@@ -167,7 +167,7 @@ impl Drop for QuadraticVariablesV1 {
 ///
 /// Large proof workspaces must not be materialized as temporary stack arrays:
 /// validators commonly execute on Rust's default 2 MiB worker stacks.
-pub(crate) fn boxed_polynomial_array_from_fn_v1<const N: usize>(
+pub fn boxed_polynomial_array_from_fn_v1<const N: usize>(
     mut polynomial: impl FnMut(usize) -> ProofPolynomialV1,
 ) -> Box<[ProofPolynomialV1; N]> {
     let mut values = Vec::with_capacity(N);
@@ -180,12 +180,12 @@ pub(crate) fn boxed_polynomial_array_from_fn_v1<const N: usize>(
         .unwrap_or_else(|_| unreachable!("fixed polynomial array has exact length"))
 }
 /// Allocate an exact all-zero polynomial array directly on the heap.
-pub(crate) fn boxed_zero_polynomial_array_v1<const N: usize>() -> Box<[ProofPolynomialV1; N]> {
+pub fn boxed_zero_polynomial_array_v1<const N: usize>() -> Box<[ProofPolynomialV1; N]> {
     boxed_polynomial_array_from_fn_v1(|_| ProofPolynomialV1::ZERO)
 }
 /// Pre-expanded transparent matrices used by one proof or verification.
 #[derive(Clone, Debug)]
-pub(crate) struct InternalMatricesV1 {
+pub struct InternalMatricesV1 {
     pub(crate) a1: ProofMatrixV1,
     pub(crate) a2_prime: ProofMatrixV1,
     pub(crate) b_prime: ProofMatrixV1,
@@ -205,7 +205,7 @@ impl InternalMatricesV1 {
     }
 }
 /// Public material required to evaluate the one combined quadratic equation.
-pub(crate) struct QuadraticEquationV1<'a> {
+pub struct QuadraticEquationV1<'a> {
     relation: &'a BootleLanternApplicationRelationV1,
     schwartz_compilers: Box<[SchwartzAccumulatorCompilerV1; SCHWARTZ_ACCUMULATORS_V1]>,
     #[cfg(test)]
@@ -528,9 +528,9 @@ impl<'a> QuadraticEquationV1<'a> {
             compiler.evaluate(
                 *beta3,
                 *beta4,
-                &*scalar_relations,
+                &scalar_relations,
                 s3.polynomials(),
-                &*s4,
+                &s4,
                 &variables.message
                     [Y3_MESSAGE_START_V1..Y3_MESSAGE_START_V1 + PROJECTION_POLYNOMIALS_V1],
                 &variables.message
@@ -862,7 +862,7 @@ pub fn application_relation_digest_v1(relation: &BootleLanternApplicationRelatio
     hash.finalize().into()
 }
 /// Validate and lift an application witness, including the two binary norm slack polynomials.
-pub(crate) fn lift_short_witness_v1(
+pub fn lift_short_witness_v1(
     relation: &BootleLanternApplicationRelationV1,
     witness: &BootleLanternPresentationWitnessV1,
 ) -> Result<ShortWitnessV1, ToolboxErrorV1> {
@@ -905,7 +905,7 @@ pub(crate) fn lift_short_witness_v1(
     Ok(short)
 }
 /// Matrix-vector product in the proof ring.
-pub(crate) fn matrix_vector_product_v1(
+pub fn matrix_vector_product_v1(
     matrix: &ProofMatrixV1,
     vector: &[ProofPolynomialV1],
 ) -> Result<Zeroizing<Vec<ProofPolynomialV1>>, ToolboxErrorV1> {
@@ -927,7 +927,7 @@ pub(crate) fn matrix_vector_product_v1(
     Ok(output)
 }
 /// Compute `B' * vector` and add the supplied message vector.
-pub(crate) fn commit_extended_messages_v1(
+pub fn commit_extended_messages_v1(
     b_prime: &ProofMatrixV1,
     s21: &[ProofPolynomialV1; S21_POLYNOMIALS_V1],
     messages: &[ProofPolynomialV1; TBOX_LEXT_V1],
@@ -942,7 +942,7 @@ pub(crate) fn commit_extended_messages_v1(
 }
 /// Flatten canonical polynomial coefficients in polynomial-major order.
 #[must_use]
-pub(crate) fn flatten_polynomials(polynomials: &[ProofPolynomialV1]) -> Vec<u64> {
+pub fn flatten_polynomials(polynomials: &[ProofPolynomialV1]) -> Vec<u64> {
     let mut output = Vec::with_capacity(polynomials.len() * APPLICATION_RING_DEGREE_V1);
     for polynomial in polynomials {
         output.extend_from_slice(polynomial.coefficients());
@@ -951,7 +951,7 @@ pub(crate) fn flatten_polynomials(polynomials: &[ProofPolynomialV1]) -> Vec<u64>
 }
 /// Encode canonical proof polynomials without a header for transcript stages.
 #[must_use]
-pub(crate) fn encode_polynomials_v1(polynomials: &[ProofPolynomialV1]) -> Vec<u8> {
+pub fn encode_polynomials_v1(polynomials: &[ProofPolynomialV1]) -> Vec<u8> {
     let mut output = Vec::with_capacity(polynomials.len() * APPLICATION_RING_DEGREE_V1 * 7);
     for coefficient in flatten_polynomials(polynomials) {
         output.extend_from_slice(&coefficient.to_le_bytes()[..7]);
@@ -959,7 +959,7 @@ pub(crate) fn encode_polynomials_v1(polynomials: &[ProofPolynomialV1]) -> Vec<u8
     output
 }
 /// Expand all projection rows from a transcript stage.
-pub(crate) fn expand_projection_matrix_v1(
+pub fn expand_projection_matrix_v1(
     transcript: &ProofTranscriptCoreV1,
     stage: &[u8],
     components: &[&[u8]],
@@ -1013,7 +1013,7 @@ fn beta_polynomials_v1(
 /// Reorder the short witness under the same heap-owned, zeroizing custody.
 /// Returning the owner avoids materializing or copying a 25 KiB secret array
 /// through the caller's stack before it can establish its zeroizing guard.
-pub(crate) fn projected_norm_witness_v1(short: &[ProofPolynomialV1; TBOX_M1_V1]) -> ShortWitnessV1 {
+pub fn projected_norm_witness_v1(short: &[ProofPolynomialV1; TBOX_M1_V1]) -> ShortWitnessV1 {
     let mut output = ShortWitnessV1 {
         polynomials: boxed_zero_polynomial_array_v1(),
     };
@@ -1028,7 +1028,7 @@ pub(crate) fn projected_norm_witness_v1(short: &[ProofPolynomialV1; TBOX_M1_V1])
     output.polynomials[49] = short[SIGNATURE_SLACK_INDEX_V1];
     output
 }
-pub(crate) fn application_quotient_v1(
+pub fn application_quotient_v1(
     relation: &BootleLanternApplicationRelationV1,
     short: &[ProofPolynomialV1; TBOX_M1_V1],
 ) -> Result<[ProofPolynomialV1; APPLICATION_ROWS_V1], ToolboxErrorV1> {

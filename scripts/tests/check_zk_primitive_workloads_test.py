@@ -170,24 +170,30 @@ class ScanChecks(TreeFixture):
         for prefix, consumer in owners.items():
             self.assertEqual(scanner.consumer_of(prefix + "src/poseidon_relation.rs"), consumer)
 
-    def test_vole_proof_internals_do_not_claim_implemented_ballot_constraints(self) -> None:
+    def test_vole_proof_internals_and_ballot_constraints_keep_distinct_roles(self) -> None:
         uses = self.spec["consumers"]
-        for primitive in ("keccak", "shake"):
+        for primitive in ("keccak", "sha3", "shake"):
             self.assertEqual(uses["vole-in-the-head"]["uses"][primitive]["class"], "proof-internal")
-            self.assertEqual(uses["parliament-ballot"]["uses"][primitive]["class"], "label-only")
+        # The ballot owner implements Keccak constraint groups. Its SHAKE and
+        # SHA3 consumers remain proof internals, without selecting a profile.
+        self.assertEqual(uses["parliament-ballot"]["uses"]["keccak"]["class"], "in-circuit")
+        for primitive in ("sha3", "shake"):
+            self.assertEqual(uses["parliament-ballot"]["uses"][primitive]["class"], "proof-internal")
         for consumer in ("vole-in-the-head", "parliament-ballot"):
             spec = self.mutated()
             del spec["consumers"][consumer]["uses"]["shake"]
             self.assertReported(self.consumer_errors(spec), f"consumer {consumer}: use of shake")
 
     def test_vole_and_ballot_digest_files_cannot_disappear_from_the_inventory(self) -> None:
-        for path in (
-            "crates/iroha_zkp_vole/src/hash.rs",
-            "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs",
-        ):
+        expected_uses = {
+            "crates/iroha_zkp_vole/src/hash.rs": ["keccak", "sha3", "shake"],
+            "crates/iroha_parliament_ballot_proof/src/keccak_relation.rs": ["keccak", "shake"],
+        }
+        for path, primitives in expected_uses.items():
+            self.assertEqual(self.spec["scan"]["files"][path], primitives)
             spec = self.mutated()
             del spec["scan"]["files"][path]
-            self.assertReported(self.scan_errors(spec), f"scan: {path} uses ['keccak', 'shake'] and is not listed")
+            self.assertReported(self.scan_errors(spec), f"scan: {path} uses {primitives!r} and is not listed")
 
     def test_an_unlisted_digest_use_in_a_file_fails(self) -> None:
         spec = self.mutated()

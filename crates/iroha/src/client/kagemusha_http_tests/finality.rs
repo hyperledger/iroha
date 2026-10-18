@@ -265,6 +265,7 @@ fn ledger_envelope(entrypoint: HashOf<TransactionEntrypoint>) -> KagemushaWallet
 
 #[tokio::test]
 async fn ledger_finality_read_signs_exact_entrypoint_route_and_binds_the_envelope() {
+    type Case = (u16, Vec<u8>, fn(Error) -> bool);
     let initial = client_with_base_url(base_url());
     let (scheme, wallet, entry) = ([0x11; 32], [0x22; 32], entrypoint(0x5b));
     let expected = ledger_envelope(entry);
@@ -344,7 +345,6 @@ async fn ledger_finality_read_signs_exact_entrypoint_route_and_binds_the_envelop
     let canonical = expected.to_canonical_bytes().unwrap();
     let mut trailing = canonical.clone();
     trailing.push(0);
-    type Case = (u16, Vec<u8>, fn(Error) -> bool);
     let cases: [Case; 4] = [
         // A valid envelope for another entrypoint is refused by the binding, not the decoder.
         (

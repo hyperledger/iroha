@@ -280,7 +280,7 @@ fn retain_unverified_candidate_v1(directory: &Path, proof: &[u8]) -> io::Result<
 }
 
 /// Retain only the already encoded public candidate, never prover/witness state.
-pub(crate) fn capture_public_unverified_candidate_v1(proof: &[u8]) {
+pub fn capture_public_unverified_candidate_v1(proof: &[u8]) {
     PUBLIC_DIAGNOSTIC_DIRECTORY_V1.with(|slot| {
         let slot = slot.borrow();
         let Some(directory) = slot.as_ref() else { return; };
@@ -293,7 +293,7 @@ pub(crate) fn capture_public_unverified_candidate_v1(proof: &[u8]) {
 }
 
 /// Record the exact error returned by a verifier of public bytes, only on opt-in.
-pub(crate) fn record_public_verifier_error_v1(stage: &'static str, error: &impl core::fmt::Debug) {
+pub fn record_public_verifier_error_v1(stage: &'static str, error: &impl core::fmt::Debug) {
     PUBLIC_DIAGNOSTIC_DIRECTORY_V1.with(|slot| {
         let slot = slot.borrow();
         let Some(directory) = slot.as_ref() else {
@@ -365,7 +365,7 @@ fn read_unverified_candidate_v1(path: &Path) -> io::Result<Vec<u8>> {
             "invalid retained public candidate",
         )
     };
-    let cap = super::super::profile::ZK_X509_MAX_PROOF_BYTES_V1 as u64;
+    let cap = u64::from(super::super::profile::ZK_X509_MAX_PROOF_BYTES_V1);
     let metadata = fs::symlink_metadata(path)?;
     if !path.is_absolute() || !metadata.is_file() || metadata.len() == 0 || metadata.len() > cap {
         return Err(invalid());
@@ -399,7 +399,7 @@ fn retained_candidate_reader_rejects_wrong_names_bounds_and_symlinks() {
     assert!(read_unverified_candidate_v1(&path).is_err());
     fs::File::create(&path)
         .unwrap()
-        .set_len(super::super::profile::ZK_X509_MAX_PROOF_BYTES_V1 as u64 + 1)
+        .set_len(u64::from(super::super::profile::ZK_X509_MAX_PROOF_BYTES_V1) + 1)
         .unwrap();
     assert!(read_unverified_candidate_v1(&path).is_err());
     fs::remove_file(&path).unwrap();
@@ -667,10 +667,7 @@ fn complete_credential_proof_with_retained_public_receipt_v1(maximum_shape: bool
         },
     };
 
-    assert!(
-        !cfg!(debug_assertions),
-        "run this full proof with --release"
-    );
+    crate::test_support::require_no_debug_assertions("run this full proof with --release");
     let repository = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)

@@ -107,8 +107,8 @@ fn genuine_endpoints_cover_every_original_byte_node_and_typed_copy_tuple() {
                         .unwrap();
                     for lane in 0..4 {
                         assert_eq!(
-                            serial_node_lookup_factor_v1(&row, lane, challenges()),
-                            serial_node_lookup_factor_v1(&original, lane, challenges())
+                            serial_node_lookup_factor_v1(&row, lane, &challenges()),
+                            serial_node_lookup_factor_v1(&original, lane, &challenges())
                         );
                     }
                 } else {
@@ -126,7 +126,7 @@ fn genuine_endpoints_cover_every_original_byte_node_and_typed_copy_tuple() {
                     assert_eq!(row[BASE_SERIAL_BYTE_QUERY_ACTIVE], F::ONE);
                     assert_eq!(row[BASE_SERIAL_BYTE_QUERY_VALUE], row[BASE_VALUE]);
                     for lane in 0..4 {
-                        let factor = normalized_copy_factor_v1(&row, lane, challenges());
+                        let factor = normalized_copy_factor_v1(&row, lane, &challenges());
                         if slot.consumer {
                             right[lane] = right[lane].mul(factor);
                         } else {
@@ -391,16 +391,19 @@ fn both_new_copy_domains_are_typed_and_total_at_an_admitted_zero_factor() {
             F(if embedded { 104 } else { 103 })
         );
         let mut challenges = challenges();
-        let factor = normalized_copy_factor_v1(&source, 0, challenges);
+        let factor = normalized_copy_factor_v1(&source, 0, &challenges);
         challenges.tuple[0][0] =
             challenges.tuple[0][0].sub(factor.mul(source[BASE_COPY_DOMAIN].inv().unwrap()));
         challenges.validate().unwrap();
-        assert_eq!(normalized_copy_factor_v1(&source, 0, challenges), F::ZERO);
-        assert_eq!(normalized_copy_factor_v1(&consumer, 0, challenges), F::ZERO);
+        assert_eq!(normalized_copy_factor_v1(&source, 0, &challenges), F::ZERO);
+        assert_eq!(
+            normalized_copy_factor_v1(&consumer, 0, &challenges),
+            F::ZERO
+        );
         for lane in 0..4 {
             assert_eq!(
-                normalized_copy_factor_v1(&source, lane, challenges),
-                normalized_copy_factor_v1(&consumer, lane, challenges)
+                normalized_copy_factor_v1(&source, lane, &challenges),
+                normalized_copy_factor_v1(&consumer, lane, &challenges)
             );
         }
         for column in [
@@ -413,8 +416,8 @@ fn both_new_copy_domains_are_typed_and_total_at_an_admitted_zero_factor() {
             changed[column] = changed[column].add(F::ONE);
             for lane in 0..4 {
                 assert_ne!(
-                    normalized_copy_factor_v1(&source, lane, challenges),
-                    normalized_copy_factor_v1(&changed, lane, challenges)
+                    normalized_copy_factor_v1(&source, lane, &challenges),
+                    normalized_copy_factor_v1(&changed, lane, &challenges)
                 );
             }
         }

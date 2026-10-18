@@ -190,7 +190,7 @@ impl PreparationV1<'_> {
     /// Build complete native Load input from the retained ordinary receipt/finality
     /// and the capsule's authenticated low-leaf/empty-slot insertion. Original Qs
     /// and both predecessor claims are moved unchanged into the mandatory native
-    /// plan, which verifies the receipt-bound Advance and all four A owners.
+    /// plan, which verifies the receipt-bound Advance and both A owners.
     /// This method grants no funding or catalog authority by itself.
     ///
     /// # Errors

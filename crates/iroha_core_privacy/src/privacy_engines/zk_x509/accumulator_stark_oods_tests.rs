@@ -59,7 +59,7 @@ fn ca_fp4_residues_match_independent_base_polynomial_lifting() {
     let (sha, io) = challenges();
     let rows = rows();
     let extension = evaluate_ca_accumulator_stark_residues_v1(
-        public, &rows[0], &rows[1], &rows[2], &rows[3], &rows[4], sha, io, claims,
+        public, &rows[0], &rows[1], &rows[2], &rows[3], &rows[4], sha, &io, claims,
     )
     .unwrap();
     // Every input is a cubic polynomial in the formal extension generator.
@@ -84,7 +84,7 @@ fn ca_fp4_residues_match_independent_base_polynomial_lifting() {
                 .collect::<Vec<_>>()
         });
         let evaluated = evaluate_ca_accumulator_stark_residues_v1(
-            public, &lifted[0], &lifted[1], &lifted[2], &lifted[3], &lifted[4], sha, io, claims,
+            public, &lifted[0], &lifted[1], &lifted[2], &lifted[3], &lifted[4], sha, &io, claims,
         )
         .unwrap();
         let mut numerator = E::ONE;
@@ -112,12 +112,13 @@ fn ca_fp4_residues_match_independent_base_polynomial_lifting() {
                 &embedded[3],
                 &embedded[4],
                 sha,
-                io,
+                &io,
                 claims,
             )
             .unwrap();
             let base = evaluate_ca_accumulator_stark_residues_v1(
-                public, &lifted[0], &lifted[1], &lifted[2], &lifted[3], &lifted[4], sha, io, claims,
+                public, &lifted[0], &lifted[1], &lifted[2], &lifted[3], &lifted[4], sha, &io,
+                claims,
             )
             .unwrap();
             assert_eq!(
@@ -180,7 +181,7 @@ fn ca_complete_deep_constraint_check_rejects_trace_and_composition_substitution(
     let fixed = ca_fixed_columns_at_deep_v1(&fixed_columns, point).unwrap();
     let rows = rows();
     let residues = evaluate_ca_accumulator_local_residues_v1(
-        public, &rows[0], &rows[1], &rows[2], &rows[3], &fixed, sha, io,
+        public, &rows[0], &rows[1], &rows[2], &rows[3], &fixed, sha, &io,
     )
     .unwrap();
     let alphas = (0..ZK_X509_CA_ACCUMULATOR_LOCAL_CONSTRAINT_COUNT_V1)
@@ -237,7 +238,7 @@ fn ca_complete_deep_constraint_check_rejects_trace_and_composition_substitution(
             &layout,
             &fixed_columns,
             sha,
-            io,
+            &io,
             &alphas,
         )
     };
@@ -269,7 +270,7 @@ fn ca_complete_deep_constraint_check_rejects_trace_and_composition_substitution(
             &layout,
             &fixed_columns,
             sha,
-            io,
+            &io,
             &alphas
         )
         .is_err()

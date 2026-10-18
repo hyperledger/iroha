@@ -1,4 +1,4 @@
-//! Iroha VeRange Type-1 profile over P-256.
+//! Iroha `VeRange` Type-1 profile over P-256.
 //!
 //! This is a clean-room implementation of the Type-1 equations in Figure 1 of
 //! ePrint 2025/528.  The first release intentionally closes the parameter space
@@ -15,7 +15,7 @@ use p256::{ProjectivePoint, Scalar, elliptic_curve::Field};
 use rand_core_06::{CryptoRng, RngCore};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-/// Closed suite identifier committed by every VeRange transcript.
+/// Closed suite identifier committed by every `VeRange` transcript.
 pub const VERANGE_TYPE1_SUITE_V1: &[u8] = b"iroha.verange.type1.p256.sha256.v1";
 /// Proof wire version.
 pub const VERANGE_TYPE1_PROOF_VERSION_V1: u8 = 1;
@@ -60,7 +60,7 @@ fn verange_batch_decode_limits(payload_len: usize) -> norito::DecodeLimits {
         24,
     )
 }
-/// Admitted VeRange bit widths and their exact matrix geometry.
+/// Admitted `VeRange` bit widths and their exact matrix geometry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum VeRangeBitLengthV1 {
     /// `N = 32`, `J = K = 6`.
@@ -68,7 +68,7 @@ pub enum VeRangeBitLengthV1 {
     /// `N = 64`, `J = K = 8`.
     Bits64,
 }
-/// Deterministic descriptor frozen into governed VeRange activation material.
+/// Deterministic descriptor frozen into governed `VeRange` activation material.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VeRangeProfileDescriptorV1 {
     /// Exact suite bytes absorbed by Fiat--Shamir transcripts.
@@ -130,7 +130,7 @@ impl VeRangeBitLengthV1 {
         }
     }
 }
-/// Deterministic transparent parameter basis for one VeRange profile.
+/// Deterministic transparent parameter basis for one `VeRange` profile.
 #[derive(Clone)]
 pub struct VeRangeParametersV1 {
     profile: VeRangeBitLengthV1,
@@ -291,7 +291,7 @@ impl VeRangeParameterSetV1 {
 }
 static VERANGE_PARAMETER_SET: Lazy<Result<VeRangeParameterSetV1, VeRangeError>> =
     Lazy::new(VeRangeParameterSetV1::derive);
-/// Fully bound public input to one VeRange Type-1 proof.
+/// Fully bound public input to one `VeRange` Type-1 proof.
 #[derive(Clone, Copy, Debug)]
 pub struct VeRangeType1StatementV1<'a> {
     profile: VeRangeBitLengthV1,
@@ -444,7 +444,7 @@ impl<'a> VeRangeType1BatchStatementV1<'a> {
         )
     }
 }
-/// Canonical opaque payload for a VeRange Type-1 proof.
+/// Canonical opaque payload for a `VeRange` Type-1 proof.
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core::privacy_engines::verange::VeRangeType1ProofV1")]
 #[derive(
@@ -616,7 +616,7 @@ impl VeRangeType1BatchProofV1 {
         Ok(())
     }
 }
-/// VeRange proof construction or verification failure.
+/// `VeRange` proof construction or verification failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum VeRangeError {
     /// Shared P-256 substrate failure.
@@ -734,7 +734,7 @@ pub fn commit(
     let point = parameters.g * Scalar::from(value) + parameters.q * blinding.expose_scalar();
     Ok(CompressedPointV1::from_projective(point)?)
 }
-/// Create a non-interactive VeRange Type-1 proof.
+/// Create a non-interactive `VeRange` Type-1 proof.
 ///
 /// All masks are sampled independently and uniformly from non-zero canonical
 /// P-256 scalars.  The one constrained `r_W[K-1]` value is rejected and the
@@ -926,7 +926,7 @@ where
     proof.validate_wire()?;
     Ok(proof)
 }
-/// Verify a VeRange Type-1 proof against its externally supplied commitment.
+/// Verify a `VeRange` Type-1 proof against its externally supplied commitment.
 ///
 /// # Errors
 ///

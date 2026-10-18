@@ -250,6 +250,8 @@ pub(crate) enum Slot<'w, F: PastaField> {
 }
 
 type ConstantCache<F> = Rc<RefCell<BTreeMap<F, Word<F>>>>;
+type FreeWitnesses = Rc<RefCell<Option<(usize, usize)>>>;
+type SpareWitnesses = Rc<RefCell<std::collections::VecDeque<(Column<Advice>, usize)>>>;
 
 /// The glue chip: one operation per row, allocated from its own cursor.
 #[derive(Clone, Debug)]
@@ -258,8 +260,8 @@ pub struct GlueChip<F: PastaField> {
     rows: RowCursor,
     shared_rows: Option<SharedRows>,
     constants: Option<ConstantCache<F>>,
-    free_witnesses: Option<Rc<RefCell<Option<(usize, usize)>>>>,
-    spare_witnesses: Option<Rc<RefCell<std::collections::VecDeque<(Column<Advice>, usize)>>>>,
+    free_witnesses: Option<FreeWitnesses>,
+    spare_witnesses: Option<SpareWitnesses>,
     _marker: core::marker::PhantomData<F>,
 }
 
@@ -328,7 +330,7 @@ impl<F: PastaField> GlueChip<F> {
     /// Packs independently allocated free witnesses in shared four-cell rows.
     /// The pool is structural and shared by all clones; consumers keep exact
     /// returned cells, so all later copy/range/arithmetic constraints remain.
-    /// Kernel roots allocated through reserve_shared_rows never enter this pool.
+    /// Kernel roots allocated through `reserve_shared_rows` never enter this pool.
     ///
     /// # Errors
     /// The chip must own a bounded, constant-column-free shared arithmetic lane.

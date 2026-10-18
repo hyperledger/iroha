@@ -403,7 +403,7 @@ fn fused_joined_roots_frontiers_and_opened_rows_match_original_masks_across_grou
         let indices = [0, 1, (1_usize << layout.common_lde_log2()) - 1];
         let expected = plan
             .commit_replayed_v1(
-                AGGREGATE_DOMAINS_V1,
+                &AGGREGATE_DOMAINS_V1,
                 &indices,
                 |g, c| {
                     Ok(original[g]
@@ -434,7 +434,7 @@ fn fused_joined_roots_frontiers_and_opened_rows_match_original_masks_across_grou
         let mut pending = Vec::new().into_iter();
         let actual = plan
             .commit_replayed_v1(
-                AGGREGATE_DOMAINS_V1,
+                &AGGREGATE_DOMAINS_V1,
                 &indices,
                 |g, c| {
                     if pending.len() == 0 {
@@ -464,7 +464,7 @@ fn fused_joined_roots_frontiers_and_opened_rows_match_original_masks_across_grou
         let next_rng = new_rng.clone().next_u64();
         let replayed = plan
             .commit_replayed_v1(
-                AGGREGATE_DOMAINS_V1,
+                &AGGREGATE_DOMAINS_V1,
                 &indices,
                 |g, c| {
                     let mut column = retained[g].copy_columns_v1(g, c..c + 1).unwrap();
@@ -498,7 +498,7 @@ fn fused_joined_roots_frontiers_and_opened_rows_match_original_masks_across_grou
         };
         let (initial, cut) = plan
             .commit_retained_replayed_v1(
-                AGGREGATE_DOMAINS_V1,
+                &AGGREGATE_DOMAINS_V1,
                 &[],
                 None,
                 |g, c| {
@@ -516,7 +516,7 @@ fn fused_joined_roots_frontiers_and_opened_rows_match_original_masks_across_grou
             .unwrap();
         let (selected, absent_cut) = plan
             .commit_retained_replayed_v1(
-                AGGREGATE_DOMAINS_V1,
+                &AGGREGATE_DOMAINS_V1,
                 &indices,
                 Some(&cut),
                 |g, c| {
@@ -532,7 +532,7 @@ fn fused_joined_roots_frontiers_and_opened_rows_match_original_masks_across_grou
         assert_eq!(selected.opened_rows, expected.opened_rows);
         let next_rng = new_rng.clone().next_u64();
         let mutated = plan.commit_retained_replayed_v1(
-            AGGREGATE_DOMAINS_V1,
+            &AGGREGATE_DOMAINS_V1,
             &indices,
             Some(&cut),
             |g, c| {

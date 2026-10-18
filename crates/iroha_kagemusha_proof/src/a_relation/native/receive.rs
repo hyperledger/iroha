@@ -779,14 +779,14 @@ fn context_digest(source: &Source) -> Result<Fp, Error> {
     words.extend(before.rest);
     words.extend(before.lineage);
     push_pallas(&mut words, &source.predecessor.pallas.as_input())?;
-    words.extend(vesta_words(&source.predecessor.vesta.as_input())?);
+    words.extend(vesta_words(&source.predecessor.vesta.as_input()));
     words.extend(after.core);
     words.extend(after.rest);
     words.extend(after.lineage);
     words.extend(source.incoming_head.state.lineage);
     words.push(Fp::from(u64::from(source.public_valid)));
     push_pallas(&mut words, &source.incoming_head.pallas.as_input())?;
-    words.extend(vesta_words(&source.incoming_head.vesta.as_input())?);
+    words.extend(vesta_words(&source.incoming_head.vesta.as_input()));
     for q in &source.q {
         let types = q
             .plan
@@ -854,9 +854,9 @@ fn stage_public(c: &Stage) -> Result<Vec<Fp>, Error> {
         terminal_digest(&c.source.own.witness.after.lineage, &c.pallas.as_input())?,
         Fp::from(16),
     ];
-    words.extend(vesta_words(&continuation.vesta.as_input())?);
-    words.extend(vesta_words(&c.source.predecessor.vesta.as_input())?);
-    words.extend(vesta_words(&c.source.incoming_head.vesta.as_input())?);
+    words.extend(vesta_words(&continuation.vesta.as_input()));
+    words.extend(vesta_words(&c.source.predecessor.vesta.as_input()));
+    words.extend(vesta_words(&c.source.incoming_head.vesta.as_input()));
     words.extend(c.source.mode_words(2));
     let (x, y) = iroha_plonk::transcript::generator_coordinates::<Eq>(&c.source.vesta_correction);
     for v in [x, y] {

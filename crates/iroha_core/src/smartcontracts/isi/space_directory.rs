@@ -284,11 +284,7 @@ fn permissions_allow_account_domain_manifest<'a>(
             .try_into_any_norito::<CanPublishSpaceDirectoryManifestForAccountDomain>()
             .is_ok_and(|token| {
                 token.dataspace == dataspace
-                    && uaid_is_bound_to_account_domain(
-                        state_transaction,
-                        uaid,
-                        &token.domain,
-                    )
+                    && uaid_is_bound_to_account_domain(state_transaction, uaid, &token.domain)
             })
     })
 }

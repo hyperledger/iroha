@@ -104,7 +104,7 @@ impl StorePhase {
             base_value: if wide {
                 address
             } else {
-                address.wrapping_sub(i64::from(wide::imm8(instruction)) as u64)
+                address.wrapping_sub(i64::cast_unsigned(i64::from(wide::imm8(instruction))))
             },
             clocks,
             registers: [

@@ -2,7 +2,7 @@
 //!
 //! Core owns ledger storage and mounts these modules internally. Module names,
 //! explicit `iroha_core::` schema identities and logging targets remain stable.
-//! `iroha_core` EnvFilter directives also prefix-match this owner crate's targets.
+//! `iroha_core` `EnvFilter` directives also prefix-match this owner crate's targets.
 /// Native transparent execution proofs and bounded deterministic race relations.
 pub mod execution_proofs;
 #[cfg(test)]
@@ -22,3 +22,6 @@ pub mod privacy_verifier;
 pub(crate) mod json_macros {
     pub use norito::derive::JsonDeserialize;
 }
+
+#[cfg(test)]
+mod test_support;

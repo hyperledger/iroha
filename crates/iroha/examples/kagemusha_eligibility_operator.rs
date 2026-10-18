@@ -205,17 +205,17 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     let result = execute(Path::new(&arguments[0]), std::io::stdin().lock());
-    match result {
-        Ok(original) => match std::io::stdout().lock().write_all(&original) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(_) => ExitCode::FAILURE,
-        },
-        Err(_) => {
+    result.map_or_else(
+        |_| {
             // Protocol errors, paths, signatures and request bodies are never logged.
             eprintln!("current eligibility unavailable");
             ExitCode::FAILURE
-        }
-    }
+        },
+        |original| match std::io::stdout().lock().write_all(&original) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(_) => ExitCode::FAILURE,
+        },
+    )
 }
 
 #[cfg(test)]

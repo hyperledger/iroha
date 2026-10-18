@@ -30,44 +30,44 @@ use crate::privacy_engines::transparent_stark::{
 use thiserror::Error;
 /// Stable descriptor for the aggregate-only first-release scalar-bit copy bus.
 #[cfg(test)]
-pub(crate) const ZK_X509_P256_SCALAR_BIT_BUS_DESCRIPTOR_V1: &[u8] = b"zk-x509-p256-scalar-bit-bus-v2-incompatible:two-verifier-fixed-scalars-u1-then-u2:64-big-endian-four-bit-windows-per-scalar:pointwise-map-to-little-endian-c-limb-bits:scalar-field-c-operations-distinct:deterministic-bit-equality:four-post-arithmetic-and-window-commitment-products:scalar-window-bit-value-tuples:three-factors-per-physical-row:one-canonical-inactive-factor:256-row-canonical-padding:aggregate-base6:aux32:verifier-fixed16:constraints67-degree3:source-side-terminal-binding=complete-via-p256-aggregate-adapter:standalone-activation=not-applicable";
+pub const ZK_X509_P256_SCALAR_BIT_BUS_DESCRIPTOR_V1: &[u8] = b"zk-x509-p256-scalar-bit-bus-v2-incompatible:two-verifier-fixed-scalars-u1-then-u2:64-big-endian-four-bit-windows-per-scalar:pointwise-map-to-little-endian-c-limb-bits:scalar-field-c-operations-distinct:deterministic-bit-equality:four-post-arithmetic-and-window-commitment-products:scalar-window-bit-value-tuples:three-factors-per-physical-row:one-canonical-inactive-factor:256-row-canonical-padding:aggregate-base6:aux32:verifier-fixed16:constraints67-degree3:source-side-terminal-binding=complete-via-p256-aggregate-adapter:standalone-activation=not-applicable";
 /// Independent tuple-product lanes.
-pub(crate) const P256_SCALAR_BIT_BUS_LANES_V1: usize = 4;
+pub const P256_SCALAR_BIT_BUS_LANES_V1: usize = 4;
 /// `beta`, scalar, window, bit-within-window, and value.
-pub(crate) const P256_SCALAR_BIT_BUS_TUPLE_TERMS_V1: usize = 5;
+pub const P256_SCALAR_BIT_BUS_TUPLE_TERMS_V1: usize = 5;
 /// Consecutive low-degree factors packed into one physical row.
-pub(crate) const P256_SCALAR_BIT_BUS_FACTORS_PER_ROW_V1: usize = 3;
+pub const P256_SCALAR_BIT_BUS_FACTORS_PER_ROW_V1: usize = 3;
 /// Fixed four-bit windows consumed by each scalar.
-pub(crate) const P256_SCALAR_BIT_BUS_WINDOWS_PER_SCALAR_V1: usize = 64;
+pub const P256_SCALAR_BIT_BUS_WINDOWS_PER_SCALAR_V1: usize = 64;
 /// Scalars consumed by ECDSA verification: `u1` and `u2`.
-pub(crate) const P256_SCALAR_BIT_BUS_SCALARS_V1: usize = 2;
+pub const P256_SCALAR_BIT_BUS_SCALARS_V1: usize = 2;
 /// Verifier-owned arithmetic operation supplying the `u1` scalar.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) const P256_SCALAR_BIT_BUS_U1_C_OPERATION_V1: u32 = 13;
+pub const P256_SCALAR_BIT_BUS_U1_C_OPERATION_V1: u32 = 13;
 /// Verifier-owned arithmetic operation supplying the `u2` scalar.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) const P256_SCALAR_BIT_BUS_U2_C_OPERATION_V1: u32 = 14;
+pub const P256_SCALAR_BIT_BUS_U2_C_OPERATION_V1: u32 = 14;
 /// Pointwise bit copies in the complete schedule.
-pub(crate) const P256_SCALAR_BIT_BUS_ACTIVE_BITS_V1: usize =
+pub const P256_SCALAR_BIT_BUS_ACTIVE_BITS_V1: usize =
     P256_SCALAR_BIT_BUS_SCALARS_V1 * P256_SCALAR_BIT_BUS_WINDOWS_PER_SCALAR_V1 * 4;
 /// Physical rows after packing three factors and adding canonical padding.
-pub(crate) const P256_SCALAR_BIT_BUS_ROWS_V1: usize =
+pub const P256_SCALAR_BIT_BUS_ROWS_V1: usize =
     P256_SCALAR_BIT_BUS_ACTIVE_BITS_V1.div_ceil(P256_SCALAR_BIT_BUS_FACTORS_PER_ROW_V1);
 /// Total factor slots, including exactly one inactive slot.
-pub(crate) const P256_SCALAR_BIT_BUS_FACTOR_SLOTS_V1: usize =
+pub const P256_SCALAR_BIT_BUS_FACTOR_SLOTS_V1: usize =
     P256_SCALAR_BIT_BUS_ROWS_V1 * P256_SCALAR_BIT_BUS_FACTORS_PER_ROW_V1;
 /// Sole padded aggregate trace size.
-pub(crate) const P256_SCALAR_BIT_BUS_STARK_TRACE_SIZE_V1: usize = 256;
+pub const P256_SCALAR_BIT_BUS_STARK_TRACE_SIZE_V1: usize = 256;
 /// Committed arithmetic/window bit copies.
-pub(crate) const P256_SCALAR_BIT_BUS_STARK_BASE_WIDTH_V1: usize = 6;
+pub const P256_SCALAR_BIT_BUS_STARK_BASE_WIDTH_V1: usize = 6;
 /// Two four-state, four-lane product families.
-pub(crate) const P256_SCALAR_BIT_BUS_STARK_AUX_WIDTH_V1: usize = 32;
+pub const P256_SCALAR_BIT_BUS_STARK_AUX_WIDTH_V1: usize = 32;
 /// Verifier-preprocessed slot coordinates and row boundaries.
-pub(crate) const P256_SCALAR_BIT_BUS_STARK_FIXED_WIDTH_V1: usize = 16;
+pub const P256_SCALAR_BIT_BUS_STARK_FIXED_WIDTH_V1: usize = 16;
 /// Exact fixed-width opened-row constraint inventory.
-pub(crate) const P256_SCALAR_BIT_BUS_STARK_CONSTRAINT_COUNT_V1: usize = 67;
+pub const P256_SCALAR_BIT_BUS_STARK_CONSTRAINT_COUNT_V1: usize = 67;
 /// Maximum total polynomial degree.
-pub(crate) const P256_SCALAR_BIT_BUS_STARK_CONSTRAINT_DEGREE_V1: u8 = 3;
+pub const P256_SCALAR_BIT_BUS_STARK_CONSTRAINT_DEGREE_V1: u8 = 3;
 const P256_SCALAR_BITS_V1: usize = 256;
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 const P256_SCALAR_LIMBS_V1: usize = 16;
@@ -108,7 +108,7 @@ const _: () = assert!(STARK_FIXED_PADDING + 1 == P256_SCALAR_BIT_BUS_STARK_FIXED
 /// One verifier-fixed scalar result supplying 64 window nibbles.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ScalarBitSourceV1 {
+pub struct P256ScalarBitSourceV1 {
     /// `u1` or `u2`; sources must be supplied in that order.
     pub(crate) scalar: P256WindowScalarV1,
     /// Arithmetic operation whose committed scalar-field `c` is consumed.
@@ -116,7 +116,7 @@ pub(crate) struct P256ScalarBitSourceV1 {
 }
 /// Verifier-regenerated identity for one factor slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum P256ScalarBitBusFixedAccessV1 {
+pub enum P256ScalarBitBusFixedAccessV1 {
     /// Canonical product-identity padding.
     Inactive,
     /// One big-endian bit in one verifier-positioned scalar nibble.
@@ -131,13 +131,13 @@ pub(crate) enum P256ScalarBitBusFixedAccessV1 {
 }
 /// One tuple-compression lane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ScalarBitBusLaneChallengesV1 {
+pub struct P256ScalarBitBusLaneChallengesV1 {
     /// `beta` followed by coefficients for scalar, window, bit, and value.
     pub(crate) terms: [F; P256_SCALAR_BIT_BUS_TUPLE_TERMS_V1],
 }
 /// Four independently sampled tuple products.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ScalarBitBusChallengesV1 {
+pub struct P256ScalarBitBusChallengesV1 {
     /// Transcript-separated product lanes.
     pub(crate) lanes: [P256ScalarBitBusLaneChallengesV1; P256_SCALAR_BIT_BUS_LANES_V1],
 }
@@ -164,7 +164,7 @@ impl P256ScalarBitBusChallengesV1 {
 /// One physical AIR row containing three pointwise copy factors.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ScalarBitBusRowV1 {
+pub struct P256ScalarBitBusRowV1 {
     /// Verifier-regenerated identities for all three slots.
     pub(crate) fixed: [P256ScalarBitBusFixedAccessV1; P256_SCALAR_BIT_BUS_FACTORS_PER_ROW_V1],
     /// Bits copied from committed arithmetic `c` decomposition cells.
@@ -181,13 +181,13 @@ pub(crate) struct P256ScalarBitBusRowV1 {
 /// Complete scalar-bit copy trace.
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct P256ScalarBitBusTraceV1 {
+pub struct P256ScalarBitBusTraceV1 {
     /// Exactly 171 packed rows: 512 active factors and one inactive factor.
     pub(crate) rows: Vec<P256ScalarBitBusRowV1>,
 }
 /// Scalar-bit topology, source, equality, or product failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
-pub(crate) enum P256ScalarBitBusErrorV1 {
+pub enum P256ScalarBitBusErrorV1 {
     /// Scalar sources, operation positions, windows, or packed rows are invalid.
     #[error("zk-X509 P-256 scalar-bit bus topology is invalid")]
     Topology,
@@ -230,7 +230,7 @@ pub(crate) enum P256ScalarBitBusErrorV1 {
 ///
 /// The aggregate prover and verifier own commitment absorption. This function only performs the
 /// post-commitment squeezes and gives every lane/coordinate an independent domain label.
-pub(crate) fn derive_zk_x509_p256_scalar_bit_bus_challenges_v1(
+pub fn derive_zk_x509_p256_scalar_bit_bus_challenges_v1(
     transcript: &mut TransparentTranscriptV1,
 ) -> Result<P256ScalarBitBusChallengesV1, TransparentStarkErrorV1> {
     let labels: [[&[u8]; P256_SCALAR_BIT_BUS_TUPLE_TERMS_V1]; P256_SCALAR_BIT_BUS_LANES_V1] = [
@@ -275,7 +275,7 @@ pub(crate) fn derive_zk_x509_p256_scalar_bit_bus_challenges_v1(
 }
 /// Convert one big-endian window bit to its arithmetic `c` limb and little-endian bit position.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn p256_scalar_window_bit_to_c_position_v1(
+pub fn p256_scalar_window_bit_to_c_position_v1(
     window: usize,
     bit: usize,
 ) -> Result<(usize, usize), P256ScalarBitBusErrorV1> {
@@ -296,7 +296,7 @@ pub(crate) fn p256_scalar_window_bit_to_c_position_v1(
 }
 /// Build all 512 fixed-position copies and the one canonical padding slot.
 #[cfg(test)]
-pub(crate) fn build_zk_x509_p256_scalar_bit_bus_trace_v1(
+pub fn build_zk_x509_p256_scalar_bit_bus_trace_v1(
     sources: &[P256ScalarBitSourceV1],
     windows: &[P256WindowTraceV1],
     arithmetic_trace: &ZkX509P256ArithmeticTraceV1,
@@ -425,7 +425,7 @@ impl P256ScalarBitBusTraceV1 {
 /// It then advances each of both endpoint-product families in every lane by one independently
 /// compressed factor.
 #[cfg(test)]
-pub(crate) fn evaluate_zk_x509_p256_scalar_bit_bus_row_constraints_v1(
+pub fn evaluate_zk_x509_p256_scalar_bit_bus_row_constraints_v1(
     fixed: [P256ScalarBitBusFixedAccessV1; P256_SCALAR_BIT_BUS_FACTORS_PER_ROW_V1],
     row: &P256ScalarBitBusRowV1,
     arithmetic_sources: [F; P256_SCALAR_BIT_BUS_FACTORS_PER_ROW_V1],
@@ -472,7 +472,7 @@ pub(crate) fn evaluate_zk_x509_p256_scalar_bit_bus_row_constraints_v1(
 }
 /// Four aggregate boundary constraints equating endpoint products.
 #[cfg(test)]
-pub(crate) fn evaluate_zk_x509_p256_scalar_bit_bus_terminal_constraints_v1(
+pub fn evaluate_zk_x509_p256_scalar_bit_bus_terminal_constraints_v1(
     trace: &P256ScalarBitBusTraceV1,
 ) -> Result<[F; P256_SCALAR_BIT_BUS_LANES_V1], P256ScalarBitBusErrorV1> {
     if trace.rows.len() != P256_SCALAR_BIT_BUS_ROWS_V1 {
@@ -488,7 +488,7 @@ pub(crate) fn evaluate_zk_x509_p256_scalar_bit_bus_terminal_constraints_v1(
 /// Rectangular aggregate representation of the packed scalar-bit bus.
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct P256ScalarBitBusStarkTraceV1 {
+pub struct P256ScalarBitBusStarkTraceV1 {
     /// Six committed arithmetic/window bit-copy columns.
     pub(crate) base: Vec<[F; P256_SCALAR_BIT_BUS_STARK_BASE_WIDTH_V1]>,
     /// Thirty-two challenge-dependent product-state columns.
@@ -534,7 +534,7 @@ fn expected_stark_fixed_access_v1(
 }
 /// Compile the exact verifier-owned numeric preprocessing schedule.
 #[cfg(test)]
-pub(crate) fn compile_p256_scalar_bit_bus_stark_fixed_rows_v1()
+pub fn compile_p256_scalar_bit_bus_stark_fixed_rows_v1()
 -> Result<Vec<[F; P256_SCALAR_BIT_BUS_STARK_FIXED_WIDTH_V1]>, P256ScalarBitBusErrorV1> {
     let mut rows = Vec::new();
     rows.try_reserve_exact(P256_SCALAR_BIT_BUS_STARK_TRACE_SIZE_V1)
@@ -551,7 +551,7 @@ pub(crate) fn compile_p256_scalar_bit_bus_stark_fixed_rows_v1()
 /// power-of-two domain containing the exact 171 logical rows.
 ///
 /// This is the production constant-memory provider used by the native scalar-bit aggregate group.
-pub(crate) fn p256_scalar_bit_bus_stark_fixed_row_v1(
+pub fn p256_scalar_bit_bus_stark_fixed_row_v1(
     row_index: usize,
     trace_size: usize,
 ) -> Result<[F; P256_SCALAR_BIT_BUS_STARK_FIXED_WIDTH_V1], P256ScalarBitBusErrorV1> {
@@ -597,14 +597,14 @@ pub(crate) fn p256_scalar_bit_bus_stark_fixed_row_v1(
 /// Project the verifier-preprocessed selector for the final active packed-bus
 /// row at an arbitrary aggregate-domain opening.
 #[cfg(test)]
-pub(crate) const fn p256_scalar_bit_bus_stark_last_active_selector_v1<A: PolynomialAirFieldV1>(
+pub const fn p256_scalar_bit_bus_stark_last_active_selector_v1<A: PolynomialAirFieldV1>(
     fixed: &[A; P256_SCALAR_BIT_BUS_STARK_FIXED_WIDTH_V1],
 ) -> A {
     fixed[STARK_FIXED_LAST_ACTIVE_ROW]
 }
 /// Convert the typed bus rows to the sole padded aggregate layout.
 #[cfg(test)]
-pub(crate) fn build_p256_scalar_bit_bus_stark_trace_v1(
+pub fn build_p256_scalar_bit_bus_stark_trace_v1(
     trace: &P256ScalarBitBusTraceV1,
 ) -> Result<P256ScalarBitBusStarkTraceV1, P256ScalarBitBusErrorV1> {
     if trace.rows.len() != P256_SCALAR_BIT_BUS_ROWS_V1 {
@@ -660,7 +660,7 @@ pub(crate) fn build_p256_scalar_bit_bus_stark_trace_v1(
 /// only the six committed base columns. Challenge-dependent products are not
 /// present in this type and cannot be obtained from it.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256ScalarBitBusBaseMaterialV1 {
+pub struct P256ScalarBitBusBaseMaterialV1 {
     rows: Vec<[F; P256_SCALAR_BIT_BUS_STARK_BASE_WIDTH_V1]>,
 }
 #[cfg(any(test, feature = "privacy-release-evidence"))]
@@ -861,7 +861,7 @@ impl Drop for P256ScalarBitBusColumnFillGuardV1<'_> {
 /// Challenge-independent committed base-row replay.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct P256ScalarBitBusStarkBaseRowProviderV1<'a> {
+pub struct P256ScalarBitBusStarkBaseRowProviderV1<'a> {
     material: &'a P256ScalarBitBusBaseMaterialV1,
 }
 #[cfg(any(test, feature = "privacy-release-evidence"))]
@@ -915,7 +915,7 @@ impl<'a> P256ScalarBitBusStarkBaseRowProviderV1<'a> {
 }
 /// Verifier-owned fixed-row replay for the sole scalar-bit bus identity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct P256ScalarBitBusStarkFixedProviderV1 {
+pub struct P256ScalarBitBusStarkFixedProviderV1 {
     trace_size: usize,
 }
 impl P256ScalarBitBusStarkFixedProviderV1 {
@@ -968,7 +968,7 @@ impl P256ScalarBitBusStarkFixedProviderV1 {
 /// Binding is poison-on-attempt: the sole transition is consumed before any
 /// fallible validation or product computation.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256ScalarBitBusBaseSourceV1 {
+pub struct P256ScalarBitBusBaseSourceV1 {
     material: Option<P256ScalarBitBusBaseMaterialV1>,
     bind_attempted: bool,
 }
@@ -1104,7 +1104,7 @@ impl Drop for P256ScalarBitBusBaseSourceV1 {
 ///
 /// Only this type can mint challenge-dependent product replay and expose the two terminal families.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256ScalarBitBusBoundSourceV1 {
+pub struct P256ScalarBitBusBoundSourceV1 {
     material: Option<P256ScalarBitBusBaseMaterialV1>,
     post_base: Option<ZkX509CredentialMainPostBaseChallengesV1>,
     terminals: [[F; P256_SCALAR_BIT_BUS_LANES_V1]; 2],
@@ -1187,7 +1187,7 @@ impl Drop for P256ScalarBitBusBoundSourceV1 {
 }
 /// Challenge-bound constant-memory auxiliary replay.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) struct P256ScalarBitBusStarkAuxSourceV1<'a> {
+pub struct P256ScalarBitBusStarkAuxSourceV1<'a> {
     material: &'a P256ScalarBitBusBaseMaterialV1,
     challenges: P256ScalarBitBusChallengesV1,
     terminals: [[F; P256_SCALAR_BIT_BUS_LANES_V1]; 2],
@@ -1404,8 +1404,7 @@ fn stark_scalar_bit_factor_v1<A: PolynomialAirFieldV1>(
     Ok(A::ONE.add(active.mul(compressed.sub(A::ONE))))
 }
 /// Canonical auxiliary terminal columns, in arithmetic then window order.
-pub(crate) fn p256_scalar_bit_bus_terminal_columns_v1() -> [[usize; P256_SCALAR_BIT_BUS_LANES_V1]; 2]
-{
+pub fn p256_scalar_bit_bus_terminal_columns_v1() -> [[usize; P256_SCALAR_BIT_BUS_LANES_V1]; 2] {
     let final_state = (P256_SCALAR_BIT_BUS_PRODUCT_STATES_V1 - 1) * P256_SCALAR_BIT_BUS_LANES_V1;
     [
         core::array::from_fn(|lane| STARK_ARITHMETIC_PRODUCTS + final_state + lane),
@@ -1417,7 +1416,7 @@ pub(crate) fn p256_scalar_bit_bus_terminal_columns_v1() -> [[usize; P256_SCALAR_
 /// The aggregate verifier opens this projection at the verifier-fixed final logical row; no
 /// proof-supplied row index is accepted by the terminal registration.
 #[cfg(test)]
-pub(crate) fn p256_scalar_bit_bus_opened_terminals_v1<A: PolynomialAirFieldV1>(
+pub fn p256_scalar_bit_bus_opened_terminals_v1<A: PolynomialAirFieldV1>(
     aux: &[A; P256_SCALAR_BIT_BUS_STARK_AUX_WIDTH_V1],
 ) -> [[A; P256_SCALAR_BIT_BUS_LANES_V1]; 2] {
     let final_state = (P256_SCALAR_BIT_BUS_PRODUCT_STATES_V1 - 1) * P256_SCALAR_BIT_BUS_LANES_V1;
@@ -1431,7 +1430,7 @@ pub(crate) fn p256_scalar_bit_bus_opened_terminals_v1<A: PolynomialAirFieldV1>(
 /// The terminal equality here binds the two bus copies. Source-side products over the arithmetic
 /// and window commitments remain a separate required adapter and activation gate.
 #[cfg(test)]
-pub(crate) fn evaluate_p256_scalar_bit_bus_stark_residues_v1(
+pub fn evaluate_p256_scalar_bit_bus_stark_residues_v1(
     current: &[F; P256_SCALAR_BIT_BUS_STARK_BASE_WIDTH_V1],
     next: &[F; P256_SCALAR_BIT_BUS_STARK_BASE_WIDTH_V1],
     current_aux: &[F; P256_SCALAR_BIT_BUS_STARK_AUX_WIDTH_V1],
@@ -1449,7 +1448,7 @@ pub(crate) fn evaluate_p256_scalar_bit_bus_stark_residues_v1(
     )
 }
 /// The same scalar-bit copy relation over F or Fp4, including verifier-fixed selectors.
-pub(crate) fn evaluate_p256_scalar_bit_bus_stark_residues_over_field_v1<A: PolynomialAirFieldV1>(
+pub fn evaluate_p256_scalar_bit_bus_stark_residues_over_field_v1<A: PolynomialAirFieldV1>(
     current: &[A; P256_SCALAR_BIT_BUS_STARK_BASE_WIDTH_V1],
     next: &[A; P256_SCALAR_BIT_BUS_STARK_BASE_WIDTH_V1],
     current_aux: &[A; P256_SCALAR_BIT_BUS_STARK_AUX_WIDTH_V1],
@@ -2259,7 +2258,7 @@ mod tests {
     }
     #[test]
     fn phased_private_state_zeroizes_recursively() {
-        let (_, observations) = super::super::private_table::inspection::observe_v1(
+        let ((), observations) = super::super::private_table::inspection::observe_v1(
             phased_private_state_zeroizes_recursively_body_v1,
         );
         assert!(observations.iter().any(|item| item.nonzero_before > 0));

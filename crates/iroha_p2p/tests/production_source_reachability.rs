@@ -10,6 +10,7 @@ const PRODUCTION_SOURCES: &[&str] = &[
     "src/network/connection_arbitration.rs",
     "src/network/best_effort_admission.rs",
     "src/network/reliable_actor.rs",
+    "src/p2p_mutation_guard.rs",
     "src/peer.rs",
     "src/peer/post_admission.rs",
     "src/peer/quic_datagram.rs",
@@ -89,6 +90,12 @@ const PRODUCTION_EDGES: &[ProductionEdge<'_>] = &[
         parent: "src/lib.rs",
         declaration: "pub mod network;",
         child: "src/network.rs",
+        gate: ProductionGate::Unconditional,
+    },
+    ProductionEdge {
+        parent: "src/lib.rs",
+        declaration: "mod p2p_mutation_guard;",
+        child: "src/p2p_mutation_guard.rs",
         gate: ProductionGate::Unconditional,
     },
     ProductionEdge {

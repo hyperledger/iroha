@@ -1,6 +1,6 @@
 //! Held CPU-only outer-hash component experiment; not a proof suite or release API.
 //!
-//! This file is a test-only child of privacy_engines::transparent_stark.
+//! This file is a test-only child of `privacy_engines::transparent_stark`.
 //! Public synthetic rows have the native note width, but only 64 rows are used.
 //! Every scheme retains its own digest bytes, transcript state and Merkle root.
 

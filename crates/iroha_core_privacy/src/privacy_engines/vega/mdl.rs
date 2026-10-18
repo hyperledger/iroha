@@ -554,8 +554,8 @@ fn parse_mso_payload(bytes: &[u8], birth_digest_id: u64) -> Result<ParsedMso, Ve
     let (device_public_key, device_public_key_x, device_public_key_y) =
         parse_device_key(device_key)?;
     let validity_info = required_map(&mso, "validityInfo")?;
-    let signed = required_tagged_rfc3339_seconds(&validity_info, "signed")?;
-    let valid_from = required_tagged_rfc3339_seconds(&validity_info, "validFrom")?;
+    let signed = required_tagged_rfc3339_seconds(validity_info, "signed")?;
+    let valid_from = required_tagged_rfc3339_seconds(validity_info, "validFrom")?;
     let (valid_until_name, valid_until_value) =
         validity_info
             .map_entry_text("validUntil")

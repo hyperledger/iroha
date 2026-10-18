@@ -87,10 +87,11 @@ fn malformed_order_version_intervals_and_holes_fail_canonical_intake() {
 
 #[test]
 fn quota_effect_requires_exactly_one_typed_original_and_other_effects_refuse_it() {
-    let vectors: norito::json::Value = norito::json::from_str(&crate::kagemusha::kagemusha_wallet_v1::test_fixture_read(
-        "fixtures/kagemusha/wallet_v1_vectors.json",
-    ))
-    .unwrap();
+    let vectors: norito::json::Value =
+        norito::json::from_str(&crate::kagemusha::kagemusha_wallet_v1::test_fixture_read(
+            "fixtures/kagemusha/wallet_v1_vectors.json",
+        ))
+        .unwrap();
     let row = vectors["objects"]
         .as_array()
         .unwrap()

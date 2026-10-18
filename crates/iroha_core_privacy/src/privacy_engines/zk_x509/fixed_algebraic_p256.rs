@@ -55,7 +55,7 @@ use crate::privacy_engines::transparent_stark::{
 use std::{sync::OnceLock, vec::Vec};
 use thiserror::Error;
 /// Exact compact P-256 fixed-schedule semantics bound by the release profile.
-pub(crate) const ZK_X509_P256_FIXED_ALGEBRAIC_DESCRIPTOR_V1: &[u8] =
+pub const ZK_X509_P256_FIXED_ALGEBRAIC_DESCRIPTOR_V1: &[u8] =
     b"zk-x509-p256-fixed-algebraic-v1-incompatible:native-log19:generator-coset-lde-log22:width404:six-schedules=certificate-arithmetic134+wallet-arithmetic134+certificate-execution46+wallet-execution46+certificate-sorted22+wallet-sorted22:typed-composite-children=134,134,46,46,22,22:each-child-generic-cap65536:composite-digest=sha3-384-opaque48-binds-profile+ordered-widths+ordered-child-digests:row-major-child-opening-concatenation:aliases-exactly15=signatures0through4-times-arithmetic0+value-execution0+value-sorted1:signatures0through3-certificate-role:signature4-wallet-role:closed-value-free-topology-only:writer-source=external-sink-plus-selected-Qx-Qy-r-s64-limb-uses:multiplicity-small0through2+64+65+129:additive-affine+repeated-affine+sparse:operation-metadata-plan=min-exact-row-axis-vs-canonical-call-axis:row-axis-on-tie:call-segments=14x43+64x222+row-tail18:sorted-active-factors=725504-distinct-from-execution-logical-factors949312:sorted-equal-read-runs=min-exact-relative-factor-axis-vs-per-value-axis:relative-factor-axis-on-tie:sorted-whole-plan=min-exact-global-local-vs-phase-hybrid:global-local-on-tie:phase-hybrid=prefix893-local+min-local-vs13x43-phase+scalar-boundary222-local+min-local-vs63x222-phase+tail18-local:pinned-boundary-extents=1712,9984:pinned-repeated-extents=1888,10176:local-on-phase-tie:no-native-matrix:no-lde-table:no-artifact:no-merkle:no-proof-fixed-bytes:first-release";
 #[cfg(test)]
 const P256_COMPILER_DESCRIPTOR_DIGEST_DOMAIN_V1: &[u8] =
@@ -63,12 +63,12 @@ const P256_COMPILER_DESCRIPTOR_DIGEST_DOMAIN_V1: &[u8] =
 const P256_COMPOSITE_DESCRIPTOR_DIGEST_DOMAIN_V1: &[u8] =
     b"iroha:privacy:zk-x509:p256-fixed-algebraic-composite:v1";
 /// Exact number of unique verifier-owned schedules.
-pub(crate) const ZK_X509_P256_FIXED_ALGEBRAIC_SCHEDULE_COUNT_V1: usize = 6;
+pub const ZK_X509_P256_FIXED_ALGEBRAIC_SCHEDULE_COUNT_V1: usize = 6;
 /// Exact number of accepted registration aliases.
 #[cfg(test)]
-pub(crate) const ZK_X509_P256_FIXED_ALGEBRAIC_ALIAS_COUNT_V1: usize = 15;
+pub const ZK_X509_P256_FIXED_ALGEBRAIC_ALIAS_COUNT_V1: usize = 15;
 /// Exact combined fixed width.
-pub(crate) const ZK_X509_P256_FIXED_ALGEBRAIC_WIDTH_V1: usize = 404;
+pub const ZK_X509_P256_FIXED_ALGEBRAIC_WIDTH_V1: usize = 404;
 const P256_FIXED_ALGEBRAIC_CHILD_WIDTHS_V1: [usize; 6] = [
     P256_ARITHMETIC_AGGREGATE_FIXED_WIDTH_V1,
     P256_ARITHMETIC_AGGREGATE_FIXED_WIDTH_V1,
@@ -266,7 +266,7 @@ fn map_adapter_error_v1(error: P256AggregateAdapterErrorV1) -> ZkX509P256FixedAl
 }
 /// One of the six unique P-256 fixed schedules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum ZkX509P256FixedAlgebraicScheduleKindV1 {
+pub enum ZkX509P256FixedAlgebraicScheduleKindV1 {
     /// Certificate/CRL arithmetic.
     CertificateArithmetic,
     /// Wallet-ownership arithmetic.
@@ -328,7 +328,7 @@ impl ZkX509P256FixedAlgebraicScheduleKindV1 {
     }
 }
 /// Resolve one of the exact fifteen supported MAIN registrations.
-pub(crate) fn zk_x509_p256_fixed_algebraic_schedule_for_registration_v1(
+pub fn zk_x509_p256_fixed_algebraic_schedule_for_registration_v1(
     registration: P256MainRegistrationV1,
 ) -> Result<ZkX509P256FixedAlgebraicScheduleKindV1, ZkX509P256FixedAlgebraicErrorV1> {
     let certificate = registration.role_v1() == P256EcdsaRoleV1::CertificateOrCrl;
@@ -360,7 +360,7 @@ pub(crate) fn zk_x509_p256_fixed_algebraic_schedule_for_registration_v1(
 }
 #[cfg(test)]
 /// Borrow one registration's fixed slice from a combined algebraic opening.
-pub(crate) fn zk_x509_p256_fixed_algebraic_row_for_registration_v1<'a>(
+pub fn zk_x509_p256_fixed_algebraic_row_for_registration_v1<'a>(
     combined: &'a [F],
     registration: P256MainRegistrationV1,
 ) -> Result<&'a [F], ZkX509P256FixedAlgebraicErrorV1> {
@@ -2642,7 +2642,7 @@ fn logical_constant_range_atom_count_v1(
 }
 /// Digest of the stable P-256 structural compiler descriptor.
 #[cfg(test)]
-pub(crate) fn zk_x509_p256_fixed_algebraic_compiler_descriptor_digest_v1()
+pub fn zk_x509_p256_fixed_algebraic_compiler_descriptor_digest_v1()
 -> Result<PrivacyOuterDigestV1, ZkX509P256FixedAlgebraicErrorV1> {
     privacy_outer_digest_frame_v1(
         ZK_X509_FIXED_DIGEST_CONTEXT_V1,
@@ -2660,7 +2660,7 @@ pub(crate) fn zk_x509_p256_fixed_algebraic_compiler_descriptor_digest_v1()
 /// Child order is the canonical MAIN registration order: certificate arithmetic, wallet arithmetic,
 /// certificate execution, wallet execution, certificate sorted memory, and wallet sorted memory.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509P256FixedAlgebraicScheduleV1 {
+pub struct ZkX509P256FixedAlgebraicScheduleV1 {
     children: [ZkX509FixedAlgebraicScheduleV1; ZK_X509_P256_FIXED_ALGEBRAIC_SCHEDULE_COUNT_V1],
     descriptor_digest: PrivacyOuterDigestV1,
 }
@@ -2873,7 +2873,7 @@ fn compile_p256_fixed_child_v1(
     builder.finish_v1().map_err(Into::into)
 }
 /// Compile the exact six-schedule, 404-column verifier-owned P-256 schedule.
-pub(crate) fn compile_zk_x509_p256_fixed_algebraic_schedule_v1()
+pub fn compile_zk_x509_p256_fixed_algebraic_schedule_v1()
 -> Result<ZkX509P256FixedAlgebraicScheduleV1, ZkX509P256FixedAlgebraicErrorV1> {
     let domain = ZkX509FixedAlgebraicDomainV1::new_v1(
         ZK_X509_MAX_NATIVE_TRACE_LOG2_V1,
@@ -2934,7 +2934,7 @@ static ZK_X509_P256_FIXED_ALGEBRAIC_SCHEDULE_V1: OnceLock<ZkX509P256FixedAlgebra
 /// Only a successful compilation is cached. A transient allocation failure or any fail-closed
 /// topology error therefore cannot poison the process-wide cell, while the raw compiler remains
 /// available for independent KAT reproduction.
-pub(crate) fn zk_x509_p256_fixed_algebraic_schedule_v1()
+pub fn zk_x509_p256_fixed_algebraic_schedule_v1()
 -> Result<&'static ZkX509P256FixedAlgebraicScheduleV1, ZkX509P256FixedAlgebraicErrorV1> {
     if let Some(schedule) = ZK_X509_P256_FIXED_ALGEBRAIC_SCHEDULE_V1.get() {
         return Ok(schedule);
@@ -3964,9 +3964,11 @@ mod tests {
     fn sorted_active_extent_is_distinct_from_execution_logical_extent_v1() {
         assert_eq!(P256_VALUE_BUS_SORTED_ACTIVE_PACKED_ROWS_V1, 362_752);
         assert_eq!(P256_VALUE_BUS_LOGICAL_PACKED_ROWS_V1, 474_656);
-        assert!(
-            P256_VALUE_BUS_SORTED_ACTIVE_PACKED_ROWS_V1 < P256_VALUE_BUS_LOGICAL_PACKED_ROWS_V1
-        );
+        const {
+            assert!(
+                P256_VALUE_BUS_SORTED_ACTIVE_PACKED_ROWS_V1 < P256_VALUE_BUS_LOGICAL_PACKED_ROWS_V1
+            )
+        };
         let mut last_active = [F::ZERO; ZK_X509_P256_FIXED_ALGEBRAIC_WIDTH_V1];
         schedule_v1()
             .native_row_v1(

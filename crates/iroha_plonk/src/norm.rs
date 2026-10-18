@@ -1,7 +1,7 @@
 //! Per-factor nonvanishing norm in the two admitted Pasta scalar fields.
 
 /// Apply after tuple compression and affine challenge addition, before multiplying factors.
-pub(crate) fn norm_factor<F: ff::PrimeField>(value: F) -> F {
+pub fn norm_factor<F: ff::PrimeField>(value: F) -> F {
     value.square() - F::from(5)
 }
 

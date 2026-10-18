@@ -199,7 +199,7 @@ impl TerminalFrame<'_> {
     }
 
     /// Consumes this private parse and fresh tape to create its fixed four-slot
-    /// WrapperVesta fold. The returned output is an undecided obligation.
+    /// `WrapperVesta` fold. The returned output is an undecided obligation.
     ///
     /// # Errors
     /// Cancellation, malformed/false input claims, or failed fold equation.

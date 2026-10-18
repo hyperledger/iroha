@@ -20,6 +20,10 @@ impl PrivateWitnessBytes {
     /// Write one exact private payload directly into a fixed clearing allocation.
     /// The closure cannot resize, take or expose an owning Vec. Failure and unwind clear
     /// the allocation; success requires exactly the selected capacity to be written.
+    ///
+    /// # Errors
+    /// Propagates the closure's write error, including an overflowing payload, or
+    /// returns an unexpected-end error when fewer than `capacity` bytes are written.
     pub fn try_write<E: From<std::io::Error>>(
         capacity: usize,
         write: impl FnOnce(&mut dyn std::io::Write) -> Result<(), E>,
@@ -55,7 +59,7 @@ impl core::fmt::Debug for PrivateWitnessBytes {
 
 // Call each admitted field's own Zeroize supertrait. This also avoids assuming
 // that independently emitted dependency variants share our byte guard's trait.
-pub(crate) struct FieldVec<F: PastaField>(pub(crate) Vec<F>);
+pub struct FieldVec<F: PastaField>(pub(crate) Vec<F>);
 impl<F: PastaField> FieldVec<F> {
     pub(crate) fn truncate(&mut self, len: usize) {
         if len < self.0.len() {
@@ -79,12 +83,12 @@ impl<F: PastaField> core::ops::DerefMut for FieldVec<F> {
 }
 impl<F: PastaField> Drop for FieldVec<F> {
     fn drop(&mut self) {
-        for value in self.0.iter_mut() {
+        for value in &mut self.0 {
             value.zeroize();
         }
     }
 }
-pub(crate) struct FieldArray<F: PastaField, const N: usize>(pub(crate) [F; N]);
+pub struct FieldArray<F: PastaField, const N: usize>(pub(crate) [F; N]);
 impl<F: PastaField, const N: usize> Drop for FieldArray<F, N> {
     fn drop(&mut self) {
         for value in &mut self.0 {
@@ -93,13 +97,13 @@ impl<F: PastaField, const N: usize> Drop for FieldArray<F, N> {
     }
 }
 
-pub(crate) struct PointGuard<C: PastaCurve>(pub(crate) C);
+pub struct PointGuard<C: PastaCurve>(pub(crate) C);
 impl<C: PastaCurve> Drop for PointGuard<C> {
     fn drop(&mut self) {
         self.0.zeroize();
     }
 }
-pub(crate) struct AffineGuard<C: PastaCurve>(pub(crate) C::AffineExt);
+pub struct AffineGuard<C: PastaCurve>(pub(crate) C::AffineExt);
 fn clear_affine<A: PastaAffine>(value: &mut A) {
     value.zeroize();
 }
@@ -108,7 +112,7 @@ impl<C: PastaCurve> Drop for AffineGuard<C> {
         clear_affine(&mut self.0);
     }
 }
-pub(crate) struct AffineVec<C: PastaCurve>(pub(crate) Vec<C::AffineExt>);
+pub struct AffineVec<C: PastaCurve>(pub(crate) Vec<C::AffineExt>);
 impl<C: PastaCurve> AffineVec<C> {
     pub(crate) fn truncate(&mut self, len: usize) {
         if len < self.0.len() {
@@ -139,7 +143,7 @@ impl<C: PastaCurve> Drop for AffineVec<C> {
     }
 }
 
-pub(crate) struct PrivateWriter<C: PastaCurve, H: TranscriptHash<C>> {
+pub struct PrivateWriter<C: PastaCurve, H: TranscriptHash<C>> {
     writer: Option<TranscriptWriter<C, H>>,
 }
 impl<C: PastaCurve, H: TranscriptHash<C>> PrivateWriter<C, H> {

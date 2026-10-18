@@ -182,7 +182,7 @@ impl<F: PastaField> Polynomial<F> {
         self
     }
 
-    fn multiply(self, other: Self) -> Check<Self> {
+    fn multiply(self, other: &Self) -> Check<Self> {
         if self.0.len().saturating_mul(other.0.len()) > 10 * MAX_TERMS {
             return Err("symbolic product cap".into());
         }
@@ -465,7 +465,7 @@ fn symbolic<F: PastaField>(
                 if *node == ExprNodeV1::Sum {
                     left.add(right)?
                 } else {
-                    left.multiply(right)?
+                    left.multiply(&right)?
                 }
             }
         };
@@ -867,6 +867,41 @@ mod tests {
     use crate::cs::{CurveV1, InstanceModeV1, ProofSuffixV1, TranscriptV2};
     use ff::{Field, PrimeField};
     use iroha_pasta::Fp;
+
+    fn borrowed_polynomial_product<F: PastaField>() {
+        let variable = Variable {
+            instance: false,
+            column: 0,
+            row: 7,
+        };
+        let right = Polynomial::<F>::variable(variable)
+            .add(Polynomial::constant(-F::ONE))
+            .unwrap();
+        let original = right.clone();
+        let left = Polynomial::variable(variable)
+            .add(Polynomial::constant(F::ONE))
+            .unwrap();
+        assert_eq!(
+            left.multiply(&right).unwrap(),
+            Polynomial(BTreeMap::from([
+                (Vec::new(), -F::ONE),
+                (vec![variable, variable], F::ONE),
+            ])),
+            "cross terms cancel exactly while repeated physical variables remain squared",
+        );
+        assert_eq!(right, original);
+        assert_eq!(
+            Polynomial::constant(F::ZERO).multiply(&right).unwrap(),
+            Polynomial::constant(F::ZERO),
+        );
+        assert_eq!(right, original);
+    }
+
+    #[test]
+    fn symbolic_product_preserves_borrowed_rhs_and_exact_cancellation_both_fields() {
+        borrowed_polynomial_product::<Fp>();
+        borrowed_polynomial_product::<Fq>();
+    }
 
     // Small DATA for the same exact predicate; no witness or key generation.
     fn fixture() -> (ProtocolDescriptor, BTreeMap<usize, Row>) {

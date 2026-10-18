@@ -52,6 +52,7 @@ impl JsonPreflightLimits {
     /// JSON arrays and objects both act as sequences. Their combined entry count consumes the
     /// total-element budget, while every individual container consumes the per-sequence budget. One
     /// scalar or container root is allowed in addition to those elements.
+    /// The root also requires no additional decode depth; the lexical depth includes it.
     #[must_use]
     pub fn from_decode_limits(max_raw_bytes: usize, limits: crate::core::DecodeLimits) -> Self {
         let elements = limits.max_total_elements();
@@ -65,7 +66,10 @@ impl JsonPreflightLimits {
             max_array_entries: elements,
             max_object_entries: elements,
             max_total_elements: elements,
-            max_nesting_depth: limits.max_nesting_depth().min(MAX_JSON_VALUE_NESTING_DEPTH),
+            max_nesting_depth: limits
+                .max_nesting_depth()
+                .saturating_add(1)
+                .min(MAX_JSON_VALUE_NESTING_DEPTH),
         }
     }
     const fn lexical_unbounded() -> Self {
@@ -924,19 +928,6 @@ pub fn preflight_slice(
     profile.raw_bytes = bytes.len();
     Ok(profile)
 }
-pub(super) fn value_end_at_depth(
-    input: &str,
-    start: usize,
-    root_depth: usize,
-) -> Result<usize, JsonPreflightError> {
-    if root_depth == 0 || start > input.len() || !input.is_char_boundary(start) {
-        return Err(JsonPreflightError::syntax(
-            start.min(input.len()),
-            JsonPreflightSyntax::UnexpectedToken,
-        ));
-    }
-    value_profile_at_depth(input, start, root_depth).map(|(_, end)| end)
-}
 pub(super) fn value_profile_at_depth(
     input: &str,
     start: usize,
@@ -1092,7 +1083,7 @@ mod tests {
     #[test]
     fn enforces_exact_decode_limit_mapping() {
         let input = br#"{"a":[0,1]}"#;
-        let limits = crate::core::DecodeLimits::new(2, 1, 3, usize::MAX, 3);
+        let limits = crate::core::DecodeLimits::new(2, 1, 3, usize::MAX, 2);
         preflight_slice(
             input,
             JsonPreflightLimits::from_decode_limits(input.len(), limits),
@@ -1108,7 +1099,7 @@ mod tests {
             .resource_kind(),
             Some(JsonPreflightResource::ContainerEntries)
         );
-        let shallow = crate::core::DecodeLimits::new(2, 1, 3, usize::MAX, 2);
+        let shallow = crate::core::DecodeLimits::new(2, 1, 3, usize::MAX, 1);
         assert_eq!(
             preflight_slice(
                 input,
@@ -1198,7 +1189,7 @@ mod tests {
     fn prefix_scan_returns_exact_value_end() {
         let input = "  {\"a\":[1]} trailing";
         let start = input.find('{').expect("object start");
-        let end = value_end_at_depth(input, start, 1).expect("value boundary");
+        let (_, end) = value_profile_at_depth(input, start, 1).expect("value boundary");
         assert_eq!(&input[start..end], "{\"a\":[1]}");
     }
     #[test]

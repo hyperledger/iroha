@@ -1005,13 +1005,14 @@ mod handle_update_tests {
         drop(receivers);
         handle
     }
-    pub(super) fn handle_with_network_receivers<T: Pload>() -> (
+    type HandleWithNetworkReceivers<T> = (
         NetworkBaseHandle<T, ChaCha20Poly1305>,
         net_channel::Receiver<AdmittedNetworkMessage<T>>,
         net_channel::Receiver<AdmittedNetworkMessage<T>>,
         net_channel::Receiver<AdmittedNetworkMessage<T>>,
         net_channel::Receiver<AdmittedNetworkMessage<T>>,
-    ) {
+    );
+    pub(super) fn handle_with_network_receivers<T: Pload>() -> HandleWithNetworkReceivers<T> {
         let (subscribe_tx, _subscribe_rx) = mpsc::channel::<Subscriber<T>>(1);
         let (update_topology_tx, update_topology_rx) = control_update_channel();
         let (update_peers_tx, update_peers_rx) = control_update_channel();

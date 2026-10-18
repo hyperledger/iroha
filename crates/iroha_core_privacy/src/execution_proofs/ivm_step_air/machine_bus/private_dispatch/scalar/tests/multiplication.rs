@@ -13,9 +13,12 @@ fn expected(opcode: u8, left: u64, right: u64) -> u64 {
     match opcode {
         wide::arithmetic::MUL => left.wrapping_mul(right),
         wide::arithmetic::MULHU => ((u128::from(left) * u128::from(right)) >> 64) as u64,
-        wide::arithmetic::MULHSU => ((i128::from(left as i64) * i128::from(right)) >> 64) as u64,
+        wide::arithmetic::MULHSU => {
+            ((i128::from(u64::cast_signed(left)) * i128::from(right)) >> 64) as u64
+        }
         wide::arithmetic::MULH => {
-            ((i128::from(left as i64) * i128::from(right as i64)) >> 64) as u64
+            ((i128::from(u64::cast_signed(left)) * i128::from(u64::cast_signed(right))) >> 64)
+                as u64
         }
         _ => panic!("multiplication fixture opcode"),
     }
@@ -77,10 +80,10 @@ fn private_multiply_native_words_signs_tags_aliases_and_zero_match() {
         (0, u64::MAX),
         (1, u64::MAX),
         (u64::MAX, u64::MAX),
-        (i64::MIN as u64, i64::MIN as u64),
+        (i64::cast_unsigned(i64::MIN), i64::cast_unsigned(i64::MIN)),
         (i64::MAX as u64, i64::MAX as u64),
-        (i64::MIN as u64, u64::MAX),
-        (u64::MAX, i64::MIN as u64),
+        (i64::cast_unsigned(i64::MIN), u64::MAX),
+        (u64::MAX, i64::cast_unsigned(i64::MIN)),
         (0xffff_ffff_0000_0001, 0x8000_ffff_0000_0001),
         (0x5555_5555_5555_5555, 0xaaaa_aaaa_aaaa_aaaa),
     ];
@@ -103,8 +106,8 @@ fn private_multiply_native_words_signs_tags_aliases_and_zero_match() {
         }
     }
     assert_ne!(
-        expected(OPS[2], i64::MIN as u64, u64::MAX),
-        expected(OPS[2], u64::MAX, i64::MIN as u64)
+        expected(OPS[2], i64::cast_unsigned(i64::MIN), u64::MAX),
+        expected(OPS[2], u64::MAX, i64::cast_unsigned(i64::MIN))
     );
 }
 

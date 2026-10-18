@@ -15,7 +15,7 @@ const FIELD_MODULUS_LITTLE_ENDIAN: [u8; 32] = [
 ];
 /// Strict key-agreement failure shared by private wallet codecs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
-pub(crate) enum X25519WalletErrorV1 {
+pub enum X25519WalletErrorV1 {
     /// A wallet secret uses the reserved all-zero encoding.
     #[error("X25519 wallet secret must be non-zero")]
     ZeroSecret,
@@ -42,9 +42,7 @@ fn is_canonical_field_encoding(bytes: [u8; 32]) -> bool {
     false
 }
 /// Validate the sole canonical X25519 public-key representation.
-pub(crate) fn validate_x25519_public_key_v1(
-    public_key: [u8; 32],
-) -> Result<(), X25519WalletErrorV1> {
+pub fn validate_x25519_public_key_v1(public_key: [u8; 32]) -> Result<(), X25519WalletErrorV1> {
     if !is_canonical_field_encoding(public_key) {
         return Err(X25519WalletErrorV1::NonCanonicalPublicKey);
     }
@@ -60,7 +58,7 @@ pub(crate) fn validate_x25519_public_key_v1(
     Ok(())
 }
 /// Derive and validate an X25519 public key from a non-zero wallet secret.
-pub(crate) fn x25519_public_key_v1(
+pub fn x25519_public_key_v1(
     secret_key: impl Borrow<[u8; 32]>,
 ) -> Result<[u8; 32], X25519WalletErrorV1> {
     let secret_key = secret_key.borrow();
@@ -73,7 +71,7 @@ pub(crate) fn x25519_public_key_v1(
     Ok(public_key)
 }
 /// Perform strict X25519 key agreement and retain the secret in zeroizing storage.
-pub(crate) fn x25519_shared_secret_v1(
+pub fn x25519_shared_secret_v1(
     secret_key: impl Borrow<[u8; 32]>,
     peer_public_key: [u8; 32],
 ) -> Result<Zeroizing<[u8; 32]>, X25519WalletErrorV1> {

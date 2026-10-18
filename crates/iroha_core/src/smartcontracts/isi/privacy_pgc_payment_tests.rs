@@ -31,13 +31,13 @@ fn payment_requires_registered_production_qualification_before_effects() {
                 .world
                 .privacy_roots
                 .iter()
-                .map(|(key, value)| (*key, *value))
+                .map(|(key, value)| (*key, value.clone()))
                 .collect::<Vec<_>>(),
             transaction
                 .world
                 .privacy_root_heads
                 .iter()
-                .map(|(key, value)| (*key, *value))
+                .map(|(key, value)| (*key, value.clone()))
                 .collect::<Vec<_>>(),
             transaction.privacy_budget_for_testing(),
         )
@@ -196,13 +196,13 @@ fn tampered_pgc_payment_proof_preserves_every_state_map_and_budget() {
         .world
         .privacy_roots
         .iter()
-        .map(|(key, value)| (*key, *value))
+        .map(|(key, value)| (*key, value.clone()))
         .collect::<Vec<_>>();
     let heads_before = transaction
         .world
         .privacy_root_heads
         .iter()
-        .map(|(key, value)| (*key, *value))
+        .map(|(key, value)| (*key, value.clone()))
         .collect::<Vec<_>>();
     let budget_before = transaction.privacy_budget_for_testing();
     bind_payment_instruction(&mut transaction, &payment);
@@ -238,7 +238,7 @@ fn tampered_pgc_payment_proof_preserves_every_state_map_and_budget() {
             .world
             .privacy_roots
             .iter()
-            .map(|(key, value)| (*key, *value))
+            .map(|(key, value)| (*key, value.clone()))
             .collect::<Vec<_>>(),
         roots_before
     );
@@ -247,7 +247,7 @@ fn tampered_pgc_payment_proof_preserves_every_state_map_and_budget() {
             .world
             .privacy_root_heads
             .iter()
-            .map(|(key, value)| (*key, *value))
+            .map(|(key, value)| (*key, value.clone()))
             .collect::<Vec<_>>(),
         heads_before
     );

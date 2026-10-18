@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     Error,
-    peer::{SoranetHandshakeConfig, SoranetHandshakeSharedState},
+    peer::{SoranetHandshakeConfig, SoranetHandshakeParams, SoranetHandshakeSharedState},
     puzzle_work_admission::process_wide_admission,
 };
 use iroha_config::parameters::actual::{
@@ -86,15 +86,7 @@ fn restart_required_error(
 }
 
 struct ValidatedSoranetHandshake {
-    descriptor_commit: Vec<u8>,
-    client_capabilities: Vec<u8>,
-    relay_capabilities: Vec<u8>,
-    trust_gossip: bool,
-    kem_id: u8,
-    sig_id: u8,
-    resume_hash: Option<Vec<u8>>,
-    puzzle_params: puzzle::Parameters,
-    ticket_ttl: std::time::Duration,
+    policy: SoranetHandshakeParams,
     owner: SoranetHandshakeOwnerConfig,
 }
 impl ValidatedSoranetHandshake {
@@ -103,15 +95,7 @@ impl ValidatedSoranetHandshake {
         shared_state: SoranetHandshakeSharedState,
     ) -> Result<Arc<SoranetHandshakeConfig>, Error> {
         Ok(Arc::new(SoranetHandshakeConfig::new_with_shared_state(
-            self.descriptor_commit,
-            self.client_capabilities,
-            self.relay_capabilities,
-            self.trust_gossip,
-            self.kem_id,
-            self.sig_id,
-            self.resume_hash,
-            self.puzzle_params,
-            self.ticket_ttl,
+            self.policy,
             shared_state,
         )?))
     }
@@ -248,15 +232,17 @@ fn validate_handshake(
         ))
     })?;
     Ok(ValidatedSoranetHandshake {
-        descriptor_commit: descriptor_commit.into_value(),
-        client_capabilities: client_capabilities.into_value(),
-        relay_capabilities: relay_capabilities.into_value(),
-        trust_gossip,
-        kem_id,
-        sig_id,
-        resume_hash: resume_hash.map(iroha_config::base::WithOrigin::into_value),
-        puzzle_params,
-        ticket_ttl,
+        policy: SoranetHandshakeParams {
+            descriptor_commit: descriptor_commit.into_value(),
+            client_capabilities: client_capabilities.into_value(),
+            relay_capabilities: relay_capabilities.into_value(),
+            trust_gossip,
+            kem_id,
+            sig_id,
+            resume_hash: resume_hash.map(iroha_config::base::WithOrigin::into_value),
+            puzzle_params,
+            ticket_ttl,
+        },
         owner: SoranetHandshakeOwnerConfig {
             replay_state_path,
             revocation_limits,

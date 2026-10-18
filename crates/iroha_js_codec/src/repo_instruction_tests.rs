@@ -123,8 +123,6 @@ fn repo_initiate_json_carries_explicit_governance_and_preserves_consent_hashes()
 
 #[test]
 fn repo_json_rejects_missing_terms_extra_fields_and_ambiguous_variants() {
-    let valid = instruction_to_json_value(&RepoInstructionBox::from(initiate(false)).into())
-        .expect("render initiate");
     fn initiate_fields(value: &mut Value) -> &mut json::Map {
         value
             .get_mut("Repo")
@@ -138,6 +136,8 @@ fn repo_json_rejects_missing_terms_extra_fields_and_ambiguous_variants() {
             .and_then(Value::as_object_mut)
             .expect("governance payload")
     }
+    let valid = instruction_to_json_value(&RepoInstructionBox::from(initiate(false)).into())
+        .expect("render initiate");
     let mut cases = Vec::new();
     let mut missing_term = valid.clone();
     assert!(

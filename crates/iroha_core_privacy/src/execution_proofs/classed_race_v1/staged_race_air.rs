@@ -1,4 +1,4 @@
-//! Narrow ClassedRaceV1 microcycle graph with constrained producer and tick-boundary ranges.
+//! Narrow `ClassedRaceV1` microcycle graph with constrained producer and tick-boundary ranges.
 //!
 //! This source is separate from all retained stock profiles. Arithmetic tests do not qualify a
 //! STARK proof, generated browser simulator, resource admission or production profile.

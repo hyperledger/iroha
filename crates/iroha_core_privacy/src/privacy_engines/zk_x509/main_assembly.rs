@@ -78,7 +78,7 @@ const PROJECTION_SHA_CALLS_V1: usize = 7;
 const PROJECTION_SHARED_PREFIX_BASE_CHANNELS_V1: usize = 5;
 /// Challenge-independent byte-memory material committed by MAIN.
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ZkX509MainIoBaseMaterialV1 {
+pub struct ZkX509MainIoBaseMaterialV1 {
     /// Canonical channel witnesses after shared-prefix deduplication.
     pub(crate) witnesses: Vec<ZkX509IoChannelWitnessV1>,
     /// Verifier-visible declarations in sequential channel order.
@@ -129,7 +129,7 @@ impl Drop for ZkX509MainIoBaseMaterialV1 {
     }
 }
 /// Complete challenge-independent native material for one MAIN proof.
-pub(crate) struct ZkX509MainTraceAssemblyV1 {
+pub struct ZkX509MainTraceAssemblyV1 {
     /// Successful native differential projection.
     pub(crate) relation_output: ZkX509RelationOutputV1,
     /// Strict DER/RFC owner trace.
@@ -738,7 +738,7 @@ fn build_io_material_v1(
     Ok(material)
 }
 /// Build the sole canonical challenge-independent MAIN trace assembly.
-pub(crate) fn build_zk_x509_main_trace_assembly_v1(
+pub fn build_zk_x509_main_trace_assembly_v1(
     statement: &IrohaZkX509StarkP256StatementV1,
     governance: ZkX509GovernanceV1<'_>,
     witness: &ZkX509WitnessV1,

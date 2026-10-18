@@ -247,7 +247,6 @@ fn bootstrap_keys_are_scheme_independent_and_signed_foreign_scope_rejects() {
             SourceProfile::Tagged {
                 buses: iroha_kagemusha_proof::a_relation::native::bootstrap::SOURCE_RANGE_BUSES,
             },
-            None,
             BootstrapIdentity::Payer,
             scheme,
             certificate_scheme,
@@ -277,6 +276,5 @@ fn production_native_bootstrap_terminal_preserves_the_genuine_installed_relation
         SourceProfile::Tagged {
             buses: iroha_kagemusha_proof::a_relation::native::bootstrap::SOURCE_RANGE_BUSES,
         },
-        Some(2),
     );
 }

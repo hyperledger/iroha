@@ -1,7 +1,6 @@
 //! Public signature binding, total failure paths and actual native Q proofs.
 
-#[path = "../tests/common/mod.rs"]
-mod common;
+use crate::common;
 use ff::Field;
 use iroha_kagemusha_proof::q_signature::{
     QSignatureCircuit, QSignaturePlan, SignatureKey, SignatureSlot, SignatureWitness,

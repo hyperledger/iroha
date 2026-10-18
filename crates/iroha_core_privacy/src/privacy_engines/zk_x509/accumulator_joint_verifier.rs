@@ -11,7 +11,7 @@ use crate::privacy_engines::zk_x509::credential_joint::{
     JointSubproofV1,
 };
 
-pub(crate) struct CaJointVerifierOraclesV1 {
+pub struct CaJointVerifierOraclesV1 {
     public: ZkX509CaAccumulatorStarkPublicV1,
     pre_aux: super::super::credential_pre_aux::ZkX509CredentialPreAuxBindingV1,
     layout: aggregate::AggregateProofLayoutV1,
@@ -21,7 +21,7 @@ pub(crate) struct CaJointVerifierOraclesV1 {
     plan: CaMainPrivateLinkPlanV1,
     transcript: TransparentTranscriptV1,
 }
-pub(crate) struct CaJointVerifierDeepV1 {
+pub struct CaJointVerifierDeepV1 {
     oracles: CaJointVerifierOraclesV1,
     point: E,
     openings: Option<JointOriginalOpeningsV1>,
@@ -61,7 +61,7 @@ impl CaJointVerifierOraclesV1 {
         let mut transcript = new_ca_transcript_v1(proof_instance, public, schedule, &layout)?;
         aggregate::absorb_base_roots_v1(
             &mut transcript,
-            ca_domains_v1(proof_instance),
+            &ca_domains_v1(proof_instance),
             &proof.trace_groups,
         )
         .map_err(map_aggregate_proof_error_v1)?;
@@ -79,7 +79,7 @@ impl CaJointVerifierOraclesV1 {
             .map_err(map_credential_pre_aux_error_v1)?;
         aggregate::absorb_aux_roots_v1(
             &mut transcript,
-            ca_domains_v1(proof_instance),
+            &ca_domains_v1(proof_instance),
             &proof.trace_groups,
         )
         .map_err(map_aggregate_proof_error_v1)?;
@@ -92,14 +92,14 @@ impl CaJointVerifierOraclesV1 {
         aggregate::absorb_composition_roots_v1(
             &mut transcript,
             CA_AGGREGATE_PARAMETERS_V1,
-            ca_domains_v1(proof_instance),
+            &ca_domains_v1(proof_instance),
             &proof.composition_roots,
         )
         .map_err(map_aggregate_proof_error_v1)?;
         aggregate::absorb_fri_mask_roots_v1(
             &mut transcript,
             CA_AGGREGATE_PARAMETERS_V1,
-            ca_domains_v1(proof_instance),
+            &ca_domains_v1(proof_instance),
             &proof.fri_mask_roots,
         )
         .map_err(map_aggregate_proof_error_v1)?;
@@ -192,7 +192,7 @@ impl CaJointVerifierDeepV1 {
         let (fri_betas, terminals) = aggregate::verify_fri_commitments_v1(
             &stage.proof,
             CA_AGGREGATE_PARAMETERS_V1,
-            ca_domains_v1(proof_instance),
+            &ca_domains_v1(proof_instance),
             &stage.layout,
             &mut stage.transcript,
         )
@@ -208,14 +208,14 @@ impl CaJointVerifierDeepV1 {
         let indices = aggregate::query_indices_v1(
             &stage.transcript,
             CA_AGGREGATE_PARAMETERS_V1,
-            ca_domains_v1(proof_instance),
+            &ca_domains_v1(proof_instance),
             &stage.layout,
         )
         .map_err(map_aggregate_proof_error_v1)?;
         aggregate::verify_all_merkle_openings_v1(
             &stage.proof,
             CA_AGGREGATE_PARAMETERS_V1,
-            ca_domains_v1(proof_instance),
+            &ca_domains_v1(proof_instance),
             &stage.layout,
             &indices,
         )
@@ -251,7 +251,7 @@ impl CaJointVerifierDeepV1 {
 
 /// Decode the original CA auxiliary root solely for joint transcript assembly.
 /// The caller must subsequently complete both paired cryptographic verifiers.
-pub(crate) fn ca_joint_auxiliary_root_v1(
+pub fn ca_joint_auxiliary_root_v1(
     encoded: &[u8],
 ) -> Result<PrivacyOuterDigestV1, ZkX509CaAccumulatorProofErrorV1> {
     let layout = ca_aggregate_layout_v1()?;

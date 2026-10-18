@@ -50,6 +50,8 @@ rustls = { version = "0.23.35", default-features = false, features = ["ring", "s
 tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring"] }
 
 [features]
+# Test-only Sumeragi §13.4 mutations; refused in ordinary dependency builds.
+mutation-testing = []
 # Expose opaque reply-route minting only to dependent-crate test builds.
 test-fixtures = []
 # Optional QUIC transport; TLS-over-TCP remains the mandatory fallback.

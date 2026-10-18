@@ -628,7 +628,9 @@ pub(crate) fn retry(id: u64, operation: &[u8]) -> Result<Response> {
     let operation = operation.try_into().map_err(|_| Failure::code(INVALID))?;
     // Exact-byte output lookup cannot advance custody. A transport retry must not restart
     // the sender's local proof; only resume can finish a pending hardware-signed operation.
-    with_wallet_owner(owner(id)?, Priority::Ingest, |wallet| wallet.retry(operation))
+    with_wallet_owner(owner(id)?, Priority::Ingest, |wallet| {
+        wallet.retry(operation)
+    })
 }
 pub(crate) fn resume(id: u64) -> Result<Response> {
     with_wallet(id, true, |wallet| wallet.resume())

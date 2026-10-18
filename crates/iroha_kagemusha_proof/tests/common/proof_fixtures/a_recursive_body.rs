@@ -1073,7 +1073,7 @@ fn unsplit_public(fields: &[Fp; 18], pallas: &FoldInput<Ep>) -> Vec<Fp> {
 /// Genuine authenticated Bootstrap artifacts for following operation/outer tests.
 #[derive(Clone)]
 #[allow(dead_code)] // Consumed by following-operation and outer integration tests.
-pub(crate) struct AuthenticatedBootstrap {
+pub struct AuthenticatedBootstrap {
     pub(crate) key: VerifyingKey<Eq>,
     pub(crate) binding: iroha_plonk::DescriptorBinding,
     pub(crate) proof: Vec<u8>,
@@ -1087,12 +1087,12 @@ pub(crate) struct AuthenticatedBootstrap {
 }
 
 /// Build actual sigma, signature Q and unsplit A proofs; optional tests do not alter the relation.
-pub(crate) fn authenticated_bootstrap(adversarial: bool) -> AuthenticatedBootstrap {
+pub fn authenticated_bootstrap(adversarial: bool) -> AuthenticatedBootstrap {
     authenticated_bootstrap_with_omega(adversarial, Fp::from(91))
 }
 
 /// Rebind the witness-only carried normal Omega identity without changing A keys.
-pub(crate) fn authenticated_bootstrap_with_omega(
+pub fn authenticated_bootstrap_with_omega(
     adversarial: bool,
     omega_digest: Fp,
 ) -> AuthenticatedBootstrap {
@@ -1100,62 +1100,46 @@ pub(crate) fn authenticated_bootstrap_with_omega(
 }
 
 /// Explicit source-A artifact profile; zero retains the generic diagnostic.
-pub(crate) fn authenticated_bootstrap_with_layout(
+pub fn authenticated_bootstrap_with_layout(
     adversarial: bool,
     omega_digest: Fp,
     range_buses: usize,
-) -> AuthenticatedBootstrap {
-    authenticated_bootstrap_with_q_layout(adversarial, omega_digest, range_buses, None)
-}
-
-/// Explicit A profile experiment. Lean Bootstrap's only Q is the signature leaf,
-/// whose one profile is fixed, so `q_range_buses` is reported for diagnostics only.
-pub(crate) fn authenticated_bootstrap_with_q_layout(
-    adversarial: bool,
-    omega_digest: Fp,
-    range_buses: usize,
-    q_range_buses: Option<usize>,
 ) -> AuthenticatedBootstrap {
     authenticated_bootstrap_with_profile(
         adversarial,
         omega_digest,
         SourceProfile::ordinary(range_buses),
-        q_range_buses,
     )
 }
 
 /// Named profile experiment for the unsplit terminal A.
-pub(crate) fn authenticated_bootstrap_with_profile(
+pub fn authenticated_bootstrap_with_profile(
     adversarial: bool,
     omega_digest: Fp,
     profile: SourceProfile,
-    q_range_buses: Option<usize>,
 ) -> AuthenticatedBootstrap {
     authenticated_bootstrap_with_identity(
         adversarial,
         omega_digest,
         profile,
-        q_range_buses,
         BootstrapIdentity::Payer,
     )
 }
 
 /// Distinct genuine wallet identities; neither is an admitted release artifact.
-pub(crate) use bootstrap_objects::Identity as BootstrapIdentity;
+pub use bootstrap_objects::Identity as BootstrapIdentity;
 
 /// Same fixed Bootstrap relation for a separately enrolled receiver wallet.
-pub(crate) fn authenticated_bootstrap_with_identity(
+pub fn authenticated_bootstrap_with_identity(
     adversarial: bool,
     omega_digest: Fp,
     profile: SourceProfile,
-    q_range_buses: Option<usize>,
     identity: BootstrapIdentity,
 ) -> AuthenticatedBootstrap {
     authenticated_bootstrap_for_schemes(
         adversarial,
         omega_digest,
         profile,
-        q_range_buses,
         identity,
         [1, 2],
         [1, 2],
@@ -1167,14 +1151,12 @@ fn authenticated_bootstrap_for_schemes(
     adversarial: bool,
     omega_digest: Fp,
     profile: SourceProfile,
-    q_range_buses: Option<usize>,
     identity: BootstrapIdentity,
     scheme: [u128; 2],
     certificate_scheme: [u128; 2],
 ) -> Option<AuthenticatedBootstrap> {
     use iroha_kagemusha_proof::admin_sigma::{BOOTSTRAP_K, BootstrapCircuit};
-    // The lean signature leaf has one fixed profile: `q_range_buses` selects nothing.
-    eprintln!("BOOTSTRAP_SOURCE_PROFILE {profile:?} Q_buses={q_range_buses:?}");
+    eprintln!("BOOTSTRAP_SOURCE_PROFILE {profile:?}");
     let (mut initial, certificate, credential) =
         bootstrap_objects::enrollment_for_schemes(identity, scheme, certificate_scheme);
     initial.lineage[17] = omega_digest;

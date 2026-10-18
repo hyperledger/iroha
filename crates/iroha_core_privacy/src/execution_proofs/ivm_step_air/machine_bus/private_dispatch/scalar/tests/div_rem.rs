@@ -11,13 +11,13 @@ const OPS: [u8; 4] = [
 
 fn expected(kind: usize, left: u64, right: u64) -> Option<u64> {
     match kind {
-        0 => (left as i64)
-            .checked_div(right as i64)
-            .map(|value| value as u64),
+        0 => u64::cast_signed(left)
+            .checked_div(u64::cast_signed(right))
+            .map(|value| i64::cast_unsigned(value)),
         1 => left.checked_div(right),
-        2 => (left as i64)
-            .checked_rem(right as i64)
-            .map(|value| value as u64),
+        2 => u64::cast_signed(left)
+            .checked_rem(u64::cast_signed(right))
+            .map(|value| i64::cast_unsigned(value)),
         3 => left.checked_rem(right),
         _ => panic!("division fixture opcode"),
     }
@@ -75,15 +75,15 @@ fn private_division_native_full_words_signs_aliases_and_r0_match() {
         (1, u64::MAX),
         (u64::MAX, 1),
         (u64::MAX, u64::MAX),
-        (i64::MIN as u64, 1),
-        (i64::MIN as u64, 2),
-        (i64::MIN as u64, u64::MAX),
-        (i64::MIN as u64, i64::MIN as u64),
-        (i64::MAX as u64, i64::MIN as u64),
+        (i64::cast_unsigned(i64::MIN), 1),
+        (i64::cast_unsigned(i64::MIN), 2),
+        (i64::cast_unsigned(i64::MIN), u64::MAX),
+        (i64::cast_unsigned(i64::MIN), i64::cast_unsigned(i64::MIN)),
+        (i64::MAX as u64, i64::cast_unsigned(i64::MIN)),
         (17, 3),
-        (17, (-3i64) as u64),
-        ((-17i64) as u64, 3),
-        ((-17i64) as u64, (-3i64) as u64),
+        (17, i64::cast_unsigned(-3i64)),
+        (i64::cast_unsigned(-17i64), 3),
+        (i64::cast_unsigned(-17i64), i64::cast_unsigned(-3i64)),
         (0xffff_ffff_0000_0001, 0x8000_ffff_0000_0001),
     ];
     for (kind, opcode) in OPS.into_iter().enumerate() {
@@ -119,7 +119,7 @@ fn private_division_native_full_words_signs_aliases_and_r0_match() {
 fn private_division_coherent_false_quotients_remainders_and_signs_reject() {
     for (kind, opcode) in OPS.into_iter().enumerate() {
         let (left, right) = if division::signed_kind(kind) {
-            ((-17i64) as u64, 3)
+            (i64::cast_unsigned(-17i64), 3)
         } else {
             (17, 3)
         };
@@ -311,7 +311,7 @@ fn private_division_native_private_operands_refuse_even_matching_tags_and_rd0() 
 #[test]
 fn private_division_native_arithmetic_and_gas_traps_cannot_claim_completion() {
     for (kind, opcode) in OPS.into_iter().enumerate() {
-        for (left, right) in [(17, 0), (i64::MIN as u64, u64::MAX), (17, 3)] {
+        for (left, right) in [(17, 0), (i64::cast_unsigned(i64::MIN), u64::MAX), (17, 3)] {
             for opcode_gas in [0, 9, 10] {
                 let arithmetic = expected(kind, left, right).is_none();
                 if opcode_gas == 10 && !arithmetic {

@@ -598,10 +598,11 @@ fn receipt_shape_refuses_missing_terms_genesis_and_inconsistent_charges() {
 
 #[test]
 fn charged_load_receipt_preserves_exact_canonical_quote_terms_and_beneficiary() {
-    let fixtures: norito::json::Value = norito::json::from_str(&crate::kagemusha::kagemusha_wallet_v1::test_fixture_read(
-        "fixtures/kagemusha/wallet_v1_vectors.json",
-    ))
-    .unwrap();
+    let fixtures: norito::json::Value =
+        norito::json::from_str(&crate::kagemusha::kagemusha_wallet_v1::test_fixture_read(
+            "fixtures/kagemusha/wallet_v1_vectors.json",
+        ))
+        .unwrap();
     let row = fixtures["objects"]
         .as_array()
         .unwrap()

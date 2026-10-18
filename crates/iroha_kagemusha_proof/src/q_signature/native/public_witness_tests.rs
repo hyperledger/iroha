@@ -400,7 +400,7 @@ fn genuine_load_signature_public_inverse_native_proof_parity() {
                     },
                 )
             },
-            |error| error.is_cancelled(),
+            super::QSignatureError::is_cancelled,
         );
 
         let refused = crate::proof_entry_probe::Guard::new(None);

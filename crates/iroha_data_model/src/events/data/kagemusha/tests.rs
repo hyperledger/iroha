@@ -449,9 +449,9 @@ fn npos_schedule_capture() -> norito::json::Value {
 }
 
 fn saved_capture(name: &str, expected: &norito::json::Value) -> norito::json::Value {
-    let path = crate::kagemusha::kagemusha_wallet_v1::test_fixture_path(
-        &format!("fixtures/kagemusha/{name}"),
-    );
+    let path = crate::kagemusha::kagemusha_wallet_v1::test_fixture_path(&format!(
+        "fixtures/kagemusha/{name}"
+    ));
     if std::env::var_os("IROHA_UPDATE_KAGEMUSHA_WALLET_VECTORS").is_some_and(|value| value == "1") {
         let mut json = norito::json::to_string_pretty(expected).unwrap();
         json.push('\n');

@@ -115,7 +115,7 @@ impl ShiftKind {
         match self {
             Self::Left => value << amount,
             Self::RightLogical => value >> amount,
-            Self::RightArithmetic => ((value as i64) >> amount) as u64,
+            Self::RightArithmetic => i64::cast_unsigned(u64::cast_signed(value) >> amount),
             Self::RotateLeft => value.rotate_left(amount),
             Self::RotateRight => value.rotate_right(amount),
         }
@@ -128,7 +128,7 @@ fn immediate_amount(word: u32) -> Option<u64> {
         wide::opcode(word),
         wide::arithmetic::ROTL_IMM | wide::arithmetic::ROTR_IMM
     )
-    .then(|| u64::from(wide::imm8(word) as u8))
+    .then(|| u64::from(i8::cast_unsigned(wide::imm8(word))))
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -546,7 +546,7 @@ impl ProofManagedNoteStarkAdapterV1 for ShiftStepAdapter {
         _: &[Vec<F>],
         _: &[Vec<F>],
         _: NoteCopyChallengesV1,
-        _: &(),
+        (): &(),
     ) -> Result<Vec<Vec<F>>, ProofManagedNoteStarkErrorV1> {
         Ok(Vec::new())
     }
@@ -559,7 +559,7 @@ impl ProofManagedNoteStarkAdapterV1 for ShiftStepAdapter {
         _: &[F],
         fixed: &[F],
         _: NoteCopyChallengesV1,
-        _: &(),
+        (): &(),
     ) -> Result<Vec<F>, ProofManagedNoteStarkErrorV1> {
         residues(
             current

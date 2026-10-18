@@ -16,9 +16,9 @@ use iroha_pasta::PastaField;
 use iroha_plonk::frontend::{Error, Region, Value};
 
 use super::{
-    CARRIES, CARRY_OFFSET_BITS, CarryLayout, FfChip, FfValue, ForeignModulus, Form, FusedWitness,
-    LIMB_BITS, LIMBS, Mode, Nat, Operand, PROPER_BOUNDS, TOP_LIMB_BITS, compare_witness,
-    div_witness, from_limbs, limb_fields, mul_witness,
+    CARRIES, CARRY_OFFSET_BITS, CarryLayout, FfChip, FfValue, ForeignModulus, Form, FusedPadding,
+    FusedWitness, LIMB_BITS, LIMBS, Mode, Nat, Operand, PROPER_BOUNDS, TOP_LIMB_BITS,
+    compare_witness, div_witness, from_limbs, limb_fields, mul_witness,
 };
 use crate::{
     GlueChip, Word,
@@ -279,7 +279,17 @@ pub(super) fn constrain_fused<F: PastaField>(
     layout: CarryLayout,
 ) -> Result<[Word<F>; LIMBS], Error> {
     constrain_fused_padding(
-        glue, range, region, mode, modulus, operands, witness, layout, false,
+        glue,
+        range,
+        region,
+        FusedPadding {
+            mode,
+            layout,
+            norm: false,
+        },
+        modulus,
+        operands,
+        witness,
     )
 }
 
@@ -287,13 +297,12 @@ pub(super) fn constrain_fused_padding<F: PastaField>(
     glue: &mut GlueChip<F>,
     range: &mut RunningSumChip<F>,
     region: &mut Region<'_, F>,
-    mode: Mode,
+    padding: FusedPadding,
     modulus: ForeignModulus,
     operands: (&[Word<F>; LIMBS], &[Word<F>; LIMBS]),
     witness: Value<FusedWitness<F>>,
-    layout: CarryLayout,
-    norm: bool,
 ) -> Result<[Word<F>; LIMBS], Error> {
+    let FusedPadding { mode, layout, norm } = padding;
     if norm && (mode != Mode::Mul || layout == CarryLayout::Full) {
         return Err(Error::Synthesis);
     }

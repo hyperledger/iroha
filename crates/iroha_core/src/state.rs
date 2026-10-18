@@ -6592,7 +6592,7 @@ impl WorldBlock<'_> {
             sccp_pause_panel,
         );
         storage!(sccp_forgery_offences);
-        #[cfg(not(all(test, sumeragi_core_mutation = "HC378")))]
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC386")))]
         storage!(sccp_destination_pending_generations);
         storage!(
             sccp_block_leaves,
@@ -6615,7 +6615,7 @@ impl WorldBlock<'_> {
             sccp_reconciliation_proven,
             sccp_pending_refund_amount,
         );
-        #[cfg(not(all(test, sumeragi_core_mutation = "HC379")))]
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC387")))]
         storage!(sccp_reconciliation_due);
         storage!(
             sccp_light_clients,
@@ -13601,7 +13601,6 @@ impl<'state> StateBlock<'state> {
                 .world
                 .privacy_root_heads
                 .get(&plan.head_key)
-                .copied()
                 .unwrap_or_else(|| {
                     panic!(
                         "typed privacy retention plan for {:?}/{:?} has no head at incoming block \
@@ -13613,7 +13612,7 @@ impl<'state> StateBlock<'state> {
             let next_head = crate::privacy_state::PrivacyRootHeadRecordV1::new(
                 head.epoch(),
                 head.root(),
-                head.provenance(),
+                head.provenance().clone(),
                 Some(plan.new_anchor),
             )
             .unwrap_or_else(|error| {
@@ -27438,7 +27437,7 @@ impl State {
         network_id: iroha_data_model::NetworkId,
         #[cfg(feature = "telemetry")] telemetry: StateTelemetry,
     ) -> core::result::Result<Self, MergeLedgerCommitError> {
-        #[cfg(not(all(test, sumeragi_core_mutation = "HC377")))]
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC385")))]
         world_acquisition::validate_world_original_pools(&world, &execution_budget)
             .map_err(StateStorageAdmissionError::World)?;
         crate::sumeragi::lanes::custody::admit_world_state(&mut world, &execution_budget)

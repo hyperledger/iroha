@@ -9,7 +9,10 @@ const F92: u64 = 7_540_113_804_746_346_429;
 
 fn expected(a: u64, b: u64) -> (u64, usize) {
     // Independent integer reference; the verifier never calls this implementation.
-    let (mut a, mut b) = ((a as i64).unsigned_abs(), (b as i64).unsigned_abs());
+    let (mut a, mut b) = (
+        u64::cast_signed(a).unsigned_abs(),
+        u64::cast_signed(b).unsigned_abs(),
+    );
     let mut divisions = 0;
     while b != 0 {
         (a, b) = (b, a % b);
@@ -44,8 +47,8 @@ fn gcd_native_full_signed_domain_edges_aliases_and_exact_gas_cycles() {
         1,
         u64::MAX,
         12,
-        (-18_i64) as u64,
-        i64::MIN as u64,
+        i64::cast_unsigned(-18_i64),
+        i64::cast_unsigned(i64::MIN),
         i64::MAX as u64,
         F91,
         F92,
@@ -79,7 +82,7 @@ fn gcd_native_full_signed_domain_edges_aliases_and_exact_gas_cycles() {
     assert_eq!(f93, 12_200_160_415_121_876_738);
     assert!(f93 > 1_u128 << 63);
     for destination in [0, 6, 7, 8] {
-        let (segment, records) = single(i64::MIN as u64, 0, 12, destination);
+        let (segment, records) = single(i64::cast_unsigned(i64::MIN), 0, 12, destination);
         assert_rows(&segment, &segment.witness_rows(&records).unwrap());
         for register in 0..REGISTERS {
             assert_eq!(
@@ -97,7 +100,7 @@ fn gcd_native_full_signed_domain_edges_aliases_and_exact_gas_cycles() {
 #[test]
 fn gcd_oog_precedes_arithmetic_and_keeps_every_architectural_component() {
     for gas in [0, 1, 3, 4, 7, 8, 11, 12, 13, 15, 16, (1 << 32) - 1, 1 << 32] {
-        let (segment, records) = single(i64::MIN as u64, 0, gas, 8);
+        let (segment, records) = single(i64::cast_unsigned(i64::MIN), 0, gas, 8);
         let rows = segment.witness_rows(&records).unwrap();
         assert_rows(&segment, &rows);
         if gas < 12 {

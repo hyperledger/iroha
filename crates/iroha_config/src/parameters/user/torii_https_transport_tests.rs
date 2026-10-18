@@ -93,11 +93,13 @@ fn torii_https_rejects_partial_identity_empty_paths_and_unbounded_handshake() {
 fn torii_https_identity_paths_resolve_from_each_config_origin() {
     use iroha_config_base::{ParameterOrigin, WithOrigin};
     let origin = || ParameterOrigin::custom("inline".into());
-    let mut user = super::ToriiHttpsTransport::default();
-    user.address = Some(WithOrigin::new(
-        load_root(base_table()).torii.address.into_value(),
-        origin(),
-    ));
+    let mut user = super::ToriiHttpsTransport {
+        address: Some(WithOrigin::new(
+            load_root(base_table()).torii.address.into_value(),
+            origin(),
+        )),
+        ..super::ToriiHttpsTransport::default()
+    };
     let path = |name: &str, source: &str| {
         WithOrigin::new(
             PathBuf::from(name),

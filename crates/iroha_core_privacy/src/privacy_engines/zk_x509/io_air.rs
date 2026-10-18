@@ -15,11 +15,11 @@ use crate::privacy_engines::transparent_stark::{
 };
 use thiserror::Error;
 /// Manifest descriptor for cross-segment byte-channel binding.
-pub(crate) const ZK_X509_IO_AIR_DESCRIPTOR_V1: &[u8] = b"zk-x509-cross-segment-io-v1:fixed-sequential-channel-ids:fixed-producer-and-consumer-endpoints:byte-offsets-contiguous:one-write-per-channel-byte:all-reads-equal-write:public-input-reads-verifier-fixed:four-independent-lane-and-coordinate-labelled-transcript-challenged-channel-offset-value-write-grand-products:max-accesses=byte-memory-segment-capacity:first-release";
+pub const ZK_X509_IO_AIR_DESCRIPTOR_V1: &[u8] = b"zk-x509-cross-segment-io-v1:fixed-sequential-channel-ids:fixed-producer-and-consumer-endpoints:byte-offsets-contiguous:one-write-per-channel-byte:all-reads-equal-write:public-input-reads-verifier-fixed:four-independent-lane-and-coordinate-labelled-transcript-challenged-channel-offset-value-write-grand-products:max-accesses=byte-memory-segment-capacity:first-release";
 /// Exact fixed-capacity byte-memory registration in the canonical aggregate.
-pub(crate) const ZK_X509_IO_FIXED_CAPACITY_ROWS_V1: usize = 1 << 18;
-pub(crate) const IO_PERMUTATION_LANES_V1: usize = 4;
-pub(crate) const IO_PERMUTATION_CHALLENGE_LABELS_V1: [[&[u8]; 5]; IO_PERMUTATION_LANES_V1] = [
+pub const ZK_X509_IO_FIXED_CAPACITY_ROWS_V1: usize = 1 << 18;
+pub const IO_PERMUTATION_LANES_V1: usize = 4;
+pub const IO_PERMUTATION_CHALLENGE_LABELS_V1: [[&[u8]; 5]; IO_PERMUTATION_LANES_V1] = [
     [
         b"zk-x509-io-copy-lane0-beta-v1",
         b"zk-x509-io-copy-lane0-channel-v1",
@@ -51,7 +51,7 @@ pub(crate) const IO_PERMUTATION_CHALLENGE_LABELS_V1: [[&[u8]; 5]; IO_PERMUTATION
 ];
 /// Segment role participating in one fixed byte channel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum ZkX509IoSegmentRoleV1 {
+pub enum ZkX509IoSegmentRoleV1 {
     /// Strict DER decoder and RFC 5280 state machine.
     StrictDer,
     /// Word-oriented SHA-256 segment.
@@ -70,7 +70,7 @@ pub(crate) enum ZkX509IoSegmentRoleV1 {
 }
 /// One fixed producer or consumer endpoint.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct ZkX509IoEndpointV1 {
+pub struct ZkX509IoEndpointV1 {
     /// Segment family.
     pub(crate) role: ZkX509IoSegmentRoleV1,
     /// Canonical instance index within that family.
@@ -78,7 +78,7 @@ pub(crate) struct ZkX509IoEndpointV1 {
 }
 /// Fixed topology and optional verifier value for one byte channel.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509IoChannelDeclarationV1 {
+pub struct ZkX509IoChannelDeclarationV1 {
     /// Sequential channel identifier, starting at zero.
     pub(crate) channel: u32,
     /// Sole producer endpoint.
@@ -93,7 +93,7 @@ pub(crate) struct ZkX509IoChannelDeclarationV1 {
 /// Endpoint values used to generate one channel witness.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ZkX509IoChannelWitnessV1 {
+pub struct ZkX509IoChannelWitnessV1 {
     /// Fixed topology.
     pub(crate) declaration: ZkX509IoChannelDeclarationV1,
     /// Producer bytes.
@@ -127,7 +127,7 @@ impl Drop for ZkX509IoChannelWitnessV1 {
 }
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct IoAccessV1 {
+pub struct IoAccessV1 {
     pub(crate) channel: F,
     pub(crate) offset: F,
     pub(crate) value: F,
@@ -136,7 +136,7 @@ pub(crate) struct IoAccessV1 {
 }
 /// Erase initialized private access cells while preserving public endpoint topology.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn zeroize_io_accesses_v1(accesses: &mut [IoAccessV1]) {
+pub fn zeroize_io_accesses_v1(accesses: &mut [IoAccessV1]) {
     for access in accesses {
         zeroize_fields_v1(core::slice::from_mut(&mut access.channel));
         zeroize_fields_v1(core::slice::from_mut(&mut access.offset));
@@ -146,7 +146,7 @@ pub(crate) fn zeroize_io_accesses_v1(accesses: &mut [IoAccessV1]) {
 }
 /// One independent tuple-compression lane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509IoLaneChallengesV1 {
+pub struct ZkX509IoLaneChallengesV1 {
     pub(crate) beta: F,
     pub(crate) channel: F,
     pub(crate) offset: F,
@@ -155,7 +155,7 @@ pub(crate) struct ZkX509IoLaneChallengesV1 {
 }
 /// Four independent cross-segment I/O permutation lanes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509IoChallengesV1 {
+pub struct ZkX509IoChallengesV1 {
     pub(crate) lanes: [ZkX509IoLaneChallengesV1; IO_PERMUTATION_LANES_V1],
 }
 impl ZkX509IoChallengesV1 {
@@ -189,7 +189,7 @@ impl ZkX509IoChallengesV1 {
 }
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct IoPermutationRowV1 {
+pub struct IoPermutationRowV1 {
     pub(crate) execution: IoAccessV1,
     pub(crate) sorted: IoAccessV1,
     pub(crate) execution_product_before: [F; IO_PERMUTATION_LANES_V1],
@@ -200,7 +200,7 @@ pub(crate) struct IoPermutationRowV1 {
 /// Main byte-channel tables and challenge-dependent auxiliary products.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ZkX509IoTraceV1 {
+pub struct ZkX509IoTraceV1 {
     pub(crate) declarations: Vec<ZkX509IoChannelDeclarationV1>,
     pub(crate) execution: Vec<IoAccessV1>,
     pub(crate) sorted: Vec<IoAccessV1>,
@@ -262,7 +262,7 @@ pub enum ZkX509IoAirErrorV1 {
     Resource,
 }
 /// Derive I/O-copy challenges after committing endpoint and sorted traces.
-pub(crate) fn derive_zk_x509_io_challenges_v1(
+pub fn derive_zk_x509_io_challenges_v1(
     transcript: &mut TransparentTranscriptV1,
 ) -> Result<ZkX509IoChallengesV1, TransparentStarkErrorV1> {
     let mut sampled = [F::ZERO; IO_PERMUTATION_LANES_V1 * 5];
@@ -284,7 +284,7 @@ pub(crate) fn derive_zk_x509_io_challenges_v1(
 }
 /// Construct and validate the complete cross-segment byte-copy trace.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_zk_x509_io_trace_v1(
+pub fn build_zk_x509_io_trace_v1(
     witnesses: &[ZkX509IoChannelWitnessV1],
     challenges: ZkX509IoChallengesV1,
 ) -> Result<ZkX509IoTraceV1, ZkX509IoAirErrorV1> {
@@ -460,7 +460,7 @@ impl ZkX509IoTraceV1 {
             .map_err(|_| ZkX509IoAirErrorV1::PublicInput)
     }
 }
-pub(crate) fn validate_declarations_v1(
+pub fn validate_declarations_v1(
     declarations: &[ZkX509IoChannelDeclarationV1],
 ) -> Result<(), ZkX509IoAirErrorV1> {
     if declarations.is_empty() {
@@ -762,7 +762,7 @@ fn compress_access_v1(access: IoAccessV1, challenge: ZkX509IoLaneChallengesV1) -
         .add(challenge.value.mul(access.value))
         .add(challenge.is_write.mul(access.is_write))
 }
-pub(crate) fn byte_memory_capacity_v1() -> Result<usize, ZkX509IoAirErrorV1> {
+pub fn byte_memory_capacity_v1() -> Result<usize, ZkX509IoAirErrorV1> {
     Ok(ZK_X509_IO_FIXED_CAPACITY_ROWS_V1)
 }
 #[cfg(test)]

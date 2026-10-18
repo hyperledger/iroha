@@ -3,7 +3,10 @@
 use super::*;
 
 fn expected(left: u64, right: u64) -> u64 {
-    let (mut a, mut b) = ((left as i64).unsigned_abs(), (right as i64).unsigned_abs());
+    let (mut a, mut b) = (
+        u64::cast_signed(left).unsigned_abs(),
+        u64::cast_signed(right).unsigned_abs(),
+    );
     while b != 0 {
         (a, b) = (b, a % b);
     }
@@ -75,18 +78,25 @@ fn private_gcd_native_zero_signed_extremes_common_factors_tags_and_aliases_match
             for rd in [0, 2, 3, 4] {
                 checked(
                     enc::encode_rr(wide::arithmetic::GCD, rd, 2, 3),
-                    &[(2, left as u64, tag), (3, right as u64, tag), (4, 97, !tag)],
+                    &[
+                        (2, i64::cast_unsigned(left), tag),
+                        (3, i64::cast_unsigned(right), tag),
+                        (4, 97, !tag),
+                    ],
                 );
             }
             checked(
                 enc::encode_rr(wide::arithmetic::GCD, 2, 2, 2),
-                &[(2, left as u64, tag)],
+                &[(2, i64::cast_unsigned(left), tag)],
             );
         }
         for (rs1, rs2) in [(0, 3), (2, 0), (0, 0)] {
             checked(
                 enc::encode_rr(wide::arithmetic::GCD, 4, rs1, rs2),
-                &[(2, left as u64, false), (3, right as u64, false)],
+                &[
+                    (2, i64::cast_unsigned(left), false),
+                    (3, i64::cast_unsigned(right), false),
+                ],
             );
         }
     }
@@ -108,8 +118,8 @@ fn private_gcd_native_zero_signed_extremes_common_factors_tags_and_aliases_match
 fn private_gcd_total_zero_branches_and_nonzero_bank_reject_every_cell_change() {
     for (left, right) in [
         (0, 0),
-        (i64::MIN as u64, 0),
-        (0, i64::MIN as u64),
+        (i64::cast_unsigned(i64::MIN), 0),
+        (0, i64::cast_unsigned(i64::MIN)),
         (12, 18),
         (u64::MAX, 65537),
     ] {
@@ -189,7 +199,7 @@ fn private_gcd_rejects_coherent_foreign_sources_and_mismatched_original_tags() {
 #[test]
 fn private_gcd_binds_twelve_gas_cycles_and_native_last_attempt_boundary() {
     let instruction = enc::encode_rr(wide::arithmetic::GCD, 4, 2, 3);
-    let inputs = [(2, i64::MIN as u64, true), (3, 0, true)];
+    let inputs = [(2, i64::cast_unsigned(i64::MIN), true), (3, 0, true)];
     let (program, fixture) = checked(instruction, &inputs);
     for (slot, word, carry, is_gas) in [(GAS_DEBIT, 2, 0, true), (CYCLE_WRITE, 4, 4, false)] {
         let before = packet::half(&fixture.0.packets.fields[slot], BEFORE, 0);

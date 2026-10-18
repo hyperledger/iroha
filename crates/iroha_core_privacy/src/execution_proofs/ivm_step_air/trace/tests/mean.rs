@@ -20,10 +20,10 @@ fn mean_matches_interpreter_full_width_signed_rounding_aliases_r0_and_gas() {
         2,
         3,
         u64::MAX,
-        (-2_i64) as u64,
-        (-3_i64) as u64,
-        i64::MIN as u64,
-        (i64::MIN + 1) as u64,
+        i64::cast_unsigned(-2_i64),
+        i64::cast_unsigned(-3_i64),
+        i64::cast_unsigned(i64::MIN),
+        i64::cast_unsigned(i64::MIN + 1),
         i64::MAX as u64,
         0xffff_ffff_0000_0001,
         0x1_0000_0000,
@@ -47,8 +47,10 @@ fn mean_matches_interpreter_full_width_signed_rounding_aliases_r0_and_gas() {
                         &[(6, left), (7, right), (8, 91)],
                         gas,
                     );
-                    let a = i128::from(segment.before.registers[usize::from(rs1)] as i64);
-                    let b = i128::from(segment.before.registers[usize::from(rs2)] as i64);
+                    let a =
+                        i128::from(u64::cast_signed(segment.before.registers[usize::from(rs1)]));
+                    let b =
+                        i128::from(u64::cast_signed(segment.before.registers[usize::from(rs2)]));
                     let completed = gas >= 2;
                     let mut expected = segment.before.registers;
                     if completed && rd != 0 {
@@ -88,7 +90,11 @@ fn mean_matches_interpreter_full_width_signed_rounding_aliases_r0_and_gas() {
 fn mean_rejects_forged_workspace_reads_result_gas_cycles_and_outcomes() {
     for (left, right, gas) in [
         (0, u64::MAX, 2),
-        (i64::MIN as u64, i64::MIN as u64, 2),
+        (
+            i64::cast_unsigned(i64::MIN),
+            i64::cast_unsigned(i64::MIN),
+            2,
+        ),
         (i64::MAX as u64, i64::MAX as u64, 2),
         (17, 2, 1),
         (17, 2, 0),
@@ -144,7 +150,7 @@ fn mean_rejects_forged_workspace_reads_result_gas_cycles_and_outcomes() {
 #[test]
 fn mean_cycle_carry_is_three_on_success_and_zero_before_gas_failure() {
     for gas in [1, 2] {
-        let (original, actual) = single((-3_i64) as u64, 0, gas);
+        let (original, actual) = single(i64::cast_unsigned(-3_i64), 0, gas);
         // Algebraic counter-boundary fixture derived from an actual opcode record;
         // this does not claim the interpreter executed four billion instructions.
         for before in [
@@ -203,7 +209,7 @@ fn mean_native_cycle_policy_allows_last_crossing_and_refuses_next_attempt() {
     let root_gas = root_words * (ivm_abi::call::CALL_WORD_BYTES_V1 as u64 + 1);
     let mut vm = IVM::new(20 + root_gas);
     vm.load_prepared(&prepared).unwrap();
-    vm.set_register(6, (-3_i64) as u64);
+    vm.set_register(6, i64::cast_unsigned(-3_i64));
     vm.set_register(7, 0);
     let budget = AllocationBudget::new(128 * std::mem::size_of::<DiagnosticStepRecord>());
     let mut recorder = DiagnosticStepRecorder::try_new(128, &budget).unwrap();
@@ -275,7 +281,7 @@ fn mean_native_gas_failure_keeps_cycles_and_cannot_follow_a_limit_crossing() {
             let prepared = contract_with_cycle_policy(&body, limit, 0);
             let mut vm = IVM::new(gas + root_gas);
             vm.load_prepared(&prepared).unwrap();
-            vm.set_register(6, i64::MIN as u64);
+            vm.set_register(6, i64::cast_unsigned(i64::MIN));
             vm.set_register(7, i64::MAX as u64);
             let budget = AllocationBudget::new(128 * std::mem::size_of::<DiagnosticStepRecord>());
             let mut recorder = DiagnosticStepRecorder::try_new(128, &budget).unwrap();
@@ -391,7 +397,11 @@ fn maximum_segment(tail_gas: u64) -> (ScalarSegment, Vec<DiagnosticStepRecord>) 
     let (segment, records) = attempted(
         &body,
         MAX_STEPS,
-        &[(2, 21), (6, i64::MIN as u64), (7, i64::MAX as u64)],
+        &[
+            (2, 21),
+            (6, i64::cast_unsigned(i64::MIN)),
+            (7, i64::MAX as u64),
+        ],
         loop_gas + tail_gas,
     );
     assert_eq!(segment.steps, MAX_STEPS);

@@ -1,7 +1,7 @@
 //! Exact signed ABS magnitude, overflow and gas-first opcode-boundary traps.
 //!
 //! Separate cells retain every existing arithmetic bank and its degree bound.
-//! A full 64-bit source-bit equality check identifies i64::MIN; neither the
+//! A full 64-bit source-bit equality check identifies `i64::MIN`; neither the
 //! source word nor gas is collapsed modulo the field. Range checks are quartic
 //! and unconditional. All remaining equations have degree at most three.
 
@@ -16,7 +16,7 @@ const NO_GAS_INVERSE: usize = 43;
 
 /// Untrusted candidate cells; verifier equations establish every result.
 pub(super) fn witness(value: u64, gas: u64) -> [F; WIDTH] {
-    let negative = (value as i64) < 0;
+    let negative = u64::cast_signed(value) < 0;
     let mut bank = [F::ZERO; WIDTH];
     bank[..40].copy_from_slice(&multiply::correction_witness(
         if negative { 0 } else { value },

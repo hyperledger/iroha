@@ -900,7 +900,7 @@ impl Stage {
         support::push_pallas(&mut words, &self.source.predecessor_claims().0.as_input())?;
         words.extend(support::vesta_words(
             &self.source.predecessor_claims().1.as_input(),
-        )?);
+        ));
         words.extend(after.core);
         words.extend(after.rest);
         words.extend(after.lineage);
@@ -908,7 +908,7 @@ impl Stage {
             words.extend(witness.public);
             words.push(Fp::from(u64::from(witness.public_valid)));
             support::push_pallas(&mut words, &witness.pallas.as_input())?;
-            words.extend(support::vesta_words(&witness.vesta.as_input())?);
+            words.extend(support::vesta_words(&witness.vesta.as_input()));
             let view = self.status_proof_view()?;
             words.push(Fp::from(
                 u64::try_from(view.len()).map_err(|_| super::Error::Input)?,
@@ -976,16 +976,16 @@ impl Stage {
             )?,
             Fp::from(16),
         ];
-        words.extend(support::vesta_words(&c.vesta.as_input())?);
+        words.extend(support::vesta_words(&c.vesta.as_input()));
         words.extend(support::vesta_words(
             &self.source.predecessor_claims().1.as_input(),
-        )?);
+        ));
         match &self.source.inputs().evidence {
             Evidence::Receive { .. } => {
                 let trivial =
                     AccumulatorT::trivial(native.vesta(), iroha_pasta::msm::MemoryBudget::DEFAULT)
                         .map_err(|_| super::Error::Proof)?;
-                let claim = support::vesta_words(&trivial.as_input())?;
+                let claim = support::vesta_words(&trivial.as_input());
                 words.extend(&claim);
                 words.extend(support::mode_words(
                     crate::q_sigma::native::IncomingMode::Trivial,
@@ -993,7 +993,7 @@ impl Stage {
                 words.extend(&claim[..4]);
             }
             Evidence::Status { witness, .. } => {
-                words.extend(support::vesta_words(&witness.vesta.as_input())?);
+                words.extend(support::vesta_words(&witness.vesta.as_input()));
                 words.extend(support::mode_words(witness.modes[2]));
                 let (x, y) =
                     iroha_plonk::transcript::generator_coordinates::<Eq>(&witness.vesta_correction);

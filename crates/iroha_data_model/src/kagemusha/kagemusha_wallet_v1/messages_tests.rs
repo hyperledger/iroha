@@ -10,6 +10,9 @@ fn compact_payment_does_not_replace_any_signed_derived_field() {
     let f = message_fixture();
     let payment = f.payment(true, 64);
     let request = f.request(true).signed();
+    let compact = KagemushaWalletPaymentV1::from_signed(&request, payment.send.clone())
+        .expect("the original signed request compacts without replacement");
+    assert_eq!(compact.signed_request().unwrap(), request);
     let mutations: [fn(&mut KagemushaWalletRequestBodyV1); 8] = [
         |body| body.version += 1,
         |body| body.scheme_id[0] ^= 1,
@@ -23,7 +26,7 @@ fn compact_payment_does_not_replace_any_signed_derived_field() {
     for (index, mutate) in mutations.into_iter().enumerate() {
         let mut signed = request;
         mutate(&mut signed.body);
-        let result = KagemushaWalletPaymentV1::from_signed(signed, payment.send.clone());
+        let result = KagemushaWalletPaymentV1::from_signed(&signed, payment.send.clone());
         if index == 0 {
             assert!(matches!(
                 result,

@@ -11,6 +11,7 @@ mod bootstrap;
 #[path = "../bootstrap_objects.rs"]
 #[allow(dead_code)] // Shared payer/receiver helpers are consumed by distinct test binaries.
 mod bootstrap_objects;
+/// Shared test caches owned by this genuine Bootstrap fixture module.
 #[path = "../mod.rs"]
-mod common;
+pub mod common;
 include!("a_recursive_body.rs");

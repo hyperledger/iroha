@@ -4,7 +4,7 @@ fn bootle_lantern_trusted_policy_is_mandatory_valid_active_and_exact() {
     let mut missing = fixture.verification_context(&TEST_CONSENSUS_LIMITS);
     missing.bootle_lantern_policy = None;
     assert!(matches!(
-        verify_privacy_envelope_v1(&fixture.envelope, missing),
+        verify_privacy_envelope_v1(&fixture.envelope, &missing),
         Err(PrivacyVerificationErrorV1::BootleLanternState(detail))
             if detail.code == PrivacyBootleLanternStateFailureCodeV1::MissingTrustedPolicy
     ));
@@ -13,7 +13,7 @@ fn bootle_lantern_trusted_policy_is_mandatory_valid_active_and_exact() {
     let mut corrupt_context = fixture.verification_context(&TEST_CONSENSUS_LIMITS);
     corrupt_context.bootle_lantern_policy = Some(&corrupt);
     assert!(matches!(
-        verify_privacy_envelope_v1(&fixture.envelope, corrupt_context),
+        verify_privacy_envelope_v1(&fixture.envelope, &corrupt_context),
         Err(PrivacyVerificationErrorV1::BootleLanternState(detail))
             if detail.code == PrivacyBootleLanternStateFailureCodeV1::InvalidTrustedPolicy
     ));
@@ -27,7 +27,7 @@ fn bootle_lantern_trusted_policy_is_mandatory_valid_active_and_exact() {
     let mut revoked_context = fixture.verification_context(&TEST_CONSENSUS_LIMITS);
     revoked_context.bootle_lantern_policy = Some(&revoked);
     assert!(matches!(
-        verify_privacy_envelope_v1(&fixture.envelope, revoked_context),
+        verify_privacy_envelope_v1(&fixture.envelope, &revoked_context),
         Err(PrivacyVerificationErrorV1::BootleLanternState(detail))
             if detail.code == PrivacyBootleLanternStateFailureCodeV1::PolicyRevoked
     ));
@@ -41,7 +41,7 @@ fn bootle_lantern_trusted_policy_is_mandatory_valid_active_and_exact() {
     let mut rotated_context = fixture.verification_context(&TEST_CONSENSUS_LIMITS);
     rotated_context.bootle_lantern_policy = Some(&rotated);
     assert!(matches!(
-        verify_privacy_envelope_v1(&fixture.envelope, rotated_context),
+        verify_privacy_envelope_v1(&fixture.envelope, &rotated_context),
         Err(PrivacyVerificationErrorV1::NativeBootleLantern(_))
     ));
 }

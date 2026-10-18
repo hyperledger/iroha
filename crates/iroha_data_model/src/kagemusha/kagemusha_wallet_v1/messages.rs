@@ -1281,18 +1281,18 @@ impl KagemushaWalletPaymentV1 {
         request.validate()?;
         payer_credential.validate()?;
         request.require_payer(payer_credential)?;
-        let payment = Self::from_signed(request.signed(), send)?;
+        let payment = Self::from_signed(&request.signed(), send)?;
         payment.send.verify(payer_credential)?;
         Ok(payment)
     }
 
     /// Internal structural compaction; public assembly retains full credential custody checks.
     fn from_signed(
-        request: KagemushaWalletSignedRequestV1,
+        request: &KagemushaWalletSignedRequestV1,
         send: KagemushaWalletPackageV1,
     ) -> WalletResult<Self> {
         request.validate()?;
-        let b = request.body;
+        let b = &request.body;
         let payment = Self {
             version: KAGEMUSHA_WALLET_VERSION_V1,
             request: KagemushaWalletPaymentRequestV1 {
@@ -1310,7 +1310,7 @@ impl KagemushaWalletPaymentV1 {
             send,
         };
         // Never silently replace any signed value when removing duplicate fields.
-        if payment.signed_request()? != request {
+        if &payment.signed_request()? != request {
             return Err(invalid_v1("payment.request"));
         }
         payment.digests()?;

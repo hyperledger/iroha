@@ -368,7 +368,7 @@ fn os_entropy() -> Result<zeroize::Zeroizing<[u8; 32]>, ProverError> {
 }
 
 impl ProverRandomness {
-    /// Select a ChaCha20 stream keyed by 32 fresh OS bytes for this proof.
+    /// Select a `ChaCha20` stream keyed by 32 fresh OS bytes for this proof.
     #[must_use]
     pub fn os() -> Self {
         Self { source: Source::Os }
@@ -1261,7 +1261,7 @@ where
         cancellation,
     )?;
     if shape.folded_generator_suffix {
-        transcript.append_unabsorbed_generator(folded.g())?;
+        transcript.append_unabsorbed_generator(folded.g());
     }
     iroha_pasta::CancellationToken::checkpoint(cancellation)?;
     Ok(ProverOutput {

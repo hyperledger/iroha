@@ -146,7 +146,7 @@ pub(super) const SHA256_ROUND_CONSTANTS_V1: [u32; 64] = [
     0xc671_78f2,
 ];
 /// Stable aggregate AIR descriptor.
-pub(crate) const PQ_MASP_AGGREGATE_AIR_DESCRIPTOR_V1: &[u8] = b"pq-masp-aggregate-air-v1:trace=16384:copy-width=8:copy-lanes=3:sha256-wide-round64-private-intermediates:value=u128-checked-byte-carry:tree=depth32-private-direction:public-endpoints=verifier-fixed";
+pub const PQ_MASP_AGGREGATE_AIR_DESCRIPTOR_V1: &[u8] = b"pq-masp-aggregate-air-v1:trace=16384:copy-width=8:copy-lanes=3:sha256-wide-round64-private-intermediates:value=u128-checked-byte-carry:tree=depth32-private-direction:public-endpoints=verifier-fixed";
 /// Aggregate trace construction or algebraic failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
 pub(super) enum PqMaspAirErrorV1 {

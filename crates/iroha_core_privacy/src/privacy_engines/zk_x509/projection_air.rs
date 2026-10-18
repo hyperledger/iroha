@@ -39,27 +39,27 @@ use std::collections::BTreeMap;
 use thiserror::Error;
 /// Exact manifest descriptor for the projection chip.
 #[cfg(test)]
-pub(crate) const ZK_X509_PROJECTION_AIR_DESCRIPTOR_V1: &[u8] = b"zk-x509-projection-air-v1:trace=32768:base-width=17:aux-width=32:hash-slots=7:sha-buffer=2048:private-length-prefix:source-compaction-permutation-4lane:byte-copy-dual-products-4lane:governance-scoped-leaf-spki+stable-issuer-serial-nullifier+4-disclosures+ownership:fixed-three-spki-input-channels:optional-third-slot-canonical-zero:verifier-fixed-public-digests:zero-padding:first-release";
+pub const ZK_X509_PROJECTION_AIR_DESCRIPTOR_V1: &[u8] = b"zk-x509-projection-air-v1:trace=32768:base-width=17:aux-width=32:hash-slots=7:sha-buffer=2048:private-length-prefix:source-compaction-permutation-4lane:byte-copy-dual-products-4lane:governance-scoped-leaf-spki+stable-issuer-serial-nullifier+4-disclosures+ownership:fixed-three-spki-input-channels:optional-third-slot-canonical-zero:verifier-fixed-public-digests:zero-padding:first-release";
 /// Fixed projection trace size.
-pub(crate) const ZK_X509_PROJECTION_TRACE_SIZE_V1: usize = 1 << 15;
+pub const ZK_X509_PROJECTION_TRACE_SIZE_V1: usize = 1 << 15;
 /// Fixed maximum SHA preimage buffer per projection hash.
-pub(crate) const ZK_X509_PROJECTION_HASH_BUFFER_BYTES_V1: usize = 2_048;
+pub const ZK_X509_PROJECTION_HASH_BUFFER_BYTES_V1: usize = 2_048;
 /// Number of fixed hash slots: scoped key, nullifier, four attributes, ownership.
-pub(crate) const ZK_X509_PROJECTION_HASH_SLOTS_V1: usize = 7;
+pub const ZK_X509_PROJECTION_HASH_SLOTS_V1: usize = 7;
 /// Exact DER width of the sole admitted uncompressed P-256 SPKI.
-pub(crate) const ZK_X509_PROJECTION_SPKI_DER_BYTES_V1: usize = 91;
+pub const ZK_X509_PROJECTION_SPKI_DER_BYTES_V1: usize = 91;
 /// Projection base-trace width.
-pub(crate) const ZK_X509_PROJECTION_BASE_WIDTH_V1: usize = 17;
+pub const ZK_X509_PROJECTION_BASE_WIDTH_V1: usize = 17;
 /// Projection challenge-dependent auxiliary width.
-pub(crate) const ZK_X509_PROJECTION_COPY_LANES_V1: usize = 4;
-pub(crate) const ZK_X509_PROJECTION_AUX_WIDTH_V1: usize = 8 * ZK_X509_PROJECTION_COPY_LANES_V1;
+pub const ZK_X509_PROJECTION_COPY_LANES_V1: usize = 4;
+pub const ZK_X509_PROJECTION_AUX_WIDTH_V1: usize = 8 * ZK_X509_PROJECTION_COPY_LANES_V1;
 /// Verifier-preprocessed numeric fixed width used by the aggregate STARK.
-pub(crate) const ZK_X509_PROJECTION_STARK_FIXED_WIDTH_V1: usize = 25;
+pub const ZK_X509_PROJECTION_STARK_FIXED_WIDTH_V1: usize = 25;
 /// Exact fixed-width opened-row residue vector used by the aggregate STARK.
-pub(crate) const ZK_X509_PROJECTION_STARK_CONSTRAINT_COUNT_V1: usize =
+pub const ZK_X509_PROJECTION_STARK_CONSTRAINT_COUNT_V1: usize =
     243 + 14 * ZK_X509_PROJECTION_COPY_LANES_V1;
 /// Maximum total algebraic degree, including verifier-fixed selectors.
-pub(crate) const ZK_X509_PROJECTION_STARK_CONSTRAINT_DEGREE_V1: u8 = 4;
+pub const ZK_X509_PROJECTION_STARK_CONSTRAINT_DEGREE_V1: u8 = 4;
 const VALUE: usize = 0;
 const VALUE_BITS: usize = 1;
 const USED: usize = 9;
@@ -148,7 +148,7 @@ const FIX_USED_MONOTONE_TRANSITION: usize = 24;
 /// Wallet-local projection witness extracted by the constrained DER segment.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ZkX509ProjectionWitnessV1 {
+pub struct ZkX509ProjectionWitnessV1 {
     /// Exact leaf-to-root SPKI DER values.
     pub(crate) chain_spki_der: Vec<Vec<u8>>,
     /// Exact canonical unsigned leaf serial.
@@ -180,7 +180,7 @@ impl Drop for ZkX509ProjectionWitnessV1 {
 }
 /// Semantic projection hash slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum ZkX509ProjectionHashV1 {
+pub enum ZkX509ProjectionHashV1 {
     /// Governance-scoped leaf subject-key commitment.
     ScopedSubjectKey,
     /// Stable issuer/serial certificate nullifier.
@@ -234,7 +234,7 @@ enum SourceTokenV1 {
 }
 /// One verifier-fixed projection row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ZkX509ProjectionFixedRowV1 {
+pub enum ZkX509ProjectionFixedRowV1 {
     /// Fixed-width private SPKI input from the DER segment.
     InputSpki {
         /// Certificate index in leaf-to-root order.
@@ -327,7 +327,7 @@ pub(crate) enum ZkX509ProjectionFixedRowV1 {
 }
 /// Public spelling of source-token semantics used by fixed preprocessing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ZkX509ProjectionSourceTokenV1 {
+pub enum ZkX509ProjectionSourceTokenV1 {
     /// Verifier-known framing or statement byte.
     Constant(u8),
     /// Private fixed-width SPKI byte.
@@ -373,7 +373,7 @@ impl From<SourceTokenV1> for ZkX509ProjectionSourceTokenV1 {
 }
 /// Verifier-built fixed projection trace.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ProjectionFixedTraceV1 {
+pub struct ZkX509ProjectionFixedTraceV1 {
     /// Exact semantic row schedule.
     pub(crate) rows: Vec<ZkX509ProjectionFixedRowV1>,
     /// Fixed copy identity labels.
@@ -384,7 +384,7 @@ pub(crate) struct ZkX509ProjectionFixedTraceV1 {
 /// Witness-bearing projection base trace.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ProjectionBaseTraceV1 {
+pub struct ZkX509ProjectionBaseTraceV1 {
     /// Exact base rows.
     pub(crate) rows: Vec<[F; ZK_X509_PROJECTION_BASE_WIDTH_V1]>,
 }
@@ -397,7 +397,7 @@ impl Drop for ZkX509ProjectionBaseTraceV1 {
 /// Challenge-dependent copy and compaction products.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ProjectionAuxTraceV1 {
+pub struct ZkX509ProjectionAuxTraceV1 {
     /// Exact auxiliary rows.
     pub(crate) rows: Vec<[F; ZK_X509_PROJECTION_AUX_WIDTH_V1]>,
 }
@@ -409,7 +409,7 @@ impl Drop for ZkX509ProjectionAuxTraceV1 {
 }
 /// One copy-product challenge lane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ProjectionCopyChallengesV1 {
+pub struct ZkX509ProjectionCopyChallengesV1 {
     /// Identity/permutation label coefficient.
     pub(crate) beta: F,
     /// Tuple offset.
@@ -417,7 +417,7 @@ pub(crate) struct ZkX509ProjectionCopyChallengesV1 {
 }
 /// One source-compaction challenge lane.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ProjectionCompactionChallengesV1 {
+pub struct ZkX509ProjectionCompactionChallengesV1 {
     /// Active-bit coefficient.
     pub(crate) active: F,
     /// Hash-slot coefficient.
@@ -431,7 +431,7 @@ pub(crate) struct ZkX509ProjectionCompactionChallengesV1 {
 }
 /// Four independent copy and compaction challenge lanes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ProjectionChallengesV1 {
+pub struct ZkX509ProjectionChallengesV1 {
     /// Copy-permutation lanes.
     pub(crate) copy: [ZkX509ProjectionCopyChallengesV1; COPY_LANES],
     /// Source/output compaction lanes.
@@ -440,7 +440,7 @@ pub(crate) struct ZkX509ProjectionChallengesV1 {
 /// One prover-internal I/O channel emitted by projection.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ProjectionIoChannelV1 {
+pub struct ZkX509ProjectionIoChannelV1 {
     /// Semantic producer endpoint.
     pub(crate) producer: ZkX509IoEndpointV1,
     /// Canonically sorted consumer endpoints.
@@ -505,7 +505,7 @@ impl Drop for ZkX509ProjectionIoChannelV1 {
 /// Complete projection witness material.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
 #[derive(Clone, PartialEq, Eq)]
-pub(crate) struct ZkX509ProjectionTraceV1 {
+pub struct ZkX509ProjectionTraceV1 {
     /// Verifier-derived fixed trace.
     pub(crate) fixed: ZkX509ProjectionFixedTraceV1,
     /// Witness-bearing base trace.
@@ -1690,7 +1690,7 @@ fn build_io_channels_v1(
 ///
 /// Returns a shape, encoding, topology, or resource error if the public
 /// statement cannot instantiate the sole fixed profile.
-pub(crate) fn compile_zk_x509_projection_fixed_trace_v1(
+pub fn compile_zk_x509_projection_fixed_trace_v1(
     statement: &IrohaZkX509StarkP256StatementV1,
 ) -> Result<ZkX509ProjectionFixedTraceV1, ZkX509ProjectionAirErrorV1> {
     let (specs, _) = fixed_specs_v1(statement)?;
@@ -1828,7 +1828,7 @@ fn projection_stark_fixed_row_v1(
 }
 /// Compile the exact numeric preprocessing rows consumed by the aggregate verifier. The proof never
 /// supplies any selector, expected output byte, or permutation label.
-pub(crate) fn compile_zk_x509_projection_stark_fixed_rows_v1(
+pub fn compile_zk_x509_projection_stark_fixed_rows_v1(
     statement: &IrohaZkX509StarkP256StatementV1,
 ) -> Result<Vec<[F; ZK_X509_PROJECTION_STARK_FIXED_WIDTH_V1]>, ZkX509ProjectionAirErrorV1> {
     let fixed = compile_zk_x509_projection_fixed_trace_v1(statement)?;
@@ -1856,7 +1856,7 @@ pub(crate) fn compile_zk_x509_projection_stark_fixed_rows_v1(
 ///
 /// Returns a strict shape, projection, encoding, topology, or resource error.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_zk_x509_projection_trace_v1(
+pub fn build_zk_x509_projection_trace_v1(
     statement: &IrohaZkX509StarkP256StatementV1,
     witness: &ZkX509ProjectionWitnessV1,
 ) -> Result<ZkX509ProjectionTraceV1, ZkX509ProjectionAirErrorV1> {
@@ -1878,7 +1878,7 @@ pub(crate) fn build_zk_x509_projection_trace_v1(
 ///
 /// Returns a resource error on channel-id or length overflow.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn projection_io_witnesses_v1(
+pub fn projection_io_witnesses_v1(
     channels: Vec<ZkX509ProjectionIoChannelV1>,
     first_channel: u32,
 ) -> Result<Vec<ZkX509IoChannelWitnessV1>, ZkX509ProjectionAirErrorV1> {
@@ -1955,7 +1955,7 @@ fn fixed_compaction_role_v1(row: ZkX509ProjectionFixedRowV1) -> Option<(bool, u8
 /// Returns a shape, challenge, non-canonical-field, or algebraic error if the
 /// committed base/fixed traces cannot satisfy the products.
 #[cfg(any(test, feature = "privacy-release-evidence"))]
-pub(crate) fn build_zk_x509_projection_aux_trace_v1(
+pub fn build_zk_x509_projection_aux_trace_v1(
     base: &ZkX509ProjectionBaseTraceV1,
     fixed: &ZkX509ProjectionFixedTraceV1,
     challenges: ZkX509ProjectionChallengesV1,
@@ -2327,7 +2327,7 @@ fn ensure_canonical_rows_v1(
 /// encodings. Algebraic violations are returned as non-zero residues.
 #[allow(clippy::too_many_arguments)]
 #[cfg(test)]
-pub(crate) fn evaluate_zk_x509_projection_constraint_residues_v1(
+pub fn evaluate_zk_x509_projection_constraint_residues_v1(
     current: &[F; ZK_X509_PROJECTION_BASE_WIDTH_V1],
     next: Option<&[F; ZK_X509_PROJECTION_BASE_WIDTH_V1]>,
     current_aux: &[F; ZK_X509_PROJECTION_AUX_WIDTH_V1],
@@ -2878,7 +2878,7 @@ fn push_projection_stark_variable_v1<A: PolynomialAirFieldV1>(
 /// Returns an error for malformed challenge or field encodings, or if the
 /// compiled fixed-width constraint inventory changes unexpectedly.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn evaluate_zk_x509_projection_stark_residues_v1<A: PolynomialAirFieldV1>(
+pub fn evaluate_zk_x509_projection_stark_residues_v1<A: PolynomialAirFieldV1>(
     current: &[A; ZK_X509_PROJECTION_BASE_WIDTH_V1],
     next: &[A; ZK_X509_PROJECTION_BASE_WIDTH_V1],
     current_aux: &[A; ZK_X509_PROJECTION_AUX_WIDTH_V1],
@@ -3265,7 +3265,7 @@ pub(crate) fn evaluate_zk_x509_projection_stark_residues_v1<A: PolynomialAirFiel
 ///
 /// Returns a strict topology, challenge, field, or algebraic error.
 #[cfg(test)]
-pub(crate) fn validate_zk_x509_projection_trace_v1(
+pub fn validate_zk_x509_projection_trace_v1(
     statement: &IrohaZkX509StarkP256StatementV1,
     trace: &ZkX509ProjectionTraceV1,
     challenges: ZkX509ProjectionChallengesV1,
@@ -3297,7 +3297,7 @@ pub(crate) fn validate_zk_x509_projection_trace_v1(
     Ok(aux)
 }
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
     use super::*;
     use crate::privacy_engines::zk_x509::io_air::build_zk_x509_io_base_tables_v1;
     use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair};
@@ -3319,7 +3319,7 @@ pub(crate) mod tests {
     fn raw(byte: u8) -> [u8; 32] {
         [byte; 32]
     }
-    pub(crate) fn account(seed: u8) -> AccountId {
+    pub fn account(seed: u8) -> AccountId {
         let key_pair =
             KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519).expect("fixed account seed");
         AccountId::new(key_pair.public_key().clone())
@@ -3376,7 +3376,7 @@ pub(crate) mod tests {
             ],
         }
     }
-    pub(crate) fn fixture() -> (IrohaZkX509StarkP256StatementV1, ZkX509ProjectionWitnessV1) {
+    pub fn fixture() -> (IrohaZkX509StarkP256StatementV1, ZkX509ProjectionWitnessV1) {
         let witness = ZkX509ProjectionWitnessV1 {
             chain_spki_der: vec![
                 (0..ZK_X509_PROJECTION_SPKI_DER_BYTES_V1)

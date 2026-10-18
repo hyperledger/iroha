@@ -1,4 +1,4 @@
-//! Complete RaceV1 integer transition relation for the native transparent proof driver.
+//! Complete `RaceV1` integer transition relation for the native transparent proof driver.
 
 #[cfg(test)]
 use super::integer_air::Source;

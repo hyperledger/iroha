@@ -81,6 +81,9 @@ impl<F: PastaField> CanonicalS6<F> {
     /// Assigns a private canonical Pasta scalar under the declared field owner.
     /// Every input limb and modulus bound is constrained; witness types alone
     /// confer no proof authority.
+    ///
+    /// # Errors
+    /// Returns layout or assignment errors while constraining the scalar limbs.
     pub fn assign_value<G: PastaField>(
         uint: &mut UintChip<'_, F>,
         region: &mut Region<'_, F>,

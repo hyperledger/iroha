@@ -53,7 +53,7 @@ use std::{
 };
 use thiserror::Error;
 /// Exact first-release algebraic SHA compiler description.
-pub(crate) const ZK_X509_SHA_FIXED_ALGEBRAIC_COMPILER_DESCRIPTOR_V1: &[u8] =
+pub const ZK_X509_SHA_FIXED_ALGEBRAIC_COMPILER_DESCRIPTOR_V1: &[u8] =
     b"zk-x509-sha-fixed-algebraic-compiler-v1-incompatible:public-shapes=disclosed-attributes0through4:four-independent-physical-log19-generic-children:child-widths=118,118,118,118:combined-width472:segment-major-column-order:each-child-generic-cap65536:typed-composite-digest=sha3-384-opaque48-binds-disclosure-shape+profile+ordered-widths+ordered-child-digests:row-major-child-opening-concatenation:typed-zero-capacity-sha-word-circuit-topology:word-operation-and-execution-sorted-memory-walk:authoritative-local-row-event-order-replay:definition-writes-immediately-before-consuming-operation:operation-input-reads-then-output-write:eight-digest-reads-last:derived-execution-sort-must-equal-circuit-canonical-sorted-memory:execution-write-axis-key=typed-word-phase(initial|input|expansion3|round8|final):compute+execution+sorted-memory-call-axis-transpose-on-exact-maximal-contiguous-same-segment-same-geometry-runs-iff-calls-strictly-greater-than-blocks:block-row-axis-on-ties:boolean-topology-three-way-exact-atom-planner(block-or-call=2048*min(calls,blocks)|round=32*blocks*calls|block-gap=416*calls):strict-lower-only:old-then-round-wins-ties:block-gap-axis-one-stride14-hull+12-negative-stride1064-gap-residues-per-lane:operation-read-typed-block+phase(expansion6|round18|final2)+read-slot-axis-with-exact-per-call-cost44*blocks-2:operation-read-axis-transpose-iff-exact-cost-strictly-less-than-existing-block-or-call-axis:sorted-memory-typed-initial-or-block+word-phase(initial|input|expansion3|round8|final)+access-occurrence-axis:sorted-memory-phase-axis-on-every-exact-geometry-run-iff-phase-cost=298*blocks*calls-is-strictly-less-than-existing-axis-cost(call=4952*blocks+32|block=(4952+32)*calls):old-axis-wins-ties:call-axis-key=local-column+family+block(initial-or-sha-index)+word-position+occurrence:remaining-sorted-memory-nontransposed-series-maximal-across-ordered-calls:no-native-row-matrix:no-lde-matrix:no-artifact:no-merkle-root:no-proof-supplied-fixed-values:affine+repeated+sparse-atoms:generator-coset-log19-to-log22:call-role-slot-boundaries+compact-ca-selectors+field-native-rfc-events+physical-padding:exact-shape-derived-rfc-channel-offsets:all-six-formerly-reconstructed-word-columns-native:first-release";
 #[cfg(test)]
 const SHA_COMPILER_DESCRIPTOR_DIGEST_DOMAIN_V1: &[u8] =
@@ -61,13 +61,13 @@ const SHA_COMPILER_DESCRIPTOR_DIGEST_DOMAIN_V1: &[u8] =
 const SHA_COMPOSITE_DESCRIPTOR_DIGEST_DOMAIN_V1: &[u8] =
     b"iroha:privacy:zk-x509:sha-fixed-algebraic-composite:v1";
 /// Exact width of the combined four-segment SHA algebraic schedule.
-pub(crate) const ZK_X509_SHA_FIXED_ALGEBRAIC_WIDTH_V1: usize =
+pub const ZK_X509_SHA_FIXED_ALGEBRAIC_WIDTH_V1: usize =
     ZK_X509_SHA_SEGMENT_COUNT_V1 * ZK_X509_SHA_BATCH_FIXED_WIDTH_V1;
 /// Conservative ceiling for atoms emitted by the structural compiler.
 ///
 /// This is an allocation guard, not a consensus-tunable parameter. The
 /// canonical five schedules are required by tests to stay below it.
-pub(crate) const ZK_X509_SHA_FIXED_ALGEBRAIC_MAX_ATOMS_V1: usize = 65_536;
+pub const ZK_X509_SHA_FIXED_ALGEBRAIC_MAX_ATOMS_V1: usize = 65_536;
 const SHA_FIXED_ALGEBRAIC_CHILD_ATOM_COUNTS_V1: [usize; ZK_X509_SHA_SEGMENT_COUNT_V1] =
     [55_703, 64_091, 34_614, 45_994];
 // Exact raw SHA-word fixed-column positions. These are deliberately repeated
@@ -2586,7 +2586,7 @@ fn transpose_sorted_memory_to_phase_axis_v1(
 }
 /// Digest of the stable compiler algorithm descriptor.
 #[cfg(test)]
-pub(crate) fn zk_x509_sha_fixed_algebraic_compiler_descriptor_digest_v1()
+pub fn zk_x509_sha_fixed_algebraic_compiler_descriptor_digest_v1()
 -> Result<PrivacyOuterDigestV1, ZkX509ShaFixedAlgebraicErrorV1> {
     privacy_outer_digest_frame_v1(
         ZK_X509_FIXED_DIGEST_CONTEXT_V1,
@@ -2601,7 +2601,7 @@ pub(crate) fn zk_x509_sha_fixed_algebraic_compiler_descriptor_digest_v1()
 }
 /// Typed composition of the four independently committed SHA segments.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509ShaFixedAlgebraicScheduleV1 {
+pub struct ZkX509ShaFixedAlgebraicScheduleV1 {
     children: [ZkX509FixedAlgebraicScheduleV1; ZK_X509_SHA_SEGMENT_COUNT_V1],
     descriptor_digest: PrivacyOuterDigestV1,
 }
@@ -2975,7 +2975,7 @@ fn compile_sha_fixed_algebraic_children_v1(
     Ok(children)
 }
 /// Compile all 472 verifier-owned SHA fixed columns for one admitted shape.
-pub(crate) fn compile_zk_x509_sha_fixed_algebraic_schedule_v1(
+pub fn compile_zk_x509_sha_fixed_algebraic_schedule_v1(
     shape: ZkX509ShaCallPublicShapeV1,
 ) -> Result<ZkX509ShaFixedAlgebraicScheduleV1, ZkX509ShaFixedAlgebraicErrorV1> {
     let children = compile_sha_fixed_algebraic_children_v1(shape)?;
@@ -2986,7 +2986,7 @@ pub(crate) fn compile_zk_x509_sha_fixed_algebraic_schedule_v1(
 ///
 /// Compilation failures are never cached, so a transient allocation failure
 /// cannot poison the process-wide verifier schedule.
-pub(crate) fn zk_x509_sha_fixed_algebraic_schedule_v1(
+pub fn zk_x509_sha_fixed_algebraic_schedule_v1(
     shape: ZkX509ShaCallPublicShapeV1,
 ) -> Result<&'static ZkX509ShaFixedAlgebraicScheduleV1, ZkX509ShaFixedAlgebraicErrorV1> {
     let cache = ZK_X509_SHA_FIXED_ALGEBRAIC_SCHEDULES_V1
@@ -3004,7 +3004,7 @@ pub(crate) fn zk_x509_sha_fixed_algebraic_schedule_v1(
 /// Compile the exact ordered per-shape schedule digest set for disclosures
 /// `0, 1, 2, 3, 4`.
 #[cfg(test)]
-pub(crate) fn zk_x509_sha_fixed_algebraic_shape_digests_v1()
+pub fn zk_x509_sha_fixed_algebraic_shape_digests_v1()
 -> Result<[PrivacyOuterDigestV1; 5], ZkX509ShaFixedAlgebraicErrorV1> {
     let mut digests = [PrivacyOuterDigestV1::default(); 5];
     for (disclosed_attributes, digest) in digests.iter_mut().enumerate() {
@@ -3930,7 +3930,7 @@ mod tests {
                     (memory_start + sorted.len() - 1) as u64,
                     &mut [F::ZERO; ZK_X509_SHA_BATCH_FIXED_WIDTH_V1],
                 )
-                .map(|_| ()),
+                .map(|()| ()),
             Ok(())
         );
         let assert_rejected = |malformed: &[WordMemoryAccessV1]| {

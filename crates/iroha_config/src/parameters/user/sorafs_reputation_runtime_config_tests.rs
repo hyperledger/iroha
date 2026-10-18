@@ -1,4 +1,4 @@
-//! Focused parser tests for the SoraFS reputation runtime policy.
+//! Focused parser tests for the `SoraFS` reputation runtime policy.
 use super::*;
 fn publisher_public_key_hex() -> String {
     let key = KeyPair::try_from_seed(vec![0x52; 32], Algorithm::Ed25519).expect("test keypair");
@@ -259,8 +259,10 @@ fn retention_rejects_missing_test_marked_stale_or_noncanonical_bindings() {
 }
 #[test]
 fn disabled_policy_rejects_stale_authority_claims() {
-    let mut config = SorafsReputationRuntimeConfig::default();
-    config.finalized_query_handle = Some("ledger.finalized.primary".to_owned());
+    let config = SorafsReputationRuntimeConfig {
+        finalized_query_handle: Some("ledger.finalized.primary".to_owned()),
+        ..SorafsReputationRuntimeConfig::default()
+    };
     let mut emitter = Emitter::new();
     assert!(config.parse(false, None, &mut emitter).is_none());
     assert!(emitter.into_result().is_err());

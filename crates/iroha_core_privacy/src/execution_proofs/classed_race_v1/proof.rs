@@ -407,7 +407,7 @@ impl ProofManagedNoteStarkAdapterV1 for ClassedRaceAdapterV1<'_> {
         _: &[Vec<F>],
         _: &[Vec<F>],
         _: NoteCopyChallengesV1,
-        _: &(),
+        (): &(),
     ) -> Result<Vec<Vec<F>>, ProofManagedNoteStarkErrorV1> {
         Ok(vec![])
     }
@@ -419,7 +419,7 @@ impl ProofManagedNoteStarkAdapterV1 for ClassedRaceAdapterV1<'_> {
         _: &[F],
         fixed: &[F],
         _: NoteCopyChallengesV1,
-        _: &(),
+        (): &(),
     ) -> Result<Vec<F>, ProofManagedNoteStarkErrorV1> {
         if current.len() != self.base_width_v1()
             || next.len() != self.base_width_v1()
@@ -460,6 +460,11 @@ fn witness_columns(
 
 /// Generate and self-verify a native Touring proof with fresh local masking entropy.
 /// No ledger registry accepts this standalone source identity yet.
+///
+/// # Errors
+/// Rejects invalid manifest/admission facts, replay or statement bindings,
+/// trace or envelope limits, and native proof construction or self-verification
+/// failures.
 pub fn prove_classed_race_v1(
     request: ClassedRaceProverRequestV1,
 ) -> Result<ExecutionProofEnvelopeV1, ExecutionProofErrorV1> {
@@ -504,6 +509,10 @@ pub(super) fn decode_payload(
 /// envelope. This function proves computation and commitment binding; it does not authenticate
 /// ledger inclusion, NFT ownership/catalog eligibility, accepted input signatures or dispute history.
 /// Those gates are required before future ledger settlement can invoke this isolated relation.
+///
+/// # Errors
+/// Rejects a mismatched expected statement, malformed or oversized envelopes,
+/// invalid replay/profile bindings, and failed native cryptographic verification.
 pub fn verify_classed_race_proof_v1(
     expected: &ExecutionPublicInputsV1,
     envelope: &ExecutionProofEnvelopeV1,

@@ -258,7 +258,7 @@ impl<'a> ManagedNotePhaseCursorV1<'a> {
 }
 
 #[cfg(test)]
-pub(crate) mod test_support {
+pub mod test_support {
     use super::*;
     use std::{
         collections::{BTreeMap, BTreeSet},
@@ -280,7 +280,7 @@ pub(crate) mod test_support {
         Debug(String),
     }
     #[derive(Clone, Debug)]
-    pub(crate) struct CapturedEventV1 {
+    pub struct CapturedEventV1 {
         pub(super) target: String,
         level: tracing::Level,
         fields: BTreeMap<String, ValueV1>,
@@ -356,7 +356,7 @@ pub(crate) mod test_support {
         }
     }
     #[derive(Clone)]
-    pub(crate) struct CaptureV1 {
+    pub struct CaptureV1 {
         aps: bool,
         note: bool,
         events: Arc<Mutex<Vec<CapturedEventV1>>>,
@@ -604,11 +604,11 @@ mod tests {
             let invocation =
                 ProofPhaseInvocationV1::new_managed_note().expect("enabled invocation");
             let mut phases = ManagedNotePhaseCursorV1::new(Some(&invocation));
-            let result: Result<(), ()> = (|| {
+            let result: Result<(), ()> = {
                 phases.advance(ProofPhaseV1::ProfilePreparation);
                 phases.advance(ProofPhaseV1::BaseLde);
                 Err(())
-            })();
+            };
             if result.is_err() {
                 phases.finish(false);
             }
@@ -627,10 +627,8 @@ mod tests {
                         ProofPhaseInvocationV1::new_managed_note().expect("enabled invocation");
                     let mut phases = ManagedNotePhaseCursorV1::new(Some(&invocation));
                     phases.advance(ProofPhaseV1::ProfilePreparation);
-                    if unwind {
-                        panic!("controlled diagnostic unwind");
-                    }
-                    drop(phases);
+                    assert!(!unwind, "controlled diagnostic unwind");
+                    // Let the cursor's lexical scope end without completing its active phase.
                 })
             }));
             assert_eq!(result.is_err(), unwind);
@@ -655,9 +653,7 @@ mod tests {
                                 ProofPhaseInvocationV1::new_managed_note().expect("nested child");
                             assert_eq!(child.parent_invocation_id, inner.id);
                             assert_eq!(child.origin, inner.origin);
-                            if mode == 2 {
-                                panic!("controlled scope unwind");
-                            }
+                            assert!(mode != 2, "controlled scope unwind");
                             if mode == 1 { Err(()) } else { Ok(()) }
                         })
                     }));

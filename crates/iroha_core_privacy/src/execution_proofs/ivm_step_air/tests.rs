@@ -93,7 +93,7 @@ fn admitted_sub_wraps_full_width_with_zero_air_residues() {
         (0, 0),
         (0, 1),
         (u64::MAX, u64::MAX),
-        (i64::MIN as u64, 1),
+        (i64::cast_unsigned(i64::MIN), 1),
         (i64::MAX as u64, u64::MAX),
         (0x0001_0000_0000_0000, 1),
         (0x0000_0000_0000_0001, 0x0001_0000_0000_0000),
@@ -162,15 +162,21 @@ fn immediate_operands_are_exact_signed_eight_bit_words() {
     ] {
         for imm in [i8::MIN, -1, 0, 1, i8::MAX] {
             let word = ivm::encoding::wide::encode_ri(opcode, 3, 1, imm);
-            assert_eq!(immediate_operand(word), Some(imm as i64 as u64));
+            assert_eq!(
+                immediate_operand(word),
+                Some(i64::cast_unsigned(i64::from(imm)))
+            );
             assert_eq!(gas::cost_of(word), Some(1));
             let statement = AluStepStatement {
                 word,
-                right: imm as i64 as u64,
+                right: i64::cast_unsigned(i64::from(imm)),
                 ..statement()
             };
             assert!(statement.validate().is_ok());
-            for wrong in [imm as u8 as u64, (imm as i64 as u64) ^ (1_u64 << 63)] {
+            for wrong in [
+                u64::from(i8::cast_unsigned(imm)),
+                i64::cast_unsigned(i64::from(imm)) ^ (1_u64 << 63),
+            ] {
                 if wrong != statement.right {
                     assert!(
                         AluStepStatement {
@@ -206,9 +212,15 @@ fn immediate_alu_full_width_results_and_zero_register_shapes_satisfy_air() {
         wide::arithmetic::ORI,
         wide::arithmetic::XORI,
     ] {
-        for left in [0, 1, u64::MAX, i64::MIN as u64, 0xaaaa_5555_ffff_0000] {
+        for left in [
+            0,
+            1,
+            u64::MAX,
+            i64::cast_unsigned(i64::MIN),
+            0xaaaa_5555_ffff_0000,
+        ] {
             for imm in [i8::MIN, -1, 0, 1, i8::MAX] {
-                let right = imm as i64 as u64;
+                let right = i64::cast_unsigned(i64::from(imm));
                 let result = expected_result(semantic_opcode(opcode), left, right);
                 let instance = AluStepStatement {
                     word: ivm::encoding::wide::encode_ri(opcode, 3, 1, imm),

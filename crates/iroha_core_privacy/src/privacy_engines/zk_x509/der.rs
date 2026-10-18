@@ -7,32 +7,32 @@
 //! nesting depth, value count, and `SET OF` order. Primitive `OCTET STRING`
 //! payloads remain opaque and must be parsed separately when an X.509
 //! extension assigns them an inner ASN.1 type.
-pub(crate) use super::der_limits::{
+pub use super::der_limits::{
     ZK_X509_DER_MAX_DOCUMENT_BYTES_V1, ZK_X509_DER_MAX_NESTING_DEPTH_V1,
     ZK_X509_DER_MAX_VALUE_BYTES_V1, ZK_X509_DER_MAX_VALUES_V1,
 };
 use thiserror::Error;
 /// DER content octets of `ecdsa-with-SHA256` (`1.2.840.10045.4.3.2`).
-pub(crate) const ZK_X509_ECDSA_WITH_SHA256_OID_CONTENT_V1: &[u8] =
+pub const ZK_X509_ECDSA_WITH_SHA256_OID_CONTENT_V1: &[u8] =
     &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x02];
 /// DER content octets of `id-ecPublicKey` (`1.2.840.10045.2.1`).
-pub(crate) const ZK_X509_ID_EC_PUBLIC_KEY_OID_CONTENT_V1: &[u8] =
+pub const ZK_X509_ID_EC_PUBLIC_KEY_OID_CONTENT_V1: &[u8] =
     &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01];
 /// DER content octets of `prime256v1` (`1.2.840.10045.3.1.7`).
-pub(crate) const ZK_X509_PRIME256V1_OID_CONTENT_V1: &[u8] =
+pub const ZK_X509_PRIME256V1_OID_CONTENT_V1: &[u8] =
     &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07];
 /// Exact DER `AlgorithmIdentifier` for ECDSA with SHA-256 and absent parameters.
-pub(crate) const ZK_X509_ECDSA_WITH_SHA256_ALGORITHM_IDENTIFIER_DER_V1: &[u8] = &[
+pub const ZK_X509_ECDSA_WITH_SHA256_ALGORITHM_IDENTIFIER_DER_V1: &[u8] = &[
     0x30, 0x0a, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x02,
 ];
 /// Exact DER `AlgorithmIdentifier` for a P-256 subject public key.
-pub(crate) const ZK_X509_P256_PUBLIC_KEY_ALGORITHM_IDENTIFIER_DER_V1: &[u8] = &[
+pub const ZK_X509_P256_PUBLIC_KEY_ALGORITHM_IDENTIFIER_DER_V1: &[u8] = &[
     0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a, 0x86, 0x48,
     0xce, 0x3d, 0x03, 0x01, 0x07,
 ];
 /// Resource limits applied while validating one DER document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerLimitsV1 {
+pub struct ZkX509DerLimitsV1 {
     /// Maximum complete input bytes.
     pub(crate) max_document_bytes: usize,
     /// Maximum content bytes in any one value.
@@ -70,7 +70,7 @@ impl ZkX509DerLimitsV1 {
 }
 /// ASN.1 tag class.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ZkX509DerClassV1 {
+pub enum ZkX509DerClassV1 {
     /// Universal ASN.1 tag.
     Universal,
     /// Application-specific tag.
@@ -274,10 +274,10 @@ pub enum ZkX509DerErrorV1 {
     /// Bits declared unused are not zero.
     #[error("zk-X509 DER BIT STRING has non-zero unused bits")]
     NonZeroUnusedBits,
-    /// AlgorithmIdentifier omits its algorithm OID.
+    /// `AlgorithmIdentifier` omits its algorithm OID.
     #[error("zk-X509 AlgorithmIdentifier omits its algorithm OID")]
     MissingAlgorithmObjectIdentifier,
-    /// The signature AlgorithmIdentifier is not exactly ECDSA with SHA-256.
+    /// The signature `AlgorithmIdentifier` is not exactly ECDSA with SHA-256.
     #[error("zk-X509 signature AlgorithmIdentifier is not ecdsa-with-SHA256")]
     UnsupportedSignatureAlgorithm,
     /// ECDSA-with-SHA256 parameters must be absent, not NULL.
@@ -286,19 +286,19 @@ pub enum ZkX509DerErrorV1 {
     /// The subject-public-key algorithm is not `id-ecPublicKey`.
     #[error("zk-X509 subject-public-key AlgorithmIdentifier is not id-ecPublicKey")]
     UnsupportedPublicKeyAlgorithm,
-    /// The subject-public-key AlgorithmIdentifier omits its named curve.
+    /// The subject-public-key `AlgorithmIdentifier` omits its named curve.
     #[error("zk-X509 id-ecPublicKey AlgorithmIdentifier omits its named curve")]
     MissingPublicKeyAlgorithmParameters,
     /// The named curve is not exactly `prime256v1`.
     #[error("zk-X509 subject-public-key AlgorithmIdentifier is not prime256v1")]
     UnsupportedNamedCurve,
-    /// AlgorithmIdentifier contains fields beyond the exact profile shape.
+    /// `AlgorithmIdentifier` contains fields beyond the exact profile shape.
     #[error("zk-X509 AlgorithmIdentifier contains unexpected trailing fields")]
     UnexpectedAlgorithmIdentifierFields,
 }
 /// One recursively validated borrowed DER value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerValueV1<'a> {
+pub struct ZkX509DerValueV1<'a> {
     tag: ZkX509DerTagV1,
     encoded: &'a [u8],
     contents: &'a [u8],
@@ -366,7 +366,7 @@ impl<'a> ZkX509DerValueV1<'a> {
 }
 /// Reader over already recursively validated DER children.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerReaderV1<'a> {
+pub struct ZkX509DerReaderV1<'a> {
     remaining: &'a [u8],
     limits: ZkX509DerLimitsV1,
 }
@@ -387,7 +387,7 @@ impl<'a> ZkX509DerReaderV1<'a> {
 }
 /// Canonical borrowed INTEGER content.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerIntegerV1<'a> {
+pub struct ZkX509DerIntegerV1<'a> {
     contents: &'a [u8],
 }
 impl<'a> ZkX509DerIntegerV1<'a> {
@@ -426,7 +426,7 @@ impl<'a> ZkX509DerIntegerV1<'a> {
 }
 /// Positive non-zero unsigned magnitude derived from a canonical INTEGER.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerPositiveIntegerV1<'a> {
+pub struct ZkX509DerPositiveIntegerV1<'a> {
     bytes: &'a [u8],
 }
 impl<'a> ZkX509DerPositiveIntegerV1<'a> {
@@ -437,7 +437,7 @@ impl<'a> ZkX509DerPositiveIntegerV1<'a> {
 }
 /// Canonical borrowed OBJECT IDENTIFIER content.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerObjectIdentifierV1<'a> {
+pub struct ZkX509DerObjectIdentifierV1<'a> {
     contents: &'a [u8],
 }
 impl<'a> ZkX509DerObjectIdentifierV1<'a> {
@@ -452,7 +452,7 @@ impl<'a> ZkX509DerObjectIdentifierV1<'a> {
 }
 /// Canonical borrowed BIT STRING payload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ZkX509DerBitStringV1<'a> {
+pub struct ZkX509DerBitStringV1<'a> {
     unused_bits: u8,
     bytes: &'a [u8],
 }
@@ -467,7 +467,7 @@ impl<'a> ZkX509DerBitStringV1<'a> {
     }
 }
 /// Parse and recursively validate exactly one bounded DER value.
-pub(crate) fn parse_single_der_value_v1(
+pub fn parse_single_der_value_v1(
     input: &[u8],
     limits: ZkX509DerLimitsV1,
 ) -> Result<ZkX509DerValueV1<'_>, ZkX509DerErrorV1> {
@@ -489,8 +489,8 @@ pub(crate) fn parse_single_der_value_v1(
     }
     Ok(value)
 }
-/// Validate the exact ECDSA-with-SHA256 AlgorithmIdentifier used by certificates and CRLs.
-pub(crate) fn validate_ecdsa_with_sha256_algorithm_identifier_v1(
+/// Validate the exact ECDSA-with-SHA256 `AlgorithmIdentifier` used by certificates and CRLs.
+pub fn validate_ecdsa_with_sha256_algorithm_identifier_v1(
     encoded: &[u8],
     limits: ZkX509DerLimitsV1,
 ) -> Result<(), ZkX509DerErrorV1> {
@@ -509,8 +509,8 @@ pub(crate) fn validate_ecdsa_with_sha256_algorithm_identifier_v1(
     }
     Ok(())
 }
-/// Validate the exact id-ecPublicKey/prime256v1 AlgorithmIdentifier used by SPKIs.
-pub(crate) fn validate_p256_public_key_algorithm_identifier_v1(
+/// Validate the exact id-ecPublicKey/prime256v1 `AlgorithmIdentifier` used by SPKIs.
+pub fn validate_p256_public_key_algorithm_identifier_v1(
     encoded: &[u8],
     limits: ZkX509DerLimitsV1,
 ) -> Result<(), ZkX509DerErrorV1> {

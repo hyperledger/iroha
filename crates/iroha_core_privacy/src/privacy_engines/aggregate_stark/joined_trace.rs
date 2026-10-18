@@ -8,7 +8,7 @@ use super::*;
 
 /// Which independently committed transcript phase the joined row belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum JoinedTraceColumnKindV1 {
+pub enum JoinedTraceColumnKindV1 {
     /// Challenge-independent masked trace columns.
     Base,
     /// Masked product and other challenge-dependent columns.
@@ -17,7 +17,7 @@ pub(crate) enum JoinedTraceColumnKindV1 {
 
 /// Immutable ordered group slices for one common-domain vector commitment.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct JoinedTraceCommitmentPlanV1 {
+pub struct JoinedTraceCommitmentPlanV1 {
     commitment_lde_log2: u8,
     kind: JoinedTraceColumnKindV1,
     groups: Vec<(u8, std::ops::Range<usize>)>,
@@ -73,7 +73,7 @@ impl JoinedTraceCommitmentPlanV1 {
         self.width
     }
 
-    fn roles_v1(&self, domains: AggregateStarkDomainsV1) -> (&'static [u8], &'static [u8]) {
+    fn roles_v1(&self, domains: &AggregateStarkDomainsV1) -> (&'static [u8], &'static [u8]) {
         match self.kind {
             JoinedTraceColumnKindV1::Base => (domains.base_leaf, domains.base_node),
             JoinedTraceColumnKindV1::Aux => (domains.aux_leaf, domains.aux_node),
@@ -89,7 +89,7 @@ impl JoinedTraceCommitmentPlanV1 {
     #[cfg(test)]
     pub(crate) fn commit_v1(
         &self,
-        domains: AggregateStarkDomainsV1,
+        domains: &AggregateStarkDomainsV1,
         polynomials: &[&MaskedTracePolynomialSetV1],
         opening_indices: &[usize],
     ) -> Result<StreamingRowCommitmentResultV1, AggregateStarkErrorV1> {
@@ -148,7 +148,7 @@ impl JoinedTraceCommitmentPlanV1 {
     #[cfg(test)]
     pub(crate) fn commit_replayed_v1(
         &self,
-        domains: AggregateStarkDomainsV1,
+        domains: &AggregateStarkDomainsV1,
         opening_indices: &[usize],
         mut coefficients: impl FnMut(usize, usize) -> Result<Vec<F>, AggregateStarkErrorV1>,
         mut evaluate: impl FnMut(
@@ -200,7 +200,7 @@ impl JoinedTraceCommitmentPlanV1 {
     /// owner validates every original coefficient and preserves mask custody.
     pub(crate) fn commit_retained_replayed_v1(
         &self,
-        domains: AggregateStarkDomainsV1,
+        domains: &AggregateStarkDomainsV1,
         opening_indices: &[usize],
         cut: Option<&retained_commitment::RetainedMerkleCutV1>,
         mut coefficients: impl FnMut(usize, usize) -> Result<Vec<F>, AggregateStarkErrorV1>,
@@ -295,7 +295,7 @@ impl JoinedTraceCommitmentPlanV1 {
     #[cfg(test)]
     pub(crate) fn leaf_hash_v1(
         &self,
-        domains: AggregateStarkDomainsV1,
+        domains: &AggregateStarkDomainsV1,
         row_index: usize,
         logical_rows: &[&[F]],
     ) -> Result<PrivacyOuterDigestV1, AggregateStarkErrorV1> {

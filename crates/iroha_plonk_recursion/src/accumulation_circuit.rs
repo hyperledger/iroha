@@ -212,6 +212,9 @@ pub struct FoldInputCells<C: PastaCurve> {
 
 impl<C: PastaCurve> FoldInputCells<C> {
     /// Explicit full-k16 deciding padding slot, constrained to compiled params.
+    ///
+    /// # Errors
+    /// An invalid compiled trivial point or a circuit layout failure.
     pub fn pinned_trivial(
         chip: &mut VerifierChip<C>,
         region: &mut Region<'_, C::Base>,
@@ -572,6 +575,21 @@ enum InputBinding<C: PastaCurve> {
     },
 }
 
+// Retain the transcript, challenges and opening data from one committed prelude.
+struct FoldPreludeCells<C: PastaCurve> {
+    transcript: TranscriptChip<C::Base>,
+    challenges: [ScalarCells<C>; 3],
+    masks: Vec<ScalarCells<C>>,
+    digest: Word<C::Base>,
+}
+
+// The closed caller selects the verification mode and its input binding together.
+#[derive(Clone, Copy)]
+struct FoldVerification<'a, C: PastaCurve> {
+    mode: VerificationMode,
+    binding: &'a InputBinding<C>,
+}
+
 impl<C: PastaCurve> VerifierChip<C> {
     fn fold_evaluation_cells(
         &mut self,
@@ -598,15 +616,7 @@ impl<C: PastaCurve> VerifierChip<C> {
         messages: &[LeElement<C::Base>],
         valid: &mut Bit<C::Base>,
         binding: &InputBinding<C>,
-    ) -> Result<
-        (
-            TranscriptChip<C::Base>,
-            [ScalarCells<C>; 3],
-            Vec<ScalarCells<C>>,
-            Word<C::Base>,
-        ),
-        Error,
-    > {
+    ) -> Result<FoldPreludeCells<C>, Error> {
         let d = decode_point_soft::<C>(
             &mut UintChip::new(&mut self.glue, &mut self.range),
             &mut self.ecc,
@@ -705,7 +715,12 @@ impl<C: PastaCurve> VerifierChip<C> {
             transcript.squeeze_scalar::<C>(&mut self.uint(), region)?,
             transcript.squeeze_scalar::<C>(&mut self.uint(), region)?,
         ];
-        Ok((transcript, prelude, masks, digest))
+        Ok(FoldPreludeCells {
+            transcript,
+            challenges: prelude,
+            masks,
+            digest,
+        })
     }
 
     fn fold_claim(
@@ -766,8 +781,10 @@ impl<C: PastaCurve> VerifierChip<C> {
             inputs,
             messages,
             length,
-            mode,
-            InputBinding::Exact,
+            FoldVerification {
+                mode,
+                binding: &InputBinding::Exact,
+            },
         )
     }
 
@@ -778,9 +795,9 @@ impl<C: PastaCurve> VerifierChip<C> {
         inputs: &[FoldInputCells<C>],
         messages: &[LeElement<C::Base>],
         length: &Uint<C::Base, 32>,
-        mode: VerificationMode,
-        binding: InputBinding<C>,
+        verification: FoldVerification<'_, C>,
     ) -> Result<FoldOutputCells<C>, Error> {
+        let FoldVerification { mode, binding } = verification;
         if messages.len() != FOLD_WITNESS_BYTES / 32
             || inputs.len() != plan.sources.len()
             || inputs
@@ -807,8 +824,12 @@ impl<C: PastaCurve> VerifierChip<C> {
             has_full = self.glue.not(region, &missing)?;
         }
         self.combine(region, &mut valid, &has_full)?;
-        let (mut transcript, prelude, masks, digest) =
-            self.committed_fold_prelude(region, plan, inputs, messages, &mut valid, &binding)?;
+        let FoldPreludeCells {
+            mut transcript,
+            challenges: prelude,
+            masks,
+            digest,
+        } = self.committed_fold_prelude(region, plan, inputs, messages, &mut valid, binding)?;
         let [alpha_cells, z_cells, zeta_cells] = prelude.clone();
         let mut gamma_pairs = Vec::with_capacity(2 * K);
         let alpha = self.import(region, &alpha_cells)?;
@@ -1018,6 +1039,10 @@ impl VerifierChip<iroha_pasta::Eq> {
     }
     /// Closed terminal-only fold, binding the raw prefix of the same hard A
     /// verification and its exact own-opening claim. Derives all frame slots.
+    ///
+    /// # Errors
+    /// An incompatible hard frame, descriptor, slot schema or message shape, or
+    /// a circuit layout failure. Invalid witness values make the circuit unsatisfied.
     pub fn verify_terminal_frame_fold(
         &mut self,
         region: &mut Region<'_, iroha_pasta::Fq>,
@@ -1050,7 +1075,8 @@ impl VerifierChip<iroha_pasta::Eq> {
             .map(|s| s.native_word().cloned().ok_or(Error::Synthesis))
             .collect::<Result<Vec<_>, _>>()?;
         let part_point = Self::terminal_point(self, region, &words[2..6])?;
-        let part = FoldInputCells::from_sigma_part(
+        let mut inputs = Vec::with_capacity(4);
+        inputs.push(FoldInputCells::from_sigma_part(
             self,
             region,
             &words[1],
@@ -1059,9 +1085,14 @@ impl VerifierChip<iroha_pasta::Eq> {
                 .to_vec()
                 .try_into()
                 .map_err(|_| Error::Synthesis)?,
-        )?;
-        let own = FoldInputCells::from_claim(self, region, &frame.own_claim)?;
-        let predecessor = Self::terminal_claim(self, region, &words[22..26], &scalars[26..42])?;
+        )?);
+        inputs.push(FoldInputCells::from_claim(self, region, &frame.own_claim)?);
+        inputs.push(Self::terminal_claim(
+            self,
+            region,
+            &words[22..26],
+            &scalars[26..42],
+        )?);
         let incoming = Self::terminal_claim(self, region, &words[42..46], &scalars[46..62])?;
         let modes = words[62..65]
             .to_vec()
@@ -1071,7 +1102,7 @@ impl VerifierChip<iroha_pasta::Eq> {
         let corrected = Self::terminal_point(self, region, &words[65..69])?;
         let selected =
             FoldInputCells::select_incoming(self, region, &incoming, &corrected, &modes)?;
-        let inputs = [part, own, predecessor, selected];
+        inputs.push(selected);
         let binding = InputBinding::Terminal {
             descriptor: *frame.binding.digest(),
             raw: frame.first_raw,
@@ -1082,8 +1113,10 @@ impl VerifierChip<iroha_pasta::Eq> {
             &inputs,
             messages,
             length,
-            VerificationMode::Hard,
-            binding,
+            FoldVerification {
+                mode: VerificationMode::Hard,
+                binding: &binding,
+            },
         )?;
         Ok(TerminalFoldOutputCells {
             lineage: words[0].clone(),

@@ -19,7 +19,7 @@ const OPENING_DOMAIN: &[u8] = b"iroha:privacy:zk-x509:joint-original-openings:v1
 
 /// Ordered subproof identity; never a caller-selected numerical tag.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum JointSubproofV1 {
+pub enum JointSubproofV1 {
     Main,
     Ca,
 }
@@ -43,7 +43,7 @@ impl JointSubproofV1 {
 
 /// Public binding of both original auxiliary roots to the original X5B1 state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct JointAuxiliaryBindingV1 {
+pub struct JointAuxiliaryBindingV1 {
     proof_instance: ZkX509ProofInstanceV1,
     pre_aux: Digest,
     roots: [Digest; 2],
@@ -102,14 +102,14 @@ impl JointAuxiliaryBindingV1 {
 /// Both compositions, both independent FRI masks and both local checkpoints
 /// precede the single shared point. Array positions are MAIN then CA.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct JointOracleCheckpointsV1 {
+pub struct JointOracleCheckpointsV1 {
     pub(crate) transcript_states: [Digest; 2],
     pub(crate) composition_roots: [Digest; 2],
     pub(crate) fri_mask_roots: [Digest; 2],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct JointPointV1 {
+pub struct JointPointV1 {
     proof_instance: ZkX509ProofInstanceV1,
     point: E,
     sampled_state: Digest,
@@ -177,7 +177,7 @@ impl JointPointV1 {
 
 /// Exact public original-column openings carried by the credential envelope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct JointOriginalOpeningsV1 {
+pub struct JointOriginalOpeningsV1 {
     pub(crate) main: [E; 24],
     pub(crate) ca: [E; 108],
 }
@@ -264,7 +264,7 @@ impl JointOriginalOpeningsV1 {
 /// Consuming stages require the exact transcript after the paired opening bind.
 /// Fields stay private so no unbound local DEEP state can create this token.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct JointDeepBindingV1 {
+pub struct JointDeepBindingV1 {
     proof_instance: ZkX509ProofInstanceV1,
     states: [Digest; 2],
     openings: JointOriginalOpeningsV1,

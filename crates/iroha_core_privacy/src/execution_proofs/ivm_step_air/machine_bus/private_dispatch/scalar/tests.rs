@@ -958,9 +958,9 @@ fn native_private_comparisons_cover_signed_unsigned_equality_aliases_and_r0() {
         (u64::MAX, 0),
         (0, u64::MAX),
         (u64::MAX, u64::MAX),
-        (i64::MAX as u64, i64::MIN as u64),
-        (i64::MIN as u64, i64::MAX as u64),
-        (i64::MIN as u64, u64::MAX),
+        (i64::MAX as u64, i64::cast_unsigned(i64::MIN)),
+        (i64::cast_unsigned(i64::MIN), i64::MAX as u64),
+        (i64::cast_unsigned(i64::MIN), u64::MAX),
         (0xffff_ffff_0000_0001, 0),
         (0, 0xffff_ffff_0000_0001),
         (0x1234_ffff_0000_0001, 0x1234_0000_ffff_0001),
@@ -986,7 +986,7 @@ fn native_private_comparisons_cover_signed_unsigned_equality_aliases_and_r0() {
                 enc::encode_rr(opcode, rd, rs1, rs2),
                 &[
                     (2, u64::MAX, false),
-                    (3, i64::MIN as u64, false),
+                    (3, i64::cast_unsigned(i64::MIN), false),
                     (4, 19, true),
                 ],
             );
@@ -1036,7 +1036,7 @@ fn comparison_workspace_remains_canonical_on_alu_and_padding_rows() {
     );
     let padding = ScalarFixture(Fixture::padding());
     assert!(padding.accepts(&program));
-    for original in [fixture, padding] {
+    for original in [&fixture, &padding] {
         for column in SCALAR + COMPARE..SCALAR + PRODUCT_DIGITS {
             let mut changed = original.clone();
             changed.0.row[column] = changed.0.row[column].add(F::ONE);

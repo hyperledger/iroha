@@ -72,7 +72,7 @@ const fn pool() -> [usize; POOL_WIDTH] {
         range += 1;
     }
     assert!(output == POOL_WIDTH);
-    assert!(PAYLOAD == 464);
+    const { assert!(PAYLOAD == 464) };
     result
 }
 const POOL: [usize; POOL_WIDTH] = pool();
@@ -321,7 +321,10 @@ mod witness {
     }
 
     pub(in super::super) fn fill(bank: &mut [F], left: u64, right: u64) {
-        let (a, b) = ((left as i64).unsigned_abs(), (right as i64).unsigned_abs());
+        let (a, b) = (
+            u64::cast_signed(left).unsigned_abs(),
+            u64::cast_signed(right).unsigned_abs(),
+        );
         let (mut g, mut rest) = (a, b);
         for _ in 0..93 {
             if rest != 0 {
@@ -580,7 +583,10 @@ mod tests {
         for left in [0, 1, u64::MAX, 1 << 63] {
             let mut bank = [F::ZERO; WIDTH];
             fill(&mut bank, left, 0);
-            assert_eq!(word_value(&bank, RESULT), (left as i64).unsigned_abs());
+            assert_eq!(
+                word_value(&bank, RESULT),
+                u64::cast_signed(left).unsigned_abs()
+            );
             assert!(residuals(&bank, left, 0).iter().all(|r| *r == F::ZERO));
             for logical in (NORMAL_A..MAGNITUDE_BORROWS).chain(PRODUCT_CARRIES..PAYLOAD) {
                 assert_eq!(value(&bank, logical), F::ZERO);

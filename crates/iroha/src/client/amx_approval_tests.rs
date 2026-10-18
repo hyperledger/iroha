@@ -11,8 +11,8 @@ use iroha_data_model::{
     permission::Permissions,
     sumeragi_amx::{AmxDebitApprovalProofV1, AmxDebitApprovalV1},
     sumeragi_finality::{
-        WorldStateElementKindV1, WorldStateSnapshotEntryV1, WorldStateSnapshotV1,
-        test_fixtures::NativeFinalityFixture, world_state_value_hash_v1,
+        VerifiedSumeragiBlock, WorldStateElementKindV1, WorldStateSnapshotEntryV1,
+        WorldStateSnapshotV1, test_fixtures::NativeFinalityFixture, world_state_value_hash_v1,
     },
 };
 use std::sync::{Arc, Mutex};
@@ -53,88 +53,125 @@ async fn amx_approval_async_read_preserves_root_and_version_named_provider_prefi
     }
 }
 
+struct ApprovalFixture {
+    approval: AmxDebitApprovalV1,
+    schema: Hash,
+    proof: AmxDebitApprovalProofV1,
+    verified: Box<VerifiedSumeragiBlock>,
+    later: Box<VerifiedSumeragiBlock>,
+}
+
+// Keep synchronous proof construction outside the async state machine and retain
+// its two authenticated cuts on the heap across HTTP suspension points.
+#[inline(never)]
+fn approval_fixture(client: &mut Client) -> ApprovalFixture {
+    let parent = client.network_id;
+    let ds = iroha_model_base::topology::DataSpaceId::new(7);
+    let mut native = NativeFinalityFixture::start_with_scope(
+        "sdk-amx-bank",
+        iroha_data_model::block::consensus::SumeragiRootScope::Dataspace {
+            parent_network_id: parent,
+            dataspace_id: ds,
+        },
+    );
+    client.network_id = native.network_id();
+    client.chain = native.chain_id().parse().unwrap();
+    let owner = AccountId::new(
+        KeyPair::from_seed(vec![99; 32], Algorithm::Ed25519)
+            .public_key()
+            .clone(),
+    );
+    let approval = AmxDebitApprovalV1 {
+        global_network: parent,
+        participant_network: native.network_id(),
+        participant_instance: native.verifier().instance().0,
+        dataspace: ds,
+        transaction_id: [87; 32],
+        debited_asset: AssetId::with_scope(
+            "6TEAJqbb8oEPmLncoNiMRbLEK6tw".parse().unwrap(),
+            owner.clone(),
+            AssetBalanceScope::Dataspace(ds),
+        ),
+    };
+    let permissions = Permissions::from([approval.permission().unwrap()]);
+    let mut entries = vec![];
+    for account in [&owner, &client.account] {
+        entries.push(WorldStateSnapshotEntryV1 {
+            field_id: "world.accounts".into(),
+            kind: WorldStateElementKindV1::Table,
+            key_hash: Some(world_state_value_hash_v1(account).unwrap()),
+            value_hash: Hash::new(b"synthetic account original"),
+        });
+    }
+    entries.push(WorldStateSnapshotEntryV1 {
+        field_id: "world.asset_definitions".into(),
+        kind: WorldStateElementKindV1::Table,
+        key_hash: Some(world_state_value_hash_v1(approval.debited_asset.definition()).unwrap()),
+        value_hash: Hash::new(b"synthetic asset original"),
+    });
+    entries.push(WorldStateSnapshotEntryV1 {
+        field_id: "world.account_permissions".into(),
+        kind: WorldStateElementKindV1::Table,
+        key_hash: Some(world_state_value_hash_v1(&client.account).unwrap()),
+        value_hash: world_state_value_hash_v1(&permissions).unwrap(),
+    });
+    entries
+        .sort_by(|a, b| (&a.field_id, a.kind, a.key_hash).cmp(&(&b.field_id, b.kind, b.key_hash)));
+    let schema = Hash::new(b"independently qualified AMX schema");
+    let proof = AmxDebitApprovalProofV1 {
+        world: WorldStateSnapshotV1 {
+            schema_hash: schema,
+            entries,
+        },
+        relay_permissions: permissions,
+    };
+    let block = native.block_with_submitted_work(native.next_header());
+    let certificate = native.certify_with_world_root(block, proof.world.root().unwrap());
+    let verified = Box::new(
+        native
+            .verifier()
+            .verify_retained_decision(&certificate)
+            .unwrap(),
+    );
+    let block = native.block_with_submitted_work(native.next_header());
+    let later_certificate = native.certify_with_world_root(block, Hash::new(b"later bank cut"));
+    let later = Box::new(
+        native
+            .verifier()
+            .verify_retained_decision(&later_certificate)
+            .unwrap(),
+    );
+    ApprovalFixture {
+        approval,
+        schema,
+        proof,
+        verified,
+        later,
+    }
+}
+
+#[test]
+fn approval_read_future_keeps_authenticated_cuts_off_the_stack() {
+    let future =
+        assert_amx_approval_async_read("http://approval.invalid/provider/", "/provider/v1");
+    assert!(
+        std::mem::size_of_val(&future) <= 16_384,
+        "approval read future retains large authenticated cut values inline: {} bytes",
+        std::mem::size_of_val(&future),
+    );
+}
+
 async fn assert_amx_approval_async_read(base: &str, route_prefix: &str) {
     // The entire configured URL is a provider directory. A literal terminal `v1`
     // belongs to that directory and cannot be removed from the signed target.
     let mut client = client_with_base_url(base.parse().unwrap());
-    // Proof construction is synchronous: release the large finality fixture before
-    // retaining the verified cuts across asynchronous HTTP reads.
-    let (approval, schema, proof, verified, later) = {
-        let parent = client.network_id;
-        let ds = iroha_model_base::topology::DataSpaceId::new(7);
-        let mut native = NativeFinalityFixture::start_with_scope(
-            "sdk-amx-bank",
-            iroha_data_model::block::consensus::SumeragiRootScope::Dataspace {
-                parent_network_id: parent,
-                dataspace_id: ds,
-            },
-        );
-        client.network_id = native.network_id();
-        client.chain = native.chain_id().parse().unwrap();
-        let owner = AccountId::new(
-            KeyPair::from_seed(vec![99; 32], Algorithm::Ed25519)
-                .public_key()
-                .clone(),
-        );
-        let approval = AmxDebitApprovalV1 {
-            global_network: parent,
-            participant_network: native.network_id(),
-            participant_instance: native.verifier().instance().0,
-            dataspace: ds,
-            transaction_id: [87; 32],
-            debited_asset: AssetId::with_scope(
-                "6TEAJqbb8oEPmLncoNiMRbLEK6tw".parse().unwrap(),
-                owner.clone(),
-                AssetBalanceScope::Dataspace(ds),
-            ),
-        };
-        let permissions = Permissions::from([approval.permission().unwrap()]);
-        let mut entries = vec![];
-        for account in [&owner, &client.account] {
-            entries.push(WorldStateSnapshotEntryV1 {
-                field_id: "world.accounts".into(),
-                kind: WorldStateElementKindV1::Table,
-                key_hash: Some(world_state_value_hash_v1(account).unwrap()),
-                value_hash: Hash::new(b"synthetic account original"),
-            });
-        }
-        entries.push(WorldStateSnapshotEntryV1 {
-            field_id: "world.asset_definitions".into(),
-            kind: WorldStateElementKindV1::Table,
-            key_hash: Some(world_state_value_hash_v1(approval.debited_asset.definition()).unwrap()),
-            value_hash: Hash::new(b"synthetic asset original"),
-        });
-        entries.push(WorldStateSnapshotEntryV1 {
-            field_id: "world.account_permissions".into(),
-            kind: WorldStateElementKindV1::Table,
-            key_hash: Some(world_state_value_hash_v1(&client.account).unwrap()),
-            value_hash: world_state_value_hash_v1(&permissions).unwrap(),
-        });
-        entries.sort_by(|a, b| {
-            (&a.field_id, a.kind, a.key_hash).cmp(&(&b.field_id, b.kind, b.key_hash))
-        });
-        let schema = Hash::new(b"independently qualified AMX schema");
-        let proof = AmxDebitApprovalProofV1 {
-            world: WorldStateSnapshotV1 {
-                schema_hash: schema,
-                entries,
-            },
-            relay_permissions: permissions,
-        };
-        let block = native.block_with_submitted_work(native.next_header());
-        let certificate = native.certify_with_world_root(block, proof.world.root().unwrap());
-        let verified = native
-            .verifier()
-            .verify_retained_decision(&certificate)
-            .unwrap();
-        let block = native.block_with_submitted_work(native.next_header());
-        let later_certificate = native.certify_with_world_root(block, Hash::new(b"later bank cut"));
-        let later = native
-            .verifier()
-            .verify_retained_decision(&later_certificate)
-            .unwrap();
-        (approval, schema, proof, verified, later)
-    };
+    let ApprovalFixture {
+        approval,
+        schema,
+        proof,
+        verified,
+        later,
+    } = approval_fixture(&mut client);
     for (code, media, wrong_terms, stale_proof, success) in [
         (200, APPLICATION_NORITO, false, false, true),
         (200, APPLICATION_NORITO, true, false, false),

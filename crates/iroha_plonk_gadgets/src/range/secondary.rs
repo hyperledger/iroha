@@ -24,7 +24,7 @@ use iroha_plonk::{
 /// The fixed phase owning the other cells on a secondary-stream row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SecondaryPhase {
-    /// Ordinary Glue: twelve packed bits in five spare cells.
+    /// Ordinary Glue: fifteen packed bits in five spare cells.
     Glue,
     /// Ordinary Poseidon: fifteen packed bits in five spare cells.
     Poseidon,
@@ -41,8 +41,7 @@ impl SecondaryPhase {
     }
     const fn radix_bits(self) -> usize {
         match self {
-            Self::Glue => 15,
-            Self::Poseidon | Self::PairedPoseidon => 15,
+            Self::Glue | Self::Poseidon | Self::PairedPoseidon => 15,
         }
     }
 }

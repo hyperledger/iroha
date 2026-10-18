@@ -1987,8 +1987,10 @@ mod exact_sorafs_pin_policy_label_tests {
     #[test]
     fn pin_policy_storage_classes_reject_case_and_whitespace_aliases() {
         for invalid in ["HOT", " hot", "hot "] {
-            let mut policy = SorafsPinPolicyConstraints::default();
-            policy.allowed_storage_classes = Some(AlgorithmListConfig(vec![invalid.to_owned()]));
+            let policy = SorafsPinPolicyConstraints {
+                allowed_storage_classes: Some(AlgorithmListConfig(vec![invalid.to_owned()])),
+                ..SorafsPinPolicyConstraints::default()
+            };
             assert!(
                 std::panic::catch_unwind(|| policy.parse()).is_err(),
                 "{invalid:?} must fail closed"
@@ -2982,8 +2984,10 @@ mod governance_tests {
             4
         );
 
-        let mut invalid = Governance::default();
-        invalid.parliament_sortition_pulse_delay_blocks = 0;
+        let invalid = Governance {
+            parliament_sortition_pulse_delay_blocks: 0,
+            ..Governance::default()
+        };
         assert!(
             std::panic::catch_unwind(|| invalid.parse()).is_err(),
             "zero sortition delay must fail before an attempt can be created"
@@ -3015,8 +3019,10 @@ mod governance_tests {
 
         assert_eq!(parsed.parliament_public_finding_phase_blocks, 19);
 
-        let mut invalid = Governance::default();
-        invalid.parliament_public_finding_phase_blocks = 0;
+        let invalid = Governance {
+            parliament_public_finding_phase_blocks: 0,
+            ..Governance::default()
+        };
         assert!(
             std::panic::catch_unwind(|| invalid.parse()).is_err(),
             "zero public-finding phase must fail before Reflection can be entered"
@@ -3072,8 +3078,10 @@ mod governance_tests {
 
     #[test]
     fn parliament_enactment_delay_rejects_zero_at_startup() {
-        let mut governance = Governance::default();
-        governance.min_enactment_delay = 0;
+        let governance = Governance {
+            min_enactment_delay: 0,
+            ..Governance::default()
+        };
         let panic = std::panic::catch_unwind(|| governance.parse());
         assert!(
             panic.is_err(),
@@ -3321,43 +3329,53 @@ max_corpus_entries = 16
 
     #[test]
     fn parliament_hidden_body_sizes_require_the_anonymity_floor() {
-        let mut one_policy_seat = Governance::default();
-        one_policy_seat.policy_jury_size = 1;
+        let one_policy_seat = Governance {
+            policy_jury_size: 1,
+            ..Governance::default()
+        };
         assert!(
             std::panic::catch_unwind(|| one_policy_seat.parse()).is_err(),
             "a single-seat Policy Jury is below the hidden-ballot anonymity floor"
         );
 
-        let mut two_policy_seats = Governance::default();
-        two_policy_seats.policy_jury_size = 2;
+        let two_policy_seats = Governance {
+            policy_jury_size: 2,
+            ..Governance::default()
+        };
         assert!(
             std::panic::catch_unwind(|| two_policy_seats.parse()).is_err(),
             "a two-seat Policy Jury would expose choices through the exact tally"
         );
 
-        let mut one_confirmation_seat = Governance::default();
-        one_confirmation_seat.confirmation_jury_size = 1;
+        let one_confirmation_seat = Governance {
+            confirmation_jury_size: 1,
+            ..Governance::default()
+        };
         assert!(
             std::panic::catch_unwind(|| one_confirmation_seat.parse()).is_err(),
             "a single-seat Confirmation Jury is below the hidden-ballot anonymity floor"
         );
 
-        let mut two_confirmation_seats = Governance::default();
-        two_confirmation_seats.confirmation_jury_size = 2;
+        let two_confirmation_seats = Governance {
+            confirmation_jury_size: 2,
+            ..Governance::default()
+        };
         assert!(
             std::panic::catch_unwind(|| two_confirmation_seats.parse()).is_err(),
             "a two-seat Confirmation Jury would expose choices through the exact tally"
         );
 
-        let mut one_public_seat = Governance::default();
-        one_public_seat.rules_committee_size = 1;
-        one_public_seat.agenda_council_size = 1;
-        one_public_seat.interest_panel_size = 1;
-        one_public_seat.review_panel_size = 1;
-        one_public_seat.coordination_council_size = 1;
-        one_public_seat.oversight_committee_size = 1;
-        one_public_seat.mpc_committee_size = 1;
-        one_public_seat.fma_committee_size = 1;
+        let one_public_seat = Governance {
+            rules_committee_size: 1,
+            agenda_council_size: 1,
+            interest_panel_size: 1,
+            review_panel_size: 1,
+            coordination_council_size: 1,
+            oversight_committee_size: 1,
+            mpc_committee_size: 1,
+            fma_committee_size: 1,
+            ..Governance::default()
+        };
         one_public_seat.parse();
     }
 
@@ -3370,8 +3388,10 @@ max_corpus_entries = 16
     }
     #[test]
     fn debug_trace_pipeline_roundtrips() {
-        let mut cfg = Governance::default();
-        cfg.debug_trace_pipeline = true;
+        let cfg = Governance {
+            debug_trace_pipeline: true,
+            ..Governance::default()
+        };
         let parsed = cfg.parse();
         assert!(parsed.debug_trace_pipeline);
     }
@@ -3387,8 +3407,10 @@ max_corpus_entries = 16
     }
     #[test]
     fn jdg_signature_schemes_rejects_aliases() {
-        let mut cfg = Governance::default();
-        cfg.jdg_signature_schemes = vec!["simple".to_string(), "bls-aggregate".to_string()];
+        let cfg = Governance {
+            jdg_signature_schemes: vec!["simple".to_string(), "bls-aggregate".to_string()],
+            ..Governance::default()
+        };
         assert!(
             std::panic::catch_unwind(|| cfg.parse()).is_err(),
             "first-release configuration must reject noncanonical aliases"
@@ -14814,9 +14836,12 @@ mod torii_bootle_lantern_issuer_tests {
     }
     #[test]
     fn disabled_issuer_rejects_stale_provider_claims() {
-        let mut config = ToriiBootleLanternIssuer::default();
-        config.runtime_provider_registry_handle =
-            Some("runtime://privacy/bootle-lantern/primary".to_owned());
+        let config = ToriiBootleLanternIssuer {
+            runtime_provider_registry_handle: Some(
+                "runtime://privacy/bootle-lantern/primary".to_owned(),
+            ),
+            ..ToriiBootleLanternIssuer::default()
+        };
         assert_rejected(config);
     }
     #[test]
@@ -15251,16 +15276,24 @@ mod torii_push_tests {
 
     #[test]
     fn torii_push_rejects_partial_or_noncanonical_provider_bindings() {
-        let mut partial_fcm = ToriiPush::default();
-        partial_fcm.fcm_project_id = Some("project".to_owned());
-        let mut partial_apns = ToriiPush::default();
-        partial_apns.apns_topic = Some("org.sora.wallet".to_owned());
-        let mut padded = ToriiPush::default();
-        padded.fcm_project_id = Some(" project ".to_owned());
-        padded.fcm_service_account_path = Some(PathBuf::from("/run/secrets/fcm.json"));
-        let mut empty_path = ToriiPush::default();
-        empty_path.fcm_project_id = Some("project".to_owned());
-        empty_path.fcm_service_account_path = Some(PathBuf::new());
+        let partial_fcm = ToriiPush {
+            fcm_project_id: Some("project".to_owned()),
+            ..ToriiPush::default()
+        };
+        let partial_apns = ToriiPush {
+            apns_topic: Some("org.sora.wallet".to_owned()),
+            ..ToriiPush::default()
+        };
+        let padded = ToriiPush {
+            fcm_project_id: Some(" project ".to_owned()),
+            fcm_service_account_path: Some(PathBuf::from("/run/secrets/fcm.json")),
+            ..ToriiPush::default()
+        };
+        let empty_path = ToriiPush {
+            fcm_project_id: Some("project".to_owned()),
+            fcm_service_account_path: Some(PathBuf::new()),
+            ..ToriiPush::default()
+        };
         for config in [partial_fcm, partial_apns, padded, empty_path] {
             let mut emitter = Emitter::new();
             let _ = config.parse(&mut emitter);
@@ -17102,8 +17135,10 @@ mod exact_torii_transport_label_tests {
             assert!(emitter.into_result().is_err(), "{stage:?}");
         }
         for profile in ["readonly", "read-only", "write", "ops", "OPERATOR"] {
-            let mut mcp = ToriiMcp::default();
-            mcp.profile = profile.to_owned();
+            let mcp = ToriiMcp {
+                profile: profile.to_owned(),
+                ..ToriiMcp::default()
+            };
             let mut emitter = Emitter::new();
             let _ = mcp.parse(&mut emitter);
             assert!(emitter.into_result().is_err(), "{profile:?}");
@@ -17136,9 +17171,11 @@ mod exact_torii_transport_label_tests {
     #[test]
     fn mcp_operator_routes_require_the_operator_profile() {
         for profile in ["read_only", "writer"] {
-            let mut mcp = ToriiMcp::default();
-            mcp.profile = profile.to_owned();
-            mcp.expose_operator_routes = true;
+            let mcp = ToriiMcp {
+                profile: profile.to_owned(),
+                expose_operator_routes: true,
+                ..ToriiMcp::default()
+            };
             let mut emitter = Emitter::new();
             let _ = mcp.parse(&mut emitter);
             let error = emitter
@@ -17150,9 +17187,11 @@ mod exact_torii_transport_label_tests {
             );
         }
 
-        let mut mcp = ToriiMcp::default();
-        mcp.profile = "operator".to_owned();
-        mcp.expose_operator_routes = true;
+        let mcp = ToriiMcp {
+            profile: "operator".to_owned(),
+            expose_operator_routes: true,
+            ..ToriiMcp::default()
+        };
         let mut emitter = Emitter::new();
         let parsed = mcp.parse(&mut emitter);
         emitter
@@ -26451,8 +26490,10 @@ mod sorafs_moderation_orchestrator_tests {
     }
     #[test]
     fn disabled_policy_rejects_stale_authority_claims() {
-        let mut config = SorafsModerationOrchestrator::default();
-        config.maintenance_authority = Some(maintenance_authority());
+        let config = SorafsModerationOrchestrator {
+            maintenance_authority: Some(maintenance_authority()),
+            ..SorafsModerationOrchestrator::default()
+        };
         let mut emitter = Emitter::new();
         assert!(config.parse(false, &mut emitter).is_none());
         assert!(emitter.into_result().is_err());
@@ -26558,9 +26599,11 @@ mod sorafs_hedging_billing_runtime_config_tests {
     }
     #[test]
     fn disabled_policy_rejects_stale_provider_qualification_fields() {
-        let mut config = SorafsHedgingBillingRuntimeConfig::default();
-        config.finalized_query_revision = Some(1);
-        config.finalized_query_policy_digest_hex = Some("51".repeat(32));
+        let config = SorafsHedgingBillingRuntimeConfig {
+            finalized_query_revision: Some(1),
+            finalized_query_policy_digest_hex: Some("51".repeat(32)),
+            ..SorafsHedgingBillingRuntimeConfig::default()
+        };
         let mut emitter = Emitter::new();
         assert!(config.parse(false, None, &mut emitter).is_none());
         assert!(emitter.into_result().is_err());
@@ -28718,12 +28761,14 @@ mod sorafs_governance_dag_service_tests {
     }
     #[test]
     fn service_rejects_zero_response_bound_and_bad_timeout_order() {
-        let mut service = SorafsGovernanceDagService::default();
-        service.poll_interval_secs = 0;
-        service.connect_timeout_ms = 10;
-        service.request_timeout_ms = 9;
-        service.max_response_bytes = Bytes(0);
-        service.listen_addr = "localhost:9094".to_owned();
+        let service = SorafsGovernanceDagService {
+            poll_interval_secs: 0,
+            connect_timeout_ms: 10,
+            request_timeout_ms: 9,
+            max_response_bytes: Bytes(0),
+            listen_addr: "localhost:9094".to_owned(),
+            ..SorafsGovernanceDagService::default()
+        };
         let mut emitter = Emitter::new();
         let _ = service.parse(false, &mut emitter);
         assert!(emitter.into_result().is_err());
@@ -29035,17 +29080,19 @@ allow_private_head_endpoint = false
     fn embedded_public_service_rejects_substituted_producer_key() {
         let root = valid_dedicated_view_root();
         let dedicated = root.sorafs.storage;
-        let mut storage = SorafsStorage::default();
-        storage.enabled = true;
-        storage.governance_dag_dir = dedicated.governance_dag_dir;
-        storage.governance_dag_publisher_peer_id = dedicated.governance_dag_publisher_peer_id;
-        storage.governance_dag_signer_handle = dedicated.governance_dag_signer_handle;
-        storage.governance_dag_signer_revision = dedicated.governance_dag_signer_revision;
-        storage.governance_dag_signer_policy_digest_hex =
-            dedicated.governance_dag_signer_policy_digest_hex;
-        storage.governance_dag_publisher_public_key_hex =
-            dedicated.governance_dag_publisher_public_key_hex;
-        storage.governance_dag_service = dedicated.governance_dag_service;
+        let mut storage = SorafsStorage {
+            enabled: true,
+            governance_dag_dir: dedicated.governance_dag_dir,
+            governance_dag_publisher_peer_id: dedicated.governance_dag_publisher_peer_id,
+            governance_dag_signer_handle: dedicated.governance_dag_signer_handle,
+            governance_dag_signer_revision: dedicated.governance_dag_signer_revision,
+            governance_dag_signer_policy_digest_hex: dedicated
+                .governance_dag_signer_policy_digest_hex,
+            governance_dag_publisher_public_key_hex: dedicated
+                .governance_dag_publisher_public_key_hex,
+            governance_dag_service: dedicated.governance_dag_service,
+            ..SorafsStorage::default()
+        };
         storage.governance_dag_service.publisher_public_key_hex =
             Some(ALTERNATE_PUBLISHER_PUBLIC_KEY_HEX.to_owned());
         let mut emitter = Emitter::new();
@@ -30743,12 +30790,14 @@ mod sorafs_repair_gc_tests {
     }
     #[test]
     fn sorafs_appeal_finance_rejects_invalid_asset_and_policy_bounds() {
-        let mut config = SorafsAppealFinanceSettlement::default();
-        config.asset_definition_id = AssetDefinitionId::derive_from_components(
-            DomainId::try_new("xor", "universal").expect("domain id"),
-            "other".parse().expect("asset definition name"),
-        );
-        config.asset_scale = 8;
+        let mut config = SorafsAppealFinanceSettlement {
+            asset_definition_id: AssetDefinitionId::derive_from_components(
+                DomainId::try_new("xor", "universal").expect("domain id"),
+                "other".parse().expect("asset definition name"),
+            ),
+            asset_scale: 8,
+            ..SorafsAppealFinanceSettlement::default()
+        };
         config.pricing.quote_ttl_secs = 0;
         config.pricing.classes.content.base_rate_xor = XorQuantity::zero();
         config.settlement.rules.decisions.uphold.refund_rate = Numeric::one();
@@ -31455,8 +31504,10 @@ fn assert_sorafs_por_config_invalid(config: SorafsPor) {
 #[cfg(test)]
 #[test]
 fn sorafs_por_rejects_zero_auditor_signature_threshold() {
-    let mut config = SorafsPor::default();
-    config.auditor_signature_threshold = 0;
+    let config = SorafsPor {
+        auditor_signature_threshold: 0,
+        ..SorafsPor::default()
+    };
     let mut emitter = Emitter::new();
     let parsed = config.parse(&mut emitter);
     assert_eq!(parsed.auditor_signature_threshold, NonZeroU16::MIN);
@@ -33327,8 +33378,10 @@ mod sorafs_admission_config_tests {
     }
     #[test]
     fn discovery_automatically_requires_native_admission() {
-        let mut discovery = SorafsDiscovery::default();
-        discovery.discovery_enabled = true;
+        let discovery = SorafsDiscovery {
+            discovery_enabled: true,
+            ..SorafsDiscovery::default()
+        };
         let mut emitter = Emitter::new();
         assert!(discovery.parse(&mut emitter).admission.is_some());
         assert!(emitter.into_result().is_ok());
@@ -33339,10 +33392,12 @@ mod sorafs_admission_config_tests {
         let expected = SORAFS_DISCOVERY_CAPABILITY_NAMES_V1
             .map(str::to_owned)
             .to_vec();
-        let mut discovery = SorafsDiscovery::default();
-        discovery.discovery_enabled = true;
-        discovery.known_capabilities = expected.clone();
-        discovery.admission = valid_config();
+        let discovery = SorafsDiscovery {
+            discovery_enabled: true,
+            known_capabilities: expected.clone(),
+            admission: valid_config(),
+            ..SorafsDiscovery::default()
+        };
         let mut emitter = Emitter::new();
         let parsed = discovery.parse(&mut emitter);
         emitter
@@ -33353,8 +33408,10 @@ mod sorafs_admission_config_tests {
 
     #[test]
     fn enabled_discovery_rejects_empty_and_duplicate_capability_lists() {
-        let mut empty = SorafsDiscovery::default();
-        empty.discovery_enabled = true;
+        let mut empty = SorafsDiscovery {
+            discovery_enabled: true,
+            ..SorafsDiscovery::default()
+        };
         empty.known_capabilities.clear();
         empty.admission = valid_config();
         let mut emitter = Emitter::new();
@@ -33370,10 +33427,12 @@ mod sorafs_admission_config_tests {
             defaults::torii::sorafs_known_capabilities()
         );
 
-        let mut duplicate = SorafsDiscovery::default();
-        duplicate.discovery_enabled = true;
-        duplicate.known_capabilities = vec!["torii_gateway".into(), "torii_gateway".into()];
-        duplicate.admission = valid_config();
+        let duplicate = SorafsDiscovery {
+            discovery_enabled: true,
+            known_capabilities: vec!["torii_gateway".into(), "torii_gateway".into()],
+            admission: valid_config(),
+            ..SorafsDiscovery::default()
+        };
         let mut emitter = Emitter::new();
         let parsed = duplicate.parse(&mut emitter);
         let error = emitter
@@ -33391,8 +33450,10 @@ mod sorafs_admission_config_tests {
 
     #[test]
     fn discovery_accumulates_unknown_and_noncanonical_capability_diagnostics() {
-        let mut discovery = SorafsDiscovery::default();
-        discovery.known_capabilities = vec!["TORII_GATEWAY".into(), "torii".into(), "torii".into()];
+        let discovery = SorafsDiscovery {
+            known_capabilities: vec!["TORII_GATEWAY".into(), "torii".into(), "torii".into()],
+            ..SorafsDiscovery::default()
+        };
         let mut emitter = Emitter::new();
         let parsed = discovery.parse(&mut emitter);
         let error = emitter.into_result().expect_err(
@@ -33771,10 +33832,12 @@ mod configuration_regression_tests {
     }
     #[test]
     fn codec_parse_enforces_bundled_build_support() {
-        assert!(
-            norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
-            "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
-        );
+        const {
+            assert!(
+                norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
+                "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
+            );
+        };
         let codec = StreamingCodec {
             cabac_mode: WithOrigin::inline(CabacMode::Disabled),
             trellis_blocks: WithOrigin::inline(Vec::new()),
@@ -33793,10 +33856,12 @@ mod configuration_regression_tests {
     }
     #[test]
     fn codec_parse_allows_bundle_accel_when_bundled_mode_is_available() {
-        assert!(
-            norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
-            "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
-        );
+        const {
+            assert!(
+                norito::streaming::BUNDLED_RANS_BUILD_AVAILABLE,
+                "Bundled rANS must be compiled in for the first release; rebuild with ENABLE_RANS_BUNDLES=1"
+            );
+        };
         let codec = StreamingCodec {
             cabac_mode: WithOrigin::inline(CabacMode::Disabled),
             trellis_blocks: WithOrigin::inline(Vec::new()),

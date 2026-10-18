@@ -15,7 +15,6 @@ use sha2::{Digest, Sha256};
 
 use super::*;
 use crate::accumulation::{combined_commitment, digest_limbs, input_digest, prelude};
-use core::ops::Deref;
 use zeroize::Zeroizing;
 
 /// Public deterministic DATA for algebraic regressions, never producer entropy.
@@ -101,10 +100,10 @@ fn encoding_case<C: PastaCurve>() {
     let bytes = syntactic_bytes::<C>();
     let witness = FoldWitness::<C>::from_private_bytes(&bytes).expect("canonical messages");
     let retained = witness.to_private_bytes();
-    assert_eq!(retained.deref(), bytes.as_slice());
+    assert_eq!(&*retained, bytes.as_slice());
     assert_eq!(retained.len(), 2176);
-    let restored = FoldWitness::<C>::from_private_bytes(retained.deref()).expect("restored");
-    assert_eq!(restored.to_private_bytes().deref(), retained.deref());
+    let restored = FoldWitness::<C>::from_private_bytes(&retained).expect("restored");
+    assert_eq!(&*restored.to_private_bytes(), &*retained);
     for length in [0, 1087, 1119, 2175, 2177] {
         assert!(FoldWitness::<C>::from_private_bytes(&vec![0; length]).is_err());
     }
@@ -359,7 +358,7 @@ fn generator_chunks_are_complete_and_budget_independent() {
     generator_chunk_case::<Eq>();
 }
 
-/// Independent base-field framing; no input_digest or Transcript calls.
+/// Independent base-field framing; no `input_digest` or `Transcript` calls.
 fn reference_digest<C: PastaCurve>(
     params: &PinnedParams<C>,
     inputs: &[FoldInput<C>],
@@ -369,17 +368,6 @@ fn reference_digest<C: PastaCurve>(
 where
     C::Base: PoseidonField,
 {
-    let parameter_digest = params.digest();
-    let mut words = vec![
-        C::Base::from_u128(u128::from_le_bytes(
-            parameter_digest[..16].try_into().unwrap(),
-        )),
-        C::Base::from_u128(u128::from_le_bytes(
-            parameter_digest[16..].try_into().unwrap(),
-        )),
-        C::Base::from(purpose.word()),
-        C::Base::from(inputs.len() as u64),
-    ];
     fn scalar<C: PastaCurve>(words: &mut Vec<C::Base>, value: &C::ScalarExt) {
         let limbs = value.to_canonical_limbs();
         if C::CURVE_ID == "pallas" {
@@ -393,6 +381,17 @@ where
             words.push(C::Base::from_canonical_limbs(limbs).expect("Fp fits Fq"));
         }
     }
+    let parameter_digest = params.digest();
+    let mut words = vec![
+        C::Base::from_u128(u128::from_le_bytes(
+            parameter_digest[..16].try_into().unwrap(),
+        )),
+        C::Base::from_u128(u128::from_le_bytes(
+            parameter_digest[16..].try_into().unwrap(),
+        )),
+        C::Base::from(purpose.word()),
+        C::Base::from(inputs.len() as u64),
+    ];
     for input in inputs {
         words.extend([
             input.g().x(),
@@ -629,8 +628,8 @@ where
         .expect("serial fold");
     let original = proof.to_private_bytes();
     assert_eq!(
-        serial.0.to_private_bytes().deref(),
-        original.deref(),
+        &*serial.0.to_private_bytes(),
+        &*original,
         "pool-independent proof bytes"
     );
     assert_eq!(serial.1, output, "pool-independent accumulator");
@@ -664,7 +663,7 @@ where
         _ => unreachable!("sealed Pasta curve"),
     };
     assert_eq!(encode_point::<C>(trivial.g()), trivial_bytes);
-    assert_eq!(hex(&Sha256::digest(original.deref())), proof_digest);
+    assert_eq!(hex(&Sha256::digest(&*original)), proof_digest);
     assert_eq!(hex(&Sha256::digest(output.to_bytes())), output_digest);
     assert_eq!(
         verify_fold(&params, &inputs[..1], &proof, purpose, &config),
@@ -700,14 +699,14 @@ where
                 writer.write_all(&changed[offset + 32..])
             })
             .unwrap();
-        let tampered = FoldWitness::<C>::from_private_bytes(owned.deref()).unwrap();
+        let tampered = FoldWitness::<C>::from_private_bytes(&owned).unwrap();
         assert_eq!(
             verify_fold(&params, &inputs, &tampered, purpose, &config),
             Err(Error::FoldEquation),
             "coin {coin}"
         );
         // Preserve the retained source, even after a failed replay.
-        assert_eq!(changed.deref(), original.deref());
+        assert_eq!(&*changed, &*original);
     }
     for index in [0, 1, 2, 16, 32, 34] {
         let mut bytes = Zeroizing::new(original.to_vec());
@@ -775,7 +774,7 @@ where
         create_fold(&params, &false_inputs, fixture_tape(123), purpose, &config),
         Err(Error::FoldEquation)
     ));
-    assert_eq!(proof.to_private_bytes().deref(), original.deref());
+    assert_eq!(&*proof.to_private_bytes(), &*original);
     let corrected = false_inputs[0]
         .corrected(&params, config.kernel_budget)
         .expect("corrected slot");
@@ -825,9 +824,7 @@ where
     transcript.write_scalar(&C::ScalarExt::ONE);
     equation -= params.params().w().to_curve() * gamma;
     equation -= params.params().u().to_curve() * (fold_evaluation(z, &challenges) * zeta);
-    transcript
-        .append_unabsorbed_generator(&equation.to_affine())
-        .expect("solved suffix");
+    transcript.append_unabsorbed_generator(&equation.to_affine());
     let body = Zeroizing::new(transcript.finish());
     let coins = tape.to_private_bytes();
     let mut bytes = Zeroizing::new(vec![0; FOLD_WITNESS_BYTES]);

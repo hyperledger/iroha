@@ -2,7 +2,7 @@
 //!
 //! FCMP++ proves full-chain membership and rerandomization of consumed
 //! commitments; it does not itself prove that newly created commitments encode
-//! bounded amounts.  This module supplies the missing RingCT relation with one
+//! bounded amounts.  This module supplies the missing `RingCT` relation with one
 //! aggregate Monero Bulletproofs+ proof.  For every output commitment `C` the
 //! proof contains both `C` and `C - H` in its ordered public statement.  A
 //! 64-bit range proof for both points proves that the hidden amount is in `1..=u64::MAX`: the first
@@ -1013,7 +1013,7 @@ fn random_nonzero_scalar(
         if rng.try_fill_bytes(&mut *wide).is_err() {
             return Err(FcmpNativeErrorV1::RandomnessUnavailable);
         }
-        let scalar = Zeroizing::new(Scalar::from_bytes_mod_order_wide(&*wide));
+        let scalar = Zeroizing::new(Scalar::from_bytes_mod_order_wide(&wide));
         if *scalar != Scalar::ZERO {
             return Ok(scalar);
         }
@@ -2340,7 +2340,7 @@ mod tests {
     #[test]
     fn range_opening_amount_borrows_storage_and_mask_bytes_stay_owned() {
         let opening = opening(0, 7, 29);
-        assert!(core::ptr::eq(opening.amount(), &opening.amount));
+        assert!(core::ptr::eq(opening.amount(), &raw const opening.amount));
         let mask = opening.commitment_mask();
         assert_eq!(&*mask, &Scalar::from(29_u64).to_bytes());
         assert_eq!(opening.output(), opening.output);
@@ -2856,7 +2856,7 @@ mod tests {
     fn native_standard_transcript_proof_is_upstream_compatible() {
         let opening = opening(1, 9, 17);
         let output = opening.output();
-        let mut rng = StdRng::seed_from_u64(0xfc_b0_000);
+        let mut rng = StdRng::seed_from_u64(0x0fcb_0000);
         let proof = prove_range_once(&mut rng, TranscriptMode::PinnedUpstream, &[opening])
             .expect("native standard-transcript proof");
         verify_range_with_mode(TranscriptMode::PinnedUpstream, &[output], &proof)
@@ -2885,7 +2885,7 @@ mod tests {
             .map(FcmpOutputCommitmentOpeningV1::output)
             .collect::<Vec<_>>();
         let context = [0x52; 32];
-        let mut rng = StdRng::seed_from_u64(0xfc_b0_001);
+        let mut rng = StdRng::seed_from_u64(0x0fcb_0001);
         let proof =
             prove_fcmp_range_v1(&mut rng, context, &openings).expect("valid aggregate proof");
         assert_eq!(
@@ -2951,7 +2951,7 @@ mod tests {
         FcmpOutputCommitmentOpeningV1::new(zero_mask_output, 2, Scalar::ZERO.to_bytes())
             .expect("zero masks are part of the verifier relation");
         let context = [0x53; 32];
-        let mut rng = StdRng::seed_from_u64(0xfc_b0_002);
+        let mut rng = StdRng::seed_from_u64(0x0fcb_0002);
         let proof =
             prove_fcmp_range_v1(&mut rng, context, &[valid]).expect("valid strict-positive proof");
         // C = mask*G + 2^64*H is the first integer outside the u64 range.

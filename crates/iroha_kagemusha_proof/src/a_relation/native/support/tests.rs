@@ -355,7 +355,7 @@ fn native_modes_claim_words_and_terminal_frames_preserve_exact_fields() {
     let short = FoldInput::from_opening(point, &[Fq::ONE; 12]).unwrap();
     assert!(push_pallas(&mut vec![], &short).is_err());
     let v = vesta_claim(16);
-    assert_eq!(vesta_words(&v).unwrap().len(), 20);
+    assert_eq!(vesta_words(&v).len(), 20);
     let acc = AccumulatorT::new(*v.g(), *v.challenges()).unwrap();
     let columns = omega_instances(Fp::from(43), &acc).unwrap();
     assert_eq!(columns.iter().map(Vec::len).collect::<Vec<_>>(), [1, 2, 16]);
@@ -364,7 +364,7 @@ fn native_modes_claim_words_and_terminal_frames_preserve_exact_fields() {
     let internal = internal_public(&PinnedParams::derive(16).unwrap(), Fp::from(47), &v).unwrap();
     assert_eq!(internal.len(), 69);
     assert_eq!(internal[..2], [Fp::from(47), Fp::from(16)]);
-    assert_eq!(internal[2..22], vesta_words(&v).unwrap());
+    assert_eq!(internal[2..22], vesta_words(&v));
     assert_eq!(internal[22..42], internal[42..62]);
     assert_eq!(internal[62..65], [Fp::ZERO, Fp::ONE, Fp::ZERO]);
     assert_eq!(internal[65..], internal[22..26]);

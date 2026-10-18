@@ -23,7 +23,7 @@ const MLWE_MATRIX_LABEL_V1: &[u8] = b"mlwe-B-prime";
 const OUTER_MATRIX_LABEL_V1: &[u8] = b"outer-msis-D";
 const CRS_DIGEST_DOMAIN_V1: &[u8] = b"iroha.privacy.jindo.transparent-crs-digest.v1";
 /// Fixed transparent commitment matrices.
-pub(crate) struct JindoCommitKeyV1 {
+pub struct JindoCommitKeyV1 {
     /// `A` in `R_q^(mu x (m+1))`, including the augmented blinder row.
     pub(crate) inner: Vec<Vec<JindoRnsPolynomialV1>>,
     /// `B'` in `R_q^(mu x nu)`; the identity suffix is implicit.
@@ -32,7 +32,7 @@ pub(crate) struct JindoCommitKeyV1 {
     pub(crate) outer: Vec<Vec<JindoRnsPolynomialV1>>,
 }
 /// Return the process-wide fixed transparent commit key.
-pub(crate) fn commit_key_v1() -> &'static JindoCommitKeyV1 {
+pub fn commit_key_v1() -> &'static JindoCommitKeyV1 {
     static KEY: OnceLock<JindoCommitKeyV1> = OnceLock::new();
     KEY.get_or_init(|| JindoCommitKeyV1 {
         inner: matrix(
@@ -56,7 +56,7 @@ pub(crate) fn commit_key_v1() -> &'static JindoCommitKeyV1 {
     })
 }
 /// Digest the exact generated matrices in canonical row-major RNS order.
-pub(crate) fn crs_digest_v1() -> [u8; 32] {
+pub fn crs_digest_v1() -> [u8; 32] {
     static DIGEST: OnceLock<[u8; 32]> = OnceLock::new();
     *DIGEST.get_or_init(|| {
         let key = commit_key_v1();

@@ -120,7 +120,7 @@ fn shift_all_seven_opcodes_match_interpreter_boundaries_and_masked_amounts() {
             0,
             1,
             u64::MAX,
-            i64::MIN as u64,
+            i64::cast_unsigned(i64::MIN),
             i64::MAX as u64,
             0xa55a_8001_f00f_1234,
         ] {
@@ -152,8 +152,15 @@ fn shift_all_seven_opcodes_match_interpreter_boundaries_and_masked_amounts() {
     }
     for opcode in IMMEDIATE_OPCODES {
         for amount in [0, 1, 3, 8, 9, 16, 31, 32, 40, 63, 64, 127, 128, 255] {
-            for left in [0, 1, u64::MAX, i64::MIN as u64, 0xa55a_8001_f00f_1234] {
-                let word = ivm::encoding::wide::encode_ri(opcode, 3, 1, amount as u8 as i8);
+            for left in [
+                0,
+                1,
+                u64::MAX,
+                i64::cast_unsigned(i64::MIN),
+                0xa55a_8001_f00f_1234,
+            ] {
+                let word =
+                    ivm::encoding::wide::encode_ri(opcode, 3, 1, u8::cast_signed(amount as u8));
                 let statement = interpreter_statement(word, left, u64::MAX);
                 assert_eq!(statement.amount, amount);
                 assert_relation(statement);
@@ -192,7 +199,7 @@ fn shift_register_aliases_r0_and_immediate_register_nonreads_match_interpreter()
         for (rd, rs1) in [(3, 1), (1, 1), (0, 1), (3, 0), (0, 0), (255, 255)] {
             for amount in [0, 1, 255] {
                 assert_relation(interpreter_statement(
-                    ivm::encoding::wide::encode_ri(opcode, rd, rs1, amount as u8 as i8),
+                    ivm::encoding::wide::encode_ri(opcode, rd, rs1, u8::cast_signed(amount as u8)),
                     0x8000_0000_0000_003f,
                     0xdead_beef,
                 ));

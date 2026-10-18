@@ -748,7 +748,7 @@ fn load_transition_has_eighteen_auxiliary_fields_and_dynamic_degree_four() {
     ] {
         assert_eq!(
             measured_maximum_affine_degree_v1(
-                [p.wide as u8; 32],
+                [u8::from(p.wide); 32],
                 [WIDTH + ports, 0, 0, 0, 0],
                 4,
                 4,

@@ -59,8 +59,8 @@ pub(in super::super) struct Witness {
 
 pub(in super::super) fn witness(left: u64, right: u64, gas: u64, kind: usize) -> Witness {
     let signed = signed_kind(kind);
-    let a_negative = signed && (left as i64) < 0;
-    let b_negative = signed && (right as i64) < 0;
+    let a_negative = signed && u64::cast_signed(left) < 0;
+    let b_negative = signed && u64::cast_signed(right) < 0;
     let magnitude_a = if a_negative {
         left.wrapping_neg()
     } else {
@@ -71,7 +71,7 @@ pub(in super::super) fn witness(left: u64, right: u64, gas: u64, kind: usize) ->
     } else {
         right
     };
-    let overflow = left == i64::MIN as u64 && right == u64::MAX;
+    let overflow = left == i64::cast_unsigned(i64::MIN) && right == u64::MAX;
     let arithmetic_error = right == 0 || signed && overflow;
     let debit = if kind == 4 { 12 } else { 10 };
     let trap = gas < debit || arithmetic_error;

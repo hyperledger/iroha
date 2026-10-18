@@ -1,8 +1,7 @@
 //! Real sigma proofs composed in the `Q_sigma` relation, with byte, key, mode,
 //! fold, public-input and known/unknown-shape adversaries.
 
-#[path = "../tests/common/mod.rs"]
-mod common;
+use crate::common;
 #[path = "../tests/q_sigma/serialized.rs"]
 mod serialized;
 
@@ -86,11 +85,7 @@ fn public(
     indices: &[u64],
     incoming_valid: bool,
 ) -> Vec<Vec<Fq>> {
-    let own = circuit
-        .witness
-        .own
-        .as_ref()
-        .expect("own-slot test witness");
+    let own = circuit.witness.own.as_ref().expect("own-slot test witness");
     let mut bounded = vec![scalar(own.statement)];
     let mut bytes = chunks(own);
     let mut verdicts = vec![Fq::ONE];

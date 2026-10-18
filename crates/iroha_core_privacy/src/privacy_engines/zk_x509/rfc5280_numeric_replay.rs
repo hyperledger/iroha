@@ -22,7 +22,7 @@ impl Drop for ClearingEventV1 {
 #[cfg(test)]
 pub(super) fn step_v1(
     event: numeric::NumericLookupEventV1<F>,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
     lane: usize,
     state: &mut [F; 2],
 ) -> Result<[F; 4], ZkX509Rfc5280StarkErrorV1> {
@@ -32,7 +32,7 @@ pub(super) fn step_v1(
 /// Shared recurrence; alternate inverse ownership is test-only until qualified.
 pub(super) fn step_with_inverse_v1(
     event: numeric::NumericLookupEventV1<F>,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
     lane: usize,
     state: &mut [F; 2],
     inverse: &mut impl FnMut(F, F) -> (F, F),
@@ -76,7 +76,7 @@ impl Drop for ClearingSumsV1 {
 pub(super) fn build_column_v1(
     rows: usize,
     offset: usize,
-    challenges: ZkX509Rfc5280StarkChallengesV1,
+    challenges: &ZkX509Rfc5280StarkChallengesV1,
     mut event_at: impl FnMut(
         usize,
     ) -> Result<numeric::NumericLookupEventV1<F>, ZkX509Rfc5280StarkErrorV1>,
@@ -122,6 +122,30 @@ mod tests {
         }
     }
 
+    #[test]
+    fn borrowed_challenge_refusal_precedes_geometry_and_event_replay() {
+        let valid = challenges();
+        let mut invalid = valid;
+        invalid.tuple[0][0] = F::ZERO;
+        let before = invalid;
+        let calls = std::cell::Cell::new(0_usize);
+        let mut event_at = |_| {
+            calls.set(calls.get() + 1);
+            Ok(event(true, 23, 1))
+        };
+        assert_eq!(
+            build_column_v1(0, 0, &invalid, &mut event_at),
+            Err(ZkX509Rfc5280StarkErrorV1::Challenge)
+        );
+        assert_eq!(
+            build_column_v1(0, 0, &valid, &mut event_at),
+            Err(ZkX509Rfc5280StarkErrorV1::Shape)
+        );
+        assert_eq!(calls.get(), 0);
+        assert_eq!(invalid, before);
+        assert_eq!(valid.validate(), Ok(()));
+    }
+
     fn event(source: bool, value: u64, multiplicity: u64) -> numeric::NumericLookupEventV1<F> {
         let mut tuple = [F::ZERO; 12];
         tuple[0] = F(value);
@@ -152,7 +176,7 @@ mod tests {
             let columns = (0..numeric::LOOKUP_AUX_WIDTH_V1)
                 .map(|offset| {
                     PrivateTableV1::new(
-                        build_column_v1(values.len(), offset, challenges(), |index| {
+                        build_column_v1(values.len(), offset, &challenges(), |index| {
                             let (source, value, multiplicity) = values[index];
                             Ok(event(source, value, multiplicity))
                         })
@@ -172,7 +196,7 @@ mod tests {
                     F(u64::from(index == 0)),
                     F(u64::from(index + 1 != values.len())),
                     F(u64::from(index + 1 == values.len())),
-                    challenges().tuple,
+                    &challenges().tuple,
                 );
                 assert!(residues.iter().all(|value| *value == F::ZERO));
             }
@@ -212,14 +236,14 @@ mod tests {
             for value in [0, 23, singular] {
                 // Missing a query must fail even for inverse/zero columns.
                 assert!(
-                    build_column_v1(2, offset, challenges(), |index| {
+                    build_column_v1(2, offset, &challenges(), |index| {
                         Ok(event(index == 0, value, 2))
                     })
                     .is_err()
                 );
             }
             assert!(
-                build_column_v1(2, offset, challenges(), |index| {
+                build_column_v1(2, offset, &challenges(), |index| {
                     Ok(event(index == 0, 23 + index as u64, 1))
                 })
                 .is_err()
@@ -227,7 +251,7 @@ mod tests {
         }
         for field in 0..4 {
             assert!(
-                build_column_v1(1, 0, challenges(), |_| {
+                build_column_v1(1, 0, &challenges(), |_| {
                     let mut invalid = event(true, 1, 1);
                     match field {
                         0 => invalid.source = F(2),
@@ -246,7 +270,7 @@ mod tests {
             (1, 16),
         ] {
             assert!(
-                build_column_v1(rows, offset, challenges(), |_| panic!(
+                build_column_v1(rows, offset, &challenges(), |_| panic!(
                     "shape must fail before callback"
                 ))
                 .is_err()
@@ -259,7 +283,7 @@ mod tests {
         for unwind in [false, true] {
             let (result, observations) = inspection::observe_v1(|| {
                 std::panic::catch_unwind(|| {
-                    build_column_v1(3, 0, challenges(), |index| {
+                    build_column_v1(3, 0, &challenges(), |index| {
                         if index == 2 {
                             assert!(!unwind, "synthetic late replay unwind");
                             return Err(ZkX509Rfc5280StarkErrorV1::Semantic);
@@ -280,9 +304,9 @@ mod tests {
             );
             assert!(observations.iter().all(|record| record.nonzero_after == 0));
         }
-        let (_, observations) = inspection::observe_v1(|| {
+        let ((), observations) = inspection::observe_v1(|| {
             let output = PrivateTableV1::new(
-                build_column_v1(2, 0, challenges(), |index| Ok(event(index == 0, 23, 1))).unwrap(),
+                build_column_v1(2, 0, &challenges(), |index| Ok(event(index == 0, 23, 1))).unwrap(),
                 zeroize_fields_v1,
             );
             assert!(output.iter().all(|value| *value != F::ZERO));
