@@ -346,12 +346,7 @@ fn optional_artifact_store_refusal_cannot_strand_actual_paid_native_publication(
         writable.sync_all().unwrap();
     }
     drop(file);
-    assert!(
-        chain
-            .kura()
-            .validate_fastpq_artifact_inventory_on_startup()
-            .is_err()
-    );
+    assert!(chain.kura().fastpq_source_archive_root().is_err());
     transfer(&mut chain, &asset, 2_000);
     assert_eq!(
         chain.state().view().height(),

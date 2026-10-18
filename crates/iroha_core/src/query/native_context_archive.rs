@@ -244,8 +244,7 @@ impl NativeContextArchive {
         kura: &Kura,
         budget: AllocationBudget,
     ) -> Result<Self, NativeContextArchiveError> {
-        kura.validate_fastpq_artifact_inventory_on_startup()?;
-        let root = kura.native_context_archive_root()?;
+        let root = kura.fastpq_source_archive_root()?;
         let namespace = Kura::fastpq_source_namespace();
         let directory = open_archive_directory_named(&root, namespace, false)?;
         Ok(Self {

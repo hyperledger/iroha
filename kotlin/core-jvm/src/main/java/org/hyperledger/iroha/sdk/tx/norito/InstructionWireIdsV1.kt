@@ -34,6 +34,7 @@ internal object InstructionWireIdsV1 {
         "iroha.asset.transfer.control.set",
         "iroha.asset_definition.alias.set",
         "iroha.asset_definition.dataspace.register.v1",
+        "iroha.bond",
         "iroha.burn",
         "iroha.chain.keepalive.v1",
         "iroha.consensus.threshold-key-lifecycle.apply.v1",

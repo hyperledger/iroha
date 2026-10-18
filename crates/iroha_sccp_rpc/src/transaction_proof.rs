@@ -5,15 +5,14 @@ use std::{collections::BTreeSet, time::Instant};
 use iroha_sccp::{
     ethereum_source::{
         EthereumMptRoleV1, EthereumNativeMptProofV1, MAX_MPT_NODE_BYTES, MAX_MPT_PROOF_BYTES,
-        mpt_proof, mpt_root, rlp_encode_u64, verify_mpt_inclusion_ref,
+        rlp_encode_u64, verify_mpt_inclusion_ref,
     },
     v1::hashes::keccak256,
 };
-use norito::json::Value;
 
 use crate::{
-    evm::{EvmBlock, format_data, parse_data},
-    http::{HttpTransport, JSON_RPC_UNSUPPORTED_CODES, RpcError, invalid_response},
+    evm::{EvmBlock, EvmClient},
+    http::{JSON_RPC_UNSUPPORTED_CODES, RpcError, invalid_response},
     limits::EVM_BLOCK_RESPONSE_BYTES,
 };
 
@@ -41,11 +40,12 @@ fn raw_method_error(error: RpcError) -> RpcError {
 }
 
 pub(crate) fn build(
-    transport: &HttpTransport,
+    client: &EvmClient,
     block: &EvmBlock,
     target: u64,
     max_proof_bytes: usize,
 ) -> Result<EthereumNativeMptProofV1, RpcError> {
+    let transport = client.transport();
     let target_index = usize::try_from(target)
         .map_err(|_| RpcError::InvalidRequest("transaction index exceeds usize".into()))?;
     if target_index >= block.transactions.len() {
@@ -83,8 +83,8 @@ pub(crate) fn build(
             "selected block repeats a transaction hash",
         ));
     }
-    let mut entries = Vec::with_capacity(block.transactions.len());
-    let mut retained_bytes = 0_usize;
+    let mut trie =
+        crate::receipt_trie::Trie::new(block.transactions.len(), target, max_proof_bytes)?;
     // Fetch the target first, so an oversized selected envelope cannot cause unrelated work.
     for index in std::iter::once(target_index)
         .chain((0..block.transactions.len()).filter(|index| *index != target_index))
@@ -93,64 +93,29 @@ pub(crate) fn build(
         let hash = &block.transactions[index];
         let index_u64 =
             u64::try_from(index).map_err(|_| invalid_response("transaction index overflows"))?;
-        let key = rlp_encode_u64(index_u64);
-        let remaining = input_limit
-            .checked_sub(retained_bytes)
-            .and_then(|remaining| remaining.checked_sub(key.len()))
-            .ok_or_else(|| invalid_response("raw transactions exceed the retained-input bound"))?;
-        let value_limit = if index == target_index {
-            remaining.min(max_proof_bytes).min(MAX_MPT_NODE_BYTES)
-        } else {
-            remaining
-        };
-        let raw = transport
-            .json_rpc_then(
-                "eth_getRawTransactionByHash",
-                vec![Value::from(format_data(hash))],
-                |value| {
-                    let text = value.as_str().ok_or_else(|| {
-                        invalid_response("eth_getRawTransactionByHash returned no raw envelope")
-                    })?;
-                    if text.len().saturating_sub(2) / 2 > value_limit {
-                        return Err(invalid_response(
-                            "raw transaction exceeds its proof or retained-input bound",
-                        ));
-                    }
-                    let raw = parse_data(text).map_err(|_| {
-                        invalid_response("eth_getRawTransactionByHash returned malformed hex data")
-                    })?;
-                    if raw.is_empty() || keccak256(&[&raw]) != *hash {
-                        return Err(invalid_response(
-                            "raw transaction does not match the selected block's transaction hash",
-                        ));
-                    }
-                    Ok(raw)
+        let raw = client
+            .raw_transaction_bounded(
+                hash,
+                if index == target_index {
+                    max_proof_bytes.min(MAX_MPT_NODE_BYTES)
+                } else {
+                    input_limit
                 },
             )
-            .map_err(raw_method_error)?;
+            .map_err(raw_method_error)?
+            .ok_or_else(|| invalid_response("a selected block transaction is absent"))?;
         check_deadline(deadline)?;
-        retained_bytes = retained_bytes
-            .checked_add(key.len())
-            .and_then(|bytes| bytes.checked_add(raw.len()))
-            .filter(|bytes| *bytes <= input_limit)
-            .ok_or_else(|| invalid_response("raw transactions exceed the retained-input bound"))?;
-        entries.push((key, raw));
+        trie.insert(index_u64, &raw)?;
     }
-    let root = mpt_root(&entries);
     check_deadline(deadline)?;
-    if root != Some(block.header.transactions_root) {
+    let (root, proof) = trie.finish()?;
+    check_deadline(deadline)?;
+    if root != block.header.transactions_root {
         return Err(invalid_response(
             "raw transactions do not rebuild the block transaction root",
         ));
     }
     let key = rlp_encode_u64(target);
-    let proof = mpt_proof(&entries, &key);
-    check_deadline(deadline)?;
-    let proof =
-        proof.ok_or_else(|| invalid_response("selected transaction proof is unavailable"))?;
-    if proof.byte_len() > max_proof_bytes {
-        return Err(invalid_response("transaction proof exceeds its byte limit"));
-    }
     let opened = verify_mpt_inclusion_ref(
         block.header.transactions_root,
         &key,
@@ -158,8 +123,8 @@ pub(crate) fn build(
         EthereumMptRoleV1::Transaction,
     )
     .map_err(|_| invalid_response("transaction proof exceeds native bounds or is noncanonical"))?;
-    // The first entry is the selected raw envelope; never substitute a sibling leaf.
-    if opened != entries[0].1 {
+    // The selected hash names the exact already-validated raw envelope, not a sibling leaf.
+    if keccak256(&[opened]) != block.transactions[target_index] {
         return Err(invalid_response(
             "transaction proof opens a different envelope",
         ));

@@ -720,7 +720,7 @@ impl EvmClient {
         self.raw_transaction_bounded(hash, usize::MAX)
     }
 
-    fn raw_transaction_bounded(
+    pub(crate) fn raw_transaction_bounded(
         &self,
         hash: &[u8; 32],
         limit: usize,
@@ -746,48 +746,6 @@ impl EvmClient {
                 Ok(raw)
             },
         )
-    }
-
-    /// Build an inclusion proof of the signed transaction at `target` in this block.
-    ///
-    /// One raw envelope is decoded and released at a time. Unrelated leaves retain only
-    /// their hash or a short inline reference; the selected envelope and complete proof
-    /// must fit `max_proof_bytes`. Every response keeps the configured whole-body ceiling
-    /// and attempt deadline. RPC hashes and order are consistency hints: the reconstructed
-    /// trie must match `block.header.transactions_root`, and callers must independently
-    /// authenticate that header before treating the proof as authority.
-    /// # Errors
-    /// Refuses absent, substituted, over-budget or reordered transactions and root mismatch.
-    pub fn block_transaction_proof(
-        &self,
-        block: &EvmBlock,
-        target: u64,
-        max_proof_bytes: usize,
-    ) -> Result<iroha_sccp::ethereum_source::EthereumNativeMptProofV1, RpcError> {
-        let mut trie =
-            crate::receipt_trie::Trie::new(block.transactions.len(), target, max_proof_bytes)?;
-        for (index, hash) in block.transactions.iter().enumerate() {
-            let index = u64::try_from(index)
-                .map_err(|_| invalid_response("transaction index overflows"))?;
-            let raw = self
-                .raw_transaction_bounded(
-                    hash,
-                    if index == target {
-                        max_proof_bytes
-                    } else {
-                        usize::MAX
-                    },
-                )?
-                .ok_or_else(|| invalid_response("a selected block transaction is absent"))?;
-            trie.insert(index, &raw)?;
-        }
-        let (root, proof) = trie.finish()?;
-        if root != block.header.transactions_root {
-            return Err(invalid_response(
-                "raw transactions do not rebuild the block root",
-            ));
-        }
-        Ok(proof)
     }
 
     /// `eth_getBlockReceipts`; `None` if the endpoint does not know the block.
@@ -929,9 +887,9 @@ impl EvmClient {
     /// The caller must hold an active [`crate::PollBudget`] for the entire operation.
     /// Acquisition and trie construction check that original deadline without extending
     /// or clearing it. Every response keeps its route/transport limits; transaction count
-    /// is bounded by the hash-only block response cap, and retained raw envelopes plus
-    /// encoded keys are bounded by [`crate::HttpConfig::max_response_bytes`]. Native trie
-    /// construction also allocates temporary nodes within those finite input bounds.
+    /// is bounded by the hash-only block response cap. Each raw envelope is streamed
+    /// under the response ceiling and released after its leaf is hashed; unrelated leaves
+    /// retain only bounded child references rather than the complete block's raw inputs.
     /// The selected envelope is fetched first and must fit the caller's proof limit;
     /// the returned proof additionally passes all native MPT node/count/byte limits.
     ///
@@ -946,7 +904,7 @@ impl EvmClient {
         target: u64,
         max_proof_bytes: usize,
     ) -> Result<iroha_sccp::ethereum_source::EthereumNativeMptProofV1, RpcError> {
-        crate::transaction_proof::build(&self.transport, block, target, max_proof_bytes)
+        crate::transaction_proof::build(self, block, target, max_proof_bytes)
     }
 
     /// `eth_getProof` of `address` and `storage_keys` at `block`.

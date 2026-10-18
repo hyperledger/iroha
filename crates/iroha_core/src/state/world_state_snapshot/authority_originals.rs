@@ -478,6 +478,7 @@ impl State {
             budget,
             |snapshot, world| {
                 consume_retail_policy(snapshot, world, asset, dataspace, budget, consume)
+                    .map_err(WorldStateSnapshotError::from)
             },
         )
     }

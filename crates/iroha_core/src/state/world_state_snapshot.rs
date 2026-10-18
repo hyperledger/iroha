@@ -745,7 +745,7 @@ impl State {
             } else {
                 None
             };
-            consume(snapshot, outcome, terminal, target)
+            consume(snapshot, outcome, terminal, target).map_err(WorldStateSnapshotError::from)
         })
     }
 
@@ -896,7 +896,7 @@ impl State {
                 Some(hash_value(&key)?),
                 hash_value(bytes)?,
             )?;
-            consume(snapshot)
+            consume(snapshot).map_err(WorldStateSnapshotError::from)
         })
     }
 
