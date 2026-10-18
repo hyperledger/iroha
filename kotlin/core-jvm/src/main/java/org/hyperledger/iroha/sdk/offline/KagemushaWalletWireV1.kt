@@ -352,6 +352,10 @@ object KagemushaWalletWireV1 {
     private const val TAG_BYTES: Int = 4
 
     // Top-level field layouts of the bound messages (wire record section 3.4).
+    private const val OFFER_FIELDS: Int = 4
+    private const val OFFER_BODY_FIELD: Int = 0
+    private const val OFFER_BODY_FIELDS: Int = 8
+    private const val OFFER_BODY_AMOUNT_FIELD: Int = 6
     private const val REQUEST_FIELDS: Int = 5
     private const val REQUEST_BODY_FIELD: Int = 0
     private const val REQUEST_SIGNATURE_FIELD: Int = 4
@@ -675,6 +679,20 @@ object KagemushaWalletWireV1 {
         val amount = body[REQUEST_BODY_AMOUNT_FIELD]
         require(amount.size == 16) { "Request amount must be canonical LE128" }
         return BigInteger(1, amount.reversedArray()).also { require(it.signum() > 0) { "Request amount must be positive" } }
+    }
+
+    /** Exact unsigned amount proposed in an Offer's signed body, for display and the receiver's ask
+     * guard only: a receiver that asked for an amount ([IrohaPeerAskV1]) declines an Offer for any
+     * other amount before it issues a Request. This bounded structural parser authenticates nothing;
+     * Native verifies the Offer and requires the Request amount to equal it.
+     */
+    @JvmStatic
+    fun offerAmountData(offer: ByteArray): BigInteger {
+        val fields = messageFields(offer, KagemushaWalletMessageKindV1.OFFER, OFFER_FIELDS)
+        val body = recordFields(fields[OFFER_BODY_FIELD], OFFER_BODY_FIELDS, "Offer body")
+        val amount = body[OFFER_BODY_AMOUNT_FIELD]
+        require(amount.size == 16) { "Offer amount must be canonical LE128" }
+        return BigInteger(1, amount.reversedArray()).also { require(it.signum() > 0) { "Offer amount must be positive" } }
     }
 
     /** Reconstruct exact signed field bytes; this structural operation authenticates nothing. */

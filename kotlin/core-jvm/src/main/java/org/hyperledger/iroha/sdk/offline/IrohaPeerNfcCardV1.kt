@@ -17,12 +17,18 @@ package org.hyperledger.iroha.sdk.offline
  * WRITE and SUBMIT commands are idempotent no-ops and every other Offer command answers `6985`.
  * The wallet either supplies a Request ([installRequest], then REQUEST_READY) or declines with a
  * reason ([decline], then DECLINED). A command whose `s` is not this intake's answers `6982`.
+ *
+ * GET_ASK answers the receiver's [ask] while no Offer is bound (AWAITING_OFFER, RECEIVING_OFFER), so
+ * the payer builds its Offer for the asked amount inside the same contact; without an ask, or once
+ * an Offer is bound, it answers `6985`. GET_ASK carries no session identifier and changes no state.
  * Thread-safe.
  */
 class IrohaPeerNfcOfferIntakeV1 @JvmOverloads constructor(
     @JvmField val profilePolicy: IrohaPeerNfcProfilePolicyV1,
     @JvmField val limits: IrohaPeerNfcLimitsV1 = IrohaPeerNfcLimitsV1.DEFAULT,
     sessionId: ByteArray = nfcRandomNonzero(IrohaPeerNfcV1.SESSION_ID_BYTES),
+    /** The receiver's ask answered by GET_ASK; `null` for an intake that does not ask. */
+    @JvmField val ask: IrohaPeerAskV1? = null,
 ) {
     private class OfferTransfer(val header: ByteArray, val length: Int, val wireHash: ByteArray) {
         val buffer = ByteArray(length)
@@ -71,13 +77,18 @@ class IrohaPeerNfcOfferIntakeV1 @JvmOverloads constructor(
     }
 
     /**
-     * GET_INTAKE, BEGIN_OFFER, WRITE_OFFER and SUBMIT_OFFER. A newly submitted Offer is then
+     * GET_INTAKE, GET_ASK, BEGIN_OFFER, WRITE_OFFER and SUBMIT_OFFER. A newly submitted Offer is then
      * [pendingOffer]; [submitOffer] returns it directly.
      */
     @Synchronized
     fun handle(command: IrohaPeerNfcCommandV1): ByteArray {
         when (command) {
             is IrohaPeerNfcCommandV1.GetIntake -> return record().encode()
+            is IrohaPeerNfcCommandV1.GetAsk -> {
+                val current = ask
+                if (current == null || isBound()) nfcFail(IrohaPeerNfcErrorV1.STATE_MISMATCH)
+                return current.encode()
+            }
             is IrohaPeerNfcCommandV1.BeginOffer -> beginOffer(command)
             is IrohaPeerNfcCommandV1.WriteOffer -> writeOffer(command)
             is IrohaPeerNfcCommandV1.SubmitOffer -> submitOffer(command)
@@ -203,9 +214,10 @@ class IrohaPeerNfcOfferIntakeV1 @JvmOverloads constructor(
  * direct mode ([direct]) it hosts a Request built from an Offer that arrived over another carrier,
  * or a receiver session restored from its durable records.
  *
- * GET_INTAKE is answered in every state. The Offer commands go to the intake; the Request-session
- * commands (GET_INFO, READ_REQUEST, BEGIN_PAYMENT, WRITE, COMMIT, READ_ACK, CONFIRM_ACK, GET_STATUS)
- * go to the receiver session and answer `6985` before REQUEST_READY. Thread-safe.
+ * GET_INTAKE is answered in every state. GET_ASK and the Offer commands go to the intake (in direct
+ * mode they answer `6985`); the Request-session commands (GET_INFO, READ_REQUEST, BEGIN_PAYMENT,
+ * WRITE, COMMIT, READ_ACK, CONFIRM_ACK, GET_STATUS) go to the receiver session and answer `6985`
+ * before REQUEST_READY. Thread-safe.
  */
 class IrohaPeerNfcCardEndpointV1 private constructor(
     @JvmField val applicationIdentifier: IrohaPeerNfcApplicationIdentifierV1,
@@ -354,15 +366,22 @@ class IrohaPeerNfcCardEndpointV1 private constructor(
         hostedReceiver ?: nfcFail(IrohaPeerNfcErrorV1.STATE_MISMATCH)
 
     companion object {
-        /** A tap-1 card that awaits the payer's Offer under a fresh random session identifier. */
+        /**
+         * A tap-1 card that awaits the payer's Offer under a fresh random session identifier and, with
+         * an [ask], answers GET_ASK with it until an Offer is bound.
+         */
         @JvmStatic
         @JvmOverloads
         fun intake(
             applicationIdentifier: IrohaPeerNfcApplicationIdentifierV1,
             profilePolicy: IrohaPeerNfcProfilePolicyV1,
             limits: IrohaPeerNfcLimitsV1 = IrohaPeerNfcLimitsV1.DEFAULT,
-        ): IrohaPeerNfcCardEndpointV1 =
-            IrohaPeerNfcCardEndpointV1(applicationIdentifier, IrohaPeerNfcOfferIntakeV1(profilePolicy, limits), null)
+            ask: IrohaPeerAskV1? = null,
+        ): IrohaPeerNfcCardEndpointV1 = IrohaPeerNfcCardEndpointV1(
+            applicationIdentifier,
+            IrohaPeerNfcOfferIntakeV1(profilePolicy, limits, ask = ask),
+            null,
+        )
 
         /** A tap-1 card around an existing [intake]. */
         @JvmStatic
@@ -384,5 +403,5 @@ class IrohaPeerNfcCardEndpointV1 private constructor(
 }
 
 private fun IrohaPeerNfcCommandV1.isIntakeCommand(): Boolean = this is IrohaPeerNfcCommandV1.GetIntake ||
-    this is IrohaPeerNfcCommandV1.BeginOffer || this is IrohaPeerNfcCommandV1.WriteOffer ||
-    this is IrohaPeerNfcCommandV1.SubmitOffer
+    this is IrohaPeerNfcCommandV1.GetAsk || this is IrohaPeerNfcCommandV1.BeginOffer ||
+    this is IrohaPeerNfcCommandV1.WriteOffer || this is IrohaPeerNfcCommandV1.SubmitOffer

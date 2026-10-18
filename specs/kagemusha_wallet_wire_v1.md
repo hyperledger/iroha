@@ -1260,6 +1260,32 @@ envelope vectors of §5 and structural envelopes of every kind.
   payload structure, and the canonical hash. The stream identifier is the first
   16 bytes of the wire hash.
 
+**Ask.** The receiver sets the amount and starts the exchange. Native requires the Request
+amount to equal the Offer amount, so the receiver's ask reaches the payer before the payer
+builds its Offer, over the carrier both people chose. An `IAK1` ask is 56 bytes:
+
+| Offset | Bytes | Content |
+|---:|---:|---|
+| 0 | 4 | magic `IAK1` |
+| 4 | 1 | version `1` |
+| 5 | 1 | flags `0` |
+| 6 | 2 | profile, big-endian: `1` KAGEMUSHA wallet V1 |
+| 8 | 16 | amount, LE128, nonzero |
+| 24 | 32 | receiver account digest `H("account", original)`, nonzero |
+
+- Its QR text is `IAK1:` ‖ Base45 (RFC 9285, canonical) of the record ‖ `:`, always 90
+  characters. A decoder accepts only a text whose body re-encodes to itself and a record of
+  exactly this layout: any other length, magic, version or flags, an unknown profile, a zero
+  amount or a zero digest is rejected.
+- The ask is display DATA. It is unsigned, belongs to no wallet object digest and grants no
+  authority: the payer builds its Offer for the asked amount, then reviews the
+  receiver-signed Request (its amount, fee and receiver check code) and approves it with
+  its hardware-backed confirmation, which stays the only approval. The receiver declines
+  an Offer whose amount (`KagemushaWalletWireV1.offerAmountData`) differs from its ask
+  before it issues a Request, and the payer does not approve a Request whose
+  `receiver_account_digest` differs from the ask's.
+- Kotlin and Swift `IrohaPeerAskV1` implement it against `fixtures/kagemusha/peer_ask_v1.json`.
+
 **QR.** A QR text is `IQR1:` ‖ Base45 (RFC 9285, canonical) of one `IRQR` frame ‖ `:`,
 at most 700 bytes. An `IRQR` frame is `"IRQR" ‖ 1 ‖ frame kind ‖ BE16 profile ‖ IPM1
 kind ‖ 0 ‖ stream identifier (16) ‖ BE16 index ‖ BE16 total ‖ BE16 payload length ‖
@@ -1274,7 +1300,8 @@ non-header frames; `total` counts data shards (40 for a maximum 10,000-byte Paym
 accepts frames in any order, ignores identical duplicates, recovers one missing shard
 per pair from parity, quarantines a stream on a conflicting duplicate or an invalid
 message, bounds active streams (3) and frames before the header (12 frames, 3,072 bytes
-per stream), and decodes only a complete message.
+per stream), and decodes only a complete message. The receiver's ask is one static
+`IAK1:` text (Ask, above), not an `IRQR` frame; the payer scans it before it shows its Offer.
 
 **NFC.** The receiver's phone is the card (host card emulation) and the payer's phone is
 the reader. Commands use the proprietary class `0x80`, chunks of at most 4,096 bytes and
@@ -1305,6 +1332,7 @@ these phases. A new contact is recovery after interruption, never a required pay
   | INS | Command | Data | Le | Response |
   |---|---|---|---|---|
   | `30` | GET_INTAKE | — | 68 | `IOI1` |
+  | `34` | GET_ASK | — | 56 | `IAK1` |
   | `31` | BEGIN_OFFER | `s ‖` Offer IPM1 header (84) | — | — |
   | `32` | WRITE_OFFER | `s ‖ w_o ‖ offset ‖` 1..4,096 bytes | — | — |
   | `33` | SUBMIT_OFFER | `s ‖ w_o` | — | — |
@@ -1324,6 +1352,7 @@ these phases. A new contact is recovery after interruption, never a required pay
     The Offer fields are zero while awaiting an Offer and when the card hosts a Request
     built from an Offer that arrived over another carrier; `reason` is nonzero exactly
     when declined.
+  - `IAK1` (56): the receiver's ask (Ask, above).
   - `INF1` (98): `"INF1" ‖ 1 ‖ phase ‖ BE16 profile ‖ flags ‖ 0 ‖ s ‖ BE32 request_length ‖
     h_r ‖ w_r ‖ BE16 max_read_chunk ‖ BE16 max_write_chunk`.
   - `NST1` (174): `"NST1" ‖ 1 ‖ phase ‖ BE16 profile ‖ flags ‖ 0 ‖ s ‖ h_r ‖ w_r ‖
@@ -1337,8 +1366,15 @@ these phases. A new contact is recovery after interruption, never a required pay
   IPM1 failure; `6581` the receiver could not persist; `6700` length; `6A80` malformed
   data; `6D00` and `6E00` an unknown instruction or class.
 - *Offer to Request.* A card started without a Request awaits the payer's Offer.
-  The reader reads `IOI1`, sends BEGIN_OFFER, writes contiguous chunks (an overlapping
-  replay must be byte-identical) and submits. Before SUBMIT_OFFER a different header
+  The reader reads `IOI1`; from a card that is awaiting or receiving an Offer (an earlier,
+  abandoned contact may have left an unfinished one) it reads the receiver's
+  ask with GET_ASK, has the payer's wallet build the Offer for the asked amount within the
+  same contact, then sends BEGIN_OFFER, writes contiguous chunks (an overlapping replay
+  must be byte-identical) and submits. GET_ASK carries no `s` and changes no state: the
+  card answers it while awaiting or receiving an Offer and answers `6985` when it holds no
+  ask, once an Offer is bound and in direct mode. A reader builds no Offer from an answer
+  of another length or an invalid `IAK1` record; an interrupted reader resumes with the
+  Offer its wallet built, without asking again. Before SUBMIT_OFFER a different header
   replaces an unfinished Offer; afterwards the intake is bound to that Offer, the same
   Offer's commands are idempotent and any other answers `6985`. The card decodes the
   complete Offer, enters preparing-request and hands the Offer to the receiver's wallet,
@@ -1368,9 +1404,23 @@ bytes in encrypted, per-direction sequenced records; the Kotlin session opens a 
 only to a verified IPM1 message of its profile. Petal Stream ([petal_stream.md](petal_stream.md))
 carries the encoded IPM1 message with the IPM1 kind as its `kind` byte. A receiver that
 advertises before it holds a Request binds its discovery context and session to a fresh
-random 32-byte value in place of the Request hash; the Offer, Request, Payment and Credited
-then all travel inside the authenticated session. Transport encryption and checksums never
-replace the wallet's verification.
+random 32-byte value in place of the Request hash; the ask, Offer, Request, Payment and
+Credited then all travel inside the authenticated session. Transport encryption and
+checksums never replace the wallet's verification.
+
+- *Ask record.* The receiver's first record after authentication carries its 56-byte
+  `IAK1` ask (72 sealed bytes) as record kind `4`; IPM1 messages use kind `3`. It shares
+  the session key, the nonce rule, the record header as associated data and the
+  per-direction sequence of the receiver's messages. Only the receiver seals an ask and
+  only the payer opens one; an ask never opens as a message nor a message as an ask.
+- *Picture pairing.* Both phones derive one of 16 pictures from the radio's authentication
+  digits (4 to 12 ASCII digits): `SHA-256("IROHA-PEER-NEARBY-PICTURE-V1" ‖ 0x00 ‖
+  digits)[0] & 0x0f`. The payer's phone shows that picture; the receiver's phone shows six
+  distinct pictures that include it, in uniformly random order, and accepts the connection
+  only when its user picks that picture. The digits are never displayed. A matching
+  picture only pairs the radio link; the IPN1 authentication still authenticates the peer.
+  Kotlin and Swift `IrohaPeerNearbyPictureCodeV1` implement it against
+  `fixtures/kagemusha/peer_ask_v1.json`.
 
 **Account check code.** Before approving a Send, the payer compares the receiving account's
 check code with the receiver, aloud or on both screens. The payer's wallet derives it from
