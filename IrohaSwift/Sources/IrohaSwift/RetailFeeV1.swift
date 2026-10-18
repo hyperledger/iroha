@@ -35,7 +35,7 @@ private func requireExactRetailFeeKeys(
 
 /// Local native retail-fee codec failures. A decoded assessment is not a ledger proof.
 public enum RetailFeeNativeError: Error, Equatable, Sendable {
-    /// The exact ABI-29 bridge and three retail-fee symbols are unavailable.
+    /// The exact ABI-30 bridge and three retail-fee symbols are unavailable.
     case bridgeUnavailable
     /// The native typed parser or canonical encoder rejected the input.
     case nativeRejected(Int32)
@@ -190,9 +190,9 @@ public struct RetailFeeAssessmentV1: Codable, Equatable, Sendable {
     }
 }
 
-/// Exact ABI-29 entrypoints for retail intent and assessment encoding.
+/// Exact ABI-30 entrypoints for retail intent and assessment encoding.
 public enum RetailFeeAssessmentNative {
-    public static let requiredBridgeAbiVersion: UInt32 = 29
+    public static let requiredBridgeAbiVersion: UInt32 = 30
     public static let maximumIntentJSONBytes = 262_144
     public static let maximumAssessmentJSONBytes = 4_096
     public static let maximumAssessmentMarkerBytes = 4_096

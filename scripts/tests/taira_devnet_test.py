@@ -66,10 +66,6 @@ FAKE_SEATED_GOV = (
     "oversight_committee_size = 5\n"
     "policy_jury_size = 9\n"
     "confirmation_jury_size = 7\n"
-    "[gov.parliament_timed_ovn]\n"
-    "max_corpus_entries = 16\n"
-    "registration_phase_blocks = 300\n"
-    "survivor_freeze_phase_blocks = 100\n"
 )
 FAKE_ADAPTIVE_FAUCET = (
     "pow_max_anchor_age_blocks = 6\n"

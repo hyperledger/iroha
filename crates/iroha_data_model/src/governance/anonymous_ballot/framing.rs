@@ -26,13 +26,18 @@
 //! | 39 | layout flags: `0x02` (`COMPACT_LEN`), or `0x00` for a prefix-free payload |
 //! | 40.. | alignment padding (none for every type used here) and the payload |
 //!
-//! The layout is V1 `COMPACT_LEN`: every per-value length prefix is a compact varint, and
-//! sequence counts stay fixed 8-byte `u64`. The canonical encoder sets the `COMPACT_LEN`
-//! flag exactly when the payload contains at least one per-value length prefix, so a
-//! prefix-free payload (a raw fixed-length leaf such as `NetworkId`, [`Digest512`] or
+//! The pinned flags rule (lifecycle decision K1):
+//!
+//! > `Enc<T>` uses the V1 compact-length encoding rules. Its flags byte is `0x02` exactly
+//! > when payload encoding emits at least one per-value compact length prefix, and `0x00`
+//! > otherwise. Sequence counts remain eight-byte little-endian values. All other flags are
+//! > forbidden. Decoding enforces nominal schema identity, complete consumption and
+//! > byte-for-byte equality with this pinned encoding, including the flags byte.
+//!
+//! So a prefix-free payload (a raw fixed-length leaf such as `NetworkId`, [`Digest512`] or
 //! [`super::BallotAuthorityBindingV1`], or a unit enum such as `ParliamentBody`) carries
-//! flags `0x00`, and the canonical decoder accepts no other flags byte for a given
-//! payload. Every record type, which frames its fields, carries exactly `0x02`.
+//! flags `0x00`, and every record type, which frames its fields, carries `0x02`. A future
+//! codec change requires pinned cross-language golden vectors.
 //!
 //! [`enc`] fails closed unless Norito's canonical layout is still `COMPACT_LEN` and the
 //! produced header matches this table, so a future change of the ambient Norito defaults

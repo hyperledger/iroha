@@ -110,7 +110,6 @@ impl BlockData {
         }
     }
 
-
     /// Borrow the complete canonical history when Strict startup materialized it.
     fn dense_entries(&self) -> Option<&[BlockDataEntry]> {
         match self {

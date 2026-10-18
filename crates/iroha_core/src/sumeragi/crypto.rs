@@ -347,7 +347,15 @@ impl Crypto for BlsCrypto {
     }
 
     fn verify(&self, pk: &PublicKey, msg: &[u8], sig: &Signature) -> bool {
-        verify_individual(pk, msg, sig)
+        // An admitted key is already parsed (canonical, on the curve, in the G1
+        // subgroup); reuse it instead of decompressing and re-checking the same
+        // 48 bytes for every vote. Unadmitted keys keep the parsing relation.
+        let admitted = self.admitted.read().get(pk).map(Arc::clone);
+        match admitted {
+            Some(key) => ConsensusDigest::from_preimage(msg)
+                .is_some_and(|digest| consensus::verify(&key, &digest, &sig.0)),
+            None => verify_individual(pk, msg, sig),
+        }
     }
 
     fn aggregate(&self, sigs: &[Signature]) -> Result<AggregateSignature, AggregationError> {
@@ -850,6 +858,36 @@ mod tests {
             .sign(&preimage)
             .expect("valid context remains signable");
         assert!(BlsCrypto::new().verify(signer.public_key(), &preimage, &signature));
+    }
+
+    /// Individual verification gives the same verdicts whether the signer's key is
+    /// admitted (reused parsed point) or not (parsed per call).
+    #[test]
+    fn individual_verify_matches_with_and_without_admitted_key() {
+        let kp = key_pair(4);
+        let signer = KeyPairSigner::new(&kp).unwrap();
+        let preimage = message(1);
+        let signature = signer.sign(&preimage).unwrap();
+        let other = signer.sign(&message(2)).unwrap();
+        let fresh = BlsCrypto::new();
+        let admitted = BlsCrypto::new();
+        admitted.admit(kp.public_key(), &pop(&kp)).unwrap();
+        assert!(admitted.is_admitted(signer.public_key()));
+        for crypto in [&fresh, &admitted] {
+            assert!(crypto.verify(signer.public_key(), &preimage, &signature));
+            assert!(!crypto.verify(signer.public_key(), &preimage, &other));
+            assert!(!crypto.verify(signer.public_key(), &message(2), &signature));
+            assert!(!crypto.verify(
+                signer.public_key(),
+                &preimage,
+                &Signature([0xFF; SIGNATURE_LEN])
+            ));
+            assert!(!crypto.verify(
+                signer.public_key(),
+                b"unrecognized consensus context",
+                &signature
+            ));
+        }
     }
 
     /// Aggregates verify only under admitted keys (fail closed) and only for the signers and

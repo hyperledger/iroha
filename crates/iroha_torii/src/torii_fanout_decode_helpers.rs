@@ -468,18 +468,6 @@ impl QueryFanoutMemoryEnvelope {
             1,
         )
     }
-    fn canonical_output_limits(
-        self,
-        max_items: u64,
-    ) -> iroha_core::smartcontracts::isi::query::CanonicalQueryOutputLimits {
-        iroha_core::smartcontracts::isi::query::CanonicalQueryOutputLimits::new(
-            max_items,
-            iroha_core::smartcontracts::isi::query::CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES,
-            u64::try_from(self.candidate_encoded_bytes).unwrap_or(u64::MAX),
-            u64::try_from(self.accumulator_retained_bytes).unwrap_or(u64::MAX),
-            u64::try_from(self.decode_allocated_bytes).unwrap_or(u64::MAX),
-        )
-    }
     fn singular_output_limits(
         self,
     ) -> iroha_core::smartcontracts::isi::query::SingularQueryOutputLimits {

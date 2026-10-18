@@ -321,7 +321,7 @@ def test_mobile_native_qualification_cannot_skip_or_reorder_execution(
     workflow = tmp_path / ".github/workflows/sorafs-orchestrator-sdk.yml"
     source = workflow.read_text(encoding="utf-8")
     before = (
-        "      - name: Require fresh ABI-29 JNI bridge "
+        "      - name: Require fresh ABI-30 JNI bridge "
         "in complete Kotlin and Java suites\n"
     )
     after = "      - name: Reauthenticate the consumed Kotlin bridge\n"
@@ -1216,7 +1216,7 @@ def test_csharp_ci_requires_native_sorafs_governance_validation() -> None:
     assert "WhenAvailable" not in validator_tests
     assert "Assert.True(" in validator_tests
     assert (
-        "ABI-29 connect_norito_bridge with Governance DAG symbols is required."
+        "ABI-30 connect_norito_bridge with Governance DAG symbols is required."
         in validator_tests
     )
 
@@ -1521,7 +1521,7 @@ def test_native_governance_sdk_contract_rejects_unconditional_skip(
         ),
         (
             ".github/workflows/sorafs-orchestrator-sdk.yml",
-            "Build and authenticate the exact ABI-29 C# bridge",
+            "Build and authenticate the exact ABI-30 C# bridge",
         ),
         (
             ".github/workflows/sorafs-orchestrator-sdk.yml",

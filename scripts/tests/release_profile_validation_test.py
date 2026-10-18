@@ -544,8 +544,6 @@ def test_release_pipeline_signs_final_manifest_before_publish_plan() -> None:
     assert "image_cmd.extend(signing_cli_args)" not in main_source
     assert "--development-allow-unsigned-publish-plan" in main_source
     assert "production publish plans require --external-signer" in main_source
-    assert "production publish plans require the complete independent timed-OVN" in main_source
-    assert "timed_ovn_audit_manifest_path=" in main_source
     assert '"oci-archive"' in main_source
     assert '"--source-commit"' in main_source
     assert '"--image-builder-base-image"' in main_source
@@ -750,9 +748,8 @@ def _official_tag_candidate_workflow_errors(source: str) -> list[str]:
 
     for marker in (
         "scripts/run_release_pipeline.py",
-        "complete externally reviewed",
-        "timed-OVN audit bundle",
         "scripts/release_manifest_signing.py",
+        "TODO(parliament anonymous ballot, P6)",
     ):
         if marker not in source:
             errors.append(f"workflow is missing audited-promotion marker: {marker}")
@@ -1523,45 +1520,6 @@ def test_release_pipeline_rejects_unpaired_signer_and_verifier_contracts(
     assert (
         "aggregate signing requires both the complete external signer contract "
         "and the pinned native release-manifest verifier contract"
-    ) in result.stderr
-    assert not output_dir.exists()
-
-
-def test_release_pipeline_rejects_official_publish_without_timed_ovn_audit(
-    tmp_path: Path,
-) -> None:
-    output_dir = tmp_path / "release-output"
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(REPO_ROOT / "scripts" / "run_release_pipeline.py"),
-            "--version",
-            "0.0.0-test",
-            "--output-dir",
-            str(output_dir),
-            "--publish-target",
-            "sorafs://release-test",
-            "--dry-run",
-            "--external-signer",
-            "/reviewed/external-signer",
-            "--signing-public-key",
-            "/reviewed/release-public.raw",
-            "--trusted-signing-fingerprint",
-            "a" * 64,
-            "--release-manifest-verifier",
-            "/reviewed/iroha",
-            "--trusted-release-manifest-verifier-sha256",
-            "b" * 64,
-        ],
-        cwd=REPO_ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 1
-    assert (
-        "production publish plans require the complete independent timed-OVN "
-        "official-release audit input set"
     ) in result.stderr
     assert not output_dir.exists()
 

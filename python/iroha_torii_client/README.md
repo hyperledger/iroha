@@ -450,11 +450,10 @@ deployment has passed the independent audit or production qualification gates.
 ## SORA Parliament V1
 
 The account-authenticated Parliament surface is available through strict V1
-methods for readiness, attempt drafting and reading, timed-OVN casting context
-and proof pages, TLE release context and local partial release, and lifecycle
-transition drafting. Draft callers supply the independently derived IDs or
-transition digest that the response must match before an instruction is exposed
-for signing:
+methods for readiness, attempt drafting and reading, and lifecycle transition
+drafting. Draft callers supply the independently derived IDs or transition
+digest that the response must match before an instruction is exposed for
+signing:
 
 ```python
 capabilities = client.get_governance_capabilities_v1(canonical_auth=auth)
@@ -470,28 +469,14 @@ attempt = client.get_parliament_attempt_v1(
 )
 ```
 
-`get_parliament_timed_ovn_casting_proof_page_v1(...)` accepts an independently
-trusted nonzero checkpoint height, builds the sole canonical Norito request
-frame internally, and returns an opaque, schema-bound Norito response frame.
-The lightweight Python package validates media type, schema, flags, checksum,
-and the 8 MiB response bound only. Before any ballot seed is used,
-pass the response and the independently pinned network ID, checkpoint height,
-checkpoint context ID, and ballot-attempt ID to the ABI-29 native verifier.
-Python does not claim to verify finality, the ordinary-write witness,
-application membership, or the embedded Core archive. Local partial-release
-requests are deliberately bodyless and their public response is rebound to a
-previously validated release context.
+Parliament requests reject ambient session auth headers, cookies, and
+`Session.auth`, and suppress Requests' environment/netrc credential fallback
+during preparation.
 
-`FreezeTimedOvnCorpus` transition drafts accept one contiguous batch of at
-most 32 canonical 2,858-byte records per call; the complete frozen corpus may
-still contain up to 1,000 records across calls. Parliament requests reject
-ambient session auth headers, cookies, and `Session.auth`, and suppress
-Requests' environment/netrc credential fallback during preparation.
-
-The separate `get_parliament_timed_ovn_casting_context_v1(...)` response is a
-node-local diagnostic projection, not a finality proof or authorization
-capability. Its archive must not reach a secret-local operation unless the
-casting-proof response has been verified by the ABI-29 native verifier.
+Attempt reads whose certificate contains a private-jury body (`policy-jury` or
+`confirmation-jury`) are rejected: the anonymous-ballot result binding is not
+supported yet, so this client admits no certificate that covers a private-jury
+body.
 
 ## Signed SoraFS orderbook submission
 
@@ -533,6 +518,6 @@ and derives the expected network from its local signing context.
 
 Account identity construction, canonical parsing, and controller checks require the
 separate `iroha-native` wheel (`pip install iroha-torii-client[native]`). These
-operations use its ABI-29 Rust owner for all eleven curves and full weighted
+operations use its ABI-30 Rust owner for all eleven curves and full weighted
 multisig policies. Missing native validation is an explicit error; anonymous HTTP
 transport can operate without loading the native package.

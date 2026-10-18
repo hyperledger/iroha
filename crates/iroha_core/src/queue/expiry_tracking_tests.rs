@@ -68,19 +68,149 @@ fn remove_committed_hashes_clears_expiry_tracking() {
     let hash = tx.hash_as_entrypoint();
     queue.push(tx, state.view()).expect("push succeeds");
     assert!(
-        queue.expiry_ring_members.contains_key(&hash),
+        queue.pending_order.lock().contains_hash(&hash),
+        "admission indexes the input"
+    );
+    assert_eq!(
+        queue.pending_order.lock().expiry_len(),
+        1,
         "expiry tracking is set on push"
     );
     let removed = queue.remove_committed_hashes([hash], None);
     assert_eq!(removed, 1, "committed hash should be removed");
     assert_eq!(queue.active_len(), 0, "queue no longer tracks tx");
     queue.assert_pressure_counters_consistent_for_tests();
-    assert!(
-        !queue.expiry_ring_members.contains_key(&hash),
+    let index = queue.pending_order.lock();
+    assert!(index.is_empty(), "commit removal clears the admission FIFO");
+    assert_eq!(
+        index.expiry_len(),
+        0,
         "expiry tracking cleared on commit removal"
     );
-    assert!(!queue.queued_tx_enqueued_at_ms.contains_key(&hash));
-    assert!(queue.queued_age_ring.lock().is_empty());
+    assert_eq!(
+        index.frame_len(),
+        0,
+        "frame tracking cleared on commit removal"
+    );
+}
+#[test]
+fn committing_inputs_keeps_the_expiry_index_bounded_by_resident_inputs() {
+    let state = State::new(
+        world_with_test_domains(),
+        Kura::blank_kura_for_testing(),
+        LiveQueryStore::start_test(),
+    );
+    let (time_handle, time_source) = TimeSource::new_mock(Duration::default());
+    let queue = Queue::test(
+        Config {
+            transaction_time_to_live: Duration::from_secs(60),
+            expired_cull_interval: Duration::from_secs(1),
+            capacity: nonzero!(16_usize),
+            ..config_factory()
+        },
+        &time_source,
+    );
+    let resident = accepted_tx_by_someone(&time_source);
+    let resident_hash = resident.hash_as_entrypoint();
+    queue
+        .push(resident, state.view())
+        .expect("push resident input");
+    // Sustained admission and commitment: each round retires every input it admitted.
+    for _ in 0..64 {
+        let hashes = (0..8)
+            .map(|_| {
+                let tx = accepted_tx_by_someone(&time_source);
+                let hash = tx.hash_as_entrypoint();
+                queue.push(tx, state.view()).expect("push round input");
+                hash
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(queue.remove_committed_hashes(hashes, None), 8);
+        let index = queue.pending_order.lock();
+        assert_eq!(index.len(), 1, "only the resident input stays indexed");
+        assert_eq!(
+            index.expiry_len(),
+            1,
+            "the expiry index never retains retired inputs"
+        );
+        assert_eq!(index.frame_len(), 1);
+        drop(index);
+        time_handle.advance(Duration::from_millis(10));
+    }
+    queue.assert_pressure_counters_consistent_for_tests();
+    assert!(queue.pending_order.lock().contains_hash(&resident_hash));
+    time_handle.advance(Duration::from_secs(120));
+    assert_eq!(queue.cull_expired_entries_if_due(), 1);
+    assert!(queue.pending_order.lock().is_empty());
+    queue.assert_pressure_counters_consistent_for_tests();
+}
+#[test]
+fn expiry_sweep_reclaims_due_inputs_behind_live_ones_in_deadline_order() {
+    let state = State::new(
+        world_with_test_domains(),
+        Kura::blank_kura_for_testing(),
+        LiveQueryStore::start_test(),
+    );
+    let (time_handle, time_source) = TimeSource::new_mock(Duration::from_secs(1));
+    let queue = Queue::test(
+        Config {
+            transaction_time_to_live: Duration::from_millis(100),
+            expired_cull_interval: Duration::ZERO,
+            expired_cull_batch: nonzero!(1_usize),
+            ..config_factory()
+        },
+        &time_source,
+    );
+    // Admission order differs from expiry order: the later input was signed earlier.
+    let (late_clock, late_source) = TimeSource::new_mock(Duration::from_secs(1));
+    let older = accepted_tx_by_someone(&late_source);
+    let older_hash = older.hash_as_entrypoint();
+    late_clock.advance(Duration::from_millis(50));
+    let newer = accepted_tx_by_someone(&late_source);
+    let newer_hash = newer.hash_as_entrypoint();
+    queue
+        .push(newer, state.view())
+        .expect("push newer input first");
+    queue
+        .push(older, state.view())
+        .expect("push older input second");
+    time_handle.advance(Duration::from_millis(120));
+    // Only the older input is due; one sweep with a batch of one reclaims exactly it,
+    // even though the live input precedes it in admission order.
+    assert_eq!(queue.cull_expired_entries_if_due(), 1);
+    assert!(!queue.contains_entrypoint_hash(older_hash));
+    assert!(queue.contains_entrypoint_hash(newer_hash));
+    assert_eq!(
+        queue.cull_expired_entries_if_due(),
+        0,
+        "the live input is not rescanned"
+    );
+    time_handle.advance(Duration::from_millis(50));
+    assert_eq!(queue.cull_expired_entries_if_due(), 1);
+    assert_eq!(queue.active_len(), 0);
+    queue.assert_pressure_counters_consistent_for_tests();
+}
+#[test]
+fn expiry_deadline_matches_the_expiry_predicate_at_its_exact_boundary() {
+    let (time_handle, time_source) = TimeSource::new_mock(Duration::from_secs(1));
+    let queue = Queue::test(
+        Config {
+            transaction_time_to_live: Duration::from_millis(100),
+            ..config_factory()
+        },
+        &time_source,
+    );
+    let tx = accepted_tx_by_someone(&time_source);
+    let deadline = queue
+        .expiry_deadline_with_enqueue_timestamp(&tx, None)
+        .expect("finite signed deadline");
+    assert_eq!(
+        deadline,
+        tx.creation_time() + Duration::from_millis(100) + Duration::from_nanos(1)
+    );
+    assert!(!queue.is_expired_at(&tx, deadline - Duration::from_nanos(1)));
+    assert!(queue.is_expired_at(&tx, deadline));
+    drop(time_handle);
 }
 #[tokio::test]
 async fn custom_expired_transaction_is_rejected() {

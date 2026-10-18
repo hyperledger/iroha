@@ -677,13 +677,13 @@ mod tests {
         let budget = owner.canonical_history_budget();
         let average = super::average_block_time_ms(&state, height as u64, 20, &budget)
             .expect("funded history reads");
-        // Every body of the window is now remembered by its committed hash.
-        // Drop the resident copies and exhaust the cold read pool.
-        for index in 1..=height {
-            let _ = chain
-                .kura()
-                .forget_cached_block_for_testing(std::num::NonZeroUsize::new(index).unwrap());
-        }
+        // Every time of the window is now remembered by its committed hash.
+        // Drop the resident head body and exhaust the cold read pool, so any
+        // body read must fail.
+        chain
+            .kura()
+            .forget_cached_block_for_testing(std::num::NonZeroUsize::new(height).unwrap())
+            .expect("drop the resident head body");
         let cold = owner.cold_frames();
         let _occupied = cold
             .try_reserve_bytes(cold.limit_bytes() - cold.reserved_bytes())

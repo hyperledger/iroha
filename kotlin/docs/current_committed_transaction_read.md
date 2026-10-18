@@ -36,7 +36,7 @@ selective `CommittedTransaction` against native Sumeragi finality.
    application result, atomically retain `promotedCheckpointBytes` with that
    result for subsequent verification. Swift returns `promotedCheckpoint`.
 
-The bridge requires ABI 29 and returns the row and promoted checkpoint in
+The bridge requires ABI 30 and returns the row and promoted checkpoint in
 separately owned native buffers. The application owns authenticated transport,
 checkpoint selection and persistence, its device signer, nonce store and retry
 journal. SDK source or syntax checks do not qualify rebuilt native artifacts.

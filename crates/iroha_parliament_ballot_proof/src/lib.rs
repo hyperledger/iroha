@@ -18,8 +18,20 @@
 //! `PARLIAMENT_BALLOT_QUALIFICATION_V1` is `None`: nothing accepted or rejected
 //! here has governance effect. The parameter rows are the fast row
 //! ([`profile::Row::Candidate`], the sole integration candidate) and the small
-//! row ([`profile::Row::Comparator`], a measurement comparator for tests and
-//! diagnostics); neither is qualified.
+//! row (`profile::Row::Comparator`, a measurement comparator for tests and
+//! diagnostics); neither is qualified. The comparator row is compiled only for
+//! this crate's unit tests and with the non-default `diagnostics` feature, which
+//! only the measurement and diagnostic tooling enables; production builds,
+//! including every node, wallet and native-bridge dependency, contain the
+//! candidate row only.
+//!
+//! # Features
+//!
+//! * `accel` forwards hardware acceleration to the backend; outputs are unchanged.
+//! * `diagnostics` compiles the comparator row for the measurement examples, the
+//!   comparator integration tests and the fuzz crate. Run the complete suite with
+//!   `cargo test --release -p iroha_parliament_ballot_proof --features diagnostics`;
+//!   without the feature the same command runs the candidate-row suite.
 //!
 //! Proofs produced here are *FAEST-derived*: they reuse the FAEST v3.0 proof
 //! machinery with custom relations, a literal role prefix on every hash call and
@@ -28,7 +40,7 @@
 //!
 //! # What is here
 //!
-//! * [`profile`]: the two rows, the descriptor `DESC`, its digest `D`, the CRT
+//! * [`profile`]: the rows, the descriptor `DESC`, its digest `D`, the CRT
 //!   table digest `T_crt`, the role namespaces and 77-byte prefixes, the proof
 //!   lengths.
 //! * [`framing`]: `Frame` and the bounded opaque public inputs.

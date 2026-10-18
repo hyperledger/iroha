@@ -44,10 +44,11 @@ struct Region {
 }
 impl Region {
     fn new(start: u64, bytes: u64) -> Result<Self, VMError> {
-        Ok(Self {
-            start,
-            end: start.checked_add(bytes).ok_or(VMError::MemoryOutOfBounds)?,
-        })
+        // Per-access path: build the error only on overflow.
+        match start.checked_add(bytes) {
+            Some(end) => Ok(Self { start, end }),
+            None => Err(VMError::MemoryOutOfBounds),
+        }
     }
     fn table(start: u64, words: u64) -> Result<Self, VMError> {
         if words > MAX_CALL_WORDS_V1 as u64 || (words == 0 && start != 0) {
@@ -599,7 +600,22 @@ impl CallFrameMemory {
     }
 
     /// Check ownership before any memory operation; reads also require initialized bytes.
+    ///
+    /// Standalone programs have no frames, so every guest access returns inline.
+    #[inline]
     pub(crate) fn check_access(
+        &self,
+        address: u64,
+        bytes: u64,
+        permission: Perm,
+    ) -> Result<(), VMError> {
+        if self.frames.is_empty() {
+            return Ok(());
+        }
+        self.check_frame_access(address, bytes, permission)
+    }
+
+    fn check_frame_access(
         &self,
         address: u64,
         bytes: u64,
@@ -623,25 +639,14 @@ impl CallFrameMemory {
         } else {
             // All other stack bytes, partially overlapping tables, and ancestor tables are
             // inaccessible. Ordinary heap/input/output permissions remain the Memory owner's job.
-            // Below the stack only the root's tables can lie: every stack frame starts at or
-            // above it, and a nested frame's non-empty tables must lie inside its caller's
-            // stack frame, so no other ancestor needs scanning on this per-access path.
-            let root = &self.frames[0];
-            let permitted = range.end <= Memory::STACK_START
-                && !root.arguments.overlaps(range)
-                && !root.results.region.overlaps(range);
-            debug_assert_eq!(
-                permitted,
-                address < Memory::STACK_START
-                    && !self.frames.iter().any(|ancestor| {
-                        ancestor.arguments.overlaps(range)
-                            || ancestor.results.region.overlaps(range)
-                            || ancestor.stack.region.overlaps(range)
-                    })
-                    && range.end <= Memory::STACK_START,
-                "nested frames and their tables stay inside the caller's stack frame"
-            );
-            permitted
+            // Every ancestor is scanned: the check must not trust how a frame was installed.
+            address < Memory::STACK_START
+                && !self.frames.iter().any(|ancestor| {
+                    ancestor.arguments.overlaps(range)
+                        || ancestor.results.region.overlaps(range)
+                        || ancestor.stack.region.overlaps(range)
+                })
+                && range.end <= Memory::STACK_START
         };
         if permitted {
             Ok(())
@@ -654,7 +659,15 @@ impl CallFrameMemory {
     }
 
     /// Record only successful writes, after the memory owner accepted the entire operation.
+    #[inline]
     pub(crate) fn record_write(&mut self, address: u64, bytes: u64) {
+        if self.frames.is_empty() {
+            return;
+        }
+        self.record_frame_write(address, bytes);
+    }
+
+    fn record_frame_write(&mut self, address: u64, bytes: u64) {
         let Some(frame) = self.frames.last_mut() else {
             return;
         };
@@ -887,7 +900,7 @@ mod tests {
     }
 
     #[test]
-    fn below_stack_accesses_check_only_the_root_tables_at_any_depth() {
+    fn below_stack_accesses_reject_ancestor_tables_at_any_depth() {
         let mut frames = root();
         let mut parent_stack = TOP - 128;
         for _ in 0..3 {

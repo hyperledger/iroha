@@ -82,9 +82,6 @@ pub use payload_ref::PayloadRef;
 #[path = "core/byte_element_tests.rs"]
 mod byte_element_tests;
 #[cfg(test)]
-#[path = "core/perf_probe_tmp_tests.rs"]
-mod perf_probe_tmp_tests;
-#[cfg(test)]
 #[path = "core/counting_tests.rs"]
 mod counting_tests;
 #[cfg(test)]

@@ -297,10 +297,8 @@ fn prepared_quantity_wrong_layout_returns_same_charge_without_physical_construct
 fn prepared_quantity_planning_cannot_replenish_nested_scope_and_fill_retains_refused_backing() {
     let _flags = DecodeFlagsGuard::enter(0);
     let mantissa = BigInt::from(1_u128 << 127);
-    // The canonical BigInt field has its u32 length followed by signed bytes.
     // Planning borrows both fields and allocates no storage; an owning decoder
-    // charges only actual native digits and any required alignment copies.
-    let mantissa_payload_len = core::mem::size_of::<u32>() + mantissa.to_twos_bytes().len();
+    // charges only actual native digits (Norito decodes fields in place).
     let bytes = payload(mantissa, 1);
     let budget = AllocationBudget::new(1024);
     let mut prepared = destination(&bytes, &budget);
@@ -342,31 +340,10 @@ fn prepared_quantity_planning_cannot_replenish_nested_scope_and_fill_retains_ref
     assert!(prepared.scale.is_none());
     assert_eq!(prepared.digits.as_slice().as_ptr(), pointer);
     assert_eq!(budget.reserved_bytes(), held);
-    // Both fills admit actual native digits. Owning archived fields also pay
-    // for real alignment copies; the prepared borrowed walker makes none.
+    // Both fills admit exactly the actual native digits: neither the owning
+    // archived decoder nor the prepared borrowed walker copies a field.
     let exact_charge = required;
-    let realignment_charge = [
-        (
-            bytes.as_ptr().addr() + core::mem::size_of::<u64>(),
-            norito::core::archived_payload_align::<BigInt>(),
-            mantissa_payload_len,
-        ),
-        (
-            bytes.as_ptr().addr() + bytes.len() - core::mem::size_of::<u32>(),
-            norito::core::archived_payload_align::<u32>(),
-            core::mem::size_of::<u32>(),
-        ),
-    ]
-    .into_iter()
-    .filter_map(|(address, align, length)| (!address.is_multiple_of(align)).then_some(length))
-    .sum::<usize>();
-    if realignment_charge != 0 {
-        let (refused, _) = norito::core::with_decode_limits_measured(limits(exact_charge), || {
-            Quantity::decode_from_slice(&bytes)
-        });
-        assert!(refused.unwrap_err().decode_resource_error().is_some());
-    }
-    let ordinary_charge = exact_charge + realignment_charge;
+    let ordinary_charge = exact_charge;
     let (ordinary, ordinary_usage) =
         norito::core::with_decode_limits_measured(limits(ordinary_charge), || {
             Quantity::decode_from_slice(&bytes)
@@ -460,9 +437,8 @@ fn one_pass_quantity_preserves_mantissa_quota_before_late_scale_and_cumulative_r
         let wide_work = ordinary_wide.digits.capacity() * UNBOUNDED_BIGINT_DIGIT_BYTES;
         let limit = small_work + wide_work - 1;
         let limits = norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, limit, 32);
-        // The existing prepared field path is the logical-work oracle. An owning
-        // archived decoder additionally charges real alignment copies avoided
-        // by both safe borrowed walkers; those are not fabricated here.
+        // The existing prepared field path is the logical-work oracle; owning
+        // archived decoders read fields in place and charge the same work.
         let ordinary = norito::core::DecodeBudgetContext::new(limits);
         ordinary
             .with(|| ordinary_small.decode_payload(&small))

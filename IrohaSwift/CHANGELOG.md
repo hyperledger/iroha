@@ -4,6 +4,15 @@ All notable changes to `IrohaSwift` are documented in this file.
 
 ## [Unreleased]
 
+- 2026-10-18: Bridge ABI 30 (no ABI 29 compatibility). Removed the Parliament timed-OVN/TLE
+  wallet and client APIs: the native casting-proof, registration and ballot wallet functions
+  with their seed-handle, trust-anchor and Keychain seed types, the `ToriiClient`
+  casting-context, casting-proof, release-context and partial-release methods, and the
+  matching response types and constants. `ToriiParliamentLifecycleTransitionV1` keeps its 13
+  public transitions, attempt-read body states carry exactly the 8 fixture fields, and an
+  attempt-read certificate that contains a private-jury body is rejected until the
+  anonymous-ballot result binding is supported.
+
 - 2026-10-17: KAGEMUSHA blacklists are local-only. Added
   `KagemushaWalletV1.installBlacklist(list:certificates:)`, which stores a signed list on the
   phone (a replacement's version must increase; it has no retry identity); Native then refuses

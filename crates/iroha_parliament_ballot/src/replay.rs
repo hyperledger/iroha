@@ -445,7 +445,7 @@ fn check_record_facts(request: &FullVerificationRequestV1, closing_ms: Option<u6
         ),
         (
             "casting_window_ms",
-            record.casting_window_ms == context.policy().casting_window_ms,
+            record.casting_window_ms == context.policy().binding.casting_window_ms,
         ),
         ("closing_ms", Some(record.closing_ms) == closing_ms),
         ("closure_anchor", record.closure_anchor == anchors.closure),
@@ -453,8 +453,10 @@ fn check_record_facts(request: &FullVerificationRequestV1, closing_ms: Option<u6
     if let Some((field, _)) = facts.iter().find(|(_, holds)| !holds) {
         return invalid(InvalidEvidenceV1::ClosureRecordField { field });
     }
+    // `policy_hash` was compared above with the context's, which the scoped context
+    // recomputed: this is `validate_closure_record_v1` without hashing the policy twice.
     record
-        .validate(context.policy().risk_tier)
+        .validate(context.policy())
         .or_else(|error| invalid(InvalidEvidenceV1::ClosureRecord(error)))
 }
 
@@ -650,7 +652,7 @@ where
     let anchors = request.anchors;
     let closing_ms = closing_ms_v1(
         anchors.casting_clock_timestamp_ms,
-        request.context.policy().casting_window_ms,
+        request.context.policy().binding.casting_window_ms,
     );
     check_record_facts(request, closing_ms)?;
     let window = CastingWindowV1 {

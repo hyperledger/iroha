@@ -58358,15 +58358,11 @@ pub mod block {
                     break;
                 }
             }
-            let next = u64::try_from(consumer.next_height().get()).unwrap_or(u64::MAX);
-            // A published height whose body is not readable yet is retried
-            // after a short delay instead of re-polling a completed wait.
-            let published = u64::try_from(state.committed_height()).unwrap_or(u64::MAX) >= next;
+            let next = consumer.next_height();
             let wake = async {
-                if published {
-                    tokio::time::sleep(BLOCK_BODY_RETRY_INTERVAL).await;
-                } else {
-                    state.wait_for_committed_height(next).await;
+                match next_block_wake(state.committed_height(), next) {
+                    BlockWake::Publication(height) => state.wait_for_committed_height(height).await,
+                    BlockWake::BodyRetry => tokio::time::sleep(BLOCK_BODY_RETRY_INTERVAL).await,
                 }
             };
             tokio::pin!(wake);
@@ -58387,6 +58383,24 @@ pub mod block {
                     consumer.stream.ping().await.map_err(block::Error::from)?;
                 }
             }
+        }
+    }
+
+    /// What a block stream waits for before it tries its next height again.
+    #[derive(Debug, PartialEq, Eq)]
+    enum BlockWake {
+        /// State has not published the height yet: sleep until it does.
+        Publication(u64),
+        /// State published the height but Kura could not serve its body yet:
+        /// retry shortly instead of re-polling a completed wait.
+        BodyRetry,
+    }
+
+    fn next_block_wake(committed_height: usize, next: std::num::NonZeroUsize) -> BlockWake {
+        if committed_height >= next.get() {
+            BlockWake::BodyRetry
+        } else {
+            BlockWake::Publication(u64::try_from(next.get()).unwrap_or(u64::MAX))
         }
     }
 
@@ -58460,6 +58474,15 @@ pub mod block {
                 self.revalidations += 1;
                 self.authorized
             }
+        }
+
+        #[test]
+        fn block_stream_sleeps_until_publication_and_retries_unreadable_bodies() {
+            let next = std::num::NonZeroUsize::new(5).unwrap();
+            assert_eq!(next_block_wake(4, next), BlockWake::Publication(5));
+            assert_eq!(next_block_wake(0, next), BlockWake::Publication(5));
+            assert_eq!(next_block_wake(5, next), BlockWake::BodyRetry);
+            assert_eq!(next_block_wake(9, next), BlockWake::BodyRetry);
         }
 
         #[test]

@@ -313,7 +313,7 @@ mod tests {
             Err(BallotProofErrorV1::Rejected)
         );
         let mut slower = policy();
-        slower.vote_notice_ms += 1;
+        slower.binding.vote_notice_ms += 1;
         let other_policy = ScopedBallotContextV1::build(
             body_context(),
             proposal_digest(),

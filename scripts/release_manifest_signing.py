@@ -53,11 +53,8 @@ ED25519_FIELD_MODULUS = (1 << 255) - 19
 ED25519_SCALAR_ORDER = (1 << 252) + 27742317777372353535851937790883648493
 MAX_MANIFEST_SIZE = 1024 * 1024
 MAX_EXECUTABLE_SIZE = 1024 * 1024 * 1024
-TIMED_OVN_AUDIT_MANIFEST_SIZE = 301
-TIMED_OVN_AUDIT_TOTAL_ARTIFACT_SIZE = 1024 * 1024 * 1024
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 NATIVE_VERIFIER_PROTOCOL = "iroha-toolkit-release-manifest-v1"
-NATIVE_TIMED_OVN_AUDIT_PROTOCOL = "iroha-toolkit-timed-ovn-release-audit-v1"
 EXTERNAL_TOOL_UID_ENV = "IROHA_TAIRA_EXTERNAL_TOOL_UID"
 EXTERNAL_TOOL_GID_ENV = "IROHA_TAIRA_EXTERNAL_TOOL_GID"
 RELEASE_OUTPUT_DIR_FD_SUPPORTED = all(
@@ -1025,139 +1022,6 @@ def _invoke_native_verifier(
         )
 
 
-def _invoke_native_timed_ovn_release_audit(
-    verifier: Path,
-    audit_manifest: Path,
-    implementation_source_archive: Path,
-    release_artifact_manifest: Path,
-    supported_target_inventory: Path,
-    audit_report: Path,
-    audit_evidence_archive: Path,
-    trusted_reviewer_public_key: Path,
-    execution_identity: Optional[Tuple[int, int]],
-) -> None:
-    """Invoke only the fixed official timed-OVN release-audit protocol."""
-
-    try:
-        completed = subprocess.run(
-            [
-                str(verifier),
-                "app",
-                "sorafs",
-                "toolkit",
-                "timed-ovn-release-audit",
-                "--audit-manifest",
-                str(audit_manifest),
-                "--implementation-source-archive",
-                str(implementation_source_archive),
-                "--release-artifact-manifest",
-                str(release_artifact_manifest),
-                "--supported-target-inventory",
-                str(supported_target_inventory),
-                "--audit-report",
-                str(audit_report),
-                "--audit-evidence-archive",
-                str(audit_evidence_archive),
-                "--trusted-reviewer-public-key",
-                str(trusted_reviewer_public_key),
-            ],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-            timeout=600,
-            env=_native_verifier_environment(),
-            cwd=str(verifier.parent),
-            close_fds=True,
-            pass_fds=(),
-            restore_signals=True,
-            preexec_fn=_external_tool_preexec(execution_identity),
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise ReleaseManifestSignatureError(
-            "native timed-OVN official-release audit verifier timed out"
-        ) from exc
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise ReleaseManifestSignatureError(
-            f"cannot execute native timed-OVN official-release audit verifier: {exc}"
-        ) from exc
-    if completed.returncode != 0:
-        raise ReleaseManifestSignatureError(
-            "native timed-OVN official-release audit verification failed "
-            f"with status {completed.returncode}"
-        )
-
-
-AuditInputRecord = Tuple[Path, str, str, FileIdentity]
-
-
-def _inspect_timed_ovn_release_audit_inputs(
-    audit_manifest: Path,
-    implementation_source_archive: Path,
-    supported_target_inventory: Path,
-    audit_report: Path,
-    audit_evidence_archive: Path,
-    trusted_reviewer_public_key: Path,
-    release_artifact_manifest_size: int,
-) -> List[AuditInputRecord]:
-    """Inspect the complete immutable audit set before any signer invocation."""
-
-    audit_manifest_payload, audit_manifest_identity = _stable_read(
-        audit_manifest,
-        "timed-OVN official-release audit manifest",
-        exact_size=TIMED_OVN_AUDIT_MANIFEST_SIZE,
-    )
-    reviewer_key, reviewer_key_identity = _stable_read(
-        trusted_reviewer_public_key,
-        "timed-OVN trusted audit reviewer public key",
-        exact_size=ED25519_PUBLIC_KEY_SIZE,
-    )
-    _validate_ed25519_public_key_encoding(reviewer_key)
-    records: List[AuditInputRecord] = [
-        (
-            audit_manifest,
-            "timed-OVN official-release audit manifest",
-            hashlib.sha256(audit_manifest_payload).hexdigest(),
-            audit_manifest_identity,
-        ),
-        (
-            trusted_reviewer_public_key,
-            "timed-OVN trusted audit reviewer public key",
-            hashlib.sha256(reviewer_key).hexdigest(),
-            reviewer_key_identity,
-        ),
-    ]
-    total_size = release_artifact_manifest_size
-    for path, label in (
-        (
-            implementation_source_archive,
-            "timed-OVN implementation source archive",
-        ),
-        (supported_target_inventory, "timed-OVN supported target inventory"),
-        (audit_report, "timed-OVN independent audit report"),
-        (audit_evidence_archive, "timed-OVN audit evidence archive"),
-    ):
-        metadata = _inspect_regular(path, label)
-        if metadata.st_size <= 0:
-            raise ReleaseManifestSignatureError(f"{label} must not be empty")
-        total_size += metadata.st_size
-        if total_size > TIMED_OVN_AUDIT_TOTAL_ARTIFACT_SIZE:
-            raise ReleaseManifestSignatureError(
-                "timed-OVN release-audit artifacts exceed the "
-                f"{TIMED_OVN_AUDIT_TOTAL_ARTIFACT_SIZE}-byte aggregate ceiling"
-            )
-        digest, identity = _stable_digest(path, label)
-        records.append((path, label, digest, identity))
-    return records
-
-
-def _assert_timed_ovn_release_audit_inputs_unchanged(
-    records: List[AuditInputRecord],
-) -> None:
-    for path, label, digest, identity in records:
-        _assert_digest_unchanged(path, label, digest, identity)
-
-
 def _invoke_external_signer(
     signer: Path,
     manifest: Path,
@@ -1455,15 +1319,16 @@ def sign_release_manifest(
     release_manifest_verifier_path: Path,
     trusted_release_manifest_verifier_sha256: str,
     verification_summary_output_path: Optional[Path] = None,
-    *,
-    timed_ovn_audit_manifest_path: Optional[Path] = None,
-    timed_ovn_implementation_source_archive_path: Optional[Path] = None,
-    timed_ovn_supported_target_inventory_path: Optional[Path] = None,
-    timed_ovn_audit_report_path: Optional[Path] = None,
-    timed_ovn_audit_evidence_archive_path: Optional[Path] = None,
-    timed_ovn_trusted_reviewer_public_key_path: Optional[Path] = None,
 ) -> Dict[str, object]:
-    """Sign via a pinned external signer after optional complete audit verification."""
+    """Sign via a pinned external signer and verify through the pinned native verifier.
+
+    TODO(parliament anonymous ballot, P6): the official-release signing corridor must
+    require an independent audit input set for the anonymous-ballot relations
+    (registration and vote proofs; design section 12.2) before a production publish plan
+    is accepted. Define the audit-manifest format and its native `iroha app sorafs
+    toolkit` verifier together with those relations; until then this corridor signs and
+    verifies the aggregate manifest only.
+    """
 
     execution_identity = _external_tool_execution_identity()
     _validate_sha256(trusted_fingerprint, "trusted signing fingerprint")
@@ -1482,36 +1347,6 @@ def sign_release_manifest(
         else None
     )
     native_verifier = _absolute(release_manifest_verifier_path)
-    audit_values = (
-        timed_ovn_audit_manifest_path,
-        timed_ovn_implementation_source_archive_path,
-        timed_ovn_supported_target_inventory_path,
-        timed_ovn_audit_report_path,
-        timed_ovn_audit_evidence_archive_path,
-        timed_ovn_trusted_reviewer_public_key_path,
-    )
-    audit_value_count = sum(value is not None for value in audit_values)
-    if audit_value_count not in (0, len(audit_values)):
-        raise ReleaseManifestSignatureError(
-            "timed-OVN official-release audit inputs must be supplied together"
-        )
-    timed_ovn_audit_paths: Optional[Tuple[Path, Path, Path, Path, Path, Path]] = None
-    if audit_value_count:
-        assert all(value is not None for value in audit_values)
-        assert timed_ovn_audit_manifest_path is not None
-        assert timed_ovn_implementation_source_archive_path is not None
-        assert timed_ovn_supported_target_inventory_path is not None
-        assert timed_ovn_audit_report_path is not None
-        assert timed_ovn_audit_evidence_archive_path is not None
-        assert timed_ovn_trusted_reviewer_public_key_path is not None
-        timed_ovn_audit_paths = (
-            _absolute(timed_ovn_audit_manifest_path),
-            _absolute(timed_ovn_implementation_source_archive_path),
-            _absolute(timed_ovn_supported_target_inventory_path),
-            _absolute(timed_ovn_audit_report_path),
-            _absolute(timed_ovn_audit_evidence_archive_path),
-            _absolute(timed_ovn_trusted_reviewer_public_key_path),
-        )
 
     release_outputs = {signature_output, public_key_output}
     if verification_summary_output is not None:
@@ -1524,17 +1359,6 @@ def sign_release_manifest(
             "must be different paths"
         )
     signing_inputs = {manifest, signer, raw_public_key_file, native_verifier}
-    if timed_ovn_audit_paths is not None:
-        audit_path_set = set(timed_ovn_audit_paths)
-        if len(audit_path_set) != len(timed_ovn_audit_paths):
-            raise ReleaseManifestSignatureError(
-                "timed-OVN official-release audit inputs must use distinct paths"
-            )
-        if audit_path_set & (signing_inputs | release_outputs):
-            raise ReleaseManifestSignatureError(
-                "timed-OVN official-release audit inputs must not alias signer, verifier, key, or output paths"
-            )
-        signing_inputs.update(audit_path_set)
     outputs = [
         (signature_output, "aggregate signature output"),
         (public_key_output, "aggregate public-key output"),
@@ -1575,25 +1399,6 @@ def sign_release_manifest(
         max_size=MAX_MANIFEST_SIZE,
     )
     _validate_canonical_manifest(manifest_payload)
-    timed_ovn_audit_records: Optional[List[AuditInputRecord]] = None
-    if timed_ovn_audit_paths is not None:
-        (
-            audit_manifest,
-            implementation_source_archive,
-            supported_target_inventory,
-            audit_report,
-            audit_evidence_archive,
-            trusted_reviewer_public_key,
-        ) = timed_ovn_audit_paths
-        timed_ovn_audit_records = _inspect_timed_ovn_release_audit_inputs(
-            audit_manifest,
-            implementation_source_archive,
-            supported_target_inventory,
-            audit_report,
-            audit_evidence_archive,
-            trusted_reviewer_public_key,
-            len(manifest_payload),
-        )
 
     with (
         _ReleaseOutputTransaction(outputs) as output_transaction,
@@ -1617,78 +1422,6 @@ def sign_release_manifest(
             execution_identity,
             mode=0o400 if execution_identity is not None else 0o600,
         )
-        if timed_ovn_audit_paths is not None:
-            assert timed_ovn_audit_records is not None
-            (
-                audit_manifest,
-                implementation_source_archive,
-                supported_target_inventory,
-                audit_report,
-                audit_evidence_archive,
-                trusted_reviewer_public_key,
-            ) = timed_ovn_audit_paths
-            audit_verifier_suffix = (
-                ".exe" if native_verifier.suffix.lower() == ".exe" else ""
-            )
-            audit_verifier_snapshot = signer_temp / (
-                f"iroha-timed-ovn-audit-pinned{audit_verifier_suffix}"
-            )
-            audit_verifier_digest, audit_verifier_source_identity = (
-                _snapshot_native_verifier(
-                    native_verifier,
-                    audit_verifier_snapshot,
-                    trusted_release_manifest_verifier_sha256,
-                )
-            )
-            _handoff_external_tool_file(
-                audit_verifier_snapshot, execution_identity, mode=0o500
-            )
-            audit_verifier_snapshot_digest, audit_verifier_snapshot_identity = (
-                _stable_digest(
-                    audit_verifier_snapshot,
-                    "native timed-OVN audit verifier snapshot",
-                    executable=True,
-                )
-            )
-            if audit_verifier_snapshot_digest != audit_verifier_digest:
-                raise ReleaseManifestSignatureError(
-                    "native timed-OVN audit verifier snapshot does not match the reviewed executable"
-                )
-            _invoke_native_timed_ovn_release_audit(
-                audit_verifier_snapshot,
-                audit_manifest,
-                implementation_source_archive,
-                signer_manifest_snapshot,
-                supported_target_inventory,
-                audit_report,
-                audit_evidence_archive,
-                trusted_reviewer_public_key,
-                execution_identity,
-            )
-            _assert_digest_unchanged(
-                audit_verifier_snapshot,
-                "native timed-OVN audit verifier snapshot",
-                audit_verifier_snapshot_digest,
-                audit_verifier_snapshot_identity,
-                executable=True,
-            )
-            _assert_digest_unchanged(
-                native_verifier,
-                "native release-manifest verifier",
-                audit_verifier_digest,
-                audit_verifier_source_identity,
-                executable=True,
-            )
-            _assert_unchanged(
-                signer_manifest_snapshot,
-                "external signer manifest snapshot",
-                manifest_payload,
-                signer_manifest_snapshot_identity,
-                max_size=MAX_MANIFEST_SIZE,
-            )
-            _assert_timed_ovn_release_audit_inputs_unchanged(
-                timed_ovn_audit_records
-            )
         signer_snapshot = _signer_snapshot_path(signer_temp, signer)
         snapshot_digest, signer_snapshot_source_identity = _snapshot_executable(
             signer,
@@ -1722,10 +1455,6 @@ def sign_release_manifest(
             execution_identity,
         )
         output_transaction.assert_unchanged()
-        if timed_ovn_audit_records is not None:
-            _assert_timed_ovn_release_audit_inputs_unchanged(
-                timed_ovn_audit_records
-            )
         signature, signature_temp_identity = _stable_read(
             signature_temp,
             "external aggregate Ed25519 signature",
@@ -1827,24 +1556,6 @@ def sign_release_manifest(
                 "manifest": str(manifest),
                 "signature": str(signature_output),
                 "public_key": str(public_key_output),
-                "timed_ovn_release_audit_verified": (
-                    timed_ovn_audit_records is not None
-                ),
-                "timed_ovn_release_audit_protocol": (
-                    NATIVE_TIMED_OVN_AUDIT_PROTOCOL
-                    if timed_ovn_audit_records is not None
-                    else None
-                ),
-                "timed_ovn_release_audit_manifest_sha256": (
-                    timed_ovn_audit_records[0][2]
-                    if timed_ovn_audit_records is not None
-                    else None
-                ),
-                "timed_ovn_release_audit_reviewer_key_sha256": (
-                    timed_ovn_audit_records[1][2]
-                    if timed_ovn_audit_records is not None
-                    else None
-                ),
             }
         )
         if verification_summary_output is not None:
@@ -1884,12 +1595,6 @@ def _build_parser() -> argparse.ArgumentParser:
     sign.add_argument("--verification-summary-output")
     sign.add_argument("--release-manifest-verifier", required=True)
     sign.add_argument("--trusted-release-manifest-verifier-sha256", required=True)
-    sign.add_argument("--timed-ovn-audit-manifest")
-    sign.add_argument("--timed-ovn-implementation-source-archive")
-    sign.add_argument("--timed-ovn-supported-target-inventory")
-    sign.add_argument("--timed-ovn-audit-report")
-    sign.add_argument("--timed-ovn-audit-evidence-archive")
-    sign.add_argument("--timed-ovn-trusted-reviewer-public-key")
 
     verify = subparsers.add_parser(
         "verify",
@@ -1920,36 +1625,6 @@ def main(argv: Optional[List[str]] = None) -> int:
                 (
                     Path(args.verification_summary_output)
                     if args.verification_summary_output is not None
-                    else None
-                ),
-                timed_ovn_audit_manifest_path=(
-                    Path(args.timed_ovn_audit_manifest)
-                    if args.timed_ovn_audit_manifest is not None
-                    else None
-                ),
-                timed_ovn_implementation_source_archive_path=(
-                    Path(args.timed_ovn_implementation_source_archive)
-                    if args.timed_ovn_implementation_source_archive is not None
-                    else None
-                ),
-                timed_ovn_supported_target_inventory_path=(
-                    Path(args.timed_ovn_supported_target_inventory)
-                    if args.timed_ovn_supported_target_inventory is not None
-                    else None
-                ),
-                timed_ovn_audit_report_path=(
-                    Path(args.timed_ovn_audit_report)
-                    if args.timed_ovn_audit_report is not None
-                    else None
-                ),
-                timed_ovn_audit_evidence_archive_path=(
-                    Path(args.timed_ovn_audit_evidence_archive)
-                    if args.timed_ovn_audit_evidence_archive is not None
-                    else None
-                ),
-                timed_ovn_trusted_reviewer_public_key_path=(
-                    Path(args.timed_ovn_trusted_reviewer_public_key)
-                    if args.timed_ovn_trusted_reviewer_public_key is not None
                     else None
                 ),
             )

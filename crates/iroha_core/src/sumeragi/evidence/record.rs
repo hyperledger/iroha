@@ -69,8 +69,8 @@ impl RecordOwner {
 /// Snapshot syntax and exact local funding refusal remain distinct at the State owner.
 #[derive(Debug, thiserror::Error)]
 pub enum EvidenceRecordRestoreError {
-    /// Native fixture/admission paths cannot accept SCCP material; runtime SCCP restore is still disabled.
-    #[error("SCCP forgery evidence restoration/admission is not implemented")]
+    /// Native admission cannot accept SCCP material; SCCP has its own closed restore branch.
+    #[error("native evidence admission cannot accept SCCP forgery material")]
     UnsupportedSccp,
     /// Original canonical JSON, key or native-proof failure.
     #[error(transparent)]
@@ -722,7 +722,8 @@ fn parse_undo(
 }
 
 /// Restore both explicit graph generations before installing either original map.
-/// Input/table controls and canonical comparison scratch keep their existing owners.
+/// TODO(S8): input/table controls and canonical JSON comparison scratch still
+/// require original-pool custody.
 pub(crate) fn restore_storage(
     raw: &str,
     budget: &AllocationBudget,

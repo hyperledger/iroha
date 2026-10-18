@@ -19,64 +19,6 @@ fn fanout_memory_test_request(
         iroha_test_samples::ALICE_ID.clone(),
     )
 }
-fn assert_invalid_fanout_pagination(response: Response) {
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    assert_eq!(
-        response
-            .headers()
-            .get("x-iroha-reject-code")
-            .and_then(|value| value.to_str().ok()),
-        Some("invalid_pagination")
-    );
-}
-#[test]
-fn fanout_route_scan_rejects_window_above_fetch_budget() {
-    let mut request = fanout_memory_test_request(Some(1));
-    let iroha_data_model::query::QueryRequest::Start(start) = &mut request.request else {
-        panic!("expected iterable routed query");
-    };
-    start.params.pagination = iroha_data_model::query::parameters::Pagination::new(
-        std::num::NonZeroU64::new(1),
-        crate::routing::app_query_limits().max_fetch_size,
-    );
-    let response = match fanout_route_scan_query_request(&request) {
-        Ok(_) => panic!("offset plus limit above the fetch budget must fail closed"),
-        Err(response) => response,
-    };
-    assert_invalid_fanout_pagination(response);
-}
-#[test]
-fn fanout_route_scan_without_limit_rejects_offset_above_fetch_budget() {
-    let mut request = fanout_memory_test_request(None);
-    let iroha_data_model::query::QueryRequest::Start(start) = &mut request.request else {
-        panic!("expected iterable routed query");
-    };
-    start.params.pagination = iroha_data_model::query::parameters::Pagination::new(
-        None,
-        crate::routing::app_query_limits().max_fetch_size + 1,
-    );
-    let response = match fanout_route_scan_query_request(&request) {
-        Ok(_) => panic!("an offset beyond the fetch budget must fail closed"),
-        Err(response) => response,
-    };
-    assert_invalid_fanout_pagination(response);
-}
-#[test]
-fn fanout_route_scan_rejects_overflowing_window() {
-    let mut request = fanout_memory_test_request(Some(1));
-    let iroha_data_model::query::QueryRequest::Start(start) = &mut request.request else {
-        panic!("expected iterable routed query");
-    };
-    start.params.pagination = iroha_data_model::query::parameters::Pagination::new(
-        std::num::NonZeroU64::new(2),
-        u64::MAX,
-    );
-    let response = match fanout_route_scan_query_request(&request) {
-        Ok(_) => panic!("overflowing pagination must fail closed"),
-        Err(response) => response,
-    };
-    assert_invalid_fanout_pagination(response);
-}
 #[test]
 fn unbounded_iterable_fanout_is_rejected_by_explicit_capability_map() {
     let response = ensure_bounded_fanout_query(&fanout_memory_test_request(Some(1)))
@@ -119,10 +61,7 @@ fn singular_fanout_is_admitted_without_a_variant_allowlist() {
         ),
         iroha_test_samples::ALICE_ID.clone(),
     );
-    assert_eq!(
-        bounded_fanout_query_kind(&request).expect("every singular arm uses the bounded corridor"),
-        BoundedFanoutQueryKind::Singular
-    );
+    ensure_bounded_fanout_query(&request).expect("every singular arm uses the bounded corridor");
 }
 #[test]
 fn singular_fanout_retains_only_the_first_matching_result() {
@@ -163,26 +102,6 @@ fn singular_fanout_drops_decoded_template_before_route_loop() {
     assert!(!singular.contains("clone_verified_query_request_bounded"));
 }
 #[test]
-fn outer_accumulator_rejects_a_wrong_first_route_variant_before_pinning() {
-    let mut accumulator =
-        iroha_core::smartcontracts::isi::query::CanonicalQueryOutputAccumulator::new(
-            1, 1_024, 1_024, 1_024,
-        );
-    let response = push_bounded_canonical_fanout_batch(
-        &mut accumulator,
-        BoundedCanonicalFanoutVariant::RoleId,
-        iroha_data_model::query::QueryOutputBatchBox::TriggerId(Vec::new()),
-    )
-    .expect_err("a wrong first route must not choose the accumulator discriminant");
-    assert_eq!(response.status(), StatusCode::CONFLICT);
-    push_bounded_canonical_fanout_batch(
-        &mut accumulator,
-        BoundedCanonicalFanoutVariant::RoleId,
-        iroha_data_model::query::QueryOutputBatchBox::RoleId(Vec::new()),
-    )
-    .expect("the expected variant remains admissible after the rejected route");
-}
-#[test]
 fn canonical_unit_payload_rejects_nonempty_bytes_without_decoding() {
     let mut hostile = [0_u8; 32];
     hostile[..8].copy_from_slice(&u64::MAX.to_le_bytes());
@@ -191,104 +110,6 @@ fn canonical_unit_payload_rejects_nonempty_bytes_without_decoding() {
         !bounded_unit_query_payload_matches(&hostile),
         "a non-unit query sharing RoleId/TriggerId output must fail on raw payload shape"
     );
-}
-#[test]
-fn canonical_iterable_writer_matches_query_response_wire_and_exact_cap() {
-    let cases = [
-        (
-            iroha_data_model::query::QueryOutputBatchBox::RoleId(Vec::new()),
-            BoundedCanonicalFanoutVariant::RoleId,
-        ),
-        (
-            iroha_data_model::query::QueryOutputBatchBox::RoleId(vec![
-                "fanout_reader".parse().expect("role id"),
-            ]),
-            BoundedCanonicalFanoutVariant::RoleId,
-        ),
-        (
-            iroha_data_model::query::QueryOutputBatchBox::TriggerId(Vec::new()),
-            BoundedCanonicalFanoutVariant::TriggerId,
-        ),
-        (
-            iroha_data_model::query::QueryOutputBatchBox::TriggerId(vec![
-                "fanout_trigger".parse().expect("trigger id"),
-            ]),
-            BoundedCanonicalFanoutVariant::TriggerId,
-        ),
-    ];
-    assert_eq!(
-        core::mem::align_of::<BoundedCanonicalIterableFanoutResponse>(),
-        core::mem::align_of::<iroha_data_model::query::QueryResponse>(),
-        "the transparent writer must preserve QueryResponse frame padding"
-    );
-    for (batch, expected) in cases {
-        let response = iroha_data_model::query::QueryResponse::Iterable(
-            iroha_data_model::query::QueryOutput::new(
-                iroha_data_model::query::QueryOutputBatchBoxTuple::from_batch(batch),
-                0,
-                None,
-            ),
-        );
-        let golden = norito::to_bytes(&response).expect("ordinary canonical response");
-        let bounded = BoundedCanonicalIterableFanoutResponse::new(response, expected)
-            .expect("admitted canonical response shape");
-        let encoded = crate::utils::encode_norito_bounded(&bounded, golden.len())
-            .expect("the exact response boundary must fit");
-        assert_eq!(encoded, golden);
-        assert_eq!(
-            <BoundedCanonicalIterableFanoutResponse as norito::NoritoSchema>::nominal_name(),
-            "iroha_torii::BoundedCanonicalIterableFanoutResponse",
-        );
-        assert_eq!(
-            <BoundedCanonicalIterableFanoutResponse as norito::NoritoSchema>::frame_name(),
-            <iroha_data_model::query::QueryResponse as norito::NoritoSchema>::frame_name(),
-        );
-        let decoded: iroha_data_model::query::QueryResponse =
-            norito::decode_canonical(&encoded).expect("bounded writer uses the actual model frame");
-        assert_eq!(
-            norito::encode_canonical(&decoded).expect("reencode model frame"),
-            encoded
-        );
-        let mut wrong_owner = encoded.clone();
-        wrong_owner[6] ^= 1;
-        assert!(matches!(
-            norito::decode_canonical::<iroha_data_model::query::QueryResponse>(&wrong_owner),
-            Err(norito::Error::SchemaMismatch),
-        ));
-        assert!(
-            norito::decode_canonical::<iroha_data_model::query::QueryResponse>(
-                &encoded[..encoded.len() - 1]
-            )
-            .is_err()
-        );
-        let error = crate::utils::encode_norito_bounded(&bounded, golden.len() - 1)
-            .expect_err("F + 1 must fail before allocating the destination");
-        assert!(matches!(
-            error,
-            crate::utils::BoundedResponseEncodeError::BodyTooLarge {
-                encoded_bytes,
-                max_body_bytes,
-            } if encoded_bytes == golden.len() && max_body_bytes + 1 == golden.len()
-        ));
-    }
-}
-#[test]
-fn canonical_iterable_writer_rejects_wrong_first_arm() {
-    let response = iroha_data_model::query::QueryResponse::Iterable(
-        iroha_data_model::query::QueryOutput::new(
-            iroha_data_model::query::QueryOutputBatchBoxTuple::from_batch(
-                iroha_data_model::query::QueryOutputBatchBox::TriggerId(Vec::new()),
-            ),
-            0,
-            None,
-        ),
-    );
-    let rejection = BoundedCanonicalIterableFanoutResponse::new(
-        response,
-        BoundedCanonicalFanoutVariant::RoleId,
-    )
-    .expect_err("the request-pinned RoleId arm must reject a first TriggerId route");
-    assert_eq!(rejection.status(), StatusCode::CONFLICT);
 }
 #[test]
 fn query_fanout_slot_count_enforces_aggregate_byte_budget() {
@@ -1352,18 +1173,6 @@ async fn incompatible_response_diagnostic_does_not_format_hostile_payload() {
         error.message(),
         "routed query returned an incompatible response variant; expected a singular query output"
     );
-}
-#[tokio::test]
-async fn canonical_fanout_error_does_not_format_hostile_conversion_payload() {
-    let response = canonical_fanout_error_response(
-        iroha_data_model::query::error::QueryExecutionFail::Conversion("x".repeat(32 * 1024)),
-    );
-    assert_eq!(response.status(), StatusCode::CONFLICT);
-    let bytes = axum::body::to_bytes(response.into_body(), 1024)
-        .await
-        .expect("canonical fanout failure text must stay fixed-size");
-    assert!(bytes.len() < 512);
-    assert!(!bytes.as_ref().contains(&b'x'));
 }
 #[tokio::test]
 async fn skipped_route_response_drops_body_and_its_permit_before_next_route() {

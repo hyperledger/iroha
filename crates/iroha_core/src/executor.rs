@@ -6769,13 +6769,14 @@ impl Executor {
         host.set_crypto_config(Arc::clone(&state_transaction.crypto));
         host.set_zk_config(&state_transaction.zk);
         host.set_public_inputs_from_parameters(state_transaction.world.parameters.get());
-        host.set_vrf_epoch_seeds_from_state(state_transaction)
-            .map_err(|error| {
-                state_transaction.attempt_error_to_validation_fail(
-                    error.map_rejection(ValidationFail::InternalError),
-                )
-            })?;
-        host.set_query_state(state_transaction);
+        let vrf_epoch_length =
+            crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(state_transaction)
+                .map_err(|error| {
+                    state_transaction.attempt_error_to_validation_fail(
+                        error.map_rejection(ValidationFail::InternalError),
+                    )
+                })?;
+        host.set_query_state_with_vrf_epoch_seeds(state_transaction, vrf_epoch_length);
         host.set_contract_runtime_context(contract_runtime_context.clone());
         host.set_contract_entrypoint_authorization(Some(entrypoint_authorization));
         if let Some(pending) = lifecycle_transition {
@@ -7791,13 +7792,16 @@ impl Executor {
                 host.set_crypto_config(Arc::clone(&state_transaction.crypto));
                 host.set_zk_config(&state_transaction.zk);
                 host.set_public_inputs_from_parameters(state_transaction.world.parameters.get());
-                host.set_vrf_epoch_seeds_from_state(state_transaction)
+                let vrf_epoch_length =
+                    crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(
+                        state_transaction,
+                    )
                     .map_err(|error| {
                         state_transaction.attempt_error_to_validation_fail(
                             error.map_rejection(ValidationFail::InternalError),
                         )
                     })?;
-                host.set_query_state(state_transaction);
+                host.set_query_state_with_vrf_epoch_seeds(state_transaction, vrf_epoch_length);
                 host.set_bound_contract_records_by_subject_snapshot(bound_contract_records);
                 crate::pipeline::overlay::apply_streaming_metadata(&mut host, streaming_metadata);
                 host.set_chain_id(&state_transaction.chain_id);
@@ -8008,13 +8012,14 @@ impl Executor {
         host.set_crypto_config(Arc::clone(&state_transaction.crypto));
         host.set_zk_config(&state_transaction.zk);
         host.set_public_inputs_from_parameters(state_transaction.world.parameters.get());
-        host.set_vrf_epoch_seeds_from_state(state_transaction)
-            .map_err(|error| {
-                state_transaction.attempt_error_to_validation_fail(
-                    error.map_rejection(ValidationFail::InternalError),
-                )
-            })?;
-        host.set_query_state(state_transaction);
+        let vrf_epoch_length =
+            crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(state_transaction)
+                .map_err(|error| {
+                    state_transaction.attempt_error_to_validation_fail(
+                        error.map_rejection(ValidationFail::InternalError),
+                    )
+                })?;
+        host.set_query_state_with_vrf_epoch_seeds(state_transaction, vrf_epoch_length);
         host.set_contract_runtime_context(contract_runtime_context.clone());
         host.set_contract_entrypoint_authorization(Some(entrypoint_authorization));
         // Keep the human-readable label available through SYSVAR_CHAIN_ID; AXT

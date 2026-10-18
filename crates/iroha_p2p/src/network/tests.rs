@@ -194,12 +194,15 @@ fn reliable_progress_class_matches_actor_reservations_exactly() {
     ] {
         assert_eq!(reliable_progress_class(topic, route), expected);
         assert_eq!(is_reliable_progress_route(topic, route), expected.is_some());
+        // The actor splits bulk progress by its peer-writer class, so block
+        // sync responses never hold proposals or chunks behind them.
         assert_eq!(
             ActorProgressClass::for_route(topic, route),
-            expected.map(|class| match class {
-                ReliableProgressClass::Safety => ActorProgressClass::Safety,
-                ReliableProgressClass::Lane => ActorProgressClass::Lane,
-                ReliableProgressClass::Bulk => ActorProgressClass::Bulk,
+            expected.map(|class| match (class, topic) {
+                (ReliableProgressClass::Safety, _) => ActorProgressClass::Safety,
+                (ReliableProgressClass::Lane, _) => ActorProgressClass::Lane,
+                (ReliableProgressClass::Bulk, Topic::BlockSync) => ActorProgressClass::BlockSync,
+                (ReliableProgressClass::Bulk, _) => ActorProgressClass::Payload,
             })
         );
     }
@@ -3194,6 +3197,7 @@ pub(super) fn network_fixture_with_listener<T: Pload + message::ClassifyTopic>(
             network_actor_progress_budget: test_network_actor_progress_budget(),
             reliable_flush_notice_sender,
             reliable_flush_notice_receiver,
+            reliable_topology_dirty: true,
             update_topology_receiver: update_topology_rx,
             update_peers_receiver: update_peers_rx,
             update_validator_dial_roster_receiver,
@@ -10952,3 +10956,4 @@ fn pending_connects_drop_outside_topology() {
     );
 }
 include!("link_frame_tests.rs");
+include!("actor_window_tests.rs");

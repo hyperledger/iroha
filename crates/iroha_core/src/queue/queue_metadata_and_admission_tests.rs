@@ -65,9 +65,7 @@ fn queue_reuses_gossip_payload_without_side_cache() {
         Arc::ptr_eq(&tx.entrypoint_bytes(), &payload),
         "accepted gossip transaction should reuse inbound entrypoint bytes"
     );
-    queue
-        .push_with_gossip_payload(tx, state.view(), Some(Arc::clone(&payload)))
-        .expect("push tx with payload");
+    queue.push(tx, state.view()).expect("push tx with payload");
     let encoded_len = queue
         .tx_encoded_len
         .get(&hash)
@@ -93,7 +91,7 @@ fn queue_reuses_gossip_payload_without_side_cache_in_shared_view() {
     let payload = tx.entrypoint_bytes();
     let state_view = state.view();
     queue
-        .push_with_gossip_payload_in_view(tx, &state_view, Some(Arc::clone(&payload)))
+        .push_in_view(tx, &state_view)
         .expect("push tx with payload through shared view");
     let batch = queue.gossip_batch(1, &state_view);
     assert_eq!(batch.len(), 1);
@@ -109,7 +107,7 @@ fn queue_reuses_gossip_payload_without_side_cache_with_state() {
     let tx = accepted_tx_by_someone(&time_source);
     let payload = tx.entrypoint_bytes();
     queue
-        .push_with_gossip_payload_with_state(tx, &state, Some(Arc::clone(&payload)))
+        .push_with_lane_with_state(tx, &state)
         .expect("push tx with payload through state");
     let batch = queue.gossip_batch_with_state(1, &state);
     assert_eq!(batch.len(), 1);

@@ -20163,7 +20163,7 @@ def test_reference_sdk_release_distribution_work_stays_open_in_docs() -> None:
     normalized = re.sub(r"\s+", " ", source)
 
     required_open = (
-        "Remaining SF-11 work is native qualification, release evidence, and SDK distribution: clean five-target ABI-29 rebuilds, skip-free parity replay, published archives and bindings, signed manifests, and live operator smokes.",
+        "Remaining SF-11 work is native qualification, release evidence, and SDK distribution: clean five-target ABI-30 rebuilds, skip-free parity replay, published archives and bindings, signed manifests, and live operator smokes.",
         "Remaining downstream work is signed release packaging, publication, and live SDK smoke evidence for those bindings.",
         "Cross-target release evidence is still a production gate; archive published checksums and smoke outputs for each supported release target and require the SF-11 release evidence gate to pass before declaring those artifacts production-ready.",
         "Final release-specific URLs, signatures, and package versions remain SF-11 release evidence.",

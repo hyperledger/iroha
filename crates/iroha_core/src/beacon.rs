@@ -2861,6 +2861,30 @@ pub(crate) fn verified_persisted_global_threshold_beacon_pulse_v1(
     network_id: &NetworkId,
     pulse: &FinalizedGlobalThresholdBeaconPulseV1,
 ) -> Result<FinalizedGlobalThresholdBeaconPulseV1, GlobalThresholdBeaconError> {
+    let session = persisted_global_threshold_beacon_pulse_session_v1(world, network_id, pulse)?;
+    verify_persisted_global_threshold_beacon_pulse_signature_v1(session, pulse)?;
+    Ok(*pulse)
+}
+
+/// Check one persisted global pulse against its authoritative World rows.
+///
+/// This is the State half of [`verified_persisted_global_threshold_beacon_pulse_v1`]:
+/// the pulse row and its unique slot, the network and anchor heights, and the
+/// key lifecycle and session binding. It returns the bound public session
+/// without verifying the final threshold signature, so a caller that defers
+/// [`verify_persisted_global_threshold_beacon_pulse_signature_v1`] needs no
+/// further access to the World. The session is immutable once validated.
+///
+/// # Errors
+///
+/// Returns [`GlobalThresholdBeaconError`] for a pulse absent from or different
+/// to its stored row or slot, another network, a noncanonical anchor height,
+/// an absent or inactive key session, or a session binding mismatch.
+pub(crate) fn persisted_global_threshold_beacon_pulse_session_v1<'world>(
+    world: &'world impl crate::state::WorldReadOnly,
+    network_id: &NetworkId,
+    pulse: &FinalizedGlobalThresholdBeaconPulseV1,
+) -> Result<&'world ValidatedGlobalThresholdBeaconSessionV1, GlobalThresholdBeaconError> {
     if world.global_beacon_pulses().get(&pulse.pulse_id) != Some(pulse)
         || world.global_beacon_pulse_slots().get(&(
             iroha_data_model::governance::types::BeaconSessionId::for_network_v1(&pulse.network_id),
@@ -2886,6 +2910,25 @@ pub(crate) fn verified_persisted_global_threshold_beacon_pulse_v1(
     };
     let session = &key_record.session;
     session.check_binding(&binding)?;
+    Ok(session)
+}
+
+/// Recheck a persisted pulse's final threshold signature, seed and identifier.
+///
+/// This is the cryptographic half of
+/// [`verified_persisted_global_threshold_beacon_pulse_v1`]. It is a pure
+/// function of the validated session and the pulse, so it may run after the
+/// World that supplied both has changed, provided
+/// [`persisted_global_threshold_beacon_pulse_session_v1`] accepted that pair.
+///
+/// # Errors
+///
+/// Returns [`GlobalThresholdBeaconError`] for a malformed or invalid final
+/// signature, a seed or identifier mismatch, or a noncanonical persisted shape.
+pub(crate) fn verify_persisted_global_threshold_beacon_pulse_signature_v1(
+    session: &ValidatedGlobalThresholdBeaconSessionV1,
+    pulse: &FinalizedGlobalThresholdBeaconPulseV1,
+) -> Result<(), GlobalThresholdBeaconError> {
     let verified = verify_finalized_global_threshold_beacon_pulse_v1(
         session,
         pulse,
@@ -2897,7 +2940,7 @@ pub(crate) fn verified_persisted_global_threshold_beacon_pulse_v1(
     if validate_persisted_global_threshold_beacon_pulse_v1(pulse)? != verified {
         return Err(GlobalThresholdBeaconError::InvalidPulseHistory);
     }
-    Ok(*pulse)
+    Ok(())
 }
 
 /// Re-verify the newest persisted global pulse at or before a block height.

@@ -31,6 +31,7 @@ const PRODUCTION_SOURCES: &[&str] = &[
 const TEST_ONLY_SOURCES: &[&str] = &[
     "src/frame_identity_tests.rs",
     "src/network/actor_admission_fixture.rs",
+    "src/network/actor_window_tests.rs",
     "src/network/admission_class_tests.rs",
     "src/network/connection_arbitration/tests.rs",
     "src/network/connection_lifecycle_tests.rs",

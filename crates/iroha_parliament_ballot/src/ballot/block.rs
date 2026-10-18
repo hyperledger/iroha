@@ -21,7 +21,7 @@ use iroha_data_model::{
         ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1, AnonymousBallotCorpusEntryV1,
         AnonymousBallotEnvelopeV1, AnonymousBallotRejectionV1, BallotScopeV1, Digest512,
         NullifierV1,
-        digests::{envelope_digest_v1, verify_stamp_v1},
+        digests::{envelope_digest_v1, verify_stamp_encoded_v1},
     },
 };
 
@@ -141,8 +141,8 @@ impl BlockBallotDecisionV1 {
 }
 
 /// Check the validity of one input: size, canonical framing, network, known scope, exact
-/// profile, stamp (the data model's `verify_stamp_v1` against the scope's context) and the
-/// proof.
+/// profile, stamp (the data model's `verify_stamp_encoded_v1` against the scope's context,
+/// encoded once per scope; it decides exactly as `verify_stamp_v1`) and the proof.
 ///
 /// # Errors
 /// [`VerificationUnavailableV1`] when the node cannot decide; never for an invalid input.
@@ -177,9 +177,9 @@ pub fn check_block_ballot_v1<S: BlockBallotStateV1 + ?Sized>(
     if !envelope.ballot.profile_id.is_v1() {
         return invalid(BlockInvalidReasonV1::UnknownProfile);
     }
-    let stamp = verify_stamp_v1(
+    let stamp = verify_stamp_encoded_v1(
         &envelope.authorization(),
-        context.context(),
+        context.encoded_context(),
         &envelope.ballot.stamp.nonce,
     )
     .map_err(VerificationUnavailableV1::Codec)?;

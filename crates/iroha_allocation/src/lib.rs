@@ -768,6 +768,15 @@ pub struct AllocationReservation {
 }
 
 impl AllocationReservation {
+    /// Retain this reservation's original pool identity without allocating or
+    /// acquiring capacity. Equal configured limits never substitute another pool.
+    #[must_use]
+    pub fn allocation_budget(&self) -> AllocationBudget {
+        AllocationBudget {
+            pool: Arc::clone(&self.pool),
+        }
+    }
+
     /// Return prepaid bytes not yet moved into an allocation charge.
     pub fn remaining_bytes(&self) -> usize {
         self.remaining

@@ -132,7 +132,7 @@ class NativeInventoryTests(unittest.TestCase):
     def test_real_checkout_matches_every_reviewed_owner(self):
         names = inventory.validate_native_source_inventory(ROOT)
         self.assertEqual(len(names), sum(len(row[-1]) for row in inventory.NATIVE_CORE_TEST_OWNERS))
-        self.assertEqual(len(names), 561)
+        self.assertEqual(len(names), 566)
 
     def test_authenticated_epoch_schedule_stays_in_exact_boundary_census(self):
         owner, = (row for row in inventory.NATIVE_CORE_TEST_OWNERS
@@ -657,6 +657,8 @@ class NativeInventoryTests(unittest.TestCase):
                 'proposal_recovery_kernel_routes_exact_body_to_native_worker_without_control_view',
             )),
             ('native original proposal publication admission', 'sumeragi/executor.rs', 'sumeragi/executor/proposal_publication.rs', 'proposal_publication', 'sumeragi::executor::proposal_publication::tests', (
+                'recovery_decode_handoff_retains_refusals_and_requires_exact_source',
+                'execution_reuses_recovered_proposal_decode_and_keeps_signing_admission',
                 'native_original_proposal_rechecks_clock_after_worker_wait_and_restart',
             )),
             ('native original execution clock admission', 'sumeragi/executor.rs', 'sumeragi/executor/clock_tests.rs', 'clock_tests', 'sumeragi::executor::clock_tests', (

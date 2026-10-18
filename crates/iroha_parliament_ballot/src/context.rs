@@ -10,7 +10,8 @@
 //!
 //! [`ScopedBallotContextV1`] is the verification context of design §3.5 option 2: an
 //! immutable context constructed by those checks, bound to its body instance and therefore
-//! to its scope, holding the proof crate's validated list. Every verifier, the admission
+//! to its scope, holding the proof crate's validated list and the context's canonical
+//! encoding, computed once per scope for every stamp check. Every verifier, the admission
 //! pipeline, the block decision, the corpus, the full verifier and the wallet take it.
 
 use core::fmt;
@@ -20,7 +21,8 @@ use iroha_data_model::{
     governance::{
         anonymous_ballot::{
             AuthenticatedBallotContextV1, BallotBodyContextV1, BallotContextErrorV1, BallotScopeV1,
-            Digest512, FrozenBallotPolicyV1, ProofProfileIdV1, SealedCredentialListV1,
+            Digest512, EncodedBallotContextV1, FrozenBallotPolicyV1, ProofProfileIdV1,
+            SealedCredentialListV1,
         },
         types::BodyInstanceId,
     },
@@ -161,6 +163,7 @@ pub struct ScopedBallotContextV1 {
     scope: BallotScopeV1,
     body_instance_id: BodyInstanceId,
     context: AuthenticatedBallotContextV1,
+    encoded: EncodedBallotContextV1,
     proof: ProofParts,
 }
 
@@ -178,7 +181,8 @@ impl fmt::Debug for ScopedBallotContextV1 {
 }
 
 impl ScopedBallotContextV1 {
-    /// Check `context` completely and bind it to the sealed `body_instance_id`.
+    /// Check `context` completely, bind it to the sealed `body_instance_id` and encode it
+    /// once for the scope's stamp checks.
     ///
     /// # Errors
     /// As [`check_context_v1`], and [`ProofInputErrorV1::ProfileIdentity`] (inside
@@ -195,10 +199,12 @@ impl ScopedBallotContextV1 {
             &context.body_context.governance_attempt_id,
             &body_instance_id,
         )?;
+        let encoded = EncodedBallotContextV1::new(&context).map_err(ProofInputErrorV1::from)?;
         Ok(Self {
             scope,
             body_instance_id,
             context,
+            encoded,
             proof,
         })
     }
@@ -233,6 +239,11 @@ impl ScopedBallotContextV1 {
     /// The checked authenticated context.
     pub fn context(&self) -> &AuthenticatedBallotContextV1 {
         &self.context
+    }
+
+    /// `Enc(context)`, encoded once at construction, for the scope's stamp checks.
+    pub fn encoded_context(&self) -> &EncodedBallotContextV1 {
+        &self.encoded
     }
 
     /// The network the body belongs to.
@@ -354,7 +365,7 @@ mod tests {
             Err(ContextErrorV1::Mismatch { field: "body_role" })
         );
         let mut weak = policy();
-        weak.stamp_difficulty_bits = 20;
+        weak.binding.stamp_difficulty_bits = 20;
         assert!(matches!(
             build_context_v1(body_context(), proposal_digest(), &sealed_list(), weak),
             Err(ContextErrorV1::Structure(BallotContextErrorV1::Policy(
@@ -400,7 +411,7 @@ mod tests {
         );
         // A policy changed without its hash, a list changed without R, S without the list.
         let mut changed = context.clone();
-        changed.policy.vote_notice_ms += 1;
+        changed.policy.binding.vote_notice_ms += 1;
         assert_eq!(
             check_context_v1(&changed),
             Err(ContextErrorV1::Derived {
@@ -452,6 +463,14 @@ mod tests {
         );
         assert_eq!(scoped.proof_policy_hash(), &built().policy_hash.to_proof());
         assert_eq!(scoped.proof_list().size(), 4);
+        assert_eq!(
+            scoped.encoded_context(),
+            &EncodedBallotContextV1::new(&built()).expect("encoded")
+        );
+        assert_eq!(
+            scoped.encoded_context().stamp_difficulty_bits(),
+            policy().binding.stamp_difficulty_bits
+        );
         let debug = format!("{scoped:?}");
         assert!(debug.contains("ScopedBallotContextV1") && debug.contains("seats"));
         // Another instance is another scope; a tampered context is refused.

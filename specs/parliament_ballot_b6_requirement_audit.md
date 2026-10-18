@@ -1,12 +1,12 @@
 # Parliament ballot B6 requirement audit
 
-Status, 2026-10-14: **no profile selected or qualified; production remains
+Status, 2026-10-18: **no profile selected or qualified; production remains
 gated**. This matrix maps the current [design](parliament_private_ballot_design.md)
 §5, §12.2 and §13 to retained evidence and remaining work. It is a source and
 requirements audit, not independent cryptographic review, owner acceptance,
-or an authorization to begin production integration. The standalone engineering
-checkpoint is complete; B6 qualification remains blocked on the requirements
-below. A listed source test is not a claim of exhaustive coverage.
+or an activation authorization. Design §12.2 separately authorizes production
+integration engineering alongside B6. The standalone engineering checkpoint is
+complete; B6 qualification still requires the evidence below. A listed source test is not a claim of exhaustive coverage.
 
 ## Evidence and scope
 
@@ -149,9 +149,9 @@ below. A listed source test is not a claim of exhaustive coverage.
   [extended backend](../crates/iroha_zkp_vole/tests/extended_variant.rs) and
   [campaign](../crates/iroha_zkp_vole/tests/fixtures/standalone_adversarial.md).
 
-“Local” means permitted standalone work. “Postselection” means the production
-requirement is not implemented or discharged by these component checks and
-must wait for selection. Already existing governance/SCCP machinery can have
+“Local” describes standalone evidence. Integration requirements below remain
+unqualified by these component checks; their implementation and testing may
+proceed under design §12.2. Already existing governance/SCCP machinery can have
 its own evidence; this audit does not independently certify those paths.
 
 ## Section 5 security gates
@@ -225,37 +225,37 @@ not supply node authentication, duplicate handling or wallet policy.
 
 | ID / case | Evidence and remaining requirement |
 | --- | --- |
-| R1: copied commitment or registration proof | Standalone verifier can accept an exact authorized statement. Rejection of an unauthorized copy and protection of the honest registrant require postselection account/assignment admission |
-| R2: replay under another seat, body or account | Changed registration authority/body/assignment/attempt tests exist in `proofs.rs`; actual authenticated seat/account admission remains postselection |
-| R3: incorrect registration authorization | Relation/output faults and changed-`auth` proof tests exist; production decode/authentication remains postselection |
-| R4: unseated alternate excluded | Postselection assignment-to-sealed-list transition and digest tests |
-| R5: duplicate sealed commitments | Standalone list validation rejects duplicates; sealing/restore transition evidence remains postselection |
-| R6: roster size 1 or 2 | Standalone list lower bound rejects; `NoRoster` outcome/retry and absence of a seal remain postselection |
-| R7: losses beyond `S-Q` | Postselection `NoQuorum` lifecycle test; no replacement policy inferred |
+| R1: copied commitment or registration proof | Standalone verifier can accept an exact authorized statement. Rejection of an unauthorized copy and protection of the honest registrant require account/assignment admission in integration |
+| R2: replay under another seat, body or account | Changed registration authority/body/assignment/attempt tests exist in `proofs.rs`; actual authenticated seat/account admission remains unqualified |
+| R3: incorrect registration authorization | Relation/output faults and changed-`auth` proof tests exist; production decode/authentication remains unqualified |
+| R4: unseated alternate excluded | Pending integration: assignment-to-sealed-list transition and digest tests |
+| R5: duplicate sealed commitments | Standalone list validation rejects duplicates; sealing/restore transition evidence remains unqualified |
+| R6: roster size 1 or 2 | Standalone list lower bound rejects; `NoRoster` outcome/retry and absence of a seal remain unqualified |
+| R7: losses beyond `S-Q` | Pending integration: `NoQuorum` lifecycle test; no replacement policy inferred |
 
 ### Ballot validity and admission
 
 | ID / case | Evidence and remaining requirement |
 | --- | --- |
 | V1: zero/multiple/out-of-range selectors | Relation selector faults and invalid-witness proof tests exist |
-| V2: duplicate/misordered list | Standalone `SealedList`/decoder validation exists; seal and restore enforcement remains postselection |
-| V3: length/digest mismatch or unvalidated list | Decoder/public-statement validation tests exist; authentication of `S`, `R` and shared list remains postselection |
+| V2: duplicate/misordered list | Standalone `SealedList`/decoder validation exists; seal and restore enforcement remains unqualified |
+| V3: length/digest mismatch or unvalidated list | Decoder/public-statement validation tests exist; authentication of `S`, `R` and shared list remains unqualified |
 | V4: unconstrained/second secret | Relation semantic faults and unchecked-prover rejection tests exist; these are finite constraint checks, not a soundness theorem |
 | V5: wrong vote authorization | Authorization-half/state and changed-message proof faults exist |
-| V6: wrong nullifier/authorization lengths | Fixed-length standalone decoding and frame faults exist; production Norito decoder remains postselection |
+| V6: wrong nullifier/authorization lengths | Fixed-length standalone decoding and frame faults exist; production Norito decoder remains unqualified |
 | V7: wrong proof length | Exact-size/trailing/truncation tests cover both standalone roles/rows |
 | V8: counter above `0x000fffff` | Extended-backend and ballot tests require refusal before reconstruction |
 | V9: valid non-minimal counter | [Four constructive tests](../docs/validation/parliament_ballot_b6/nonminimal-counter-results.md) pass in both modes, covering both rows/roles (vote `S=3`): original and second-valid proofs accept; changing only the counter rejects. One verifier challenge evaluation is source-inspection evidence, not an instrumented test result |
-| V10: changed vote/nullifier/authorization/list/context/policy/profile | Relation, proof-binding and decoder faults exist; authenticated production mappings remain postselection |
-| V11: exact ballot relayed before creator | Standalone exact-proof acceptance exists; first-in-canonical-order and later duplicate handling remain postselection |
-| V12: replay into another body scope | Changed body/scope proof rejection exists; chain authentication remains postselection |
-| V13: unknown/mismatched profile | Standalone retired-descriptor, role/row and descriptor checks exist; production profile admission remains postselection |
-| V14: concurrent/same-block duplicate nullifier | Postselection atomic admission and canonical-order tests |
-| V15: invalid proof claims honest nullifier | Invalid proof rejection exists; proving that later honest admission remains available requires postselection state tests |
-| V16: rerandomized pending flood | Postselection admission/dedup/queue test before verification |
-| V17: stamp reused with altered proof bytes | Postselection stamp binding and cheap-rejection test |
-| V18: invalid ballot from Byzantine proposer | Standalone verification rejects tested faults; block validity across honest validators remains postselection |
-| V19: invalid/stamp-bearing saturation | Postselection quantified attack-budget, inclusion and unrelated-transaction progress tests, using complete charge/capacity accounting |
+| V10: changed vote/nullifier/authorization/list/context/policy/profile | Relation, proof-binding and decoder faults exist; authenticated production mappings remain unqualified |
+| V11: exact ballot relayed before creator | Standalone exact-proof acceptance exists; first-in-canonical-order and later duplicate handling remain unqualified |
+| V12: replay into another body scope | Changed body/scope proof rejection exists; chain authentication remains unqualified |
+| V13: unknown/mismatched profile | Standalone retired-descriptor, role/row and descriptor checks exist; production profile admission remains unqualified |
+| V14: concurrent/same-block duplicate nullifier | Pending integration: atomic admission and canonical-order tests |
+| V15: invalid proof claims honest nullifier | Invalid proof rejection exists; proving that later honest admission remains available requires integration state tests |
+| V16: rerandomized pending flood | Pending integration: admission/dedup/queue test before verification |
+| V17: stamp reused with altered proof bytes | Pending integration: stamp binding and cheap-rejection test |
+| V18: invalid ballot from Byzantine proposer | Standalone verification rejects tested faults; block validity across honest validators remains unqualified |
+| V19: invalid/stamp-bearing saturation | Pending integration: quantified attack-budget, inclusion and unrelated-transaction progress tests, using complete charge/capacity accounting |
 
 ### Clock, closure and outcomes
 
@@ -264,7 +264,7 @@ standalone proof tests do not discharge them.
 
 | ID / case | Remaining requirement |
 | --- | --- |
-| C1: closing-block/late ballot, rollback/restore | Postselection cutoff and unchanged-corpus restore tests |
+| C1: closing-block/late ballot, rollback/restore | Pending integration: cutoff and unchanged-corpus restore tests |
 | C2: future timestamps, fast blocks, idle opening/closure | Qualified governance-clock bounds; no premature transition or empty-block production |
 | C3: `K` attempts and a closure freeing capacity | Closures before deferred openings; oldest eligible ordering; `s0` at actual opening |
 | C4: omitted/reordered/replayed corpus or altered counts/roots | Full authenticated verification rejection |
@@ -283,14 +283,14 @@ standalone proof tests do not discharge them.
 | S2: delayed pulse after beacon rotation | Governing SCCP/beacon evidence and replacement consumption must establish original-height key binding |
 | S3: idle chain with admitted future slot | SCCP ticket bounds/no missing-pulse loop; retain explicit joint integration evidence |
 | S4: persisted exact-slot pulse after restart/deferral | Late consumption without late pulse production; joint SCCP/replacement tests |
-| S5: admission beyond `K` | Reject before attempt allocation; postselection integration test |
-| S6: idle chain after opening | Casting clock due at `h_open+1`, frozen closing time and unchanged `s0`; postselection joint test |
-| S7: pause/opening order and stale holds/heads | Position-aware lift rule and rejection of stale/older decisions; postselection joint test |
+| S5: admission beyond `K` | Reject before attempt allocation; integration test |
+| S6: idle chain after opening | Casting clock due at `h_open+1`, frozen closing time and unchanged `s0`; joint integration test |
+| S7: pause/opening order and stale holds/heads | Position-aware lift rule and rejection of stale/older decisions; joint integration test |
 | S8: CPU versus acceleration | Standalone ARM byte/accept/reject evidence exists; physical x86 and production consensus-output/charge parity remain |
-| S9: wallet anonymity mode | Postselection SDK/wallet traffic tests excluding account/session/entry/nullifier-labelled requests |
-| S10: two proofs, distinct fresh 112-byte tapes | Tape layout and distinct deterministic test-tape proofs exist; production wallet entropy generation and nonreuse enforcement remain postselection |
-| S11: unavailable random source | Standalone tape/secret fill tests fail without a value; production wallet no-fallback behavior remains postselection |
-| S12: forced counter exhaustion and fresh retry | Backend bounded-grinding and typed error propagation tests exist; complete wallet retry on an unchanged statement with a fresh tape remains postselection |
+| S9: wallet anonymity mode | Pending integration: SDK/wallet traffic tests excluding account/session/entry/nullifier-labelled requests |
+| S10: two proofs, distinct fresh 112-byte tapes | Tape layout and distinct deterministic test-tape proofs exist; production wallet entropy generation and nonreuse enforcement remain unqualified |
+| S11: unavailable random source | Standalone tape/secret fill tests fail without a value; production wallet no-fallback behavior remains unqualified |
+| S12: forced counter exhaustion and fresh retry | Backend bounded-grinding and typed error propagation tests exist; complete wallet retry on an unchanged statement with a fresh tape remains unqualified |
 | S13: same explicit tape across paths | Fixed-tape vectors and ARM feature/platform digest agreement exist; physical x86 proof-byte/exhaustion parity remains |
 
 The formal model must replace timed-release phases with credential sealing,
@@ -298,8 +298,9 @@ casting, verified unique-nullifier append, deterministic closure and terminal
 outcomes, preserving the listed quorum/retry/capacity/rollback rules. Its crypto
 checks remain assumptions, not anonymity proofs. Consensus changes require
 named deterministic simulator regressions/mutations, and later real-peer tests
-use a legal committee of at least four validators. These are postselection
-integration obligations, not new standalone work authorized by this audit.
+use a legal committee of at least four validators. These are integration
+obligations authorized by design §12.2; their completion does not establish
+activation qualification.
 
 ## Concrete remaining work and ownership
 
@@ -315,7 +316,7 @@ integration obligations, not new standalone work authorized by this audit.
 | Exact Xeon and named phone evidence, physical x86 parity, battery/thermal/cancellation conditions | Hardware/qualification owners; open; Intel run explicitly deferred by owner |
 | Capacity/admission derivation | Resource and governance-policy owners; open, using complete qualified worst-case costs; no policy parameter silently chosen |
 | Current integration source-contract reconciliation | Scoped structural checkpoint complete. Queue/Kura, phase, construction, Torii release, daemon startup, beacon-witness and execution-result guards bind the reviewed owners and order. The full Python capture passed 1,755 tests on its recorded sources; a later constructor migration changed two observed Rust files. Their originals remain archived, and the [post-merge source check](../docs/validation/parliament_ballot_post_merge_source_check/README.md) passes across 402 stable inputs. Prior tests are not transferred to those changed files. Resolver/compiler/runtime premises remain; no Rust runtime or production qualification follows |
-| Production implementation, retirement and launch qualification | Postselection owners; gated by unmet selection conditions and eventual owner qualification record |
+| Production implementation, retirement and launch qualification | Integration owners may implement schemas, paths and coordinated retirement alongside B6 under design §12.2; binding production activation requires every qualification condition and the owner's qualification record |
 
 The three focused accounting suites pass 38 tests and six subtests on the
 recorded source and its [isolated reconstruction](../docs/validation/parliament_ballot_b6/frozen-accounting-recheck.json).

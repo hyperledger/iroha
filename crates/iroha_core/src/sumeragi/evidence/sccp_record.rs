@@ -148,7 +148,12 @@ fn decode_material_kind(raw: &str) -> Result<MaterialKind, Error> {
             // Preserve the canonical first invalid field when a common field precedes
             // the material. This entire temporary prefix is originally funded.
             "attribution" => {
-                map.parse_value::<EvidenceAttribution>()?;
+                map.parse_value_with_parser_typed(|parser| {
+                    let raw = parser.raw_value_slice()?;
+                    preflight_offender_object(&mut Parser::new(raw))?;
+                    EvidenceAttribution::json_deserialize(&mut Parser::new(raw))
+                        .map_err(Error::from)
+                })?;
             }
             "recorded_at_height" | "recorded_at_view" | "recorded_at_ms" => {
                 map.parse_value::<u64>()?;
@@ -241,6 +246,75 @@ fn validate(fields: &EvidenceRecordBodyFields) -> Result<(), Error> {
     Ok(())
 }
 
+/// Check a shared attribution/material array before any account or peer decoding.
+fn preflight_offender_object(parser: &mut Parser<'_>) -> Result<(), Error> {
+    let mut map = MapVisitor::new(parser)?;
+    while let Some(key) = map.next_key()? {
+        if key.as_str() == "offenders" {
+            map.parse_value_with_parser_typed(|parser| {
+                let mut sequence = json::SeqVisitor::new(parser)?;
+                #[cfg(all(test, sumeragi_core_mutation = "HC422"))]
+                let excessive = false;
+                #[cfg(not(all(test, sumeragi_core_mutation = "HC422")))]
+                let excessive = sequence.total_entries()
+                    > iroha_data_model::block::consensus::MAX_VALIDATORS_PER_HEIGHT;
+                if excessive {
+                    let parser = sequence.parser();
+                    let byte = parser.position();
+                    let prefix = &parser.input().as_bytes()[..byte];
+                    let line = 1 + prefix.iter().filter(|byte| **byte == b'\n').count();
+                    let col = prefix
+                        .iter()
+                        .rposition(|byte| *byte == b'\n')
+                        .map_or(byte + 1, |last| byte - last);
+                    return Err(json::Error::WithPos {
+                        msg: "evidence offender array exceeds committee bound",
+                        byte,
+                        line,
+                        col,
+                    }
+                    .into());
+                }
+                while !sequence.is_finished() {
+                    sequence.skip_element()?;
+                }
+                sequence.finish().map_err(Error::from)
+            })?;
+        } else {
+            map.parse_value_with_parser(|parser| parser.raw_value_slice())?;
+        }
+    }
+    map.finish().map_err(Error::from)
+}
+
+/// Refuse impossible SCCP offender arrays before decoding any nested account or peer.
+/// This is a structural allocation fence, not attribution or signature authority.
+fn preflight_offenders(raw: &str) -> Result<(), Error> {
+    fn material(parser: &mut Parser<'_>) -> Result<(), Error> {
+        let mut map = MapVisitor::new(parser)?;
+        while let Some(key) = map.next_key()? {
+            if key.as_str() == "value" {
+                map.parse_value_with_parser_typed(preflight_offender_object)?;
+            } else {
+                map.parse_value_with_parser(|parser| parser.raw_value_slice())?;
+            }
+        }
+        map.finish().map_err(Error::from)
+    }
+    let mut parser = Parser::new(raw);
+    let mut map = MapVisitor::new(&mut parser)?;
+    while let Some(key) = map.next_key()? {
+        match key.as_str() {
+            "evidence" => map.parse_value_with_parser_typed(material)?,
+            "attribution" => map.parse_value_with_parser_typed(preflight_offender_object)?,
+            _ => {
+                map.parse_value_with_parser(|parser| parser.raw_value_slice())?;
+            }
+        }
+    }
+    map.finish().map_err(Error::from)
+}
+
 pub(super) fn decode_json(
     raw: &str,
     budget: &AllocationBudget,
@@ -263,13 +337,14 @@ pub(super) fn decode_json(
     )
     .map_err(shared)?;
     let source = context.with(|| {
+        preflight_offenders(raw)?;
         let mut p = Parser::new(raw);
         let record = EvidenceRecord::json_deserialize(&mut p)?;
         p.skip_ws();
         if !p.eof() {
-            return Err(json::Error::Message("trailing evidence JSON".into()));
+            return Err(json::Error::Message("trailing evidence JSON".into()).into());
         }
-        Ok::<_, json::Error>(record)
+        Ok::<_, Error>(record)
     })?;
     let (height, view, time, status) = (
         source.recorded_at_height,

@@ -160,6 +160,8 @@ explicit resource ownership. There is one implementation per protocol.
 | JJ `client/websocket/JdkWebSocketConnectorFactory.java` | Retire with alternate backend after the canonical WebSocket connector exists. |
 | JJ `client/websocket/JdkWebSocketConnector.java` | Retire JDK-11-dependent connector; carry handshake/transport contract tests to the canonical implementation. |
 | JJ `client/websocket/JavaTransportWebSocket.java` | Retire the alternate JDK socket wrapper. The canonical Kotlin API delivers complete messages; frame aggregation and ping/pong belong to the engine and have no duplicate public control surface. |
+| JA `governance/ParliamentTimedOvn{BallotChoice,SeedHandle,Wallet}V1.java` | Removed without migration. The timed-OVN ballot and Parliament TLE are retired, so the Java wallet facade, seed handle, ballot choice and `ParliamentTimedOvnWalletV1Tests` have no Kotlin successor. KA `governance/ParliamentTimedOvnWalletV1.kt` (wallet, seed vault, trust anchor, public record and JNI endpoint) and K `client/ParliamentTimedOvnCastingProofPagerV1.kt` are removed with them, and the `governance` package is gone from both Android modules. |
+| J `client/HttpClientTransportParliamentCastingProofTests.java` and the casting-context, casting-proof, release-context and partial-release surface of J `client/ParliamentApiV1.java` / `HttpClientTransport.java` | Removed with the Torii routes they called; K `client/ParliamentApiV1.kt` / `HttpClientTransport.kt` lose the same surface. Attempt-draft, transition-draft and attempt-read stay. The anonymous ballot that replaces it gets new Kotlin-owned paths; no alias or Java forwarding facade is kept. |
 | `java/iroha_android/samples-android/src/main/java/org/hyperledger/iroha/android/samples/MainActivity.java` | AAR-linkage/address-rendering sample only (lines 10–31). Address functionality already exists in K. Replace the packaging smoke coverage with a Java consumer of the Kotlin AAR, not a second SDK sample implementation. |
 
 ## Concrete test migration and completion conditions
@@ -394,32 +396,36 @@ slice, not retirement of the duplicate implementation or its test evidence.
 
 At that September 24 checkpoint, the duplicate Java `ParliamentApiV1` and
 `ParliamentProposalValidatorV1` were coupled to Java transport and wallet callers.
-The September 30 migration below removes the duplicate proposal validator,
-proposal model, paging value types and trust anchor, and compiles the affected
-Java-source consumers against their Kotlin owners. The remaining Java transport,
-wallet backend and non-proposal API implementation surface still requires
+The September 30 migration below removes the duplicate proposal validator and
+proposal model, and compiles the affected Java-source consumers against their
+Kotlin owners. The wallet callers are retired by the October 18 entry below. The
+remaining Java transport and non-proposal API implementation surface still requires
 capability retirement with assertion preservation. Kotlin mirror tests alone
 cannot replace Java-source compilation evidence; no compatibility facade or
 fallback validator belongs in the first release.
 
-## Complete-checkpoint Java paging ownership (2026-09-30)
+## Timed-OVN ballot and Parliament TLE retirement (2026-10-18)
 
-The Java Android wallet accepts Kotlin's canonical
-`ParliamentTimedOvnCastingTrustAnchorV1` and returns Kotlin's complete public-record
-and page-verification owners. The duplicate Java trust anchor and diagnostic-only
-paging value types are removed. Java transport and consumer tests invoke the canonical Kotlin response parser
-directly; no Java forwarding parser is retained. `ParliamentTimedOvnCastingProofPagerV1` owns the pure paging loop for
-both transport consumers: complete signed checkpoints survive promotion and
-persistence, every next page waits for durable persistence, and the existing page,
-height and checkpoint limits remain mandatory. Each transport retains exact
-signed, bounded, one-shot requests and requires fresh nonce/timestamp authority.
+The Parliament timed-OVN ballot and the Parliament TLE are retired from the first
+release, so their JVM surface is removed without migration. This covers the Java
+Android wallet facade, seed handle and ballot choice (JA
+`governance/ParliamentTimedOvn{BallotChoice,SeedHandle,Wallet}V1.java`) with
+`ParliamentTimedOvnWalletV1Tests` and the Java casting-proof transport tests, and
+Kotlin's KA `governance/ParliamentTimedOvnWalletV1.kt` (wallet, Android seed vault,
+trust anchor, public record and JNI endpoint) with K
+`client/ParliamentTimedOvnCastingProofPagerV1.kt`, including the trust anchor and
+paging value types. Kotlin and Java `ParliamentApiV1` and `HttpClientTransport` lose
+the casting-context, casting-proof, release-context and partial-release routes,
+DTOs, path builders and transport methods, the ballot-corpus transition payload
+check, the ballot progress projection and the ballot certificate binding. Attempt
+drafts, transition drafts and attempt reads stay. Their transition, no-result and
+automatic-outcome lists follow `fixtures/governance/parliament_api_v1.json`, and a
+certificate that contains a private-jury body is rejected until the anonymous-ballot
+result binding has a Kotlin-owned parser. The replacement anonymous ballot gets new
+Kotlin-owned paths later; Java consumers will call them directly, and no facade,
+alias or fallback remains. Both SDKs pin native bridge ABI 30.
 
-Java and Kotlin consumer controls carry the genuine checked-in signed genesis
-and height-2 checkpoints, whose lengths differ from a 32-byte context hash, and
-assert defensive copies and persistence ordering. These managed controls test
-API ownership and byte preservation; current native and device qualification is
-recorded separately. Exact preceding source and assertion preimages are retained
-in the unit-repair evidence lane after concurrent removal of repository history.
+## Java attempt-draft, identifier and OMAPI ownership (2026-09-30)
 
 Java attempt-draft requests invoke Kotlin's `ParliamentApiV1` directly with its
 `Proposal`, closed ten-kind inventory and recursive proposal validator; the

@@ -132,7 +132,10 @@ fn ordinary_gossip_exact_frame_boundary_preserves_original_body_on_requeue() {
     let retry = partition_gossip_batch(1, cap, GossipPlane::Public, restored);
     assert!(retry.requeue.is_empty());
     assert_eq!(retry.message.encode(), message.encode());
-    assert_eq!(retry.message.txs[0].hash(), signed.hash_as_entrypoint());
+    assert_eq!(
+        retry.message.txs[0].hash(),
+        Some(signed.hash_as_entrypoint())
+    );
     assert_eq!(
         retry.message.txs[0].payload().as_slice(),
         original_payload.as_slice()

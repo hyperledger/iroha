@@ -25,9 +25,9 @@ tests:
               description: |
                 At least one committed Parliament attempt is active, but no accepted
                 lifecycle transition was observed for 45 minutes. Check finalized
-                height progress, phase-deadline trigger availability, threshold-beacon
-                production, and timed-release share transport. Metrics intentionally
-                omit attempt, proposal, account, and ballot identifiers.
+                height progress, phase-deadline trigger availability, and
+                threshold-beacon production. Metrics intentionally omit attempt,
+                proposal, account, and ballot identifiers.
   - name: healthy progress suppresses the active stall alert
     interval: 1m
     input_series:
@@ -73,13 +73,11 @@ tests:
       - alertname: SoraParliamentCertifiedAttemptStalled
         eval_time: 45m
         exp_alerts: []
-  - name: deadline pulse and execution failures are classified independently
+  - name: deadline and execution failures are classified independently
     interval: 1m
     input_series:
-      - series: 'governance_parliament_no_result_total{class="ballot_opening_deadline_expired"}'
+      - series: 'governance_parliament_no_result_total{class="public_finding_deadline_expired"}'
         values: '0 0 1 1 1'
-      - series: 'governance_parliament_no_result_total{class="ballot_release_pulse_unavailable"}'
-        values: '0 0 0 1 1'
       - series: 'governance_parliament_transitions_total{transition="mark_execution_failed"}'
         values: '0 0 0 0 1'
     alert_rule_test:
@@ -91,23 +89,10 @@ tests:
             exp_annotations:
               summary: "SORA Parliament phase deadline was missed"
               description: |
-                A committed public-finding or private-ballot phase ended through its
-                deterministic deadline-expiry class in the last 15 minutes. Inspect
-                aggregate stage gauges and transition counters, then verify that
-                permissionless phase triggers and release coordinators are available.
-      - alertname: SoraParliamentReleasePulseUnavailable
-        eval_time: 3m
-        exp_alerts:
-          - exp_labels:
-              severity: critical
-            exp_annotations:
-              summary: "SORA Parliament release pulse was unavailable"
-              description: |
-                A committed private ballot exhausted its release slot without the
-                required finalized threshold-beacon pulse. Check active DKG-session
-                bindings, validator signer custody, authenticated partial transport,
-                aggregation, and persisted pulse verification before new ballots reach
-                their release height.
+                A committed public-finding phase ended through its deterministic
+                deadline-expiry class in the last 15 minutes. Inspect aggregate stage
+                gauges and transition counters, then verify that permissionless phase
+                triggers are available.
       - alertname: SoraParliamentExecutionFailed
         eval_time: 4m
         exp_alerts:

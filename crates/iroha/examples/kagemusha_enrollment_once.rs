@@ -31,7 +31,7 @@ use zeroize::Zeroizing;
 type Result<T> = std::result::Result<T, &'static str>;
 const CONFIG_MAX: usize = 16 << 10;
 const KEY_MAX: usize = 4096;
-const HELP: &str = "kagemusha_enrollment_once ABSOLUTE_CONFIG_DIRECTORY pre-key|evidence|issue|deliver ABSOLUTE_REQUEST REQUEST_SHA256 ABSOLUTE_OUTPUT_PARENT NEW_OUTPUT_NAME\nOne SDK account-signed POST; no automatic retries. Private client.toml selects actual network/endpoint and account.key. Output directory is created exclusively before dispatch. A missing completed outcome after dispatch.json is unknown; retain the exact request and recover deliberately.";
+const HELP: &str = "kagemusha_enrollment_once ABSOLUTE_CONFIG_DIRECTORY pre-key|evidence|issue|deliver|expiry-proof ABSOLUTE_REQUEST REQUEST_SHA256 ABSOLUTE_OUTPUT_PARENT NEW_OUTPUT_NAME\nOne SDK account-signed POST; no automatic retries. Private client.toml selects actual network/endpoint and account.key. Output directory is created exclusively before dispatch. A missing completed outcome after dispatch.json is unknown; retain the exact request and recover deliberately.";
 
 fn sha(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
@@ -42,6 +42,7 @@ fn action(text: &str) -> Result<Action> {
         "evidence" => Ok(Action::Evidence),
         "issue" => Ok(Action::Issue),
         "deliver" => Ok(Action::Deliver),
+        "expiry-proof" => Ok(Action::ExpiryProof),
         _ => Err("action"),
     }
 }
@@ -51,6 +52,7 @@ fn action_name(value: Action) -> &'static str {
         Action::Evidence => "evidence",
         Action::Issue => "issue",
         Action::Deliver => "deliver",
+        Action::ExpiryProof => "expiry-proof",
     }
 }
 fn digest(text: &str) -> Result<()> {
@@ -216,6 +218,7 @@ fn response_name(action: Action, value: &Response) -> Result<&'static str> {
         (Action::Evidence, Response::Pending) => Ok("pending"),
         (Action::Issue, Response::CredentialReady) => Ok("credential-ready"),
         (Action::Deliver, Response::Credential(_)) => Ok("credential"),
+        (Action::ExpiryProof, Response::ExpiryProof(_)) => Ok("expiry-proof"),
         _ => Err("response-action"),
     }
 }
@@ -374,6 +377,7 @@ mod tests {
             Action::Evidence,
             Action::Issue,
             Action::Deliver,
+            Action::ExpiryProof,
         ] {
             let value = Request {
                 version: 1,
@@ -399,6 +403,8 @@ mod tests {
             assert!(decode_request(&trailing, action, &sha(&trailing)).is_err());
         }
         assert!(action("PRE_KEY").is_err());
+        assert_eq!(action("expiry-proof"), Ok(Action::ExpiryProof));
+        assert_eq!(action_name(Action::ExpiryProof), "expiry-proof");
         assert!(digest(&"A".repeat(64)).is_err());
     }
     #[test]
@@ -409,6 +415,11 @@ mod tests {
             (Action::Evidence, Response::Pending, "pending"),
             (Action::Issue, Response::CredentialReady, "credential-ready"),
             (Action::Deliver, Response::Credential(vec![1]), "credential"),
+            (
+                Action::ExpiryProof,
+                Response::ExpiryProof(vec![1]),
+                "expiry-proof",
+            ),
         ] {
             assert_eq!(response_name(action, &value), Ok(name));
             let other = if action == Action::PreKey {

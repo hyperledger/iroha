@@ -37,6 +37,14 @@ pub(super) fn lookup(
     // Clone the shared entry under the lock and compare outside it, so a
     // large key comparison never serializes concurrent hydration.
     let candidate = MEMO.lock().ok()?.get(id).cloned()?;
+    exact_match(candidate, record)
+}
+
+/// Keep a memoized entry only when its complete record equals `record`.
+fn exact_match(
+    candidate: PreparedVerifyingKey,
+    record: &VerifyingKeyRecord,
+) -> Option<PreparedVerifyingKey> {
     (candidate.record.as_ref() == record).then_some(candidate)
 }
 
@@ -94,21 +102,41 @@ mod tests {
     }
 
     #[test]
-    fn lookup_requires_the_exact_validated_pair() {
-        let id = VerifyingKeyId::new("memo-test", "exact-pair");
+    fn exact_match_requires_the_complete_validated_record() {
         let validated = record(0x11);
-        remember(&id, &prepared(validated.clone()));
-        let hit = lookup(&id, &validated).expect("identical pair reuses its validation");
-        assert_eq!(hit.record.as_ref(), &validated);
+        let memoized = prepared(validated.clone());
+        let hit = exact_match(memoized.clone(), &validated)
+            .expect("an identical record reuses its validation");
+        assert!(Arc::ptr_eq(&hit.record, &memoized.record));
 
-        let mut changed_bytes = validated.clone();
-        changed_bytes.vk_len = changed_bytes.vk_len.wrapping_add(1);
+        let mut changed_length = validated.clone();
+        changed_length.vk_len = changed_length.vk_len.wrapping_add(1);
         assert!(
-            lookup(&id, &changed_bytes).is_none(),
+            exact_match(memoized.clone(), &changed_length).is_none(),
             "a changed record must be validated again"
         );
+        let mut changed_key = validated;
+        changed_key.key = Some(iroha_data_model::proof::VerifyingKeyBox::new(
+            "memo-test-backend".into(),
+            vec![0x01],
+        ));
         assert!(
-            lookup(&VerifyingKeyId::new("memo-test", "other-id"), &validated).is_none(),
+            exact_match(memoized, &changed_key).is_none(),
+            "changed key bytes must be validated again"
+        );
+    }
+
+    #[test]
+    fn lookup_is_keyed_by_registry_id() {
+        let id = VerifyingKeyId::new("memo-test", "keyed-by-id");
+        let validated = record(0x12);
+        remember(&id, &prepared(validated.clone()));
+        assert!(
+            lookup(
+                &VerifyingKeyId::new("memo-test", "never-validated"),
+                &validated
+            )
+            .is_none(),
             "a record validated under another id is not reused"
         );
     }

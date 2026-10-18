@@ -24,7 +24,7 @@ use iroha_data_model::{
         ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1, AnonymousBallotEnvelopeV1, BallotScopeV1,
         CanonicalAnonymousBallotEnvelopeV1, Digest512, NullifierV1,
         digests::{
-            leading_zero_bits_v1, stamp_meets_difficulty_v1, stamp_payload_digest_v1,
+            leading_zero_bits_v1, stamp_meets_difficulty_v1, stamp_payload_digest_encoded_v1,
             stamp_work_digest_v1,
         },
     },
@@ -300,11 +300,11 @@ fn nullifier_free<S: AdmissionStateV1 + ?Sized>(
 
 /// Run the seven admission checks on submitted `bytes`, in order.
 ///
-/// The stamp decision is the data model's: `work_digest` from
-/// `stamp_payload_digest_v1(authorization, context)` and the nonce, accepted iff
-/// `stamp_meets_difficulty_v1` at the context's frozen difficulty; this is exactly
-/// `verify_stamp_v1`, decomposed so that the work bits and payload digest are computed once
-/// for the ingress priority.
+/// The stamp decision is the data model's: `work_digest` from the payload digest of the
+/// authorization with the scope's context (encoded once per scope,
+/// `stamp_payload_digest_encoded_v1`) and the nonce, accepted iff `stamp_meets_difficulty_v1`
+/// at the context's frozen difficulty; this is exactly `verify_stamp_v1`, decomposed so that
+/// the work bits and payload digest are computed once for the ingress priority.
 ///
 /// # Errors
 /// [`AdmissionErrorV1::Rejected`] with the earliest failing check, or
@@ -344,12 +344,12 @@ pub fn precheck_admission_v1<S: AdmissionStateV1 + ?Sized>(
         return Err(AdmissionRejectionV1::UnknownProfile.into());
     }
     // 5. The stamp, against the scope's authenticated context.
-    let payload_digest =
-        stamp_payload_digest_v1(&envelope.authorization(), known.context.context())
-            .map_err(VerificationUnavailableV1::Codec)?;
+    let encoded = known.context.encoded_context();
+    let payload_digest = stamp_payload_digest_encoded_v1(&envelope.authorization(), encoded)
+        .map_err(VerificationUnavailableV1::Codec)?;
     let work = stamp_work_digest_v1(&payload_digest, &envelope.ballot.stamp.nonce)
         .map_err(VerificationUnavailableV1::Codec)?;
-    if !stamp_meets_difficulty_v1(&work, known.context.policy().stamp_difficulty_bits) {
+    if !stamp_meets_difficulty_v1(&work, encoded.stamp_difficulty_bits()) {
         return Err(AdmissionRejectionV1::InsufficientStamp.into());
     }
     // 6. and 7. The nullifier is neither committed nor held by a verified pending ballot.
@@ -374,7 +374,8 @@ mod tests {
     use std::collections::BTreeSet;
 
     use iroha_data_model::governance::anonymous_ballot::{
-        AdmissionNonceV1, BallotChoiceV1, ProofProfileIdV1, digests::verify_stamp_v1,
+        AdmissionNonceV1, BallotChoiceV1, ProofProfileIdV1,
+        digests::{stamp_payload_digest_v1, verify_stamp_v1},
     };
 
     use super::*;

@@ -517,9 +517,7 @@ impl<T: message::ClassifyTopic> ReliableActorPending<T> {
             return;
         }
         debug_assert!(
-            entries
-                .iter()
-                .all(|entry| Self::source(entry) == source),
+            entries.iter().all(|entry| Self::source(entry) == source),
             "reliable actor retry must preserve its admission source"
         );
         let restored = entries.len();

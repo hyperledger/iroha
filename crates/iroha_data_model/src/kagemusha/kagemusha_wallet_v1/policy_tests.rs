@@ -950,8 +950,8 @@ fn kagemusha_wallet_v1_maximum_blacklist_fits_its_frame_cap() {
         decoded.body.entry_count,
         KAGEMUSHA_WALLET_BLACKLIST_ENTRIES_MAX_V1
     );
-    let last = decoded.entries.last().expect("last entry").account_digest;
-    assert!(decoded.contains(&last));
+    let highest = decoded.entries.last().expect("last entry").account_digest;
+    assert!(decoded.contains(&highest));
     assert!(!decoded.contains(&[0x02; 32]), "above every entry");
     let mut too_many = decoded.entries.clone();
     too_many.push(entry(0x03));

@@ -17055,15 +17055,6 @@ fn torii_authorized_signed_query_routes(
     };
     torii_authorize_signed_query_routes(app, request, scope, routes)
 }
-#[cfg(test)]
-fn clone_verified_query_request(
-    request: &iroha_data_model::query::QueryRequestWithAuthority,
-) -> iroha_data_model::query::QueryRequestWithAuthority {
-    let bytes = norito::to_bytes(request)
-        .expect("verified routed query requests should encode deterministically");
-    norito::decode_from_bytes(&bytes)
-        .expect("verified routed query requests should decode deterministically")
-}
 #[expect(
     clippy::result_large_err,
     reason = "HTTP rejections retain the complete Axum response at this transport boundary."
@@ -17150,102 +17141,8 @@ fn clone_verified_query_request_bounded(
             )
         })
 }
-#[cfg(test)]
-#[expect(
-    clippy::result_large_err,
-    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-)]
-fn fanout_route_scan_query_request(
-    request: &iroha_data_model::query::QueryRequestWithAuthority,
-) -> Result<iroha_data_model::query::QueryRequestWithAuthority, Response> {
-    prepare_fanout_route_scan_query_request(clone_verified_query_request(request))
-}
-#[expect(
-    clippy::result_large_err,
-    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-)]
-fn fanout_route_scan_query_request_bounded(
-    request: &iroha_data_model::query::QueryRequestWithAuthority,
-    envelope: QueryFanoutMemoryEnvelope,
-) -> Result<iroha_data_model::query::QueryRequestWithAuthority, Response> {
-    prepare_fanout_route_scan_query_request(clone_verified_query_request_bounded(
-        request, envelope,
-    )?)
-}
-#[expect(
-    clippy::result_large_err,
-    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-)]
-fn prepare_fanout_route_scan_query_request(
-    mut request: iroha_data_model::query::QueryRequestWithAuthority,
-) -> Result<iroha_data_model::query::QueryRequestWithAuthority, Response> {
-    if let iroha_data_model::query::QueryRequest::Start(start) = &mut request.request {
-        let signed_pagination = start.params.pagination.clone();
-        let fetch_size_cap = crate::routing::app_query_limits().max_fetch_size.max(1);
-        let scan_limit = match signed_pagination.limit {
-            Some(limit) => {
-                let window = signed_pagination
-                    .offset
-                    .checked_add(limit.get())
-                    .ok_or_else(|| {
-                        torii_proxy_error_response(
-                            StatusCode::BAD_REQUEST,
-                            "invalid_pagination",
-                            "routed query pagination window overflows",
-                        )
-                    })?;
-                if window > fetch_size_cap {
-                    return Err(torii_proxy_error_response(
-                        StatusCode::BAD_REQUEST,
-                        "invalid_pagination",
-                        format!(
-                            "routed query offset plus limit must not exceed the configured fetch budget of {fetch_size_cap} rows"
-                        ),
-                    ));
-                }
-                std::num::NonZeroU64::new(window)
-                    .expect("a non-zero signed limit produces a non-zero route-scan bound")
-            }
-            None => {
-                if signed_pagination.offset > fetch_size_cap {
-                    return Err(torii_proxy_error_response(
-                        StatusCode::BAD_REQUEST,
-                        "invalid_pagination",
-                        format!(
-                            "routed query offset must not exceed the configured fetch budget of {fetch_size_cap} rows"
-                        ),
-                    ));
-                }
-                std::num::NonZeroU64::new(fetch_size_cap)
-                    .expect("the route-scan fetch budget is non-zero")
-            }
-        };
-        start.params.pagination =
-            iroha_data_model::query::parameters::Pagination::new(Some(scan_limit), 0);
-        let fetch_size = scan_limit.get().min(fetch_size_cap);
-        start.params.fetch_size = iroha_data_model::query::parameters::FetchSize::new(
-            std::num::NonZeroU64::new(fetch_size),
-        );
-    }
-    Ok(request)
-}
 fn unsupported_routed_query_response(message: impl Into<String>) -> Response {
     torii_proxy_error_response(StatusCode::CONFLICT, "query_unsupported", message)
-}
-fn canonical_fanout_error_response(
-    error: iroha_data_model::query::error::QueryExecutionFail,
-) -> Response {
-    use iroha_data_model::query::error::QueryExecutionFail;
-    match error {
-        QueryExecutionFail::GasBudgetExceeded | QueryExecutionFail::CapacityLimit => {
-            torii_proxy_error_response(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                "query_capacity_exceeded",
-                "bounded canonical routed-query execution exceeded its deterministic work or memory budget",
-            )
-        }
-        _ => unsupported_canonical_iterable_fanout_response(),
-    }
 }
 fn unsupported_canonical_iterable_fanout_response() -> Response {
     torii_proxy_error_response(
@@ -17254,35 +17151,11 @@ fn unsupported_canonical_iterable_fanout_response() -> Response {
         "cross-dataspace iterable fanout is unavailable for canonical opaque query envelopes",
     )
 }
-// TODO: routed iterable fanout is parked (`bounded_canonical_iterable_fanout_variant`
-// rejects every iterable start); only the encoder tests construct these variants
-// until the canonical iterable projection is enabled.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "routed iterable fanout is parked; tests exercise the encoder"
-    )
-)]
-enum BoundedCanonicalFanoutVariant {
-    RoleId,
-    TriggerId,
-}
-impl BoundedCanonicalFanoutVariant {
-    fn matches(self, batch: &iroha_data_model::query::QueryOutputBatchBox) -> bool {
-        matches!(
-            (self, batch),
-            (
-                Self::RoleId,
-                iroha_data_model::query::QueryOutputBatchBox::RoleId(_)
-            ) | (
-                Self::TriggerId,
-                iroha_data_model::query::QueryOutputBatchBox::TriggerId(_)
-            )
-        )
-    }
-}
+/// Admit a query for cross-dataspace fanout.
+///
+/// Only singular queries fan out: every route's result is compared and one is
+/// retained. Iterable starts are refused because no canonical cross-route
+/// iterable projection exists, and clients cannot supply continuations.
 #[expect(
     clippy::result_large_err,
     reason = "HTTP rejections retain the complete Axum response at this transport boundary."
@@ -17290,24 +17163,10 @@ impl BoundedCanonicalFanoutVariant {
 fn ensure_bounded_fanout_query(
     request: &iroha_data_model::query::QueryRequestWithAuthority,
 ) -> Result<(), Response> {
-    bounded_fanout_query_kind(request).map(drop)
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BoundedFanoutQueryKind {
-    Iterable(BoundedCanonicalFanoutVariant),
-    Singular,
-}
-#[expect(
-    clippy::result_large_err,
-    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-)]
-fn bounded_fanout_query_kind(
-    request: &iroha_data_model::query::QueryRequestWithAuthority,
-) -> Result<BoundedFanoutQueryKind, Response> {
     match &request.request {
-        iroha_data_model::query::QueryRequest::Singular(_) => Ok(BoundedFanoutQueryKind::Singular),
+        iroha_data_model::query::QueryRequest::Singular(_) => Ok(()),
         iroha_data_model::query::QueryRequest::Start(_) => {
-            bounded_canonical_iterable_fanout_variant(request).map(BoundedFanoutQueryKind::Iterable)
+            Err(unsupported_canonical_iterable_fanout_response())
         }
         iroha_data_model::query::QueryRequest::Continue(_) => {
             Err(unsupported_routed_query_response(
@@ -17315,31 +17174,6 @@ fn bounded_fanout_query_kind(
             ))
         }
     }
-}
-#[expect(
-    clippy::result_large_err,
-    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-)]
-fn bounded_canonical_iterable_fanout_variant(
-    _request: &iroha_data_model::query::QueryRequestWithAuthority,
-) -> Result<BoundedCanonicalFanoutVariant, Response> {
-    Err(unsupported_canonical_iterable_fanout_response())
-}
-#[expect(
-    clippy::result_large_err,
-    reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-)]
-fn push_bounded_canonical_fanout_batch(
-    accumulator: &mut iroha_core::smartcontracts::isi::query::CanonicalQueryOutputAccumulator,
-    expected_variant: BoundedCanonicalFanoutVariant,
-    batch: iroha_data_model::query::QueryOutputBatchBox,
-) -> Result<(), Response> {
-    if !expected_variant.matches(&batch) {
-        return Err(unsupported_canonical_iterable_fanout_response());
-    }
-    accumulator
-        .push_batch(batch)
-        .map_err(canonical_fanout_error_response)
 }
 fn incompatible_routed_query_response(expected: &'static str) -> Response {
     torii_proxy_error_response(
@@ -17433,267 +17267,6 @@ fn decode_verified_singular_fanout_request_bounded(
                 "failed to decode the bounded singular routed query request",
             )
         })
-}
-fn canonical_fanout_len_prefixed(payload_len: usize) -> Option<usize> {
-    norito::core::len_prefix_len(payload_len).checked_add(payload_len)
-}
-#[derive(Clone, Copy)]
-enum CanonicalFanoutBatchRef<'a> {
-    RoleId(&'a Vec<iroha_data_model::role::RoleId>),
-    TriggerId(&'a Vec<iroha_data_model::trigger::TriggerId>),
-}
-impl CanonicalFanoutBatchRef<'_> {
-    #[expect(
-        clippy::result_large_err,
-        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-    )]
-    fn from_batch(
-        batch: &iroha_data_model::query::QueryOutputBatchBox,
-        expected: BoundedCanonicalFanoutVariant,
-    ) -> Result<CanonicalFanoutBatchRef<'_>, Response> {
-        match (expected, batch) {
-            (
-                BoundedCanonicalFanoutVariant::RoleId,
-                iroha_data_model::query::QueryOutputBatchBox::RoleId(values),
-            ) => Ok(CanonicalFanoutBatchRef::RoleId(values)),
-            (
-                BoundedCanonicalFanoutVariant::TriggerId,
-                iroha_data_model::query::QueryOutputBatchBox::TriggerId(values),
-            ) => Ok(CanonicalFanoutBatchRef::TriggerId(values)),
-            _ => Err(unsupported_canonical_iterable_fanout_response()),
-        }
-    }
-    fn discriminant(self) -> u32 {
-        // Keep these in lockstep with QueryOutputBatchBox. Golden parity tests
-        // below fail if the data-model enum order changes.
-        match self {
-            Self::RoleId(_) => 28,
-            Self::TriggerId(_) => 29,
-        }
-    }
-    fn values_encoded_len_exact(self) -> Option<usize> {
-        fn sequence<T: norito::core::SerializePayload>(values: &[T]) -> Option<usize> {
-            let mut total = norito::core::seq_len_prefix_len(values.len());
-            for value in values {
-                let item_len = value.encoded_len_exact()?;
-                total = total.checked_add(canonical_fanout_len_prefixed(item_len)?)?;
-            }
-            Some(total)
-        }
-        match self {
-            Self::RoleId(values) => sequence(values),
-            Self::TriggerId(values) => sequence(values),
-        }
-    }
-    fn serialize_values(
-        self,
-        writer: &mut norito::core::Encoder<'_>,
-    ) -> Result<(), norito::core::Error> {
-        fn sequence<T: norito::core::SerializePayload>(
-            values: &[T],
-            writer: &mut norito::core::Encoder<'_>,
-        ) -> Result<(), norito::core::Error> {
-            norito::core::write_seq_len(
-                writer,
-                u64::try_from(values.len()).map_err(|_| norito::core::Error::LengthMismatch)?,
-            )?;
-            for value in values {
-                norito::core::write_len_prefixed(writer, value)?;
-            }
-            Ok(())
-        }
-        match self {
-            Self::RoleId(values) => sequence(values, writer),
-            Self::TriggerId(values) => sequence(values, writer),
-        }
-    }
-}
-impl norito::core::SerializePayload for CanonicalFanoutBatchRef<'_> {
-    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::core::Error> {
-        norito::core::SerializePayload::serialize(&self.discriminant(), writer)?;
-        let values = CanonicalFanoutValuesRef(*self);
-        norito::core::write_len_prefixed(writer, &values)
-    }
-    fn encoded_len_hint(&self) -> Option<usize> {
-        self.encoded_len_exact()
-    }
-    fn encoded_len_exact(&self) -> Option<usize> {
-        let values_len = self.values_encoded_len_exact()?;
-        4_usize.checked_add(canonical_fanout_len_prefixed(values_len)?)
-    }
-}
-#[derive(Clone, Copy)]
-struct CanonicalFanoutValuesRef<'a>(CanonicalFanoutBatchRef<'a>);
-impl norito::core::SerializePayload for CanonicalFanoutValuesRef<'_> {
-    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::core::Error> {
-        self.0.serialize_values(writer)
-    }
-    fn encoded_len_hint(&self) -> Option<usize> {
-        self.encoded_len_exact()
-    }
-    fn encoded_len_exact(&self) -> Option<usize> {
-        self.0.values_encoded_len_exact()
-    }
-}
-#[derive(Clone, Copy)]
-struct CanonicalFanoutOneColumnRef<'a>(CanonicalFanoutBatchRef<'a>);
-impl norito::core::SerializePayload for CanonicalFanoutOneColumnRef<'_> {
-    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::core::Error> {
-        norito::core::write_seq_len(writer, 1)?;
-        norito::core::write_len_prefixed(writer, &self.0)
-    }
-    fn encoded_len_hint(&self) -> Option<usize> {
-        self.encoded_len_exact()
-    }
-    fn encoded_len_exact(&self) -> Option<usize> {
-        let batch_len = self.0.encoded_len_exact()?;
-        norito::core::seq_len_prefix_len(1).checked_add(canonical_fanout_len_prefixed(batch_len)?)
-    }
-}
-#[derive(Clone, Copy)]
-struct CanonicalFanoutBatchTupleRef<'a>(CanonicalFanoutBatchRef<'a>);
-impl norito::core::SerializePayload for CanonicalFanoutBatchTupleRef<'_> {
-    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::core::Error> {
-        norito::core::write_len_prefixed(writer, &CanonicalFanoutOneColumnRef(self.0))
-    }
-    fn encoded_len_hint(&self) -> Option<usize> {
-        self.encoded_len_exact()
-    }
-    fn encoded_len_exact(&self) -> Option<usize> {
-        let columns_len = CanonicalFanoutOneColumnRef(self.0).encoded_len_exact()?;
-        canonical_fanout_len_prefixed(columns_len)
-    }
-}
-#[derive(Clone, Copy)]
-struct CanonicalFanoutOutputRef<'a> {
-    batch: CanonicalFanoutBatchRef<'a>,
-    remaining_items: &'a Option<u64>,
-    has_more: &'a bool,
-    continue_cursor: &'a Option<iroha_data_model::query::parameters::ForwardCursor>,
-}
-impl norito::core::SerializePayload for CanonicalFanoutOutputRef<'_> {
-    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::core::Error> {
-        norito::core::write_len_prefixed(writer, &CanonicalFanoutBatchTupleRef(self.batch))?;
-        norito::core::write_len_prefixed(writer, self.remaining_items)?;
-        norito::core::write_len_prefixed(writer, self.has_more)?;
-        norito::core::write_len_prefixed(writer, self.continue_cursor)
-    }
-    fn encoded_len_hint(&self) -> Option<usize> {
-        self.encoded_len_exact()
-    }
-    fn encoded_len_exact(&self) -> Option<usize> {
-        let mut total = 0_usize;
-        for field_len in [
-            CanonicalFanoutBatchTupleRef(self.batch).encoded_len_exact()?,
-            self.remaining_items.encoded_len_exact()?,
-            self.has_more.encoded_len_exact()?,
-            self.continue_cursor.encoded_len_exact()?,
-        ] {
-            total = total.checked_add(canonical_fanout_len_prefixed(field_len)?)?;
-        }
-        Some(total)
-    }
-}
-/// Exact, one-buffer writer for the only two iterable output arms admitted by
-/// canonical fanout. The transparent representation preserves QueryResponse's
-/// outer Norito alignment while the custom serializer avoids every full-batch
-/// derived-codec staging buffer.
-#[repr(transparent)]
-#[derive(Debug)]
-struct BoundedCanonicalIterableFanoutResponse(iroha_data_model::query::QueryResponse);
-impl BoundedCanonicalIterableFanoutResponse {
-    #[expect(
-        clippy::result_large_err,
-        reason = "HTTP rejections retain the complete Axum response at this transport boundary."
-    )]
-    fn new(
-        response: iroha_data_model::query::QueryResponse,
-        expected: BoundedCanonicalFanoutVariant,
-    ) -> Result<Self, Response> {
-        let iroha_data_model::query::QueryResponse::Iterable(output) = &response else {
-            return Err(incompatible_routed_query_response(
-                "an iterable query output",
-            ));
-        };
-        if output.remaining_items != Some(0)
-            || output.has_more
-            || output.continue_cursor.is_some()
-            || output.batch.column_count() != 1
-        {
-            return Err(unsupported_canonical_iterable_fanout_response());
-        }
-        CanonicalFanoutBatchRef::from_batch(&output.batch.columns()[0], expected)?;
-        Ok(Self(response))
-    }
-    fn output_ref(&self) -> CanonicalFanoutOutputRef<'_> {
-        let iroha_data_model::query::QueryResponse::Iterable(output) = &self.0 else {
-            unreachable!("bounded canonical response constructor pins iterable output")
-        };
-        let batch = match &output.batch.columns()[0] {
-            iroha_data_model::query::QueryOutputBatchBox::RoleId(values) => {
-                CanonicalFanoutBatchRef::RoleId(values)
-            }
-            iroha_data_model::query::QueryOutputBatchBox::TriggerId(values) => {
-                CanonicalFanoutBatchRef::TriggerId(values)
-            }
-            _ => unreachable!("bounded canonical response constructor pins batch arm"),
-        };
-        CanonicalFanoutOutputRef {
-            batch,
-            remaining_items: &output.remaining_items,
-            has_more: &output.has_more,
-            continue_cursor: &output.continue_cursor,
-        }
-    }
-}
-impl norito::NoritoSchema for BoundedCanonicalIterableFanoutResponse {
-    fn nominal_name() -> String {
-        "iroha_torii::BoundedCanonicalIterableFanoutResponse".to_owned()
-    }
-    fn frame_name() -> String {
-        <iroha_data_model::query::QueryResponse as norito::NoritoSchema>::frame_name()
-    }
-}
-impl norito::core::SerializePayload for BoundedCanonicalIterableFanoutResponse {
-    fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::core::Error> {
-        // QueryResponse::Iterable is the second data-model variant.
-        norito::core::SerializePayload::serialize(&1_u32, writer)?;
-        norito::core::write_len_prefixed(writer, &self.output_ref())
-    }
-    fn encoded_len_hint(&self) -> Option<usize> {
-        self.encoded_len_exact()
-    }
-    fn encoded_len_exact(&self) -> Option<usize> {
-        let output_len = self.output_ref().encoded_len_exact()?;
-        4_usize.checked_add(canonical_fanout_len_prefixed(output_len)?)
-    }
-}
-fn bounded_canonical_iterable_fanout_response(
-    query_response: iroha_data_model::query::QueryResponse,
-    expected: BoundedCanonicalFanoutVariant,
-    format: ResponseFormat,
-    max_body_bytes: usize,
-) -> Response {
-    let bounded = match BoundedCanonicalIterableFanoutResponse::new(query_response, expected) {
-        Ok(response) => response,
-        Err(response) => return response,
-    };
-    match format {
-        ResponseFormat::Norito => {
-            let _canonical_flags =
-                norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
-            match crate::utils::encode_norito_bounded(&bounded, max_body_bytes) {
-                Ok(bytes) => signed_query_fanout_response_from_norito_bytes(bytes),
-                Err(error) => bounded_signed_query_fanout_encode_error_response(error),
-            }
-        }
-        ResponseFormat::Json => {
-            match crate::utils::encode_json_bounded(&bounded.0, max_body_bytes) {
-                Ok(json) => signed_query_fanout_response_from_json(json),
-                Err(error) => bounded_signed_query_fanout_json_encode_error_response(error),
-            }
-        }
-    }
 }
 fn bounded_singular_fanout_response(
     query_response: iroha_data_model::query::QueryResponse,
@@ -17792,10 +17365,6 @@ fn signed_query_fanout_response_from_json(json: String) -> Response {
         )
         .body(Body::from(json))
         .expect("build preflighted signed-query fanout JSON response")
-}
-fn should_skip_iterable_routed_query_route_error(response: &Response) -> bool {
-    response.status() == StatusCode::NOT_FOUND
-        || torii_response_has_reject_code(response, "route_unavailable")
 }
 fn torii_response_has_reject_code(response: &Response, code: &str) -> bool {
     if !(response.status().is_client_error() || response.status().is_server_error()) {
@@ -17914,10 +17483,9 @@ async fn execute_incoming_torii_signed_query_route_scan(
     if let Err(response) = reject_proxy_client_continuation(&request, "signed route scan") {
         return hold_query_fanout_memory_in_response_body(response, permit);
     }
-    let expected_kind = match bounded_fanout_query_kind(&request) {
-        Ok(kind) => kind,
-        Err(response) => return hold_query_fanout_memory_in_response_body(response, permit),
-    };
+    if let Err(response) = ensure_bounded_fanout_query(&request) {
+        return hold_query_fanout_memory_in_response_body(response, permit);
+    }
     let scope = match signed_query_scope_for_app_bounded(
         app.as_ref(),
         &request,
@@ -17956,7 +17524,7 @@ async fn execute_incoming_torii_signed_query_route_scan(
         Ok(envelope) => envelope,
         Err(response) => return hold_query_fanout_memory_in_response_body(response, permit),
     };
-    let route_request = match fanout_route_scan_query_request_bounded(&request, envelope) {
+    let route_request = match clone_verified_query_request_bounded(&request, envelope) {
         Ok(request) => request,
         Err(response) => return hold_query_fanout_memory_in_response_body(response, permit),
     };
@@ -17978,17 +17546,8 @@ async fn execute_incoming_torii_signed_query_route_scan(
         Ok(response) => response,
         Err(response) => return hold_query_fanout_memory_in_response_body(response, permit),
     };
-    let mut response = match expected_kind {
-        BoundedFanoutQueryKind::Iterable(expected) => bounded_canonical_iterable_fanout_response(
-            query_response,
-            expected,
-            format,
-            envelope.route_body_bytes,
-        ),
-        BoundedFanoutQueryKind::Singular => {
-            bounded_singular_fanout_response(query_response, format, envelope.route_body_bytes)
-        }
-    };
+    let mut response =
+        bounded_singular_fanout_response(query_response, format, envelope.route_body_bytes);
     insert_routing_headers(&mut response, routing_decision, "proxy");
     hold_query_fanout_memory_in_response_body(response, permit)
 }
@@ -18067,23 +17626,9 @@ async fn execute_torii_verified_query_route_scan_locally(
     envelope: QueryFanoutMemoryEnvelope,
     fanout_reservation: QueryFanoutMemoryReservation,
 ) -> Result<iroha_data_model::query::QueryResponse, Response> {
-    let output_limits = match bounded_fanout_query_kind(&request)? {
-        BoundedFanoutQueryKind::Iterable(_) => {
-            let max_items = match &request.request {
-                iroha_data_model::query::QueryRequest::Start(start) => start
-                    .params
-                    .pagination
-                    .limit_value()
-                    .map(std::num::NonZeroU64::get)
-                    .unwrap_or_else(|| crate::routing::app_query_limits().max_fetch_size),
-                _ => unreachable!("bounded iterable fanout kind pins a start request"),
-            };
-            routing::FanoutQueryOutputLimits::Iterable(envelope.canonical_output_limits(max_items))
-        }
-        BoundedFanoutQueryKind::Singular => {
-            routing::FanoutQueryOutputLimits::Singular(envelope.singular_output_limits())
-        }
-    };
+    ensure_bounded_fanout_query(&request)?;
+    let output_limits =
+        routing::FanoutQueryOutputLimits::Singular(envelope.singular_output_limits());
     let authority = request.authority.clone();
     admit_signed_query_authority(app.as_ref(), &authority)
         .await
@@ -18262,7 +17807,6 @@ async fn execute_torii_query_via_fanout_for_routes_admitted(
     proxy_memory: Option<ToriiProxyMemoryReservation>,
 ) -> Response {
     debug_assert!(!routes.is_empty());
-    let routed_by = routed_by_for_routes(app, &routes);
     if matches!(
         &verified_query.request,
         iroha_data_model::query::QueryRequest::Continue(_)
@@ -18288,151 +17832,13 @@ async fn execute_torii_query_via_fanout_for_routes_admitted(
         )
         .await;
     }
-    let final_pagination = match &verified_query.request {
-        iroha_data_model::query::QueryRequest::Start(start) => start.params.pagination.clone(),
-        _ => unreachable!("continuation and singular requests were handled above"),
-    };
+    // Iterable starts have no canonical cross-route projection.
     let mut diagnostics = ToriiFanoutDiagnostics::default();
-    let expected_variant = match bounded_canonical_iterable_fanout_variant(&verified_query) {
-        Ok(variant) => variant,
-        Err(response) => {
-            diagnostics.record_failure_class("query_unsupported");
-            return with_torii_fanout_headers(response, diagnostics);
-        }
-    };
-    // Consume the originally decoded verified request. Only one bounded local
-    // clone exists beside it at a time; remote routes use the shared raw Arc.
-    let fanout_request = match prepare_fanout_route_scan_query_request(verified_query) {
-        Ok(request) => request,
-        Err(response) => return with_torii_fanout_headers(response, diagnostics),
-    };
-    let keep = match &fanout_request.request {
-        iroha_data_model::query::QueryRequest::Start(scan) => scan
-            .params
-            .pagination
-            .limit_value()
-            .map(std::num::NonZeroU64::get)
-            .unwrap_or_else(|| crate::routing::app_query_limits().max_fetch_size),
-        _ => unreachable!("fanout route scan preserves a start request"),
-    };
-    let mut accumulator =
-        iroha_core::smartcontracts::isi::query::CanonicalQueryOutputAccumulator::new(
-            keep,
-            u64::try_from(envelope.candidate_encoded_bytes).unwrap_or(u64::MAX),
-            u64::try_from(envelope.accumulator_retained_bytes).unwrap_or(u64::MAX),
-            u64::try_from(envelope.decode_allocated_bytes).unwrap_or(u64::MAX),
-        );
-    let mut successful_route = false;
-    let mut skipped = SkippedRoutedQueryErrors::default();
-    for route in routes {
-        diagnostics.record_attempt();
-        let request = if should_execute_route_locally(app.as_ref(), route) {
-            match clone_verified_query_request_bounded(&fanout_request, envelope) {
-                Ok(request) => Some(request),
-                Err(response) => {
-                    diagnostics.record_failure_class("query_capacity_exceeded");
-                    return with_torii_fanout_headers(response, diagnostics);
-                }
-            }
-        } else {
-            None
-        };
-        let outcome = execute_torii_signed_query_route_scan_for_route(
-            app,
-            Arc::clone(&query_bytes),
-            request,
-            route,
-            envelope,
-            fanout_reservation.clone(),
-            proxy_memory.clone(),
-        )
-        .await;
-        match outcome {
-            Ok(iroha_data_model::query::QueryResponse::Iterable(output)) => {
-                let (batch_tuple, _, cursor) = output.into_parts();
-                if cursor.is_some() {
-                    diagnostics.record_failure_class("query_conflict");
-                    return with_torii_fanout_headers(
-                        unsupported_routed_query_response(
-                            "bounded routed query scans must not return a continuation cursor",
-                        ),
-                        diagnostics,
-                    );
-                }
-                let mut columns = batch_tuple.into_columns();
-                if columns.len() != 1 {
-                    diagnostics.record_failure_class("query_conflict");
-                    return with_torii_fanout_headers(
-                        unsupported_routed_query_response(
-                            "routed iterable queries support exactly one projected batch",
-                        ),
-                        diagnostics,
-                    );
-                }
-                let route_batch = columns
-                    .pop()
-                    .expect("one checked routed query batch column exists");
-                if !expected_variant.matches(&route_batch) {
-                    diagnostics.record_failure_class("query_unsupported");
-                    return with_torii_fanout_headers(
-                        unsupported_canonical_iterable_fanout_response(),
-                        diagnostics,
-                    );
-                }
-                if let Err(response) = push_bounded_canonical_fanout_batch(
-                    &mut accumulator,
-                    expected_variant,
-                    route_batch,
-                ) {
-                    diagnostics.record_failure_class("query_capacity_exceeded");
-                    return with_torii_fanout_headers(response, diagnostics);
-                }
-                successful_route = true;
-                diagnostics.record_success();
-            }
-            Ok(_other) => {
-                diagnostics.record_failure_class("query_conflict");
-                return with_torii_fanout_headers(
-                    incompatible_routed_query_response("an iterable query output"),
-                    diagnostics,
-                );
-            }
-            Err(response) if should_skip_iterable_routed_query_route_error(&response) => {
-                diagnostics.record_skipped_response(&response);
-                skipped.record_and_drop(response);
-            }
-            Err(response) => {
-                diagnostics.record_skipped_response(&response);
-                return with_torii_fanout_headers(response, diagnostics);
-            }
-        }
-    }
-    if !successful_route {
-        return with_torii_fanout_headers(skipped.into_response(), diagnostics);
-    }
-    drop(fanout_request);
-    drop(query_bytes);
-    let batch = match accumulator.finish(final_pagination) {
-        Ok(batch) => batch,
-        Err(error) => {
-            return with_torii_fanout_headers(canonical_fanout_error_response(error), diagnostics);
-        }
-    };
-    let mut response = bounded_canonical_iterable_fanout_response(
-        iroha_data_model::query::QueryResponse::Iterable(
-            iroha_data_model::query::QueryOutput::new(
-                iroha_data_model::query::QueryOutputBatchBoxTuple::from_batch(batch),
-                0,
-                None,
-            ),
-        ),
-        expected_variant,
-        format,
-        envelope.final_body_bytes,
-    );
-    insert_routed_by_header(&mut response, routed_by);
-    insert_torii_fanout_headers(&mut response, diagnostics);
-    response
+    diagnostics.record_failure_class("query_unsupported");
+    with_torii_fanout_headers(
+        unsupported_canonical_iterable_fanout_response(),
+        diagnostics,
+    )
 }
 #[cfg(feature = "connect")]
 #[expect(

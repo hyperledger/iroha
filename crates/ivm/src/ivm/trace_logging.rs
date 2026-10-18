@@ -34,10 +34,12 @@ pub(super) struct InvocationTrace {
     original: Option<AllocationBudget>,
 }
 impl InvocationTrace {
+    #[inline]
     fn collection_enabled(&self, vm: &IVM) -> bool {
         self.scoped_collection
             .unwrap_or(vm.zk_mode && vm.zk_trace_enabled)
     }
+    #[inline]
     fn owns(&self, vm: &IVM) -> bool {
         self.epoch == vm.proof_state_epoch
             && self.mode == vm.trace_mode
@@ -48,12 +50,17 @@ impl InvocationTrace {
                 _ => false,
             }
     }
+    /// Runs several times per step: build the error only on a mismatch, so the
+    /// owning path never constructs and drops a `VMError`.
+    #[inline]
     fn check(&self, vm: &IVM) -> Result<(), VMError> {
-        self.owns(vm)
-            .then_some(())
-            .ok_or(VMError::ExecutionDeferred(
+        if self.owns(vm) {
+            Ok(())
+        } else {
+            Err(VMError::ExecutionDeferred(
                 crate::error::ExecutionDeferral::TraceOwnerUnavailable,
             ))
+        }
     }
     fn discard_unobserved(&self, vm: &mut IVM) {
         // A newer/replaced invocation owns any new pending quota. Existing
@@ -150,6 +157,7 @@ impl IVM {
     }
 
     /// Publish the already-admitted initial or preceding-instruction observation.
+    #[inline]
     pub(super) fn record_trace_prefetch(
         &mut self,
         invocation: &InvocationTrace,
@@ -259,6 +267,10 @@ impl IVM {
     }
 
     /// Flush only completed, pre-admitted cycles after delayed native finish.
+    ///
+    /// Every step starts here; the ownership check and the untraced return stay
+    /// inline while the cycle publication itself remains out of line.
+    #[inline]
     pub(super) fn publish_trace_cycles(
         &mut self,
         invocation: &InvocationTrace,
@@ -268,6 +280,11 @@ impl IVM {
         if !invocation.cycles {
             return Ok(());
         }
+        self.publish_admitted_cycles(last_logged_cycle);
+        Ok(())
+    }
+
+    fn publish_admitted_cycles(&mut self, last_logged_cycle: &mut u64) {
         while *last_logged_cycle < self.cycles {
             self.trace_log.record_reserved(
                 self.pc,
@@ -281,7 +298,6 @@ impl IVM {
             );
             *last_logged_cycle += 1;
         }
-        Ok(())
     }
 
     /// Finish on success, refusal or unwind without erasing initialized history.

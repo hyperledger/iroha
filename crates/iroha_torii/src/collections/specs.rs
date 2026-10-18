@@ -304,10 +304,16 @@ pub static ACCOUNT_ASSETS: CollectionSpec = CollectionSpec {
 };
 
 /// `/v1/assets/{definition_id}/holders`
+///
+/// One row per balance partition. `id` is the partition's canonical asset
+/// literal (`<definition>#<account>[#dataspace:<id>]`); rows are stored by it
+/// in the definition's holder index, so the default order is that storage
+/// order (holder account, then scope) and pages seek from the cursor.
 pub static ASSET_HOLDERS: CollectionSpec = CollectionSpec {
     id: "asset_holders",
     tag: 7,
     fields: &[
+        text("id"),
         account("account_id"),
         text("asset"),
         text("asset_alias"),
@@ -315,10 +321,10 @@ pub static ASSET_HOLDERS: CollectionSpec = CollectionSpec {
         number("quantity"),
     ],
     metadata: false,
-    default_sort: &[("account_id", Order::Asc), ("scope", Order::Asc)],
-    identity: &["account_id", "asset", "scope"],
+    default_sort: &[("id", Order::Asc)],
+    identity: &["id"],
     positioned: 0,
-    ordered: false,
+    ordered: true,
 };
 
 /// Committed transaction rows, newest first.

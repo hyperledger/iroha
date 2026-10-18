@@ -4,6 +4,17 @@ All notable changes to `@iroha/iroha-js` are documented in this file.
 
 ## [Unreleased]
 
+- Removed the Parliament timed-OVN ballot and Parliament TLE client APIs: the
+  wallet and release reads and the proof request on `ToriiClient`, their path
+  builders, response parsers, frame codec and constants, the nine ballot
+  lifecycle transitions, the ballot no-result kinds, and the body-state
+  `timed_ovn_progress` field. Attempt reads and
+  `normalizeParliamentGovernanceCertificateV1` admit only public-finding
+  bindings and reject a private-jury result binding until the anonymous-ballot
+  result binding is supported.
+- The native bridge ABI is 30: `PRIVACY_REQUIRED_BRIDGE_ABI_VERSION` and
+  `VALIDATION_FEE_REQUIRED_BRIDGE_ABI_VERSION` are 30, and the SDK refuses a
+  native host built for any other bridge ABI.
 - Added `buildRetireBondTreasuryUnitsInstruction({ bondId, quantity })`
   (`Bond.RetireTreasuryUnits`: the issuer burns units of its own balance) with
   its review row; bond records carry `state.retired_units`, which

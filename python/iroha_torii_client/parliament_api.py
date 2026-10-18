@@ -1,15 +1,12 @@
 """Strict authenticated Python bindings for the first-release Parliament API.
 
-The casting-proof response is intentionally returned as opaque canonical
-Norito.  This module validates its transport frame and size, but only the
-native ABI-29 verifier can authenticate finality, membership, and the embedded
-Core archive before a wallet accesses secret ballot material.
+The module covers governance readiness, attempt drafting and reading, and
+lifecycle-transition drafting. Every response is validated against the exact
+first-release contract before it is exposed.
 """
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -18,7 +15,6 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence, T
 from ._account_id import decode_canonical_i105_account_id
 from .governance_proposals import GovernanceProposalKind
 from .norito_frame import (
-    encode_norito_frame,
     validate_norito_frame,
     validate_opaque_norito_frame,
 )
@@ -27,18 +23,6 @@ PARLIAMENT_API_VERSION_V1 = 1
 PARLIAMENT_ATTEMPT_DRAFT_PATH_V1 = "/v1/gov/parliament/attempts/draft"
 PARLIAMENT_ATTEMPT_READ_PATH_V1 = (
     "/v1/gov/parliament/attempts/{governance_attempt_id}"
-)
-PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_READ_PATH_V1 = (
-    "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context"
-)
-PARLIAMENT_TIMED_OVN_CASTING_PROOF_PATH_V1 = (
-    "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof"
-)
-PARLIAMENT_TLE_RELEASE_CONTEXT_READ_PATH_V1 = (
-    "/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context"
-)
-PARLIAMENT_TLE_PARTIAL_RELEASE_PATH_V1 = (
-    "/v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release"
 )
 PARLIAMENT_TRANSITION_DRAFT_PATH_V1 = "/v1/gov/parliament/transitions/draft"
 
@@ -58,38 +42,18 @@ _PARLIAMENT_INSTRUCTION_TYPE_NAME_BY_WIRE_ID_V1 = {
         "SubmitParliamentLifecycleTransitionV1"
     ),
 }
-PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_V1 = (
-    "iroha.torii.v1.parliament.timed_ovn_casting_proof.request"
-)
-PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_V1 = (
-    "iroha.torii.v1.parliament.timed_ovn_casting_proof.response"
-)
-PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_HASH_HEX_V1 = (
-    "adccf322a5fcf43040e20bea238f55f3"
-)
-PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_HASH_HEX_V1 = (
-    "46d29299272433b1299646bee722bd11"
-)
-PARLIAMENT_TIMED_OVN_CASTING_PROOF_VERSION_V1 = 1
-PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_FLAGS_V1 = 0x02
-PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_PAYLOAD_ALIGNMENT_V1 = 8
-PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_PADDING_BYTES_V1 = 0
-PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_BYTES_V1 = 52
 
 PARLIAMENT_ATTEMPT_STATE_MAX_BYTES_V1 = 16 * 1024 * 1024
 PARLIAMENT_GOVERNANCE_ATTEMPT_SEQUENCE_MAX_V1 = 16
 _PARLIAMENT_GOVERNANCE_POLICY_VERSION_V1 = 1
 _PARLIAMENT_SORTITION_RETRIES_MAX_V1 = 16
-PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_ARCHIVE_MAX_BYTES_V1 = 4 * 1024 * 1024
-PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_MAX_BYTES_V1 = 8 * 1024 * 1024
-# A maximal 32 x 2,858-byte freeze call is below 92 KiB before framing and
-# below 184 KiB as hex; 1 MiB leaves ample fixed-envelope headroom.
+# The largest remaining draft is a 1,000-identifier ConsumeSortitionPulseBatch:
+# about 32 KB of payload and 64 KB as hex. 1 MiB leaves ample fixed-envelope
+# headroom.
 PARLIAMENT_TRANSITION_DRAFT_RESPONSE_MAX_BYTES_V1 = 1024 * 1024
-PARLIAMENT_TIMED_OVN_REGISTRATION_RECORD_BYTES_V1 = 3_624
-PARLIAMENT_TIMED_OVN_BALLOT_RECORD_BYTES_V1 = 2_858
-PARLIAMENT_TIMED_OVN_CORPUS_ENTRIES_V1 = 1_000
-PARLIAMENT_TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS_V1 = 32
-PARLIAMENT_TLE_MAX_COMMITTEE_SIZE_V1 = 31
+# Mirrors Rust ``MAX_PARLIAMENT_BODY_TARGET_SEATS_V1``; it also bounds every
+# seat, quorum, endorsement, and assignment-count field of one body.
+MAX_BODY_TARGET_SEATS = 1_000
 _PARLIAMENT_SORTITION_REQUESTS_PER_BATCH_MAX_V1 = 10
 
 _U16_MAX = (1 << 16) - 1
@@ -120,44 +84,11 @@ _AMBIENT_AUTH_HEADERS = frozenset(
     }
 )
 
-
-def encode_parliament_timed_ovn_casting_proof_request_v1(
-    trusted_checkpoint_height: int,
-) -> bytes:
-    """Encode the sole canonical V1 checkpoint-promotion request frame."""
-
-    if type(trusted_checkpoint_height) is not int:
-        raise TypeError("trusted_checkpoint_height must be an unsigned 64-bit integer")
-    if trusted_checkpoint_height <= 0 or trusted_checkpoint_height > _U64_MAX:
-        raise ValueError("trusted_checkpoint_height must be within 1..=18446744073709551615")
-    payload = b"".join(
-        (
-            b"\x02",
-            PARLIAMENT_TIMED_OVN_CASTING_PROOF_VERSION_V1.to_bytes(2, "little"),
-            b"\x08",
-            trusted_checkpoint_height.to_bytes(8, "little"),
-        )
-    )
-    frame = encode_norito_frame(
-        payload,
-        type_name=PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_V1,
-        flags=PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_FLAGS_V1,
-        payload_alignment=PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_PAYLOAD_ALIGNMENT_V1,
-    )
-    if len(frame) != PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_BYTES_V1:
-        raise AssertionError("canonical Parliament casting-proof request width drifted")
-    return frame
-
-
 _PARLIAMENT_ROUTES_V1 = frozenset(
     {
         "/v1/gov/capabilities",
         PARLIAMENT_ATTEMPT_DRAFT_PATH_V1,
         PARLIAMENT_ATTEMPT_READ_PATH_V1,
-        PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_READ_PATH_V1,
-        PARLIAMENT_TIMED_OVN_CASTING_PROOF_PATH_V1,
-        PARLIAMENT_TLE_RELEASE_CONTEXT_READ_PATH_V1,
-        PARLIAMENT_TLE_PARTIAL_RELEASE_PATH_V1,
         PARLIAMENT_TRANSITION_DRAFT_PATH_V1,
     }
 )
@@ -198,9 +129,6 @@ _CAPABILITIES_FIELDS = frozenset(
         "network_prefix",
         "abi_version",
         "data_model_version",
-        "approval_mode",
-        "private_ballot_protocol",
-        "mandatory_private_ballots",
         "proposal_backed_referendum_ballots_supported",
         "standalone_plain_ballots_supported",
         "standalone_zk_ballots_supported",
@@ -212,13 +140,6 @@ _CAPABILITIES_FIELDS = frozenset(
         "bond_escrow_account",
         "min_enactment_delay",
         "invitation_phase_blocks",
-        "registration_phase_blocks",
-        "survivor_freeze_phase_blocks",
-        "commitment_phase_blocks",
-        "release_delay_blocks",
-        "opening_phase_blocks",
-        "max_ballot_retries",
-        "max_corpus_entries",
         "target_body_sizes",
         "supported_proposal_kinds",
         "supported_routes",
@@ -241,30 +162,9 @@ _PUBLIC_TRANSITION_FIELDS = {
     "AdvanceBodyPhase": ("body_instance_id", "target"),
     "RecordAttemptAbsence": ("body_instance_id", "assignment_id"),
     "EndorsePublicFinding": ("body_instance_id", "result_root"),
-    "RegisterBallotAttempt": (
-        "body_instance_id",
-        "ballot_attempt_id",
-        "sequence",
-        "tle_session_id",
-        "tle_key_session_id",
-        "release_beacon_session_id",
-        "release_height",
-    ),
-    "CloseBallotRegistration": ("ballot_attempt_id",),
-    "FreezeBallotSurvivors": ("ballot_attempt_id",),
-    "FreezeTimedOvnCorpus": ("ballot_attempt_id", "ballot_records"),
-    "BeginBallotOpeningBatch": (
-        "ballot_attempt_ids",
-        "release_beacon_session_id",
-        "release_height",
-        "pulse_id",
-    ),
-    "FailBallotNoResult": ("ballot_attempt_id",),
-    "FinalizeOpenedBallot": ("ballot_attempt_id", "final_release"),
     "RecordInvitationResponse": ("election_attempt_id", "body", "decision"),
-    "RegisterBallotParticipant": ("ballot_attempt_id", "registration_record"),
-    "RecordBallotDropout": ("ballot_attempt_id",),
     "FailPublicFindingNoResult": ("body_instance_id",),
+    "RegisterInitialSortition": None,
 }
 _BODY_ORDER = (
     "rules-committee",
@@ -290,6 +190,17 @@ _DELIBERATION_PHASES = frozenset(
         "Vote",
     }
 )
+_NO_RESULT_KINDS_V1 = frozenset(
+    {
+        "PublicFindingQuorumUnreachable",
+        "PublicFindingDeadlineExpired",
+        "SortitionRetriesExhausted",
+        "ConfirmationJuryCapacityUnavailable",
+        "RandomnessRedrawBudgetExhausted",
+    }
+)
+
+
 @dataclass(frozen=True)
 class ParliamentInstructionDraftV1:
     """One canonical instruction skeleton for local transaction signing."""
@@ -324,96 +235,8 @@ class ParliamentAttemptReadResponseV1:
     governance_attempt_id: str
     current_height: int
     policy_version: int
-    timed_ovn_progress: Tuple[Optional["ParliamentTimedOvnProgressProjectionV1"], ...]
     state_payload: bytes
     raw: Dict[str, Any]
-
-
-@dataclass(frozen=True)
-class ParliamentTimedOvnProgressProjectionV1:
-    """Aggregate-only active-ballot status and next contiguous corpus offset."""
-
-    ballot_attempt_id: str
-    status: str
-    frozen_survivor_count: Optional[int]
-    accepted_ballot_prefix_count: Optional[int]
-
-
-@dataclass(frozen=True)
-class ParliamentTleKeySessionPublicStateV1:
-    """Complete bounded public transcript for an adaptive TLE key session."""
-
-    key_session_id: str
-    network_id: bytes
-    roster_hash: bytes
-    committee_size: int
-    threshold: int
-    group_public_key: bytes
-    transcript_hash: bytes
-    raw: Dict[str, Any]
-
-
-@dataclass(frozen=True)
-class ParliamentTimedOvnReleaseIdentityProjectionV1:
-    """Frozen public timed-OVN future release identity."""
-
-    tle_key_session_id: str
-    governance_attempt_id: str
-    body_instance_id: str
-    ballot_attempt_id: str
-    survivor_corpus_root: bytes
-    no_recovery_root: bytes
-    target_finalized_height: int
-    parameter_hash: bytes
-
-
-@dataclass(frozen=True)
-class ParliamentTimedOvnCastingContextResponseV1:
-    """Structurally checked node-local diagnostic casting context.
-
-    This projection is not consensus-authenticated and must never authorize
-    secret-local preparation. Use the finality-bound casting-proof route and
-    ABI-29 native verifier for that purpose.
-    """
-
-    current_height: int
-    phase: str
-    ballot_attempt_id: str
-    key_session: ParliamentTleKeySessionPublicStateV1
-    archive_norito: bytes
-    raw: Dict[str, Any]
-
-
-@dataclass(frozen=True)
-class ParliamentTleReleaseContextResponseV1:
-    """Core-authorized public release context within its opening window."""
-
-    current_height: int
-    ballot_attempt_id: str
-    governance_attempt_id: str
-    body_instance_id: str
-    release_height: int
-    opening_deadline_height: int
-    key_session: ParliamentTleKeySessionPublicStateV1
-    release_identity: ParliamentTimedOvnReleaseIdentityProjectionV1
-    identity_digest: bytes
-    identity_payload: bytes
-    raw: Dict[str, Any]
-
-
-@dataclass(frozen=True)
-class ParliamentTlePartialReleaseShareV1:
-    """One public proof-carrying adaptive TLE partial release."""
-
-    key_session_id: str
-    identity_digest: bytes
-    participant_index: int
-    sigma: bytes
-    proof_x: bytes
-    proof_y: bytes
-    z_s: bytes
-    z_r: bytes
-    z_u: bytes
 
 
 @dataclass(frozen=True)
@@ -760,7 +583,7 @@ def _strict_id_list(value: Any, context: str) -> Tuple[str, ...]:
     if (
         not isinstance(value, list)
         or not value
-        or len(value) > PARLIAMENT_TIMED_OVN_CORPUS_ENTRIES_V1
+        or len(value) > MAX_BODY_TARGET_SEATS
     ):
         raise ValueError(f"{context} must contain one through 1000 identifiers")
     result = tuple(_id(item, f"{context}[{index}]") for index, item in enumerate(value))
@@ -816,7 +639,7 @@ def _validate_sortition_request(
     target_seats = _uint(
         request["target_seats"],
         f"{context}.target_seats",
-        PARLIAMENT_TIMED_OVN_CORPUS_ENTRIES_V1,
+        MAX_BODY_TARGET_SEATS,
         minimum=1,
     )
     request_height = _uint(
@@ -861,23 +684,20 @@ def _normalize_transition(
     payload = _exact(transition["payload"], fields, f"transition.{tag}.payload")
     id_fields = (
         "assignment_id",
-        "ballot_attempt_id",
         "beacon_session_id",
         "body_instance_id",
         "election_attempt_id",
         "pulse_id",
-        "release_beacon_session_id",
-        "tle_key_session_id",
-        "tle_session_id",
     )
     for field in id_fields:
         if field in payload:
             _id(payload[field], f"transition.{tag}.payload.{field}")
-    if "sequence" in payload:
-        _uint(payload["sequence"], f"transition.{tag}.payload.sequence", _U32_MAX)
-    for field in ("pulse_height", "release_height"):
-        if field in payload:
-            _uint(payload[field], f"transition.{tag}.payload.{field}", minimum=1)
+    if "pulse_height" in payload:
+        _uint(
+            payload["pulse_height"],
+            f"transition.{tag}.payload.pulse_height",
+            minimum=1,
+        )
     if tag == "EscalateRisk":
         _tagged_unit(payload["target"], "tier", _RISK_TIERS, "target")
     if tag == "RegisterSortitionRequest":
@@ -917,8 +737,6 @@ def _normalize_transition(
         _strict_id_list(payload["request_ids"], "request_ids")
     if tag == "AdvanceBodyPhase":
         _tagged_unit(payload["target"], "phase", _DELIBERATION_PHASES, "target")
-    if tag == "BeginBallotOpeningBatch":
-        _strict_id_list(payload["ballot_attempt_ids"], "ballot_attempt_ids")
     if tag == "RecordInvitationResponse":
         body = _text(payload["body"], "body")
         if body not in _BODY_ORDER:
@@ -926,35 +744,6 @@ def _normalize_transition(
         _tagged_unit(payload["decision"], "decision", {"Accept", "Decline"}, "decision")
     if tag == "EndorsePublicFinding":
         _bytes(payload["result_root"], 32, "result_root", nonzero=True)
-    if tag == "RegisterBallotParticipant":
-        _bytes(
-            payload["registration_record"],
-            PARLIAMENT_TIMED_OVN_REGISTRATION_RECORD_BYTES_V1,
-            "registration_record",
-        )
-    if tag == "FreezeTimedOvnCorpus":
-        records = payload["ballot_records"]
-        if (
-            not isinstance(records, list)
-            or not records
-            or len(records) > PARLIAMENT_TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS_V1
-        ):
-            raise ValueError("ballot_records must contain one through 32 records")
-        for index, record in enumerate(records):
-            _bytes(
-                record,
-                PARLIAMENT_TIMED_OVN_BALLOT_RECORD_BYTES_V1,
-                f"ballot_records[{index}]",
-            )
-    if tag == "FinalizeOpenedBallot":
-        release = _exact(
-            payload["final_release"],
-            {"key_session_id", "identity_digest", "signature"},
-            "final_release",
-        )
-        _id(release["key_session_id"], "final_release.key_session_id")
-        _bytes(release["identity_digest"], 32, "final_release.identity_digest", nonzero=True)
-        _bytes(release["signature"], 48, "final_release.signature", nonzero=True)
     return dict(transition), tag
 
 
@@ -1052,7 +841,6 @@ def _parse_body_states(
         "public_finding_deadline_height",
         "no_result_kind",
         "no_result_height",
-        "timed_ovn_progress",
     }
     statuses = {
         "AwaitingSortition",
@@ -1074,18 +862,6 @@ def _parse_body_states(
         "Deliberation",
         "Reflection",
         "Vote",
-    }
-    no_results = {
-        "PublicFindingQuorumUnreachable",
-        "PublicFindingDeadlineExpired",
-        "BallotRegistrationDeadlineExpired",
-        "BallotSurvivorDeadlineExpired",
-        "BallotCommitmentDeadlineExpired",
-        "BallotReleasePulseUnavailable",
-        "BallotOpeningDeadlineExpired",
-        "SortitionRetriesExhausted",
-        "ConfirmationJuryCapacityUnavailable",
-        "RandomnessRedrawBudgetExhausted",
     }
     parsed = []
     for index, item in enumerate(value):
@@ -1134,95 +910,20 @@ def _parse_body_states(
         if (no_result[0] is None) != (no_result[1] is None):
             raise TypeError(f"{context} must bind no-result kind and height together")
         if no_result[0] is not None:
-            _tagged_unit(no_result[0], "reason", no_results, f"{context}.no_result_kind")
+            _tagged_unit(
+                no_result[0], "reason", _NO_RESULT_KINDS_V1, f"{context}.no_result_kind"
+            )
             _uint(no_result[1], f"{context}.no_result_height")
             if status != "NoResult":
                 raise ValueError(f"{context} no-result facts require NoResult status")
-        progress = (
-            None
-            if state["timed_ovn_progress"] is None
-            else _parse_timed_ovn_progress(
-                state["timed_ovn_progress"], f"{context}.timed_ovn_progress"
-            )
-        )
-        private_body = state["body"] in {"policy-jury", "confirmation-jury"}
-        if progress is not None and (not private_body or instance is None):
-            raise TypeError(
-                f"{context}.timed_ovn_progress requires an active private body"
-            )
         parsed.append(
             {
                 "body": state["body"],
                 "body_instance_id": instance,
                 "status": status,
-                "timed_ovn_progress": progress,
             }
         )
     return tuple(parsed)
-
-
-def _parse_timed_ovn_progress(
-    value: Any, context: str
-) -> ParliamentTimedOvnProgressProjectionV1:
-    record = _exact(
-        value,
-        {
-            "ballot_attempt_id",
-            "status",
-            "frozen_survivor_count",
-            "accepted_ballot_prefix_count",
-        },
-        context,
-    )
-    ballot_attempt_id = _id(record["ballot_attempt_id"], f"{context}.ballot_attempt_id")
-    status = _tagged_unit(
-        record["status"],
-        "status",
-        {
-            "Registration",
-            "SurvivorFreeze",
-            "TimedCommitment",
-            "AwaitingRelease",
-            "Opening",
-            "Finalized",
-            "NoResult",
-            "Superseded",
-        },
-        f"{context}.status",
-    )
-    survivors_value = record["frozen_survivor_count"]
-    prefix_value = record["accepted_ballot_prefix_count"]
-    if (survivors_value is None) != (prefix_value is None):
-        raise TypeError(f"{context} survivor and prefix counts must appear together")
-    if survivors_value is None:
-        if status not in {"Registration", "SurvivorFreeze", "NoResult", "Superseded"}:
-            raise ValueError(f"{context} must expose counts after survivor freeze")
-        survivors = None
-        prefix = None
-    else:
-        survivors = _uint(
-            survivors_value,
-            f"{context}.frozen_survivor_count",
-            PARLIAMENT_TIMED_OVN_CORPUS_ENTRIES_V1,
-            minimum=1,
-        )
-        prefix = _uint(
-            prefix_value,
-            f"{context}.accepted_ballot_prefix_count",
-            survivors,
-        )
-        if status == "TimedCommitment" and prefix >= survivors:
-            raise ValueError(f"{context} TimedCommitment prefix must remain incomplete")
-        if status in {"AwaitingRelease", "Opening", "Finalized"} and prefix != survivors:
-            raise ValueError(f"{context} sealed/released prefix must equal frozen survivors")
-        if status in {"Registration", "SurvivorFreeze"}:
-            raise ValueError(f"{context} exposes counts before survivor freeze")
-    return ParliamentTimedOvnProgressProjectionV1(
-        ballot_attempt_id=ballot_attempt_id,
-        status=status,
-        frozen_survivor_count=survivors,
-        accepted_ballot_prefix_count=prefix,
-    )
 
 
 def _validate_expected_head(value: Any, context: str) -> None:
@@ -1266,13 +967,13 @@ def _validate_public_finding_binding(
     endorsements = _uint(
         record["endorsements"],
         f"{context}.endorsements",
-        PARLIAMENT_TIMED_OVN_CORPUS_ENTRIES_V1,
+        MAX_BODY_TARGET_SEATS,
         minimum=1,
     )
     quorum = _uint(
         record["quorum"],
         f"{context}.quorum",
-        PARLIAMENT_TIMED_OVN_CORPUS_ENTRIES_V1,
+        MAX_BODY_TARGET_SEATS,
         minimum=1,
     )
     expected_quorum = (2 * original_seats + 2) // 3
@@ -1282,199 +983,6 @@ def _validate_public_finding_binding(
         raise ValueError(
             f"{context}.endorsements must equal quorum and the assignment count"
         )
-
-
-def _validate_ballot_binding(
-    value: Any,
-    *,
-    original_seats: int,
-    result_height: int,
-    context: str,
-) -> Dict[str, Any]:
-    fields = {
-        "ballot_attempt_id",
-        "ballot_attempt_sequence",
-        "tle_session_id",
-        "tle_key_session_id",
-        "registration_root",
-        "dropout_root",
-        "survivor_root",
-        "corpus_root",
-        "no_recovery_root",
-        "timed_commitment_root",
-        "release_beacon_session_id",
-        "registered_at_height",
-        "registration_close_height",
-        "survivor_freeze_height",
-        "commitment_close_height",
-        "registration_closed_at_height",
-        "survivors_frozen_at_height",
-        "commitment_closed_at_height",
-        "max_ballot_retries",
-        "max_corpus_entries",
-        "release_height",
-        "opening_deadline_height",
-        "release_pulse_id",
-        "opening_height",
-        "opening_root",
-        "tally",
-        "outcome",
-    }
-    record = _exact(value, fields, context)
-    ballot_attempt_id = _id(
-        record["ballot_attempt_id"], f"{context}.ballot_attempt_id"
-    )
-    ballot_attempt_sequence = _uint(
-        record["ballot_attempt_sequence"],
-        f"{context}.ballot_attempt_sequence",
-        _U32_MAX,
-    )
-    tle_session_id = _id(record["tle_session_id"], f"{context}.tle_session_id")
-    _id(record["tle_key_session_id"], f"{context}.tle_key_session_id")
-    release_beacon_session_id = _id(
-        record["release_beacon_session_id"],
-        f"{context}.release_beacon_session_id",
-    )
-    release_pulse_id = _id(
-        record["release_pulse_id"], f"{context}.release_pulse_id"
-    )
-    for field in (
-        "registration_root",
-        "dropout_root",
-        "survivor_root",
-        "corpus_root",
-        "no_recovery_root",
-        "timed_commitment_root",
-        "opening_root",
-    ):
-        _bytes(record[field], 32, f"{context}.{field}", nonzero=True)
-
-    heights = {
-        field: _uint(record[field], f"{context}.{field}", minimum=1)
-        for field in (
-            "registered_at_height",
-            "registration_close_height",
-            "survivor_freeze_height",
-            "commitment_close_height",
-            "registration_closed_at_height",
-            "survivors_frozen_at_height",
-            "commitment_closed_at_height",
-            "release_height",
-            "opening_deadline_height",
-            "opening_height",
-        )
-    }
-    if not (
-        heights["registered_at_height"]
-        < heights["registration_close_height"]
-        < heights["survivor_freeze_height"]
-        < heights["commitment_close_height"]
-        < heights["release_height"]
-        < heights["opening_deadline_height"]
-    ):
-        raise ValueError(f"{context} lifecycle heights are not strictly ordered")
-    if (
-        heights["registration_closed_at_height"]
-        != heights["registration_close_height"]
-        or heights["survivors_frozen_at_height"]
-        != heights["survivor_freeze_height"]
-        or heights["commitment_closed_at_height"]
-        <= heights["survivor_freeze_height"]
-        or heights["commitment_closed_at_height"]
-        > heights["commitment_close_height"]
-    ):
-        raise ValueError(f"{context} consensus close heights are outside their slots")
-    if not (
-        heights["release_height"]
-        <= heights["opening_height"]
-        <= heights["opening_deadline_height"]
-    ) or not (
-        heights["opening_height"] <= result_height <= heights["opening_deadline_height"]
-    ):
-        raise ValueError(f"{context} opening/result heights are outside the release window")
-
-    max_ballot_retries = _uint(
-        record["max_ballot_retries"],
-        f"{context}.max_ballot_retries",
-        16,
-    )
-    if ballot_attempt_sequence > max_ballot_retries:
-        raise ValueError(f"{context}.ballot_attempt_sequence exceeds the retry budget")
-    max_corpus_entries = _uint(
-        record["max_corpus_entries"],
-        f"{context}.max_corpus_entries",
-        PARLIAMENT_TIMED_OVN_CORPUS_ENTRIES_V1,
-        minimum=1,
-    )
-    required_commitment_blocks = (
-        max_corpus_entries + PARLIAMENT_TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS_V1 - 1
-    ) // PARLIAMENT_TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS_V1
-    if max_corpus_entries < original_seats:
-        raise ValueError(f"{context}.max_corpus_entries is below original_seats")
-    if (
-        heights["registration_close_height"] - heights["registered_at_height"]
-        < max_corpus_entries + 1
-        or heights["survivor_freeze_height"]
-        - heights["registration_close_height"]
-        < max_corpus_entries
-        or heights["commitment_close_height"]
-        - heights["survivor_freeze_height"]
-        < required_commitment_blocks
-    ):
-        raise ValueError(f"{context} frozen schedule cannot service its maximum corpus")
-    tally = _exact(
-        record["tally"],
-        {"original_seats", "accepted_ballots", "aye", "nay", "abstain"},
-        f"{context}.tally",
-    )
-    tally_original_seats = _uint(
-        tally["original_seats"],
-        f"{context}.tally.original_seats",
-        PARLIAMENT_TIMED_OVN_CORPUS_ENTRIES_V1,
-        minimum=1,
-    )
-    accepted_ballots = _uint(
-        tally["accepted_ballots"],
-        f"{context}.tally.accepted_ballots",
-        PARLIAMENT_TIMED_OVN_CORPUS_ENTRIES_V1,
-    )
-    aye = _uint(tally["aye"], f"{context}.tally.aye", _U32_MAX)
-    nay = _uint(tally["nay"], f"{context}.tally.nay", _U32_MAX)
-    abstain = _uint(tally["abstain"], f"{context}.tally.abstain", _U32_MAX)
-    if tally_original_seats != original_seats:
-        raise ValueError(f"{context}.tally.original_seats differs from the body binding")
-    if accepted_ballots > max_corpus_entries or accepted_ballots > original_seats:
-        raise ValueError(f"{context}.tally.accepted_ballots exceeds an immutable bound")
-    if aye + nay + abstain != accepted_ballots:
-        raise ValueError(f"{context}.tally option counts do not conserve accepted ballots")
-    outcome = _tagged_unit(
-        record["outcome"],
-        "outcome",
-        {"Approved", "Rejected", "NoQuorum", "NoResult"},
-        f"{context}.outcome",
-    )
-    quorum = (2 * original_seats + 2) // 3
-    expected_outcome = (
-        "NoQuorum"
-        if accepted_ballots < quorum
-        else "Approved"
-        if aye > nay
-        else "Rejected"
-    )
-    if outcome != expected_outcome:
-        raise ValueError(f"{context}.outcome differs from the deterministic tally")
-    if outcome != "Approved":
-        raise ValueError(f"{context} is not an approving certificate ballot")
-    return {
-        "ballot_attempt_id": ballot_attempt_id,
-        "tle_session_id": tle_session_id,
-        "release_beacon_session_id": release_beacon_session_id,
-        "release_height": heights["release_height"],
-        "release_pulse_id": release_pulse_id,
-        "accepted_ballots": accepted_ballots,
-        "aye": aye,
-        "nay": nay,
-    }
 
 
 def _validate_certificate_outer(
@@ -1572,13 +1080,6 @@ def _validate_certificate_outer(
     seen_body_instance_ids: set[str] = set()
     seen_election_attempt_ids: set[str] = set()
     seen_sortition_request_ids: set[str] = set()
-    seen_ballot_attempt_ids: set[str] = set()
-    seen_tle_session_ids: set[str] = set()
-    seen_release_pulse_ids: set[str] = set()
-    seen_release_slots: set[Tuple[str, int]] = set()
-    sortition_pulse_ids: set[str] = set()
-    policy_binding: Optional[Dict[str, Any]] = None
-    confirmation_binding: Optional[Dict[str, Any]] = None
     latest_body_result_height = 0
     for index, item in enumerate(bindings):
         context = f"certificate.body_bindings[{index}]"
@@ -1600,9 +1101,7 @@ def _validate_certificate_outer(
         beacon_session_id = _id(
             binding["beacon_session_id"], f"{context}.beacon_session_id"
         )
-        beacon_pulse_id = _id(
-            binding["beacon_pulse_id"], f"{context}.beacon_pulse_id"
-        )
+        _id(binding["beacon_pulse_id"], f"{context}.beacon_pulse_id")
         for identifier, seen, field in (
             (body_instance_id, seen_body_instance_ids, "body_instance_id"),
             (election_attempt_id, seen_election_attempt_ids, "election_attempt_id"),
@@ -1611,8 +1110,7 @@ def _validate_certificate_outer(
             if identifier in seen:
                 raise ValueError(f"certificate.body_bindings reuses {field}")
             seen.add(identifier)
-        sortition_pulse_ids.add(beacon_pulse_id)
-        election_attempt_sequence = _uint(
+        _uint(
             binding["election_attempt_sequence"],
             f"{context}.election_attempt_sequence",
             _PARLIAMENT_SORTITION_RETRIES_MAX_V1,
@@ -1620,7 +1118,7 @@ def _validate_certificate_outer(
         original_seats = _uint(
             binding["original_seats"],
             f"{context}.original_seats",
-            PARLIAMENT_TIMED_OVN_CORPUS_ENTRIES_V1,
+            MAX_BODY_TARGET_SEATS,
             minimum=1,
         )
         for field in ("roster_root", "assignment_root", "result_root"):
@@ -1656,108 +1154,25 @@ def _validate_certificate_outer(
         if expects_ballot != (body in {"policy-jury", "confirmation-jury"}):
             raise ValueError(f"{context} decision mode is invalid for the body role")
         if expects_ballot:
-            if binding["public_finding"] is not None or binding["ballot"] is None:
-                raise TypeError(f"{context} must carry only a hidden ballot binding")
-            ballot = _validate_ballot_binding(
-                binding["ballot"],
-                original_seats=original_seats,
-                result_height=result_height,
-                context=f"{context}.ballot",
+            # TODO(parliament anonymous ballot, P4): validate the anonymous body-result
+            # binding (BallotClosureRecordV1 + result_root) for private-jury bodies here;
+            # until it lands this SDK admits no certificate that contains a private-jury
+            # body.
+            raise ValueError(
+                f"{context} private-jury result binding is not admitted until the "
+                "anonymous-ballot result binding is supported"
             )
-            progress = body_states[index]["timed_ovn_progress"]
-            if (
-                progress is None
-                or progress.status != "Finalized"
-                or progress.ballot_attempt_id != ballot["ballot_attempt_id"]
-                or progress.frozen_survivor_count != ballot["accepted_ballots"]
-                or progress.accepted_ballot_prefix_count != ballot["accepted_ballots"]
-            ):
-                raise ValueError(f"{context}.ballot differs from timed_ovn_progress")
-            for identifier, seen, field in (
-                (
-                    ballot["ballot_attempt_id"],
-                    seen_ballot_attempt_ids,
-                    "ballot_attempt_id",
-                ),
-                (ballot["tle_session_id"], seen_tle_session_ids, "tle_session_id"),
-                (
-                    ballot["release_pulse_id"],
-                    seen_release_pulse_ids,
-                    "release_pulse_id",
-                ),
-            ):
-                if identifier in seen:
-                    raise ValueError(f"certificate.body_bindings reuses {field}")
-                seen.add(identifier)
-            release_slot = (
-                ballot["release_beacon_session_id"],
-                ballot["release_height"],
-            )
-            if release_slot in seen_release_slots:
-                raise ValueError("certificate.body_bindings reuses a TLE release slot")
-            seen_release_slots.add(release_slot)
-            private_binding = {
-                "election_attempt_sequence": election_attempt_sequence,
-                "request_height": request["request_height"],
-                "result_height": result_height,
-                "beacon_session_id": beacon_session_id,
-                "beacon_pulse_id": beacon_pulse_id,
-                "ballot": ballot,
-            }
-            if body == "policy-jury":
-                if policy_binding is not None:
-                    raise ValueError("certificate contains more than one policy-jury")
-                policy_binding = private_binding
-            elif body == "confirmation-jury":
-                if confirmation_binding is not None:
-                    raise ValueError("certificate contains more than one confirmation-jury")
-                confirmation_binding = private_binding
-        else:
-            if body_states[index]["timed_ovn_progress"] is not None:
-                raise ValueError(f"{context} public body exposes timed_ovn_progress")
-            if binding["public_finding"] is None or binding["ballot"] is not None:
-                raise TypeError(f"{context} must carry only a public-finding binding")
-            _validate_public_finding_binding(
-                binding["public_finding"],
-                original_seats=original_seats,
-                context=f"{context}.public_finding",
-            )
-    if not sortition_pulse_ids.isdisjoint(seen_release_pulse_ids):
-        raise ValueError("certificate reuses a sortition pulse for ballot release")
+        if binding["public_finding"] is None or binding["ballot"] is not None:
+            raise TypeError(f"{context} must carry only a public-finding binding")
+        _validate_public_finding_binding(
+            binding["public_finding"],
+            original_seats=original_seats,
+            context=f"{context}.public_finding",
+        )
     if certified != latest_body_result_height:
         raise ValueError(
             "certificate.certified_at_height must equal the latest body result height"
         )
-    if policy_binding is None:
-        raise ValueError("certificate must contain exactly one approving policy-jury ballot")
-    policy_ballot = policy_binding["ballot"]
-    decisive = policy_ballot["aye"] + policy_ballot["nay"]
-    requires_confirmation = (
-        decisive > 0
-        and abs(policy_ballot["aye"] - policy_ballot["nay"]) * 100 < decisive * 5
-    )
-    if requires_confirmation != (confirmation_binding is not None):
-        raise ValueError(
-            "certificate confirmation-jury presence differs from the policy margin"
-        )
-    if confirmation_binding is not None:
-        initial_attempt = confirmation_binding["election_attempt_sequence"] == 0
-        request_height = confirmation_binding["request_height"]
-        policy_result_height = policy_binding["result_height"]
-        valid_request_height = (
-            request_height == policy_result_height
-            if initial_attempt
-            else request_height > policy_result_height
-        )
-        fresh_pulse = (
-            confirmation_binding["beacon_pulse_id"]
-            != policy_binding["beacon_pulse_id"]
-        )
-        if not valid_request_height or not fresh_pulse:
-            raise ValueError(
-                "certificate confirmation-jury request height must match the atomic "
-                "initial request or follow it on retry, with a fresh pulse"
-            )
 
 
 def _parse_attempt_read(value: Any, expected_attempt_id: str) -> ParliamentAttemptReadResponseV1:
@@ -1883,528 +1298,8 @@ def _parse_attempt_read(value: Any, expected_attempt_id: str) -> ParliamentAttem
         governance_attempt_id=attempt_id,
         current_height=current_height,
         policy_version=policy_version,
-        timed_ovn_progress=tuple(
-            state["timed_ovn_progress"] for state in body_states
-        ),
         state_payload=state_payload,
         raw=dict(record),
-    )
-
-
-def _parse_tle_key_session(value: Any) -> ParliamentTleKeySessionPublicStateV1:
-    fields = {
-        "version",
-        "key_session_id",
-        "network_id",
-        "roster_hash",
-        "committee_size",
-        "threshold",
-        "generator_h",
-        "generator_v",
-        "qualified_dealers",
-        "qualified_dealer_commitments",
-        "dkg_event_hash",
-        "group_public_key",
-        "public_shares",
-        "transcript_hash",
-    }
-    record = _exact(value, fields, "tle_key_session")
-    if (
-        _uint(record["version"], "tle_key_session.version", _U16_MAX)
-        != PARLIAMENT_API_VERSION_V1
-    ):
-        raise TypeError("unsupported Parliament TLE key-session version")
-    key_session_id = _id(record["key_session_id"], "tle_key_session.key_session_id")
-    network_id = _bytes(record["network_id"], 32, "tle_key_session.network_id", nonzero=True)
-    roster_hash = _bytes(record["roster_hash"], 32, "tle_key_session.roster_hash", nonzero=True)
-    generator_h = _bytes(record["generator_h"], 96, "tle_key_session.generator_h", nonzero=True)
-    generator_v = _bytes(record["generator_v"], 96, "tle_key_session.generator_v", nonzero=True)
-    dkg_event_hash = _bytes(
-        record["dkg_event_hash"], 32, "tle_key_session.dkg_event_hash", nonzero=True
-    )
-    group_public_key = _bytes(
-        record["group_public_key"],
-        96,
-        "tle_key_session.group_public_key",
-        nonzero=True,
-    )
-    transcript_hash = _bytes(
-        record["transcript_hash"], 32, "tle_key_session.transcript_hash", nonzero=True
-    )
-    committee_size = _uint(
-        record["committee_size"],
-        "tle_key_session.committee_size",
-        PARLIAMENT_TLE_MAX_COMMITTEE_SIZE_V1,
-        minimum=4,
-    )
-    threshold = _uint(record["threshold"], "tle_key_session.threshold", 11, minimum=2)
-    if (committee_size - 1) % 3 != 0 or threshold != (committee_size - 1) // 3 + 1:
-        raise ValueError(
-            "tle_key_session committee_size/threshold is not an exact 3f+1/f+1 profile"
-        )
-    dealers = record["qualified_dealers"]
-    if not isinstance(dealers, list) or not threshold <= len(dealers) <= committee_size:
-        raise ValueError("qualified_dealers violates the threshold/committee bound")
-    dealer_indices = tuple(
-        _uint(item, f"qualified_dealers[{index}]", committee_size, minimum=1)
-        for index, item in enumerate(dealers)
-    )
-    if any(left >= right for left, right in zip(dealer_indices, dealer_indices[1:])):
-        raise TypeError("qualified_dealers must be strictly increasing")
-    commitments = record["qualified_dealer_commitments"]
-    if not isinstance(commitments, list) or len(commitments) != len(dealer_indices):
-        raise TypeError("qualified_dealer_commitments must align with qualified_dealers")
-    for index, item in enumerate(commitments):
-        dealer = _exact(
-            item,
-            {
-                "dealer_index",
-                "coefficient_commitments",
-                "constant_pok_commitment",
-                "constant_pok_response",
-            },
-            f"qualified_dealer_commitments[{index}]",
-        )
-        if (
-            _uint(
-                dealer["dealer_index"],
-                f"qualified_dealer_commitments[{index}].dealer_index",
-                committee_size,
-                minimum=1,
-            )
-            != dealer_indices[index]
-        ):
-            raise ValueError("dealer commitment index differs from qualified_dealers")
-        coefficients = dealer["coefficient_commitments"]
-        if not isinstance(coefficients, list) or len(coefficients) != threshold:
-            raise TypeError("dealer coefficient commitments must contain exactly threshold entries")
-        for coefficient_index, coefficient in enumerate(coefficients):
-            _bytes(
-                coefficient,
-                96,
-                f"qualified_dealer_commitments[{index}].coefficient_commitments[{coefficient_index}]",
-                nonzero=True,
-            )
-        _bytes(
-            dealer["constant_pok_commitment"],
-            96,
-            f"qualified_dealer_commitments[{index}].constant_pok_commitment",
-            nonzero=True,
-        )
-        _bytes(
-            dealer["constant_pok_response"],
-            32,
-            f"qualified_dealer_commitments[{index}].constant_pok_response",
-        )
-    shares = record["public_shares"]
-    if not isinstance(shares, list) or len(shares) != committee_size:
-        raise TypeError("public_shares must contain the complete ordered committee")
-    participant_hashes = set()
-    for offset, item in enumerate(shares):
-        share = _exact(
-            item,
-            {"index", "participant_hash", "public_key_share"},
-            f"public_shares[{offset}]",
-        )
-        if (
-            _uint(share["index"], f"public_shares[{offset}].index", committee_size, minimum=1)
-            != offset + 1
-        ):
-            raise TypeError("public_shares must use the exact one-based sequence")
-        participant_hash = _bytes(
-            share["participant_hash"],
-            32,
-            f"public_shares[{offset}].participant_hash",
-            nonzero=True,
-        )
-        if participant_hash in participant_hashes:
-            raise TypeError("public_shares must bind distinct participant hashes")
-        participant_hashes.add(participant_hash)
-        _bytes(
-            share["public_key_share"],
-            96,
-            f"public_shares[{offset}].public_key_share",
-            nonzero=True,
-        )
-    # Keep generator validation explicit even though selected fields are not
-    # surfaced individually by the compact Python DTO.
-    if not generator_h or not generator_v or not dkg_event_hash:
-        raise AssertionError("validated non-empty public transcript fields")
-    return ParliamentTleKeySessionPublicStateV1(
-        key_session_id=key_session_id,
-        network_id=network_id,
-        roster_hash=roster_hash,
-        committee_size=committee_size,
-        threshold=threshold,
-        group_public_key=group_public_key,
-        transcript_hash=transcript_hash,
-        raw=dict(record),
-    )
-
-
-def _parse_release_identity(
-    value: Any, context: str = "release_identity"
-) -> ParliamentTimedOvnReleaseIdentityProjectionV1:
-    record = _exact(
-        value,
-        {
-            "tle_key_session_id",
-            "governance_attempt_id",
-            "body_instance_id",
-            "ballot_attempt_id",
-            "survivor_corpus_root",
-            "no_recovery_root",
-            "target_finalized_height",
-            "parameter_hash",
-        },
-        context,
-    )
-    return ParliamentTimedOvnReleaseIdentityProjectionV1(
-        tle_key_session_id=_id(record["tle_key_session_id"], f"{context}.tle_key_session_id"),
-        governance_attempt_id=_id(
-            record["governance_attempt_id"], f"{context}.governance_attempt_id"
-        ),
-        body_instance_id=_id(record["body_instance_id"], f"{context}.body_instance_id"),
-        ballot_attempt_id=_id(record["ballot_attempt_id"], f"{context}.ballot_attempt_id"),
-        survivor_corpus_root=_bytes(
-            record["survivor_corpus_root"],
-            32,
-            f"{context}.survivor_corpus_root",
-            nonzero=True,
-        ),
-        no_recovery_root=_bytes(
-            record["no_recovery_root"], 32, f"{context}.no_recovery_root", nonzero=True
-        ),
-        target_finalized_height=_uint(
-            record["target_finalized_height"], f"{context}.target_finalized_height", minimum=1
-        ),
-        parameter_hash=_bytes(
-            record["parameter_hash"], 32, f"{context}.parameter_hash", nonzero=True
-        ),
-    )
-
-
-def _canonical_base64(value: Any, maximum: int, context: str) -> bytes:
-    if not isinstance(value, str) or not value:
-        raise TypeError(f"{context} must be non-empty canonical padded standard base64")
-    try:
-        decoded = base64.b64decode(value, validate=True)
-    except (ValueError, TypeError) as exc:
-        raise TypeError(f"{context} must be canonical padded standard base64") from exc
-    if not decoded or len(decoded) > maximum or base64.b64encode(decoded).decode("ascii") != value:
-        raise ValueError(f"{context} exceeds its byte bound or is not canonical base64")
-    return decoded
-
-
-def _parse_casting_context(
-    value: Any, expected_ballot_attempt_id: str, expected_network_id: str
-) -> ParliamentTimedOvnCastingContextResponseV1:
-    fields = {
-        "version",
-        "current_height",
-        "phase",
-        "session",
-        "registration_opened_at_finalized_height",
-        "target_finalized_height",
-        "tle_key_session",
-        "registration_records_hex",
-        "survivor_participant_hashes",
-        "release_identity",
-        "archive_norito_base64",
-    }
-    record = _exact(value, fields, "Parliament timed-OVN casting-context response")
-    if _uint(record["version"], "version", _U16_MAX) != PARLIAMENT_API_VERSION_V1:
-        raise TypeError("unsupported Parliament timed-OVN casting-context version")
-    current_height = _uint(record["current_height"], "current_height", minimum=1)
-    phase = _text(record["phase"], "phase")
-    if phase not in {"Registered", "RegistrationClosed", "SurvivorsFrozen"}:
-        raise TypeError("phase is not a cast-capable timed-OVN phase")
-    session = _exact(
-        record["session"],
-        {
-            "network_id",
-            "proposal_content_id",
-            "governance_attempt_id",
-            "body_instance_id",
-            "ballot_attempt_id",
-            "parameter_hash",
-            "tle_key_session_id",
-            "tle_key_transcript_hash",
-            "tle_master_public_key",
-        },
-        "session",
-    )
-    session_network_id = _bytes(
-        session["network_id"], 32, "session.network_id", nonzero=True
-    )
-    if session_network_id != bytes.fromhex(expected_network_id[5:69]):
-        raise ValueError("session.network_id differs from canonical auth")
-    _id(session["proposal_content_id"], "session.proposal_content_id")
-    governance_attempt_id = _id(session["governance_attempt_id"], "session.governance_attempt_id")
-    body_instance_id = _id(session["body_instance_id"], "session.body_instance_id")
-    ballot_attempt_id = _id(session["ballot_attempt_id"], "session.ballot_attempt_id")
-    if ballot_attempt_id != _id(expected_ballot_attempt_id, "expected_ballot_attempt_id"):
-        raise ValueError("session.ballot_attempt_id differs from the requested identifier")
-    parameter_hash = _bytes(session["parameter_hash"], 32, "session.parameter_hash", nonzero=True)
-    session_key_id = _id(session["tle_key_session_id"], "session.tle_key_session_id")
-    session_transcript = _bytes(
-        session["tle_key_transcript_hash"], 32, "session.tle_key_transcript_hash", nonzero=True
-    )
-    session_master_key = _bytes(
-        session["tle_master_public_key"], 96, "session.tle_master_public_key", nonzero=True
-    )
-    registration_opened = _uint(
-        record["registration_opened_at_finalized_height"],
-        "registration_opened_at_finalized_height",
-        minimum=1,
-    )
-    target_height = _uint(record["target_finalized_height"], "target_finalized_height", minimum=1)
-    if registration_opened > current_height or target_height <= registration_opened:
-        raise ValueError("casting-context height schedule is inconsistent")
-    key_session = _parse_tle_key_session(record["tle_key_session"])
-    if (
-        key_session.key_session_id != session_key_id
-        or key_session.network_id != session_network_id
-        or key_session.transcript_hash != session_transcript
-        or key_session.group_public_key != session_master_key
-    ):
-        raise ValueError("timed-OVN session differs from its public TLE transcript")
-    registration_records = record["registration_records_hex"]
-    if (
-        not isinstance(registration_records, list)
-        or len(registration_records) > PARLIAMENT_TIMED_OVN_CORPUS_ENTRIES_V1
-        or (phase != "Registered" and not registration_records)
-    ):
-        raise ValueError("registration_records_hex violates the casting-phase bound")
-    canonical_records = tuple(
-        _lower_hex(item, f"registration_records_hex[{index}]")
-        for index, item in enumerate(registration_records)
-    )
-    if any(
-        len(item) != PARLIAMENT_TIMED_OVN_REGISTRATION_RECORD_BYTES_V1 * 2
-        for item in canonical_records
-    ) or len(set(canonical_records)) != len(canonical_records):
-        raise TypeError("registration_records_hex is not an exact unique canonical corpus")
-    if phase == "SurvivorsFrozen":
-        survivors = record["survivor_participant_hashes"]
-        if (
-            not isinstance(survivors, list)
-            or not survivors
-            or len(survivors) > len(canonical_records)
-            or record["release_identity"] is None
-        ):
-            raise TypeError("SurvivorsFrozen requires bounded survivor hashes and release identity")
-        decoded_survivors = tuple(
-            _bytes(item, 32, f"survivor_participant_hashes[{index}]", nonzero=True)
-            for index, item in enumerate(survivors)
-        )
-        if len(set(decoded_survivors)) != len(decoded_survivors):
-            raise TypeError("survivor participant hashes must be unique")
-        release = _parse_release_identity(record["release_identity"])
-        if (
-            release.tle_key_session_id != session_key_id
-            or release.governance_attempt_id != governance_attempt_id
-            or release.body_instance_id != body_instance_id
-            or release.ballot_attempt_id != ballot_attempt_id
-            or release.target_finalized_height != target_height
-            or release.parameter_hash != parameter_hash
-        ):
-            raise ValueError("frozen release identity differs from the timed-OVN session")
-    elif record["survivor_participant_hashes"] is not None or record["release_identity"] is not None:
-        raise TypeError("pre-freeze casting context must not expose frozen state")
-    archive = _canonical_base64(
-        record["archive_norito_base64"],
-        PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_ARCHIVE_MAX_BYTES_V1,
-        "archive_norito_base64",
-    )
-    validate_opaque_norito_frame(
-        archive, context="Parliament timed-OVN casting archive"
-    )
-    return ParliamentTimedOvnCastingContextResponseV1(
-        current_height=current_height,
-        phase=phase,
-        ballot_attempt_id=ballot_attempt_id,
-        key_session=key_session,
-        archive_norito=archive,
-        raw=dict(record),
-    )
-
-
-def _validate_release_identity_payload(
-    payload: bytes,
-    *,
-    governance_attempt_id: str,
-    body_instance_id: str,
-    ballot_attempt_id: str,
-    release_identity: ParliamentTimedOvnReleaseIdentityProjectionV1,
-    release_height: int,
-) -> None:
-    domain = b"iroha.parliament.tle.identity-payload.v1\0"
-    if len(payload) != 243 or not payload.startswith(domain):
-        raise TypeError("identity_payload_hex has the wrong domain or canonical width")
-    offset = len(domain)
-    if payload[offset : offset + 2] != (1).to_bytes(2, "big"):
-        raise TypeError("identity payload version must equal one")
-    offset += 2
-    for expected, field in (
-        (bytes.fromhex(governance_attempt_id), "governance_attempt_id"),
-        (bytes.fromhex(body_instance_id), "body_instance_id"),
-        (bytes.fromhex(ballot_attempt_id), "ballot_attempt_id"),
-        (release_identity.survivor_corpus_root, "survivor_corpus_root"),
-        (release_identity.no_recovery_root, "no_recovery_root"),
-    ):
-        if payload[offset : offset + 32] != expected:
-            raise ValueError(f"identity payload {field} binding differs")
-        offset += 32
-    if payload[offset : offset + 8] != release_height.to_bytes(8, "big"):
-        raise ValueError("identity payload release height differs")
-    offset += 8
-    if payload[offset : offset + 32] != release_identity.parameter_hash:
-        raise ValueError("identity payload parameter_hash binding differs")
-
-
-def _release_message_digest(
-    key_session: ParliamentTleKeySessionPublicStateV1, identity_payload: bytes
-) -> bytes:
-    message = b"".join(
-        (
-            b"iroha.threshold-bls.message.v1\0",
-            b"iroha.threshold-bls.session.v1\0",
-            (1).to_bytes(2, "big"),
-            bytes((2,)),
-            key_session.network_id,
-            bytes.fromhex(key_session.key_session_id),
-            key_session.roster_hash,
-            key_session.committee_size.to_bytes(2, "big"),
-            key_session.threshold.to_bytes(2, "big"),
-            len(identity_payload).to_bytes(4, "big"),
-            identity_payload,
-        )
-    )
-    return hashlib.sha256(message).digest()
-
-
-def _parse_release_context(
-    value: Any, expected_ballot_attempt_id: str, expected_network_id: str
-) -> ParliamentTleReleaseContextResponseV1:
-    record = _exact(
-        value,
-        {
-            "version",
-            "current_height",
-            "ballot_attempt_id",
-            "governance_attempt_id",
-            "body_instance_id",
-            "status",
-            "release_height",
-            "opening_deadline_height",
-            "tle_key_session",
-            "release_identity",
-            "identity_digest",
-            "identity_payload_hex",
-        },
-        "Parliament TLE release-context response",
-    )
-    if _uint(record["version"], "version", _U16_MAX) != PARLIAMENT_API_VERSION_V1:
-        raise TypeError("unsupported Parliament TLE release-context version")
-    current_height = _uint(record["current_height"], "current_height", minimum=1)
-    ballot_attempt_id = _id(record["ballot_attempt_id"], "ballot_attempt_id")
-    if ballot_attempt_id != _id(expected_ballot_attempt_id, "expected_ballot_attempt_id"):
-        raise ValueError("ballot_attempt_id differs from the requested identifier")
-    governance_attempt_id = _id(record["governance_attempt_id"], "governance_attempt_id")
-    body_instance_id = _id(record["body_instance_id"], "body_instance_id")
-    _tagged_unit(record["status"], "status", {"Opening"}, "status")
-    release_height = _uint(record["release_height"], "release_height", minimum=1)
-    opening_deadline = _uint(
-        record["opening_deadline_height"], "opening_deadline_height", minimum=1
-    )
-    if not release_height <= current_height <= opening_deadline:
-        raise ValueError("TLE release context lies outside its inclusive opening window")
-    key_session = _parse_tle_key_session(record["tle_key_session"])
-    if key_session.network_id != bytes.fromhex(expected_network_id[5:69]):
-        raise ValueError("tle_key_session.network_id differs from canonical auth")
-    identity = _parse_release_identity(record["release_identity"])
-    if (
-        identity.tle_key_session_id != key_session.key_session_id
-        or identity.governance_attempt_id != governance_attempt_id
-        or identity.body_instance_id != body_instance_id
-        or identity.ballot_attempt_id != ballot_attempt_id
-        or identity.target_finalized_height != release_height
-    ):
-        raise ValueError("release_identity differs from the top-level Parliament/TLE bindings")
-    identity_digest = _bytes(record["identity_digest"], 32, "identity_digest", nonzero=True)
-    identity_payload_hex = _lower_hex(record["identity_payload_hex"], "identity_payload_hex")
-    if len(identity_payload_hex) != 486:
-        raise TypeError("identity_payload_hex must encode exactly 243 bytes")
-    identity_payload = bytes.fromhex(identity_payload_hex)
-    _validate_release_identity_payload(
-        identity_payload,
-        governance_attempt_id=governance_attempt_id,
-        body_instance_id=body_instance_id,
-        ballot_attempt_id=ballot_attempt_id,
-        release_identity=identity,
-        release_height=release_height,
-    )
-    if identity_digest != _release_message_digest(key_session, identity_payload):
-        raise ValueError(
-            "identity_digest differs from the threshold-session-framed release message"
-        )
-    return ParliamentTleReleaseContextResponseV1(
-        current_height=current_height,
-        ballot_attempt_id=ballot_attempt_id,
-        governance_attempt_id=governance_attempt_id,
-        body_instance_id=body_instance_id,
-        release_height=release_height,
-        opening_deadline_height=opening_deadline,
-        key_session=key_session,
-        release_identity=identity,
-        identity_digest=identity_digest,
-        identity_payload=identity_payload,
-        raw=dict(record),
-    )
-
-
-def _parse_partial_release(
-    value: Any,
-    expected_context: ParliamentTleReleaseContextResponseV1,
-) -> ParliamentTlePartialReleaseShareV1:
-    record = _exact(
-        value,
-        {
-            "key_session_id",
-            "identity_digest",
-            "participant_index",
-            "sigma",
-            "proof_x",
-            "proof_y",
-            "z_s",
-            "z_r",
-            "z_u",
-        },
-        "Parliament TLE partial release",
-    )
-    key_session_id = _id(record["key_session_id"], "key_session_id")
-    if key_session_id != expected_context.key_session.key_session_id:
-        raise ValueError("partial key_session_id differs from the authorized context")
-    identity_digest = _bytes(record["identity_digest"], 32, "identity_digest", nonzero=True)
-    if identity_digest != expected_context.identity_digest:
-        raise ValueError("partial identity_digest differs from the authorized context")
-    participant_index = _uint(
-        record["participant_index"],
-        "participant_index",
-        expected_context.key_session.committee_size,
-        minimum=1,
-    )
-    return ParliamentTlePartialReleaseShareV1(
-        key_session_id=key_session_id,
-        identity_digest=identity_digest,
-        participant_index=participant_index,
-        sigma=_bytes(record["sigma"], 48, "sigma", nonzero=True),
-        proof_x=_bytes(record["proof_x"], 96, "proof_x", nonzero=True),
-        proof_y=_bytes(record["proof_y"], 48, "proof_y", nonzero=True),
-        z_s=_bytes(record["z_s"], 32, "z_s"),
-        z_r=_bytes(record["z_r"], 32, "z_r"),
-        z_u=_bytes(record["z_u"], 32, "z_u"),
     )
 
 
@@ -2429,12 +1324,6 @@ def _parse_capabilities(value: Any, expected_network_id: str) -> GovernanceCapab
         raise TypeError(
             "governance capabilities advertise an unsupported data-model version"
         )
-    if record["approval_mode"] != "PARLIAMENT_ATTEMPT_TIMED_OVN_V1":
-        raise TypeError("governance capabilities approval_mode is not Parliament V1")
-    if record["private_ballot_protocol"] != "TIMED_OVN_TLE_THRESHOLD_BLS_V1":
-        raise TypeError("governance capabilities private ballot protocol is unsupported")
-    if not _boolean(record["mandatory_private_ballots"], "mandatory_private_ballots"):
-        raise ValueError("governance capabilities must require private binding ballots")
     if _boolean(
         record["proposal_backed_referendum_ballots_supported"],
         "proposal_backed_referendum_ballots_supported",
@@ -2455,27 +1344,15 @@ def _parse_capabilities(value: Any, expected_network_id: str) -> GovernanceCapab
     for field in ("citizenship_bond_amount", "min_bond_amount"):
         if not isinstance(record[field], str) or _CANONICAL_NUMERIC.fullmatch(record[field]) is None:
             raise TypeError(f"{field} must be a canonical non-negative numeric string")
-    for field in (
-        "min_enactment_delay",
-        "invitation_phase_blocks",
-        "registration_phase_blocks",
-        "survivor_freeze_phase_blocks",
-        "commitment_phase_blocks",
-        "release_delay_blocks",
-        "opening_phase_blocks",
-    ):
+    for field in ("min_enactment_delay", "invitation_phase_blocks"):
         _decimal_uint(record[field], field, minimum=1)
-    _decimal_uint(record["max_ballot_retries"], "max_ballot_retries", maximum=16)
-    _decimal_uint(
-        record["max_corpus_entries"],
-        "max_corpus_entries",
-        maximum=PARLIAMENT_TIMED_OVN_CORPUS_ENTRIES_V1,
-        minimum=1,
-    )
     target_record = _exact(record["target_body_sizes"], _TARGET_BODY_FIELDS, "target_body_sizes")
     targets = {
         field: _decimal_uint(
-            target_record[field], f"target_body_sizes.{field}", maximum=1000, minimum=1
+            target_record[field],
+            f"target_body_sizes.{field}",
+            maximum=MAX_BODY_TARGET_SEATS,
+            minimum=1,
         )
         for field in _TARGET_BODY_FIELDS
     }
@@ -2698,132 +1575,6 @@ class ParliamentApiV1Mixin:
         )
         return _parse_attempt_read(payload, attempt_id)
 
-    def get_parliament_timed_ovn_casting_context_v1(
-        self, ballot_attempt_id: str, *, canonical_auth: Any
-    ) -> ParliamentTimedOvnCastingContextResponseV1:
-        """Fetch a bounded node-local diagnostic public wallet context.
-
-        This route is not a finality proof and its archive is not safe for
-        secret use until independently authenticated through the proof route.
-        """
-
-        ballot_id = _id(ballot_attempt_id, "ballot_attempt_id")
-        path = PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_READ_PATH_V1.replace(
-            "{ballot_attempt_id}", ballot_id
-        )
-        payload = self._parliament_json(
-            "GET",
-            path,
-            canonical_auth=canonical_auth,
-            maximum_response_bytes=4 * PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_ARCHIVE_MAX_BYTES_V1,
-            context="Parliament timed-OVN casting context",
-        )
-        return _parse_casting_context(payload, ballot_id, canonical_auth.network_id)
-
-    def get_parliament_timed_ovn_casting_proof_page_v1(
-        self,
-        ballot_attempt_id: str,
-        trusted_checkpoint_height: int,
-        *,
-        canonical_auth: Any,
-    ) -> bytes:
-        """Transport one canonical casting-proof page for native verification.
-
-        The request is derived from the externally trusted nonzero checkpoint
-        height. This validates only request/response framing and byte bounds.
-        The returned bytes MUST be passed with the external network, checkpoint
-        context, and ballot ID to the ABI-29 native proof verifier before secret
-        seed material is accessed.
-        """
-
-        ballot_id = _id(ballot_attempt_id, "ballot_attempt_id")
-        request_norito = encode_parliament_timed_ovn_casting_proof_request_v1(
-            trusted_checkpoint_height
-        )
-        validate_norito_frame(
-            request_norito,
-            context="Parliament casting-proof request",
-            expected_type_name=PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_V1,
-            expected_padding_length=0,
-            expected_flags=PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_FLAGS_V1,
-        )
-        path = PARLIAMENT_TIMED_OVN_CASTING_PROOF_PATH_V1.replace(
-            "{ballot_attempt_id}", ballot_id
-        )
-        response = self._parliament_response(
-            "POST",
-            path,
-            canonical_auth=canonical_auth,
-            maximum_response_bytes=PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_MAX_BYTES_V1,
-            context="Parliament timed-OVN casting proof",
-            body=request_norito,
-            request_media_type="application/x-norito",
-            response_media_type="application/x-norito",
-        )
-        validate_norito_frame(
-            response,
-            context="Parliament casting-proof response",
-            expected_type_name=PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_V1,
-            expected_padding_length=0,
-            expected_flags=PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_FLAGS_V1,
-        )
-        return response
-
-    def get_parliament_tle_release_context_v1(
-        self, ballot_attempt_id: str, *, canonical_auth: Any
-    ) -> ParliamentTleReleaseContextResponseV1:
-        """Fetch a complete public TLE context during its inclusive opening window."""
-
-        ballot_id = _id(ballot_attempt_id, "ballot_attempt_id")
-        path = PARLIAMENT_TLE_RELEASE_CONTEXT_READ_PATH_V1.replace(
-            "{ballot_attempt_id}", ballot_id
-        )
-        payload = self._parliament_json(
-            "GET",
-            path,
-            canonical_auth=canonical_auth,
-            maximum_response_bytes=1024 * 1024,
-            context="Parliament TLE release context",
-        )
-        return _parse_release_context(payload, ballot_id, canonical_auth.network_id)
-
-    def request_parliament_tle_partial_release_v1(
-        self,
-        ballot_attempt_id: str,
-        release_context: ParliamentTleReleaseContextResponseV1,
-        *,
-        canonical_auth: Any,
-    ) -> ParliamentTlePartialReleaseShareV1:
-        """Request one bodyless node-local partial bound to a fetched context.
-
-        The returned public proof is structurally checked and rebound here;
-        callers must still verify its adaptive-TLE proof equations before use.
-        """
-
-        ballot_id = _id(ballot_attempt_id, "ballot_attempt_id")
-        if not isinstance(release_context, ParliamentTleReleaseContextResponseV1):
-            raise TypeError("release_context must be ParliamentTleReleaseContextResponseV1")
-        if release_context.ballot_attempt_id != ballot_id:
-            raise ValueError("release context ballot id differs from the partial-release request")
-        auth = self._require_canonical_auth(
-            canonical_auth, "Parliament TLE partial release"
-        )
-        if bytes.fromhex(auth.network_id[5:69]) != release_context.key_session.network_id:
-            raise ValueError(
-                "release context network differs from the partial-release canonical auth"
-            )
-        path = PARLIAMENT_TLE_PARTIAL_RELEASE_PATH_V1.replace(
-            "{ballot_attempt_id}", ballot_id
-        )
-        payload = self._parliament_json(
-            "POST",
-            path,
-            canonical_auth=canonical_auth,
-            maximum_response_bytes=16 * 1024,
-            context="Parliament TLE partial release",
-        )
-        return _parse_partial_release(payload, release_context)
-
     def draft_parliament_transition_v1(
         self,
         governance_attempt_id: str,
@@ -2871,34 +1622,11 @@ __all__ = [
     "PARLIAMENT_ATTEMPT_READ_PATH_V1",
     "PARLIAMENT_ATTEMPT_STATE_MAX_BYTES_V1",
     "PARLIAMENT_GOVERNANCE_ATTEMPT_SEQUENCE_MAX_V1",
-    "PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_ARCHIVE_MAX_BYTES_V1",
-    "PARLIAMENT_TIMED_OVN_CASTING_CONTEXT_READ_PATH_V1",
-    "PARLIAMENT_TIMED_OVN_CASTING_PROOF_PATH_V1",
-    "PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_BYTES_V1",
-    "PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_FLAGS_V1",
-    "PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_PADDING_BYTES_V1",
-    "PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_PAYLOAD_ALIGNMENT_V1",
-    "PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_HASH_HEX_V1",
-    "PARLIAMENT_TIMED_OVN_CASTING_PROOF_REQUEST_SCHEMA_V1",
-    "PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_MAX_BYTES_V1",
-    "PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_HASH_HEX_V1",
-    "PARLIAMENT_TIMED_OVN_CASTING_PROOF_RESPONSE_SCHEMA_V1",
-    "PARLIAMENT_TIMED_OVN_CASTING_PROOF_VERSION_V1",
-    "PARLIAMENT_TIMED_OVN_BALLOT_CHUNK_MAX_RECORDS_V1",
-    "PARLIAMENT_TLE_PARTIAL_RELEASE_PATH_V1",
-    "PARLIAMENT_TLE_RELEASE_CONTEXT_READ_PATH_V1",
     "PARLIAMENT_TRANSITION_DRAFT_PATH_V1",
     "PARLIAMENT_TRANSITION_DRAFT_RESPONSE_MAX_BYTES_V1",
     "PARLIAMENT_TRANSITION_SUBMIT_WIRE_ID_V1",
     "ParliamentAttemptDraftResponseV1",
     "ParliamentAttemptReadResponseV1",
     "ParliamentInstructionDraftV1",
-    "ParliamentTimedOvnCastingContextResponseV1",
-    "ParliamentTimedOvnProgressProjectionV1",
-    "ParliamentTimedOvnReleaseIdentityProjectionV1",
-    "ParliamentTleKeySessionPublicStateV1",
-    "ParliamentTlePartialReleaseShareV1",
-    "ParliamentTleReleaseContextResponseV1",
     "ParliamentTransitionDraftResponseV1",
-    "encode_parliament_timed_ovn_casting_proof_request_v1",
 ]

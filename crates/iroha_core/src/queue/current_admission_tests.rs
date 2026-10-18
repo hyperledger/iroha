@@ -61,11 +61,10 @@ fn current_admission_preserves_original_input_across_direct_queue_boundaries() {
                 .push_with_lane_with_state(transaction.clone(), &state)
                 .map(|_| ()),
             2 => queue
-                .push_with_gossip_payload_with_state_and_routing_plan(
+                .push_with_lane_with_state_and_routing_plan(
                     transaction.clone(),
                     &state,
                     plan.clone(),
-                    None,
                 )
                 .map(|_| ()),
             _ => queue
