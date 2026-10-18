@@ -18,15 +18,13 @@ class AndroidKeystoreProbeV1Test {
     @Test fun `keystore2 getKey is tri-state and an error is never absence`() {
         val keyStore = TestAndroidKeystoreV1(apiLevel = 31)
         assertNull(keyStore.probe("absent"))
-        assertEquals(AndroidKeystoreAliasStateV1.ABSENT, keyStore.aliasState("absent"))
         val entry = keyStore.seed("present")
         assertSame(entry.key, keyStore.probe("present"))
-        assertEquals(AndroidKeystoreAliasStateV1.PRESENT, keyStore.aliasState("present"))
         for (failure in listOf(KeyStoreException("binder"), UnrecoverableKeyException("daemon"), IllegalStateException("x"))) {
             keyStore.getKeyFailure = failure
             val unavailable = assertFailsWith<AndroidKeystoreUnavailableExceptionV1> { keyStore.probe("present") }
             assertSame(failure, unavailable.cause)
-            assertFailsWith<AndroidKeystoreUnavailableExceptionV1> { keyStore.aliasState("absent") }
+            assertFailsWith<AndroidKeystoreUnavailableExceptionV1> { keyStore.probe("absent") }
         }
     }
 
@@ -34,7 +32,6 @@ class AndroidKeystoreProbeV1Test {
         for (api in listOf(24, 28, 30)) {
             val keyStore = TestAndroidKeystoreV1(apiLevel = api)
             assertFailsWith<AndroidKeystoreUnavailableExceptionV1> { keyStore.probe("absent") }
-            assertFailsWith<AndroidKeystoreUnavailableExceptionV1> { keyStore.aliasState("absent") }
             val entry = keyStore.seed("present")
             assertSame(entry.key, keyStore.probe("present"))
         }

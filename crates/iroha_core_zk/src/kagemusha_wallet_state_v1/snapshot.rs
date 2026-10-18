@@ -54,6 +54,23 @@ pub struct Snapshot {
 }
 
 impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
+    /// Read the admitted immutable scheme for a pure transport codec after reconciling custody.
+    ///
+    /// This retains the Released-head requirement and the provider's current storage, key and
+    /// custody checks, including provider-owned archive checkpoint validation. It does not
+    /// traverse the coordinator archive, synchronize its indexes, or authenticate balances,
+    /// folds or supplied transport bytes, and grants no monetary or delivery authority.
+    ///
+    /// # Errors
+    /// Pending, no released head, foreign provider incarnation or a custody/provider refusal.
+    pub fn transport_scheme_id(&mut self) -> Result<[u8; 32], Error> {
+        match self.status()? {
+            SlotStatus::Released(_) => Ok(self.scheme_id),
+            SlotStatus::Pending(_) => Err(Error::Pending),
+            _ => Err(Error::NoHead),
+        }
+    }
+
     /// Read current retained ownership and exact source-indexed fold progress.
     ///
     /// Only the current and last-folded indexed heads are read. Recovery may index an

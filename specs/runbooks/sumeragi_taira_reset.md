@@ -69,7 +69,7 @@ ones. For the fresh Phase A public reset, use the authenticated same-revision Ka
 approved Linux guest through the maintained native invocation transport:
 
 ```sh
-kagami localnet --peers 4 \
+kagami localnet generate --peers 4 \
   --chain-id fc56984b-2be7-431d-840e-21514d1883f0 \
   --chain-discriminant 369 --sora-profile nexus --consensus-mode npos \
   --bind-host 127.0.0.1 --public-host 127.0.0.1 \

@@ -144,7 +144,7 @@ fn original_guard_dies_on_owned_stop_and_cannot_be_reused_for_another_launch() {
 #[cfg(unix)]
 #[test]
 fn owned_start_refuses_an_unselected_or_changed_daemon_before_logs_and_launch_markers() {
-    use std::io::Write;
+    use std::{io::Write, os::unix::fs::PermissionsExt};
     let _resources = crate::managed::native_test_guard();
     let temporary = tempfile::tempdir().unwrap();
     let (_store, directory, _prepared) =
@@ -152,6 +152,8 @@ fn owned_start_refuses_an_unselected_or_changed_daemon_before_logs_and_launch_ma
     let mut retained = crate::managed::generation::read(&directory).unwrap();
     let path = temporary.path().join("daemon");
     std::fs::copy(std::env::current_exe().unwrap(), &path).unwrap();
+    // Admit a writable private fixture even when the test driver is read-only.
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
     let selected = crate::managed::program::NativeProgram::capture(&path).unwrap();
     retained.daemon = selected.pin().unwrap();
     let ownership = crate::managed::store::acquire(&directory, "runtime.lock", "selected").unwrap();

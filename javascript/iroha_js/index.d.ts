@@ -5431,7 +5431,6 @@ export interface ToriiPipelinePreflight {
     /** Canonical decimal quantity string. */
     per_gas_unit_fee: string;
     sponsor_vault_custody_account_id: string;
-    settlement_mode: "direct" | "lane_relay_burn";
     successful_claim_fee_exempt_authorities: string[];
   };
   raw: Readonly<Record<string, unknown>>;

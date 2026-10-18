@@ -33,6 +33,32 @@ pub(crate) fn lock_operator_status_slot<T>(
         }
     }
 }
+std::thread_local! {
+    static ISOLATED_REPLAY_OBSERVATIONS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A physical-thread-local diagnostic destination; never an execution policy.
+/// Nested scopes restore their exact predecessor even during unwinding. The guard
+/// cannot move across threads. Only the isolated native replay owner installs it.
+pub(crate) struct ReplayObservationScope {
+    previous: bool,
+    _physical_thread: core::marker::PhantomData<std::rc::Rc<()>>,
+}
+impl Drop for ReplayObservationScope {
+    fn drop(&mut self) {
+        ISOLATED_REPLAY_OBSERVATIONS.with(|slot| slot.set(self.previous));
+    }
+}
+pub(crate) fn isolate_replay_observations() -> ReplayObservationScope {
+    ReplayObservationScope {
+        previous: ISOLATED_REPLAY_OBSERVATIONS.with(|slot| slot.replace(true)),
+        _physical_thread: core::marker::PhantomData,
+    }
+}
+pub(crate) fn replay_observations_are_isolated() -> bool {
+    ISOLATED_REPLAY_OBSERVATIONS.with(std::cell::Cell::get)
+}
+
 static SETTLEMENT_STATUS: OnceLock<Mutex<SettlementStatusState>> = OnceLock::new();
 static LANE_GOVERNANCE: OnceLock<Mutex<Vec<LaneGovernanceSnapshot>>> = OnceLock::new();
 static NEXUS_FEE_STATUS: OnceLock<Mutex<NexusFeeSnapshot>> = OnceLock::new();
@@ -234,6 +260,9 @@ pub struct NexusStakingSnapshot {
 static LOCAL_REMOVED_FROM_WORLD: AtomicBool = AtomicBool::new(false);
 /// Record whether the local peer is present in the world state.
 pub fn set_local_removed_from_world(removed: bool) {
+    if replay_observations_are_isolated() {
+        return;
+    }
     #[cfg(test)]
     let _guard = local_removed_test_guard();
     LOCAL_REMOVED_FROM_WORLD.store(removed, Ordering::Relaxed);
@@ -431,6 +460,9 @@ pub struct PvpSettlementEventUpdate {
 }
 /// Record a `DvP` settlement telemetry update.
 pub fn record_dvp_settlement_event(update: DvpSettlementEventUpdate) {
+    if replay_observations_are_isolated() {
+        return;
+    }
     let mut guard = lock_operator_status_slot(settlement_status_slot(), "settlement status");
     let entry = &mut guard.dvp;
     match update.outcome {
@@ -462,6 +494,9 @@ pub fn record_dvp_settlement_event(update: DvpSettlementEventUpdate) {
 }
 /// Record a `PvP` settlement telemetry update.
 pub fn record_pvp_settlement_event(update: PvpSettlementEventUpdate) {
+    if replay_observations_are_isolated() {
+        return;
+    }
     let mut guard = lock_operator_status_slot(settlement_status_slot(), "settlement status");
     let entry = &mut guard.pvp;
     match update.outcome {
@@ -590,6 +625,9 @@ fn nexus_staking_slot() -> &'static Mutex<NexusStakingStatusState> {
 }
 /// Record a Nexus fee debit outcome for later status/telemetry surfacing.
 pub fn record_nexus_fee_event(event: NexusFeeEvent) {
+    if replay_observations_are_isolated() {
+        return;
+    }
     #[cfg(test)]
     let Some(_guard) = try_reentrant_test_guard(&OPERATOR_STATUS_TEST_LOCK) else {
         return;
@@ -707,6 +745,9 @@ fn apply_public_lane_staking_status_updates(
     expected_reset_epoch: Option<u64>,
     updates: impl IntoIterator<Item = PublicLaneStakingStatusUpdate>,
 ) {
+    if replay_observations_are_isolated() {
+        return;
+    }
     #[cfg(test)]
     let Some(_guard) = try_reentrant_test_guard(&OPERATOR_STATUS_TEST_LOCK) else {
         return;
@@ -720,6 +761,9 @@ fn apply_public_lane_staking_status_updates(
     }
 }
 fn record_public_lane_staking_status_update(update: PublicLaneStakingStatusUpdate) {
+    if replay_observations_are_isolated() {
+        return;
+    }
     let unstaged = PUBLIC_LANE_STAKING_STATUS_OVERLAYS.with(|overlays| {
         let mut overlays = overlays.borrow_mut();
         if let Some(frame) = overlays.last_mut() {
@@ -755,6 +799,9 @@ pub fn record_public_lane_slash(lane_id: LaneId) {
 }
 /// Remove accumulated Nexus public-lane staking status for reset lanes.
 pub fn reset_public_lane_staking_lanes(lanes_to_reset: &BTreeSet<LaneId>) {
+    if replay_observations_are_isolated() {
+        return;
+    }
     if lanes_to_reset.is_empty() {
         return;
     }
@@ -964,6 +1011,9 @@ static PEER_KEY_POLICY_REJECT_TOTAL: AtomicU64 = AtomicU64::new(0);
 static PEER_KEY_POLICY_LAST_REASON: OnceLock<Mutex<Option<&'static str>>> = OnceLock::new();
 /// Record a peer consensus-key policy rejection.
 pub fn record_peer_key_policy_reject(reason: PeerKeyPolicyRejectReason) {
+    if replay_observations_are_isolated() {
+        return;
+    }
     #[cfg(test)]
     let Some(_guard) = try_reentrant_test_guard(&PEER_KEY_POLICY_TEST_LOCK) else {
         return;
@@ -997,10 +1047,16 @@ pub(crate) fn peer_key_policy_reject_snapshot_for_tests() -> (u64, Option<&'stat
 static GOSSIP_DUPLICATE_KNOWN_SKIPPED_TOTAL: AtomicU64 = AtomicU64::new(0);
 /// Count a duplicate transaction skipped by gossip.
 pub fn inc_gossip_duplicate_known_skipped() {
+    if replay_observations_are_isolated() {
+        return;
+    }
     GOSSIP_DUPLICATE_KNOWN_SKIPPED_TOTAL.fetch_add(1, Ordering::Relaxed);
 }
 /// Remove lane-scoped operator status snapshots for lanes whose runtime state was reset.
 pub fn prune_lane_scoped_snapshots(lanes_to_reset: &BTreeSet<LaneId>) {
+    if replay_observations_are_isolated() {
+        return;
+    }
     if lanes_to_reset.is_empty() {
         return;
     }
@@ -1024,6 +1080,9 @@ fn lane_governance_slot() -> &'static Mutex<Vec<LaneGovernanceSnapshot>> {
 }
 /// Replace the governance manifest snapshot used by Nexus diagnostics.
 pub fn set_lane_governance_snapshot(entries: Vec<LaneGovernanceSnapshot>) {
+    if replay_observations_are_isolated() {
+        return;
+    }
     *lock_operator_status_slot(lane_governance_slot(), "lane governance snapshot") = entries;
 }
 /// Return the cached governance manifest snapshot used by Nexus diagnostics.
@@ -1177,3 +1236,126 @@ mod tests {
     }
 }
 include!("status/test_guards.rs");
+
+#[cfg(test)]
+mod replay_observation_tests {
+    use super::*;
+
+    #[test]
+    fn isolated_observation_guard_restores_nested_unwind_and_thread_identity() {
+        assert!(!replay_observations_are_isolated());
+        {
+            let _outer = isolate_replay_observations();
+            assert!(replay_observations_are_isolated());
+            assert!(
+                !std::thread::spawn(replay_observations_are_isolated)
+                    .join()
+                    .unwrap()
+            );
+            assert!(
+                std::panic::catch_unwind(|| {
+                    let _nested = isolate_replay_observations();
+                    assert!(replay_observations_are_isolated());
+                    panic!("physical replay cancellation");
+                })
+                .is_err()
+            );
+            assert!(replay_observations_are_isolated());
+        }
+        assert!(!replay_observations_are_isolated());
+    }
+
+    #[test]
+    fn isolated_observations_do_not_publish_fee_or_governance_but_live_calls_still_do() {
+        let _serial = operator_status_test_guard();
+        let before = nexus_fee_snapshot();
+        let governance = lane_governance_snapshot();
+        {
+            let _isolated = isolate_replay_observations();
+            record_nexus_fee_event(NexusFeeEvent::ConfigInvalid {
+                reason: "isolated original execution".into(),
+            });
+            set_lane_governance_snapshot(Vec::new());
+            assert_eq!(
+                nexus_fee_snapshot().config_errors_total,
+                before.config_errors_total
+            );
+            assert_eq!(lane_governance_snapshot().len(), governance.len());
+        }
+        record_nexus_fee_event(NexusFeeEvent::ConfigInvalid {
+            reason: "live diagnostic control".into(),
+        });
+        assert_eq!(
+            nexus_fee_snapshot().config_errors_total,
+            before.config_errors_total + 1
+        );
+        *lock_operator_status_slot(nexus_fee_slot(), "restore exact diagnostic fixture") = before;
+    }
+    #[test]
+    fn isolated_staking_and_settlement_observations_preserve_live_snapshots() {
+        let _serial = operator_status_test_guard();
+        let lane = LaneId::new(u32::MAX);
+        let settlement_before =
+            lock_operator_status_slot(settlement_status_slot(), "settlement fixture").clone();
+        let staking_before = {
+            let before = lock_operator_status_slot(nexus_staking_slot(), "staking fixture");
+            (before.lanes.clone(), before.reset_epoch)
+        };
+        let before = lane_scoped_status_fingerprint_for_tests();
+        let settlement = format!("{:?}", settlement_snapshot());
+        let dvp = || DvpSettlementEventUpdate {
+            observed_at_ms: 1,
+            settlement_id: Some("isolated-dvp-observation".into()),
+            plan_order: SettlementExecutionOrder::DeliveryThenPayment,
+            plan_atomicity: SettlementAtomicity::AllOrNothing,
+            outcome: SettlementOutcomeKind::Success,
+            failure_reason: None,
+            final_state_label: "both".into(),
+            delivery_committed: true,
+            payment_committed: true,
+        };
+        let pvp = || PvpSettlementEventUpdate {
+            observed_at_ms: 2,
+            settlement_id: Some("isolated-pvp-observation".into()),
+            plan_order: SettlementExecutionOrder::DeliveryThenPayment,
+            plan_atomicity: SettlementAtomicity::AllOrNothing,
+            outcome: SettlementOutcomeKind::Success,
+            failure_reason: None,
+            final_state_label: "both".into(),
+            primary_committed: true,
+            counter_committed: true,
+            fx_window_ms: Some(0),
+        };
+        {
+            let _isolated = isolate_replay_observations();
+            let overlay = begin_public_lane_staking_status_overlay();
+            record_public_lane_bonded_delta(lane, &Quantity::from(3_u32), true);
+            record_public_lane_pending_unbond_delta(lane, &Quantity::from(2_u32), true);
+            record_public_lane_slash(lane);
+            overlay.commit();
+            reset_public_lane_staking_lanes(&BTreeSet::from([lane]));
+            record_dvp_settlement_event(dvp());
+            record_pvp_settlement_event(pvp());
+        }
+        assert_eq!(lane_scoped_status_fingerprint_for_tests(), before);
+        assert_eq!(format!("{:?}", settlement_snapshot()), settlement);
+        record_public_lane_bonded_delta(lane, &Quantity::from(3_u32), true);
+        record_dvp_settlement_event(dvp());
+        record_pvp_settlement_event(pvp());
+        assert_ne!(lane_scoped_status_fingerprint_for_tests(), before);
+        assert_eq!(
+            settlement_snapshot().dvp.success_total,
+            settlement_before.dvp.success_total + 1
+        );
+        assert_eq!(
+            settlement_snapshot().pvp.success_total,
+            settlement_before.pvp.success_total + 1
+        );
+        *lock_operator_status_slot(settlement_status_slot(), "restore settlement fixture") =
+            settlement_before;
+        let mut staking =
+            lock_operator_status_slot(nexus_staking_slot(), "restore staking fixture");
+        staking.lanes = staking_before.0;
+        staking.reset_epoch = staking_before.1;
+    }
+}

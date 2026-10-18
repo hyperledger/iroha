@@ -37,7 +37,7 @@ use iroha_data_model::{
     },
 };
 use iroha_primitives::numeric::Numeric;
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 
 const ETH: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
 const TON: SccpNetworkV1 = SccpNetworkV1::TonMainnet;
@@ -251,17 +251,9 @@ fn retired_account(stx: &mut StateTransaction<'_, '_>, seed: u8) -> AccountId {
     account
 }
 
-/// Point the Nexus fee sink of this transaction at `sink` (an empty literal when `None`).
+/// Select a real sink identity; `None` selects a permanently unregistered fixture account.
 fn set_fee_sink(stx: &mut StateTransaction<'_, '_>, sink: Option<&AccountId>) {
-    stx.nexus.fees.fee_sink_account_id = sink.map_or_else(String::new, |sink| {
-        AccountAddress::from_account_id(sink)
-            .and_then(|address| {
-                address.to_i105_for_discriminant(
-                    iroha_data_model::account::address::chain_discriminant(),
-                )
-            })
-            .expect("i105 literal")
-    });
+    stx.nexus.fees.fee_sink_account_id = sink.cloned().unwrap_or_else(|| authority(253));
 }
 
 /// Record an outbound message of `amount_xor` XOR from `sender` through `RecordSccpMessage`.
@@ -574,7 +566,7 @@ fn every_hold_reason_keeps_the_proof_and_is_retried_by_settle() {
     settle(&mut stx, id).expect("released");
     assert_eq!(xor_balance(&*stx.world, &refusing), ONE_XOR);
 
-    // Fee sink unavailable: unregistered, unresolvable, then refusing the fee. The absent
+    // Fee sink unavailable: unregistered, still absent, then refusing the fee. The absent
     // recipient is registered before the sink's credit is refused, which alone is a change.
     let unknown_sink = authority(26);
     set_fee_sink(&mut stx, Some(&unknown_sink));
@@ -586,7 +578,7 @@ fn every_hold_reason_keeps_the_proof_and_is_retried_by_settle() {
         "an unregistered sink"
     );
     set_fee_sink(&mut stx, None);
-    settle(&mut stx, id).expect_err("an unresolvable sink is the same hold");
+    settle(&mut stx, id).expect_err("another absent sink is the same hold");
     let sink = refusing_account(&mut stx, 26);
     set_fee_sink(&mut stx, Some(&sink));
     settle(&mut stx, id).expect("the recipient is registered now");
@@ -627,6 +619,9 @@ fn every_hold_reason_keeps_the_proof_and_is_retried_by_settle() {
 #[test]
 fn recipients_that_can_never_be_credited_bounce() {
     let state = state();
+    let mut crypto = (*state.crypto()).clone();
+    crypto.allowed_signing = vec![Algorithm::Ed25519];
+    state.install_crypto_snapshot_for_isolated_replay(crypto);
     let mut block = state.block(header(5));
     let mut stx = block.transaction_for_fastpq_testing(Hash::new(b"bounces"));
     install(&mut stx);
@@ -639,9 +634,6 @@ fn recipients_that_can_never_be_credited_bounce() {
             .public_key()
             .clone(),
     );
-    let mut crypto = (*stx.crypto).clone();
-    crypto.allowed_signing = vec![Algorithm::Ed25519];
-    stx.crypto = Arc::new(crypto);
 
     let cases = [
         (address_bytes(&escrow), SccpBounceReasonV1::EscrowRecipient),

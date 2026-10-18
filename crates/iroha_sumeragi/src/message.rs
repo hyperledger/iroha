@@ -30,6 +30,7 @@ pub const PROTOCOL_VERSION: u16 = 1;
 
 /// Vote / certificate kind (§3.3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Encode, Decode, IntoSchema)]
+#[norito(decode_fields)]
 pub enum VoteKind {
     /// First phase; its certificate is the `PrepareQC` (lock).
     Prepare,
@@ -334,6 +335,7 @@ impl TimeoutVote {
 /// A quorum certificate: `PrepareQC` if `kind == Prepare`, `CommitQC` if `kind == Commit` (§3.4).
 #[derive(Clone, PartialEq, Eq, Debug, Encode, Decode, NoritoSchema, IntoSchema)]
 #[norito_schema(name = "iroha_sumeragi::Qc")]
+#[norito(decode_fields)]
 pub struct Qc {
     /// Prepare or Commit.
     pub kind: VoteKind,
@@ -374,6 +376,7 @@ pub struct TcEntry {
 /// A timeout certificate for `(height, view)` (§3.4).
 #[derive(Clone, PartialEq, Eq, Debug, Encode, Decode, NoritoSchema, IntoSchema)]
 #[norito_schema(name = "iroha_sumeragi::TimeoutCert")]
+#[norito(decode_fields)]
 pub struct TimeoutCert {
     /// Instance id.
     pub instance: Hash32,
@@ -664,7 +667,8 @@ impl WireMessage {
     /// # Errors
     /// Propagates a Norito serialization failure.
     pub fn encode(&self) -> Result<Vec<u8>, CodecError> {
-        norito::encode_canonical(self).map_err(CodecError::from)
+        norito::core::classify_decode_attempt(|| norito::encode_canonical(self))
+            .map_err(CodecError::from)
     }
 
     /// Decode one canonical frame of at most `max_frame` bytes and check the size limits.
@@ -758,7 +762,8 @@ where
             max,
         });
     }
-    let value = norito::decode_canonical(bytes).map_err(CodecError::from)?;
+    let value = norito::core::classify_decode_attempt(|| norito::decode_canonical(bytes))
+        .map_err(CodecError::from)?;
     check(&value)?;
     Ok(value)
 }
@@ -862,8 +867,9 @@ pub enum CodecError {
     },
     /// Norito rejected the bytes (malformed, non-canonical or checksum failure).
     Norito(String),
-    /// The current decode scope or allocator refused resources; bytes are not condemned.
-    Resource(norito::core::DecodeResourceError),
+    /// The actual canonical attempt captured an original local decoder refusal.
+    /// Copied diagnostics or errors from a different observer cannot create this owner.
+    Resource(norito::core::DecodeLocalRefusal),
     /// A structural size limit was violated.
     Limit(&'static str),
 }
@@ -879,23 +885,38 @@ impl fmt::Display for CodecError {
     }
 }
 
-impl std::error::Error for CodecError {}
+impl std::error::Error for CodecError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Resource(original) => Some(original),
+            _ => None,
+        }
+    }
+}
 
 impl From<norito::Error> for CodecError {
     fn from(error: norito::Error) -> Self {
+        // A raw error, including copied resource fields, carries no captured
+        // local verdict. Only the synchronous canonical observer grants one.
+        Self::Norito(error.to_string())
+    }
+}
+impl From<norito::core::DecodeAttemptError> for CodecError {
+    fn from(error: norito::core::DecodeAttemptError) -> Self {
         if cfg!(all(test, sumeragi_mutation = "MS49")) {
             return Self::Norito(error.to_string());
         }
-        error
-            .decode_resource_error()
-            .map_or_else(|| Self::Norito(error.to_string()), Self::Resource)
+        match error.into_local_refusal() {
+            Ok(original) => Self::Resource(original),
+            Err(invalid) => Self::Norito(invalid.to_string()),
+        }
     }
 }
 
 impl From<CodecError> for norito::Error {
     fn from(error: CodecError) -> Self {
         match error {
-            CodecError::Resource(resource) => resource.into(),
+            CodecError::Resource(original) => original.into_error(),
             other => Self::Message(other.to_string()),
         }
     }
@@ -975,14 +996,16 @@ impl Evidence {
     /// Rejects oversized graphs, proposal payloads, or canonical serialization failure.
     pub fn encode(&self) -> Result<Vec<u8>, CodecError> {
         self.check_limits()?;
-        let len = norito::canonical_frame_len(self).map_err(CodecError::from)?;
+        let len = norito::core::classify_decode_attempt(|| norito::canonical_frame_len(self))
+            .map_err(CodecError::from)?;
         if len > MAX_EVIDENCE_FRAME_BYTES {
             return Err(CodecError::TooLarge {
                 len,
                 max: MAX_EVIDENCE_FRAME_BYTES,
             });
         }
-        norito::encode_canonical(self).map_err(CodecError::from)
+        norito::core::classify_decode_attempt(|| norito::encode_canonical(self))
+            .map_err(CodecError::from)
     }
 
     /// Decode exactly one bounded canonical native evidence frame. The frame's declared
@@ -1571,19 +1594,14 @@ mod tests {
         assert!(
             matches!(
                 error,
-                CodecError::Resource(norito::core::DecodeResourceError::FieldLengthExceeded {
-                    length: 552,
-                    limit: 1
-                })
+                CodecError::Resource(ref original) if matches!(original.resource_error(),
+                    norito::core::DecodeResourceError::FieldLengthExceeded { length: 552, limit: 1 })
             ),
             "a scoped resource refusal must retain its typed category: {error:?}"
         );
         assert!(matches!(
             norito::Error::from(error),
-            norito::Error::FieldLengthExceeded {
-                length: 552,
-                limit: 1
-            }
+            norito::Error::ScopedDecodeResource(_)
         ));
         assert_eq!(Evidence::decode(&frame).unwrap(), evidence);
         let mut corrupt = frame.clone();
@@ -1625,15 +1643,48 @@ mod tests {
                 context: "native proof",
             },
         ] {
+            // Copied fields preserve diagnostics, never local provenance.
             let error = CodecError::from(norito::Error::from(resource));
-            assert_eq!(error, CodecError::Resource(resource));
+            assert!(matches!(error, CodecError::Norito(_)));
             assert_eq!(error.clone(), error);
-            assert_eq!(error.to_string(), format!("norito resource: {resource}"));
-            assert_eq!(
-                norito::Error::from(error).decode_resource_error(),
-                Some(resource)
-            );
+            assert_eq!(error.to_string(), format!("norito: {resource}"));
+            assert!(!norito::Error::from(error).is_decode_resource_limit());
         }
+        let captured = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+            || {
+                norito::core::classify_decode_attempt(|| {
+                    norito::core::reserve_decode_allocation(11)
+                })
+            },
+        )
+        .unwrap_err();
+        let error = CodecError::from(captured);
+        let CodecError::Resource(original) = &error else {
+            panic!("actual local refusal")
+        };
+        assert_eq!(
+            original.kind(),
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
+        );
+        assert_eq!(
+            original.resource_error(),
+            R::TotalAllocationExceeded {
+                attempted: 11,
+                limit: 0
+            }
+        );
+        let expected = original.clone().into_error();
+        let back = norito::Error::from(error.clone());
+        let (
+            norito::Error::ScopedDecodeResource(expected),
+            norito::Error::ScopedDecodeResource(actual),
+        ) = (expected, back)
+        else {
+            panic!("same original owner")
+        };
+        assert_eq!(expected, actual);
+        assert_eq!(error.clone(), error);
         let malformed = CodecError::from(norito::Error::NonCanonicalEncoding);
         assert!(matches!(malformed, CodecError::Norito(_)));
         assert!(!norito::Error::from(malformed).is_decode_resource_limit());

@@ -36,13 +36,21 @@ fn paid_global_config() -> TestChainConfig {
     )
     .unwrap();
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
-    nexus.fees.settlement_mode = iroha_config::parameters::actual::NexusFeeSettlementMode::Direct;
-    nexus.fees.fee_asset_id = fee_asset().canonical_address();
-    nexus.fees.fee_sink_account_id = account(&config.genesis_key).to_string();
+    nexus.fees.fee_asset_id = fee_asset().clone();
+    nexus.fees.fee_sink_account_id = account(&config.genesis_key).clone();
     nexus.fees.base_fee = GLOBAL_FEE.into();
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
+    config
+        .genesis_parameters
+        .push(iroha_data_model::parameter::Parameter::Custom(
+            nexus
+                .fees
+                .clone()
+                .into_custom_parameter()
+                .expect("original signed Global fee policy"),
+        ));
     config.nexus = Some(nexus);
     config.genesis_instructions.extend([
         Register::domain(iroha_data_model::domain::Domain::new(domain.clone())).into(),
@@ -453,6 +461,7 @@ fn native_amx_persisted_paid_borrowed_prepared_proof_clone_retains_original_grap
             view.world().parameters().transaction(),
             &view.crypto(),
             Duration::from_millis(5_000),
+            false,
         )
         .expect("the original paid source passes actual borrowed envelope/signature/TTL admission")
             };
@@ -1706,3 +1715,6 @@ pub(super) fn with_paid_global_begin_fixture(
 
 #[path = "paid_borrowed_custody/time_expiry.rs"]
 mod time_expiry;
+
+#[path = "paid_borrowed_custody/private_pool_cut.rs"]
+mod private_pool_cut;

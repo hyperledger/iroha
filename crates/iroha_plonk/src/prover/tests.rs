@@ -1175,7 +1175,7 @@ fn forged_lookup_case<C: PastaCurve>(
 ///   product closes and only `Step` is violated.
 /// - The same input with `S' = A' = sort(A)`: `Start` and `Step` vanish
 ///   identically and `S'` is not a permutation of `S`, so only `Last`
-///   (`l_last (z^2 - z)`) is violated.
+///   (`l_last (z - 1)`) is violated.
 /// - An honest witness (every input in its table) with sorted columns: only
 ///   `Step` is violated; it checks the positional structure, not only
 ///   membership.

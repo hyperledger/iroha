@@ -92,3 +92,99 @@ fn npos_diagnostics_distinguishes_absence_from_malformed_original_policy() {
         "{error:?}"
     );
 }
+
+#[test]
+fn native_evidence_response_keeps_original_decoder_owner_and_capacity_status() {
+    use iroha_allocation::AllocationBudget;
+    use iroha_data_model::block::consensus::Evidence;
+    use iroha_sumeragi::{
+        message::{Evidence as NativeEvidence, Qc, VoteKind},
+        types::{AggregateSignature, Bitmap, EpochId, Hash32, SIGNATURE_LEN},
+    };
+    use norito::core::PreparedDecodeWorkspace;
+    let first = Qc {
+        kind: VoteKind::Commit,
+        instance: Hash32([1; 32]),
+        epoch: EpochId {
+            epoch: 1,
+            context: Hash32([2; 32]),
+        },
+        height: 2,
+        view: 0,
+        block_hash: Hash32([3; 32]),
+        result: Hash32([4; 32]),
+        signers: Bitmap::from_bytes(vec![7]),
+        agg_sig: AggregateSignature([5; SIGNATURE_LEN]),
+    };
+    let second = Qc {
+        block_hash: Hash32([6; 32]),
+        ..first.clone()
+    };
+    let proof =
+        Evidence::from_native(&NativeEvidence::ConflictingCertificates(first, second)).unwrap();
+    let pool = AllocationBudget::new(4096);
+    let mut workspace = PreparedDecodeWorkspace::from_reservation(
+        &pool,
+        &mut pool
+            .try_reserve_layouts(PreparedDecodeWorkspace::allocation_layouts())
+            .unwrap(),
+    )
+    .unwrap();
+    let mut decoder = PreparedDecodeWorkspace::from_reservation(
+        &pool,
+        &mut pool
+            .try_reserve_layouts(PreparedDecodeWorkspace::allocation_layouts())
+            .unwrap(),
+    )
+    .unwrap();
+    let narrow = norito::DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, usize::MAX);
+    let protocol = norito::canonical_decode_limits(proof.native_frame().len());
+    let refusal = workspace
+        .with_limits(narrow, narrow, || {
+            norito::core::classify_decode_attempt(|| {
+                decoder
+                    .with_limits(protocol, protocol, || {
+                        proof.decode_native().map_err(norito::Error::from)
+                    })
+                    .unwrap()
+            })
+        })
+        .unwrap()
+        .unwrap_err();
+    let error = native_evidence_decode_error(iroha_sumeragi::message::CodecError::from(refusal));
+    assert_eq!(error.status_code(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(std::error::Error::source(&error).is_some());
+    drop(decoder);
+    drop(workspace);
+    assert_eq!(
+        pool.reserved_bytes(),
+        PreparedDecodeWorkspace::allocation_layouts()[0].size()
+    );
+    assert_eq!(
+        error.into_response().status(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(pool.reserved_bytes(), 0);
+    assert!(proof.decode_native().is_ok());
+}
+
+#[test]
+fn native_evidence_response_rejects_resource_diagnostics_without_captured_provenance() {
+    for raw in [
+        norito::Error::SequenceLengthExceeded {
+            length: 2,
+            limit: 1,
+        },
+        norito::Error::AllocationFailed { bytes: 2048 },
+        norito::Error::ChecksumMismatch,
+    ] {
+        let error = native_evidence_decode_error(iroha_sumeragi::message::CodecError::from(raw));
+        assert!(matches!(
+            &error,
+            Error::Query(iroha_data_model::ValidationFail::QueryFailed(
+                iroha_data_model::query::error::QueryExecutionFail::Conversion(_)
+            ))
+        ));
+        assert_eq!(error.into_response().status(), StatusCode::BAD_REQUEST);
+    }
+}

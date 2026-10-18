@@ -720,11 +720,11 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             KagemushaWalletEffectV1::Receive { .. }
         ) && matches!(&lookup, Lookup::Retained(_) | Lookup::Archived(_));
         if lookup != Lookup::Unknown && !released_receive {
-            return self
-                .custody
-                .advance(&owner, &request)
-                .map(map_outcome)
-                .map_err(Error::from);
+            let outcome = self.custody.advance(&owner, &request)?;
+            if let AdvanceOutcome::Released { retained, .. } = &outcome {
+                self.require_retained_output(&c.body().operation_id, retained)?;
+            }
+            return Ok(map_outcome(outcome));
         }
         let (_, manifest) = self.sync_manifest()?;
         if let KagemushaWalletEffectV1::Receive { credit_id, .. } = c.body().statement.effect {

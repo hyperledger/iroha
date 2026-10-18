@@ -199,13 +199,11 @@ fn stake_index_multisig_key_clone_refusal_refunds_prepaid_owner_after_partial_al
     let result = norito::core::with_decode_limits_scope(limits, || {
         clone_index_account(&account, &mut reservation, &mut charges)
     });
-    assert!(matches!(
-        result,
-        Err(EvidencePreparationError::DecodeScope {
-            attempted_bytes: 33,
-            limit_bytes: 0,
-        })
-    ));
+    assert!(
+        matches!(&result, Err(EvidencePreparationError::DecodeResource(original))
+        if original.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit
+        && original.resource_error() == norito::core::DecodeResourceError::TotalAllocationExceeded { attempted: 33, limit: 0 })
+    );
     assert_eq!(charges.as_slice().len(), count);
     assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
     drop(charges);
@@ -714,4 +712,176 @@ fn stake_index_exposure_overflow_preserves_canonical_index_and_read_refusal() {
     );
     drop(index);
     assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn stake_index_actual_account_clone_refusal_retains_original_counter_and_stake_on_retry() {
+    use norito::core::{DecodeLocalRefusalKind, PreparedDecodeWorkspace};
+    let validator = stake_index_demand_account(0xad);
+    let (state, key, share) =
+        stake_index_quantity_state(&validator, Quantity::from(7_u64), Quantity::from(5_u64));
+    let view = state.view();
+    let source_pointer = validator
+        .expect_single_signatory()
+        .borrowed_parts()
+        .unwrap()
+        .1
+        .as_ptr();
+    let demand =
+        PublicLaneStakeIndexDemand::from_rows(view.world().public_lane_stake_shares().iter(), 1, 1)
+            .unwrap();
+    let (_, _, _, bytes) = demand.checked_retained_layouts().unwrap();
+    let original_pool = AllocationBudget::new(bytes);
+    let counter_pool = AllocationBudget::new(4096);
+    let mut counters = PreparedDecodeWorkspace::from_reservation(
+        &counter_pool,
+        &mut counter_pool
+            .try_reserve_layouts(PreparedDecodeWorkspace::allocation_layouts())
+            .unwrap(),
+    )
+    .unwrap();
+    let narrow = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    let failure = counters
+        .with_limits(narrow, narrow, || {
+            PublicLaneStakeIndex::from_world(view.world(), 1, 1, &original_pool)
+        })
+        .unwrap()
+        .err()
+        .expect("actual account clone exceeds caller allocation ceiling");
+    let EvidencePreparationError::DecodeResource(original) =
+        failure.downcast::<EvidencePreparationError>().unwrap()
+    else {
+        panic!("actual account clone retains captured local refusal")
+    };
+    assert_eq!(original.kind(), DecodeLocalRefusalKind::EnclosingLimit);
+    assert_eq!(
+        original.resource_error(),
+        norito::core::DecodeResourceError::TotalAllocationExceeded {
+            attempted: 33,
+            limit: 0
+        }
+    );
+    assert_eq!(
+        original_pool.reserved_bytes(),
+        0,
+        "failed index retires prepaid destinations"
+    );
+    assert_eq!(
+        validator
+            .expect_single_signatory()
+            .borrowed_parts()
+            .unwrap()
+            .1
+            .as_ptr(),
+        source_pointer
+    );
+    assert_eq!(
+        view.world().public_lane_stake_shares().get(&key),
+        Some(&share)
+    );
+    let retry = PublicLaneStakeIndex::from_world(view.world(), 1, 1, &original_pool).unwrap();
+    assert_eq!(
+        retry.total_exposure(LaneId::SINGLE, &validator).unwrap(),
+        &Quantity::from(12_u64)
+    );
+    assert_eq!(
+        retry.share_keys(LaneId::SINGLE, &validator),
+        std::slice::from_ref(&key)
+    );
+    assert_eq!(original_pool.reserved_bytes(), bytes);
+    let last = original.clone();
+    drop(original);
+    drop(counters);
+    assert_eq!(
+        counter_pool.reserved_bytes(),
+        PreparedDecodeWorkspace::allocation_layouts()[0].size(),
+        "actual refusing counter survives until final reader"
+    );
+    drop(last);
+    assert_eq!(counter_pool.reserved_bytes(), 0);
+    drop(retry);
+    assert_eq!(original_pool.reserved_bytes(), 0);
+    assert_eq!(
+        view.world().public_lane_stake_shares().get(&key),
+        Some(&share)
+    );
+}
+
+#[test]
+fn account_clone_preparation_rejects_protocol_stale_and_copied_numeric_refusals() {
+    use norito::core::{DecodeAttemptErrorKind, PreparedDecodeWorkspace, classify_decode_attempt};
+    let account = stake_index_demand_account(0xae);
+    let pointer = account
+        .expect_single_signatory()
+        .borrowed_parts()
+        .unwrap()
+        .1
+        .as_ptr();
+    let narrow = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+    // This is a real account clone under a protocol-owned scope inserted inside
+    // its observer. Matching numbers do not make that protocol bound local.
+    let protocol = classify_decode_attempt(|| {
+        norito::with_decode_limits(narrow, || account.try_clone_for_admission())
+    })
+    .unwrap_err();
+    assert_eq!(protocol.kind(), DecodeAttemptErrorKind::Invalid);
+    assert_eq!(
+        EvidencePreparationError::from_decode_attempt(protocol),
+        EvidencePreparationError::Invariant
+    );
+    let counter_pool = AllocationBudget::new(4096);
+    let mut counters = PreparedDecodeWorkspace::from_reservation(
+        &counter_pool,
+        &mut counter_pool
+            .try_reserve_layouts(PreparedDecodeWorkspace::allocation_layouts())
+            .unwrap(),
+    )
+    .unwrap();
+    let local = counters
+        .with_limits(narrow, narrow, || {
+            classify_decode_attempt(|| account.try_clone_for_admission())
+        })
+        .unwrap()
+        .unwrap_err()
+        .into_local_refusal()
+        .unwrap();
+    let fields = local.resource_error();
+    let old = local.into_error();
+    let stale = counters
+        .with_limits(narrow, narrow, || {
+            classify_decode_attempt(|| {
+                let _fresh_actual_clone = account.try_clone_for_admission();
+                Err::<AccountId, _>(old)
+            })
+        })
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(stale.kind(), DecodeAttemptErrorKind::Invalid);
+    assert_eq!(
+        EvidencePreparationError::from_decode_attempt(stale),
+        EvidencePreparationError::Invariant
+    );
+    let copied = counters
+        .with_limits(narrow, narrow, || {
+            classify_decode_attempt(|| Err::<AccountId, _>(norito::Error::from(fields)))
+        })
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(copied.kind(), DecodeAttemptErrorKind::Invalid);
+    assert_eq!(
+        EvidencePreparationError::from_decode_attempt(copied),
+        EvidencePreparationError::Invariant
+    );
+    assert_eq!(
+        account
+            .expect_single_signatory()
+            .borrowed_parts()
+            .unwrap()
+            .1
+            .as_ptr(),
+        pointer
+    );
+    assert_eq!(account.try_clone_for_admission().unwrap(), account);
+    drop(counters);
+    assert_eq!(counter_pool.reserved_bytes(), 0);
 }

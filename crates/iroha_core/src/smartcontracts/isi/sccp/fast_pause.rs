@@ -50,9 +50,7 @@ fn construction_error(state: &mut StateTransaction<'_, '_>, error: PauseRecordEr
         PauseRecordError::Allocator { bytes } => Some(Preparation::Allocator {
             requested_bytes: *bytes,
         }),
-        PauseRecordError::Account(error) => error
-            .decode_resource_error()
-            .map(|original| Preparation::DecodeResource(original.clone())),
+        PauseRecordError::Account(error) => error.local_refusal().map(Preparation::DecodeResource),
         PauseRecordError::Invalid(_) => None,
     };
     if let Some(local) = local {

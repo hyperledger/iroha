@@ -126,6 +126,7 @@ fn rebuilding_never_inherits_compatibility_or_in_flight_probes() {
     ));
 
     let mut builder = original.to_builder();
+    builder.chain = "independent-context-chain".parse().expect("chain identity");
     builder.torii_url = "https://other.example/api/".parse().expect("endpoint");
     builder.network_id = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(
         b"independent context network",
@@ -159,6 +160,8 @@ fn rebuilding_never_inherits_compatibility_or_in_flight_probes() {
         DataModelCompatibility::Unchecked
     ));
     let account = rebuilt.account_client().expect("account context");
+    assert_eq!(account.chain_id(), rebuilt.chain());
+    assert_ne!(account.chain_id(), original.chain());
     assert_eq!(account.endpoint(), rebuilt.endpoint());
     assert_eq!(account.network_id(), rebuilt.network_id());
     assert_eq!(account.authority(), rebuilt.account());

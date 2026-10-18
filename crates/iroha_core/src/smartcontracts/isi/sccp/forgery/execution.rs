@@ -304,15 +304,14 @@ fn prepare_events(
     }
     let mut offenders = try_vec(record.offenders.len())?;
     for offender in &record.offenders {
-        let validator = offender
-            .validator
-            .try_clone_for_admission()
-            .map_err(|error| {
-                error.decode_resource_error().map_or(
-                    EvidencePreparationError::Invariant,
-                    EvidencePreparationError::DecodeResource,
-                )
-            })?;
+        let validator =
+            norito::core::classify_decode_attempt(|| offender.validator.try_clone_for_admission())
+                .map_err(|error| {
+                    error.into_local_refusal().map_or(
+                        EvidencePreparationError::Invariant,
+                        EvidencePreparationError::DecodeResource,
+                    )
+                })?;
         offenders.push(SccpForgeryOffenderV1 {
             signer: offender.signer,
             lane_id: offender.lane_id,

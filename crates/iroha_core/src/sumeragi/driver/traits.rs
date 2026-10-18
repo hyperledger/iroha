@@ -242,6 +242,10 @@ pub enum PublicationDeferral {
     /// The exact prepaid shared-control construction failed without a release-bearing owner.
     #[error(transparent)]
     SharedControl(iroha_allocation::PrepaidSharedError),
+    /// Exact optional transport failure retained by isolated canonical replay.
+    /// This variant is never emitted by live mandatory native publication.
+    #[error(transparent)]
+    IsolatedSourceTransport(crate::query::native_context_archive::NativeContextArchiveError),
     /// Exact original State reader or its enclosing publishing writer must release.
     #[error("original State view reader is busy")]
     StateViewBusy(iroha_allocation::release::ReleaseWait),
@@ -328,7 +332,9 @@ impl PublicationDeferral {
     /// Original pre-probe release observation which can permit this exact attempt to retry.
     pub fn release_wait(&self) -> Option<&iroha_allocation::release::ReleaseWait> {
         match self {
-            Self::SharedControl(_) | Self::StaleDueWork { .. } => None,
+            Self::SharedControl(_)
+            | Self::StaleDueWork { .. }
+            | Self::IsolatedSourceTransport(_) => None,
             Self::Execution(original) => match original.allocation_refusal() {
                 Some(iroha_allocation::AllocationRefusal::Capacity { release, .. }) => {
                     Some(release)

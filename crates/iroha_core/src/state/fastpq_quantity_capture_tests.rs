@@ -34,11 +34,23 @@ fn fixture_with_bob_balance(
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     );
-    let fees = &mut state.nexus.get_mut().fees;
+    let mut fees = state.nexus_snapshot().fees;
     fees.base_fee = Quantity::zero();
     fees.per_byte_fee = Quantity::zero();
     fees.per_instruction_fee = Quantity::zero();
     fees.per_gas_unit_fee = Quantity::zero();
+    {
+        let mut parameters = state.world.parameters.block();
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                fees.clone()
+                    .into_custom_parameter()
+                    .expect("explicit fixture policy"),
+            ))
+            .expect("valid fixture monetary projection");
+        parameters.commit();
+    }
+
     let domain = DomainId::try_new("quantity-capture", "universal").unwrap();
     let alice = AssetId::of(definition.clone(), ALICE_ID.clone());
     let bob = AssetId::of(definition.clone(), BOB_ID.clone());
@@ -969,17 +981,28 @@ fn sponsored_burn_fixture() -> (
         transaction.apply();
         setup.commit_world_overlay_for_testing().unwrap();
     }
-    let fees = &mut state.nexus.get_mut().fees;
-    fees.settlement_mode = iroha_config::parameters::actual::NexusFeeSettlementMode::Direct;
-    fees.fee_asset_id = custody.definition().canonical_address();
+    let mut fees = state.nexus_snapshot().fees;
+    fees.fee_asset_id = custody.definition().clone();
     fees.sponsor_vault_custody_account_id = BOB_ID.clone();
     fees.base_fee = Quantity::from(2_u32);
+    {
+        let mut parameters = state.world.parameters.block();
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                fees.clone()
+                    .into_custom_parameter()
+                    .expect("explicit fixture policy"),
+            ))
+            .expect("valid fixture monetary projection");
+        parameters.commit();
+    }
+
     {
         let view = state.view();
         assert_eq!(
             crate::block::resolve_network_xor_asset_definition(
                 view.world(),
-                &view.nexus.fees.fee_asset_id,
+                &view.nexus.fees.fee_asset_id.canonical_address(),
                 u64::try_from(
                     quantity_successor_header(&state)
                         .creation_time()
@@ -1103,7 +1126,21 @@ fn actual_signed_sponsor_debit_captures_exact_custody_balance_and_supply() {
 #[test]
 fn sponsor_business_capability_without_original_signed_source_cannot_capture() {
     let (mut state, custody, program_id, instruction) = sponsored_burn_fixture();
-    state.nexus.get_mut().fees.base_fee = Quantity::zero();
+    {
+        let mut fees = state.nexus_snapshot().fees;
+        fees.base_fee = Quantity::zero();
+        {
+            let mut parameters = state.world.parameters.block();
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    fees.clone()
+                        .into_custom_parameter()
+                        .expect("explicit fixture policy"),
+                ))
+                .expect("valid fixture monetary projection");
+            parameters.commit();
+        }
+    }
     let (source, call) = source(&state, vec![instruction]);
     let (mut block, _recording) = state
         .block_with_recorded_pristine_carrier_stage(
@@ -1993,7 +2030,9 @@ fn charged_complete_tape_preserves_exact_native_frame_and_refuses_before_clone_w
                 entry.effects.len(),
                 &limited
             ),
-            Err(QuantityCaptureIssue::Capacity)
+            Err(QuantityCaptureIssue::Admission(
+                iroha_allocation::AllocationRefusal::ExceedsLimit { .. }
+            ))
         ));
         assert_eq!(limited.reserved_bytes(), 0);
         assert_eq!(limited.peak_reserved_bytes(), 0);
@@ -2298,7 +2337,9 @@ fn borrowed_effect_inputs_preserve_every_owned_canonical_frame_and_exact_origina
                     kinds.len(),
                     &limited,
                 ),
-                Err(QuantityCaptureIssue::Capacity)
+                Err(QuantityCaptureIssue::Admission(
+                    iroha_allocation::AllocationRefusal::ExceedsLimit { .. }
+                ))
             ));
             assert_eq!(limited.peak_reserved_bytes(), 0);
             assert_eq!(limited.reserved_bytes(), 0);
@@ -2558,7 +2599,9 @@ fn original_quantity_census_reserves_exact_fixed_backing_and_returns_credit_on_r
         let insufficient = iroha_allocation::AllocationBudget::new(required - 1);
         assert!(matches!(
             QuantitySourceCensus::prepare(block, &insufficient),
-            Err(QuantityCaptureIssue::Capacity)
+            Err(QuantityCaptureIssue::Admission(
+                iroha_allocation::AllocationRefusal::ExceedsLimit { .. }
+            ))
         ));
         assert_eq!(insufficient.reserved_bytes(), 0);
         assert_eq!(insufficient.peak_reserved_bytes(), 0);
@@ -2567,7 +2610,9 @@ fn original_quantity_census_reserves_exact_fixed_backing_and_returns_credit_on_r
         assert_eq!(exact.reserved_bytes(), retained_bytes);
         assert!(matches!(
             QuantitySourceCensus::prepare(block, &exact),
-            Err(QuantityCaptureIssue::Capacity)
+            Err(QuantityCaptureIssue::Admission(
+                iroha_allocation::AllocationRefusal::Capacity { .. }
+            ))
         ));
         assert_eq!(exact.reserved_bytes(), retained_bytes);
         assert_eq!(retained.entries().len(), 3);
@@ -3081,11 +3126,23 @@ fn retirement_fixture() -> (State, DomainId, Vec<AssetId>, AssetDefinitionId, As
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     );
-    let fees = &mut state.nexus.get_mut().fees;
+    let mut fees = state.nexus_snapshot().fees;
     fees.base_fee = Quantity::zero();
     fees.per_byte_fee = Quantity::zero();
     fees.per_instruction_fee = Quantity::zero();
     fees.per_gas_unit_fee = Quantity::zero();
+    {
+        let mut parameters = state.world.parameters.block();
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                fees.clone()
+                    .into_custom_parameter()
+                    .expect("explicit fixture policy"),
+            ))
+            .expect("valid fixture monetary projection");
+        parameters.commit();
+    }
+
     let domain = DomainId::try_new("retirement", "universal").unwrap();
     let other_domain = DomainId::try_new("unrelated", "universal").unwrap();
     let global =
@@ -3838,7 +3895,9 @@ fn lifecycle_order_mixed_chronology_has_charged_n_log_n_work_and_exact_refund() 
         let too_small = iroha_allocation::AllocationBudget::new(bytes - 1);
         assert!(matches!(
             QuantityLifecycleOrder::prepare(&effects, &too_small),
-            Err(QuantityCaptureIssue::Capacity)
+            Err(QuantityCaptureIssue::Admission(
+                iroha_allocation::AllocationRefusal::ExceedsLimit { .. }
+            ))
         ));
         assert_eq!(too_small.reserved_bytes(), 0);
         assert_eq!(too_small.peak_reserved_bytes(), 0);

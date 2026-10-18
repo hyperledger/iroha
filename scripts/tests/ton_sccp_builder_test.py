@@ -709,7 +709,7 @@ def test_complete_fixture_replay_counts_and_rendered_ledger() -> None:
         "payload_directions": 2, "payload_rejections": 33,
         "tree_roots": 18, "tree_paths": 665, "tree_negatives": 6,
         "history_roots": 40, "history_paths": 820, "history_leaves": 40,
-        "native_transfers": 1, "bls_verifications": 145,
+        "native_transfers": 1, "bls_verifications": 187,
         "fast_pause_controls": 4, "forgery_evidence": 19,
     }
     rendered = builder.render_test_vectors()
@@ -796,18 +796,23 @@ def test_complete_payload_refusals_and_native_event_keep_original_bytes() -> Non
 
 def test_bls_replay_rows_have_unique_labels_and_explicit_ton_outcomes() -> None:
     rows = builder.bls_verification_rows()
-    assert len(rows) == len({row["label"] for row in rows}) == 145
+    assert len(rows) == len({row["label"] for row in rows}) == 187
     generic = next(row for row in rows if row["label"] == "rust.negatives.dst_sig_signature_presented_to_generic_api")
     assert generic["ton_verdict"] == 1
     for row in rows:
         assert row["ton_verdict"] in (-9, 0, 1)
         if row["label"].startswith("rust.negatives.") and row is not generic:
             assert row["ton_verdict"] == 0, row["label"]
-    for group, count in ((1, 16), (2, 18)):
-        malformed = [row for row in rows if row["label"].startswith(f"ethereum_malformed_inputs.g{group}_deserialization.")]
+    for group, count in ((1, 13), (2, 15)):
+        malformed = [row for row in rows if row["label"].startswith(f"ethereum_bls12_381_tests.deserialization_G{group}.")]
         assert len(malformed) == count
-        assert sum(row["ton_verdict"] == -9 for row in malformed) == 2
-        assert sum(row["ton_verdict"] == 1 for row in malformed) == 2
+        assert sum(row["ton_verdict"] == -9 for row in malformed) == 1
+        extra = [row for row in rows if row["label"].startswith(f"sccp_extra_malformed_inputs.g{group}_deserialization.")]
+        assert len(extra) == 5
+        assert sum(row["ton_verdict"] == -9 for row in extra) == 1
+        assert sum(row["ton_verdict"] == 1 for row in extra) == 1
+    for section, count in (("sign", 9), ("verify", 29), ("fast_aggregate_verify", 12)):
+        assert sum(row["label"].startswith(f"ethereum_bls12_381_tests.{section}.") for row in rows) == count
     rendered = builder._render_bls_verifications()
     for row in rows:
         assert row["label"] in rendered
@@ -818,8 +823,10 @@ def test_bls_skipped_operations_are_counted_separately_from_verification() -> No
     skipped = builder.bls_skipped_rows()
     assert {row["section"]: row["count"] for row in skipped} == {
         "sign_verify.keys": 3, "aggregates.aggregate_verify": 3,
-        "ethereum_standard_inputs.aggregate_verify": 1,
-        "ethereum_standard_inputs.privkeys": 3, "consensus_allowlist": 32,
+        "ethereum_bls12_381_tests.aggregate": 6,
+        "ethereum_bls12_381_tests.aggregate_verify": 5,
+        "ethereum_bls12_381_tests.batch_verify": 4,
+        "ethereum_bls12_381_tests.sign.null": 1, "consensus_allowlist": 32,
         "imported_rfc9380.expand_message_xmd.vectors": 10,
         "imported_rfc9380.hash_to_g2.vectors": 5,
         "rust.keys": 3, "rust.allowlist": 8, "rust.allowlist_rejections": 34,
@@ -829,6 +836,40 @@ def test_bls_skipped_operations_are_counted_separately_from_verification() -> No
     for row in skipped:
         assert row["reason"]
         assert f"// Skip {row['section']} ({row['count']} rows): {row['reason']}." in rendered
+
+
+def test_upstream_decode_renderer_preserves_every_generic_outcome() -> None:
+    bls = builder.load_fixture("bls_consensus_v1.json")
+    rendered = builder._render_upstream_bls_decode(bls)
+    assert "const VEC_UPSTREAM_BLS_DECODE_COUNT = 28" in rendered
+    for group, count in ((1, 13), (2, 15)):
+        rows = bls["ethereum_bls12_381_tests"]["groups"][f"deserialization_G{group}"]
+        assert len(rows) == count
+        assert sum(row["output"] for row in rows) == 2
+        for row in rows:
+            assert f"G{group}.{row['label']}" in rendered
+            assert builder._slice(row["encoding"]) in rendered
+    # The valid G2 point need not sign the chosen baseline message. Preserve its
+    # successful decode even when the separate baseline verification is false.
+    positive = next(row for row in rows if row["label"] == "deserialization_succeeds_correct_point")
+    assert positive["output"] and not positive["verify"]
+
+
+def test_upstream_hash_renderer_preserves_text_domain_and_all_outputs() -> None:
+    bls = builder.load_fixture("bls_consensus_v1.json")
+    rows = bls["ethereum_bls12_381_tests"]["groups"]["hash_to_G2"]
+    assert len(rows) == 4
+    rendered = builder._render_upstream_hash_to_g2(bls)
+    for row in rows:
+        assert row["label"] in rendered
+        assert builder._slice(row["point"]["compressed"]) in rendered
+        dst = row["dst"].encode("ascii")
+        assert builder._slice("0x" + (dst + bytes([len(dst)])).hex()) in rendered
+        for piece in builder._pieces("0x" + row["input"]["msg"].encode("utf-8").hex()):
+            assert piece in rendered
+    rows[0]["trace"]["uniform_bytes"] = "0x00"
+    with pytest.raises(builder.TonBuilderError, match="eight blocks"):
+        builder._render_upstream_hash_to_g2(bls)
 
 
 def test_bls_renderer_refuses_duplicate_verification_labels(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -40,8 +40,10 @@ class KagemushaWalletActivateInstructionV1Test {
     @Test fun `complete frozen activation original retains its exact canonical ledger action`() {
         val instruction = fixtureInstruction()
         val original = instruction.activation()
-        assertEquals(1751, original.size)
-        assertEquals(1848, instruction.concreteFrame().size)
+        assertEquals((activationFixture()["frame_len"] as Number).toInt(), original.size)
+        // Rust ledger framing: header40 + alignment8 + scheme33 + action length2 + tag4
+        // + vector field length2 + raw vector count8, independently of the original bytes.
+        assertEquals(original.size + 97, instruction.concreteFrame().size)
         assertEquals("iroha.kagemusha.wallet.ledger.v1", KagemushaWalletActivateInstructionV1.WIRE_ID)
         assertContentEquals(hex("8eef66c2b4be9ed7b2604aec85793350"), SchemaHash.hash16(KagemushaWalletActivateInstructionV1.SCHEMA_NAME))
         assertContentEquals(hex("a42b6ae59b4107b71368b42ef219abe3"), original.copyOfRange(6, 22))
@@ -150,11 +152,15 @@ class KagemushaWalletActivateInstructionV1Test {
         return vector.readBytes(vector.remaining())
     }
 
-    private fun fixtureInstruction(): KagemushaWalletActivateInstructionV1 {
+    private fun activationFixture(): Map<*, *> {
         val relative = "fixtures/kagemusha/wallet_v1_vectors.json"
         val path = listOf("../..", "..", ".").map { Paths.get(it, relative) }.first { Files.isRegularFile(it) }
         val document = JsonParser.parse(String(Files.readAllBytes(path), Charsets.UTF_8)) as Map<*, *>
-        val fixture = (document["objects"] as List<*>).map { it as Map<*, *> }.single { it["type"] == "KagemushaWalletActivationV1" }
+        return (document["objects"] as List<*>).map { it as Map<*, *> }.single { it["type"] == "KagemushaWalletActivationV1" }
+    }
+
+    private fun fixtureInstruction(): KagemushaWalletActivateInstructionV1 {
+        val fixture = activationFixture()
         assertEquals(true, fixture["stand_in_proof"], "Fixture is codec DATA, not a valid Bootstrap proof")
         val activation = hex(fixture["canonical_hex"] as String)
         val activationFields = fields(NoritoHeader.decode(activation, null).payload)

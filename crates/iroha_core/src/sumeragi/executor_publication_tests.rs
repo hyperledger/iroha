@@ -183,6 +183,7 @@ pub(super) fn with_worker_chain_and_clock(
         consensus_mode,
         lane_blocks,
         time_source,
+        false,
         &mut |chain, worker, blocks, events| {
             test.take().expect("the fixture consumes its callback once")(
                 chain, worker, blocks, events,
@@ -199,6 +200,7 @@ fn with_worker_chain_erased(
     consensus_mode: ConsensusMode,
     lane_blocks: Arc<dyn crate::sumeragi::lanes::merge::LaneBlockSource>,
     time_source: iroha_primitives::time::TimeSource,
+    isolated_source: bool,
     test: &mut dyn FnMut(
         &CertifiedTestChain,
         &mut Worker<'_>,
@@ -226,14 +228,20 @@ fn with_worker_chain_erased(
     let context = ExecutorContext {
         time_source,
         state: Clone::clone(chain.state()),
-        native_context_archive: Arc::new(
-            crate::query::native_context_archive::NativeContextArchive::open(
+        native_context_archive: Arc::new({
+            let mut archive = crate::query::native_context_archive::NativeContextArchive::open(
                 chain.state().kura(),
                 chain.state().ivm_execution_budget(),
                 chain.state().kura().native_context_archive_max_bytes(),
             )
-            .expect("original-pool native context archive"),
-        ),
+            .expect("original-pool native context archive");
+            if isolated_source {
+                archive
+                    .retain_isolated_fastpq_target(chain.state().kura(), 2)
+                    .expect("fixture uses an actual temporary Kura");
+            }
+            archive
+        }),
         queue: None,
         staging: Staging::new(),
         events,
@@ -4581,3 +4589,7 @@ fn original_worker_world_cut_physical_allocator_refusal_retains_tail_and_publica
         assert!(reason.execution().unwrap().allocator_refusal().is_some());
     });
 }
+
+#[cfg(unix)]
+#[path = "executor/isolated_publication_tests.rs"]
+mod isolated_publication_tests;

@@ -43,8 +43,8 @@ fn fixture_with_registered_policy() -> PenaltyFixture {
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = asset.to_string();
-    nexus.fees.fee_sink_account_id = BOB_ID.to_string();
+    nexus.fees.fee_asset_id = asset.clone();
+    nexus.fees.fee_sink_account_id = BOB_ID.clone();
     let mut config = TestChainConfig::new(
         crate::validation_fee::tests::validation_fee_payout_world(&deployer),
         1_000,
@@ -113,6 +113,7 @@ fn fixture_with_registered_policy() -> PenaltyFixture {
             crate::validation_fee::retained_payout_custody_binding(&transaction.world).unwrap(),
             Some(binding)
         );
+        let static_policy = transaction.static_execution_policy();
         transaction.world.governance_referenda_mut().insert(
             referendum.clone(),
             GovernanceReferendumRecord {
@@ -121,7 +122,7 @@ fn fixture_with_registered_policy() -> PenaltyFixture {
                 status: GovernanceReferendumStatus::Open,
                 mode: GovernanceReferendumMode::Plain,
                 plain_context: crate::query::standalone_plain_test_fixture::context(
-                    &transaction.gov,
+                    &static_policy.gov,
                     0,
                 ),
                 plain_result:

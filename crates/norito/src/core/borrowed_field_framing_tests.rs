@@ -1,4 +1,6 @@
 //! Original borrowed positional and optional framing with real storage charges.
+//!
+//! Composite children are decoded in place; only owned values charge storage.
 
 use super::*;
 use std::convert::Infallible;
@@ -100,7 +102,7 @@ fn borrowed_field_length_limit_keeps_precedence_over_bounds_and_allocation_budge
 }
 
 #[test]
-fn borrowed_field_framing_preserves_real_alignment_and_owned_wrapper_charges() {
+fn borrowed_field_framing_borrows_misaligned_scalars_and_keeps_owned_wrapper_charges() {
     for flags in [0, header_flags::COMPACT_LEN] {
         let _flags = DecodeFlagsGuard::enter(flags);
         let value = 0x0102_0304_0506_0708_u64;
@@ -115,25 +117,15 @@ fn borrowed_field_framing_preserves_real_alignment_and_owned_wrapper_charges() {
             .unwrap();
         original[start..start + framed.len()].copy_from_slice(&framed);
         let bytes = &original[start..start + framed.len()];
+        // The scalar body is misaligned for `u64`; it is decoded in place
+        // without an alignment copy, so a zero allocation budget suffices.
         let zero = DecodeLimits::new(0, usize::MAX, 0, 0, 8);
-        let refused = with_decode_limits(zero, || {
-            let mut offset = 0;
-            framed_field::<u64>(bytes, &mut offset)?.decode_owned()
-        });
-        assert!(matches!(
-            refused,
-            Err(Error::TotalAllocationExceeded {
-                attempted: 8,
-                limit: 0
-            })
-        ));
-        let actual_copy = DecodeLimits::new(0, usize::MAX, 0, 8, 8);
-        let (decoded, usage) = with_decode_limits_measured(actual_copy, || {
+        let (decoded, usage) = with_decode_limits_measured(zero, || {
             let mut offset = 0;
             framed_field::<u64>(bytes, &mut offset)?.decode_owned()
         });
         assert_eq!(decoded.unwrap(), value);
-        assert_eq!(usage.total_allocated_bytes(), 8);
+        assert_eq!(usage.total_allocated_bytes(), 0);
 
         let mut wrapper = Vec::new();
         serialize_to_buffer(&Box::new(7_u8), &mut wrapper).unwrap();
@@ -247,13 +239,14 @@ fn framed_stack_byte_arrays_keep_original_source_and_errors_without_storage_char
 }
 
 #[test]
-fn archived_fixed_array_charges_its_actual_element_copy_once_and_keeps_original_access() {
+fn archived_fixed_array_borrows_elements_without_copy_charges_and_keeps_original_access() {
     let expected = [0x1234_u16];
     for flags in [0, header_flags::COMPACT_LEN] {
         let _flags = DecodeFlagsGuard::enter(flags);
         let mut framed = Vec::new();
         serialize_to_buffer(&expected, &mut framed).unwrap();
         let (_, prefix_len) = inspect_len_from_slice(&framed).unwrap();
+        // The element body follows its prefix and is borrowed at that address.
         let alignment = archived_payload_align::<[u16; 1]>();
         let mut original = vec![0xa5; framed.len() + alignment];
         let start = (0..alignment)
@@ -262,35 +255,17 @@ fn archived_fixed_array_charges_its_actual_element_copy_once_and_keeps_original_
         original[start..start + framed.len()].copy_from_slice(&framed);
         let bytes = &original[start..start + framed.len()];
         let pointer = bytes.as_ptr();
-        for allocation_limit in [1, 2] {
+        for allocation_limit in [0, 2] {
             let limits = DecodeLimits::new(0, usize::MAX, 0, allocation_limit, 8);
             let (decoded, usage) = with_decode_limits_measured(limits, || {
                 let _context = PayloadCtxGuard::enter(bytes);
                 let decoded = decode_field_canonical::<[u16; 1]>(bytes);
                 assert_eq!(payload_ctx(), Some((pointer as usize, bytes.len())));
-                assert_eq!(
-                    payload_ctx_max_access(),
-                    Some(if decoded.is_ok() {
-                        bytes.len()
-                    } else {
-                        prefix_len
-                    })
-                );
+                assert_eq!(payload_ctx_max_access(), Some(bytes.len()));
                 decoded
             });
-            if allocation_limit == 1 {
-                assert!(matches!(
-                    decoded,
-                    Err(Error::TotalAllocationExceeded {
-                        attempted: 2,
-                        limit: 1
-                    })
-                ));
-                assert_eq!(usage.total_allocated_bytes(), 0);
-            } else {
-                assert_eq!(decoded.unwrap(), (expected, bytes.len()));
-                assert_eq!(usage.total_allocated_bytes(), 2);
-            }
+            assert_eq!(decoded.unwrap(), (expected, bytes.len()));
+            assert_eq!(usage.total_allocated_bytes(), 0);
             assert_eq!(usage.total_elements(), 0);
             assert_eq!(bytes.as_ptr(), pointer);
             assert_eq!(bytes, &framed);
@@ -356,7 +331,7 @@ fn generic_byte_arrays_reject_length_n_truncation_inside_and_outside_options() {
 }
 
 #[test]
-fn archived_and_slice_fixed_arrays_reject_an_overwide_element_with_its_actual_copy_charge() {
+fn archived_and_slice_fixed_arrays_reject_an_overwide_element_without_copy_charges() {
     for flags in [0, header_flags::COMPACT_LEN] {
         let _flags = DecodeFlagsGuard::enter(flags);
         let mut framed = Vec::new();
@@ -384,7 +359,7 @@ fn archived_and_slice_fixed_arrays_reject_an_overwide_element_with_its_actual_co
             decoded
         });
         assert!(matches!(owned, Err(Error::LengthMismatch)));
-        assert_eq!(owned_usage.total_allocated_bytes(), 3);
+        assert_eq!(owned_usage.total_allocated_bytes(), 0);
         assert_eq!(owned_usage.total_elements(), 0);
         assert_eq!(bytes, &framed);
     }
@@ -447,7 +422,7 @@ fn archived_fixed_arrays_validate_untracked_custom_elements_against_original_can
                 )),
                 _ => assert!(matches!(decoded, Err(Error::LengthMismatch))),
             }
-            assert_eq!(usage.total_allocated_bytes(), body.len());
+            assert_eq!(usage.total_allocated_bytes(), 0);
             assert_eq!(usage.total_elements(), 0);
             assert_eq!(&framed[framed.len() - body.len()..], body);
         }
@@ -494,7 +469,7 @@ fn archived_fixed_array_canonical_refusal_drops_current_and_completed_elements()
         });
         assert!(matches!(decoded, Err(Error::LengthMismatch)));
         assert_eq!(DROPS.load(Ordering::Relaxed), 3);
-        assert_eq!(usage.total_allocated_bytes(), 3);
+        assert_eq!(usage.total_allocated_bytes(), 0);
         assert_eq!(usage.total_elements(), 0);
     }
 }

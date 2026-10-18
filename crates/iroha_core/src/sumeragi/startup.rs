@@ -39,8 +39,8 @@ pub enum StartupError {
     /// Original signed policy could not be decoded with local resources.
     #[error(transparent)]
     Deferred(crate::execution_attempt::ExecutionDeferred),
-    /// The genesis block is invalid.
-    #[error("genesis is invalid: {0}")]
+    /// Original signed-genesis validation failure, including local resource custody.
+    #[error("genesis validation failed: {0}")]
     InvalidGenesis(#[source] Box<crate::block::BlockValidationError>),
     /// The executed genesis lane transition did not complete correctly.
     #[error("genesis lane transition is invalid: {0}")]
@@ -54,10 +54,46 @@ pub enum StartupError {
     /// Genesis re-executed to a different result than the stored one.
     #[error("genesis re-execution diverges from the stored result")]
     GenesisDiverged,
-    /// A local failure (storage, state publication).
+    /// Original optional transport/capture refusal during isolated replay.
+    /// The isolated destination can be discarded; live mandatory publication
+    /// never uses this strict optional-capture path.
+    #[error(transparent)]
+    IsolatedSourceTransport(crate::query::native_context_archive::NativeContextArchiveError),
+    /// The original lane witness could not be projected.
+    #[error(transparent)]
+    LaneProof(iroha_data_model::sumeragi_finality::NativeLaneStateProofError),
+    /// The original executed result could not be encoded into its certificate preimage.
+    #[error(transparent)]
+    ResultPreimage(super::commitment::ResultPreimageError),
+    /// An original certificate buffer could not be acquired.
+    #[error(transparent)]
+    CertificateBuffer(iroha_allocation::ChargedBufferError),
+    /// The original preimage and certificate controls could not be admitted.
+    #[error(transparent)]
+    Certificate(iroha_data_model::block::CertificateAdmissionError),
+    /// The original canonical genesis frame could not be stored or read.
+    #[error(transparent)]
+    Storage(crate::kura::Error),
+    /// Applying the original executed genesis refused before publication.
+    #[error(transparent)]
+    StateApplication(crate::state::MergeLedgerCommitError),
+    /// Publishing the original executed genesis retains its typed refusal.
+    #[error(transparent)]
+    StatePublication(GenesisStatePublicationError),
+    /// A local invariant or untyped historical failure.
     #[error("local failure: {0}")]
     Local(String),
 }
+
+/// The original genesis publication failure, retained without exposing State internals.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct GenesisStatePublicationError(
+    pub(crate) crate::state::storage_transactions::TransactionsBlockError,
+);
+
+#[cfg(test)]
+pub(crate) mod test_hooks;
 
 /// The core's view of the applied genesis: its block hash and result (`Init.tip` at `g`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -109,6 +145,26 @@ pub fn apply_genesis(
     consensus_mode: ConsensusMode,
     stored: Option<&CommitCertificate>,
 ) -> Result<GenesisTip, StartupError> {
+    apply_genesis_with_fastpq_target(
+        state,
+        genesis,
+        genesis_account,
+        consensus_mode,
+        stored,
+        None,
+    )
+}
+
+// Same signed-genesis validation and execution owner. Only an actual temporary
+// Kura may request strict target-tape retention; the archive verifies that origin.
+pub(super) fn apply_genesis_with_fastpq_target(
+    state: &State,
+    genesis: SignedBlock,
+    genesis_account: &AccountId,
+    consensus_mode: ConsensusMode,
+    stored: Option<&CommitCertificate>,
+    fastpq_target: Option<u64>,
+) -> Result<GenesisTip, StartupError> {
     let (signed_epoch, root_scope) = super::epoch::authenticated_genesis(&genesis)
         .map(|genesis| genesis.into_parts())
         .map_err(|error| {
@@ -124,6 +180,12 @@ pub fn apply_genesis(
     let committee = genesis_committee_peers(&genesis)?;
     let topology = Topology::new(committee.clone());
     let block_hash = core_hash_of(&genesis);
+    #[cfg(test)]
+    test_hooks::run(
+        test_hooks::Phase::Validation,
+        &state.ivm_execution_budget(),
+        None,
+    );
     let (valid, overlay) = ValidBlock::validate_signed_genesis(
         genesis,
         &topology,
@@ -144,6 +206,7 @@ pub fn apply_genesis(
         root_scope,
         block_hash,
         stored,
+        fastpq_target,
     )
 }
 
@@ -160,6 +223,7 @@ fn finish_genesis(
     root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
     block_hash: Hash32,
     stored: Option<&CommitCertificate>,
+    fastpq_target: Option<u64>,
 ) -> Result<GenesisTip, StartupError> {
     let inputs = overlay
         .take_sumeragi_execution_inputs()
@@ -179,9 +243,11 @@ fn finish_genesis(
         .take_exec_witness()
         .ok_or_else(|| StartupError::Local("genesis witness was not captured".into()))?;
     let budget = state.ivm_execution_budget();
+    #[cfg(test)]
+    test_hooks::run(test_hooks::Phase::LaneProof, &budget, Some(&mut witness));
     let native_lanes =
         iroha_data_model::sumeragi_finality::NativeLaneStateProof::from_witness(&witness, &budget)
-            .map_err(|error| StartupError::Local(error.to_string()))?;
+            .map_err(StartupError::LaneProof)?;
     // Genesis starts from the empty World and absorbs everything it holds (§4.1, E51).
     let transition = overlay
         .world_state_transition()
@@ -199,16 +265,20 @@ fn finish_genesis(
         root_scope.into(),
     )
     .map_err(StartupError::ExecutionCommitment)?;
-    let preimage = encode_result_preimage(&retained_result, &budget)
-        .map_err(|error| StartupError::Local(error.to_string()))?;
+    #[cfg(test)]
+    test_hooks::run(test_hooks::Phase::ResultPreimage, &budget, None);
+    let preimage =
+        encode_result_preimage(&retained_result, &budget).map_err(StartupError::ResultPreimage)?;
     let result = result_of_preimage(preimage.as_slice())
         .ok_or_else(|| StartupError::Local("encoded genesis result is malformed".into()))?;
     let empty_header = iroha_allocation::ChargedBuffer::new(0, &budget)
-        .map_err(|error| StartupError::Local(error.to_string()))?;
+        .map_err(StartupError::CertificateBuffer)?;
     let empty_qc = iroha_allocation::ChargedBuffer::new(0, &budget)
-        .map_err(|error| StartupError::Local(error.to_string()))?;
+        .map_err(StartupError::CertificateBuffer)?;
     let empty_availability = iroha_allocation::ChargedBuffer::new(0, &budget)
-        .map_err(|error| StartupError::Local(error.to_string()))?;
+        .map_err(StartupError::CertificateBuffer)?;
+    #[cfg(test)]
+    test_hooks::run(test_hooks::Phase::Certificate, &budget, None);
     let certificate = CommitCertificate::from_charged_parts(
         empty_header,
         empty_qc,
@@ -216,18 +286,39 @@ fn finish_genesis(
         empty_availability,
         &budget,
     )
-    .map_err(|(_original_parts, error)| StartupError::Local(error.to_string()))?;
+    .map_err(|(_original_parts, error)| StartupError::Certificate(error))?;
     // Freeze H1 complete context values from the same original overlay and R used by
     // every successor. A separately reconstructed current-head projection is not a source.
-    let archive = crate::query::native_context_archive::NativeContextArchive::open(
+    let archive_error =
+        |original: crate::query::native_context_archive::NativeContextArchiveError| {
+            if fastpq_target.is_some() {
+                StartupError::IsolatedSourceTransport(original)
+            } else {
+                StartupError::Local(original.to_string())
+            }
+        };
+    let mut archive = crate::query::native_context_archive::NativeContextArchive::open(
         state.kura(),
         budget.clone(),
         state.kura().native_context_archive_max_bytes(),
     )
-    .map_err(|error| StartupError::Local(error.to_string()))?;
-    let native_contexts = archive
+    .map_err(archive_error)?;
+    if let Some(height) = fastpq_target {
+        archive
+            .retain_isolated_fastpq_target(state.kura(), height)
+            .map_err(StartupError::IsolatedSourceTransport)?;
+    }
+    let mut native_contexts = archive
         .prepare(&overlay, valid.as_ref(), &retained_result, &witness)
-        .map_err(|error| StartupError::Local(error.to_string()))?;
+        .map_err(archive_error)?;
+    archive
+        .prepare_fastpq_source(
+            &mut native_contexts,
+            valid.as_ref(),
+            &retained_result,
+            &witness,
+        )
+        .map_err(archive_error)?;
     let shell = iroha_data_model::block::SharedSignedBlock::reserve(&budget)
         .map_err(|error| StartupError::Deferred(error.into()))?;
     let finalized_block = valid
@@ -244,15 +335,19 @@ fn finish_genesis(
             state
                 .kura()
                 .store_block(finalized_block.shared().clone())
-                .map_err(|error| StartupError::Local(error.to_string()))?;
+                .map_err(StartupError::Storage)?;
         }
     }
     // The canonical executed frame is durable (or matched exactly on replay) before
     // the original projection is published. Refusal occurs before State visibility;
     // restart re-executes the same signed genesis and must reproduce both exact values.
-    archive
-        .publish(&native_contexts)
-        .map_err(|error| StartupError::Local(error.to_string()))?;
+    archive.publish(&native_contexts).map_err(archive_error)?;
+    if let Err(error) = archive.publish_fastpq_source(state.kura(), &native_contexts) {
+        if fastpq_target.is_some() {
+            return Err(StartupError::IsolatedSourceTransport(error));
+        }
+        iroha_logger::warn!(%error, "genesis FASTPQ source transport remains unresolved");
+    }
     overlay
         .authorize_sumeragi_output_publication(
             &finalized_block,
@@ -293,10 +388,10 @@ fn finish_genesis(
         })?;
     overlay
         .apply_without_execution_with_sumeragi_commit(&finalized_block, &certificate, committee)
-        .map_err(|error| StartupError::Local(error.to_string()))?;
+        .map_err(StartupError::StateApplication)?;
     overlay
         .commit()
-        .map_err(|error| StartupError::Local(error.to_string()))?;
+        .map_err(|error| StartupError::StatePublication(GenesisStatePublicationError(error)))?;
     // Keep the original canonical graph and its same-pool ledger alive until publication
     // completes; the certificate separately owns the exact original encoded allocation.
     drop(retained_result);
@@ -321,7 +416,7 @@ pub fn stored_genesis(
                 StartupError::Deferred(reason)
             }
             crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
-                StartupError::Local(error.to_string())
+                StartupError::Storage(error)
             }
         })?
     else {

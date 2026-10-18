@@ -1673,12 +1673,14 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn native_launch_refusal_restores_fresh_key_retry_before_dispatch() {
-        use std::io::Write;
+        use std::{io::Write, os::unix::fs::PermissionsExt};
         let _resources = super::super::native_test_guard();
         let temporary = tempfile::tempdir().unwrap();
         let directory = PrivateDirectory::open_or_create(temporary.path().join("network")).unwrap();
         let path = temporary.path().join("daemon");
         std::fs::copy(std::env::current_exe().unwrap(), &path).unwrap();
+        // Admit a writable private fixture even when the test driver is read-only.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
         let daemon = super::super::program::NativeProgram::capture(&path).unwrap();
         let pin = daemon.pin().unwrap();
         let mut wrong = Command::new(std::env::current_exe().unwrap());

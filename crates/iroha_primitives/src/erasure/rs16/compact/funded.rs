@@ -124,16 +124,27 @@ fn buffers(
     .map_err(CodecAllocationError::Allocation)?;
     let mut workspace = ChargedBuffer::from_reservation(shape.workspace_words(), &mut reservation)
         .map_err(CodecAllocationError::Allocation)?;
-    for _ in 0..codeword.capacity() {
-        codeword.push_reserved(0);
-    }
-    for _ in 0..payload.capacity() {
-        payload.push_reserved(0);
-    }
-    for _ in 0..workspace.capacity() {
-        workspace.push_reserved(0);
-    }
+    fill_zeroed(&mut codeword, &ZERO_BYTES);
+    fill_zeroed(&mut payload, &ZERO_BYTES);
+    fill_zeroed(&mut workspace, &ZERO_WORDS);
     Ok((codeword, payload, workspace))
+}
+/// Elements copied per bulk append while zero-initializing job backing.
+const ZERO_BLOCK: usize = 4096;
+static ZERO_BYTES: [u8; ZERO_BLOCK] = [0; ZERO_BLOCK];
+static ZERO_WORDS: [u16; ZERO_BLOCK] = [0; ZERO_BLOCK];
+/// Initialize every admitted element of a fresh buffer from `zeros` in bulk copies. Appends
+/// never grow, replace or recharge the backing, so its original exact charge is unchanged.
+fn fill_zeroed<T: Copy>(buffer: &mut ChargedBuffer<T>, zeros: &[T; ZERO_BLOCK]) {
+    loop {
+        let remaining = buffer.capacity() - buffer.as_slice().len();
+        if remaining == 0 {
+            return;
+        }
+        buffer
+            .append(&zeros[..remaining.min(zeros.len())])
+            .expect("bulk zeroing stays within the admitted capacity");
+    }
 }
 /// Encode into one original-funded move-only byte owner; scratch drops before return.
 ///
@@ -179,4 +190,109 @@ pub fn reconstruct_funded(
         payload,
         codeword,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::reference;
+    use super::*;
+    use crate::erasure::rs16::compact::encode_funded;
+
+    /// Bulk zeroing initializes exactly the admitted capacity under the original charge,
+    /// across block boundaries and for empty buffers.
+    #[test]
+    fn fill_zeroed_initializes_exact_capacity_without_recharging() {
+        for capacity in [
+            0usize,
+            1,
+            ZERO_BLOCK - 1,
+            ZERO_BLOCK,
+            ZERO_BLOCK + 1,
+            3 * ZERO_BLOCK + 7,
+        ] {
+            let budget = AllocationBudget::new(capacity * 3);
+            let mut bytes = ChargedBuffer::<u8>::new(capacity, &budget).unwrap();
+            let mut words = ChargedBuffer::<u16>::new(capacity, &budget).unwrap();
+            assert_eq!(budget.reserved_bytes(), capacity * 3);
+            fill_zeroed(&mut bytes, &ZERO_BYTES);
+            fill_zeroed(&mut words, &ZERO_WORDS);
+            assert_eq!(bytes.as_slice().len(), capacity);
+            assert_eq!(words.as_slice().len(), capacity);
+            assert!(bytes.as_slice().iter().all(|byte| *byte == 0));
+            assert!(words.as_slice().iter().all(|word| *word == 0));
+            assert_eq!(budget.reserved_bytes(), capacity * 3);
+            assert!(bytes.belongs_to(&budget) && words.belongs_to(&budget));
+            fill_zeroed(&mut bytes, &ZERO_BYTES);
+            assert_eq!(bytes.as_slice().len(), capacity);
+            drop((bytes, words));
+            assert_eq!(budget.reserved_bytes(), 0);
+        }
+    }
+
+    /// Funded jobs reserve exactly the shape's backing once, retain only their outputs'
+    /// charges, refund everything on codec rejection, and match the reference codeword.
+    #[test]
+    fn funded_jobs_charge_exact_backing_and_match_reference() {
+        for (k, m, row, len) in [
+            (4, 2, 256 * 1024, 1_048_579),
+            (3, 3, 64, 1000),
+            (1, 1, 2, 1),
+        ] {
+            let payload = reference::bytes(0xF00D ^ len as u64, len);
+            let shape = CompactShape::new(len, k, m, row).unwrap();
+            let expected = reference::compact_encode(&payload, k, m, row);
+            let encode_bytes = required_backing_bytes(shape, false).unwrap();
+            assert_eq!(
+                encode_bytes,
+                shape.encoded_bytes() + 2 * shape.workspace_words()
+            );
+            let budget = AllocationBudget::new(encode_bytes);
+            let encoded = encode_funded(shape, &payload, &budget).unwrap();
+            assert!(encoded.codeword() == expected.as_slice());
+            assert!(encoded.belongs_to(&budget));
+            assert_eq!(encoded.shape(), shape);
+            assert_eq!(budget.peak_reserved_bytes(), encode_bytes);
+            assert_eq!(budget.reserved_bytes(), shape.encoded_bytes());
+            drop(encoded);
+            assert_eq!(budget.reserved_bytes(), 0);
+            let short = AllocationBudget::new(encode_bytes - 1);
+            assert!(matches!(
+                encode_funded(shape, &payload, &short),
+                Err(CodecAllocationError::Admission(_))
+            ));
+            assert_eq!(short.reserved_bytes(), 0);
+
+            let reconstruct_bytes = required_backing_bytes(shape, true).unwrap();
+            assert_eq!(reconstruct_bytes, encode_bytes + len);
+            let budget = AllocationBudget::new(reconstruct_bytes);
+            let row_of = |index: usize| &expected[shape.chunk_range(index).unwrap()];
+            let received = (0..shape.chunk_count())
+                .map(|index| (index % (k + m) != 0).then(|| row_of(index)))
+                .collect::<Vec<_>>();
+            let restored =
+                reconstruct_funded(shape, &received, &budget, |index, row| row == row_of(index))
+                    .unwrap();
+            assert!(restored.payload() == payload.as_slice());
+            assert!(restored.codeword() == expected.as_slice());
+            assert!(restored.belongs_to(&budget));
+            assert_eq!(restored.shape(), shape);
+            assert_eq!(budget.peak_reserved_bytes(), reconstruct_bytes);
+            assert_eq!(budget.reserved_bytes(), shape.encoded_bytes() + len);
+            let owner = restored.into_payload();
+            assert_eq!(budget.reserved_bytes(), len);
+            assert!(owner.as_slice() == payload.as_slice());
+            drop(owner);
+            assert_eq!(budget.reserved_bytes(), 0);
+            assert!(matches!(
+                reconstruct_funded(shape, &received, &budget, |_, _| false),
+                Err(CodecAllocationError::Codec(_))
+            ));
+            assert_eq!(budget.reserved_bytes(), 0);
+            let short = AllocationBudget::new(reconstruct_bytes - 1);
+            assert!(matches!(
+                reconstruct_funded(shape, &received, &short, |_, _| true),
+                Err(CodecAllocationError::Admission(_))
+            ));
+        }
+    }
 }

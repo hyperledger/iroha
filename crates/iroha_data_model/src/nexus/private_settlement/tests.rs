@@ -35,6 +35,25 @@ fn hash(seed: u8) -> Hash {
     Hash::new([seed])
 }
 
+// Independent test projection for canonical encoding, carrier-count mutations and scrubbing.
+fn reimbursement_terms_material(
+    plaintext: &PrivateSettlementAuditPlaintextV1,
+    success_fee_bearing_carriers: u8,
+) -> PrivateSettlementReimbursementTermsMaterialV1 {
+    PrivateSettlementReimbursementTermsMaterialV1 {
+        network_id: plaintext.network_id,
+        leg_ordinal: plaintext.leg_ordinal,
+        route: plaintext.route,
+        sponsor: plaintext.sponsor.clone(),
+        asset_definition_id: plaintext.asset_definition_id.clone(),
+        sponsor_reimbursement_amount: plaintext.sponsor_reimbursement_amount,
+        fee_intent_digest: plaintext.fee_intent_digest,
+        success_fee_bearing_carriers,
+        settlement_expiry_height: plaintext.settlement_expiry_height,
+        reimbursement_terms_salt: plaintext.reimbursement_terms_salt,
+    }
+}
+
 fn legacy_signature_preimage<T: norito::NoritoSerialize>(domain: &[u8], body: &T) -> Vec<u8> {
     let body = norito::encode_canonical(body).expect("legacy canonical body encoding");
     let mut preimage = Vec::with_capacity(domain.len() + 8 + body.len());
@@ -754,7 +773,7 @@ fn auditor_plaintext_is_fixed_balanced_bound_and_redacted() {
         .expect("reimbursement terms commitment");
     let one_carrier_reimbursement = canonical_hash(
         REIMBURSEMENT_TERMS_COMMITMENT_DOMAIN_V1,
-        &plaintext.reimbursement_terms_material(1),
+        &reimbursement_terms_material(&plaintext, 1),
     )
     .expect("one-carrier reimbursement terms commitment");
     assert_eq!(PRIVATE_SETTLEMENT_SUCCESS_FEE_BEARING_CARRIERS_V1, 2);
@@ -874,8 +893,10 @@ fn audit_commitment_material_confidential_discard_scrubs_secret_projection() {
 
     let (_, plaintext) = audit_plaintext_fixture();
     let mut material = plaintext.commitment_material();
-    let mut reimbursement =
-        plaintext.reimbursement_terms_material(PRIVATE_SETTLEMENT_SUCCESS_FEE_BEARING_CARRIERS_V1);
+    let mut reimbursement = reimbursement_terms_material(
+        &plaintext,
+        PRIVATE_SETTLEMENT_SUCCESS_FEE_BEARING_CARRIERS_V1,
+    );
     let mut asset_binding = PrivateSettlementAssetBindingMaterialV1 {
         route: plaintext.route,
         pool_id: plaintext.pool_id,
@@ -2454,4 +2475,256 @@ fn audit_output_authorizations_bind_every_role_and_nonzero_recipient_key() {
             );
         }
     }
+}
+
+#[test]
+fn proof_intent_roundtrip_has_only_existing_terms_and_keeps_exact_commitment_projection() {
+    let complete = manifest(2);
+    let intent = complete.proof_intent();
+    intent.validate().expect("valid exact intent");
+    assert_eq!(
+        intent.computed_bundle_id().unwrap(),
+        complete.computed_bundle_id().unwrap()
+    );
+    assert_eq!(
+        intent.proof_binding_digest().unwrap(),
+        complete.proof_binding_digest().unwrap()
+    );
+    let bytes = norito::encode_canonical(&intent).unwrap();
+    assert_eq!(
+        norito::decode_canonical::<PrivateSettlementProofIntentV1>(&bytes).unwrap(),
+        intent
+    );
+    let json = norito::json::to_json(&intent).unwrap();
+    assert!(
+        !json.contains("payload_digest")
+            && !json.contains("availability_certificate_digest")
+            && !json.contains("delta_digest"),
+        "pre-proof intent cannot encode artifact placeholders"
+    );
+    assert_eq!(
+        norito::json::from_json::<PrivateSettlementProofIntentV1>(&json).unwrap(),
+        intent
+    );
+}
+
+#[test]
+fn proof_intent_requires_actual_artifacts_before_provisional_or_final_publication() {
+    let complete = manifest(2);
+    let intent = complete.proof_intent();
+    let mut actual = complete.legs.clone();
+    for leg in &mut actual {
+        leg.availability_certificate_digest = Hash::prehashed([0; Hash::LENGTH]);
+    }
+    let provisional = intent
+        .clone()
+        .bind_provisional_artifacts(actual.clone())
+        .unwrap();
+    provisional.validate_provisional().unwrap();
+    assert!(
+        provisional.validate().is_err(),
+        "proof completion is not availability certification"
+    );
+    assert!(intent.clone().bind_provisional_artifacts(vec![]).is_err());
+    for field in 0..2 {
+        let mut missing = actual.clone();
+        if field == 0 {
+            missing[0].payload_digest = Hash::prehashed([0; Hash::LENGTH]);
+        } else {
+            missing[0].delta_digest = Hash::prehashed([0; Hash::LENGTH]);
+        }
+        assert!(
+            intent.clone().bind_provisional_artifacts(missing).is_err(),
+            "missing real artifact cannot produce a provisional manifest"
+        );
+    }
+    let mut foreign = actual.clone();
+    foreign[0].asset_binding_commitment = hash(231);
+    assert!(
+        intent.clone().bind_provisional_artifacts(foreign).is_err(),
+        "cross-intent artifacts rejected"
+    );
+    assert!(
+        intent.bind_provisional_artifacts(complete.legs).is_err(),
+        "new preparation cannot import unverified final availability"
+    );
+}
+
+#[test]
+fn proof_intent_constructor_derives_commitments_without_a_complete_manifest() {
+    let original = manifest(2).proof_intent();
+    let constructed = PrivateSettlementProofIntentV1::new(
+        original.network_id,
+        original.authority_context_height,
+        original.expiry_height,
+        original.sponsor.clone(),
+        original.public_fee_intent.clone(),
+        original.reimbursement_terms_commitment,
+        original.reimbursement_leg_ordinal,
+        original.legs.clone(),
+    )
+    .unwrap();
+    assert_eq!(constructed, original);
+    assert!(
+        PrivateSettlementProofIntentV1::new(
+            original.network_id,
+            original.expiry_height,
+            original.expiry_height,
+            original.sponsor.clone(),
+            original.public_fee_intent.clone(),
+            original.reimbursement_terms_commitment,
+            original.reimbursement_leg_ordinal,
+            original.legs.clone()
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn preproof_reimbursement_projection_matches_exact_existing_plaintext_commitment() {
+    let (_, plaintext) = audit_plaintext_fixture();
+    let direct = |amount, salt| {
+        private_settlement_reimbursement_terms_commitment_v1(
+            plaintext.network_id,
+            plaintext.leg_ordinal,
+            plaintext.route,
+            &plaintext.sponsor,
+            &plaintext.asset_definition_id,
+            amount,
+            plaintext.fee_intent_digest,
+            plaintext.settlement_expiry_height,
+            salt,
+        )
+        .unwrap()
+    };
+    let expected = plaintext.reimbursement_terms_commitment().unwrap();
+    // The retained canonical projection remains the independent byte/layout oracle.
+    assert_eq!(
+        expected,
+        canonical_hash(
+            REIMBURSEMENT_TERMS_COMMITMENT_DOMAIN_V1,
+            &reimbursement_terms_material(
+                &plaintext,
+                PRIVATE_SETTLEMENT_SUCCESS_FEE_BEARING_CARRIERS_V1,
+            )
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        direct(
+            plaintext.sponsor_reimbursement_amount,
+            plaintext.reimbursement_terms_salt
+        ),
+        expected
+    );
+    assert_ne!(
+        direct(
+            plaintext.sponsor_reimbursement_amount + 1,
+            plaintext.reimbursement_terms_salt
+        ),
+        expected
+    );
+    let mut salt = plaintext.reimbursement_terms_salt;
+    salt[0] ^= 1;
+    assert_ne!(
+        direct(plaintext.sponsor_reimbursement_amount, salt),
+        expected
+    );
+}
+
+#[test]
+fn preproof_authorization_constructors_match_the_complete_plaintext_projection() {
+    let (_, plaintext) = audit_plaintext_fixture();
+    let nullifiers = plaintext
+        .payer_authorization
+        .body
+        .inputs
+        .iter()
+        .map(|input| input.nullifier)
+        .collect::<Vec<_>>();
+    let payer = PrivateSettlementAuditPayerAuthorizationBodyV1::from_openings(
+        plaintext.network_id,
+        plaintext.bundle_id,
+        plaintext.leg_ordinal,
+        plaintext.route,
+        &plaintext.payer,
+        plaintext.settlement_expiry_height,
+        &plaintext.inputs,
+        &nullifiers,
+    )
+    .unwrap();
+    assert_eq!(
+        payer,
+        plaintext.payer_authorization_body(&nullifiers).unwrap()
+    );
+    assert_eq!(payer, plaintext.payer_authorization.body);
+    assert!(
+        PrivateSettlementAuditPayerAuthorizationBodyV1::from_openings(
+            plaintext.network_id,
+            plaintext.bundle_id,
+            plaintext.leg_ordinal,
+            plaintext.route,
+            &plaintext.payer,
+            plaintext.settlement_expiry_height,
+            &plaintext.inputs,
+            &nullifiers[..1]
+        )
+        .is_err()
+    );
+    for (index, output) in plaintext.outputs.iter().enumerate() {
+        let body = PrivateSettlementAuditViewKeyAuthorizationBodyV1::from_output(
+            plaintext.network_id,
+            plaintext.bundle_id,
+            plaintext.leg_ordinal,
+            plaintext.route,
+            plaintext.settlement_expiry_height,
+            &plaintext.recipient,
+            &plaintext.payer,
+            &plaintext.sponsor,
+            index,
+            output.recipient_view_key,
+            &output.note,
+        )
+        .unwrap();
+        assert_eq!(
+            body,
+            plaintext.output_view_key_authorization_body(index).unwrap()
+        );
+        assert_eq!(body, output.view_key_authorization.body);
+    }
+    let output = &plaintext.outputs[0];
+    assert!(
+        PrivateSettlementAuditViewKeyAuthorizationBodyV1::from_output(
+            plaintext.network_id,
+            plaintext.bundle_id,
+            plaintext.leg_ordinal,
+            plaintext.route,
+            plaintext.settlement_expiry_height,
+            &plaintext.recipient,
+            &plaintext.payer,
+            &plaintext.sponsor,
+            3,
+            output.recipient_view_key,
+            &output.note
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn preproof_fee_projection_uses_the_original_canonical_commitment() {
+    let manifest = manifest(3);
+    let expected =
+        canonical_hash(FEE_INTENT_DIGEST_DOMAIN_V1, &manifest.public_fee_intent).unwrap();
+    assert_eq!(
+        PrivateSettlementProofIntentV1::fee_intent_digest(&manifest.public_fee_intent).unwrap(),
+        expected
+    );
+    assert_eq!(
+        manifest
+            .proof_intent()
+            .computed_fee_intent_digest()
+            .unwrap(),
+        expected
+    );
 }

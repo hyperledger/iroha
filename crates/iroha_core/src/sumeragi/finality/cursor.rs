@@ -15,11 +15,11 @@ use crate::{
     state::StateReadOnly,
     sumeragi::certified_chain::{
         AdmittedPrefixInitialization, AdmittedPrefixPush, CertifiedBlock, CertifiedPrefix,
-        CommittedBlock, NativeCarrierAcquisition, admit_verification_slot,
+        CommittedBlock, GenesisExecutionAnchor, NativeCarrierAcquisition, admit_verification_slot,
         bounded_native_carrier_extent, read_frame,
     },
 };
-use iroha_allocation::{AllocationBudget, AllocationCharge, ChargedBuffer};
+use iroha_allocation::{AllocationBudget, AllocationCharge, ChargedBuffer, ChargedShared};
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     NetworkId,
@@ -54,8 +54,8 @@ type Result<T> = std::result::Result<T, Error>;
 /// It has no decoded-checkpoint constructor and never persists trust. Every returned block
 /// comes from the sole portable verifier after full native certificate checks. Retained
 /// physical buffers keep their original allocation charges across calls and refusals.
-#[derive(Default)]
 pub struct NativeFinalityCursorV1 {
+    selected_root: SumeragiRootScope,
     original: Option<Original>,
     initializing: Option<Initializing>,
 }
@@ -79,6 +79,31 @@ impl NativeFinalityAtHeightV1 {
     #[must_use]
     pub fn native_block(&self) -> &CommittedBlock {
         &self.native.as_slice()[0]
+    }
+    /// Retain this exact bounded native/portable result as execution-read authority.
+    /// Original output slots and decoder custody remain owned until the consumer retires it.
+    #[must_use]
+    pub(crate) fn into_authenticated_execution(
+        self,
+    ) -> crate::sumeragi::certified_chain::AuthenticatedExecutionBlock {
+        crate::sumeragi::certified_chain::AuthenticatedExecutionBlock::from_finality_cursor(self)
+    }
+}
+
+/// Actual native genesis execution authenticated once by the original H2 prefix step.
+/// This owner exports no imported trust and cannot be constructed by a decoder.
+pub(crate) struct NativeGenesisExecutionV1 {
+    native: ChargedBuffer<GenesisExecutionAnchor>,
+    _decode: NativeDecodeSnapshot,
+}
+impl NativeGenesisExecutionV1 {
+    pub(crate) fn committed(&self) -> &CommittedBlock {
+        self.native.as_slice()[0].committed()
+    }
+    pub(crate) fn into_authenticated_execution(
+        self,
+    ) -> crate::sumeragi::certified_chain::AuthenticatedExecutionBlock {
+        crate::sumeragi::certified_chain::AuthenticatedExecutionBlock::from_genesis_cursor(self)
     }
 }
 
@@ -112,6 +137,7 @@ struct Original {
     acquiring: Option<Successor>,
     projecting: Option<OutputRead>,
     kura: Arc<crate::kura::Kura>,
+    genesis: Option<NativeGenesisExecutionV1>,
     // Declared last: decoded prefix/pending/checkpoint owners reclaim before these charges.
     native_decode: NativeDecodeEnvelope,
 }
@@ -149,8 +175,14 @@ struct Initializing {
     chain_id: ChainIdentity,
     native_decode: NativeDecodeEnvelope,
 }
+// Keep each pre-admitted owner across refusal of the next physical allocation.
+struct GenesisOutputRead {
+    native: ChargedBuffer<GenesisExecutionAnchor>,
+    decode: Option<NativeDecodeSnapshot>,
+}
 struct Successor {
     output: ChargedBuffer<CertifiedBlock>,
+    genesis: Option<GenesisOutputRead>,
     read: AdmittedPrefixPush,
     carrier: Option<Carrier>,
 }
@@ -224,8 +256,18 @@ impl Carrier {
 impl NativeFinalityCursorV1 {
     /// Create empty local progress; this acquires no source, memory backing or authority.
     #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(selected_root: SumeragiRootScope) -> Self {
+        Self {
+            selected_root,
+            original: None,
+            initializing: None,
+        }
+    }
+
+    /// Transfer the actual H2-authenticated genesis once, preserving its original decoder
+    /// increments and output slot. A signed genesis alone never produces this owner.
+    pub(crate) fn take_genesis_execution(&mut self) -> Option<NativeGenesisExecutionV1> {
+        self.original.as_mut()?.genesis.take()
     }
 
     /// Advance at most 64 caller-selected native heights toward this exact current State cut.
@@ -334,6 +376,7 @@ impl NativeFinalityCursorV1 {
                     // Preserve the original output admission before source extent checks.
                     original.acquiring = Some(Successor {
                         output: admit_verification_slot(budget).map_err(ProofError::from)?,
+                        genesis: None,
                         read: AdmittedPrefixPush::default(),
                         carrier: None,
                     });
@@ -412,7 +455,7 @@ impl NativeFinalityCursorV1 {
                         iroha_data_model::sumeragi_finality::FinalityReadError::Genesis(error),
                     ))
                 })?;
-        if metadata.sumeragi_context.root_scope != SumeragiRootScope::Global {
+        if metadata.sumeragi_context.root_scope != self.selected_root {
             return Err(Error::Source);
         }
         let Initializing {
@@ -440,6 +483,7 @@ impl NativeFinalityCursorV1 {
             acquiring: None,
             projecting: None,
             native_decode,
+            genesis: None,
         });
         Ok(())
     }
@@ -468,6 +512,21 @@ impl Original {
         carrier.recheck(view, budget)?;
         let extent = carrier.extent;
         self.native_decode.ensure(extent, budget)?;
+        if next == 2 {
+            if original.genesis.is_none() {
+                original.genesis = Some(GenesisOutputRead {
+                    native: admit_verification_slot(budget).map_err(ProofError::from)?,
+                    decode: None,
+                });
+            }
+            let genesis = original
+                .genesis
+                .as_mut()
+                .expect("original genesis output admission");
+            if genesis.decode.is_none() {
+                genesis.decode = Some(self.native_decode.snapshot(budget)?);
+            }
+        }
         self.native_decode.run(extent, || {
             check(deadline)?;
             let block = carrier.complete(view, budget)?;
@@ -481,8 +540,13 @@ impl Original {
                     block.clone(),
                     budget,
                     |step| {
-                        let (current, _) = step.into_parts();
+                        let (current, genesis) = step.into_parts();
                         original.output.push_reserved(current);
+                        if let Some(genesis) = genesis {
+                            if let Some(slot) = original.genesis.as_mut() {
+                                slot.native.push_reserved(genesis);
+                            }
+                        }
                     },
                 )
                 .map_err(ProofError::from)?;
@@ -491,6 +555,16 @@ impl Original {
         self.native_height = next;
         self.native_hash = carrier.hash;
         let completed = self.acquiring.take().expect("complete original successor");
+        if next == 2 {
+            let genesis = completed.genesis.ok_or(Error::Source)?;
+            if genesis.native.as_slice().len() != 1 {
+                return Err(Error::Source);
+            }
+            self.genesis = Some(NativeGenesisExecutionV1 {
+                native: genesis.native,
+                _decode: genesis.decode.ok_or(Error::Source)?,
+            });
+        }
         self.pending = Some(Pending::Successor(completed.output));
         Ok(())
     }
@@ -946,7 +1020,10 @@ impl DecodeCustody {
 // retaining every original increment until the entire prefix/pending owner is destroyed.
 struct NativeDecodeEnvelope {
     reserved: usize,
-    charges: ChargedBuffer<AllocationCharge>,
+    charges: ChargedBuffer<ChargedShared<AllocationCharge>>,
+}
+struct NativeDecodeSnapshot {
+    _charges: ChargedBuffer<ChargedShared<AllocationCharge>>,
 }
 impl NativeDecodeEnvelope {
     fn new(budget: &AllocationBudget) -> Result<Self> {
@@ -972,15 +1049,37 @@ impl NativeDecodeEnvelope {
         if demand > self.reserved {
             let layout =
                 Layout::array::<u8>(demand - self.reserved).map_err(|_| Error::Allocation)?;
+            let shell_layout = ChargedShared::<AllocationCharge>::allocation_layout();
+            let mut shell_credit = budget.try_reserve(shell_layout).map_err(allocation_error)?;
+            let shell =
+                ChargedShared::reserve_from(&mut shell_credit).map_err(|error| match error {
+                    iroha_allocation::PrepaidSharedError::Allocator { .. } => {
+                        Error::Proof(ProofError::Deferred(
+                            ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
+                        ))
+                    }
+                    iroha_allocation::PrepaidSharedError::Reservation(_) => Error::Source,
+                })?;
             let charge = budget
                 .try_reserve(layout)
                 .map_err(allocation_error)?
                 .try_split(layout)
                 .expect("exact admitted native envelope increment");
-            self.charges.push_reserved(charge);
+            self.charges.push_reserved(shell.initialize(charge));
             self.reserved = demand;
         }
         Ok(())
+    }
+    fn snapshot(&self, budget: &AllocationBudget) -> Result<NativeDecodeSnapshot> {
+        if !self.charges.belongs_to(budget) {
+            return Err(Error::Source);
+        }
+        let mut charges =
+            ChargedBuffer::new(self.charges.as_slice().len(), budget).map_err(buffer_error)?;
+        for charge in self.charges.as_slice() {
+            charges.push_reserved(charge.clone());
+        }
+        Ok(NativeDecodeSnapshot { _charges: charges })
     }
     fn run<T>(&self, wire: usize, action: impl FnOnce() -> Result<T>) -> Result<T> {
         let derived = norito::canonical_decode_limits(wire);
@@ -1032,11 +1131,214 @@ mod tests {
     }
 
     #[test]
+    fn original_h2_anchor_exports_genesis_without_releasing_original_custody() {
+        let (chain, _, _) = crate::sumeragi::test_chain::native_amx_approval_route_fixture();
+        let budget = AllocationBudget::new(2 * 1024 * 1024 * 1024);
+        let mut cursor = NativeFinalityCursorV1::new(chain.root_scope());
+        assert!(cursor.take_genesis_execution().is_none());
+        let current = cursor
+            .advance_to_height(
+                &chain.state().view(),
+                NonZeroU64::new(2).unwrap(),
+                &budget,
+                deadline(),
+                NonZeroU16::new(64).unwrap(),
+            )
+            .unwrap()
+            .unwrap();
+        let original_increment_bytes = cursor.original.as_ref().unwrap().native_decode.reserved;
+        let genesis = cursor
+            .take_genesis_execution()
+            .expect("actual H2 prefix anchor");
+        let handle_count = genesis._decode._charges.as_slice().len();
+        let retained_genesis_bytes = size_of::<GenesisExecutionAnchor>()
+            + handle_count * size_of::<ChargedShared<AllocationCharge>>()
+            + handle_count * ChargedShared::<AllocationCharge>::allocation_layout().size()
+            + original_increment_bytes;
+        assert!(
+            cursor.take_genesis_execution().is_none(),
+            "original anchor transfers exactly once"
+        );
+        let execution = genesis.into_authenticated_execution();
+        assert_eq!(execution.committed().height(), 1);
+        assert_eq!(
+            execution.committed().block_hash(),
+            chain.committed(1).block_hash()
+        );
+        assert_eq!(execution.committed().result(), chain.committed(1).result());
+        let ordinary = current.into_authenticated_execution();
+        assert_eq!(ordinary.committed().height(), 2);
+        assert_eq!(ordinary.committed().result(), chain.committed(2).result());
+        drop(cursor);
+        assert!(
+            budget.reserved_bytes() > 0,
+            "exported exact graph retains original decoder increments"
+        );
+        drop(ordinary);
+        assert_eq!(
+            budget.reserved_bytes(),
+            retained_genesis_bytes,
+            "exact original increments, their shared shells and the genesis slots remain held"
+        );
+        let expected_remaining = budget.limit_bytes() - retained_genesis_bytes;
+        assert!(
+            matches!(
+                budget.try_reserve_bytes(expected_remaining + 1),
+                Err(iroha_allocation::AllocationRefusal::Capacity { .. })
+            ),
+            "releasing even one original decoder increment would incorrectly admit this demand"
+        );
+        assert_eq!(execution.committed().root_scope(), chain.root_scope());
+        drop(execution);
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn actual_h2_genesis_output_and_snapshot_refusals_retain_original_admissions() {
+        for snapshot in [false, true] {
+            let (chain, _, _) = crate::sumeragi::test_chain::native_amx_approval_route_fixture();
+            let budget = AllocationBudget::new(2 * 1024 * 1024 * 1024);
+            let mut cursor = NativeFinalityCursorV1::new(chain.root_scope());
+            assert!(
+                cursor
+                    .advance_to_height(
+                        &chain.state().view(),
+                        NonZeroU64::new(2).unwrap(),
+                        &budget,
+                        deadline(),
+                        one()
+                    )
+                    .unwrap()
+                    .is_none()
+            );
+            let view = chain.state().view();
+            let original = cursor.original.as_mut().unwrap();
+            assert_eq!(original.native_height, 1);
+            let extent = bounded_native_carrier_extent(&view, 2, MAX_FINALITY_BLOCK_BYTES).unwrap();
+            original.native_decode.ensure(extent, &budget).unwrap();
+            original.acquiring = Some(Successor {
+                output: admit_verification_slot(&budget).unwrap(),
+                genesis: None,
+                read: AdmittedPrefixPush::default(),
+                carrier: Some(Carrier::new(&view, 2, extent, &budget).unwrap()),
+            });
+            let preceding = if snapshot {
+                size_of::<GenesisExecutionAnchor>()
+            } else {
+                0
+            };
+            let pressure = budget
+                .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes() - preceding)
+                .unwrap();
+            let first = original
+                .acquire_successor(&view, 2, &budget, deadline())
+                .unwrap_err();
+            assert!(matches!(first, Error::Proof(ProofError::Deferred(_))));
+            assert_eq!(original.native_height, 1);
+            assert!(original.genesis.is_none());
+            let acquisition = original.acquiring.as_ref().unwrap();
+            assert_eq!(acquisition.genesis.is_some(), snapshot);
+            if let Some(genesis) = &acquisition.genesis {
+                assert!(genesis.native.as_slice().is_empty() && genesis.decode.is_none());
+            }
+            let retained_bytes = budget.reserved_bytes();
+            assert_eq!(retained_bytes, budget.limit_bytes());
+            let Error::Proof(ProofError::Deferred(first_cause)) = first else {
+                unreachable!()
+            };
+            let Error::Proof(ProofError::Deferred(second_cause)) = original
+                .acquire_successor(&view, 2, &budget, deadline())
+                .unwrap_err()
+            else {
+                panic!("same original admission must refuse again")
+            };
+            assert_eq!(
+                first_cause.allocation_refusal(),
+                second_cause.allocation_refusal(),
+                "no self-refund, replacement pool or changed demand"
+            );
+            assert_eq!(budget.reserved_bytes(), retained_bytes);
+            drop(pressure);
+            original
+                .acquire_successor(&view, 2, &budget, deadline())
+                .unwrap();
+            assert_eq!(original.native_height, 2);
+            assert!(original.acquiring.is_none());
+            assert_eq!(
+                original.genesis.as_ref().unwrap().native.as_slice().len(),
+                1
+            );
+            let genesis = cursor.take_genesis_execution().unwrap();
+            assert!(cursor.take_genesis_execution().is_none());
+            assert_eq!(genesis.committed().result(), chain.committed(1).result());
+            drop((genesis, cursor, view));
+            assert_eq!(budget.reserved_bytes(), 0);
+        }
+    }
+
+    #[test]
+    fn selected_independent_root_is_exact_and_cannot_replace_parent_or_dataspace() {
+        let (chain, _, _) = crate::sumeragi::test_chain::native_amx_approval_route_fixture();
+        let budget = AllocationBudget::new(2 * 1024 * 1024 * 1024);
+        let SumeragiRootScope::Dataspace {
+            parent_network_id,
+            dataspace_id,
+        } = chain.root_scope()
+        else {
+            panic!("genuine private-root fixture")
+        };
+        let wrong_parent = NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(
+            iroha_crypto::Hash::new(b"different parent lineage"),
+        ));
+        for selected in [
+            SumeragiRootScope::Global,
+            SumeragiRootScope::Dataspace {
+                parent_network_id: wrong_parent,
+                dataspace_id,
+            },
+            SumeragiRootScope::Dataspace {
+                parent_network_id,
+                dataspace_id: iroha_model_base::topology::DataSpaceId::new(
+                    dataspace_id.as_u64() + 1,
+                ),
+            },
+        ] {
+            let mut cursor = NativeFinalityCursorV1::new(selected);
+            assert!(matches!(
+                cursor.advance_to_height(
+                    &chain.state().view(),
+                    NonZeroU64::new(2).unwrap(),
+                    &budget,
+                    deadline(),
+                    NonZeroU16::new(64).unwrap(),
+                ),
+                Err(Error::Source)
+            ));
+            assert!(cursor.take_genesis_execution().is_none());
+            drop(cursor);
+            assert_eq!(budget.reserved_bytes(), 0);
+        }
+        let mut cursor = NativeFinalityCursorV1::new(chain.root_scope());
+        let output = cursor
+            .advance_to_height(
+                &chain.state().view(),
+                NonZeroU64::new(2).unwrap(),
+                &budget,
+                deadline(),
+                NonZeroU16::new(64).unwrap(),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(output.native_block().root_scope(), chain.root_scope());
+        assert_eq!(output.block().root_scope(), chain.root_scope());
+    }
+
+    #[test]
     fn native_cursor_advances_real_prefix_in_bounded_steps_and_never_exports_genesis_authority() {
         let mut chain =
             CertifiedTestChain::start(TestChainConfig::new(World::default(), 10_000)).unwrap();
         let budget = AllocationBudget::new(2 * 1024 * 1024 * 1024);
-        let mut cursor = NativeFinalityCursorV1::new();
+        let mut cursor = NativeFinalityCursorV1::new(SumeragiRootScope::Global);
         assert!(
             cursor
                 .advance_current(&chain.state().view(), &budget, deadline(), one())
@@ -1089,7 +1391,7 @@ mod tests {
         chain.commit(Vec::new());
         chain.commit(Vec::new());
         let budget = AllocationBudget::new(2 * 1024 * 1024 * 1024);
-        let mut cursor = NativeFinalityCursorV1::new();
+        let mut cursor = NativeFinalityCursorV1::new(SumeragiRootScope::Global);
         for height in [1, 4] {
             assert!(matches!(
                 cursor.advance_to_height(
@@ -1162,7 +1464,7 @@ mod tests {
         let mut chain =
             CertifiedTestChain::start(TestChainConfig::new(World::default(), 10_000)).unwrap();
         let budget = AllocationBudget::new(2 * 1024 * 1024 * 1024);
-        let mut cursor = NativeFinalityCursorV1::new();
+        let mut cursor = NativeFinalityCursorV1::new(SumeragiRootScope::Global);
         assert!(
             cursor
                 .advance_current(&chain.state().view(), &budget, deadline(), one())
@@ -1219,7 +1521,7 @@ mod tests {
         let mut chain =
             CertifiedTestChain::start(TestChainConfig::new(World::default(), 10_000)).unwrap();
         let budget = AllocationBudget::new(2 * 1024 * 1024 * 1024);
-        let mut cursor = NativeFinalityCursorV1::new();
+        let mut cursor = NativeFinalityCursorV1::new(SumeragiRootScope::Global);
         assert!(
             cursor
                 .advance_current(&chain.state().view(), &budget, deadline(), one())
@@ -1242,7 +1544,7 @@ mod tests {
         let chain =
             CertifiedTestChain::start(TestChainConfig::new(World::default(), 10_000)).unwrap();
         let budget = AllocationBudget::new(2 * 1024 * 1024 * 1024);
-        let mut cursor = NativeFinalityCursorV1::new();
+        let mut cursor = NativeFinalityCursorV1::new(SumeragiRootScope::Global);
         assert!(matches!(
             cursor.advance_current(&chain.state().view(), &budget, Instant::now(), one()),
             Err(Error::Deadline)
@@ -1326,7 +1628,7 @@ mod tests {
         let result = expected.result();
         drop(expected);
         let budget = AllocationBudget::new(2 * 1024 * 1024 * 1024);
-        let mut cursor = NativeFinalityCursorV1::new();
+        let mut cursor = NativeFinalityCursorV1::new(SumeragiRootScope::Global);
         if !genesis {
             assert!(
                 cursor
@@ -1406,7 +1708,24 @@ mod tests {
         if genesis {
             assert!(cursor.original.is_none());
         } else {
-            assert_eq!(cursor.original.as_ref().unwrap().native_height, 1);
+            let original = cursor.original.as_ref().unwrap();
+            assert_eq!(original.native_height, 1);
+            let genesis = original
+                .acquiring
+                .as_ref()
+                .unwrap()
+                .genesis
+                .as_ref()
+                .unwrap();
+            assert!(genesis.native.as_slice().is_empty());
+            assert!(
+                genesis.decode.is_some(),
+                "pre-admitted original decoder snapshot survives prefix refusal"
+            );
+            assert!(
+                original.genesis.is_none(),
+                "no anchor before actual successful H2 push"
+            );
         }
         let Err(Error::Proof(ProofError::Deferred(repeated))) =
             cursor.advance_current(&chain.state().view(), &budget, deadline(), one())
@@ -1566,7 +1885,7 @@ mod tests {
         let mut expected_result = receipt.result();
         drop(receipt);
         let budget = AllocationBudget::new(2 * 1024 * 1024 * 1024);
-        let mut cursor = NativeFinalityCursorV1::new();
+        let mut cursor = NativeFinalityCursorV1::new(SumeragiRootScope::Global);
         assert!(
             cursor
                 .advance_current(&chain.state().view(), &budget, deadline(), one())
@@ -1857,7 +2176,7 @@ mod tests {
         let result = receipt.result();
         drop(receipt);
         let budget = AllocationBudget::new(2 * 1024 * 1024 * 1024);
-        let mut cursor = NativeFinalityCursorV1::new();
+        let mut cursor = NativeFinalityCursorV1::new(SumeragiRootScope::Global);
         assert!(
             cursor
                 .advance_current(&chain.state().view(), &budget, deadline(), one())

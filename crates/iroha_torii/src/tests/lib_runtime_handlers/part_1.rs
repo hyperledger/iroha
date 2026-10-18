@@ -675,8 +675,8 @@ fn configure_nexus_fee_admission_for_test(
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = fee_asset_id.to_string();
-    nexus.fees.fee_sink_account_id = fee_sink_account_id.to_string();
+    nexus.fees.fee_asset_id = fee_asset_id.clone();
+    nexus.fees.fee_sink_account_id = fee_sink_account_id.clone();
     let app_state = Arc::get_mut(app).expect("unique app state");
     let state = Arc::get_mut(&mut app_state.state).expect("unique state");
     state.set_nexus(nexus.clone()).expect("apply nexus config");

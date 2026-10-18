@@ -13,6 +13,8 @@ impl Client {
     /// the exact debit grant does not imply this read authority. A scoped proof is separate.
     ///
     /// # Errors
+    /// A typed `AmxApprovalReadFailureV1` is an unsigned request-bound observation,
+    /// not a proof; only an explicit caller deadline may schedule another read.
     /// Wrong network, account, scope or proof; unavailable current cut; noncanonical response;
     /// exceeded original transport deadline, body bound or local decoding resources.
     pub async fn get_amx_debit_approval_state_async(
@@ -28,7 +30,13 @@ impl Client {
                 MAX_AMX_DEBIT_APPROVAL_PERMISSION_BYTES_V1, MAX_AMX_DEBIT_APPROVAL_PROOF_BYTES_V1,
             },
         };
-        expected_approval.validate()?;
+        const OPERATION: &str = "amx.debit_approval";
+        expected_approval
+            .validate()
+            .map_err(|error| crate::Error::InvalidRequest {
+                operation: OPERATION,
+                details: error.to_string(),
+            })?;
         if expected_relay != &self.account
             || expected_approval.participant_network != self.network_id
             || block.commitment().schedule.current.network_id != self.network_id
@@ -39,9 +47,11 @@ impl Client {
                 })
             || block.height() < 2
         {
-            return Err(eyre!(
-                "AMX approval read differs from this relay's pinned bank root"
-            ));
+            return Err(crate::Error::ResponseBinding {
+                operation: OPERATION,
+                field: "relay, network and independently pinned bank root",
+            }
+            .into());
         }
         self.ensure_activation_evidence_deadline()?;
         self.ensure_query_compatibility().await?;
@@ -54,9 +64,14 @@ impl Client {
         let path = iroha_torii_shared::route_catalog::contracts_and_verification_keys::AMX_DEBIT_APPROVAL_PROOF_POST
             .path().replace("{height}", &block.height().to_string());
         let url = join_torii_url(&self.torii_url, &path);
-        loop {
+        {
             self.ensure_activation_evidence_deadline()?;
-            let mut headers = self.account_signed_headers(&HttpMethod::POST, &url, &body)?;
+            let mut headers = self
+                .account_signed_headers(&HttpMethod::POST, &url, &body)
+                .map_err(|error| crate::Error::RequestSigning {
+                    operation: OPERATION,
+                    details: error.to_string(),
+                })?;
             headers.retain(|name, _| {
                 !name.eq_ignore_ascii_case("accept")
                     && !name.eq_ignore_ascii_case("content-type")
@@ -73,17 +88,52 @@ impl Client {
                 request = request.timeout(self.torii_request_timeout);
             }
             let response = self.dispatch_request(request.build()?).await?;
-            if let Some(delay) = self.activation_evidence_retry_delay(&response)? {
-                tokio::time::sleep(delay).await;
-                continue;
+            // Return one exact unsigned acquisition observation. The caller owns
+            // the absolute retry deadline; generic 429/503 and proof errors are terminal.
+            if matches!(
+                response.status(),
+                StatusCode::CONFLICT | StatusCode::TOO_MANY_REQUESTS
+            ) {
+                let media =
+                    exact_single_response_header(&response, "content-type").map_err(|error| {
+                        crate::Error::Decode {
+                            operation: OPERATION,
+                            details: error.to_string(),
+                        }
+                    })?;
+                let failure = iroha_torii_shared::amx_approval_read::AmxApprovalReadFailureV1::decode_response(
+                    response.status().as_u16(), &media, response.body(), expected_approval,
+                    expected_relay, block.height(),
+                 ).map_err(|error| crate::Error::Decode {
+                    operation: OPERATION,
+                    details: error.to_string(),
+                })?;
+                return Err(failure.into());
+            }
+            // Keep original HTTP status and bounded owned response for operational
+            // permission/listener diagnosis. It is not a proof or a capacity witness.
+            if response.status() != StatusCode::OK {
+                return Err(crate::error::http_error(OPERATION, response).into());
             }
             let body = Self::bounded_norito_response_body(
                 &response,
                 StatusCode::OK,
                 MAX_AMX_DEBIT_APPROVAL_PROOF_BYTES_V1,
                 "Failed to read AMX debit approval",
-            )?;
-            let proof = AmxDebitApprovalProofV1::decode_frame(body)?;
+            )
+            .map_err(|error| crate::Error::Decode {
+                operation: OPERATION,
+                details: error.to_string(),
+            })?;
+            let proof = norito::core::classify_decode_attempt(|| {
+                AmxDebitApprovalProofV1::decode_frame(body)
+            })
+            .map_err(|source| {
+                crate::Error::CanonicalDecode(Box::new(crate::CanonicalDecodeFailure {
+                    operation: OPERATION,
+                    source,
+                }))
+            })?;
             let verified = proof.verify(expected_approval, expected_relay, native_schema, block)?;
             self.ensure_activation_evidence_deadline()?;
             return Ok(verified);

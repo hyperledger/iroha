@@ -28,19 +28,120 @@ fn retained_delivery() -> (Wallet, [u8; 32], Vec<u8>, Vec<u8>) {
             &request,
         )
         .unwrap();
-    let request = archive::encode(&request).unwrap();
     let received: KagemushaWalletCompletionRecordV1 = fixture("KagemushaWalletCompletionRecordV1");
     let credited =
         KagemushaWalletCreditedV1::from_receive(archive::decode(&received.output).unwrap())
             .unwrap();
+    let credited_digest = credited
+        .verify_for(&fixture("KagemushaWalletSchemeV1"), &request, &payment)
+        .unwrap()
+        .0;
+    let request = archive::encode(&request).unwrap();
     let credited = archive::encode(&credited).unwrap();
     wallet.wallet_id = payment.signed_request().unwrap().body.payer_wallet_id;
     wallet.archive.wallet = wallet.wallet_id;
-    // Explicit metadata fixture has an indexed head but no historical Send step/capsule.
-    // Completion authority is supplied only by the test custody outcomes below.
+    // Seed a canonical ArchiveSent completion, signed by the actual payer fixture key.
+    // The financial proof remains an explicit mock; neither a foreign Receive output nor
+    // a caller-selected operation/frame/hash can substitute for this completion binding.
+    let mut archived = frozen(
+        Some(&bootstrap()),
+        KagemushaWalletEffectV1::Load {
+            receipt_digest: field(98),
+            load_ordinal: 0,
+            amount: 1,
+            online_charge: 0,
+        },
+    );
+    archived.credential = offer.payer_credential.clone();
+    let mut body = archived.capsule.body().clone();
+    body.wallet_id = wallet.wallet_id;
+    body.kind = KagemushaWalletOperationKindV1::ArchiveSent;
+    body.statement.effect = KagemushaWalletEffectV1::ArchiveSent {
+        credit_id: payment.digests().unwrap().credit_id,
+        credited: credited_digest,
+    };
+    body.statement.next_load = 0;
+    body.successor_state =
+        KagemushaWalletStateV1::bootstrap(&archived.credential, field(92)).unwrap();
+    body.successor_state.core.sequence = body.statement.sequence;
+    body.successor_state.core.balance = 20;
+    body.retained_inputs = vec![
+        (KagemushaWalletRetainedInputRoleV1::Request, request.clone()),
+        (
+            KagemushaWalletRetainedInputRoleV1::Payment,
+            payment.to_canonical_bytes().unwrap(),
+        ),
+        (
+            KagemushaWalletRetainedInputRoleV1::Credited,
+            credited.clone(),
+        ),
+        (
+            KagemushaWalletRetainedInputRoleV1::Credential,
+            archived.credential.to_canonical_bytes().unwrap(),
+        ),
+        (
+            KagemushaWalletRetainedInputRoleV1::CertificateSet,
+            archive::encode(&offer.certificates).unwrap(),
+        ),
+    ]
+    .into_iter()
+    .map(|(role, bytes)| KagemushaWalletRetainedInputV1 { role, bytes })
+    .collect();
+    rebind_frozen_successor(&mut archived, body);
+    archived.validate().unwrap();
+    let capsule = &archived.capsule;
+    let operation = capsule.body().operation_id;
+    let archive_capsule = capsule.custody_digest();
+    let owner = TransitionOwner::new(&archived.credential);
+    let signature: Signature =
+        signer(&archived.credential).sign(&kagemusha_wallet_signing_message_v1(
+            KagemushaWalletSigningDomainV1::Receipt,
+            &owner.receipt_body(capsule, &archive_capsule).unwrap(),
+        ));
+    let signature = signature.normalize_s().unwrap_or(signature);
+    let signature = KagemushaDeviceSignatureV1::from_raw_bytes(&signature.to_bytes()).unwrap();
+    let record = owner
+        .assemble(capsule, &archive_capsule, &signature)
+        .unwrap();
+    record.verify(&archived.credential, capsule).unwrap();
+    let result = record.output.clone();
+    let retained = Retained {
+        operation_id: operation,
+        capsule_digest: archive_capsule,
+        selected_generation: 4,
+        completion_digest: record.completion_digest().unwrap(),
+        frame: record.to_canonical_bytes().unwrap(),
+        record,
+    };
+    wallet.custody.retained.insert(operation, retained.clone());
     let (selected, mut manifest) = wallet.manifest().unwrap();
-    manifest.indexed = Some(1);
-    manifest.capsule = [83; 32];
+    manifest.indexed = Some(capsule.body().statement.sequence);
+    manifest.capsule = archive_capsule;
+    manifest.steps = manifest
+        .steps
+        .set(
+            &mut wallet.archive,
+            manifest::sequence_key(capsule.body().statement.sequence),
+            &archive::encode(&manifest::StepEntry {
+                capsule: archive_capsule,
+                operation,
+                selected_generation: retained.selected_generation,
+                completion: retained.completion_digest,
+                kind: KagemushaWalletOperationKindV1::ArchiveSent,
+                checkpoints: 0,
+                collected: false,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+    // The permanent selected StepEntry authenticates every returned completion byte. No
+    // historical Send capsule/source, Archive capsule or new native derivation is needed.
+    let mut marker = enrollment();
+    marker.wallet_id = wallet.wallet_id;
+    marker.payment_key = archived.credential.body.payment_key;
+    marker.generation = retained.selected_generation + 1;
+    marker.state = capsule.head_marker_state();
+    wallet.custody.status = SlotStatus::Released(marker_record(marker, retained.completion_digest));
     wallet.publish_manifest(selected, &manifest).unwrap();
     let send_id = [77; 32];
     let send_operation = payment
@@ -80,34 +181,17 @@ fn retained_delivery() -> (Wallet, [u8; 32], Vec<u8>, Vec<u8>) {
         offer.payer_credential.to_canonical_bytes().unwrap(),
         archive::encode(&offer.certificates).unwrap(),
     );
-    let operation = [79; 32];
-    let archive_capsule = [80; 32];
     wallet
         .retain_delivery_test_mapping(
             intent,
             archive_capsule,
-            fixture::<KagemushaWalletCompletionRecordV1>("KagemushaWalletCompletionRecordV1")
-                .receipt
-                .capsule_commitment,
+            capsule.receipt_commitment(),
             operation,
         )
         .unwrap();
-    let mut record: KagemushaWalletCompletionRecordV1 =
-        fixture("KagemushaWalletCompletionRecordV1");
-    record.operation_id = operation;
-    record.wallet_id = wallet.wallet_id;
-    record.capsule_digest = archive_capsule;
-    let result = record.output.clone();
-    wallet.custody.retained.insert(
-        operation,
-        Retained {
-            operation_id: operation,
-            capsule_digest: archive_capsule,
-            selected_generation: 4,
-            completion_digest: [81; 32],
-            frame: vec![1],
-            record,
-        },
+    assert_eq!(
+        wallet.retry(&operation).unwrap(),
+        Some(Completion::Complete(result.clone()))
     );
     (wallet, send_id, credited, result)
 }

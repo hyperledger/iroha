@@ -108,7 +108,7 @@ async fn signed_snapshot_restore_accepts_configured_governed_lane() {
     let mut world = crate::queue::tests::world_with_test_domains();
     crate::sns::try_seed_default_namespace_policies(
         &mut world,
-        &configured_nexus.fees.fee_asset_id,
+        &configured_nexus.fees.fee_asset_id.canonical_address(),
     )
     .unwrap();
     let mut state = State::try_new_with_chain_and_network_id(

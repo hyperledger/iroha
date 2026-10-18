@@ -1,7 +1,6 @@
 //! SDK custody and finality controls with genuine QCs over synthetic outputs.
 //! These fixtures do not claim proof generation, World execution or live-network qualification.
 
-use super::super::tests as existing;
 use super::*;
 use crate::{
     client::evidence_http_tests::{base_url, client_with_base_url},
@@ -23,6 +22,7 @@ use iroha_data_model::{
         error::{TransactionLimitError, TransactionRejectionReason},
     },
 };
+use iroha_test_samples::private_settlement as fixtures;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::atomic::{AtomicUsize, Ordering},
@@ -35,7 +35,8 @@ fn prepared(
     PrivateSettlementRequest,
     Vec<PrivateSettlementSidecarAvailabilityV1>,
 ) {
-    let (template, _) = existing::availability_material_fixture_v1(client);
+    let (template, _) =
+        fixtures::availability_material_fixture_v1(&client.network_id, &client.account);
     let mut manifest = template.manifest.clone();
     manifest.authority_context_height = 1;
     let mut materials = (0..2)
@@ -43,7 +44,7 @@ fn prepared(
             let ordinal = u8::try_from(index).expect("two-leg fixture index fits u8");
             let mut material = template.clone();
             let route = manifest.legs[index].route;
-            let (authority, _) = existing::finalization_authority_v1(route, ordinal);
+            let (authority, _) = fixtures::finalization_authority_v1(route, ordinal);
             let mut policy = template.audit_policy.body.clone();
             policy.dataspace_id = route.dataspace_id;
             policy.activation_height = 1;
@@ -57,7 +58,7 @@ fn prepared(
     for (index, material) in materials.iter_mut().enumerate() {
         let ordinal = u8::try_from(index).expect("two-leg fixture index fits u8");
         let leg = &manifest.legs[index];
-        let mut delta = existing::finalization_delta_v1(&manifest, index);
+        let mut delta = fixtures::finalization_delta_v1(&manifest, index);
         let aad = &mut material.audit_capsule.aad;
         aad.bundle_id = manifest.bundle_id;
         aad.leg_ordinal = ordinal;
@@ -108,7 +109,7 @@ fn prepared(
         .iter()
         .map(|material| availability(material, &[0, 1, 2]))
         .collect();
-    let endpoints = vec![existing::availability_endpoints_fixture_v1(); 2];
+    let endpoints = vec![super::super::tests::availability_endpoints_fixture_v1(); 2];
     (
         PrivateSettlementRequest::new(
             materials,
@@ -123,7 +124,7 @@ fn availability(
     material: &PrivateSettlementProvisionalLegMaterialV1,
     indices: &[usize],
 ) -> PrivateSettlementSidecarAvailabilityV1 {
-    let (_, keys) = existing::finalization_authority_v1(
+    let (_, keys) = fixtures::finalization_authority_v1(
         material.statement.route,
         material.statement.leg_ordinal,
     );
@@ -161,14 +162,14 @@ fn phase_certificates(
         .map(|(index, material)| {
             let ordinal = u8::try_from(index).expect("fixture leg ordinal fits u8");
             let (authority, keys) =
-                existing::finalization_authority_v1(material.statement.route, ordinal);
+                fixtures::finalization_authority_v1(material.statement.route, ordinal);
             let body =
                 expected_phase_body_v1(manifest, ordinal, &authority, phase, digest).unwrap();
             aggregate_phase_votes_v1(
                 &body,
                 ordinal,
                 &authority,
-                &existing::phase_votes_v1(&authority, &keys, &body, &[0, 1, 2]),
+                &super::super::tests::phase_votes_v1(&authority, &keys, &body, &[0, 1, 2]),
             )
             .unwrap()
         })
@@ -676,7 +677,7 @@ fn promotion_with_returning_replica(returning: bool, substituted_signer: bool) {
                         .body(Vec::new())?);
                 }
                 provisional.insert((ordinal, index));
-                let (_, keys) = existing::finalization_authority_v1(
+                let (_, keys) = fixtures::finalization_authority_v1(
                     material.statement.route,
                     material.statement.leg_ordinal,
                 );
@@ -944,6 +945,25 @@ fn private_settlement_promotion_counts_only_three_exact_acknowledgements_after_o
         snapshots.lock().unwrap().len(),
         n * request.0.materials.len()
     );
+}
+
+#[test]
+fn private_settlement_advanced_material_accessor_borrows_exact_public_encrypted_owner() {
+    let client = client_with_base_url(base_url());
+    let (request, _) = prepared(&client);
+    let original = request.0.materials.as_slice();
+    let exposed = request.materials();
+    assert_eq!(exposed.len(), original.len());
+    assert!(
+        std::ptr::eq(exposed.as_ptr(), original.as_ptr()),
+        "advanced inspection must borrow the original encrypted/public material allocation"
+    );
+    assert_eq!(exposed, original);
+    for material in exposed {
+        material.validate().unwrap();
+    }
+    // The closed material type has no wallet witness, spending secret or plaintext audit
+    // field. This accessor does not alter that schema or grant proof/finality authority.
 }
 
 #[test]

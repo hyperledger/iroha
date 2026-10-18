@@ -55,8 +55,8 @@ fn fee_enabled_single_transfer_uses_canonical_output_owner() {
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = fee_asset_definition_id.to_string();
-    nexus.fees.fee_sink_account_id = sink_id.to_string();
+    nexus.fees.fee_asset_id = fee_asset_definition_id.clone();
+    nexus.fees.fee_sink_account_id = sink_id.clone();
     let state = configured_component_state(world, chain_id.clone(), nexus);
     let (max_clock_drift, tx_limits) = {
         let state_view = state.world.view();
@@ -179,8 +179,8 @@ fn fee_enabled_account_metadata_uses_canonical_output_owner() {
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = fee_asset_definition_id.to_string();
-    nexus.fees.fee_sink_account_id = sink_id.to_string();
+    nexus.fees.fee_asset_id = fee_asset_definition_id.clone();
+    nexus.fees.fee_sink_account_id = sink_id.clone();
     let state = configured_component_state(world, chain_id.clone(), nexus);
     let (max_clock_drift, tx_limits) = {
         let state_view = state.world.view();
@@ -315,8 +315,8 @@ fn fee_enabled_single_transfer_rejects_without_partial_state_when_fee_missing() 
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = fee_asset_definition_id.to_string();
-    nexus.fees.fee_sink_account_id = sink_id.to_string();
+    nexus.fees.fee_asset_id = fee_asset_definition_id.clone();
+    nexus.fees.fee_sink_account_id = sink_id.clone();
     let state = configured_component_state(world, chain_id.clone(), nexus);
     let (max_clock_drift, tx_limits) = {
         let state_view = state.world.view();
@@ -477,8 +477,8 @@ fn fee_enabled_single_transfer_with_active_data_trigger_retains_callback_outputs
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = fee_asset_definition_id.to_string();
-    nexus.fees.fee_sink_account_id = sink_id.to_string();
+    nexus.fees.fee_asset_id = fee_asset_definition_id.clone();
+    nexus.fees.fee_sink_account_id = sink_id.clone();
     let state = configured_component_state(world, chain_id.clone(), nexus);
     let native_chain = component_chain(state);
     let state = native_chain.state();
@@ -966,8 +966,8 @@ fn fee_enabled_single_transfer_rejects_without_partial_state_when_fee_asset_miss
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = fee_asset_definition_id.to_string();
-    nexus.fees.fee_sink_account_id = sink_id.to_string();
+    nexus.fees.fee_asset_id = fee_asset_definition_id.clone();
+    nexus.fees.fee_sink_account_id = sink_id.clone();
     let state = configured_component_state(world, chain_id.clone(), nexus);
     let (max_clock_drift, tx_limits) = {
         let state_view = state.world.view();
@@ -1110,8 +1110,8 @@ fn fee_enabled_transfer_fee_same_asset_rolls_back_business_and_settles_actual_wo
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = asset_definition_id.to_string();
-    nexus.fees.fee_sink_account_id = sink_id.to_string();
+    nexus.fees.fee_asset_id = asset_definition_id.clone();
+    nexus.fees.fee_sink_account_id = sink_id.clone();
     let state = configured_component_state(world, chain_id.clone(), nexus);
     let (max_clock_drift, tx_limits) = {
         let state_view = state.world.view();
@@ -1247,8 +1247,8 @@ fn fee_enabled_shared_fee_balance_rejects_later_transfer_without_rolling_back_pr
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = fee_asset_definition_id.to_string();
-    nexus.fees.fee_sink_account_id = sink_id.to_string();
+    nexus.fees.fee_asset_id = fee_asset_definition_id.clone();
+    nexus.fees.fee_sink_account_id = sink_id.clone();
     let state = configured_component_state(world, chain_id.clone(), nexus);
     let (max_clock_drift, tx_limits) = {
         let state_view = state.world.view();
@@ -1434,8 +1434,8 @@ fn fee_enabled_transfer_then_failing_instruction_rolls_back_business_effects() {
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = fee_asset_definition_id.to_string();
-    nexus.fees.fee_sink_account_id = sink_id.to_string();
+    nexus.fees.fee_asset_id = fee_asset_definition_id.clone();
+    nexus.fees.fee_sink_account_id = sink_id.clone();
     let state = configured_component_state(world, chain_id.clone(), nexus);
     let (max_clock_drift, tx_limits) = {
         let state_view = state.world.view();
@@ -1611,8 +1611,8 @@ fn fee_enabled_non_increasing_sequence_rejects_before_transfer_or_fee() {
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = fee_asset_definition_id.to_string();
-    nexus.fees.fee_sink_account_id = sink_id.to_string();
+    nexus.fees.fee_asset_id = fee_asset_definition_id.clone();
+    nexus.fees.fee_sink_account_id = sink_id.clone();
     let state = configured_component_state(world, chain_id.clone(), nexus);
     let native_chain = component_chain_with_genesis_parameters(
         state,
@@ -1918,8 +1918,8 @@ fn legacy_fee_sponsor_metadata_rejects_when_nexus_fees_are_configured() {
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = fee_asset_definition_id.to_string();
-    nexus.fees.fee_sink_account_id = sink_id.to_string();
+    nexus.fees.fee_asset_id = fee_asset_definition_id.clone();
+    nexus.fees.fee_sink_account_id = sink_id.clone();
     let state = configured_component_state(world, chain_id.clone(), nexus);
     let mut metadata = Metadata::default();
     metadata.insert(
@@ -1975,7 +1975,7 @@ fn legacy_fee_sponsor_metadata_rejects_when_nexus_fees_are_configured() {
     );
 }
 #[test]
-fn invalid_fee_asset_is_rejected_before_runtime_or_balance_mutation() {
+fn local_fee_cache_cannot_mutate_committed_policy_or_balances() {
     let _guard = crate::status::nexus_fee_test_lock()
         .lock()
         .expect("nexus fee test lock");
@@ -2018,18 +2018,17 @@ fn invalid_fee_asset_is_rejected_before_runtime_or_balance_mutation() {
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = "not-an-asset-literal".to_owned();
-    nexus.fees.fee_sink_account_id = sink_id.to_string();
+    nexus.fees.fee_asset_id = AssetDefinitionId::derive_from_components(
+        DomainId::try_new("wrong_fee", "universal").unwrap(),
+        "xor".parse().unwrap(),
+    );
+    nexus.fees.fee_sink_account_id = sink_id.clone();
     let mut state = State::new_with_chain(world, Arc::clone(&kura), query_handle, chain_id);
     let original_config = state.nexus_snapshot();
     let original_world = norito::json::to_json(&state.world).unwrap();
-    let error = state
+    state
         .set_nexus_from_config(nexus)
-        .expect_err("invalid fee identity cannot enter runtime configuration");
-    assert!(
-        error.to_string().contains("fee"),
-        "precise fee policy rejection: {error}"
-    );
+        .expect("local cache fields do not replace committed monetary authority");
     assert_eq!(norito::json::to_json(&state.world).unwrap(), original_world);
     let retained = state.nexus_snapshot().fees;
     assert_eq!(retained.fee_asset_id, original_config.fees.fee_asset_id);
@@ -2109,8 +2108,8 @@ fn rejected_data_trigger_execution_still_charges_nexus_fee() {
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = asset_definition_id.to_string();
-    nexus.fees.fee_sink_account_id = sink_id.to_string();
+    nexus.fees.fee_asset_id = asset_definition_id.clone();
+    nexus.fees.fee_sink_account_id = sink_id.clone();
     let state = configured_component_state(world, chain_id.clone(), nexus);
     {
         let mut world = state.world.block();

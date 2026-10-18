@@ -384,7 +384,7 @@ fn test_state() -> (
     };
     npos.validate().expect("native currency fixture policy");
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
-    nexus.fees.fee_asset_id = npos.xor_asset_definition_id.canonical_address();
+    nexus.fees.fee_asset_id = npos.xor_asset_definition_id.clone();
     nexus.staking.stake_asset_id = npos.xor_asset_definition_id.canonical_address();
     // Preserve the original component State fixture's zero generic fees.
     nexus.fees.base_fee = Quantity::zero();
@@ -434,17 +434,13 @@ fn admission_fixture_authenticates_network_xor_identity_and_precision_in_signed_
         .expect("actual signed genesis commits native currency identity");
     assert_eq!(npos.xor_asset_definition_id, xor_asset_definition_id());
     let nexus = state.nexus_snapshot();
-    assert_eq!(
-        nexus.fees.fee_asset_id,
-        npos.xor_asset_definition_id.canonical_address()
-    );
+    assert_eq!(nexus.fees.fee_asset_id, npos.xor_asset_definition_id);
     assert_eq!(
         nexus.staking.stake_asset_id,
         npos.xor_asset_definition_id.canonical_address()
     );
     assert_eq!(
-        AssetDefinitionId::parse_address_literal(&nexus.fees.fee_asset_id)
-            .expect("the fee selector is the canonical authenticated currency address"),
+        nexus.fees.fee_asset_id.clone(),
         npos.xor_asset_definition_id
     );
     assert_eq!(nexus.fees.base_fee, Quantity::zero());

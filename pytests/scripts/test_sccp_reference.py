@@ -1,7 +1,7 @@
 """Tests for the independent SCCP Python reference (`scripts/sccp_reference/`, `specs/sccp.md` revision 5).
 
 They pin the primitives against published vectors (RFC 9380, Ethereum
-bls12-381-tests inputs, a captured Ethereum mainnet sync-committee aggregate,
+bls12-381-tests v0.1.2 release, a captured Ethereum mainnet sync-committee aggregate,
 values cross-checked against `blst`), against the Rust-generated fixtures
 whose layouts revision 5 keeps (payloads, transfer leaves, the commitment tree
 and the history accumulator), exercise the destination model directly
@@ -21,6 +21,7 @@ import copy
 import dataclasses
 import hashlib
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -98,11 +99,15 @@ from sccp_reference.hash_to_curve import (  # noqa: E402
     hash_to_g2_trace,
 )
 from sccp_reference.imported_vectors import (  # noqa: E402
+    ETHEREUM_VECTOR_COUNTS,
+    ETHEREUM_VECTOR_ROOT,
     EXPAND_MESSAGE_XMD_DST,
     EXPAND_MESSAGE_XMD_SHA256,
     HASH_TO_G2_RO,
     HASH_TO_G2_RO_DST,
+    load_ethereum_vectors,
 )
+from sccp_reference.vectors_bls_ethereum import raw as ethereum_raw, reproduce as reproduce_ethereum, ton_verify  # noqa: E402
 from sccp_reference.keccak import event_topic, keccak256, keccak_f1600, selector  # noqa: E402
 from sccp_reference.merkle import (  # noqa: E402
     bag_peaks,
@@ -1616,7 +1621,8 @@ def test_bls_consensus_fixture_names_its_single_generator():
     doc = json.loads((FIXTURES / "bls_consensus_v1.json").read_text())
     assert "Python reference" in doc["generator"] and "reproduces every row" in doc["generator"]
     assert "bls_consensus_rust_v1.json" in doc["rust_only_vectors"]
-    assert doc["ethereum_malformed_inputs"]["source_kind"] == "deterministic_offline_reproduction"
+    assert doc["ethereum_bls12_381_tests"]["source_kind"] == "upstream_release_import"
+    assert doc["sccp_extra_malformed_inputs"]["source_kind"] == "sccp_extra_cases"
     assert (FIXTURES / "bls_consensus_rust_v1.json").exists()
 
 
@@ -2380,11 +2386,11 @@ def test_fixture_has_no_drift(name):
     assert not diff, "\n".join(diff)
 
 
-@pytest.mark.parametrize("group,count", [(1, 16), (2, 18)])
-def test_offline_ethereum_malformed_deserialization_rows(group, count):
-    """Replay every offline malformed encoding, including identity and exact-length boundaries."""
-    doc = json.loads((FIXTURES / "bls_consensus_v1.json").read_text())["ethereum_malformed_inputs"]
-    assert doc["source_kind"] == "deterministic_offline_reproduction"
+@pytest.mark.parametrize("group,count", [(1, 5), (2, 5)])
+def test_sccp_extra_malformed_deserialization_rows(group, count):
+    """Replay cases absent upstream, including valid-prefix and negation boundaries."""
+    doc = json.loads((FIXTURES / "bls_consensus_v1.json").read_text())["sccp_extra_malformed_inputs"]
+    assert doc["source_kind"] == "sccp_extra_cases"
     rows = doc[f"g{group}_deserialization"]
     assert len(rows) == len({row["label"] for row in rows}) == count
     decode = bls.g1_decompress if group == 1 else bls.g2_decompress
@@ -2402,11 +2408,77 @@ def test_offline_ethereum_malformed_deserialization_rows(group, count):
         key = raw if group == 1 else unhex(baseline["pk"])
         signature = raw if group == 2 else unhex(baseline["signature"])
         assert verify(key, unhex(baseline["msg"]), signature) == row["verify"], row["label"]
-        if row["label"] == "infinity":
-            assert row["deserialize"] and not row["validate"]
         if row["label"] == "long":
             assert not row["deserialize"] and row["ton_verify"] == 1
-    assert sum(row["evm_affine_pairing"] is None for row in rows) == 3
+    assert sum(row["evm_affine_pairing"] is None for row in rows) == 2
+
+
+ETHEREUM_UPSTREAM_ROWS = [
+    pytest.param(group, row, id=f"{group}/{row['label']}")
+    for group, rows in load_ethereum_vectors().items()
+    for row in rows
+]
+
+
+@pytest.mark.parametrize("group,row", ETHEREUM_UPSTREAM_ROWS)
+def test_imported_ethereum_bls_upstream_expectation(group, row):
+    """Independently reproduce every upstream expected output and preserve each imported value."""
+    assert reproduce_ethereum(group, row) == row["output"], row["source_file"]
+    doc = json.loads((FIXTURES / "bls_consensus_v1.json").read_text())["ethereum_bls12_381_tests"]
+    matches = [candidate for candidate in doc["groups"][group] if candidate["label"] == row["label"]]
+    assert len(matches) == 1
+    imported = matches[0]
+    assert {key: imported[key] for key in row} == row
+    if group.startswith("deserialization_"):
+        assert imported["deserialize"] == row["output"]
+        validator = key_validate if group.endswith("G1") else signature_validate
+        assert imported["validate"] == (validator(ethereum_raw(imported["encoding"])) is not None)
+        if "succeeds_infinity" in row["label"]:
+            assert imported["deserialize"] and not imported["validate"]
+    elif group == "hash_to_G2":
+        assert imported["dst"].encode() == HASH_TO_G2_RO_DST != DST_SIG
+
+
+def test_imported_ethereum_bls_exact_file_set_and_counts():
+    """A pinned manifest authenticates the exact 98-file corpus before generation."""
+    groups = load_ethereum_vectors()
+    assert {group: len(rows) for group, rows in groups.items()} == ETHEREUM_VECTOR_COUNTS
+    assert sum(map(len, groups.values())) == 98
+    doc = json.loads((FIXTURES / "bls_consensus_v1.json").read_text())["ethereum_bls12_381_tests"]
+    assert doc["counts"] == ETHEREUM_VECTOR_COUNTS
+    assert {group: len(rows) for group, rows in doc["groups"].items()} == ETHEREUM_VECTOR_COUNTS
+
+
+@pytest.mark.parametrize("corruption", ["changed", "removed", "added", "manifest"])
+def test_imported_ethereum_bls_vendor_integrity_rejects_changes(tmp_path, corruption):
+    """Neither changed JSON bytes nor a rewritten manifest can silently redefine upstream data."""
+    target = tmp_path / "vectors"
+    shutil.copytree(ETHEREUM_VECTOR_ROOT, target)
+    sample = sorted(target.glob("*/*.json"))[0]
+    if corruption == "changed":
+        sample.write_bytes(sample.read_bytes() + b"\n")
+    elif corruption == "removed":
+        sample.unlink()
+    elif corruption == "added":
+        (sample.parent / "unpublished.json").write_text('{}\n')
+    else:
+        manifest = target / "manifest.json"
+        manifest.write_bytes(manifest.read_bytes() + b"\n")
+    with pytest.raises(ValueError, match="Ethereum BLS vector"):
+        load_ethereum_vectors(target)
+
+
+def test_ethereum_hex_and_ton_prefix_model():
+    """Imported hex retains its source convention; opcode reads remain distinct from admission."""
+    assert ethereum_raw("0xab01") == ethereum_raw("ab01") == b"\xab\x01"
+    signature = sign(7, bytes(32))
+    key = sk_to_pk(7)
+    assert ton_verify([key], bytes(32), signature) == 1
+    assert ton_verify([key + b"\x00"], bytes(32), signature + b"\x00") == 1
+    assert ton_verify([key[:-1]], bytes(32), signature) == -9
+    assert ton_verify([key], bytes(32), signature[:-1]) == -9
+    assert ton_verify([], bytes(32), signature, aggregate_keys=True) == 0
+    assert ton_verify([key], bytes(32), signature, aggregate_keys=True) == 1
 
 
 def test_governance_subject_sets_frames_and_heads():

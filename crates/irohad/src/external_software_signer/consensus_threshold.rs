@@ -41,12 +41,9 @@ use iroha_core::beacon::ValidatedGlobalThresholdBeaconSessionV1;
 use iroha_core::beacon::credential::CONSENSUS_THRESHOLD_CREDENTIAL_VERSION_V1;
 use iroha_core::beacon::credential::ConsensusThresholdCredentialDecodeErrorV1;
 use iroha_core::beacon::credential::ConsensusThresholdCredentialErrorV1;
-use iroha_core::beacon::credential::ConsensusThresholdCredentialHeaderV1;
 use iroha_core::beacon::credential::GLOBAL_BEACON_PARTIAL_SIGNER_SLOT_WIRE_ID_V1;
 use iroha_core::beacon::credential::MAX_CONSENSUS_THRESHOLD_CREDENTIAL_BYTES_V1;
 use iroha_core::beacon::credential::RuntimeGlobalBeaconShareProvisioningV1;
-#[cfg(test)]
-use iroha_core::beacon::credential::decode_consensus_threshold_credential_v1;
 use iroha_core::beacon::credential::decode_global_beacon_partial_signer_credential_shares_v1;
 use iroha_core::beacon::credential::decode_global_beacon_partial_signer_credential_v1;
 use iroha_core::beacon::credential::encode_global_beacon_partial_signer_credential_v1;

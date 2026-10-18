@@ -788,9 +788,11 @@ class KagemushaWalletVectorsV1Test {
             assertEquals(KagemushaWalletMessageKindV1.PAYMENT, KagemushaWalletWireV1.inspectEnvelope(changed).kind)
             KagemushaWalletWireV1.requireExchangeBinding(request, changed)
         }
+        val sigmaCap = KagemushaWalletWireV1.PAYMENT_SIGMA_PROOF_CAP_BYTES
+        val omegaCap = KagemushaWalletWireV1.PAYMENT_OMEGA_PROOF_CAP_BYTES
         for ((sigma, omega, label) in listOf(
-            Triple(3521, 0, "sigma"), Triple(0, 5045, "Omega"),
-            Triple(3521, 5043, "sigma"), Triple(3519, 5045, "Omega"),
+            Triple(sigmaCap + 1, 0, "sigma"), Triple(0, omegaCap + 1, "Omega"),
+            Triple(sigmaCap + 1, omegaCap - 1, "sigma"), Triple(sigmaCap - 1, omegaCap + 1, "Omega"),
         )) {
             val changed = withPaymentProofVectors(payment, proofVector(sigma), proofVector(omega))
             assertTrue(changed.size <= KagemushaWalletWireV1.MESSAGE_MAX_BYTES)
@@ -869,6 +871,36 @@ class KagemushaWalletVectorsV1Test {
         assertFailsWith<IllegalArgumentException> { KagemushaWalletWireV1.requestAmountData(envelope("Payment")) }
         val request = envelope("Request")
         assertFailsWith<IllegalArgumentException> { KagemushaWalletWireV1.requestAmountData(request.copyOf(request.size - 1)) }
+    }
+
+    @Test fun `Offer display amount is the exact body DATA the receiver ask guard compares`() {
+        val offer = envelope("Offer")
+        // fixtures/kagemusha/peer_ask_v1.json pins this vector Offer's amount for Kotlin and Swift.
+        assertEquals(IrohaPeerAskTestVectorsV1.offerAmount, KagemushaWalletWireV1.offerAmountData(offer))
+        assertEquals(BigInteger.valueOf(1_000), KagemushaWalletWireV1.offerAmountData(offer))
+        // These deliberate amount mutations invalidate the Offer signature. The display codec still
+        // reads their DATA; only Native authenticates an Offer.
+        for (amount in listOf(BigInteger.ONE, BigInteger.ONE.shiftLeft(127), BigInteger.ONE.shiftLeft(128) - BigInteger.ONE)) {
+            val changed = withReplacedMessageField(offer, listOf(0, 6), amount.toByteArray().reversedArray().copyOf(16))
+            assertEquals(amount, KagemushaWalletWireV1.offerAmountData(changed))
+        }
+    }
+
+    @Test fun `Offer display amount rejects noncanonical scalar shape other field counts and other message kinds`() {
+        val offer = envelope("Offer")
+        for (bytes in listOf(ByteArray(16), ByteArray(15) { 1 }, ByteArray(17) { 1 })) {
+            val changed = withReplacedMessageField(offer, listOf(0, 6), bytes)
+            assertFailsWith<IllegalArgumentException> { KagemushaWalletWireV1.offerAmountData(changed) }
+        }
+        // A ninth body field or a fifth message field.
+        for (path in listOf(listOf(0), emptyList())) {
+            val changed = withChangedMessageRecord(offer, path) { record -> record + Varint.encode(1) + byteArrayOf(0) }
+            assertFailsWith<IllegalArgumentException>("$path") { KagemushaWalletWireV1.offerAmountData(changed) }
+        }
+        for (variant in listOf("Request", "Payment", "Lineage")) {
+            assertFailsWith<IllegalArgumentException>(variant) { KagemushaWalletWireV1.offerAmountData(envelope(variant)) }
+        }
+        assertFailsWith<IllegalArgumentException> { KagemushaWalletWireV1.offerAmountData(offer.copyOf(offer.size - 1)) }
     }
 
     @Test fun `vector Request Payment and Credited envelopes are structurally bound`() {

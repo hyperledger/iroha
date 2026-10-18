@@ -299,22 +299,8 @@ fn clone_locator_account(
     if failed {
         return Err(EvidencePreparationError::Invariant);
     }
-    account
-        .try_clone_for_admission()
-        .map_err(|error| match error {
-            norito::core::Error::AllocationFailed { bytes } => {
-                EvidencePreparationError::Allocator {
-                    requested_bytes: usize::try_from(bytes).unwrap_or(usize::MAX),
-                }
-            }
-            norito::core::Error::TotalAllocationExceeded { attempted, limit } => {
-                EvidencePreparationError::DecodeScope {
-                    attempted_bytes: attempted,
-                    limit_bytes: limit,
-                }
-            }
-            _ => EvidencePreparationError::Invariant,
-        })
+    norito::core::classify_decode_attempt(|| account.try_clone_for_admission())
+        .map_err(EvidencePreparationError::from_decode_attempt)
 }
 
 fn original_slashable_exposure<'a>(
@@ -2645,13 +2631,11 @@ mod tests {
         })
         .err()
         .unwrap();
-        assert!(matches!(
-            error,
-            EvidencePreparationError::DecodeScope {
-                attempted_bytes: 66,
-                limit_bytes: 33
-            }
-        ));
+        assert!(
+            matches!(&error, EvidencePreparationError::DecodeResource(original)
+            if original.kind() == norito::core::DecodeLocalRefusalKind::EnclosingLimit
+            && original.resource_error() == norito::core::DecodeResourceError::TotalAllocationExceeded { attempted: 66, limit: 33 })
+        );
         assert_eq!(
             account.multisig_policy().unwrap().members().as_ptr(),
             source_members
@@ -2676,6 +2660,116 @@ mod tests {
         drop(charges);
         drop(reservation);
         assert_eq!(budget.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn validator_map_account_clone_refusal_keeps_counter_custody_and_original_slash_outcome() {
+        use norito::core::{DecodeLocalRefusalKind, PreparedDecodeWorkspace};
+        let state = native_penalty_state();
+        install_one_block_delay_npos(&state);
+        let peer = roster().remove(1);
+        let validator = add_validator_record(&state, &peer);
+        let due = insert_evidence(&state, fixture_vote_evidence(1, 0), 1);
+        let view = state.view();
+        let source = view
+            .world()
+            .public_lane_validators()
+            .get(&(LaneId::SINGLE, validator.clone()))
+            .unwrap();
+        let source_key = source
+            .validator
+            .expect_single_signatory()
+            .borrowed_parts()
+            .unwrap()
+            .1
+            .as_ptr();
+        let evidence = view.world().consensus_evidence().get(&due).unwrap().clone();
+        let (definition, escrow, _) = penalty_staking_ids();
+        let asset = AssetId::new(definition, escrow);
+        let balance = view.world().assets().get(&asset).unwrap().as_ref().clone();
+        let index =
+            PublicLaneStakeIndex::from_world(view.world(), 16, 16, state.stake_index_budget())
+                .unwrap();
+        let demand = ValidatorMapDemand::from_world(&view).unwrap();
+        let required = demand.retained_bytes().unwrap();
+        let original_pool = AllocationBudget::new(required);
+        let counter_pool = AllocationBudget::new(4096);
+        let mut counters = PreparedDecodeWorkspace::from_reservation(
+            &counter_pool,
+            &mut counter_pool
+                .try_reserve_layouts(PreparedDecodeWorkspace::allocation_layouts())
+                .unwrap(),
+        )
+        .unwrap();
+        let narrow = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let failure = counters
+            .with_limits(narrow, narrow, || {
+                ValidatorMap::from_world(&view, &index, &original_pool)
+            })
+            .unwrap()
+            .err()
+            .expect("actual validator account clone exceeds caller ceiling");
+        let EvidencePreparationError::DecodeResource(original) =
+            failure.downcast::<EvidencePreparationError>().unwrap()
+        else {
+            panic!("actual locator account clone retains original refusal")
+        };
+        assert_eq!(original.kind(), DecodeLocalRefusalKind::EnclosingLimit);
+        assert!(
+            matches!(original.resource_error(), norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: 0 } if attempted == validator.expect_single_signatory().retained_allocation_layout().size() as u64)
+        );
+        assert_eq!(original_pool.reserved_bytes(), 0);
+        assert_eq!(
+            source
+                .validator
+                .expect_single_signatory()
+                .borrowed_parts()
+                .unwrap()
+                .1
+                .as_ptr(),
+            source_key
+        );
+        assert_eq!(view.world().consensus_evidence().get(&due), Some(&evidence));
+        assert_eq!(
+            view.world().assets().get(&asset).unwrap().as_ref(),
+            &balance
+        );
+        let retry = ValidatorMap::from_world(&view, &index, &original_pool).unwrap();
+        assert_eq!(
+            retry.get(peer.public_key()).unwrap()[0].validator,
+            validator
+        );
+        assert_eq!(
+            original_slashable_exposure(&index, LaneId::SINGLE, &validator).unwrap(),
+            &Quantity::from(10_000_u64)
+        );
+        let last = original.clone();
+        drop(original);
+        drop(counters);
+        assert_eq!(
+            counter_pool.reserved_bytes(),
+            PreparedDecodeWorkspace::allocation_layouts()[0].size()
+        );
+        drop(last);
+        assert_eq!(counter_pool.reserved_bytes(), 0);
+        drop(retry);
+        assert_eq!(original_pool.reserved_bytes(), 0);
+        drop(index);
+        drop(view);
+        let (actions, index) = PenaltyApplier::new(&state, None)
+            .derive_npos_penalty_actions(&penalty_header(2))
+            .unwrap();
+        assert!(actions.iter().any(|action| matches!(action, NposPenaltyAction::ConsensusSlash(slash) if slash.evidence_key == due && slash.validator == validator && slash.amount == Quantity::from(10_000_u64))));
+        assert!(actions.iter().any(|action| matches!(action, NposPenaltyAction::MarkConsensusEvidenceApplied(mark) if mark.evidence_key == due && mark.height == 2)));
+        assert_eq!(
+            state.world.consensus_evidence.view().get(&due),
+            Some(&evidence)
+        );
+        assert_eq!(
+            state.world.assets.view().get(&asset).unwrap().as_ref(),
+            &balance
+        );
+        drop(index);
     }
 
     #[test]

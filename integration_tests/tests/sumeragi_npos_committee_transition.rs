@@ -64,8 +64,9 @@ use iroha_test_network::{
     CommitteeValidatorP2pBootstrap, DisposableBeaconProviderBinding, DisposableGenesisDkgOutput,
     DisposablePendingCustodyInput, DisposablePreparedBeaconCustody,
     DisposableRetainedBeaconCredential, DisposableRotationDkgOutput, DisposableRotationProofInput,
-    NetworkBuilder, NetworkPeer, init_instruction_registry, prepare_disposable_pending_custody,
-    read_on_dedicated_thread, run_disposable_genesis_dkg, run_disposable_rotation_dkg,
+    Network, NetworkBuilder, NetworkPeer, init_instruction_registry,
+    prepare_disposable_pending_custody, read_on_dedicated_thread, run_disposable_genesis_dkg,
+    run_disposable_rotation_dkg,
 };
 use iroha_test_samples::ALICE_ID;
 use irohad::{
@@ -607,10 +608,14 @@ fn progress_action(
     ))
 }
 
-async fn advance_to_height(
-    network: &sandbox::SerializedNetwork,
+async fn advance_to_height(network: &Network, voters: &[PeerId], target: u64) -> Result<()> {
+    advance_to_height_with_workload(network, voters, target, None).await
+}
+async fn advance_to_height_with_workload(
+    network: &Network,
     voters: &[PeerId],
     target: u64,
+    workload: Option<&rotation_payments::CustomerWorkload>,
 ) -> Result<()> {
     let peers = exact_process_roster(network, voters)?;
     let deadline = Instant::now() + WAIT;
@@ -631,39 +636,44 @@ async fn advance_to_height(
             ProgressAction::AwaitCatchup => {}
             ProgressAction::SubmitAt(height) => {
                 let client = peers[usize::try_from(tick)? % peers.len()].client();
-                let message = format!("committee transition progress {target}:{tick}");
-                pending_height = Some(height);
-                committee_status::submit_async_until(
-                    client.client().clone(),
-                    deadline,
-                    |bounded| async move {
-                        let account = bounded.account_client()?;
-                        let mut payload = account.prepare_transaction(
-                            iroha::client::AccountTransactionDraft::new(
-                                vec![Log::new(Level::INFO, message)],
-                                FeePaymentIntent::authority(Vec::new(), None),
-                                Metadata::default(),
-                            ),
-                        )?;
-                        let quote = account
-                            .quote_fees(iroha::client::FeeQuoteRequest::AccountSignature {
-                                payload: &payload,
-                            })
-                            .await?;
-                        ensure!(
-                            payload
-                                .fee_payment
-                                .has_same_payer_and_gas_bound(&quote.intent),
-                            "progress fee quote changed the signed payer"
-                        );
-                        payload.fee_payment = quote.intent;
-                        let transaction = account.sign_transaction(payload)?;
-                        account.submit_transaction_and_wait(&transaction).await?;
-                        Ok::<_, eyre::Report>(())
-                    },
-                )
-                .await
-                .wrap_err("committee progress transaction failed")?;
+                if let Some(workload) = workload {
+                    workload.submit(&client, height, deadline).await?;
+                    pending_height = Some(height);
+                } else {
+                    let message = format!("committee transition progress {target}:{tick}");
+                    pending_height = Some(height);
+                    committee_status::submit_async_until(
+                        client.client().clone(),
+                        deadline,
+                        |bounded| async move {
+                            let account = bounded.account_client()?;
+                            let mut payload = account.prepare_transaction(
+                                iroha::client::AccountTransactionDraft::new(
+                                    vec![Log::new(Level::INFO, message)],
+                                    FeePaymentIntent::authority(Vec::new(), None),
+                                    Metadata::default(),
+                                ),
+                            )?;
+                            let quote = account
+                                .quote_fees(iroha::client::FeeQuoteRequest::AccountSignature {
+                                    payload: &payload,
+                                })
+                                .await?;
+                            ensure!(
+                                payload
+                                    .fee_payment
+                                    .has_same_payer_and_gas_bound(&quote.intent),
+                                "progress fee quote changed the signed payer"
+                            );
+                            payload.fee_payment = quote.intent;
+                            let transaction = account.sign_transaction(payload)?;
+                            account.submit_transaction_and_wait(&transaction).await?;
+                            Ok::<_, eyre::Report>(())
+                        },
+                    )
+                    .await
+                    .wrap_err("committee progress transaction failed")?;
+                }
                 tick += 1;
             }
         }
@@ -672,7 +682,7 @@ async fn advance_to_height(
 }
 
 fn exact_process_roster<'a>(
-    network: &'a sandbox::SerializedNetwork,
+    network: &'a Network,
     roster: &[PeerId],
 ) -> Result<Vec<&'a NetworkPeer>> {
     let peers = network
@@ -696,10 +706,19 @@ fn exact_process_roster<'a>(
 }
 
 async fn advance_exact_rotation_phase(
-    network: &sandbox::SerializedNetwork,
+    network: &Network,
     voters: &[PeerId],
     height: u64,
     deadline: Instant,
+) -> Result<()> {
+    advance_exact_rotation_phase_with_workload(network, voters, height, deadline, None).await
+}
+async fn advance_exact_rotation_phase_with_workload(
+    network: &Network,
+    voters: &[PeerId],
+    height: u64,
+    deadline: Instant,
+    workload: Option<&rotation_payments::CustomerWorkload>,
 ) -> Result<()> {
     ensure!(
         exact_quorum(voters.len()).is_ok(),
@@ -715,16 +734,20 @@ async fn advance_exact_rotation_phase(
         "rotation DKG phase h{height} started after a voter passed its predecessor: {before:?}"
     );
     let client = peers[0].client();
-    read_on_dedicated_thread(move || {
-        committee_status::submit_until(&client, deadline, |bounded| {
-            bounded.submit(
-                Log::new(Level::INFO, format!("rotation DKG exact phase h{height}")),
-                FeePaymentIntent::authority(Vec::new(), None),
-            )
+    if let Some(workload) = workload {
+        workload.submit(&client, height, deadline).await?;
+    } else {
+        read_on_dedicated_thread(move || {
+            committee_status::submit_until(&client, deadline, |bounded| {
+                bounded.submit(
+                    Log::new(Level::INFO, format!("rotation DKG exact phase h{height}")),
+                    FeePaymentIntent::authority(Vec::new(), None),
+                )
+            })
         })
-    })
-    .await
-    .wrap_err("rotation DKG phase submit worker failed")?;
+        .await
+        .wrap_err("rotation DKG phase submit worker failed")?;
+    }
     loop {
         let mut observed = Vec::with_capacity(peers.len());
         for peer in &peers {
@@ -746,9 +769,17 @@ async fn advance_exact_rotation_phase(
 }
 
 async fn advance_exact_genesis_phase(
-    network: &sandbox::SerializedNetwork,
+    network: &Network,
     height: u64,
     deadline: Instant,
+) -> Result<()> {
+    advance_exact_genesis_phase_with_workload(network, height, deadline, None).await
+}
+async fn advance_exact_genesis_phase_with_workload(
+    network: &Network,
+    height: u64,
+    deadline: Instant,
+    workload: Option<&rotation_payments::CustomerWorkload>,
 ) -> Result<()> {
     ensure!(
         (2..=4).contains(&height),
@@ -763,16 +794,20 @@ async fn advance_exact_genesis_phase(
         "genesis DKG phase h{height} started after a peer passed its predecessor: {before:?}"
     );
     let client = network.validators()[0].client();
-    read_on_dedicated_thread(move || {
-        committee_status::submit_until(&client, deadline, |bounded| {
-            bounded.submit(
-                Log::new(Level::INFO, format!("genesis DKG exact phase h{height}")),
-                FeePaymentIntent::authority(Vec::new(), None),
-            )
+    if let Some(workload) = workload {
+        workload.submit(&client, height, deadline).await?;
+    } else {
+        read_on_dedicated_thread(move || {
+            committee_status::submit_until(&client, deadline, |bounded| {
+                bounded.submit(
+                    Log::new(Level::INFO, format!("genesis DKG exact phase h{height}")),
+                    FeePaymentIntent::authority(Vec::new(), None),
+                )
+            })
         })
-    })
-    .await
-    .wrap_err("genesis DKG phase submit worker failed")?;
+        .await
+        .wrap_err("genesis DKG phase submit worker failed")?;
+    }
     loop {
         let mut observed = Vec::new();
         for peer in network.validators() {
@@ -1172,7 +1207,7 @@ fn extend_finality_chain_from_proofs(
 }
 
 async fn stage_genesis_brokers(
-    network: &sandbox::SerializedNetwork,
+    network: &Network,
     dkg: &DisposableGenesisDkgOutput,
 ) -> Result<BTreeMap<PeerId, Vec<u8>>> {
     let network_id = network.network_id();
@@ -1287,7 +1322,7 @@ fn prepared_current_custody(
 }
 
 async fn stage_prepared_brokers(
-    network: &sandbox::SerializedNetwork,
+    network: &Network,
     prepared: &[DisposablePreparedBeaconCustody],
     expected_revision: u64,
 ) -> Result<()> {
@@ -1409,12 +1444,32 @@ struct RotationSignerCustody<'a> {
 }
 
 async fn execute_rotation_preparation(
-    network: &sandbox::SerializedNetwork,
+    network: &Network,
     admin: &Client,
     operators: &BTreeMap<PeerId, Operator>,
     preparation: &ValidatorCommitteePreparationV1,
     custody: &RotationSignerCustody<'_>,
     signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
+) -> Result<PreparedRotation> {
+    execute_rotation_preparation_with_workload(
+        network,
+        admin,
+        operators,
+        preparation,
+        custody,
+        signed_genesis_hash,
+        None,
+    )
+    .await
+}
+async fn execute_rotation_preparation_with_workload(
+    network: &Network,
+    admin: &Client,
+    operators: &BTreeMap<PeerId, Operator>,
+    preparation: &ValidatorCommitteePreparationV1,
+    custody: &RotationSignerCustody<'_>,
+    signed_genesis_hash: iroha::crypto::HashOf<iroha::data_model::block::BlockHeader>,
+    workload: Option<&rotation_payments::CustomerWorkload>,
 ) -> Result<PreparedRotation> {
     let RotationSignerCustody {
         current_custody,
@@ -1515,7 +1570,10 @@ async fn execute_rotation_preparation(
             let admin = admin.clone();
             let voters = current_roster.clone();
             async move {
-                advance_exact_rotation_phase(network, &voters, height, deadline).await?;
+                advance_exact_rotation_phase_with_workload(
+                    network, &voters, height, deadline, workload,
+                )
+                .await?;
                 let observed = read_on_dedicated_thread({
                     let admin = admin.clone();
                     move || -> Result<u64> {
@@ -3145,3 +3203,10 @@ fn committee_history_observation_keeps_original_read_deadline_before_query() -> 
     );
     Ok(())
 }
+
+#[path = "support/native_amx_harness.rs"]
+mod amx_harness;
+#[path = "native_amx_network/rotation.rs"]
+mod amx_rotation;
+#[path = "support/rotation_payments.rs"]
+mod rotation_payments;

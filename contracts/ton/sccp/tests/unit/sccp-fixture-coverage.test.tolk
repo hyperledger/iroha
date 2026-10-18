@@ -251,25 +251,32 @@ get fun `test every raw refused payload has its exact TON destination error`() {
 }
 
 get fun `test every POP signature and fast aggregate fixture through the TON opcode`() {
-    expect(VEC_ALL_BLS_VERIFICATIONS).toEqual(145);
+    expect(VEC_ALL_BLS_VERIFICATIONS).toEqual(187);
     // Independent per-source counts prevent one section from shrinking while
-    // another grows: Python sign positives/refusals, fast aggregates, Python
-    // standard signatures/aggregates, Rust sign/verify/fast, mainnet, Rust negatives, offline G1/G2 malformed encodings.
+    // another grows: Python sign positives/refusals, fast aggregates,
+    // Rust sign/verify/fast, mainnet, Rust negatives, upstream sign/verify/fast,
+    // upstream G1/G2 encodings, and additional SCCP G1/G2 boundaries.
     val expected: array<int> = [
         6,
         15,
         10,
         9,
-        3,
-        9,
         27,
         9,
         2,
         21,
-        16,
-        18,
+        9,
+        29,
+        12,
+        13,
+        15,
+        5,
+        5,
     ];
     var executed: array<int> = [
+        0,
+        0,
+        0,
         0,
         0,
         0,
@@ -305,7 +312,7 @@ get fun `test every POP signature and fast aggregate fixture through the TON opc
         executed.set(executed.get(n.group) + 1, n.group);
         row += 1;
     }
-    expect(row).toEqual(145);
+    expect(row).toEqual(187);
     expect(executed).toEqual(expected);
 }
 

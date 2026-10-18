@@ -429,7 +429,21 @@ fn non_vm_instructions_can_charge_gas_to_fee_sponsor() {
     let query_handle = query::store::LiveQueryStore::start_test();
     let chain: ChainId = "test-chain".parse().unwrap();
     let mut state = new_state(world, kura, query_handle, chain.clone());
-    state.nexus.get_mut().fees.sponsor_vault_custody_account_id = custody_id.clone();
+    {
+        let mut fees = state.nexus_snapshot().fees;
+        fees.sponsor_vault_custody_account_id = custody_id.clone();
+        {
+            let mut parameters = state.world.parameters.block();
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    fees.clone()
+                        .into_custom_parameter()
+                        .expect("explicit fixture policy"),
+                ))
+                .expect("valid fixture monetary projection");
+            parameters.commit();
+        }
+    }
     // 2) Configure pipeline gas policy.
     let mut pipeline = state.installed_pipeline().clone();
     pipeline.gas.tech_account_id = gas_id.to_string();
@@ -806,8 +820,8 @@ fn genesis_overlay_pipeline_transactions_remain_fee_free() {
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::from(1_u32);
-    nexus.fees.fee_asset_id = asset_def_id.canonical_address();
-    nexus.fees.fee_sink_account_id = gas_id.to_string();
+    nexus.fees.fee_asset_id = asset_def_id.clone();
+    nexus.fees.fee_sink_account_id = gas_id.clone();
     let (mut state, _) = State::new_with_chain_and_network_id_and_pre_genesis_nexus_for_testing(
         world,
         nexus.clone(),

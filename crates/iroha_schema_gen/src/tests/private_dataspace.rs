@@ -11,7 +11,7 @@ use iroha_data_model::{
 #[test]
 fn private_dataspace_export_contains_complete_registered_schema_closure() {
     let mut expected = PrivateDataspaceAnchorState::schema();
-    iroha_data_model::block::consensus::PrivateRootFeePolicy::update_schema_map(&mut expected);
+    iroha_data_model::block::consensus::RootFeePolicy::update_schema_map(&mut expected);
     PrivateDataspaceAnchor::update_schema_map(&mut expected);
     iroha_data_model::private_dataspace::PrivateDataspaceRegistry::update_schema_map(&mut expected);
     iroha_data_model::private_dataspace::PrivateDataspaceAdmissionPolicy::update_schema_map(

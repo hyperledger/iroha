@@ -377,10 +377,10 @@ fn proposal_diagnostics_preserve_frozen_heads_and_ordered_activation_intents() {
 #[test]
 fn readiness_preserves_unavailable_authority_and_original_pool_refusals() {
     use iroha_sccp::api::SccpGovernanceReadinessV1;
-    let state = blank_state();
+    let mut state = blank_state();
+    state.gov.rules_committee_size = 19;
     let mut block = state.block(header(40));
     let mut stx = block.transaction();
-    stx.gov.rules_committee_size = 19;
     let pool = AllocationBudget::new(4096);
     let stop = AtomicBool::new(false);
     let held = pool.try_reserve_bytes(4096).unwrap();

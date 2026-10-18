@@ -321,8 +321,12 @@ pub struct Checks {
     pub cq: bool,
     /// Machines allowed to halt (injected corruption or divergence), for O-HALT.
     pub may_halt: Vec<usize>,
-    /// Machines allowed to report executor faults (O-FAULT).
+    /// Machines allowed to report executor failures or mismatches (injected divergence,
+    /// O-FAULT).
     pub may_fault: Vec<usize>,
+    /// Machines allowed to report only `ExecutorFailed` (clock-guard refusals, O-FAULT).
+    /// `ExecutionMismatch` still requires an explicitly injected divergent executor.
+    pub may_executor_fail: Vec<usize>,
     /// No view change after heal: every committed block is proposed and committed in view 0
     /// (F9r: the round in progress at GST still commits in view 0).
     pub no_view_change: bool,
@@ -343,6 +347,7 @@ impl Default for Checks {
             cq: false,
             may_halt: Vec::new(),
             may_fault: Vec::new(),
+            may_executor_fail: Vec::new(),
             no_view_change: false,
             stalled: Vec::new(),
             windows: Vec::new(),

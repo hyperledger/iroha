@@ -917,6 +917,351 @@ fun vecHashToG2(index: int): VecHashToG2 {
     throw VecErrors.BadIndex;
 }
 
+/// Ethereum v0.1.2 RFC QUUX hash-to-G2 rows; the POP verifier has a fixed DST.
+struct VecUpstreamHashToG2 {
+    pieces: array<slice>
+    dstPrime: slice
+    blocks: array<int>
+    u0: slice
+    u1: slice
+    q: slice
+}
+
+const VEC_UPSTREAM_HASH_TO_G2_COUNT = 4
+
+/// Every vendored hash_to_G2 row.
+fun vecUpstreamHashToG2(index: int): VecUpstreamHashToG2 {
+    // hash_to_G2__2782afaa8406d038
+    if (index == 0) {
+        return {
+            pieces: [
+                "613531325f6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161".hexToSlice(),
+                "61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161".hexToSlice(),
+                "61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161".hexToSlice(),
+                "61616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161".hexToSlice(),
+                "616161616161616161".hexToSlice(),
+            ],
+            dstPrime: "515555582d5630312d435330322d776974682d424c53313233383147325f584d443a5348412d3235365f535357555f524f5f32".hexToSlice(),
+            blocks: [
+                0x7aa717dbc8067c2edbbfb5c945c713d59ad30c449ecca477ade925e9162d7a69,
+                0xbca0b613b6d6c9a3a820c3171aa74f6fa81cbc9619b261cc0bdbcd4ba5b60e98,
+                0x20dac8da5bf0b68bfcec55f6c05eac976d7aeb9c79ad72b918b0f02bf7ade4d3,
+                0xec5a40830f7f402003ea85e03c9ac7451e59e8b309411544b607737e3846d8f0,
+                0xdbdb2ea7a49b5f524394bb929597570d56d7514b770501c0fe2125fd460e7dc0,
+                0x8b0fe9c6dacc4e5e404775da09a19eaf8f9f4175fd0a5a61f5765033e9ba0155,
+                0x6fe76ea7d7afa512e18296293a2457e79f50784f625aa0519ac06204c1ab9ed7,
+                0xde4dfab37310049a78fde60ab412c47331c69d71dac0e842fecccc99c4fd80c2,
+            ],
+            u0: "190b513da3e66fc9a3587b78c76d1d132b1152174d0b83e3c1114066392579a45824c5fa17649ab89299ddd4bda5493512ab625b0fe0ebd1367fe9fac57bb1168891846039b4216b9d94007b674de2d79126870e88aeef54b2ec717a887dcf39".hexToSlice(),
+            u1: "0e6a42010cf435fb5bacc156a585e1ea3294cc81d0ceb81924d95040298380b164f702275892cedd81b62de3aba3f6b5117d9a0defc57a33ed208428cb84e54c85a6840e7648480ae428838989d25d97a0af8e3255be62b25c2a85630d2dddd8".hexToSlice(),
+            q: "91fca2ff525572795a801eed17eb12785887c7b63fb77a42be46ce4a34131d71f7a73e95fee3f812aea3de78b4d0156901a6ba2f9a11fa5598b2d8ace0fbe0a0eacb65deceb476fbbcb64fd24557c2f4b18ecfc5663e54ae16a84f5ab7f62534".hexToSlice(),
+        };
+    }
+    // hash_to_G2__7590bd067999bbfb
+    if (index == 1) {
+        return {
+            pieces: [
+                "616263".hexToSlice(),
+            ],
+            dstPrime: "515555582d5630312d435330322d776974682d424c53313233383147325f584d443a5348412d3235365f535357555f524f5f32".hexToSlice(),
+            blocks: [
+                0xde6ebf4b65715033a96fbcfb9352da853de89579e5cf5ac514f89b724bb03997,
+                0xf8b36685f38eed9ab516f2dab757cd8c787563eccffcb963b562086fc356f4b3,
+                0x1a4a7492dbe14c83fa94a8c450c528f44018d56d591aaaf8f5fe5d39eb6ea268,
+                0x53dd9677f9c5447b043b5edf69668ecc5598f5e9a6e8456e6e7ff52e4daecd16,
+                0xd3b680f6fa1641d50b768397624c463a4b22b132307a1ba5787c4005d79de13c,
+                0x43ccfa8cb56f665e6cd14d7c63f3ca39ee01da68c61e64d2402deb73858b679a,
+                0xa49b93fff221d8f5123141c74b18b99f45fdabfda6d9dbd1a99449980fe716da,
+                0x4e38a006f67ac625276f312ba56e0d33410022b706dc224191b2304484d472ce,
+            ],
+            u0: "15f7c0aa8f6b296ab5ff9c2c7581ade64f4ee6f1bf18f55179ff44a2cf355fa53dd2a2158c5ecb17d7c52f63e719577101c8067bf4c0ba709aa8b9abc3d1cef589a4758e09ef53732d670fd8739a7274e111ba2fcaa71b3d33df2a3a0c8529dd".hexToSlice(),
+            u1: "187111d5e088b6b9acfdfad078c4dacf72dcd17ca17c82be35e79f8c372a693f60a033b461d81b025864a0ad051a06e408b852331c96ed983e497ebc6dee9b75e373d923b729194af8e72a051ea586f3538a6ebb1e80881a082fa2b24df9f566".hexToSlice(),
+            q: "939cddbccdc5e91b9623efd38c49f81a6f83f175e80b06fc374de9eb4b41dfe4ca3a230ed250fbe3a2acf73a41177fd802c2d18e033b960562aae3cab37a27ce00d80ccd5ba4b7fe0e7a210245129dbec7780ccc7954725f4168aff2787776e6".hexToSlice(),
+        };
+    }
+    // hash_to_G2__a54942c8e365f378
+    if (index == 2) {
+        return {
+            pieces: ([] as array<slice>),
+            dstPrime: "515555582d5630312d435330322d776974682d424c53313233383147325f584d443a5348412d3235365f535357555f524f5f32".hexToSlice(),
+            blocks: [
+                0x4cb77bf2d855ac3b311b9b170c8ffd106d53b3ad996b7446faaa19073dab8fe6,
+                0x43b9bd30e7f2fad616f12ac42f645949bd4cc32b01762bcf98b59b1ed5ed68b1,
+                0x7db81ee83dca4da425c46c81638d3a4c19f311c1fa0f357c60f2780d58f06542,
+                0x241f46b10416db00d188520f441c674e4eddd0d28fdb70bc0c536e65c2a902ca,
+                0xd1d56c12ce5caf946d6401c556841ad392b9041a184f81602dab4d13c289f235,
+                0xae601123a1059d5493205793ed224fbe69d0c219dde26d6025480734340c0e1f,
+                0x447dd96dea46bbd9cf125c1e9b947c7ac7de28f10a09f50799a6d75c513c1643,
+                0x4aa199f549a751f3d2cd70f7cd42eb72eb71e6d41c99aca35075e0d47fd1da6c,
+            ],
+            u0: "03dbc2cce174e91ba93cbb08f26b917f98194a2ea08d1cce75b2b9cc9f21689d80bd79b594a613d0a68eb807dfdc1cf805a2acec64114845711a54199ea339abd125ba38253b70a92c876df10598bd1986b739cad67961eb94f7076511b3b39a".hexToSlice(),
+            u1: "02f99798e8a5acdeed60d7e18e9120521ba1f47ec090984662846bc825de191b5b7641148c0dbc237726a334473eee94145a81e418d4010cc027a68f14391b30074e89e60ee7a22f87217b2f6eb0c4b94c9115b436e6fa4607e95a98de30a435".hexToSlice(),
+            q: "a5cb8437535e20ecffaef7752baddf98034139c38452458baeefab379ba13dff5bf5dd71b72418717047f5b0f37da03d0141ebfbdca40eb85b87142e130ab689c673cf60f1a3e98d69335266f30d9b8d4ac44c1038e9dcdd5393faf5c41fb78a".hexToSlice(),
+        };
+    }
+    // hash_to_G2__c938b486cf69e8f7
+    if (index == 3) {
+        return {
+            pieces: [
+                "61626364656630313233343536373839".hexToSlice(),
+            ],
+            dstPrime: "515555582d5630312d435330322d776974682d424c53313233383147325f584d443a5348412d3235365f535357555f524f5f32".hexToSlice(),
+            blocks: [
+                0x69a6c68fd10614d24ce4ce6ae68e496bc6f630d26ff95415e15312b0cb781df9,
+                0x67b2785014e0b45cd9b8d7c5e9eb32ee044736f7c0bc1d5e9006fa580c813e47,
+                0x6476c6b88680456c9a81345c05ed5e13e2bea527d39ea107036762fc36a44615,
+                0x5970d8b8c5a9608cb8b1d2d6acd953378ba4548fb96728e590c64006a7a1aff4,
+                0xecb35551520f9ff9aa533830ecfa8835345c4a2b9ac17848898fa10fb7244ece,
+                0x348098e7b9746d5840757762ee2e151c28b63f995644f5ed68a0baf238896acc,
+                0xc8deb4c5960997219b9031b261899412d7a5c86db55ba5ddd9b1b961e2a001fc,
+                0xf2dc8feea16e3e143aefddbef53d5a3b3ead06a371ca08b94679b92dca2ebfe3,
+            ],
+            u0: "0313d9325081b415bfd4e5364efaef392ecf69b087496973b229303e1816d2080971470f7da112c4eb43053130b785e1062f84cb21ed89406890c051a0e8b9cf6c575cf6e8e18ecf63ba86826b0ae02548d83b483b79e48512b82a6c0686df8f".hexToSlice(),
+            u1: "1739123845406baa7be5c5dc74492051b6d42504de008c635f3535bb831d478a341420e67dcc7b46b2e8cba5379cca9701897665d9cb5db16a27657760bbea7951f67ad68f8d55f7113f24ba6ddd82caef240a9bfa627972279974894701d975".hexToSlice(),
+            q: "990d119345b94fbd15497bcba94ecf7db2cbfd1e1fe7da034d26cbba169fb3968288b3fafb265f9ebd380512a71c3f2c121982811d2491fde9ba7ed31ef9ca474f0e1501297f68c298e9f4c0028add35aea8bb83d53c08cfc007c1e005723cd0".hexToSlice(),
+        };
+    }
+    throw VecErrors.BadIndex;
+}
+
+/// Generic upstream decoding, including canonical infinity; not key admission.
+struct VecUpstreamBlsDecode {
+    encoding: slice
+    group: int
+    decoded: bool
+}
+
+const VEC_UPSTREAM_BLS_DECODE_COUNT = 28
+
+/// All upstream G1/G2 decode results.
+fun vecUpstreamBlsDecode(index: int): VecUpstreamBlsDecode {
+    // G1.deserialization_fails_infinity_with_false_b_flag
+    if (index == 0) {
+        return {
+            encoding: "800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            group: 1,
+            decoded: false,
+        };
+    }
+    // G1.deserialization_fails_infinity_with_true_b_flag
+    if (index == 1) {
+        return {
+            encoding: "c01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            group: 1,
+            decoded: false,
+        };
+    }
+    // G1.deserialization_fails_not_in_G1
+    if (index == 2) {
+        return {
+            encoding: "8123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".hexToSlice(),
+            group: 1,
+            decoded: false,
+        };
+    }
+    // G1.deserialization_fails_not_in_curve
+    if (index == 3) {
+        return {
+            encoding: "8123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde0".hexToSlice(),
+            group: 1,
+            decoded: false,
+        };
+    }
+    // G1.deserialization_fails_too_few_bytes
+    if (index == 4) {
+        return {
+            encoding: "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaa".hexToSlice(),
+            group: 1,
+            decoded: false,
+        };
+    }
+    // G1.deserialization_fails_too_many_bytes
+    if (index == 5) {
+        return {
+            encoding: "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaa900".hexToSlice(),
+            group: 1,
+            decoded: false,
+        };
+    }
+    // G1.deserialization_fails_with_b_flag_and_a_flag_true
+    if (index == 6) {
+        return {
+            encoding: "e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            group: 1,
+            decoded: false,
+        };
+    }
+    // G1.deserialization_fails_with_b_flag_and_x_nonzero
+    if (index == 7) {
+        return {
+            encoding: "c123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".hexToSlice(),
+            group: 1,
+            decoded: false,
+        };
+    }
+    // G1.deserialization_fails_with_wrong_c_flag
+    if (index == 8) {
+        return {
+            encoding: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".hexToSlice(),
+            group: 1,
+            decoded: false,
+        };
+    }
+    // G1.deserialization_fails_x_equal_to_modulus
+    if (index == 9) {
+        return {
+            encoding: "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".hexToSlice(),
+            group: 1,
+            decoded: false,
+        };
+    }
+    // G1.deserialization_fails_x_greater_than_modulus
+    if (index == 10) {
+        return {
+            encoding: "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaac".hexToSlice(),
+            group: 1,
+            decoded: false,
+        };
+    }
+    // G1.deserialization_succeeds_correct_point
+    if (index == 11) {
+        return {
+            encoding: "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            group: 1,
+            decoded: true,
+        };
+    }
+    // G1.deserialization_succeeds_infinity_with_true_b_flag
+    if (index == 12) {
+        return {
+            encoding: "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            group: 1,
+            decoded: true,
+        };
+    }
+    // G2.deserialization_fails_infinity_with_false_b_flag
+    if (index == 13) {
+        return {
+            encoding: "800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            group: 2,
+            decoded: false,
+        };
+    }
+    // G2.deserialization_fails_infinity_with_true_b_flag
+    if (index == 14) {
+        return {
+            encoding: "c01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            group: 2,
+            decoded: false,
+        };
+    }
+    // G2.deserialization_fails_not_in_G2
+    if (index == 15) {
+        return {
+            encoding: "8123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".hexToSlice(),
+            group: 2,
+            decoded: false,
+        };
+    }
+    // G2.deserialization_fails_not_in_curve
+    if (index == 16) {
+        return {
+            encoding: "8123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde0".hexToSlice(),
+            group: 2,
+            decoded: false,
+        };
+    }
+    // G2.deserialization_fails_too_few_bytes
+    if (index == 17) {
+        return {
+            encoding: "8123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd".hexToSlice(),
+            group: 2,
+            decoded: false,
+        };
+    }
+    // G2.deserialization_fails_too_many_bytes
+    if (index == 18) {
+        return {
+            encoding: "8123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdefff".hexToSlice(),
+            group: 2,
+            decoded: false,
+        };
+    }
+    // G2.deserialization_fails_with_b_flag_and_a_flag_true
+    if (index == 19) {
+        return {
+            encoding: "e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            group: 2,
+            decoded: false,
+        };
+    }
+    // G2.deserialization_fails_with_b_flag_and_x_nonzero
+    if (index == 20) {
+        return {
+            encoding: "c123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".hexToSlice(),
+            group: 2,
+            decoded: false,
+        };
+    }
+    // G2.deserialization_fails_with_wrong_c_flag
+    if (index == 21) {
+        return {
+            encoding: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".hexToSlice(),
+            group: 2,
+            decoded: false,
+        };
+    }
+    // G2.deserialization_fails_xim_equal_to_modulus
+    if (index == 22) {
+        return {
+            encoding: "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            group: 2,
+            decoded: false,
+        };
+    }
+    // G2.deserialization_fails_xim_greater_than_modulus
+    if (index == 23) {
+        return {
+            encoding: "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaac000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            group: 2,
+            decoded: false,
+        };
+    }
+    // G2.deserialization_fails_xre_equal_to_modulus
+    if (index == 24) {
+        return {
+            encoding: "8000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".hexToSlice(),
+            group: 2,
+            decoded: false,
+        };
+    }
+    // G2.deserialization_fails_xre_greater_than_modulus
+    if (index == 25) {
+        return {
+            encoding: "8000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaac".hexToSlice(),
+            group: 2,
+            decoded: false,
+        };
+    }
+    // G2.deserialization_succeeds_correct_point
+    if (index == 26) {
+        return {
+            encoding: "b2cc74bc9f089ed9764bbceac5edba416bef5e73701288977b9cac1ccb6964269d4ebf78b4e8aa7792ba09d3e49c8e6a1351bdf582971f796bbaf6320e81251c9d28f674d720cca07ed14596b96697cf18238e0e03ebd7fc1353d885a39407e0".hexToSlice(),
+            group: 2,
+            decoded: true,
+        };
+    }
+    // G2.deserialization_succeeds_infinity_with_true_b_flag
+    if (index == 27) {
+        return {
+            encoding: "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            group: 2,
+            decoded: true,
+        };
+    }
+    throw VecErrors.BadIndex;
+}
+
 /// A §3.4 control leaf of the TON lane (`controls` of `control_v1.json`
 /// with target ton-mainnet, destination word `VEC_MINTER_ACCOUNT_ID`): its
 /// fields, the two `HASHEXT` builders of the 199-byte preimage (125 and 74
@@ -1401,7 +1746,7 @@ const VEC_ALL_HISTORY_ROOTS = 40
 const VEC_ALL_HISTORY_PATHS = 820
 const VEC_ALL_HISTORY_LEAVES = 40
 const VEC_ALL_NATIVE_TRANSFERS = 1
-const VEC_ALL_BLS_VERIFICATIONS = 145
+const VEC_ALL_BLS_VERIFICATIONS = 187
 const VEC_ALL_FAST_PAUSE_CONTROLS = 4
 const VEC_ALL_FORGERY_EVIDENCE = 19
 
@@ -2473,8 +2818,10 @@ fun vecRejectedPayload(index: int): VecRejectedPayload {
 
 // Skip sign_verify.keys (3 rows): key generation is off chain; public keys are replay inputs.
 // Skip aggregates.aggregate_verify (3 rows): distinct-message aggregation is outside CommitQC verification.
-// Skip ethereum_standard_inputs.aggregate_verify (1 rows): distinct-message aggregation is outside CommitQC verification.
-// Skip ethereum_standard_inputs.privkeys (3 rows): key generation and signing are off chain.
+// Skip ethereum_bls12_381_tests.aggregate (6 rows): signature aggregation is off chain.
+// Skip ethereum_bls12_381_tests.aggregate_verify (5 rows): distinct-message aggregation is outside CommitQC verification.
+// Skip ethereum_bls12_381_tests.batch_verify (4 rows): batch verification is outside CommitQC verification.
+// Skip ethereum_bls12_381_tests.sign.null (1 rows): an invalid secret produces no signature; signing is off chain.
 // Skip consensus_allowlist (32 rows): Rust context allowlist API is not a destination operation.
 // Skip imported_rfc9380.expand_message_xmd.vectors (10 rows): alternate RFC DST is not the POP opcode DST.
 // Skip imported_rfc9380.hash_to_g2.vectors (5 rows): alternate RFC DST is not the POP opcode DST.
@@ -2903,44 +3250,8 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             group: 2,
         };
     }
-    // ethereum_standard_inputs.signatures[0]: TON opcode = 1
+    // ethereum_bls12_381_tests.sign.sign_case_11b8c7cad5238946: TON opcode = 1
     if (index == 31) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 1,
-            group: 3,
-        };
-    }
-    // ethereum_standard_inputs.signatures[1]: TON opcode = 1
-    if (index == 32) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "882730e5d03f6b42c3abc26d3372625034e1d871b65a8a6b900a56dae22da98abbe1b68f85e49fe7652a55ec3d0591c20767677e33e5cbb1207315c41a9ac03be39c2e7668edc043d6cb1d9fd93033caa8a1c5b0e84bedaeb6c64972503a43eb".hexToSlice(),
-            verdict: 1,
-            group: 3,
-        };
-    }
-    // ethereum_standard_inputs.signatures[2]: TON opcode = 1
-    if (index == 33) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "91347bccf740d859038fcdcaf233eeceb2a436bcaaee9b2aa3bfb70efe29dfb2677562ccbea1c8e061fb9971b0753c240622fab78489ce96768259fc01360346da5b9f579e5da0d941e4c6ba18a0e64906082375394f337fa1af2b7127b0d121".hexToSlice(),
-            verdict: 1,
-            group: 3,
-        };
-    }
-    // ethereum_standard_inputs.signatures[3]: TON opcode = 1
-    if (index == 34) {
         return {
             keys: [
                 "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
@@ -2948,11 +3259,11 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             signature: "b23c46be3a001c63ca711f87a005c200cc550b9429d5f4eb38d74322144f1b63926da3388979e5321012fb1a0526bcd100b5ef5fe72628ce4cd5e904aeaa3279527843fae5ca9ca675f4f51ed8f83bbf7155da9ecc9663100a885d5dc6df96d9".hexToSlice(),
             verdict: 1,
-            group: 3,
+            group: 8,
         };
     }
-    // ethereum_standard_inputs.signatures[4]: TON opcode = 1
-    if (index == 35) {
+    // ethereum_bls12_381_tests.sign.sign_case_142f678a8d05fcd1: TON opcode = 1
+    if (index == 32) {
         return {
             keys: [
                 "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
@@ -2960,11 +3271,11 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
             signature: "af1390c3c47acdb37131a51216da683c509fce0e954328a59f93aebda7e4ff974ba208d9a4a2a2389f892a9d418d618418dd7f7a6bc7aa0da999a9d3a5b815bc085e14fd001f6a1948768a3f4afefc8b8240dda329f984cb345c6363272ba4fe".hexToSlice(),
             verdict: 1,
-            group: 3,
+            group: 8,
         };
     }
-    // ethereum_standard_inputs.signatures[5]: TON opcode = 1
-    if (index == 36) {
+    // ethereum_bls12_381_tests.sign.sign_case_37286e1a6d1f6eb3: TON opcode = 1
+    if (index == 33) {
         return {
             keys: [
                 "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
@@ -2972,11 +3283,11 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
             signature: "9674e2228034527f4c083206032b020310face156d4a4685e2fcaec2f6f3665aa635d90347b6ce124eb879266b1e801d185de36a0a289b85e9039662634f2eea1e02e670bc7ab849d006a70b2f93b84597558a05b879c8d445f387a5d5b653df".hexToSlice(),
             verdict: 1,
-            group: 3,
+            group: 8,
         };
     }
-    // ethereum_standard_inputs.signatures[6]: TON opcode = 1
-    if (index == 37) {
+    // ethereum_bls12_381_tests.sign.sign_case_7055381f640f2c1d: TON opcode = 1
+    if (index == 34) {
         return {
             keys: [
                 "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
@@ -2984,23 +3295,11 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             signature: "948a7cb99f76d616c2c564ce9bf4a519f1bea6b0a624a02276443c245854219fabb8d4ce061d255af5330b078d5380681751aa7053da2c98bae898edc218c75f07e24d8802a17cd1f6833b71e58f5eb5b94208b4d0bb3848cecb075ea21be115".hexToSlice(),
             verdict: 1,
-            group: 3,
+            group: 8,
         };
     }
-    // ethereum_standard_inputs.signatures[7]: TON opcode = 1
-    if (index == 38) {
-        return {
-            keys: [
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "a4efa926610b8bd1c8330c918b7a5e9bf374e53435ef8b7ec186abf62e1b1f65aeaaeb365677ac1d1172a1f5b44b4e6d022c252c58486c0a759fbdc7de15a756acc4d343064035667a594b4c2a6f0b0b421975977f297dba63ee2f63ffe47bb6".hexToSlice(),
-            verdict: 1,
-            group: 3,
-        };
-    }
-    // ethereum_standard_inputs.signatures[8]: TON opcode = 1
-    if (index == 39) {
+    // ethereum_bls12_381_tests.sign.sign_case_84d45c9c7cca6b92: TON opcode = 1
+    if (index == 35) {
         return {
             keys: [
                 "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
@@ -3008,25 +3307,407 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
             signature: "ae82747ddeefe4fd64cf9cedb9b04ae3e8a43420cd255e3c7cd06a8d88b7c7f8638543719981c5d16fa3527c468c25f0026704a6951bde891360c7e8d12ddee0559004ccdbe6046b55bae1b257ee97f7cdb955773d7cf29adf3ccbb9975e4eb9".hexToSlice(),
             verdict: 1,
-            group: 3,
+            group: 8,
         };
     }
-    // ethereum_standard_inputs.fast_aggregates[0]: TON opcode = 1
-    if (index == 40) {
+    // ethereum_bls12_381_tests.sign.sign_case_8cd3d4d0d9a5b265: TON opcode = 1
+    if (index == 36) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "a4efa926610b8bd1c8330c918b7a5e9bf374e53435ef8b7ec186abf62e1b1f65aeaaeb365677ac1d1172a1f5b44b4e6d022c252c58486c0a759fbdc7de15a756acc4d343064035667a594b4c2a6f0b0b421975977f297dba63ee2f63ffe47bb6".hexToSlice(),
+            verdict: 1,
+            group: 8,
+        };
+    }
+    // ethereum_bls12_381_tests.sign.sign_case_c82df61aa3ee60fb: TON opcode = 1
+    if (index == 37) {
         return {
             keys: [
                 "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 1,
+            group: 8,
+        };
+    }
+    // ethereum_bls12_381_tests.sign.sign_case_d0e28d7e76eb6e9c: TON opcode = 1
+    if (index == 38) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "882730e5d03f6b42c3abc26d3372625034e1d871b65a8a6b900a56dae22da98abbe1b68f85e49fe7652a55ec3d0591c20767677e33e5cbb1207315c41a9ac03be39c2e7668edc043d6cb1d9fd93033caa8a1c5b0e84bedaeb6c64972503a43eb".hexToSlice(),
+            verdict: 1,
+            group: 8,
+        };
+    }
+    // ethereum_bls12_381_tests.sign.sign_case_f2ae1097e7d0e18b: TON opcode = 1
+    if (index == 39) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "91347bccf740d859038fcdcaf233eeceb2a436bcaaee9b2aa3bfb70efe29dfb2677562ccbea1c8e061fb9971b0753c240622fab78489ce96768259fc01360346da5b9f579e5da0d941e4c6ba18a0e64906082375394f337fa1af2b7127b0d121".hexToSlice(),
+            verdict: 1,
+            group: 8,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_infinity_pubkey_and_infinity_signature: TON opcode = 0
+    if (index == 40) {
+        return {
+            keys: [
+                "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            ],
+            message: "1212121212121212121212121212121212121212121212121212121212121212".hexToSlice(),
+            signature: "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_tampered_signature_case_195246ee3bd3b6ec: TON opcode = 0
+    if (index == 41) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "ae82747ddeefe4fd64cf9cedb9b04ae3e8a43420cd255e3c7cd06a8d88b7c7f8638543719981c5d16fa3527c468c25f0026704a6951bde891360c7e8d12ddee0559004ccdbe6046b55bae1b257ee97f7cdb955773d7cf29adf3ccbb9ffffffff".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_tampered_signature_case_2ea479adf8c40300: TON opcode = 0
+    if (index == 42) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "882730e5d03f6b42c3abc26d3372625034e1d871b65a8a6b900a56dae22da98abbe1b68f85e49fe7652a55ec3d0591c20767677e33e5cbb1207315c41a9ac03be39c2e7668edc043d6cb1d9fd93033caa8a1c5b0e84bedaeb6c64972ffffffff".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_tampered_signature_case_2f09d443ab8a3ac2: TON opcode = 0
+    if (index == 43) {
+        return {
+            keys: [
                 "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b23c46be3a001c63ca711f87a005c200cc550b9429d5f4eb38d74322144f1b63926da3388979e5321012fb1a0526bcd100b5ef5fe72628ce4cd5e904aeaa3279527843fae5ca9ca675f4f51ed8f83bbf7155da9ecc9663100a885d5dffffffff".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_tampered_signature_case_3208262581c8fc09: TON opcode = 0
+    if (index == 44) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "af1390c3c47acdb37131a51216da683c509fce0e954328a59f93aebda7e4ff974ba208d9a4a2a2389f892a9d418d618418dd7f7a6bc7aa0da999a9d3a5b815bc085e14fd001f6a1948768a3f4afefc8b8240dda329f984cb345c6363ffffffff".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_tampered_signature_case_6b3b17f6962a490c: TON opcode = 0
+    if (index == 45) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "a4efa926610b8bd1c8330c918b7a5e9bf374e53435ef8b7ec186abf62e1b1f65aeaaeb365677ac1d1172a1f5b44b4e6d022c252c58486c0a759fbdc7de15a756acc4d343064035667a594b4c2a6f0b0b421975977f297dba63ee2f63ffffffff".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_tampered_signature_case_6eeb7c52dfd9baf0: TON opcode = 0
+    if (index == 46) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "9674e2228034527f4c083206032b020310face156d4a4685e2fcaec2f6f3665aa635d90347b6ce124eb879266b1e801d185de36a0a289b85e9039662634f2eea1e02e670bc7ab849d006a70b2f93b84597558a05b879c8d445f387a5ffffffff".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_tampered_signature_case_8761a0b7e920c323: TON opcode = 0
+    if (index == 47) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "91347bccf740d859038fcdcaf233eeceb2a436bcaaee9b2aa3bfb70efe29dfb2677562ccbea1c8e061fb9971b0753c240622fab78489ce96768259fc01360346da5b9f579e5da0d941e4c6ba18a0e64906082375394f337fa1af2b71ffffffff".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_tampered_signature_case_d34885d766d5f705: TON opcode = 0
+    if (index == 48) {
+        return {
+            keys: [
                 "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
             ],
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "9683b3e6701f9a4b706709577963110043af78a5b41991b998475a3d3fd62abf35ce03b33908418efc95a058494a8ae504354b9f626231f6b3f3c849dfdeaf5017c4780e2aee1850ceaf4b4d9ce70971a3d2cfcd97b7e5ecf6759f8da5f76d31".hexToSlice(),
-            verdict: 1,
-            group: 4,
+            signature: "948a7cb99f76d616c2c564ce9bf4a519f1bea6b0a624a02276443c245854219fabb8d4ce061d255af5330b078d5380681751aa7053da2c98bae898edc218c75f07e24d8802a17cd1f6833b71e58f5eb5b94208b4d0bb3848cecb075effffffff".hexToSlice(),
+            verdict: 0,
+            group: 9,
         };
     }
-    // ethereum_standard_inputs.fast_aggregates[1]: TON opcode = 1
-    if (index == 41) {
+    // ethereum_bls12_381_tests.verify.verify_tampered_signature_case_e8a50c445c855360: TON opcode = 0
+    if (index == 49) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380bffffffff".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_valid_case_195246ee3bd3b6ec: TON opcode = 1
+    if (index == 50) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "ae82747ddeefe4fd64cf9cedb9b04ae3e8a43420cd255e3c7cd06a8d88b7c7f8638543719981c5d16fa3527c468c25f0026704a6951bde891360c7e8d12ddee0559004ccdbe6046b55bae1b257ee97f7cdb955773d7cf29adf3ccbb9975e4eb9".hexToSlice(),
+            verdict: 1,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_valid_case_2ea479adf8c40300: TON opcode = 1
+    if (index == 51) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "882730e5d03f6b42c3abc26d3372625034e1d871b65a8a6b900a56dae22da98abbe1b68f85e49fe7652a55ec3d0591c20767677e33e5cbb1207315c41a9ac03be39c2e7668edc043d6cb1d9fd93033caa8a1c5b0e84bedaeb6c64972503a43eb".hexToSlice(),
+            verdict: 1,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_valid_case_2f09d443ab8a3ac2: TON opcode = 1
+    if (index == 52) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b23c46be3a001c63ca711f87a005c200cc550b9429d5f4eb38d74322144f1b63926da3388979e5321012fb1a0526bcd100b5ef5fe72628ce4cd5e904aeaa3279527843fae5ca9ca675f4f51ed8f83bbf7155da9ecc9663100a885d5dc6df96d9".hexToSlice(),
+            verdict: 1,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_valid_case_3208262581c8fc09: TON opcode = 1
+    if (index == 53) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "af1390c3c47acdb37131a51216da683c509fce0e954328a59f93aebda7e4ff974ba208d9a4a2a2389f892a9d418d618418dd7f7a6bc7aa0da999a9d3a5b815bc085e14fd001f6a1948768a3f4afefc8b8240dda329f984cb345c6363272ba4fe".hexToSlice(),
+            verdict: 1,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_valid_case_6b3b17f6962a490c: TON opcode = 1
+    if (index == 54) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "a4efa926610b8bd1c8330c918b7a5e9bf374e53435ef8b7ec186abf62e1b1f65aeaaeb365677ac1d1172a1f5b44b4e6d022c252c58486c0a759fbdc7de15a756acc4d343064035667a594b4c2a6f0b0b421975977f297dba63ee2f63ffe47bb6".hexToSlice(),
+            verdict: 1,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_valid_case_6eeb7c52dfd9baf0: TON opcode = 1
+    if (index == 55) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "9674e2228034527f4c083206032b020310face156d4a4685e2fcaec2f6f3665aa635d90347b6ce124eb879266b1e801d185de36a0a289b85e9039662634f2eea1e02e670bc7ab849d006a70b2f93b84597558a05b879c8d445f387a5d5b653df".hexToSlice(),
+            verdict: 1,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_valid_case_8761a0b7e920c323: TON opcode = 1
+    if (index == 56) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "91347bccf740d859038fcdcaf233eeceb2a436bcaaee9b2aa3bfb70efe29dfb2677562ccbea1c8e061fb9971b0753c240622fab78489ce96768259fc01360346da5b9f579e5da0d941e4c6ba18a0e64906082375394f337fa1af2b7127b0d121".hexToSlice(),
+            verdict: 1,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_valid_case_d34885d766d5f705: TON opcode = 1
+    if (index == 57) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "948a7cb99f76d616c2c564ce9bf4a519f1bea6b0a624a02276443c245854219fabb8d4ce061d255af5330b078d5380681751aa7053da2c98bae898edc218c75f07e24d8802a17cd1f6833b71e58f5eb5b94208b4d0bb3848cecb075ea21be115".hexToSlice(),
+            verdict: 1,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_valid_case_e8a50c445c855360: TON opcode = 1
+    if (index == 58) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 1,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_wrong_pubkey_case_195246ee3bd3b6ec: TON opcode = 0
+    if (index == 59) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "9674e2228034527f4c083206032b020310face156d4a4685e2fcaec2f6f3665aa635d90347b6ce124eb879266b1e801d185de36a0a289b85e9039662634f2eea1e02e670bc7ab849d006a70b2f93b84597558a05b879c8d445f387a5d5b653df".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_wrong_pubkey_case_2ea479adf8c40300: TON opcode = 0
+    if (index == 60) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "a4efa926610b8bd1c8330c918b7a5e9bf374e53435ef8b7ec186abf62e1b1f65aeaaeb365677ac1d1172a1f5b44b4e6d022c252c58486c0a759fbdc7de15a756acc4d343064035667a594b4c2a6f0b0b421975977f297dba63ee2f63ffe47bb6".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_wrong_pubkey_case_2f09d443ab8a3ac2: TON opcode = 0
+    if (index == 61) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_wrong_pubkey_case_3208262581c8fc09: TON opcode = 0
+    if (index == 62) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "882730e5d03f6b42c3abc26d3372625034e1d871b65a8a6b900a56dae22da98abbe1b68f85e49fe7652a55ec3d0591c20767677e33e5cbb1207315c41a9ac03be39c2e7668edc043d6cb1d9fd93033caa8a1c5b0e84bedaeb6c64972503a43eb".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_wrong_pubkey_case_6b3b17f6962a490c: TON opcode = 0
+    if (index == 63) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "af1390c3c47acdb37131a51216da683c509fce0e954328a59f93aebda7e4ff974ba208d9a4a2a2389f892a9d418d618418dd7f7a6bc7aa0da999a9d3a5b815bc085e14fd001f6a1948768a3f4afefc8b8240dda329f984cb345c6363272ba4fe".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_wrong_pubkey_case_6eeb7c52dfd9baf0: TON opcode = 0
+    if (index == 64) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "91347bccf740d859038fcdcaf233eeceb2a436bcaaee9b2aa3bfb70efe29dfb2677562ccbea1c8e061fb9971b0753c240622fab78489ce96768259fc01360346da5b9f579e5da0d941e4c6ba18a0e64906082375394f337fa1af2b7127b0d121".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_wrong_pubkey_case_8761a0b7e920c323: TON opcode = 0
+    if (index == 65) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "ae82747ddeefe4fd64cf9cedb9b04ae3e8a43420cd255e3c7cd06a8d88b7c7f8638543719981c5d16fa3527c468c25f0026704a6951bde891360c7e8d12ddee0559004ccdbe6046b55bae1b257ee97f7cdb955773d7cf29adf3ccbb9975e4eb9".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_wrong_pubkey_case_d34885d766d5f705: TON opcode = 0
+    if (index == 66) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b23c46be3a001c63ca711f87a005c200cc550b9429d5f4eb38d74322144f1b63926da3388979e5321012fb1a0526bcd100b5ef5fe72628ce4cd5e904aeaa3279527843fae5ca9ca675f4f51ed8f83bbf7155da9ecc9663100a885d5dc6df96d9".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verify_wrong_pubkey_case_e8a50c445c855360: TON opcode = 0
+    if (index == 67) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "948a7cb99f76d616c2c564ce9bf4a519f1bea6b0a624a02276443c245854219fabb8d4ce061d255af5330b078d5380681751aa7053da2c98bae898edc218c75f07e24d8802a17cd1f6833b71e58f5eb5b94208b4d0bb3848cecb075ea21be115".hexToSlice(),
+            verdict: 0,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.verify.verifycase_one_privkey_47117849458281be: TON opcode = 1
+    if (index == 68) {
+        return {
+            keys: [
+                "97f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb".hexToSlice(),
+            ],
+            message: "1212121212121212121212121212121212121212121212121212121212121212".hexToSlice(),
+            signature: "a42ae16f1c2a5fa69c04cb5998d2add790764ce8dd45bf25b29b4700829232052b52352dcff1cf255b3a7810ad7269601810f03b2bc8b68cf289cf295b206770605a190b6842583e47c3d1c0f73c54907bfb2a602157d46a4353a20283018763".hexToSlice(),
+            verdict: 1,
+            group: 9,
+        };
+    }
+    // ethereum_bls12_381_tests.fast_aggregate_verify.fast_aggregate_verify_extra_pubkey_4f079f946446fabf: TON opcode = 0
+    if (index == 69) {
         return {
             keys: [
                 "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
@@ -3034,13 +3715,115 @@ fun vecBlsVerification(index: int): VecBlsVerification {
                 "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
             ],
             message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "ad38fc73846583b08d110d16ab1d026c6ea77ac2071e8ae832f56ac0cbcdeb9f5678ba5ce42bd8dce334cc47b5abcba40a58f7f1f80ab304193eb98836cc14d8183ec14cc77de0f80c4ffd49e168927a968b5cdaa4cf46b9805be84ad7efa77b".hexToSlice(),
-            verdict: 1,
-            group: 4,
+            signature: "912c3615f69575407db9392eb21fee18fff797eeb2fbe1816366ca2a08ae574d8824dbfafb4c9eaa1cf61b63c6f9b69911f269b664c42947dd1b53ef1081926c1e82bb2a465f927124b08391a5249036146d6f3f1e17ff5f162f779746d830d1".hexToSlice(),
+            verdict: 0,
+            group: 10,
         };
     }
-    // ethereum_standard_inputs.fast_aggregates[2]: TON opcode = 1
-    if (index == 42) {
+    // ethereum_bls12_381_tests.fast_aggregate_verify.fast_aggregate_verify_extra_pubkey_5a38e6b4017fe4dd: TON opcode = 0
+    if (index == 70) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfc4ff1d930".hexToSlice(),
+            verdict: 0,
+            group: 10,
+        };
+    }
+    // ethereum_bls12_381_tests.fast_aggregate_verify.fast_aggregate_verify_extra_pubkey_a698ea45b109f303: TON opcode = 0
+    if (index == 71) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 0,
+            group: 10,
+        };
+    }
+    // ethereum_bls12_381_tests.fast_aggregate_verify.fast_aggregate_verify_infinity_pubkey: TON opcode = 0
+    if (index == 72) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+                "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            ],
+            message: "1212121212121212121212121212121212121212121212121212121212121212".hexToSlice(),
+            signature: "afcb4d980f079265caa61aee3e26bf48bebc5dc3e7f2d7346834d76cbc812f636c937b6b44a9323d8bc4b1cdf71d6811035ddc2634017faab2845308f568f2b9a0356140727356eae9eded8b87fd8cb8024b440c57aee06076128bb32921f584".hexToSlice(),
+            verdict: 0,
+            group: 10,
+        };
+    }
+    // ethereum_bls12_381_tests.fast_aggregate_verify.fast_aggregate_verify_na_pubkeys_and_infinity_signature: TON opcode = 0
+    if (index == 73) {
+        return {
+            keys: ([] as array<slice>),
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            verdict: 0,
+            group: 10,
+        };
+    }
+    // ethereum_bls12_381_tests.fast_aggregate_verify.fast_aggregate_verify_na_pubkeys_and_na_signature: TON opcode = 0
+    if (index == 74) {
+        return {
+            keys: ([] as array<slice>),
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            verdict: 0,
+            group: 10,
+        };
+    }
+    // ethereum_bls12_381_tests.fast_aggregate_verify.fast_aggregate_verify_tampered_signature_3d7576f3c0e3570a: TON opcode = 0
+    if (index == 75) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfcffffffff".hexToSlice(),
+            verdict: 0,
+            group: 10,
+        };
+    }
+    // ethereum_bls12_381_tests.fast_aggregate_verify.fast_aggregate_verify_tampered_signature_5e745ad0c6199a6c: TON opcode = 0
+    if (index == 76) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380bffffffff".hexToSlice(),
+            verdict: 0,
+            group: 10,
+        };
+    }
+    // ethereum_bls12_381_tests.fast_aggregate_verify.fast_aggregate_verify_tampered_signature_652ce62f09290811: TON opcode = 0
+    if (index == 77) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "912c3615f69575407db9392eb21fee18fff797eeb2fbe1816366ca2a08ae574d8824dbfafb4c9eaa1cf61b63c6f9b69911f269b664c42947dd1b53ef1081926c1e82bb2a465f927124b08391a5249036146d6f3f1e17ff5f162f7797ffffffff".hexToSlice(),
+            verdict: 0,
+            group: 10,
+        };
+    }
+    // ethereum_bls12_381_tests.fast_aggregate_verify.fast_aggregate_verify_valid_3d7576f3c0e3570a: TON opcode = 1
+    if (index == 78) {
         return {
             keys: [
                 "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
@@ -3050,11 +3833,11 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
             signature: "9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfc4ff1d930".hexToSlice(),
             verdict: 1,
-            group: 4,
+            group: 10,
         };
     }
-    // ethereum_malformed_inputs.g1_deserialization.valid: TON opcode = 1
-    if (index == 43) {
+    // ethereum_bls12_381_tests.fast_aggregate_verify.fast_aggregate_verify_valid_5e745ad0c6199a6c: TON opcode = 1
+    if (index == 79) {
         return {
             keys: [
                 "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
@@ -3065,116 +3848,93 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             group: 10,
         };
     }
-    // ethereum_malformed_inputs.g1_deserialization.negated: TON opcode = 0
-    if (index == 44) {
+    // ethereum_bls12_381_tests.fast_aggregate_verify.fast_aggregate_verify_valid_652ce62f09290811: TON opcode = 1
+    if (index == 80) {
         return {
             keys: [
-                "8491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
             ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 0,
-            group: 10,
-        };
-    }
-    // ethereum_malformed_inputs.g1_deserialization.infinity: TON opcode = 0
-    if (index == 45) {
-        return {
-            keys: [
-                "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 0,
-            group: 10,
-        };
-    }
-    // ethereum_malformed_inputs.g1_deserialization.empty: TON opcode = -9
-    if (index == 46) {
-        return {
-            keys: [
-                createEmptySlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: -9,
-            group: 10,
-        };
-    }
-    // ethereum_malformed_inputs.g1_deserialization.short: TON opcode = -9
-    if (index == 47) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f7".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: -9,
-            group: 10,
-        };
-    }
-    // ethereum_malformed_inputs.g1_deserialization.long: TON opcode = 1
-    if (index == 48) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a00".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "912c3615f69575407db9392eb21fee18fff797eeb2fbe1816366ca2a08ae574d8824dbfafb4c9eaa1cf61b63c6f9b69911f269b664c42947dd1b53ef1081926c1e82bb2a465f927124b08391a5249036146d6f3f1e17ff5f162f779746d830d1".hexToSlice(),
             verdict: 1,
             group: 10,
         };
     }
-    // ethereum_malformed_inputs.g1_deserialization.all_zero: TON opcode = 0
-    if (index == 49) {
+    // ethereum_bls12_381_tests.deserialization_G1.deserialization_fails_infinity_with_false_b_flag: TON opcode = 0
+    if (index == 81) {
         return {
             keys: [
-                "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+                "800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             ],
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
             verdict: 0,
-            group: 10,
+            group: 11,
         };
     }
-    // ethereum_malformed_inputs.g1_deserialization.all_ones: TON opcode = 0
-    if (index == 50) {
+    // ethereum_bls12_381_tests.deserialization_G1.deserialization_fails_infinity_with_true_b_flag: TON opcode = 0
+    if (index == 82) {
         return {
             keys: [
-                "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".hexToSlice(),
+                "c01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             ],
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
             verdict: 0,
-            group: 10,
+            group: 11,
         };
     }
-    // ethereum_malformed_inputs.g1_deserialization.compression_clear: TON opcode = 0
-    if (index == 51) {
+    // ethereum_bls12_381_tests.deserialization_G1.deserialization_fails_not_in_G1: TON opcode = 0
+    if (index == 83) {
         return {
             keys: [
-                "2491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "8123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".hexToSlice(),
             ],
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
             verdict: 0,
-            group: 10,
+            group: 11,
         };
     }
-    // ethereum_malformed_inputs.g1_deserialization.infinity_with_x: TON opcode = 0
-    if (index == 52) {
+    // ethereum_bls12_381_tests.deserialization_G1.deserialization_fails_not_in_curve: TON opcode = 0
+    if (index == 84) {
         return {
             keys: [
-                "e491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "8123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde0".hexToSlice(),
             ],
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
             verdict: 0,
-            group: 10,
+            group: 11,
         };
     }
-    // ethereum_malformed_inputs.g1_deserialization.infinity_with_sign: TON opcode = 0
-    if (index == 53) {
+    // ethereum_bls12_381_tests.deserialization_G1.deserialization_fails_too_few_bytes: TON opcode = -9
+    if (index == 85) {
+        return {
+            keys: [
+                "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaa".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: -9,
+            group: 11,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G1.deserialization_fails_too_many_bytes: TON opcode = 0
+    if (index == 86) {
+        return {
+            keys: [
+                "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaa900".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 0,
+            group: 11,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G1.deserialization_fails_with_b_flag_and_a_flag_true: TON opcode = 0
+    if (index == 87) {
         return {
             keys: [
                 "e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
@@ -3182,23 +3942,35 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
             verdict: 0,
-            group: 10,
+            group: 11,
         };
     }
-    // ethereum_malformed_inputs.g1_deserialization.infinity_dirty: TON opcode = 0
-    if (index == 54) {
+    // ethereum_bls12_381_tests.deserialization_G1.deserialization_fails_with_b_flag_and_x_nonzero: TON opcode = 0
+    if (index == 88) {
         return {
             keys: [
-                "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001".hexToSlice(),
+                "c123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".hexToSlice(),
             ],
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
             verdict: 0,
-            group: 10,
+            group: 11,
         };
     }
-    // ethereum_malformed_inputs.g1_deserialization.x_equals_p: TON opcode = 0
-    if (index == 55) {
+    // ethereum_bls12_381_tests.deserialization_G1.deserialization_fails_with_wrong_c_flag: TON opcode = 0
+    if (index == 89) {
+        return {
+            keys: [
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 0,
+            group: 11,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G1.deserialization_fails_x_equal_to_modulus: TON opcode = 0
+    if (index == 90) {
         return {
             keys: [
                 "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".hexToSlice(),
@@ -3206,11 +3978,11 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
             verdict: 0,
-            group: 10,
+            group: 11,
         };
     }
-    // ethereum_malformed_inputs.g1_deserialization.x_above_p: TON opcode = 0
-    if (index == 56) {
+    // ethereum_bls12_381_tests.deserialization_G1.deserialization_fails_x_greater_than_modulus: TON opcode = 0
+    if (index == 91) {
         return {
             keys: [
                 "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaac".hexToSlice(),
@@ -3218,878 +3990,23 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
             verdict: 0,
-            group: 10,
-        };
-    }
-    // ethereum_malformed_inputs.g1_deserialization.off_curve: TON opcode = 0
-    if (index == 57) {
-        return {
-            keys: [
-                "800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 0,
-            group: 10,
-        };
-    }
-    // ethereum_malformed_inputs.g1_deserialization.non_subgroup: TON opcode = 0
-    if (index == 58) {
-        return {
-            keys: [
-                "800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 0,
-            group: 10,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.valid: TON opcode = 1
-    if (index == 59) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 1,
             group: 11,
         };
     }
-    // ethereum_malformed_inputs.g2_deserialization.negated: TON opcode = 0
-    if (index == 60) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "96ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 0,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.infinity: TON opcode = 0
-    if (index == 61) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            verdict: 0,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.empty: TON opcode = -9
-    if (index == 62) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: createEmptySlice(),
-            verdict: -9,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.short: TON opcode = -9
-    if (index == 63) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a".hexToSlice(),
-            verdict: -9,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.long: TON opcode = 1
-    if (index == 64) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a5500".hexToSlice(),
-            verdict: 1,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.all_zero: TON opcode = 0
-    if (index == 65) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            verdict: 0,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.all_ones: TON opcode = 0
-    if (index == 66) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".hexToSlice(),
-            verdict: 0,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.compression_clear: TON opcode = 0
-    if (index == 67) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "36ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 0,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.infinity_with_x: TON opcode = 0
-    if (index == 68) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "f6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 0,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.infinity_with_sign: TON opcode = 0
-    if (index == 69) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            verdict: 0,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.infinity_dirty: TON opcode = 0
-    if (index == 70) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001".hexToSlice(),
-            verdict: 0,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.x_equals_p: TON opcode = 0
-    if (index == 71) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab0352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 0,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.x_above_p: TON opcode = 0
-    if (index == 72) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaac0352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 0,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.off_curve: TON opcode = 0
-    if (index == 73) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            verdict: 0,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.non_subgroup: TON opcode = 0
-    if (index == 74) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "80b383ec2171a4820ffb284d92c5c046080227eb5b60ed71db04d7d0e78fb20889f265ae5e061669811569a6a6c4918a00c85d5ad55709df9f7add6bbc1dab8537bca1f7a08dda2803047fb0ec79bc4fb114440efcc4459cb41400ed6d01d98c".hexToSlice(),
-            verdict: 0,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.x_c0_equals_p: TON opcode = 0
-    if (index == 75) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158091a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".hexToSlice(),
-            verdict: 0,
-            group: 11,
-        };
-    }
-    // ethereum_malformed_inputs.g2_deserialization.x_c0_above_p: TON opcode = 0
-    if (index == 76) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158091a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaac".hexToSlice(),
-            verdict: 0,
-            group: 11,
-        };
-    }
-    // rust.standard_vectors.sign[0]: TON opcode = 1
-    if (index == 77) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 1,
-            group: 5,
-        };
-    }
-    // rust.standard_vectors.sign[1]: TON opcode = 1
-    if (index == 78) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "882730e5d03f6b42c3abc26d3372625034e1d871b65a8a6b900a56dae22da98abbe1b68f85e49fe7652a55ec3d0591c20767677e33e5cbb1207315c41a9ac03be39c2e7668edc043d6cb1d9fd93033caa8a1c5b0e84bedaeb6c64972503a43eb".hexToSlice(),
-            verdict: 1,
-            group: 5,
-        };
-    }
-    // rust.standard_vectors.sign[2]: TON opcode = 1
-    if (index == 79) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "91347bccf740d859038fcdcaf233eeceb2a436bcaaee9b2aa3bfb70efe29dfb2677562ccbea1c8e061fb9971b0753c240622fab78489ce96768259fc01360346da5b9f579e5da0d941e4c6ba18a0e64906082375394f337fa1af2b7127b0d121".hexToSlice(),
-            verdict: 1,
-            group: 5,
-        };
-    }
-    // rust.standard_vectors.sign[3]: TON opcode = 1
-    if (index == 80) {
-        return {
-            keys: [
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b23c46be3a001c63ca711f87a005c200cc550b9429d5f4eb38d74322144f1b63926da3388979e5321012fb1a0526bcd100b5ef5fe72628ce4cd5e904aeaa3279527843fae5ca9ca675f4f51ed8f83bbf7155da9ecc9663100a885d5dc6df96d9".hexToSlice(),
-            verdict: 1,
-            group: 5,
-        };
-    }
-    // rust.standard_vectors.sign[4]: TON opcode = 1
-    if (index == 81) {
-        return {
-            keys: [
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "af1390c3c47acdb37131a51216da683c509fce0e954328a59f93aebda7e4ff974ba208d9a4a2a2389f892a9d418d618418dd7f7a6bc7aa0da999a9d3a5b815bc085e14fd001f6a1948768a3f4afefc8b8240dda329f984cb345c6363272ba4fe".hexToSlice(),
-            verdict: 1,
-            group: 5,
-        };
-    }
-    // rust.standard_vectors.sign[5]: TON opcode = 1
-    if (index == 82) {
-        return {
-            keys: [
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-            ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "9674e2228034527f4c083206032b020310face156d4a4685e2fcaec2f6f3665aa635d90347b6ce124eb879266b1e801d185de36a0a289b85e9039662634f2eea1e02e670bc7ab849d006a70b2f93b84597558a05b879c8d445f387a5d5b653df".hexToSlice(),
-            verdict: 1,
-            group: 5,
-        };
-    }
-    // rust.standard_vectors.sign[6]: TON opcode = 1
-    if (index == 83) {
-        return {
-            keys: [
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "948a7cb99f76d616c2c564ce9bf4a519f1bea6b0a624a02276443c245854219fabb8d4ce061d255af5330b078d5380681751aa7053da2c98bae898edc218c75f07e24d8802a17cd1f6833b71e58f5eb5b94208b4d0bb3848cecb075ea21be115".hexToSlice(),
-            verdict: 1,
-            group: 5,
-        };
-    }
-    // rust.standard_vectors.sign[7]: TON opcode = 1
-    if (index == 84) {
-        return {
-            keys: [
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "a4efa926610b8bd1c8330c918b7a5e9bf374e53435ef8b7ec186abf62e1b1f65aeaaeb365677ac1d1172a1f5b44b4e6d022c252c58486c0a759fbdc7de15a756acc4d343064035667a594b4c2a6f0b0b421975977f297dba63ee2f63ffe47bb6".hexToSlice(),
-            verdict: 1,
-            group: 5,
-        };
-    }
-    // rust.standard_vectors.sign[8]: TON opcode = 1
-    if (index == 85) {
-        return {
-            keys: [
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "ae82747ddeefe4fd64cf9cedb9b04ae3e8a43420cd255e3c7cd06a8d88b7c7f8638543719981c5d16fa3527c468c25f0026704a6951bde891360c7e8d12ddee0559004ccdbe6046b55bae1b257ee97f7cdb955773d7cf29adf3ccbb9975e4eb9".hexToSlice(),
-            verdict: 1,
-            group: 5,
-        };
-    }
-    // rust.standard_vectors.verify[0]: TON opcode = 1
-    if (index == 86) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 1,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[1]: TON opcode = 0
-    if (index == 87) {
-        return {
-            keys: [
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[2]: TON opcode = 0
-    if (index == 88) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[3]: TON opcode = 1
-    if (index == 89) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "882730e5d03f6b42c3abc26d3372625034e1d871b65a8a6b900a56dae22da98abbe1b68f85e49fe7652a55ec3d0591c20767677e33e5cbb1207315c41a9ac03be39c2e7668edc043d6cb1d9fd93033caa8a1c5b0e84bedaeb6c64972503a43eb".hexToSlice(),
-            verdict: 1,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[4]: TON opcode = 0
-    if (index == 90) {
-        return {
-            keys: [
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "882730e5d03f6b42c3abc26d3372625034e1d871b65a8a6b900a56dae22da98abbe1b68f85e49fe7652a55ec3d0591c20767677e33e5cbb1207315c41a9ac03be39c2e7668edc043d6cb1d9fd93033caa8a1c5b0e84bedaeb6c64972503a43eb".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[5]: TON opcode = 0
-    if (index == 91) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "882730e5d03f6b42c3abc26d3372625034e1d871b65a8a6b900a56dae22da98abbe1b68f85e49fe7652a55ec3d0591c20767677e33e5cbb1207315c41a9ac03be39c2e7668edc043d6cb1d9fd93033caa8a1c5b0e84bedaeb6c64972503a43eb".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[6]: TON opcode = 1
+    // ethereum_bls12_381_tests.deserialization_G1.deserialization_succeeds_correct_point: TON opcode = 1
     if (index == 92) {
         return {
             keys: [
                 "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
             ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "91347bccf740d859038fcdcaf233eeceb2a436bcaaee9b2aa3bfb70efe29dfb2677562ccbea1c8e061fb9971b0753c240622fab78489ce96768259fc01360346da5b9f579e5da0d941e4c6ba18a0e64906082375394f337fa1af2b7127b0d121".hexToSlice(),
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
             verdict: 1,
-            group: 6,
+            group: 11,
         };
     }
-    // rust.standard_vectors.verify[7]: TON opcode = 0
+    // ethereum_bls12_381_tests.deserialization_G1.deserialization_succeeds_infinity_with_true_b_flag: TON opcode = 0
     if (index == 93) {
-        return {
-            keys: [
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-            ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "91347bccf740d859038fcdcaf233eeceb2a436bcaaee9b2aa3bfb70efe29dfb2677562ccbea1c8e061fb9971b0753c240622fab78489ce96768259fc01360346da5b9f579e5da0d941e4c6ba18a0e64906082375394f337fa1af2b7127b0d121".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[8]: TON opcode = 0
-    if (index == 94) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "91347bccf740d859038fcdcaf233eeceb2a436bcaaee9b2aa3bfb70efe29dfb2677562ccbea1c8e061fb9971b0753c240622fab78489ce96768259fc01360346da5b9f579e5da0d941e4c6ba18a0e64906082375394f337fa1af2b7127b0d121".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[9]: TON opcode = 1
-    if (index == 95) {
-        return {
-            keys: [
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b23c46be3a001c63ca711f87a005c200cc550b9429d5f4eb38d74322144f1b63926da3388979e5321012fb1a0526bcd100b5ef5fe72628ce4cd5e904aeaa3279527843fae5ca9ca675f4f51ed8f83bbf7155da9ecc9663100a885d5dc6df96d9".hexToSlice(),
-            verdict: 1,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[10]: TON opcode = 0
-    if (index == 96) {
-        return {
-            keys: [
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b23c46be3a001c63ca711f87a005c200cc550b9429d5f4eb38d74322144f1b63926da3388979e5321012fb1a0526bcd100b5ef5fe72628ce4cd5e904aeaa3279527843fae5ca9ca675f4f51ed8f83bbf7155da9ecc9663100a885d5dc6df96d9".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[11]: TON opcode = 0
-    if (index == 97) {
-        return {
-            keys: [
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "b23c46be3a001c63ca711f87a005c200cc550b9429d5f4eb38d74322144f1b63926da3388979e5321012fb1a0526bcd100b5ef5fe72628ce4cd5e904aeaa3279527843fae5ca9ca675f4f51ed8f83bbf7155da9ecc9663100a885d5dc6df96d9".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[12]: TON opcode = 1
-    if (index == 98) {
-        return {
-            keys: [
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "af1390c3c47acdb37131a51216da683c509fce0e954328a59f93aebda7e4ff974ba208d9a4a2a2389f892a9d418d618418dd7f7a6bc7aa0da999a9d3a5b815bc085e14fd001f6a1948768a3f4afefc8b8240dda329f984cb345c6363272ba4fe".hexToSlice(),
-            verdict: 1,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[13]: TON opcode = 0
-    if (index == 99) {
-        return {
-            keys: [
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "af1390c3c47acdb37131a51216da683c509fce0e954328a59f93aebda7e4ff974ba208d9a4a2a2389f892a9d418d618418dd7f7a6bc7aa0da999a9d3a5b815bc085e14fd001f6a1948768a3f4afefc8b8240dda329f984cb345c6363272ba4fe".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[14]: TON opcode = 0
-    if (index == 100) {
-        return {
-            keys: [
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-            ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "af1390c3c47acdb37131a51216da683c509fce0e954328a59f93aebda7e4ff974ba208d9a4a2a2389f892a9d418d618418dd7f7a6bc7aa0da999a9d3a5b815bc085e14fd001f6a1948768a3f4afefc8b8240dda329f984cb345c6363272ba4fe".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[15]: TON opcode = 1
-    if (index == 101) {
-        return {
-            keys: [
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-            ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "9674e2228034527f4c083206032b020310face156d4a4685e2fcaec2f6f3665aa635d90347b6ce124eb879266b1e801d185de36a0a289b85e9039662634f2eea1e02e670bc7ab849d006a70b2f93b84597558a05b879c8d445f387a5d5b653df".hexToSlice(),
-            verdict: 1,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[16]: TON opcode = 0
-    if (index == 102) {
-        return {
-            keys: [
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "9674e2228034527f4c083206032b020310face156d4a4685e2fcaec2f6f3665aa635d90347b6ce124eb879266b1e801d185de36a0a289b85e9039662634f2eea1e02e670bc7ab849d006a70b2f93b84597558a05b879c8d445f387a5d5b653df".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[17]: TON opcode = 0
-    if (index == 103) {
-        return {
-            keys: [
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "9674e2228034527f4c083206032b020310face156d4a4685e2fcaec2f6f3665aa635d90347b6ce124eb879266b1e801d185de36a0a289b85e9039662634f2eea1e02e670bc7ab849d006a70b2f93b84597558a05b879c8d445f387a5d5b653df".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[18]: TON opcode = 1
-    if (index == 104) {
-        return {
-            keys: [
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "948a7cb99f76d616c2c564ce9bf4a519f1bea6b0a624a02276443c245854219fabb8d4ce061d255af5330b078d5380681751aa7053da2c98bae898edc218c75f07e24d8802a17cd1f6833b71e58f5eb5b94208b4d0bb3848cecb075ea21be115".hexToSlice(),
-            verdict: 1,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[19]: TON opcode = 0
-    if (index == 105) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "948a7cb99f76d616c2c564ce9bf4a519f1bea6b0a624a02276443c245854219fabb8d4ce061d255af5330b078d5380681751aa7053da2c98bae898edc218c75f07e24d8802a17cd1f6833b71e58f5eb5b94208b4d0bb3848cecb075ea21be115".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[20]: TON opcode = 0
-    if (index == 106) {
-        return {
-            keys: [
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "948a7cb99f76d616c2c564ce9bf4a519f1bea6b0a624a02276443c245854219fabb8d4ce061d255af5330b078d5380681751aa7053da2c98bae898edc218c75f07e24d8802a17cd1f6833b71e58f5eb5b94208b4d0bb3848cecb075ea21be115".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[21]: TON opcode = 1
-    if (index == 107) {
-        return {
-            keys: [
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "a4efa926610b8bd1c8330c918b7a5e9bf374e53435ef8b7ec186abf62e1b1f65aeaaeb365677ac1d1172a1f5b44b4e6d022c252c58486c0a759fbdc7de15a756acc4d343064035667a594b4c2a6f0b0b421975977f297dba63ee2f63ffe47bb6".hexToSlice(),
-            verdict: 1,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[22]: TON opcode = 0
-    if (index == 108) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "a4efa926610b8bd1c8330c918b7a5e9bf374e53435ef8b7ec186abf62e1b1f65aeaaeb365677ac1d1172a1f5b44b4e6d022c252c58486c0a759fbdc7de15a756acc4d343064035667a594b4c2a6f0b0b421975977f297dba63ee2f63ffe47bb6".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[23]: TON opcode = 0
-    if (index == 109) {
-        return {
-            keys: [
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "a4efa926610b8bd1c8330c918b7a5e9bf374e53435ef8b7ec186abf62e1b1f65aeaaeb365677ac1d1172a1f5b44b4e6d022c252c58486c0a759fbdc7de15a756acc4d343064035667a594b4c2a6f0b0b421975977f297dba63ee2f63ffe47bb6".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[24]: TON opcode = 1
-    if (index == 110) {
-        return {
-            keys: [
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "ae82747ddeefe4fd64cf9cedb9b04ae3e8a43420cd255e3c7cd06a8d88b7c7f8638543719981c5d16fa3527c468c25f0026704a6951bde891360c7e8d12ddee0559004ccdbe6046b55bae1b257ee97f7cdb955773d7cf29adf3ccbb9975e4eb9".hexToSlice(),
-            verdict: 1,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[25]: TON opcode = 0
-    if (index == 111) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "ae82747ddeefe4fd64cf9cedb9b04ae3e8a43420cd255e3c7cd06a8d88b7c7f8638543719981c5d16fa3527c468c25f0026704a6951bde891360c7e8d12ddee0559004ccdbe6046b55bae1b257ee97f7cdb955773d7cf29adf3ccbb9975e4eb9".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.verify[26]: TON opcode = 0
-    if (index == 112) {
-        return {
-            keys: [
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "ae82747ddeefe4fd64cf9cedb9b04ae3e8a43420cd255e3c7cd06a8d88b7c7f8638543719981c5d16fa3527c468c25f0026704a6951bde891360c7e8d12ddee0559004ccdbe6046b55bae1b257ee97f7cdb955773d7cf29adf3ccbb9975e4eb9".hexToSlice(),
-            verdict: 0,
-            group: 6,
-        };
-    }
-    // rust.standard_vectors.fast_aggregate_verify[0]: TON opcode = 1
-    if (index == 113) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "9683b3e6701f9a4b706709577963110043af78a5b41991b998475a3d3fd62abf35ce03b33908418efc95a058494a8ae504354b9f626231f6b3f3c849dfdeaf5017c4780e2aee1850ceaf4b4d9ce70971a3d2cfcd97b7e5ecf6759f8da5f76d31".hexToSlice(),
-            verdict: 1,
-            group: 7,
-        };
-    }
-    // rust.standard_vectors.fast_aggregate_verify[1]: TON opcode = 0
-    if (index == 114) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "9683b3e6701f9a4b706709577963110043af78a5b41991b998475a3d3fd62abf35ce03b33908418efc95a058494a8ae504354b9f626231f6b3f3c849dfdeaf5017c4780e2aee1850ceaf4b4d9ce70971a3d2cfcd97b7e5ecf6759f8da5f76d31".hexToSlice(),
-            verdict: 0,
-            group: 7,
-        };
-    }
-    // rust.standard_vectors.fast_aggregate_verify[2]: TON opcode = 0
-    if (index == 115) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "9683b3e6701f9a4b706709577963110043af78a5b41991b998475a3d3fd62abf35ce03b33908418efc95a058494a8ae504354b9f626231f6b3f3c849dfdeaf5017c4780e2aee1850ceaf4b4d9ce70971a3d2cfcd97b7e5ecf6759f8da5f76d31".hexToSlice(),
-            verdict: 0,
-            group: 7,
-        };
-    }
-    // rust.standard_vectors.fast_aggregate_verify[3]: TON opcode = 1
-    if (index == 116) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "ad38fc73846583b08d110d16ab1d026c6ea77ac2071e8ae832f56ac0cbcdeb9f5678ba5ce42bd8dce334cc47b5abcba40a58f7f1f80ab304193eb98836cc14d8183ec14cc77de0f80c4ffd49e168927a968b5cdaa4cf46b9805be84ad7efa77b".hexToSlice(),
-            verdict: 1,
-            group: 7,
-        };
-    }
-    // rust.standard_vectors.fast_aggregate_verify[4]: TON opcode = 0
-    if (index == 117) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-            ],
-            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
-            signature: "ad38fc73846583b08d110d16ab1d026c6ea77ac2071e8ae832f56ac0cbcdeb9f5678ba5ce42bd8dce334cc47b5abcba40a58f7f1f80ab304193eb98836cc14d8183ec14cc77de0f80c4ffd49e168927a968b5cdaa4cf46b9805be84ad7efa77b".hexToSlice(),
-            verdict: 0,
-            group: 7,
-        };
-    }
-    // rust.standard_vectors.fast_aggregate_verify[5]: TON opcode = 0
-    if (index == 118) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "ad38fc73846583b08d110d16ab1d026c6ea77ac2071e8ae832f56ac0cbcdeb9f5678ba5ce42bd8dce334cc47b5abcba40a58f7f1f80ab304193eb98836cc14d8183ec14cc77de0f80c4ffd49e168927a968b5cdaa4cf46b9805be84ad7efa77b".hexToSlice(),
-            verdict: 0,
-            group: 7,
-        };
-    }
-    // rust.standard_vectors.fast_aggregate_verify[6]: TON opcode = 1
-    if (index == 119) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfc4ff1d930".hexToSlice(),
-            verdict: 1,
-            group: 7,
-        };
-    }
-    // rust.standard_vectors.fast_aggregate_verify[7]: TON opcode = 0
-    if (index == 120) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-            ],
-            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
-            signature: "9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfc4ff1d930".hexToSlice(),
-            verdict: 0,
-            group: 7,
-        };
-    }
-    // rust.standard_vectors.fast_aggregate_verify[8]: TON opcode = 0
-    if (index == 121) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
-                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfc4ff1d930".hexToSlice(),
-            verdict: 0,
-            group: 7,
-        };
-    }
-    // ethereum_mainnet_sync_committee: TON opcode = 1
-    if (index == 122) {
-        return {
-            keys: [
-                "954225fce2824e5998647588bfce08983c7db9b48a1770ecad9602ebed1e3c7386e6f7ce06d70b4fd74d8befa9fdc92d".hexToSlice(),
-            ],
-            message: "937e7d4a92ba79c29e69784d2d6b9bfaf0c08be0db55667d93b6046747d457fb".hexToSlice(),
-            signature: "84f4b65c21aac4350955e9093c03645c88bb6ac0999918f992b7267ae3887e83448033490ec47014eff2572f7c6a6d08133c4ba50e9cf03cf170e063128dceae42f9b5a36c8ad39c24525d491ce2f5e878fbbbdd353551cde34aea56a0c43ed9".hexToSlice(),
-            verdict: 1,
-            group: 8,
-        };
-    }
-    // ethereum_mainnet_sync_committee.negative_first_participant_dropped: TON opcode = 0
-    if (index == 123) {
-        return {
-            keys: [
-                "b5653c11fb6027d2e00a37ea19bff2d9930956a7055ae19a8a9b543d5aa13f517e28fb355052205a12cbb1fdaf0d48ef".hexToSlice(),
-            ],
-            message: "937e7d4a92ba79c29e69784d2d6b9bfaf0c08be0db55667d93b6046747d457fb".hexToSlice(),
-            signature: "84f4b65c21aac4350955e9093c03645c88bb6ac0999918f992b7267ae3887e83448033490ec47014eff2572f7c6a6d08133c4ba50e9cf03cf170e063128dceae42f9b5a36c8ad39c24525d491ce2f5e878fbbbdd353551cde34aea56a0c43ed9".hexToSlice(),
-            verdict: 0,
-            group: 8,
-        };
-    }
-    // rust.negatives.w3f_signature_over_consensus_preimage: TON opcode = 0
-    if (index == 124) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "efbeb78ba7865e8e3484a69fa7d8778150eaccfbea0d3f38737cbedcf0883adc".hexToSlice(),
-            signature: "a7e9546b7e653ca41101570bb1a498cedf24d52baf9fdfd3b5e7f1d8ab1e1a69a745b6a860b90da254a935b51dbc2e6b0794a7402b5987fcf3045698666b37f2c9210e256c2da83ce7b255dd2c3d9193efabc9a0406de80702afb3d2f12bae25".hexToSlice(),
-            verdict: 0,
-            group: 9,
-        };
-    }
-    // rust.negatives.w3f_signature_over_consensus_digest: TON opcode = 0
-    if (index == 125) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "efbeb78ba7865e8e3484a69fa7d8778150eaccfbea0d3f38737cbedcf0883adc".hexToSlice(),
-            signature: "83af5dc46822da1ad0147859d3c6f70f785a022676c2b49da80c41f49b8d51eaafc5afa9da58dcce7acfb9b6f73832fb17a9ac32ce0716f6b74686544e17f1b8e0542e03a388364504332cd74d64ec39a3e92f2d2f35a7deeb7a045086a93c8e".hexToSlice(),
-            verdict: 0,
-            group: 9,
-        };
-    }
-    // rust.negatives.dst_sig_signature_presented_to_generic_api: TON opcode = 1
-    if (index == 126) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "efbeb78ba7865e8e3484a69fa7d8778150eaccfbea0d3f38737cbedcf0883adc".hexToSlice(),
-            signature: "a280e729529a485ebfc20182b6ecba14d2ead09a5f127e3a70cc059651ea77c3807b797d7701a0908c4339fac33e73830c5035d2911dd9eabc1f522ba7959f9bde4ccce1b92b4da3226f3d8aaa18b9a92e71ed1a714e182e27f4fcf440269548".hexToSlice(),
-            verdict: 1,
-            group: 9,
-        };
-    }
-    // rust.negatives.w3f_pop_as_consensus_signature: TON opcode = 0
-    if (index == 127) {
-        return {
-            keys: [
-                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "d4bbcf58fd9b8669e09a4cc2e26a564b8f92d9aa343b027d51ebca2042429e37".hexToSlice(),
-            signature: "866bb2d59f2e969c2742ac13e4bdc7e6cd04643daf32e903c6a2cf4f8094591f688b48f3e5248df245ea66ee43748cbf112e127bfa5f737dc8fceae8ace18a5d5aadef2418435c7b1d5f777c506f017d2aa25430ba8a1f1aca2032263bf6ebd6".hexToSlice(),
-            verdict: 0,
-            group: 9,
-        };
-    }
-    // rust.negatives.public_key_identity: TON opcode = 0
-    if (index == 128) {
         return {
             keys: [
                 "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
@@ -4097,71 +4014,215 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
             verdict: 0,
-            group: 9,
+            group: 11,
         };
     }
-    // rust.negatives.public_key_non_subgroup: TON opcode = 0
-    if (index == 129) {
+    // ethereum_bls12_381_tests.deserialization_G2.deserialization_fails_infinity_with_false_b_flag: TON opcode = 0
+    if (index == 94) {
         return {
             keys: [
-                "800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004".hexToSlice(),
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            verdict: 0,
+            group: 12,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G2.deserialization_fails_infinity_with_true_b_flag: TON opcode = 0
+    if (index == 95) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "c01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            verdict: 0,
+            group: 12,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G2.deserialization_fails_not_in_G2: TON opcode = 0
+    if (index == 96) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "8123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".hexToSlice(),
+            verdict: 0,
+            group: 12,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G2.deserialization_fails_not_in_curve: TON opcode = 0
+    if (index == 97) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "8123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde0".hexToSlice(),
+            verdict: 0,
+            group: 12,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G2.deserialization_fails_too_few_bytes: TON opcode = -9
+    if (index == 98) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "8123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd".hexToSlice(),
+            verdict: -9,
+            group: 12,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G2.deserialization_fails_too_many_bytes: TON opcode = 0
+    if (index == 99) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "8123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdefff".hexToSlice(),
+            verdict: 0,
+            group: 12,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G2.deserialization_fails_with_b_flag_and_a_flag_true: TON opcode = 0
+    if (index == 100) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            verdict: 0,
+            group: 12,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G2.deserialization_fails_with_b_flag_and_x_nonzero: TON opcode = 0
+    if (index == 101) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "c123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".hexToSlice(),
+            verdict: 0,
+            group: 12,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G2.deserialization_fails_with_wrong_c_flag: TON opcode = 0
+    if (index == 102) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".hexToSlice(),
+            verdict: 0,
+            group: 12,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G2.deserialization_fails_xim_equal_to_modulus: TON opcode = 0
+    if (index == 103) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            verdict: 0,
+            group: 12,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G2.deserialization_fails_xim_greater_than_modulus: TON opcode = 0
+    if (index == 104) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaac000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            verdict: 0,
+            group: 12,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G2.deserialization_fails_xre_equal_to_modulus: TON opcode = 0
+    if (index == 105) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "8000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".hexToSlice(),
+            verdict: 0,
+            group: 12,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G2.deserialization_fails_xre_greater_than_modulus: TON opcode = 0
+    if (index == 106) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "8000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaac".hexToSlice(),
+            verdict: 0,
+            group: 12,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G2.deserialization_succeeds_correct_point: TON opcode = 0
+    if (index == 107) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b2cc74bc9f089ed9764bbceac5edba416bef5e73701288977b9cac1ccb6964269d4ebf78b4e8aa7792ba09d3e49c8e6a1351bdf582971f796bbaf6320e81251c9d28f674d720cca07ed14596b96697cf18238e0e03ebd7fc1353d885a39407e0".hexToSlice(),
+            verdict: 0,
+            group: 12,
+        };
+    }
+    // ethereum_bls12_381_tests.deserialization_G2.deserialization_succeeds_infinity_with_true_b_flag: TON opcode = 0
+    if (index == 108) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            verdict: 0,
+            group: 12,
+        };
+    }
+    // sccp_extra_malformed_inputs.g1_deserialization.negated: TON opcode = 0
+    if (index == 109) {
+        return {
+            keys: [
+                "8491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
             ],
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
             verdict: 0,
-            group: 9,
+            group: 13,
         };
     }
-    // rust.negatives.public_key_x_equals_field_modulus: TON opcode = 0
-    if (index == 130) {
+    // sccp_extra_malformed_inputs.g1_deserialization.empty: TON opcode = -9
+    if (index == 110) {
         return {
             keys: [
-                "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".hexToSlice(),
+                createEmptySlice(),
             ],
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 0,
-            group: 9,
+            verdict: -9,
+            group: 13,
         };
     }
-    // rust.negatives.public_key_compression_flag_cleared: TON opcode = 0
-    if (index == 131) {
-        return {
-            keys: [
-                "2491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 0,
-            group: 9,
-        };
-    }
-    // rust.negatives.public_key_infinity_flag_with_nonzero_x: TON opcode = 0
-    if (index == 132) {
-        return {
-            keys: [
-                "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 0,
-            group: 9,
-        };
-    }
-    // rust.negatives.public_key_infinity_flag_with_sign_flag: TON opcode = 0
-    if (index == 133) {
-        return {
-            keys: [
-                "e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            ],
-            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
-            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
-            verdict: 0,
-            group: 9,
-        };
-    }
-    // rust.negatives.public_key_all_zero: TON opcode = 0
-    if (index == 134) {
+    // sccp_extra_malformed_inputs.g1_deserialization.all_zero: TON opcode = 0
+    if (index == 111) {
         return {
             keys: [
                 "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
@@ -4169,11 +4230,11 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
             verdict: 0,
-            group: 9,
+            group: 13,
         };
     }
-    // rust.negatives.public_key_all_ones: TON opcode = 0
-    if (index == 135) {
+    // sccp_extra_malformed_inputs.g1_deserialization.all_ones: TON opcode = 0
+    if (index == 112) {
         return {
             keys: [
                 "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".hexToSlice(),
@@ -4181,11 +4242,806 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
             verdict: 0,
-            group: 9,
+            group: 13,
+        };
+    }
+    // sccp_extra_malformed_inputs.g1_deserialization.long: TON opcode = 1
+    if (index == 113) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a00".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 1,
+            group: 13,
+        };
+    }
+    // sccp_extra_malformed_inputs.g2_deserialization.negated: TON opcode = 0
+    if (index == 114) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "96ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 0,
+            group: 14,
+        };
+    }
+    // sccp_extra_malformed_inputs.g2_deserialization.empty: TON opcode = -9
+    if (index == 115) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: createEmptySlice(),
+            verdict: -9,
+            group: 14,
+        };
+    }
+    // sccp_extra_malformed_inputs.g2_deserialization.all_zero: TON opcode = 0
+    if (index == 116) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            verdict: 0,
+            group: 14,
+        };
+    }
+    // sccp_extra_malformed_inputs.g2_deserialization.all_ones: TON opcode = 0
+    if (index == 117) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".hexToSlice(),
+            verdict: 0,
+            group: 14,
+        };
+    }
+    // sccp_extra_malformed_inputs.g2_deserialization.long: TON opcode = 1
+    if (index == 118) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a5500".hexToSlice(),
+            verdict: 1,
+            group: 14,
+        };
+    }
+    // rust.standard_vectors.sign[0]: TON opcode = 1
+    if (index == 119) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 1,
+            group: 3,
+        };
+    }
+    // rust.standard_vectors.sign[1]: TON opcode = 1
+    if (index == 120) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "882730e5d03f6b42c3abc26d3372625034e1d871b65a8a6b900a56dae22da98abbe1b68f85e49fe7652a55ec3d0591c20767677e33e5cbb1207315c41a9ac03be39c2e7668edc043d6cb1d9fd93033caa8a1c5b0e84bedaeb6c64972503a43eb".hexToSlice(),
+            verdict: 1,
+            group: 3,
+        };
+    }
+    // rust.standard_vectors.sign[2]: TON opcode = 1
+    if (index == 121) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "91347bccf740d859038fcdcaf233eeceb2a436bcaaee9b2aa3bfb70efe29dfb2677562ccbea1c8e061fb9971b0753c240622fab78489ce96768259fc01360346da5b9f579e5da0d941e4c6ba18a0e64906082375394f337fa1af2b7127b0d121".hexToSlice(),
+            verdict: 1,
+            group: 3,
+        };
+    }
+    // rust.standard_vectors.sign[3]: TON opcode = 1
+    if (index == 122) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b23c46be3a001c63ca711f87a005c200cc550b9429d5f4eb38d74322144f1b63926da3388979e5321012fb1a0526bcd100b5ef5fe72628ce4cd5e904aeaa3279527843fae5ca9ca675f4f51ed8f83bbf7155da9ecc9663100a885d5dc6df96d9".hexToSlice(),
+            verdict: 1,
+            group: 3,
+        };
+    }
+    // rust.standard_vectors.sign[4]: TON opcode = 1
+    if (index == 123) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "af1390c3c47acdb37131a51216da683c509fce0e954328a59f93aebda7e4ff974ba208d9a4a2a2389f892a9d418d618418dd7f7a6bc7aa0da999a9d3a5b815bc085e14fd001f6a1948768a3f4afefc8b8240dda329f984cb345c6363272ba4fe".hexToSlice(),
+            verdict: 1,
+            group: 3,
+        };
+    }
+    // rust.standard_vectors.sign[5]: TON opcode = 1
+    if (index == 124) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "9674e2228034527f4c083206032b020310face156d4a4685e2fcaec2f6f3665aa635d90347b6ce124eb879266b1e801d185de36a0a289b85e9039662634f2eea1e02e670bc7ab849d006a70b2f93b84597558a05b879c8d445f387a5d5b653df".hexToSlice(),
+            verdict: 1,
+            group: 3,
+        };
+    }
+    // rust.standard_vectors.sign[6]: TON opcode = 1
+    if (index == 125) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "948a7cb99f76d616c2c564ce9bf4a519f1bea6b0a624a02276443c245854219fabb8d4ce061d255af5330b078d5380681751aa7053da2c98bae898edc218c75f07e24d8802a17cd1f6833b71e58f5eb5b94208b4d0bb3848cecb075ea21be115".hexToSlice(),
+            verdict: 1,
+            group: 3,
+        };
+    }
+    // rust.standard_vectors.sign[7]: TON opcode = 1
+    if (index == 126) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "a4efa926610b8bd1c8330c918b7a5e9bf374e53435ef8b7ec186abf62e1b1f65aeaaeb365677ac1d1172a1f5b44b4e6d022c252c58486c0a759fbdc7de15a756acc4d343064035667a594b4c2a6f0b0b421975977f297dba63ee2f63ffe47bb6".hexToSlice(),
+            verdict: 1,
+            group: 3,
+        };
+    }
+    // rust.standard_vectors.sign[8]: TON opcode = 1
+    if (index == 127) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "ae82747ddeefe4fd64cf9cedb9b04ae3e8a43420cd255e3c7cd06a8d88b7c7f8638543719981c5d16fa3527c468c25f0026704a6951bde891360c7e8d12ddee0559004ccdbe6046b55bae1b257ee97f7cdb955773d7cf29adf3ccbb9975e4eb9".hexToSlice(),
+            verdict: 1,
+            group: 3,
+        };
+    }
+    // rust.standard_vectors.verify[0]: TON opcode = 1
+    if (index == 128) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 1,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[1]: TON opcode = 0
+    if (index == 129) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[2]: TON opcode = 0
+    if (index == 130) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[3]: TON opcode = 1
+    if (index == 131) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "882730e5d03f6b42c3abc26d3372625034e1d871b65a8a6b900a56dae22da98abbe1b68f85e49fe7652a55ec3d0591c20767677e33e5cbb1207315c41a9ac03be39c2e7668edc043d6cb1d9fd93033caa8a1c5b0e84bedaeb6c64972503a43eb".hexToSlice(),
+            verdict: 1,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[4]: TON opcode = 0
+    if (index == 132) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "882730e5d03f6b42c3abc26d3372625034e1d871b65a8a6b900a56dae22da98abbe1b68f85e49fe7652a55ec3d0591c20767677e33e5cbb1207315c41a9ac03be39c2e7668edc043d6cb1d9fd93033caa8a1c5b0e84bedaeb6c64972503a43eb".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[5]: TON opcode = 0
+    if (index == 133) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "882730e5d03f6b42c3abc26d3372625034e1d871b65a8a6b900a56dae22da98abbe1b68f85e49fe7652a55ec3d0591c20767677e33e5cbb1207315c41a9ac03be39c2e7668edc043d6cb1d9fd93033caa8a1c5b0e84bedaeb6c64972503a43eb".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[6]: TON opcode = 1
+    if (index == 134) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "91347bccf740d859038fcdcaf233eeceb2a436bcaaee9b2aa3bfb70efe29dfb2677562ccbea1c8e061fb9971b0753c240622fab78489ce96768259fc01360346da5b9f579e5da0d941e4c6ba18a0e64906082375394f337fa1af2b7127b0d121".hexToSlice(),
+            verdict: 1,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[7]: TON opcode = 0
+    if (index == 135) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "91347bccf740d859038fcdcaf233eeceb2a436bcaaee9b2aa3bfb70efe29dfb2677562ccbea1c8e061fb9971b0753c240622fab78489ce96768259fc01360346da5b9f579e5da0d941e4c6ba18a0e64906082375394f337fa1af2b7127b0d121".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[8]: TON opcode = 0
+    if (index == 136) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "91347bccf740d859038fcdcaf233eeceb2a436bcaaee9b2aa3bfb70efe29dfb2677562ccbea1c8e061fb9971b0753c240622fab78489ce96768259fc01360346da5b9f579e5da0d941e4c6ba18a0e64906082375394f337fa1af2b7127b0d121".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[9]: TON opcode = 1
+    if (index == 137) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b23c46be3a001c63ca711f87a005c200cc550b9429d5f4eb38d74322144f1b63926da3388979e5321012fb1a0526bcd100b5ef5fe72628ce4cd5e904aeaa3279527843fae5ca9ca675f4f51ed8f83bbf7155da9ecc9663100a885d5dc6df96d9".hexToSlice(),
+            verdict: 1,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[10]: TON opcode = 0
+    if (index == 138) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b23c46be3a001c63ca711f87a005c200cc550b9429d5f4eb38d74322144f1b63926da3388979e5321012fb1a0526bcd100b5ef5fe72628ce4cd5e904aeaa3279527843fae5ca9ca675f4f51ed8f83bbf7155da9ecc9663100a885d5dc6df96d9".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[11]: TON opcode = 0
+    if (index == 139) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "b23c46be3a001c63ca711f87a005c200cc550b9429d5f4eb38d74322144f1b63926da3388979e5321012fb1a0526bcd100b5ef5fe72628ce4cd5e904aeaa3279527843fae5ca9ca675f4f51ed8f83bbf7155da9ecc9663100a885d5dc6df96d9".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[12]: TON opcode = 1
+    if (index == 140) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "af1390c3c47acdb37131a51216da683c509fce0e954328a59f93aebda7e4ff974ba208d9a4a2a2389f892a9d418d618418dd7f7a6bc7aa0da999a9d3a5b815bc085e14fd001f6a1948768a3f4afefc8b8240dda329f984cb345c6363272ba4fe".hexToSlice(),
+            verdict: 1,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[13]: TON opcode = 0
+    if (index == 141) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "af1390c3c47acdb37131a51216da683c509fce0e954328a59f93aebda7e4ff974ba208d9a4a2a2389f892a9d418d618418dd7f7a6bc7aa0da999a9d3a5b815bc085e14fd001f6a1948768a3f4afefc8b8240dda329f984cb345c6363272ba4fe".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[14]: TON opcode = 0
+    if (index == 142) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "af1390c3c47acdb37131a51216da683c509fce0e954328a59f93aebda7e4ff974ba208d9a4a2a2389f892a9d418d618418dd7f7a6bc7aa0da999a9d3a5b815bc085e14fd001f6a1948768a3f4afefc8b8240dda329f984cb345c6363272ba4fe".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[15]: TON opcode = 1
+    if (index == 143) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "9674e2228034527f4c083206032b020310face156d4a4685e2fcaec2f6f3665aa635d90347b6ce124eb879266b1e801d185de36a0a289b85e9039662634f2eea1e02e670bc7ab849d006a70b2f93b84597558a05b879c8d445f387a5d5b653df".hexToSlice(),
+            verdict: 1,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[16]: TON opcode = 0
+    if (index == 144) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "9674e2228034527f4c083206032b020310face156d4a4685e2fcaec2f6f3665aa635d90347b6ce124eb879266b1e801d185de36a0a289b85e9039662634f2eea1e02e670bc7ab849d006a70b2f93b84597558a05b879c8d445f387a5d5b653df".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[17]: TON opcode = 0
+    if (index == 145) {
+        return {
+            keys: [
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "9674e2228034527f4c083206032b020310face156d4a4685e2fcaec2f6f3665aa635d90347b6ce124eb879266b1e801d185de36a0a289b85e9039662634f2eea1e02e670bc7ab849d006a70b2f93b84597558a05b879c8d445f387a5d5b653df".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[18]: TON opcode = 1
+    if (index == 146) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "948a7cb99f76d616c2c564ce9bf4a519f1bea6b0a624a02276443c245854219fabb8d4ce061d255af5330b078d5380681751aa7053da2c98bae898edc218c75f07e24d8802a17cd1f6833b71e58f5eb5b94208b4d0bb3848cecb075ea21be115".hexToSlice(),
+            verdict: 1,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[19]: TON opcode = 0
+    if (index == 147) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "948a7cb99f76d616c2c564ce9bf4a519f1bea6b0a624a02276443c245854219fabb8d4ce061d255af5330b078d5380681751aa7053da2c98bae898edc218c75f07e24d8802a17cd1f6833b71e58f5eb5b94208b4d0bb3848cecb075ea21be115".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[20]: TON opcode = 0
+    if (index == 148) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "948a7cb99f76d616c2c564ce9bf4a519f1bea6b0a624a02276443c245854219fabb8d4ce061d255af5330b078d5380681751aa7053da2c98bae898edc218c75f07e24d8802a17cd1f6833b71e58f5eb5b94208b4d0bb3848cecb075ea21be115".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[21]: TON opcode = 1
+    if (index == 149) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "a4efa926610b8bd1c8330c918b7a5e9bf374e53435ef8b7ec186abf62e1b1f65aeaaeb365677ac1d1172a1f5b44b4e6d022c252c58486c0a759fbdc7de15a756acc4d343064035667a594b4c2a6f0b0b421975977f297dba63ee2f63ffe47bb6".hexToSlice(),
+            verdict: 1,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[22]: TON opcode = 0
+    if (index == 150) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "a4efa926610b8bd1c8330c918b7a5e9bf374e53435ef8b7ec186abf62e1b1f65aeaaeb365677ac1d1172a1f5b44b4e6d022c252c58486c0a759fbdc7de15a756acc4d343064035667a594b4c2a6f0b0b421975977f297dba63ee2f63ffe47bb6".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[23]: TON opcode = 0
+    if (index == 151) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "a4efa926610b8bd1c8330c918b7a5e9bf374e53435ef8b7ec186abf62e1b1f65aeaaeb365677ac1d1172a1f5b44b4e6d022c252c58486c0a759fbdc7de15a756acc4d343064035667a594b4c2a6f0b0b421975977f297dba63ee2f63ffe47bb6".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[24]: TON opcode = 1
+    if (index == 152) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "ae82747ddeefe4fd64cf9cedb9b04ae3e8a43420cd255e3c7cd06a8d88b7c7f8638543719981c5d16fa3527c468c25f0026704a6951bde891360c7e8d12ddee0559004ccdbe6046b55bae1b257ee97f7cdb955773d7cf29adf3ccbb9975e4eb9".hexToSlice(),
+            verdict: 1,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[25]: TON opcode = 0
+    if (index == 153) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "ae82747ddeefe4fd64cf9cedb9b04ae3e8a43420cd255e3c7cd06a8d88b7c7f8638543719981c5d16fa3527c468c25f0026704a6951bde891360c7e8d12ddee0559004ccdbe6046b55bae1b257ee97f7cdb955773d7cf29adf3ccbb9975e4eb9".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.verify[26]: TON opcode = 0
+    if (index == 154) {
+        return {
+            keys: [
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "ae82747ddeefe4fd64cf9cedb9b04ae3e8a43420cd255e3c7cd06a8d88b7c7f8638543719981c5d16fa3527c468c25f0026704a6951bde891360c7e8d12ddee0559004ccdbe6046b55bae1b257ee97f7cdb955773d7cf29adf3ccbb9975e4eb9".hexToSlice(),
+            verdict: 0,
+            group: 4,
+        };
+    }
+    // rust.standard_vectors.fast_aggregate_verify[0]: TON opcode = 1
+    if (index == 155) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "9683b3e6701f9a4b706709577963110043af78a5b41991b998475a3d3fd62abf35ce03b33908418efc95a058494a8ae504354b9f626231f6b3f3c849dfdeaf5017c4780e2aee1850ceaf4b4d9ce70971a3d2cfcd97b7e5ecf6759f8da5f76d31".hexToSlice(),
+            verdict: 1,
+            group: 5,
+        };
+    }
+    // rust.standard_vectors.fast_aggregate_verify[1]: TON opcode = 0
+    if (index == 156) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "9683b3e6701f9a4b706709577963110043af78a5b41991b998475a3d3fd62abf35ce03b33908418efc95a058494a8ae504354b9f626231f6b3f3c849dfdeaf5017c4780e2aee1850ceaf4b4d9ce70971a3d2cfcd97b7e5ecf6759f8da5f76d31".hexToSlice(),
+            verdict: 0,
+            group: 5,
+        };
+    }
+    // rust.standard_vectors.fast_aggregate_verify[2]: TON opcode = 0
+    if (index == 157) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "9683b3e6701f9a4b706709577963110043af78a5b41991b998475a3d3fd62abf35ce03b33908418efc95a058494a8ae504354b9f626231f6b3f3c849dfdeaf5017c4780e2aee1850ceaf4b4d9ce70971a3d2cfcd97b7e5ecf6759f8da5f76d31".hexToSlice(),
+            verdict: 0,
+            group: 5,
+        };
+    }
+    // rust.standard_vectors.fast_aggregate_verify[3]: TON opcode = 1
+    if (index == 158) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "ad38fc73846583b08d110d16ab1d026c6ea77ac2071e8ae832f56ac0cbcdeb9f5678ba5ce42bd8dce334cc47b5abcba40a58f7f1f80ab304193eb98836cc14d8183ec14cc77de0f80c4ffd49e168927a968b5cdaa4cf46b9805be84ad7efa77b".hexToSlice(),
+            verdict: 1,
+            group: 5,
+        };
+    }
+    // rust.standard_vectors.fast_aggregate_verify[4]: TON opcode = 0
+    if (index == 159) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "5656565656565656565656565656565656565656565656565656565656565656".hexToSlice(),
+            signature: "ad38fc73846583b08d110d16ab1d026c6ea77ac2071e8ae832f56ac0cbcdeb9f5678ba5ce42bd8dce334cc47b5abcba40a58f7f1f80ab304193eb98836cc14d8183ec14cc77de0f80c4ffd49e168927a968b5cdaa4cf46b9805be84ad7efa77b".hexToSlice(),
+            verdict: 0,
+            group: 5,
+        };
+    }
+    // rust.standard_vectors.fast_aggregate_verify[5]: TON opcode = 0
+    if (index == 160) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "ad38fc73846583b08d110d16ab1d026c6ea77ac2071e8ae832f56ac0cbcdeb9f5678ba5ce42bd8dce334cc47b5abcba40a58f7f1f80ab304193eb98836cc14d8183ec14cc77de0f80c4ffd49e168927a968b5cdaa4cf46b9805be84ad7efa77b".hexToSlice(),
+            verdict: 0,
+            group: 5,
+        };
+    }
+    // rust.standard_vectors.fast_aggregate_verify[6]: TON opcode = 1
+    if (index == 161) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfc4ff1d930".hexToSlice(),
+            verdict: 1,
+            group: 5,
+        };
+    }
+    // rust.standard_vectors.fast_aggregate_verify[7]: TON opcode = 0
+    if (index == 162) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+            ],
+            message: "abababababababababababababababababababababababababababababababab".hexToSlice(),
+            signature: "9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfc4ff1d930".hexToSlice(),
+            verdict: 0,
+            group: 5,
+        };
+    }
+    // rust.standard_vectors.fast_aggregate_verify[8]: TON opcode = 0
+    if (index == 163) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+                "b301803f8b5ac4a1133581fc676dfedc60d891dd5fa99028805e5ea5b08d3491af75d0707adab3b70c6a6a580217bf81".hexToSlice(),
+                "b53d21a4cfd562c469cc81514d4ce5a6b577d8403d32a394dc265dd190b47fa9f829fdd7963afdf972e5e77854051f6f".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "9712c3edd73a209c742b8250759db12549b3eaf43b5ca61376d9f30e2747dbcf842d8b2ac0901d2a093713e20284a7670fcf6954e9ab93de991bb9b313e664785a075fc285806fa5224c82bde146561b446ccfc706a64b8579513cfc4ff1d930".hexToSlice(),
+            verdict: 0,
+            group: 5,
+        };
+    }
+    // ethereum_mainnet_sync_committee: TON opcode = 1
+    if (index == 164) {
+        return {
+            keys: [
+                "954225fce2824e5998647588bfce08983c7db9b48a1770ecad9602ebed1e3c7386e6f7ce06d70b4fd74d8befa9fdc92d".hexToSlice(),
+            ],
+            message: "937e7d4a92ba79c29e69784d2d6b9bfaf0c08be0db55667d93b6046747d457fb".hexToSlice(),
+            signature: "84f4b65c21aac4350955e9093c03645c88bb6ac0999918f992b7267ae3887e83448033490ec47014eff2572f7c6a6d08133c4ba50e9cf03cf170e063128dceae42f9b5a36c8ad39c24525d491ce2f5e878fbbbdd353551cde34aea56a0c43ed9".hexToSlice(),
+            verdict: 1,
+            group: 6,
+        };
+    }
+    // ethereum_mainnet_sync_committee.negative_first_participant_dropped: TON opcode = 0
+    if (index == 165) {
+        return {
+            keys: [
+                "b5653c11fb6027d2e00a37ea19bff2d9930956a7055ae19a8a9b543d5aa13f517e28fb355052205a12cbb1fdaf0d48ef".hexToSlice(),
+            ],
+            message: "937e7d4a92ba79c29e69784d2d6b9bfaf0c08be0db55667d93b6046747d457fb".hexToSlice(),
+            signature: "84f4b65c21aac4350955e9093c03645c88bb6ac0999918f992b7267ae3887e83448033490ec47014eff2572f7c6a6d08133c4ba50e9cf03cf170e063128dceae42f9b5a36c8ad39c24525d491ce2f5e878fbbbdd353551cde34aea56a0c43ed9".hexToSlice(),
+            verdict: 0,
+            group: 6,
+        };
+    }
+    // rust.negatives.w3f_signature_over_consensus_preimage: TON opcode = 0
+    if (index == 166) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "efbeb78ba7865e8e3484a69fa7d8778150eaccfbea0d3f38737cbedcf0883adc".hexToSlice(),
+            signature: "a7e9546b7e653ca41101570bb1a498cedf24d52baf9fdfd3b5e7f1d8ab1e1a69a745b6a860b90da254a935b51dbc2e6b0794a7402b5987fcf3045698666b37f2c9210e256c2da83ce7b255dd2c3d9193efabc9a0406de80702afb3d2f12bae25".hexToSlice(),
+            verdict: 0,
+            group: 7,
+        };
+    }
+    // rust.negatives.w3f_signature_over_consensus_digest: TON opcode = 0
+    if (index == 167) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "efbeb78ba7865e8e3484a69fa7d8778150eaccfbea0d3f38737cbedcf0883adc".hexToSlice(),
+            signature: "83af5dc46822da1ad0147859d3c6f70f785a022676c2b49da80c41f49b8d51eaafc5afa9da58dcce7acfb9b6f73832fb17a9ac32ce0716f6b74686544e17f1b8e0542e03a388364504332cd74d64ec39a3e92f2d2f35a7deeb7a045086a93c8e".hexToSlice(),
+            verdict: 0,
+            group: 7,
+        };
+    }
+    // rust.negatives.dst_sig_signature_presented_to_generic_api: TON opcode = 1
+    if (index == 168) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "efbeb78ba7865e8e3484a69fa7d8778150eaccfbea0d3f38737cbedcf0883adc".hexToSlice(),
+            signature: "a280e729529a485ebfc20182b6ecba14d2ead09a5f127e3a70cc059651ea77c3807b797d7701a0908c4339fac33e73830c5035d2911dd9eabc1f522ba7959f9bde4ccce1b92b4da3226f3d8aaa18b9a92e71ed1a714e182e27f4fcf440269548".hexToSlice(),
+            verdict: 1,
+            group: 7,
+        };
+    }
+    // rust.negatives.w3f_pop_as_consensus_signature: TON opcode = 0
+    if (index == 169) {
+        return {
+            keys: [
+                "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "d4bbcf58fd9b8669e09a4cc2e26a564b8f92d9aa343b027d51ebca2042429e37".hexToSlice(),
+            signature: "866bb2d59f2e969c2742ac13e4bdc7e6cd04643daf32e903c6a2cf4f8094591f688b48f3e5248df245ea66ee43748cbf112e127bfa5f737dc8fceae8ace18a5d5aadef2418435c7b1d5f777c506f017d2aa25430ba8a1f1aca2032263bf6ebd6".hexToSlice(),
+            verdict: 0,
+            group: 7,
+        };
+    }
+    // rust.negatives.public_key_identity: TON opcode = 0
+    if (index == 170) {
+        return {
+            keys: [
+                "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 0,
+            group: 7,
+        };
+    }
+    // rust.negatives.public_key_non_subgroup: TON opcode = 0
+    if (index == 171) {
+        return {
+            keys: [
+                "800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 0,
+            group: 7,
+        };
+    }
+    // rust.negatives.public_key_x_equals_field_modulus: TON opcode = 0
+    if (index == 172) {
+        return {
+            keys: [
+                "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 0,
+            group: 7,
+        };
+    }
+    // rust.negatives.public_key_compression_flag_cleared: TON opcode = 0
+    if (index == 173) {
+        return {
+            keys: [
+                "2491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 0,
+            group: 7,
+        };
+    }
+    // rust.negatives.public_key_infinity_flag_with_nonzero_x: TON opcode = 0
+    if (index == 174) {
+        return {
+            keys: [
+                "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 0,
+            group: 7,
+        };
+    }
+    // rust.negatives.public_key_infinity_flag_with_sign_flag: TON opcode = 0
+    if (index == 175) {
+        return {
+            keys: [
+                "e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 0,
+            group: 7,
+        };
+    }
+    // rust.negatives.public_key_all_zero: TON opcode = 0
+    if (index == 176) {
+        return {
+            keys: [
+                "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 0,
+            group: 7,
+        };
+    }
+    // rust.negatives.public_key_all_ones: TON opcode = 0
+    if (index == 177) {
+        return {
+            keys: [
+                "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".hexToSlice(),
+            ],
+            message: "0000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
+            signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
+            verdict: 0,
+            group: 7,
         };
     }
     // rust.negatives.signature_identity: TON opcode = 0
-    if (index == 136) {
+    if (index == 178) {
         return {
             keys: [
                 "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
@@ -4193,11 +5049,11 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "efbeb78ba7865e8e3484a69fa7d8778150eaccfbea0d3f38737cbedcf0883adc".hexToSlice(),
             signature: "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             verdict: 0,
-            group: 9,
+            group: 7,
         };
     }
     // rust.negatives.signature_non_subgroup: TON opcode = 0
-    if (index == 137) {
+    if (index == 179) {
         return {
             keys: [
                 "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
@@ -4205,11 +5061,11 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "efbeb78ba7865e8e3484a69fa7d8778150eaccfbea0d3f38737cbedcf0883adc".hexToSlice(),
             signature: "800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002".hexToSlice(),
             verdict: 0,
-            group: 9,
+            group: 7,
         };
     }
     // rust.negatives.signature_c1_equals_field_modulus: TON opcode = 0
-    if (index == 138) {
+    if (index == 180) {
         return {
             keys: [
                 "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
@@ -4217,11 +5073,11 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "efbeb78ba7865e8e3484a69fa7d8778150eaccfbea0d3f38737cbedcf0883adc".hexToSlice(),
             signature: "9a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             verdict: 0,
-            group: 9,
+            group: 7,
         };
     }
     // rust.negatives.signature_c0_equals_field_modulus: TON opcode = 0
-    if (index == 139) {
+    if (index == 181) {
         return {
             keys: [
                 "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
@@ -4229,11 +5085,11 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "efbeb78ba7865e8e3484a69fa7d8778150eaccfbea0d3f38737cbedcf0883adc".hexToSlice(),
             signature: "b6ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158091a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab".hexToSlice(),
             verdict: 0,
-            group: 9,
+            group: 7,
         };
     }
     // rust.negatives.signature_compression_flag_cleared: TON opcode = 0
-    if (index == 140) {
+    if (index == 182) {
         return {
             keys: [
                 "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
@@ -4241,11 +5097,11 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "efbeb78ba7865e8e3484a69fa7d8778150eaccfbea0d3f38737cbedcf0883adc".hexToSlice(),
             signature: "36ed936746e01f8ecf281f020953fbf1f01debd5657c4a383940b020b26507f6076334f91e2366c96e9ab279fb5158090352ea1c5b0c9274504f4f0e7053af24802e51e4568d164fe986834f41e55c8e850ce1f98458c0cfc9ab380b55285a55".hexToSlice(),
             verdict: 0,
-            group: 9,
+            group: 7,
         };
     }
     // rust.negatives.signature_infinity_flag_with_nonzero_x: TON opcode = 0
-    if (index == 141) {
+    if (index == 183) {
         return {
             keys: [
                 "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
@@ -4253,11 +5109,11 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "efbeb78ba7865e8e3484a69fa7d8778150eaccfbea0d3f38737cbedcf0883adc".hexToSlice(),
             signature: "c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001".hexToSlice(),
             verdict: 0,
-            group: 9,
+            group: 7,
         };
     }
     // rust.negatives.signature_all_zero: TON opcode = 0
-    if (index == 142) {
+    if (index == 184) {
         return {
             keys: [
                 "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
@@ -4265,11 +5121,11 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "efbeb78ba7865e8e3484a69fa7d8778150eaccfbea0d3f38737cbedcf0883adc".hexToSlice(),
             signature: "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000".hexToSlice(),
             verdict: 0,
-            group: 9,
+            group: 7,
         };
     }
     // rust.negatives.signature_all_ones: TON opcode = 0
-    if (index == 143) {
+    if (index == 185) {
         return {
             keys: [
                 "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
@@ -4277,11 +5133,11 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "efbeb78ba7865e8e3484a69fa7d8778150eaccfbea0d3f38737cbedcf0883adc".hexToSlice(),
             signature: "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".hexToSlice(),
             verdict: 0,
-            group: 9,
+            group: 7,
         };
     }
     // rust.negatives.cancelling_keys_aggregate_to_identity: TON opcode = 0
-    if (index == 144) {
+    if (index == 186) {
         return {
             keys: [
                 "a491d1b0ecd9bb917989f0e74f0dea0422eac4a873e5e2644f368dffb9a6e20fd6e10c1b77654d067c0618f6e5a7f79a".hexToSlice(),
@@ -4290,7 +5146,7 @@ fun vecBlsVerification(index: int): VecBlsVerification {
             message: "efbeb78ba7865e8e3484a69fa7d8778150eaccfbea0d3f38737cbedcf0883adc".hexToSlice(),
             signature: "a280e729529a485ebfc20182b6ecba14d2ead09a5f127e3a70cc059651ea77c3807b797d7701a0908c4339fac33e73830c5035d2911dd9eabc1f522ba7959f9bde4ccce1b92b4da3226f3d8aaa18b9a92e71ed1a714e182e27f4fcf440269548".hexToSlice(),
             verdict: 0,
-            group: 9,
+            group: 7,
         };
     }
     throw VecErrors.BadIndex;

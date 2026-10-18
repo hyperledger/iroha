@@ -1440,8 +1440,10 @@ impl<'tx> AcceptedTransaction<'tx> {
         let remainder = norito::core::Header::SIZE % align;
         if remainder == 0 { 0 } else { align - remainder }
     }
+    /// Fixed-V1 bare payload length, counted without materializing the bytes.
     fn bare_encoded_len<T: norito::SerializePayload>(value: &T) -> usize {
-        norito::codec::Encode::encode(value).len()
+        let _flags = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
+        norito::core::encoded_payload_len(value).expect("canonical payload length is countable")
     }
     fn framed_encoded_len<T: norito::SerializePayload>(value: &T) -> usize {
         norito::core::Header::SIZE
@@ -1502,9 +1504,7 @@ impl<'tx> AcceptedTransaction<'tx> {
     /// Build reusable stateless metadata for a signed transaction.
     #[must_use]
     pub(crate) fn prepare_signed_metadata(tx: &SignedTransaction) -> PreparedTransactionMetadata {
-        let (signed_payload, _signed_payload_flags) = Self::canonical_signed_payload_with_flags(tx);
-        let signed_payload_len = signed_payload.len();
-        let encoded_len = Self::framed_encoded_payload_len::<SignedTransaction>(signed_payload_len);
+        let encoded_len = Self::framed_encoded_len(tx);
         let entrypoint_hash = tx.hash_as_entrypoint();
         Self::prepare_signed_metadata_with_entrypoint_hash_encoded_len_and_caches(
             tx,
@@ -2538,6 +2538,11 @@ impl<'tx> AcceptedTransaction<'tx> {
     }
     /// Borrow a source after the same explicit-time envelope/signature admission.
     /// The applying owner separately authenticates any historical time authority.
+    ///
+    /// `signature_prechecked` is set only when static validation of the same block
+    /// already verified this input's signature. It skips that cryptographic check
+    /// alone; algorithm, limit, network and expiry admission still run here,
+    /// because block-start effects may change the parameters they read.
     pub(crate) fn accept_borrowed_entrypoint_at_time(
         tx: &'tx TransactionEntrypoint,
         expected_network_id: &NetworkId,
@@ -2545,14 +2550,16 @@ impl<'tx> AcceptedTransaction<'tx> {
         limits: TransactionParameters,
         crypto: &iroha_config::parameters::actual::Crypto,
         validation_time: Duration,
+        signature_prechecked: bool,
     ) -> Result<Self, AcceptTransactionFail> {
-        AcceptedTransaction::<'static>::validate_entrypoint_with_now(
+        AcceptedTransaction::<'static>::validate_entrypoint_with_signature_check(
             tx,
             expected_network_id,
             max_clock_drift,
             limits,
             crypto,
             validation_time,
+            signature_prechecked,
         )?;
         Ok(Self::from_entrypoint(Cow::Borrowed(tx)).with_validation_time(validation_time))
     }
@@ -2566,29 +2573,58 @@ impl AcceptedTransaction<'static> {
         crypto: &iroha_config::parameters::actual::Crypto,
         now: Duration,
     ) -> Result<(), AcceptTransactionFail> {
+        Self::validate_entrypoint_with_signature_check(
+            tx,
+            expected_network_id,
+            max_clock_drift,
+            limits,
+            crypto,
+            now,
+            false,
+        )
+    }
+    fn validate_entrypoint_with_signature_check(
+        tx: &TransactionEntrypoint,
+        expected_network_id: &NetworkId,
+        max_clock_drift: Duration,
+        limits: TransactionParameters,
+        crypto: &iroha_config::parameters::actual::Crypto,
+        now: Duration,
+        signature_prechecked: bool,
+    ) -> Result<(), AcceptTransactionFail> {
+        let signature_check = || {
+            if signature_prechecked {
+                SignatureCheck::Override(Ok(()))
+            } else {
+                SignatureCheck::Verify
+            }
+        };
         match tx {
             TransactionEntrypoint::External(signed) => {
-                Self::validate_with_now(
+                Self::validate_with_now_and_signature_check(
                     signed,
                     expected_network_id,
                     max_clock_drift,
                     limits,
                     crypto,
                     now,
+                    signature_check(),
+                    None,
                 )?;
             }
             TransactionEntrypoint::SealedCommitment(commitment) => {
                 validate_sealed_commitment_stateless(commitment, expected_network_id, limits)?;
             }
             TransactionEntrypoint::SealedReveal(reveal) => {
-                let signed = reveal.signed_transaction();
-                Self::validate_with_now(
-                    signed,
+                Self::validate_with_now_and_signature_check(
+                    reveal.signed_transaction(),
                     expected_network_id,
                     max_clock_drift,
                     limits,
                     crypto,
                     now,
+                    signature_check(),
+                    None,
                 )?;
             }
         }
@@ -8716,6 +8752,59 @@ pub mod tests {
             ),
             other => panic!("expected TransactionLimit for excessive TTL, got {other:?}"),
         }
+    }
+    #[test]
+    fn borrowed_entrypoint_signature_precheck_skips_only_the_signature() {
+        let (authority, keypair) = gen_account_in("wonderland");
+        let (impostor_id, impostor) = gen_account_in("wonderland");
+        let build = |signer_id: &AccountId, signer: &KeyPair| {
+            TransactionBuilder::new(
+                test_network_id(),
+                signer_id.clone(),
+                iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+            )
+            .with_instructions([Log::new(Level::INFO, "precheck".to_owned())])
+            .sign(signer.private_key())
+        };
+        let genuine = TransactionEntrypoint::External(build(&authority, &keypair));
+        // Re-attributed without re-signing: the impostor's signature cannot verify.
+        let forged = TransactionEntrypoint::External(
+            build(&impostor_id, &impostor).with_authority(authority.clone()),
+        );
+        let crypto = iroha_config::parameters::actual::Crypto::default();
+        let accept = |entrypoint: &TransactionEntrypoint, prechecked: bool, now: Duration| {
+            AcceptedTransaction::accept_borrowed_entrypoint_at_time(
+                entrypoint,
+                &test_network_id(),
+                Duration::ZERO,
+                TransactionParameters::default(),
+                &crypto,
+                now,
+                prechecked,
+            )
+            .map(|_| ())
+        };
+        let TransactionEntrypoint::External(signed) = &genuine else {
+            unreachable!()
+        };
+        let now = signed.creation_time();
+        assert!(accept(&genuine, false, now).is_ok());
+        assert!(accept(&genuine, true, now).is_ok());
+        assert!(matches!(
+            accept(&forged, false, now),
+            Err(AcceptTransactionFail::SignatureVerification(_))
+        ));
+        assert!(
+            accept(&forged, true, now).is_ok(),
+            "an attested precheck replaces only the signature verification"
+        );
+        let expired = now
+            + signed.time_to_live().expect("builder binds a TTL")
+            + Duration::from_millis(1);
+        assert!(matches!(
+            accept(&genuine, true, expired),
+            Err(AcceptTransactionFail::TransactionExpired { .. })
+        ));
     }
     #[test]
     #[allow(clippy::too_many_lines)]

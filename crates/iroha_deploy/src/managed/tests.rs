@@ -810,6 +810,18 @@ fn changed_binary_is_rejected_before_launch() {
     let temporary = tempfile::tempdir().unwrap();
     let binary = temporary.path().join("daemon");
     std::fs::copy(std::env::current_exe().unwrap(), &binary).unwrap();
+    // Copies inherit a read-only driver mode; make only this fixture mutable before pinning.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    #[cfg(windows)]
+    {
+        let mut permissions = std::fs::metadata(&binary).unwrap().permissions();
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&binary, permissions).unwrap();
+    }
     let pin = store::pin_binary(&binary).unwrap();
     store::verify_binary(&pin).unwrap();
 

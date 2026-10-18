@@ -50,6 +50,40 @@ fn checked_in_genesis_templates_require_an_explicit_global_root_scope() {
     ];
     for (name, template) in templates {
         let value: Value = json::from_str(template).unwrap();
+        let _chain = iroha_data_model::account::address::ChainDiscriminantGuard::enter(
+            u16::try_from(value.get("chain_discriminant").unwrap().as_u64().unwrap()).unwrap(),
+        );
+        let fee_parameters = value
+            .get("transactions")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|transaction| transaction.get("parameters"))
+            .filter_map(|parameters| parameters.get("custom"))
+            .filter_map(|custom| custom.get("root_fees_v1"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            fee_parameters.len(),
+            1,
+            "{name}: exactly one explicit fee authoring recipe"
+        );
+        let fee_parameter: iroha_data_model::parameter::CustomParameter =
+            json::from_value(fee_parameters[0].clone())
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+        let fees = iroha_data_model::block::consensus::RootFeePolicy::from_custom_parameter(
+            &fee_parameter,
+        )
+        .unwrap_or_else(|error| panic!("{name}: {error}"));
+        fees.validate_for_scope(&SumeragiRootScope::Global).unwrap();
+        assert_eq!(
+            iroha_data_model::block::consensus::RootFeePolicy::from_custom_parameter(
+                &fees.clone().into_custom_parameter().unwrap()
+            )
+            .unwrap(),
+            fees,
+            "{name}: retain every authored fee field through the canonical parameter codec"
+        );
         let mut context = value.get("sumeragi_context").unwrap().clone();
         let parsed: SumeragiGenesisContextParameters =
             json::from_value(context.clone()).unwrap_or_else(|error| panic!("{name}: {error}"));

@@ -1,4 +1,7 @@
 //! Utility crate for standardized and random signatories.
+
+/// Structural private-settlement protocol and custody fixtures.
+pub mod private_settlement;
 use iroha_crypto::KeyPair;
 #[cfg(feature = "rand")]
 use iroha_crypto::{Algorithm, Error as CryptoError, Hash};

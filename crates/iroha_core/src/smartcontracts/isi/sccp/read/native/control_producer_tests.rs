@@ -93,7 +93,7 @@ fn control_chain(branch: bool) -> (Box<CertifiedTestChain>, GovernanceCertificat
     ));
     config.genesis_block_cadence_ms = 1_000.try_into().unwrap();
     let mut nexus = iroha_config::parameters::actual::Nexus::default();
-    nexus.fees.fee_asset_id = sccp_taira_xor_asset_definition_id().canonical_address();
+    nexus.fees.fee_asset_id = sccp_taira_xor_asset_definition_id().clone();
     nexus.staking.unbonding_delay = std::time::Duration::from_millis(
         crate::smartcontracts::isi::sccp::test_support::SCCP_UNBONDING_DELAY_MS,
     );

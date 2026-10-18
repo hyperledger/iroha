@@ -6,8 +6,9 @@ import Foundation
 /// Transport-neutral NFC V1 constants for exchanging `IPM1` messages.
 ///
 /// V1 has one command set and no codec negotiation or fallback. The receiver's
-/// phone is the card and the payer's phone is the reader. One hold carries the
-/// payer's Offer to the card and the Request the receiver's wallet signs for it
+/// phone is the card and the payer's phone is the reader. One hold reads the
+/// receiver's ask (`GET_ASK`, `IrohaPeerAskV1`), carries the payer's Offer for
+/// that amount to the card and the Request the receiver's wallet signs for it
 /// back, followed by the payer's Payment and the receiver's durable
 /// acknowledgement, which is the wallet's Credited envelope (IPM1 kind
 /// `credited`). Each application selects its card by the application identifier
@@ -23,6 +24,8 @@ public enum IrohaPeerNfcV1 {
     public static let infoBytes = 98
     public static let statusBytes = 174
     public static let intakeBytes = 68
+    /// Length of the receiver's `IAK1` ask returned by `GET_ASK`.
+    public static let askBytes = IrohaPeerAskV1.recordBytes
     /// Largest complete Offer message: the 84-byte header plus the Offer frame cap.
     public static let maximumOfferMessageBytes =
         IrohaPeerWireMessageV1.headerBytes + IrohaPeerWireKindV1.offer.maximumWalletFrameBytes
@@ -102,6 +105,7 @@ public enum IrohaPeerNfcInstructionV1: UInt8, CaseIterable, Sendable {
     case beginOffer = 0x31
     case writeOffer = 0x32
     case submitOffer = 0x33
+    case getAsk = 0x34
     case getInfo = 0x10
     case readRequest = 0x11
     case beginPayment = 0x20
@@ -225,6 +229,8 @@ public enum IrohaPeerNfcErrorV1: Error, Equatable, LocalizedError, Sendable {
     case offerDeclined(reason: UInt16)
     /// The receiver's card did not finish preparing its Request in time.
     case requestPreparationTimedOut
+    /// The card answered `GET_ASK` with 56 bytes that are not a valid `IAK1` ask.
+    case invalidAsk
 
     public var errorDescription: String? {
         switch self {
@@ -262,6 +268,8 @@ public enum IrohaPeerNfcErrorV1: Error, Equatable, LocalizedError, Sendable {
             return "The receiving phone declined the offer (reason \(reason))."
         case .requestPreparationTimedOut:
             return "The receiving phone did not prepare its request in time."
+        case .invalidAsk:
+            return "The receiving phone's ask is not a valid IAK1 record."
         }
     }
 }
@@ -271,6 +279,7 @@ public enum IrohaPeerNfcErrorV1: Error, Equatable, LocalizedError, Sendable {
 public enum IrohaPeerNfcOperationV1: String, CaseIterable, Sendable {
     case selectApplication
     case getIntake
+    case getAsk
     case beginOffer
     case writeOffer
     case submitOffer
@@ -675,6 +684,7 @@ public struct IrohaPeerNfcIntakeRecordV1: Equatable, Sendable {
 public enum IrohaPeerNfcCommandV1: Equatable, Sendable {
     case selectApplication(IrohaPeerNfcApplicationIdentifierV1)
     case getIntake
+    case getAsk
     case beginOffer(sessionID: Data, offerHeader: Data)
     case writeOffer(sessionID: Data, offerWireHash: Data, offset: UInt32, bytes: Data)
     case submitOffer(sessionID: Data, offerWireHash: Data)
@@ -691,6 +701,7 @@ public enum IrohaPeerNfcCommandV1: Equatable, Sendable {
         switch self {
         case .selectApplication: return .selectApplication
         case .getIntake: return .getIntake
+        case .getAsk: return .getAsk
         case .beginOffer: return .beginOffer
         case .writeOffer: return .writeOffer
         case .submitOffer: return .submitOffer
@@ -755,6 +766,11 @@ public enum IrohaPeerNfcAPDUCodecV1 {
             return try encodeProprietary(
                 instruction: .getIntake,
                 expectedResponseLength: IrohaPeerNfcV1.intakeBytes
+            )
+        case .getAsk:
+            return try encodeProprietary(
+                instruction: .getAsk,
+                expectedResponseLength: IrohaPeerNfcV1.askBytes
             )
         case .beginOffer(let sessionID, let offerHeader):
             try nfcRequireSession(sessionID)
@@ -866,6 +882,12 @@ public enum IrohaPeerNfcAPDUCodecV1 {
                 throw IrohaPeerNfcErrorV1.invalidAPDU
             }
             return .getIntake
+        case .getAsk:
+            guard envelope.data.isEmpty,
+                  envelope.expectedResponseLength == IrohaPeerNfcV1.askBytes else {
+                throw IrohaPeerNfcErrorV1.invalidAPDU
+            }
+            return .getAsk
         case .beginOffer:
             guard envelope.expectedResponseLength == nil,
                   envelope.data.count == 16 + IrohaPeerWireMessageV1.headerBytes else {
@@ -1734,7 +1756,8 @@ public struct IrohaPeerNfcReceiverSessionV1: Sendable {
                 maximumWriteChunkBytes: limits.maximumWriteChunkBytes,
                 reason: 0
             ).encode()
-        case .beginOffer, .writeOffer, .submitOffer:
+        case .getAsk, .beginOffer, .writeOffer, .submitOffer:
+            // The hosted Request is already bound to its Offer: no ask, no new Offer.
             throw IrohaPeerNfcErrorV1.stateMismatch
         case .getInfo:
             return try info().encode()
@@ -2095,7 +2118,7 @@ public struct IrohaPeerNfcReceiverSessionV1: Sendable {
             statusWord = .conditionsNotSatisfied
         case .invalidApplicationIdentifier:
             statusWord = .notFound
-        case .invalidAPDU, .invalidOffset, .invalidFlags:
+        case .invalidAPDU, .invalidOffset, .invalidFlags, .invalidAsk:
             statusWord = .wrongData
         }
         return IrohaPeerNfcAPDUResponseV1(statusWord: statusWord)
@@ -2129,10 +2152,17 @@ public struct IrohaPeerNfcOfferDeclinedV1: Error, Equatable, Sendable {
 /// hosts uses the same identifier. Before SUBMIT_OFFER a different header
 /// replaces an unfinished Offer; afterwards the intake is bound to that Offer:
 /// the same Offer's commands are idempotent and any other is refused.
+///
+/// A receiver that set the amount gives the intake its `ask`. GET_ASK answers
+/// those 56 bytes while the intake awaits or receives an Offer, so the payer
+/// builds its Offer for that amount; with no ask, and once an Offer is bound,
+/// GET_ASK is refused with `stateMismatch` (`6985`). GET_ASK changes nothing.
 public struct IrohaPeerNfcOfferIntakeV1: Sendable {
     public let sessionID: Data
     public let profilePolicy: IrohaPeerNfcProfilePolicyV1
     public let limits: IrohaPeerNfcLimitsV1
+    /// The receiver's ask answered by GET_ASK, if the receiver set the amount.
+    public let ask: IrohaPeerAskV1?
     public private(set) var state: IrohaPeerNfcIntakeStateV1 = .awaitingOffer
     /// The complete Offer once it was submitted.
     public private(set) var offer: IrohaPeerWireMessageV1?
@@ -2144,13 +2174,15 @@ public struct IrohaPeerNfcOfferIntakeV1: Sendable {
     public init(
         sessionID: Data = IrohaPeerNfcOfferIntakeV1.randomSessionID(),
         profilePolicy: IrohaPeerNfcProfilePolicyV1,
-        limits: IrohaPeerNfcLimitsV1 = .default
+        limits: IrohaPeerNfcLimitsV1 = .default,
+        ask: IrohaPeerAskV1? = nil
     ) throws {
         try nfcRequireSession(sessionID)
         guard profilePolicy.profile != .reject else { throw IrohaPeerNfcErrorV1.invalidProfile }
         self.sessionID = Data(sessionID)
         self.profilePolicy = profilePolicy
         self.limits = limits
+        self.ask = ask
     }
 
     /// A fresh nonzero session identifier from the system random source.
@@ -2188,6 +2220,11 @@ public struct IrohaPeerNfcOfferIntakeV1: Sendable {
         switch command {
         case .getIntake:
             return .response(try record().encode())
+        case .getAsk:
+            guard let ask, state == .awaitingOffer || state == .receivingOffer else {
+                throw IrohaPeerNfcErrorV1.stateMismatch
+            }
+            return .response(ask.encode())
         case .beginOffer(let sessionID, let offerHeader):
             try requireSession(sessionID)
             let inspected = try inspect(offerHeader)
@@ -2366,6 +2403,21 @@ public struct IrohaPeerNfcCardEndpointV1: Sendable {
         self.intake = intake
     }
 
+    /// A tap-1 card awaiting the payer's Offer under a fresh random session
+    /// identifier. With the receiver's `ask`, GET_ASK hands the payer the amount
+    /// to build its Offer for.
+    public static func intake(
+        applicationIdentifier: IrohaPeerNfcApplicationIdentifierV1,
+        profilePolicy: IrohaPeerNfcProfilePolicyV1,
+        limits: IrohaPeerNfcLimitsV1 = .default,
+        ask: IrohaPeerAskV1? = nil
+    ) throws -> IrohaPeerNfcCardEndpointV1 {
+        IrohaPeerNfcCardEndpointV1(
+            applicationIdentifier: applicationIdentifier,
+            intake: try IrohaPeerNfcOfferIntakeV1(profilePolicy: profilePolicy, limits: limits, ask: ask)
+        )
+    }
+
     /// Hosts a Request that already exists: one built from an Offer that arrived
     /// over another carrier, or the same Request after the card restarted.
     public init(receiver: IrohaPeerNfcReceiverSessionV1) {
@@ -2378,7 +2430,7 @@ public struct IrohaPeerNfcCardEndpointV1: Sendable {
         switch command {
         case .selectApplication:
             return .select
-        case .getIntake, .beginOffer, .writeOffer, .submitOffer:
+        case .getIntake, .getAsk, .beginOffer, .writeOffer, .submitOffer:
             return .intake
         default:
             return .request
@@ -2422,7 +2474,8 @@ public struct IrohaPeerNfcCardEndpointV1: Sendable {
     }
 
     /// Answers one intake command. A card hosting an existing Request answers
-    /// GET_INTAKE as request-ready with no Offer and refuses Offer commands.
+    /// GET_INTAKE as request-ready with no Offer and refuses GET_ASK and Offer
+    /// commands.
     public mutating func handleIntake(
         _ command: IrohaPeerNfcCommandV1
     ) throws -> IrohaPeerNfcIntakeOutcomeV1 {
@@ -3154,6 +3207,60 @@ public enum IrohaPeerNfcReaderExchangeV1 {
         )
     }
 
+    /// The receiver-led twin of `run(offer:)`. The card's ask (`GET_ASK`) is read inside the same
+    /// contact and `offerFactory` builds the payer's Offer for it exactly once; Request, approval
+    /// (the application does it in `loadOrCreateDurableCheckpoint` while the contact stays open),
+    /// Payment, Credited and the ACK then follow over that same contact. A restored checkpoint
+    /// skips Offer intake and never calls the factory, as in `run(offer:)`. The factory's error
+    /// propagates and nothing further is sent. A caller that must resume an interrupted contact
+    /// before the Payment exists passes the Offer the factory already built to `run(offer:)`.
+    public static func run(
+        offerFactory: @escaping IrohaPeerNfcOfferFactoryV1,
+        restoredCheckpoint: Data? = nil,
+        applicationIdentifier: IrohaPeerNfcApplicationIdentifierV1 = .protocolDefault,
+        profilePolicy: IrohaPeerNfcProfilePolicyV1,
+        limits: IrohaPeerNfcLimitsV1 = .default,
+        maximumActions: Int = IrohaPeerNfcReaderExchangeV1.defaultMaximumActions,
+        preparationTimeoutMilliseconds: UInt64 =
+            IrohaPeerNfcOfferExchangeV1.defaultPreparationTimeoutMilliseconds,
+        transceive: Transceive,
+        sleep: IrohaPeerNfcOfferExchangeV1.Sleep = {
+            try await Task.sleep(nanoseconds: $0)
+        },
+        onOfferDelivered: IrohaPeerNfcOfferExchangeV1.OfferDelivered = {},
+        loadOrCreateDurableCheckpoint: LoadOrCreateDurableCheckpoint,
+        updateDurableCheckpoint: UpdateDurableCheckpoint
+    ) async throws -> IrohaPeerNfcReaderExchangeResultV1 {
+        precondition(maximumActions > 0)
+        let initialRequest: IrohaPeerNfcRequestReadV1?
+        if restoredCheckpoint == nil {
+            initialRequest = try await IrohaPeerNfcOfferExchangeV1.runFromAsk(
+                offerFactory: offerFactory,
+                applicationIdentifier: applicationIdentifier,
+                profilePolicy: profilePolicy,
+                limits: limits,
+                preparationTimeoutMilliseconds: preparationTimeoutMilliseconds,
+                transceive: transceive,
+                sleep: sleep,
+                onOfferDelivered: onOfferDelivered
+            )
+        } else {
+            initialRequest = nil
+        }
+        try Task.checkCancellation()
+        return try await run(
+            initialRequest: initialRequest,
+            restoredCheckpoint: restoredCheckpoint,
+            applicationIdentifier: applicationIdentifier,
+            profilePolicy: profilePolicy,
+            limits: limits,
+            maximumActions: maximumActions,
+            transceive: transceive,
+            loadOrCreateDurableCheckpoint: loadOrCreateDurableCheckpoint,
+            updateDurableCheckpoint: updateDurableCheckpoint
+        )
+    }
+
     private static func run(
         initialRequest: IrohaPeerNfcRequestReadV1?,
         restoredCheckpoint: Data?,
@@ -3507,21 +3614,35 @@ public struct IrohaPeerNfcRequestReadV1: Equatable, Sendable {
     public let intake: IrohaPeerNfcIntakeRecordV1
     public let info: IrohaPeerNfcInfoV1
     public let request: IrohaPeerWireMessageV1
+    /// The card's ask the Offer was built from (`runFromAsk`); nil for `run`.
+    public let ask: IrohaPeerAskV1?
 
     public init(
         intake: IrohaPeerNfcIntakeRecordV1,
         info: IrohaPeerNfcInfoV1,
-        request: IrohaPeerWireMessageV1
+        request: IrohaPeerWireMessageV1,
+        ask: IrohaPeerAskV1? = nil
     ) {
         self.intake = intake
         self.info = info
         self.request = request
+        self.ask = ask
     }
 }
+
+/// Builds the payer's Offer for the receiver's ask inside the same hold,
+/// typically by creating it natively; it may take time and may throw.
+public typealias IrohaPeerNfcOfferFactoryV1 =
+    @Sendable (IrohaPeerAskV1) async throws -> IrohaPeerWireMessageV1
 
 /// Hands the Offer to the receiver's card and reads the signed Request without
 /// moving value. `IrohaPeerNfcReaderExchangeV1.run(offer:)` composes this intake
 /// with approval, durable Payment delivery and ACK in one continuous contact.
+///
+/// When the receiver set the amount, `runFromAsk` first reads the card's ask and
+/// has the payer's wallet build the Offer for it inside the same contact. `run`
+/// carries an Offer the payer already holds, such as one `runFromAsk` built
+/// before an interrupted contact.
 public enum IrohaPeerNfcOfferExchangeV1 {
     public typealias Transceive = IrohaPeerNfcReaderExchangeV1.Transceive
     /// Waits the given number of nanoseconds between GET_INTAKE polls.
@@ -3544,13 +3665,75 @@ public enum IrohaPeerNfcOfferExchangeV1 {
         onOfferDelivered: OfferDelivered = {}
     ) async throws -> IrohaPeerNfcRequestReadV1 {
         precondition(preparationTimeoutMilliseconds > 0 && pollIntervalMilliseconds > 0)
-        guard offer.profile == profilePolicy.profile else { throw IrohaPeerNfcErrorV1.invalidProfile }
-        guard offer.kind == .offer else { throw IrohaPeerNfcErrorV1.invalidKind }
-        let encodedOffer = offer.encoded
-        let maximumOffer = min(IrohaPeerNfcV1.maximumOfferMessageBytes, limits.maximumMessageBytes)
-        guard encodedOffer.count <= maximumOffer else {
-            throw IrohaPeerNfcErrorV1.messageTooLarge(actual: encodedOffer.count, maximum: maximumOffer)
-        }
+        try requireOffer(offer, profilePolicy: profilePolicy, limits: limits)
+        return try await exchange(
+            .given(offer),
+            applicationIdentifier: applicationIdentifier,
+            profilePolicy: profilePolicy,
+            limits: limits,
+            preparationTimeoutMilliseconds: preparationTimeoutMilliseconds,
+            pollIntervalMilliseconds: pollIntervalMilliseconds,
+            transceive: transceive,
+            sleep: sleep,
+            onOfferDelivered: onOfferDelivered
+        )
+    }
+
+    /// Tap 1 when the receiver set the amount: reads the card's ask with GET_ASK
+    /// and calls `offerFactory` exactly once with it, inside the same contact,
+    /// then delivers that Offer and reads the Request exactly as `run` does. The
+    /// card must await an Offer or be receiving one: the unfinished Offer of an
+    /// earlier payer is replaced exactly as `run` replaces it, so an abandoned
+    /// contact never wedges the receiver. A card bound to an Offer fails with
+    /// `stateMismatch` before GET_ASK. A payer whose own contact was interrupted
+    /// after `offerFactory` returned resumes through `run` with that Offer:
+    /// calling this again builds a second Offer. A card without an ask answers `peerRejected(operation: .getAsk)`; a wrong-size
+    /// ask fails with `invalidLength` and any other malformed ask with `invalidAsk`.
+    /// The factory's error propagates and nothing further is sent. The result
+    /// carries the ask, so the payer's review can require the Request's receiver
+    /// digest to equal ``IrohaPeerAskV1/receiverAccountDigest``.
+    public static func runFromAsk(
+        offerFactory: @escaping IrohaPeerNfcOfferFactoryV1,
+        applicationIdentifier: IrohaPeerNfcApplicationIdentifierV1 = .protocolDefault,
+        profilePolicy: IrohaPeerNfcProfilePolicyV1,
+        limits: IrohaPeerNfcLimitsV1 = .default,
+        preparationTimeoutMilliseconds: UInt64 = defaultPreparationTimeoutMilliseconds,
+        pollIntervalMilliseconds: UInt64 = defaultPollIntervalMilliseconds,
+        transceive: Transceive,
+        sleep: Sleep = { try await Task.sleep(nanoseconds: $0) },
+        onOfferDelivered: OfferDelivered = {}
+    ) async throws -> IrohaPeerNfcRequestReadV1 {
+        precondition(preparationTimeoutMilliseconds > 0 && pollIntervalMilliseconds > 0)
+        return try await exchange(
+            .asked(offerFactory),
+            applicationIdentifier: applicationIdentifier,
+            profilePolicy: profilePolicy,
+            limits: limits,
+            preparationTimeoutMilliseconds: preparationTimeoutMilliseconds,
+            pollIntervalMilliseconds: pollIntervalMilliseconds,
+            transceive: transceive,
+            sleep: sleep,
+            onOfferDelivered: onOfferDelivered
+        )
+    }
+
+    /// Where tap 1's Offer comes from: the payer's own, or one built from the card's ask.
+    private enum OfferSource {
+        case given(IrohaPeerWireMessageV1)
+        case asked(IrohaPeerNfcOfferFactoryV1)
+    }
+
+    private static func exchange(
+        _ source: OfferSource,
+        applicationIdentifier: IrohaPeerNfcApplicationIdentifierV1,
+        profilePolicy: IrohaPeerNfcProfilePolicyV1,
+        limits: IrohaPeerNfcLimitsV1,
+        preparationTimeoutMilliseconds: UInt64,
+        pollIntervalMilliseconds: UInt64,
+        transceive: Transceive,
+        sleep: Sleep,
+        onOfferDelivered: OfferDelivered
+    ) async throws -> IrohaPeerNfcRequestReadV1 {
         let zeroHash = Data(repeating: 0, count: IrohaPeerNfcV1.hashBytes)
 
         try IrohaPeerNfcReaderExchangeV1.requireEmptySuccess(
@@ -3559,6 +3742,34 @@ public enum IrohaPeerNfcOfferExchangeV1 {
         )
         var intake = try await readIntake(transceive, profilePolicy: profilePolicy)
         let sessionID = intake.sessionID
+        let offer: IrohaPeerWireMessageV1
+        let ask: IrohaPeerAskV1?
+        switch source {
+        case .given(let given):
+            offer = given
+            ask = nil
+        case .asked(let offerFactory):
+            // Only an intake not yet bound to an Offer answers an ask; a receiving one is replaced as `run` replaces it.
+            guard intake.state == .awaitingOffer || intake.state == .receivingOffer else {
+                throw IrohaPeerNfcErrorV1.stateMismatch
+            }
+            let response = try IrohaPeerNfcReaderExchangeV1.requireSuccess(
+                await transceive(.getAsk), operation: .getAsk
+            )
+            guard response.data.count == IrohaPeerNfcV1.askBytes else {
+                throw IrohaPeerNfcErrorV1.invalidLength
+            }
+            let read: IrohaPeerAskV1
+            do {
+                read = try IrohaPeerAskV1.decode(response.data)
+            } catch {
+                throw IrohaPeerNfcErrorV1.invalidAsk
+            }
+            offer = try await offerFactory(read)
+            try requireOffer(offer, profilePolicy: profilePolicy, limits: limits)
+            ask = read
+        }
+        let encodedOffer = offer.encoded
         switch intake.state {
         case .awaitingOffer, .receivingOffer:
             var offset = 0
@@ -3666,7 +3877,20 @@ public enum IrohaPeerNfcOfferExchangeV1 {
             against: info,
             limits: limits
         )
-        return IrohaPeerNfcRequestReadV1(intake: intake, info: info, request: request)
+        return IrohaPeerNfcRequestReadV1(intake: intake, info: info, request: request, ask: ask)
+    }
+
+    private static func requireOffer(
+        _ offer: IrohaPeerWireMessageV1,
+        profilePolicy: IrohaPeerNfcProfilePolicyV1,
+        limits: IrohaPeerNfcLimitsV1
+    ) throws {
+        guard offer.profile == profilePolicy.profile else { throw IrohaPeerNfcErrorV1.invalidProfile }
+        guard offer.kind == .offer else { throw IrohaPeerNfcErrorV1.invalidKind }
+        let maximumOffer = min(IrohaPeerNfcV1.maximumOfferMessageBytes, limits.maximumMessageBytes)
+        guard offer.encoded.count <= maximumOffer else {
+            throw IrohaPeerNfcErrorV1.messageTooLarge(actual: offer.encoded.count, maximum: maximumOffer)
+        }
     }
 
     private static func readIntake(

@@ -251,14 +251,12 @@ pub async fn prepare(
                 format,
                 response_limit,
                 owner.cold_frames(),
-                native_projection_response::capacity,
             ),
             Selection::Interval { .. } => native_projection_response::encode(
                 &BorrowedInterval(&interval),
                 format,
                 response_limit,
                 owner.cold_frames(),
-                native_projection_response::capacity,
             ),
         }?;
         // The full outer header and sequence framing were counted before

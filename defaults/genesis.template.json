@@ -87,8 +87,8 @@
       "parameters": {
         "sumeragi": {
           "block_cadence_ms": 100,
-          "max_clock_drift_ms": 1000,
           "due_work_max_lag_ms": 60000,
+          "max_clock_drift_ms": 1000,
           "key_activation_lead_blocks": 1,
           "key_overlap_grace_blocks": 8,
           "key_expiry_grace_blocks": 0,
@@ -208,6 +208,19 @@
               "xor_asset_definition_id": null,
               "slashing_delay_blocks": 3600,
               "epoch_length_blocks": 3600
+            }
+          },
+          "root_fees_v1": {
+            "id": "root_fees_v1",
+            "payload": {
+              "fee_asset_id": "6TEAJqbb8oEPmLncoNiMRbLEK6tw",
+              "fee_sink_account_id": "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+              "sponsor_vault_custody_account_id": "sorauﾛ1NｱｻｸYSafﾇｷヰc5ﾇﾄVxﾏ9jLZヱﾋzsKqurﾊﾘ9ｸ3eｴAｶD54TDT",
+              "successful_claim_fee_exempt_authorities": [],
+              "base_fee": "0",
+              "per_byte_fee": "0",
+              "per_instruction_fee": "0.001",
+              "per_gas_unit_fee": "0.00005"
             }
           }
         }

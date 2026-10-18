@@ -132,6 +132,7 @@ fn exact_envelopes_authenticate_once_for_all_actions() {
         EnrollmentServiceActionV1::Evidence,
         EnrollmentServiceActionV1::Issue,
         EnrollmentServiceActionV1::Deliver,
+        EnrollmentServiceActionV1::ExpiryProof,
     ] {
         let call = signed(&state, &dispatch, &key, action);
         assert_eq!(

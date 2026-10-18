@@ -6,7 +6,7 @@ impl AtomicPrivateSettlementV1 {
     /// Supported manifest version.
     pub const VERSION: u8 = ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1;
 
-    fn bundle_id_material(&self) -> PrivateSettlementBundleIdMaterialV1 {
+    pub(super) fn bundle_id_material(&self) -> PrivateSettlementBundleIdMaterialV1 {
         PrivateSettlementBundleIdMaterialV1 {
             network_id: self.network_id,
             authority_context_height: self.authority_context_height,
@@ -67,7 +67,7 @@ impl AtomicPrivateSettlementV1 {
     ///
     /// Returns a Norito encoding error if the fee intent cannot be encoded.
     pub fn computed_fee_intent_digest(&self) -> Result<Hash, norito::Error> {
-        canonical_hash(FEE_INTENT_DIGEST_DOMAIN_V1, &self.public_fee_intent)
+        PrivateSettlementProofIntentV1::fee_intent_digest(&self.public_fee_intent)
     }
 
     /// Compute the digest of the exact manifest, including sidecar and delta commitments.
@@ -105,15 +105,6 @@ impl AtomicPrivateSettlementV1 {
         &self,
         certificates_are_final: bool,
     ) -> Result<(), PrivateSettlementValidationError> {
-        if self.version != Self::VERSION {
-            return Err(PrivateSettlementValidationError::UnsupportedVersion {
-                actual: self.version,
-            });
-        }
-        if self.authority_context_height == 0 || self.expiry_height <= self.authority_context_height
-        {
-            return Err(PrivateSettlementValidationError::InvalidExpiry);
-        }
         if !(ATOMIC_PRIVATE_SETTLEMENT_MIN_LEGS_V1..=ATOMIC_PRIVATE_SETTLEMENT_MAX_LEGS_V1)
             .contains(&self.legs.len())
         {
@@ -121,58 +112,15 @@ impl AtomicPrivateSettlementV1 {
                 count: self.legs.len(),
             });
         }
-        if usize::from(self.reimbursement_leg_ordinal) >= self.legs.len() {
-            return Err(PrivateSettlementValidationError::InvalidReimbursementLeg);
-        }
-        if self.public_fee_intent.validate().is_err() {
-            return Err(PrivateSettlementValidationError::InvalidFeeIntent);
-        }
-        if hash_is_zero(&self.fee_intent_digest)
-            || hash_is_zero(&self.reimbursement_terms_commitment)
-        {
-            return Err(PrivateSettlementValidationError::ZeroCommitment);
-        }
-        let computed_fee_intent_digest = self
-            .computed_fee_intent_digest()
-            .map_err(|_| PrivateSettlementValidationError::CanonicalEncoding)?;
-        if self.fee_intent_digest != computed_fee_intent_digest {
-            return Err(PrivateSettlementValidationError::FeeIntentDigestMismatch);
-        }
-        let mut previous_route = None;
-        let mut participant_dataspaces = BTreeSet::new();
-        for (index, leg) in self.legs.iter().enumerate() {
-            let expected =
-                u8::try_from(index).expect("private settlement has at most 255 participant legs");
-            if leg.ordinal != expected {
-                return Err(PrivateSettlementValidationError::NonCanonicalOrdinal {
-                    index,
-                    actual: leg.ordinal,
-                });
-            }
-            if previous_route.is_some_and(|previous| previous >= leg.route) {
-                return Err(PrivateSettlementValidationError::NonCanonicalRouteOrder);
-            }
-            previous_route = Some(leg.route);
-            if !participant_dataspaces.insert(leg.route.dataspace_id) {
-                return Err(PrivateSettlementValidationError::DuplicateDataspace);
-            }
-            if hash_is_zero(&leg.route.lane_incarnation)
-                || leg.pool_id.is_zero()
-                || hash_is_zero(&leg.asset_binding_commitment)
-                || hash_is_zero(&leg.audit_policy_digest)
-                || hash_is_zero(&leg.payload_digest)
+        self.proof_intent().validate()?;
+        for leg in &self.legs {
+            if hash_is_zero(&leg.payload_digest)
                 || hash_is_zero(&leg.delta_digest)
                 || (certificates_are_final && hash_is_zero(&leg.availability_certificate_digest))
                 || (!certificates_are_final && !hash_is_zero(&leg.availability_certificate_digest))
             {
                 return Err(PrivateSettlementValidationError::ZeroCommitment);
             }
-        }
-        let computed = self
-            .computed_bundle_id()
-            .map_err(|_| PrivateSettlementValidationError::CanonicalEncoding)?;
-        if self.bundle_id != computed {
-            return Err(PrivateSettlementValidationError::BundleIdMismatch);
         }
         Ok(())
     }

@@ -23,13 +23,25 @@ pub(super) struct InvocationTrace {
     epoch: u64,
     mode: TraceMode,
     cycles: bool,
+    /// Collection policy of the thread-local invocation scope at admission.
+    ///
+    /// The run installs that scope before admission and keeps it until the
+    /// token finishes, so its policy cannot change in between; reusing it keeps
+    /// the per-step ownership checks free of TLS lookups. Without a scope the
+    /// VM's current configuration is consulted, as `zk_trace_collection_enabled`
+    /// does.
+    scoped_collection: Option<bool>,
     original: Option<AllocationBudget>,
 }
 impl InvocationTrace {
+    fn collection_enabled(&self, vm: &IVM) -> bool {
+        self.scoped_collection
+            .unwrap_or(vm.zk_mode && vm.zk_trace_enabled)
+    }
     fn owns(&self, vm: &IVM) -> bool {
         self.epoch == vm.proof_state_epoch
             && self.mode == vm.trace_mode
-            && self.cycles == (vm.zk_trace_collection_enabled() && vm.max_cycles != 0)
+            && self.cycles == (self.collection_enabled(vm) && vm.max_cycles != 0)
             && match (&self.original, vm.memory.allocation_budget()) {
                 (Some(original), Some(current)) => original.same_pool(current),
                 (None, None) => true,
@@ -118,12 +130,14 @@ impl IVM {
     /// The caller has already scrubbed the preceding invocation. Beginning is
     /// otherwise observational: no registers, gas, cycles or guest memory change.
     pub(super) fn begin_trace_invocation(&mut self) -> Result<InvocationTrace, VMError> {
-        let invocation = InvocationTrace {
+        let mut invocation = InvocationTrace {
             epoch: self.proof_state_epoch,
             mode: self.trace_mode,
-            cycles: self.zk_trace_collection_enabled() && self.max_cycles != 0,
+            cycles: false,
+            scoped_collection: crate::zk::scoped_reg_logger_enabled(),
             original: self.memory.allocation_budget().cloned(),
         };
+        invocation.cycles = invocation.collection_enabled(self) && self.max_cycles != 0;
         self.with_trace_scope(|vm, scope| {
             vm.validate_trace_scope(scope)?;
             match invocation.mode {

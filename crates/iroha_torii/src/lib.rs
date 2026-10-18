@@ -71,6 +71,7 @@ mod sccp;
 mod sns_lease;
 mod staking_preparation;
 mod stream_control;
+mod stream_read_authorization;
 mod stream_token_custody_proof;
 mod torii_mutation_guard;
 #[cfg(feature = "app_api")]
@@ -5669,6 +5670,29 @@ fn canonical_error_response(
         let (code, message) = generic_error_for_status(parts.status);
         envelope = ErrorEnvelope::new(code, message);
     }
+    // AMX acquisition observations also own one closed detail and their original delay.
+    // Generic 429 normalization would append a second retry owner and break exact binding.
+    let amx_read_failure = if envelope.code()
+        == iroha_torii_shared::amx_approval_read::AMX_APPROVAL_READ_FAILURE_CODE
+    {
+        let mut details = envelope.details.take().unwrap_or_default();
+        details.amx_approval_read_failure.take().filter(|failure| {
+            details.is_empty()
+                && failure.is_valid()
+                && failure.reason.http_status() == parts.status.as_u16()
+        })
+    } else {
+        None
+    };
+    let exact_amx_read_failure = amx_read_failure.is_some();
+    if let Some(failure) = amx_read_failure {
+        envelope = failure.into_error_envelope();
+    } else if envelope.code()
+        == iroha_torii_shared::amx_approval_read::AMX_APPROVAL_READ_FAILURE_CODE
+    {
+        let (code, message) = generic_error_for_status(parts.status);
+        envelope = ErrorEnvelope::new(code, message);
+    }
     if parts.status == StatusCode::INTERNAL_SERVER_ERROR {
         if !exact_finality_failure {
             envelope = ErrorEnvelope::new(
@@ -5707,15 +5731,16 @@ fn canonical_error_response(
         let (_, message) = generic_error_for_status(parts.status);
         message.clone_into(&mut envelope.message);
     }
-    // Finality reasons own their retry semantics. The canonical dedicated detail
+    // Closed finality/AMX observations own their retry semantics. Their dedicated detail
     // stays sole; generic 503/429 errors retain their existing Retry-After fields.
-    if exact_finality_failure {
+    if exact_finality_failure || exact_amx_read_failure {
         parts.headers.remove(axum::http::header::RETRY_AFTER);
     }
     if matches!(
         parts.status,
         StatusCode::TOO_MANY_REQUESTS | StatusCode::SERVICE_UNAVAILABLE
     ) && !exact_finality_failure
+        && !exact_amx_read_failure
     {
         let seconds = retry_after_seconds(&parts.headers);
         let details = envelope.details.get_or_insert_with(Default::default);
@@ -5776,6 +5801,9 @@ fn canonical_error_response(
         }
         if !exact_finality_failure {
             details.finality_attestation_failure = None;
+        }
+        if !exact_amx_read_failure {
+            details.amx_approval_read_failure = None;
         }
         sanitize_error_details(details);
     }
@@ -14942,7 +14970,9 @@ impl ToriiAccountReadVisibility {
 ///
 /// The visible set is deliberately recomputed from current state instead of
 /// being frozen at connection time, so permission revocation takes effect for
-/// the next emitted item.
+/// the next emitted item. Long-lived streams own a
+/// [`stream_read_authorization::ToriiStreamReadAuthorization`], which reuses
+/// one decision until a block commits or the authorization interval elapses.
 #[derive(Clone)]
 pub(crate) struct ToriiDataspaceReadContext {
     app: SharedAppState,
@@ -14952,60 +14982,57 @@ pub(crate) struct ToriiDataspaceReadContext {
     fixed_visibility: Option<routing::DataspaceReadVisibility>,
 }
 
-/// Event plus the complete authorization scope resolved before any
-/// subscriber-controlled filtering or projection.
-struct ScopedEvent {
-    event: EventBox,
-    scope: ScopedEventScope,
-}
-
-enum ScopedEventScope {
-    /// Block lifecycle notices are public and carry no transaction body.
-    Public,
-    /// Every named dataspace must be visible to the current reader.
-    Dataspaces(BTreeSet<DataSpaceId>),
-    /// Missing, malformed, or intrinsically global provenance is visible only
-    /// to a caller that still holds `CanReadAllLedgerData`.
-    GlobalReaderOnly,
-}
-
-impl ScopedEvent {
-    fn into_visible(self, visibility: &routing::DataspaceReadVisibility) -> Option<EventBox> {
-        let visible = match &self.scope {
-            ScopedEventScope::Public => true,
-            ScopedEventScope::Dataspaces(dataspaces) => dataspaces
-                .iter()
-                .all(|dataspace| visibility.allows_dataspace(*dataspace)),
-            ScopedEventScope::GlobalReaderOnly => visibility.can_read_all(),
-        };
-        visible.then_some(self.event)
-    }
-}
-
 impl ToriiDataspaceReadContext {
     fn caller(&self) -> Option<&AccountId> {
         self.caller.as_ref()
     }
 
     fn current_visibility(&self) -> routing::DataspaceReadVisibility {
-        #[cfg(test)]
-        if let Some(visibility) = &self.fixed_visibility {
-            return visibility.clone();
-        }
-        torii_dataspace_read_visibility(self.app.as_ref(), self.caller())
+        self.visibility_in(&self.app.state.view())
     }
 
     /// Revalidate the exact principal and route scope that admitted a
     /// long-lived stream.
     fn authorization_is_current(&self) -> bool {
-        if let Some(caller) = self.caller() {
-            let state_view = self.app.state.view();
-            if state_view.world().accounts().get(caller).is_none() {
-                return false;
-            }
+        let state_view = self.app.state.view();
+        let visibility = self.visibility_in(&state_view);
+        self.retains_admission_in(&state_view, &visibility)
+    }
+
+    /// Resolve the current visibility, and whether it still retains the
+    /// admitted principal and scope, from one State view whose committed
+    /// height is returned with them.
+    fn current_read_scope(&self) -> (usize, routing::DataspaceReadVisibility, bool) {
+        let state_view = self.app.state.view();
+        let visibility = self.visibility_in(&state_view);
+        let authorized = self.retains_admission_in(&state_view, &visibility);
+        (state_view.height(), visibility, authorized)
+    }
+
+    fn visibility_in(
+        &self,
+        state_view: &iroha_core::state::StateView<'_>,
+    ) -> routing::DataspaceReadVisibility {
+        #[cfg(test)]
+        if let Some(visibility) = &self.fixed_visibility {
+            return visibility.clone();
         }
-        self.current_visibility()
-            .retains_authorized_scope(&self.admitted_visibility)
+        torii_dataspace_read_visibility_in(state_view, self.caller())
+    }
+
+    /// The admitted caller still exists and `visibility` still contains the
+    /// scope that admitted it.
+    fn retains_admission_in(
+        &self,
+        state_view: &iroha_core::state::StateView<'_>,
+        visibility: &routing::DataspaceReadVisibility,
+    ) -> bool {
+        if let Some(caller) = self.caller()
+            && state_view.world().accounts().get(caller).is_none()
+        {
+            return false;
+        }
+        visibility.retains_authorized_scope(&self.admitted_visibility)
     }
 
     #[cfg(test)]
@@ -15016,124 +15043,6 @@ impl ToriiDataspaceReadContext {
             admitted_visibility: routing::DataspaceReadVisibility::all_for_tests(),
             fixed_visibility: Some(routing::DataspaceReadVisibility::all_for_tests()),
         }
-    }
-
-    fn filter_event(
-        &self,
-        kura: &Kura,
-        event: EventBox,
-    ) -> std::result::Result<
-        Option<EventBox>,
-        iroha_core::execution_attempt::ExecutionAttemptError<iroha_core::kura::Error>,
-    > {
-        let visibility = self.current_visibility();
-        match event {
-            EventBox::PipelineBatch(events) => {
-                let mut visible = Vec::new();
-                for event in events {
-                    if let Some(EventBox::Pipeline(event)) = self
-                        .scope_pipeline_event(kura, event)?
-                        .into_visible(&visibility)
-                    {
-                        visible.push(event);
-                    }
-                }
-                Ok((!visible.is_empty()).then_some(EventBox::PipelineBatch(visible)))
-            }
-            EventBox::Pipeline(event) => Ok(self
-                .scope_pipeline_event(kura, event)?
-                .into_visible(&visibility)),
-            // Data, trigger, and clock events do not yet carry committed route
-            // provenance. The explicit envelope fails them closed to a global
-            // reader instead of guessing scope from payload data.
-            other @ (EventBox::Data(_)
-            | EventBox::Time(_)
-            | EventBox::ExecuteTrigger(_)
-            | EventBox::TriggerCompleted(_)) => Ok(ScopedEvent {
-                event: other,
-                scope: ScopedEventScope::GlobalReaderOnly,
-            }
-            .into_visible(&visibility)),
-        }
-    }
-
-    fn filter_current_event(
-        &self,
-        event: EventBox,
-    ) -> std::result::Result<
-        Option<EventBox>,
-        iroha_core::execution_attempt::ExecutionAttemptError<iroha_core::kura::Error>,
-    > {
-        self.filter_event(self.app.kura.as_ref(), event)
-    }
-
-    fn scope_pipeline_event(
-        &self,
-        kura: &Kura,
-        event: PipelineEventBox,
-    ) -> std::result::Result<
-        ScopedEvent,
-        iroha_core::execution_attempt::ExecutionAttemptError<iroha_core::kura::Error>,
-    > {
-        let scope = match &event {
-            PipelineEventBox::Block(_) => ScopedEventScope::Public,
-            PipelineEventBox::Transaction(transaction) => Self::transaction_event_scope(
-                kura,
-                transaction,
-                &self.app.state.ivm_execution_budget(),
-            )?,
-            PipelineEventBox::Warning(_) | PipelineEventBox::Witness(_) => {
-                ScopedEventScope::GlobalReaderOnly
-            }
-        };
-        Ok(ScopedEvent {
-            event: EventBox::Pipeline(event),
-            scope,
-        })
-    }
-
-    fn transaction_event_scope(
-        kura: &Kura,
-        transaction: &iroha_data_model::events::pipeline::TransactionEvent,
-        execution_budget: &iroha_core::state::AllocationBudget,
-    ) -> std::result::Result<
-        ScopedEventScope,
-        iroha_core::execution_attempt::ExecutionAttemptError<iroha_core::kura::Error>,
-    > {
-        let Some(height) = transaction.block_height() else {
-            return Ok(ScopedEventScope::GlobalReaderOnly);
-        };
-        let Ok(height) = usize::try_from(height.get()) else {
-            return Ok(ScopedEventScope::GlobalReaderOnly);
-        };
-        let Some(height) = NonZeroUsize::new(height) else {
-            return Ok(ScopedEventScope::GlobalReaderOnly);
-        };
-        let Some(block) = kura.get_block(height, execution_budget)? else {
-            return Ok(ScopedEventScope::GlobalReaderOnly);
-        };
-        let mut matched = false;
-        let mut dataspaces = BTreeSet::new();
-        for index in 0..block.external_entrypoint_count() {
-            let Some(candidate) = block.external_signed_transaction_ref_at(index) else {
-                return Ok(ScopedEventScope::GlobalReaderOnly);
-            };
-            if candidate.hash() != *transaction.hash() {
-                continue;
-            }
-            matched = true;
-            let Some(entrypoint_dataspaces) =
-                routing::DataspaceReadVisibility::external_entrypoint_dataspaces(&block, index)
-            else {
-                return Ok(ScopedEventScope::GlobalReaderOnly);
-            };
-            dataspaces.extend(entrypoint_dataspaces);
-        }
-        Ok(if !matched || dataspaces.is_empty() {
-            ScopedEventScope::GlobalReaderOnly
-        } else {
-            ScopedEventScope::Dataspaces(dataspaces)
-        })
     }
 }
 #[cfg(feature = "app_api")]
@@ -15228,7 +15137,14 @@ fn torii_visible_account_read_routes(
     app: &AppState,
     caller: Option<&AccountId>,
 ) -> Vec<RoutingDecision> {
-    let state_view = app.state.view();
+    torii_visible_account_read_routes_in(&app.state.view(), caller)
+}
+
+/// Account-read routes visible to `caller`, all resolved from one State view.
+fn torii_visible_account_read_routes_in(
+    state_view: &iroha_core::state::StateView<'_>,
+    caller: Option<&AccountId>,
+) -> Vec<RoutingDecision> {
     let world = state_view.world();
     match iroha_core::sumeragi::lanes::routing::committed_root_scope(world) {
         Some(iroha_data_model::block::consensus::SumeragiRootScope::Dataspace {
@@ -15250,7 +15166,7 @@ fn torii_visible_account_read_routes(
             {
                 return Vec::new();
             }
-            return resolve_torii_private_root_account_route(&state_view, dataspace_id)
+            return resolve_torii_private_root_account_route(state_view, dataspace_id)
                 .ok()
                 .into_iter()
                 .collect();
@@ -15258,7 +15174,8 @@ fn torii_visible_account_read_routes(
         Some(iroha_data_model::block::consensus::SumeragiRootScope::Global) => {}
         None => return Vec::new(),
     }
-    let mut visible_dataspaces = torii_public_dataspace_ids(app);
+    let all_routes = torii_all_dataspace_routes_in(state_view);
+    let mut visible_dataspaces = torii_public_dataspace_ids_in(state_view);
     if let Some(caller) = caller
         && let Ok(account) = world.account(caller)
         && let Some(uaid) = account.value().uaid().copied()
@@ -15269,11 +15186,11 @@ fn torii_visible_account_read_routes(
     if let Some(caller) = caller {
         let can_read_all: Permission = CanReadAllLedgerData.into();
         if torii_account_has_permission(world, caller, &can_read_all) {
-            return torii_all_dataspace_routes(app);
+            return all_routes;
         }
         visible_dataspaces.extend(
-            torii_all_dataspace_routes(app)
-                .into_iter()
+            all_routes
+                .iter()
                 .filter(|route| {
                     let permission: Permission = CanReadRestrictedDataspace {
                         dataspace: route.dataspace_id,
@@ -15284,7 +15201,7 @@ fn torii_visible_account_read_routes(
                 .map(|route| route.dataspace_id),
         );
     }
-    torii_all_dataspace_routes(app)
+    all_routes
         .into_iter()
         .filter(|route| visible_dataspaces.contains(&route.dataspace_id))
         .collect()
@@ -15294,12 +15211,19 @@ fn torii_dataspace_read_visibility(
     app: &AppState,
     caller: Option<&AccountId>,
 ) -> routing::DataspaceReadVisibility {
+    torii_dataspace_read_visibility_in(&app.state.view(), caller)
+}
+
+/// The dataspace visibility of `caller`, resolved from one State view.
+fn torii_dataspace_read_visibility_in(
+    state_view: &iroha_core::state::StateView<'_>,
+    caller: Option<&AccountId>,
+) -> routing::DataspaceReadVisibility {
     let can_read_all = caller.is_some_and(|caller| {
         let permission: Permission = CanReadAllLedgerData.into();
-        let state_view = app.state.view();
         torii_account_has_permission(state_view.world(), caller, &permission)
     });
-    let visible_dataspaces = torii_visible_account_read_routes(app, caller)
+    let visible_dataspaces = torii_visible_account_read_routes_in(state_view, caller)
         .into_iter()
         .map(|route| route.dataspace_id)
         .collect();
@@ -15349,12 +15273,18 @@ fn torii_dataspace_read_visibility_for_scope(
     }
 }
 fn torii_public_dataspace_ids(app: &AppState) -> BTreeSet<DataSpaceId> {
-    let state_view = app.state.view();
+    torii_public_dataspace_ids_in(&app.state.view())
+}
+
+/// Dataspaces of the public lanes active at the view's committed height.
+fn torii_public_dataspace_ids_in(
+    state_view: &iroha_core::state::StateView<'_>,
+) -> BTreeSet<DataSpaceId> {
     let nexus = state_view.nexus();
     let mut dataspaces = BTreeSet::new();
     for lane in nexus.lane_catalog.lanes() {
         if lane.visibility == iroha_data_model::nexus::LaneVisibility::Public
-            && torii_lane_active_for_routing(app, lane.id)
+            && state_view.is_lane_active_for_authority(lane.id)
         {
             dataspaces.insert(lane.dataspace_id);
         }
@@ -15467,10 +15397,10 @@ fn torii_global_signed_query_read_routes(
     app: &AppState,
     authority: &AccountId,
 ) -> Vec<RoutingDecision> {
-    let public_dataspaces = torii_public_dataspace_ids(app);
     let state_view = app.state.view();
+    let public_dataspaces = torii_public_dataspace_ids_in(&state_view);
     let world = state_view.world();
-    torii_all_dataspace_routes(app)
+    torii_all_dataspace_routes_in(&state_view)
         .into_iter()
         .filter(|route| {
             public_dataspaces.contains(&route.dataspace_id)
@@ -15944,14 +15874,20 @@ fn torii_account_read_route_scope(
     }
 }
 fn torii_all_dataspace_routes(app: &AppState) -> Vec<RoutingDecision> {
-    let state_view = app.state.view();
+    torii_all_dataspace_routes_in(&app.state.view())
+}
+
+/// The lowest active lane of every dataspace at the view's committed height.
+fn torii_all_dataspace_routes_in(
+    state_view: &iroha_core::state::StateView<'_>,
+) -> Vec<RoutingDecision> {
     let nexus = state_view.nexus();
     let mut routes = BTreeMap::<
         iroha_model_base::topology::DataSpaceId,
         iroha_model_base::topology::LaneId,
     >::new();
     for lane in nexus.lane_catalog.lanes() {
-        if !torii_lane_active_for_routing(app, lane.id) {
+        if !state_view.is_lane_active_for_authority(lane.id) {
             continue;
         }
         routes
@@ -24909,10 +24845,11 @@ async fn handler_blocks_stream_ws(
             let _preauth_guard = preauth_guard;
             let stream = routing::block::handle_blocks_stream(
                 kura,
+                Arc::clone(&app.state),
                 app.state.ivm_execution_budget(),
                 ws,
                 app.ws_message_timeout,
-                move || visibility.authorization_is_current(),
+                stream_read_authorization::ToriiStreamReadAuthorization::new(visibility),
             );
             let result = tokio::select! {
                 () = shutdown.receive() => return,
@@ -31129,7 +31066,7 @@ async fn handler_alias_setup_plan(
             if let Err(error) = iroha_core::alias_setup::validate_configured_alias_payment_asset(
                 world,
                 &target,
-                &state_view.nexus().fees.fee_asset_id,
+                &state_view.nexus().fees.fee_asset_id.canonical_address(),
             ) {
                 return Ok(alias_setup_plan_report_response(
                     StatusCode::CONFLICT,
@@ -31427,7 +31364,7 @@ async fn handler_alias_lease_renew_plan(
     if let Err(error) = iroha_core::alias_setup::validate_configured_alias_payment_asset(
         state_view.world(),
         &request.renewal.target,
-        &state_view.nexus().fees.fee_asset_id,
+        &state_view.nexus().fees.fee_asset_id.canonical_address(),
     ) {
         return Ok(alias_setup_plan_report_response(
             StatusCode::CONFLICT,
@@ -34289,7 +34226,7 @@ fn validate_account_onboarding_readiness(
                 iroha_core::sns::ensure_namespace_policy_payment_asset_matches_configured(
                     world,
                     iroha_core::sns::SnsNamespace::AccountAlias,
-                    &nexus.fees.fee_asset_id,
+                    &nexus.fees.fee_asset_id.canonical_address(),
                 )
             {
                 if matches!(&error, iroha_core::sns::SnsError::Deferred(_)) {
@@ -39014,6 +38951,14 @@ impl Torii {
                 )
             })?;
         builder.route(
+            &routes::CONTEXT,
+            catalog_post(private_settlement::handler_context)
+                .layer(DefaultBodyLimit::max(
+                    iroha_data_model::nexus::PRIVATE_SETTLEMENT_CONTEXT_REQUEST_MAX_BYTES_V1,
+                ))
+                .authenticated_in_handler(HandlerAuthentication::CanonicalAccountSignature),
+        );
+        builder.route(
             &routes::AVAILABILITY_SHARE,
             catalog_post(private_settlement::handler_availability_share)
                 .layer(axum::Extension(runtime.clone()))
@@ -43594,6 +43539,8 @@ fn build_gc_runtime(
 pub enum Error {
     /// Failed to process query
     Query(#[from] iroha_data_model::ValidationFail),
+    /// Original native evidence decode is locally refused: {0}
+    NativeEvidenceDecode(#[source] norito::core::DecodeLocalRefusal),
     /// Validation error for app-facing query parameters `{code}`: {message}
     AppQueryValidation {
         /// Stable machine-readable code.
@@ -44100,6 +44047,17 @@ impl Error {
                 let status = Self::query_status_code(&err);
                 public_validation_fail_envelope(&err, status)
             }
+            Self::NativeEvidenceDecode(original) => {
+                // Keep original counter custody through response preparation.
+                let envelope = public_validation_fail_envelope(
+                    &iroha_data_model::ValidationFail::QueryFailed(
+                        iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded,
+                    ),
+                    StatusCode::TOO_MANY_REQUESTS,
+                );
+                drop(original);
+                envelope
+            }
             Self::AcceptTransaction(err) => {
                 iroha_logger::warn!(?err, "Transaction rejected during admission");
                 let (code, detail) = accept_transaction_metadata(&err);
@@ -44221,6 +44179,7 @@ impl Error {
         use Error::*;
         match self {
             Query(e) => Self::query_status_code(e),
+            NativeEvidenceDecode(_) => StatusCode::TOO_MANY_REQUESTS,
             AcceptTransaction(_) => StatusCode::BAD_REQUEST,
             AppQueryValidation { .. } => StatusCode::BAD_REQUEST,
             #[cfg(feature = "app_api")]

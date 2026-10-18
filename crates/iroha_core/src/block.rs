@@ -4726,7 +4726,6 @@ pub(crate) mod valid {
             block: &SignedBlock,
             state: &StateBlock<'_>,
         ) -> Result<(), BlockValidationError> {
-            Self::validate_native_fee_settlement_mode(state)?;
             Self::checked_execution_context_header(block)?;
 
             Ok(())
@@ -4779,6 +4778,7 @@ pub(crate) mod valid {
                     topology,
                     genesis_account,
                     &view,
+                    state.pipeline_parallelism(),
                     soft_fork,
                     time_source,
                     skip_block_signatures,
@@ -4935,6 +4935,12 @@ pub(crate) mod valid {
             };
             if let Some(timings) = timings.as_deref_mut() {
                 timings.execution_state_block_ms = to_ms(state_block_start.elapsed());
+            }
+            // `validate_static_with_snapshot` above verified (batched and in parallel)
+            // the signature of every Network input of this exact block and rejects
+            // the block on any failure, so its execution need not verify them again.
+            if !block.header().is_genesis() {
+                state_block.mark_network_signatures_prechecked();
             }
             if let Err(error) = Self::validate_staged_execution_controls(&block, &state_block) {
                 drop(state_block);
@@ -5094,6 +5100,7 @@ pub(crate) mod valid {
             topology: &Topology,
             genesis_account: &AccountId,
             state: &impl StateReadOnly,
+            pipeline_parallelism: &crate::state::PipelineParallelism,
             soft_fork: bool,
             time_source: &TimeSource,
             skip_block_signatures: bool,
@@ -5256,7 +5263,6 @@ pub(crate) mod valid {
             }
             let crypto_cfg = state.crypto();
             let pipeline_cfg = state.pipeline().clone();
-            let pipeline_parallelism = crate::state::PipelineParallelism::new(&pipeline_cfg);
             let aggregate_lane = nexus.routing_policy.default_lane;
             Ok(StaticValidationData {
                 expected_block_height,
@@ -5264,7 +5270,7 @@ pub(crate) mod valid {
                 tx_params,
                 crypto_cfg,
                 pipeline_cfg,
-                pipeline_parallelism,
+                pipeline_parallelism: pipeline_parallelism.clone(),
                 aggregate_lane,
             })
         }
@@ -6166,11 +6172,14 @@ pub(crate) mod valid {
                     }
                 }
             }
+            let isolate_observations = crate::status::replay_observations_are_isolated();
             let validate_tx = |(idx, (tx, prepared)): (
                 usize,
                 (&SignedTransaction, &PreparedBlockTransaction),
             )|
              -> Option<BlockValidationError> {
+                let _observations =
+                    isolate_observations.then(crate::status::isolate_replay_observations);
                 #[cfg(test)]
                 let inherited_account_profile = chain_discriminant();
                 let _profile = ChainDiscriminantGuard::enter(account_discriminant);
@@ -9582,6 +9591,17 @@ pub(crate) mod tests {
         chain_id: ChainId,
         nexus: iroha_config::parameters::actual::Nexus,
     ) -> State {
+        let mut parameters = world.parameters.block();
+        parameters
+            .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                nexus
+                    .fees
+                    .clone()
+                    .into_custom_parameter()
+                    .expect("explicit fixture fee policy"),
+            ))
+            .expect("valid fixture fee policy");
+        parameters.commit();
         let (mut state, _) = State::new_with_chain_and_network_id_and_pre_genesis_nexus_for_testing(
             world,
             nexus.clone(),
@@ -11228,8 +11248,8 @@ seiyaku DynamicTarget { permission CanWriteCounters;
             [],
         );
         let mut nexus = iroha_config::parameters::actual::Nexus::default();
-        nexus.fees.fee_asset_id = fee_asset.to_string();
-        nexus.fees.fee_sink_account_id = fee_sink.to_string();
+        nexus.fees.fee_asset_id = fee_asset.clone();
+        nexus.fees.fee_sink_account_id = fee_sink.clone();
         nexus.fees.base_fee = Quantity::zero();
         nexus.fees.per_byte_fee = Quantity::zero();
         nexus.fees.per_instruction_fee = Quantity::zero();

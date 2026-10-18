@@ -970,7 +970,7 @@ pub(crate) fn citizen_genesis_instructions(
 
 /// The genesis instruction that creates SCCP with the Taira defaults under `reset_nonce`
 /// (`specs/sccp.md` §4.1, §4.18): its parameters, reset nonce, three route escrows and an empty
-/// registry. Genesis carries no bridge keys; validators register their own after start.
+/// registry. Native Sumeragi consensus certificates authenticate SCCP finality.
 ///
 /// # Errors
 /// Returns an error for a zero reset nonce.

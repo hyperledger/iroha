@@ -10,8 +10,12 @@
 //! logs, events, metrics, or errors.
 
 mod confidential_encoding;
+mod context;
+pub use context::*;
 mod error;
+mod proof_intent;
 mod settlement_validation;
+pub use proof_intent::PrivateSettlementProofIntentV1;
 
 pub use error::PrivateSettlementValidationError;
 
@@ -321,31 +325,69 @@ pub struct PrivateSettlementLegCommitmentV1 {
     pub delta_digest: Hash,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Decode, Encode, norito::NoritoSchema)]
+/// Canonical public intent projection shared by construction and final manifests.
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    IntoSchema,
+    crate::DeriveJsonSerialize,
+    crate::DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
 #[norito_schema(
     name = "iroha_data_model::nexus::private_settlement::PrivateSettlementBundleIdMaterialV1"
 )]
-struct PrivateSettlementBundleIdMaterialV1 {
-    network_id: NetworkId,
-    authority_context_height: u64,
-    expiry_height: u64,
-    sponsor: AccountId,
-    fee_intent_digest: Hash,
-    reimbursement_terms_commitment: Hash,
-    reimbursement_leg_ordinal: u8,
-    legs: Vec<PrivateSettlementBundleLegMaterialV1>,
+pub struct PrivateSettlementBundleIdMaterialV1 {
+    /// Genesis-derived network identity.
+    pub network_id: NetworkId,
+    /// Independently selected authenticated Global context height.
+    pub authority_context_height: u64,
+    /// Last admissible settlement height.
+    pub expiry_height: u64,
+    /// Exact public fee sponsor.
+    pub sponsor: AccountId,
+    /// Canonical public fee intent digest.
+    pub fee_intent_digest: Hash,
+    /// Commitment to independently authorized restricted reimbursement terms.
+    pub reimbursement_terms_commitment: Hash,
+    /// Ordered leg carrying the sole reimbursement.
+    pub reimbursement_leg_ordinal: u8,
+    /// Canonical ordered public participant intents.
+    pub legs: Vec<PrivateSettlementBundleLegMaterialV1>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Decode, Encode, norito::NoritoSchema)]
+/// Canonical public intent projection shared by construction and final manifests.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Decode,
+    Encode,
+    IntoSchema,
+    crate::DeriveJsonSerialize,
+    crate::DeriveJsonDeserialize,
+    norito::NoritoSchema,
+)]
 #[norito_schema(
     name = "iroha_data_model::nexus::private_settlement::PrivateSettlementBundleLegMaterialV1"
 )]
-struct PrivateSettlementBundleLegMaterialV1 {
-    ordinal: u8,
-    route: PrivateSettlementRouteV1,
-    pool_id: PrivacyPoolIdV1,
-    asset_binding_commitment: Hash,
-    audit_policy_digest: Hash,
+pub struct PrivateSettlementBundleLegMaterialV1 {
+    /// Canonical zero-based leg ordinal.
+    pub ordinal: u8,
+    /// Exact route and incarnation.
+    pub route: PrivateSettlementRouteV1,
+    /// Opaque native pool identifier.
+    pub pool_id: PrivacyPoolIdV1,
+    /// Salted binding to the restricted asset.
+    pub asset_binding_commitment: Hash,
+    /// Exact governed auditor-policy digest.
+    pub audit_policy_digest: Hash,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Decode, Encode, norito::NoritoSchema)]
@@ -764,6 +806,60 @@ impl fmt::Debug for PrivateSettlementAuditPayerAuthorizationBodyV1 {
 }
 
 impl PrivateSettlementAuditPayerAuthorizationBodyV1 {
+    /// Construct the existing payer-signing body before a complete audit plaintext exists.
+    /// The input openings and real public nullifiers must already be derived by the wallet.
+    /// This supplies no signature or proof authority.
+    /// # Errors
+    /// Invalid fixed input shape, zero/duplicate nullifiers or invalid replay binding.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_openings(
+        network_id: NetworkId,
+        bundle_id: Hash,
+        leg_ordinal: u8,
+        route: PrivateSettlementRouteV1,
+        payer: &AccountId,
+        expiry_height: u64,
+        openings: &[PrivateSettlementAuditNoteOpeningV1],
+        nullifiers: &[PrivacyNullifierV1],
+    ) -> Result<Self, PrivateSettlementValidationError> {
+        if nullifiers.len() != PRIVATE_SETTLEMENT_INPUT_SLOTS_V1
+            || nullifiers.iter().any(PrivacyNullifierV1::is_zero)
+            || nullifiers[0] == nullifiers[1]
+            || openings.len() != PRIVATE_SETTLEMENT_INPUT_SLOTS_V1
+        {
+            return Err(PrivateSettlementValidationError::InvalidAuditPlaintext);
+        }
+        let inputs = openings
+            .iter()
+            .zip(nullifiers)
+            .enumerate()
+            .map(|(index, (opening, nullifier))| {
+                Ok(PrivateSettlementAuditPayerInputV1 {
+                    input_ordinal: u8::try_from(index)
+                        .map_err(|_| PrivateSettlementValidationError::InvalidAuditPlaintext)?,
+                    active: opening.active,
+                    commitment: opening.commitment,
+                    nullifier: *nullifier,
+                    note_spending_authority: opening.spending_authority,
+                    dummy_domain: opening.dummy_domain,
+                })
+            })
+            .collect::<Result<Vec<_>, PrivateSettlementValidationError>>()?;
+        let body = PrivateSettlementAuditPayerAuthorizationBodyV1 {
+            version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
+            purpose: Hash::new(PAYER_INPUT_AUTHORIZATION_DOMAIN_V1),
+            network_id,
+            bundle_id,
+            leg_ordinal,
+            route,
+            payer: payer.clone(),
+            expiry_height,
+            inputs,
+        };
+        body.validate_shape()?;
+        Ok(body)
+    }
+
     /// Wipe restricted payer identity and input-authority metadata before discard.
     ///
     /// Public replay and proof bindings remain intact. The body intentionally
@@ -1000,6 +1096,58 @@ impl fmt::Debug for PrivateSettlementAuditViewKeyAuthorizationBodyV1 {
 }
 
 impl PrivateSettlementAuditViewKeyAuthorizationBodyV1 {
+    /// Construct the existing output-view signing body from an actual note opening.
+    /// The ordinal selects recipient, payer change or sponsor; no placeholder signature
+    /// or completed plaintext is needed. This supplies no signature or proof authority.
+    /// # Errors
+    /// An ordinal outside the fixed three-output relation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_output(
+        network_id: NetworkId,
+        bundle_id: Hash,
+        leg_ordinal: u8,
+        route: PrivateSettlementRouteV1,
+        expiry_height: u64,
+        recipient: &AccountId,
+        payer: &AccountId,
+        sponsor: &AccountId,
+        output_index: usize,
+        recipient_view_key: [u8; 32],
+        note: &PrivateSettlementAuditNoteOpeningV1,
+    ) -> Result<Self, PrivateSettlementValidationError> {
+        let (role, authorized_account) = match output_index {
+            0 => (
+                PrivateSettlementAuditOutputRoleV1::SettlementRecipient,
+                recipient.clone(),
+            ),
+            1 => (
+                PrivateSettlementAuditOutputRoleV1::PayerChange,
+                payer.clone(),
+            ),
+            2 => (
+                PrivateSettlementAuditOutputRoleV1::SponsorReimbursement,
+                sponsor.clone(),
+            ),
+            _ => return Err(PrivateSettlementValidationError::InvalidAuditPlaintext),
+        };
+        Ok(Self {
+            version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
+            purpose: Hash::new(OUTPUT_VIEW_KEY_AUTHORIZATION_DOMAIN_V1),
+            network_id,
+            bundle_id,
+            leg_ordinal,
+            route,
+            output_ordinal: u8::try_from(output_index)
+                .map_err(|_| PrivateSettlementValidationError::InvalidAuditPlaintext)?,
+            role,
+            authorized_account,
+            recipient_view_key,
+            output_active: note.active,
+            note_spending_authority: note.spending_authority,
+            expiry_height,
+        })
+    }
+
     /// Wipe restricted account and one-time output-key metadata before discard.
     ///
     /// Public replay and route bindings remain intact. The body intentionally
@@ -1472,6 +1620,42 @@ struct PrivateSettlementReimbursementTermsMaterialV1 {
     reimbursement_terms_salt: [u8; 32],
 }
 
+/// Derive the exact private reimbursement commitment before a bundle or audit witness exists.
+///
+/// This reuses the sole canonical reimbursement projection. The successful carrier count is
+/// the protocol constant, and the bundle identifier is excluded to avoid circular commitments.
+/// No authorization, proof or plaintext placeholder is required or constructed.
+/// # Errors
+/// Canonical encoding failure; this computation alone grants no payment authority.
+#[allow(clippy::too_many_arguments)]
+pub fn private_settlement_reimbursement_terms_commitment_v1(
+    network_id: NetworkId,
+    leg_ordinal: u8,
+    route: PrivateSettlementRouteV1,
+    sponsor: &AccountId,
+    asset_definition_id: &AssetDefinitionId,
+    sponsor_reimbursement_amount: u128,
+    fee_intent_digest: Hash,
+    settlement_expiry_height: u64,
+    reimbursement_terms_salt: [u8; 32],
+) -> Result<Hash, norito::Error> {
+    canonical_hash(
+        REIMBURSEMENT_TERMS_COMMITMENT_DOMAIN_V1,
+        &PrivateSettlementReimbursementTermsMaterialV1 {
+            network_id,
+            leg_ordinal,
+            route,
+            sponsor: sponsor.clone(),
+            asset_definition_id: asset_definition_id.clone(),
+            sponsor_reimbursement_amount,
+            fee_intent_digest,
+            success_fee_bearing_carriers: PRIVATE_SETTLEMENT_SUCCESS_FEE_BEARING_CARRIERS_V1,
+            settlement_expiry_height,
+            reimbursement_terms_salt,
+        },
+    )
+}
+
 impl PrivateSettlementAuditOutputCommitmentMaterialV1 {
     fn zeroize_for_confidential_discard(&mut self) {
         zeroize_value_for_confidential_discard(&mut self.recipient_view_key);
@@ -1594,43 +1778,16 @@ impl PrivateSettlementAuditPlaintextV1 {
         nullifiers: &[PrivacyNullifierV1],
     ) -> Result<PrivateSettlementAuditPayerAuthorizationBodyV1, PrivateSettlementValidationError>
     {
-        if nullifiers.len() != PRIVATE_SETTLEMENT_INPUT_SLOTS_V1
-            || nullifiers.iter().any(PrivacyNullifierV1::is_zero)
-            || nullifiers[0] == nullifiers[1]
-            || self.inputs.len() != PRIVATE_SETTLEMENT_INPUT_SLOTS_V1
-        {
-            return Err(PrivateSettlementValidationError::InvalidAuditPlaintext);
-        }
-        let inputs = self
-            .inputs
-            .iter()
-            .zip(nullifiers)
-            .enumerate()
-            .map(|(index, (opening, nullifier))| {
-                Ok(PrivateSettlementAuditPayerInputV1 {
-                    input_ordinal: u8::try_from(index)
-                        .map_err(|_| PrivateSettlementValidationError::InvalidAuditPlaintext)?,
-                    active: opening.active,
-                    commitment: opening.commitment,
-                    nullifier: *nullifier,
-                    note_spending_authority: opening.spending_authority,
-                    dummy_domain: opening.dummy_domain,
-                })
-            })
-            .collect::<Result<Vec<_>, PrivateSettlementValidationError>>()?;
-        let body = PrivateSettlementAuditPayerAuthorizationBodyV1 {
-            version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
-            purpose: Hash::new(PAYER_INPUT_AUTHORIZATION_DOMAIN_V1),
-            network_id: self.network_id,
-            bundle_id: self.bundle_id,
-            leg_ordinal: self.leg_ordinal,
-            route: self.route,
-            payer: self.payer.clone(),
-            expiry_height: self.settlement_expiry_height,
-            inputs,
-        };
-        body.validate_shape()?;
-        Ok(body)
+        PrivateSettlementAuditPayerAuthorizationBodyV1::from_openings(
+            self.network_id,
+            self.bundle_id,
+            self.leg_ordinal,
+            self.route,
+            &self.payer,
+            self.settlement_expiry_height,
+            &self.inputs,
+            nullifiers,
+        )
     }
 
     /// Derive the exact purpose-separated authorization body for one output.
@@ -1651,37 +1808,19 @@ impl PrivateSettlementAuditPlaintextV1 {
             .outputs
             .get(output_index)
             .ok_or(PrivateSettlementValidationError::InvalidAuditPlaintext)?;
-        let (role, authorized_account) = match output_index {
-            0 => (
-                PrivateSettlementAuditOutputRoleV1::SettlementRecipient,
-                self.recipient.clone(),
-            ),
-            1 => (
-                PrivateSettlementAuditOutputRoleV1::PayerChange,
-                self.payer.clone(),
-            ),
-            2 => (
-                PrivateSettlementAuditOutputRoleV1::SponsorReimbursement,
-                self.sponsor.clone(),
-            ),
-            _ => return Err(PrivateSettlementValidationError::InvalidAuditPlaintext),
-        };
-        Ok(PrivateSettlementAuditViewKeyAuthorizationBodyV1 {
-            version: ATOMIC_PRIVATE_SETTLEMENT_VERSION_V1,
-            purpose: Hash::new(OUTPUT_VIEW_KEY_AUTHORIZATION_DOMAIN_V1),
-            network_id: self.network_id,
-            bundle_id: self.bundle_id,
-            leg_ordinal: self.leg_ordinal,
-            route: self.route,
-            output_ordinal: u8::try_from(output_index)
-                .map_err(|_| PrivateSettlementValidationError::InvalidAuditPlaintext)?,
-            role,
-            authorized_account,
-            recipient_view_key: output.recipient_view_key,
-            output_active: output.note.active,
-            note_spending_authority: output.note.spending_authority,
-            expiry_height: self.settlement_expiry_height,
-        })
+        PrivateSettlementAuditViewKeyAuthorizationBodyV1::from_output(
+            self.network_id,
+            self.bundle_id,
+            self.leg_ordinal,
+            self.route,
+            self.settlement_expiry_height,
+            &self.recipient,
+            &self.payer,
+            &self.sponsor,
+            output_index,
+            output.recipient_view_key,
+            &output.note,
+        )
     }
 
     fn commitment_material(&self) -> PrivateSettlementAuditCommitmentMaterialV1 {
@@ -1775,28 +1914,17 @@ impl PrivateSettlementAuditPlaintextV1 {
     ///
     /// Returns a Norito error when canonical reimbursement material cannot be encoded.
     pub fn reimbursement_terms_commitment(&self) -> Result<Hash, norito::Error> {
-        canonical_hash(
-            REIMBURSEMENT_TERMS_COMMITMENT_DOMAIN_V1,
-            &self.reimbursement_terms_material(PRIVATE_SETTLEMENT_SUCCESS_FEE_BEARING_CARRIERS_V1),
+        private_settlement_reimbursement_terms_commitment_v1(
+            self.network_id,
+            self.leg_ordinal,
+            self.route,
+            &self.sponsor,
+            &self.asset_definition_id,
+            self.sponsor_reimbursement_amount,
+            self.fee_intent_digest,
+            self.settlement_expiry_height,
+            self.reimbursement_terms_salt,
         )
-    }
-
-    fn reimbursement_terms_material(
-        &self,
-        success_fee_bearing_carriers: u8,
-    ) -> PrivateSettlementReimbursementTermsMaterialV1 {
-        PrivateSettlementReimbursementTermsMaterialV1 {
-            network_id: self.network_id,
-            leg_ordinal: self.leg_ordinal,
-            route: self.route,
-            sponsor: self.sponsor.clone(),
-            asset_definition_id: self.asset_definition_id.clone(),
-            sponsor_reimbursement_amount: self.sponsor_reimbursement_amount,
-            fee_intent_digest: self.fee_intent_digest,
-            success_fee_bearing_carriers,
-            settlement_expiry_height: self.settlement_expiry_height,
-            reimbursement_terms_salt: self.reimbursement_terms_salt,
-        }
     }
 
     /// Validate the restricted plaintext's fixed slot shape and value balance.
@@ -1923,6 +2051,19 @@ impl PrivateSettlementAuditPlaintextV1 {
     pub fn validate_against_manifest(
         &self,
         manifest: &AtomicPrivateSettlementV1,
+    ) -> Result<(), PrivateSettlementValidationError> {
+        manifest.validate()?;
+        self.validate_against_proof_intent(&manifest.proof_intent())
+    }
+
+    /// Validate original private terms against the distinct pre-proof public intent.
+    ///
+    /// This checks intent and authorization shape, not proof or final artifact availability.
+    /// # Errors
+    /// Rejects malformed private terms and any cross-intent, fee, asset or reimbursement join.
+    pub fn validate_against_proof_intent(
+        &self,
+        manifest: &PrivateSettlementProofIntentV1,
     ) -> Result<(), PrivateSettlementValidationError> {
         self.validate()?;
         manifest.validate()?;
@@ -3442,14 +3583,11 @@ impl PrivateSettlementLegPayloadV1 {
     }
 
     fn sidecar_material_digest(&self) -> Result<Hash, norito::Error> {
-        canonical_hash(
-            SIDECAR_DIGEST_DOMAIN_V1,
-            &(
-                self.statement.clone(),
-                self.proof.clone(),
-                self.delta.clone(),
-                self.audit_capsule.clone(),
-            ),
+        private_settlement_sidecar_material_digest_v1(
+            &self.statement,
+            &self.proof,
+            &self.delta,
+            &self.audit_capsule,
         )
     }
 
@@ -3477,13 +3615,12 @@ impl PrivateSettlementLegPayloadV1 {
     ///
     /// Returns a Norito encoding error when material cannot be encoded.
     pub fn sidecar_material_bytes_len(&self) -> Result<usize, norito::Error> {
-        norito::encode_canonical(&(
-            self.statement.clone(),
-            self.proof.clone(),
-            self.delta.clone(),
-            self.audit_capsule.clone(),
-        ))
-        .map(|encoded| encoded.len())
+        private_settlement_sidecar_material_bytes_len_v1(
+            &self.statement,
+            &self.proof,
+            &self.delta,
+            &self.audit_capsule,
+        )
     }
 
     /// Validate all cross-object bindings before proof verification or staging.
@@ -3755,6 +3892,42 @@ impl PrivateSettlementProvisionalLegMaterialV1 {
         }
         Ok(())
     }
+}
+
+/// Content address of actual proof-complete restricted material, without manufacturing a certificate.
+/// # Errors
+/// Canonical encoding failure. Callers validate actual proof/ciphertext bindings separately.
+pub fn private_settlement_sidecar_material_digest_v1(
+    statement: &PrivateSettlementProofStatementV1,
+    proof: &[u8],
+    delta: &PrivateSettlementDeltaV1,
+    capsule: &PrivateSettlementAuditCapsuleV1,
+) -> Result<Hash, norito::Error> {
+    canonical_hash(
+        SIDECAR_DIGEST_DOMAIN_V1,
+        &(
+            statement.clone(),
+            proof.to_vec(),
+            delta.clone(),
+            capsule.clone(),
+        ),
+    )
+}
+/// Exact canonical size of the existing certificate-free material tuple.
+/// # Errors
+/// Canonical encoding or length overflow.
+pub fn private_settlement_sidecar_material_bytes_len_v1(
+    statement: &PrivateSettlementProofStatementV1,
+    proof: &[u8],
+    delta: &PrivateSettlementDeltaV1,
+    capsule: &PrivateSettlementAuditCapsuleV1,
+) -> Result<usize, norito::Error> {
+    norito::canonical_frame_len(&(
+        statement.clone(),
+        proof.to_vec(),
+        delta.clone(),
+        capsule.clone(),
+    ))
 }
 
 /// Compute the canonical domain-separated digest of settlement proof bytes.

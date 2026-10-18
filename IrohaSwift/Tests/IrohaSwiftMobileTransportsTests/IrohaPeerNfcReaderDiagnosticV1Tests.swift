@@ -31,6 +31,31 @@ final class IrohaPeerNfcReaderDiagnosticV1Tests: XCTestCase {
         XCTAssertNil(record.platformCode)
     }
 
+    func testReceiverAskFailuresKeepClosedCodeAndTypedOperation() {
+        let malformed = IrohaPeerNfcReaderTerminalDiagnosticV1(
+            error: IrohaPeerNfcErrorV1.invalidAsk,
+            operation: .getAsk,
+            lastStage: .tagDetected,
+            elapsedMilliseconds: 25
+        )
+        XCTAssertEqual(malformed.failure, .peerInvalidAsk)
+        XCTAssertEqual(malformed.logLine,
+            "iroha_kagemusha_nfc_ios_reader_terminal error=peer.invalidAsk"
+                + " operation=getAsk elapsed_ms=25 last_stage=tag_detected")
+        XCTAssertNil(malformed.platformCode)
+
+        let refused = IrohaPeerNfcReaderTerminalDiagnosticV1(
+            error: IrohaPeerNfcErrorV1.peerRejected(operation: .getAsk),
+            operation: .getIntake,
+            lastStage: nil,
+            elapsedMilliseconds: 30
+        )
+        XCTAssertEqual(refused.logLine,
+            "iroha_kagemusha_nfc_ios_reader_terminal error=peer.peerRejected"
+                + " operation=getAsk elapsed_ms=30 last_stage=none")
+        XCTAssertNil(refused.platformCode)
+    }
+
     func testAssociatedValuesAndArbitraryErrorDetailsNeverEnterLog() {
         let errors: [Error] = [
             IrohaPeerNfcErrorV1.offerDeclined(reason: 65535),

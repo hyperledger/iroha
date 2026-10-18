@@ -119,17 +119,8 @@ async fn fund_and_declare(
     let governor = client(network, 0, &ALICE_KEYPAIR);
     // NPoS genesis funds the test-network bootstrap accounts, not caller-registered workers.
     // Fund every separate production custody account through ordinary signed transfers.
-    let mut effective = toml::Table::new();
-    for layer in network.config_layers_for_peer(&network.peers()[0]) {
-        merge(&mut effective, layer.into_owned());
-    }
-    let native_fee_asset: AssetDefinitionId = effective
-        .get("nexus")
-        .and_then(|value| value.get("fees"))
-        .and_then(|value| value.get("fee_asset_id"))
-        .and_then(toml::Value::as_str)
-        .ok_or_else(|| eyre!("publication network must expose its actual bootstrap fee asset"))?
-        .parse()?;
+    let native_fee_asset =
+        iroha_genesis::signed_genesis_root_fee_policy(&network.genesis().0)?.fee_asset_id;
     for provider in providers {
         ensure!(
             provider.owner() != provider.completion_signer(),

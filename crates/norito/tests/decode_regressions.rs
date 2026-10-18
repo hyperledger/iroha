@@ -72,13 +72,17 @@ fn ncb_str_view_truncation_and_offset_tamper() {
     assert!(matches!(err, Error::LengthMismatch));
 }
 #[test]
-fn header_decode_rejects_misaligned_payload() {
+fn header_decode_accepts_payload_at_any_address() {
     let value = vec![1_u64, 2, 3, 5, 8];
     let bytes = norito::to_bytes(&value).expect("encode header payload");
     let mut padded = Vec::with_capacity(bytes.len() + 1);
     padded.push(0xAA);
     padded.extend_from_slice(&bytes);
-    let misaligned = &padded[1..padded.len()];
-    let result = core::from_bytes::<Vec<u64>>(misaligned);
-    assert!(matches!(result, Err(Error::Misaligned { .. })));
+    // The wire padding is unchanged; only the buffer address differs.
+    let shifted = &padded[1..padded.len()];
+    let archived = core::from_bytes::<Vec<u64>>(shifted).expect("address-independent frame");
+    let decoded = <Vec<u64> as norito::DeserializePayload>::try_deserialize(archived)
+        .expect("decode shifted payload");
+    assert_eq!(decoded, value);
+    core::reset_decode_state();
 }

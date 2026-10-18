@@ -31,6 +31,11 @@ fn archive(root: &Path, budget: AllocationBudget, maximum: usize) -> NativeConte
         budget,
         maximum: NonZeroUsize::new(maximum).unwrap(),
         writable: true,
+        namespace: "native-contexts",
+        // This exact context fixture never captures optional FASTPQ tapes; real
+        // production open(kura) binds the independent configured source ceiling.
+        fastpq_maximum: None,
+        fastpq_replay_target: None,
     }
 }
 fn canonical_path(root: &Path) -> std::path::PathBuf {

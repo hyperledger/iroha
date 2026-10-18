@@ -371,7 +371,6 @@ fn encode_value<T: norito::core::NoritoSerialize + norito::json::JsonSerialize>(
             format,
             maximum.min(owner.response_bytes()),
             owner.cold_frames(),
-            native_projection_response::capacity,
         )
     })?;
     let etag = immutable.then(|| format!("\"{}\"", blake3::hash(encoded.as_ref()).to_hex()));

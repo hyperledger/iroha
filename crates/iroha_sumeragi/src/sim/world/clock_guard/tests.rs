@@ -25,7 +25,7 @@ fn lag(drift: Millis, sc: &Scenario) -> Millis {
 
 /// Every machine may report `ExecutorFailed`: the guard's `Failed` answers are local faults.
 fn guarded(sc: &mut Scenario, guard: ClockGuard) {
-    sc.checks.may_fault = (0..sc.machines()).collect();
+    sc.checks.may_executor_fail = (0..sc.machines()).collect();
     sc.clock_guard = Some(guard);
 }
 
@@ -80,11 +80,7 @@ fn guard_rules_and_leads() {
     assert_eq!(state.violated(1_100, false, 1_000), None);
     assert_eq!(
         state.violated(1_101, true, 1_000),
-        if cfg!(sumeragi_mutation = "MS52") {
-            None
-        } else {
-            Some(GuardRule::ClockAhead)
-        }
+        Some(GuardRule::ClockAhead)
     );
     // CT5 only for due work: `wall − t > lag` refuses.
     assert_eq!(state.violated(0, true, 1_000), None);
@@ -99,6 +95,7 @@ fn guard_rules_and_leads() {
 
 /// MS66: an honest leader may be exactly one allowed drift ahead of a slow honest voter.
 /// Removing the allowance must not turn that admissible execution into `ClockAhead`.
+/// All-honest clocks within that allowance keep committing in view zero without refusals.
 #[test]
 fn clock_guard_accepts_exact_drift_allowance() {
     let mut sc = Scenario::base("clock-guard-drift-allowance", 1, 4);
@@ -118,6 +115,103 @@ fn clock_guard_accepts_exact_drift_allowance() {
     let slow_wall = w.wall_ms(1);
     assert_eq!(i64::try_from(t).unwrap() - slow_wall, drift_i64());
     assert_eq!(guard_of(&w).violated(t, true, slow_wall), None);
+    let mut prior = 0;
+    for until in [5_000, 10_000, 15_000, 20_000] {
+        w.run_until(until);
+        assert!(w.failure.is_none(), "{:?}", w.failure);
+        let committed = w.oracle.refs[0].len();
+        assert!(
+            committed > prior,
+            "within-drift clocks must keep committing"
+        );
+        prior = committed;
+    }
+    assert!(
+        guard_of(&w).events.is_empty(),
+        "within-drift clocks must not refuse execution"
+    );
+    assert!(
+        w.oracle.refs[0].values().all(|block| block.view == 0),
+        "within-drift clocks must not force a view change"
+    );
+    assert!(
+        !committed_by(&w, 0, 0, 20_000).is_empty(),
+        "the fast honest leader's blocks must commit"
+    );
+}
+
+/// A far-future first proposal reaches every honest guard and cannot commit. A later
+/// honest leader replaces it with a sane timestamp at the same height and progress resumes.
+#[test]
+fn clock_guard_recovers_from_future_proposal() {
+    let mut sc = Scenario::base("clock_guard_future_recovery", 19, 4);
+    let (topology, owners) = crate::sim::world::preview(&sc, 1);
+    let leader = owners[usize::try_from(topology.round(0).leader()).unwrap()];
+    sc.byz = vec![(leader, Vec::new())];
+    let lag = lag(DRIFT, &sc);
+    guarded(
+        &mut sc,
+        ClockGuard {
+            max_clock_drift_ms: DRIFT,
+            due_work_max_lag_ms: lag,
+            leads: vec![(leader, vec![FAR])],
+            ..ClockGuard::default()
+        },
+    );
+    let mut w = World::new(sc);
+    while w.now < 5_000
+        && guard_of(&w)
+            .events
+            .iter()
+            .map(|event| event.replica)
+            .collect::<BTreeSet<_>>()
+            .len()
+            < 3
+    {
+        w.run_until(w.now + 50);
+        assert!(w.failure.is_none(), "{:?}", w.failure);
+    }
+    let refused: Vec<_> = guard_of(&w)
+        .events
+        .iter()
+        .filter(|event| {
+            !event.certified
+                && event.rule == GuardRule::ClockAhead
+                && event.proposer == Some(leader)
+        })
+        .copied()
+        .collect();
+    assert_eq!(
+        refused
+            .iter()
+            .map(|event| event.replica)
+            .collect::<BTreeSet<_>>()
+            .len(),
+        3,
+        "every honest guard must refuse the future proposal"
+    );
+    assert!(
+        w.oracle.refs[0].is_empty(),
+        "the refused first proposal cannot commit"
+    );
+    w.run_until(30_000);
+    assert!(w.failure.is_none(), "{:?}", w.failure);
+    assert!(
+        w.oracle.refs[0].len() >= 10,
+        "sane-time proposals must restore sustained progress"
+    );
+    let first = &w.oracle.refs[0][&1];
+    assert!(
+        first.honest_proposer && first.header.origin_view > 0,
+        "an honest later-view proposal must recover the refused height"
+    );
+    assert!(
+        refused.iter().all(|event| guard_of(&w)
+            .certified
+            .iter()
+            .all(|block| block.block_hash != event.block_hash)),
+        "the far-future proposal must never commit"
+    );
 }
 
 /// MS68: a genuine committed parent and original queued creation time survive clock regression.
@@ -458,6 +552,7 @@ fn wall_clock_stamp_refusal_and_o_time() {
             leads: vec![(3, vec![FAR])],
         },
     );
+    let expected_proposer = crate::sim::world::preview(&sc, 1).1[0];
     let mut w = World::new(sc);
     let base = w.wall_ms(0);
     assert_eq!(w.wall_ms(1), base + 50);
@@ -496,7 +591,7 @@ fn wall_clock_stamp_refusal_and_o_time() {
     // CT1: refused uncertified, exempt certified, never at a Byzantine executor.
     assert_eq!(
         w.clock_guard_refusal(r0, &ahead, &bh, false),
-        (!cfg!(sumeragi_mutation = "MS52")).then(|| ExecOutcome::Failed("ClockAhead".into()))
+        Some(ExecOutcome::Failed("ClockAhead".into()))
     );
     assert_eq!(w.clock_guard_refusal(r0, &ahead, &bh, true), None);
     assert_eq!(w.clock_guard_refusal(r3, &ahead, &bh, false), None);
@@ -515,12 +610,15 @@ fn wall_clock_stamp_refusal_and_o_time() {
     let plain = fixture_body(header(3), &encode_tx_with_due(4, false, true, 0));
     assert_eq!(w.clock_guard_refusal(r0, &plain, &bh, false), None);
     let events = &guard_of(&w).events;
-    let expected_events = if cfg!(sumeragi_mutation = "MS52") {
-        2
-    } else {
-        4
-    };
-    assert_eq!(events.len(), expected_events, "{events:?}");
+    assert_eq!(events.len(), 4, "{events:?}");
+    assert!(
+        events.iter().take(2).all(|event| {
+            event.t == u64::try_from(base + FAR).unwrap()
+                && event.wall == base
+                && event.proposer == Some(expected_proposer)
+        }),
+        "guard evidence retains the original timestamp and proposer"
+    );
     assert!(
         events
             .iter()
@@ -627,27 +725,46 @@ fn liveness_scenario(n: usize, seed: u64) -> (Scenario, Vec<usize>) {
 }
 
 /// `clock_guard_liveness_with_f_plus_one_slow_clocks` (§4.5, §13.4; the cross-session clock
-/// agreement): n = 4 and 7 under [`liveness_scenario`]. Every oracle holds (O-LIVE throughout,
-/// O-TIME, O-FAULT with the guard's local faults); the fast leaders' blocks commit while the
+/// agreement): n = 4 and 7 under [`liveness_scenario`]. Every oracle holds, with explicit
+/// progress before and after convergence, including five new chain heights and advancement
+/// at every honest replica after 40 s; the fast leaders' blocks commit while the
 /// skew is within `max_clock_drift_ms` (the `f + 1` slow clocks Prepare them), none of their
 /// blocks built 30 s ahead commits, and they commit again after the clocks converge; no
 /// far-future Byzantine block ever commits, and the honest executors did refuse them.
 #[test]
 fn clock_guard_liveness_with_f_plus_one_slow_clocks() {
     for (n, seed) in [(4, 1), (4, 2), (7, 3)] {
-        let (sc, fast) = liveness_scenario(n, seed);
-        let w = match crate::sim::run(sc) {
-            Ok(w) => w,
-            Err(report) => panic!("n={n} seed={seed}: {report}"),
-        };
+        let (mut sc, fast) = liveness_scenario(n, seed);
+        sc.checks.windows = vec![(0, 40_000, sc.duration, 5)];
+        let mut w = World::new(sc);
+        w.run_until(40_000);
+        let at_convergence: Vec<_> = w
+            .honest()
+            .into_iter()
+            .map(|replica| (replica, w.committed(replica)))
+            .collect();
+        if let Err(report) = w.run() {
+            panic!("n={n} seed={seed}: {report}");
+        }
+        for (replica, height_at_convergence) in at_convergence {
+            let committed = w.committed(replica);
+            assert!(
+                committed > height_at_convergence,
+                "n={n} seed={seed}: honest replica {replica} did not advance after clock convergence \
+                 (height {height_at_convergence} -> {committed})"
+            );
+        }
         let guard = guard_of(&w);
-        let far_refusals = guard
-            .events
-            .iter()
-            .filter(|e| e.rule == GuardRule::ClockAhead && !e.certified)
-            .count();
-        assert!(far_refusals > 0, "n={n}: the guard refused something");
         let byz: Vec<usize> = (n - (n - 1) / 3..n).collect();
+        assert!(
+            guard.events.iter().any(|event| {
+                event.rule == GuardRule::ClockAhead
+                    && !event.certified
+                    && event.proposer.is_some_and(|machine| byz.contains(&machine))
+                    && i64::try_from(event.t).unwrap() - event.wall > FAR / 2
+            }),
+            "n={n}: honest guards must refuse Byzantine far-future proposals"
+        );
         assert!(
             guard
                 .certified
@@ -658,19 +775,35 @@ fn clock_guard_liveness_with_f_plus_one_slow_clocks() {
         for m in &fast {
             let before = committed_by(&w, *m, 0, 20_000);
             let skewed: Vec<_> = guard
-                .certified
+                .events
                 .iter()
-                .filter(|c| c.proposer == Some(*m) && c.excess > i64::try_from(2 * DRIFT).unwrap())
+                .filter(|event| {
+                    event.proposer == Some(*m)
+                        && !event.certified
+                        && event.rule == GuardRule::ClockAhead
+                        && (20_000..40_000).contains(&event.at)
+                        && i64::try_from(event.t).unwrap() - event.wall > 20_000
+                })
                 .collect();
+            assert!(
+                !skewed.is_empty(),
+                "n={n}: fast leader {m}'s 30-second-ahead proposal must reach a refusing honest guard"
+            );
+            assert!(
+                skewed.iter().all(|event| guard
+                    .certified
+                    .iter()
+                    .all(|block| block.block_hash != event.block_hash)),
+                "n={n}: a proposal refused during the 30-second skew must never commit"
+            );
             let after = committed_by(&w, *m, 42_000, w.duration);
             assert!(
                 !before.is_empty(),
-                "n={n}: fast leader {m} commits within the drift"
+                "n={n}: a block proposed by fast leader {m} commits within the drift"
             );
-            assert!(skewed.is_empty(), "n={n}: {skewed:?}");
             assert!(
                 !after.is_empty(),
-                "n={n}: fast leader {m} commits again after its clock converged"
+                "n={n}: a block proposed by fast leader {m} commits after its clock converged"
             );
         }
     }
@@ -713,20 +846,34 @@ fn clock_guard_certified_time_within_two_drifts() {
             Err(report) => panic!("seed={seed}: {report}"),
         };
         let guard = guard_of(&w);
+        let far_refusals: Vec<_> = guard
+            .events
+            .iter()
+            .filter(|event| {
+                event.rule == GuardRule::ClockAhead
+                    && !event.certified
+                    && event.proposer == Some(3)
+                    && i64::try_from(event.t).unwrap() - event.wall > FAR / 2
+            })
+            .collect();
         assert!(
-            guard
-                .events
+            !far_refusals.is_empty(),
+            "seed={seed}: Byzantine far-future proposals must reach refusing honest guards"
+        );
+        assert!(
+            far_refusals.iter().all(|event| guard
+                .certified
                 .iter()
-                .any(|e| e.rule == GuardRule::ClockAhead && !e.certified),
-            "seed={seed}: far-future proposals were refused"
+                .all(|block| block.block_hash != event.block_hash)),
+            "seed={seed}: a refused far-future proposal must never commit"
         );
         let max = guard
             .certified
             .iter()
-            .map(|c| c.excess)
+            .filter(|block| block.proposer == Some(3))
+            .map(|block| block.excess)
             .max()
             .unwrap_or(i64::MIN);
-        assert!(max <= 2 * drift, "seed={seed}: {max}");
         assert!(
             guard.certified.len() >= 10,
             "seed={seed}: the chain progressed ({} blocks)",
@@ -734,8 +881,7 @@ fn clock_guard_certified_time_within_two_drifts() {
         );
         assert!(
             max > drift,
-            "seed={seed}: some certified time exceeds an honest clock by more than one drift \
-             ({max} ms)"
+            "seed={seed}: a Byzantine two-drift block must commit beyond a single drift ({max} ms)"
         );
     }
 }
@@ -789,10 +935,12 @@ fn clock_guard_due_work_lower_bound_at_first_prepare() {
         let w = crate::sim::run(sc).unwrap_or_else(|report| panic!("seed={seed}: {report}"));
         let guard = guard_of(&w);
         assert!(
-            guard
-                .events
-                .iter()
-                .any(|event| { event.rule == GuardRule::StaleDueWork && !event.certified }),
+            guard.events.iter().any(|event| {
+                event.rule == GuardRule::StaleDueWork
+                    && !event.certified
+                    && event.proposer == Some(3)
+                    && event.wall - i64::try_from(event.t).unwrap() > i64::try_from(lag).unwrap()
+            }),
             "seed={seed}: stale due-work proposals reached an honest executor"
         );
         assert!(
@@ -840,14 +988,14 @@ fn hidden_due_work_scenario(seed: u64) -> Scenario {
 /// re-proposals"): n = 4 under [`hidden_due_work_scenario`]: a Byzantine proxy tail hides the
 /// `PrepareQC` of a due-work block B from all but one honest member; the views fail until a
 /// TC carries it and B is re-proposed, by then older than `due_work_max_lag_ms` at every
-/// honest clock → the honest members execute B with `certified = true` (CT5 skipped, recorded
-/// as exempt), Prepare it, and B commits in a later view; every oracle holds. With
+/// honest clock → each seed records an honest execution of B with `certified = true`
+/// (CT5 skipped) and the same B commits in a later view; every oracle holds. With
 /// `certified = false` (MS51) CT5 refuses B at every honest executor forever, and the height
 /// never commits (O-LIVE).
 #[test]
 fn f33_hidden_prepareqc_due_work_block_commits_after_lag() {
-    let mut exercised = 0;
     for seed in [0, 1, 2, 3] {
+        let mut exercised = 0;
         let w = match crate::sim::run(hidden_due_work_scenario(seed)) {
             Ok(w) => w,
             Err(report) => panic!("seed={seed}: {report}"),
@@ -859,6 +1007,11 @@ fn f33_hidden_prepareqc_due_work_block_commits_after_lag() {
             .filter(|e| e.certified && e.rule == GuardRule::StaleDueWork)
             .collect();
         for e in &exempt {
+            assert!(
+                e.wall - i64::try_from(e.t).unwrap()
+                    > i64::try_from(guard.due_work_max_lag_ms).unwrap(),
+                "seed={seed}: the certified exemption must actually be older than the due-work lag"
+            );
             let committed = w.oracle.refs[0].get(&e.height).expect("committed height");
             if committed.bh == e.block_hash {
                 assert!(
@@ -868,11 +1021,11 @@ fn f33_hidden_prepareqc_due_work_block_commits_after_lag() {
                 exercised += 1;
             }
         }
+        assert!(
+            exercised > 0,
+            "seed={seed}: a certified stale due-work re-proposal was executed and committed"
+        );
     }
-    assert!(
-        exercised > 0,
-        "a certified stale due-work re-proposal was executed and committed"
-    );
 }
 
 /// A real World execution retains the event owner's clock through completion and signing.

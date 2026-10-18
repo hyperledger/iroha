@@ -1622,6 +1622,9 @@ impl MerkleTree<[u8; 32]> {
     ///
     /// The breadth-first node layout, promotion of an unpaired right-edge
     /// leaf, and retained node capacity match [`Self::from_hashed_leaves_sha256`].
+    /// Every level of an identical-leaf tree holds at most two distinct node
+    /// values, so this computes `O(log n)` pair hashes and fills the levels
+    /// instead of hashing every parent.
     ///
     /// # Errors
     /// Returns [`MerkleError::AllocationUnavailable`] for overflowing geometry
@@ -1632,12 +1635,41 @@ impl MerkleTree<[u8; 32]> {
     ) -> Result<Self, MerkleError> {
         let mut tree = Self::try_sha256_node_storage(leaf_count)?;
         if leaf_count != 0 {
-            let offset = tree.nodes.len() - leaf_count;
             let leaf = HashOf::from_untyped_unchecked(Hash::prehashed(digest));
-            tree.nodes[offset..].fill(Some(leaf));
-            tree.rebuild_sha256_parents(offset);
+            tree.fill_repeated_sha256_levels(leaf_count, leaf);
         }
         Ok(tree)
+    }
+
+    /// Fill every level of a fresh identical-leaf node array bottom-up.
+    ///
+    /// At each level all present nodes except the last root a complete
+    /// subtree and share one value; the last node is either complete too or
+    /// the right edge of the ragged tree. A parent of two complete children
+    /// hashes them, the last parent pairs a complete node with the previous
+    /// edge when the level has an even count, and an unpaired edge is promoted
+    /// unchanged. Slots past each level's present count keep `None`, exactly as
+    /// the full parent rebuild leaves them.
+    fn fill_repeated_sha256_levels(&mut self, leaf_count: usize, leaf: HashOf<[u8; 32]>) {
+        let mut present = leaf_count;
+        let mut complete = leaf;
+        let mut edge = leaf;
+        for depth in (0..=self.height()).rev() {
+            let start = (1_usize << depth) - 1;
+            let last = start + present - 1;
+            self.nodes[start..last].fill(Some(complete));
+            self.nodes[last] = Some(edge);
+            if depth == 0 {
+                break;
+            }
+            if present.is_multiple_of(2) {
+                edge = Self::pair_hash_sha256(Some(&complete), Some(&edge))
+                    .expect("two present children have a parent");
+            }
+            complete = Self::pair_hash_sha256(Some(&complete), Some(&complete))
+                .expect("two present children have a parent");
+            present = present.div_ceil(2);
+        }
     }
 
     /// Build exact hashed leaves with one fallible, fixed-geometry node allocation.
@@ -2261,11 +2293,20 @@ mod tests {
     #[test]
     fn fallible_repeated_sha256_tree_preserves_canonical_layout_and_capacity() {
         let digest = [0xA5; 32];
-        for count in [0, 1, 2, 3, 5, 256] {
+        let counts = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 13, 16, 17, 31, 33, 63, 64, 65, 100, 255, 256, 257,
+            1000, 1023, 1024, 1025, 4097, 9_999,
+        ];
+        for count in counts {
             let canonical = MerkleTree::<[u8; 32]>::from_hashed_leaves_sha256(vec![digest; count]);
             let fallible =
                 MerkleTree::<[u8; 32]>::try_from_repeated_hashed_leaf_sha256(count, digest)
                     .expect("bounded repeated-leaf tree allocation");
+            // The per-level fill must be bit-identical to hashing every parent.
+            let rebuilt =
+                MerkleTree::<[u8; 32]>::try_from_hashed_leaves_sha256(&vec![digest; count])
+                    .expect("bounded full-rebuild tree allocation");
+            assert_eq!(fallible, rebuilt, "full rebuild differs at {count} leaves");
             assert_eq!(fallible, canonical, "node layout differs at {count} leaves");
             assert_eq!(fallible.root(), canonical.root());
             assert_eq!(fallible.allocated_bytes(), canonical.allocated_bytes());

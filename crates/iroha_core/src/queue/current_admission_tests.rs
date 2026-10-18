@@ -730,10 +730,15 @@ fn native_lane_candidates_preserve_complete_sealed_reveal_and_pending_identity()
         );
         assert_eq!((queue.active_len(), queue.queued_len()), (1, 1));
         assert!(
-            lane.candidates(4, original_bytes.len(), &BTreeSet::from([original_hash]), &budget)
-                .unwrap()
-                .0
-                .is_empty()
+            lane.candidates(
+                4,
+                original_bytes.len(),
+                &BTreeSet::from([original_hash]),
+                &budget
+            )
+            .unwrap()
+            .0
+            .is_empty()
         );
     }
 }
@@ -749,7 +754,21 @@ fn ordinary_sccp_admission_needs_no_history_but_exempt_shapes_bind_original_time
     };
 
     let (mut state, time) = current_admission_queue_fixture();
-    state.nexus.get_mut().fees.base_fee = Quantity::from(1_u32);
+    {
+        let mut fees = state.nexus_snapshot().fees;
+        fees.base_fee = Quantity::from(1_u32);
+        {
+            let mut parameters = state.world.parameters.block();
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    fees.clone()
+                        .into_custom_parameter()
+                        .expect("explicit fixture policy"),
+                ))
+                .expect("valid fixture monetary projection");
+            parameters.commit();
+        }
+    }
     // Deliberately incomplete positive-height history: it must never authenticate
     // an exemption, but ordinary instructions have no SCCP eligibility dependency.
     seed_committed_height_for_queue_test(&state, 1);
@@ -868,14 +887,16 @@ fn public_pause_admission_checks_authority_and_original_time_before_fee_exemptio
         authority,
         &key,
         &time,
-        vec![EndorseSccpFastPauseV1 {
-            network_id: *state.view().network_id(),
-            network: SccpNetworkV1::EthereumMainnet,
-            panel_id: [1; 32],
-            head: 0,
-            incident_digest: [2; 32],
-        }
-        .into()],
+        vec![
+            EndorseSccpFastPauseV1 {
+                network_id: *state.view().network_id(),
+                network: SccpNetworkV1::EthereumMainnet,
+                panel_id: [1; 32],
+                head: 0,
+                incident_digest: [2; 32],
+            }
+            .into(),
+        ],
         Metadata::default(),
     );
     let view = state.view();

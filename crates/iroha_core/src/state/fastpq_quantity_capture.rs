@@ -33,7 +33,7 @@ use iroha_data_model::isi::error::InstructionExecutionError;
 use source_census::QuantitySourceCensusState;
 
 /// A finite diagnostic; no attacker-controlled message or unbounded evidence is retained.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum QuantityCaptureIssue {
     /// No exact retained invocation/purpose owner authorized capture.
     UnsupportedOwner,
@@ -43,13 +43,35 @@ pub(crate) enum QuantityCaptureIssue {
     MissingIncarnation,
     /// Full exact source, identity, scope or checked quantity facts were inconsistent.
     InvalidFacts,
-    /// Configured finite candidate capture count/byte bounds were exceeded.
+    /// Configured finite geometry or an already erased physical refusal.
+    /// This diagnostic alone never establishes retryability.
     Capacity,
+    /// Original finite-pool refusal; clones preserve its exact release identity.
+    Admission(iroha_allocation::AllocationRefusal),
     /// A callback did not return through its original capture scope.
     InterruptedScope,
     /// Raw storage owners and mandatory supply admission are not completely integrated.
     #[cfg(test)]
     IncompleteCoverage,
+}
+
+impl QuantityCaptureIssue {
+    pub(super) fn from_buffer(original: iroha_allocation::ChargedBufferError) -> Self {
+        match original {
+            iroha_allocation::ChargedBufferError::Admission(original) => Self::Admission(original),
+            // TODO: retain the move-only physical allocator owner through optional
+            // rollback/census sharing. The erased category stays terminal.
+            iroha_allocation::ChargedBufferError::Allocator { .. } => Self::Capacity,
+        }
+    }
+    pub(super) fn from_prepaid(original: iroha_allocation::PrepaidBufferError) -> Self {
+        match original {
+            iroha_allocation::PrepaidBufferError::Allocation(original) => {
+                Self::from_buffer(original)
+            }
+            iroha_allocation::PrepaidBufferError::Reservation(_) => Self::Capacity,
+        }
+    }
 }
 
 /// Transaction-owned mutation observation, discarded with its original World overlay.
@@ -163,7 +185,7 @@ impl QuantityCandidateArchive {
     /// Inspect the original optional-capture diagnostic without changing custody.
     #[cfg(test)]
     pub(super) fn issue_for_test(&self) -> Option<QuantityCaptureIssue> {
-        self.issue
+        self.issue.clone()
     }
 
     fn poison(&mut self, issue: QuantityCaptureIssue) {
@@ -179,6 +201,7 @@ impl QuantityCandidateArchive {
     pub(crate) fn require_complete(&self) -> Result<(), QuantityCaptureIssue> {
         Err(self
             .issue
+            .clone()
             .unwrap_or(QuantityCaptureIssue::IncompleteCoverage))
     }
     pub(super) fn observe(&mut self, world: &WorldTransaction<'_, '_>) {
@@ -324,7 +347,7 @@ impl QuantityLifecycleOrder {
         });
         let indices = if mixed {
             let mut indices = ChargedBuffer::new(effects.len(), budget)
-                .map_err(|_| QuantityCaptureIssue::Capacity)?;
+                .map_err(QuantityCaptureIssue::from_buffer)?;
             for index in 0..effects.len() {
                 indices.push_reserved(index);
             }

@@ -1151,6 +1151,52 @@ def _render_hash_to_g2(bls: Any) -> str:
     )
 
 
+def _render_upstream_bls_decode(bls: Any) -> str:
+    """Preserve generic decode outcomes separately from baseline signature verification."""
+
+    rows = []
+    for group in (1, 2):
+        for row in bls["ethereum_bls12_381_tests"]["groups"][f"deserialization_G{group}"]:
+            rows.append((f"G{group}.{row['label']}", _struct([
+                ("encoding", _slice(row["encoding"])), ("group", str(group)),
+                ("decoded", _bool(row["output"])),
+            ])))
+    return (
+        "/// Generic upstream decoding, including canonical infinity; not key admission.\n"
+        "struct VecUpstreamBlsDecode {\n    encoding: slice\n    group: int\n    decoded: bool\n}\n\n"
+        f"const VEC_UPSTREAM_BLS_DECODE_COUNT = {len(rows)}\n\n"
+        + _lookup("vecUpstreamBlsDecode", "VecUpstreamBlsDecode", rows, "All upstream G1/G2 decode results.")
+    )
+
+
+def _render_upstream_hash_to_g2(bls: Any) -> str:
+    """Render upstream text and QUUX DST unchanged, with independently checked traces."""
+
+    rows = []
+    for row in bls["ethereum_bls12_381_tests"]["groups"]["hash_to_G2"]:
+        trace = row["trace"]
+        uniform = _hex_body(trace["uniform_bytes"])
+        if len(uniform) != 512:
+            raise TonBuilderError("an upstream hash-to-G2 trace does not contain eight blocks")
+        dst = row["dst"].encode("ascii")
+        message = "0x" + row["input"]["msg"].encode("utf-8").hex()
+        element = lambda pair: "0x" + _padded(pair[0], 48)[2:] + _padded(pair[1], 48)[2:]  # noqa: E731
+        rows.append((row["label"], _struct([
+            ("pieces", _array("slice", _pieces(message), "            ")),
+            ("dstPrime", _slice("0x" + (dst + bytes([len(dst)])).hex())),
+            ("blocks", _array("int", [f"0x{uniform[i:i + 64]}" for i in range(0, 512, 64)], "            ")),
+            ("u0", _slice(element(trace["u0"]))), ("u1", _slice(element(trace["u1"]))),
+            ("q", _slice(row["point"]["compressed"])),
+        ])))
+    return (
+        "/// Ethereum v0.1.2 RFC QUUX hash-to-G2 rows; the POP verifier has a fixed DST.\n"
+        "struct VecUpstreamHashToG2 {\n    pieces: array<slice>\n    dstPrime: slice\n"
+        "    blocks: array<int>\n    u0: slice\n    u1: slice\n    q: slice\n}\n\n"
+        f"const VEC_UPSTREAM_HASH_TO_G2_COUNT = {len(rows)}\n\n"
+        + _lookup("vecUpstreamHashToG2", "VecUpstreamHashToG2", rows, "Every vendored hash_to_G2 row.")
+    )
+
+
 def _render_control_leaves(control: Any, minter_word: str) -> str:
     rows = []
     for row in control["controls"]:
@@ -1452,10 +1498,12 @@ def bls_verification_rows() -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
     groups = (
         "sign_verify.signatures", "sign_verify.negatives", "aggregates.fast_aggregate_verify",
-        "ethereum_standard_inputs.signatures", "ethereum_standard_inputs.fast_aggregates",
         "rust.standard_vectors.sign", "rust.standard_vectors.verify", "rust.standard_vectors.fast_aggregate_verify",
         "ethereum_mainnet_sync_committee", "rust.negatives",
-        "ethereum_malformed_inputs.g1_deserialization", "ethereum_malformed_inputs.g2_deserialization",
+        "ethereum_bls12_381_tests.sign", "ethereum_bls12_381_tests.verify",
+        "ethereum_bls12_381_tests.fast_aggregate_verify",
+        "ethereum_bls12_381_tests.deserialization_G1", "ethereum_bls12_381_tests.deserialization_G2",
+        "sccp_extra_malformed_inputs.g1_deserialization", "sccp_extra_malformed_inputs.g2_deserialization",
     )
 
     def add(label: str, keys: Sequence[str], message: str, signature: str, accepted: int) -> None:
@@ -1470,18 +1518,33 @@ def bls_verification_rows() -> List[Dict[str, Any]]:
         add("sign_verify.negatives." + row["label"], [row["pk"]], row["msg"], row["signature"], row["verify"])
     for row in bls["aggregates"]["fast_aggregate_verify"]:
         add("aggregates.fast_aggregate_verify." + row["label"], row["pks"], row["msg"], row["signature"], row["result"])
-    standard = bls["ethereum_standard_inputs"]
-    for index, row in enumerate(standard["signatures"]):
-        add(f"ethereum_standard_inputs.signatures[{index}]", [standard["pubkeys"][row["key"]]], row["msg"], row["signature"], True)
-    for index, row in enumerate(standard["fast_aggregates"]):
-        add(f"ethereum_standard_inputs.fast_aggregates[{index}]", [standard["pubkeys"][key] for key in row["keys"]], row["msg"], row["signature"], row["fast_aggregate_verify"])
-    malformed = bls["ethereum_malformed_inputs"]
+    imported = bls["ethereum_bls12_381_tests"]
+    for section in ("sign", "verify", "fast_aggregate_verify"):
+        for row in imported["groups"][section]:
+            data = row["input"]
+            if section == "sign":
+                if row["output"] is None:
+                    continue  # The invalid secret has no signature to verify.
+                keys, signature, verdict = [row["pubkey"]], row["output"], 1
+            else:
+                keys = [data["pubkey"]] if section == "verify" else data["pubkeys"]
+                signature, verdict = data["signature"], row["ton_verify"]
+            add(f"ethereum_bls12_381_tests.{section}.{row['label']}", keys,
+                data["message"], signature, verdict)
+    baseline = imported["baseline"]
+    for group in (1, 2):
+        for row in imported["groups"][f"deserialization_G{group}"]:
+            key = row["encoding"] if group == 1 else baseline["pk"]
+            signature = row["encoding"] if group == 2 else baseline["signature"]
+            add(f"ethereum_bls12_381_tests.deserialization_G{group}.{row['label']}",
+                [key], baseline["msg"], signature, row["ton_verify"])
+    malformed = bls["sccp_extra_malformed_inputs"]
     baseline = malformed["baseline"]
     for group in (1, 2):
         for row in malformed[f"g{group}_deserialization"]:
             key = row["encoding"] if group == 1 else baseline["pk"]
             signature = row["encoding"] if group == 2 else baseline["signature"]
-            add(f"ethereum_malformed_inputs.g{group}_deserialization.{row['label']}",
+            add(f"sccp_extra_malformed_inputs.g{group}_deserialization.{row['label']}",
                 [key], baseline["msg"], signature, row["ton_verify"])
     rust_keys = [row["public_key"] for row in rust["keys"]]
     for section in ("sign", "verify", "fast_aggregate_verify"):
@@ -1517,11 +1580,14 @@ def bls_skipped_rows() -> List[Dict[str, Any]]:
 
     bls = load_fixture("bls_consensus_v1.json")
     rust = load_fixture("bls_consensus_rust_v1.json")
+    imported = bls["ethereum_bls12_381_tests"]["groups"]
     groups = [
         ("sign_verify.keys", len(bls["sign_verify"]["keys"]), "key generation is off chain; public keys are replay inputs"),
         ("aggregates.aggregate_verify", len(bls["aggregates"]["aggregate_verify"]), "distinct-message aggregation is outside CommitQC verification"),
-        ("ethereum_standard_inputs.aggregate_verify", 1, "distinct-message aggregation is outside CommitQC verification"),
-        ("ethereum_standard_inputs.privkeys", len(bls["ethereum_standard_inputs"]["privkeys"]), "key generation and signing are off chain"),
+        ("ethereum_bls12_381_tests.aggregate", len(imported["aggregate"]), "signature aggregation is off chain"),
+        ("ethereum_bls12_381_tests.aggregate_verify", len(imported["aggregate_verify"]), "distinct-message aggregation is outside CommitQC verification"),
+        ("ethereum_bls12_381_tests.batch_verify", len(imported["batch_verify"]), "batch verification is outside CommitQC verification"),
+        ("ethereum_bls12_381_tests.sign.null", sum(row["output"] is None for row in imported["sign"]), "an invalid secret produces no signature; signing is off chain"),
         ("consensus_allowlist", len(bls["consensus_allowlist"]), "Rust context allowlist API is not a destination operation"),
         ("imported_rfc9380.expand_message_xmd.vectors", len(bls["imported_rfc9380"]["expand_message_xmd"]["vectors"]), "alternate RFC DST is not the POP opcode DST"),
         ("imported_rfc9380.hash_to_g2.vectors", len(bls["imported_rfc9380"]["hash_to_g2"]["vectors"]), "alternate RFC DST is not the POP opcode DST"),
@@ -1690,6 +1756,8 @@ def render_test_vectors() -> str:
             _render_worked_examples(finality),
             _render_headers(finality, codes),
             _render_hash_to_g2(load_fixture("bls_consensus_v1.json")),
+            _render_upstream_hash_to_g2(load_fixture("bls_consensus_v1.json")),
+            _render_upstream_bls_decode(load_fixture("bls_consensus_v1.json")),
             _render_control_leaves(control, minter_word),
             _render_payloads(load_fixture("payload_v1.json")),
             _render_trees(load_fixture("commitment_tree_v1.json"), load_fixture("history_v1.json")),

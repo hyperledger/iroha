@@ -39,6 +39,9 @@ mod concurrent_gateways;
 mod full_return;
 #[path = "native_payment_network/rejected_payment.rs"]
 mod rejected_payment;
+#[cfg(unix)]
+#[path = "native_payment_network/resource_bound.rs"]
+mod resource_bound;
 
 /// Successfully consume every collection page before treating an absent balance as zero.
 fn account_snapshot(
@@ -101,6 +104,13 @@ fn fee_asset() -> AssetDefinitionId {
 }
 
 fn builder(payer: &AccountId, recipient: &AccountId) -> NetworkBuilder {
+    let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+    fees.fee_asset_id = fee_asset();
+    fees.fee_sink_account_id = ALICE_ID.clone();
+    fees.base_fee = 1_u32.into();
+    fees.per_byte_fee = 0_u32.into();
+    fees.per_instruction_fee = 0_u32.into();
+    fees.per_gas_unit_fee = 0_u32.into();
     NetworkBuilder::new()
         .with_peers(4)
         .with_permissioned_consensus()
@@ -108,24 +118,14 @@ fn builder(payer: &AccountId, recipient: &AccountId) -> NetworkBuilder {
         .with_base_seed("native-payment-final-tip-v1")
         .with_genesis_keypair(key(0x75))
         .with_config_layer(|layer| {
-            layer
-                .write(
-                    ["nexus", "storage", "local_budget_bytes"],
-                    1024_i64 * 1024 * 1024,
-                )
-                .write(
-                    ["nexus", "fees", "fee_asset_id"],
-                    fee_asset().canonical_address(),
-                )
-                .write(
-                    ["nexus", "fees", "fee_sink_account_id"],
-                    ALICE_ID.to_string(),
-                )
-                .write(["nexus", "fees", "base_fee"], "1")
-                .write(["nexus", "fees", "per_byte_fee"], "0")
-                .write(["nexus", "fees", "per_instruction_fee"], "0")
-                .write(["nexus", "fees", "per_gas_unit_fee"], "0");
+            layer.write(
+                ["nexus", "storage", "local_budget_bytes"],
+                1024_i64 * 1024 * 1024,
+            );
         })
+        .with_genesis_instruction(iroha_data_model::isi::SetParameter::new(
+            iroha_data_model::parameter::Parameter::Custom(fees.into_custom_parameter().unwrap()),
+        ))
         // The payer has its own account read authority, with no ledger-wide read grant.
         .with_genesis_instruction(Register::account(Account::new(payer.clone())))
         .with_genesis_instruction(Register::account(Account::new(recipient.clone())))

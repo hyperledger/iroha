@@ -140,6 +140,67 @@ def test_actual_availability_boundaries_have_separate_strict_kill_tests():
         assert gate.has_switch(mutation)
 
 
+@pytest.mark.parametrize("mid,tests,hook", [
+    ("MS51", (
+        "sim::world::clock_guard::tests::f33_hidden_prepareqc_due_work_block_commits_after_lag",
+        "machine::tests::liveness::det_s51_execute_certified_flag",
+        "machine::tests::liveness::det_s51_reproposal_q_certifies_without_matching_lock",
+    ), "machine/proposal.rs"),
+    ("MS52", (
+        "sim::world::clock_guard::tests::guard_rules_and_leads",
+        "sim::world::clock_guard::tests::clock_guard_certified_time_within_two_drifts",
+        "sim::world::clock_guard::tests::clock_guard_liveness_with_f_plus_one_slow_clocks",
+    ), "sim/world/clock_guard.rs"),
+    ("MS65", (
+        "sim::world::clock_guard::tests::clock_guard_due_work_lower_bound_at_first_prepare",
+    ), "sim/world/clock_guard.rs"),
+    ("MS66", (
+        "sim::world::clock_guard::tests::clock_guard_accepts_exact_drift_allowance",
+        "sim::world::clock_guard::tests::clock_guard_liveness_with_f_plus_one_slow_clocks",
+    ), "sim/world/clock_guard.rs"),
+    ("MS80", (
+        "machine::tests::liveness::det_s80_unrelated_lock_does_not_certify_execution",
+    ), "machine/proposal.rs"),
+    ("MS81", (
+        "machine::tests::recovery::det_s81_unsigned_proposal_restart_refuses_mismatched_high_pqc",
+        "machine::tests::recovery::det_s81_signed_proposal_restart_refuses_mismatched_high_pqc",
+    ), "safety.rs"),
+])
+def test_clock_guard_mutations_pin_exact_controls_and_owning_hooks(mid, tests, hook):
+    rule = gate.BY_ID[mid]
+    assert rule.tests == tests
+    assert rule.scenarios == (() if mid in {"MS80", "MS81"} else ("f39",))
+    source = (gate.CRATE_SRC / hook).read_text()
+    assert re.search(r'sumeragi_mutation\s*=\s*"' + mid + r'"', source)
+    assert gate.has_switch(mid)
+    assert not gate.has_switch(mid, core=True)
+    assert not gate.has_switch(mid, model=True)
+
+
+def test_unrelated_lock_mutation_requires_original_certification_failure():
+    rule = gate.BY_ID["MS80"]
+    cause = "a held PrepareQC must certify the executed block, not merely its height"
+    source = "crates/iroha_sumeragi/src/machine/tests/liveness.rs"
+    assert rule.causes == (gate.ExpectedFailure(cause, source),)
+    body = named_rust_function(
+        (ROOT / source).read_text(), "det_s80_unrelated_lock_does_not_certify_execution"
+    )
+    assert cause in body
+
+
+def test_restored_proposal_mutation_requires_original_block_binding_failure():
+    rule = gate.BY_ID["MS81"]
+    cause = "a restored proposal must name the block certified by its TC high-PQC before signing or execution"
+    source = "crates/iroha_sumeragi/src/machine/tests/recovery.rs"
+    assert rule.causes == (gate.ExpectedFailure(cause, source),) * 2
+    text = (ROOT / source).read_text()
+    body = named_rust_function(text, "rejects_mismatched_proposal_justify")
+    assert cause in body
+    for signed, selector in zip((False, True), rule.tests):
+        control = named_rust_function(text, selector.rsplit("::", 1)[1])
+        assert f"rejects_mismatched_proposal_justify({str(signed).lower()})" in control
+
+
 @pytest.mark.parametrize("mid,test,cause,source", [
     ("MX13", "sim::tests::amx_final_payment::amx_final_payment_silent_participant_requires_actionable_abort",
      "healthy global root must resolve the due final obligation without unrelated height advancement",
@@ -6187,9 +6248,11 @@ def test_partial_native_amx_worker_custody_has_one_owned_omission_and_all_three_
     assert 'AllocationBudget::new' not in boundary and 'set_limit_bytes' not in boundary
     model = (ROOT / 'crates/iroha_data_model/src/sumeragi_amx/native/leg_decode.rs').read_text()
     assert 'sumeragi_core_mutation' not in model
-    assert tuple(re.findall(r'sumeragi_model_mutation\s*=\s*"([^"]+)"', model)) == ('DM33',)
+    account = (ROOT / 'crates/iroha_data_model/src/account/prepared_decode.rs').read_text()
+    assert not re.findall(r'sumeragi_model_mutation\s*=\s*"([^"]+)"', model)
+    assert tuple(re.findall(r'sumeragi_model_mutation\s*=\s*"([^"]+)"', account)) == ('DM33',)
     assert 'workspace: Option<PreparedDecodeWorkspace>' in model
-    assert 'ncore::RetainedElementSequence' in model
+    assert 'ncore::RetainedElementSequence' in account
     controls = (core / 'sumeragi/executor_amx_retry_tests.rs').read_text()
     for name in required:
         assert controls.count('fn '+name.rsplit('::', 1)[1]+'(') == 1
@@ -6281,14 +6344,14 @@ def test_native_multisig_semantic_mutation_owns_only_the_original_cause_projecti
     model = ROOT / "crates/iroha_data_model/src"
     owners = {path.relative_to(model).as_posix() for path in model.rglob("*.rs")
               if f'sumeragi_model_mutation = "{mid}"' in path.read_text()}
-    assert owners == {"sumeragi_amx/native/leg_decode.rs"}
-    source = (model / "sumeragi_amx/native/leg_decode.rs").read_text()
-    owner = source.split("fn policy_error(", 1)[1].split("fn scope(", 1)[0]
+    assert owners == {"account/prepared_decode.rs"}
+    source = (model / "account/prepared_decode.rs").read_text()
+    owner = source.split("fn policy_error(", 1)[1]
     assert source.count(f'sumeragi_model_mutation = "{mid}"') == 1
     assert 'cfg!(all(test, sumeragi_model_mutation = "DM33"))' in owner
     assert 'norito::Error::Message(error.to_string()).into()' in owner
     assert 'Error::Multisig(error)' in owner
-    assert 'Multisig(#[from] crate::account::MultisigPolicyError)' in source
+    assert 'Multisig(#[from] super::MultisigPolicyError)' in source
     tests = (model / "sumeragi_amx/native/leg_decode/tests.rs").read_text()
     helper = tests.split("fn assert_multisig_semantic_replay_has_no_diagnostic_allocation(", 1)[1]
     for proof in ('measured(|| pending.decode(&frame))', 'pool.limit_bytes()',
@@ -6912,10 +6975,10 @@ def test_sccp_parliament_boundary_owns_certificate_checks_and_requires_original_
 
 
 @pytest.mark.parametrize("mid,name,cause,path", [
-    ("HC396", "registration_requires_both_launch_gates_even_after_native_preconditions",
+    ("HC400", "registration_requires_both_launch_gates_even_after_native_preconditions",
      "SCCP registration must require both launch gates after native preconditions pass",
      "installation_tests"),
-    ("HC397", "enactment_preserves_casting_open_anchor_for_each_pause_part",
+    ("HC401", "enactment_preserves_casting_open_anchor_for_each_pause_part",
      "SCCP enactment must preserve the authenticated casting-open anchor for the requested pause part",
      "anchor_tests"),
 ])
@@ -6941,10 +7004,10 @@ def test_sccp_registration_and_anchor_mutations_keep_exact_owners_and_failures(m
     control = named_rust_function(controls, name)
     assert json.dumps(cause) in control
     compact_control = re.sub(r"\s+", "", control)
-    if mid == "HC396":
+    if mid == "HC400":
         registration = named_rust_function(source, "register_route")
         compact_registration = re.sub(r"\s+", "", registration)
-        assert 'if!(cfg!(all(test,sumeragi_core_mutation="HC396"))||gates.0&&gates.1)' in compact_registration
+        assert 'if!(cfg!(all(test,sumeragi_core_mutation="HC400"))||gates.0&&gates.1)' in compact_registration
         assert registration.index("registration::validate_available(") < registration.index(needle)
         assert registration.index(needle) < registration.index("store::routes::insert(")
         assert '#[cfg(test)]letgates=tests::LAUNCH_GATES.with(' in compact_registration
@@ -6964,7 +7027,7 @@ def test_sccp_registration_and_anchor_mutations_keep_exact_owners_and_failures(m
     else:
         enact = named_rust_function(source, "enact")
         compact_enact = re.sub(r"\s+", "", enact)
-        assert '#[cfg(all(test,sumeragi_core_mutation="HC397"))]lets0={let_=s0;GovernanceAnchorV1{height:0,position:0,timestamp_ms:0,}};' in compact_enact
+        assert '#[cfg(all(test,sumeragi_core_mutation="HC401"))]lets0={let_=s0;GovernanceAnchorV1{height:0,position:0,timestamp_ms:0,}};' in compact_enact
         assert "apply_action(state_transaction,action,proposal_id,cause,s0)" in compact_enact
         assert "forpartin[Part::Taira,Part::Destination{revision:1}]" in compact_control
         for anchor in ("(1,u32::MAX,false)", "(2,4,false)", "(2,5,false)", "(2,6,true)", "(3,0,true)"):
@@ -8949,7 +9012,7 @@ def test_fastpq_artifact_notifications_outlive_all_original_storage_fences():
                        "Error::PruneRecoveryRequired", "Error::CanonicalStoragePoisoned", "catch_unwind",
                        "registration.belongs_to(&budget)", "reserved - charge", "unrelated physical release",
                        "receipt.is_from(&kura)", "inventory(&kura)", "source.kind() == ErrorKind::InvalidData",
-                       "FASTPQ artifact storage quota exhausted", "FASTPQ content address contains different bytes",
+                       "Error::FastpqArtifactQuota", "FASTPQ content address contains different bytes",
                        "FASTPQ artifact reference is absent", "FASTPQ artifact content or exact length differs from reference"):
         assert obligation in controls
     assert "stack_size" not in controls and "RUST_MIN_STACK" not in controls

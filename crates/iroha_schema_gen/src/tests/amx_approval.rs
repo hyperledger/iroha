@@ -10,6 +10,9 @@ use iroha_data_model::{
 fn amx_approval_export_contains_both_native_frame_schema_closures() {
     let mut expected = AmxDebitApprovalV1::schema();
     AmxDebitApprovalProofV1::update_schema_map(&mut expected);
+    iroha_torii_shared::amx_approval_read::AmxApprovalReadFailureV1::update_schema_map(
+        &mut expected,
+    );
     let exported = crate::build_schemas();
     let exported: std::collections::BTreeMap<_, _> = exported.iter().collect();
     for (id, descriptor) in expected.iter() {

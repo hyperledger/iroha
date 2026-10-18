@@ -228,11 +228,22 @@ fn sora_nexus_v1_literals_are_the_defaults_for_discriminant_369() {
     for key in [
         "nexus.staking.stake_escrow_account_id",
         "nexus.staking.slash_sink_account_id",
-        "nexus.fees.fee_sink_account_id",
-        "nexus.fees.sponsor_vault_custody_account_id",
     ] {
         assert_eq!(string_at(static_config, key), custody, "{key}");
     }
+    for account in [
+        &profile.genesis_recipe().root_fees.fee_sink_account_id,
+        &profile
+            .genesis_recipe()
+            .root_fees
+            .sponsor_vault_custody_account_id,
+    ] {
+        assert_eq!(account.to_i105_for_discriminant(369).unwrap(), custody);
+    }
+    assert!(
+        static_config["nexus"].get("fees").is_none(),
+        "fees are authored by genesis recipe"
+    );
     assert!(
         static_config["pipeline"].get("gas").is_none(),
         "pipeline fee policy belongs exclusively to committed parameters"
@@ -245,11 +256,19 @@ fn sora_nexus_v1_literals_are_the_defaults_for_discriminant_369() {
         .to_string()
     };
     assert_eq!(
-        string_at(static_config, "nexus.fees.fee_asset_id"),
+        profile
+            .genesis_recipe()
+            .root_fees
+            .fee_asset_id
+            .canonical_address(),
         defaults::nexus::fees::fee_asset_id()
     );
     assert_eq!(
-        string_at(static_config, "nexus.fees.fee_asset_id"),
+        profile
+            .genesis_recipe()
+            .root_fees
+            .fee_asset_id
+            .canonical_address(),
         asset("universal.universal")
     );
     assert_eq!(
@@ -621,9 +640,10 @@ fn compiled_sccp_staking_policy_is_bound_into_consensus_digest() {
         assert_eq!(changed.policy_digest().unwrap(), policy, "{key}");
     }
 
-    // Causal input control for the stale golden: removing exactly the two newly committed
-    // leaves recovers the old preimage's digest. This deliberately altered test clone is not
-    // a supported profile, startup path, or compatibility decoder.
+    // Removing the two staking leaves must change the current consensus input, and
+    // restoring exactly those leaves must recover it. Other signed profile fields can
+    // evolve independently; the full-profile golden is pinned in `digests_are_pinned`.
+    // This altered clone is never admitted as a node profile.
     let mut omitted = profile.clone();
     let staking = omitted
         .static_config
@@ -643,12 +663,17 @@ fn compiled_sccp_staking_policy_is_bound_into_consensus_digest() {
         staking.remove("max_slash_bps"),
         Some(toml::Value::Integer(10_000))
     );
-    assert_eq!(
-        omitted.consensus_digest(4).unwrap().to_string(),
-        "a4b90a9c3e3cbb2c70690511bf4296ebeecafa1dc427274b4d9fc75f53e1476b",
-        "only the two signed staking leaves account for this digest change"
-    );
     assert_ne!(omitted.consensus_digest(4).unwrap(), consensus);
+    assert_eq!(omitted.policy_digest().unwrap(), policy);
+
+    for (key, value) in [
+        ("nexus.staking.unbonding_delay_ms", 1_814_400_000),
+        ("nexus.staking.max_slash_bps", 10_000),
+    ] {
+        set(&mut omitted.static_config, key, toml::Value::Integer(value));
+    }
+    assert_eq!(omitted.static_config, profile.static_config);
+    assert_eq!(omitted.consensus_digest(4).unwrap(), consensus);
     assert_eq!(omitted.policy_digest().unwrap(), policy);
 }
 
@@ -711,6 +736,77 @@ fn consensus_digest_is_sensitive_to_every_consensus_input() {
 
     let qual = Profile::compiled(ProfileId::SoraNexusV1Qual).unwrap();
     assert_ne!(qual.consensus_digest(4).unwrap(), consensus, "profile id");
+}
+
+#[test]
+fn consensus_digest_binds_every_signed_root_fee_field() {
+    let base = sora();
+    let consensus = base.consensus_digest(4).unwrap();
+    let policy = base.policy_digest().unwrap();
+    let alternate = keyless_role_account(ProfileId::SoraNexusV1, KeylessRole::ALL[0]);
+    // Each distinct monetary field changes the canonical genesis recipe while
+    // leaving node policy, role overlays and host policy unchanged.
+    for field in 0..8 {
+        let mut changed = base.clone();
+        let fees = &mut changed.genesis_recipe.root_fees;
+        match field {
+            0 => {
+                fees.fee_asset_id = AssetDefinitionId::derive_from_components(
+                    DomainId::parse_fully_qualified("profile.universal").unwrap(),
+                    "otherfee".parse().unwrap(),
+                )
+            }
+            1 => fees.fee_sink_account_id = alternate.clone(),
+            2 => fees.sponsor_vault_custody_account_id = alternate.clone(),
+            3 => {
+                fees.successful_claim_fee_exempt_authorities
+                    .insert(alternate.clone());
+            }
+            4 => fees.base_fee = 17_u32.into(),
+            5 => fees.per_byte_fee = 19_u32.into(),
+            6 => fees.per_instruction_fee = 23_u32.into(),
+            7 => fees.per_gas_unit_fee = 29_u32.into(),
+            _ => unreachable!(),
+        }
+        assert_ne!(
+            changed.genesis_recipe.root_fees, base.genesis_recipe.root_fees,
+            "field {field}"
+        );
+        assert_ne!(
+            changed.consensus_digest(4).unwrap(),
+            consensus,
+            "root fee field {field}"
+        );
+        assert_eq!(
+            changed.policy_digest().unwrap(),
+            policy,
+            "root fees are signed monetary input: {field}"
+        );
+    }
+    for profile in [
+        ProfileId::IrohaDevV1,
+        ProfileId::SoraNexusV1,
+        ProfileId::SoraNexusV1Qual,
+    ] {
+        let loaded = Profile::compiled(profile).unwrap();
+        assert!(
+            loaded
+                .static_config()
+                .get("nexus")
+                .and_then(|nexus| nexus.get("fees"))
+                .is_none()
+        );
+        let parameter = loaded
+            .genesis_recipe()
+            .root_fees
+            .clone()
+            .into_custom_parameter()
+            .unwrap();
+        assert_eq!(
+            RootFeePolicy::from_custom_parameter(&parameter).unwrap(),
+            loaded.genesis_recipe().root_fees
+        );
+    }
 }
 
 #[test]

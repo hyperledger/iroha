@@ -139,7 +139,6 @@ def test_get_pipeline_preflight_parses_every_served_field_of_the_rust_sample() -
         "per_byte_fee": "0.0002",
         "per_instruction_fee": "0.001",
         "per_gas_unit_fee": "0.00005",
-        "settlement_mode": "direct",
     }
     assert len(preflight.fees.successful_claim_fee_exempt_authorities) == 1
     assert preflight.fees.fee_sink_account_id != preflight.fees.sponsor_vault_custody_account_id
@@ -257,11 +256,6 @@ def test_pipeline_preflight_rejects_alias_fee_accounts(field: str, value: Any) -
         ("fee_asset_id", None, r"fees\.fee_asset_id must be a non-empty string"),
         ("base_fee", 0, r"fees\.base_fee must be a non-empty string"),
         (
-            "settlement_mode",
-            "burn",
-            r"fees\.settlement_mode must be one of: direct, lane_relay_burn",
-        ),
-        (
             "successful_claim_fee_exempt_authorities",
             None,
             r"successful_claim_fee_exempt_authorities must be a list",
@@ -281,7 +275,8 @@ def test_pipeline_preflight_requires_the_served_fee_values(
 
     relay = _served()
     relay["fees"]["settlement_mode"] = "lane_relay_burn"
-    assert _parse(relay).fees.settlement_mode == "lane_relay_burn"
+    with pytest.raises(RuntimeError, match="unsupported fields: settlement_mode"):
+        _parse(relay)
 
 
 def test_mock_preflight_matches_the_served_field_sets() -> None:

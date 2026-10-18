@@ -88,6 +88,7 @@ impl State {
                 capacity.as_ref().map(|(bytes, _charge)| bytes),
                 &pricing.0,
             )
+            .map_err(WorldStateSnapshotError::from)
         })
     }
 }

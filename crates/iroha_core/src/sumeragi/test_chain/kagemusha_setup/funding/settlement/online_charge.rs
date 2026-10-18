@@ -244,7 +244,8 @@ fn charged_receipt(
     quote: &KagemushaWalletChargeQuoteV1,
     height: u64,
 ) -> KagemushaWalletLoadReceiptV1 {
-    let mut cursor = crate::sumeragi::finality::NativeFinalityCursorV1::new();
+    let mut cursor =
+        crate::sumeragi::finality::NativeFinalityCursorV1::new(setup.chain.root_scope());
     let budget = iroha_allocation::AllocationBudget::new(2 << 30);
     let view = setup.chain.state().view();
     let at = cursor

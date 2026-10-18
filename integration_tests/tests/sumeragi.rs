@@ -21,6 +21,18 @@ fn builder() -> NetworkBuilder {
     NetworkBuilder::new()
         .with_peers(4)
         .with_auto_populated_trusted_peers()
+        .with_genesis_instruction(iroha_data_model::isi::SetParameter::new(
+            iroha_data_model::parameter::Parameter::Custom({
+                let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+                fees.fee_sink_account_id = iroha_test_samples::ALICE_ID.clone();
+                fees.base_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_byte_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_instruction_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_gas_unit_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.into_custom_parameter()
+                    .expect("explicit signed fixture fee policy")
+            }),
+        ))
         .with_config_layer(|layer| {
             layer
                 .write(
@@ -28,10 +40,10 @@ fn builder() -> NetworkBuilder {
                     TEST_NEXUS_LOCAL_STORAGE_BUDGET_BYTES,
                 )
                 // Isolate consensus from fee funding: keep the fee asset, quote zero charges.
-                .write(["nexus", "fees", "base_fee"], "0")
-                .write(["nexus", "fees", "per_byte_fee"], "0")
-                .write(["nexus", "fees", "per_instruction_fee"], "0")
-                .write(["nexus", "fees", "per_gas_unit_fee"], "0");
+
+
+
+                ;
         })
 }
 
@@ -251,17 +263,27 @@ fn observer_transport_hold_preserves_signed_rs16_custody_and_paid_finality() -> 
             1_024,
             Duration::from_millis(1),
         )?)?
+        .with_genesis_instruction(iroha_data_model::isi::SetParameter::new(
+            iroha_data_model::parameter::Parameter::Custom({
+                let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+                fees.fee_sink_account_id = iroha_test_samples::ALICE_ID.clone();
+                fees.base_fee = ("1").parse().expect("explicit fixture fee quantity");
+                fees.per_byte_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_instruction_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_gas_unit_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.fee_sink_account_id =
+                    iroha_data_model::account::AccountId::parse_encoded(&(sink))
+                        .expect("canonical fixture fee account");
+                fees.into_custom_parameter()
+                    .expect("explicit signed fixture fee policy")
+            }),
+        ))
         .with_config_layer(|layer| {
             layer
                 .write(
                     ["nexus", "storage", "local_budget_bytes"],
                     TEST_NEXUS_LOCAL_STORAGE_BUDGET_BYTES,
                 )
-                .write(["nexus", "fees", "base_fee"], "1")
-                .write(["nexus", "fees", "per_byte_fee"], "0")
-                .write(["nexus", "fees", "per_instruction_fee"], "0")
-                .write(["nexus", "fees", "per_gas_unit_fee"], "0")
-                .write(["nexus", "fees", "fee_sink_account_id"], sink)
                 .write(["logger", "format"], "json");
         });
     let Some((network, rt)) = sandbox::start_network_blocking_or_skip(

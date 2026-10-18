@@ -857,6 +857,7 @@ impl EnrollmentJournalV1 {
 }
 
 mod eligibility;
+mod expiry;
 mod permits;
 mod preparation;
 mod worker;

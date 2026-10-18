@@ -94,10 +94,18 @@ fn forced_simd_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
 }
+/// Serialize tests that touch process-wide acceleration state.
+///
+/// Hold this guard in any test that forces SIMD, applies an acceleration
+/// config, resets the Metal backend, or runs real Metal work. The Metal device
+/// registry declines work instead of blocking when another thread holds it.
+/// A concurrent test could therefore make a Metal call that must succeed fall
+/// back to the CPU and fail its assertion. The guard protects no data, so a
+/// panicking holder does not poison later tests.
 pub fn forced_simd_test_lock() -> MutexGuard<'static, ()> {
     forced_simd_lock()
         .lock()
-        .expect("forced_simd lock poisoned")
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 fn encode_override(choice: Option<SimdChoice>) -> u8 {
     match choice {
@@ -2733,6 +2741,7 @@ mod tests {
     #[cfg(all(target_os = "macos", feature = "metal"))]
     #[test]
     fn metal_sha256_leaves_matches_cpu() {
+        let _serial = forced_simd_test_lock();
         if !metal_available() {
             eprintln!("Metal unavailable; skipping sha256 leaves parity test");
             return;
@@ -2812,6 +2821,7 @@ mod tests {
             }
             out
         }
+        let _serial = forced_simd_test_lock();
         if !metal_available() {
             eprintln!("Metal unavailable; skipping sha256 pair-reduce parity test");
             return;
@@ -2839,6 +2849,7 @@ mod tests {
     fn metal_merkle_root_matches_canonical_hash_markers() {
         use sha2::Digest as _;
 
+        let _serial = forced_simd_test_lock();
         if !metal_available() {
             return;
         }
@@ -2864,6 +2875,7 @@ mod tests {
             scalar::Scalar,
         };
         use ed25519_dalek::{Signer, SigningKey};
+        let _serial = forced_simd_test_lock();
         if !metal_available() {
             eprintln!("Metal unavailable; skipping ed25519 batch parity test");
             return;
@@ -3048,6 +3060,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn test_metal_sha256_compress_returns_true() {
+        let _serial = forced_simd_test_lock();
         if !metal_available() {
             eprintln!("No Metal GPU available; skipping test");
             return;
@@ -3068,6 +3081,7 @@ mod tests {
     #[cfg(all(target_os = "macos", feature = "metal"))]
     #[test]
     fn metal_vadd32_single_vector_matches_scalar() {
+        let _serial = forced_simd_test_lock();
         if !metal_available() {
             eprintln!("No Metal GPU available; skipping test");
             return;
@@ -3086,6 +3100,7 @@ mod tests {
     #[cfg(all(target_os = "macos", feature = "metal"))]
     #[test]
     fn metal_vadd64_single_vector_matches_scalar() {
+        let _serial = forced_simd_test_lock();
         if !metal_available() {
             eprintln!("No Metal GPU available; skipping test");
             return;
@@ -3108,6 +3123,7 @@ mod tests {
     #[cfg(all(target_os = "macos", feature = "metal"))]
     #[test]
     fn metal_bitwise_single_vector_matches_scalar() {
+        let _serial = forced_simd_test_lock();
         if !metal_available() {
             eprintln!("No Metal GPU available; skipping test");
             return;
@@ -3146,6 +3162,7 @@ mod tests {
     #[cfg(all(target_os = "macos", feature = "metal"))]
     #[test]
     fn metal_aes_batch_matches_scalar() {
+        let _serial = forced_simd_test_lock();
         if !metal_available() {
             eprintln!("No Metal GPU available; skipping test");
             return;
@@ -3182,6 +3199,7 @@ mod tests {
     #[cfg(all(target_os = "macos", feature = "metal"))]
     #[test]
     fn metal_aes_rounds_batch_matches_scalar() {
+        let _serial = forced_simd_test_lock();
         if !metal_available() {
             eprintln!("No Metal GPU available; skipping test");
             return;
@@ -3249,6 +3267,7 @@ mod tests {
     #[cfg(all(target_os = "macos", feature = "metal"))]
     #[test]
     fn with_metal_state_reuses_cached_state() {
+        let _serial = forced_simd_test_lock();
         if !metal_runtime_allowed() {
             eprintln!("Metal runtime disabled; skipping reuse assertion");
             return;

@@ -19,6 +19,21 @@ pub(super) struct CurrentSelection {
 
 impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
     pub(super) fn current(&mut self, dispatch: &PreKeyDispatchV1) -> Result<CurrentSelection> {
+        self.select_current(dispatch, true)
+    }
+
+    pub(super) fn current_expiry(
+        &mut self,
+        dispatch: &PreKeyDispatchV1,
+    ) -> Result<CurrentSelection> {
+        self.select_current(dispatch, false)
+    }
+
+    fn select_current(
+        &mut self,
+        dispatch: &PreKeyDispatchV1,
+        require_all_dependencies: bool,
+    ) -> Result<CurrentSelection> {
         dispatch.validate().map_err(|_| Invalid)?;
         let config = self.runtime.current_configuration()?;
         if (&config.scope, &config.journal_dir) != (&self.scope, &self.journal_path)
@@ -26,7 +41,9 @@ impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
         {
             return Err(Selection);
         }
-        self.runtime.require_dependencies(&config)?;
+        if require_all_dependencies {
+            self.runtime.require_dependencies(&config)?;
+        }
         // Public FI/actor routing is only provisional DATA. The selected configured provider
         // must independently authenticate their relationship to the account and sign a fresh
         // Approved observation before any enrollment-authority action can proceed.

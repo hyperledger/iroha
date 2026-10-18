@@ -201,7 +201,9 @@ enum KagemushaWalletAppleNotPublishedV1: Equatable {
 /// Outcome of an anchor write (Rust `KagemushaWalletPublishOutcomeV1`).
 /// For Keychain, `published` means Security returned `errSecSuccess`. The public SecItem
 /// contract supplies no application-accessible power-loss persistence fence; this status
-/// must not be described as the filesystem's `F_FULLFSYNC` durability guarantee.
+/// does not establish power-loss durability. Apple's "Reducing disk writes" guidance also
+/// describes filesystem `F_FULLFSYNC` as best effort: sudden power loss may still lose data.
+/// https://developer.apple.com/documentation/xcode/reducing-disk-writes
 enum KagemushaWalletApplePublishOutcomeV1: Equatable {
   case published
   case notPublished(KagemushaWalletAppleNotPublishedV1)

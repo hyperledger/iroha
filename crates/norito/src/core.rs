@@ -6,9 +6,9 @@
 //! The format begins with a small metadata header followed by a byte buffer
 //! containing archived values. Every value has a corresponding [`Archived`] type
 //! which represents the layout in the buffer.
+use crate::guarded_try_deserialize;
 #[cfg(feature = "schema-structural")]
 use crate::json;
-use crate::{ArchiveSlice, guarded_try_deserialize};
 pub use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use core::convert::TryFrom;
 pub use norito_derive::{DeserializePayload, NoritoDeserialize, NoritoSerialize};
@@ -54,9 +54,9 @@ mod prepared_sequence;
 mod prepared_string;
 use budget_scope::CounterOwner;
 pub use field_destination::{
-    CanonicalField, DecodeField, DecodeIntoError, DecodeRecordFields, FieldDestination,
-    OwnedFields, PreparedRecordDestination, framed_byte_array_field, framed_field,
-    with_context_fields,
+    CanonicalField, DecodeField, DecodeIntoError, DecodeRecordFields, DecodeValueDestination,
+    DecodeValueFields, DecodeVariantField, EnumFieldDestination, FieldDestination, OwnedFields,
+    PreparedRecordDestination, framed_byte_array_field, framed_field, with_context_fields,
 };
 pub use prepared_scope::{PreparedDecodeError, PreparedDecodeScopeError, PreparedDecodeWorkspace};
 pub use prepared_sequence::{
@@ -78,6 +78,12 @@ mod sequence_length;
 pub use sequence_length::SequencePayloadLength;
 mod payload_ref;
 pub use payload_ref::PayloadRef;
+#[cfg(test)]
+#[path = "core/byte_element_tests.rs"]
+mod byte_element_tests;
+#[cfg(test)]
+#[path = "core/perf_probe_tmp_tests.rs"]
+mod perf_probe_tmp_tests;
 #[cfg(test)]
 #[path = "core/counting_tests.rs"]
 mod counting_tests;
@@ -853,6 +859,33 @@ pub(crate) fn check_decode_field_length(length: u64) -> Result<(), Error> {
 pub fn reserve_decode_allocation(length: usize) -> Result<(), Error> {
     reserve_decode_allocation_u64(limit_to_u64(length))
 }
+/// Charge `units` one-byte allocations exactly as `units` sequential one-byte reservations.
+///
+/// When every active layer can absorb the whole run, one checked charge per layer yields the
+/// same counters. Otherwise the units are charged one at a time, so a refusal reports the same
+/// layer, attempted total and partially charged counters as the per-element sequence.
+fn reserve_decode_allocation_units(units: usize) -> Result<(), Error> {
+    let amount = limit_to_u64(units);
+    let fits = budget_scope::with_active(|layers| {
+        layers.iter().all(|layer| {
+            let limit = limit_to_u64(layer.budget.limits.max_total_allocated_bytes());
+            layer
+                .budget
+                .counters
+                .total_allocated_bytes
+                .load(Ordering::Relaxed)
+                .checked_add(amount)
+                .is_some_and(|next| next <= limit)
+        })
+    });
+    if fits {
+        return reserve_decode_allocation_u64(amount);
+    }
+    for _ in 0..units {
+        reserve_decode_allocation_u64(1)?;
+    }
+    Ok(())
+}
 fn reserve_decode_allocation_u64(length: u64) -> Result<(), Error> {
     budget_scope::with_active(|layers| {
         for (index, layer) in decode_attempt::layers_in_order(layers) {
@@ -1259,12 +1292,6 @@ unsafe fn alloc_checked(layout: Layout) -> Result<(*mut u8, bool), Error> {
     }
     Ok((ptr, true))
 }
-#[inline]
-unsafe fn dealloc_checked(ptr: *mut u8, layout: Layout, needs_dealloc: bool) {
-    if needs_dealloc {
-        unsafe { std::alloc::dealloc(ptr, layout) };
-    }
-}
 fn reserve_decode_sequence_storage<T>(capacity: usize) -> Result<usize, Error> {
     let bytes = capacity
         .checked_mul(core::mem::size_of::<T>())
@@ -1281,17 +1308,6 @@ fn try_decode_vec_with_capacity<T>(capacity: usize) -> Result<Vec<T>, Error> {
             bytes: limit_to_u64(bytes),
         })?;
     Ok(values)
-}
-#[inline]
-unsafe fn copy_from_payload(src: *const u8, dst: *mut u8, len: usize) -> Result<(), Error> {
-    if len == 0 {
-        return Ok(());
-    }
-    let slice = payload_range_from_ptr(src, len)?;
-    record_payload_access(src, len);
-    let dst_slice = unsafe { core::slice::from_raw_parts_mut(dst, len) };
-    dst_slice.copy_from_slice(slice);
-    Ok(())
 }
 /// RAII guard to set and restore the current payload context.
 pub struct PayloadCtxGuard {
@@ -2019,10 +2035,145 @@ where
     I::IntoIter: ExactSizeIterator,
     I::Item: std::borrow::Borrow<T>,
 {
+    if T::__norito_byte_elements(&[]).is_some() {
+        return encode_byte_element_payloads::<T, I>(writer, items);
+    }
     encode_seq_payloads_with(writer, items, |item, writer, flags| {
         let value: &T = std::borrow::Borrow::borrow(&item);
         write_sequence_payload(writer, value, flags)
     })
+}
+
+/// Encode an element sequence whose elements are one-byte payloads.
+///
+/// The count header, iterator-cardinality checks and `[len = 1][byte]` framing are those of
+/// [`encode_seq_payloads`]; only the per-element measurement pass is replaced by block framing.
+#[inline(never)]
+fn encode_byte_element_payloads<T, I>(writer: &mut Encoder<'_>, items: I) -> Result<(), Error>
+where
+    T: SerializePayload,
+    I: IntoIterator,
+    I::IntoIter: ExactSizeIterator,
+    I::Item: std::borrow::Borrow<T>,
+{
+    let iter = items.into_iter();
+    let len = iter.len();
+    write_seq_len(
+        writer,
+        u64::try_from(len).map_err(|_| Error::LengthMismatch)?,
+    )?;
+    let flags = effective_layout_flags();
+    let mut framer = ByteElementFramer::new(flags);
+    let mut count = 0usize;
+    for item in iter {
+        if count == len {
+            return Err(Error::LengthMismatch);
+        }
+        let value: &T = std::borrow::Borrow::borrow(&item);
+        match T::__norito_byte_elements(core::slice::from_ref(value)) {
+            Some(&[byte]) => framer.push(writer, byte)?,
+            _ => {
+                framer.flush(writer)?;
+                write_sequence_payload(writer, value, flags)?;
+            }
+        }
+        count += 1;
+    }
+    framer.flush(writer)?;
+    (count == len).then_some(()).ok_or(Error::LengthMismatch)
+}
+
+/// One-byte elements collected before [`ByteElementFramer`] frames them in one write.
+const BYTE_ELEMENT_RUN: usize = 256;
+
+/// Emits `[len = 1][byte]` element framing for runs of one-byte payloads.
+///
+/// The output is identical to measuring and framing each one-byte element separately. The
+/// framer also reproduces that path's other effects: it validates the active layout before the
+/// first element is written, charges a finite count allowance for each element's nested one-byte
+/// measurement when the destination does not count bytes itself, and records compact-length use.
+struct ByteElementFramer {
+    pending: [u8; BYTE_ELEMENT_RUN],
+    len: usize,
+    flags: u8,
+    validated: bool,
+}
+impl ByteElementFramer {
+    const FIXED_PREFIX: [u8; 8] = 1_u64.to_le_bytes();
+    const FIXED_STRIDE: usize = Self::FIXED_PREFIX.len() + 1;
+
+    fn new(flags: u8) -> Self {
+        Self {
+            pending: [0; BYTE_ELEMENT_RUN],
+            len: 0,
+            flags,
+            validated: false,
+        }
+    }
+
+    #[inline]
+    fn push(&mut self, writer: &mut Encoder<'_>, byte: u8) -> Result<(), Error> {
+        if self.len == BYTE_ELEMENT_RUN {
+            self.flush(writer)?;
+        }
+        self.pending[self.len] = byte;
+        self.len += 1;
+        Ok(())
+    }
+
+    #[inline(never)]
+    fn flush(&mut self, writer: &mut Encoder<'_>) -> Result<(), Error> {
+        if self.len == 0 {
+            return Ok(());
+        }
+        if !self.validated {
+            // The per-element measurement validates the active layout first.
+            validate_header_flags(self.flags)?;
+            self.validated = true;
+        }
+        let compact = compact_len_enabled_for_flags(self.flags);
+        let mut block = [0_u8; BYTE_ELEMENT_RUN * Self::FIXED_STRIDE];
+        let pending = &self.pending[..self.len];
+        let framed = if compact {
+            // The compact length one is the single varint byte `0x01`.
+            for (element, &byte) in block.chunks_exact_mut(2).zip(pending) {
+                element[0] = 1;
+                element[1] = byte;
+            }
+            pending.len() * 2
+        } else {
+            for (element, &byte) in block.chunks_exact_mut(Self::FIXED_STRIDE).zip(pending) {
+                element[..Self::FIXED_PREFIX.len()].copy_from_slice(&Self::FIXED_PREFIX);
+                element[Self::FIXED_PREFIX.len()] = byte;
+            }
+            pending.len() * Self::FIXED_STRIDE
+        };
+        if !writer.is_counting() {
+            // A counting destination charges the framed bytes as they are written; a byte
+            // destination is charged for each element's one-byte nested measurement.
+            encode_writers::charge_counted_bytes(self.len)?;
+        }
+        writer.write_all(&block[..framed])?;
+        if compact {
+            note_compact_len_emitted();
+        }
+        self.len = 0;
+        Ok(())
+    }
+}
+
+/// Frame a fixed array of one-byte payloads (see [`ByteElementFramer`]).
+#[inline(never)]
+fn write_byte_element_array(
+    writer: &mut Encoder<'_>,
+    bytes: &[u8],
+    flags: u8,
+) -> Result<(), Error> {
+    let mut framer = ByteElementFramer::new(flags);
+    for &byte in bytes {
+        framer.push(writer, byte)?;
+    }
+    framer.flush(writer)
 }
 
 // All sequence producers share the same count, active-prefix flags and actual
@@ -2607,7 +2758,47 @@ pub fn decode_element_sequence_from_slice_serial<'a, T>(
 where
     T: for<'de> DeserializePayload<'de> + SerializePayload,
 {
+    if <T as DeserializePayload<'a>>::__norito_from_byte_elements(Vec::new()).is_ok()
+        && let Some(decoded) = byte_sequence::decode_byte_element_sequence::<T>(bytes)?
+    {
+        return Ok(decoded);
+    }
     decode_element_sequence_from_slice_with::<T, _>(bytes, |_, _, _| Ok(None))
+}
+
+/// Decode an element-framed `[u8; N]` value: canonical framing in one pass, otherwise the
+/// original per-element loop, which owns every rejection.
+fn decode_element_framed_byte_array<const N: usize>(
+    bytes: &[u8],
+) -> Result<([u8; N], usize), Error> {
+    if let Some(decoded) = byte_sequence::decode_canonical_byte_array::<N>(bytes)? {
+        return Ok(decoded);
+    }
+    decode_element_framed_byte_array_by_element::<N>(bytes)
+}
+
+/// Original per-element `[u8; N]` decoder, used for every non-canonical input.
+fn decode_element_framed_byte_array_by_element<const N: usize>(
+    bytes: &[u8],
+) -> Result<([u8; N], usize), Error> {
+    let mut tmp = [0u8; N];
+    let mut offset = 0usize;
+    for slot in &mut tmp {
+        let remaining = bytes.get(offset..).ok_or(Error::LengthMismatch)?;
+        // Each byte is copied directly into the final stack array.
+        // Its borrowed element prefix checks length without a heap charge.
+        let (elem_len, elem_hdr) = inspect_len_from_slice(remaining)?;
+        offset = offset.checked_add(elem_hdr).ok_or(Error::LengthMismatch)?;
+        if elem_len != 1 {
+            return Err(Error::LengthMismatch);
+        }
+        let byte_pos = offset;
+        offset = offset.checked_add(elem_len).ok_or(Error::LengthMismatch)?;
+        let byte = *bytes.get(byte_pos).ok_or(Error::LengthMismatch)?;
+        *slot = byte;
+    }
+    record_slice_access(bytes, offset);
+    Ok((tmp, offset))
 }
 
 fn decode_vec_from_slice_with<'a, T, F>(
@@ -2683,23 +2874,7 @@ impl<'a, T: DecodeFromSlice<'a> + 'static, const N: usize> DecodeFromSlice<'a> f
         if TypeId::of::<T>() == TypeId::of::<u8>() {
             // Generic byte arrays use the same element-framed layout as their encoder.
             // Raw fixed-width fields use the explicit byte-array field helpers.
-            let mut tmp = [0u8; N];
-            let mut offset = 0usize;
-            for slot in &mut tmp {
-                let remaining = bytes.get(offset..).ok_or(Error::LengthMismatch)?;
-                // Each byte is copied directly into the final stack array.
-                // Its borrowed element prefix checks length without a heap charge.
-                let (elem_len, elem_hdr) = inspect_len_from_slice(remaining)?;
-                offset = offset.checked_add(elem_hdr).ok_or(Error::LengthMismatch)?;
-                if elem_len != 1 {
-                    return Err(Error::LengthMismatch);
-                }
-                let byte_pos = offset;
-                offset = offset.checked_add(elem_len).ok_or(Error::LengthMismatch)?;
-                let byte = *bytes.get(byte_pos).ok_or(Error::LengthMismatch)?;
-                *slot = byte;
-            }
-            record_slice_access(bytes, offset);
+            let (tmp, offset) = decode_element_framed_byte_array::<N>(bytes)?;
             let mut arr = core::mem::MaybeUninit::<[T; N]>::uninit();
             unsafe {
                 core::ptr::copy_nonoverlapping(
@@ -3416,7 +3591,10 @@ pub enum Error {
     /// A panic occurred during decode; returned when a decode guard intercepted a panic.
     #[error("panic during decode of {context}")]
     DecodePanic { context: &'static str },
-    /// Payload base pointer does not satisfy the required alignment.
+    /// Payload base pointer does not satisfy a caller-required alignment.
+    ///
+    /// V1 decoders borrow payloads at any address and never return this error;
+    /// it remains only for callers' exhaustive error mappings.
     #[error("payload misaligned (requires {align}-byte alignment, addr={addr:#x})")]
     Misaligned { align: usize, addr: usize },
     /// Custom error message.
@@ -3846,6 +4024,21 @@ pub trait SerializePayload {
     fn encoded_len_exact(&self) -> Option<usize> {
         None
     }
+    /// Codec-internal byte view of one-byte element payloads.
+    ///
+    /// Only `u8` returns `Some(values)`: each value's complete payload is that one byte. Element
+    /// framed sequences and arrays use it to emit `[len = 1][byte]` framing in blocks instead of
+    /// measuring every element; the emitted bytes are identical. Other implementations must keep
+    /// this default, because a different view would change the wire bytes.
+    #[doc(hidden)]
+    #[inline]
+    fn __norito_byte_elements(values: &[Self]) -> Option<&[u8]>
+    where
+        Self: Sized,
+    {
+        let _ = values;
+        None
+    }
 }
 /// Serialize a value into an arbitrary writer after erasing its concrete type.
 ///
@@ -3949,6 +4142,17 @@ pub trait DeserializePayload<'a>: Sized {
     fn try_deserialize(archived: &'a Archived<Self>) -> Result<Self, Error> {
         Ok(Self::deserialize(archived))
     }
+
+    /// Codec-internal reconstruction of one-byte element payloads.
+    ///
+    /// Only `u8` returns `Ok`: element-framed byte sequences validate their canonical
+    /// `[len = 1][byte]` framing, then reuse the decoded bytes without a per-element field
+    /// decoder. Other implementations must keep this default and return the bytes unchanged.
+    #[doc(hidden)]
+    #[inline]
+    fn __norito_from_byte_elements(bytes: Vec<u8>) -> Result<Vec<Self>, Vec<u8>> {
+        Err(bytes)
+    }
 }
 /// Opaque address marker for the archived bytes of `T`.
 ///
@@ -3970,6 +4174,29 @@ pub(crate) fn empty_archived_marker<'a, T: ?Sized>() -> &'a Archived<T> {
     // so the non-null aligned dangling pointer is a valid ZST reference. The
     // unconstrained lifetime is sound because no borrowed `T` is stored.
     unsafe { &*empty_archived_ptr::<T>() }
+}
+/// Return the archived marker at the start of a borrowed payload span.
+///
+/// Every `Archived<_>` is a zero-sized, byte-aligned marker, so the span's own
+/// address is valid for any length (including zero) and any alignment. No `T`
+/// is read through the marker; decoders still use the active payload context.
+#[inline]
+pub(crate) fn borrowed_archived_marker<T: ?Sized>(bytes: &[u8]) -> &Archived<T> {
+    // SAFETY: slice pointers are non-null, and a zero-sized, byte-aligned
+    // marker is dereferenceable at every non-null address. The marker borrows
+    // the span, so it cannot outlive the payload bytes.
+    unsafe { &*bytes.as_ptr().cast::<Archived<T>>() }
+}
+/// Decode one declared child span of a composite payload in place.
+///
+/// The enclosing context records the complete declared span before the child
+/// context covering exactly `field` is installed. The child cannot read sibling
+/// bytes, and neither an alignment copy nor its allocation charge is needed.
+fn decode_borrowed_child<'a, T: DeserializePayload<'a> + 'a>(field: &'a [u8]) -> Result<T, Error> {
+    record_slice_access(field, field.len());
+    let _child = PayloadCtxGuard::enter(field);
+    let archived = borrowed_archived_marker::<T>(field);
+    guarded_try_deserialize(|| T::try_deserialize(archived))
 }
 /// Return the logical archived-storage footprint associated with `T`.
 ///
@@ -4017,25 +4244,18 @@ impl<T: ?Sized> Archived<T> {
         unsafe { &*core::ptr::from_ref(self).cast::<Archived<U>>() }
     }
 }
-enum ArchivedBacking<'a> {
-    Borrowed(&'a [u8]),
-    Owned(ArchiveSlice),
-}
-/// Owned or borrowed handle to an archived value reconstructed from a byte slice. When the input
-/// slice is misaligned for `T` the bytes are copied into an internal buffer with suitable alignment
-/// for decoders that perform aligned payload reads.
+/// Borrowed handle to an archived value at the start of a byte slice.
+///
+/// The marker is zero-sized and byte-aligned, and decoders read only through
+/// the bounded payload context, so the input is borrowed in place at any address.
 pub struct ArchivedRef<'a, T: ?Sized> {
-    ptr: *const Archived<T>,
-    backing: ArchivedBacking<'a>,
+    bytes: &'a [u8],
     _marker: PhantomData<&'a Archived<T>>,
 }
 impl<'a, T: ?Sized> ArchivedRef<'a, T> {
     #[inline]
-    #[allow(unsafe_code)]
     fn as_ref_impl(&self) -> &Archived<T> {
-        // SAFETY: `ptr` is non-null and byte-aligned. The marker is zero-sized,
-        // and the corresponding payload backing outlives this reference.
-        unsafe { &*self.ptr }
+        borrowed_archived_marker(self.bytes)
     }
     /// Return the typed marker at the start of the archived payload.
     ///
@@ -4048,10 +4268,7 @@ impl<'a, T: ?Sized> ArchivedRef<'a, T> {
     /// Underlying byte slice backing the archived value.
     #[inline]
     pub fn bytes(&self) -> &[u8] {
-        match &self.backing {
-            ArchivedBacking::Borrowed(bytes) => bytes,
-            ArchivedBacking::Owned(slice) => slice.as_slice(),
-        }
+        self.bytes
     }
     /// Retag the payload-start marker for a different decoder.
     ///
@@ -4075,46 +4292,19 @@ impl<'a, T: ?Sized> std::ops::Deref for ArchivedRef<'a, T> {
         self.as_ref_impl()
     }
 }
-/// Owned archived payload backed by an aligned byte buffer.
+/// Owned archived payload.
 ///
-/// This owns the payload bytes (plus any alignment padding) and guarantees the
-/// archived pointer stays valid for the lifetime of the wrapper.
+/// This owns the payload bytes and keeps the archived marker valid for the
+/// lifetime of the wrapper. The byte-aligned marker needs no realignment copy.
 pub struct ArchivedBox<T> {
     buffer: Vec<u8>,
-    offset: usize,
-    len: usize,
     _marker: PhantomData<Archived<T>>,
 }
 impl<T> ArchivedBox<T> {
     #[inline]
     pub(crate) fn from_payload(payload: Vec<u8>) -> Self {
-        let len = payload.len();
-        let align = archived_payload_align::<T>();
-        if len == 0 || align <= 1 {
-            return Self {
-                buffer: payload,
-                offset: 0,
-                len,
-                _marker: PhantomData,
-            };
-        }
-        let base = payload.as_ptr() as usize;
-        if base.is_multiple_of(align) {
-            return Self {
-                buffer: payload,
-                offset: 0,
-                len,
-                _marker: PhantomData,
-            };
-        }
-        let mut buffer = vec![0u8; len + align];
-        let buf_base = buffer.as_ptr() as usize;
-        let offset = (align - (buf_base % align)) % align;
-        buffer[offset..offset + len].copy_from_slice(&payload);
         Self {
-            buffer,
-            offset,
-            len,
+            buffer: payload,
             _marker: PhantomData,
         }
     }
@@ -4124,23 +4314,12 @@ impl<T> ArchivedBox<T> {
     /// payload context covering [`Self::bytes`] is active.
     #[inline]
     pub fn archived(&self) -> &Archived<T> {
-        if self.len == 0 {
-            // SAFETY: the dangling pointer is valid for the zero-sized marker;
-            // the payload context prevents a decoder from reading any bytes.
-            return unsafe { &*empty_archived_ptr::<T>() };
-        }
-        let ptr = unsafe { self.buffer.as_ptr().add(self.offset) as *const Archived<T> };
-        // SAFETY: `ptr` points into live payload storage. The zero-sized marker
-        // itself has no storage-alignment requirement.
-        unsafe { &*ptr }
+        borrowed_archived_marker(&self.buffer)
     }
     /// Underlying archived bytes.
     #[inline]
     pub fn bytes(&self) -> &[u8] {
-        if self.len == 0 {
-            return &[];
-        }
-        &self.buffer[self.offset..self.offset + self.len]
+        &self.buffer
     }
 }
 impl<T> std::convert::AsRef<Archived<T>> for ArchivedBox<T> {
@@ -4156,98 +4335,35 @@ impl<T> std::ops::Deref for ArchivedBox<T> {
         self.archived()
     }
 }
-/// Decode an already length-bounded archived field from owned aligned storage.
-///
-/// This is an implementation detail shared by generated deserializers. It intentionally performs
-/// neither canonical-length validation nor legacy framing fallback: callers retain responsibility
-/// for those policies. The owned copy also keeps nested payload-context accounting isolated in the
-/// same way as the historical derive-generated allocation path.
-#[doc(hidden)]
-#[inline(never)]
-pub fn decode_archived_field<T>(bytes: &[u8]) -> Result<T, Error>
-where
-    T: for<'de> DeserializePayload<'de>,
-{
-    let logical_len = bytes.len();
-    let min_size = archived_payload_size::<T>();
-    let mut padded = Vec::new();
-    let decode_bytes = if logical_len < min_size {
-        reserve_decode_allocation(min_size)?;
-        padded
-            .try_reserve_exact(min_size)
-            .map_err(|_| Error::AllocationFailed {
-                bytes: u64::try_from(min_size).unwrap_or(u64::MAX),
-            })?;
-        padded.extend_from_slice(bytes);
-        padded.resize(min_size, 0);
-        padded.as_slice()
-    } else {
-        bytes
-    };
-    let archived = ArchiveSlice::new_owned(decode_bytes, archived_payload_align::<T>())?;
-    let archived_bytes = archived.as_slice();
-    let _payload_guard = PayloadCtxGuard::enter_with_len(archived_bytes, logical_len);
-    let archived_ptr = if archived_bytes.is_empty() {
-        empty_archived_ptr::<T>()
-    } else {
-        archived_bytes.as_ptr().cast::<Archived<T>>()
-    };
-    // SAFETY: `ArchiveSlice::new_owned` keeps the payload allocation alive for
-    // this entire deserialization call.
-    crate::guarded_try_deserialize(|| T::try_deserialize(unsafe { &*archived_ptr }))
-}
 /// Interpret `bytes` as an archived value and ensure the slice is large enough.
 ///
-/// This validates the archived footprint and produces suitably aligned backing
-/// storage. Payload structure and offsets are validated by the subsequent
-/// fallible [`DeserializePayload::try_deserialize`] call.
+/// This validates the archived footprint and borrows the payload in place;
+/// input alignment is irrelevant. Payload structure and offsets are validated
+/// by the subsequent fallible [`DeserializePayload::try_deserialize`] call.
 ///
 /// # Errors
 ///
-/// Returns an error if `bytes` is shorter than the minimum archived header for
-/// `T` or if a misaligned payload cannot be copied into aligned storage.
+/// Returns an error if `bytes` is shorter than the minimum archived footprint for `T`.
 #[inline]
 pub fn archived_from_slice<'a, T>(bytes: &'a [u8]) -> Result<ArchivedRef<'a, T>, Error> {
     let min = archived_payload_size::<T>();
     if min > 0 && bytes.len() < min {
         return Err(Error::LengthMismatch);
     }
-    let align_target = archived_payload_align::<T>();
-    let ptr_usize = bytes.as_ptr() as usize;
-    let needs_copy =
-        align_target > 1 && !bytes.is_empty() && !ptr_usize.is_multiple_of(align_target);
-    if needs_copy {
-        let slice = ArchiveSlice::new(bytes, align_target)?;
-        let ptr = slice.as_slice().as_ptr() as *const Archived<T>;
-        Ok(ArchivedRef {
-            ptr,
-            backing: ArchivedBacking::Owned(slice),
-            _marker: PhantomData,
-        })
-    } else {
-        let ptr = if bytes.is_empty() {
-            empty_archived_ptr::<T>()
-        } else {
-            bytes.as_ptr() as *const Archived<T>
-        };
-        Ok(ArchivedRef {
-            ptr,
-            backing: ArchivedBacking::Borrowed(bytes),
-            _marker: PhantomData,
-        })
-    }
+    Ok(ArchivedRef {
+        bytes,
+        _marker: PhantomData,
+    })
 }
 
-/// Prepared backing storage for derive-generated slice decoders.
+/// Borrowed payload prepared for a derive-generated slice decoder.
 ///
-/// This centralizes short-payload padding and alignment handling so derive
-/// expansions only contain their type-specific field reconstruction.
+/// The caller's bytes are used in place: archived markers are byte-aligned and
+/// decoders read only through the bounded payload context, so neither alignment
+/// copies nor zero padding beyond the logical payload are needed.
 #[doc(hidden)]
 pub struct PreparedDecodeSlice<'a> {
-    archive: ArchiveSlice,
-    _padded: Option<Vec<u8>>,
-    logical_len: usize,
-    _borrow: PhantomData<&'a [u8]>,
+    bytes: &'a [u8],
 }
 
 impl PreparedDecodeSlice<'_> {
@@ -4255,60 +4371,40 @@ impl PreparedDecodeSlice<'_> {
     #[doc(hidden)]
     #[inline]
     pub fn logical_len(&self) -> usize {
-        self.logical_len
+        self.bytes.len()
     }
 
-    /// Return the aligned, possibly zero-padded payload bytes.
+    /// Return the caller-provided payload bytes.
     #[doc(hidden)]
     #[inline]
     pub fn bytes(&self) -> &[u8] {
-        self.archive.as_slice()
+        self.bytes
     }
 
     /// Return an archived marker at the start of the prepared payload.
     #[doc(hidden)]
     #[inline]
-    #[allow(unsafe_code)]
     pub fn archived<T>(&self) -> &Archived<T> {
-        if self.archive.as_slice().is_empty() {
-            return empty_archived_marker();
-        }
-        // SAFETY: `archive` owns or borrows live aligned storage for the
-        // lifetime of `self`; `Archived<T>` is an opaque zero-sized marker.
-        unsafe { &*self.archive.as_slice().as_ptr().cast::<Archived<T>>() }
+        borrowed_archived_marker(self.bytes)
     }
 }
 
-/// Prepare one derive-generated archived payload without specializing the
-/// padding and alignment machinery for every decoded type.
+/// Prepare one derive-generated archived payload.
+///
+/// A type with a nonzero in-memory footprint still rejects an empty payload.
+/// The alignment argument is retained for existing generated call sites; it no
+/// longer selects a copy because the payload is always borrowed in place.
 #[doc(hidden)]
-#[inline(never)]
+#[inline]
 pub fn prepare_decode_from_slice(
     bytes: &[u8],
     minimum_size: usize,
-    alignment: usize,
+    _alignment: usize,
 ) -> Result<PreparedDecodeSlice<'_>, Error> {
-    let logical_len = bytes.len();
-    if minimum_size > 0 && logical_len == 0 {
+    if minimum_size > 0 && bytes.is_empty() {
         return Err(Error::LengthMismatch);
     }
-
-    let padded = if minimum_size > 0 && logical_len < minimum_size {
-        let mut padded = Vec::with_capacity(minimum_size);
-        padded.extend_from_slice(bytes);
-        padded.resize(minimum_size, 0);
-        Some(padded)
-    } else {
-        None
-    };
-    let decode_bytes = padded.as_deref().unwrap_or(bytes);
-    let archive = ArchiveSlice::new(decode_bytes, alignment)?;
-    Ok(PreparedDecodeSlice {
-        archive,
-        _padded: padded,
-        logical_len,
-        _borrow: PhantomData,
-    })
+    Ok(PreparedDecodeSlice { bytes })
 }
 
 /// Decode a prepared prefix through its layout-aware payload implementation.
@@ -4348,6 +4444,10 @@ impl SerializePayload for u8 {
     fn encoded_len_exact(&self) -> Option<usize> {
         Some(1)
     }
+    #[inline]
+    fn __norito_byte_elements(values: &[Self]) -> Option<&[u8]> {
+        Some(values)
+    }
 }
 
 impl<'a> DeserializePayload<'a> for u8 {
@@ -4356,6 +4456,10 @@ impl<'a> DeserializePayload<'a> for u8 {
     }
     fn try_deserialize(archived: &'a Archived<u8>) -> Result<Self, Error> {
         byte_sequence::read_byte_value(&try_read_archived_bytes::<_, 1>(archived)?)
+    }
+    #[inline]
+    fn __norito_from_byte_elements(bytes: Vec<u8>) -> Result<Vec<Self>, Vec<u8>> {
+        Ok(bytes)
     }
 }
 
@@ -5216,44 +5320,11 @@ where
         match tag {
             0 => {
                 let _depth = DecodeDepthGuard::enter()?;
-                let layout = Layout::from_size_align(len, archived_payload_align::<T>())
-                    .map_err(|_| Error::LengthMismatch)?;
-                let (tmp_ptr, needs_dealloc) = unsafe { alloc_checked(layout) }?;
-                if let Err(err) = unsafe { copy_from_payload(field.as_ptr(), tmp_ptr, len) } {
-                    unsafe { dealloc_checked(tmp_ptr, layout, needs_dealloc) };
-                    return Err(err);
-                }
-                let tmp_slice = unsafe { std::slice::from_raw_parts(tmp_ptr as *const u8, len) };
-                let _g = PayloadCtxGuard::enter(tmp_slice);
-                let archived_ptr = if len == 0 {
-                    empty_archived_ptr::<T>()
-                } else {
-                    tmp_ptr.cast::<Archived<T>>()
-                };
-                let value =
-                    guarded_try_deserialize(|| unsafe { T::try_deserialize(&*archived_ptr) });
-                unsafe { dealloc_checked(tmp_ptr, layout, needs_dealloc) };
-                value.map(Ok)
+                decode_borrowed_child::<T>(field).map(Ok)
             }
             1 => {
                 let _depth = DecodeDepthGuard::enter()?;
-                let layout = Layout::from_size_align(len, archived_payload_align::<E>())
-                    .map_err(|_| Error::LengthMismatch)?;
-                let (tmp_ptr, needs_dealloc) = unsafe { alloc_checked(layout) }?;
-                if let Err(err) = unsafe { copy_from_payload(field.as_ptr(), tmp_ptr, len) } {
-                    unsafe { dealloc_checked(tmp_ptr, layout, needs_dealloc) };
-                    return Err(err);
-                }
-                let tmp_slice = unsafe { std::slice::from_raw_parts(tmp_ptr as *const u8, len) };
-                let _g = PayloadCtxGuard::enter(tmp_slice);
-                let archived_ptr = if len == 0 {
-                    empty_archived_ptr::<E>()
-                } else {
-                    tmp_ptr.cast::<Archived<E>>()
-                };
-                let err = guarded_try_deserialize(|| unsafe { E::try_deserialize(&*archived_ptr) });
-                unsafe { dealloc_checked(tmp_ptr, layout, needs_dealloc) };
-                err.map(Err)
+                decode_borrowed_child::<E>(field).map(Err)
             }
             _ => Err(Error::invalid_tag("Result::try_deserialize", tag)),
         }
@@ -5263,6 +5334,9 @@ where
 impl<T: SerializePayload, const N: usize> SerializePayload for [T; N] {
     fn serialize(&self, writer: &mut Encoder<'_>) -> Result<(), Error> {
         let flags = effective_layout_flags();
+        if let Some(bytes) = T::__norito_byte_elements(self) {
+            return write_byte_element_array(writer, bytes, flags);
+        }
         for item in self {
             let encoded_len = encoded_payload_len(item)?;
             write_len_with_flags(
@@ -5346,48 +5420,31 @@ impl<'a, T: DeserializePayload<'a> + SerializePayload + 'static, const N: usize>
         let bytes = &payload[start..];
         let out = try_decode_array(|| {
             let remaining = bytes.get(offset..).ok_or(Error::LengthMismatch)?;
-            // The prefix borrows this field; alloc_checked charges its actual copy once.
+            // The prefix and element are borrowed in place; no copy is charged.
             let (elem_len, hdr) = inspect_len_from_slice(remaining)?;
             offset = offset.checked_add(hdr).ok_or(Error::LengthMismatch)?;
             let end = offset.checked_add(elem_len).ok_or(Error::LengthMismatch)?;
             let field = bytes.get(offset..end).ok_or(Error::LengthMismatch)?;
             let _depth = DecodeDepthGuard::enter()?;
-            unsafe {
-                let layout = Layout::from_size_align(elem_len, archived_payload_align::<T>())
-                    .map_err(|_| Error::LengthMismatch)?;
-                let (tmp_ptr, needs_dealloc) = alloc_checked(layout)?;
-                if let Err(err) = copy_from_payload(field.as_ptr(), tmp_ptr, elem_len) {
-                    dealloc_checked(tmp_ptr, layout, needs_dealloc);
-                    return Err(err);
+            record_slice_access(field, elem_len);
+            let _child = PayloadCtxGuard::enter(field);
+            let archived = borrowed_archived_marker::<T>(field);
+            let value = guarded_try_deserialize(|| {
+                let decoded = T::try_deserialize(archived);
+                let used_ctx = payload_ctx_max_access();
+                let value = decoded?;
+                if used_ctx.is_some_and(|used| used > elem_len) {
+                    return Err(Error::LengthMismatch);
                 }
-                let tmp_slice = std::slice::from_raw_parts(tmp_ptr as *const u8, elem_len);
-                let _g = PayloadCtxGuard::enter(tmp_slice);
-                let archived_ptr = if elem_len == 0 {
-                    empty_archived_ptr::<T>()
-                } else {
-                    tmp_ptr.cast::<Archived<T>>()
-                };
-                let archived = &*archived_ptr;
-                let result = guarded_try_deserialize(|| {
-                    let decoded = T::try_deserialize(archived);
-                    let used_ctx = payload_ctx_max_access();
-                    let value = decoded?;
-                    if used_ctx.is_some_and(|used| used > elem_len) {
-                        return Err(Error::LengthMismatch);
-                    }
-                    if used_ctx != Some(elem_len) {
-                        // Preserve custom decoders that report partial or no access,
-                        // while proving the original field is exactly canonical.
-                        match_canonical_payload(&value, field, true)?;
-                    }
-                    Ok(value)
-                });
-                // Both decoder and canonical-validation errors pass this cleanup.
-                dealloc_checked(tmp_ptr, layout, needs_dealloc);
-                let value = result?;
-                offset = end;
+                if used_ctx != Some(elem_len) {
+                    // Preserve custom decoders that report partial or no access,
+                    // while proving the original field is exactly canonical.
+                    match_canonical_payload(&value, field, true)?;
+                }
                 Ok(value)
-            }
+            })?;
+            offset = end;
+            Ok(value)
         })?;
         Ok(out)
     }
@@ -5399,7 +5456,6 @@ pub mod stream {
         header_flags,
     };
     use crate::guarded_try_deserialize;
-    use crc64fast::Digest;
     #[cfg(feature = "compression")]
     use std::io::BufReader;
     use std::{
@@ -5625,20 +5681,21 @@ pub mod stream {
     }
     pub(crate) struct DigestingReader<R> {
         inner: R,
-        digest: Digest,
+        // Element prefixes are read a byte at a time; batch them for the digest.
+        digest: super::PayloadChecksum,
         consumed: usize,
     }
     impl<R: Read> DigestingReader<R> {
         pub(crate) fn new(inner: R) -> Self {
             Self {
                 inner,
-                digest: Digest::new(),
+                digest: super::PayloadChecksum::new(),
                 consumed: 0,
             }
         }
         pub(crate) fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
             self.inner.read_exact(buf)?;
-            self.digest.write(buf);
+            self.digest.update(buf);
             self.consumed += buf.len();
             Ok(())
         }
@@ -5682,9 +5739,8 @@ pub mod stream {
             let raw = self.read_varint_u64()?;
             super::len_u64_to_usize(raw)
         }
-        pub(crate) fn finalize(self, expected_len: usize, checksum: u64) -> Result<R, Error> {
+        pub(crate) fn finalize(mut self, expected_len: usize, checksum: u64) -> Result<R, Error> {
             if self.consumed != expected_len {
-                dbg!(self.consumed, expected_len);
                 return Err(Error::LengthMismatch);
             }
             if self.digest.sum64() != checksum {
@@ -5896,96 +5952,16 @@ where
         out.try_reserve(len).map_err(|_| Error::AllocationFailed {
             bytes: limit_to_u64(output_bytes),
         })?;
-        let align = archived_payload_align::<T>();
-        let mut cap = 1usize;
-        let mut layout = Layout::from_size_align(cap, align).map_err(|_| Error::LengthMismatch)?;
-        let (mut buf, mut buf_needs_dealloc) = unsafe { alloc_checked(layout) }?;
         for _ in 0..len {
-            let remaining = match payload.get(offset..) {
-                Some(remaining) => remaining,
-                None => {
-                    unsafe { dealloc_checked(buf, layout, buf_needs_dealloc) };
-                    return Err(Error::LengthMismatch);
-                }
-            };
-            let (elem_len, hdr) = match read_len_dyn_slice(remaining) {
-                Ok(res) => res,
-                Err(err) => {
-                    unsafe { dealloc_checked(buf, layout, buf_needs_dealloc) };
-                    return Err(err);
-                }
-            };
-            offset = match offset.checked_add(hdr) {
-                Some(offset) => offset,
-                None => {
-                    unsafe { dealloc_checked(buf, layout, buf_needs_dealloc) };
-                    return Err(Error::LengthMismatch);
-                }
-            };
-            let end = match offset.checked_add(elem_len) {
-                Some(end) => end,
-                None => {
-                    unsafe { dealloc_checked(buf, layout, buf_needs_dealloc) };
-                    return Err(Error::LengthMismatch);
-                }
-            };
-            let field = match payload.get(offset..end) {
-                Some(field) => field,
-                None => {
-                    unsafe { dealloc_checked(buf, layout, buf_needs_dealloc) };
-                    return Err(Error::LengthMismatch);
-                }
-            };
-            let _depth = match DecodeDepthGuard::enter() {
-                Ok(guard) => guard,
-                Err(error) => {
-                    unsafe { dealloc_checked(buf, layout, buf_needs_dealloc) };
-                    return Err(error);
-                }
-            };
-            if elem_len > cap {
-                let new_cap = core::cmp::max(elem_len, cap.saturating_mul(2));
-                let new_layout = match Layout::from_size_align(new_cap, align) {
-                    Ok(layout) => layout,
-                    Err(_) => {
-                        unsafe { dealloc_checked(buf, layout, buf_needs_dealloc) };
-                        return Err(Error::LengthMismatch);
-                    }
-                };
-                let (new_buf, new_buf_needs_dealloc) = match unsafe { alloc_checked(new_layout) } {
-                    Ok(allocation) => allocation,
-                    Err(error) => {
-                        unsafe { dealloc_checked(buf, layout, buf_needs_dealloc) };
-                        return Err(error);
-                    }
-                };
-                unsafe { dealloc_checked(buf, layout, buf_needs_dealloc) };
-                buf = new_buf;
-                buf_needs_dealloc = new_buf_needs_dealloc;
-                layout = new_layout;
-                cap = new_cap;
-            }
-            unsafe {
-                if let Err(error) = copy_from_payload(field.as_ptr(), buf, elem_len) {
-                    dealloc_checked(buf, layout, buf_needs_dealloc);
-                    return Err(error);
-                }
-                let tmp_slice = std::slice::from_raw_parts(buf as *const u8, elem_len);
-                let _g = PayloadCtxGuard::enter(tmp_slice);
-                let archived = &*(buf as *const Archived<T>);
-                let result = guarded_try_deserialize(|| T::try_deserialize(archived));
-                match result {
-                    Ok(value) => out.push(value),
-                    Err(error) => {
-                        dealloc_checked(buf, layout, buf_needs_dealloc);
-                        return Err(error);
-                    }
-                }
-            }
+            let remaining = payload.get(offset..).ok_or(Error::LengthMismatch)?;
+            let (elem_len, hdr) = read_len_dyn_slice(remaining)?;
+            offset = offset.checked_add(hdr).ok_or(Error::LengthMismatch)?;
+            let end = offset.checked_add(elem_len).ok_or(Error::LengthMismatch)?;
+            let field = payload.get(offset..end).ok_or(Error::LengthMismatch)?;
+            let _depth = DecodeDepthGuard::enter()?;
+            // Each element is borrowed in place under its own exact context.
+            out.push(decode_borrowed_child::<T>(field)?);
             offset = end;
-        }
-        unsafe {
-            dealloc_checked(buf, layout, buf_needs_dealloc);
         }
         Ok(out)
     }
@@ -6124,28 +6100,7 @@ impl<'a, $( $name: DeserializePayload<'a> ),+> DeserializePayload<'a> for ( $( $
                     let end = offset.checked_add(elem_len).ok_or(Error::LengthMismatch)?;
                     let field = payload.get(offset..end).ok_or(Error::LengthMismatch)?;
                     let _depth = DecodeDepthGuard::enter()?;
-                    let $var = unsafe {
-                        let layout = Layout::from_size_align(
-                            elem_len,
-                            archived_payload_align::<$name>(),
-                        ).map_err(|_| Error::LengthMismatch)?;
-                        let (tmp_ptr, needs_dealloc) = alloc_checked(layout)?;
-                        if let Err(err) = copy_from_payload(field.as_ptr(), tmp_ptr, elem_len) {
-                            dealloc_checked(tmp_ptr, layout, needs_dealloc);
-                            return Err(err);
-                        }
-                        let tmp_slice = std::slice::from_raw_parts(tmp_ptr as *const u8, elem_len);
-                        let _g = PayloadCtxGuard::enter(tmp_slice);
-                        let archived_ptr = if elem_len == 0 {
-                            empty_archived_ptr::<$name>()
-                        } else {
-                            tmp_ptr.cast::<Archived<$name>>()
-                        };
-                        let archived = &*archived_ptr;
-                        let result = guarded_try_deserialize(|| $name::try_deserialize(archived));
-                        dealloc_checked(tmp_ptr, layout, needs_dealloc);
-                        result?
-                    };
+                    let $var = decode_borrowed_child::<$name>(field)?;
                     drop(_depth);
                     offset = end;
                 )+
@@ -6166,15 +6121,15 @@ impl_tuple!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8);
 impl_tuple!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9);
 impl_tuple!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10);
 impl_tuple!(A a 0, B b 1, C c 2, D d 3, E e 4, F f 5, G g 6, H h 7, I i 8, J j 9, K k 10, L l 11);
-/// Internal byte sink with aligned growth and incremental CRC64.
+/// Internal byte sink with amortized growth.
 ///
 /// ByteSink implements `Write` and is optimized for small, frequent writes by using a growth policy
-/// and typed little-endian writers. It reserves an initial headroom to make space for the Norito
-/// header and computes CRC64 incrementally over the appended payload bytes.
+/// and typed little-endian writers. It can reserve initial headroom for the Norito header. It keeps
+/// no running checksum: framed encoders compute CRC64 once over the finished payload, and bare
+/// payloads need none.
 pub(crate) struct ByteSink {
     buf: Vec<u8>,
     headroom: usize,
-    digest: crc64fast::Digest,
 }
 impl ByteSink {
     /// Create a new sink with capacity hint for payload and reserved headroom.
@@ -6182,11 +6137,7 @@ impl ByteSink {
         // Ensure a minimal capacity to avoid early reallocations on tiny values.
         let mut buf = Vec::with_capacity(headroom + payload_capacity.max(1024));
         buf.resize(headroom, 0); // reserve header space
-        Self {
-            buf,
-            headroom,
-            digest: crc64fast::Digest::new(),
-        }
+        Self { buf, headroom }
     }
     /// Reuse an existing buffer while reserving headroom and payload capacity.
     fn with_headroom_from(mut buf: Vec<u8>, payload_capacity: usize, headroom: usize) -> Self {
@@ -6196,11 +6147,7 @@ impl ByteSink {
             buf.reserve(min_capacity - buf.capacity());
         }
         buf.resize(headroom, 0);
-        Self {
-            buf,
-            headroom,
-            digest: crc64fast::Digest::new(),
-        }
+        Self { buf, headroom }
     }
     #[inline]
     fn ensure_capacity(&mut self, extra: usize) {
@@ -6218,35 +6165,21 @@ impl ByteSink {
     pub(crate) fn write_bytes(&mut self, bytes: &[u8]) {
         self.ensure_capacity(bytes.len());
         self.buf.extend_from_slice(bytes);
-        self.digest.write(bytes);
     }
     #[inline]
-    #[allow(dead_code)]
     pub(crate) fn write_u8(&mut self, v: u8) {
         self.ensure_capacity(1);
         self.buf.push(v);
-        self.digest.write(&[v]);
     }
     #[inline]
-    #[allow(dead_code)]
-    fn write_u16_le(&mut self, v: u16) {
-        let b = v.to_le_bytes();
-        self.write_bytes(&b);
-    }
-    #[inline]
-    #[allow(dead_code)]
     pub(crate) fn write_u32_le(&mut self, v: u32) {
-        let b = v.to_le_bytes();
-        self.write_bytes(&b);
+        self.write_bytes(&v.to_le_bytes());
     }
     #[inline]
-    #[allow(dead_code)]
     pub(crate) fn write_u64_le(&mut self, v: u64) {
-        let b = v.to_le_bytes();
-        self.write_bytes(&b);
+        self.write_bytes(&v.to_le_bytes());
     }
     #[inline]
-    #[allow(dead_code)]
     pub(crate) fn write_var_u64(&mut self, mut v: u64) {
         let mut buf = [0u8; 10];
         let mut idx = 0usize;
@@ -6258,10 +6191,8 @@ impl ByteSink {
         buf[idx] = v as u8;
         self.write_bytes(&buf[..=idx]);
     }
-    /// Write a compact varint (7-bit) length when `COMPACT_LEN` is selected.
     /// Align the payload to `align` bytes by writing zero padding.
     #[inline]
-    #[allow(dead_code)]
     pub(crate) fn align_to(&mut self, align: usize) {
         debug_assert!(align.is_power_of_two());
         let len = self.buf.len();
@@ -6269,15 +6200,18 @@ impl ByteSink {
         if mis != 0 {
             let pad = align - mis;
             self.ensure_capacity(pad);
-            let start = self.buf.len();
-            self.buf.resize(start + pad, 0);
-            self.digest.write(&self.buf[start..start + pad]);
+            self.buf.resize(len + pad, 0);
         }
     }
+    /// Payload bytes written after the reserved headroom.
     #[inline]
-    #[allow(dead_code)]
+    fn payload(&self) -> &[u8] {
+        &self.buf[self.headroom..]
+    }
+    /// CRC64-XZ of the payload, computed once over the finished bytes.
+    #[inline]
     fn checksum(&self) -> u64 {
-        self.digest.sum64()
+        crc64(self.payload())
     }
     #[inline]
     pub(crate) fn into_inner(self) -> Vec<u8> {
@@ -6436,31 +6370,21 @@ pub fn to_bytes_bounded<T: NoritoSerialize>(
     let base_flags = current_decode_flags_effective().unwrap_or_else(default_encode_flags);
     validate_header_flags(base_flags)?;
     let mut bounded = FixedCapacityVecWriter::new(&mut out, encoded_bytes);
-    let (serialize_result, payload_len, checksum, destination_rejected_write) = {
-        let mut payload_writer = FramedPayloadWriter {
-            inner: &mut bounded,
-            len: 0,
-            digest: crc64fast::Digest::new(),
-        };
-        let serialize_result = {
-            let _guard = DecodeFlagsGuard::enter(base_flags);
-            let mut encoder = Encoder::new(&mut payload_writer);
-            value.serialize(&mut encoder)
-        };
-        (
-            serialize_result,
-            payload_writer.len,
-            payload_writer.digest.sum64(),
-            payload_writer.inner.rejected_write,
-        )
+    let serialize_result = {
+        let _guard = DecodeFlagsGuard::enter(base_flags);
+        let mut encoder = Encoder::new(&mut bounded);
+        value.serialize(&mut encoder)
     };
-    if destination_rejected_write {
+    if bounded.rejected_write {
         return Err(Error::LengthMismatch.into());
     }
     serialize_result?;
-    if payload_len != expected_payload_len || bounded.len() != encoded_bytes {
+    if bounded.len() != encoded_bytes {
         return Err(Error::LengthMismatch.into());
     }
+    // The complete payload is in `out`; one accelerated pass replaces per-write digests.
+    let checksum = crc64(&out[headroom..]);
+    debug_assert_eq!(out.len() - headroom, expected_payload_len);
     let compact_len_used = compact_len_used();
     drop(encode_guard);
     let final_flags = finalized_encode_flags(base_flags, compact_len_used);
@@ -6503,7 +6427,8 @@ pub fn to_bytes_in<T: NoritoSerialize>(value: &T, out: &mut Vec<u8>) -> Result<(
         let mut encoder = Encoder::for_byte_sink(&mut sink);
         value.serialize(&mut encoder)?;
     }
-    let payload_len = sink.buf.len().saturating_sub(headroom) as u64;
+    let payload_len = sink.payload().len() as u64;
+    // One accelerated pass over the finished payload replaces per-write digest updates.
     let checksum = sink.checksum();
     let compact_len_used = compact_len_used();
     drop(encode_guard);
@@ -6547,11 +6472,7 @@ where
             padding -= chunk;
         }
     }
-    let mut payload_writer = FramedPayloadWriter {
-        inner: writer,
-        len: 0,
-        digest: crc64fast::Digest::new(),
-    };
+    let mut payload_writer = FramedPayloadWriter::new(writer);
     {
         let _guard = DecodeFlagsGuard::enter(flags);
         let mut encoder = Encoder::new(&mut payload_writer);
@@ -6624,16 +6545,73 @@ where
 mod write_canonical_tests {
     include!("core/write_canonical_tests.rs");
 }
+/// Bytes buffered by [`PayloadChecksum`] before one digest update.
+const PAYLOAD_CHECKSUM_BLOCK: usize = 512;
+/// Streaming CRC64-XZ that batches small serializer writes.
+///
+/// Serializers emit many short slices (tags, varint prefixes and scalars). Coalescing them
+/// in a fixed stack block lets the accelerated kernel run over whole blocks instead of paying
+/// a dispatch and a table walk for every tiny write. CRC64 is a streaming checksum, so the
+/// result is identical to one pass over the concatenated bytes.
+pub(crate) struct PayloadChecksum {
+    digest: crc64fast::Digest,
+    pending: [u8; PAYLOAD_CHECKSUM_BLOCK],
+    filled: usize,
+}
+impl PayloadChecksum {
+    pub(crate) fn new() -> Self {
+        Self {
+            digest: crc64fast::Digest::new(),
+            pending: [0; PAYLOAD_CHECKSUM_BLOCK],
+            filled: 0,
+        }
+    }
+    #[inline]
+    pub(crate) fn update(&mut self, bytes: &[u8]) {
+        if bytes.len() <= PAYLOAD_CHECKSUM_BLOCK - self.filled {
+            self.pending[self.filled..self.filled + bytes.len()].copy_from_slice(bytes);
+            self.filled += bytes.len();
+            return;
+        }
+        self.flush_pending();
+        if bytes.len() >= PAYLOAD_CHECKSUM_BLOCK {
+            self.digest.write(bytes);
+        } else {
+            self.pending[..bytes.len()].copy_from_slice(bytes);
+            self.filled = bytes.len();
+        }
+    }
+    fn flush_pending(&mut self) {
+        if self.filled != 0 {
+            self.digest.write(&self.pending[..self.filled]);
+            self.filled = 0;
+        }
+    }
+    /// Return the checksum of every byte supplied so far.
+    pub(crate) fn sum64(&mut self) -> u64 {
+        self.flush_pending();
+        self.digest.sum64()
+    }
+}
 struct FramedPayloadWriter<'a, W: ?Sized> {
     inner: &'a mut W,
     len: usize,
-    digest: crc64fast::Digest,
+    digest: PayloadChecksum,
+}
+impl<'a, W: ?Sized> FramedPayloadWriter<'a, W> {
+    fn new(inner: &'a mut W) -> Self {
+        Self {
+            inner,
+            len: 0,
+            digest: PayloadChecksum::new(),
+        }
+    }
 }
 impl<W: Write + ?Sized> Write for FramedPayloadWriter<'_, W> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.inner.write_all(bytes)?;
         self.len = self.len.saturating_add(bytes.len());
-        self.digest.write(bytes);
+        self.digest.update(bytes);
         Ok(bytes.len())
     }
     fn flush(&mut self) -> std::io::Result<()> {
@@ -6764,14 +6742,58 @@ mod bytesink_tests {
     #[test]
     fn bytesink_typed_writes_le() {
         let mut s = ByteSink::with_headroom(0, 0);
-        s.write_u16_le(0x1234);
+        s.write_u8(0x5A);
         s.write_u32_le(0x89ABCDEF);
         s.write_u64_le(0x0123456789ABCDEF);
+        s.write_var_u64(300);
         let b = s.into_inner();
-        assert_eq!(b.len(), 2 + 4 + 8);
-        assert_eq!(&b[0..2], &0x1234u16.to_le_bytes());
-        assert_eq!(&b[2..6], &0x89ABCDEFu32.to_le_bytes());
-        assert_eq!(&b[6..14], &0x0123456789ABCDEFu64.to_le_bytes());
+        assert_eq!(b.len(), 1 + 4 + 8 + 2);
+        assert_eq!(b[0], 0x5A);
+        assert_eq!(&b[1..5], &0x89ABCDEFu32.to_le_bytes());
+        assert_eq!(&b[5..13], &0x0123456789ABCDEFu64.to_le_bytes());
+        assert_eq!(&b[13..15], &[0xAC, 0x02]);
+    }
+    #[test]
+    fn payload_checksum_batches_writes_without_changing_the_crc() {
+        let data = (0..4096_u32)
+            .map(|index| (index.wrapping_mul(31) ^ (index >> 3)) as u8)
+            .collect::<Vec<_>>();
+        let expected = crc64_fallback(&data);
+        // Chunk sizes straddle the internal block boundary in every position.
+        for chunk in [
+            1,
+            2,
+            7,
+            PAYLOAD_CHECKSUM_BLOCK - 1,
+            PAYLOAD_CHECKSUM_BLOCK,
+            PAYLOAD_CHECKSUM_BLOCK + 1,
+            3000,
+        ] {
+            let mut checksum = PayloadChecksum::new();
+            for piece in data.chunks(chunk) {
+                checksum.update(piece);
+                checksum.update(&[]);
+            }
+            assert_eq!(checksum.sum64(), expected, "chunk {chunk}");
+            // Reading the sum is idempotent and later updates extend the stream.
+            assert_eq!(checksum.sum64(), expected, "chunk {chunk}");
+            checksum.update(&[0xAA]);
+            let mut extended = data.clone();
+            extended.push(0xAA);
+            assert_eq!(checksum.sum64(), crc64_fallback(&extended), "chunk {chunk}");
+        }
+        assert_eq!(PayloadChecksum::new().sum64(), crc64_fallback(&[]));
+    }
+    #[test]
+    fn bytesink_checksum_covers_only_the_finished_payload() {
+        let mut s = ByteSink::with_headroom(0, Header::SIZE);
+        for chunk in [&[1_u8][..], &[2, 3], &[], &[4, 5, 6, 7, 8, 9]] {
+            s.write_all(chunk).unwrap();
+        }
+        assert_eq!(s.payload(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert_eq!(s.checksum(), crc64_fallback(&[1, 2, 3, 4, 5, 6, 7, 8, 9]));
+        let empty = ByteSink::with_headroom(0, Header::SIZE);
+        assert_eq!(empty.checksum(), crc64_fallback(&[]));
     }
     #[test]
     fn bytesink_align_to() {
@@ -7106,9 +7128,10 @@ pub fn from_compressed_bytes<T: for<'de> NoritoDeserialize<'de>>(
 /// Obtain a reference to an archived value from bytes.
 ///
 /// The function validates the frame header, checksum, schema hash, payload
-/// length, and alignment, then returns an opaque marker at the payload start
-/// without allocating. Type-specific payload bounds and structure are checked
-/// by the subsequent fallible [`DeserializePayload::try_deserialize`] call.
+/// length, and exact alignment padding, then returns an opaque marker at the
+/// payload start without allocating. The input buffer's address does not affect
+/// acceptance. Type-specific payload bounds and structure are checked by the
+/// subsequent fallible [`DeserializePayload::try_deserialize`] call.
 pub fn from_bytes<'a, T: NoritoDeserialize<'a>>(bytes: &'a [u8]) -> Result<&'a Archived<T>, Error> {
     let mut cursor = std::io::Cursor::new(bytes);
     let header = Header::read(&mut cursor)?;
@@ -7130,20 +7153,10 @@ pub fn from_bytes<'a, T: NoritoDeserialize<'a>>(bytes: &'a [u8]) -> Result<&'a A
     if crc64(payload) != header.checksum {
         return Err(Error::ChecksumMismatch);
     }
-    let align = archived_payload_align::<T>();
-    if align > 1 && (payload.as_ptr() as usize & (align - 1)) != 0 {
-        return Err(Error::misaligned(align, payload.as_ptr()));
-    }
-    // Provide payload ctx for any subsequent decoders that rely on it.
+    // The marker is byte-aligned and decoders read through the bounded payload
+    // context, so the input buffer's address never affects acceptance.
     set_payload_ctx_state(payload, Some(header.schema), Some(header.flags));
-    let ptr = if payload.is_empty() {
-        empty_archived_ptr::<T>()
-    } else {
-        payload.as_ptr().cast::<Archived<T>>()
-    };
-    // SAFETY: `ptr` addresses either the validated payload or the non-null
-    // dangling marker used only for a zero-sized archived payload.
-    Ok(unsafe { &*ptr })
+    Ok(borrowed_archived_marker(payload))
 }
 /// A validated view over an archived payload.
 ///
@@ -7356,7 +7369,6 @@ impl Drop for FieldDecodeBoundaryGuard {
     }
 }
 trait ErasedFieldSlot {
-    fn archived_align(&self) -> usize;
     fn archived_size(&self) -> usize;
     fn dangling_archived(&self) -> *const u8;
     fn type_name(&self) -> &'static str;
@@ -7400,9 +7412,6 @@ impl<T> ErasedFieldSlot for TypedFieldSlot<T>
 where
     T: for<'de> crate::DeserializePayload<'de> + crate::SerializePayload,
 {
-    fn archived_align(&self) -> usize {
-        archived_payload_align::<T>()
-    }
     fn archived_size(&self) -> usize {
         archived_payload_size::<T>()
     }
@@ -7476,7 +7485,7 @@ fn decode_field_erased(
     if matches!(boundary, FieldDecodeBoundary::Canonical) {
         // The canonical field slice is borrowed. Check its wire-size ceiling
         // here; concrete decoders charge only buffers and owned values they
-        // actually allocate (including any required realignment copy).
+        // actually allocate.
         check_decode_field_length(u64::try_from(bytes.len()).map_err(|_| Error::LengthMismatch)?)?;
     }
     let _depth = DecodeDepthGuard::enter()?;
@@ -7504,39 +7513,24 @@ fn decode_field_erased(
         None
     };
     let _flags_guard = enter_field_codec_flags();
-    let align = slot.archived_align();
-    let needs_realign = align > 1 && !(bytes.as_ptr() as usize).is_multiple_of(align);
-    let aligned = if needs_realign {
-        Some(ArchiveSlice::new(bytes, align)?)
-    } else {
-        None
-    };
-    let payload = match aligned.as_ref() {
-        Some(aligned) => aligned.as_slice(),
-        None => bytes,
-    };
     if crate::debug_trace_enabled() && matches!(boundary, FieldDecodeBoundary::Canonical) {
-        let path = if needs_realign {
-            "misaligned"
-        } else {
-            "aligned"
-        };
         eprintln!(
-            "decode_field_canonical::<{}> {path} path len={} align={}",
+            "decode_field_canonical::<{}> len={}",
             slot.type_name(),
-            bytes.len(),
-            align
+            bytes.len()
         );
     }
-    let payload_guard = PayloadCtxGuard::enter(payload);
+    // `Archived<T>` is a byte-aligned marker and every decoder reads through
+    // the bounds-checked payload context, so the original field is borrowed in
+    // place at any address. No alignment copy is allocated or charged.
+    let payload_guard = PayloadCtxGuard::enter(bytes);
     let _boundary_guard = FieldDecodeBoundaryGuard::enter(boundary);
-    invoke_erased_field_decoder(slot, payload.as_ptr())?;
+    invoke_erased_field_decoder(slot, bytes.as_ptr())?;
     let used_ctx = payload_ctx_max_access();
     drop(payload_guard);
     let used = resolve_erased_field_used(boundary, slot, bytes, used_ctx)?;
-    // A realigned copy cannot merge its child context into the caller, and
-    // scalar decoders may not record an access at all. Record the resolved
-    // canonical consumption against the original field in both cases.
+    // Scalar decoders may not record an access at all. Record the resolved
+    // canonical consumption against the original field.
     note_payload_access(bytes, used);
     Ok(used)
 }

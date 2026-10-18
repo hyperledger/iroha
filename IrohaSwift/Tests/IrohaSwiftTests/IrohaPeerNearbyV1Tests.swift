@@ -695,6 +695,235 @@ final class IrohaPeerNearbyV1Tests: XCTestCase {
         XCTAssertEqual(try tampered.receiver.open(original), Data("payment".utf8))
     }
 
+    // MARK: Receiver's ask
+
+    func testReceiverSealsItsAskFirstAndThePayerOpensIt() throws {
+        let pair = try makeAuthenticatedPair()
+        let ask = try nearbyAsk()
+        let record = try pair.receiver.sealAsk(ask)
+        XCTAssertEqual(record.kind, .encryptedAsk)
+        XCTAssertEqual(record.senderRole, .receiver)
+        XCTAssertEqual(record.sequence, 0)
+        XCTAssertEqual(record.ciphertextAndTag.count, IrohaPeerAskV1.recordBytes + 16)
+        let encoded = record.encode()
+        XCTAssertEqual(encoded.count, 38 + 72, "the 38-byte record header and the sealed 56-byte ask")
+        XCTAssertEqual(encoded[5], IrohaPeerNearbyRecordKindV1.encryptedAsk.rawValue)
+        XCTAssertEqual(encoded[5], 4)
+        XCTAssertEqual(try IrohaPeerNearbyEncryptedRecordV1.decode(encoded), record)
+        XCTAssertEqual(try pair.sender.openAsk(IrohaPeerNearbyEncryptedRecordV1.decode(encoded)), ask)
+
+        // The ask and messages share one sequence per direction.
+        let request = try pair.receiver.seal(Data("IPM1-request-fixture".utf8))
+        XCTAssertEqual(request.sequence, 1)
+        XCTAssertEqual(request.kind, .encryptedMessage)
+        XCTAssertEqual(try pair.sender.open(request), Data("IPM1-request-fixture".utf8))
+        let offer = try pair.sender.seal(Data("IPM1-offer-fixture".utf8))
+        XCTAssertEqual(offer.sequence, 0)
+        XCTAssertEqual(try pair.receiver.open(offer), Data("IPM1-offer-fixture".utf8))
+    }
+
+    func testOnlyTheReceiverSealsAndOnlyThePayerOpensAnAsk() throws {
+        let pair = try makeAuthenticatedPair()
+        let ask = try nearbyAsk()
+        XCTAssertThrowsError(try pair.sender.sealAsk(ask)) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .invalidRole)
+        }
+        let record = try pair.receiver.sealAsk(ask)
+        XCTAssertThrowsError(try pair.receiver.openAsk(record)) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .invalidRole)
+        }
+        // A sealed ask that claims the payer as its sender is misrouted.
+        let misrouted = try IrohaPeerNearbyEncryptedRecordV1(
+            profile: record.profile, senderRole: .sender, sessionID: record.sessionID,
+            sequence: record.sequence, ciphertextAndTag: record.ciphertextAndTag, kind: .encryptedAsk)
+        XCTAssertThrowsError(try pair.sender.openAsk(misrouted)) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .invalidRole)
+        }
+        // A role refusal consumes nothing: the genuine ask still opens.
+        XCTAssertEqual(try pair.sender.openAsk(record), ask)
+
+        let unauthenticated = try IrohaPeerNearbySessionV1(
+            profile: .kagemushaWalletV1, localRole: .receiver,
+            sessionID: Data(repeating: 0x71, count: 16), requestCanonicalHash: Data(repeating: 0x72, count: 32),
+            deviceCertificate: Data(repeating: 0x31, count: 32))
+        XCTAssertThrowsError(try unauthenticated.sealAsk(ask)) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .notAuthenticated)
+        }
+        pair.sender.destroy()
+        XCTAssertThrowsError(try pair.sender.openAsk(record)) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .sessionDestroyed)
+        }
+        pair.receiver.destroy()
+        XCTAssertThrowsError(try pair.receiver.sealAsk(ask)) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .sessionDestroyed)
+        }
+    }
+
+    func testAskAndMessageRecordsAreNeverInterchangeable() throws {
+        let pair = try makeAuthenticatedPair()
+        let ask = try nearbyAsk()
+        let askRecord = try pair.receiver.sealAsk(ask)
+        XCTAssertThrowsError(try pair.sender.open(askRecord)) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .invalidRecordKind)
+        }
+        XCTAssertEqual(try pair.sender.openAsk(askRecord), ask, "a refused kind consumes no sequence")
+        let message = try pair.receiver.seal(ask.encode())
+        XCTAssertThrowsError(try pair.sender.openAsk(message)) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .invalidRecordKind)
+        }
+        XCTAssertEqual(try pair.sender.open(message), ask.encode())
+
+        // The kind is authenticated: relabelling either way fails the tag.
+        let relabelled = try makeAuthenticatedPair()
+        var askBytes = try relabelled.receiver.sealAsk(ask).encode()
+        askBytes[5] = IrohaPeerNearbyRecordKindV1.encryptedMessage.rawValue
+        XCTAssertThrowsError(try relabelled.sender.open(IrohaPeerNearbyEncryptedRecordV1.decode(askBytes))) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .authenticationFailed)
+        }
+        let other = try makeAuthenticatedPair()
+        var messageBytes = try other.receiver.seal(ask.encode()).encode()
+        messageBytes[5] = IrohaPeerNearbyRecordKindV1.encryptedAsk.rawValue
+        XCTAssertThrowsError(try other.sender.openAsk(IrohaPeerNearbyEncryptedRecordV1.decode(messageBytes))) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .authenticationFailed)
+        }
+    }
+
+    func testAskRecordsRejectReplayReorderingTamperingAndRouting() throws {
+        let ask = try nearbyAsk()
+        let replayed = try makeAuthenticatedPair()
+        let record = try replayed.receiver.sealAsk(ask)
+        XCTAssertEqual(try replayed.sender.openAsk(record), ask)
+        XCTAssertThrowsError(try replayed.sender.openAsk(record)) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .replayOrReordering)
+        }
+
+        let reordered = try makeAuthenticatedPair()
+        let first = try reordered.receiver.sealAsk(ask)
+        let second = try reordered.receiver.seal(Data("IPM1-request".utf8))
+        XCTAssertThrowsError(try reordered.sender.open(second)) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .replayOrReordering)
+        }
+        XCTAssertEqual(try reordered.sender.openAsk(first), ask)
+        XCTAssertEqual(try reordered.sender.open(second), Data("IPM1-request".utf8))
+
+        let tampered = try makeAuthenticatedPair()
+        let original = try tampered.receiver.sealAsk(ask)
+        var bytes = original.encode()
+        bytes[bytes.count - 1] ^= 0x01
+        XCTAssertThrowsError(try tampered.sender.openAsk(IrohaPeerNearbyEncryptedRecordV1.decode(bytes))) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .authenticationFailed)
+        }
+        var amount = original.encode()
+        amount[38 + 8] ^= 0x01
+        XCTAssertThrowsError(try tampered.sender.openAsk(IrohaPeerNearbyEncryptedRecordV1.decode(amount))) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .authenticationFailed)
+        }
+        XCTAssertEqual(try tampered.sender.openAsk(original), ask, "failed records do not advance")
+
+        let routed = try makeAuthenticatedPair()
+        let genuine = try routed.receiver.sealAsk(ask)
+        let otherSession = try IrohaPeerNearbyEncryptedRecordV1(
+            profile: genuine.profile, senderRole: genuine.senderRole,
+            sessionID: Data(repeating: 0x7F, count: 16), sequence: genuine.sequence,
+            ciphertextAndTag: genuine.ciphertextAndTag, kind: .encryptedAsk)
+        XCTAssertThrowsError(try routed.sender.openAsk(otherSession)) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .invalidSession)
+        }
+        let otherPair = try makeAuthenticatedPair()
+        XCTAssertThrowsError(try otherPair.sender.openAsk(genuine)) {
+            XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .authenticationFailed)
+        }
+        XCTAssertEqual(try routed.sender.openAsk(genuine), ask)
+    }
+
+    func testAuthenticatedPlaintextMustBeAValidAskAndAdvancesNothingOtherwise() throws {
+        // A hostile but authenticated receiver: the AEAD holds, the IAK1 record does not.
+        let valid = try nearbyAsk().encode()
+        var magic = valid
+        magic[3] = 0x32
+        var version = valid
+        version[4] = 2
+        var zeroAmount = valid
+        zeroAmount.replaceSubrange(8..<24, with: Data(count: 16))
+        var zeroDigest = valid
+        zeroDigest.replaceSubrange(24..<56, with: Data(count: 32))
+        let cases: [(Data, IrohaPeerAskErrorV1)] = [
+            (magic, .invalidMagic),
+            (version, .unsupportedVersion),
+            (zeroAmount, .invalidAmount),
+            (zeroDigest, .invalidAccountDigest),
+        ]
+        for (plaintext, expected) in cases {
+            let pair = try makeAuthenticatedPair()
+            let record = try pair.receiver.seal(plaintext, kind: .encryptedAsk)
+            XCTAssertThrowsError(try pair.sender.openAsk(record)) {
+                XCTAssertEqual($0 as? IrohaPeerAskErrorV1, expected)
+            }
+            // The refused ask consumed no sequence: the receiver's next record is out of order.
+            let next = try pair.receiver.sealAsk(nearbyAsk())
+            XCTAssertEqual(next.sequence, 1)
+            XCTAssertThrowsError(try pair.sender.openAsk(next)) {
+                XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .replayOrReordering)
+            }
+        }
+        // A sealed ask is exactly 72 bytes; no other plaintext size forms an ask record.
+        let pair = try makeAuthenticatedPair()
+        for plaintext in [Data(valid.dropLast()), valid + Data([0])] {
+            XCTAssertThrowsError(try pair.receiver.seal(plaintext, kind: .encryptedAsk)) {
+                XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .invalidLength)
+            }
+        }
+        XCTAssertEqual(try pair.receiver.sealAsk(nearbyAsk()).sequence, 0, "refused seals consume nothing")
+    }
+
+    func testEncryptedAskRecordIsExactlySeventyTwoSealedBytes() throws {
+        let session = Data(repeating: 0x91, count: 16)
+        for count in [16, 71, 73, 1_024] {
+            XCTAssertThrowsError(try IrohaPeerNearbyEncryptedRecordV1(
+                profile: .kagemushaWalletV1, senderRole: .receiver, sessionID: session, sequence: 0,
+                ciphertextAndTag: Data(repeating: 0x92, count: count), kind: .encryptedAsk)) {
+                XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .invalidLength, "\(count)")
+            }
+            // Relabelling a message record of that size as an ask fails before any decryption.
+            var bytes = try IrohaPeerNearbyEncryptedRecordV1(
+                profile: .kagemushaWalletV1, senderRole: .receiver, sessionID: session, sequence: 0,
+                ciphertextAndTag: Data(repeating: 0x92, count: count)).encode()
+            bytes[5] = IrohaPeerNearbyRecordKindV1.encryptedAsk.rawValue
+            XCTAssertThrowsError(try IrohaPeerNearbyEncryptedRecordV1.decode(bytes)) {
+                XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .invalidLength, "\(count)")
+            }
+        }
+        XCTAssertNoThrow(try IrohaPeerNearbyEncryptedRecordV1(
+            profile: .kagemushaWalletV1, senderRole: .receiver, sessionID: session, sequence: 0,
+            ciphertextAndTag: Data(repeating: 0x92, count: 72), kind: .encryptedAsk))
+    }
+
+    func testEncryptedRecordAcceptsOnlyTheTwoSealedKinds() throws {
+        for kind in [IrohaPeerNearbyRecordKindV1.hello, .authentication] {
+            XCTAssertThrowsError(try IrohaPeerNearbyEncryptedRecordV1(
+                profile: .kagemushaWalletV1, senderRole: .receiver, sessionID: Data(repeating: 0x91, count: 16),
+                sequence: 0, ciphertextAndTag: Data(repeating: 0x92, count: 72), kind: kind)) {
+                XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .invalidRecordKind)
+            }
+        }
+        let record = try IrohaPeerNearbyEncryptedRecordV1(
+            profile: .kagemushaWalletV1, senderRole: .receiver, sessionID: Data(repeating: 0x91, count: 16),
+            sequence: 0, ciphertextAndTag: Data(repeating: 0x92, count: 72), kind: .encryptedAsk)
+        XCTAssertEqual(try IrohaPeerNearbyEncryptedRecordV1.decode(record.encode()).kind, .encryptedAsk)
+        for byte: UInt8 in [0, 1, 2, 5, 0xFF] {
+            var bytes = record.encode()
+            bytes[5] = byte
+            XCTAssertThrowsError(try IrohaPeerNearbyEncryptedRecordV1.decode(bytes)) {
+                XCTAssertEqual($0 as? IrohaPeerNearbyErrorV1, .invalidRecordKind)
+            }
+        }
+        XCTAssertEqual(IrohaPeerNearbyRecordKindV1.encryptedAsk.rawValue, 4)
+    }
+
+    private func nearbyAsk() throws -> IrohaPeerAskV1 {
+        try IrohaPeerAskV1(amount: .init(low: 1_200, high: 0), receiverAccountDigest: Data((0..<32).map(UInt8.init)))
+    }
+
     private func makeAuthenticatedPair(
         requestHash: Data = Data(repeating: 0x72, count: 32)
     ) throws -> (

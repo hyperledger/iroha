@@ -37,6 +37,7 @@ const TEST_ONLY_SOURCES: &[&str] = &[
     "src/network/data_frame_wire_len_tests.rs",
     "src/network/frame_identity_tests.rs",
     "src/network/handle_update_tests.rs",
+    "src/network/link_frame_tests.rs",
     "src/network/queue_depth_tests.rs",
     "src/network/runtime_tests.rs",
     "src/network/tcp_listener_bind_tests.rs",

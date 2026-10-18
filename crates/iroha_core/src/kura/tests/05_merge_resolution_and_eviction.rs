@@ -870,3 +870,30 @@ fn eviction_streaming_digest_preserves_fixed_chunk_framing_and_exact_read_bounds
         }
     }
 }
+#[test]
+fn drop_persisted_blocks_evicts_only_what_leaves_the_window() {
+    let mut generator = NativeBlocks::new();
+    let mut block_data: BlockData = (0..2)
+        .map(|_| {
+            let block = generator.next();
+            (block.hash(), Some(block))
+        })
+        .collect();
+    for persisted in 3..=8 {
+        let block = generator.next();
+        block_data.push((block.hash(), Some(block)));
+        Kura::drop_persisted_blocks(&mut block_data, persisted, 2);
+        for (index, (_, body)) in block_data.as_slice().iter().enumerate() {
+            assert_eq!(
+                body.is_some(),
+                index == 0 || index + 2 >= persisted,
+                "persisted={persisted} index={index}"
+            );
+        }
+    }
+    // Shrinking the window evicts the whole newly exposed run at once.
+    Kura::drop_persisted_blocks(&mut block_data, 8, 1);
+    for (index, (_, body)) in block_data.as_slice().iter().enumerate() {
+        assert_eq!(body.is_some(), index == 0 || index == 7, "index={index}");
+    }
+}

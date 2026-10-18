@@ -429,3 +429,41 @@ fn attach_ok_results_to_block(block: &mut SignedBlock) {
         .collect();
     install_network_index_test_outputs(block, outputs);
 }
+
+#[test]
+fn storage_reads_keep_indexed_heights_and_reverse_index_updates_are_idempotent() {
+    let kura = Kura::blank_kura_for_testing();
+    let first = network_index_block_at(1, vec![network_index_signal_input(1)]);
+    kura.set_transaction_entrypoint_index_entry(1, &first, 2);
+    kura.mark_transaction_entrypoint_index_incomplete_unless_indexed(2, 2);
+    {
+        let index = kura.transaction_entrypoint_index.lock();
+        assert!(!index.complete);
+        assert!(index.incomplete_heights.contains(&nonzero!(2_usize)));
+    }
+    // Re-reading the already indexed height must not discard its entries.
+    kura.mark_transaction_entrypoint_index_incomplete_unless_indexed(1, 2);
+    {
+        let index = kura.transaction_entrypoint_index.lock();
+        assert!(index.indexed_heights.contains(&nonzero!(1_usize)));
+        assert!(!index.incomplete_heights.contains(&nonzero!(1_usize)));
+        assert!(
+            index
+                .heights_by_entrypoint
+                .contains_key(&first.network_entrypoint_at(0).unwrap().hash())
+        );
+    }
+    let second = network_index_block_at(2, vec![network_index_signal_input(2)]);
+    kura.set_transaction_entrypoint_index_entry(2, &second, 2);
+    kura.mark_transaction_entrypoint_index_incomplete_unless_indexed(2, 2);
+    assert!(kura.transaction_entrypoint_index.lock().complete);
+
+    for _ in 0..2 {
+        kura.set_block_height_index_entry(1, first.hash());
+        kura.set_block_height_index_entry(2, second.hash());
+    }
+    let reverse = kura.block_height_index.lock();
+    assert_eq!(reverse.len(), 2);
+    assert_eq!(reverse.get(&first.hash()), Some(&nonzero!(1_usize)));
+    assert_eq!(reverse.get(&second.hash()), Some(&nonzero!(2_usize)));
+}

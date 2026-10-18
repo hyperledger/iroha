@@ -17,7 +17,8 @@ pub(super) fn check_retained_load_event(
     original: &KagemushaWalletLoadReceiptV1,
 ) {
     let budget = AllocationBudget::new(2 * 1024 * 1024 * 1024);
-    let mut cursor = NativeFinalityCursorV1::new();
+    let mut cursor =
+        NativeFinalityCursorV1::new(iroha_data_model::block::consensus::SumeragiRootScope::Global);
     let deadline = || Instant::now() + Duration::from_secs(60);
     let maximum = NonZeroU16::new(64).unwrap();
     let native = cursor

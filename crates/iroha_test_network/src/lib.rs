@@ -6297,13 +6297,6 @@ fn materialize_profile_account_defaults(config_layers: &mut Vec<Table>) -> Resul
         defaults::governance::bond_escrow_account_id(),
         discriminant,
     )?;
-    account(
-        &merged,
-        &mut layer,
-        ["nexus", "fees", "sponsor_vault_custody_account_id"],
-        defaults::nexus::fees::sponsor_vault_custody_account_id(),
-        discriminant,
-    )?;
     // Telemetry submitter/provider-owner defaults are empty. Explicit entries are
     // deliberately left to the strict selected-chain parser, never translated here.
     if !layer.is_empty() {
@@ -6703,6 +6696,47 @@ fn consensus_handshake_parameter(consensus_profile: &ConsensusBootstrapProfile) 
         handshake_payload,
     ))
 }
+fn root_fee_policy_from_genesis(
+    genesis_isi: &[Vec<InstructionBox>],
+    genesis_post_topology_isi: &[Vec<InstructionBox>],
+) -> Result<Option<iroha_data_model::block::consensus::RootFeePolicy>> {
+    use iroha_data_model::block::consensus::RootFeePolicy;
+    let target = RootFeePolicy::parameter_id();
+    let mut slots = genesis_isi
+        .iter()
+        .chain(genesis_post_topology_isi)
+        .flatten()
+        .filter_map(|instruction| instruction.as_any().downcast_ref::<SetParameter>())
+        .filter_map(|set| match set.inner() {
+            Parameter::Custom(custom) if custom.id() == &target => Some(custom),
+            _ => None,
+        });
+    let Some(slot) = slots.next() else {
+        return Ok(None);
+    };
+    if slots.next().is_some() {
+        return Err(eyre!("genesis must contain one root_fees_v1 policy"));
+    }
+    Ok(Some(RootFeePolicy::from_custom_parameter(slot)?))
+}
+
+#[test]
+fn root_fee_authoring_requires_one_original_slot() {
+    let fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+    let instruction: InstructionBox = SetParameter::new(Parameter::Custom(
+        fees.clone().into_custom_parameter().unwrap(),
+    ))
+    .into();
+    assert_eq!(root_fee_policy_from_genesis(&[], &[]).unwrap(), None);
+    assert_eq!(
+        root_fee_policy_from_genesis(&[vec![instruction.clone()]], &[]).unwrap(),
+        Some(fees)
+    );
+    assert!(
+        root_fee_policy_from_genesis(&[vec![instruction.clone()]], &[vec![instruction]]).is_err()
+    );
+}
+
 fn npos_params_from_genesis(
     genesis_isi: &[Vec<InstructionBox>],
     genesis_post_topology_isi: &[Vec<InstructionBox>],
@@ -7578,26 +7612,14 @@ impl NetworkBuilder {
         let genesis_account_literal = ALICE_ID
             .to_i105_for_discriminant(chain_discriminant)
             .expect("harness genesis account renders for selected profile");
-        let has_fee_sink_override = config_layers.iter().any(|layer| {
-            get_nested_value(layer, &["nexus", "fees", "fee_sink_account_id"]).is_some()
-        });
-        let has_fee_asset_override = config_layers
-            .iter()
-            .any(|layer| get_nested_value(layer, &["nexus", "fees", "fee_asset_id"]).is_some());
         let has_stake_escrow_override = config_layers.iter().any(|layer| {
             get_nested_value(layer, &["nexus", "staking", "stake_escrow_account_id"]).is_some()
         });
         let has_slash_sink_override = config_layers.iter().any(|layer| {
             get_nested_value(layer, &["nexus", "staking", "slash_sink_account_id"]).is_some()
         });
-        if !(has_fee_sink_override && has_stake_escrow_override && has_slash_sink_override) {
+        if !(has_stake_escrow_override && has_slash_sink_override) {
             let mut nexus_accounts_layer = Table::new();
-            if !has_fee_sink_override {
-                TomlWriter::new(&mut nexus_accounts_layer).write(
-                    ["nexus", "fees", "fee_sink_account_id"],
-                    genesis_account_literal.clone(),
-                );
-            }
             if !has_stake_escrow_override {
                 TomlWriter::new(&mut nexus_accounts_layer).write(
                     ["nexus", "staking", "stake_escrow_account_id"],
@@ -7795,6 +7817,22 @@ impl NetworkBuilder {
             },
             |parameters| parameters.xor_asset_definition_id.clone(),
         );
+        let explicit_root_fees =
+            root_fee_policy_from_genesis(&genesis_isi, &genesis_post_topology_isi)
+                .unwrap_or_else(|error| panic!("{error}"));
+        let has_explicit_root_fee_policy = explicit_root_fees.is_some();
+        if custom_genesis.is_none() && !has_explicit_root_fee_policy {
+            let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+            fees.fee_asset_id = xor_asset_id.clone();
+            fees.fee_sink_account_id = ALICE_ID.clone();
+            parameter_prefix.push(
+                SetParameter::new(Parameter::Custom(
+                    fees.into_custom_parameter()
+                        .expect("complete fixture fee authoring"),
+                ))
+                .into(),
+            );
+        }
         match (consensus_mode, npos_snapshot) {
             (ConsensusMode::Npos, Some(_)) | (ConsensusMode::Permissioned, None) => {}
             (ConsensusMode::Npos, None) => {
@@ -7889,7 +7927,6 @@ impl NetworkBuilder {
         let fee_resource_bootstrap = validator_stake.is_some()
             || (matches!(consensus_mode, ConsensusMode::Permissioned)
                 && custom_genesis.is_none()
-                && !has_fee_asset_override
                 && !has_permissioned_bootstrap_support_collision);
         if fee_resource_bootstrap {
             let gas_account_str = gas_account_id
@@ -7897,7 +7934,6 @@ impl NetworkBuilder {
                 .expect("harness bootstrap custody renders for selected profile");
             let mut bootstrap_layer = Table::new();
             let mut writer = TomlWriter::new(&mut bootstrap_layer);
-            writer.write(["nexus", "fees", "fee_asset_id"], fee_asset_id.to_string());
             if validator_stake.is_some() {
                 writer
                     .write(
@@ -15488,9 +15524,10 @@ mod tests {
         for layer in network.config_layers() {
             merge_tables(&mut merged, layer.as_ref());
         }
-        let fee_sink = get_nested_value(&merged, &["nexus", "fees", "fee_sink_account_id"])
-            .and_then(Value::as_str)
-            .expect("fee_sink_account_id should be present");
+        let fees = iroha_genesis::signed_genesis_root_fee_policy(&network.genesis().0)
+            .expect("original authenticated fee policy");
+        assert_eq!(fees.fee_sink_account_id, ALICE_ID.clone());
+        assert!(get_nested_value(&merged, &["nexus", "fees"]).is_none());
         let stake_escrow =
             get_nested_value(&merged, &["nexus", "staking", "stake_escrow_account_id"])
                 .and_then(Value::as_str)
@@ -15498,10 +15535,6 @@ mod tests {
         let slash_sink = get_nested_value(&merged, &["nexus", "staking", "slash_sink_account_id"])
             .and_then(Value::as_str)
             .expect("slash_sink_account_id should be present");
-        assert!(
-            AccountId::parse_encoded(fee_sink).is_ok(),
-            "fee_sink_account_id must parse as AccountId; got {fee_sink}"
-        );
         assert!(
             AccountId::parse_encoded(stake_escrow).is_ok(),
             "stake_escrow_account_id must parse as AccountId; got {stake_escrow}"

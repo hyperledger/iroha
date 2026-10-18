@@ -297,7 +297,14 @@ impl Core {
             },
         );
         // MS51: the machine always emits `certified = false`.
-        let certified = !self.certified_results(bh).is_empty() && !cfg!(sumeragi_mutation = "MS51");
+        // MS80: a lock at the same height exempts an unrelated block from the clock guard.
+        let certified = (!self.certified_results(bh).is_empty()
+            || (cfg!(sumeragi_mutation = "MS80")
+                && self
+                    .high_pqc
+                    .as_ref()
+                    .is_some_and(|q| q.height == block.header().height)))
+            && !cfg!(sumeragi_mutation = "MS51");
         self.out.push(Action::Execute {
             block,
             req,

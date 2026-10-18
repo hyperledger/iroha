@@ -189,6 +189,39 @@ get fun `test signer reproduces the hash-to-G2 traces under DST_SIG`() {
     expect(row).toEqual(PINNED_HASH_TO_G2_TRACES);
 }
 
+get fun `test every upstream Ethereum decode outcome through subgroup opcodes`() {
+    expect(VEC_UPSTREAM_BLS_DECODE_COUNT).toEqual(28);
+    var row = 0;
+    repeat (VEC_UPSTREAM_BLS_DECODE_COUNT) {
+        val n = vecUpstreamBlsDecode(row);
+        // The opcodes read fixed prefixes. The upstream decoder additionally
+        // requires an exact byte length, including for the overlong rows.
+        var decoded = false;
+        if (n.encoding.remainingBitsCount() == (n.group == 1 ? 384 : 768)) {
+            decoded = n.group == 1 ? blsG1InGroup(n.encoding) : blsG2InGroup(n.encoding);
+        }
+        expect(decoded).toEqual(n.decoded);
+        row += 1;
+    }
+    expect(row).toEqual(28);
+}
+
+get fun `test every upstream Ethereum hash to G2 text and QUUX domain`() {
+    expect(VEC_UPSTREAM_HASH_TO_G2_COUNT).toEqual(4);
+    var row = 0;
+    repeat (VEC_UPSTREAM_HASH_TO_G2_COUNT) {
+        val trace = vecUpstreamHashToG2(row);
+        val blocks = blsExpandMessageWithDst(trace.pieces, trace.dstPrime);
+        expect(blocks).toEqual(trace.blocks);
+        val (u0, u1) = blsBlocksToField(blocks);
+        expect(u0.bitsEqual(trace.u0)).toBeTrue();
+        expect(u1.bitsEqual(trace.u1)).toBeTrue();
+        expect(blsG2Add(blsMapToG2(u0), blsMapToG2(u1)).bitsEqual(trace.q)).toBeTrue();
+        row += 1;
+    }
+    expect(row).toEqual(4);
+}
+
 get fun `test field reduction handles the limb boundaries`() {
     // values below p are unchanged
     val (h0, l0) = blsReduceModP(0, 5);

@@ -237,14 +237,12 @@ impl StampTargetV1 {
                 let spawned = thread::Builder::new()
                     .name("parliament-stamp".into())
                     .spawn_scoped(scope, move || self.search_lane(start, lane, lanes, shared));
-                match spawned {
-                    Ok(handle) => handles.push(handle),
-                    Err(_) => {
-                        failed = true;
-                        shared.stop.store(true, Ordering::Relaxed);
-                        break;
-                    }
-                }
+                let Ok(handle) = spawned else {
+                    failed = true;
+                    shared.stop.store(true, Ordering::Relaxed);
+                    break;
+                };
+                handles.push(handle);
             }
             for handle in handles {
                 failed |= handle.join().is_err();

@@ -11373,48 +11373,15 @@ state_test! { sync lane_lifecycle_rejects_unknown_dataspace
     assert!(matches!(err, LaneLifecycleError::UnknownDataspace(id) if id == DataSpaceId::new(7)));
     assert_eq!(state.nexus_snapshot().lane_catalog, LaneCatalog::default());
 }
-state_test! { sync set_nexus_rejects_non_xor_fee_asset_selector
+state_test! { sync set_nexus_cannot_replace_committed_monetary_policy
     let mut state = blank_test_state();
-    let_row! { mut nexus = iroha_config::parameters::actual::Nexus { ..Default::default() } };
-    nexus.fees.fee_asset_id = "rose#universal".to_string();
-    let_row! { err = state .set_nexus(nexus) .expect_err("Nexus fees must use the XOR selector") };
-    assert!(matches!(err, LaneLifecycleError::NexusFeeAssetIdInvalid));
-}
-state_test! { sync set_nexus_accepts_exact_current_fee_asset_selectors
-    for selector in [
-        "xor#universal".to_owned(),
-        iroha_config::parameters::defaults::nexus::fees::fee_asset_id(),
-    ] {
-        let mut state = blank_test_state();
-        let_row! { mut nexus = iroha_config::parameters::actual::Nexus { ..Default::default() } };
-        nexus.fees.fee_asset_id = selector.clone();
-        state
-            .set_nexus(nexus)
-            .expect("exact current XOR fee selector should be accepted");
-        assert_eq!(state.nexus_snapshot().fees.fee_asset_id, selector);
-    }
-}
-state_test! { sync set_nexus_rejects_noncanonical_xor_fee_asset_selectors
-    for selector in [
-        " xor#universal",
-        "xor#universal ",
-        "XOR#universal",
-        "xor#Universal",
-        "xor#universal.universal",
-    ] {
-        let mut state = blank_test_state();
-        let_row! { mut nexus = iroha_config::parameters::actual::Nexus { ..Default::default() } };
-        nexus.fees.fee_asset_id = selector.to_owned();
-        let_row! { err = state .set_nexus(nexus) .expect_err("noncanonical XOR fee selector must be rejected") };
-        assert!(matches!(err, LaneLifecycleError::NexusFeeAssetIdInvalid));
-    }
-}
-state_test! { sync set_nexus_rejects_empty_fee_sink_account
-    let mut state = blank_test_state();
-    let_row! { mut nexus = iroha_config::parameters::actual::Nexus { ..Default::default() } };
-    nexus.fees.fee_sink_account_id = "   ".to_string();
-    let_row! { err = state .set_nexus(nexus) .expect_err("fee sink account must not be blank") };
-    assert!(matches!(err, LaneLifecycleError::NexusFeeSinkAccountEmpty));
+    let committed = state.nexus_snapshot().fees;
+    let mut nexus = state.nexus_snapshot();
+    nexus.fees.base_fee = 999_u32.into();
+    nexus.fees.fee_sink_account_id = iroha_test_samples::BOB_ID.clone();
+    state.set_nexus(nexus).expect("node-local geometry remains valid");
+    assert_eq!(state.nexus_snapshot().fees, committed,
+        "the existing parameter owner is the only monetary authority");
 }
 state_test! { sync set_nexus_rejects_external_autoscale_managed_lane
     let mut state = blank_test_state();
@@ -30988,4 +30955,26 @@ fn sccp_derived_indexes_bind_inserted_keys_and_deletions_in_merge_write_sets() {
             Some(&())
         );
     }
+}
+#[test]
+fn set_index_members_write_only_when_membership_changes() {
+    let storage: Storage<u32, BTreeSet<u32>> = [(1, BTreeSet::from([10]))].into_iter().collect();
+    let mut block = storage.block();
+    let mut transaction = block.transaction();
+    insert_set_index_member(&mut transaction, &1, &10);
+    remove_set_index_member(&mut transaction, &1, &11);
+    remove_set_index_member(&mut transaction, &2, &10);
+    assert_eq!(
+        transaction.touched_entries().len(),
+        0,
+        "unchanged membership must not copy or touch the indexed set"
+    );
+    insert_set_index_member(&mut transaction, &1, &11);
+    insert_set_index_member(&mut transaction, &2, &20);
+    assert_eq!(transaction.get(&1), Some(&BTreeSet::from([10, 11])));
+    assert_eq!(transaction.get(&2), Some(&BTreeSet::from([20])));
+    remove_set_index_member(&mut transaction, &2, &20);
+    assert_eq!(transaction.get(&2), None, "an emptied set leaves the index");
+    assert_eq!(transaction.touched_entries().len(), 2);
+    transaction.apply();
 }

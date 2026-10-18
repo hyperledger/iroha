@@ -5,6 +5,7 @@
 //! record, and retains that exact allocation through publication retries. Readers never
 //! substitute current State or reconstruct missing historical values from a root.
 
+pub(crate) mod fastpq_source;
 pub(crate) mod prepared_intents;
 #[cfg(test)]
 pub(crate) mod process_crash;
@@ -18,7 +19,7 @@ use crate::{
     state::{NativeExecutionProjectionV1, StateBlock, StateReadOnly, WorldReadOnly},
 };
 use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError, RetainedPayload};
-use iroha_crypto::HashOf;
+use iroha_crypto::{Hash, HashOf};
 use iroha_data_model::{
     block::{
         BlockHeader, SignedBlock,
@@ -34,6 +35,15 @@ use std::{
     num::NonZeroUsize,
     path::Path,
 };
+
+/// Original optional capture diagnostic retained without exposing a mutable witness.
+/// No textual diagnostic grants retry permission; a diagnostic whose underlying
+/// allocator owner was already erased remains terminal.
+#[derive(Clone, Debug, thiserror::Error)]
+#[error("original optional FASTPQ capture: {original:?}")]
+pub struct FastpqCaptureFailure {
+    original: crate::state::QuantityCaptureIssue,
+}
 
 /// Context projection capture, source custody or durable storage failure.
 #[derive(Debug, thiserror::Error)]
@@ -52,6 +62,14 @@ pub enum NativeContextArchiveError {
     /// Preserve the original pool's exact capacity or allocator refusal.
     #[error(transparent)]
     Allocation(#[from] ChargedBufferError),
+    /// The optional execution tape failed under its original pool owner.
+    /// A completed witness is immutable: only an independently authenticated
+    /// replay can recapture it, never an archive retry or a replacement tape.
+    #[error("original optional FASTPQ capture admission: {0}")]
+    CaptureAdmission(iroha_allocation::AllocationRefusal),
+    /// Original invariant/ownership diagnostic from the exact optional witness.
+    #[error(transparent)]
+    CaptureFailure(FastpqCaptureFailure),
     /// Original lane-state proof, retaining scratch custody or captured decoder provenance.
     #[error("native context archive proof: {0}")]
     Proof(#[from] iroha_data_model::sumeragi_finality::NativeLaneStateProofError),
@@ -61,6 +79,9 @@ pub enum NativeContextArchiveError {
     /// Durable publication or exact read failed.
     #[error(transparent)]
     Io(#[from] io::Error),
+    /// Original bounded Kura artifact-store refusal for optional source transport.
+    #[error(transparent)]
+    Storage(#[from] crate::kura::Error),
 }
 
 impl NativeContextArchiveError {
@@ -70,6 +91,7 @@ impl NativeContextArchiveError {
     /// mismatches require recovery. Encoder errors do not borrow a decoder scope.
     pub fn is_local_refusal(&self) -> bool {
         match self {
+            Self::CaptureAdmission(iroha_allocation::AllocationRefusal::Capacity { .. }) => true,
             Self::Allocation(
                 ChargedBufferError::Admission(
                     iroha_allocation::AllocationRefusal::Capacity { .. }
@@ -153,6 +175,9 @@ pub struct PreparedNativeContext {
     // The complete context stays owned if later intent admission refuses.
     prepared_intents: Option<ChargedBuffer<u8>>,
     intents_complete: bool,
+    // Optional source tapes never grant completion by their presence or absence.
+    fastpq_source: Option<ChargedBuffer<u8>>,
+    fastpq_capture_complete: bool,
 }
 impl PreparedNativeContext {
     /// Exact original canonical projection; exposure grants no finality.
@@ -182,6 +207,9 @@ pub struct NativeContextArchive {
     budget: AllocationBudget,
     maximum: NonZeroUsize,
     writable: bool,
+    namespace: &'static str,
+    fastpq_maximum: Option<NonZeroUsize>,
+    fastpq_replay_target: Option<u64>,
 }
 impl NativeContextArchive {
     /// Open the exact canonical Kura namespace using the original execution pool and finite limit.
@@ -201,7 +229,36 @@ impl NativeContextArchive {
             budget,
             maximum,
             writable: true,
+            namespace: "native-contexts",
+            fastpq_maximum: Some(kura.fastpq_object_max_bytes()),
+            fastpq_replay_target: None,
         })
+    }
+
+    /// Select transport retention only for the exact isolated recovery target.
+    /// Earlier canonical replay still computes every mandatory source commitment;
+    /// its optional tapes are not stored in the bounded target outbox.
+    pub(crate) fn retain_isolated_fastpq_target(
+        &mut self,
+        kura: &Kura,
+        height: u64,
+    ) -> Result<(), NativeContextArchiveError> {
+        if !self.writable
+            || !kura.is_temporary_staging()
+            || height == 0
+            || self.fastpq_replay_target.is_some()
+        {
+            return Err(NativeContextArchiveError::Source(
+                "invalid isolated FASTPQ target",
+            ));
+        }
+        self.recheck_namespace()?;
+        self.fastpq_replay_target = Some(height);
+        Ok(())
+    }
+
+    pub(crate) fn retains_isolated_fastpq_source(&self) -> bool {
+        self.fastpq_replay_target.is_some()
     }
 
     /// Read an existing archive through the original Kura directory descriptor.
@@ -222,6 +279,30 @@ impl NativeContextArchive {
             budget,
             maximum,
             writable: false,
+            namespace: "native-contexts",
+            fastpq_maximum: None,
+            fastpq_replay_target: None,
+        })
+    }
+
+    /// Acquire source transport in the sole Kura artifact namespace under its aggregate cap.
+    /// The same descriptor/partial-read owner performs acquisition; it grants no source truth.
+    pub(crate) fn open_existing_fastpq(
+        kura: &Kura,
+        budget: AllocationBudget,
+    ) -> Result<Self, NativeContextArchiveError> {
+        let root = kura.fastpq_source_archive_root()?;
+        let namespace = Kura::fastpq_source_namespace();
+        let directory = open_archive_directory_named(&root, namespace, false)?;
+        Ok(Self {
+            root,
+            directory,
+            budget,
+            namespace,
+            maximum: kura.fastpq_object_max_bytes(),
+            writable: false,
+            fastpq_maximum: None,
+            fastpq_replay_target: None,
         })
     }
 
@@ -243,6 +324,9 @@ impl NativeContextArchive {
             budget,
             maximum,
             writable: false,
+            namespace: "native-contexts",
+            fastpq_maximum: None,
+            fastpq_replay_target: None,
         })
     }
 
@@ -253,7 +337,7 @@ impl NativeContextArchive {
     /// # Errors
     /// The archive namespace was removed or substituted after acquisition.
     pub fn recheck_namespace(&self) -> Result<(), NativeContextArchiveError> {
-        verify_named_file(&self.root, "native-contexts", &self.directory)?;
+        verify_named_file(&self.root, self.namespace, &self.directory)?;
         Ok(())
     }
 
@@ -365,6 +449,9 @@ impl NativeContextArchive {
             carrier_hash: projection.carrier_hash,
             bytes,
             prepared_intents: None,
+            fastpq_source: None,
+            fastpq_capture_complete: !projection.ordinary_writes.0.iter().any(|write|
+                write.key.as_slice() == iroha_data_model::execution_witness::FASTPQ_ORDINARY_SOURCE_STATEMENTS_WITNESS_KEY_V1),
             intents_complete: !projection
                 .ordinary_writes
                 .0
@@ -394,7 +481,7 @@ impl NativeContextArchive {
                 "foreign archive backing pool",
             ));
         }
-        if !original.intents_complete {
+        if !original.intents_complete || !original.fastpq_capture_complete {
             return Err(NativeContextArchiveError::Source(
                 "original intent capture is incomplete",
             ));
@@ -404,6 +491,8 @@ impl NativeContextArchive {
             &RecordName::new(original.height, original.carrier_hash, false),
             process_crash::Boundary::BeforeWrite,
         );
+        #[cfg(test)]
+        publication_test_hook::run()?;
         publish_record(
             &self.directory,
             original.height,
@@ -421,6 +510,47 @@ impl NativeContextArchive {
             }
         }
         self.recheck_namespace()?;
+        Ok(())
+    }
+
+    /// Publish optional tape transport through Kura's aggregate artifact owner.
+    /// Call only after mandatory context publication. Refusal leaves the native result
+    /// unchanged and proof work unresolved; no caller may report artifact completion.
+    pub(crate) fn publish_fastpq_source(
+        &self,
+        kura: &Kura,
+        original: &PreparedNativeContext,
+    ) -> Result<(), NativeContextArchiveError> {
+        self.recheck_namespace()?;
+        if !self.writable || !original.fastpq_capture_complete {
+            return Err(NativeContextArchiveError::Source(
+                "original FASTPQ capture is incomplete",
+            ));
+        }
+        let Some(source) = &original.fastpq_source else {
+            return Ok(());
+        };
+        if !source.belongs_to(&self.budget) {
+            return Err(NativeContextArchiveError::Source(
+                "foreign FASTPQ source backing",
+            ));
+        }
+        let receipt = kura.persist_fastpq_source_record(
+            original.height,
+            original.carrier_hash,
+            source.as_slice(),
+        )?;
+        self.recheck_namespace()?;
+        // Hold the original durability acknowledgement across the archive fence.
+        // This binds only these transport bytes; no reference or proof verdict is published.
+        if !receipt.is_from(kura)
+            || receipt.reference().digest() != *Hash::new(source.as_slice()).as_ref()
+            || receipt.reference().byte_len() != source.as_slice().len() as u64
+        {
+            return Err(NativeContextArchiveError::Source(
+                "source transport receipt differs from original bytes",
+            ));
+        }
         Ok(())
     }
 
@@ -547,6 +677,12 @@ impl RecordName {
         name.bytes[start..name.len].copy_from_slice(b".ami");
         name
     }
+    fn fastpq(height: u64, hash: HashOf<BlockHeader>, staged: bool) -> Self {
+        let mut name = Self::new(height, hash, staged);
+        let start = name.len - 4;
+        name.bytes[start..name.len].copy_from_slice(b".fqs");
+        name
+    }
     fn as_str(&self) -> &str {
         std::str::from_utf8(&self.bytes[..self.len]).expect("fixed ASCII record identity")
     }
@@ -565,14 +701,14 @@ fn open_directory(store_root: &Path, create: bool) -> io::Result<(File, File)> {
 }
 #[cfg(unix)]
 fn open_archive_directory(root: &File, create: bool) -> io::Result<File> {
+    open_archive_directory_named(root, "native-contexts", create)
+}
+#[cfg(unix)]
+fn open_archive_directory_named(root: &File, namespace: &str, create: bool) -> io::Result<File> {
     use rustix::fs::{AtFlags, Mode, OFlags};
     use std::os::unix::fs::MetadataExt as _;
     if create {
-        match rustix::fs::mkdirat(
-            &root,
-            "native-contexts",
-            Mode::RUSR | Mode::WUSR | Mode::XUSR,
-        ) {
+        match rustix::fs::mkdirat(&root, namespace, Mode::RUSR | Mode::WUSR | Mode::XUSR) {
             Ok(()) => root.sync_all()?,
             Err(rustix::io::Errno::EXIST) => {}
             Err(error) => return Err(error.into()),
@@ -580,11 +716,11 @@ fn open_archive_directory(root: &File, create: bool) -> io::Result<File> {
     }
     let directory = File::from(rustix::fs::openat(
         &root,
-        "native-contexts",
+        namespace,
         OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
         Mode::empty(),
     )?);
-    let entry = rustix::fs::statat(&root, "native-contexts", AtFlags::SYMLINK_NOFOLLOW)?;
+    let entry = rustix::fs::statat(&root, namespace, AtFlags::SYMLINK_NOFOLLOW)?;
     let actual = directory.metadata()?;
     if !actual.is_dir()
         || crate::kura::unix_device_identity(entry.st_dev) != actual.dev()
@@ -751,6 +887,13 @@ fn open_archive_directory(_root: &File, _create: bool) -> io::Result<File> {
     ))
 }
 #[cfg(not(unix))]
+fn open_archive_directory_named(_root: &File, _namespace: &str, _create: bool) -> io::Result<File> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "descriptor-relative native context archive is required",
+    ))
+}
+#[cfg(not(unix))]
 fn verify_named_file(_directory: &File, _name: &str, _file: &File) -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
@@ -792,3 +935,6 @@ fn publish_named_record(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(crate) mod publication_test_hook;

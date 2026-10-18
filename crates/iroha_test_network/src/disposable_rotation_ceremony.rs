@@ -3365,10 +3365,7 @@ test "$(/usr/bin/wc -c < /dev/fd/198)" -eq 71
                 ["gov", "sorafs_pin_fee_treasury_account"],
                 literal(iroha_config::parameters::defaults::governance::sorafs_pin_fee::treasury_account_id()),
             )
-            .write(
-                ["nexus", "fees", "sponsor_vault_custody_account_id"],
-                literal(iroha_config::parameters::defaults::nexus::fees::sponsor_vault_custody_account_id()),
-            )
+
             .write(["torii", "address"], "addr:127.0.0.1:8080#8942")
             .write(["genesis", "public_key"], genesis.public_key().to_string())
             .write(["genesis", "expected_hash_file"], "network.id");

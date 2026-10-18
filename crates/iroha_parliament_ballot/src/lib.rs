@@ -105,6 +105,6 @@ mod tests {
         // This crate never opens the launch gate.
         assert_eq!(PARLIAMENT_BALLOT_QUALIFICATION_V1, None);
         assert!(!parliament_ballot_qualified_v1());
-        assert!(!iroha_parliament_ballot_proof::PROFILE_QUALIFIED);
+        const { assert!(!iroha_parliament_ballot_proof::PROFILE_QUALIFIED) };
     }
 }

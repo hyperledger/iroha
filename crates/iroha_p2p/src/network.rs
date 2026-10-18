@@ -517,6 +517,31 @@ pub(crate) enum RelayTarget {
     Broadcast,
     Direct(PeerId),
 }
+/// One P2P data frame.
+///
+/// Every frame crosses exactly one authenticated, encrypted connection per
+/// hop. That link already binds the sender: the remote's BLS-normal identity
+/// signature covers the session-key hash derived from the post-quantum
+/// `SoraNet` handshake together with the mandatory TLS channel binding, and
+/// every receive-credit record authenticates its direction-specific binding
+/// (network, sender, receiver, session, transport and geometry) and its
+/// per-class sequence under that session's AEAD. A frame received over such a
+/// link whose `origin` equals the authenticated sender therefore needs no
+/// second, end-to-end proof.
+///
+/// The end-to-end BLS-normal `origin_signature` exists only for frames that a
+/// relay hub forwards to a third party, which cannot observe the original
+/// link. It is either absent (empty, a *link-local* frame) or exactly
+/// [`RELAY_ORIGIN_SIGNATURE_BYTES`] long (a *relayable* frame):
+///
+/// - A link-local frame is accepted only when `origin` equals the
+///   authenticated sender and it targets the receiver or is a broadcast; it is
+///   never forwarded.
+/// - A relayable frame is produced only when the next hop may forward it (a
+///   broadcast sent to a relay hub, or a direct frame addressed to another
+///   peer). Every present signature is verified before delivery or
+///   forwarding, and frames whose origin differs from the authenticated
+///   sender are accepted only from relay hubs.
 #[derive(Clone, Debug, Encode, Decode)]
 #[norito(decode_from_slice)]
 pub(crate) struct RelayMessage<T> {
@@ -534,7 +559,33 @@ impl<T: norito::NoritoSchema> norito::NoritoSchema for RelayMessage<T> {
         )
     }
 }
+impl<T> RelayMessage<T> {
+    /// Build an unsigned link-local frame originated by `origin`.
+    ///
+    /// The frame is valid only on the authenticated connection from `origin`
+    /// to a receiver that is either the direct target or a broadcast
+    /// recipient which never forwards it. Hops which may forward the frame
+    /// require [`Self::sign_in_place`] first.
+    fn new_link(origin: PeerId, target: RelayTarget, ttl: u8, payload: T) -> Self {
+        Self {
+            origin,
+            target,
+            ttl,
+            origin_signature: Vec::new(),
+            payload,
+        }
+    }
+    /// Whether this frame carries an end-to-end origin signature.
+    ///
+    /// Shape only: [`Self::verify_origin_signature`] authenticates it.
+    fn is_relay_signed(&self) -> bool {
+        !self.origin_signature.is_empty()
+    }
+}
 impl<T: Encode> RelayMessage<T> {
+    /// Build a relayable frame signed by `key_pair` (fixtures only; production
+    /// signs link frames lazily at the hand-off to a forwarding hop).
+    #[cfg(any(test, feature = "test-fixtures"))]
     fn try_new(
         key_pair: &KeyPair,
         target: RelayTarget,
@@ -542,25 +593,48 @@ impl<T: Encode> RelayMessage<T> {
         payload: T,
     ) -> Result<Self, iroha_crypto::error::Error> {
         let origin = PeerId::from(key_pair.public_key().clone());
-        ensure_relay_node_identity(&origin)?;
-        if let RelayTarget::Direct(target) = &target {
-            ensure_relay_node_identity(target)?;
-        }
-        let digest = relay_origin_signature_digest(&origin, &target, &payload);
-        let origin_signature = Signature::try_new(key_pair.private_key(), digest.as_ref())?
-            .payload()
-            .to_vec();
-        Ok(Self {
-            origin,
-            target,
-            ttl,
-            origin_signature,
-            payload,
-        })
+        let mut frame = Self::new_link(origin, target, ttl, payload);
+        frame.try_sign_in_place(key_pair)?;
+        Ok(frame)
     }
+    #[cfg(any(test, feature = "test-fixtures"))]
     pub(crate) fn new_signed(key_pair: &KeyPair, target: RelayTarget, ttl: u8, payload: T) -> Self {
         Self::try_new(key_pair, target, ttl, payload)
             .expect("a validated local P2P key pair must sign relay-origin material")
+    }
+    /// Add the end-to-end origin signature required by a forwarding hop.
+    ///
+    /// Only the origin can sign; `key_pair` must be the frame's origin key.
+    fn try_sign_in_place(&mut self, key_pair: &KeyPair) -> Result<(), iroha_crypto::error::Error> {
+        if self.origin.public_key() != key_pair.public_key() {
+            return Err(iroha_crypto::error::Error::Other(
+                "P2P relay frames can be signed only by their origin".to_owned(),
+            ));
+        }
+        ensure_relay_node_identity(&self.origin)?;
+        if let RelayTarget::Direct(target) = &self.target {
+            ensure_relay_node_identity(target)?;
+        }
+        let digest = relay_origin_signature_digest(&self.origin, &self.target, &self.payload);
+        self.origin_signature = Signature::try_new(key_pair.private_key(), digest.as_ref())?
+            .payload()
+            .to_vec();
+        Ok(())
+    }
+    /// Sign this locally originated frame in place unless it is already signed.
+    ///
+    /// Admission validates every origin and target identity first, so this
+    /// cannot fail in production. If it ever did, the frame stays unsigned and
+    /// the forwarding hop refuses it, instead of stopping the network actor.
+    fn sign_in_place(&mut self, key_pair: &KeyPair) {
+        if !self.is_relay_signed()
+            && let Err(error) = self.try_sign_in_place(key_pair)
+        {
+            iroha_logger::error!(
+                %error,
+                "Failed to sign a relayable P2P frame; its forwarding hop will refuse it"
+            );
+        }
     }
     #[cfg(test)]
     fn new(origin: PeerId, target: RelayTarget, ttl: u8, payload: T) -> Self {
@@ -601,6 +675,24 @@ impl<T: Encode> RelayMessage<T> {
         forwarded
     }
 }
+/// Whether a frame for `target` sent over the authenticated link to
+/// `next_hop` may be forwarded to a third party, which then needs the
+/// end-to-end origin signature.
+///
+/// A direct frame addressed to another peer is relayed by `next_hop`. A
+/// broadcast is forwarded only by a relay hub (the role is part of the hop's
+/// signed identity handshake). A direct frame addressed to `next_hop` itself
+/// is always consumed there.
+fn hop_requires_origin_signature(
+    target: &RelayTarget,
+    next_hop: &PeerId,
+    next_hop_role: RelayRole,
+) -> bool {
+    match target {
+        RelayTarget::Direct(target) => target != next_hop,
+        RelayTarget::Broadcast => matches!(next_hop_role, RelayRole::Hub),
+    }
+}
 fn ensure_relay_node_identity(origin: &PeerId) -> Result<(), iroha_crypto::error::Error> {
     let algorithm = origin
         .public_key()
@@ -613,32 +705,74 @@ fn ensure_relay_node_identity(origin: &PeerId) -> Result<(), iroha_crypto::error
     }
     Ok(())
 }
+/// Digest signed by a relay origin:
+/// `domain || len(origin) || origin || len(target) || target || len(payload) || payload`
+/// with little-endian `u64` lengths over canonical bare encodings.
+///
+/// The payload is counted once and then streamed into the hasher, so a large
+/// relayed payload is never materialized a second time.
 fn relay_origin_signature_digest<T: Encode>(
     origin: &PeerId,
     target: &RelayTarget,
     payload: &T,
 ) -> Hash {
+    /// Forwards bytes to the hasher while counting them.
+    struct Counted<'a> {
+        inner: &'a mut dyn io::Write,
+        written: usize,
+    }
+    impl io::Write for Counted<'_> {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let written = self.inner.write(bytes)?;
+            self.written = self.written.saturating_add(written);
+            Ok(written)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.inner.flush()
+        }
+    }
+    let le_len = |len: usize| {
+        u64::try_from(len)
+            .expect("an in-memory relay field length must fit u64")
+            .to_le_bytes()
+    };
     let origin = origin.encode();
     let target = target.encode();
-    let payload = payload.encode();
-    let origin_len = u64::try_from(origin.len())
-        .expect("an in-memory relay origin length must fit u64")
-        .to_le_bytes();
-    let target_len = u64::try_from(target.len())
-        .expect("an in-memory relay target length must fit u64")
-        .to_le_bytes();
-    let payload_len = u64::try_from(payload.len())
-        .expect("an in-memory relay payload length must fit u64")
-        .to_le_bytes();
-    Hash::new_from_chunks(&[
-        RELAY_ORIGIN_SIGNATURE_DOMAIN,
-        &origin_len,
-        &origin,
-        &target_len,
-        &target,
-        &payload_len,
-        &payload,
-    ])
+    let payload_len = payload.encoded_len();
+    let streamed = Hash::new_from_writer(|writer| {
+        writer.write_all(RELAY_ORIGIN_SIGNATURE_DOMAIN)?;
+        writer.write_all(&le_len(origin.len()))?;
+        writer.write_all(&origin)?;
+        writer.write_all(&le_len(target.len()))?;
+        writer.write_all(&target)?;
+        writer.write_all(&le_len(payload_len))?;
+        let mut counted = Counted {
+            inner: writer,
+            written: 0,
+        };
+        payload.encode_to(&mut counted);
+        if counted.written == payload_len {
+            Ok(())
+        } else {
+            Err(io::Error::other(
+                "relay payload encoding changed length between count and digest",
+            ))
+        }
+    });
+    streamed.unwrap_or_else(|_| {
+        // A serializer whose two passes disagree cannot be streamed; hash
+        // one materialized encoding so signer and verifier still agree.
+        let payload = payload.encode();
+        Hash::new_from_chunks(&[
+            RELAY_ORIGIN_SIGNATURE_DOMAIN,
+            &le_len(origin.len()),
+            &origin,
+            &le_len(target.len()),
+            &target,
+            &le_len(payload.len()),
+            &payload,
+        ])
+    })
 }
 /// Return the plaintext wire length of a P2P data frame containing `payload`.
 ///
@@ -1633,6 +1767,13 @@ impl ReliableProgressTopology {
     }
     fn snapshot(&self) -> Vec<Arc<ReliableProgressMembership>> {
         self.members.clone()
+    }
+    /// The current membership of `peer_id`; `members` is sorted by peer id.
+    fn member(&self, peer_id: &PeerId) -> Option<Arc<ReliableProgressMembership>> {
+        self.members
+            .binary_search_by(|membership| membership.peer_id.cmp(peer_id))
+            .ok()
+            .map(|index| Arc::clone(&self.members[index]))
     }
     /// Publish one accepted topology transition and cancel only memberships
     /// removed by that transition. Unchanged peers retain their exact token.
@@ -3258,20 +3399,27 @@ struct ProgressTicketShape {
     /// always bind an actor-published membership generation.
     authority: Option<ProgressAuthorityIdentity>,
 }
+/// Actor scheduling class of one reliable target delivery.
+///
+/// The classes mirror the peer writer's semantic lanes, so a busy class can
+/// never hold an unrelated class to the same peer behind it: streaming
+/// block-sync responses do not delay proposals, and neither delays votes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum ActorProgressClass {
     Safety,
     Lane,
-    Bulk,
+    Payload,
+    BlockSync,
 }
 impl ActorProgressClass {
-    const COUNT: usize = 3;
-    const ALL: [Self; Self::COUNT] = [Self::Safety, Self::Lane, Self::Bulk];
+    const COUNT: usize = 4;
+    const ALL: [Self; Self::COUNT] = [Self::Safety, Self::Lane, Self::Payload, Self::BlockSync];
     const fn index(self) -> usize {
         match self {
             Self::Safety => 0,
             Self::Lane => 1,
-            Self::Bulk => 2,
+            Self::Payload => 2,
+            Self::BlockSync => 3,
         }
     }
     fn for_payload<T: message::ClassifyTopic>(payload: &T) -> Option<Self> {
@@ -3282,20 +3430,32 @@ impl ActorProgressClass {
         match payload.admission_class() {
             Class::Safety => Some(Self::Safety),
             Class::Lane => Some(Self::Lane),
-            Class::Payload | Class::BlockSync => Some(Self::Bulk),
+            Class::Payload => Some(Self::Payload),
+            Class::BlockSync => Some(Self::BlockSync),
             Class::Control | Class::Low => None,
         }
     }
     // Explicit ordinary-message fixture only: production classifies the payload.
     #[cfg(test)]
     fn for_route(topic: message::Topic, route: message::SubscriberRoute) -> Option<Self> {
-        match reliable_progress_class(topic, route)? {
-            ReliableProgressClass::Safety => Some(Self::Safety),
-            ReliableProgressClass::Lane => Some(Self::Lane),
-            ReliableProgressClass::Bulk => Some(Self::Bulk),
+        reliable_progress_class(topic, route)?;
+        match message::TransportAdmissionClass::ordinary_for_topic(topic) {
+            message::TransportAdmissionClass::Safety => Some(Self::Safety),
+            message::TransportAdmissionClass::Lane => Some(Self::Lane),
+            message::TransportAdmissionClass::Payload => Some(Self::Payload),
+            message::TransportAdmissionClass::BlockSync => Some(Self::BlockSync),
+            message::TransportAdmissionClass::Control | message::TransportAdmissionClass::Low => {
+                None
+            }
         }
     }
 }
+/// Maximum concurrently retained reliable items for one target and actor class.
+///
+/// Every item still fits the source's single-frame byte cap, so the window
+/// only lets small messages pipeline behind an in-flight peer-writer flush;
+/// it never raises any byte bound.
+const RELIABLE_ACTOR_SOURCE_WINDOW: usize = 8;
 /// One exact source admission owns its payload, delivery authority, retry ticket, and reply ACK.
 struct ProgressSourceRequest<T: Pload> {
     message: NetworkMessage<T>,
@@ -3304,6 +3464,9 @@ struct ProgressSourceRequest<T: Pload> {
     source: ActorProgressSource,
     authority: ProgressDeliveryAuthority,
     ticket: Option<NetworkActorAdmissionTicket>,
+    /// The canonical request digest when the caller already computed it once
+    /// for several targets; otherwise it is computed only when needed.
+    request_digest: Option<Hash>,
     reply_writer_timeout_attempt: Option<u8>,
     reply_flush_ack: Option<tokio::sync::oneshot::Sender<NetworkReplyFlushCompletion>>,
 }
@@ -3312,21 +3475,24 @@ struct ProgressSourceRequest<T: Pload> {
 struct ActorProgressByteLimits {
     safety: usize,
     lane: usize,
-    bulk: usize,
+    payload: usize,
+    block_sync: usize,
 }
 impl ActorProgressByteLimits {
     fn uniform(bytes: usize) -> Self {
         Self {
             safety: bytes,
             lane: bytes,
-            bulk: bytes,
+            payload: bytes,
+            block_sync: bytes,
         }
     }
     fn for_class(self, class: ActorProgressClass) -> usize {
         match class {
             ActorProgressClass::Safety => self.safety,
             ActorProgressClass::Lane => self.lane,
-            ActorProgressClass::Bulk => self.bulk,
+            ActorProgressClass::Payload => self.payload,
+            ActorProgressClass::BlockSync => self.block_sync,
         }
     }
     fn checked_per_target_total(self) -> Option<usize> {
@@ -3335,7 +3501,7 @@ impl ActorProgressByteLimits {
             .try_fold(0usize, |sum, class| sum.checked_add(self.for_class(class)))
     }
 }
-/// The three-class waiter envelope: every class keeps all 65 ranks per source,
+/// The per-class waiter envelope: every class keeps all 65 ranks per source,
 /// independently of blocked work in another class. The 64-envelope
 /// `LaneRelayBroadcaster` emits Lane only; the other producer is the bounded
 /// exact-output scheduler.
@@ -3368,8 +3534,8 @@ impl ActorProgressSource {
         payload: &AdmittedNetworkPayload<T>,
     ) -> Option<Self> {
         match payload {
-            AdmittedNetworkPayload::Unsigned(message) => Self::for_message(message),
-            AdmittedNetworkPayload::Signed(frame) => {
+            AdmittedNetworkPayload::Pending(message) => Self::for_message(message),
+            AdmittedNetworkPayload::Framed(frame) => {
                 let RelayTarget::Direct(target) = &frame.target else {
                     // Reliable broadcasts acquire an explicit target source
                     // before actor admission.
@@ -3396,19 +3562,39 @@ struct NetworkActorProgressBudget {
     per_class_max_bytes: ActorProgressByteLimits,
     max_sources: usize,
     max_sources_per_class: usize,
+    max_items_per_source: usize,
+    max_items: usize,
     max_total_bytes: usize,
     max_waiters: usize,
     max_waiters_per_class: [usize; ActorProgressClass::COUNT],
     max_waiters_per_source: [usize; ActorProgressClass::COUNT],
     state: Mutex<NetworkActorProgressState>,
 }
+/// One retained item of a source, identified by its exact lease.
 #[derive(Clone, Copy, Debug)]
-struct NetworkActorProgressRetention {
+struct NetworkActorProgressItem {
+    lease_id: u64,
     bytes: usize,
-    items: usize,
-    request_digest: Hash,
+    /// Present for broadcasts, whose byte-identical retries coalesce with an
+    /// already admitted owner. Direct posts never coalesce and skip hashing.
+    request_digest: Option<Hash>,
     broadcast: bool,
     authority: Option<ProgressAuthorityIdentity>,
+}
+#[derive(Clone, Debug, Default)]
+struct NetworkActorProgressRetention {
+    bytes: usize,
+    /// At most `max_items_per_source` items in admission order.
+    items: Vec<NetworkActorProgressItem>,
+}
+impl NetworkActorProgressRetention {
+    fn owns_same_broadcast(&self, shape: &ProgressTicketShape) -> bool {
+        self.items.iter().any(|item| {
+            item.broadcast
+                && item.request_digest == Some(shape.request_digest)
+                && item.authority == shape.authority
+        })
+    }
 }
 #[derive(Clone, Copy, Debug)]
 struct NetworkActorProgressWaiter {
@@ -3421,6 +3607,7 @@ struct NetworkActorProgressState {
     retained_items: usize,
     retained_sources_by_class: [usize; ActorProgressClass::COUNT],
     retained_by_source: HashMap<ActorProgressSource, NetworkActorProgressRetention>,
+    next_lease: u64,
     next_ticket: u64,
     waiters: HashMap<ActorProgressSource, VecDeque<NetworkActorProgressWaiter>>,
     waiter_count: usize,
@@ -4391,12 +4578,19 @@ struct NetworkActorProgressLease {
     budget: Arc<NetworkActorProgressBudget>,
     bytes: usize,
     source: ActorProgressSource,
+    /// Exact retained item of `source` owned by this lease.
+    lease_id: u64,
     /// One-based waiter rank observed under the admission budget lock.
     admission_rank: usize,
-    /// Cryptographic identity of the canonical request which owns this lease.
-    request_digest: Hash,
-    broadcast: bool,
-    authority: Option<ProgressAuthorityIdentity>,
+}
+/// Outcome of the ticket-free admission path for a plain direct post.
+enum UnqueuedReservation {
+    /// The source had no earlier waiter and every bound admitted the post.
+    Ready(NetworkActorProgressLease),
+    /// The topology membership which authorized the post was removed.
+    CancelledMembership,
+    /// FIFO order, capacity or validation requires the ticketed path.
+    Ticketed,
 }
 enum ProgressLeaseAttempt {
     Ready {
@@ -4425,10 +4619,13 @@ impl NetworkActorProgressBudget {
             return None;
         }
         let max_total_bytes = per_source_max_bytes.checked_mul(max_sources)?;
+        let max_items = max_sources.checked_mul(RELIABLE_ACTOR_SOURCE_WINDOW)?;
         Some(Arc::new(Self {
             per_class_max_bytes: ActorProgressByteLimits::uniform(per_source_max_bytes),
             max_sources,
             max_sources_per_class: max_sources,
+            max_items_per_source: RELIABLE_ACTOR_SOURCE_WINDOW,
+            max_items,
             max_total_bytes,
             max_waiters,
             max_waiters_per_class: [max_waiters; ActorProgressClass::COUNT],
@@ -4464,10 +4661,13 @@ impl NetworkActorProgressBudget {
         let max_total_bytes = per_class_max_bytes
             .checked_per_target_total()?
             .checked_mul(target_sources)?;
+        let max_items = max_sources.checked_mul(RELIABLE_ACTOR_SOURCE_WINDOW)?;
         Some(Arc::new(Self {
             per_class_max_bytes,
             max_sources,
             max_sources_per_class: target_sources,
+            max_items_per_source: RELIABLE_ACTOR_SOURCE_WINDOW,
+            max_items,
             max_total_bytes,
             max_waiters,
             max_waiters_per_class,
@@ -4548,11 +4748,7 @@ impl NetworkActorProgressBudget {
                 && state
                     .retained_by_source
                     .get(&source)
-                    .is_some_and(|retained| {
-                        retained.broadcast
-                            && retained.request_digest == shape.request_digest
-                            && retained.authority == shape.authority
-                    })
+                    .is_some_and(|retained| retained.owns_same_broadcast(&shape))
             {
                 drop(state);
                 drop(ticket);
@@ -4565,11 +4761,7 @@ impl NetworkActorProgressBudget {
                 && state
                     .retained_by_source
                     .get(&source)
-                    .is_some_and(|retained| {
-                        retained.broadcast
-                            && retained.request_digest == shape.request_digest
-                            && retained.authority == shape.authority
-                    })
+                    .is_some_and(|retained| retained.owns_same_broadcast(&shape))
             {
                 return ProgressLeaseAttempt::SameRequestAlreadyOwned;
             }
@@ -4651,89 +4843,148 @@ impl NetworkActorProgressBudget {
                 rank,
             };
         }
-        let source_retained = state.retained_by_source.get(&source).copied();
-        if source_retained.is_some_and(|retained| retained.items >= 1) {
-            return ProgressLeaseAttempt::Waiting {
-                ticket: Some(ticket),
-                rank,
-            };
-        }
-        if source_retained
-            .map_or(0, |retained| retained.bytes)
-            .checked_add(bytes)
-            .is_none_or(|retained| retained > per_source_max_bytes)
-        {
-            return ProgressLeaseAttempt::Waiting {
-                ticket: Some(ticket),
-                rank,
-            };
-        }
-        if !state.retained_by_source.contains_key(&source)
-            && state.retained_by_source.len() >= self.max_sources
-        {
-            return ProgressLeaseAttempt::Waiting {
-                ticket: Some(ticket),
-                rank,
-            };
-        }
-        if state.retained_sources_by_class[class_index] >= self.max_sources_per_class {
-            return ProgressLeaseAttempt::Waiting {
-                ticket: Some(ticket),
-                rank,
-            };
-        }
-        let Some(retained_items) = state.retained_items.checked_add(1) else {
+        let item = NetworkActorProgressItem {
+            lease_id: 0,
+            bytes,
+            request_digest: shape.broadcast.then_some(shape.request_digest),
+            broadcast: shape.broadcast,
+            authority: shape.authority,
+        };
+        let Some(lease_id) = self.reserve_locked(&mut state, &source, item) else {
             return ProgressLeaseAttempt::Waiting {
                 ticket: Some(ticket),
                 rank,
             };
         };
-        if retained_items > self.max_sources {
-            return ProgressLeaseAttempt::Waiting {
-                ticket: Some(ticket),
-                rank,
-            };
-        }
-        let Some(retained_bytes) = state.retained_bytes.checked_add(bytes) else {
-            return ProgressLeaseAttempt::Waiting {
-                ticket: Some(ticket),
-                rank,
-            };
-        };
-        if retained_bytes > self.max_total_bytes {
-            return ProgressLeaseAttempt::Waiting {
-                ticket: Some(ticket),
-                rank,
-            };
-        }
-        state.retained_bytes = retained_bytes;
-        state.retained_items = retained_items;
-        state.retained_sources_by_class[class_index] = state.retained_sources_by_class[class_index]
-            .checked_add(1)
-            .expect("bounded actor class source count cannot overflow");
-        state.retained_by_source.insert(
-            source.clone(),
-            NetworkActorProgressRetention {
-                bytes,
-                items: 1,
-                request_digest: shape.request_digest,
-                broadcast: shape.broadcast,
-                authority: shape.authority,
-            },
-        );
         drop(state);
         ProgressLeaseAttempt::Ready {
             lease: NetworkActorProgressLease {
                 budget: Arc::clone(self),
                 bytes,
                 source,
+                lease_id,
                 admission_rank: rank,
-                request_digest: shape.request_digest,
-                broadcast: shape.broadcast,
-                authority: shape.authority,
             },
             ticket,
         }
+    }
+    /// Retain a plain direct post at once when its source has no earlier
+    /// waiter, without registering a ticket or hashing its canonical request.
+    ///
+    /// The digest only binds a waiter ticket to its retried request and lets
+    /// identical broadcasts coalesce, so neither applies to a direct post
+    /// admitted on its first attempt. Every byte, item and source bound is
+    /// the same as on the ticketed path, and FIFO order is preserved because
+    /// any queued waiter of the source forces the ticketed path.
+    fn try_reserve_unqueued(
+        self: &Arc<Self>,
+        bytes: usize,
+        source: &ActorProgressSource,
+        authority: &ProgressDeliveryAuthority,
+    ) -> UnqueuedReservation {
+        if bytes > self.per_class_max_bytes.for_class(source.class)
+            || source.target.as_ref() != Some(authority.source_target())
+        {
+            return UnqueuedReservation::Ticketed;
+        }
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Same linearization as the ticketed path: membership cancellation is
+        // published before the reconciler takes this lock.
+        if !authority.is_active() {
+            return UnqueuedReservation::CancelledMembership;
+        }
+        if state
+            .waiters
+            .get(source)
+            .is_some_and(|waiters| !waiters.is_empty())
+        {
+            return UnqueuedReservation::Ticketed;
+        }
+        let item = NetworkActorProgressItem {
+            lease_id: 0,
+            bytes,
+            request_digest: None,
+            broadcast: false,
+            authority: Some(authority.identity()),
+        };
+        let Some(lease_id) = self.reserve_locked(&mut state, source, item) else {
+            return UnqueuedReservation::Ticketed;
+        };
+        drop(state);
+        UnqueuedReservation::Ready(NetworkActorProgressLease {
+            budget: Arc::clone(self),
+            bytes,
+            source: source.clone(),
+            lease_id,
+            admission_rank: 1,
+        })
+    }
+    /// Retain `item` for `source` when every source, class, item and byte
+    /// bound admits it, returning its exact lease identity.
+    fn reserve_locked(
+        &self,
+        state: &mut NetworkActorProgressState,
+        source: &ActorProgressSource,
+        mut item: NetworkActorProgressItem,
+    ) -> Option<u64> {
+        let bytes = item.bytes;
+        let class_index = source.class.index();
+        let per_source_max_bytes = self.per_class_max_bytes.for_class(source.class);
+        let is_new_source = match state.retained_by_source.get(source) {
+            Some(retained) => {
+                if retained.items.len() >= self.max_items_per_source
+                    || retained
+                        .bytes
+                        .checked_add(bytes)
+                        .is_none_or(|retained| retained > per_source_max_bytes)
+                {
+                    return None;
+                }
+                false
+            }
+            None => {
+                if bytes > per_source_max_bytes
+                    || state.retained_by_source.len() >= self.max_sources
+                    || state.retained_sources_by_class[class_index] >= self.max_sources_per_class
+                {
+                    return None;
+                }
+                true
+            }
+        };
+        let retained_items = state
+            .retained_items
+            .checked_add(1)
+            .filter(|items| *items <= self.max_items)?;
+        let retained_bytes = state
+            .retained_bytes
+            .checked_add(bytes)
+            .filter(|total| *total <= self.max_total_bytes)?;
+        // Lease identities only distinguish live items; restart once none are.
+        if state.retained_items == 0 {
+            state.next_lease = 0;
+        }
+        let lease_id = state.next_lease;
+        state.next_lease = state.next_lease.checked_add(1)?;
+        item.lease_id = lease_id;
+        state.retained_items = retained_items;
+        state.retained_bytes = retained_bytes;
+        if is_new_source {
+            state.retained_sources_by_class[class_index] = state.retained_sources_by_class
+                [class_index]
+                .checked_add(1)
+                .expect("bounded actor class source count cannot overflow");
+        }
+        let retained = state.retained_by_source.entry(source.clone()).or_default();
+        retained.bytes = retained
+            .bytes
+            .checked_add(bytes)
+            .expect("checked per-source actor bytes cannot overflow");
+        retained.items.push(item);
+        Some(lease_id)
     }
     fn rank(
         &self,
@@ -4925,39 +5176,33 @@ impl Drop for NetworkActorProgressLease {
             .retained_items
             .checked_sub(1)
             .expect("progress actor item lease must have matching ownership");
-        let class_index = self.source.class.index();
-        state.retained_sources_by_class[class_index] = state.retained_sources_by_class[class_index]
-            .checked_sub(1)
-            .expect("progress actor class source lease must have matching ownership");
-        {
-            let retained = state
-                .retained_by_source
-                .get_mut(&self.source)
-                .expect("progress actor source must own every live lease");
-            assert_eq!(
-                retained.request_digest, self.request_digest,
-                "progress actor source lease must retain its canonical request identity"
-            );
-            assert_eq!(
-                retained.broadcast, self.broadcast,
-                "progress actor source lease must retain its delivery kind"
-            );
-            assert_eq!(
-                retained.authority, self.authority,
-                "progress actor source lease must retain its delivery-authority identity"
-            );
-            retained.bytes = retained
-                .bytes
-                .checked_sub(self.bytes)
-                .expect("progress actor source lease must have matching ownership");
-            retained.items = retained
-                .items
-                .checked_sub(1)
-                .expect("progress actor source item lease must have matching ownership");
+        let retained = state
+            .retained_by_source
+            .get_mut(&self.source)
+            .expect("progress actor source must own every live lease");
+        let position = retained
+            .items
+            .iter()
+            .position(|item| item.lease_id == self.lease_id)
+            .expect("progress actor source must retain this exact lease");
+        let item = retained.items.remove(position);
+        assert_eq!(
+            item.bytes, self.bytes,
+            "progress actor lease must retain its exact byte charge"
+        );
+        retained.bytes = retained
+            .bytes
+            .checked_sub(self.bytes)
+            .expect("progress actor source lease must have matching ownership");
+        if retained.items.is_empty() {
             assert_eq!(retained.bytes, 0);
-            assert_eq!(retained.items, 0);
+            state.retained_by_source.remove(&self.source);
+            let class_index = self.source.class.index();
+            state.retained_sources_by_class[class_index] = state.retained_sources_by_class
+                [class_index]
+                .checked_sub(1)
+                .expect("progress actor class source lease must have matching ownership");
         }
-        state.retained_by_source.remove(&self.source);
     }
 }
 mod reliable_actor;
@@ -5088,25 +5333,34 @@ fn outbound_actor_message_wire_bytes<T: Pload>(
         Ok(wire_bytes)
     }
 }
+/// Process-local identity of one canonical progress request:
+/// `domain || kind || priority || [target] || payload` over bare encodings.
+///
+/// Encodings stream straight into the hasher, so a large payload is hashed
+/// without being materialized. Callers compute it only when a waiter ticket
+/// or broadcast coalescing actually needs it.
 fn progress_ticket_request_digest<T: Pload>(message: &NetworkMessage<T>) -> Hash {
     const DOMAIN: &[u8] = b"iroha:p2p-progress-admission-ticket:v1\n";
     let priority_tag = |priority| match priority {
         Priority::High => 0_u8,
         Priority::Low => 1_u8,
     };
-    match message {
-        NetworkMessage::Post(post) => {
-            let metadata = [0_u8, priority_tag(post.priority)];
-            let target = post.peer_id.encode();
-            let payload = post.data.encode();
-            Hash::new_from_chunks(&[DOMAIN, &metadata, &target, &payload])
+    Hash::new_from_writer(|mut writer| {
+        writer.write_all(DOMAIN)?;
+        match message {
+            NetworkMessage::Post(post) => {
+                writer.write_all(&[0_u8, priority_tag(post.priority)])?;
+                post.peer_id.encode_to(&mut writer);
+                post.data.encode_to(&mut writer);
+            }
+            NetworkMessage::Broadcast(broadcast) => {
+                writer.write_all(&[1_u8, priority_tag(broadcast.priority)])?;
+                broadcast.data.encode_to(&mut writer);
+            }
         }
-        NetworkMessage::Broadcast(broadcast) => {
-            let metadata = [1_u8, priority_tag(broadcast.priority)];
-            let payload = broadcast.data.encode();
-            Hash::new_from_chunks(&[DOMAIN, &metadata, &payload])
-        }
-    }
+        Ok(())
+    })
+    .expect("hashing never fails to accept bytes")
 }
 #[expect(
     clippy::result_large_err,
@@ -7926,6 +8180,12 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
         clippy::result_large_err,
         reason = "refusal returns the original message and admission ticket; boxing would allocate while capacity is unavailable"
     )]
+    /// Admit one exact target delivery into the reliable actor.
+    ///
+    /// Returns the admitted ticket identity for a ticketed admission (always
+    /// the case for an exact reply). `None` means the request crossed without
+    /// a ticket on its first attempt, coalesced with an identical owner, or
+    /// lost its topology membership before admission.
     fn submit_progress_message_to_source(
         &self,
         ProgressSourceRequest {
@@ -7935,6 +8195,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             source,
             authority,
             ticket,
+            request_digest,
             reply_writer_timeout_attempt,
             reply_flush_ack,
         }: ProgressSourceRequest<T>,
@@ -7964,12 +8225,78 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
                 reason: NetworkActorAdmissionRejection::MissingReconstruction,
             });
         }
+        let (sender, deferred_permits) = if matches!(topic, message::Topic::ConsensusSafety) {
+            (
+                &self.network_message_safety_sender,
+                &self.network_message_safety_deferred_permits,
+            )
+        } else {
+            (
+                &self.network_message_progress_sender,
+                &self.network_message_progress_deferred_permits,
+            )
+        };
+        let mut message = message;
+        // A plain direct post on its first attempt needs neither a waiter
+        // ticket nor the canonical request digest that binds one, so the
+        // common case never hashes the payload on the caller thread.
+        if ticket.is_none()
+            && !broadcast
+            && reply_flush_ack.is_none()
+            && reply_writer_timeout_attempt.is_none()
+        {
+            match self.network_actor_progress_budget.try_reserve_unqueued(
+                wire_bytes,
+                &source,
+                &authority,
+            ) {
+                UnqueuedReservation::CancelledMembership => return Ok(None),
+                UnqueuedReservation::Ready(lease) => {
+                    let admitted = AdmittedNetworkMessage::new_targeted_post(
+                        message,
+                        lease,
+                        authority.clone(),
+                        None,
+                        None,
+                    );
+                    match sender.try_send(admitted) {
+                        Ok(()) => return Ok(None),
+                        Err(TrySendError::Closed(admitted)) => {
+                            let (message, lease) = admitted.into_parts();
+                            drop(lease);
+                            return Err(NetworkActorAdmissionError::Closed { message });
+                        }
+                        Err(TrySendError::Full(admitted)) => {
+                            match defer_high_priority_network_message(
+                                sender.clone(),
+                                admitted,
+                                false,
+                                topic,
+                                deferred_permits,
+                            ) {
+                                Ok(()) => return Ok(None),
+                                Err(admitted) => {
+                                    // Release the slot and take the ticketed
+                                    // path below, which keeps this caller's
+                                    // FIFO rank while the actor queue is full.
+                                    let (returned, lease) = admitted.into_parts();
+                                    drop(lease);
+                                    message = returned;
+                                }
+                            }
+                        }
+                    }
+                }
+                UnqueuedReservation::Ticketed => {}
+            }
+        }
         let shape = ProgressTicketShape {
             topic,
             stream_wire_bytes: wire_bytes,
             broadcast,
             reply_writer_timeout_attempt,
-            request_digest: progress_ticket_request_digest(&message),
+            request_digest: request_digest
+                .unwrap_or_else(|| progress_ticket_request_digest(&message)),
             authority: Some(authority.identity()),
         };
         let (lease, mut ticket) = match self.network_actor_progress_budget.try_reserve_for_source(
@@ -8007,17 +8334,6 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             &authority,
             lease.admission_rank,
         );
-        let (sender, deferred_permits) = if matches!(topic, message::Topic::ConsensusSafety) {
-            (
-                &self.network_message_safety_sender,
-                &self.network_message_safety_deferred_permits,
-            )
-        } else {
-            (
-                &self.network_message_progress_sender,
-                &self.network_message_progress_deferred_permits,
-            )
-        };
         let admitted = if broadcast {
             debug_assert!(reply_flush_ack.is_none());
             debug_assert!(reply_writer_timeout_attempt.is_none());
@@ -8141,9 +8457,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             .reliable_direct_topology
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .snapshot()
-            .into_iter()
-            .find(|membership| &membership.peer_id == peer_id);
+            .member(peer_id);
         if let Some(existing_ticket) = ticket.as_ref() {
             let (prior_is_cancelled, same_membership) = match existing_ticket.authority.as_ref() {
                 Some(WeakProgressDeliveryAuthority::Topology(prior)) => {
@@ -8189,6 +8503,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             source,
             authority: ProgressDeliveryAuthority::Topology(membership),
             ticket,
+            request_digest: None,
             reply_writer_timeout_attempt: None,
             reply_flush_ack: None,
         })
@@ -8404,6 +8719,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
             source,
             authority: ProgressDeliveryAuthority::Reply(reply_route.clone()),
             ticket,
+            request_digest: None,
             reply_writer_timeout_attempt: Some(reply_writer_timeout_attempt),
             reply_flush_ack: Some(reply_flush_sender),
         })
@@ -8566,6 +8882,8 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc + Sync> NetworkBaseHandle<
                 source,
                 authority: ProgressDeliveryAuthority::Topology(Arc::clone(&target.membership)),
                 ticket: target.actor_ticket.take(),
+                // One canonical digest serves every target copy.
+                request_digest: Some(request_digest),
                 reply_writer_timeout_attempt: None,
                 reply_flush_ack: None,
             }) {
@@ -12263,13 +12581,13 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             });
         }
         let (topic, route) = match &message {
-            AdmittedNetworkPayload::Unsigned(NetworkMessage::Post(post)) => {
+            AdmittedNetworkPayload::Pending(NetworkMessage::Post(post)) => {
                 (post.data.topic(), post.data.subscriber_route())
             }
-            AdmittedNetworkPayload::Unsigned(NetworkMessage::Broadcast(broadcast)) => {
+            AdmittedNetworkPayload::Pending(NetworkMessage::Broadcast(broadcast)) => {
                 (broadcast.data.topic(), broadcast.data.subscriber_route())
             }
-            AdmittedNetworkPayload::Signed(frame) => {
+            AdmittedNetworkPayload::Framed(frame) => {
                 (frame.payload.topic(), frame.payload.subscriber_route())
             }
         };
@@ -12319,11 +12637,11 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
         if exact_reply_flushed {
             debug_assert!(reliable_progress);
             debug_assert!(match &message {
-                AdmittedNetworkPayload::Unsigned(NetworkMessage::Post(_)) => true,
-                AdmittedNetworkPayload::Signed(frame) => {
+                AdmittedNetworkPayload::Pending(NetworkMessage::Post(_)) => true,
+                AdmittedNetworkPayload::Framed(frame) => {
                     matches!(&frame.target, RelayTarget::Direct(_))
                 }
-                AdmittedNetworkPayload::Unsigned(NetworkMessage::Broadcast(_)) => false,
+                AdmittedNetworkPayload::Pending(NetworkMessage::Broadcast(_)) => false,
             });
             if let Some(reply_flush_ack) = reply_flush_ack {
                 let _ = reply_flush_ack.send(NetworkReplyFlushCompletion::Flushed);
@@ -12426,9 +12744,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             drop(actor_lease);
             return Ok(());
         }
-        let message = message.materialize(&self.key_pair, self.relay_ttl);
-        let frame = Arc::clone(message.signed_frame());
-        let transferred = match &frame.target {
+        let mut message = message.materialize(&self.self_id, self.relay_ttl);
+        let frame = message.frame_mut();
+        let frame_target = frame.target.clone();
+        let transferred = match &frame_target {
             RelayTarget::Direct(peer_id) => {
                 debug_assert!(
                     retry_targets.is_empty() || retry_targets == [peer_id.clone()],
@@ -12454,7 +12773,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
                     );
                     match self.post_reliable_actor_frame_to_writer(
                         &delivery_peer,
-                        frame.as_ref(),
+                        frame,
                         topic,
                         exact_reply,
                     ) {
@@ -12488,12 +12807,8 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
                         if pending_flush_acks.contains_key(&target) {
                             continue;
                         }
-                        match self.post_reliable_actor_frame_to_writer(
-                            &target,
-                            frame.as_ref(),
-                            topic,
-                            false,
-                        ) {
+                        match self.post_reliable_actor_frame_to_writer(&target, frame, topic, false)
+                        {
                             ReliableWriterAttempt::Awaiting(receiver) => {
                                 let replaced = pending_flush_acks.insert(target, receiver);
                                 debug_assert!(replaced.is_none());
@@ -13591,6 +13906,27 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
         }
         Some(hub_id)
     }
+    /// Add the end-to-end origin signature to a locally originated frame when
+    /// the authenticated hop `next_hop` may forward it to a third party.
+    ///
+    /// Frames that the next hop consumes itself stay link-local: the
+    /// authenticated session already proves their origin. Returns whether
+    /// this call added a signature.
+    fn sign_frame_for_hop(
+        &self,
+        frame: &mut RelayMessage<T>,
+        next_hop: &PeerId,
+        next_hop_role: RelayRole,
+    ) -> bool {
+        if frame.is_relay_signed()
+            || frame.origin != self.self_id
+            || !hop_requires_origin_signature(&frame.target, next_hop, next_hop_role)
+        {
+            return false;
+        }
+        frame.sign_in_place(&self.key_pair);
+        true
+    }
     fn resolve_origin_peer(&self, origin: &PeerId, via: &Peer) -> Peer {
         self.address_book.get(origin).map_or_else(
             || Peer::new(via.address().clone(), origin.clone()),
@@ -13808,7 +14144,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
                 continue;
             }
             let DeferredPeerFrame {
-                frame,
+                mut frame,
                 topic,
                 enqueued_at,
                 bound_connection_id,
@@ -13816,6 +14152,16 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
                 sequence,
                 _aggregate_lease: aggregate_lease,
             } = entry;
+            // A hub hop may forward this frame, so it needs its end-to-end
+            // origin signature. The deferred owner charged the frame without
+            // it; a refused post restores that exact charged shape below.
+            let signed_for_hop = self.sign_frame_for_hop(&mut frame, peer_id, ref_peer.relay_role);
+            let unsign_refused = |mut frame: RelayMessage<T>| {
+                if signed_for_hop {
+                    frame.origin_signature = Vec::new();
+                }
+                frame
+            };
             match ref_peer.handle.post_recover(frame) {
                 Ok(()) => {
                     self.deferred_send_queue.note_served(peer_id, topic);
@@ -13828,7 +14174,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
                 }
                 Err(error @ RecoverPostError::Full(_)) => {
                     let retry_entry = DeferredPeerFrame {
-                        frame: error.into_message(),
+                        frame: unsign_refused(error.into_message()),
                         topic,
                         enqueued_at,
                         bound_connection_id,
@@ -13860,7 +14206,7 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
                 }
                 Err(error @ RecoverPostError::Closed(_)) => {
                     let retry_entry = DeferredPeerFrame {
-                        frame: error.into_message(),
+                        frame: unsign_refused(error.into_message()),
                         topic,
                         enqueued_at,
                         bound_connection_id: None,
@@ -13938,11 +14284,11 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
     fn post_reliable_actor_frame_to_writer(
         &mut self,
         peer_id: &PeerId,
-        frame: &RelayMessage<T>,
+        frame: &mut Arc<RelayMessage<T>>,
         topic: message::Topic,
         exact_reply: bool,
     ) -> ReliableWriterAttempt {
-        if !message::ClassifyTopic::is_outbound_allowed(frame) {
+        if !message::ClassifyTopic::is_outbound_allowed(frame.as_ref()) {
             iroha_logger::error!(
                 peer = %peer_id,
                 ?topic,
@@ -13966,14 +14312,28 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             Self::record_trust_gossip_skip(peer_id, TrustDirection::Outbound, reason);
             return ReliableWriterAttempt::Retry;
         }
-        let is_high = matches!(message::ClassifyTopic::priority(frame), Priority::High);
+        let is_high = matches!(
+            message::ClassifyTopic::priority(frame.as_ref()),
+            Priority::High
+        );
         let is_consensus = is_consensus_topic(topic);
         let conn_id = ref_peer.conn_id;
         let p2p_addr = ref_peer.p2p_addr.clone();
+        // A forwarding hop needs the end-to-end origin signature. The actor
+        // retains the signed frame, so later retries never sign it again.
+        if frame.origin == self.self_id
+            && !frame.is_relay_signed()
+            && hop_requires_origin_signature(&frame.target, peer_id, ref_peer.relay_role)
+        {
+            Arc::make_mut(frame).sign_in_place(&self.key_pair);
+        }
         // Clone only after every route/session/capability preflight passes.
         // Missing-session retries therefore touch only the actor's `Arc` and
         // never allocate another relay envelope.
-        match ref_peer.handle.post_recover_with_flush_ack(frame.clone()) {
+        match ref_peer
+            .handle
+            .post_recover_with_flush_ack(RelayMessage::clone(frame.as_ref()))
+        {
             Ok(receiver) => {
                 if is_consensus {
                     iroha_logger::debug!(
@@ -14140,6 +14500,8 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             return false;
         }
         let (conn_id, p2p_addr) = (ref_peer.conn_id, ref_peer.p2p_addr.clone());
+        let mut frame = frame;
+        self.sign_frame_for_hop(&mut frame, peer_id, ref_peer.relay_role);
         let (retry_frame, outcome) = match ref_peer.handle.post_recover(frame) {
             Ok(()) => {
                 if is_consensus {
@@ -15194,9 +15556,11 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             return false;
         }
         let relay_ttl = self.relay_ttl;
+        // Frames start link-local. The hand-off to the next hop adds the
+        // end-to-end origin signature only when that hop may forward them.
         if let Some(hub_id) = self.relay_route_for_unconnected_post_target(&peer_id) {
-            let frame = RelayMessage::new_signed(
-                &self.key_pair,
+            let frame = RelayMessage::new_link(
+                self.self_id.clone(),
                 RelayTarget::Direct(peer_id),
                 relay_ttl,
                 data,
@@ -15214,36 +15578,26 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             None
         };
         // Retain a payload copy only when a live hub could be needed after a
-        // failed direct enqueue. The signed direct frame owns the caller's
-        // original payload.
-        let fallback_payload = fallback_hub.as_ref().map(|_| data.clone());
-        let frame = RelayMessage::new_signed(
-            &self.key_pair,
+        // failed direct enqueue. The direct frame owns the caller's original
+        // payload.
+        let relay_fallback = fallback_hub.map(|hub_id| (hub_id, data.clone()));
+        let frame = RelayMessage::new_link(
+            self.self_id.clone(),
             RelayTarget::Direct(peer_id.clone()),
             relay_ttl,
             data,
         );
-        let relay_fallback = fallback_hub.zip(fallback_payload).map(|(hub_id, payload)| {
-            (
-                hub_id,
-                frame.origin.clone(),
-                frame.target.clone(),
-                frame.origin_signature.clone(),
-                payload,
-            )
-        });
         if self.send_frame_to_peer(&peer_id, frame, topic) {
             return true;
         }
         if relay_fallback_enabled {
-            if let Some((hub_id, origin, target, origin_signature, payload)) = relay_fallback {
-                let fallback = RelayMessage {
-                    origin,
-                    target,
-                    ttl: relay_ttl,
-                    origin_signature,
+            if let Some((hub_id, payload)) = relay_fallback {
+                let fallback = RelayMessage::new_link(
+                    self.self_id.clone(),
+                    RelayTarget::Direct(peer_id),
+                    relay_ttl,
                     payload,
-                };
+                );
                 return self.send_frame_to_peer(&hub_id, fallback, topic);
             }
             iroha_logger::warn!(
@@ -15418,12 +15772,23 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
         if attempts == 0 {
             return true;
         }
-        let mut frame = Some(RelayMessage::new_signed(
-            &self.key_pair,
+        let mut link_frame = RelayMessage::new_link(
+            self.self_id.clone(),
             RelayTarget::Broadcast,
             self.relay_ttl,
             data.clone(),
-        ));
+        );
+        // A relay hub forwards broadcasts, so it needs the end-to-end origin
+        // signature. Sign once for every hub in this snapshot; other targets
+        // consume the frame themselves and keep it link-local.
+        if remaining.iter().any(|target| {
+            self.peers
+                .get(target)
+                .is_some_and(|peer| matches!(peer.relay_role, RelayRole::Hub))
+        }) {
+            link_frame.sign_in_place(&self.key_pair);
+        }
+        let mut frame = Some(link_frame);
         for attempt in 0..attempts {
             let pid = remaining
                 .pop_front()
@@ -15607,17 +15972,41 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
             );
             return;
         }
-        if let Err(error) = msg.payload.verify_origin_signature() {
+        // The authenticated, encrypted connection already proves which peer
+        // sent this frame (see `RelayMessage`). An end-to-end origin signature
+        // is present only on frames a hop may forward to a third party; every
+        // present signature must verify. A link-local frame without one can
+        // speak only for its authenticated sender, must be addressed to this
+        // node or be a broadcast, and is never forwarded.
+        let relay_signed = msg.payload.is_relay_signed();
+        if relay_signed {
+            if let Err(error) = msg.payload.verify_origin_signature() {
+                iroha_logger::warn!(
+                    peer = %incoming_peer,
+                    origin = %origin,
+                    %error,
+                    "dropping relay frame with invalid end-to-end origin signature"
+                );
+                self.reject_protocol_tenure(
+                    &peer_id,
+                    msg.connection_id(),
+                    "invalid relay origin signature",
+                );
+                return;
+            }
+        } else if origin != *incoming_peer.id()
+            || matches!(&target, RelayTarget::Direct(id) if id != &self.self_id)
+        {
             iroha_logger::warn!(
                 peer = %incoming_peer,
                 origin = %origin,
-                %error,
-                "dropping relay frame with invalid end-to-end origin signature"
+                ?target,
+                "dropping unsigned frame that claims another origin or another target"
             );
             self.reject_protocol_tenure(
                 &peer_id,
                 msg.connection_id(),
-                "invalid relay origin signature",
+                "unsigned relay frame outside its authenticated link",
             );
             return;
         }
@@ -15660,8 +16049,11 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
         let deliver_local = matches!(&target, RelayTarget::Broadcast)
             || matches!(&target, RelayTarget::Direct(id) if id == &self.self_id);
         // Forward first (only borrows `payload`) so we can move it into the local-delivery
-        // message without cloning when hub-mode relay is enabled.
-        if matches!(self.relay_role, RelayRole::Hub)
+        // message without cloning when hub-mode relay is enabled. Only frames
+        // carrying a verified origin signature can be forwarded: a third party
+        // cannot observe the link that authenticated a link-local frame.
+        if relay_signed
+            && matches!(self.relay_role, RelayRole::Hub)
             && let Some(next_ttl) = ttl.checked_sub(1)
         {
             match &target {
@@ -16732,9 +17124,10 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
         iroha_logger::trace!(peer=%peer_id, "Post message (low)");
         let topic = data.topic();
         let relay_ttl = self.relay_ttl;
-        let key_pair = Arc::clone(&self.key_pair);
+        let origin = self.self_id.clone();
+        // Link-local frames; a forwarding hub hop is signed at hand-off.
         let frame_for = |target: RelayTarget| {
-            RelayMessage::new_signed(&key_pair, target, relay_ttl, data.clone())
+            RelayMessage::new_link(origin.clone(), target, relay_ttl, data.clone())
         };
         let send_with_throttle = |this: &mut Self, target_id: &PeerId, frame: RelayMessage<T>| {
             if !this.low_allow(target_id) {
@@ -16783,22 +17176,31 @@ impl<T: Pload + message::ClassifyTopic + Sync, E: Enc> NetworkBase<T, E> {
         iroha_logger::trace!("Broadcast message (low)");
         let topic = data.topic();
         let peers: Vec<PeerId> = self.peers.keys().cloned().collect();
+        // One frame serves every target. Only relay hubs forward broadcasts,
+        // so the origin signature is created once and only when one is present.
+        let mut frame = RelayMessage::new_link(
+            self.self_id.clone(),
+            RelayTarget::Broadcast,
+            self.relay_ttl,
+            data,
+        );
+        if self
+            .peers
+            .values()
+            .any(|peer| matches!(peer.relay_role, RelayRole::Hub))
+        {
+            frame.sign_in_place(&self.key_pair);
+        }
+        let Ok(size_bytes) = crate::peer::checked_data_message_wire_len(&frame) else {
+            iroha_logger::warn!("Low-priority broadcast frame size is not representable");
+            return;
+        };
         for pid in peers {
-            let frame = RelayMessage::new_signed(
-                &self.key_pair,
-                RelayTarget::Broadcast,
-                self.relay_ttl,
-                data.clone(),
-            );
-            let Ok(size_bytes) = crate::peer::checked_data_message_wire_len(&frame) else {
-                iroha_logger::warn!(peer=%pid, "Low-priority broadcast frame size is not representable");
-                continue;
-            };
             if !self.low_allow(&pid) || !self.low_allow_bytes(&pid, size_bytes) {
                 LOW_THROTTLED_BROADCASTS.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
-            self.send_frame_to_peer(&pid, frame, topic);
+            self.send_frame_to_peer(&pid, frame.clone(), topic);
         }
     }
 }

@@ -12,6 +12,8 @@ pub const ENROLLMENT_EVIDENCE_REQUEST_MAX_BYTES_V1: usize = 524_288;
 pub const ENROLLMENT_SERVICE_REQUEST_MAX_BYTES_V1: usize = 544 * 1024;
 /// Native E6 original bound; this is an online enrollment message, not an offline Payment.
 pub const ENROLLMENT_RESULT_MAX_BYTES_V1: usize = 262_144;
+/// Signed expiry original bound; this statement grants no enrollment authority.
+pub const ENROLLMENT_EXPIRY_PROOF_MAX_BYTES_V1: usize = 4096;
 /// Complete response envelope bound including the original and Norito framing.
 pub const ENROLLMENT_SERVICE_RESPONSE_MAX_BYTES_V1: usize = 264 * 1024;
 
@@ -31,6 +33,10 @@ pub enum EnrollmentServiceActionV1 {
     /// Deliver the exact retained E6 after fresh current eligibility.
     #[codec(index = 3)]
     Deliver,
+    /// Recover a signed expiry statement for an exact previously accepted Fresh permit.
+    /// The native wallet alone decides whether its unselected attempt can be abandoned.
+    #[codec(index = 4)]
+    ExpiryProof,
 }
 
 /// Public request DATA; there are no key paths, worker selectors or caller verdict fields.
@@ -110,6 +116,9 @@ pub enum EnrollmentServiceResponseV1 {
     /// Exact original E6, never regenerated or refreshed on retry.
     #[codec(index = 4)]
     Credential(Vec<u8>),
+    /// Exact durably retained signed expiry original; never a permit or credential.
+    #[codec(index = 5)]
+    ExpiryProof(Vec<u8>),
 }
 impl EnrollmentServiceResponseV1 {
     fn validate(&self) -> Result<(), norito::Error> {
@@ -123,6 +132,11 @@ impl EnrollmentServiceResponseV1 {
             }
             Self::Credential(original)
                 if original.is_empty() || original.len() > ENROLLMENT_RESULT_MAX_BYTES_V1 =>
+            {
+                Err(invalid())
+            }
+            Self::ExpiryProof(original)
+                if original.is_empty() || original.len() > ENROLLMENT_EXPIRY_PROOF_MAX_BYTES_V1 =>
             {
                 Err(invalid())
             }

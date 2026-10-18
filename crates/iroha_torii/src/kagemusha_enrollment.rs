@@ -201,7 +201,11 @@ fn execute(
 ) -> Result<EnrollmentServiceResponseV1> {
     let envelope = EnrollmentServiceRequestV1::decode_canonical(&call.body)
         .map_err(|_| IssuerError::Invalid)?;
-    let mut session = owner.authenticate(call, &envelope.dispatch_original)?;
+    let mut session = if envelope.action == EnrollmentServiceActionV1::ExpiryProof {
+        owner.authenticate_expiry(call, &envelope.dispatch_original)?
+    } else {
+        owner.authenticate(call, &envelope.dispatch_original)?
+    };
     match envelope.action {
         EnrollmentServiceActionV1::PreKey => owner
             .pre_key_permit(&mut session)
@@ -219,6 +223,9 @@ fn execute(
         EnrollmentServiceActionV1::Deliver => owner
             .deliver_credential(&mut session)
             .map(EnrollmentServiceResponseV1::Credential),
+        EnrollmentServiceActionV1::ExpiryProof => owner
+            .expiry_proof(&mut session)
+            .map(EnrollmentServiceResponseV1::ExpiryProof),
     }
 }
 

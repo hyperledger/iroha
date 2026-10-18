@@ -3,7 +3,25 @@
   "chain_discriminant": 753,
   "consensus_fingerprint": null,
   "consensus_mode": "Npos",
-  "sumeragi_context": {"root_scope":{"kind":"global","value":null},"da_layout":{"encoding":{"encoding":"reed_solomon16","details":null},"chunk_size_bytes":262144,"data_shards":4,"parity_shards":2,"max_payload_size_bytes":16777216,"max_chunk_count":1024},"nexus_amx_context_hash":"09123D10CBD06B24C7E9CD43E0813779F3C533F010E7B6F06D58C1F2BE10842F","execution_policy_hash":"0DAF0A3D7FA7E8E2629256AE8D7E748BB5EFB0CFE7B58D1801CDDC9A0B674097"},
+  "sumeragi_context": {
+    "root_scope": {
+      "kind": "global",
+      "value": null
+    },
+    "da_layout": {
+      "encoding": {
+        "encoding": "reed_solomon16",
+        "details": null
+      },
+      "chunk_size_bytes": 262144,
+      "data_shards": 4,
+      "parity_shards": 2,
+      "max_payload_size_bytes": 16777216,
+      "max_chunk_count": 1024
+    },
+    "nexus_amx_context_hash": "09123D10CBD06B24C7E9CD43E0813779F3C533F010E7B6F06D58C1F2BE10842F",
+    "execution_policy_hash": "0DAF0A3D7FA7E8E2629256AE8D7E748BB5EFB0CFE7B58D1801CDDC9A0B674097"
+  },
   "crypto": {
     "allowed_curve_ids": [
       1,
@@ -205,6 +223,19 @@
               "min_self_bond": "1000",
               "slashing_delay_blocks": 3600
             }
+          },
+          "root_fees_v1": {
+            "id": "root_fees_v1",
+            "payload": {
+              "fee_asset_id": "6TEAJqbb8oEPmLncoNiMRbLEK6tw",
+              "fee_sink_account_id": "sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+              "sponsor_vault_custody_account_id": "sorauﾛ1NｱｻｸYSafﾇｷヰc5ﾇﾄVxﾏ9jLZヱﾋzsKqurﾊﾘ9ｸ3eｴAｶD54TDT",
+              "successful_claim_fee_exempt_authorities": [],
+              "base_fee": "0",
+              "per_byte_fee": "0",
+              "per_instruction_fee": "0.001",
+              "per_gas_unit_fee": "0.00005"
+            }
           }
         },
         "executor": {
@@ -223,14 +254,15 @@
         },
         "sumeragi": {
           "block_cadence_ms": 100,
+          "due_work_max_lag_ms": 60000,
           "key_activation_lead_blocks": 1,
           "key_allowed_algorithms": [
             "bls_normal"
           ],
           "key_expiry_grace_blocks": 0,
           "key_overlap_grace_blocks": 8,
-          "max_clock_drift_ms": 1000,
-          "due_work_max_lag_ms": 60000},
+          "max_clock_drift_ms": 1000
+        },
         "transaction": {
           "ivm_bytecode_size": 4194304,
           "max_decompressed_bytes": 1048576,
@@ -250,7 +282,7 @@
         {
           "Mint": {
             "Asset": {
-            "destination": "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+              "destination": "62Fk4FPcMuLvW5QjDGNF2a4jAmjM#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
               "object": "13"
             }
           }
@@ -258,7 +290,7 @@
         {
           "Mint": {
             "Asset": {
-            "destination": "5CJ6HCMxWw9xhuHmxDrzEfWGeE7M#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
+              "destination": "5CJ6HCMxWw9xhuHmxDrzEfWGeE7M#sorauﾛ1PﾉｳﾇmEｴWｵebHﾑ6ﾔﾙｲヰiwuCWErJ7uｽoPGｱﾔnjﾑKﾋTCW2PV",
               "object": "44"
             }
           }

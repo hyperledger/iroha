@@ -389,7 +389,7 @@ mod tests {
             .lock_choice_v1(&context, BallotChoiceV1::Aye, &acknowledgement)
             .expect("locked");
         handle
-            .confirm_choice_persisted_v1(&intent.to_record_bytes().expect("record"))
+            .confirm_choice_persisted_v1(&intent.record_bytes().expect("record"))
             .expect("confirmed");
         let ballot = FIXTURE_BALLOTS[AYE_0];
         let entropy = ScriptedEntropy::new([

@@ -104,7 +104,6 @@ final class PipelinePreflightFixtureTests: XCTestCase {
             fees["sponsor_vault_custody_account_id"] as? String
         )
         XCTAssertNotEqual(preflight.fees.feeSinkAccountId, preflight.fees.sponsorVaultCustodyAccountId)
-        XCTAssertEqual(preflight.fees.settlementMode, "direct")
         XCTAssertEqual(
             preflight.fees.successfulClaimFeeExemptAuthorities,
             fees["successful_claim_fee_exempt_authorities"] as? [String]
@@ -188,7 +187,6 @@ final class PipelinePreflightFixtureTests: XCTestCase {
         for (name, mutate) in cases {
             XCTAssertThrowsError(try decode(mutated("fees", mutate)), name)
         }
-        let relay = try decode(mutated("fees") { $0["settlement_mode"] = "lane_relay_burn" })
-        XCTAssertEqual(relay.fees.settlementMode, "lane_relay_burn")
+        XCTAssertThrowsError(try decode(mutated("fees") { $0["settlement_mode"] = "lane_relay_burn" }))
     }
 }

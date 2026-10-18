@@ -283,13 +283,96 @@ these journals to atomic D7 publication. The combined implementation is applied;
 its actual Core tests remain pending. Truncation or omission of an applied source
 is invalid. Final-capture limits alone cannot provide proposal liveness.
 
-TODO: bind prepared D7 contents to checked capture, authoritative source finality,
-exact AXT spending/replay protection and durable archive publication/retention.
-The separate Kura content store uses current ownership locks and composite
-capacity reservations but does not provide these source-owner lifecycle hooks.
+Prepared complete D7 contents now join original capture and authenticated native
+source finality before entering the bounded Kura producer outbox described below.
+TODO: qualify isolated missing-tape reconstruction, finish authority-aware retention
+and the separate exact AXT spending/replay integration; artifact storage alone
+grants none of them.
 
 Current-branch compilation, all affected tests, fresh complete artifacts,
 independent cryptographic qualification, release-hardware CPU/Metal/CUDA parity
 and a same-source four-validator recovery/adversarial corridor remain required.
 The earlier 544-test/two-artifact reference gate is not evidence that this
 integration candidate passed those gates or is production ready.
+
+
+## Local durable producer
+
+The existing FASTPQ lane owns one autonomous source at a time and its original typed
+failure. It uses `NativeFinalityCursorV1` from the independently pinned signed genesis,
+with an explicit selected root. The cursor keeps its authenticated prefix across finite
+turns and exports the actual H2-authenticated genesis anchor with original decoder custody.
+No decoded checkpoint or file cursor imports trust. Existing Global-only discovery callers
+select Global explicitly. The producer reads complete D7 source inventories and complete
+effect tapes through the existing funded native-context reader. A Complete manifest with
+an exact canonical empty statement root may advance without an optional tape, after its
+full ordinary-write root and bounds are authenticated. It grants no entry/effect inventory.
+
+Kura's `fastpq_artifacts_v1` namespace is the sole aggregate store for content artifacts,
+source tapes (`.fqs`), and producer artifacts (`.producer`). All stable objects and the
+existing single publication temporary share the configured count/byte quota. A producer
+key commits the actual carrier, certified R, complete manifest and exact statement leaf.
+Its object is the complete canonical verified artifact, so a crash cannot split artifact
+bytes from cursor metadata. The ordered verified objects form the disk cursor: every
+restart first authenticates the source and freshly verifies each offered artifact before
+advancing. Local file absence only requests production; it is never ledger absence or
+successful execution evidence. Persisted artifact receipts are exact issuer/byte durability
+facts, not settlement or transaction-submission receipts.
+
+`[zk.fastpq.producer]` configures `poll_interval_ms`, `step_timeout_ms`,
+`max_native_steps` (at most 64), `max_source_entries`, and `max_source_statements`.
+One absolute monotonic budget spans a worker attempt; it is checked around bounded reads
+and proof work. Synchronous filesystem or proof work cannot be preempted, so this is a
+cooperative bound, not a wall-clock execution guarantee or a renewed payment deadline.
+The same supervised worker polls while the native chain is idle. It signs and submits
+nothing. Proof output is bounded by both its configured carrier ceiling and the actual
+immutable Kura object ceiling before generation.
+
+Optional tape size/admission/publication failure cannot strand mandatory native context
+publication or change certified D7/outputs. It leaves that source unresolved. The
+producer retains an original replay seed captured before native genesis execution.
+The seed contains the original Kura owner, network/chain identity and startup policies;
+it contains no current World rows, imported checkpoint, signing key or transaction
+builder. Exact file absence may request reconstruction. Corruption, changed bindings,
+invalid proofs and fixed resource limits cannot be reclassified as missing transport.
+
+Reconstruction uses the existing canonical signed-genesis preparation and serialized
+State executor in a disposable Kura destination. Each continuation retains one original
+certified body and its exact target, then prepares, appends and replays that body through
+the normal execution and publication owners. Public lane references use the canonical
+RS16 frame reader with historical authority derived from the replayed prefix; the
+reader never opens the live lane writer or imports a directory tip as authority.
+Earlier heights still compute their complete native commitments. Only the target's
+optional tape is retained, including nonempty H1. A completed reconstruction must
+match the independently authenticated height, carrier, core hash, execution result and
+root scope before the same complete D7/tape reader can use its temporary transport.
+The original source is never overwritten and a nonempty unavailable source is never
+skipped. The existing idle worker owns all scheduling; no additional work queue or
+relay service is introduced.
+
+The isolated State shares the retained original allocation pool without resizing it,
+and leaves process cache, prover and cryptographic settings with the running node.
+Its diagnostics are isolated on the canonical executor thread and inherited by its
+transaction-validation jobs, so historical fee, staking and settlement observations do
+not update the live counters. Original temporary pool refusals retain their typed
+cause. Before isolated genesis preparation returns an executor, validation, lane
+proof, result preimage, certificate and State publication failures retain their
+original error types. An actual temporary resource refusal can discard that
+unfinished temporary destination and retry the same pinned genesis and target.
+Malformed witnesses, fixed bounds, allocation demand overflow and local invariants
+remain terminal; diagnostic text grants no retry authority.
+
+After preparation, mandatory native-context and optional tape publication preserve
+original I/O errors. Interrupted/WouldBlock publication retries retain the same
+`PendingCommit` and charged bytes without executing or publishing State again.
+Namespace replacement and corrupt records remain terminal. Only a completed optional
+capture carrying original pool contention permits rebuilding an existing isolated
+continuation; other retryable projection/storage failures keep its existing owner.
+These local scheduling decisions never become execution verdicts.
+
+TODO: execute the isolated reconstruction regressions, missing-tape restart/idle
+campaigns and genuine proof generation on the reconciled source candidate. This is
+canonical replay from signed genesis, not accelerated complete-State restoration.
+Authority-aware retention and complete nested cryptographic allocation accounting
+also remain open. Source tests and formatting do not establish compiled, whole-node,
+or payment-release qualification.

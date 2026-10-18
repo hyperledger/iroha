@@ -172,6 +172,121 @@ class IrohaPeerNearbySessionV1Test {
         assertTrue(key.isDestroyed)
     }
 
+    @Test
+    fun `the receiver ask opens only on the sender and shares the receiver sequence`() {
+        AuthenticatedPair().use { pair ->
+            val ask = IrohaPeerAskTestVectorsV1.ask(IrohaPeerAskTestVectorsV1.list("asks")[2])
+            val record = pair.receiver.sealAsk(ask)
+            assertEquals(IrohaPeerNearbyRecordKindV1.ENCRYPTED_ASK, record.kind)
+            assertEquals(IrohaPeerNearbyRoleV1.RECEIVER, record.senderRole)
+            assertEquals(0L, record.sequence)
+            val encoded = record.encode()
+            assertEquals(38 + IrohaPeerAskV1.RECORD_BYTES + 16, encoded.size)
+            assertEquals(IrohaPeerNearbyRecordKindV1.ENCRYPTED_ASK.code, encoded[5].toInt())
+            val received = IrohaPeerNearbyEncryptedRecordV1.decode(encoded)
+            assertEquals(IrohaPeerNearbyRecordKindV1.ENCRYPTED_ASK, received.kind)
+            assertContentEquals(encoded, received.encode())
+            // Only the sender opens an ask, never as a message and never twice.
+            assertFailsWith<IllegalStateException> { pair.receiver.openAsk(received) }
+            assertFailsWith<IllegalArgumentException> { pair.sender.open(received) }
+            assertEquals(ask, pair.sender.openAsk(received))
+            assertFailsWith<IllegalArgumentException> { pair.sender.openAsk(received) }
+            // The ask and the receiver's messages share one outbound sequence.
+            val request = fixture(IrohaPeerPayloadKind.REQUEST)
+            val sealed = pair.receiver.seal(request)
+            assertEquals(1L, sealed.sequence)
+            assertEquals(IrohaPeerNearbyRecordKindV1.ENCRYPTED_MESSAGE, sealed.kind)
+            assertFailsWith<IllegalArgumentException> { pair.sender.openAsk(sealed) }
+            assertEquals(request, pair.sender.open(sealed))
+            // A sender never asks; its own direction is untouched.
+            assertFailsWith<IllegalStateException> { pair.sender.sealAsk(ask) }
+            val offer = fixture(IrohaPeerPayloadKind.OFFER)
+            val sealedOffer = pair.sender.seal(offer)
+            assertEquals(0L, sealedOffer.sequence)
+            assertEquals(offer, pair.receiver.open(sealedOffer))
+        }
+    }
+
+    @Test
+    fun `relabelled tampered and misrouted asks never open or consume the sequence`() {
+        AuthenticatedPair().use { pair ->
+            val ask = IrohaPeerAskTestVectorsV1.ask(IrohaPeerAskTestVectorsV1.list("asks")[4])
+            val record = pair.receiver.sealAsk(ask)
+            val sealed = record.ciphertextAndTag
+            val tampered = sealed.copyOf().also { it[3] = (it[3].toInt() xor 1).toByte() }
+            val askKind = IrohaPeerNearbyRecordKindV1.ENCRYPTED_ASK
+            val invalid = listOf(
+                // The kind byte is authenticated: an ask relabelled as a message does not open.
+                IrohaPeerNearbyEncryptedRecordV1(PROFILE, record.senderRole, record.sessionId, 0, sealed),
+                IrohaPeerNearbyEncryptedRecordV1(PROFILE, record.senderRole, record.sessionId, 0, tampered, askKind),
+                IrohaPeerNearbyEncryptedRecordV1(PROFILE, IrohaPeerNearbyRoleV1.SENDER, record.sessionId, 0, sealed, askKind),
+                IrohaPeerNearbyEncryptedRecordV1(PROFILE, record.senderRole, ByteArray(16) { 9 }, 0, sealed, askKind),
+                IrohaPeerNearbyEncryptedRecordV1(PROFILE, record.senderRole, record.sessionId, 1, sealed, askKind),
+            )
+            for ((index, candidate) in invalid.withIndex()) {
+                assertFailsWith<IllegalArgumentException>("case $index") { pair.sender.openAsk(candidate) }
+                assertFailsWith<IllegalArgumentException>("case $index") { pair.sender.open(candidate) }
+            }
+            assertEquals(ask, pair.sender.openAsk(record))
+        }
+    }
+
+    @Test
+    fun `an authenticated receiver cannot make a malformed ask consume the sequence`() {
+        AuthenticatedPair().use { pair ->
+            val malformed = IrohaPeerAskTestVectorsV1.list("invalid_records")
+                .map { IrohaPeerAskTestVectorsV1.hex(it["record_hex"]) }
+                .filter { it.size == IrohaPeerAskV1.RECORD_BYTES }
+            assertEquals(8, malformed.size)
+            for (plaintext in malformed) {
+                val record = pair.hostileRecord(plaintext, IrohaPeerNearbyRoleV1.RECEIVER, IrohaPeerNearbyRecordKindV1.ENCRYPTED_ASK)
+                assertFailsWith<IllegalArgumentException> { pair.sender.openAsk(record) }
+            }
+            val ask = IrohaPeerAskTestVectorsV1.ask(IrohaPeerAskTestVectorsV1.list("asks")[0])
+            // A valid ask authenticated as a message record is neither an ask nor a message.
+            val disguised = pair.hostileRecord(ask.encode(), IrohaPeerNearbyRoleV1.RECEIVER, IrohaPeerNearbyRecordKindV1.ENCRYPTED_MESSAGE)
+            assertFailsWith<IllegalArgumentException> { pair.sender.openAsk(disguised) }
+            assertFailsWith<IllegalArgumentException> { pair.sender.open(disguised) }
+            // The same independent construction of a valid ask opens at the unconsumed sequence zero.
+            val valid = pair.hostileRecord(ask.encode(), IrohaPeerNearbyRoleV1.RECEIVER, IrohaPeerNearbyRecordKindV1.ENCRYPTED_ASK)
+            assertEquals(ask, pair.sender.openAsk(valid))
+        }
+    }
+
+    @Test
+    fun `ask records decode only with their kind and exact sealed length`() {
+        AuthenticatedPair().use { pair ->
+            val ask = IrohaPeerAskTestVectorsV1.ask(IrohaPeerAskTestVectorsV1.list("asks")[3])
+            val encoded = pair.receiver.sealAsk(ask).encode()
+            fun resized(length: Int): ByteArray =
+                encoded.copyOf(38).also { ByteBuffer.wrap(it, 34, 4).putInt(length) } + ByteArray(length)
+            for (invalid in listOf(
+                encoded.copyOf(encoded.size - 1),
+                encoded + byteArrayOf(0),
+                resized(16),
+                resized(71),
+                resized(73),
+                encoded.copyOf().also { it[5] = 5 },
+                encoded.copyOf().also { it[5] = IrohaPeerNearbyRecordKindV1.HELLO.code.toByte() },
+            )) {
+                assertFailsWith<IllegalArgumentException> { IrohaPeerNearbyEncryptedRecordV1.decode(invalid) }
+            }
+            for (size in listOf(16, 71, 73, 4_096)) {
+                assertFailsWith<IllegalArgumentException>("$size") {
+                    IrohaPeerNearbyEncryptedRecordV1(PROFILE, IrohaPeerNearbyRoleV1.RECEIVER, pair.receiver.sessionId, 0,
+                        ByteArray(size), IrohaPeerNearbyRecordKindV1.ENCRYPTED_ASK)
+                }
+            }
+            for (kind in listOf(IrohaPeerNearbyRecordKindV1.HELLO, IrohaPeerNearbyRecordKindV1.AUTHENTICATION)) {
+                assertFailsWith<IllegalArgumentException>(kind.name) {
+                    IrohaPeerNearbyEncryptedRecordV1(PROFILE, IrohaPeerNearbyRoleV1.RECEIVER, pair.receiver.sessionId, 0,
+                        ByteArray(72), kind)
+                }
+            }
+            assertEquals(ask, pair.sender.openAsk(IrohaPeerNearbyEncryptedRecordV1.decode(encoded)))
+        }
+    }
+
     private class AuthenticatedPair(authenticate: Boolean = true) : Closeable {
         val senderEphemeral = IrohaPeerNearbyP256V1.fromPrivateBytes(ByteArray(32) { 1 })
         val receiverEphemeral = IrohaPeerNearbyP256V1.fromPrivateBytes(ByteArray(32) { 2 })
@@ -207,22 +322,32 @@ class IrohaPeerNearbySessionV1Test {
         }
 
         /** Independent JCA HKDF/GCM construction models an authenticated hostile sender. */
-        fun hostileSenderRecord(plaintext: ByteArray): IrohaPeerNearbyEncryptedRecordV1 {
+        fun hostileSenderRecord(plaintext: ByteArray): IrohaPeerNearbyEncryptedRecordV1 =
+            hostileRecord(plaintext, IrohaPeerNearbyRoleV1.SENDER, IrohaPeerNearbyRecordKindV1.ENCRYPTED_MESSAGE)
+
+        /** The same construction for an authenticated hostile [role] sending a [kind] record at sequence zero. */
+        fun hostileRecord(
+            plaintext: ByteArray,
+            role: IrohaPeerNearbyRoleV1,
+            kind: IrohaPeerNearbyRecordKindV1,
+        ): IrohaPeerNearbyEncryptedRecordV1 {
             fun hmac(key: ByteArray, data: ByteArray): ByteArray = Mac.getInstance("HmacSHA256").run {
                 init(SecretKeySpec(key, "HmacSHA256"))
                 doFinal(data)
             }
+            val fromSender = role == IrohaPeerNearbyRoleV1.SENDER
+            val direction = if (fromSender) "sender-to-receiver" else "receiver-to-sender"
             val prk = hmac(transcript, shared)
-            val key = hmac(prk, "IROHA-PEER-NEARBY-KEYS-V1\u0000sender-to-receiver".toByteArray() + byteArrayOf(1))
+            val key = hmac(prk, "IROHA-PEER-NEARBY-KEYS-V1\u0000$direction".toByteArray() + byteArrayOf(1))
             try {
-                val placeholder = IrohaPeerNearbyEncryptedRecordV1(PROFILE, IrohaPeerNearbyRoleV1.SENDER,
-                    sender.sessionId, 0, ByteArray(plaintext.size + 16))
+                val placeholder = IrohaPeerNearbyEncryptedRecordV1(PROFILE, role,
+                    sender.sessionId, 0, ByteArray(plaintext.size + 16), kind)
                 val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-                cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"),
-                    GCMParameterSpec(128, byteArrayOf(0x53, 0x32, 0x52, 0) + ByteArray(8)))
+                val nonce = if (fromSender) byteArrayOf(0x53, 0x32, 0x52, 0) else byteArrayOf(0x52, 0x32, 0x53, 0)
+                cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, nonce + ByteArray(8)))
                 cipher.updateAAD(placeholder.encode().copyOf(38))
-                return IrohaPeerNearbyEncryptedRecordV1(PROFILE, IrohaPeerNearbyRoleV1.SENDER,
-                    sender.sessionId, 0, cipher.doFinal(plaintext))
+                return IrohaPeerNearbyEncryptedRecordV1(PROFILE, role,
+                    sender.sessionId, 0, cipher.doFinal(plaintext), kind)
             } finally {
                 prk.fill(0)
                 key.fill(0)

@@ -274,9 +274,9 @@ async fn handle(
                                 snapshot,
                                 family,
                             );
-                            encode(&payload, format, max_response, &budget, unavailable).map_err(
-                                |_| "native authority account serialization refused".to_owned(),
-                            )
+                            encode(&payload, format, max_response, &budget).map_err(|_| {
+                                "native authority account serialization refused".to_owned()
+                            })
                         },
                     )
                     .map_err(|_| unavailable())?,
@@ -330,9 +330,9 @@ async fn handle(
                                 snapshot,
                                 family,
                             );
-                            encode(&payload, format, max_response, &budget, unavailable).map_err(
-                                |_| "native authority fee serialization refused".to_owned(),
-                            )
+                            encode(&payload, format, max_response, &budget).map_err(|_| {
+                                "native authority fee serialization refused".to_owned()
+                            })
                         },
                     )
                     .map_err(|_| unavailable())?,
@@ -354,9 +354,9 @@ async fn handle(
                                 snapshot,
                                 family,
                             );
-                            encode(&payload, format, max_response, &budget, unavailable).map_err(
-                                |_| "native authority retail serialization refused".to_owned(),
-                            )
+                            encode(&payload, format, max_response, &budget).map_err(|_| {
+                                "native authority retail serialization refused".to_owned()
+                            })
                         },
                     )
                     .map_err(|_| unavailable())?,
@@ -377,9 +377,9 @@ async fn handle(
                                 snapshot,
                                 family,
                             );
-                            encode(&payload, format, max_response, &budget, unavailable).map_err(
-                                |_| "native authority identifier serialization refused".to_owned(),
-                            )
+                            encode(&payload, format, max_response, &budget).map_err(|_| {
+                                "native authority identifier serialization refused".to_owned()
+                            })
                         },
                     )
                     .map_err(|_| unavailable())?,

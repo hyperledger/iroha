@@ -19,7 +19,10 @@ use iroha::{
         bls::consensus::{ConsensusDigest, aggregate, sign},
     },
     data_model::{
-        block::consensus::EvidencePenaltyStatus,
+        block::{
+            consensus::{EvidencePenaltyStatus, SumeragiRootScope},
+            decode_framed_signed_block,
+        },
         isi::{
             chain::Keepalive,
             governance::ProposeSccpRouteGovernance,
@@ -100,6 +103,18 @@ fn configured_builder(
             .into(),
             Grant::account_permission(proposal_permission, ALICE_ID.clone()).into(),
         ])
+        .with_genesis_instruction(iroha_data_model::isi::SetParameter::new(
+            iroha_data_model::parameter::Parameter::Custom({
+                let mut fees = iroha_config::parameters::defaults::nexus::fees::genesis_policy();
+                fees.fee_sink_account_id = iroha_test_samples::ALICE_ID.clone();
+                fees.base_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_byte_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_instruction_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.per_gas_unit_fee = ("0").parse().expect("explicit fixture fee quantity");
+                fees.into_custom_parameter()
+                    .expect("explicit signed fixture fee policy")
+            }),
+        ))
         .with_config_layer(move |layer| {
             layer
                 .write(
@@ -110,11 +125,7 @@ fn configured_builder(
                     ["nexus", "staking", "unbonding_delay_ms"],
                     1_814_400_000_i64,
                 )
-                .write(["nexus", "staking", "max_slash_bps"], max_slash_bps)
-                .write(["nexus", "fees", "base_fee"], "0")
-                .write(["nexus", "fees", "per_byte_fee"], "0")
-                .write(["nexus", "fees", "per_instruction_fee"], "0")
-                .write(["nexus", "fees", "per_gas_unit_fee"], "0");
+                .write(["nexus", "staking", "max_slash_bps"], max_slash_bps);
         })
 }
 
@@ -130,7 +141,7 @@ fn four_validators_publish_native_sccp_finality_and_refuse_unqualified_launch() 
         runtime.block_on(network.ensure_blocks(1))?;
         ensure!(network.peers().len() == 4);
         let genesis = network.genesis();
-        let (epoch, _) = authenticated_genesis(&genesis.0)?.into_parts();
+        let (epoch, root_scope) = authenticated_genesis(&genesis.0)?.into_parts();
         let keys = epoch
             .committee
             .iter()
@@ -209,8 +220,19 @@ fn four_validators_publish_native_sccp_finality_and_refuse_unqualified_launch() 
                 &keys,
             )?;
             ensure!(verified.header.height() == after && verified.header.is_active());
+            ensure!(verified.header.network_id() == *epoch.network_id.as_bytes());
             ensure!(verified.header.generation() == 1 && verified.header.committee_root() == root);
             ensure!(verified.qc.signers.count_ones() == 3);
+            // Exercise the same bounded public block read before the hour-long heartbeat run.
+            let _ = read_sccp_block_wire(
+                &client,
+                NonZeroU64::new(after).unwrap(),
+                root_scope,
+                &instance,
+                &verified.qc.block_hash,
+                &verified.result,
+                Instant::now() + network.sync_timeout(),
+            )?;
             let certified_result = (certificate.header, verified.qc.block_hash, verified.result);
             if let Some(expected) = &original {
                 ensure!(
@@ -367,6 +389,95 @@ fn agreed_certificate(
     first.ok_or_else(|| eyre!("four original peer certificates required"))
 }
 
+// The SCCP certificate already authenticates the native consensus hash and R under
+// the independently selected genesis keys. A structural proof supplies bounded
+// original bytes, whose native decision must match both authenticated values.
+// The Iroha proposal-header hash is a different hash and cannot make this join.
+fn read_sccp_block_wire(
+    client: &iroha::blocking::Client,
+    height: NonZeroU64,
+    root_scope: SumeragiRootScope,
+    expected_instance: &[u8; 32],
+    expected_native_hash: &[u8; 32],
+    expected_result: &[u8; 32],
+    deadline: Instant,
+) -> Result<(SignedBlock, Vec<u8>)> {
+    let bounded = client.with_request_deadline(deadline)?;
+    let proof = bounded
+        .client()
+        .get_sumeragi_finality_proof(height, root_scope)?;
+    let block = check_sccp_block_proof(
+        &proof,
+        height,
+        root_scope,
+        expected_instance,
+        expected_native_hash,
+        expected_result,
+    )?;
+    ensure!(
+        Instant::now() < deadline,
+        "original SCCP block read deadline elapsed"
+    );
+    Ok((block, proof.block_wire))
+}
+
+fn check_sccp_block_proof(
+    proof: &iroha::data_model::sumeragi_finality::SumeragiFinalityProof,
+    height: NonZeroU64,
+    root_scope: SumeragiRootScope,
+    expected_instance: &[u8; 32],
+    expected_native_hash: &[u8; 32],
+    expected_result: &[u8; 32],
+) -> Result<SignedBlock> {
+    ensure!(
+        height.get() > 1 && proof.height() == height.get(),
+        "original SCCP block height differs or is genesis"
+    );
+    let wire = &proof.block_wire;
+    ensure!(
+        !wire.is_empty()
+            && wire.len() <= iroha::data_model::sumeragi_finality::MAX_FINALITY_BLOCK_BYTES,
+        "original SCCP block wire exceeds its finite bound"
+    );
+    // Check canonical framing, proposal/native-header binding, exact execution
+    // commitments and the candidate QC. This alone does not select trusted keys.
+    proof.decode_checked(root_scope.into())?;
+    let block = norito::core::with_decode_limits_scope(
+        norito::canonical_decode_limits(wire.len()),
+        || decode_framed_signed_block(wire),
+    )?;
+    norito::core::reset_decode_state();
+    let certificate = block
+        .commit_certificate()
+        .ok_or_else(|| eyre!("original SCCP native certificate missing"))?;
+    let qc_bytes = certificate.commit_qc();
+    let qc: iroha_sumeragi::message::Qc = norito::decode_canonical_for_admission(
+        qc_bytes,
+        norito::canonical_decode_limits(qc_bytes.len()),
+    )?;
+    ensure!(
+        block.header().height() == height
+            && qc.kind == iroha_sumeragi::message::VoteKind::Commit
+            && qc.height == height.get(),
+        "original SCCP native certificate height or kind differs"
+    );
+    ensure!(
+        qc.instance.0 == *expected_instance,
+        "original SCCP native instance differs"
+    );
+    ensure!(
+        qc.block_hash.0 == *expected_native_hash,
+        "original SCCP native block hash differs"
+    );
+    ensure!(
+        qc.result.0 == *expected_result,
+        "original SCCP certified result differs"
+    );
+    // Two valid witnesses may use different exact-quorum signer subsets or views.
+    // The authenticated native hash and R identify the same proposal and execution.
+    Ok(block)
+}
+
 fn agreed_generation(network: &Network, generation: u64) -> Result<SccpGenerationV1> {
     let first = network.peers()[0].client().sccp().committee(generation)?;
     for peer in &network.peers()[1..] {
@@ -442,7 +553,7 @@ fn four_validators_rotate_after_real_idle_heartbeat_and_apply_prior_generation_f
         runtime.block_on(network.ensure_blocks(1))?;
         ensure!(network.peers().len() == 4);
         let genesis = network.genesis();
-        let (epoch, _) = authenticated_genesis(&genesis.0)?.into_parts();
+        let (epoch, root_scope) = authenticated_genesis(&genesis.0)?.into_parts();
         let keys = epoch
             .committee
             .iter()
@@ -538,20 +649,33 @@ fn four_validators_rotate_after_real_idle_heartbeat_and_apply_prior_generation_f
         runtime.block_on(network.ensure_blocks(heartbeat_height))?;
         let idle_end_ms = wall_time_ms()?;
         let heartbeat = agreed_certificate(&network, &instance, &keys, heartbeat_height, 1, true)?;
-        let heartbeat_header = SccpFinalityHeaderV1::parse(&heartbeat.header)?;
-        let heartbeat_qc = QcFixedV1::parse(&heartbeat.qc)?;
+        let heartbeat_verified = verify_certificate(
+            &instance,
+            &heartbeat.qc,
+            &heartbeat.header,
+            &heartbeat.aggregate_signature,
+            &keys,
+        )?;
+        let heartbeat_header = heartbeat_verified.header;
+        let heartbeat_qc = heartbeat_verified.qc;
+        ensure!(heartbeat_header.height() == heartbeat_height);
+        ensure!(heartbeat_header.network_id() == *epoch.network_id.as_bytes());
         ensure!(heartbeat_header.timestamp_ms() >= deadline_ms);
+        ensure!(heartbeat_header.committee_root() == root);
         ensure!(heartbeat_header.next_committee_root() == root);
         let mut heartbeat_wire = None;
         let mut keepalive_entrypoint = None;
         for peer in network.peers() {
             let client = peer.client();
-            let blocks = client.client().query(FindBlocks).execute_all()?;
-            let block = blocks
-                .iter()
-                .find(|block| block.header().height().get() == heartbeat_height)
-                .ok_or_else(|| eyre!("original committed heartbeat block missing"))?;
-            ensure!(*block.hash().as_ref() == heartbeat_qc.block_hash);
+            let (block, original_wire) = read_sccp_block_wire(
+                &client,
+                NonZeroU64::new(heartbeat_height).unwrap(),
+                root_scope,
+                &instance,
+                &heartbeat_qc.block_hash,
+                &heartbeat_verified.result,
+                Instant::now() + network.sync_timeout(),
+            )?;
             ensure!(block.external_entrypoint_count() == 1 && !block.is_empty());
             let signed = block
                 .external_transactions()
@@ -572,7 +696,7 @@ fn four_validators_rotate_after_real_idle_heartbeat_and_apply_prior_generation_f
                 ensure!(signed.hash_as_entrypoint() == expected);
             } else {
                 keepalive_entrypoint = Some(signed.hash_as_entrypoint());
-                heartbeat_wire = Some(block.encode_wire()?);
+                heartbeat_wire = Some(original_wire);
             }
         }
         let ended_generation = agreed_generation(&network, 1)?;
@@ -934,5 +1058,242 @@ fn heartbeat_stake_observation_requires_exact_integer_shares() -> Result<()> {
     );
     ensure!(bonded_stake(&norito::json!({"items": [{"bonded": "1.1"}]})).is_err());
     ensure!(bonded_stake(&norito::json!({"items": [{}]})).is_err());
+    Ok(())
+}
+
+#[test]
+fn sccp_original_block_proof_requires_native_hash_result_and_canonical_frame() -> Result<()> {
+    use iroha::data_model::sumeragi_finality::{
+        SumeragiFinalityCheckpoint, SumeragiFinalityVerifier,
+    };
+
+    init_instruction_registry();
+    // Independently selected deterministic protocol fixtures: genuine native
+    // three-of-four certificates over synthetic outputs, not World execution.
+    let genesis = SumeragiFinalityCheckpoint::decode_canonical(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../fixtures/sumeragi/native-finality/genesis-checkpoint.nrt"
+    )))?;
+    let second = SumeragiFinalityCheckpoint::decode_canonical(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../fixtures/sumeragi/native-finality/height-2-checkpoint.nrt"
+    )))?;
+    let mut verifier = SumeragiFinalityVerifier::from_trusted_checkpoint(
+        &genesis,
+        &genesis.network_id(),
+        genesis.chain_id(),
+    )?;
+    let proof = second.tip();
+    let verified = verifier.verify(proof)?;
+    let height = NonZeroU64::new(verified.height()).unwrap();
+    ensure!(height.get() == 2);
+    let scope = verified.root_scope();
+    let instance = verifier.instance().0;
+    let native_hash = verified.core_hash().0;
+    let result = verified.result().0;
+    let data_header_hash = *verified.block().hash().as_ref();
+    ensure!(
+        data_header_hash != native_hash,
+        "fixture must distinguish the two hash domains"
+    );
+    let original = check_sccp_block_proof(proof, height, scope, &instance, &native_hash, &result)?;
+    ensure!(original.encode_wire()?.as_slice() == proof.block_wire.as_slice());
+    let wrong_height = check_sccp_block_proof(
+        proof,
+        NonZeroU64::new(3).unwrap(),
+        scope,
+        &instance,
+        &native_hash,
+        &result,
+    )
+    .expect_err("wrong original height must fail");
+    ensure!(wrong_height.to_string().contains("height differs"));
+    let wrong_hash =
+        check_sccp_block_proof(proof, height, scope, &instance, &data_header_hash, &result)
+            .expect_err("the Iroha proposal-header hash cannot replace the native consensus hash");
+    ensure!(wrong_hash.to_string().contains("native block hash differs"));
+    let mut wrong_instance = instance;
+    wrong_instance[0] ^= 1;
+    let wrong_scope =
+        check_sccp_block_proof(proof, height, scope, &wrong_instance, &native_hash, &result)
+            .expect_err("a different genesis instance must fail");
+    ensure!(wrong_scope.to_string() == "original SCCP native instance differs");
+    let mut wrong_result = result;
+    wrong_result[0] ^= 1;
+    let mismatch =
+        check_sccp_block_proof(proof, height, scope, &instance, &native_hash, &wrong_result)
+            .expect_err("the structural proof cannot supply its own trusted R");
+    ensure!(mismatch.to_string().contains("certified result differs"));
+    let mut empty = proof.clone();
+    empty.block_wire.clear();
+    ensure!(
+        check_sccp_block_proof(&empty, height, scope, &instance, &native_hash, &result).is_err()
+    );
+    let mut truncated = proof.clone();
+    truncated.block_wire.pop();
+    ensure!(
+        check_sccp_block_proof(&truncated, height, scope, &instance, &native_hash, &result)
+            .is_err()
+    );
+    let mut trailing = proof.clone();
+    trailing.block_wire.push(0);
+    ensure!(
+        check_sccp_block_proof(&trailing, height, scope, &instance, &native_hash, &result).is_err()
+    );
+    Ok(())
+}
+
+#[test]
+fn sccp_original_block_proof_binds_genuinely_certified_distinct_results() -> Result<()> {
+    use iroha::data_model::sumeragi_finality::test_fixtures::NativeFinalityFixture;
+
+    init_instruction_registry();
+    let mut first = NativeFinalityFixture::start("sccp-reader-same-proposal-result");
+    let mut other = first.clone();
+    let submitted = first.block_with_submitted_work(first.next_header());
+    // These are synthetic World roots signed by the real fixture quorum.
+    // No World transition or monetary-execution qualification is claimed.
+    let first_proof = first.certify_with_world_root(
+        submitted.clone(),
+        iroha::crypto::Hash::new(b"SCCP reader first synthetic World"),
+    );
+    let other_proof = other.certify_with_world_root(
+        submitted,
+        iroha::crypto::Hash::new(b"SCCP reader other synthetic World"),
+    );
+    let first_verifier = first.verifier();
+    let other_verifier = other.verifier();
+    let first_verified = first_verifier.verify_retained_decision(&first_proof)?;
+    let other_verified = other_verifier.verify_retained_decision(&other_proof)?;
+    let height = NonZeroU64::new(first_verified.height()).unwrap();
+    let scope = first_verifier.root_scope();
+    let instance = first_verifier.instance().0;
+    let native_hash = first_verified.core_hash().0;
+    let first_result = first_verified.result().0;
+    let other_result = other_verified.result().0;
+
+    ensure!(height.get() == 2 && other_verified.height() == height.get());
+    ensure!(scope == SumeragiRootScope::Global && other_verifier.root_scope() == scope);
+    ensure!(other_verifier.instance().0 == instance);
+    ensure!(first_verified.header().hash() == other_verified.header().hash());
+    ensure!(other_verified.core_hash().0 == native_hash);
+    ensure!(first_result != other_result);
+    ensure!(
+        first_verified.block().executed_block_wire_identity()?
+            == other_verified.block().executed_block_wire_identity()?,
+        "only the genuinely certified synthetic World result differs"
+    );
+    // Both frames and certificates are valid before the expected-R check.
+    first_proof.decode_checked(scope.into())?;
+    other_proof.decode_checked(scope.into())?;
+    for (proof, own_result, cross_result) in [
+        (&first_proof, &first_result, &other_result),
+        (&other_proof, &other_result, &first_result),
+    ] {
+        let accepted =
+            check_sccp_block_proof(proof, height, scope, &instance, &native_hash, own_result)?;
+        ensure!(accepted.encode_wire()?.as_slice() == proof.block_wire.as_slice());
+        let mismatch =
+            check_sccp_block_proof(proof, height, scope, &instance, &native_hash, cross_result)
+                .expect_err(
+                    "a different genuinely certified R must not authenticate this execution",
+                );
+        ensure!(
+            mismatch.to_string() == "original SCCP certified result differs",
+            "the causal control must reach exactly the expected-result comparison: {mismatch}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn sccp_original_block_proof_accepts_alternate_valid_qc_witness() -> Result<()> {
+    use iroha::crypto::bls::consensus;
+    use iroha::data_model::{
+        block::CommitCertificate, sumeragi_finality::test_fixtures::NativeFinalityFixture,
+    };
+    use iroha_sumeragi::{
+        message::Qc,
+        types::{AggregateSignature, Bitmap},
+    };
+
+    init_instruction_registry();
+    let fixture = NativeFinalityFixture::new();
+    let verifier = fixture.verifier();
+    let proof = fixture.latest();
+    let original = verifier.verify_retained_decision(proof)?;
+    let height = NonZeroU64::new(original.height()).unwrap();
+    let scope = verifier.root_scope();
+    let instance = verifier.instance().0;
+    let native_hash = original.core_hash().0;
+    let result = original.result().0;
+    ensure!(height.get() == 2 && scope == SumeragiRootScope::Global);
+
+    let mut block = original.block().clone();
+    let certificate = block.commit_certificate().unwrap();
+    let native_header = certificate.consensus_header().to_vec();
+    let result_preimage = certificate.result_preimage().to_vec();
+    let availability = certificate.availability().to_vec();
+    let mut qc: Qc = norito::decode_canonical_for_admission(
+        certificate.commit_qc(),
+        norito::canonical_decode_limits(certificate.commit_qc().len()),
+    )?;
+    let original_qc = qc.clone();
+
+    // Exactly the public fixture constructor's deterministic keys and ordering.
+    // Validate that assumption against the already authenticated fixture roster.
+    let mut keys: Vec<_> = (1_u8..=4)
+        .map(|seed| KeyPair::from_seed(vec![seed; 32], Algorithm::BlsNormal))
+        .collect();
+    keys.sort_by_key(|key| key.public_key().try_to_bytes().unwrap().1.to_vec());
+    ensure!(proof.committee.len() == keys.len());
+    ensure!(
+        keys.iter()
+            .zip(&proof.committee)
+            .all(|(key, validator)| key.public_key() == &validator.public_key)
+    );
+    qc.view = qc
+        .view
+        .checked_add(1)
+        .expect("fixture QC view has headroom");
+    let chosen = [1_u32, 2, 3];
+    qc.signers = Bitmap::from_indices(keys.len(), chosen).unwrap();
+    let shares: Vec<_> = chosen
+        .iter()
+        .map(|index| {
+            consensus::sign_preimage(keys[*index as usize].private_key(), &qc.preimage())
+                .expect("fixed public fixture key signs the alternate QC")
+        })
+        .collect();
+    qc.agg_sig = AggregateSignature(
+        consensus::aggregate(&shares).expect("three valid fixture signatures aggregate"),
+    );
+    ensure!(qc.signers.count_ones() == 3);
+    ensure!(qc.view != original_qc.view && qc.signers != original_qc.signers);
+    ensure!(qc.block_hash == original_qc.block_hash && qc.result == original_qc.result);
+    block.set_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
+        native_header.clone(),
+        norito::encode_canonical(&qc)?,
+        result_preimage.clone(),
+        availability.clone(),
+    )));
+    let mut alternate = proof.clone();
+    alternate.block_wire = block.encode_wire()?;
+    ensure!(alternate.block_wire != proof.block_wire);
+    let alternate_certificate = block.commit_certificate().unwrap();
+    ensure!(alternate_certificate.consensus_header() == native_header.as_slice());
+    ensure!(alternate_certificate.result_preimage() == result_preimage.as_slice());
+    ensure!(alternate_certificate.availability() == availability.as_slice());
+    // The native header, including origin_view, is byte-identical. Only the QC
+    // witness changes; its aggregate signature still proves an exact quorum.
+    alternate.decode_checked(scope.into())?;
+    let same = verifier.verify_same_decision(proof, &alternate)?;
+    ensure!(same.core_hash().0 == native_hash && same.result().0 == result);
+    ensure!(same.canonical_executed_wire()? == original.canonical_executed_wire()?);
+    for candidate in [proof, &alternate] {
+        let accepted =
+            check_sccp_block_proof(candidate, height, scope, &instance, &native_hash, &result)?;
+        ensure!(accepted.encode_wire()?.as_slice() == candidate.block_wire.as_slice());
+    }
     Ok(())
 }

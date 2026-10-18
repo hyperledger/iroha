@@ -479,6 +479,25 @@ impl StateExecutor {
     /// # Errors
     /// The thread could not be spawned.
     pub fn spawn(context: ExecutorContext) -> std::io::Result<Self> {
+        Self::spawn_with_local_observations(context, false)
+    }
+
+    /// Same serialized canonical executor, with process-only diagnostic writes
+    /// suppressed on its own physical thread. No signing or queue is attached.
+    pub(crate) fn spawn_isolated_replay(context: ExecutorContext) -> std::io::Result<Self> {
+        if !context.state.kura().is_temporary_staging() || context.queue.is_some() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "isolated replay requires temporary Kura and no submission queue",
+            ));
+        }
+        Self::spawn_with_local_observations(context, true)
+    }
+
+    fn spawn_with_local_observations(
+        context: ExecutorContext,
+        isolated: bool,
+    ) -> std::io::Result<Self> {
         // One serialized worker can retain at most one waiting request. The driver
         // already owns bounded control ingress and the original publication retry.
         let (requests, rx) = mpsc::sync_channel(1);
@@ -487,6 +506,7 @@ impl StateExecutor {
         let exit_hook = shutdown_tests::take_exit_hook();
         let thread =
             super::threads::sumeragi_thread_builder("sumeragi-state-exec").spawn(move || {
+                let _observations = isolated.then(crate::status::isolate_replay_observations);
                 run(&context, &rx);
                 #[cfg(test)]
                 if let Some(exit_hook) = exit_hook {
@@ -612,6 +632,16 @@ impl StateExecutor {
 
         self.call(|reply| Request::Replay(block.clone(), commit_qc.clone(), reply))
             .unwrap_or_else(|| Err(control::stopped()))
+    }
+
+    /// Prepare the exact certified replay before its isolated Kura append. The
+    /// original startup replay then consumes this same historical execution owner.
+    pub(crate) fn prepare_replay(
+        &mut self,
+        block: &AvailableBody,
+        commit_qc: &Qc,
+    ) -> Result<Option<Hash32>, PublicationError> {
+        self.prepare_with_origin(block, commit_qc, CommitTelemetryOrigin::HistoricalReplay)
     }
 
     fn prepare_with_origin(
@@ -2163,6 +2193,15 @@ impl<'s> Worker<'s> {
                 original.valid.as_ref(),
                 original.phase.ready().expect("original prepared result"),
                 &original.witness,
+            )?;
+            self.context.native_context_archive.prepare_fastpq_source(
+                original
+                    .native_contexts
+                    .as_mut()
+                    .expect("original context capture"),
+                original.valid.as_ref(),
+                original.phase.ready().expect("original prepared result"),
+                &original.witness,
             )
         })();
         match capture {
@@ -2171,6 +2210,18 @@ impl<'s> Worker<'s> {
                 Ok(())
             }
             Err(error) => {
+                if self
+                    .context
+                    .native_context_archive
+                    .retains_isolated_fastpq_source()
+                {
+                    // The existing producer owns the exact original failure. Its
+                    // typed policy distinguishes a retained projection retry from
+                    // a fresh optional capture and terminal invariant failures.
+                    return Err(PublicationError::Deferred(
+                        super::driver::traits::PublicationDeferral::IsolatedSourceTransport(error),
+                    ));
+                }
                 let failure = match &error {
                     NativeContextArchiveError::Allocation(error) => {
                         PublicationError::Deferred(preparation::buffer_refusal(error).into())
@@ -3075,8 +3126,43 @@ impl<'s> Worker<'s> {
                     // The complete original projection was already admitted before State
                     // publication. This path borrows those bytes and performs only namespace
                     // and immutable I/O checks; it has no allocation release source to invent.
-                    format!("original native context archive publication failed: {error}")
+                    if self
+                        .context
+                        .native_context_archive
+                        .retains_isolated_fastpq_source()
+                    {
+                        PublicationError::Deferred(
+                            super::driver::traits::PublicationDeferral::IsolatedSourceTransport(
+                                error,
+                            ),
+                        )
+                    } else {
+                        PublicationError::from(format!(
+                            "original native context archive publication failed: {error}"
+                        ))
+                    }
                 })?;
+            if let Err(error) = self
+                .context
+                .native_context_archive
+                .publish_fastpq_source(self.state.kura(), &pending.native_contexts)
+            {
+                if self
+                    .context
+                    .native_context_archive
+                    .retains_isolated_fastpq_source()
+                {
+                    // PendingCommit retains the exact original charged tape. Only
+                    // this isolated destination may defer its local completion.
+                    return Err(PublicationError::Deferred(
+                        super::driver::traits::PublicationDeferral::IsolatedSourceTransport(error),
+                    ));
+                }
+                // Optional proof transport cannot strand mandatory native publication.
+                // Missing transport remains unresolved at this exact certified source;
+                // no outbox cursor or proof acknowledgement is emitted here.
+                iroha_logger::warn!(%error, height, "FASTPQ source transport remains unresolved");
+            }
             if let Some(archives) = &self.archives {
                 archives.capture(&view)?;
             }

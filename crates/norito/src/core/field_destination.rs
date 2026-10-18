@@ -74,10 +74,94 @@ pub trait DecodeRecordFields<D: FieldDestination> {
     ) -> Result<(Self::Values, usize), DecodeIntoError<D::Error>>;
 }
 
+/// Materialize an opted-in enum or a whole-value-validated record from its sole
+/// generated field traversal.
+///
+/// Each destination field must yield its actual declared type. The generated
+/// walk checks complete framing before calling the original consuming validation
+/// hook exactly once and returns that hook's actual, possibly normalized value.
+/// A span-only or `()` destination cannot satisfy this materialization contract.
+/// This does not authenticate a complete canonical frame or grant physical graph
+/// custody. Enums return materialized children on later sibling `Result` errors
+/// through [`DecodeVariantField::restore_variant_field`] and the complete actual
+/// enum on final framing errors through [`DecodeValueDestination::restore_value`].
+/// In particular, an allocating or consuming hook may drop a partially
+/// reconstructed value on error; its original resource ownership remains the
+/// caller's responsibility.
+pub trait DecodeValueFields<D: FieldDestination>: Sized {
+    /// Walk and reconstruct the actual value under the advertised payload scope.
+    fn decode_value_fields(
+        bytes: &[u8],
+        destination: &mut D,
+    ) -> Result<(Self, usize), DecodeIntoError<D::Error>>;
+}
+
+/// Receive an actual materialized value rejected by its final payload framing.
+///
+/// The generated enum has already constructed its original `Self` when final
+/// framing fails. Returning that complete value preserves its own `Drop` and
+/// child destruction order, including enums whose fields cannot be moved out.
+/// This does not certify framing, semantic validity or physical graph custody.
+pub trait DecodeValueDestination<T>: FieldDestination {
+    /// Retain or drop the exact constructed value without changing its error.
+    ///
+    /// A retaining destination must use existing admitted storage and preserve
+    /// every backing and charge without allocating or panicking. Ordinary
+    /// [`OwnedFields`] explicitly drops the entire actual value. This covers
+    /// final framing `Result` errors before a consuming validation hook; a hook
+    /// error cannot return the value it consumed. Panic custody is not certified.
+    fn restore_value(&mut self, value: T);
+}
+
+/// Destination receiving a known original enum discriminant before its fields.
+pub trait EnumFieldDestination: FieldDestination {
+    /// Select a valid declared variant, including unit variants.
+    ///
+    /// Unknown tags are rejected by the generated canonical parser before this
+    /// callback. A local refusal remains distinct from a canonical byte error.
+    fn begin_variant(&mut self, variant: u32) -> Result<(), Self::Error>;
+}
+
+/// Materialize one actual field of an original enum variant.
+///
+/// `VARIANT` is the original canonical u32 discriminant; `INDEX` is the field's
+/// position within that variant. Direct byte arrays retain the ordinary enum's
+/// raw-array specialization; other children use their canonical value framing.
+pub trait DecodeVariantField<const VARIANT: u32, const INDEX: usize, T>:
+    EnumFieldDestination
+{
+    /// Decode the complete original field into its actual declared type.
+    fn decode_variant_field(
+        &mut self,
+        field: CanonicalField<'_, T>,
+    ) -> Result<T, DecodeIntoError<Self::Error>>;
+
+    /// Receive this exact materialized child after a later sibling error.
+    ///
+    /// The sole generated traversal moves the original `T`, without cloning,
+    /// back to its original variant/field destination and returns the unchanged
+    /// error. Earlier siblings are restored in reverse local order, matching
+    /// ordinary owning destruction on this path. A complete enum rejected by
+    /// final framing is returned through [`DecodeValueDestination`] instead.
+    ///
+    /// A retaining destination must use already admitted storage, preserve the
+    /// child's original backing and charges, and neither allocate nor panic.
+    /// Ordinary [`OwnedFields`] explicitly drops the returned value. This is a
+    /// `Result` rollback contract, not a panic guard. A consuming whole-value
+    /// validation hook owns `Self`; if it fails, its consumed children cannot be
+    /// restored through this method. No complete frame or custody is certified.
+    fn restore_variant_field(&mut self, value: T);
+}
+
 /// Ordinary custody implementation used by the same generated record traversal.
 pub struct OwnedFields;
 impl FieldDestination for OwnedFields {
     type Error = std::convert::Infallible;
+}
+impl<T> DecodeValueDestination<T> for OwnedFields {
+    fn restore_value(&mut self, value: T) {
+        drop(value);
+    }
 }
 impl<const INDEX: usize, T> DecodeField<INDEX, T> for OwnedFields {
     type Value = T;
@@ -86,6 +170,26 @@ impl<const INDEX: usize, T> DecodeField<INDEX, T> for OwnedFields {
         field: CanonicalField<'_, T>,
     ) -> Result<T, DecodeIntoError<Self::Error>> {
         field.decode_owned().map_err(DecodeIntoError::Codec)
+    }
+}
+
+impl EnumFieldDestination for OwnedFields {
+    fn begin_variant(&mut self, _variant: u32) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+impl<const VARIANT: u32, const INDEX: usize, T> DecodeVariantField<VARIANT, INDEX, T>
+    for OwnedFields
+{
+    fn decode_variant_field(
+        &mut self,
+        field: CanonicalField<'_, T>,
+    ) -> Result<T, DecodeIntoError<Self::Error>> {
+        field.decode_owned().map_err(DecodeIntoError::Codec)
+    }
+
+    fn restore_variant_field(&mut self, value: T) {
+        drop(value);
     }
 }
 

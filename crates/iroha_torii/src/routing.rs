@@ -158,10 +158,7 @@ use core::str::FromStr;
 #[cfg(feature = "telemetry")]
 use eyre::eyre;
 use hex::ToHex;
-use iroha_config::parameters::{
-    actual::{NexusFeeSettlementMode, TelemetryProfile},
-    defaults,
-};
+use iroha_config::parameters::{actual::TelemetryProfile, defaults};
 #[cfg(feature = "app_api")]
 use iroha_version::codec::DecodeVersioned as _;
 use std::{
@@ -574,28 +571,6 @@ impl DataspaceReadVisibility {
                     .all(|dataspace| self.allows_dataspace(dataspace))
             })
     }
-
-    pub(crate) fn allows_external_entrypoint_hash(
-        &self,
-        block: &SignedBlock,
-        target: HashOf<TransactionEntrypoint>,
-    ) -> bool {
-        let mut matched = false;
-        for index in 0..block.network_entrypoint_count() {
-            let Some(source) = block.network_entrypoint_at(index) else {
-                return false;
-            };
-            let hash = source.hash();
-            if hash != target {
-                continue;
-            }
-            matched = true;
-            if !self.allows_external_entrypoint(block, index) {
-                return false;
-            }
-        }
-        matched
-    }
 }
 use iroha_data_model as dm;
 use iroha_data_model::{
@@ -701,7 +676,6 @@ pub struct PipelinePreflightFees {
     pub per_instruction_fee: iroha_primitives::numeric::Quantity,
     pub per_gas_unit_fee: iroha_primitives::numeric::Quantity,
     pub sponsor_vault_custody_account_id: String,
-    pub settlement_mode: String,
     pub successful_claim_fee_exempt_authorities: Vec<String>,
 }
 ( Clone, Debug, crate::json_macros::JsonSerialize, crate::json_macros::JsonDeserialize, norito::derive::NoritoSerialize, norito::derive::NoritoDeserialize,)
@@ -6446,8 +6420,8 @@ pub fn build_pipeline_preflight_response(
             inflight: size.saturating_sub(queued),
         },
         fees: PipelinePreflightFees {
-            fee_asset_id: nexus.fees.fee_asset_id,
-            fee_sink_account_id: nexus.fees.fee_sink_account_id,
+            fee_asset_id: nexus.fees.fee_asset_id.canonical_address(),
+            fee_sink_account_id: nexus.fees.fee_sink_account_id.to_string(),
             base_fee: nexus.fees.base_fee,
             per_byte_fee: nexus.fees.per_byte_fee,
             per_instruction_fee: nexus.fees.per_instruction_fee,
@@ -6456,11 +6430,6 @@ pub fn build_pipeline_preflight_response(
                 .fees
                 .sponsor_vault_custody_account_id
                 .to_string(),
-            settlement_mode: match nexus.fees.settlement_mode {
-                NexusFeeSettlementMode::Direct => "direct",
-                NexusFeeSettlementMode::LaneRelayBurn => "lane_relay_burn",
-            }
-            .to_owned(),
             successful_claim_fee_exempt_authorities: nexus
                 .fees
                 .successful_claim_fee_exempt_authorities
@@ -7614,12 +7583,12 @@ mod evidence_list_query_contract_tests {
             || evidence_to_json(&record),
         )
         .unwrap_err();
-        assert!(matches!(
-            error,
-            Error::Query(iroha_data_model::ValidationFail::QueryFailed(
-                iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded
-            ))
-        ));
+        assert!(matches!(&error, Error::NativeEvidenceDecode(_)));
+        assert!(std::error::Error::source(&error).is_some());
+        assert_eq!(
+            error.into_response().status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
         let iroha_data_model::block::consensus::RecordedEvidenceV1::Native(native) =
             &record.evidence
         else {
@@ -9368,6 +9337,14 @@ fn recorded_evidence_fields_to_json<'a>(
         }
     }
 }
+fn native_evidence_decode_error(error: iroha_sumeragi::message::CodecError) -> Error {
+    match error {
+        iroha_sumeragi::message::CodecError::Resource(original) => {
+            Error::NativeEvidenceDecode(original)
+        }
+        other => conversion_error(format!("stored native evidence is not canonical: {other}")),
+    }
+}
 fn evidence_fields_to_json<'a>(
     evidence: &iroha_data_model::block::consensus::Evidence,
     attribution: &'a iroha_data_model::block::consensus::EvidenceAttribution,
@@ -9385,14 +9362,9 @@ fn evidence_fields_to_json<'a>(
             "native evidence has an SCCP generation scope".into(),
         ));
     }
-    let native = evidence.decode_native().map_err(|error| match error {
-        iroha_sumeragi::message::CodecError::Resource(_) => {
-            Error::Query(iroha_data_model::ValidationFail::QueryFailed(
-                iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded,
-            ))
-        }
-        other => conversion_error(format!("stored native evidence is not canonical: {other}")),
-    })?;
+    let native = evidence
+        .decode_native()
+        .map_err(native_evidence_decode_error)?;
     let class = match native {
         NativeEvidence::ProposalEquivocation(..) => "proposal",
         NativeEvidence::VoteEquivocation(..) => "phase_vote",
@@ -33870,15 +33842,6 @@ impl HistoryVisibilityReads {
         Ok(())
     }
 }
-#[cfg(test)]
-fn committed_transaction_is_visible_in_block(
-    visibility: &DataspaceReadVisibility,
-    transaction: &iroha_data_model::query::CommittedTransaction,
-    block: &SignedBlock,
-) -> bool {
-    visibility.can_read_all()
-        || visibility.allows_external_entrypoint_hash(block, *transaction.entrypoint_hash())
-}
 }
 app_api_items! {
 fn account_history_projection_matches_asset_selector(
@@ -37289,11 +37252,11 @@ mod explorer_lookup_tests {
             ExternalExecutionContext::new(entrypoint_hash, coordinator_lane, visible_dataspace),
         ])));
         assert!(visibility.allows_external_entrypoint(&block, 0));
-        assert!(committed_transaction_is_visible_in_block(
-            &visibility,
-            &transaction,
-            &block,
-        ));
+        assert_eq!(
+            block.network_entrypoint_at(0).map(|entrypoint| entrypoint.hash()),
+            Some(*transaction.entrypoint_hash()),
+            "history rows name the entrypoint whose index the visibility check reads",
+        );
         assert_eq!(
             crate::explorer_history::HistoryBlockRow::from_block(&block, |index| {
                 visibility.allows_external_entrypoint(&block, index)
@@ -37322,11 +37285,6 @@ mod explorer_lookup_tests {
         );
         block.set_execution_context(Some(BlockExecutionContextBundle::new(vec![mixed_context])));
         assert!(!visibility.allows_external_entrypoint(&block, 0));
-        assert!(!committed_transaction_is_visible_in_block(
-            &visibility,
-            &transaction,
-            &block,
-        ));
         assert_eq!(
             crate::explorer_history::HistoryBlockRow::from_block(&block, |index| {
                 visibility.allows_external_entrypoint(&block, index)
@@ -38952,16 +38910,19 @@ struct ContractEventsSseState {
     authorization_interval: tokio::time::Interval,
     last_block_height: Option<u64>,
     terminal: bool,
+    authorization: crate::stream_read_authorization::ToriiStreamReadAuthorization,
 }
 }
 #[cfg(not(test))]
 const SSE_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 #[cfg(test)]
 const SSE_HEARTBEAT_INTERVAL: Duration = Duration::from_millis(25);
+/// Longest time a long-lived stream may serve items under one authorization decision.
 #[cfg(not(test))]
-const STREAM_AUTHORIZATION_CHECK_INTERVAL: Duration = Duration::from_secs(1);
+pub(crate) const STREAM_AUTHORIZATION_CHECK_INTERVAL: Duration = Duration::from_secs(1);
+/// Longest time a long-lived stream may serve items under one authorization decision.
 #[cfg(test)]
-const STREAM_AUTHORIZATION_CHECK_INTERVAL: Duration = Duration::from_millis(10);
+pub(crate) const STREAM_AUTHORIZATION_CHECK_INTERVAL: Duration = Duration::from_millis(10);
 app_api_items! {
 #[derive(Debug, crate::json_macros::JsonSerialize)]
 struct StreamErrorEvent {
@@ -39040,17 +39001,20 @@ pub fn handle_v1_contracts_events_sse(
             authorization_interval,
             last_block_height: None,
             terminal: false,
+            authorization: crate::stream_read_authorization::ToriiStreamReadAuthorization::new(
+                visibility,
+            ),
         },
         move |mut state| {
             let query = query.clone();
-            let visibility = visibility.clone();
             async move {
+                use crate::stream_read_authorization::StreamAuthorization as _;
                 use tokio::sync::broadcast::error::RecvError;
                 if state.terminal {
                     return None;
                 }
                 loop {
-                    if !visibility.authorization_is_current() {
+                    if !state.authorization.authorization_is_current() {
                         state.pending.clear();
                         state.terminal = true;
                         return Some((Ok(stream_authorization_revoked_event()), state));
@@ -39105,7 +39069,7 @@ pub fn handle_v1_contracts_events_sse(
                                             );
                                             return Some((Ok(ev), state));
                                         };
-                                        let current_visibility = visibility.current_visibility();
+                                        let current_visibility = state.authorization.visibility().clone();
                                         let visibility_owner = HistoryVisibilityReads::new(Arc::clone(&state.state));
                                         let visibility_reads = &visibility_owner;
                                         let Some(expected_end_hash) = state.state.committed_block_hash_at_height(height) else {
@@ -39166,7 +39130,7 @@ pub fn handle_v1_contracts_events_sse(
                             }
                         }
                         _ = state.authorization_interval.tick() => {
-                            if !visibility.authorization_is_current() {
+                            if !state.authorization.revalidate() {
                                 state.pending.clear();
                                 state.terminal = true;
                                 return Some((Ok(stream_authorization_revoked_event()), state));
@@ -39252,12 +39216,10 @@ pub fn handle_v1_events_sse(
     visibility: ToriiDataspaceReadContext,
     crate::NoritoQuery(params): crate::NoritoQuery<EventsSseParams>,
 ) -> Result<Sse<impl futures::Stream<Item = Result<SseEvent, Infallible>>>, crate::Error> {
-    let authorization = visibility.clone();
-    handle_v1_events_sse_with_filter(
+    handle_v1_events_sse_with_scope(
         events,
         params,
-        move |event_box| visibility.filter_event(kura.as_ref(), event_box),
-        move || authorization.authorization_is_current(),
+        crate::stream_read_authorization::ScopedEventStream::new(visibility, kura),
     )
 }
 
@@ -39271,9 +39233,52 @@ pub fn handle_v1_events_sse_for_tests(
     events: EventsSender,
     crate::NoritoQuery(params): crate::NoritoQuery<EventsSseParams>,
 ) -> Result<Sse<impl futures::Stream<Item = Result<SseEvent, Infallible>>>, crate::Error> {
-    handle_v1_events_sse_with_filter(events, params, |event| Ok(Some(event)), || true)
+    handle_v1_events_sse_with_scope(
+        events,
+        params,
+        crate::stream_read_authorization::UnscopedEventStream,
+    )
 }
 
+/// Event scope assembled from closures for stream behavior tests.
+#[cfg(test)]
+struct ClosureEventScope<F, A> {
+    filter_event: F,
+    authorization_is_current: A,
+}
+
+#[cfg(test)]
+impl<F, A> crate::stream_read_authorization::StreamAuthorization for ClosureEventScope<F, A>
+where
+    F: Send + 'static,
+    A: FnMut() -> bool + Send + 'static,
+{
+    fn authorization_is_current(&mut self) -> bool {
+        (self.authorization_is_current)()
+    }
+
+    fn revalidate(&mut self) -> bool {
+        (self.authorization_is_current)()
+    }
+}
+
+#[cfg(test)]
+impl<F, A> crate::stream_read_authorization::EventStreamScope for ClosureEventScope<F, A>
+where
+    F: FnMut(EventBox) -> crate::stream_read_authorization::EventHistoryResult<Option<EventBox>>
+        + Send
+        + 'static,
+    A: FnMut() -> bool + Send + 'static,
+{
+    fn filter_event(
+        &mut self,
+        event: EventBox,
+    ) -> crate::stream_read_authorization::EventHistoryResult<Option<EventBox>> {
+        (self.filter_event)(event)
+    }
+}
+
+#[cfg(test)]
 fn handle_v1_events_sse_with_filter<F, A>(
     events: EventsSender,
     params: EventsSseParams,
@@ -39281,8 +39286,30 @@ fn handle_v1_events_sse_with_filter<F, A>(
     authorization_is_current: A,
 ) -> Result<Sse<impl futures::Stream<Item = Result<SseEvent, Infallible>>>, crate::Error>
 where
-    F: Fn(EventBox) -> std::result::Result<Option<EventBox>, iroha_core::execution_attempt::ExecutionAttemptError<iroha_core::kura::Error>> + Clone + Send + 'static,
-    A: Fn() -> bool + Clone + Send + 'static,
+    F: FnMut(EventBox) -> crate::stream_read_authorization::EventHistoryResult<Option<EventBox>>
+        + Send
+        + 'static,
+    A: FnMut() -> bool + Send + 'static,
+{
+    handle_v1_events_sse_with_scope(
+        events,
+        params,
+        ClosureEventScope {
+            filter_event,
+            authorization_is_current,
+        },
+    )
+}
+
+/// Serve one event subscription; `scope` owns its authorization and
+/// visibility for the whole stream.
+fn handle_v1_events_sse_with_scope<S>(
+    events: EventsSender,
+    params: EventsSseParams,
+    scope: S,
+) -> Result<Sse<impl futures::Stream<Item = Result<SseEvent, Infallible>>>, crate::Error>
+where
+    S: crate::stream_read_authorization::EventStreamScope,
 {
     let SseFilterSpec {
         filters,
@@ -39305,21 +39332,20 @@ where
             pending: VecDeque::new(),
             authorization_interval,
             terminal: false,
+            scope,
         },
         move |mut state| {
             let filters = filters.clone();
             let proof_backend = proof_backend.clone();
             let proof_call_hash = proof_call_hash.clone();
             let proof_envelope_hash = proof_envelope_hash.clone();
-            let filter_event = filter_event.clone();
-            let authorization_is_current = authorization_is_current.clone();
             async move {
                 use tokio::sync::broadcast::error::RecvError;
                 if state.terminal {
                     return None;
                 }
                 loop {
-                    if !authorization_is_current() {
+                    if !state.scope.authorization_is_current() {
                         state.pending.clear();
                         state.terminal = true;
                         return Some((Ok(stream_authorization_revoked_event()), state));
@@ -39345,12 +39371,12 @@ where
                         recv = state.rx.recv() => {
                             match recv {
                                 Ok(event_box) => {
-                                    if !authorization_is_current() {
+                                    if !state.scope.authorization_is_current() {
                                         state.pending.clear();
                                         state.terminal = true;
                                         return Some((Ok(stream_authorization_revoked_event()), state));
                                     }
-                                    let event_box = match filter_event(event_box) {
+                                    let event_box = match state.scope.filter_event(event_box) {
                                         Ok(Some(event)) => event,
                                         Ok(None) => continue,
                                         Err(error) => {
@@ -39419,7 +39445,7 @@ where
                             }
                         }
                         _ = state.authorization_interval.tick() => {
-                            if !authorization_is_current() {
+                            if !state.scope.revalidate() {
                                 state.pending.clear();
                                 state.terminal = true;
                                 return Some((Ok(stream_authorization_revoked_event()), state));
@@ -39436,11 +39462,12 @@ where
             .text("heartbeat"),
     ))
 }
-struct EventsSseState {
+struct EventsSseState<S> {
     rx: tokio::sync::broadcast::Receiver<EventBox>,
     pending: VecDeque<EventBox>,
     authorization_interval: tokio::time::Interval,
     terminal: bool,
+    scope: S,
 }
 }
 #[derive(Clone, Copy)]
@@ -49331,7 +49358,7 @@ fn onboarding_owner_auto_renew_follow_up(
         return Ok(None);
     };
     let world = app.state.world_view();
-    let configured_fee_asset_selector = app.state.nexus_snapshot().fees.fee_asset_id;
+    let configured_fee_asset_selector = app.state.nexus_snapshot().fees.fee_asset_id.canonical_address();
     iroha_core::alias_setup::validate_configured_alias_payment_asset(
         &world,
         &target,
@@ -49412,7 +49439,7 @@ fn build_account_onboarding_plan(
     // service capability. An idle chain must still issue a fresh bounded receipt.
     let valid_until_ms = current_time_millis()
         .saturating_add(APP_API_TRANSACTION_TTL_SECS.saturating_mul(1_000));
-    let configured_fee_asset_selector = app.state.nexus_snapshot().fees.fee_asset_id;
+    let configured_fee_asset_selector = app.state.nexus_snapshot().fees.fee_asset_id.canonical_address();
     let configured_fee_asset =
         resolve_asset_definition_selector(&world, &configured_fee_asset_selector, committed_time_ms).map_err(
             |error| Error::AppConflict {
@@ -49648,7 +49675,7 @@ fn revalidate_onboarding_prepared_work(
             )));
         }
         if disposition == AliasPlanDispositionV1::Create {
-            let configured_fee_asset = app.state.nexus_snapshot().fees.fee_asset_id;
+            let configured_fee_asset = app.state.nexus_snapshot().fees.fee_asset_id.canonical_address();
             iroha_core::alias_setup::validate_configured_alias_payment_asset(
                 &world,
                 &normalized.intent.target(),
@@ -58183,21 +58210,24 @@ pub mod block {
             }
         }
     }
+    /// Retry delay for a committed height whose body Kura cannot serve yet.
+    const BLOCK_BODY_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
     #[iroha_futures::telemetry_future]
-    pub async fn handle_blocks_stream<F>(
+    pub async fn handle_blocks_stream<A>(
         kura: Arc<Kura>,
+        state: Arc<CoreState>,
         execution_budget: iroha_core::state::AllocationBudget,
         stream: WebSocket,
         ws_message_timeout: std::time::Duration,
-        authorization_is_current: F,
+        mut authorization: A,
     ) -> eyre::Result<()>
     where
-        F: Fn() -> bool + Send + Sync + 'static,
+        A: crate::stream_read_authorization::StreamAuthorization,
     {
         let mut stream = WebSocketNorito::new(stream, ws_message_timeout);
         let init_and_subscribe = async {
             let mut consumer = block::Consumer::new(&mut stream, kura, execution_budget).await?;
-            subscribe_forever(&mut consumer, &authorization_is_current).await
+            subscribe_forever(&mut consumer, &state, &mut authorization).await
         };
         match init_and_subscribe.await {
             Ok(()) => stream.close().await.map_err(Into::into),
@@ -58213,18 +58243,40 @@ pub mod block {
     }
     /// Make endless `consumer` subscription for `blocks`
     ///
+    /// Every block already committed is sent as soon as the stream wakes; the
+    /// stream then sleeps until State publishes the next height. Authorization
+    /// is rechecked before each block and on every authorization tick.
+    ///
     /// Ideally should return `Result<!>` cause it either runs forever or returns error
     async fn subscribe_forever(
         consumer: &mut block::Consumer<'_>,
-        authorization_is_current: &(impl Fn() -> bool + Sync),
+        state: &CoreState,
+        authorization: &mut impl crate::stream_read_authorization::StreamAuthorization,
     ) -> Result<()> {
-        let mut interval = tokio::time::interval(std::time::Duration::from_millis(10));
         let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
-        let mut authorization_check = tokio::time::interval(std::time::Duration::from_secs(1));
+        let mut authorization_check = tokio::time::interval(STREAM_AUTHORIZATION_CHECK_INTERVAL);
         heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         authorization_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         heartbeat.tick().await;
         loop {
+            loop {
+                ensure_authorized(authorization)?;
+                if !consumer.consume().await? {
+                    break;
+                }
+            }
+            let next = u64::try_from(consumer.next_height().get()).unwrap_or(u64::MAX);
+            // A published height whose body is not readable yet is retried
+            // after a short delay instead of re-polling a completed wait.
+            let published = u64::try_from(state.committed_height()).unwrap_or(u64::MAX) >= next;
+            let wake = async {
+                if published {
+                    tokio::time::sleep(BLOCK_BODY_RETRY_INTERVAL).await;
+                } else {
+                    state.wait_for_committed_height(next).await;
+                }
+            };
+            tokio::pin!(wake);
             tokio::select! {
                 // Wait for stream to be closed by client
                 closed = consumer.stream.closed() => {
@@ -58233,13 +58285,10 @@ pub mod block {
                         Err(err) => return Err(block::Error::from(err).into())
                     }
                 }
-                // This branch sends blocks
-                _ = interval.tick() => {
-                    ensure_authorized(authorization_is_current)?;
-                    consumer.consume().await?;
-                }
+                // The next height is published; the loop above sends it.
+                () = &mut wake => {}
                 _ = authorization_check.tick() => {
-                    ensure_authorized(authorization_is_current)?;
+                    revalidate(authorization)?;
                 }
                 _ = heartbeat.tick() => {
                     consumer.stream.ping().await.map_err(block::Error::from)?;
@@ -58248,8 +58297,20 @@ pub mod block {
         }
     }
 
-    fn ensure_authorized(authorization_is_current: &impl Fn() -> bool) -> Result<()> {
-        if authorization_is_current() {
+    fn ensure_authorized(
+        authorization: &mut impl crate::stream_read_authorization::StreamAuthorization,
+    ) -> Result<()> {
+        if authorization.authorization_is_current() {
+            Ok(())
+        } else {
+            Err(Error::AuthorizationRevoked)
+        }
+    }
+
+    fn revalidate(
+        authorization: &mut impl crate::stream_read_authorization::StreamAuthorization,
+    ) -> Result<()> {
+        if authorization.revalidate() {
             Ok(())
         } else {
             Err(Error::AuthorizationRevoked)
@@ -58289,13 +58350,44 @@ pub mod block {
             assert_eq!(reason, "stream_authorization_revoked");
         }
 
+        /// Fixed authorization that counts how it was consulted.
+        struct Gate {
+            authorized: bool,
+            checks: usize,
+            revalidations: usize,
+        }
+
+        impl crate::stream_read_authorization::StreamAuthorization for Gate {
+            fn authorization_is_current(&mut self) -> bool {
+                self.checks += 1;
+                self.authorized
+            }
+
+            fn revalidate(&mut self) -> bool {
+                self.revalidations += 1;
+                self.authorized
+            }
+        }
+
         #[test]
         fn block_delivery_rechecks_authorization_before_each_item() {
-            assert!(ensure_authorized(&|| true).is_ok());
+            let mut gate = Gate {
+                authorized: true,
+                checks: 0,
+                revalidations: 0,
+            };
+            assert!(ensure_authorized(&mut gate).is_ok());
+            assert!(revalidate(&mut gate).is_ok());
+            gate.authorized = false;
             assert!(matches!(
-                ensure_authorized(&|| false),
+                ensure_authorized(&mut gate),
                 Err(Error::AuthorizationRevoked)
             ));
+            assert!(matches!(
+                revalidate(&mut gate),
+                Err(Error::AuthorizationRevoked)
+            ));
+            assert_eq!((gate.checks, gate.revalidations), (2, 2));
         }
     }
 }
@@ -58433,9 +58525,11 @@ pub mod event {
         visibility: Option<ToriiDataspaceReadContext>,
     ) -> eyre::Result<()> {
         let mut stream = WebSocketNorito::new(stream, ws_message_timeout);
+        let mut authorization =
+            visibility.map(crate::stream_read_authorization::ToriiStreamReadAuthorization::new);
         let init_and_subscribe = async {
             let mut consumer = event::Consumer::new(&mut stream).await?;
-            subscribe_forever(events_rx, &mut consumer, visibility.as_ref()).await
+            subscribe_forever(events_rx, &mut consumer, authorization.as_mut()).await
         };
         match init_and_subscribe.await {
             Ok(()) => stream.close().await.map_err(Into::into),
@@ -58455,8 +58549,11 @@ pub mod event {
     async fn subscribe_forever(
         events: &mut tokio::sync::broadcast::Receiver<iroha_data_model::events::EventBox>,
         consumer: &mut event::Consumer<'_>,
-        visibility: Option<&ToriiDataspaceReadContext>,
+        mut authorization: Option<
+            &mut crate::stream_read_authorization::ToriiStreamReadAuthorization,
+        >,
     ) -> Result<()> {
+        use crate::stream_read_authorization::StreamAuthorization as _;
         let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
         let mut authorization_check = tokio::time::interval(STREAM_AUTHORIZATION_CHECK_INTERVAL);
         heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -58475,14 +58572,12 @@ pub mod event {
                 event = events.recv() => {
                     match event {
                         Ok(event) => {
-                            if visibility
-                                .is_some_and(|visibility| !visibility.authorization_is_current())
-                            {
-                                return Err(Error::AuthorizationRevoked);
-                            }
-                            let event = match visibility {
-                                Some(visibility) => {
-                                    let Some(event) = visibility.filter_current_event(event).map_err(Error::History)? else {
+                            let event = match authorization.as_deref_mut() {
+                                Some(authorization) => {
+                                    if !authorization.authorization_is_current() {
+                                        return Err(Error::AuthorizationRevoked);
+                                    }
+                                    let Some(event) = authorization.filter_current_event(event).map_err(Error::History)? else {
                                         continue;
                                     };
                                     event
@@ -58499,8 +58594,9 @@ pub mod event {
                     consumer.stream.ping().await.map_err(event::Error::from)?;
                 }
                 _ = authorization_check.tick() => {
-                    if visibility
-                        .is_some_and(|visibility| !visibility.authorization_is_current())
+                    if authorization
+                        .as_deref_mut()
+                        .is_some_and(|authorization| !authorization.revalidate())
                     {
                         return Err(Error::AuthorizationRevoked);
                     }

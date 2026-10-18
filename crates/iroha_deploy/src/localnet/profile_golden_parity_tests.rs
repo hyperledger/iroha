@@ -110,7 +110,7 @@ fn custody_accounts(pipeline: &actual::Pipeline, nexus: &actual::Nexus) -> [Acco
     let parse = |literal: &str| AccountId::parse_encoded(literal).expect("custody account literal");
     [
         parse(&pipeline.gas.tech_account_id),
-        parse(&nexus.fees.fee_sink_account_id),
+        nexus.fees.fee_sink_account_id.clone(),
         nexus.fees.sponsor_vault_custody_account_id.clone(),
         parse(&nexus.staking.stake_escrow_account_id),
         parse(&nexus.staking.slash_sink_account_id),
@@ -224,7 +224,7 @@ fn custody_normalization_sets_exactly_the_five_custody_roles() {
     let (mut from_pipeline, mut from_nexus) =
         (actual::Pipeline::default(), actual::Nexus::default());
     from_pipeline.gas.tech_account_id.clone_from(&literal);
-    from_nexus.fees.fee_sink_account_id.clone_from(&literal);
+    from_nexus.fees.fee_sink_account_id = kagami.clone();
     from_nexus.fees.sponsor_vault_custody_account_id = kagami.clone();
     from_nexus
         .staking
@@ -234,7 +234,10 @@ fn custody_normalization_sets_exactly_the_five_custody_roles() {
         .staking
         .slash_sink_account_id
         .clone_from(&literal);
-    from_nexus.fees.fee_asset_id = "not-a-custody-field".to_owned();
+    from_nexus.fees.fee_asset_id = AssetDefinitionId::derive_from_components(
+        iroha_model_base::domain::DomainId::parse_fully_qualified("app.parity").unwrap(),
+        "different".parse().unwrap(),
+    );
     let (mut pipeline, mut nexus) = (actual::Pipeline::default(), actual::Nexus::default());
     let fee_asset = nexus.fees.fee_asset_id.clone();
     copy_kagami_custody_account((&mut pipeline, &mut nexus), (&from_pipeline, &from_nexus));
@@ -295,6 +298,29 @@ fn sora_nexus_v1_genesis_recipe_matches_kagami_taira_genesis() {
         .manifest
         .effective_parameters()
         .expect("Kagami genesis parameters");
+    let signed_fees =
+        iroha_data_model::block::consensus::RootFeePolicy::from_parameters(&parameters)
+            .expect("canonical committed fee policy")
+            .expect("explicit authored fee policy");
+    let gas_literal: String = parameters
+        .custom()
+        .get(&localnet_custom_parameter_id("ivm_gas_tech_account_id"))
+        .expect("signed generated gas custody")
+        .payload()
+        .try_into_any_norito()
+        .unwrap();
+    let generated_gas = AccountId::parse_encoded(&gas_literal).unwrap();
+    assert_eq!(signed_fees.fee_sink_account_id, generated_gas);
+    assert_eq!(signed_fees.sponsor_vault_custody_account_id, generated_gas);
+    let mut expected_fees = recipe.root_fees.clone();
+    // Localnet custody derives from its exact genesis key; the compiled recipe
+    // names published sample custody, just as the other custody checks above.
+    expected_fees.fee_sink_account_id = generated_gas.clone();
+    expected_fees.sponsor_vault_custody_account_id = generated_gas;
+    assert_eq!(
+        signed_fees, expected_fees,
+        "all other monetary terms match the signed recipe"
+    );
     assert_eq!(
         kagami.manifest.consensus_mode(),
         SumeragiConsensusMode::Npos

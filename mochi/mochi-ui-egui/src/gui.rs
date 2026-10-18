@@ -6,8 +6,8 @@ use mochi_core::{
     ManagedEventStream, StatePage, StateQueryKind, TransactionPreview,
     developer::{
         ContractInput, DeveloperWorkspace, GeneratedPublishAction, GeneratedPublishOutcome,
-        ManagedAttachmentPhase, ManagedAttachmentStatus, ManagedDataspaceStatus, ManagedNetwork,
-        ManagedPhase,
+        ManagedAttachmentPhase, ManagedAttachmentStatus, ManagedContext, ManagedDataspaceStatus,
+        ManagedNetwork, ManagedPhase, ManagedStatus, PreparedLocalnet,
     },
     drafts_from_json_str, drafts_to_pretty_json, fetch_dashboard_snapshot, run_state_query,
 };
@@ -72,20 +72,74 @@ struct Selection {
 
 fn load_selection(workspace: &DeveloperWorkspace, name: Option<&str>) -> UiResult<Selection> {
     let network = workspace.network(name).map_err(|e| e.to_string())?;
+    load_network_selection(workspace, network)
+}
+
+fn load_context_selection(
+    workspace: &DeveloperWorkspace,
+    expected: &ManagedContext,
+) -> UiResult<Selection> {
+    let network = workspace
+        .network(Some(&expected.name))
+        .map_err(|e| e.to_string())?;
+    if &network.prepared().context != expected {
+        return Err("Selected network was replaced; select it again.".into());
+    }
+    load_network_selection(workspace, network)
+}
+
+// Refresh the captured authority. Resolving its name again could silently adopt a generation
+// that Kagami reset and recreated while the desktop remained open.
+fn load_network_selection(
+    workspace: &DeveloperWorkspace,
+    network: ManagedNetwork,
+) -> UiResult<Selection> {
+    network.validate().map_err(|e| e.to_string())?;
     let status = workspace
         .status(&network.prepared().context.name)
         .map_err(|e| e.to_string())?;
     let attachment = workspace
         .dataspace_status(&network.prepared().context.name)
-        .map(|status| status.map(|status| status.attachment))
         .map_err(|e| e.to_string());
+    validate_selection_observation(&network.prepared().context, &status, &attachment)?;
+    // Include failed parent observations: they may not conceal a replaced local generation.
+    network.validate().map_err(|e| e.to_string())?;
     Ok(Selection {
         network,
         phase: status.phase,
         running: status.running_peers,
         failure: status.failure,
-        attachment,
+        attachment: attachment.map(|status| status.map(|status| status.attachment)),
     })
+}
+
+fn validate_selection_observation(
+    expected: &ManagedContext,
+    status: &ManagedStatus,
+    attachment: &UiResult<Option<ManagedDataspaceStatus>>,
+) -> UiResult<()> {
+    if &status.context != expected
+        || attachment
+            .as_ref()
+            .ok()
+            .and_then(Option::as_ref)
+            .is_some_and(|status| &status.local.context != expected)
+    {
+        return Err("Selected network was replaced; select it again.".into());
+    }
+    Ok(())
+}
+
+// Even a queued success may update only the generation that is still displayed. An explicit
+// Selected completion intentionally bypasses this automatic-observation admission.
+fn validate_retained_selection(
+    current: Option<&PreparedLocalnet>,
+    observed: &PreparedLocalnet,
+) -> UiResult<()> {
+    if current.is_none_or(|current| current != observed) {
+        return Err("Selected network was replaced; select it again.".into());
+    }
+    Ok(())
 }
 
 struct Opened {
@@ -101,6 +155,34 @@ fn open_workspace(path: PathBuf) -> UiResult<Opened> {
 }
 
 fn inspect_workspace(workspace: DeveloperWorkspace) -> UiResult<Opened> {
+    inspect_workspace_with_selection(workspace, |workspace| {
+        workspace
+            .selected_name()
+            .map_err(|e| e.to_string())
+            .and_then(|name| {
+                name.map(|name| load_selection(workspace, Some(&name)))
+                    .transpose()
+            })
+    })
+}
+
+// Automatic completion observes only the action's captured authority. If failure preceded
+// target capture, expose retained names for explicit selection without adopting a current name.
+fn inspect_workspace_selection(
+    workspace: DeveloperWorkspace,
+    captured: Option<ManagedNetwork>,
+) -> UiResult<Opened> {
+    inspect_workspace_with_selection(workspace, |workspace| {
+        captured
+            .map(|network| load_network_selection(workspace, network))
+            .transpose()
+    })
+}
+
+fn inspect_workspace_with_selection(
+    workspace: DeveloperWorkspace,
+    observe: impl FnOnce(&DeveloperWorkspace) -> UiResult<Option<Selection>>,
+) -> UiResult<Opened> {
     let profiles = workspace.network_profiles().map_err(|e| e.to_string());
     let names = workspace
         .contexts()
@@ -108,14 +190,7 @@ fn inspect_workspace(workspace: DeveloperWorkspace) -> UiResult<Opened> {
         .into_iter()
         .map(|c| c.name)
         .collect::<Vec<_>>();
-    // An empty workspace deliberately creates neither a network nor a signing identity.
-    let selected = workspace
-        .selected_name()
-        .map_err(|e| e.to_string())
-        .and_then(|name| {
-            name.map(|name| load_selection(&workspace, Some(&name)))
-                .transpose()
-        });
+    let selected = observe(&workspace);
     Ok(Opened {
         workspace,
         names,
@@ -562,6 +637,28 @@ impl Desktop {
         self.reset_intent = false;
     }
 
+    // Observations can withdraw a stale network, but completed evidence belongs to its
+    // original operation and survives until an explicit selection or replacement action.
+    fn retain_completed_evidence(&mut self, observe: impl FnOnce(&mut Self)) {
+        let receipt = self.receipt.take();
+        let notice = self.notice.take();
+        let publication_output = self.publication_output.take();
+        let operation_id = std::mem::take(&mut self.publication.operation_id);
+        observe(self);
+        self.receipt = receipt;
+        self.notice = notice;
+        self.publication_output = publication_output;
+        self.publication.operation_id = operation_id;
+    }
+
+    fn withdraw_observed_network(&mut self) {
+        self.retain_completed_evidence(Self::clear_network);
+    }
+
+    fn install_observed_workspace(&mut self, opened: Opened) {
+        self.retain_completed_evidence(|desktop| desktop.install_opened(opened));
+    }
+
     fn open(&mut self) {
         self.epoch = self.epoch.wrapping_add(1);
         self.clear_network();
@@ -589,7 +686,7 @@ impl Desktop {
                 workspace
                     .select(&name)
                     .map_err(|e| e.to_string())
-                    .and_then(|_| load_selection(&workspace, Some(&name))),
+                    .and_then(|expected| load_context_selection(&workspace, &expected)),
             )
         });
     }
@@ -598,35 +695,42 @@ impl Desktop {
         let Some(workspace) = self.workspace.clone() else {
             return;
         };
-        let name = self.selected.as_ref().map_or_else(
-            || self.new_name.trim().to_owned(),
-            |s| s.network.prepared().context.name.clone(),
-        );
+        let captured = self
+            .selected
+            .as_ref()
+            .map(|selected| selected.network.clone());
+        let name = self.new_name.trim().to_owned();
         self.spawn(move || {
             if start {
-                complete_localnet_start(
-                    || {
-                        workspace
-                            .start(&name)
-                            .map(|status| (status.phase, status.failure))
-                            .map_err(|e| e.to_string())
-                    },
-                    || load_selection(&workspace, Some(&name)),
-                    || {
-                        workspace
-                            .contexts()
-                            .map(|contexts| {
-                                contexts.into_iter().map(|context| context.name).collect()
-                            })
-                            .map_err(|e| e.to_string())
-                    },
-                )
+                if let Some(network) = captured {
+                    complete_localnet_start(
+                        || {
+                            workspace
+                                .start(&network)
+                                .map(|status| (status.phase, status.failure))
+                                .map_err(|e| e.to_string())
+                        },
+                        || load_network_selection(&workspace, network.clone()),
+                        || {
+                            workspace
+                                .contexts()
+                                .map(|contexts| {
+                                    contexts.into_iter().map(|context| context.name).collect()
+                                })
+                                .map_err(|e| e.to_string())
+                        },
+                    )
+                } else {
+                    complete_localnet_creation(&workspace, &name)
+                }
             } else {
                 Message::Selected(
-                    workspace
-                        .stop(&name)
-                        .map_err(|e| e.to_string())
-                        .and_then(|_| load_selection(&workspace, Some(&name))),
+                    captured
+                        .ok_or_else(|| "Select an environment before stopping it.".to_owned())
+                        .and_then(|network| {
+                            workspace.stop(&network).map_err(|e| e.to_string())?;
+                            load_network_selection(&workspace, network)
+                        }),
                 )
             }
         });
@@ -636,23 +740,7 @@ impl Desktop {
         let Some(workspace) = self.workspace.clone() else {
             return;
         };
-        self.spawn(move || {
-            complete_localnet_start(
-                || {
-                    workspace
-                        .create_localnet(&name)
-                        .map(|status| (status.phase, status.failure))
-                        .map_err(|e| e.to_string())
-                },
-                || load_selection(&workspace, Some(&name)),
-                || {
-                    workspace
-                        .contexts()
-                        .map(|contexts| contexts.into_iter().map(|context| context.name).collect())
-                        .map_err(|e| e.to_string())
-                },
-            )
-        });
+        self.spawn(move || complete_localnet_creation(&workspace, &name));
     }
 
     fn attach(&mut self) {
@@ -669,22 +757,37 @@ impl Desktop {
         {
             return;
         }
+        let captured = self
+            .selected
+            .as_ref()
+            .map(|selected| selected.network.clone());
         self.epoch = self.epoch.wrapping_add(1);
-        self.clear_network();
         self.private_dialog = false;
         self.attaching = Some(alias.clone());
         self.attachment_poll_pending = false;
         self.attachment_progress = None;
         self.last_poll = Instant::now();
-        self.spawn(move || {
-            let result = workspace
-                .start_dataspace(&alias, &network, &alias)
-                .map(|status| attachment_summary(&status.attachment))
-                .map_err(|e| e.to_string());
-            Message::Attached {
-                result,
-                refreshed: inspect_workspace(workspace),
-            }
+        // A failed attachment must not discard completed work or adopt a mutable name.
+        self.retain_completed_evidence(|desktop| {
+            desktop.clear_network();
+            desktop.spawn(move || {
+                let outcome = workspace
+                    .start_dataspace(&alias, &network, &alias)
+                    .map_err(|e| e.to_string());
+                let refreshed =
+                    inspect_workspace_with_selection(workspace, |workspace| match &outcome {
+                        Ok(status) => {
+                            load_context_selection(workspace, &status.local.context).map(Some)
+                        }
+                        Err(_) => captured
+                            .map(|network| load_network_selection(workspace, network))
+                            .transpose(),
+                    });
+                Message::Attached {
+                    result: outcome.map(|status| attachment_summary(&status.attachment)),
+                    refreshed,
+                }
+            });
         });
     }
 
@@ -726,11 +829,11 @@ impl Desktop {
         else {
             return;
         };
-        let name = selected.network.prepared().context.name.clone();
+        let network = selected.network.clone();
         self.last_poll = Instant::now();
         // A background failure withdraws live context without erasing completed deployment evidence.
         self.spawn_task(move || {
-            Message::SelectionObserved(load_selection(&workspace, Some(&name)))
+            Message::SelectionObserved(load_network_selection(&workspace, network))
         });
     }
 
@@ -820,21 +923,24 @@ impl Desktop {
                         self.error = Some(error);
                     }
                 },
-                Message::SelectionObserved(result) => match result {
-                    Ok(selected) => self.install_selection(selected),
-                    Err(error) => {
-                        let receipt = self.receipt.take();
-                        let notice = self.notice.take();
-                        let publication_output = self.publication_output.take();
-                        let operation_id = std::mem::take(&mut self.publication.operation_id);
-                        self.clear_network();
-                        self.receipt = receipt;
-                        self.notice = notice;
-                        self.publication_output = publication_output;
-                        self.publication.operation_id = operation_id;
-                        self.error = Some(error);
+                Message::SelectionObserved(result) => {
+                    let result = result.and_then(|selection| {
+                        validate_retained_selection(
+                            self.selected
+                                .as_ref()
+                                .map(|current| current.network.prepared()),
+                            selection.network.prepared(),
+                        )?;
+                        Ok(selection)
+                    });
+                    match result {
+                        Ok(selected) => self.install_selection(selected),
+                        Err(error) => {
+                            self.withdraw_observed_network();
+                            self.error = Some(error);
+                        }
                     }
-                },
+                }
                 Message::LocalnetStarted { result, names } => {
                     match names {
                         Ok(names) => self.names = names,
@@ -875,14 +981,17 @@ impl Desktop {
                 Message::Deployed { result, refreshed } => {
                     self.review = None;
                     match refreshed {
-                        Ok(opened) => self.install_opened(opened),
+                        Ok(opened) => self.install_observed_workspace(opened),
                         Err(_) if result.is_ok() => {
-                            self.clear_network();
+                            self.withdraw_observed_network();
                             self.notice = Some(
                                 "Deployment applied. Workspace observation is unavailable; reopen the workspace to refresh it.".into(),
                             );
                         }
-                        Err(error) => self.error = Some(error),
+                        Err(error) => {
+                            self.withdraw_observed_network();
+                            self.error = Some(error);
+                        }
                     }
                     match result {
                         Ok(receipt) => self.receipt = Some(receipt),
@@ -891,8 +1000,9 @@ impl Desktop {
                 }
                 Message::Published { result, refreshed } => {
                     match refreshed {
-                        Ok(opened) => self.install_opened(opened),
+                        Ok(opened) => self.install_observed_workspace(opened),
                         Err(error) => {
+                            self.withdraw_observed_network();
                             self.error = Some(format!("Workspace refresh failed: {error}."))
                         }
                     }
@@ -905,9 +1015,18 @@ impl Desktop {
                     self.attaching = None;
                     self.attachment_poll_pending = false;
                     self.attachment_progress = None;
+                    if result.is_ok() {
+                        // Completed attachment replaces the previous operation's presentation,
+                        // even if the new workspace observation is unavailable.
+                        self.clear_network();
+                    }
                     match refreshed {
-                        Ok(opened) => self.install_opened(opened),
-                        Err(error) => self.error = Some(error),
+                        Ok(opened) if result.is_ok() => self.install_opened(opened),
+                        Ok(opened) => self.install_observed_workspace(opened),
+                        Err(error) => {
+                            self.withdraw_observed_network();
+                            self.error = Some(error);
+                        }
                     }
                     match result {
                         Ok(message) => self.notice = Some(message),
@@ -1228,7 +1347,7 @@ impl Desktop {
         self.spawn(move || {
             Message::State((|| {
                 let client = network.observer(peer).map_err(|e| e.to_string())?;
-                handle
+                let result = handle
                     .block_on(run_state_query(
                         client,
                         &network.signer(),
@@ -1237,7 +1356,9 @@ impl Desktop {
                         cursor,
                         std::num::NonZeroU64::new(50),
                     ))
-                    .map_err(|e| e.to_string())
+                    .map_err(|e| e.to_string());
+                network.validate().map_err(|e| e.to_string())?;
+                result
             })())
         });
     }
@@ -1260,12 +1381,12 @@ impl Desktop {
                 && let (Some(workspace), Some(selected)) =
                     (self.workspace.clone(), self.selected.as_ref())
             {
-                let name = selected.network.prepared().context.name.clone();
+                let network = selected.network.clone();
                 let peer = self.peer;
                 self.spawn(move || {
                     Message::Logs(
                         workspace
-                            .logs(&name, Some(peer), 64 * 1024)
+                            .logs(&network, Some(peer), 64 * 1024)
                             .map_err(|e| e.to_string()),
                     )
                 });
@@ -1470,10 +1591,10 @@ impl Desktop {
         let Some(workspace) = self.workspace.clone() else {
             return;
         };
-        let context = self
+        let mut captured = self
             .selected
             .as_ref()
-            .map(|s| s.network.prepared().context.name.clone());
+            .map(|selected| selected.network.clone());
         let path = workspace.resolve_path(std::path::Path::new(if resume {
             &self.journal_path
         } else {
@@ -1508,8 +1629,8 @@ impl Desktop {
                 let mut progress = |event| {
                     let _ = sender.send((epoch, Message::Progress(format!("{event:?}"))));
                 };
-                let run = if resume {
-                    workspace.resume(&path, context.as_deref(), &mut review, &mut progress)
+                let completed = if resume {
+                    workspace.resume(&path, captured.as_ref(), &mut review, &mut progress)
                 } else {
                     let input = ContractInput::from_path(&path, package, contract, locked)
                         .map_err(|e| e.to_string())?;
@@ -1517,15 +1638,11 @@ impl Desktop {
                         .map(|value| value.parse())
                         .transpose()
                         .map_err(|e| format!("Invalid contract alias: {e}"))?;
-                    workspace.deploy(
-                        &input,
-                        context.as_deref(),
-                        alias,
-                        &mut review,
-                        &mut progress,
-                    )
+                    workspace.deploy(&input, captured.as_ref(), alias, &mut review, &mut progress)
                 }
                 .map_err(|e| e.to_string())?;
+                captured = Some(completed.network);
+                let run = completed.outcome.map_err(|e| e.to_string())?;
                 let mut result = run.execution_summary();
                 if let Some(lifecycle) = &run.lifecycle {
                     result.push('\n');
@@ -1542,7 +1659,7 @@ impl Desktop {
                 );
                 Ok(result)
             })();
-            let refreshed = inspect_workspace(workspace);
+            let refreshed = inspect_workspace_selection(workspace, captured);
             Message::Deployed { result, refreshed }
         });
     }
@@ -1573,10 +1690,10 @@ impl Desktop {
         let Some(workspace) = self.workspace.clone() else {
             return;
         };
-        let context = self
+        let mut captured = self
             .selected
             .as_ref()
-            .map(|selected| selected.network.prepared().context.name.clone());
+            .map(|selected| selected.network.clone());
         let manifest = PathBuf::from(if self.publication.manifest.is_empty() {
             "."
         } else {
@@ -1585,13 +1702,18 @@ impl Desktop {
         self.publication_output = None;
         self.notice = None;
         self.spawn(move || {
-            let result = workspace
-                .publish_package(&manifest, context.as_deref(), action)
-                .map_err(|error| error.to_string())
-                .and_then(PublicationOutput::from_outcome);
+            let result = (|| {
+                let completed = workspace
+                    .publish_package(&manifest, captured.as_ref(), action)
+                    .map_err(|error| error.to_string())?;
+                captured = Some(completed.network);
+                PublicationOutput::from_outcome(
+                    completed.outcome.map_err(|error| error.to_string())?,
+                )
+            })();
             Message::Published {
                 result,
-                refreshed: inspect_workspace(workspace),
+                refreshed: inspect_workspace_selection(workspace, captured),
             }
         });
     }
@@ -1726,8 +1848,8 @@ impl Desktop {
                     if ui.add_enabled(!self.busy, egui::Button::new("Reset local data")).clicked() {
                         self.reset_intent = false;
                         if let (Some(workspace), Some(selected)) = (self.workspace.clone(), &self.selected) {
-                            let name = selected.network.prepared().context.name.clone();
-                            self.spawn(move || Message::Reset(workspace.reset(&name).map_err(|e| e.to_string())
+                            let network = selected.network.clone();
+                            self.spawn(move || Message::Reset(workspace.reset(&network).map_err(|e| e.to_string())
                                 .and_then(|_| workspace.contexts().map(|contexts| contexts.into_iter().map(|c| c.name).collect()).map_err(|e| e.to_string()))));
                         }
                     }
@@ -1758,6 +1880,24 @@ impl eframe::App for Desktop {
 fn optional_selector(value: &str) -> Option<String> {
     let value = value.trim();
     (!value.is_empty()).then(|| value.to_owned())
+}
+
+fn complete_localnet_creation(workspace: &DeveloperWorkspace, name: &str) -> Message {
+    let started = workspace.create_localnet(name).map_err(|e| e.to_string());
+    let expected = started
+        .as_ref()
+        .map(|status| status.context.clone())
+        .map_err(Clone::clone);
+    complete_localnet_start(
+        || started.map(|status| (status.phase, status.failure)),
+        || load_context_selection(workspace, &expected?),
+        || {
+            workspace
+                .contexts()
+                .map(|contexts| contexts.into_iter().map(|context| context.name).collect())
+                .map_err(|e| e.to_string())
+        },
+    )
 }
 
 // Both startup controls retain the menu on ordinary failure. Only a Ready return followed
@@ -2672,6 +2812,270 @@ mod tests {
         assert_eq!(activity.back().unwrap().chars().count(), 4096);
     }
 
+    fn observation_context() -> ManagedContext {
+        // Public metadata only; these controls never construct a signer, native worker or receipt.
+        ManagedContext {
+            name: "local".into(),
+            chain_id: "original-chain".into(),
+            network_id: "original-network".into(),
+            account_id: "original-account".into(),
+            dataspace_id: 0,
+            dataspace_alias: "original".into(),
+            torii_url: "http://127.0.0.1:18080".into(),
+            client_config: PathBuf::from("original/client.toml"),
+        }
+    }
+
+    fn observation_status(context: ManagedContext) -> ManagedStatus {
+        ManagedStatus {
+            context,
+            phase: ManagedPhase::Stopped,
+            running_peers: 0,
+            failure: None,
+        }
+    }
+
+    fn observation_attachment(local: ManagedStatus) -> UiResult<Option<ManagedDataspaceStatus>> {
+        Ok(Some(ManagedDataspaceStatus {
+            local,
+            attachment: ManagedAttachmentStatus {
+                network: "installed".into(),
+                stage: ManagedAttachmentPhase::Connecting,
+                wallet_status: None,
+                local_successor: None,
+                parent_confirmed: None,
+                failure: None,
+            },
+        }))
+    }
+
+    #[test]
+    fn selection_observation_refuses_recreated_names_and_mixed_local_generations() {
+        let original = observation_context();
+        let original_status = observation_status(original.clone());
+        for field in [
+            "name",
+            "chain",
+            "network",
+            "account",
+            "dataspace",
+            "alias",
+            "endpoint",
+            "config",
+        ] {
+            let mut replacement = original.clone();
+            match field {
+                "name" => replacement.name.push('x'),
+                "chain" => replacement.chain_id.push('x'),
+                "network" => replacement.network_id.push('x'),
+                "account" => replacement.account_id.push('x'),
+                "dataspace" => replacement.dataspace_id += 1,
+                "alias" => replacement.dataspace_alias.push('x'),
+                "endpoint" => replacement.torii_url.push('x'),
+                _ => replacement.client_config.push("replacement"),
+            }
+            let replacement_status = observation_status(replacement);
+            // The status read and parent read can each cross a reset independently. Neither
+            // the same name nor matching the other read grants the captured authority anew.
+            for (status, attachment) in [
+                (replacement_status.clone(), Ok(None)),
+                (
+                    replacement_status.clone(),
+                    observation_attachment(original_status.clone()),
+                ),
+                (
+                    original_status.clone(),
+                    observation_attachment(replacement_status.clone()),
+                ),
+                (
+                    replacement_status.clone(),
+                    observation_attachment(replacement_status.clone()),
+                ),
+            ] {
+                assert_eq!(
+                    validate_selection_observation(&original, &status, &attachment).unwrap_err(),
+                    "Selected network was replaced; select it again.",
+                    "{field}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn selection_observation_accepts_matching_stopped_and_unavailable_parent_states() {
+        let original = observation_context();
+        for phase in [
+            ManagedPhase::Ready,
+            ManagedPhase::Starting,
+            ManagedPhase::Stopped,
+            ManagedPhase::Failed,
+        ] {
+            let mut status = observation_status(original.clone());
+            status.phase = phase;
+            for attachment in [
+                Ok(None),
+                observation_attachment(status.clone()),
+                Err("parent observation unavailable".into()),
+            ] {
+                validate_selection_observation(&original, &status, &attachment).unwrap();
+            }
+        }
+        // An explicit Open/Select captures the replacement first, so matching reads for that
+        // newly chosen identity remain valid; the guard does not pin one authority forever.
+        let mut replacement = original;
+        replacement.network_id = "explicitly-selected-replacement".into();
+        let status = observation_status(replacement.clone());
+        validate_selection_observation(
+            &replacement,
+            &status,
+            &observation_attachment(status.clone()),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn automatic_selection_requires_the_current_complete_generation() {
+        let current = PreparedLocalnet {
+            service_profile: Default::default(),
+            context: observation_context(),
+            peers: Vec::new(),
+        };
+        validate_retained_selection(Some(&current), &current).unwrap();
+        assert!(validate_retained_selection(None, &current).is_err());
+        let mut replacement = current.clone();
+        replacement.context.network_id = "recreated-network".into();
+        assert_eq!(replacement.context.name, current.context.name);
+        assert!(validate_retained_selection(Some(&current), &replacement).is_err());
+        // After explicit selection, subsequent observations of the newly chosen generation
+        // are accepted. The automatic path cannot itself make that transition.
+        validate_retained_selection(Some(&replacement), &replacement).unwrap();
+    }
+
+    #[test]
+    fn automatic_withdrawal_preserves_completed_operations_and_clears_live_observations() {
+        let mut desktop = Desktop::model(PathBuf::from("unused"));
+        desktop.logs = "stale validator observation".into();
+        desktop.activity.push_back("stale event".into());
+        desktop.peer = 3;
+        desktop.reset_intent = true;
+        desktop.receipt = Some("original deployment receipt".into());
+        desktop.notice = Some("original completion".into());
+        desktop.publication.operation_id = "original operation".into();
+        desktop.publication_output = Some(PublicationOutput {
+            exit_code: 7,
+            stdout: "original publication output".into(),
+            stderr: "original pending diagnostic".into(),
+        });
+        // The same preservation owner wraps both automatic install_opened (including its
+        // inner selection error) and withdrawal after an outer workspace-observation error.
+        desktop.retain_completed_evidence(|desktop| {
+            desktop.clear_network();
+            desktop.error = Some("selected generation was replaced".into());
+        });
+        desktop.withdraw_observed_network();
+        assert!(desktop.selected.is_none());
+        assert!(desktop.logs.is_empty());
+        assert!(desktop.activity.is_empty());
+        assert_eq!(desktop.peer, 0);
+        assert!(!desktop.reset_intent);
+        assert_eq!(
+            desktop.receipt.as_deref(),
+            Some("original deployment receipt")
+        );
+        assert_eq!(desktop.notice.as_deref(), Some("original completion"));
+        assert_eq!(
+            desktop.error.as_deref(),
+            Some("selected generation was replaced")
+        );
+        assert_eq!(desktop.publication.operation_id, "original operation");
+        let output = desktop.publication_output.as_ref().unwrap();
+        assert_eq!(output.exit_code, 7);
+        assert_eq!(output.stdout, "original publication output");
+        assert_eq!(output.stderr, "original pending diagnostic");
+    }
+
+    #[test]
+    fn deployment_refresh_failure_retains_earlier_publication_evidence() {
+        let mut desktop = Desktop::model(PathBuf::from("unused"));
+        desktop.busy = true;
+        desktop.publication.operation_id = "original publication".into();
+        desktop.publication_output = Some(PublicationOutput {
+            exit_code: 0,
+            stdout: "original publication output".into(),
+            stderr: String::new(),
+        });
+        desktop
+            .sender
+            .send((
+                desktop.epoch,
+                Message::Deployed {
+                    result: Ok("new verified deployment receipt".into()),
+                    refreshed: Err("captured workspace unavailable".into()),
+                },
+            ))
+            .unwrap();
+        desktop.poll();
+        assert!(!desktop.busy);
+        assert_eq!(
+            desktop.receipt.as_deref(),
+            Some("new verified deployment receipt")
+        );
+        assert_eq!(desktop.publication.operation_id, "original publication");
+        assert_eq!(
+            desktop.publication_output.as_ref().unwrap().stdout,
+            "original publication output"
+        );
+        assert!(
+            desktop
+                .notice
+                .as_deref()
+                .unwrap()
+                .contains("Deployment applied")
+        );
+    }
+
+    #[test]
+    fn stale_selection_observation_cannot_erase_current_evidence_or_finish_work() {
+        let mut desktop = Desktop::model(PathBuf::from("unused"));
+        desktop.epoch = 2;
+        desktop.busy = true;
+        desktop.logs = "current logs".into();
+        desktop.receipt = Some("current verified deployment receipt".into());
+        desktop.notice = Some("current completion".into());
+        desktop.error = Some("current observation diagnostic".into());
+        desktop.publication.operation_id = "current operation".into();
+        desktop.publication_output = Some(PublicationOutput {
+            exit_code: 0,
+            stdout: "current publication output".into(),
+            stderr: String::new(),
+        });
+        desktop
+            .sender
+            .send((
+                1,
+                Message::SelectionObserved(Err("old generation was replaced".into())),
+            ))
+            .unwrap();
+        desktop.poll();
+        assert!(desktop.busy);
+        assert_eq!(desktop.epoch, 2);
+        assert_eq!(desktop.logs, "current logs");
+        assert_eq!(
+            desktop.receipt.as_deref(),
+            Some("current verified deployment receipt")
+        );
+        assert_eq!(desktop.notice.as_deref(), Some("current completion"));
+        assert_eq!(
+            desktop.error.as_deref(),
+            Some("current observation diagnostic")
+        );
+        assert_eq!(desktop.publication.operation_id, "current operation");
+        assert_eq!(
+            desktop.publication_output.as_ref().unwrap().stdout,
+            "current publication output"
+        );
+    }
+
     #[test]
     fn stale_context_results_are_ignored_and_their_review_is_cancelled() {
         let mut desktop = Desktop::model(PathBuf::from("unused"));
@@ -2758,3 +3162,7 @@ mod tests {
 #[cfg(test)]
 #[path = "gui/publication_tests.rs"]
 mod publication_tests;
+
+#[cfg(test)]
+#[path = "gui/attachment_tests.rs"]
+mod attachment_tests;

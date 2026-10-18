@@ -55,7 +55,10 @@ use std::{
     vec::Vec,
 };
 use thiserror::Error;
-pub use wire_v1::WireV1Plan;
+pub use wire_v1::{
+    SIGNED_TRANSACTION_FRAME_OVERHEAD_BYTES_V1, SIGNED_TRANSACTION_FRAME_PADDING_BYTES_V1,
+    SIGNED_TRANSACTION_WIRE_PREFIX_BYTES_V1, WireV1Plan,
+};
 /// Default signature-bound lifetime assigned by [`TransactionBuilder`].
 ///
 /// Networks govern the admission ceiling through

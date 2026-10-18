@@ -62,12 +62,75 @@ pub fn nominal_name<T: NoritoSchema + ?Sized>() -> Cow<'static, str> {
 
 /// Compute the fixed domain-separated digest of a declared root-frame identity.
 ///
-/// This function is not an overridable part of the identity declaration.
+/// This function is not an overridable part of the identity declaration. Each
+/// thread memoizes the digest per type, so typed readers and writers do not
+/// rebuild generic names or rerun SHA-256 on every frame. The memo returns the
+/// exact bytes computed from the declared identity; frame identities are protocol
+/// constants, so an implementation must return the same name on every call.
 pub fn frame_hash<T: NoritoSchema + ?Sized>() -> [u8; 16] {
+    frame_hash_memo::cached(uncached_frame_hash::<T>)
+}
+
+/// Compute the frame digest directly from the declared identity, bypassing the memo.
+fn uncached_frame_hash<T: NoritoSchema + ?Sized>() -> [u8; 16] {
     if let Some(name) = T::static_frame_name() {
         crate::core::schema_hash_for_name(name)
     } else {
         crate::core::schema_hash_for_name(&T::frame_name())
+    }
+}
+
+/// Bounded per-thread memo of computed frame digests.
+///
+/// The key is the address of the monomorphized digest function of one type. Live
+/// functions with different code occupy different addresses. Functions folded by
+/// the compiler or linker have identical code and references, and therefore identical
+/// results; a type instantiated in several codegen units merely uses several slots.
+/// The memo is a fixed direct-mapped table: it never allocates, and a slot conflict
+/// only recomputes the same digest.
+mod frame_hash_memo {
+    use std::cell::Cell;
+
+    const SLOTS: usize = 256;
+
+    #[derive(Clone, Copy)]
+    struct Slot {
+        key: usize,
+        hash: [u8; 16],
+    }
+
+    const EMPTY: Slot = Slot {
+        key: 0,
+        hash: [0; 16],
+    };
+
+    thread_local! {
+        static MEMO: [Cell<Slot>; SLOTS] = const { [const { Cell::new(EMPTY) }; SLOTS] };
+    }
+
+    fn index(key: usize) -> usize {
+        // Function addresses are aligned; mix higher bits into the slot index.
+        ((key >> 4) ^ (key >> 12)) & (SLOTS - 1)
+    }
+
+    pub(super) fn cached(compute: fn() -> [u8; 16]) -> [u8; 16] {
+        // A function address is never zero, so zero marks an empty slot.
+        let key = compute as usize;
+        let slot = index(key);
+        let hit = MEMO
+            .try_with(|memo| {
+                let entry = memo[slot].get();
+                (entry.key == key).then_some(entry.hash)
+            })
+            .ok()
+            .flatten();
+        if let Some(hash) = hit {
+            return hash;
+        }
+        // Compute outside any borrow so a re-entrant identity remains valid.
+        let hash = compute();
+        let _ = MEMO.try_with(|memo| memo[slot].set(Slot { key, hash }));
+        hash
     }
 }
 
@@ -187,3 +250,71 @@ tuple!(A, B, C, D, E, F, G, H, I);
 tuple!(A, B, C, D, E, F, G, H, I, J);
 tuple!(A, B, C, D, E, F, G, H, I, J, K);
 tuple!(A, B, C, D, E, F, G, H, I, J, K, L);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::SamplePayload;
+
+    fn assert_memoized<T: NoritoSchema + ?Sized>() {
+        let expected = crate::core::schema_hash_for_name(&T::frame_name());
+        assert_eq!(uncached_frame_hash::<T>(), expected);
+        for _ in 0..3 {
+            assert_eq!(frame_hash::<T>(), expected, "{}", T::frame_name());
+        }
+    }
+
+    #[test]
+    fn memoized_frame_hash_matches_uncached_digest_for_literal_and_generic_identities() {
+        // Literal identities, including a string root projection and a derived record.
+        assert_memoized::<u32>();
+        assert_memoized::<String>();
+        assert_memoized::<&str>();
+        assert_memoized::<Box<str>>();
+        assert_memoized::<SamplePayload>();
+        // Composed generic identities build their names only on a memo miss.
+        assert_memoized::<Vec<u32>>();
+        assert_memoized::<Option<String>>();
+        assert_memoized::<(u8, String)>();
+        assert_memoized::<[u16; 4]>();
+        assert_memoized::<HashMap<String, Vec<u8>>>();
+        assert_memoized::<Vec<SamplePayload>>();
+        assert_eq!(
+            frame_hash::<u32>(),
+            crate::core::schema_hash_for_name("u32"),
+            "the memo must not alter the V1 type-name digest"
+        );
+        assert_eq!(frame_hash::<&str>(), frame_hash::<String>());
+        assert_ne!(frame_hash::<Vec<u32>>(), frame_hash::<Vec<u64>>());
+    }
+
+    #[test]
+    fn frame_hash_memo_is_per_thread_and_survives_slot_conflicts() {
+        let main = (
+            frame_hash::<Vec<u8>>(),
+            frame_hash::<BTreeMap<u8, String>>(),
+        );
+        let other = std::thread::spawn(|| {
+            (
+                frame_hash::<Vec<u8>>(),
+                frame_hash::<BTreeMap<u8, String>>(),
+            )
+        })
+        .join()
+        .expect("frame hash thread");
+        assert_eq!(main, other);
+        // Many distinct generic identities overwrite direct-mapped slots; every
+        // lookup still returns the declared digest.
+        macro_rules! arrays {
+            ($($len:literal),+) => {$(
+                assert_memoized::<[u8; $len]>();
+                assert_memoized::<Option<[u64; $len]>>();
+            )+};
+        }
+        arrays!(
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20
+        );
+        assert_memoized::<Vec<u8>>();
+        assert_eq!(frame_hash::<Vec<u8>>(), main.0);
+    }
+}

@@ -23,6 +23,24 @@ moved from block row 6 to row 0. Limb geometry (87/87/82), quotient
 capacity (`2^261`), carry offset and width (`2^104`, seven 15-bit
 sublimbs), padding and every numeric bound below are unchanged.
 
+**Current native argument boundary.** The native prover now uses nonzero norm
+factors `N(x) = x^2 - 5` in its lookup products. For input/table expression
+degrees `d_a,d_s`, the required argument degree is
+`max(6, 2 + 2 max(1,d_a) + 2 max(1,d_s))`; the two extra degrees come from
+the active-row and product polynomials. This changes the proof argument's
+degree and descriptors, not the fused chip's carry equations, interval bounds,
+range membership predicates, shared-table layout or row/column counts.
+The carry and range-binding derivations below retain only that narrow scope;
+they assume the native lookup/permutation arguments establish their stated
+relations. The [conditional norm lookup multiset lemma](plonk_ipa_v1.md#21-conditional-norm-lookup-multiset-binding)
+states the polynomial binding argument, required commitment order and sampled
+challenge premises; it does not discharge full native or Fiat–Shamir soundness.
+`MAX_GATE_DEGREE = 6` continues to bound ordinary fused-leaf arithmetic polynomials, not the
+total norm lookup argument. Earlier descriptor/key/proof sizes, performance
+records and source-specific sign-offs below remain evidence for their captured
+sources only. They are not transferred to the current native argument; current
+descriptors, proofs and resource gates require fresh qualification.
+
 ## 1. Parameters
 
 | Symbol | Value | Enforced by |
@@ -81,8 +99,10 @@ below `2^105 < N`. So `z_0` is an integer in `[0, 2^{15(L-1)+w})`: `2^87`
 the equivalence exhaustively for `w in {7, 12}` and the widths
 `15 * 5 + {12, 12, 7} = 87, 87, 82`, `15 * 5 + 12 = 87`, `15 * 7 = 105`.
 
-Degrees: `C`/`Q` inputs have degree 3 (lookup degree `2 + 3 + 1 = 6`), `U`
-inputs degree 2 (5). Advice queries per operand column: rotations 0, 1, 6
+Degrees: `C`/`Q` inputs have degree 3 and fixed-table degree 1, giving current
+norm lookup degree `2 + 2*3 + 2*1 = 10`. `U` inputs have degree 2 and
+fixed-table degree 1, giving `2 + 2*2 + 2*1 = 8`. Advice queries per operand
+column: rotations 0, 1, 6
 (three, as before: blinding stays 5; a `Rotation::prev` design would have
 needed a fourth query and six blinding rows).
 
@@ -186,7 +206,7 @@ shape), never witness-dependent.
 - Exact (synthesis inventory, `ff_inventory_per_operation`): 70 advice cells per
   multiplication or division (7 rows x 10 columns, no idle cell); proper witness
   18; canonical witness 36; comparison of an existing value 21. Gates degree 3,
-  `C`/`Q` lookups degree 6 and `U` lookups degree 5 (10 width-1 range lookups,
+  current norm `C`/`Q` lookups degree 10 and `U` lookups degree 8 (10 width-1 range lookups,
   one per column), 4 fixed pattern columns plus one table column (32,768
   rows, `k >= 16`), 3 queries per operand column (blinding 5, unchanged).
   G3.4 threshold <= 100 cells: met (70).
@@ -227,6 +247,16 @@ value `< 2^15`":
   which matches only rows with `T = 0`; those are the range rows (all other
   components zero) and all-zero rows. SHA tags are `2^33 + w`, dynamic window
   tags `2^32 + row`, fixed window tags in `[1, 2^32)`.
+
+The merged `c_0` input/table maximum degrees are `(3,1)`, so its norm
+argument degree is 10. The `u_0` window input/table degrees are `(2,2)`:
+the dynamic table term includes `q_dyn * advice`, so its norm argument
+degree is also 10. The five other C/Q arguments have `(3,1)` and degree10;
+the three unmerged U arguments have `(2,1)` and degree8. Thus the current
+Q leaf has total circuit degree10 while its arithmetic polynomials remain
+bounded by six. Its 17 advice, 26 raw fixed, 12 equality columns and ten
+lookup arguments are unchanged. This degree reconciliation changes neither
+the carry/range bounds nor any measurement limit.
 
 `QLeafConfig::audit` checks these conditions on the synthesized fixed
 columns (row-disjoint activation of host and guest in both merged arguments,
@@ -275,16 +305,19 @@ deployment authorization; those gates remain separate.
 ### Current fused-leaf review (2026-10-09)
 
 The two 2026-10-09 source reviews and an independent 2026-10-10 source/integer
-re-review found no carry/range-binding defect in the actual M3
-`G3.6/q_leaf_chips` path, descriptor
+re-review found no carry/range-binding defect in the then-captured M3
+`G3.6/q_leaf_chips` path, whose pre-norm descriptor was
 `0ffa6d0a7a3a2449e092b21dcb9201c75f2c6fdf3305717b955b67a72e724070`.
-Its Q-leaf source still matches `ac22585f…ab2d5`; the current FF source is
+The review bound Q-leaf source `ac22585f…ab2d5` and FF source
 `d9fac96aab07d5af33921651c720530e26a7ddbed9d75d8bdac2eef5ea520a5b`.
-Eighteen arithmetic, range, configuration and copy functions match the earlier
-reviewed FF source. Inspection of the changed wrappers confirms that this leaf
-selects `serialized=None`, retaining the fused bounds and gates.
+At that review, eighteen arithmetic, range, configuration and copy functions
+matched the earlier reviewed FF source. Inspection of its changed wrappers
+confirmed that the leaf selected `serialized=None`, retaining the fused bounds
+and gates. The current norm lookup wrapper changes total degree and requires
+new descriptor/key/proof qualification; this historical acceptance is not a
+sign-off on that wrapper or the current complete source.
 
-The current independent acceptance is confined to this fused arithmetic,
+That independent acceptance is confined to the reviewed fused arithmetic,
 two-membership range binding, canonical comparison and shared-table construction.
 Its self-contained exact-integer rederivation matches all four modulus padding
 multipliers and carry intervals against both native orders: the largest local
@@ -327,11 +360,16 @@ These are fresh clarity findings, not a reconstruction of the missing four:
    checks cover all 12 supported combinations: all four moduli in both fields
    on private tables, and P-256 p/n in both fields on the shared table. Carry
    endpoint checks cover both fields and both table layouts. Both fused
-   every-cell sweeps and the 9,000-product proof remain ignored. The sweeps
-   select a `+1` mutation at every assigned advice cell only for Fq-in-Fp and
-   P-256 p-in-Fq; there is no dedicated exhaustive FF sweep for Fp-in-Fq or
-   P-256 n, or the full field/table matrix. The P-256 leaf mutation suite samples
-   FF/glue/SHA cells and does not supply that missing exhaustive coverage.
+   every-cell sweeps and the 9,000-product proof were ignored in that ordinary
+   component run, then explicitly executed and passed among all thirteen selected
+   cases in `target/qualification/m3-streaming-msm-heavy-gadgets-3`. Its FF/Q-leaf
+   sources remain unchanged; its transitive engine source interval predates the
+   current lookup-FFT/merged changes. Those historical sweeps selected a `+1`
+   mutation at every assigned advice cell only for Fq-in-Fp and P-256 p-in-Fq;
+   that record did not include dedicated Fp-in-Fq or P-256 n sweeps, or the
+   full field/table matrix. The four-modulus component run recorded below
+   adds the former two cases. The P-256 leaf mutation suite samples FF/glue/SHA
+   cells and does not establish an exhaustive full field/table matrix.
 
    The component record is
    `target/qualification/kagemusha-post-retirement-correctness-1/02-gadgets-all-ordinary-3.stdout.log`
@@ -344,8 +382,14 @@ These are fresh clarity findings, not a reconstruction of the missing four:
    `b60ed10a22f1905a131093cee8424570715b5a69c122730ac25c348b90e983f7`.
    The runner ended after 362 selected test passes with a strict-lint failure
    in the MSM fallback (`clippy::option_if_let_else`). Its result remains
-   unsuccessful; the equivalent style repair requires fresh focused checks.
-   These component passes do not replace the ignored adversarial/proof cases, recover the
+   unsuccessful. Subsequent focused checks and
+   `m3-lookup-fft-engine-validation-4` pass strict all-target
+   Pasta/PLONK/Gadgets/Recursion lint; engine4 also passes 317 ordinary PLONK cases
+   with six declared ignores. These later successes do not rewrite the earlier
+   failure or rerun the ordinary FF/Gadgets namespace. The reconciled source
+   intervals and raw heavy results are recorded in
+   `target/qualification/carry-current-coverage-reconciliation-1`.
+   These component passes do not supply the absent exhaustive matrix, recover the
    original four-item wording checklist, qualify other FF backends, recursive
    Q, complete P-256, privacy or devices, or establish release readiness.
 
@@ -360,6 +404,35 @@ The current independent packet is
 retains reviewed source snapshots and hashes, the exact-integer script/output,
 accepted premises and the remaining proof/test obligations. It does not recover
 the historical four-item wording checklist or qualify a measured binary.
+
+### Conditional norm-wrapper review (2026-10-18)
+
+The fresh source review found no carry/range-binding defect in the fused M3
+path: `QLeafConfig::chips` still selects `FfChip::starting_at`, whose
+`serialized=None` construction retains the seven-row layout, all four carries,
+two-membership tops and operand copy constraints. The shared-table premises
+remain the fixed construction and bindings in §11; `audit` is not a new circuit
+constraint. Current Q-leaf norm argument degree is ten, with unmerged U
+arguments degree eight and ordinary arithmetic bounded by six. The native
+lemma linked above supplies only the conditional lookup polynomial argument.
+Serialized or shortened-carry backends, equality-permutation soundness and
+concrete Fiat–Shamir security are outside this scoped acceptance. This review
+ran no tests and does not transfer earlier proof or performance qualification.
+
+Separately, the retained component result
+`target/qualification/ff-all-moduli-cell-tamper-20261018-1/result.json` records
+all four exhaustive `+1` advice-cell sweeps passing in 1,135.792409042 seconds:
+Fq-in-Fp, Fp-in-Fq, P-256 p-in-Fq and P-256 n-in-Fq. Its executable SHA-256
+before and after is
+`8c25834da019dd7e5f752f019d6c426fc6d52340eff1b2d7d1e545147a5525fa`.
+The receipt retains compiled FF test source
+`d4505216e0c1430d9681690b458fa5e6ed79f64b31396086e787f89c179488e4`
+and the subsequent rustfmt-only slice-pattern source
+`3ed80389a3fde81976d31a9f4138bbf07479dec72f6de5fef291e1f4d7ac8a96`;
+these are distinct source captures. This covers the four named component
+circuits, not every native-field/shared-table combination, arbitrary mutations,
+cryptographic grand-product attacks, current M3 resource gates or release
+readiness.
 
 ## 12. Recursive scalar adapter and canonical S6 certificates
 
@@ -907,9 +980,14 @@ Additional equations are `I_3(p)*z*(z-1)=0` and
 existing tuple `(15,0)`. Thus every step is an exact 15-bit digit, and the last
 state has its exact top width. Telescoping gives the same integer bound below
 `2^bits<=2^252<N`; neither integer wrap nor a different tuple tag can weaken it.
-Checks now use `ceil(bits/15)` rows. The lookup input degree is five, its
-argument degree is eight, and the narrow-root gates have degree at most eight.
-The complete compact degree remains nine. Direct-public overlays multiply by
+Checks use `ceil(bits/15)` rows. The lookup input degree is five and the
+fixed table degree is one: under current norm products this particular tagged
+profile requires argument degree `2 + 2*5 + 2*1 = 14`. The narrow-root gates
+remain degree at most eight. The degree-nine compact descriptor recorded for
+this section's earlier source is not the descriptor of that tagged profile
+under the current norm argument. Its recorded byte counts and proofs below
+remain captured-source evidence and need fresh qualification after rebinding.
+Direct-public overlays multiply by
 all four active-pattern roots and therefore remain disabled on every range row.
 
 The root reviewer checked these equations and then independently read

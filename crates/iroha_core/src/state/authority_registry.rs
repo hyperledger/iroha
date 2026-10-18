@@ -218,6 +218,7 @@ mod cell_snapshot;
     )
 )]
 mod complete;
+pub(crate) use complete::original_stream;
 #[cfg_attr(
     not(test),
     expect(
@@ -235,6 +236,7 @@ mod content_policy;
 )]
 mod crypto_policy;
 mod domain_ownership;
+pub(crate) mod policy_borrowed;
 
 #[cfg_attr(
     not(test),

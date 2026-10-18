@@ -29,7 +29,7 @@ pub const CREDENTIAL_SECRET_BYTES: usize = 48;
 /// the proof, and its authorization digest `D_v`. It is the per-handle log entry the proof
 /// profile requires before `auth_v` is disclosed.
 ///
-/// Its canonical record ([`Self::to_record_bytes`]) is local, owner-only wallet state: it
+/// Its canonical record ([`Self::record_bytes`]) is local, owner-only wallet state: it
 /// links the credential to its nullifier and choice, so it is stored with the secret and
 /// never transmitted. Its `Debug` output shows only the scope.
 #[derive(Clone, Copy, PartialEq, Eq, norito::Encode, norito::Decode, norito::NoritoSchema)]
@@ -70,7 +70,7 @@ impl BallotIntentV1 {
     ///
     /// # Errors
     /// [`WalletErrorV1::Codec`] if the frame cannot be produced.
-    pub fn to_record_bytes(&self) -> Result<Vec<u8>, WalletErrorV1> {
+    pub fn record_bytes(&self) -> Result<Vec<u8>, WalletErrorV1> {
         Ok(enc(self)?)
     }
 
@@ -452,14 +452,14 @@ mod tests {
             Err(WalletErrorV1::ChoiceNotPersisted)
         );
         assert!(!handle.is_choice_persisted());
-        let record = intent.to_record_bytes().expect("record");
+        let record = intent.record_bytes().expect("record");
         assert_eq!(BallotIntentV1::from_record_bytes(&record), Ok(intent));
         let shown = format!("{intent:?}");
         assert!(shown.contains("scope") && !shown.contains(&intent.nullifier.to_hex()[..16]));
         let mut other = intent;
         other.vote = BallotChoiceV1::Nay;
         assert_eq!(
-            handle.confirm_choice_persisted_v1(&other.to_record_bytes().expect("record")),
+            handle.confirm_choice_persisted_v1(&other.record_bytes().expect("record")),
             Err(WalletErrorV1::ChoiceRecordMismatch)
         );
         assert!(matches!(

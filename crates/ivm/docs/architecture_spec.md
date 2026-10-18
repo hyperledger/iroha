@@ -28,9 +28,10 @@ Private guest spills are stack-only. Their byte ranges are tracked so partial pu
 cannot silently declassify a value; reset, program replacement, and leaving ZK mode scrub private
 bytes.
 
-The register Merkle tree is rebuilt lazily after writes. A burst of register or tag updates marks
-the tree dirty without hashing on every write; the first root or path request rebuilds one
-canonical tree, and subsequent reads reuse it until the next mutation.
+The register Merkle tree is rebuilt lazily after writes, resets and runtime-template restores. A
+burst of register or tag updates marks the tree dirty without hashing on every write; the first
+root or path request rebuilds one canonical tree, and subsequent reads reuse it until the next
+mutation.
 
 ## Preparation and runtime retention
 
@@ -237,7 +238,9 @@ The checked Crypto geometry includes its exact retained node capacity; the actua
 allocation must match that request before the owner is published. Funded nodes
 carry a split charge from the original execution lease. Local nodes use the same
 aggregate retention accounting as other IVM backing. Both charges remain until
-the canonical tree's node array has been destroyed.
+the canonical tree's node array has been destroyed. A freshly zeroed image has
+identical leaves, so construction computes one pair hash per tree level and
+fills each level with the bit-identical canonical nodes.
 
 Every byte tree retains this node storage. Sparse updates use canonical leaf-to-root
 updates; dense CPU or successful hardware leaf replacement marks the existing

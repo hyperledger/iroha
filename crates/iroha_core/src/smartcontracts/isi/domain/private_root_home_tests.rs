@@ -13,7 +13,7 @@ use iroha_data_model::{
     asset::{AssetBalanceScope, AssetDefinition, AssetId},
     block::{
         BlockHeader,
-        consensus::{PrivateRootFeePolicy, SumeragiRootScope},
+        consensus::{RootFeePolicy, SumeragiRootScope},
     },
     domain::Domain,
     isi::{Mint, Register, RegisterDataspaceAssetDefinition},
@@ -113,15 +113,16 @@ fn original_private_chain() -> CertifiedTestChain {
     config.genesis_key = ALICE_KEYPAIR.clone();
     config.root_scope = scope(home);
     let mut nexus = geometry(home);
-    nexus.fees.fee_asset_id = domain_definition().canonical_address();
+    nexus.fees.fee_asset_id = domain_definition().clone();
     config.nexus = Some(nexus);
     config.genesis_parameters.push(Parameter::Custom(
-        PrivateRootFeePolicy {
-            asset_definition_id: domain_definition(),
+        RootFeePolicy {
+            fee_asset_id: domain_definition(),
             base_fee: 1_u32.into(),
             per_byte_fee: 0_u32.into(),
             per_instruction_fee: 1_u32.into(),
             per_gas_unit_fee: 1_u32.into(),
+            ..iroha_config::parameters::defaults::nexus::fees::genesis_policy()
         }
         .into_custom_parameter()
         .unwrap(),

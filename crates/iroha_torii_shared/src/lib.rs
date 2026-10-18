@@ -15,6 +15,8 @@ pub mod account_capabilities;
 pub mod account_faucet_policy;
 /// Typed account-alias absence selectors and planning error codes.
 pub mod aliases;
+/// Bounded request-bound AMX approval read observations.
+pub mod amx_approval_read;
 /// Scoped canonical account/fee authority originals for an existing native ledger-wide reader.
 pub mod authority_originals;
 /// Typed non-success observations for challenge-bound bridge finality.
@@ -606,6 +608,10 @@ pub struct ErrorDetails {
     #[norito(default)]
     #[norito(skip_serializing_if = "Option::is_none")]
     pub finality_attestation_failure: Option<bridge_attestation::FinalityAttestationFailure>,
+    /// Exact unsigned acquisition refusal for an authenticated AMX approval read.
+    #[norito(default)]
+    #[norito(skip_serializing_if = "Option::is_none")]
+    pub amx_approval_read_failure: Option<amx_approval_read::AmxApprovalReadFailureV1>,
     /// Last observed transaction status when a finality wait failed.
     #[norito(default)]
     #[norito(skip_serializing_if = "Option::is_none")]
@@ -670,6 +676,7 @@ impl ErrorDetails {
             && self.tx_hash.is_none()
             && self.pipeline_transaction_status_not_found.is_none()
             && self.finality_attestation_failure.is_none()
+            && self.amx_approval_read_failure.is_none()
             && self.last_status.is_none()
             && self.hint.is_none()
             && self.axt.is_none()

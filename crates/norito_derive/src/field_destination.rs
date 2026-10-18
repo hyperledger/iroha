@@ -20,13 +20,6 @@ pub(super) fn derive(
         )
         .to_compile_error();
     }
-    if attrs.validate.is_some() {
-        return syn::Error::new_spanned(
-            ident,
-            "decode_fields cannot omit a whole-value validation hook",
-        )
-        .to_compile_error();
-    }
     let parsed = struct_fields(fields);
     for field in &parsed {
         if field.attrs.skip || field.attrs.flatten {
@@ -77,6 +70,43 @@ pub(super) fn derive(
         slice_decode::DecodeBody::Prefix
     };
     let slice = slice_decode::derive(ident, &bounds, attributes, slice_body);
+    if let Some(hook) = &attrs.validate {
+        // A consuming hook may normalize Self. Returning () field results would
+        // let a destination keep the unvalidated/unnormalized storage while the
+        // caller ignored the hook's actual return. Only materialization of the
+        // concrete declared fields can enter this validated value path.
+        return quote! {
+            impl<__Destination> norito::core::DecodeValueFields<__Destination> for #ident
+            where
+                __Destination: norito::core::FieldDestination,
+                #(__Destination: norito::core::DecodeField<#indices,#types,Value=#types>,)*
+            {
+                fn decode_value_fields(__bytes:&[u8],__destination:&mut __Destination)
+                    -> ::core::result::Result<(Self,usize),norito::core::DecodeIntoError<__Destination::Error>>
+                {
+                    let _context=norito::core::PayloadCtxGuard::enter(__bytes);
+                    let mut __offset=0usize;
+                    #(let #bindings=<__Destination as norito::core::DecodeField<#indices,#types>>::decode_field(__destination,#reads)?;)*
+                    norito::core::finish_context_fields(__bytes.as_ptr(),__offset)?;
+                    let __value=#hook(#reconstruct).map_err(norito::core::DecodeIntoError::Codec)?;
+                    Ok((__value,__offset))
+                }
+            }
+            impl<'de> norito::core::DeserializePayload<'de> for #ident {
+                fn deserialize(archived:&'de norito::core::Archived<Self>)->Self {
+                    <Self as norito::core::DeserializePayload<'de>>::try_deserialize(archived)
+                        .unwrap_or_else(|error|panic!("norito: fallible deserialize failed for {}: {:?}",stringify!(#ident),error))
+                }
+                fn try_deserialize(archived:&'de norito::core::Archived<Self>)->::core::result::Result<Self,norito::core::Error> {
+                    norito::core::with_context_fields(archived as *const _ as *const u8,|__bytes| {
+                        <Self as norito::core::DecodeValueFields<norito::core::OwnedFields>>::decode_value_fields(__bytes,&mut norito::core::OwnedFields)
+                            .map(|(value,_)|value).map_err(norito::core::DecodeIntoError::into_codec)
+                    })?
+                }
+            }
+            #slice
+        };
+    }
     quote! {
         impl<__Destination> norito::core::DecodeRecordFields<__Destination> for #ident
         where
@@ -109,6 +139,9 @@ pub(super) fn derive(
         #slice
     }
 }
+
+mod enum_destination;
+pub(super) use enum_destination::derive as derive_enum;
 
 #[cfg(test)]
 mod tests;

@@ -4207,7 +4207,7 @@ mod tests {
         };
         let (nft_id, nft_value) = nft.into_key_value();
         tx.world.insert_nft_entry(nft_id.clone(), nft_value);
-        tx.nexus.fees.fee_sink_account_id = authority.to_string();
+        tx.nexus.fees.fee_sink_account_id = authority.clone();
         tx.nexus.staking.stake_escrow_account_id = authority.to_string();
         tx.nexus.staking.slash_sink_account_id = authority.to_string();
         Unregister::account(account_id.clone())
@@ -4337,10 +4337,12 @@ mod tests {
     }
     #[test]
     fn unregister_account_rejects_immutable_governance_lock_custody_after_config_change() {
-        let state = test_state();
+        let mut state = test_state();
         let authority = (*ALICE_ID).clone();
         let custody_account = AccountId::new(checked_keypair().public_key().clone());
         let owner = (*BOB_ID).clone();
+        state.gov.bond_escrow_account = authority.clone();
+        state.gov.slash_receiver_account = authority.clone();
         let header = BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
         let mut block = state.block(header);
         let mut tx = block.transaction();
@@ -4367,8 +4369,6 @@ mod tests {
         );
         tx.world
             .put_governance_locks("retained-account-custody".to_owned(), locks);
-        tx.gov.bond_escrow_account = authority.clone();
-        tx.gov.slash_receiver_account = authority.clone();
         let err = Unregister::account(custody_account.clone())
             .execute(&authority, &mut tx)
             .expect_err("immutable lock custody account must remain registered");
@@ -4530,12 +4530,19 @@ mod tests {
     fn with_registered_asset_definition_unregistration_candidate(
         test: impl FnOnce(AccountId, AssetDefinitionId, &mut crate::state::StateTransaction<'_, '_>),
     ) {
+        with_registered_asset_definition_unregistration_candidate_with_policy(|_, _| {}, test);
+    }
+    fn with_registered_asset_definition_unregistration_candidate_with_policy(
+        configure_policy: impl FnOnce(&mut State, &AssetDefinitionId),
+        test: impl FnOnce(AccountId, AssetDefinitionId, &mut crate::state::StateTransaction<'_, '_>),
+    ) {
         let mut state = test_state();
         let authority = (*ALICE_ID).clone();
         let asset_domain = DomainId::try_new("asset", "guard").expect("asset domain id");
         seed_domain(&mut state, &asset_domain, &authority);
         let asset_definition_id =
             AssetDefinitionId::derive_from_components(asset_domain, "usd".parse().unwrap());
+        configure_policy(&mut state, &asset_definition_id);
         let header = BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
         let mut block = state.block(header);
         let mut transaction = block.transaction();
@@ -4771,11 +4778,32 @@ mod tests {
         error_fragment: &str,
         error_diagnostic: &str,
     ) {
+        assert_account_unregister_guard_with_policy(
+            |_, _| {},
+            configure,
+            reject_message,
+            error_fragment,
+            error_diagnostic,
+        );
+    }
+    fn assert_account_unregister_guard_with_policy(
+        configure_policy: impl FnOnce(&mut State, &AccountId),
+        configure: impl FnOnce(
+            &mut crate::state::StateTransaction<'_, '_>,
+            &DomainId,
+            &AccountId,
+            &AccountId,
+        ),
+        reject_message: &str,
+        error_fragment: &str,
+        error_diagnostic: &str,
+    ) {
         let mut state = test_state();
         let domain_id: DomainId = DomainId::try_new("owner", "world").expect("domain id");
         let authority = (*ALICE_ID).clone();
         seed_domain(&mut state, &domain_id, &authority);
         let account_id = AccountId::new(checked_keypair().public_key().clone());
+        configure_policy(&mut state, &account_id);
         let header = BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
         let mut block = state.block(header);
         let mut tx = block.transaction();
@@ -4798,10 +4826,11 @@ mod tests {
     }
     #[test]
     fn unregister_account_rejects_when_account_is_governance_bond_escrow_account() {
-        assert_account_unregister_guard(
-            |tx, _domain_id, _authority, account_id| {
-                tx.gov.bond_escrow_account = account_id.clone();
+        assert_account_unregister_guard_with_policy(
+            |state, account_id| {
+                state.gov.bond_escrow_account = account_id.clone();
             },
+            |_, _, _, _| {},
             "governance bond escrow account must not be unregistered",
             "governance bond escrow account",
             "error should explain governance bond escrow conflict",
@@ -4809,10 +4838,11 @@ mod tests {
     }
     #[test]
     fn unregister_account_rejects_when_account_is_governance_viral_incentive_pool_account() {
-        assert_account_unregister_guard(
-            |tx, _domain_id, _authority, account_id| {
-                tx.gov.viral_incentives.incentive_pool_account = account_id.clone();
+        assert_account_unregister_guard_with_policy(
+            |state, account_id| {
+                state.gov.viral_incentives.incentive_pool_account = account_id.clone();
             },
+            |_, _, _, _| {},
             "governance viral incentive pool account must not be unregistered",
             "governance viral incentive pool account",
             "error should explain governance viral incentive pool conflict",
@@ -4820,10 +4850,11 @@ mod tests {
     }
     #[test]
     fn unregister_account_rejects_when_account_is_oracle_reward_pool() {
-        assert_account_unregister_guard(
-            |tx, _domain_id, _authority, account_id| {
-                tx.oracle.economics.reward_pool = account_id.clone();
+        assert_account_unregister_guard_with_policy(
+            |state, account_id| {
+                state.oracle.economics.reward_pool = account_id.clone();
             },
+            |_, _, _, _| {},
             "oracle reward pool account must not be unregistered",
             "oracle reward pool account",
             "error should explain oracle reward-pool conflict",
@@ -4837,12 +4868,12 @@ mod tests {
                 Register::account(NewAccount::new(helper_account_id.clone()))
                     .execute(authority, tx)
                     .expect("register helper account");
-                tx.nexus.fees.fee_sink_account_id = account_id.to_string();
+                tx.nexus.fees.fee_sink_account_id = account_id.clone();
                 tx.nexus.staking.stake_escrow_account_id = helper_account_id.to_string();
                 tx.nexus.staking.slash_sink_account_id = helper_account_id.to_string();
             },
-            "nexus fee sink account must not be unregistered",
-            "nexus fee sink account",
+            "committed root fee sink account must not be unregistered",
+            "committed root fee sink account",
             "error should explain nexus fee-sink conflict",
         );
     }
@@ -4861,7 +4892,7 @@ mod tests {
         Register::account(NewAccount::new(account_id.clone()))
             .execute(&authority, &mut tx)
             .expect("register configured account");
-        tx.nexus.fees.fee_sink_account_id = account_id.to_string();
+        tx.nexus.fees.fee_sink_account_id = account_id.clone();
         tx.nexus.staking.stake_escrow_account_id = account_id.to_string();
         tx.nexus.staking.slash_sink_account_id = account_id.to_string();
         let err = Unregister::account(account_id.clone())
@@ -4869,23 +4900,12 @@ mod tests {
             .expect_err("configured account must remain protected");
         let err_string = err.to_string();
         assert!(
-            err_string.contains("nexus fee sink account"),
+            err_string.contains("committed root fee sink account"),
             "error should explain nexus fee-sink conflict: {err_string}"
         );
         assert!(
             tx.world.accounts.get(&account_id).is_some(),
             "configured sink account should remain"
-        );
-    }
-    #[test]
-    fn unregister_account_rejects_when_nexus_fee_sink_literal_is_invalid() {
-        assert_account_unregister_guard(
-            |tx, _domain_id, _authority, _account_id| {
-                tx.nexus.fees.fee_sink_account_id = "not-an-account-literal".to_owned();
-            },
-            "invalid nexus fee sink literal must fail closed",
-            "invalid nexus.fees.fee_sink_account_id account literal",
-            "error should explain invalid nexus fee-sink literal",
         );
     }
     #[test]
@@ -4907,7 +4927,7 @@ mod tests {
         Register::account(NewAccount::new(remove_account_id.clone()))
             .execute(&authority, &mut tx)
             .expect("register removal candidate account");
-        tx.nexus.fees.fee_sink_account_id = sink_account_id.to_string();
+        tx.nexus.fees.fee_sink_account_id = sink_account_id.clone();
         Unregister::account(remove_account_id.clone())
             .execute(&authority, &mut tx)
             .expect("unrelated account should not be blocked by the configured sink account");
@@ -4928,7 +4948,7 @@ mod tests {
                 Register::account(NewAccount::new(helper_account_id.clone()))
                     .execute(authority, tx)
                     .expect("register helper account");
-                tx.nexus.fees.fee_sink_account_id = helper_account_id.to_string();
+                tx.nexus.fees.fee_sink_account_id = helper_account_id.clone();
                 tx.nexus.staking.stake_escrow_account_id = account_id.to_string();
                 tx.nexus.staking.slash_sink_account_id = helper_account_id.to_string();
             },
@@ -4945,7 +4965,7 @@ mod tests {
                 Register::account(NewAccount::new(helper_account_id.clone()))
                     .execute(authority, tx)
                     .expect("register helper account");
-                tx.nexus.fees.fee_sink_account_id = helper_account_id.to_string();
+                tx.nexus.fees.fee_sink_account_id = helper_account_id.clone();
                 tx.nexus.staking.stake_escrow_account_id = helper_account_id.to_string();
                 tx.nexus.staking.slash_sink_account_id = account_id.to_string();
             },
@@ -4956,10 +4976,11 @@ mod tests {
     }
     #[test]
     fn unregister_account_rejects_when_account_is_content_publish_allow_account() {
-        assert_account_unregister_guard(
-            |tx, _domain_id, _authority, account_id| {
-                tx.content.publish_allow_accounts = vec![account_id.clone()];
+        assert_account_unregister_guard_with_policy(
+            |state, account_id| {
+                state.content.publish_allow_accounts = vec![account_id.clone()];
             },
+            |_, _, _, _| {},
             "content publish allow-list account must not be unregistered",
             "content publish allow-list account",
             "error should explain content publish-allow conflict",
@@ -4967,10 +4988,11 @@ mod tests {
     }
     #[test]
     fn unregister_account_rejects_when_account_is_sorafs_telemetry_submitter() {
-        assert_account_unregister_guard(
-            |tx, _domain_id, _authority, account_id| {
-                tx.gov.sorafs_telemetry.submitters = vec![account_id.clone()];
+        assert_account_unregister_guard_with_policy(
+            |state, account_id| {
+                state.gov.sorafs_telemetry.submitters = vec![account_id.clone()];
             },
+            |_, _, _, _| {},
             "SoraFS telemetry submitter account must not be unregistered",
             "SoraFS telemetry submitter",
             "error should explain telemetry-submitter conflict",
@@ -4978,13 +5000,15 @@ mod tests {
     }
     #[test]
     fn unregister_account_rejects_when_account_is_configured_sorafs_provider_owner() {
-        assert_account_unregister_guard(
-            |tx, _domain_id, _authority, account_id| {
+        assert_account_unregister_guard_with_policy(
+            |state, account_id| {
                 let provider_id = iroha_data_model::sorafs::capacity::ProviderId::new([0xD4; 32]);
-                tx.gov
+                state
+                    .gov
                     .sorafs_provider_owners
                     .insert(provider_id, account_id.clone());
             },
+            |_, _, _, _| {},
             "configured SoraFS provider-owner account must not be unregistered",
             "configured as SoraFS provider owner",
             "error should explain configured provider-owner conflict",
@@ -7569,9 +7593,11 @@ mod tests {
     }
     #[test]
     fn unregister_asset_definition_rejects_when_definition_is_governance_voting_asset() {
-        with_registered_asset_definition_unregistration_candidate(
+        with_registered_asset_definition_unregistration_candidate_with_policy(
+            |state, asset_definition_id| {
+                state.gov.voting_asset_id = asset_definition_id.clone();
+            },
             |authority, asset_definition_id, tx| {
-                tx.gov.voting_asset_id = asset_definition_id.clone();
                 let err = Unregister::asset_definition(asset_definition_id.clone())
                     .execute(&authority, tx)
                     .expect_err("governance voting asset definition must not be unregistered");
@@ -7600,6 +7626,8 @@ mod tests {
             asset_domain.clone(),
             "locked".parse().unwrap(),
         );
+        state.gov.voting_asset_id =
+            AssetDefinitionId::derive_from_components(asset_domain, "replacement".parse().unwrap());
         let header = BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
         let mut block = state.block(header);
         let mut tx = block.transaction();
@@ -7635,8 +7663,6 @@ mod tests {
         );
         tx.world
             .put_governance_locks("retained-asset-custody".to_owned(), locks);
-        tx.gov.voting_asset_id =
-            AssetDefinitionId::derive_from_components(asset_domain, "replacement".parse().unwrap());
         let err = Unregister::asset_definition(asset_definition_id.clone())
             .execute(&authority, &mut tx)
             .expect_err("immutable lock custody asset definition must remain registered");
@@ -7700,9 +7726,11 @@ mod tests {
     }
     #[test]
     fn unregister_asset_definition_rejects_when_definition_is_governance_viral_reward_asset() {
-        with_registered_asset_definition_unregistration_candidate(
+        with_registered_asset_definition_unregistration_candidate_with_policy(
+            |state, asset_definition_id| {
+                state.gov.viral_incentives.reward_asset_definition_id = asset_definition_id.clone();
+            },
             |authority, asset_definition_id, tx| {
-                tx.gov.viral_incentives.reward_asset_definition_id = asset_definition_id.clone();
                 let err = Unregister::asset_definition(asset_definition_id.clone())
                     .execute(&authority, tx)
                     .expect_err(
@@ -7725,9 +7753,11 @@ mod tests {
     }
     #[test]
     fn unregister_asset_definition_rejects_when_definition_is_oracle_reward_asset() {
-        with_registered_asset_definition_unregistration_candidate(
+        with_registered_asset_definition_unregistration_candidate_with_policy(
+            |state, asset_definition_id| {
+                state.oracle.economics.reward_asset = asset_definition_id.clone();
+            },
             |authority, asset_definition_id, tx| {
-                tx.oracle.economics.reward_asset = asset_definition_id.clone();
                 let err = Unregister::asset_definition(asset_definition_id.clone())
                     .execute(&authority, tx)
                     .expect_err("oracle reward asset definition must not be unregistered");
@@ -7750,7 +7780,7 @@ mod tests {
     fn unregister_asset_definition_rejects_when_definition_is_nexus_fee_asset() {
         with_registered_asset_definition_unregistration_candidate(
             |authority, asset_definition_id, tx| {
-                tx.nexus.fees.fee_asset_id = asset_definition_id.to_string();
+                tx.nexus.fees.fee_asset_id = asset_definition_id.clone();
                 let err = Unregister::asset_definition(asset_definition_id.clone())
                     .execute(&authority, tx)
                     .expect_err("nexus fee asset definition must not be unregistered");

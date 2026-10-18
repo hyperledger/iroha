@@ -146,23 +146,8 @@ fn phase_signature_preimage_v1(
 pub(super) fn validate_authority_cryptography_v1(
     authority: &PrivateSettlementCommitteeAuthorityV1,
 ) -> Result<(), PrivateSettlementProtocolErrorV1> {
-    authority
-        .validate()
-        .map_err(|_| PrivateSettlementProtocolErrorV1::Authority)?;
-    if authority.validators.len() != PRIVATE_SETTLEMENT_COMMITTEE_VALIDATORS_V1
-        || authority.validator_pops.len() != PRIVATE_SETTLEMENT_COMMITTEE_VALIDATORS_V1
-    {
-        return Err(PrivateSettlementProtocolErrorV1::Authority);
-    }
-    for (validator, pop) in authority.validators.iter().zip(&authority.validator_pops) {
-        if validator.public_key().try_algorithm().ok() != Some(Algorithm::BlsNormal)
-            || pop.len() != PRIVATE_SETTLEMENT_BLS_BYTES_V1
-            || iroha_crypto::bls_normal_pop_verify(validator.public_key(), pop).is_err()
-        {
-            return Err(PrivateSettlementProtocolErrorV1::Authority);
-        }
-    }
-    Ok(())
+    iroha_data_model::nexus::validate_private_settlement_authority_cryptography_v1(authority)
+        .map_err(|_| PrivateSettlementProtocolErrorV1::Authority)
 }
 
 /// Uniform failure returned when a private-settlement roster is not the exact
@@ -180,16 +165,8 @@ pub(crate) fn native_private_settlement_route_v1(
     route: PrivateSettlementRouteV1,
     authority_height: u64,
 ) -> Result<&SumeragiLaneRecord, PrivateSettlementCommitteeAuthorityErrorV1> {
-    lanes
-        .lane(route.lane_id)
-        .filter(|record| {
-            authority_height != 0
-                && record.lane != iroha_model_base::topology::LaneId::SINGLE
-                && record.dataspace == route.dataspace_id
-                && record.admits_anchor(authority_height)
-                && Hash::from_marked_bytes(record.incarnation) == Some(route.lane_incarnation)
-        })
-        .ok_or(PrivateSettlementCommitteeAuthorityErrorV1)
+    iroha_data_model::nexus::private_settlement_native_route_v1(lanes, route, authority_height)
+        .map_err(|_| PrivateSettlementCommitteeAuthorityErrorV1)
 }
 
 /// Validate one private-settlement authority against the consensus state.
@@ -213,33 +190,20 @@ pub fn validate_private_settlement_committee_authority_v1(
     authority_context_height: u64,
     authority: &PrivateSettlementCommitteeAuthorityV1,
 ) -> Result<(), PrivateSettlementCommitteeAuthorityErrorV1> {
-    if authority_context_height == 0 {
-        return Err(PrivateSettlementCommitteeAuthorityErrorV1);
-    }
-    validate_authority_cryptography_v1(authority)
-        .map_err(|_| PrivateSettlementCommitteeAuthorityErrorV1)?;
-
-    let record = native_private_settlement_route_v1(
+    iroha_data_model::nexus::validate_private_settlement_committee_assignment_v1(
         state.world().sumeragi_lanes(),
-        authority.route,
+        authority,
         authority_context_height,
-    )?;
-    if record.committee.len() != PRIVATE_SETTLEMENT_COMMITTEE_VALIDATORS_V1
-        || record
-            .committee
-            .iter()
-            .zip(&authority.validators)
-            .zip(&authority.validator_pops)
-            .any(|((member, validator), pop)| member.peer != *validator || member.pop != *pop)
-        || record.committee.iter().any(|member| {
-            !peer_has_live_consensus_key_for_role(
-                state.world(),
-                &member.peer,
-                authority_context_height,
-                ConsensusKeyRole::Committee,
-            )
-        })
-    {
+    )
+    .map_err(|_| PrivateSettlementCommitteeAuthorityErrorV1)?;
+    if authority.validators.iter().any(|peer| {
+        !peer_has_live_consensus_key_for_role(
+            state.world(),
+            peer,
+            authority_context_height,
+            ConsensusKeyRole::Committee,
+        )
+    }) {
         return Err(PrivateSettlementCommitteeAuthorityErrorV1);
     }
     Ok(())

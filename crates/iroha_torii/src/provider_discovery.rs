@@ -139,14 +139,8 @@ pub async fn handler(
                         &advert,
                         originals.stream_token,
                     );
-                    crate::native_projection_response::encode(
-                        &payload,
-                        format,
-                        maximum,
-                        &budget,
-                        unavailable,
-                    )
-                    .map_err(|_| "provider discovery encoding refused".to_owned())
+                    crate::native_projection_response::encode(&payload, format, maximum, &budget)
+                        .map_err(|_| "provider discovery encoding refused".to_owned())
                 })
                 .map_err(|_| unavailable())?;
             body.memory = Some(memory);

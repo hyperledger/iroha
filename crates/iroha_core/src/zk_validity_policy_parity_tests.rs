@@ -308,6 +308,7 @@ fn state_with(node: Option<Zk>, policy: Option<&ZkValidityPolicyV1>) -> State {
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     );
+    state.gov.citizenship_bond_amount = Quantity::zero();
     if let Some(node) = node {
         state
             .install_node_zk(node)
@@ -329,7 +330,6 @@ fn header(height: u64) -> BlockHeader {
 /// The outcome of a ballot whose four-byte proof passes or fails the committed
 /// per-proof size limit before any cryptography runs.
 fn four_byte_ballot_outcome(transaction: &mut crate::state::StateTransaction<'_, '_>) -> String {
-    transaction.gov.citizenship_bond_amount = Quantity::zero();
     let election_id = "election-1".to_owned();
     transaction.world.account_permissions.insert(
         ALICE_ID.clone(),
@@ -536,6 +536,7 @@ fn alice_chain(
     policy: Option<&ZkValidityPolicyV1>,
 ) -> CertifiedTestChain {
     let mut config = TestChainConfig::new(world, 0);
+    config.governance = Some(state_with(None, None).governance_snapshot());
     config.genesis_key = ALICE_KEYPAIR.clone();
     if let Some(policy) = policy {
         config

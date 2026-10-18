@@ -18,7 +18,21 @@ fn priced_fixture(callback_bytes: Option<usize>) -> (State, AssetDefinitionId) {
     )
     .expect("canonical network XOR fee asset");
     let mut state = fixture_with_fee_asset(65_536, callback_bytes, Some(asset.clone()));
-    state.nexus.get_mut().fees.per_instruction_fee = Quantity::from(1_u32);
+    {
+        let mut fees = state.nexus_snapshot().fees;
+        fees.per_instruction_fee = Quantity::from(1_u32);
+        {
+            let mut parameters = state.world.parameters.block();
+            parameters
+                .set_parameter(iroha_data_model::parameter::Parameter::Custom(
+                    fees.clone()
+                        .into_custom_parameter()
+                        .expect("explicit fixture policy"),
+                ))
+                .expect("valid fixture monetary projection");
+            parameters.commit();
+        }
+    }
     (state, asset)
 }
 
@@ -437,6 +451,7 @@ fn actual_failed_execution_fee_authority_is_once_only_and_bound_to_its_source_co
             parameters.transaction(),
             &block.crypto,
             source.header().creation_time(),
+            false,
         )
         .unwrap();
         let mut cache = IvmCache::with_prepared_contract_cache(

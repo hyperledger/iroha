@@ -16832,12 +16832,9 @@ pub mod isi {
             if state_transaction
                 .world
                 .accounts
-                .get(
-                    &state_transaction
-                        .nexus
-                        .fees
-                        .sponsor_vault_custody_account_id,
-                )
+                .get(crate::executor::root_fees::sponsor_vault_custody(
+                    state_transaction,
+                )?)
                 .is_none()
             {
                 return Err(invalid_fee_sponsor_program(
@@ -16864,11 +16861,7 @@ pub mod isi {
                 Transfer::<Asset, Quantity, Account>::asset_quantity(
                     source,
                     self.amount().clone(),
-                    state_transaction
-                        .nexus
-                        .fees
-                        .sponsor_vault_custody_account_id
-                        .clone(),
+                    crate::executor::root_fees::sponsor_vault_custody(state_transaction)?.clone(),
                 )
                 .execute(authority, state_transaction)?;
             }
@@ -16972,11 +16965,7 @@ pub mod isi {
                 .unwrap_or(iroha_model_base::topology::DataSpaceId::UNIVERSAL);
             let source = AssetId::with_scope(
                 self.asset_definition_id().clone(),
-                state_transaction
-                    .nexus
-                    .fees
-                    .sponsor_vault_custody_account_id
-                    .clone(),
+                crate::executor::root_fees::sponsor_vault_custody(state_transaction)?.clone(),
                 fee_sponsor_asset_scope(&definition, dataspace),
             );
             let withdrawal = VerifiedFeeSponsorVaultWithdrawal::new(
@@ -17689,14 +17678,18 @@ pub mod isi {
                 }
                 if parse_config_asset_definition_id(
                     &state_transaction.world,
-                    &state_transaction.nexus.fees.fee_asset_id,
+                    &state_transaction
+                        .nexus
+                        .fees
+                        .fee_asset_id
+                        .canonical_address(),
                     state_transaction.block_unix_timestamp_ms(),
                 )
                 .is_some_and(|configured| &configured == asset_definition_id)
                 {
                     return Err(InstructionExecutionError::InvariantViolation(
                         format!(
-                            "cannot unregister domain {domain_id}: asset definition {asset_definition_id} is configured as nexus fee asset definition (`nexus.fees.fee_asset_id`); update nexus config first"
+                            "cannot unregister domain {domain_id}: asset definition {asset_definition_id} is the immutable committed root fee currency"
                         )
                         .into(),
                     )
@@ -18595,13 +18588,28 @@ pub mod isi {
                                     }
                                 }
                             }
+                            let is_genesis = state_transaction._curr_block.is_genesis();
+                            let root_fee_scope = if next.id() == &iroha_data_model::block::consensus::RootFeePolicy::parameter_id() {
+                                Some(crate::sumeragi::lanes::routing::read_routing_root_scope(&*state_transaction.world)
+                                    .map_err(|reason| state_transaction.attempt_error_to_instruction_error(crate::execution_attempt::ExecutionAttemptError::Deferred(reason)))?
+                                    // H1 may author this slot before its metadata slot. The native
+                                    // genesis validator checks the complete signed root after execution.
+                                    .or_else(|| is_genesis.then_some(iroha_data_model::block::consensus::SumeragiRootScope::Global))
+                                    .ok_or_else(|| invalid_smart_contract_parameter("root fee update requires signed root scope"))?)
+                            } else { None };
                             let previous = {
                                 let params = state_transaction.world.parameters.get_mut();
                                 let previous = params.custom().get(next.id()).cloned();
-                                let result = params.set_parameter(Parameter::Custom(next.clone()));
+                                // Capture the parser's original resource owner before its
+                                // admission observer retires; diagnostic projection must not
+                                // turn a local refusal into an executed rejection.
+                                let result = norito::core::classify_decode_attempt(|| match root_fee_scope {
+                                    Some(scope) => params.set_parameter_for_root(Parameter::Custom(next.clone()), scope, is_genesis),
+                                    None => params.set_parameter(Parameter::Custom(next.clone())),
+                                });
                                 result.map_err(|error| {
                                     state_transaction.attempt_error_to_instruction_error(
-                                        crate::execution_attempt::norito_decode_attempt_error(error, |error| {
+                                        crate::execution_attempt::canonical_decode_attempt_error(error, |error| {
                                             invalid_smart_contract_parameter(error.to_string())
                                         }),
                                     )
@@ -18882,7 +18890,7 @@ pub mod isi {
         impl ValidSingularQuery for FindParameters {
             #[metrics(+"find_parameters")]
             fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Parameters, Error> {
-                let params = state_ro.world().parameters();
+                let params: &Parameters = state_ro.world().parameters();
                 iroha_logger::debug!(
                     max_tx = params.block().max_transactions().get(),
                     sc_depth = params.smart_contract().execution_depth(),
@@ -19553,10 +19561,6 @@ pub mod isi {
         #[test]
         fn parliament_hidden_sortition_capacity_is_objective_for_zero_and_one_candidate() {
             for candidate_count in [0_u32, 1] {
-                let state = blank_test_state();
-                let header = first_test_block_header();
-                let mut block = state.block(header);
-                let mut state_transaction = block.transaction();
                 let proposal = parliament_permissionless_progress_proposal();
                 let proposal_id = proposal.fingerprint();
                 let proposal_content_id = ProposalContentId::new(proposal_id);
@@ -19565,7 +19569,11 @@ pub mod isi {
                 let mut governance = parliament_test_governance(&requirements);
                 governance.citizenship_bond_amount = Quantity::zero();
                 governance.parliament_sortition_pulse_delay_blocks = 5;
-                state_transaction.gov = governance;
+                let mut state = blank_test_state();
+                state.gov = governance;
+                let header = first_test_block_header();
+                let mut block = state.block(header);
+                let mut state_transaction = block.transaction();
                 state_transaction.world.account_permissions.insert(
                     ALICE_ID.clone(),
                     BTreeSet::from([Permission::from(CanManageParliament)]),
@@ -19957,7 +19965,8 @@ pub mod isi {
         fn parliament_non_manager_can_append_the_exact_next_timed_ovn_chunks() {
             use iroha_data_model::governance::types::BallotAttemptStatusV1;
 
-            let state = blank_test_state();
+            let mut state = blank_test_state();
+            configure_parliament_permissionless_progress(&mut state);
             let block = new_dummy_block_at_height(NonZeroU64::new(38).expect("nonzero height"));
             let mut state_block = state.block(block.as_ref().header());
             let mut state_transaction = state_block.transaction();
@@ -20033,7 +20042,8 @@ pub mod isi {
 
         #[test]
         fn parliament_permissionless_timed_ovn_chunk_rejects_shape_order_and_proof_tampering() {
-            let state = blank_test_state();
+            let mut state = blank_test_state();
+            configure_parliament_permissionless_progress(&mut state);
             let block = new_dummy_block_at_height(NonZeroU64::new(38).expect("nonzero height"));
             let mut state_block = state.block(block.as_ref().header());
             let mut state_transaction = state_block.transaction();
@@ -20350,11 +20360,11 @@ pub mod isi {
                 "unexpected capacity error: {capacity_error:?}"
             );
 
-            let state = blank_test_state();
+            let mut state = blank_test_state();
+            state.gov.citizenship_bond_amount = Quantity::zero();
             let header = first_test_block_header();
             let mut block = state.block(header);
             let mut state_transaction = block.transaction();
-            state_transaction.gov.citizenship_bond_amount = Quantity::zero();
             let mut expected = vec![
                 parliament_test_account(0xD3),
                 parliament_test_account(0xD1),
@@ -20467,7 +20477,8 @@ pub mod isi {
 
         #[test]
         fn narrow_confirmation_request_freezes_exact_current_snapshot_and_schedule() {
-            let state = blank_test_state();
+            let mut state = blank_test_state();
+            configure_parliament_permissionless_progress(&mut state);
             let block = new_dummy_block_at_height(NonZeroU64::new(7).expect("nonzero height"));
             let mut state_block = state.block(block.as_ref().header());
             let mut state_transaction = state_block.transaction();
@@ -20649,6 +20660,15 @@ pub mod isi {
             pulse_id: BeaconPulseId,
         }
 
+        fn configure_parliament_permissionless_progress(state: &mut State) {
+            let proposal = parliament_permissionless_progress_proposal();
+            let (_, requirements) = parliament_attempt_policy_v1(&proposal);
+            let mut governance = parliament_test_governance(&requirements);
+            governance.parliament_sortition_pulse_delay_blocks = 5;
+            governance.parliament_invitation_phase_blocks = 1;
+            state.gov = governance;
+        }
+
         fn seed_parliament_permissionless_progress_fixture(
             state_transaction: &mut StateTransaction<'_, '_>,
             phase: ParliamentPermissionlessProgressPhase,
@@ -20661,10 +20681,6 @@ pub mod isi {
             let proposal_content_id = ProposalContentId::new(proposal_id);
             let governance_attempt_id = GovernanceAttemptId::derive_v1(proposal_content_id, 0);
             let (risk_tier, requirements) = parliament_attempt_policy_v1(&proposal);
-            let mut governance = parliament_test_governance(&requirements);
-            governance.parliament_sortition_pulse_delay_blocks = PULSE_HEIGHT - REQUEST_HEIGHT;
-            governance.parliament_invitation_phase_blocks = 1;
-            state_transaction.gov = governance;
             let expected_head = parliament_expected_head_v1(&proposal, state_transaction)
                 .expect("permissionless-progress proposal has a deterministic head");
             let mut attempt = crate::governance::parliament::ParliamentAttemptStateV1::try_new(
@@ -21111,7 +21127,8 @@ pub mod isi {
         fn parliament_sortition_pulse_consumption_is_permissionless_and_exactly_bound() {
             use iroha_data_model::governance::types::BodyElectionAttemptStatusV1;
 
-            let state = blank_test_state();
+            let mut state = blank_test_state();
+            configure_parliament_permissionless_progress(&mut state);
             let block = new_dummy_block_at_height(NonZeroU64::new(6).expect("nonzero height"));
             let mut state_block = state.block(block.as_ref().header());
             let mut state_transaction = state_block.transaction();
@@ -21258,7 +21275,8 @@ pub mod isi {
         fn parliament_invitation_start_is_permissionless_and_election_bound() {
             use iroha_data_model::governance::types::BodyElectionAttemptStatusV1;
 
-            let state = blank_test_state();
+            let mut state = blank_test_state();
+            configure_parliament_permissionless_progress(&mut state);
             let block = new_dummy_block_at_height(NonZeroU64::new(6).expect("nonzero height"));
             let mut state_block = state.block(block.as_ref().header());
             let mut state_transaction = state_block.transaction();
@@ -21325,7 +21343,8 @@ pub mod isi {
         fn parliament_no_roster_failure_is_permissionless_and_reducer_derived() {
             use iroha_data_model::governance::types::BodyElectionAttemptStatusV1;
 
-            let state = blank_test_state();
+            let mut state = blank_test_state();
+            configure_parliament_permissionless_progress(&mut state);
             let block = new_dummy_block_at_height(NonZeroU64::new(7).expect("nonzero height"));
             let mut state_block = state.block(block.as_ref().header());
             let mut state_transaction = state_block.transaction();
@@ -21392,7 +21411,8 @@ pub mod isi {
                 BodyElectionAttemptStatusV1, parliament_roster_root_v1,
             };
 
-            let state = blank_test_state();
+            let mut state = blank_test_state();
+            configure_parliament_permissionless_progress(&mut state);
             let block = new_dummy_block_at_height(NonZeroU64::new(7).expect("nonzero height"));
             let mut state_block = state.block(block.as_ref().header());
             let mut state_transaction = state_block.transaction();
@@ -23667,6 +23687,20 @@ AccountEvent::PermissionRemoved(change))
             };
         }
         macro_rules! blank_test_state_transaction {
+            ($state:ident, $block:ident, $stx:ident; $configure:expr) => {
+                let mut $state = blank_test_state();
+                ($configure)(&mut $state);
+                let header = first_test_block_header();
+                let mut $block = $state.block(header);
+                let mut $stx = $block.transaction();
+            };
+            (checked $state:ident, $block:ident, $stx:ident; $configure:expr) => {
+                let mut $state = blank_test_state();
+                ($configure)(&mut $state);
+                let header = first_test_block_header_with_checked_height();
+                let mut $block = $state.block(header);
+                let mut $stx = $block.transaction();
+            };
             ($state:ident, $block:ident, $stx:ident) => {
                 let $state = blank_test_state();
                 let header = first_test_block_header();
@@ -23700,6 +23734,19 @@ AccountEvent::PermissionRemoved(change))
             }};
         }
         macro_rules! second_height_transaction {
+            ($state:ident, $block:ident, $state_transaction:ident; $configure:expr) => {
+                let mut $state = blank_test_state();
+                ($configure)(&mut $state);
+                let header = BlockHeader::new(
+                    NonZeroU64::new(2).expect("nonzero height"),
+                    None,
+                    None,
+                    0,
+                    0,
+                );
+                let mut $block = $state.block(header);
+                let mut $state_transaction = $block.transaction();
+            };
             ($state:ident, $block:ident, $state_transaction:ident) => {
                 let $state = blank_test_state();
                 let header = BlockHeader::new(
@@ -25211,8 +25258,9 @@ AccountEvent::PermissionRemoved(change))
             );
         });
         world_test!(standalone_plain_and_zk_ballots_reject_every_typed_proposal_selector_alias {
-            second_height_transaction!(state, block, state_transaction);
-            state_transaction.gov.citizenship_bond_amount = Quantity::zero();
+            second_height_transaction!(state, block, state_transaction; |state: &mut State| {
+                state.gov.citizenship_bond_amount = Quantity::zero();
+            });
             let kind = ProposalKind::DeployContract(DeployContractProposal {
                 proposal_operator: ALICE_ID.clone(),
                 contract_address:
@@ -25298,8 +25346,9 @@ AccountEvent::PermissionRemoved(change))
             }
         });
         world_test!(direct_zk_ballot_isi_rejects_closed_input_bypasses_before_proof_dispatch {
-            second_height_transaction!(state, block, state_transaction);
-            state_transaction.gov.citizenship_bond_amount = Quantity::zero();
+            second_height_transaction!(state, block, state_transaction; |state: &mut State| {
+                state.gov.citizenship_bond_amount = Quantity::zero();
+            });
             let permission: Permission =
                 iroha_executor_data_model::permission::governance::CanSubmitGovernanceBallot {
                     referendum_id: "election-1".to_owned(),
@@ -25373,9 +25422,10 @@ AccountEvent::PermissionRemoved(change))
             assert_err!(format!("{error:?}"), "exact CanSubmitGovernanceBallot target", "unexpected ballot target-scope rejection: {error:?}");
         });
         world_test!(direct_zk_ballot_lock_must_cover_the_inclusive_referendum_window {
-            second_height_transaction!(state, block, state_transaction);
-            state_transaction.gov.citizenship_bond_amount = Quantity::zero();
-            state_transaction.gov.min_bond_amount = Quantity::zero();
+            second_height_transaction!(state, block, state_transaction; |state: &mut State| {
+                state.gov.citizenship_bond_amount = Quantity::zero();
+                state.gov.min_bond_amount = Quantity::zero();
+            });
             let referendum_id = "election-1".to_owned();
             state_transaction.world.account_permissions.insert(
                 ALICE_ID.clone(),
@@ -25446,9 +25496,10 @@ AccountEvent::PermissionRemoved(change))
             );
         });
         world_test!(direct_zk_ballot_lock_expiry_overflow_rejects_before_state_mutation {
-            second_height_transaction!(state, block, state_transaction);
-            state_transaction.gov.citizenship_bond_amount = Quantity::zero();
-            state_transaction.gov.min_bond_amount = Quantity::zero();
+            second_height_transaction!(state, block, state_transaction; |state: &mut State| {
+                state.gov.citizenship_bond_amount = Quantity::zero();
+                state.gov.min_bond_amount = Quantity::zero();
+            });
             let referendum_id = "election-1".to_owned();
             state_transaction.world.account_permissions.insert(
                 ALICE_ID.clone(),
@@ -25521,8 +25572,9 @@ AccountEvent::PermissionRemoved(change))
             );
         });
         world_test!(direct_zk_ballot_cannot_open_a_proposed_referendum {
-            second_height_transaction!(state, block, state_transaction);
-            state_transaction.gov.citizenship_bond_amount = Quantity::zero();
+            second_height_transaction!(state, block, state_transaction; |state: &mut State| {
+                state.gov.citizenship_bond_amount = Quantity::zero();
+            });
             let referendum_id = "election-1".to_owned();
             state_transaction.world.account_permissions.insert(
                 ALICE_ID.clone(),
@@ -25586,8 +25638,9 @@ AccountEvent::PermissionRemoved(change))
             );
         });
         world_test!(direct_zk_ballot_rejects_a_full_corpus_without_pruning {
-            second_height_transaction!(state, block, state_transaction);
-            state_transaction.gov.citizenship_bond_amount = Quantity::zero();
+            second_height_transaction!(state, block, state_transaction; |state: &mut State| {
+                state.gov.citizenship_bond_amount = Quantity::zero();
+            });
             state_transaction.zk.ballot_history_cap = 1;
             let referendum_id = "election-1".to_owned();
             state_transaction.world.account_permissions.insert(
@@ -25647,8 +25700,9 @@ AccountEvent::PermissionRemoved(change))
             );
         });
         world_test!(direct_zk_ballot_preflights_base64_length_before_decoding {
-            second_height_transaction!(state, block, state_transaction);
-            state_transaction.gov.citizenship_bond_amount = Quantity::zero();
+            second_height_transaction!(state, block, state_transaction; |state: &mut State| {
+                state.gov.citizenship_bond_amount = Quantity::zero();
+            });
             state_transaction.zk.max_proof_size_bytes = 1;
             state_transaction.zk.preverify_max_bytes = 10;
             let election_id = "election-1".to_owned();
@@ -25692,8 +25746,9 @@ AccountEvent::PermissionRemoved(change))
             assert!(state_transaction.world.elections.get(&election_id).is_none());
         });
         world_test!(low_level_zk_ballot_rejects_full_corpus_without_mutation {
-            second_height_transaction!(state, block, state_transaction);
-            state_transaction.gov.citizenship_bond_amount = Quantity::zero();
+            second_height_transaction!(state, block, state_transaction; |state: &mut State| {
+                state.gov.citizenship_bond_amount = Quantity::zero();
+            });
             state_transaction.zk.ballot_history_cap = 1;
             let election_id = "election-1".to_owned();
             state_transaction.world.account_permissions.insert(
@@ -25846,14 +25901,14 @@ AccountEvent::PermissionRemoved(change))
             }
         });
         world_test!(zero_minimum_governance_bond_still_escrows_positive_exact_deltas {
-            let state = blank_test_state();
+            let mut state = blank_test_state();
+            state.gov.min_bond_amount = Quantity::zero();
+            state.gov.bond_escrow_account = iroha_test_samples::CARPENTER_ID.clone();
+            state.gov.slash_receiver_account =
+                iroha_test_samples::SAMPLE_GENESIS_ACCOUNT_ID.clone();
             let header = BlockHeader::new(NonZeroU64::new(2).unwrap(), None, None, 0, 0);
             let mut block = state.block(header);
             let mut state_transaction = block.transaction_for_fastpq_protocol_testing();
-            state_transaction.gov.min_bond_amount = Quantity::zero();
-            state_transaction.gov.bond_escrow_account = iroha_test_samples::CARPENTER_ID.clone();
-            state_transaction.gov.slash_receiver_account =
-                iroha_test_samples::SAMPLE_GENESIS_ACCOUNT_ID.clone();
             crate::query::standalone_plain_test_fixture::fund_voter(
                 &mut state_transaction,
                 &ALICE_ID,
@@ -25971,11 +26026,12 @@ AccountEvent::PermissionRemoved(change))
             );
         });
         world_test!(late_zk_tally_emits_exact_referendum_decision_once {
-            second_height_transaction!(state, block, state_transaction);
+            second_height_transaction!(state, block, state_transaction; |state: &mut State| {
+                state.gov.approval_threshold_q_num = 1;
+                state.gov.approval_threshold_q_den = 2;
+                state.gov.min_turnout = 0;
+            });
             let referendum_id = format!("0X{}", "aB".repeat(32));
-            state_transaction.gov.approval_threshold_q_num = 1;
-            state_transaction.gov.approval_threshold_q_den = 2;
-            state_transaction.gov.min_turnout = 0;
             state_transaction.world.governance_referenda.insert(
                 referendum_id.clone(),
                 crate::state::GovernanceReferendumRecord {
@@ -28613,20 +28669,21 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             assert_contains!(tally_error .to_string(), "tally verifying key circuit mismatch", "unexpected retired tally circuit rejection: {tally_error}");
         });
         world_test!(election_keys_are_read_from_the_committed_election_only {
-            blank_state_transaction!(state, block, state_block, stx);
             // A settings value that names default keys, as a node configuration
             // could before the keys of `[gov]` were removed from its schema. The
             // committed election record is the only relation selector.
-            let configured = VerifyingKeyId::new("pipa-r/pasta", "vk_node_default");
-            let configured_box = VerifyingKeyBox::new("pipa-r/pasta".into(), vec![9, 9, 9]);
-            vk_record!(rec, 1, VOTING_BALLOT_CIRCUIT_ID, BackendTag::NativePipaRPasta, "vesta", [0u8; 32], hash_vk(&configured_box); status = ConfidentialStatus::Active, key = Some(configured_box.clone()), vk_len = u32::try_from(configured_box.bytes.len()) .expect("verifying key length fits into u32"));
-            stx.world.verifying_keys.insert(configured.clone(), rec);
+            let mut state = blank_state();
             let node_default = iroha_config::parameters::actual::VerifyingKeyRef {
                 backend: "pipa-r/pasta".to_owned(),
                 name: "vk_node_default".to_owned(),
             };
-            stx.gov.vk_ballot = Some(node_default.clone());
-            stx.gov.vk_tally = Some(node_default);
+            state.gov.vk_ballot = Some(node_default.clone());
+            state.gov.vk_tally = Some(node_default);
+            state_transaction!(state, block, state_block, stx);
+            let configured = VerifyingKeyId::new("pipa-r/pasta", "vk_node_default");
+            let configured_box = VerifyingKeyBox::new("pipa-r/pasta".into(), vec![9, 9, 9]);
+            vk_record!(rec, 1, VOTING_BALLOT_CIRCUIT_ID, BackendTag::NativePipaRPasta, "vesta", [0u8; 32], hash_vk(&configured_box); status = ConfidentialStatus::Active, key = Some(configured_box.clone()), vk_len = u32::try_from(configured_box.bytes.len()) .expect("verifying key length fits into u32"));
+            stx.world.verifying_keys.insert(configured.clone(), rec);
             let without_keys = crate::state::ElectionState::default();
             let proof = ProofBox::new("pipa-r/pasta".into(), vec![0xaa]);
             let attachment = ProofAttachment::new_ref("pipa-r/pasta".into(), proof, configured);
@@ -29332,35 +29389,37 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
         #[test]
         fn unregister_domain_allows_surviving_accounts_used_by_global_config_and_invalid_literals()
         {
-            let state = blank_state();
+            let mut state = blank_state();
             let domain_id: DomainId =
                 DomainId::try_new("cleanup", "universal").expect("domain id parses");
+            let account_id = AccountId::new(checked_keypair().public_key().clone());
+            let provider_id = iroha_data_model::sorafs::capacity::ProviderId::new([0xC3; 32]);
+            state.gov.bond_escrow_account = account_id.clone();
+            state.gov.viral_incentives.incentive_pool_account = account_id.clone();
+            state.oracle.economics.reward_pool = account_id.clone();
+            state.content.publish_allow_accounts = vec![account_id.clone()];
+            state
+                .gov
+                .sorafs_telemetry
+                .per_provider_submitters
+                .insert(provider_id, vec![account_id.clone()]);
+            state
+                .gov
+                .sorafs_provider_owners
+                .insert(provider_id, account_id.clone());
             state_transaction!(state, block, state_block, stx);
             Register::domain(Domain::new(domain_id.clone())).expect_execute(
                 &ALICE_ID,
                 &mut stx,
                 "register cleanup domain",
             );
-            let account_id = AccountId::new(checked_keypair().public_key().clone());
             Register::account(new_account_in_domain(&account_id)).expect_execute(
                 &ALICE_ID,
                 &mut stx,
                 "register account in cleanup domain",
             );
-            stx.gov.bond_escrow_account = account_id.clone();
-            stx.gov.viral_incentives.incentive_pool_account = account_id.clone();
-            stx.oracle.economics.reward_pool = account_id.clone();
-            stx.nexus.fees.fee_sink_account_id = "not-an-account-literal".to_owned();
+            stx.nexus.fees.fee_sink_account_id = account_id.clone();
             stx.nexus.staking.stake_escrow_account_id = account_id.to_string();
-            stx.content.publish_allow_accounts = vec![account_id.clone()];
-            let provider_id = iroha_data_model::sorafs::capacity::ProviderId::new([0xC3; 32]);
-            stx.gov
-                .sorafs_telemetry
-                .per_provider_submitters
-                .insert(provider_id, vec![account_id.clone()]);
-            stx.gov
-                .sorafs_provider_owners
-                .insert(provider_id, account_id.clone());
             Unregister::domain(domain_id.clone()).expect_execute(
                 &ALICE_ID,
                 &mut stx,
@@ -29404,7 +29463,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 .into();
             Grant::account_permission(permission.clone(), holder_id.clone())
                 .expect_execute(&ALICE_ID, &mut stx, "grant account-target permission");
-            stx.nexus.fees.fee_sink_account_id = account_id.to_string();
+            stx.nexus.fees.fee_sink_account_id = account_id.clone();
             Unregister::domain(remove_domain.clone())
                 .expect_execute(&ALICE_ID, &mut stx, "removing an unrelated domain should preserve canonical account state");
             assert!(
@@ -29642,16 +29701,18 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
         });
 
         world_test!(unregister_domain_retained_asset_refusal_preserves_permissions_and_endorsements_in_same_transaction {
-            blank_state_transaction!(state, block, state_block, stx);
-            bootstrap_alice_account(&mut stx);
+            let mut state = blank_state();
             let domain_id = DomainId::try_new("retained", "universal")
                 .expect("retained asset domain");
-            Register::domain(Domain::new(domain_id.clone()))
-                .expect_execute(&ALICE_ID, &mut stx, "register retained domain");
             let definition_id = AssetDefinitionId::derive_from_components(
                 domain_id.clone(),
                 "vote".parse().expect("voting asset name"),
             );
+            state.gov.voting_asset_id = definition_id.clone();
+            state_transaction!(state, block, state_block, stx);
+            bootstrap_alice_account(&mut stx);
+            Register::domain(Domain::new(domain_id.clone()))
+                .expect_execute(&ALICE_ID, &mut stx, "register retained domain");
             Register::asset_definition(AssetDefinition::numeric(
                 definition_id.clone(),
                 "vote",
@@ -29659,7 +29720,6 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 Some(domain_id.clone()),
             ))
             .expect_execute(&ALICE_ID, &mut stx, "register retained voting asset");
-            stx.gov.voting_asset_id = definition_id.clone();
             let grantee = AccountId::new(checked_keypair().public_key().clone());
             Register::account(new_account_in_domain(&grantee))
                 .expect_execute(&ALICE_ID, &mut stx, "register permission grantee");
@@ -29700,16 +29760,17 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             assert!(stx.world.take_external_events().is_empty());
         });
         world_test!(unregister_domain_rejects_when_domain_asset_definition_is_governance_voting_asset {
-            let state = blank_state();
+            let mut state = blank_state();
             let domain_id: DomainId =
                 DomainId::try_new("cleanup", "universal").expect("domain id parses");
-            state_transaction!(state, block, state_block, stx);
-            Register::domain(Domain::new(domain_id.clone()))
-                .expect_execute(&ALICE_ID, &mut stx, "register cleanup domain");
             let voting_def = AssetDefinitionId::derive_from_components(
                 domain_id.clone(),
                 "vote".parse().unwrap(),
             );
+            state.gov.voting_asset_id = voting_def.clone();
+            state_transaction!(state, block, state_block, stx);
+            Register::domain(Domain::new(domain_id.clone()))
+                .expect_execute(&ALICE_ID, &mut stx, "register cleanup domain");
             Register::asset_definition(AssetDefinition::numeric(
                 voting_def.clone(),
                 "vote",
@@ -29717,7 +29778,6 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 Some(domain_id.clone()),
             ))
             .expect_execute(&ALICE_ID, &mut stx, "register cleanup-domain asset definition");
-            stx.gov.voting_asset_id = voting_def.clone();
             let err = Unregister::domain(domain_id.clone())
                 .execute(&ALICE_ID, &mut stx)
                 .expect_err(
@@ -29853,18 +29913,19 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
         #[test]
         fn unregister_domain_rejects_when_domain_asset_definition_is_governance_viral_reward_asset()
         {
-            let state = blank_state();
+            let mut state = blank_state();
             let domain_id: DomainId =
                 DomainId::try_new("cleanup", "universal").expect("domain id parses");
+            let reward_def = AssetDefinitionId::derive_from_components(
+                domain_id.clone(),
+                "viral".parse().unwrap(),
+            );
+            state.gov.viral_incentives.reward_asset_definition_id = reward_def.clone();
             state_transaction!(state, block, state_block, stx);
             Register::domain(Domain::new(domain_id.clone())).expect_execute(
                 &ALICE_ID,
                 &mut stx,
                 "register cleanup domain",
-            );
-            let reward_def = AssetDefinitionId::derive_from_components(
-                domain_id.clone(),
-                "viral".parse().unwrap(),
             );
             Register::asset_definition(AssetDefinition::numeric(
                 reward_def.clone(),
@@ -29877,7 +29938,6 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 &mut stx,
                 "register cleanup-domain asset definition",
             );
-            stx.gov.viral_incentives.reward_asset_definition_id = reward_def.clone();
             let err = Unregister::domain(domain_id.clone())
                 .execute(&ALICE_ID, &mut stx)
                 .expect_err(
@@ -29899,16 +29959,17 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             );
         }
         world_test!(unregister_domain_rejects_when_domain_asset_definition_is_oracle_reward_asset {
-            let state = blank_state();
+            let mut state = blank_state();
             let domain_id: DomainId =
                 DomainId::try_new("cleanup", "universal").expect("domain id parses");
-            state_transaction!(state, block, state_block, stx);
-            Register::domain(Domain::new(domain_id.clone()))
-                .expect_execute(&ALICE_ID, &mut stx, "register cleanup domain");
             let reward_def = AssetDefinitionId::derive_from_components(
                 domain_id.clone(),
                 "oracle".parse().unwrap(),
             );
+            state.oracle.economics.reward_asset = reward_def.clone();
+            state_transaction!(state, block, state_block, stx);
+            Register::domain(Domain::new(domain_id.clone()))
+                .expect_execute(&ALICE_ID, &mut stx, "register cleanup domain");
             Register::asset_definition(AssetDefinition::numeric(
                 reward_def.clone(),
                 "oracle",
@@ -29916,7 +29977,6 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 Some(domain_id.clone()),
             ))
             .expect_execute(&ALICE_ID, &mut stx, "register cleanup-domain asset definition");
-            stx.oracle.economics.reward_asset = reward_def.clone();
             let err = Unregister::domain(domain_id.clone())
                 .expect_execute_err(&ALICE_ID, &mut stx, "domain unregister must reject oracle reward asset-definition removal");
             let err_string = format!("{err:?}");
@@ -29948,7 +30008,7 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 Some(domain_id.clone()),
             ))
             .expect_execute(&ALICE_ID, &mut stx, "register cleanup-domain asset definition");
-            stx.nexus.fees.fee_asset_id = fee_def.to_string();
+            stx.nexus.fees.fee_asset_id = fee_def.clone();
             let err = Unregister::domain(domain_id.clone())
                 .expect_execute_err(&ALICE_ID, &mut stx, "domain unregister must reject nexus fee asset-definition removal");
             let err_string = format!("{err:?}");

@@ -1,3 +1,28 @@
+// Runtime-wide settings are owned by the live node. An isolated replay uses
+// the same current original allocation pool and process runtime without resizing
+// or reconfiguring either; its per-State caches still use the captured inputs.
+#[derive(Clone, Copy)]
+enum ProcessRuntimeInstallation {
+    Install,
+    Preserve,
+}
+impl ProcessRuntimeInstallation {
+    fn installs(self) -> bool {
+        matches!(self, Self::Install)
+    }
+}
+
+/// Original configuration refusal while constructing an isolated replay State.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum IsolatedReplayStateError {
+    /// Original State construction/storage admission refusal.
+    #[error(transparent)]
+    State(#[from] MergeLedgerCommitError),
+    /// Original committed execution-policy rejection.
+    #[error(transparent)]
+    Pipeline(#[from] crate::pipeline_validity_policy::PipelineValidityPolicyError),
+}
+
 impl State {
     /// Return a handle to the original State-owned execution allocation pool.
     ///
@@ -17,7 +42,7 @@ impl State {
     /// values installed here in every view and block.
     #[cfg(any(test, feature = "iroha-core-tests"))]
     pub fn set_pipeline(&mut self, pipeline: iroha_config::parameters::actual::Pipeline) {
-        self.install_pipeline_settings(pipeline);
+        self.install_pipeline_settings(pipeline, ProcessRuntimeInstallation::Install);
     }
 
     /// Edit the installed pipeline settings of a fixture State in place.
@@ -63,12 +88,19 @@ impl State {
     > {
         self.world.parameters.view().pipeline_policy().validate()?;
         let ignored = crate::pipeline_validity_policy::node_validity_overrides(&node);
-        self.install_pipeline_settings(crate::pipeline_validity_policy::node_local_resources(node));
+        self.install_pipeline_settings(
+            crate::pipeline_validity_policy::node_local_resources(node),
+            ProcessRuntimeInstallation::Install,
+        );
         Ok(ignored)
     }
 
     /// Store `pipeline` and size the caches and pools that follow it.
-    fn install_pipeline_settings(&mut self, pipeline: iroha_config::parameters::actual::Pipeline) {
+    fn install_pipeline_settings(
+        &mut self,
+        pipeline: iroha_config::parameters::actual::Pipeline,
+        process_runtime: ProcessRuntimeInstallation,
+    ) {
         let execution_budget = self.ivm_execution_budget();
         self.pipeline = pipeline;
         self.pipeline_parallelism = PipelineParallelism::new(&self.pipeline);
@@ -80,7 +112,9 @@ impl State {
         // defers new local admission until the final old borrower releases.
         // The scope holds refund wakes until all physical cache guards drop.
         execution_budget.with_deferred_refund_notifications(|_| {
-            execution_budget.set_limit_bytes(self.pipeline.ivm_execution_max_bytes);
+            if process_runtime.installs() {
+                execution_budget.set_limit_bytes(self.pipeline.ivm_execution_max_bytes);
+            }
             *self.trigger_ivm_cache.lock() = IvmCache::with_prepared_contract_cache(
                 self.pipeline.cache_size,
                 PreparedContractCache::with_execution_budget(
@@ -101,13 +135,15 @@ impl State {
                     execution_budget.clone(),
                 );
         });
-        // Configure the IVM global pre-decode cache from pipeline settings.
-        ivm::ivm_cache::configure_limits(ivm::ivm_cache::CacheLimits {
-            capacity: self.pipeline.cache_size,
-            max_bytes: self.pipeline.ivm_cache_max_bytes,
-            max_decoded_ops: self.pipeline.ivm_cache_max_decoded_ops,
-        });
-        ivm::zk::set_prover_threads(self.pipeline.ivm_prover_threads);
+        if process_runtime.installs() {
+            // Only the live node installs process-wide execution resources.
+            ivm::ivm_cache::configure_limits(ivm::ivm_cache::CacheLimits {
+                capacity: self.pipeline.cache_size,
+                max_bytes: self.pipeline.ivm_cache_max_bytes,
+                max_decoded_ops: self.pipeline.ivm_cache_max_decoded_ops,
+            });
+            ivm::zk::set_prover_threads(self.pipeline.ivm_prover_threads);
+        }
     }
 
     #[inline]

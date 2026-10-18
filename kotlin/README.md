@@ -270,10 +270,21 @@ generating under an occupied alias replaces its key (keystore2 `rebind_alias`;
 keystore1 deletes the alias first). `client-android` therefore decides existence
 only through `KeyStore.getKey(alias, null)`: a key is present, null is absent and
 any throw stops the call. Only keystore2 (API 31+) makes that null definitive, so
-`SystemAndroidKeystoreBackend` refuses below API 31. There `KeystoreKeyProvider.maybeCreate`
+`SystemAndroidKeystoreBackend` and the `ParliamentTimedOvnWalletV1` seed vault refuse
+below API 31. There `KeystoreKeyProvider.maybeCreate`
 returns null, so `IrohaKeyManager.withDefaultProviders` keeps only its software provider. On API 31+
 `IrohaKeyManager.generateOrLoad` stops instead of generating when the Keystore cannot
 answer. No key is deleted or regenerated in response to a Keystore error.
+
+The Parliament timed-OVN seed vault wraps every stored seed under one AES-GCM
+Keystore key, so replacing that key would make every seed undecryptable. Seed
+creation, registration, ballot and deletion of a stored seed throw
+`IllegalStateException` below API 31 without touching the Keystore; the wallet
+module's floor stays at API 24 because proof-page verification needs no Keystore.
+On API 31+ decryption only loads the wrapping key, and a missing key is an error.
+Seed creation reuses the present key and generates one only after `getKey`
+returns a definitive null. An entry under the alias that is not a secret key is an
+error on both paths and is never replaced.
 
 ### Attestation command
 
@@ -640,6 +651,19 @@ after any lost response) before closing the connection. The normal flow complete
 hold; reconnecting is only recovery after interrupted contact. A Nearby receiver that
 advertises before it holds a Request uses
 `IrohaPeerNearbyDiscoveryContextV1.freshReceiver`.
+
+The receiver sets the amount. Its ask (`IrohaPeerAskV1`: the amount and the receiver's account
+digest, display DATA that authorizes nothing) reaches the payer before the Offer, because Native
+requires the Request amount to equal the Offer amount: a card built with
+`IrohaPeerNfcCardEndpointV1.intake(aid, policy, limits, ask)` answers GET_ASK, and the payer's
+`IrohaPeerNfcOfferExchangeV1.runFromAsk(offerFactory, ...)` reads it and calls the factory once to
+build the Offer in the same hold (resume an interrupted contact with `run(offer)`, never a second
+factory call). Nearby carries the ask as the receiver's first sealed record
+(`IrohaPeerNearbySessionV1.sealAsk`/`openAsk`), QR as `IrohaPeerAskV1.toText`/`fromText`. The
+receiver declines an Offer for any other amount, read with `KagemushaWalletWireV1.offerAmountData`,
+before it issues a Request. Nearby pairing derives a picture with
+`IrohaPeerNearbyPictureCodeV1.targetIndex` from the transport's authentication digits; never show the
+digits.
 
 `KagemushaWalletAccountOriginalV1` encodes and renders the bounded complete
 canonical Norito `AccountId` frame used by `KagemushaWalletV1.reviewSend`.

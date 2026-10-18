@@ -212,7 +212,7 @@ pub fn enact(
         proposal_id
     };
     let cause = controls::ControlCauseV1::from_parliament(certificate_id, effect_hash)?;
-    #[cfg(all(test, sumeragi_core_mutation = "HC397"))]
+    #[cfg(all(test, sumeragi_core_mutation = "HC401"))]
     let s0 = {
         let _ = s0;
         GovernanceAnchorV1 {
@@ -392,7 +392,7 @@ fn register_route(
     // Only module unit tests can exercise installation before the owners open P0.
     #[cfg(test)]
     let gates = tests::LAUNCH_GATES.with(|override_| override_.get().unwrap_or(gates));
-    if !(cfg!(all(test, sumeragi_core_mutation = "HC396")) || gates.0 && gates.1) {
+    if !(cfg!(all(test, sumeragi_core_mutation = "HC400")) || gates.0 && gates.1) {
         return Err(refuse(
             "RegisterRoute launch/reconciliation authority is unavailable",
         ));

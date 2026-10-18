@@ -64,9 +64,18 @@ fn config() -> TestChainConfig {
     nexus.fees.per_byte_fee = Quantity::zero();
     nexus.fees.per_instruction_fee = Quantity::zero();
     nexus.fees.per_gas_unit_fee = Quantity::zero();
-    nexus.fees.fee_asset_id = fee_asset().canonical_address();
+    nexus.fees.fee_asset_id = fee_asset().clone();
     nexus.fees.fee_sink_account_id =
-        AccountId::new(config.genesis_key.public_key().clone()).to_string();
+        AccountId::new(config.genesis_key.public_key().clone()).clone();
+    config
+        .genesis_parameters
+        .push(iroha_data_model::parameter::Parameter::Custom(
+            nexus
+                .fees
+                .clone()
+                .into_custom_parameter()
+                .expect("original signed Global fee policy"),
+        ));
     config.nexus = Some(nexus);
     config.genesis_instructions = vec![
         Register::account(Account::new(account())).into(),
@@ -485,5 +494,309 @@ fn committed_fraud_permission_preserves_actual_payment_fees_and_certified_restar
                 receipt.as_ref()
             );
         }
+    }
+}
+
+fn global_fee_policy_payment(signed_limit: u32) {
+    let mut original = CertifiedTestChain::start(config()).unwrap();
+    let payment = intent(&original, "global-committed-fee-authority");
+    let mut builder = TransactionBuilder::new(
+        original.network_id(),
+        account(),
+        FeePaymentIntent::authority(
+            vec![FeeChargeLimit::new(
+                FeeChargeKind::Nexus,
+                fee_asset(),
+                signed_limit.into(),
+            )],
+            None,
+        ),
+    );
+    builder.set_creation_time(Duration::from_millis(1_001));
+    let transaction = builder
+        .with_instructions([payment.clone()])
+        .sign(payer().private_key());
+    assert_eq!(original.commit(vec![transaction.clone()]), vec![true]);
+    let committed = original.committed(2);
+    let (_, output) = committed.block().network_output_at(0).unwrap();
+    let receipt = output
+        .result
+        .nexus_fee_receipt()
+        .expect("actual successful monetary charge");
+    assert_eq!(receipt.fee_amount, Quantity::one());
+    assert_eq!(receipt.schedule.base_fee, Quantity::one());
+    assert_eq!(balance(&original, fee_asset(), account()), 99_u32.into());
+    assert_eq!(
+        balance(&original, principal(), recipient()),
+        250_000_u32.into()
+    );
+    let settlement = original
+        .state()
+        .view()
+        .world()
+        .settlement_receipts()
+        .get(&payment.settlement_id)
+        .unwrap()
+        .clone();
+
+    let mut independent = CertifiedTestChain::start(config()).unwrap();
+    assert_eq!(independent.genesis().hash(), original.genesis().hash());
+    // Change only the process-local copy after the identical original H1 has committed.
+    // At limit 1 the old owner rejects; at limit 2 it burns 2 instead of 1.
+    independent.state().nexus.write().fees.base_fee = 2_u32.into();
+    assert_eq!(
+        independent.commit(vec![transaction.clone()]),
+        vec![true],
+        "a node-local schedule cannot reject the same authorized payment"
+    );
+    let other = independent.committed(2);
+    let (_, output) = other.block().network_output_at(0).unwrap();
+    assert_eq!(
+        output.result.nexus_fee_receipt(),
+        Some(receipt),
+        "the exact same input must publish the same monetary receipt"
+    );
+    assert_eq!(
+        other.result(),
+        committed.result(),
+        "same committed complete State result"
+    );
+    assert_eq!(other.block().hash(), committed.block().hash());
+    assert_eq!(balance(&independent, fee_asset(), account()), 99_u32.into());
+    assert_eq!(
+        balance(&independent, principal(), recipient()),
+        250_000_u32.into()
+    );
+    assert_eq!(
+        independent
+            .state()
+            .view()
+            .world()
+            .settlement_receipts()
+            .get(&payment.settlement_id),
+        Some(&settlement)
+    );
+
+    let mut restored = CertifiedTestChain::start(config()).unwrap();
+    restored.state().nexus.write().fees.base_fee = 7_u32.into();
+    restored.replay_from(&original).unwrap();
+    assert_eq!(
+        restored.height(),
+        2,
+        "recovery requires no successor traffic"
+    );
+    assert_eq!(restored.committed(2).result(), committed.result());
+    assert_eq!(balance(&restored, fee_asset(), account()), 99_u32.into());
+    assert_eq!(
+        restored
+            .state()
+            .view()
+            .world()
+            .settlement_receipts()
+            .get(&payment.settlement_id),
+        Some(&settlement)
+    );
+}
+
+#[test]
+fn committed_global_fee_policy_prevents_local_schedule_rejecting_payment() {
+    global_fee_policy_payment(1);
+}
+
+#[test]
+fn committed_global_fee_policy_prevents_local_schedule_changing_paid_receipt() {
+    global_fee_policy_payment(2);
+}
+
+fn fee_update_config() -> TestChainConfig {
+    let mut config = config();
+    config.genesis_instructions.push(
+        iroha_data_model::isi::Grant::account_permission(
+            iroha_executor_data_model::permission::parameter::CanSetParameters,
+            account(),
+        )
+        .into(),
+    );
+    config
+}
+
+#[test]
+fn committed_fee_update_uses_predecessor_for_entire_block_and_survives_replay() {
+    use crate::state::StateReadOnly as _;
+    use iroha_data_model::{isi::SetParameter, parameter::Parameter};
+    let mut chain = CertifiedTestChain::start(fee_update_config()).unwrap();
+    let before = chain.state().view().nexus().fees.clone();
+    let mut next = before.clone();
+    next.base_fee = 2_u32.into();
+    next.fee_sink_account_id = recipient();
+    let update = signed(
+        &chain,
+        vec![
+            SetParameter::new(Parameter::Custom(
+                next.clone().into_custom_parameter().unwrap(),
+            ))
+            .into(),
+        ],
+        1001,
+    );
+    let payment = intent(&chain, "same-block-root-fee-update");
+    let paid = signed(&chain, vec![payment.clone().into()], 1002);
+    assert_eq!(
+        chain.commit(vec![update, paid]),
+        vec![true, true],
+        "every transaction in the policy-update block must use predecessor fees"
+    );
+    let original = chain.committed(2);
+    for index in 0..2 {
+        let receipt = original
+            .block()
+            .network_output_at(index)
+            .unwrap()
+            .1
+            .result
+            .nexus_fee_receipt()
+            .expect("actual successful debit");
+        assert_eq!(receipt.fee_amount, Quantity::one());
+        assert_eq!(receipt.schedule.base_fee, Quantity::one());
+    }
+    assert_eq!(balance(&chain, fee_asset(), account()), 98_u32.into());
+    assert_eq!(
+        balance(&chain, principal(), recipient()),
+        250_000_u32.into()
+    );
+    assert_eq!(chain.state().view().nexus().fees, next);
+    let mut second = intent(&chain, "successor-root-fee-update");
+    // This distinct successor is first executed at H3; the shared fixture's H2
+    // expiry belongs to the earlier payment and cannot authorize this one.
+    second.expires_at_height = NonZeroU64::new(3).unwrap();
+    let mut builder = TransactionBuilder::new(
+        chain.network_id(),
+        account(),
+        FeePaymentIntent::authority(
+            vec![FeeChargeLimit::new(
+                FeeChargeKind::Nexus,
+                fee_asset(),
+                2_u32.into(),
+            )],
+            None,
+        ),
+    );
+    builder.set_creation_time(Duration::from_millis(2001));
+    let second = builder
+        .with_instructions([second])
+        .sign(payer().private_key());
+    let accepted = chain.commit(vec![second]);
+    let last = chain.committed(3);
+    assert_eq!(
+        accepted,
+        vec![true],
+        "successor payment outcome: {:?}",
+        last.block().network_output_at(0)
+    );
+    let receipt = last
+        .block()
+        .network_output_at(0)
+        .unwrap()
+        .1
+        .result
+        .nexus_fee_receipt()
+        .unwrap();
+    assert_eq!(receipt.fee_amount, 2_u32.into());
+    assert_eq!(receipt.schedule.base_fee, 2_u32.into());
+    assert_eq!(balance(&chain, fee_asset(), account()), 96_u32.into());
+    assert_eq!(
+        balance(&chain, principal(), recipient()),
+        500_000_u32.into()
+    );
+    let mut replay = CertifiedTestChain::start(fee_update_config()).unwrap();
+    replay.state().nexus.write().fees.base_fee = 999_u32.into();
+    replay.replay_from(&chain).unwrap();
+    assert_eq!(
+        replay.height(),
+        3,
+        "final policy/payment recovery needs no later traffic"
+    );
+    assert_eq!(replay.committed(2).result(), original.result());
+    assert_eq!(replay.committed(3).result(), last.result());
+    assert_eq!(replay.state().view().nexus().fees, next);
+    assert_eq!(balance(&replay, fee_asset(), account()), 96_u32.into());
+    assert_eq!(
+        balance(&replay, principal(), recipient()),
+        500_000_u32.into()
+    );
+}
+
+#[test]
+fn paid_root_fee_identity_updates_are_rejected_without_replacing_committed_custody() {
+    use crate::state::StateReadOnly as _;
+    use iroha_data_model::{isi::SetParameter, parameter::Parameter};
+    for change_currency in [true, false] {
+        let mut chain = CertifiedTestChain::start(fee_update_config()).unwrap();
+        let before = chain.state().view().nexus().fees.clone();
+        let mut invalid = before.clone();
+        if change_currency {
+            invalid.fee_asset_id = principal();
+        } else {
+            invalid.sponsor_vault_custody_account_id = recipient();
+        }
+        // Both replacements name registered objects. Refusal must come from the
+        // immutable monetary identity rule, not missing currency/account validation.
+        let update = signed(
+            &chain,
+            vec![
+                SetParameter::new(Parameter::Custom(invalid.into_custom_parameter().unwrap()))
+                    .into(),
+            ],
+            1001,
+        );
+        assert_eq!(
+            chain.commit(vec![update]),
+            vec![false],
+            "paid policy update must retain immutable currency and sponsor custody"
+        );
+        let original = chain.committed(2);
+        let output = &original.block().network_output_at(0).unwrap().1.result;
+        let rejection = output.as_ref().expect_err("identity update must reject");
+        let TransactionRejectionReason::Validation(ValidationFail::InstructionFailed(
+            iroha_data_model::isi::error::InstructionExecutionError::InvalidParameter(
+                iroha_data_model::isi::error::InvalidParameterError::SmartContract(message),
+            ),
+        )) = rejection
+        else {
+            panic!("expected the immutable monetary identity rejection, got {rejection:?}");
+        };
+        assert_eq!(
+            message, "root fee currency and sponsor custody are immutable after genesis",
+            "the typed cause must identify the monetary custody rule: {rejection:?}"
+        );
+        let receipt = output
+            .nexus_fee_receipt()
+            .expect("actual rejected execution retains its fee");
+        assert_eq!(receipt.fee_amount, Quantity::one());
+        assert_eq!(receipt.schedule.base_fee, Quantity::one());
+        assert_eq!(chain.state().view().nexus().fees, before);
+        assert_eq!(balance(&chain, fee_asset(), account()), 99_u32.into());
+        assert_eq!(
+            balance(&chain, principal(), account()),
+            1_000_000_u32.into()
+        );
+        assert_eq!(balance(&chain, principal(), recipient()), Quantity::zero());
+
+        let mut replay = CertifiedTestChain::start(fee_update_config()).unwrap();
+        replay.state().nexus.write().fees.base_fee = 999_u32.into();
+        replay.replay_from(&chain).unwrap();
+        assert_eq!(
+            replay.height(),
+            2,
+            "rejected update recovery requires no later traffic"
+        );
+        assert_eq!(replay.committed(2).result(), original.result());
+        assert_eq!(replay.state().view().nexus().fees, before);
+        assert_eq!(balance(&replay, fee_asset(), account()), 99_u32.into());
+        assert_eq!(
+            balance(&replay, principal(), account()),
+            1_000_000_u32.into()
+        );
+        assert_eq!(balance(&replay, principal(), recipient()), Quantity::zero());
     }
 }

@@ -116,8 +116,32 @@ signs the same finite Nexus-only cap. At the quiescent tips, the tests authentic
 every charged receipt, every seeded fee-account balance and the total burned supply
 against the complete certified World cut. Genesis explicitly grants the test reader
 the existing full-ledger read permission; HTTP/query responses alone are not evidence.
+Status selection and fee verification share one bounded drain phase. A newer cut
+restarts that phase only after independent authentication, without renewing its
+deadline; proof and monetary failures remain fatal. Restart audits and the final
+idle observation require the exact previously verified heights.
 The tests currently require network qualification;
 source presence and component tests do not establish this result.
+
+The current approval representation discloses the complete World hash inventory.
+Each bank therefore authors a dedicated `CanReadAllLedgerData` service role in
+its own signed genesis, assigned only to its relay, and a separate
+`CanManageRoles` administrative role. This explicitly privileged full-bank mode
+does not qualify operation-scoped disclosure or G3 State-proof readiness. The
+payer's exact direct `CanPrepareAmx` approval remains separate from both roles
+and from the listener credential. Before Begin the fixture verifies the exact
+role, membership and direct debit rows against the certified bank cut.
+
+The `native_bank_read_role_revocation_preserves_debit_after_restart` case uses
+actual paid role deletion and signed HTTP requests, then restarts all bank
+validators at the same tip. Read access must remain denied while the separately
+authenticated direct debit approval survives. It also checks that the identical
+role name in the other independent bank still grants that bank's own service
+read. A role administrator can delete any local role; this is existing broad
+role-management authority, not recipient-scoped administration. Deleting the
+last administrative role is irreversible through ordinary genesis-only issuance.
+Run this ignored case with the same three-root permit settings below, replacing
+the test filter. It requires the current full-World disclosure containment gate.
 
 Build the same-source daemon first. Run with an isolated permit directory and
 three available network slots; the tests fail immediately when the permit
@@ -151,6 +175,50 @@ the original Abort to come from its actual paid Expire carrier below the height
 deadline despite B's unavailable transport. It verifies the original escrow refund,
 then restarts bank B and requires delivery of that same decision. No unrelated
 transaction or empty block advances either test. Epoch handoff network qualification remains separate.
+
+The ignored `sumeragi_npos_committee_transition` case
+`amx_rotation::original_epoch_zero_commit_releases_paid_escrow_after_real_four_seven_four_rotation_and_restart`
+uses sixteen processes: four original Global voters, four candidate processes,
+and two four-validator bank roots. It retains the exact fee-blocked epoch-zero
+Settle bytes while authenticating three sequential boundaries at H64, H128 and
+H192 (four retained seats, then seven, then four). Existing DKG custody owners
+perform the ceremonies, and distinct durable customer payments supply the
+required workload. Global ends at H193; no log padding, empty blocks or unrelated
+successor traffic is submitted. The bank restarts before explicitly funded
+recovery. A separately paid replay must reject; another bank restart must retain
+the original successful carrier, execution-output hash, fee receipt and Decision.
+This P0 isolation deliberately pauses the Global relay and is separate from the
+autonomous healthy/idle-finality cases above.
+
+The rotation audit authenticates every H2-through-tip input and execution output
+under finite bounds (193 Global blocks; at most ten per bank). It derives initial fee
+supply from original signed-genesis mints, verifies complete `world.assets` key
+and value preimages against the certified row count, and reconciles all charged
+burns against supply and total inventory. The ten-block bank bound accounts for genesis, approval, original Prepare, two
+funding transfers, three handoffs, original Settle and the paid replay rejection.
+Bank fee accounts are reconstructed
+from exact genesis funding, successful transfers and carrier fees. Global staking
+custody remains under the existing native committee monetary owner; this audit
+does not duplicate its executor. Ordinary query errors never establish absence.
+The rotation case uses the same isolated three-root permit settings, replacing
+`--test core_api native_amx_network::` above with
+`--test sumeragi_npos_committee_transition amx_rotation::original_epoch_zero_commit_releases_paid_escrow_after_real_four_seven_four_rotation_and_restart`.
+Build its local DKG/custody and disposable-broker executables from the same source
+before starting that test:
+
+```bash
+scripts/cargo_fast.sh --stable-local-metadata --incremental -- \
+  build --locked -p irohad --bin iroha3d_taira
+scripts/cargo_fast.sh --stable-local-metadata --incremental -- \
+  build --locked -p irohad --bin iroha_test_runtime_provider_broker \
+  --features test-network-disposable-broker
+export TEST_NETWORK_BIN_IROHAD_TAIRA="$PWD/target/debug/iroha3d_taira"
+export TEST_NETWORK_BIN_IROHAD_DISPOSABLE_BROKER="$PWD/target/debug/iroha_test_runtime_provider_broker"
+```
+
+A same-source daemon, the full-World disclosure containment gate and privileged
+bank roles are prerequisites. This source candidate is not network qualification
+or G3 State-proof readiness.
 
 ## Fixtures
 

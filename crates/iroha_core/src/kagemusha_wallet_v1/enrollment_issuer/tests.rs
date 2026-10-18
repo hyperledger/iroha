@@ -1,6 +1,8 @@
 //! Real signatures and filesystem ordering around explicit test runtime DATA.
 //! These tests do not establish provider authority, private process custody or device attestation.
 
+mod expiry;
+
 use super::*;
 use crate::{
     kagemusha_wallet_v1::{Registration, enrollment_journal::permit_tests, storage},

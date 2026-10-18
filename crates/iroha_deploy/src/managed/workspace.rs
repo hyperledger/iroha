@@ -2,7 +2,7 @@
 
 use super::{
     Error, LocalnetRequest, MAX_METADATA, ManagedContext, ManagedPhase, ManagedStatus,
-    ManagedStore, Result,
+    ManagedStore, PreparedLocalnet, Result,
 };
 use iroha::{config::Config, data_model::account::address::ChainDiscriminantGuard};
 use std::{
@@ -135,6 +135,7 @@ impl ManagedStore {
                 &request,
                 expected,
                 super::store::StartupSelection::for_requested_context(requested),
+                |_| Ok(()),
             )?
         } else {
             self.up(&request)?
@@ -142,6 +143,48 @@ impl ManagedStore {
         if status.phase != ManagedPhase::Ready {
             return Err(Error::Invalid(status.failure.unwrap_or_else(|| {
                 "selected developer environment is not ready".into()
+            })));
+        }
+        Ok(status)
+    }
+
+    /// Ensure one previously captured generation is ready without changing workspace selection.
+    ///
+    /// The complete preparation is compared while holding the native startup operation lock,
+    /// before worker observation or spawn. A removed or replaced name is never recreated.
+    ///
+    /// # Errors
+    /// Changed generation, custody, runtime, startup or non-Ready status is refused.
+    pub fn ensure_captured(
+        &self,
+        runtime: &InstalledRuntime,
+        expected: &PreparedLocalnet,
+        timeout: std::time::Duration,
+    ) -> Result<ManagedStatus> {
+        let mut request = runtime.localnet_request(&expected.context.name, timeout);
+        request.service_profile = expected.service_profile;
+        let status = self.up_retained_with_selection(
+            &request,
+            &expected.context,
+            super::store::StartupSelection::Preserve,
+            |prepared| {
+                if prepared != expected {
+                    return Err(Error::Invalid(
+                        "captured managed preparation changed before startup".into(),
+                    ));
+                }
+                Ok(())
+            },
+        )?;
+        if status.context != expected.context || self.prepared(&expected.context.name)? != *expected
+        {
+            return Err(Error::Invalid(
+                "captured managed generation changed after startup".into(),
+            ));
+        }
+        if status.phase != ManagedPhase::Ready {
+            return Err(Error::Invalid(status.failure.unwrap_or_else(|| {
+                "captured developer environment is not ready".into()
             })));
         }
         Ok(status)

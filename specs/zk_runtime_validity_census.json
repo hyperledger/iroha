@@ -683,8 +683,6 @@
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "GOV_VIRAL_SENDER_BONUS_AMOUNT", 1],
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "GOV_VOTING_ASSET_ID", 1],
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "GOV_WINDOW_SPAN", 1],
-    ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "NEXUS_FEE_ASSET_ID", 1],
-    ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "NEXUS_FEE_SINK_ACCOUNT_ID", 1],
     ["crates/iroha_config/src/parameters/user.rs", "config_env_alias", "ORACLE_HISTORY_DEPTH", 1]
    ]
   },
@@ -1823,7 +1821,7 @@
    "gates": "Governance, citizenship, viral-incentive, SoraFS pin and parliament policy of [gov]. The ballot and tally verifying-key references `governance.vk_ballot` and `governance.vk_tally` no longer select a relation: validation reads the keys each election commits (CreateElection) and the node schema has no key for a default; the two settings fields are always empty on a node and remain only as terms of the execution-policy digest until the cutover that removes them.",
    "decided_by": "Committed State of each product. The election keys are committed per election (world.rs resolve_ballot_vk / resolve_tally_vk, test election_keys_are_read_from_the_committed_election_only).",
    "attribution": "read",
-   "open_reason": "The committed-parameter mechanism exists (zk_validity_policy_v1). This family still reaches validation through the State copy installed from node configuration at startup; moving it needs its own typed committed parameter, the staged-genesis and deployment generators that author it, and regenerated deployment configurations.",
+   "open_reason": "The committed-parameter mechanism exists (zk_validity_policy_v1). This family still reaches validation through the State copy installed from node configuration at startup; moving it needs its own typed committed parameter, the staged-genesis and deployment generators that author it, and regenerated deployment configurations. NativeReplaySeed now retains the original pre-genesis governance value and reinstalls only that value in isolated recovery. This prevents rereading current local policy during replay but does not make the original governance policy committed; the family remains an F.4 defect.",
    "sites": [
     ["crates/iroha_core/src/smartcontracts/isi/asset.rs", "node_policy_read", "governance.citizenship_asset_id", 4],
     ["crates/iroha_core/src/smartcontracts/isi/asset.rs", "node_policy_read", "governance.citizenship_escrow_account", 2],
@@ -1878,7 +1876,8 @@
     ["crates/iroha_core/src/state/authority_registry/lane_manifest_policy.rs", "node_policy_read", "governance.*", 2],
     ["crates/iroha_core/src/tx.rs", "node_policy_read", "governance.*", 1],
     ["crates/iroha_torii/src/torii_app_routed_read_source.rs", "node_policy_read", "governance.bond_escrow_account", 1],
-    ["crates/iroha_torii/src/torii_app_routed_read_source.rs", "node_policy_read", "governance.voting_asset_id", 1]
+    ["crates/iroha_torii/src/torii_app_routed_read_source.rs", "node_policy_read", "governance.voting_asset_id", 1],
+    ["crates/iroha_core/src/sumeragi/node/replay.rs", "node_policy_read", "governance.*", 1]
    ]
   },
   {
@@ -1985,31 +1984,19 @@
    "owner": "F.4",
    "path": "crates/iroha_config/src/parameters/actual.rs",
    "symbol": "NexusConsensusPolicyPreimageV1",
-   "gates": "The remaining Nexus consensus-policy preimage fields: lane, dataspace and routing identities, staking policy, fee schedule, lease and endorsement timing, settlement relation identity and windows, governance modules, fusion and autoscale policy, DA attester sampling and the preimage version.",
+   "gates": "The remaining Nexus consensus-policy preimage fields: lane, dataspace and routing identities, staking policy, lease and endorsement timing, settlement relation identity and windows, governance modules, fusion and autoscale policy, DA attester sampling and the preimage version.",
    "decided_by": "Committed State (the Nexus runtime catalog and lane policy already are; these values follow them).",
    "attribution": "read",
    "open_reason": "The committed-parameter mechanism exists (zk_validity_policy_v1). This family still reaches validation through the State copy installed from node configuration at startup; moving it needs its own typed committed parameter, the staged-genesis and deployment generators that author it, and regenerated deployment configurations. Native SCCP L1 additionally consumes the original pinned Nexus staking projection at parameter checking/genesis/startup (governance delegates to init::check_parameters); these reads do not close the broader family migration or authenticate unpinned restore inputs.",
    "sites": [
     ["crates/iroha_core/src/block.rs", "node_policy_read", "da.*", 1],
-    ["crates/iroha_core/src/block/post_execution_tail.rs", "node_policy_read", "fees.settlement_mode", 1],
-    ["crates/iroha_core/src/executor.rs", "node_policy_read", "fees.*", 7],
-    ["crates/iroha_core/src/executor.rs", "node_policy_read", "fees.sponsor_vault_custody_account_id", 2],
-    ["crates/iroha_core/src/executor_execution_fee.rs", "node_policy_read", "fees.*", 5],
-    ["crates/iroha_core/src/executor_fastpq_rejection_tail.rs", "node_policy_read", "fees.sponsor_vault_custody_account_id", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/asset.rs", "node_policy_read", "fees.sponsor_vault_custody_account_id", 5],
-    ["crates/iroha_core/src/smartcontracts/isi/domain/asset_alias_scope.rs", "node_policy_read", "fees.fee_asset_id", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/domain/asset_alias_scope.rs", "node_policy_read", "fees.fee_sink_account_id", 1],
     ["crates/iroha_core/src/smartcontracts/isi/domain/asset_alias_scope.rs", "node_policy_read", "staking.slash_sink_account_id", 1],
     ["crates/iroha_core/src/smartcontracts/isi/domain/asset_alias_scope.rs", "node_policy_read", "staking.stake_asset_id", 1],
     ["crates/iroha_core/src/smartcontracts/isi/domain/asset_alias_scope.rs", "node_policy_read", "staking.stake_escrow_account_id", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/init.rs", "node_policy_read", "staking.max_slash_bps", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/init.rs", "node_policy_read", "staking.unbonding_delay.*", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/read/coalition.rs", "node_policy_read", "staking.max_slash_bps", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/settle.rs", "node_policy_read", "fees.fee_sink_account_id", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sns.rs", "node_policy_read", "endorsement.quorum", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/sns.rs", "node_policy_read", "fees.fee_asset_id", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/soracloud.rs", "node_policy_read", "fees.fee_asset_id", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/soracloud.rs", "node_policy_read", "fees.fee_sink_account_id", 1],
     ["crates/iroha_core/src/smartcontracts/isi/soracloud.rs", "node_policy_read", "hf_shared_leases.drain_grace.*", 1],
     ["crates/iroha_core/src/smartcontracts/isi/staking.rs", "node_policy_read", "staking.*", 3],
     ["crates/iroha_core/src/smartcontracts/isi/staking.rs", "node_policy_read", "staking.max_pending_unbonds_per_share", 1],
@@ -2022,8 +2009,6 @@
     ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "dataspace_fee_sponsor_program_ids", 1],
     ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "endorsement.committee_keys", 1],
     ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "endorsement.quorum", 3],
-    ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "fees.fee_asset_id", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "fees.sponsor_vault_custody_account_id", 3],
     ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "staking.stake_asset_id", 1],
     ["crates/iroha_core/src/state.rs", "node_policy_read", "atomic_private_settlement.*", 1],
     ["crates/iroha_core/src/state.rs", "node_policy_read", "atomic_private_settlement.max_expiry_blocks", 2],
@@ -2037,10 +2022,51 @@
     ["crates/iroha_core/src/sumeragi/penalties.rs", "node_policy_read", "staking.max_slash_bps", 1],
     ["crates/iroha_core/src/sumeragi/penalties.rs", "node_policy_read", "staking.max_stake_shares_per_validator", 1],
     ["crates/iroha_core/src/sumeragi/penalties.rs", "node_policy_read", "staking.max_validators", 1],
-    ["crates/iroha_torii/src/game.rs", "node_policy_read", "fees.fee_asset_id", 1],
-    ["crates/iroha_torii/src/lib.rs", "node_policy_read", "fees.fee_asset_id", 2],
     ["crates/iroha_torii/src/private_settlement.rs", "node_policy_read", "atomic_private_settlement.*", 1],
     ["crates/irohad/src/main.rs", "node_policy_read", "staking.*", 1]
+   ]
+  },
+  {
+   "id": "cfg.root_fees.committed_policy",
+   "kind": "node_local_config",
+   "status": "open",
+   "owner": "F.4",
+   "path": "crates/iroha_core/src/pipeline_gas_policy.rs",
+   "symbol": "with_root_fees",
+   "gates": "The complete root monetary schedule, exact currency, sink, sponsor custody and Global claim exemptions.",
+   "decided_by": "The mandatory root_fees_v1 parameter, validated and atomically projected by StateParameters. Each block freezes its predecessor projection; restore rebuilds it from original canonical Parameters. H1 authors exactly one original policy and retains both signed policy digest checks. Currency and sponsor custody are immutable after H1; other authorized terms apply next block. Node fee and fee-relay worker configuration are removed.",
+   "attribution": "read",
+   "open_reason": "Causal original execution dependence was reproduced after identical H1 (two failures). Source migration, replay/update controls, deployment and SDK conversions are staged; current-candidate Rust compilation, generated digests/fixtures and combined network qualification remain pending. The regression does not establish divergent admissible fresh-node configurations, whose signed-genesis digest checks already refused mismatch.",
+   "sites": [
+    ["crates/iroha_core/src/executor.rs", "node_policy_read", "fees", 9],
+    ["crates/iroha_core/src/executor_execution_fee.rs", "node_policy_read", "fees", 5],
+    ["crates/iroha_core/src/executor_fastpq_rejection_tail.rs", "node_policy_read", "fees", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/asset.rs", "node_policy_read", "fees", 5],
+    ["crates/iroha_core/src/smartcontracts/isi/domain/asset_alias_scope.rs", "node_policy_read", "fees", 2],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/settle.rs", "node_policy_read", "fees", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/sns.rs", "node_policy_read", "fees", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/soracloud.rs", "node_policy_read", "fees", 2],
+    ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "fees", 4],
+    ["crates/iroha_torii/src/game.rs", "node_policy_read", "fees", 1],
+    ["crates/iroha_torii/src/lib.rs", "node_policy_read", "fees", 2]
+   ],
+   "tests": [
+    {
+     "path": "crates/iroha_core/src/executor/settlement_replay_tests.rs",
+     "name": "committed_global_fee_policy_prevents_local_schedule_rejecting_payment"
+    },
+    {
+     "path": "crates/iroha_core/src/executor/settlement_replay_tests.rs",
+     "name": "committed_global_fee_policy_prevents_local_schedule_changing_paid_receipt"
+    },
+    {
+     "path": "crates/iroha_core/src/executor/settlement_replay_tests.rs",
+     "name": "committed_fee_update_uses_predecessor_for_entire_block_and_survives_replay"
+    },
+    {
+     "path": "crates/iroha_genesis/src/root_fee_policy_tests.rs",
+     "name": "authenticated_signed_policy_has_one_exact_original_owner"
+    }
    ]
   },
   {
@@ -2429,7 +2455,7 @@
    "gates": "FASTPQ: typed unavailable, suspended or unsupported outcomes other than local-resource failures and version checks, which have their own entries. The names fall into two groups, which `note` separates for this entry: outcomes of an engine, profile, provider or protocol that is not available or not finished (EngineUnavailable, ProtocolUnavailable, CompiledProfileUnavailable, NotImplemented and the like), and rejections of a carried parameter value this release does not define (an unsupported degree, bit length, authority kind or layout).",
    "decided_by": "For the first group: an unfinished operation keeps an accurate typed error that no configuration, feature or environment changes, and stays mandatory work of the owner; a finished operation removes it. For the second group nothing changes: it is ordinary validation of carried bytes, identical on every validator.",
    "attribution": "read",
-   "note": "Unfinished coverage: `QuantityCaptureIssue::UnsupportedOwner`, `PrepareError::Unsupported` and `FastpqSourceEffectCoverageV1::Unsupported` (crates/iroha_core/src/state/fastpq_quantity_capture.rs and its modules, crates/iroha_data_model/src/fastpq/source_statement.rs): a source whose quantity writes the typed capture does not cover is marked unsupported, a deterministic status under which ordinary effect-proof admission refuses. Validation of carried values: `QuerySamplingDomainUnsupported` (fastpq_prover/src/error.rs) and `UnsupportedLayout` (fastpq/source_prefix_lengths.rs). Parameter metadata: `FastpqProductionQualificationV1::Unavailable` (crates/fastpq_isi/src/params.rs), which no admission path reads. Accelerator, prover-lane and store refusals are entry fastpq.local_resource.",
+   "note": "Unfinished coverage: `QuantityCaptureIssue::UnsupportedOwner`, `PrepareError::Unsupported` and `FastpqSourceEffectCoverageV1::Unsupported` (crates/iroha_core/src/state/fastpq_quantity_capture.rs and its modules, crates/iroha_data_model/src/fastpq/source_statement.rs): a source whose quantity writes the typed capture does not cover is marked unsupported, a deterministic status under which ordinary effect-proof admission refuses. Validation of carried values: `QuerySamplingDomainUnsupported` (fastpq_prover/src/error.rs) and `UnsupportedLayout` (fastpq/source_prefix_lengths.rs). Parameter metadata: `FastpqProductionQualificationV1::Unavailable` (crates/fastpq_isi/src/params.rs), which no admission path reads. Accelerator, prover-lane and store refusals are entry fastpq.local_resource. The admitted fixed-leaf decoder preserves the canonical FastpqSourceEffectCoverageV1::Unsupported tag; it adds no provider availability switch or alternate execution verdict.",
    "sites": [
     ["crates/fastpq_isi/src/params.rs", "unavailable", "unavailable", 2],
     ["crates/fastpq_prover/src/error.rs", "unavailable", "unsupported", 1],
@@ -2438,7 +2464,8 @@
     ["crates/iroha_core/src/state/fastpq_quantity_capture/commitment_journal.rs", "unavailable", "unsupported", 11],
     ["crates/iroha_core/src/state/fastpq_quantity_capture/commitment_journal/finalized_source.rs", "unavailable", "unsupported", 4],
     ["crates/iroha_core/src/state/fastpq_quantity_capture/source_census.rs", "unavailable", "unsupported", 4],
-    ["crates/iroha_data_model/src/fastpq/source_statement.rs", "unavailable", "unsupported", 1]
+    ["crates/iroha_data_model/src/fastpq/source_statement.rs", "unavailable", "unsupported", 1],
+    ["crates/iroha_data_model/src/fastpq/execution_effect/admitted/fixed.rs", "unavailable", "unsupported", 1]
    ]
   },
   {
@@ -2467,7 +2494,23 @@
     ["crates/iroha_core/src/state/fastpq_quantity_capture.rs", "unavailable", "local_resource", 1],
     ["crates/iroha_core/src/state/fastpq_quantity_capture/commitment_journal.rs", "unavailable", "local_resource", 1],
     ["crates/iroha_core/src/state/fastpq_quantity_capture/commitment_journal/finalized_source.rs", "unavailable", "local_resource", 3],
-    ["crates/iroha_core/src/state/fastpq_quantity_write_plan.rs", "unavailable", "local_resource", 4]
+    ["crates/iroha_core/src/state/fastpq_quantity_write_plan.rs", "unavailable", "local_resource", 4],
+    ["crates/iroha_core/src/fastpq/lane/producer.rs", "unavailable", "local_resource", 2]
+   ],
+   "note": "The autonomous producer classifies original typed capacity, allocator, Interrupted/WouldBlock and missing optional transport causes; fixed bounds, malformed proofs, identity mismatches and invariants remain terminal. Retrying retains the exact source, statement index and original error. Neither retry nor terminal local proof-production failure rejects or credits a ledger payment. Missing source transport invokes the isolated original-seed executor; no live State or settlement status is published.",
+   "tests": [
+    {
+     "path": "crates/iroha_core/src/fastpq/lane/producer.rs",
+     "name": "finality_retry_requires_original_capacity_not_its_lossy_vm_category"
+    },
+    {
+     "path": "crates/iroha_core/src/fastpq/lane/producer.rs",
+     "name": "malformed_source_and_proof_failures_are_terminal_without_text_classification"
+    },
+    {
+     "path": "crates/iroha_core/src/sumeragi/node/replay/tests.rs",
+     "name": "isolated_h1_validation_retries_original_pool_after_empty_state_construction"
+    }
    ]
   },
   {
@@ -4430,14 +4473,13 @@
    "gates": "Torii: typed unavailable, suspended or unsupported outcomes other than local-resource failures and version checks, which have their own entries. The names fall into two groups, which `note` separates for this entry: outcomes of an engine, profile, provider or protocol that is not available or not finished (EngineUnavailable, ProtocolUnavailable, CompiledProfileUnavailable, NotImplemented and the like), and rejections of a carried parameter value this release does not define (an unsupported degree, bit length, authority kind or layout).",
    "decided_by": "Committed State already decides it.",
    "attribution": "path_rule",
-   "note": "Responses of Torii services to requests they cannot serve (unsupported media type or proof mode, service unavailable, unsupported X.509 extensions in an uploaded attachment): local service outcomes, not consensus validity. AMX debit approval proof unavailability retains the original read outcome without altering the approval, escrow or transaction result.",
+   "note": "Responses of Torii services to requests they cannot serve (unsupported media type or proof mode, service unavailable, unsupported X.509 extensions in an uploaded attachment): local service outcomes, not consensus validity. AMX debit approval proof unavailability retains the original read outcome without altering the approval, escrow or transaction result. The AMX approval producer now returns typed capacity, invalid-source and advanced-cut outcomes through the shared projection response owner, so its former generic unavailable detector row is removed. Reserve account and policy readers still return local service unavailability after unsuccessful original proof production; the updated count does not reclassify these outcomes as consensus validity.",
    "sites": [
-    ["crates/iroha_torii/src/amx_approval_proof.rs", "unavailable", "unavailable", 6],
     ["crates/iroha_torii/src/identifier_resolution.rs", "unavailable", "unsupported", 3],
     ["crates/iroha_torii/src/iso20022_bridge.rs", "unavailable", "unsupported", 3],
     ["crates/iroha_torii/src/lib.rs", "unavailable", "unavailable", 2],
-    ["crates/iroha_torii/src/reserve_account_proof.rs", "unavailable", "unavailable", 5],
-    ["crates/iroha_torii/src/reserve_policy_proof.rs", "unavailable", "unavailable", 5],
+    ["crates/iroha_torii/src/reserve_account_proof.rs", "unavailable", "unavailable", 4],
+    ["crates/iroha_torii/src/reserve_policy_proof.rs", "unavailable", "unavailable", 4],
     ["crates/iroha_torii/src/zk_attachments.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_torii/src/zk_attachments.rs", "unavailable", "unsupported", 12],
     ["crates/iroha_torii/src/zk_prover.rs", "unavailable", "unsupported", 5],
@@ -5629,6 +5671,33 @@
    "sites": [
     ["crates/iroha_js_host/src/authenticated_block_proofs.rs", "unavailable", "unavailable", 3]
    ]
+  },
+  {
+   "id": "fastpq.producer_time_budget",
+   "kind": "wall_clock",
+   "status": "local_resource",
+   "owner": "B.2",
+   "path": "crates/iroha_core/src/fastpq/lane/producer.rs",
+   "symbol": "ProducerError::Deadline",
+   "gates": "A finite local autonomous FASTPQ attempt uses one absolute deadline across finality acquisition, source recovery, isolated canonical replay, proving and durable publication.",
+   "decided_by": "Expiry retains the exact selected source and incomplete owners for a subsequent existing-worker tick; synchronous proof work is checked after completion and its result retained. It cannot produce a payment rejection, change execution effects or establish settlement.",
+   "attribution": "read",
+   "note": "The deadline bounds a local scheduling turn, not eventual completion. max_native_steps bounds each cooperative replay continuation. Genuine H1/H2 proof publication and process/network liveness still require their separate acceptance tests; the clock names alone do not establish those outcomes.",
+   "sites": [
+    ["crates/iroha_core/src/fastpq/lane/producer.rs", "time_budget", "deadline", 22],
+    ["crates/iroha_core/src/fastpq/lane/producer.rs", "time_budget", "timeout", 1],
+    ["crates/iroha_core/src/fastpq/lane/producer.rs", "wall_clock", "instant", 2]
+   ],
+   "tests": [
+    {
+     "path": "crates/iroha_core/src/fastpq/lane/producer.rs",
+     "name": "expired_original_attempt_deadline_does_not_acquire_or_dispatch_source"
+    },
+    {
+     "path": "crates/iroha_core/src/sumeragi/node/replay/tests.rs",
+     "name": "replay_preserves_original_target_and_expired_deadline"
+    }
+   ]
   }
  ],
  "config_catalogs": [
@@ -5961,15 +6030,6 @@
       "staking.stake_asset_id",
       "staking.stake_escrow_account_id",
       "staking.slash_sink_account_id",
-      "fees.fee_asset_id",
-      "fees.fee_sink_account_id",
-      "fees.base_fee",
-      "fees.per_byte_fee",
-      "fees.per_instruction_fee",
-      "fees.per_gas_unit_fee",
-      "fees.sponsor_vault_custody_account_id",
-      "fees.settlement_mode",
-      "fees.successful_claim_fee_exempt_authorities",
       "hf_shared_leases.drain_grace.seconds",
       "hf_shared_leases.drain_grace.nanoseconds",
       "endorsement.committee_keys",
@@ -6042,6 +6102,12 @@
       "atomic_private_settlement.enabled",
       "atomic_private_settlement.activation_height",
       "atomic_private_settlement.minimum_activation_notice_blocks"
+     ]
+    },
+    {
+     "entry": "cfg.root_fees.committed_policy",
+     "fields": [
+      "fees"
      ]
     }
    ]
@@ -6287,9 +6353,9 @@
   }
  },
  "summary": {
-  "entries": 222,
-  "sites": 1532,
-  "by_status": {"done": 11, "local_resource": 22, "not_a_gate": 98, "open": 56, "out_of_plan": 20, "unsupported": 15},
-  "by_owner": {"-": 118, "A.3": 2, "B.2": 2, "C.2": 1, "C.5": 6, "C.6": 4, "F.4": 27, "M.2": 6, "P.11": 1, "P.12": 2, "P.13": 2, "P.14": 4, "P.15": 3, "P.16": 1, "P.17": 1, "P.18": 1, "P.19": 1, "P.20": 3, "P.5": 16, "P.8": 3, "P.9": 3, "R.12": 3, "S.1": 1, "S.3": 1, "S.4": 2, "S.5": 2, "X.4": 6}
+  "entries": 224,
+  "sites": 1530,
+  "by_status": {"done": 11, "local_resource": 23, "not_a_gate": 98, "open": 57, "out_of_plan": 20, "unsupported": 15},
+  "by_owner": {"-": 118, "A.3": 2, "B.2": 3, "C.2": 1, "C.5": 6, "C.6": 4, "F.4": 28, "M.2": 6, "P.11": 1, "P.12": 2, "P.13": 2, "P.14": 4, "P.15": 3, "P.16": 1, "P.17": 1, "P.18": 1, "P.19": 1, "P.20": 3, "P.5": 16, "P.8": 3, "P.9": 3, "R.12": 3, "S.1": 1, "S.3": 1, "S.4": 2, "S.5": 2, "X.4": 6}
  }
 }

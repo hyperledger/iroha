@@ -25,7 +25,7 @@ mod phases;
 mod worker;
 use observation::SettlementLedger;
 use phases::{OnlinePhases, SettlementPhases};
-use worker::run_worker;
+pub use worker::run_private_settlement_worker;
 
 const AVAILABILITY: usize = 0;
 const PREPARE: usize = 1;
@@ -113,6 +113,16 @@ impl PrivateSettlementRequest {
             digest,
         })))
     }
+    /// Borrow the exact original prepared artifacts for advanced audit and transport inspection.
+    ///
+    /// These contain public statements and proofs plus encrypted outputs/audit capsules. They
+    /// never contain a wallet witness, spending key or plaintext audit opening. This structural
+    /// request accessor grants no verification or settlement authority and creates no copy.
+    #[must_use]
+    pub fn materials(&self) -> &[PrivateSettlementProvisionalLegMaterialV1] {
+        &self.0.materials
+    }
+
     /// Public intent skeleton bound to the exact original proof/capsule artifacts.
     #[must_use]
     pub fn manifest(&self) -> &AtomicPrivateSettlementV1 {
