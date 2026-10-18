@@ -54,6 +54,32 @@ pub(super) fn effective(
     Ok(captured.clone())
 }
 
+/// Select sponsor custody from the authored H1 policy or the frozen predecessor policy.
+/// Initial genesis has no committed predecessor policy, so its funding must consume the
+/// original policy already installed in this World. Ordinary execution never refreshes
+/// its captured monetary policy after a transaction-local parameter write.
+///
+/// # Errors
+/// Initial genesis must install its explicit root fee policy before using sponsor custody.
+pub(crate) fn sponsor_vault_custody<'a>(
+    state_transaction: &'a StateTransaction<'_, '_>,
+) -> Result<&'a AccountId, InstructionExecutionError> {
+    let policy = if is_initial_genesis_context(state_transaction) {
+        state_transaction
+            .world
+            .state_parameters()
+            .root_fees()
+            .ok_or_else(|| {
+                InstructionExecutionError::InvariantViolation(
+                    "initial genesis sponsor custody requires its authored root fee policy".into(),
+                )
+            })?
+    } else {
+        &state_transaction.nexus.fees
+    };
+    Ok(&policy.sponsor_vault_custody_account_id)
+}
+
 /// Validate the complete committed policy for executed-genesis schedule admission.
 /// This borrows the existing projection; it never decodes parameters or selects local defaults.
 pub(crate) fn validate_committed(
@@ -244,6 +270,68 @@ mod tests {
             parameters.commit();
         }
         (state, ds, asset)
+    }
+
+    #[test]
+    fn initial_genesis_sponsor_custody_requires_the_authored_policy() {
+        let (state, _, _) = fixture(true, true);
+        let mut block = state.block(BlockHeader::new(1.try_into().unwrap(), None, None, 0, 0));
+        let mut tx = block.transaction();
+        assert!(is_initial_genesis_context(&tx));
+        let frozen = tx.nexus.fees.clone();
+        let mut authored = frozen.clone();
+        authored.sponsor_vault_custody_account_id = ALICE_ID.clone();
+        assert_ne!(
+            authored.sponsor_vault_custody_account_id,
+            frozen.sponsor_vault_custody_account_id
+        );
+        tx.world
+            .parameters
+            .get_mut()
+            .set_parameter(Parameter::Custom(
+                authored.clone().into_custom_parameter().unwrap(),
+            ))
+            .unwrap();
+        assert_eq!(
+            sponsor_vault_custody(&tx).unwrap(),
+            &authored.sponsor_vault_custody_account_id
+        );
+        assert_eq!(tx.nexus.fees, frozen);
+        tx.world
+            .parameters
+            .get_mut()
+            .remove_custom_parameter(&RootFeePolicy::parameter_id());
+        assert!(sponsor_vault_custody(&tx).is_err());
+        assert_eq!(tx.nexus.fees, frozen);
+    }
+
+    #[test]
+    fn ordinary_sponsor_custody_keeps_the_captured_predecessor() {
+        let (state, _, _) = fixture(true, true);
+        let mut block = state.block(BlockHeader::new(2.try_into().unwrap(), None, None, 1000, 0));
+        let mut tx = block.transaction();
+        assert!(!is_initial_genesis_context(&tx));
+        let frozen = tx.nexus.fees.clone();
+        let mut different = frozen.clone();
+        different.sponsor_vault_custody_account_id = ALICE_ID.clone();
+        assert_ne!(
+            different.sponsor_vault_custody_account_id,
+            frozen.sponsor_vault_custody_account_id
+        );
+        // Direct fixture mutation deliberately differs from the predecessor. A normal
+        // SetParameter rejects post-genesis custody changes before reaching this state.
+        tx.world
+            .parameters
+            .get_mut()
+            .set_parameter(Parameter::Custom(
+                different.into_custom_parameter().unwrap(),
+            ))
+            .unwrap();
+        assert_eq!(
+            sponsor_vault_custody(&tx).unwrap(),
+            &frozen.sponsor_vault_custody_account_id
+        );
+        assert_eq!(tx.nexus.fees, frozen);
     }
 
     #[test]

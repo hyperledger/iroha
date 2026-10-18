@@ -265,7 +265,10 @@ mod tests {
                 Err(RootFeePolicyError::WrongParameter)
             );
         }
-        let malformed = CustomParameter::new(RootFeePolicy::parameter_id(), "{}".parse().unwrap());
+        let malformed = CustomParameter::new(
+            RootFeePolicy::parameter_id(),
+            "{}".parse::<iroha_primitives::json::Json>().unwrap(),
+        );
         assert_eq!(
             RootFeePolicy::from_custom_parameter(&malformed),
             Err(RootFeePolicyError::MalformedParameter)

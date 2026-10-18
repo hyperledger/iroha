@@ -3472,10 +3472,7 @@ pub mod isi {
             }
             NumericAssetBurnSourcePolicy::FeeSponsorCustody => {
                 if source_id.account()
-                    != &state_transaction
-                        .nexus
-                        .fees
-                        .sponsor_vault_custody_account_id
+                    != crate::executor::root_fees::sponsor_vault_custody(state_transaction)?
                 {
                     return Err(InstructionExecutionError::InvariantViolation(
                         "fee sponsor burn source does not match configured custody".into(),
@@ -5896,11 +5893,8 @@ pub mod isi {
         source_id: AssetId,
         amount: Quantity,
     ) -> Result<(), Error> {
-        let destination = state_transaction
-            .nexus
-            .fees
-            .sponsor_vault_custody_account_id
-            .clone();
+        let destination =
+            crate::executor::root_fees::sponsor_vault_custody(state_transaction)?.clone();
         let destination_id = AssetId::new(source_id.definition().clone(), destination);
         if !crate::executor::is_initial_genesis_context(state_transaction)
             || source_id.account() != &program_id.sponsor
@@ -7676,10 +7670,7 @@ pub mod isi {
             }
             NumericAssetTransferSourcePolicy::FeeSponsorCustody => {
                 if source_id.account()
-                    != &state_transaction
-                        .nexus
-                        .fees
-                        .sponsor_vault_custody_account_id
+                    != crate::executor::root_fees::sponsor_vault_custody(state_transaction)?
                 {
                     return Err(InstructionExecutionError::InvariantViolation(
                         "fee sponsor custody transfer source does not match configured custody"
@@ -7737,10 +7728,7 @@ pub mod isi {
             quantity_source,
         ) = authorization.into_parts();
         if source_id.account()
-            != &state_transaction
-                .nexus
-                .fees
-                .sponsor_vault_custody_account_id
+            != crate::executor::root_fees::sponsor_vault_custody(state_transaction)?
         {
             return Err(InstructionExecutionError::InvariantViolation(
                 "verified fee sponsor charge source does not match configured custody".into(),
@@ -7811,10 +7799,7 @@ pub mod isi {
                 )
             })?;
         if source_id.account()
-            != &state_transaction
-                .nexus
-                .fees
-                .sponsor_vault_custody_account_id
+            != crate::executor::root_fees::sponsor_vault_custody(state_transaction)?
             || amount > vault.balance
         {
             return Err(InstructionExecutionError::InvariantViolation(
