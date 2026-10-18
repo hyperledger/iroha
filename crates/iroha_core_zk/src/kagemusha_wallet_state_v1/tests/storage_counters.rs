@@ -124,6 +124,9 @@ type ShadowWallet<F> =
 struct Recorder {
     policy: Policy,
     fs: &'static str,
+    // Each recorded operation runs as one archive call, as the bridge runs every wallet-owner
+    // acquisition (`archive_call`): its records are staged and published together.
+    bracketed: bool,
     lines: Vec<(String, Counters, Calls)>,
 }
 
@@ -135,7 +138,18 @@ impl Recorder {
         run: impl FnOnce(&mut ShadowWallet<F>) -> T,
     ) -> T {
         let before = w.custody.calls;
-        let (value, counters) = Counters::observe(|| run(w));
+        let bracketed = self.bracketed;
+        let (value, counters) = Counters::observe(|| {
+            if bracketed {
+                w.open_archive_call();
+            }
+            let value = run(w);
+            if bracketed {
+                w.close_archive_call(true)
+                    .expect("archive call publication");
+            }
+            value
+        });
         self.emit(operation, counters, w.custody.calls.since(before));
         value
     }
@@ -149,12 +163,14 @@ impl Recorder {
             .join(",");
         println!(
             "STORAGE-BASELINE {{\"source\":\"coordinator\",\"policy\":\"{:?}\",\"fs\":\"{}\",\
-             \"operation\":\"{operation}\",\"fsync_class_calls\":{},\"fsync_class_nanos\":{},\
+             \"bracketed\":{},\"operation\":\"{operation}\",\"fsync_class_calls\":{},\
+             \"fsync_class_nanos\":{},\
              \"custody_status\":{},\"custody_lookup\":{},\"custody_advance\":{},\
              \"custody_checkpoint_read\":{},\"custody_checkpoint_publish\":{},\
              \"custody_collect\":{},\"custody_prune\":{},\"custody_resources\":{},{fields}}}",
             self.policy,
             self.fs,
+            self.bracketed,
             counters.fsync_class_calls(),
             counters.fsync_class_nanos(),
             calls.status,
@@ -211,15 +227,18 @@ fn bind_lineage<F: KagemushaWalletFsV1>(w: &mut ShadowWallet<F>, value: &mut Fro
 }
 
 /// Bootstrap, Receive, policy refresh, Send, Load and Unload, each followed by its fold turns,
-/// then a snapshot; returns every recorded operation.
+/// then a snapshot; returns every recorded operation. With `bracketed`, every recorded
+/// operation is one archive call.
 fn coordinator_run<F: KagemushaWalletFsV1>(
     fs: F,
     label: &'static str,
     policy: Policy,
+    bracketed: bool,
 ) -> Vec<(String, Counters, Calls)> {
     let mut recorder = Recorder {
         policy,
         fs: label,
+        bracketed,
         lines: Vec::new(),
     };
     let c = credential();
@@ -365,10 +384,10 @@ fn std_root() -> (tempfile::TempDir, KagemushaWalletStdFsV1) {
 
 #[test]
 fn coordinator_storage_counts_are_deterministic_and_filesystem_independent() {
-    let simulated = coordinator_run(SimFs::new(), "sim", Policy::NotRequired);
-    let again = coordinator_run(SimFs::new(), "sim", Policy::NotRequired);
+    let simulated = coordinator_run(SimFs::new(), "sim", Policy::NotRequired, false);
+    let again = coordinator_run(SimFs::new(), "sim", Policy::NotRequired, false);
     let (_temp, fs) = std_root();
-    let native = coordinator_run(fs, "std", Policy::NotRequired);
+    let native = coordinator_run(fs, "std", Policy::NotRequired, false);
     let counts = |lines: &[(String, Counters, Calls)]| {
         lines
             .iter()
@@ -459,13 +478,65 @@ fn coordinator_storage_counts_are_deterministic_and_filesystem_independent() {
     assert_eq!(actual, BASELINE);
 }
 
+/// One archive call per operation, as the bridge runs every wallet-owner acquisition, writes
+/// exactly the files that single publications write and syncs every staged file before its
+/// rename, but shares one directory sync per barrier instead of a parent sync per copy.
+#[test]
+fn bracketed_operations_write_the_same_files_behind_shared_directory_syncs() {
+    let single = coordinator_run(SimFs::new(), "sim", Policy::NotRequired, false);
+    let bracketed = coordinator_run(SimFs::new(), "sim", Policy::NotRequired, true);
+    assert_eq!(single.len(), bracketed.len());
+    for ((operation, s, s_calls), (other, b, b_calls)) in single.iter().zip(&bracketed) {
+        assert_eq!(operation, other);
+        assert_eq!(
+            (s_calls.advance, s_calls.publish, s.archive_puts),
+            (b_calls.advance, b_calls.publish, b.archive_puts),
+            "{operation}: the same custody authorities and records"
+        );
+        // A repeated record of one call is answered from its batch instead of the memo.
+        assert_eq!(
+            s.archive_put_memo_hits,
+            b.archive_put_memo_hits + b.archive_put_batch_hits,
+            "{operation}"
+        );
+        assert_eq!(
+            (s.write_new, s.rewrite_same, s.staged_syncs),
+            (b.write_new, b.rewrite_same, b.staged_syncs),
+            "{operation}: the same files, each synced before its rename"
+        );
+        assert!(
+            b.fsync_class_calls() <= s.fsync_class_calls(),
+            "{operation}: grouping never adds a sync"
+        );
+    }
+    let publication = |lines: &[(String, Counters, Calls)]| {
+        lines
+            .iter()
+            .find(|(operation, _, _)| operation == "receive_fold_turn_1")
+            .map(|(_, c, _)| *c)
+            .expect("Receive fold publication")
+    };
+    let (s, b) = (publication(&single), publication(&bracketed));
+    assert_eq!(b.map_inserts, 1);
+    // The credit-tree insertion's 350 records: a staged and a parent sync for each of their
+    // 700 copies one by one, or the staged syncs and a few shared directory syncs together.
+    assert_eq!(s.fsync_class_calls(), 1_406);
+    assert!(b.publish_syncs <= 4, "{b:?}");
+    assert!(
+        2 * b.fsync_class_calls() <= s.fsync_class_calls() + 16,
+        "{b:?}"
+    );
+}
+
 /// Coordinator storage baseline for both anchor policies (Android: none; iOS: Keychain).
 #[test]
 fn storage_baseline_coordinator_operations() {
     for policy in [Policy::NotRequired, Policy::Keychain] {
-        coordinator_run(SimFs::new(), "sim", policy);
-        let (_temp, fs) = std_root();
-        coordinator_run(fs, "std", policy);
+        for bracketed in [false, true] {
+            coordinator_run(SimFs::new(), "sim", policy, bracketed);
+            let (_temp, fs) = std_root();
+            coordinator_run(fs, "std", policy, bracketed);
+        }
     }
 }
 
