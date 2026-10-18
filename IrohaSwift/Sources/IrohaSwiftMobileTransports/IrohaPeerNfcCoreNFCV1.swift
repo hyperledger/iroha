@@ -275,7 +275,6 @@ public enum IrohaPeerNfcCoreNFCErrorV1: Error, Equatable, LocalizedError, Sendab
     case retryExhausted
     case readerOperationTimedOut
     case cardSessionTimedOut
-    case presentmentIntentFailed
     case platformCallTimedOut
 
     public var errorDescription: String? {
@@ -306,8 +305,6 @@ public enum IrohaPeerNfcCoreNFCErrorV1: Error, Equatable, LocalizedError, Sendab
             return "No NFC peer was detected before the reader timed out."
         case .cardSessionTimedOut:
             return "NFC card emulation did not become ready in time."
-        case .presentmentIntentFailed:
-            return "iOS could not prepare this app for NFC presentation."
         case .platformCallTimedOut:
             return "Core NFC did not respond before the operation deadline."
         }
@@ -329,18 +326,6 @@ private final class IrohaPeerNfcCardSessionBoxV1: @unchecked Sendable {
     init(_ session: CardSession) {
         self.session = session
     }
-}
-
-@available(iOS 17.4, *)
-private enum IrohaPeerNfcPresentmentIntentResultV1: Sendable {
-    case acquired(NFCPresentmentIntentAssertion)
-    case unavailable
-}
-
-@available(iOS 17.4, *)
-private struct IrohaPeerNfcCardStartupResourcesV1: @unchecked Sendable {
-    let cardSession: IrohaPeerNfcCardSessionBoxV1
-    let presentmentIntentAssertion: NFCPresentmentIntentAssertion?
 }
 
 /// Marks a locally unrepresentable extended APDU as retryable only after the
@@ -592,7 +577,7 @@ public final class IrohaPeerNfcCardSessionControllerV1: @unchecked Sendable {
             switch error {
             case .cardEmulationUnavailable:
                 return CardSession.isSupported ? .unavailable : .unsupported
-            case .cardEmulationIneligible, .presentmentIntentFailed:
+            case .cardEmulationIneligible:
                 return .ineligible
             default:
                 return .unavailable
@@ -797,9 +782,8 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
         IrohaPeerNfcCommitContextV1, IrohaPeerNfcDurableAcknowledgementV1>?
     private let lock = NSLock()
     private var cardSession: CardSession?
-    private var presentmentIntentAssertion: NFCPresentmentIntentAssertion?
     private var backgroundObserver: NSObjectProtocol?
-    private var startupTask: Task<IrohaPeerNfcCardStartupResourcesV1, Error>?
+    private var startupTask: Task<IrohaPeerNfcCardSessionBoxV1, Error>?
     private var eventTask: Task<Void, Never>?
     private var didPublishEmulation = false
     private var requestAuthorized = false
@@ -839,12 +823,8 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
             throw IrohaPeerNfcCoreNFCErrorV1.cancelled
         }
 
-        let configuration = self.configuration
         let startupTask = Task.detached {
-            try await Self.makeStartupResources(
-                configuration: configuration,
-                budget: startupBudget
-            )
+            try await Self.makeCardSession(budget: startupBudget)
         }
         lock.lock()
         guard !startGate.stopRequested else {
@@ -856,9 +836,9 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
         self.startupTask = startupTask
         lock.unlock()
 
-        let resources: IrohaPeerNfcCardStartupResourcesV1
+        let sessionBox: IrohaPeerNfcCardSessionBoxV1
         do {
-            resources = try await startupTask.value
+            sessionBox = try await startupTask.value
         } catch {
             lock.lock()
             self.startupTask = nil
@@ -867,7 +847,7 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
             if !mayInstall { publishEndedOnce() }
             throw error
         }
-        let session = resources.cardSession.session
+        let session = sessionBox.session
         session.alertMessage = configuration.cardAlertMessage
         lock.lock()
         self.startupTask = nil
@@ -878,9 +858,6 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
             throw IrohaPeerNfcCoreNFCErrorV1.cancelled
         }
         cardSession = session
-        presentmentIntentAssertion = resources.presentmentIntentAssertion?.isValid == true
-            ? resources.presentmentIntentAssertion
-            : nil
         backgroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
@@ -933,7 +910,6 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
         if !mustDefer {
             eventTask = nil
             cardSession = nil
-            presentmentIntentAssertion = nil
             self.backgroundObserver = nil
         }
         let shouldPublishEnded = startGate.requestStop(
@@ -1260,11 +1236,6 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
     }
 
     private func ensureEmulation(_ session: CardSession) async throws {
-        lock.lock()
-        if presentmentIntentAssertion?.isValid == false {
-            presentmentIntentAssertion = nil
-        }
-        lock.unlock()
         let sessionBox = IrohaPeerNfcCardSessionBoxV1(session)
         let inProgress = try await irohaPeerNfcWithDeadlineV1(
             timeoutNanoseconds: configuration.platformCallTimeoutNanoseconds,
@@ -1356,7 +1327,6 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
         lock.lock()
         eventTask = nil
         cardSession = nil
-        presentmentIntentAssertion = nil
         protectedBoundaryInFlight = false
         let backgroundObserver = self.backgroundObserver
         self.backgroundObserver = nil
@@ -1369,51 +1339,12 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
         publishEndedOnce()
     }
 
-    private static func makeStartupResources(
-        configuration: IrohaPeerNfcCoreNFCConfigurationV1,
+    // Foreground CardSession presents its own consent/emulation sheet. The
+    // optional default-contactless-app suppression assertion is not required
+    // for that sheet and must not become a prerequisite for card emulation.
+    private static func makeCardSession(
         budget: IrohaPeerNfcDeadlineBudgetV1
-    ) async throws -> IrohaPeerNfcCardStartupResourcesV1 {
-        let assertion: NFCPresentmentIntentAssertion?
-        let assertionRemaining = budget.remainingNanoseconds(
-            nowNanoseconds: DispatchTime.now().uptimeNanoseconds
-        )
-        guard assertionRemaining > 0 else {
-            throw IrohaPeerNfcCoreNFCErrorV1.cardSessionTimedOut
-        }
-        do {
-            let result = try await irohaPeerNfcWithDeadlineV1(
-                timeoutNanoseconds: assertionRemaining,
-                operation: {
-                    IrohaPeerNfcPresentmentIntentResultV1.acquired(
-                        try await NFCPresentmentIntentAssertion.acquire()
-                    )
-                }
-            )
-            switch result {
-            case .acquired(let acquired):
-                assertion = acquired.isValid ? acquired : nil
-            case .unavailable:
-                assertion = nil
-            }
-        } catch let error as NFCPresentmentIntentAssertion.Error {
-            switch error {
-            case .systemNotAvailable:
-                // The assertion is preferred, not required. This also covers
-                // the system cooldown after a recently released assertion.
-                assertion = nil
-            case .systemEligibilityFailed:
-                throw IrohaPeerNfcCoreNFCErrorV1.presentmentIntentFailed
-            @unknown default:
-                throw IrohaPeerNfcCoreNFCErrorV1.presentmentIntentFailed
-            }
-        } catch is IrohaPeerNfcOperationDeadlineErrorV1 {
-            throw IrohaPeerNfcCoreNFCErrorV1.presentmentIntentFailed
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            throw IrohaPeerNfcCoreNFCErrorV1.presentmentIntentFailed
-        }
-
+    ) async throws -> IrohaPeerNfcCardSessionBoxV1 {
         try Task.checkCancellation()
         let sessionRemaining = budget.remainingNanoseconds(
             nowNanoseconds: DispatchTime.now().uptimeNanoseconds
@@ -1422,7 +1353,7 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
             throw IrohaPeerNfcCoreNFCErrorV1.cardSessionTimedOut
         }
         do {
-            let sessionBox = try await irohaPeerNfcWithDeadlineV1(
+            return try await irohaPeerNfcWithDeadlineV1(
                 timeoutNanoseconds: sessionRemaining,
                 operation: {
                     IrohaPeerNfcCardSessionBoxV1(try await CardSession())
@@ -1430,10 +1361,6 @@ private final class IrohaPeerNfcCardRuntimeV1: @unchecked Sendable {
                 onDiscardedSuccess: { lateSession in
                     lateSession.session.invalidate()
                 }
-            )
-            return IrohaPeerNfcCardStartupResourcesV1(
-                cardSession: sessionBox,
-                presentmentIntentAssertion: assertion
             )
         } catch is IrohaPeerNfcOperationDeadlineErrorV1 {
             throw IrohaPeerNfcCoreNFCErrorV1.cardSessionTimedOut
@@ -1834,17 +1761,29 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
         onTypedProgress: ((IrohaPeerNfcProgressEventV1) -> Void)?,
         body: @escaping @Sendable (IrohaPeerNfcReaderContactV1) async throws -> IrohaPeerNfcReaderOutcomeV1
     ) async throws -> IrohaPeerNfcReaderOutcomeV1 {
-        guard Self.isAvailable else { throw IrohaPeerNfcCoreNFCErrorV1.unavailable }
+        let progressReporter = IrohaPeerNfcReaderProgressReporterV1(
+            handler: onTypedProgress
+        )
+        guard Self.isAvailable else {
+            progressReporter.finish(error: IrohaPeerNfcCoreNFCErrorV1.unavailable)
+            throw IrohaPeerNfcCoreNFCErrorV1.unavailable
+        }
         return try await withTaskCancellationHandler {
-            try Task.checkCancellation()
+            do { try Task.checkCancellation() }
+            catch {
+                progressReporter.finish(error: error)
+                throw error
+            }
             return try await withCheckedThrowingContinuation { continuation in
             guard !Task.isCancelled else {
+                progressReporter.finish(error: CancellationError())
                 continuation.resume(throwing: CancellationError())
                 return
             }
             lock.lock()
             guard self.continuation == nil else {
                 lock.unlock()
+                progressReporter.finish(error: IrohaPeerNfcCoreNFCErrorV1.operationInProgress)
                 continuation.resume(
                     throwing: IrohaPeerNfcCoreNFCErrorV1.operationInProgress
                 )
@@ -1853,9 +1792,6 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
             self.completed = false
             let operationEpoch = self.operationGate.beginOperation()
             self.continuation = continuation
-            let progressReporter = IrohaPeerNfcReaderProgressReporterV1(
-                handler: onTypedProgress
-            )
             self.progressReporter = progressReporter
             let platformCallGate = IrohaPeerNfcReaderPlatformCallGateV1()
             self.platformCallGate = platformCallGate
@@ -1877,6 +1813,7 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
                 try validate()
                 let exchangeLimits = retryLimitsBox.load()
                 let transceive: IrohaPeerNfcReaderExchangeV1.Transceive = { command in
+                    progressReporter.record(operation: command.operation)
                     do {
                         let response = try await irohaPeerNfcGuardedAwaitV1(
                             validate: validate,
@@ -1949,7 +1886,7 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
                 )
                 lock.unlock()
                 platformCallGate.invalidate()
-                progressReporter.invalidate()
+                progressReporter.finish(error: IrohaPeerNfcCoreNFCErrorV1.unavailable)
                 continuation.resume(throwing: IrohaPeerNfcCoreNFCErrorV1.unavailable)
                 return
             }
@@ -2250,7 +2187,10 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
         retryTimeoutTask?.cancel()
         operationTimeoutTask?.cancel()
         platformCallGate?.invalidate()
-        progressReporter?.invalidate()
+        switch result {
+        case .failure(let error): progressReporter?.finish(error: error)
+        case .success: progressReporter?.invalidate()
+        }
         task?.cancel()
         if invalidating { session?.invalidate() }
         continuation?.resume(with: result)
