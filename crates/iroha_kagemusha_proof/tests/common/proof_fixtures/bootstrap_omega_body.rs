@@ -120,7 +120,7 @@ pub fn rooted_bootstrap_omega_with_identity(
         "AUTHENTICATED_BOOTSTRAP_OMEGA source_A_bytes={source_bytes} lanes={lanes:?} actual_proof_bytes={} transport_bytes={} source_operation_authenticated=true actual_omega_key_bound=true production_size_pass={} release_qualified=false",
         proof.proof.len(),
         proof.proof.len() + 1088,
-        proof.proof.len() + 1088 <= 4821
+        proof.proof.len() + 1088 <= iroha_kagemusha_proof::a_relation::receive::OMEGA_TRANSPORT_CAP
     );
     RootedBootstrapOmega {
         source: bootstrap,

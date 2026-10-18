@@ -122,7 +122,7 @@ pub(crate) fn diagnostic_load_omega(
         load.proof.len(),
         proof.proof.len(),
         proof.proof.len() + 1088,
-        proof.proof.len() + 1088 <= 4821,
+        proof.proof.len() + 1088 <= iroha_kagemusha_proof::a_relation::receive::OMEGA_TRANSPORT_CAP,
     );
     DiagnosticLoadOmega {
         source: load,

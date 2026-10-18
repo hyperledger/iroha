@@ -19883,12 +19883,14 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
         return response
     }
 
+    /// Preserve the configured caller's data space visibility; without a signer,
+    /// the directory continues to return only its anonymously visible bindings.
     public func getUaidBindings(uaid: String,
                                 query: ToriiUaidBindingsQuery? = nil) async throws -> ToriiUaidBindingsResponse {
         let canonical = try canonicalizeUaidLiteral(uaid)
         let encoded = encodePathComponent(canonical)
-        let request = try makeRequest(path: "/v1/space-directory/uaids/\(encoded)",
-                                      queryItems: try query?.queryItems())
+        let request = try makeDataspaceVisibleRequest(path: "/v1/space-directory/uaids/\(encoded)",
+                                                      queryItems: try query?.queryItems())
         let data = try await data(for: request)
         try rejectDuplicateJSONKeys(data, context: "UAID bindings response")
         let response = try decodeJSON(ToriiUaidBindingsResponse.self, from: data)

@@ -1357,3 +1357,67 @@ fn custody_failure_reasons_preserve_other_failure_contracts() {
         assert_eq!(Failure::from(error), Failure::code(status));
     }
 }
+
+#[test]
+fn archive_call_publishes_on_success_discards_on_failure_and_reports_publication_failure() {
+    struct Bracket {
+        events: Vec<&'static str>,
+        close_failure: Option<Failure>,
+    }
+    impl Wallet for Bracket {
+        fn open_archive_call(&mut self) {
+            self.events.push("open");
+        }
+        fn close_archive_call(&mut self, succeeded: bool) -> Result<()> {
+            self.events
+                .push(if succeeded { "publish" } else { "discard" });
+            self.close_failure.map_or(Ok(()), Err)
+        }
+        fn setup(&mut self, _: setup::Setup) -> Result<Response> {
+            unreachable!()
+        }
+        fn snapshot(&mut self) -> Result<state::Snapshot> {
+            unreachable!()
+        }
+        fn execute(&mut self, _: state::OperationRequestV1) -> Result<Response> {
+            unreachable!()
+        }
+        fn request_status(&mut self, _: &[u8; 32]) -> Result<Response> {
+            unreachable!()
+        }
+        fn retry(&mut self, _: &[u8; 32]) -> Result<Response> {
+            unreachable!()
+        }
+        fn resume(&mut self) -> Result<Response> {
+            unreachable!()
+        }
+        fn fold(&mut self) -> Result<ControlFlow<Response, FoldProof>> {
+            unreachable!()
+        }
+        fn credit(&mut self, _: &[u8; 32], _: &[u8; 32]) -> Result<Response> {
+            unreachable!()
+        }
+    }
+    let run = |close_failure: Option<Failure>, answer: Result<u8>| {
+        let mut wallet = Bracket {
+            events: Vec::new(),
+            close_failure,
+        };
+        let result = archive_call(&mut wallet, |_| answer);
+        (result, wallet.events)
+    };
+    // The answer is returned only after the call's staged records were published.
+    assert_eq!(run(None, Ok(7)), (Ok(7), vec!["open", "publish"]));
+    // A failed call discards what it staged and keeps its own error.
+    let refused = Failure::code(PROOF_REJECTED);
+    assert_eq!(
+        run(Some(Failure::code(UNCERTAIN)), Err(refused)),
+        (Err(refused), vec!["open", "discard"])
+    );
+    // A publication failure replaces the answer: no success without durable records.
+    let uncertain = Failure::code(UNCERTAIN);
+    assert_eq!(
+        run(Some(uncertain), Ok(7)),
+        (Err(uncertain), vec!["open", "publish"])
+    );
+}

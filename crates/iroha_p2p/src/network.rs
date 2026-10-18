@@ -1031,9 +1031,9 @@ enum SubscriberProgressClass {
 }
 /// Stable scheduling class for a reliable progress route.
 ///
-/// Consensus producers use the same classification as the network actor so a
-/// blocked bulk stream cannot accidentally share FIFO or reservation state
-/// with safety and lane traffic.
+/// This coarse route classification separates bulk traffic from safety and
+/// lane traffic. The network actor further separates payload and block-sync
+/// sources so they do not share FIFO or reservation state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ReliableProgressClass {
     /// Votes, quorum certificates, timeout evidence, and proposals.
@@ -6387,7 +6387,7 @@ pub struct NetworkBaseHandle<T: Pload, E: Enc> {
     /// Exact aggregate wire-byte ownership for ordinary high traffic. Its
     /// additive safety tranche cannot be consumed by ordinary callers.
     network_actor_byte_budget: Arc<NetworkActorByteBudget>,
-    /// Source-keyed reliable owner. One Safety/Lane/Bulk slot per target
+    /// Source-keyed reliable owner. One Safety/Lane/Payload/BlockSync slot per target
     /// structurally reserves each class from the others. Broadcast copies use
     /// those target slots and return unadmitted targets to their producer.
     network_actor_progress_budget: Arc<NetworkActorProgressBudget>,
@@ -6632,7 +6632,7 @@ fn network_actor_progress_target_capacity(max_total_connections: usize) -> Optio
     max_total_connections.checked_mul(2)
 }
 fn network_actor_progress_source_capacity(max_total_connections: usize) -> Option<usize> {
-    // Every authorized target can own one item in each protected semantic class.
+    // Every authorized target owns a byte reserve in each protected semantic class.
     // Reliable broadcasts acquire these same target lanes before crossing
     // admission; there is deliberately no class-wide broadcast parent.
     network_actor_progress_target_capacity(max_total_connections)?
@@ -6863,6 +6863,8 @@ fn validate_transport_queue_geometry<E: Enc>(
         crate::frame_queue_charge_for::<E>(topic_caps.control).ok_or(Error::FrameTooLarge)?;
     let lane_reserve_bytes = safety_reserve_bytes
         .max(crate::frame_queue_charge_for::<E>(topic_caps.consensus).ok_or(Error::FrameTooLarge)?);
+    // Both topic families share the configured frame cap, but retain separate
+    // actor byte owners and each contributes to the aggregate actor budget.
     let payload_reserve_bytes =
         crate::frame_queue_charge_for::<E>(topic_caps.block_sync).ok_or(Error::FrameTooLarge)?;
     let block_sync_reserve_bytes =
@@ -9807,7 +9809,7 @@ mod accept_stream_tests {
             matches!(per_peer_below, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidInput),
             "a per-peer byte owner below the dual-progress boundary must fail closed"
         );
-        let one_slot = validate_transport_queue_geometry::<ChaCha20Poly1305>(
+        let two_slots = validate_transport_queue_geometry::<ChaCha20Poly1305>(
             8_192,
             topic_caps,
             max_ordinary,
@@ -9815,18 +9817,20 @@ mod accept_stream_tests {
             DeferredSendLimits {
                 total_bytes: exact_total,
                 per_peer_bytes: exact_total,
-                per_peer_frames: 1,
+                per_peer_frames: 2,
             },
             TransportChannelCapacities {
-                high: 1,
-                low: 1,
+                high: 6,
+                low: 2,
                 post: 1,
-                subscriber: 1,
+                subscriber: 2,
             },
         );
         assert!(
-            matches!(one_slot, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidInput),
-            "a one-frame per-peer queue cannot preserve simultaneous safety and ordinary progress"
+            matches!(two_slots, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::InvalidInput
+                && error.to_string().contains("network.deferred_send_max_per_peer (2)")
+                && error.to_string().contains("minimum is 3")),
+            "two deferred frames cannot isolate safety, lane-progress, and bulk-progress"
         );
     }
     #[test]

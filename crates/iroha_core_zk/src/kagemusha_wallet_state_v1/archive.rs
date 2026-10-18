@@ -81,6 +81,13 @@ impl ArchiveKey {
 /// A successful `get` must authenticate incarnation, key and content. Read failures must
 /// never be reported as absence. An uncertain `put` is retried with exactly the same bytes.
 /// Archive storage is not a completion authority.
+///
+/// An implementation may group the puts of one embedder call ([`Self::open_call`] to
+/// [`Self::close_call`]): it then returns from `put` once the exact bytes are staged, answers
+/// later reads of them with the full authentication of a disk read, and makes them durable no
+/// later than the next authority entry of its custody (Advance, archive checkpoint publication,
+/// collection, pruning, signing, the runtime capacity read) and the successful close of the
+/// call. Without an open call every `put` is durable on return.
 pub trait ArchiveStore {
     /// Scheme and wallet incarnation to which every record is bound.
     fn binding(&self) -> ([u8; 32], [u8; 32]);
@@ -106,7 +113,8 @@ pub trait ArchiveStore {
     ) -> Result<Option<PrivateArchiveBytes>, Error> {
         self.get(ArchiveKey::Object(digest), max_bytes)
     }
-    /// Publish one immutable record, or adopt exactly matching existing bytes durably.
+    /// Publish one immutable record, or adopt exactly matching existing bytes durably; inside
+    /// an open call of a grouping implementation, stage them (see the trait documentation).
     ///
     /// # Errors
     /// I/O errors may follow publication; callers must reconcile, never infer no commit.
@@ -117,6 +125,19 @@ pub trait ArchiveStore {
     /// # Errors
     /// Failed removal or directory synchronization. No error restores deleted data.
     fn remove(&mut self, key: ArchiveKey) -> Result<(), Error>;
+    /// Open one embedder call: until [`Self::close_call`] a grouping implementation may stage
+    /// puts. The embedder opens one call per externally visible call while it holds exclusive
+    /// access to the wallet. The default publishes every put on return.
+    fn open_call(&mut self) {}
+    /// Close the open call: a successful call makes every staged record durable before
+    /// returning, a failed one discards them unpublished. Without an open call nothing happens.
+    ///
+    /// # Errors
+    /// When `succeeded`: the publication of the staged records failed, so the call must report
+    /// that error instead of its answer.
+    fn close_call(&mut self, _succeeded: bool) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 #[derive(norito::Encode, norito::Decode, norito::NoritoSchema)]
