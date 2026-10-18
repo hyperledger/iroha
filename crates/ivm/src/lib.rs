@@ -589,6 +589,7 @@ mod tests {
     use super::*;
     #[test]
     fn acceleration_runtime_errors_default_none_or_hw_reason() {
+        let _serial = crate::vector::forced_simd_test_lock();
         let status = acceleration_runtime_status();
         let errors = acceleration_runtime_errors();
         if status.simd.supported {
@@ -615,6 +616,7 @@ mod tests {
     }
     #[test]
     fn cuda_status_never_reports_parity_without_availability() {
+        let _serial = crate::vector::forced_simd_test_lock();
         let status = acceleration_runtime_status();
         if !status.cuda.available {
             assert!(
@@ -688,6 +690,7 @@ mod tests {
     }
     #[test]
     fn metal_api_exports_are_available_on_all_targets() {
+        let _serial = crate::vector::forced_simd_test_lock();
         release_metal_state();
         reset_metal_backend_for_tests();
         assert_eq!(metal_available(), crate::vector::metal_available());

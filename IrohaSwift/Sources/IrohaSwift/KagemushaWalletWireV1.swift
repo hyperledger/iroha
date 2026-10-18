@@ -739,6 +739,25 @@ public enum KagemushaWalletWireV1 {
     return KagemushaWalletUInt128V1(low: u64(0), high: u64(8))
   }
 
+  /// Exact unsigned amount proposed in an Offer's signed body, for display and the receiver's
+  /// ask guard only: a receiver that asked for an amount (``IrohaPeerAskV1``) declines an Offer
+  /// for any other amount before it issues a Request. The Offer has four fields and an 8-field
+  /// body `{version, scheme_id, asset_digest, payer_wallet_id, payer_credential_digest,
+  /// next_send, amount, session_nonce}`. This bounded structural parser authenticates nothing;
+  /// Native verifies the Offer and requires the Request amount to equal it.
+  public static func offerAmountData(_ offer: Data) throws -> KagemushaWalletUInt128V1 {
+    let fields = try exchangeMessageFields(offer, kind: .offer, count: 4)
+    let body = try exchangeRecordFields(fields[0], count: 8, label: "offer.body")
+    let amount = [UInt8](body[6])
+    guard amount.count == 16, amount.contains(where: { $0 != 0 }) else {
+      throw KagemushaWalletWireErrorV1.invalidField("offer.amount")
+    }
+    func u64(_ offset: Int) -> UInt64 {
+      (0..<8).reduce(UInt64(0)) { $0 | (UInt64(amount[offset + $1]) << (8 * $1)) }
+    }
+    return KagemushaWalletUInt128V1(low: u64(0), high: u64(8))
+  }
+
   // Reconstruct signed bytes only; Native owns signature, proof and custody checks.
   private static func paymentSignedRequestFields(_ payment: [Data]) throws -> ([Data], Data) {
     let unique = try exchangeRecordFields(payment[1], count: 10, label: "payment.request")

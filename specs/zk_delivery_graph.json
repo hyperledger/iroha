@@ -2949,7 +2949,55 @@
       "acceptance": [
         "Budget observation/preparation/proving/publication jitter/submission/clock margin; test deterministic sequential/overlapped selection, spacing/skipped CRLs, withholding, slow issuers, near expiry and merged-event starvation. Resolve quiet-chain semantics: no empty blocks or claimed 300-second wall-clock freshness from blocktime/wallet TTL alone. Native temporal controls cover date boundaries, same-block order, revocation precedence and permissions; X.4 owns final maximum-proof/rollover network measurements."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "3de44399e2e30a4fa05d71a517d6c9dbe18f66c6 plus three uncommitted X.6 source/test/spec providers. Current captured component passed all 22 actual default-feature tests; five concurrent IVM-only changes outside its compiler dependency graph were preserved. No full lifecycle or network qualification.",
+        "paths": [
+          "crates/iroha_data_model/src/privacy/zk_x509_interval.rs",
+          "crates/iroha_data_model/tests/zk_x509_presentation_interval.rs",
+          "specs/zk_x509_presentation_interval.md"
+        ],
+        "commands": [
+          {
+            "command": "cd /Users/takemiyamakoto/devstuff/iroha/dist/zk-delivery-handoff/candidate-builds/x6-current-2026-10-18 && CARGO_TARGET_DIR=/Users/takemiyamakoto/devstuff/iroha/target/zk-x6-current-20261018 CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 cargo test --locked --offline --jobs 1 -p iroha_data_model --test zk_x509_presentation_interval --no-run --message-format=json-render-diagnostics",
+            "outcome": "passed"
+          },
+          {
+            "command": "cd /Users/takemiyamakoto/devstuff/iroha/dist/zk-delivery-handoff/candidate-builds/x6-current-2026-10-18 && /Users/takemiyamakoto/devstuff/iroha/dist/zk-delivery-handoff/reports/x6-current-2026-10-18/zk_x509_presentation_interval --test-threads=1",
+            "outcome": "passed"
+          },
+          {
+            "command": "/opt/homebrew/bin/python3.12 -B scripts/check_zk_x509_presentation_interval.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "/Users/takemiyamakoto/devstuff/iroha/dist/zk-delivery-handoff/tools/python-20261018/bin/python -B -m pytest -p no:cacheprovider scripts/tests/check_zk_x509_presentation_interval_test.py scripts/tests/check_zk_delivery_plan_test.py -q",
+            "outcome": "passed"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Implement deterministic newest-eligible CRL selection and supersession across merged CRL/policy/anchor events; derive end-to-end deadlines from signed CA times, earliest certificate expiry and public presentation window.",
+            "state": "partial",
+            "proof": "crates/iroha_data_model/src/privacy/zk_x509_interval.rs derives the inclusive deadline from canonical original signed interval bounds, earliest certificate expiry and public window; the borrowed schedule compares the whole original statement to the authenticated selection supplied by its caller. The helper does not authenticate or choose newest-eligible material. Integrated deterministic selection across merged CRL/policy/anchor events remains unimplemented and can be developed and tested on this Mac; this is not a platform exception."
+          },
+          {
+            "clause": "Budget observation/preparation/proving/publication jitter/submission/clock margin; test deterministic sequential/overlapped selection, spacing/skipped CRLs, withholding, slow issuers, near expiry and merged-event starvation.",
+            "state": "partial",
+            "proof": "crates/iroha_data_model/tests/zk_x509_presentation_interval.rs retains all 14 original tests and adds eight actual passing controls for all six explicit checked millisecond budget terms, each term exhausting the deadline, exact completion boundary, overflow, supersession and redacted private bounds. No implicit overlap credit or default budget is allowed. Sequential/overlapped lifecycle selection, skipped/withheld CRLs, issuer delay and starvation remain to be implemented and exercised on this Mac."
+          },
+          {
+            "clause": "Resolve quiet-chain semantics: no empty blocks or claimed 300-second wall-clock freshness from blocktime/wallet TTL alone.",
+            "state": "unmet",
+            "proof": "specs/zk_x509_presentation_interval.md explicitly limits the helper to local scheduling and disclaims wall-clock freshness from an idle chain. The consensus/holder quiet-chain lifecycle and its temporal controls have not been implemented or executed; no empty-block production or wallet TTL authority was introduced. This remaining integration can run on the Mac and is not a platform TODO."
+          },
+          {
+            "clause": "Native temporal controls cover date boundaries, same-block order, revocation precedence and permissions; X.4 owns final maximum-proof/rollover network measurements.",
+            "state": "partial",
+            "proof": "crates/iroha_data_model/tests/zk_x509_presentation_interval.rs passes the complete 22-test original integration target, including date/deadline boundaries and exact supersession. These are model controls, not native same-block ordering, revocation-precedence, permission or maximum-proof/rollover network evidence. Native holder execution and four-validator temporal controls remain unimplemented/unexecuted and can run on this Mac; X.4 retains final measured network ownership."
+          }
+        ]
+      }
     },
     {
       "id": "T.1",

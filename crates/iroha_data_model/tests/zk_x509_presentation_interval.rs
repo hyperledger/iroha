@@ -1172,3 +1172,374 @@ fn deferred_sites_equal_the_canonical_definition_on_a_boundary_grid() {
         );
     }
 }
+
+use iroha_data_model::privacy::{
+    PrivacyZkX509HolderBudgetV1, PrivacyZkX509HolderScheduleErrorV1,
+    PrivacyZkX509HolderScheduleOutcomeV1, PrivacyZkX509HolderScheduleV1,
+};
+
+fn holder_budget(terms: [u64; 6]) -> PrivacyZkX509HolderBudgetV1 {
+    PrivacyZkX509HolderBudgetV1 {
+        observation_ms: terms[0],
+        preparation_ms: terms[1],
+        proving_ms: terms[2],
+        publication_jitter_ms: terms[3],
+        submission_ms: terms[4],
+        clock_margin_ms: terms[5],
+    }
+}
+
+#[test]
+fn holder_budget_counts_every_named_term_and_rejects_aggregate_overflow() {
+    assert_eq!(holder_budget([1, 2, 4, 8, 16, 32]).total_millis(), Ok(63));
+    assert_eq!(holder_budget([0; 6]).total_millis(), Ok(0));
+    for index in 0..6 {
+        let mut terms = [0; 6];
+        terms[index] = u64::MAX;
+        assert_eq!(holder_budget(terms).total_millis(), Ok(u64::MAX));
+        terms[(index + 1) % 6] = 1;
+        assert_eq!(
+            holder_budget(terms).total_millis(),
+            Err(PrivacyZkX509HolderScheduleErrorV1::BudgetOverflow)
+        );
+    }
+}
+
+#[test]
+fn holder_schedule_every_phase_can_exhaust_the_last_admissible_millisecond() {
+    let original = statement(T, T + 200);
+    let deadline = (T + 201) * 1_000 - 1;
+    let schedule_start = deadline - 63;
+    let schedule = PrivacyZkX509HolderScheduleV1::new(
+        &original,
+        &[WIDE, WIDE],
+        crl(T, T + 301),
+        holder_budget([1, 2, 4, 8, 16, 32]),
+    )
+    .expect("original intervals admit this public window");
+    assert!(std::ptr::eq(schedule.original(), &original));
+    assert_eq!(
+        schedule.assess(&original.clone(), schedule_start),
+        Ok(PrivacyZkX509HolderScheduleOutcomeV1::WithinBudget)
+    );
+    assert_eq!(
+        schedule.assess(&original, schedule_start + 1),
+        Ok(PrivacyZkX509HolderScheduleOutcomeV1::Reprepare)
+    );
+    for index in 0..6 {
+        let mut terms = [1, 2, 4, 8, 16, 32];
+        terms[index] += 1;
+        let over = PrivacyZkX509HolderScheduleV1::new(
+            &original,
+            &[WIDE, WIDE],
+            crl(T, T + 301),
+            holder_budget(terms),
+        )
+        .expect("one more budget millisecond is representable");
+        assert_eq!(
+            over.assess(&original, schedule_start),
+            Ok(PrivacyZkX509HolderScheduleOutcomeV1::Reprepare)
+        );
+    }
+    let zero = PrivacyZkX509HolderScheduleV1::new(
+        &original,
+        &[WIDE, WIDE],
+        crl(T, T + 301),
+        holder_budget([0; 6]),
+    )
+    .expect("explicit zero estimates");
+    assert_eq!(
+        zero.assess(&original, deadline),
+        Ok(PrivacyZkX509HolderScheduleOutcomeV1::WithinBudget)
+    );
+    assert_eq!(
+        zero.assess(&original, deadline + 1),
+        Ok(PrivacyZkX509HolderScheduleOutcomeV1::Reprepare)
+    );
+}
+
+#[test]
+fn holder_schedule_uses_the_original_earliest_expiry_crl_and_public_window() {
+    for (certificates, selected_crl, end) in [
+        // Signed CRL age, exclusive nextUpdate, private intermediate expiry,
+        // and a deliberately shorter public window each bind in turn.
+        ([WIDE, WIDE, WIDE], crl(T, T + 3_600), T + 300),
+        ([WIDE, WIDE, WIDE], crl(T, T + 220), T + 219),
+        (
+            [WIDE, validity(T - 10, T + 150), WIDE],
+            crl(T, T + 301),
+            T + 150,
+        ),
+        ([WIDE, WIDE, WIDE], crl(T, T + 301), T + 20),
+    ] {
+        let original = statement(T, end);
+        let before = original.clone();
+        let deadline = (end + 1) * 1_000 - 1;
+        let schedule = PrivacyZkX509HolderScheduleV1::new(
+            &original,
+            &certificates,
+            selected_crl,
+            holder_budget([11, 13, 17, 19, 23, 29]),
+        )
+        .expect("the original signed intervals admit exactly this window");
+        assert_eq!(
+            schedule.assess(&original, deadline - 112),
+            Ok(PrivacyZkX509HolderScheduleOutcomeV1::WithinBudget)
+        );
+        assert_eq!(
+            schedule.assess(&original, deadline - 111),
+            Ok(PrivacyZkX509HolderScheduleOutcomeV1::Reprepare)
+        );
+        assert!(
+            original
+                .presentation_window()
+                .admits_block_timestamp_ms(deadline)
+        );
+        assert!(
+            !original
+                .presentation_window()
+                .admits_block_timestamp_ms(deadline + 1)
+        );
+        assert_eq!(schedule.original(), &before);
+    }
+}
+
+#[test]
+fn holder_schedule_rejects_invalid_original_intervals_without_clamping_or_defaults() {
+    let valid = statement(T, T + 200);
+    for (certificates, selected_crl, expected) in [
+        (
+            vec![WIDE],
+            crl(T, T + 301),
+            PrivacyZkX509PresentationIntervalErrorV1::InvalidChainDepth,
+        ),
+        (
+            vec![WIDE, validity(T, T - 1)],
+            crl(T, T + 301),
+            PrivacyZkX509PresentationIntervalErrorV1::InvalidCertificateValidity { index: 1 },
+        ),
+        (
+            vec![WIDE, WIDE],
+            crl(T, T),
+            PrivacyZkX509PresentationIntervalErrorV1::InvalidCrlUpdateInterval,
+        ),
+        (
+            vec![WIDE, WIDE],
+            crl(T + 1, T + 301),
+            PrivacyZkX509PresentationIntervalErrorV1::StartsBeforeBounds,
+        ),
+        (
+            vec![WIDE, WIDE],
+            crl(T, T + 200),
+            PrivacyZkX509PresentationIntervalErrorV1::EndsAfterBounds,
+        ),
+        (
+            vec![WIDE, validity(T - 1, T + 199)],
+            crl(T, T + 301),
+            PrivacyZkX509PresentationIntervalErrorV1::EndsAfterBounds,
+        ),
+    ] {
+        let error = PrivacyZkX509HolderScheduleV1::new(
+            &valid,
+            &certificates,
+            selected_crl,
+            holder_budget([0; 6]),
+        )
+        .expect_err("the original signed bounds are not replaceable local estimates");
+        assert_eq!(
+            error,
+            PrivacyZkX509HolderScheduleErrorV1::Interval(expected)
+        );
+    }
+    let invalid = statement(T, T);
+    let error = PrivacyZkX509HolderScheduleV1::new(
+        &invalid,
+        &[WIDE, WIDE],
+        crl(T, T + 301),
+        holder_budget([0; 6]),
+    )
+    .expect_err("non-empty public window remains mandatory");
+    assert_eq!(
+        error,
+        PrivacyZkX509HolderScheduleErrorV1::Interval(
+            PrivacyZkX509PresentationIntervalErrorV1::InvalidWindow {
+                start: T,
+                end: T,
+                max_seconds: 300,
+            }
+        )
+    );
+    assert_eq!(
+        PrivacyZkX509HolderScheduleV1::new(
+            &valid,
+            &[WIDE, WIDE],
+            crl(T, T + 301),
+            holder_budget([u64::MAX, 0, 0, 0, 0, 1]),
+        )
+        .expect_err("no saturating budget"),
+        PrivacyZkX509HolderScheduleErrorV1::BudgetOverflow
+    );
+}
+
+#[test]
+fn holder_schedule_supersession_compares_exact_identities_not_epoch_order_or_time() {
+    let original = statement(T, T + 200);
+    let schedule = PrivacyZkX509HolderScheduleV1::new(
+        &original,
+        &[WIDE, WIDE],
+        crl(T, T + 301),
+        holder_budget([1; 6]),
+    )
+    .expect("admitted original");
+    let changes: [fn(&mut IrohaZkX509StarkP256StatementV1); 15] = [
+        |value| value.trust_anchor_id = PrivacyIssuerIdV1::new([0xa1; 32]),
+        |value| value.certificate_policy_id = PrivacyPolicyIdV1::new([0xa2; 32]),
+        |value| {
+            value.trust_anchor_record_digest =
+                PrivacyZkX509TrustAnchorRecordDigestV1::new([0xa3; 32])
+        },
+        |value| {
+            value.certificate_policy_record_digest =
+                PrivacyZkX509CertificatePolicyRecordDigestV1::new([0xa4; 32])
+        },
+        |value| value.crl_record_digest = PrivacyZkX509CrlRecordDigestV1::new([0xa5; 32]),
+        |value| value.trust_anchor_record_epoch = 0,
+        |value| value.certificate_policy_record_epoch = 0,
+        |value| value.crl_record_epoch = 0,
+        |value| value.trust_anchor_record_epoch = 2,
+        |value| value.certificate_policy_record_epoch = 2,
+        |value| value.crl_record_epoch = 2,
+        |value| value.ca_membership_root = PrivacyRootV1::new([0xa6; 32]),
+        |value| value.ca_membership_root_epoch = 2,
+        |value| value.wallet_challenge = PrivacyChallengeV1::new([0xa7; 32]),
+        |value| value.context.parameter_digest = PrivacyParameterDigestV1::new([0xa8; 32]),
+    ];
+    for change in changes {
+        let mut current = original.clone();
+        change(&mut current);
+        assert_eq!(
+            current.presentation_window(),
+            original.presentation_window()
+        );
+        assert_eq!(
+            schedule.assess(&current, T * 1_000),
+            Ok(PrivacyZkX509HolderScheduleOutcomeV1::Superseded)
+        );
+        // Supersession wins even when evaluating the old timing would overflow.
+        assert_eq!(
+            schedule.assess(&current, u64::MAX),
+            Ok(PrivacyZkX509HolderScheduleOutcomeV1::Superseded)
+        );
+        assert!(std::ptr::eq(schedule.original(), &original));
+    }
+    let mut changed_window = original.clone();
+    changed_window.presentation_not_after_unix_seconds += 1;
+    assert_eq!(
+        schedule.assess(&changed_window, T * 1_000),
+        Ok(PrivacyZkX509HolderScheduleOutcomeV1::Superseded)
+    );
+    assert_eq!(
+        schedule.assess(&original, T * 1_000),
+        Ok(PrivacyZkX509HolderScheduleOutcomeV1::WithinBudget)
+    );
+}
+
+#[test]
+fn holder_schedule_completion_overflow_is_distinct_from_insufficient_time() {
+    let original = statement(T, T + 200);
+    let schedule = PrivacyZkX509HolderScheduleV1::new(
+        &original,
+        &[WIDE, WIDE],
+        crl(T, T + 301),
+        holder_budget([0, 0, 0, 0, 0, 1]),
+    )
+    .expect("one millisecond estimate");
+    assert_eq!(
+        schedule.assess(&original, u64::MAX),
+        Err(PrivacyZkX509HolderScheduleErrorV1::CompletionOverflow)
+    );
+    assert_eq!(
+        schedule.assess(&original, u64::MAX - 1),
+        Ok(PrivacyZkX509HolderScheduleOutcomeV1::Reprepare)
+    );
+}
+
+#[test]
+fn holder_schedule_redacts_private_bounds_and_does_not_authorize_block_time() {
+    let original = statement(T, T + 200);
+    let schedule = PrivacyZkX509HolderScheduleV1::new(
+        &original,
+        &[WIDE, validity(T - 17, T + 233)],
+        crl(T, T + 301),
+        holder_budget([1; 6]),
+    )
+    .expect("interior public window");
+    assert_eq!(
+        format!("{schedule:?}"),
+        "PrivacyZkX509HolderScheduleV1 { <private material redacted> }"
+    );
+    for error in [
+        PrivacyZkX509HolderScheduleErrorV1::Interval(
+            PrivacyZkX509PresentationIntervalErrorV1::StartsBeforeBounds,
+        ),
+        PrivacyZkX509HolderScheduleErrorV1::Interval(
+            PrivacyZkX509PresentationIntervalErrorV1::EndsAfterBounds,
+        ),
+        PrivacyZkX509HolderScheduleErrorV1::BudgetOverflow,
+        PrivacyZkX509HolderScheduleErrorV1::CompletionOverflow,
+    ] {
+        for rendered in [format!("{error:?}"), error.to_string()] {
+            for private in [T - 17, T + 233, 1_640_995_200, 1_893_456_000] {
+                assert!(!rendered.contains(&private.to_string()));
+            }
+        }
+    }
+    let early = (T - 1) * 1_000;
+    assert_eq!(
+        schedule.assess(&original, early),
+        Ok(PrivacyZkX509HolderScheduleOutcomeV1::WithinBudget)
+    );
+    assert!(
+        !original
+            .presentation_window()
+            .admits_block_timestamp_ms(early)
+    );
+    // A later observation does not mutate or advance an implicit clock owner.
+    assert_eq!(
+        schedule.assess(&original, (T + 201) * 1_000),
+        Ok(PrivacyZkX509HolderScheduleOutcomeV1::Reprepare)
+    );
+    assert_eq!(
+        schedule.assess(&original, early),
+        Ok(PrivacyZkX509HolderScheduleOutcomeV1::WithinBudget)
+    );
+}
+
+#[test]
+fn holder_schedule_copy_preserves_the_original_borrow_and_budget() {
+    let original = statement(T, T + 200);
+    let schedule = PrivacyZkX509HolderScheduleV1::new(
+        &original,
+        &[WIDE, WIDE],
+        crl(T, T + 301),
+        holder_budget([1, 2, 3, 4, 5, 6]),
+    )
+    .expect("immutable borrowed scheduling estimate");
+    let copied = schedule;
+    let deadline = (T + 201) * 1_000 - 1;
+    for value in [schedule, copied] {
+        assert!(std::ptr::eq(value.original(), &original));
+        assert_eq!(
+            value.assess(&original, deadline - 21),
+            Ok(PrivacyZkX509HolderScheduleOutcomeV1::WithinBudget)
+        );
+        assert_eq!(
+            value.assess(&original, deadline - 20),
+            Ok(PrivacyZkX509HolderScheduleOutcomeV1::Reprepare)
+        );
+        assert_eq!(
+            format!("{value:?}"),
+            "PrivacyZkX509HolderScheduleV1 { <private material redacted> }"
+        );
+    }
+}

@@ -135,3 +135,40 @@ What the site check does and does not establish:
   owns the migration and end-to-end deadline budgeting.
 - The DER-to-bounds helper and prover preflight are absent from ordinary
   builds until X.5 ships the holder prover.
+
+## Local holder scheduling budget (X.6 component)
+
+`PrivacyZkX509HolderScheduleV1` borrows one exact public statement and derives
+bounds from the corresponding parsed certificate path and CRL interval using the
+canonical definition. Construction requires that those bounds admit the original
+public window. `PrivacyZkX509HolderBudgetV1` supplies six explicit millisecond
+estimates: observation, preparation, proving, publication jitter, submission and
+clock margin. Their checked sum is conservative: overlapping work earns no
+implicit deduction, and no estimate has an implicit default.
+
+Assessment first compares the caller's authenticated current selection with the
+entire original statement. A change to any CRL, policy or anchor identity, digest
+or epoch supersedes the schedule, including a digest change at an equal epoch or
+a lower epoch. The comparison also retains the wallet challenge, governed
+context and public window. Equality does not authenticate a selection: callers
+must authenticate both selections and obtain the parsed intervals from the exact
+original signed material.
+
+For an unchanged selection, checked addition of the full budget to the supplied
+local schedule-start Unix millisecond must fit the canonical inclusive deadline.
+Equality at the last admissible millisecond fits; one millisecond beyond requires
+repreparation. Budget and timestamp overflow are errors, never saturation or an
+extended window. The result does not assert actual completion, authorize an early
+block, or change the on-chain CRL lineage/rotation/revocation rules. The helper
+neither tracks a monotonic observed clock nor establishes wall-clock freshness on
+an idle chain. Its diagnostics do not expose private certificate bounds, and it
+does not choose or publish window endpoints. The existing endpoint-disclosure
+check remains the caller's separate privacy decision.
+
+TODO(X.6): this source component is not an integrated or shipping holder scheduler.
+Authenticated newest-eligible selection across merged CRL/policy/anchor events,
+same-block ordering and revocation, spacing/skipped/withheld CRLs, slow issuers,
+starvation and quiet-chain lifecycle controls remain open. The X.5 holder/native
+builder integration and E.1/X.4 measured timing and network rollover controls are
+also still required. No wire type, graph status, consensus time rule or signed
+CRL authority is changed by this local budget component.

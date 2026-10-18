@@ -130,10 +130,14 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 if folded_sequence > sequence {
                     return Err(Error::WitnessLost("snapshot future fold"));
                 }
+                let ancestor;
                 let folded_step = if folded_sequence == sequence {
-                    current.clone()
+                    // The common fully folded case already owns this exact capsule and
+                    // proof material. Borrow it instead of cloning the complete step.
+                    &current
                 } else {
-                    self.indexed_step(&manifest, folded_sequence)?
+                    ancestor = self.indexed_step(&manifest, folded_sequence)?;
+                    &ancestor
                 };
                 let a = &folded_step.frozen.credential.body;
                 let b = &current.frozen.credential.body;
@@ -148,7 +152,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                     return Err(Error::WitnessLost("snapshot fold incarnation"));
                 }
                 let fold = self
-                    .read_fold(&folded_step)?
+                    .read_fold(folded_step)?
                     .ok_or(Error::WitnessLost("snapshot indexed fold"))?;
                 let public = &fold.record.lineage.public;
                 let folded_core = &folded_step.frozen.capsule.body().successor_state.core;

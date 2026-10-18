@@ -33,7 +33,7 @@ class AppleNativeReleaseProfileTests(unittest.TestCase):
         self.assertIn("privacy-production-enabled", self.bridge_manifest["features"])
         self.assertEqual(self.apple["inherits"], "release")
         self.assertEqual(self.apple["lto"], "thin")
-        self.assertEqual(self.apple["package"]["connect_norito_bridge"]["opt-level"], 1)
+        self.assertEqual(self.apple["package"]["connect_norito_bridge"]["opt-level"], 3)
         self.assertEqual(self.apple.get("panic", self.release.get("panic", "unwind")), "unwind")
         self.assertFalse(self.apple.get("incremental", self.release.get("incremental", False)))
         self.assertEqual(self.apple["strip"], "none")
