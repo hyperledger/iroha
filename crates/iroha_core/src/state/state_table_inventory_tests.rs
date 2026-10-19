@@ -7942,10 +7942,27 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
         BTreeSet::from([domain()])
     );
     typed_derived!(sccp_destination_pending_generations, 7_u64, ());
-    typed_derived!(rwas_by_frozen, true, BTreeSet::new());
+    typed_derived!(
+        rwas_by_frozen,
+        (
+            true,
+            iroha_data_model::rwa::RwaId::generated(domain(), Hash::new("typed-rwa"))
+        ),
+        ()
+    );
     typed_derived!(confidential_policy_transition_counts, 7_u64, 1_u32);
     typed_derived!(validation_fee_proposal_index, (7_u64, [2_u8; 32]), ());
-    typed_derived!(proofs_by_tag, [1_u8; 4], Vec::new());
+    typed_derived!(
+        proofs_by_tag,
+        (
+            [1_u8; 4],
+            iroha_data_model::proof::ProofId {
+                backend: "typed-proof".to_owned(),
+                proof_hash: [2_u8; 32]
+            }
+        ),
+        ()
+    );
 
     // Each typed field is inventoried in the class the typed mutation observed.
     let rows = rows();

@@ -15,18 +15,17 @@ use iroha_data_model::{
 };
 use iroha_model_base::domain::DomainId;
 use mv::storage::FrozenStorageImages;
-use std::collections::BTreeSet;
 struct Original<'frozen> {
     homes: FrozenStorageImages<'frozen, AssetDefinitionId, AssetDefinitionDirectHomeV1>,
     incarnations: FrozenStorageImages<'frozen, AssetDefinitionId, AxtAssetIncarnationV1>,
     rows: FrozenStorageImages<'frozen, AssetId, AssetValue>,
     definitions: FrozenStorageImages<'frozen, AssetDefinitionId, AssetDefinition>,
     domains: FrozenStorageImages<'frozen, DomainId, Domain>,
-    by_definition: FrozenStorageImages<'frozen, AssetDefinitionId, BTreeSet<AssetId>>,
-    by_account: FrozenStorageImages<'frozen, AccountId, BTreeSet<AssetId>>,
-    by_domain: FrozenStorageImages<'frozen, DomainId, BTreeSet<AssetId>>,
-    holders: FrozenStorageImages<'frozen, AssetDefinitionId, BTreeSet<AccountId>>,
-    nonzero: FrozenStorageImages<'frozen, AssetDefinitionId, BTreeSet<AccountId>>,
+    by_definition: FrozenStorageImages<'frozen, (AssetDefinitionId, AssetId), ()>,
+    by_domain: FrozenStorageImages<'frozen, (DomainId, AssetId), ()>,
+    holders: FrozenStorageImages<'frozen, (AssetDefinitionId, AccountId), ()>,
+    nonzero: FrozenStorageImages<'frozen, (AssetDefinitionId, AccountId), ()>,
+    asset_counts: FrozenStorageImages<'frozen, AssetDefinitionId, u64>,
     budget: &'frozen AllocationBudget,
 }
 impl<'frozen> Original<'frozen> {
@@ -41,23 +40,24 @@ impl<'frozen> Original<'frozen> {
         let definitions = fields.world.asset_definitions.frozen_images()?;
         let domains = fields.world.domains.frozen_images()?;
         let by_definition = fields.world.asset_definition_assets.frozen_images()?;
-        let by_account = fields.world.assets_by_account.frozen_images()?;
         let by_domain = fields.world.assets_by_domain.frozen_images()?;
         let holders = fields.world.asset_definition_holders.frozen_images()?;
         let nonzero = fields
             .world
             .asset_definition_nonzero_holders
             .frozen_images()?;
+        let asset_counts = fields.world.asset_definition_asset_counts.frozen_images()?;
         let rows_owned = rows.belongs_to(&fields.state_ref.world.assets);
         let definitions_owned = definitions.belongs_to(&fields.state_ref.world.asset_definitions);
         let domains_owned = domains.belongs_to(&fields.state_ref.world.domains);
         let by_definition_owned =
             by_definition.belongs_to(&fields.state_ref.world.asset_definition_assets);
-        let by_account_owned = by_account.belongs_to(&fields.state_ref.world.assets_by_account);
         let by_domain_owned = by_domain.belongs_to(&fields.state_ref.world.assets_by_domain);
         let holders_owned = holders.belongs_to(&fields.state_ref.world.asset_definition_holders);
         let nonzero_owned =
             nonzero.belongs_to(&fields.state_ref.world.asset_definition_nonzero_holders);
+        let asset_counts_owned =
+            asset_counts.belongs_to(&fields.state_ref.world.asset_definition_asset_counts);
         let original_homes = &fields.state_ref.world.asset_definition_direct_homes;
         let original_incarnations = &fields.state_ref.world.axt_asset_incarnations;
         let homes_owned = homes.belongs_to(original_homes);
@@ -70,17 +70,17 @@ impl<'frozen> Original<'frozen> {
             || !definitions_owned
             || !domains_owned
             || !by_definition_owned
-            || !by_account_owned
             || !by_domain_owned
             || !holders_owned
             || !nonzero_owned
+            || !asset_counts_owned
             || rows.mode() != definitions.mode()
             || rows.mode() != domains.mode()
             || rows.mode() != by_definition.mode()
-            || rows.mode() != by_account.mode()
             || rows.mode() != by_domain.mode()
             || rows.mode() != holders.mode()
             || rows.mode() != nonzero.mode()
+            || rows.mode() != asset_counts.mode()
         {
             return None;
         }
@@ -91,10 +91,10 @@ impl<'frozen> Original<'frozen> {
             definitions,
             domains,
             by_definition,
-            by_account,
             by_domain,
             holders,
             nonzero,
+            asset_counts,
             budget: &fields.state_ref.ivm_execution_budget,
         })
     }
@@ -114,10 +114,10 @@ pub(in crate::state) fn capture(
         &original.definitions,
         &original.domains,
         &original.by_definition,
-        &original.by_account,
         &original.by_domain,
         &original.holders,
         &original.nonzero,
+        &original.asset_counts,
         &original.homes,
         &original.incarnations,
         max_work,

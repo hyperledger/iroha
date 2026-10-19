@@ -114,6 +114,9 @@ impl RpcMock {
                     }
                     Err(e) => panic!("local RPC listener: {e}"),
                 };
+                // BSD/macOS accepted sockets inherit the listener's non-blocking flag;
+                // the request reads below rely on blocking reads bounded by timeouts.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(2)))
                     .unwrap();
@@ -343,15 +346,14 @@ impl Fixture {
         let mut native = NativeFinalityFixture::new();
         let block = native.block_with_submitted_work(native.next_header());
         let certificate = native.certify_with_world_root(block, snapshot.root().unwrap());
-        let tip = native
-            .verifier()
-            .verify_retained_decision(&certificate)
-            .unwrap();
+        let verifier = native.verifier();
+        let tip = verifier.verify_retained_decision(&certificate).unwrap();
         let origin = AuthenticatedOrigin {
             network: *native.network_id().as_bytes(),
-            instance: native.verifier().instance().0,
+            instance: verifier.instance().0,
             world: snapshot.authenticate(&tip).unwrap(),
             element_count: snapshot.entries.len(),
+            verifier,
         };
         let proof = json!({"address": (format_data(&CONTRACT)), "balance":"0x0", "nonce":"0x1", "codeHash": (format_data(&CODE_HASH)), "storageHash": (format_data(&storage_root)), "accountProof": (hex_nodes(&mpt_proof(&accounts, &account_key).unwrap().nodes)), "storageProof": [{"key": (format_data(&slot)), "value": (U256::from_be_bytes(word).to_quantity()), "proof": (hex_nodes(&mpt_proof(&storage, &storage_key).unwrap().nodes))}]});
         Self {

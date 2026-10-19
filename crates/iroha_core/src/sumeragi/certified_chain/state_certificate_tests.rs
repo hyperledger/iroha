@@ -809,6 +809,7 @@ fn state_certificate_signed_availability_scratch_uses_original_query_allowance()
                     &authority.crypto,
                     Some((table.clone(), bytes.clone())),
                     &mut crate::sumeragi::certified_chain::state_certificate::query_scratch_admission,
+                    None,
                 )
             },
         )

@@ -140,7 +140,7 @@ pub(super) fn plan(
     index: &PublicLaneStakeIndex,
     max_slash_bps: u16,
     header: &BlockHeader,
-    actions: &mut Vec<NposPenaltyAction>,
+    actions: &mut funded_actions::ActionBuilder,
 ) -> Result<()> {
     let material = material(&original.key, &original.record)?;
     let liability = ConsensusSlashLiability::Root(liability_height(material));
@@ -174,42 +174,36 @@ pub(super) fn plan(
                 "SCCP exposure increased during ordered penalty planning"
             ));
         }
-        let amount = max_slash_amount(&exposure, max_slash_bps)?;
-        if amount.is_zero() {
+        let amount = funded_actions::slash_amount(&exposure, max_slash_bps, actions.budget())?;
+        if amount.get().is_zero() {
             continue;
         }
-        // The existing consensus action/Quantity construction is shared with native
-        // penalties; its general scratch admission remains the module-level TODO.
-        let action = NposConsensusSlashAction {
-            evidence_key: original.key,
-            signer: offender.signer,
-            peer_id: attributed.peer_id.clone(),
-            lane_id: offender.lane_id,
-            validator: offender.validator.clone(),
-            slash_id: original.key,
-            amount,
-        };
         let mut transaction = scratch.consensus_effects_transaction()?;
         apply_indexed_slash_to_validator_without_observability(
             &mut transaction,
-            action.lane_id,
-            &action.validator,
-            action.slash_id,
-            &action.amount,
+            offender.lane_id,
+            &offender.validator,
+            original.key,
+            amount.get(),
             header.creation_time_ms,
             &liability,
             share_keys,
         )
         .wrap_err("failed to plan original SCCP custody slash")?;
         transaction.apply_consensus_effects();
-        actions.push(NposPenaltyAction::ConsensusSlash(action));
+        actions.slash(
+            funded_actions::SlashFields {
+                evidence_key: original.key,
+                signer: offender.signer,
+                peer_id: &attributed.peer_id,
+                lane_id: offender.lane_id,
+                validator: &offender.validator,
+                slash_id: original.key,
+            },
+            amount,
+        )?;
     }
     // Only after every captured registration and movement was successfully planned.
-    actions.push(NposPenaltyAction::MarkConsensusEvidenceApplied(
-        NposMarkConsensusEvidenceAppliedAction {
-            evidence_key: original.key,
-            height: header.height().get(),
-        },
-    ));
+    actions.marker(original.key, header.height().get())?;
     Ok(())
 }

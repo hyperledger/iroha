@@ -5963,8 +5963,8 @@ const ACCOUNTS_GAUGE_MAX_DOMAINS: usize = 256;
 fn domain_account_count(world: &impl WorldReadOnly, domain: &DomainId) -> usize {
     world
         .account_scope_domain_key(domain)
-        .and_then(|key| world.account_scope_accounts().get(&key))
-        .map_or(0, BTreeSet::len)
+        .and_then(|key| world.account_scope_account_counts().get(&key))
+        .map_or(0, |count| usize::try_from(*count).unwrap_or(usize::MAX))
 }
 fn refresh_ivm_cache_metrics(metrics: &Metrics) {
     let stats = ivm::ivm_cache::global_stats();
@@ -9323,9 +9323,9 @@ mod tests {
         };
         let wonderland = DomainId::try_new("wonderland", "universal").expect("domain id");
         let garden = DomainId::try_new("garden", "universal").expect("domain id");
-        let (labelled, _) = gen_account_in("wonderland");
-        let (unlabelled, _) = gen_account_in("wonderland");
-        let label = AccountAlias::new(
+        let (aliased, _) = gen_account_in("wonderland");
+        let (unaliased, _) = gen_account_in("wonderland");
+        let alias = AccountAlias::new(
             "alice".parse().expect("label"),
             Some(AccountAliasDomain::new(
                 "wonderland".parse().expect("domain name"),
@@ -9334,17 +9334,26 @@ mod tests {
         );
         let world = World::with(
             [
-                Domain::new(wonderland.clone()).build(&labelled),
-                Domain::new(garden.clone()).build(&labelled),
+                Domain::new(wonderland.clone()).build(&aliased),
+                Domain::new(garden.clone()).build(&aliased),
             ],
             [
-                Account::new(labelled.clone())
-                    .with_label(Some(label))
-                    .build(&labelled),
-                Account::new(unlabelled.clone()).build(&unlabelled),
+                Account::new(aliased.clone()).build(&aliased),
+                Account::new(unaliased.clone()).build(&unaliased),
             ],
             [],
         );
+        {
+            // Binding a domain alias indexes the account under that domain.
+            let mut block = world.block();
+            let mut tx = block.transaction_without_telemetry(
+                iroha_config::parameters::actual::LaneConfig::default(),
+                0,
+            );
+            tx.insert_account_alias_binding(alias, aliased.clone());
+            tx.apply();
+            block.commit();
+        }
         let view = world.view();
         for domain in [&wonderland, &garden] {
             assert_eq!(

@@ -440,9 +440,14 @@ fn credential_refresh_binds_issue_and_lease_instead_of_counter_and_certificate()
     let source = originals(Variant::RefreshCredential);
     let expected = original_public(&source);
     assert!(
-        check_circuit(&source, 16, &[expected.clone()], CheckMode::Strict)
-            .unwrap()
-            .is_satisfied()
+        check_circuit(
+            &source,
+            16,
+            std::slice::from_ref(&expected),
+            CheckMode::Strict
+        )
+        .unwrap()
+        .is_satisfied()
     );
     let raw = &source.sources[1];
     let end = ObjectKind::Credential.body_len();

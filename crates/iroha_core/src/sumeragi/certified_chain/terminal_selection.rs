@@ -222,7 +222,7 @@ impl<V: StateReadOnly + ?Sized> CertifiedChain<'_, V> {
                 return Err(ChainReadError::ForeignGenesis.into());
             }
             let certificate =
-                context.prepare_certificate(committed, &prefix.authority, None, None)?;
+                context.prepare_certificate(committed, &prefix.authority, None, None, None)?;
             pending.target.acquisition.original_source()?;
             pending.delivered = true;
             return Ok(certificate.into_certified(pending.target.take()));

@@ -16,11 +16,10 @@ use crate::state::{
 use iroha_allocation::AllocationBudget;
 use iroha_data_model::proof::{ProofId, ProofRecord, ProofStatus};
 use mv::storage::FrozenStorageImages;
-use std::collections::BTreeSet;
 
 struct Original<'frozen> {
     rows: FrozenStorageImages<'frozen, ProofId, ProofRecord>,
-    index: FrozenStorageImages<'frozen, ProofStatus, BTreeSet<ProofId>>,
+    index: FrozenStorageImages<'frozen, (ProofStatus, ProofId), ()>,
     budget: &'frozen AllocationBudget,
 }
 

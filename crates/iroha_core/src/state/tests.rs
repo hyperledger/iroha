@@ -1746,9 +1746,9 @@ state_test! { sync explorer_count_indexes_rebuild_from_canonical_snapshot_rows
     let restored = deserialize_state_snapshot_value(norito::json::to_value(&state)
         .expect("serialize indexed state")).expect("restore and rebuild derived indexes");
     let world = restored.world_view();
-    assert_eq!(world.assets_by_account().get(&ALICE_ID), Some(&BTreeSet::from([asset_id.clone()])));
-    assert_eq!(world.assets_by_domain().get(&domain), Some(&BTreeSet::from([asset_id])));
-    assert_eq!(world.nfts_by_domain().get(&domain), Some(&BTreeSet::from([nft_id])));
+    assert_eq!(Some(&world.assets_in_account_iter(&ALICE_ID).map(|entry| entry.id).cloned().collect::<BTreeSet<_>>()), Some(&BTreeSet::from([asset_id.clone()])));
+    assert_eq!(Some(&index_members(world.assets_by_domain(), &domain).cloned().collect::<BTreeSet<_>>()), Some(&BTreeSet::from([asset_id])));
+    assert_eq!(Some(&index_members(world.nfts_by_domain(), &domain).cloned().collect::<BTreeSet<_>>()), Some(&BTreeSet::from([nft_id])));
     assert_eq!(world.asset_definition_domains().get(&definition_id), Some(&domain));
 }
 state_test! { sync merge_write_set_distinguishes_equal_values_written_to_different_keys
@@ -2968,10 +2968,7 @@ state_test! { sync explicit_asset_ownership_survives_alias_changes_and_snapshot_
         Some(&domain_id)
     );
     assert!(
-        world
-            .assets_by_domain()
-            .get(&domain_id)
-            .is_some_and(|assets| assets.contains(&asset_id)),
+        index_members(world.assets_by_domain(), &domain_id).any(|member| member == &asset_id),
         "restart rebuild must use the definition's persisted ownership context"
     );
     drop(world);
@@ -3068,26 +3065,26 @@ fn unregister_domain_after_snapshot_restore_removes_owned_asset_state_atomically
         );
         assert!(transaction.world.assets.get(&asset_id).is_none());
         assert!(
-            transaction
-                .world
-                .domain_asset_definitions
-                .get(&domain_id)
+            index_members(&transaction.world.domain_asset_definitions, &domain_id)
+                .next()
+                .is_none()
+        );
+        assert!(
+            index_members(&transaction.world.asset_definition_assets, &definition_id)
+                .next()
+                .is_none()
+        );
+        assert!(
+            index_members(&transaction.world.assets_by_domain, &domain_id)
+                .next()
                 .is_none()
         );
         assert!(
             transaction
                 .world
-                .asset_definition_assets
-                .get(&definition_id)
-                .is_none()
-        );
-        assert!(transaction.world.assets_by_domain.get(&domain_id).is_none());
-        assert!(
-            transaction
-                .world
-                .assets_by_account
-                .get(asset_id.account())
-                .is_none_or(|assets| !assets.contains(&asset_id))
+                .assets_in_account_iter(asset_id.account())
+                .map(|entry| entry.id)
+                .all(|member| member != &asset_id)
         );
         assert!(
             transaction
@@ -3113,11 +3110,7 @@ fn unregister_domain_after_snapshot_restore_removes_owned_asset_state_atomically
         Some(&domain_id)
     );
     assert!(
-        block
-            .world
-            .assets_by_domain
-            .get(&domain_id)
-            .is_some_and(|assets| assets.contains(&asset_id))
+        index_members(&block.world.assets_by_domain, &domain_id).any(|member| member == &asset_id)
     );
     assert!(
         block
@@ -3148,13 +3141,15 @@ fn unregister_domain_after_snapshot_restore_removes_owned_asset_state_atomically
             .is_none()
     );
     assert!(
-        block
-            .world
-            .domain_asset_definitions
-            .get(&domain_id)
+        index_members(&block.world.domain_asset_definitions, &domain_id)
+            .next()
             .is_none()
     );
-    assert!(block.world.assets_by_domain.get(&domain_id).is_none());
+    assert!(
+        index_members(&block.world.assets_by_domain, &domain_id)
+            .next()
+            .is_none()
+    );
     assert!(
         block
             .world
@@ -3178,8 +3173,16 @@ fn unregister_domain_after_snapshot_restore_removes_owned_asset_state_atomically
             .get(&definition_id)
             .is_none()
     );
-    assert!(world.domain_asset_definitions().get(&domain_id).is_none());
-    assert!(world.assets_by_domain().get(&domain_id).is_none());
+    assert!(
+        index_members(world.domain_asset_definitions(), &domain_id)
+            .next()
+            .is_none()
+    );
+    assert!(
+        index_members(world.assets_by_domain(), &domain_id)
+            .next()
+            .is_none()
+    );
     assert!(
         world
             .account_permissions()
@@ -3219,9 +3222,7 @@ state_test! { sync asset_domain_index_rebuild_uses_only_definition_ownership
     assert_eq!(definition_domains.get(&definition_id), Some(&domain_id));
     let domain_definitions = world.domain_asset_definitions.view();
     assert!(
-        domain_definitions
-            .get(&domain_id)
-            .is_some_and(|definitions| definitions.contains(&definition_id))
+        index_members(&domain_definitions, &domain_id).any(|id| id == &definition_id)
     );
 }
 fn snapshot_state_with_orchard_pool() -> (State, AccountId, AssetDefinitionId) {
@@ -5236,6 +5237,8 @@ state_test! { sync account_scope_directory_tracks_alias_bind_and_unbind
         .expect("register account");
     let_row! { retail_alias = iroha_data_model::account::rekey::AccountAlias::new( "retaildesk".parse().expect("label"), Some(iroha_data_model::account::rekey::AccountAliasDomain::new( "treasury".parse::<Name>().expect("domain name"), )), retail_dataspace, ) };
     let retail_domain = DomainId::try_new("treasury", "retail").expect("retail domain id");
+    let scope_key = stx.world.account_scope_domain_key(&retail_domain).expect("scope key");
+    assert!(stx.world.account_scope_account_counts.get(&scope_key).is_none());
     let_row! { initial_scopes = stx .world .account_scope_entry(&account_id) .expect("materialized account should have an account scope entry") .iter() .map(|(dataspace_id, domains)| (*dataspace_id, domains.clone())) .collect::<BTreeMap<_, _>>() };
     assert_eq!(
         initial_scopes,
@@ -5250,6 +5253,9 @@ state_test! { sync account_scope_directory_tracks_alias_bind_and_unbind
     );
     stx.world
         .insert_account_alias_binding(retail_alias.clone(), account_id.clone());
+    stx.world.insert_account_alias_binding(retail_alias.clone(), account_id.clone());
+    assert_eq!(stx.world.account_scope_account_counts.get(&scope_key), Some(&1),
+        "replacing the same alias must not count the account twice");
     let_row! { bound_scopes = stx .world .account_scope_entry(&account_id) .expect("bound account scope entry") .iter() .map(|(dataspace_id, domains)| (*dataspace_id, domains.clone())) .collect::<BTreeMap<_, _>>() };
     assert_eq!(
         bound_scopes,
@@ -5270,6 +5276,8 @@ state_test! { sync account_scope_directory_tracks_alias_bind_and_unbind
         "alias binds should update the reverse account-scope index",
     );
     stx.world.remove_account_alias_binding(&retail_alias);
+    assert!(stx.world.account_scope_account_counts.get(&scope_key).is_none(),
+        "removing the last account membership removes the scope count");
     let_row! { unbound_scopes = stx .world .account_scope_entry(&account_id) .expect("account scope entry should remain after unbind") .iter() .map(|(dataspace_id, domains)| (*dataspace_id, domains.clone())) .collect::<BTreeMap<_, _>>() };
     assert_eq!(
         unbound_scopes,
@@ -5343,7 +5351,7 @@ state_test! { sync nft_entries_by_ids_iter_resolves_selected_entries
     world.rebuild_nft_owner_index();
     let view = world.view();
     assert_eq!(
-        view.nfts_by_domain().get(&domain),
+        Some(&index_members(view.nfts_by_domain(), &domain).cloned().collect::<BTreeSet<_>>()),
         Some(&BTreeSet::from([alpha_id.clone(), beta_id.clone()])),
         "NFT rebuild should populate the exact domain projection"
     );
@@ -5413,30 +5421,26 @@ state_test! { sync explorer_count_indexes_exclude_many_unrelated_rows
     world.rebuild_nft_owner_index();
     let view = world.view();
     assert_eq!(
-        view.assets_by_account().get(&ALICE_ID),
+        Some(&view.assets_in_account_iter(&ALICE_ID).map(|entry| entry.id).cloned().collect::<BTreeSet<_>>()),
         Some(&BTreeSet::from([target_asset.clone()])),
         "account projection must not include unrelated accounts"
     );
     assert_eq!(
-        view.assets_by_domain().get(&target_domain),
+        Some(&index_members(view.assets_by_domain(), &target_domain).cloned().collect::<BTreeSet<_>>()),
         Some(&BTreeSet::from([target_asset])),
         "asset-domain projection must not include unrelated domains"
     );
     assert_eq!(
-        view.nfts_by_domain().get(&target_domain),
+        Some(&index_members(view.nfts_by_domain(), &target_domain).cloned().collect::<BTreeSet<_>>()),
         Some(&BTreeSet::from([target_nft])),
         "NFT-domain projection must not include unrelated domains"
     );
     assert_eq!(
-        view.assets_by_domain()
-            .get(&unrelated_domain)
-            .map(BTreeSet::len),
+        Some(index_members(view.assets_by_domain(), &unrelated_domain).count()),
         Some(200)
     );
     assert_eq!(
-        view.nfts_by_domain()
-            .get(&unrelated_domain)
-            .map(BTreeSet::len),
+        Some(index_members(view.nfts_by_domain(), &unrelated_domain).count()),
         Some(200)
     );
 }
@@ -5462,10 +5466,11 @@ state_test! { sync explorer_count_indexes_rollback_apply_and_commit_with_primary
         // Drop without applying: the primary rows and every derived bucket must roll back.
     }
     assert!(block.world.assets.get(&asset_id).is_none());
-    assert!(block.world.assets_by_account.get(&ALICE_ID).is_none());
-    assert!(block.world.assets_by_domain.get(&domain).is_none());
+    assert!(block.world.asset_definition_asset_counts.get(asset_id.definition()).is_none());
+    assert!(block.world.assets_in_account_iter(&ALICE_ID).map(|entry| entry.id).next().is_none());
+    assert!(index_members(&block.world.assets_by_domain, &domain).next().is_none());
     assert!(block.world.nfts.get(&nft_id).is_none());
-    assert!(block.world.nfts_by_domain.get(&domain).is_none());
+    assert!(index_members(&block.world.nfts_by_domain, &domain).next().is_none());
     {
         let mut transaction = block.transaction();
         let (_, value) = Asset::new(asset_id.clone(), 1_u32).into_key_value();
@@ -5475,17 +5480,18 @@ state_test! { sync explorer_count_indexes_rollback_apply_and_commit_with_primary
         transaction.world.insert_nft_entry(nft_id.clone(), value);
         transaction.apply();
     }
-    assert!(block.world.assets_by_account.get(&ALICE_ID).is_some());
-    assert!(block.world.assets_by_domain.get(&domain).is_some());
-    assert!(block.world.nfts_by_domain.get(&domain).is_some());
+    assert_eq!(block.world.asset_definition_asset_counts.get(asset_id.definition()), Some(&1));
+    assert!(block.world.assets_in_account_iter(&ALICE_ID).map(|entry| entry.id).next().is_some());
+    assert!(index_members(&block.world.assets_by_domain, &domain).next().is_some());
+    assert!(index_members(&block.world.nfts_by_domain, &domain).next().is_some());
     block.commit_empty_block_for_testing().expect("commit explorer index fixture");
     let view = world.view();
     assert_eq!(
-        view.assets_by_account().get(&ALICE_ID),
+        Some(&view.assets_in_account_iter(&ALICE_ID).map(|entry| entry.id).cloned().collect::<BTreeSet<_>>()),
         Some(&BTreeSet::from([asset_id]))
     );
     assert_eq!(
-        view.nfts_by_domain().get(&domain),
+        Some(&index_members(view.nfts_by_domain(), &domain).cloned().collect::<BTreeSet<_>>()),
         Some(&BTreeSet::from([nft_id]))
     );
 }
@@ -19697,7 +19703,7 @@ state_test! { sync asset_definition_domain_index_tracks_exact_membership
         stx.world
             .domain_asset_definitions
             .iter()
-            .all(|(_, definitions)| !definitions.contains(&unowned_id)),
+            .all(|((_, definition), ())| definition != &unowned_id),
         "unowned asset definitions must not create internal domain index entries"
     );
     let_row! { alice_definitions = stx .world .asset_definitions_owned_by_iter(&ALICE_ID) .map(|definition| definition.id().clone()) .collect::<BTreeSet<_>>() };
@@ -19722,14 +19728,11 @@ state_test! { sync asset_definition_domain_index_tracks_exact_membership
         "empty domains should not leak definitions from other domains"
     );
     assert!(
-        stx.world.domain_asset_definitions.get(&denoland).is_none(),
+        index_members(&stx.world.domain_asset_definitions, &denoland).next().is_none(),
         "empty domain index entries should be removed"
     );
     assert!(
-        !stx.world
-            .asset_definitions_by_owner
-            .get(&ALICE_ID)
-            .is_some_and(|definitions| definitions.contains(&cactus_id)),
+        !index_members(&stx.world.asset_definitions_by_owner, &ALICE_ID).any(|member| member == &cactus_id),
         "unregister should remove the definition from the owner index"
     );
 }
@@ -19752,70 +19755,52 @@ state_test! { sync asset_definition_holder_index_tracks_asset_lifecycle
         &Quantity::from(1_u32),
     )
     .expect("insert asset through helper");
+    stx.world.track_asset_holder(&asset_id);
+    stx.world.track_asset_holder(&asset_id);
+    assert_eq!(stx.world.asset_definition_asset_counts.get(&asset_def_id), Some(&1),
+        "duplicate holder tracking must not inflate concrete partition counts");
     assert!(
-        stx.world
-            .asset_definition_holders
-            .get(&asset_def_id)
-            .is_some_and(|holders| holders.contains(&alice_id)),
+        index_members(&stx.world.asset_definition_holders, &asset_def_id).any(|member| member == &alice_id),
         "holder index should include account after insert"
     );
     assert!(
-        stx.world
-            .asset_definition_assets
-            .get(&asset_def_id)
-            .is_some_and(|asset_ids| asset_ids.contains(&asset_id)),
+        index_members(&stx.world.asset_definition_assets, &asset_def_id).any(|member| member == &asset_id),
         "definition index should include concrete asset id after insert"
     );
     assert!(
-        stx.world
-            .assets_by_account
-            .get(&alice_id)
-            .is_some_and(|asset_ids| asset_ids == &BTreeSet::from([asset_id.clone()])),
+        stx.world.assets_in_account_iter(&alice_id).map(|entry| entry.id).cloned().collect::<BTreeSet<_>>() == BTreeSet::from([asset_id.clone()]),
         "account projection should contain exactly the inserted asset id"
     );
     assert!(
-        stx.world
-            .assets_by_domain
-            .get(&domain_id)
-            .is_some_and(|asset_ids| asset_ids == &BTreeSet::from([asset_id.clone()])),
+        index_members(&stx.world.assets_by_domain, &domain_id).cloned().collect::<BTreeSet<_>>() == BTreeSet::from([asset_id.clone()]),
         "domain projection should contain exactly the inserted asset id"
     );
     assert!(
-        stx.world
-            .asset_definition_nonzero_holders
-            .get(&asset_def_id)
-            .is_some_and(|holders| holders.contains(&alice_id)),
+        index_members(&stx.world.asset_definition_nonzero_holders, &asset_def_id).any(|member| member == &alice_id),
         "non-zero holder index should include account after non-zero insert"
     );
     let removed = stx.world.remove_asset_and_metadata(&asset_id);
     assert!(removed.is_some(), "asset removed");
+    assert!(stx.world.asset_definition_asset_counts.get(&asset_def_id).is_none(),
+        "removing the last partition removes the count row");
     assert!(
-        stx.world
-            .asset_definition_holders
-            .get(&asset_def_id)
-            .is_none(),
+        index_members(&stx.world.asset_definition_holders, &asset_def_id).next().is_none(),
         "holder index should remove empty holder set"
     );
     assert!(
-        stx.world
-            .asset_definition_assets
-            .get(&asset_def_id)
-            .is_none(),
+        index_members(&stx.world.asset_definition_assets, &asset_def_id).next().is_none(),
         "definition index should remove empty asset-id set"
     );
     assert!(
-        stx.world.assets_by_account.get(&alice_id).is_none(),
+        stx.world.assets_in_account_iter(&alice_id).map(|entry| entry.id).next().is_none(),
         "account projection should remove an empty asset-id set"
     );
     assert!(
-        stx.world.assets_by_domain.get(&domain_id).is_none(),
+        index_members(&stx.world.assets_by_domain, &domain_id).next().is_none(),
         "domain projection should remove an empty asset-id set"
     );
     assert!(
-        stx.world
-            .asset_definition_nonzero_holders
-            .get(&asset_def_id)
-            .is_none(),
+        index_members(&stx.world.asset_definition_nonzero_holders, &asset_def_id).next().is_none(),
         "non-zero holder index should remove empty holder set"
     );
 }
@@ -19844,52 +19829,35 @@ state_test! { sync asset_definition_holder_index_waits_for_last_partition_remova
         .insert(scoped_asset_id.clone(), scoped_asset_value);
     stx.world.track_asset_holder(&scoped_asset_id);
     stx.world.track_nonzero_asset_holder(&scoped_asset_id);
+    assert_eq!(stx.world.asset_definition_asset_counts.get(&asset_def_id), Some(&2));
     let removed_global = stx.world.remove_asset_and_metadata(&global_asset_id);
     assert!(removed_global.is_some(), "global partition removed");
+    assert_eq!(stx.world.asset_definition_asset_counts.get(&asset_def_id), Some(&1));
     assert!(
-        stx.world
-            .asset_definition_holders
-            .get(&asset_def_id)
-            .is_some_and(|holders| holders.contains(&ALICE_ID)),
+        index_members(&stx.world.asset_definition_holders, &asset_def_id).any(|member| member == &*ALICE_ID),
         "holder should remain while another partition exists"
     );
     assert!(
-        stx.world
-            .asset_definition_assets
-            .get(&asset_def_id)
-            .is_some_and(|asset_ids| {
-                !asset_ids.contains(&global_asset_id) && asset_ids.contains(&scoped_asset_id)
-            }),
+        index_members(&stx.world.asset_definition_assets, &asset_def_id).cloned().collect::<BTreeSet<_>>() == BTreeSet::from([scoped_asset_id.clone()]),
         "definition index should keep only the surviving partition"
     );
     assert!(
-        stx.world
-            .asset_definition_nonzero_holders
-            .get(&asset_def_id)
-            .is_some_and(|holders| holders.contains(&ALICE_ID)),
+        index_members(&stx.world.asset_definition_nonzero_holders, &asset_def_id).any(|member| member == &*ALICE_ID),
         "non-zero holder should remain while another non-zero partition exists"
     );
     let removed_scoped = stx.world.remove_asset_and_metadata(&scoped_asset_id);
     assert!(removed_scoped.is_some(), "scoped partition removed");
+    assert!(stx.world.asset_definition_asset_counts.get(&asset_def_id).is_none());
     assert!(
-        stx.world
-            .asset_definition_holders
-            .get(&asset_def_id)
-            .is_none(),
+        index_members(&stx.world.asset_definition_holders, &asset_def_id).next().is_none(),
         "holder entry should be removed after last partition disappears"
     );
     assert!(
-        stx.world
-            .asset_definition_assets
-            .get(&asset_def_id)
-            .is_none(),
+        index_members(&stx.world.asset_definition_assets, &asset_def_id).next().is_none(),
         "definition index should be removed after last partition disappears"
     );
     assert!(
-        stx.world
-            .asset_definition_nonzero_holders
-            .get(&asset_def_id)
-            .is_none(),
+        index_members(&stx.world.asset_definition_nonzero_holders, &asset_def_id).next().is_none(),
         "non-zero holder entry should be removed after last non-zero partition disappears"
     );
 }
@@ -30957,24 +30925,33 @@ fn sccp_derived_indexes_bind_inserted_keys_and_deletions_in_merge_write_sets() {
     }
 }
 #[test]
-fn set_index_members_write_only_when_membership_changes() {
-    let storage: Storage<u32, BTreeSet<u32>> = [(1, BTreeSet::from([10]))].into_iter().collect();
+fn pair_index_members_write_only_when_membership_changes() {
+    let storage: Storage<(u32, u32), ()> = [((1, 10), ())].into_iter().collect();
     let mut block = storage.block();
     let mut transaction = block.transaction();
-    insert_set_index_member(&mut transaction, &1, &10);
-    remove_set_index_member(&mut transaction, &1, &11);
-    remove_set_index_member(&mut transaction, &2, &10);
+    assert!(!insert_index_member(&mut transaction, &1, &10));
+    assert!(!remove_index_member(&mut transaction, &1, &11));
+    assert!(!remove_index_member(&mut transaction, &2, &10));
     assert_eq!(
         transaction.touched_entries().len(),
         0,
-        "unchanged membership must not copy or touch the indexed set"
+        "unchanged membership must not copy or touch any index row"
     );
-    insert_set_index_member(&mut transaction, &1, &11);
-    insert_set_index_member(&mut transaction, &2, &20);
-    assert_eq!(transaction.get(&1), Some(&BTreeSet::from([10, 11])));
-    assert_eq!(transaction.get(&2), Some(&BTreeSet::from([20])));
-    remove_set_index_member(&mut transaction, &2, &20);
-    assert_eq!(transaction.get(&2), None, "an emptied set leaves the index");
+    assert!(insert_index_member(&mut transaction, &1, &11));
+    assert!(insert_index_member(&mut transaction, &2, &20));
+    assert_eq!(
+        index_members(&transaction, &1).copied().collect::<Vec<_>>(),
+        [10, 11]
+    );
+    assert_eq!(
+        index_members(&transaction, &2).copied().collect::<Vec<_>>(),
+        [20]
+    );
+    assert!(remove_index_member(&mut transaction, &2, &20));
+    assert!(
+        !index_contains(&transaction, &2, &20),
+        "removed membership leaves the index"
+    );
     assert_eq!(transaction.touched_entries().len(), 2);
     transaction.apply();
 }

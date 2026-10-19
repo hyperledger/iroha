@@ -57,37 +57,42 @@ impl StoredBodyRead {
             stage: Stage::Decoded(decoded),
         }
     }
+}
 
-    fn check(&self, decoded: &DecodedCertificate) -> Result<(), BodyReadError> {
-        let header = &decoded.header;
-        let qc = &decoded.commit_qc;
-        let certificate = decoded
-            .source
-            .commit_certificate()
-            .expect("decoded original certificate");
-        let result = result_of_preimage(certificate.result_preimage());
-        if decoded.source.header().height().get() != self.source.height()
-            || !decoded.source.has_results()
-            || header.instance != self.source.instance()
-            || header.height != self.source.height()
-            || header.epoch != self.source.config().epoch.id
-            || header.hash(&*self.crypto) != self.source.block_hash()
-            || qc.kind != VoteKind::Commit
-            || qc.instance != header.instance
-            || qc.epoch != header.epoch
-            || qc.height != header.height
-            || qc.block_hash != self.source.block_hash()
-            || Some(qc.result) != result
-        {
-            return Err(BodyReadError::Io(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "stored certificate does not bind the independently requested body and result",
-            )));
-        }
-        super::execution::validate(&decoded.source, self.root_scope)
-            .map_err(BodyReadError::from_attempt)?;
-        Ok(())
+/// Check the stored execution and certificate relations shared by body and metadata readers.
+pub(super) fn validate_decoded(
+    source: &AvailabilitySource,
+    decoded: &DecodedCertificate,
+    crypto: &dyn iroha_sumeragi::crypto::Crypto,
+    root_scope: iroha_data_model::block::consensus::SumeragiRootScope,
+) -> Result<(), BodyReadError> {
+    let header = &decoded.header;
+    let qc = &decoded.commit_qc;
+    let certificate = decoded
+        .source
+        .commit_certificate()
+        .expect("decoded original certificate");
+    let result = result_of_preimage(certificate.result_preimage());
+    if decoded.source.header().height().get() != source.height()
+        || !decoded.source.has_results()
+        || header.instance != source.instance()
+        || header.height != source.height()
+        || header.epoch != source.config().epoch.id
+        || header.hash(crypto) != source.block_hash()
+        || qc.kind != VoteKind::Commit
+        || qc.instance != header.instance
+        || qc.epoch != header.epoch
+        || qc.height != header.height
+        || qc.block_hash != source.block_hash()
+        || Some(qc.result) != result
+    {
+        return Err(BodyReadError::Io(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "stored certificate does not bind the independently requested body and result",
+        )));
     }
+    super::execution::validate(&decoded.source, root_scope).map_err(BodyReadError::from_attempt)?;
+    Ok(())
 }
 
 impl StoredBodyRead {
@@ -101,7 +106,9 @@ impl StoredBodyRead {
         loop {
             match std::mem::replace(&mut self.stage, Stage::Consumed) {
                 Stage::Decoded(decoded) => {
-                    if let Err(error) = self.check(&decoded) {
+                    if let Err(error) =
+                        validate_decoded(&self.source, &decoded, &*self.crypto, self.root_scope)
+                    {
                         self.stage = Stage::Decoded(decoded);
                         return Err(error);
                     }

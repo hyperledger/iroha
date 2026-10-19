@@ -51,6 +51,7 @@ fn plain_ballot_rejected_when_disabled() {
         1_000_000_u64.into(),
         0,
     );
+    let plain_context = iroha_core::query::standalone_plain_test_fixture::context(&stx.gov, 0);
     stx.world.governance_referenda_mut().insert(
         "rid-disabled".into(),
         iroha_core::state::GovernanceReferendumRecord {
@@ -58,7 +59,7 @@ fn plain_ballot_rejected_when_disabled() {
             h_end: 11,
             status: iroha_core::state::GovernanceReferendumStatus::Open,
             mode: iroha_core::state::GovernanceReferendumMode::Plain,
-            plain_context: iroha_core::query::standalone_plain_test_fixture::context(&stx.gov, 0),
+            plain_context,
             plain_result: iroha_data_model::governance::conviction::PlainVotingResultV1::Pending,
         },
     );

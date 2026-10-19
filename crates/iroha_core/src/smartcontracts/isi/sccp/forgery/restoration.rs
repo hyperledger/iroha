@@ -91,6 +91,9 @@ impl From<crate::execution_attempt::ExecutionAttemptError<std::io::Error>> for E
 fn verification_error(error: ForgeryVerificationError) -> Error {
     match error {
         ForgeryVerificationError::Allocation(error) => Preparation::Admission(error).into(),
+        ForgeryVerificationError::PhysicalAllocation(original) => Error::Source(
+            crate::execution_attempt::ExecutionAttemptError::Deferred(original.into()),
+        ),
         _ => invalid("restored SCCP evidence fails its original recorded relation"),
     }
 }

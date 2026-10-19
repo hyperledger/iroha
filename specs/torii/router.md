@@ -112,6 +112,15 @@ request-specific response limit so receiver-side bounds validation cannot
 discard the fallback. Body-read errors use fixed local diagnostic text and
 never reflect or format an upstream body's error value.
 
+Signed-query fanout admits singular queries only. It retains the first successful
+output and compares each later output sequentially; conflicting results fail.
+Iterable signed queries execute on their selected authoritative route. Core has no
+canonical top-K fanout accumulator or alternate canonical-output query mode.
+The signed-fanout working set charges request decoding, retained and current
+singular outputs, bounded canonical frames, response encoding, and transport
+copies. Application collection reads retain separate row and merge accounting
+within the same phase ceilings.
+
 Application read fanout visits dataspace routes in sequence under its bounded
 working set and merges the routes that answer successfully. Candidate-peer
 hedging within a routed proxy request is separate from this dataspace traversal.

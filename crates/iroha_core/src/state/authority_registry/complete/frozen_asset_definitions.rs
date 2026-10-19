@@ -17,7 +17,6 @@ use iroha_data_model::{
 };
 use iroha_model_base::domain::DomainId;
 use mv::storage::FrozenStorageImages;
-use std::collections::BTreeSet;
 
 struct Original<'frozen> {
     homes: FrozenStorageImages<'frozen, AssetDefinitionId, AssetDefinitionDirectHomeV1>,
@@ -25,8 +24,8 @@ struct Original<'frozen> {
     rows: FrozenStorageImages<'frozen, AssetDefinitionId, AssetDefinition>,
     domains: FrozenStorageImages<'frozen, DomainId, Domain>,
     contexts: FrozenStorageImages<'frozen, AssetDefinitionId, DomainId>,
-    by_domain: FrozenStorageImages<'frozen, DomainId, BTreeSet<AssetDefinitionId>>,
-    by_owner: FrozenStorageImages<'frozen, AccountId, BTreeSet<AssetDefinitionId>>,
+    by_domain: FrozenStorageImages<'frozen, (DomainId, AssetDefinitionId), ()>,
+    by_owner: FrozenStorageImages<'frozen, (AccountId, AssetDefinitionId), ()>,
     transitions: FrozenStorageImages<'frozen, (u64, AssetDefinitionId), ()>,
     counts: FrozenStorageImages<'frozen, u64, u32>,
     budget: &'frozen AllocationBudget,

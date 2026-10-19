@@ -3348,10 +3348,8 @@ fn signed_definition_and_domain_retirement_capture_exact_original_enumeration_an
                             .is_none()
                     );
                     assert!(
-                        block
-                            .world
-                            .asset_definition_assets
-                            .get(&asset.definition)
+                        index_members(&block.world.asset_definition_assets, &asset.definition)
+                            .next()
                             .is_none()
                     );
                     retired.push((asset.definition.clone(), asset.incarnation));

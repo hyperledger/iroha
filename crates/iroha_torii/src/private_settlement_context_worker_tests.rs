@@ -5,11 +5,7 @@
 //! This exercises a real worker-await boundary, not an injected handler hook.
 
 use super::*;
-use axum::response::IntoResponse as _;
-use iroha_core::{
-    state::StateReadOnly as _,
-    sumeragi::test_chain::{CertifiedTestChain, native_private_context_route_fixture},
-};
+use iroha_core::sumeragi::test_chain::{CertifiedTestChain, native_private_context_route_fixture};
 use iroha_data_model::{
     nexus::PrivateSettlementContextsProofV1,
     sumeragi_finality::{FinalityValidator, SumeragiFinalityVerifier, VerifiedSumeragiBlock},
@@ -17,7 +13,6 @@ use iroha_data_model::{
 use iroha_executor_data_model::permission::query::CanReadAllLedgerData;
 use iroha_torii_shared::route_catalog::{RouteCatalog, private_settlement::CONTEXT};
 use std::{future::Future as _, sync::mpsc, task::Poll, time::Duration};
-use tower::ServiceExt as _;
 
 fn routed_context(app: SharedAppState) -> axum::Router {
     let mut builder = RouterBuilder::new(

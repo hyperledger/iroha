@@ -245,35 +245,39 @@ impl ByteMerkleTree {
     pub(crate) fn chunk_size(&self) -> usize {
         self.chunk
     }
-    /// Restore selected leaves from a shape-compatible immutable template
-    /// without cloning the complete leaf vector or canonical tree.
+    /// Restore marked leaves from a shape-compatible immutable template and
+    /// update their canonical parents in place, without allocating reset scratch.
     pub(crate) fn reset_leaves_from(
         &mut self,
         other: &ByteMerkleTree,
-        indices: impl IntoIterator<Item = usize>,
+        restored: &crate::memory::dirty_chunks::DirtyChunks,
     ) {
         assert!(
             self.has_same_shape(other),
             "Merkle template shape must be validated before dirty-leaf reset"
         );
-        let mut indices = indices.into_iter().peekable();
-        if indices.peek().is_none() {
+        assert_eq!(
+            restored.chunks(),
+            self.leaf_count(),
+            "restored-leaf geometry mismatch"
+        );
+        if restored.is_empty() {
             return;
         }
         let mut nodes = self.nodes.lock();
         let template = other.leaves.lock();
         let mut leaves = self.leaves.lock();
-        for index in indices {
-            if let (Some(destination), Some(source)) = (leaves.get_mut(index), template.get(index))
-            {
-                *destination = *source;
-            }
+        for index in restored.iter() {
+            leaves[index] = template[index];
         }
-        drop(leaves);
-        drop(template);
-        // Keep prepaid canonical storage; Memory already knows the template
-        // root, so refill those slots only if a root or proof is requested.
-        nodes.mark_stale();
+        // Ordinary commits leave nodes current. Preserve that property across
+        // warm resets so the next invocation's first write/root does not rebuild
+        // the entire image. Already stale nodes still need their full refresh.
+        // Memory separately restores the template's pending dirty bitmap: its
+        // uncommitted bytes must be hashed before publishing the restored root.
+        if nodes.is_current() {
+            nodes.update_marked_leaf_digests(&leaves, restored.words());
+        }
     }
     /// Construct a tree from raw bytes using acceleration when beneficial.
     ///
@@ -470,8 +474,10 @@ impl ByteMerkleTree {
     /// Rehash the original memory bitmap directly into fixed leaf backing.
     ///
     /// Sparse writes touch only their set bits; larger updates hash disjoint
-    /// groups of 64 leaves in parallel. Cached paths are updated in ascending
-    /// index order. No index or digest vector is copied or allocated here.
+    /// groups of 64 leaves in parallel. Current canonical nodes then rehash each
+    /// dirty parent once per level, with the same nodes as one leaf-to-root path
+    /// update per dirty leaf in ascending order. No index or digest vector is
+    /// copied or allocated here.
     pub(crate) fn update_dirty_leaves_from_bytes(
         &mut self,
         data: &[u8],
@@ -511,9 +517,7 @@ impl ByteMerkleTree {
                 });
         }
         if nodes.is_current() {
-            for index in dirty.iter() {
-                nodes.update_leaf_digest(index, leaves[index]);
-            }
+            nodes.update_marked_leaf_digests(&leaves, dirty.words());
             let updated = dirty.len() as u64;
             #[cfg(test)]
             MERKLE_INCREMENTAL_LEAF_UPDATES.fetch_add(updated, Ordering::Relaxed);
@@ -752,9 +756,11 @@ mod tests {
         let other = ByteMerkleTree::from_bytes(&data_b, 32).unwrap();
         other.update_leaf(1, &[5u8; 32]).unwrap();
         let mut target = ByteMerkleTree::new(3, 32).unwrap();
-        target.reset_leaves_from(&other, 0..3);
+        let mut restored = crate::memory::dirty_chunks::DirtyChunks::new(3, None).unwrap();
+        restored.extend(0..3);
+        target.reset_leaves_from(&other, &restored);
         assert_eq!(target.root(), other.root());
-        target.reset_leaves_from(&source, 0..3);
+        target.reset_leaves_from(&source, &restored);
         assert_eq!(target.root(), source.root());
     }
     #[test]
@@ -767,7 +773,9 @@ mod tests {
         worker.update_leaf(1, &[0xAA; 32]).unwrap();
         worker.update_leaf(3, &[0x55; 32]).unwrap();
         assert_ne!(worker.root(), template.root());
-        worker.reset_leaves_from(&template, [3, 1, 3, 1]);
+        let mut restored = crate::memory::dirty_chunks::DirtyChunks::new(4, None).unwrap();
+        restored.extend([3, 1, 3, 1]);
+        worker.reset_leaves_from(&template, &restored);
         assert_eq!(worker.root(), template.root());
     }
 }
@@ -777,3 +785,6 @@ mod dirty_bitmap_tests;
 
 #[cfg(test)]
 mod canonical_node_tests;
+
+#[cfg(test)]
+mod warm_reset_tests;

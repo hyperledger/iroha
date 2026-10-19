@@ -160,13 +160,11 @@ fn physical_digit_refusal_and_deallocation_preserve_original_custody() {
     drop(charge);
 
     for unwind in [false, true] {
-        let (_, observed) = allocator::observe(&pool, layout, false, || {
+        let ((), observed) = allocator::observe(&pool, layout, false, || {
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 let value = ChargedQuantity::try_from_accumulator(inline, &pool).unwrap();
                 assert_eq!(value.get(), &source);
-                if unwind {
-                    panic!("observe original digit destruction during unwind");
-                }
+                assert!(!unwind, "observe original digit destruction during unwind");
                 drop(value);
             }));
             assert_eq!(outcome.is_err(), unwind);

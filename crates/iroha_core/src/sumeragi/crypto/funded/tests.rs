@@ -225,10 +225,15 @@ fn partial_key_credential_and_complete_unwinds_refund_only_retired_candidate() {
         .payload()
         .as_ptr();
     for stage in [
-        Checkpoint::Key(2),
-        Checkpoint::Credential(2),
+        Checkpoint::Pairing,
+        Checkpoint::CredentialBacking,
         Checkpoint::Complete,
-    ] {
+    ]
+    .into_iter()
+    .chain(
+        (0..members.len())
+            .flat_map(|index| [Checkpoint::Key(index), Checkpoint::Credential(index)]),
+    ) {
         UNWIND_AT.with(|selected| selected.set(Some(stage)));
         let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _candidate = FundedBlsCommittee::admit(&members, &budget).unwrap();
@@ -273,6 +278,144 @@ fn physical_key_refusal_refunds_candidate_and_retains_typed_cause() {
     );
     assert_eq!(budget.reserved_bytes(), 0);
     drop(FundedBlsCommittee::admit(&members, &budget).unwrap());
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn every_compact_key_allocation_failure_retires_only_candidate_custody() {
+    let (members, signers) = fixture();
+    let demand = FundedBlsCommittee::allocation_demand(&members).unwrap();
+    let budget = AllocationBudget::new(demand * 2);
+    let original = FundedBlsCommittee::admit(&members, &budget).unwrap();
+    let pointer = original
+        .lookup(signers[0].public_key())
+        .unwrap()
+        .payload()
+        .as_ptr();
+    for (index, member) in members.iter().enumerate() {
+        let layout = member.validator.public_key().retained_allocation_layout();
+        let (result, observed) =
+            refuse_key_allocation_at(index, || FundedBlsCommittee::admit(&members, &budget));
+        assert!(observed);
+        let failure = result.err().unwrap();
+        assert!(matches!(failure, CommitteeAdmissionError::KeyAllocation(
+            PublicKeyAllocationError::Allocation(ChargedBufferFromChargeError::Allocator { layout: actual })
+        ) if actual == layout));
+        assert_eq!(budget.reserved_bytes(), demand);
+        assert_eq!(
+            original
+                .lookup(signers[0].public_key())
+                .unwrap()
+                .payload()
+                .as_ptr(),
+            pointer
+        );
+    }
+    let retried = FundedBlsCommittee::admit(&members, &budget).unwrap();
+    assert!(retried.belongs_to(&budget));
+    drop(retried);
+    drop(original);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn physical_pairing_refusal_keeps_original_cause_and_source() {
+    let (members, signers) = fixture();
+    let demand = FundedBlsCommittee::allocation_demand(&members).unwrap();
+    let budget = AllocationBudget::new(demand * 2);
+    let original = FundedBlsCommittee::admit(&members, &budget).unwrap();
+    let pointer = original
+        .lookup(signers[0].public_key())
+        .unwrap()
+        .payload()
+        .as_ptr();
+    let layout = pairing_layout();
+    let (result, observed) =
+        refuse_one_layout_during(layout, || FundedBlsCommittee::admit(&members, &budget));
+    assert!(observed, "actual pairing allocator was refused");
+    let failure = result.err().expect("injected pairing failure");
+    assert!(
+        matches!(&failure, CommitteeAdmissionError::PhysicalAllocation(
+            PairingBackingError::Allocator(original))
+            if original.vec_reserve_error().is_some_and(|(_, actual)| actual == layout)),
+        "HC940 physical pairing refusal must retain its original allocator cause and exact layout"
+    );
+    let CommitteeAdmissionError::PhysicalAllocation(failure) = failure else {
+        unreachable!("asserted original pairing cause")
+    };
+    let deferred = ExecutionDeferred::from(failure);
+    assert!(deferred.allocation_refusal().is_none());
+    assert_eq!(
+        deferred.reason(),
+        ivm::error::ExecutionDeferral::AllocationUnavailable
+    );
+    assert!(
+        deferred
+            .allocator_refusal()
+            .unwrap()
+            .vec_reserve_error()
+            .is_some()
+    );
+    assert_eq!(budget.reserved_bytes(), demand);
+    assert_eq!(
+        original
+            .lookup(signers[0].public_key())
+            .unwrap()
+            .payload()
+            .as_ptr(),
+        pointer
+    );
+    let retry = FundedBlsCommittee::admit(&members, &budget).unwrap();
+    assert!(retry.belongs_to(&budget));
+    assert!(
+        retry
+            .lookup(signers[0].public_key())
+            .unwrap()
+            .proof_of_possession_matches(&members[0].proof_of_possession)
+    );
+    drop(retry);
+    drop(original);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn unsupported_pairing_geometry_is_local_verifier_initialization_refusal() {
+    let refused = ExecutionDeferred::from(PairingBackingError::Geometry { context_bytes: 0 });
+    assert_eq!(
+        refused.reason(),
+        ivm::error::ExecutionDeferral::VerifierInitializationUnavailable
+    );
+    assert!(refused.allocation_refusal().is_none());
+    assert!(refused.allocator_refusal().is_none());
+    let error = CommitteeAdmissionError::PhysicalAllocation(PairingBackingError::Geometry {
+        context_bytes: 0,
+    });
+    assert_eq!(
+        error.to_string(),
+        "the linked blst pairing context of 0 bytes is unsupported"
+    );
+    // The linked build is supported, so the real constructor never reaches this arm.
+    assert_eq!(BlsCrypto::check_pairing_geometry(), Ok(()));
+}
+
+#[test]
+fn physical_credential_backing_refusal_refunds_pairing_and_keeps_original_pool() {
+    let (members, _) = fixture();
+    let demand = FundedBlsCommittee::allocation_demand(&members).unwrap();
+    let budget = AllocationBudget::new(demand);
+    let layout = Layout::array::<Credential>(members.len()).unwrap();
+    let (result, observed) =
+        refuse_one_layout_during(layout, || FundedBlsCommittee::admit(&members, &budget));
+    assert!(observed);
+    assert!(matches!(result, Err(CommitteeAdmissionError::Buffer(
+        PrepaidBufferError::Allocation(iroha_allocation::ChargedBufferError::Allocator {
+            requested_bytes
+        })
+    )) if requested_bytes == layout.size()));
+    assert_eq!(budget.reserved_bytes(), 0);
+    let retry = FundedBlsCommittee::admit(&members, &budget).unwrap();
+    assert!(retry.belongs_to(&budget));
+    drop(retry);
     assert_eq!(budget.reserved_bytes(), 0);
 }
 

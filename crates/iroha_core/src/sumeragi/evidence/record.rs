@@ -81,6 +81,9 @@ pub enum EvidenceRecordRestoreError {
     /// Exact original pool, allocator or logical decoder refusal.
     #[error(transparent)]
     Preparation(#[from] EvidencePreparationError),
+    /// Exact original map/control admission refusal, with unchanged release provenance.
+    #[error(transparent)]
+    Storage(#[from] mv::storage::AdmittedStorageError),
 }
 impl From<json::Error> for EvidenceRecordRestoreError {
     fn from(error: json::Error) -> Self {
@@ -104,10 +107,7 @@ impl From<iroha_crypto::PublicKeyJsonAdmissionError> for EvidenceRecordRestoreEr
                 if error.is_decode_resource_limit() {
                     Self::Logical(json::Error::from_decode_resource(error))
                 } else {
-                    Self::Json(json::Error::InvalidField {
-                        field: "peer_id".into(),
-                        message: "invalid public key".into(),
-                    })
+                    invalid("invalid evidence public key")
                 }
             }
             iroha_crypto::PublicKeyJsonAdmissionError::Allocation(error) => error.into(),
@@ -278,6 +278,22 @@ impl RetainedEvidenceRecord {
         record: EvidenceRecord,
         budget: &AllocationBudget,
     ) -> Result<Self, EvidenceRecordRestoreError> {
+        Self::from_fixture_in_pools(record, budget, budget)
+    }
+
+    /// Fund a synthetic native claim in its separate captured execution and proof pools.
+    ///
+    /// This fixture-only constructor models live native admission's two namespaces;
+    /// it does not authenticate proof bytes or create execution authority.
+    ///
+    /// # Errors
+    /// Returns the exact original-pool refusal or canonical attribution parsing failure.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
+    pub fn from_fixture_in_pools(
+        record: EvidenceRecord,
+        execution: &AllocationBudget,
+        preparation: &AllocationBudget,
+    ) -> Result<Self, EvidenceRecordRestoreError> {
         // This fixture helper remains Native-only. SCCP structural codec tests use the
         // distinct funded decoder; neither creates execution authority.
         let RecordedEvidenceV1::Native(evidence) = record.evidence else {
@@ -289,19 +305,20 @@ impl RetainedEvidenceRecord {
         ) {
             return Err(EvidenceRecordRestoreError::UnsupportedSccp);
         }
-        let mut frame = ChargedBuffer::new(evidence.native_frame().len(), budget)?;
+        let mut frame = ChargedBuffer::new(evidence.native_frame().len(), preparation)?;
         frame
             .append(evidence.native_frame())
             .map_err(|_| EvidencePreparationError::Invariant)?;
         let text = json::to_json(&record.attribution)?;
         let mut parser = Parser::new(&text);
-        let attribution = super::super::evidence_history::restore_attribution(&mut parser, budget)?;
+        let attribution =
+            super::super::evidence_history::restore_attribution(&mut parser, execution)?;
         parser.skip_ws();
         if !parser.eof() {
-            return Err(json::Error::Message("trailing characters".into()).into());
+            return Err(invalid("trailing evidence JSON characters"));
         }
-        let shell = EvidenceRecordBody::reserve(budget)?;
-        let body = EvidenceRecordBody::initialize(shell, frame, attribution, budget);
+        let shell = EvidenceRecordBody::reserve(execution)?;
+        let body = EvidenceRecordBody::initialize(shell, frame, attribution, execution);
         let mut retained = Self::from_body(
             body,
             record.recorded_at_height,
@@ -469,11 +486,54 @@ impl JsonSerialize for RetainedEvidenceRecord {
     }
 }
 
-fn required<T>(value: Option<T>, field: &str) -> Result<T, EvidenceRecordRestoreError> {
-    value.ok_or_else(|| json::Error::missing_field(field).into())
+/// Scratch for escaped JSON keys, retaining its charge through physical retirement.
+struct KeyBuffer(ChargedBuffer<u8>);
+impl KeyBuffer {
+    fn new(length: usize, budget: &AllocationBudget) -> Result<Self, EvidenceRecordRestoreError> {
+        let mut bytes = ChargedBuffer::new(length, budget)?;
+        for _ in 0..length {
+            bytes.push_reserved(0);
+        }
+        Ok(Self(bytes))
+    }
 }
-fn duplicate(field: &str) -> EvidenceRecordRestoreError {
-    json::Error::duplicate_field(field).into()
+impl AsMut<[u8]> for KeyBuffer {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut_slice()
+    }
+}
+
+// Norito's ordinary String key convenience accessor is deliberately not generic.
+// The admitted destination contains exactly the parser-validated UTF-8 bytes.
+fn key_str<'key>(key: &'key json::KeyRef<'_, KeyBuffer>) -> &'key str {
+    match key {
+        json::KeyRef::Borrowed(text) => text,
+        json::KeyRef::Owned(buffer) => std::str::from_utf8(buffer.0.as_slice())
+            .expect("the JSON key parser initializes valid UTF-8"),
+    }
+}
+
+fn invalid(message: &'static str) -> EvidenceRecordRestoreError {
+    #[cfg(all(test, sumeragi_core_mutation = "HC921"))]
+    {
+        json::Error::Message(message.into()).into()
+    }
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC921")))]
+    {
+        json::Error::WithPos {
+            msg: message,
+            byte: 0,
+            line: 1,
+            col: 1,
+        }
+        .into()
+    }
+}
+fn required<T>(value: Option<T>, _field: &str) -> Result<T, EvidenceRecordRestoreError> {
+    value.ok_or_else(|| invalid("missing required evidence JSON field"))
+}
+fn duplicate(_field: &str) -> EvidenceRecordRestoreError {
+    invalid("duplicate evidence JSON field")
 }
 
 fn parse_native_proof(
@@ -482,8 +542,8 @@ fn parse_native_proof(
 ) -> Result<ChargedBuffer<u8>, EvidenceRecordRestoreError> {
     let mut object = MapVisitor::new(parser)?;
     let mut native = None;
-    while let Some(key) = object.next_key()? {
-        match key.as_str() {
+    while let Some(key) = object.next_key_with_buffer(|length| KeyBuffer::new(length, budget))? {
+        match key_str(&key) {
             "native" => {
                 if native.is_some() {
                     return Err(duplicate("native"));
@@ -503,7 +563,7 @@ fn parse_native_proof(
                     Ok::<_, EvidenceRecordRestoreError>(bytes)
                 })?);
             }
-            other => return Err(json::Error::unknown_field(other).into()),
+            _ => return Err(invalid("unknown evidence JSON field")),
         }
     }
     object.finish()?;
@@ -520,13 +580,15 @@ fn parse_proof(
     let mut object = MapVisitor::new(parser)?;
     let mut kind = None;
     let mut content = None;
-    while let Some(key) = object.next_key()? {
-        match key.as_str() {
+    while let Some(key) = object.next_key_with_buffer(|length| KeyBuffer::new(length, budget))? {
+        match key_str(&key) {
             "kind" => {
                 if kind.is_some() {
                     return Err(duplicate("kind"));
                 }
-                kind = Some(object.parse_value::<String>()?);
+                kind = Some(object.parse_value_with_parser_typed(|parser| {
+                    parser.parse_string_with_buffer(|length| KeyBuffer::new(length, budget))
+                })?);
             }
             "value" => {
                 if content.is_some() {
@@ -534,27 +596,26 @@ fn parse_proof(
                 }
                 content = Some(object.parse_value_with_parser(|parser| parser.raw_value_slice())?);
             }
-            other => return Err(json::Error::unknown_field(other).into()),
+            _ => return Err(invalid("unknown evidence JSON field")),
         }
     }
     object.finish()?;
-    let kind = kind.ok_or_else(|| json::Error::Message("missing `kind` field".into()))?;
+    let kind = required(kind, "kind")?;
     let content = required(content, "value")?;
-    match kind.as_str() {
+    match std::str::from_utf8(kind.0.as_slice())
+        .expect("the JSON string parser initializes valid UTF-8")
+    {
         "native" => {
             let mut parser = Parser::new(content);
             let proof = parse_native_proof(&mut parser, budget)?;
             parser.skip_ws();
             if !parser.eof() {
-                return Err(json::Error::Message(
-                    "unexpected trailing data for variant `native`".into(),
-                )
-                .into());
+                return Err(invalid("unexpected trailing native evidence data"));
             }
             Ok(proof)
         }
         "sccp_forgery" => Err(EvidenceRecordRestoreError::UnsupportedSccp),
-        _ => Err(json::Error::Message("unknown JSON enum variant".into()).into()),
+        _ => Err(invalid("unknown evidence JSON enum variant")),
     }
 }
 
@@ -564,7 +625,8 @@ fn parse_proof(
 /// restoration remains mandatory.
 fn parse_native_record(
     parser: &mut Parser<'_>,
-    budget: &AllocationBudget,
+    execution: &AllocationBudget,
+    preparation: &AllocationBudget,
 ) -> Result<RetainedEvidenceRecord, EvidenceRecordRestoreError> {
     let mut map = MapVisitor::new(parser)?;
     let mut proof = None;
@@ -573,14 +635,14 @@ fn parse_native_record(
     let mut view = None;
     let mut timestamp = None;
     let mut status = None;
-    while let Some(key) = map.next_key()? {
-        match key.as_str() {
+    while let Some(key) = map.next_key_with_buffer(|length| KeyBuffer::new(length, execution))? {
+        match key_str(&key) {
             "evidence" => {
                 if proof.is_some() {
                     return Err(duplicate("evidence"));
                 }
                 let bytes =
-                    map.parse_value_with_parser_typed(|parser| parse_proof(parser, budget))?;
+                    map.parse_value_with_parser_typed(|parser| parse_proof(parser, preparation))?;
                 // Borrow the exact paid bytes for the existing native validator. It accepts
                 // no body/schema fallback. Its decoded scratch remains an explicit TODO.
                 Evidence::decode_native_frame(bytes.as_slice()).map_err(|error| match error {
@@ -589,9 +651,7 @@ fn parse_native_record(
                             EvidencePreparationError::DecodeResource(error),
                         )
                     }
-                    other => {
-                        EvidenceRecordRestoreError::Json(json::Error::Message(other.to_string()))
-                    }
+                    _ => invalid("invalid native evidence proof"),
                 })?;
                 proof = Some(bytes);
             }
@@ -600,7 +660,7 @@ fn parse_native_record(
                     return Err(duplicate("attribution"));
                 }
                 attribution = Some(map.parse_value_with_parser_typed(|parser| {
-                    super::super::evidence_history::restore_attribution(parser, budget)
+                    super::super::evidence_history::restore_attribution(parser, execution)
                 })?);
             }
             "recorded_at_height" => {
@@ -627,7 +687,7 @@ fn parse_native_record(
                 }
                 status = Some(map.parse_value::<EvidencePenaltyStatus>()?);
             }
-            other => return Err(json::Error::unknown_field(other).into()),
+            _ => return Err(invalid("unknown evidence JSON field")),
         }
     }
     map.finish()?;
@@ -638,8 +698,8 @@ fn parse_native_record(
     let view = required(view, "recorded_at_view")?;
     let timestamp = required(timestamp, "recorded_at_ms")?;
     let status = required(status, "penalty_status")?;
-    let shell = EvidenceRecordBody::reserve(budget)?;
-    let body = EvidenceRecordBody::initialize(shell, proof, attribution, budget);
+    let shell = EvidenceRecordBody::reserve(execution)?;
+    let body = EvidenceRecordBody::initialize(shell, proof, attribution, execution);
     let mut record = RetainedEvidenceRecord::from_body(body, height, view, timestamp);
     record.penalty_status = status;
     Ok(record)
@@ -650,14 +710,23 @@ pub(crate) fn parse_record(
     parser: &mut Parser<'_>,
     budget: &AllocationBudget,
 ) -> Result<RetainedEvidenceRecord, EvidenceRecordRestoreError> {
+    parse_record_in_pools(parser, budget, budget)
+}
+
+/// Restore a claim with the original, independently captured execution and proof pools.
+fn parse_record_in_pools(
+    parser: &mut Parser<'_>,
+    execution: &AllocationBudget,
+    preparation: &AllocationBudget,
+) -> Result<RetainedEvidenceRecord, EvidenceRecordRestoreError> {
     let raw = parser.raw_value_slice()?;
-    let kind = sccp_record::material_kind(raw, budget)?;
+    let kind = sccp_record::material_kind(raw, preparation)?;
     match kind {
         sccp_record::MaterialKind::Native => {
             let mut p = Parser::new(raw);
-            parse_native_record(&mut p, budget)
+            parse_native_record(&mut p, execution, preparation)
         }
-        sccp_record::MaterialKind::SccpForgery => sccp_record::decode_json(raw, budget),
+        sccp_record::MaterialKind::SccpForgery => sccp_record::decode_json(raw, preparation),
     }
 }
 
@@ -675,7 +744,7 @@ fn parse_values(
         let parsed = iroha_crypto::Hash::decode_json_key(key.as_str())?;
         let value = map.parse_value_with_parser_typed(|parser| parse_record(parser, budget))?;
         if rows.insert(parsed, value).is_some() {
-            return Err(json::Error::duplicate_field(key.as_str()).into());
+            return Err(duplicate(key.as_str()));
         }
     }
     map.finish()?;
@@ -701,7 +770,7 @@ fn parse_undo(
             let mut value = None;
             while let Some(key) = present.next_key()? {
                 if key.as_str() != "value" {
-                    return Err(json::Error::unknown_field(key.as_str()).into());
+                    return Err(invalid("unknown evidence JSON field"));
                 }
                 if value.is_some() {
                     return Err(duplicate("value"));
@@ -714,7 +783,7 @@ fn parse_undo(
             Ok::<_, EvidenceRecordRestoreError>(Some(required(value, "value")?))
         })?;
         if rows.insert(parsed, value).is_some() {
-            return Err(json::Error::duplicate_field(key.as_str()).into());
+            return Err(duplicate(key.as_str()));
         }
     }
     map.finish()?;
@@ -722,8 +791,8 @@ fn parse_undo(
 }
 
 /// Restore both explicit graph generations before installing either original map.
-/// TODO(S8): input/table controls and canonical JSON comparison scratch still
-/// require original-pool custody.
+/// TODO(S8): activate admitted input/table custody with the coordinated field/caller
+/// cutover; canonical JSON comparison now streams without scratch allocation.
 pub(crate) fn restore_storage(
     raw: &str,
     budget: &AllocationBudget,
@@ -751,13 +820,13 @@ pub(crate) fn restore_storage(
                 current =
                     Some(map.parse_value_with_parser_typed(|parser| parse_values(parser, budget))?);
             }
-            other => return Err(json::Error::unknown_field(other).into()),
+            _ => return Err(invalid("unknown evidence JSON field")),
         }
     }
     map.finish()?;
     parser.skip_ws();
     if !parser.eof() {
-        return Err(json::Error::Message("trailing characters".into()).into());
+        return Err(invalid("trailing evidence JSON characters"));
     }
     let undo = required(undo, "revert")?;
     let current = required(current, "blocks")?;
@@ -766,6 +835,9 @@ pub(crate) fn restore_storage(
 
 #[cfg(test)]
 mod tests;
+
+// TODO(S8/H3): restore the consensus_evidence table into original-pool prepaid storage
+// together with its World field and caller cutover (deferred to the Sumeragi H3 owner).
 
 /// Structurally valid SCCP DATA for ownership tests; its all-zero signature is invalid.
 #[cfg(test)]

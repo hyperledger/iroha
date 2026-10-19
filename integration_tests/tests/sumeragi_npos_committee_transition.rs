@@ -654,11 +654,9 @@ async fn advance_to_height_with_workload(
                                     Metadata::default(),
                                 ),
                             )?;
-                            let quote = account
-                                .quote_fees(iroha::client::FeeQuoteRequest::AccountSignature {
-                                    payload: &payload,
-                                })
-                                .await?;
+                            let quote =
+                                committee_status::quote_fees_until(&account, &payload, deadline)
+                                    .await?;
                             ensure!(
                                 payload
                                     .fee_payment

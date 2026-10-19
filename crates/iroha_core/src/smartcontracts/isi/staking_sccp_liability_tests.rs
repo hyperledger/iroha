@@ -148,7 +148,7 @@ fn sccp_liable_unbond_keeps_exact_pending_request_and_both_balances() {
     });
     assert_eq!(
         allocations, 0,
-        "HC407 L3 caller must inspect original unbond graphs without copying before refusal"
+        "HC903 L3 caller must inspect original unbond graphs without copying before refusal"
     );
     let result = instruction.execute(&validator, &mut stx);
     assert!(

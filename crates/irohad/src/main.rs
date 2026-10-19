@@ -1044,6 +1044,8 @@ pub enum StartError {
     StartTorii,
     /// Explicit AMX relay route, custody or journal initialization failed.
     StartAmxRelay,
+    /// The linked BLS pairing implementation cannot verify consensus aggregates.
+    ConsensusPairing,
 }
 impl std::fmt::Display for MainError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1069,6 +1071,9 @@ impl std::fmt::Display for StartError {
             StartError::StartTorii => "error.start_torii",
             StartError::StartAmxRelay => {
                 return f.write_str("failed to initialize native AMX relay");
+            }
+            StartError::ConsensusPairing => {
+                return f.write_str("unsupported linked consensus pairing implementation");
             }
         };
         write!(f, "{}", i18n::t(key))

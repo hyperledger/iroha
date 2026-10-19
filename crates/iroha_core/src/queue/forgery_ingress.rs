@@ -25,7 +25,7 @@ const TOKEN_NS: u64 = 125_000_000;
 const BURST_NS: u64 = 32 * TOKEN_NS;
 
 /// Typed native ingress refusal. This local result never certifies an offence.
-#[derive(Clone, Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 #[allow(
     variant_size_differences,
     reason = "retain original resource refusal owners inline"
@@ -74,6 +74,7 @@ impl ForgeryIngressError {
                     ForgeryVerificationError::Unavailable(_)
                         | ForgeryVerificationError::UnsupportedScope
                         | ForgeryVerificationError::Allocation(_)
+                        | ForgeryVerificationError::PhysicalAllocation(_)
                         | ForgeryVerificationError::Cancelled
                         | ForgeryVerificationError::Deadline
                 )

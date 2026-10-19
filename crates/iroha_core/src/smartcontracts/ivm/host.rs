@@ -900,7 +900,7 @@ pub struct CoreHostImpl<QS> {
     zk_verified_tally: Arc<VecDeque<[u8; 32]>>,
     // Snapshots for state-read syscalls
     zk_roots: BTreeMap<AssetDefinitionId, ZkRootsSnapshot>,
-    zk_elections: BTreeMap<String, (u32, bool, Vec<u128>)>,
+    zk_elections: Arc<crate::state::IvmElectionsSnapshot>,
     // `VRF_EPOCH_SEED` projection; signatures and deferred scans resolve on first use.
     vrf_epoch_seeds: VrfEpochSeedSource,
     // Validated verifying-key registry indexed by commitment for proof dispatch.
@@ -3385,7 +3385,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             zk_verified_ballot: Arc::new(VecDeque::new()),
             zk_verified_tally: Arc::new(VecDeque::new()),
             zk_roots: BTreeMap::new(),
-            zk_elections: BTreeMap::new(),
+            zk_elections: Arc::default(),
             vrf_epoch_seeds: VrfEpochSeedSource::default(),
             prepared_verifying_keys: BTreeMap::new(),
             public_inputs: BTreeMap::new(),
@@ -3456,7 +3456,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             crate::smartcontracts::code::snapshot_bound_contract_records_by_subject(&view)
                 .map_err(CoreHostStateError::ContractRegistry)?,
         );
-        host.set_zk_snapshots_from_world(view.world(), &view.zk)
+        host.set_zk_snapshots_from_state(&view)
             .map_err(CoreHostStateError::ZkSnapshot)?;
         host.set_amx_limits(Self::amx_limits_from_config(&view.pipeline));
         Ok(host)
@@ -3514,7 +3514,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             zk_verified_ballot: Arc::new(VecDeque::new()),
             zk_verified_tally: Arc::new(VecDeque::new()),
             zk_roots: BTreeMap::new(),
-            zk_elections: BTreeMap::new(),
+            zk_elections: Arc::default(),
             vrf_epoch_seeds: VrfEpochSeedSource::default(),
             prepared_verifying_keys: BTreeMap::new(),
             public_inputs: BTreeMap::new(),
@@ -3597,7 +3597,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
             zk_verified_ballot: Arc::new(VecDeque::new()),
             zk_verified_tally: Arc::new(VecDeque::new()),
             zk_roots: BTreeMap::new(),
-            zk_elections: BTreeMap::new(),
+            zk_elections: Arc::default(),
             vrf_epoch_seeds: VrfEpochSeedSource::default(),
             prepared_verifying_keys: BTreeMap::new(),
             public_inputs: BTreeMap::new(),
@@ -4747,33 +4747,42 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
                 .seed(epoch),
         }
     }
-    /// Hydrate ZK snapshots (roots, elections, verifying keys) from a world view.
+    /// Hydrate ZK state reads, reusing elections only while their source is unchanged.
     ///
-    /// Every registry entry is validated on every hydration. Confidential trees
-    /// are read in place, and verifying keys reuse the process-local
-    /// preparation memo only for a registry pair equal to an already validated
-    /// one, so no World value is deep-copied unless a syscall can observe it.
+    /// The State owns an immutable election projection for each read view and
+    /// untouched block. Election edits bypass that cache, including edits in a
+    /// child transaction; rollback restores access to the original projection.
+    /// Confidential trees and verifying-key entries retain their validation order.
     ///
     /// # Errors
-    /// Returns an error if an election selector or shape, confidential tree, or
-    /// verifying key registry entry is inconsistent. Validation completes before
-    /// any existing ZK snapshot is replaced.
+    /// Rejects malformed election, tree or verifying-key state before replacing
+    /// any existing host snapshot.
+    pub(crate) fn set_zk_snapshots_from_state(
+        &mut self,
+        state: &impl StateReadOnly,
+    ) -> Result<(), ivm::VMError> {
+        let elections = state
+            .ivm_elections_snapshot()
+            .map_err(|_| ivm::VMError::NoritoInvalid)?;
+        self.install_zk_snapshots(state.world(), state.zk(), elections)
+    }
+    /// Hydrate a standalone World fixture without an enclosing State cache.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn set_zk_snapshots_from_world(
         &mut self,
         world: &impl WorldReadOnly,
         zk_cfg: &iroha_config::parameters::actual::Zk,
     ) -> Result<(), ivm::VMError> {
-        let mut elections = BTreeMap::new();
-        for (id, st) in world.elections().iter() {
-            Self::validate_zk_election_tally(st.options, &st.tally)?;
-            elections.insert(id.clone(), (st.options, st.finalized, st.tally.clone()));
-        }
-        // Validate selector syntax as well as tally shape before replacing any
-        // reusable host snapshot. `set_zk_elections_snapshot` performs this
-        // complete validation too, but calling it after the other setters would
-        // otherwise allow an invalid selector to return with partially replaced
-        // verifying-key and tree snapshots.
-        Self::validate_zk_elections_snapshot(&elections)?;
+        let elections = crate::state::ivm_elections::project(world.elections())
+            .map_err(|_| ivm::VMError::NoritoInvalid)?;
+        self.install_zk_snapshots(world, zk_cfg, elections)
+    }
+    fn install_zk_snapshots(
+        &mut self,
+        world: &impl WorldReadOnly,
+        zk_cfg: &iroha_config::parameters::actual::Zk,
+        elections: Arc<crate::state::IvmElectionsSnapshot>,
+    ) -> Result<(), ivm::VMError> {
         let roots = Self::validated_zk_roots_snapshot(world.zk_assets().iter())?;
         let prepared_verifying_keys =
             Self::prepared_verifying_key_index(world.verifying_keys().iter())?;
@@ -5228,7 +5237,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         map: BTreeMap<String, (u32, bool, Vec<u128>)>,
     ) -> Result<(), ivm::VMError> {
         Self::validate_zk_elections_snapshot(&map)?;
-        self.zk_elections = map;
+        self.zk_elections = Arc::new(map);
         Ok(())
     }
     fn validate_zk_elections_snapshot(
@@ -5243,13 +5252,8 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         Ok(())
     }
     fn validate_zk_election_tally(options: u32, tally: &[u128]) -> Result<(), ivm::VMError> {
-        iroha_data_model::isi::zk::validate_election_tally_v1(options, tally.len())
-            .map_err(|_| ivm::VMError::NoritoInvalid)?;
-        tally
-            .iter()
-            .try_fold(0_u128, |total, weight| total.checked_add(*weight))
-            .ok_or(ivm::VMError::NoritoInvalid)?;
-        Ok(())
+        crate::state::ivm_elections::validate_tally(options, tally)
+            .map_err(|_| ivm::VMError::NoritoInvalid)
     }
     /// Configure the non-zero retained-root bound returned by `ZK_ROOTS_GET`.
     pub fn set_zk_tree_roots_history_len(&mut self, len: NonZeroUsize) {
@@ -25591,7 +25595,7 @@ seiyaku DurableOwner {
         let mut host = CoreHost::new(authority);
         host.set_zk_config(&view.zk);
         host.set_chain_id(&view.chain_id);
-        host.set_zk_snapshots_from_world(view.world(), &view.zk)
+        host.set_zk_snapshots_from_state(&view)
             .expect("hydrate zk snapshots");
         assert!(host.prepared_verifying_keys.contains_key(&commitment));
         let mut vm = IVM::new(10_000);
@@ -25706,8 +25710,7 @@ seiyaku DurableOwner {
             ("response-overflow", 2, vec![u128::MAX, 1]),
         ] {
             let tally_len = tally.len();
-            host.zk_elections
-                .insert(id.to_string(), (options, false, tally));
+            Arc::make_mut(&mut host.zk_elections).insert(id.to_string(), (options, false, tally));
             assert!(matches!(
                 host.vote_get_tally_response(&ivm::zk_verify::VoteGetTallyRequest {
                     election_id: id.to_string(),
@@ -25841,7 +25844,7 @@ seiyaku DurableOwner {
             if valid {
                 let state = State::new_for_testing(world, kura, query);
                 let view = state.view();
-                host.set_zk_snapshots_from_world(view.world(), &view.zk)
+                host.set_zk_snapshots_from_state(&view)
                     .expect("valid option and tally widths hydrate from State");
                 assert_eq!(
                     host.zk_elections.get("candidate").cloned(),

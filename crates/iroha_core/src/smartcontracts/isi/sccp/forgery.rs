@@ -15,10 +15,10 @@ use iroha_data_model::sccp::generation::{
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use iroha_allocation::{AllocationBudget, AllocationRefusal};
+use iroha_allocation::{AllocationBudget, AllocationRefusal, AllocatorRefusal};
 use iroha_crypto::{
     Hash,
-    bls::consensus::{ConsensusAggregateScratch, ConsensusDigest},
+    bls::consensus::{AggregateScratchError, ConsensusAggregateScratch, ConsensusDigest},
 };
 use iroha_data_model::{
     NetworkId,
@@ -50,7 +50,7 @@ pub(crate) use execution::{ForgeryExecutionError, execute_forgery};
 pub(crate) use restoration::SccpRestore;
 
 /// Protocol refusals stay separate from local source, allocation, deadline or stop refusals.
-#[derive(Clone, Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 #[allow(
     variant_size_differences,
     reason = "local admission refusal must retain its original inline retry owner without allocating"
@@ -83,6 +83,9 @@ pub enum ForgeryVerificationError {
     /// The caller's original finite pool refused the exact pairing scratch demand.
     #[error(transparent)]
     Allocation(#[from] AllocationRefusal),
+    /// The exact admitted pairing allocation failed without a capacity-release source.
+    #[error(transparent)]
+    PhysicalAllocation(AllocatorRefusal),
     /// The caller's admitted worker was cancelled.
     #[error("SCCP forgery verification cancelled")]
     Cancelled,
@@ -705,7 +708,36 @@ fn verify_signature(
     let digest =
         ConsensusDigest::from_preimage(&preimage).ok_or(ForgeryVerificationError::BadSignature)?;
     control.check()?;
-    let mut scratch = ConsensusAggregateScratch::new(|bytes| budget.try_reserve_bytes(bytes))?;
+    let layout = ConsensusAggregateScratch::<()>::backing_layout();
+    let mut scratch = ConsensusAggregateScratch::new(|bytes| {
+        debug_assert_eq!(bytes, layout.size());
+        // The original pool refusal stays `Allocation`; the exact reservation holds this
+        // sole layout, so a refused split is local custody failure, never a verdict.
+        let mut original = budget.try_reserve(layout)?;
+        let charge = original.try_split(layout).map_err(|_| {
+            ForgeryVerificationError::Unavailable("exact pairing reservation lacks its layout")
+        })?;
+        debug_assert_eq!(original.remaining_bytes(), 0);
+        Ok::<_, ForgeryVerificationError>(charge)
+    })
+    .map_err(|error| match error {
+        AggregateScratchError::Admission(original) => original,
+        // Node startup refuses this linked build; it is local, never bad evidence.
+        AggregateScratchError::UnsupportedGeometry { .. } => {
+            ForgeryVerificationError::Unavailable("linked pairing context is unsupported")
+        }
+        AggregateScratchError::Allocator { error, layout } => {
+            #[cfg(all(test, sumeragi_core_mutation = "HC941"))]
+            {
+                let _ = (error, layout);
+                ForgeryVerificationError::BadSignature
+            }
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC941")))]
+            ForgeryVerificationError::PhysicalAllocation(AllocatorRefusal::from_vec_reserve(
+                error, layout,
+            ))
+        }
+    })?;
     let valid = scratch.verify_fast_aggregate_committed(&selected[..count], &digest, signature);
     drop(scratch);
     control.check()?;

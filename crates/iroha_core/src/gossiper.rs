@@ -1,4 +1,6 @@
 //! Gossiper actor responsible for transaction gossiping.
+#[cfg(all(feature = "bench", feature = "iroha-core-tests"))]
+pub mod benchmark;
 use crate::retained_gossip::RetainedGossip;
 use crate::{
     IrohaNetwork, NetworkMessage,

@@ -24,7 +24,7 @@ use std::{
 };
 
 /// A funded Load head built from a synthetic ordinary receipt bound to the genuine
-/// rooted Bootstrap predecessor's scheme, asset, wallet and next ordinal. Λ_load binds
+/// rooted Bootstrap predecessor's scheme, asset, wallet and next ordinal. `Λ_load` binds
 /// the receipt terms and never verifies BLS finality, which native code checks before
 /// Advance, so the Load and consuming proof chains are the same as with a captured
 /// receipt. Each reconstruction writes fresh originals under `KAGEMUSHA_LOAD_OUTPUT`.

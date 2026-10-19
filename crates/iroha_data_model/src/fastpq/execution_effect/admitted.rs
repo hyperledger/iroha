@@ -676,6 +676,10 @@ impl PendingFastpqEffectsDecodeV1 {
     /// # Errors
     /// Returns the unchanged pending owner when its original canonical tape is incomplete.
     #[allow(unsafe_code)]
+    #[allow(
+        clippy::result_large_err,
+        reason = "return the unchanged pending owner and its custody on an incomplete tape"
+    )]
     pub fn finish(mut self) -> Result<AllocatedFastpqEffectsV1, Self> {
         if !self.is_complete() {
             return Err(self);

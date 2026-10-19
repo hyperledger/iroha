@@ -2,11 +2,13 @@
 //!
 //! Parent validator locators retain exact original-pool backing and nested key custody.
 //! Action ordering and quantity comparisons use no allocator scratch.
-//! TODO(S8): action backing and nested account/key/amount custody, and slash
-//! planning/application still need complete original-pool owners. The bare Vec
-//! action/effects handoff must retain those owners through the payload and
-//! pristine-evidence callers; the locator owner does not fund them. Evidence and
-//! history ownership is tracked by their respective modules.
+//! Pristine penalty preparation retains the complete action graph through apply.
+//! TODO(S8): slash planning/application storage and exposure arithmetic still need
+//! complete original-pool owners. The proposal effects handoff still copies into
+//! the bare data-model Vec and requires a coordinated immutable carrier migration.
+//! Evidence and history ownership is tracked by their respective modules.
+#[cfg(test)]
+use crate::smartcontracts::isi::staking::max_slash_amount;
 #[cfg(test)]
 use crate::state::StateBlock;
 #[cfg(feature = "telemetry")]
@@ -15,7 +17,7 @@ use crate::{
     smartcontracts::isi::staking::{
         ConsensusSlashLiability, PublicLaneStakeIndex, apply_indexed_consensus_slash_to_validator,
         apply_indexed_slash_to_validator_without_observability,
-        indexed_slashable_validator_exposure, max_slash_amount, validator_tenure_contains_height,
+        indexed_slashable_validator_exposure, validator_tenure_contains_height,
     },
     state::{
         EvidencePreparationError, State, StateTransaction, StateView, WorldReadOnly,
@@ -31,7 +33,7 @@ use iroha_crypto::{ChargedPublicKey, Hash, PublicKey, PublicKeyAllocationError};
 use iroha_data_model::{
     block::{
         BlockHeader,
-        consensus::{Evidence, EvidencePenaltyStatus, EvidenceScope},
+        consensus::{EvidencePenaltyStatus, EvidenceScope},
     },
     consensus::{
         NposConsensusEffects, NposConsensusSlashAction, NposMarkConsensusEvidenceAppliedAction,
@@ -62,11 +64,23 @@ enum EffectsApplicationMode {
 }
 struct ValidatorLocator {
     peer_key: ChargedPublicKey,
-    lane_id: LaneId,
-    validator: AccountId,
+    /// Exact World storage key, cloned once under original-pool custody. Planning
+    /// borrows it for a keyed lookup, so no lookup scans or allocates.
+    key: (LaneId, AccountId),
     activation_height: u64,
     deactivation_height: Option<u64>,
     root_authority: bool,
+}
+impl ValidatorLocator {
+    /// Public lane of the retained registration.
+    fn lane_id(&self) -> LaneId {
+        self.key.0
+    }
+
+    /// Validator account of the retained registration.
+    fn validator(&self) -> &AccountId {
+        &self.key.1
+    }
 }
 /// Immutable flat lookup. Concrete keys/accounts cannot unwind during destruction;
 /// row destruction releases every account before the final nested-charge ledger.
@@ -240,8 +254,7 @@ impl ValidatorMap {
             let validator = clone_locator_account(&key.1, &mut reservation, &mut account_charges)?;
             rows.try_push(ValidatorLocator {
                 peer_key,
-                lane_id: key.0,
-                validator,
+                key: (key.0, validator),
                 activation_height: record.activation_height,
                 deactivation_height: record.deactivation_height,
                 root_authority: view.is_lane_active_for_authority(key.0)
@@ -255,12 +268,12 @@ impl ValidatorMap {
         {
             return Err(EvidencePreparationError::Invariant.into());
         }
+        // Tuple order is (lane, validator), the same order as the World key.
         rows.as_mut_slice().sort_unstable_by(|left, right| {
             left.peer_key
                 .get()
                 .cmp(right.peer_key.get())
-                .then_with(|| left.lane_id.cmp(&right.lane_id))
-                .then_with(|| left.validator.cmp(&right.validator))
+                .then_with(|| left.key.cmp(&right.key))
         });
         Ok(Self {
             rows,
@@ -317,8 +330,51 @@ fn original_slashable_exposure<'a>(
         .map_err(|error| eyre!("invalid slashable stake exposure for {validator}: {error}"))
 }
 
+/// Cross the eyre boundary with a selection refusal's bare typed preparation cause.
+/// Payload assembly downcasts [`EvidencePreparationError`] to keep its release
+/// observation; the admission wrapper would degrade it to an untyped diagnostic.
+fn selection_report(error: super::evidence::EvidenceAdmissionError) -> eyre::Report {
+    match error {
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC915")))]
+        super::evidence::EvidenceAdmissionError::Preparation(original) => {
+            eyre::Report::new(original)
+        }
+        other => eyre::Report::new(other),
+    }
+}
+
+/// Copy the funded selection into the bare proposal wire vector without an
+/// infallible allocation. The selection keeps its own custody until it drops.
+fn wire_evidence_admissions(
+    admissions: &[iroha_data_model::block::consensus::Evidence],
+) -> Result<Vec<iroha_data_model::block::consensus::Evidence>, EvidencePreparationError> {
+    use iroha_data_model::block::consensus::Evidence;
+    let backing = Layout::array::<Evidence>(admissions.len())
+        .map_err(|_| EvidencePreparationError::Admission(AllocationRefusal::DemandOverflow))?;
+    let mut wire = Vec::new();
+    wire.try_reserve_exact(admissions.len())
+        .map_err(|_| EvidencePreparationError::Allocator {
+            requested_bytes: backing.size(),
+        })?;
+    for evidence in admissions {
+        let frame = evidence.native_frame();
+        let mut native = Vec::new();
+        native
+            .try_reserve_exact(frame.len())
+            .map_err(|_| EvidencePreparationError::Allocator {
+                requested_bytes: frame.len(),
+            })?;
+        native.extend_from_slice(frame);
+        wire.push(Evidence { native });
+    }
+    Ok(wire)
+}
+
+#[path = "penalties/funded_actions.rs"]
+mod funded_actions;
 #[path = "penalties/sccp.rs"]
 mod sccp;
+pub(crate) use funded_actions::FundedPenaltyActions;
 
 struct ParentPenaltySnapshot {
     pending: ChargedBuffer<PendingPenaltyEvidence>,
@@ -592,8 +648,11 @@ impl<'a> PenaltyApplier<'a> {
             self.derive_from_stable_parent(block_header, true)?;
         Ok(NposConsensusEffects {
             parent_service_commit_qc: None,
-            evidence_admissions,
-            penalty_actions,
+            // TODO(S8): replace both independently owned wire copies with the
+            // shared immutable carrier in the coordinated proposal/block migration.
+            // Never extract the admitted vector and refund its ledger here.
+            evidence_admissions: wire_evidence_admissions(evidence_admissions.as_slice())?,
+            penalty_actions: penalty_actions.as_slice().to_vec(),
         })
     }
     /// Derive deterministic parent-state actions and retain their original funded
@@ -601,7 +660,7 @@ impl<'a> PenaltyApplier<'a> {
     pub(crate) fn derive_npos_penalty_actions(
         &self,
         block_header: &BlockHeader,
-    ) -> Result<(Vec<NposPenaltyAction>, PublicLaneStakeIndex)> {
+    ) -> Result<(FundedPenaltyActions, PublicLaneStakeIndex)> {
         self.derive_from_stable_parent(block_header, false)
             .map(|(_, actions, index)| (actions, index))
     }
@@ -609,7 +668,11 @@ impl<'a> PenaltyApplier<'a> {
         &self,
         block_header: &BlockHeader,
         include_admissions: bool,
-    ) -> Result<(Vec<Evidence>, Vec<NposPenaltyAction>, PublicLaneStakeIndex)> {
+    ) -> Result<(
+        super::evidence::FundedEvidenceAdmissions,
+        FundedPenaltyActions,
+        PublicLaneStakeIndex,
+    )> {
         loop {
             let generation_before = self.state.state_view_generation();
             if !generation_before.is_multiple_of(2) {
@@ -631,8 +694,11 @@ impl<'a> PenaltyApplier<'a> {
                         block_header.height().get(),
                         generation_before,
                     )
+                    .map_err(selection_report)?
                 } else {
-                    Vec::new()
+                    super::evidence::FundedEvidenceAdmissions::empty(
+                        self.state.evidence_preparation_budget(),
+                    )?
                 };
                 self.derive_consensus_penalty_actions(block_header, snapshot)
                     .map(|(actions, index)| (admissions, actions, index))
@@ -649,11 +715,15 @@ impl<'a> PenaltyApplier<'a> {
         &self,
         block_header: &BlockHeader,
         snapshot: ParentPenaltySnapshot,
-    ) -> Result<(Vec<NposPenaltyAction>, PublicLaneStakeIndex)> {
+    ) -> Result<(FundedPenaltyActions, PublicLaneStakeIndex)> {
         let current_height = block_header.height().get();
+        let demand = funded_actions::ActionDemand::from_snapshot(&snapshot)?;
         let mut pending = snapshot.pending;
         if pending.as_slice().is_empty() {
-            return Ok((Vec::new(), snapshot.stake_index));
+            return Ok((
+                FundedPenaltyActions::empty(self.state.evidence_preparation_budget())?,
+                snapshot.stake_index,
+            ));
         }
         pending
             .as_mut_slice()
@@ -662,7 +732,8 @@ impl<'a> PenaltyApplier<'a> {
         let mut scratch = self
             .state
             .consensus_effects_probe_block(block_header.clone())?;
-        let mut actions = Vec::new();
+        let mut actions =
+            funded_actions::ActionBuilder::new(demand, self.state.evidence_preparation_budget())?;
         for record in pending.as_slice() {
             let (key, scope, offence_height, recorded_at, instance, signer) = &record.0;
             if matches!(scope, EvidenceScope::SccpGeneration { .. }) {
@@ -732,105 +803,104 @@ impl<'a> PenaltyApplier<'a> {
                         {
                             continue;
                         }
-                        let validator_key = (locator.lane_id, locator.validator.clone());
+                        let (lane_id, validator) = (locator.lane_id(), locator.validator());
+                        // Keyed by the locator's retained World key: O(log V), no scan
+                        // over every registration and no per-lookup key allocation.
                         let current_record = scratch
                             .world
                             .public_lane_validators
-                            .get(&validator_key)
+                            .get(&locator.key)
                             .ok_or_else(|| {
                                 eyre!(
                                     "penalty planning lost retained validator {} on lane {}",
-                                    locator.validator,
-                                    locator.lane_id
+                                    validator,
+                                    lane_id
                                 )
                             })?;
                         if !liability.names_registration(&scratch.world, current_record)? {
                             continue;
                         }
-                        let share_keys = snapshot
-                            .stake_index
-                            .share_keys(locator.lane_id, &locator.validator);
+                        let share_keys = snapshot.stake_index.share_keys(lane_id, validator);
                         let current_exposure = indexed_slashable_validator_exposure(
                             &scratch.world,
-                            locator.lane_id,
-                            &locator.validator,
+                            lane_id,
+                            validator,
                             current_record,
                             &liability,
                             share_keys,
                         )
                         .wrap_err_with(|| {
                             format!(
-                                "failed to recompute slashable exposure for {} on lane {}",
-                                locator.validator, locator.lane_id
+                                "failed to recompute slashable exposure for {validator} on lane {lane_id}"
                             )
                         })?;
-                        let original_exposure = original_slashable_exposure(
-                            &snapshot.stake_index,
-                            locator.lane_id,
-                            &locator.validator,
-                        )?;
+                        let original_exposure =
+                            original_slashable_exposure(&snapshot.stake_index, lane_id, validator)?;
                         if &current_exposure > original_exposure {
                             return Err(eyre!(
                                 "slashable exposure increased while planning one penalty bundle"
                             ));
                         }
-                        let amount = max_slash_amount(&current_exposure, snapshot.max_slash_bps)?;
-                        if amount.is_zero() {
+                        let amount = funded_actions::slash_amount(
+                            &current_exposure,
+                            snapshot.max_slash_bps,
+                            actions.budget(),
+                        )?;
+                        if amount.get().is_zero() {
                             continue;
                         }
-                        let slash = NposConsensusSlashAction {
-                            evidence_key: key,
-                            signer: *signer,
-                            peer_id: peer_id.clone(),
-                            lane_id: locator.lane_id,
-                            validator: locator.validator.clone(),
-                            slash_id,
-                            amount,
-                        };
                         let mut transaction = scratch.consensus_effects_transaction()?;
                         apply_indexed_slash_to_validator_without_observability(
                             &mut transaction,
-                            slash.lane_id,
-                            &slash.validator,
-                            slash.slash_id,
-                            &slash.amount,
+                            lane_id,
+                            validator,
+                            slash_id,
+                            amount.get(),
                             block_header.creation_time_ms,
                             &liability,
                             share_keys,
                         )
                         .wrap_err_with(|| {
                             format!(
-                                "failed to plan consensus slash for {} on lane {}",
-                                slash.validator, slash.lane_id
+                                "failed to plan consensus slash for {validator} on lane {lane_id}"
                             )
                         })?;
                         transaction.apply_consensus_effects();
-                        actions.push(NposPenaltyAction::ConsensusSlash(slash));
+                        actions.slash(
+                            funded_actions::SlashFields {
+                                evidence_key: key,
+                                signer: *signer,
+                                peer_id,
+                                lane_id,
+                                validator,
+                                slash_id,
+                            },
+                            amount,
+                        )?;
                     }
                 }
             }
             // A removed, inactive, or zero-stake offender is still terminal:
             // retaining an unslashable record forever would exhaust the
             // bounded committed evidence table and suppress future proofs.
-            actions.push(NposPenaltyAction::MarkConsensusEvidenceApplied(
-                NposMarkConsensusEvidenceAppliedAction {
-                    evidence_key: key,
-                    height: current_height,
-                },
-            ));
+            actions.marker(key, current_height)?;
         }
-        canonicalize_penalty_actions(&mut actions);
-        Ok((actions, snapshot.stake_index))
+        Ok((actions.finish()?, snapshot.stake_index))
     }
 }
 
-/// Canonical action order needs no stable-sort scratch: equal actions are identical
-/// protocol values and are immediately deduplicated.
-fn canonicalize_penalty_actions(actions: &mut Vec<NposPenaltyAction>) {
-    #[cfg(all(test, sumeragi_core_mutation = "HC405"))]
+/// Canonical action order needs no stable-sort scratch. The funded builder
+/// suppresses duplicate values before allocating their nested storage.
+fn sort_penalty_actions(actions: &mut [NposPenaltyAction]) {
+    #[cfg(all(test, sumeragi_core_mutation = "HC901"))]
     actions.sort();
-    #[cfg(not(all(test, sumeragi_core_mutation = "HC405")))]
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC901")))]
     actions.sort_unstable();
+}
+
+#[cfg(test)]
+fn canonicalize_penalty_actions(actions: &mut Vec<NposPenaltyAction>) {
+    sort_penalty_actions(actions);
     actions.dedup();
 }
 
@@ -1396,7 +1466,7 @@ mod tests {
         });
         assert_eq!(
             allocations, 0,
-            "HC405 canonical penalty sorting must not allocate stable-sort scratch"
+            "HC901 canonical penalty sorting must not allocate stable-sort scratch"
         );
         assert_eq!(actions, expected);
         assert_eq!(actions.as_ptr(), pointer);
@@ -1846,12 +1916,12 @@ mod tests {
             .get(peers[0].public_key())
             .and_then(|locators| locators.first())
             .expect("first validator indexed");
-        assert_eq!(first_locator.validator, first);
+        assert_eq!(first_locator.validator(), &first);
         assert_eq!(
             original_slashable_exposure(
                 &snapshot.stake_index,
-                first_locator.lane_id,
-                &first_locator.validator
+                first_locator.lane_id(),
+                first_locator.validator()
             )
             .unwrap(),
             &Quantity::from(13_000_u64)
@@ -1861,12 +1931,12 @@ mod tests {
             .get(peers[1].public_key())
             .and_then(|locators| locators.first())
             .expect("second validator indexed");
-        assert_eq!(second_locator.validator, second);
+        assert_eq!(second_locator.validator(), &second);
         assert_eq!(
             original_slashable_exposure(
                 &snapshot.stake_index,
-                second_locator.lane_id,
-                &second_locator.validator
+                second_locator.lane_id(),
+                second_locator.validator()
             )
             .unwrap(),
             &Quantity::from(10_000_u64)
@@ -2521,8 +2591,8 @@ mod tests {
             peer
         );
         assert_eq!(
-            moved.get(peers[0].public_key()).unwrap()[0].validator,
-            validator
+            moved.get(peers[0].public_key()).unwrap()[0].validator(),
+            &validator
         );
         assert!(moved.get(peers[1].public_key()).is_none());
         assert_eq!(budget.reserved_bytes(), required);
@@ -2619,6 +2689,11 @@ mod tests {
             state.world.assets.view().get(&asset).unwrap().as_ref(),
             &before
         );
+        assert!(
+            budget.reserved_bytes() > 0,
+            "the retried action graph retains its original backing"
+        );
+        drop(actions);
         assert_eq!(budget.reserved_bytes(), 0);
         drop(index);
         assert_eq!(state.stake_index_budget().reserved_bytes(), 0);
@@ -2800,8 +2875,8 @@ mod tests {
         );
         let retry = ValidatorMap::from_world(&view, &index, &original_pool).unwrap();
         assert_eq!(
-            retry.get(peer.public_key()).unwrap()[0].validator,
-            validator
+            retry.get(peer.public_key()).unwrap()[0].validator(),
+            &validator
         );
         assert_eq!(
             original_slashable_exposure(&index, LaneId::SINGLE, &validator).unwrap(),
@@ -2908,7 +2983,7 @@ mod tests {
                 .get(peer)
                 .unwrap()
                 .iter()
-                .map(|row| (row.lane_id, row.validator.clone()))
+                .map(|row| row.key.clone())
                 .collect::<Vec<_>>();
             assert_eq!(actual.as_slice(), expected.as_slice());
         }
@@ -2918,14 +2993,22 @@ mod tests {
             3,
             "the lane count resets at the next authoritative lane"
         );
-        assert_eq!(locators[2].lane_id, LaneId::new(1));
-        assert_eq!(locators[2].validator, second);
-        assert!(locators[..2].iter().any(|row| row.validator == first));
+        assert_eq!(locators[2].lane_id(), LaneId::new(1));
+        assert_eq!(locators[2].validator(), &second);
+        assert!(locators[..2].iter().any(|row| row.validator() == &first));
         for row in locators {
             assert_eq!(
-                original_slashable_exposure(&index, row.lane_id, &row.validator).unwrap(),
+                original_slashable_exposure(&index, row.lane_id(), row.validator()).unwrap(),
                 &Quantity::from(10_000_u64)
             );
+            // The retained locator key is the exact World key used by planning lookup.
+            let (key, record) = view
+                .world
+                .public_lane_validators()
+                .get_key_value(&row.key)
+                .expect("retained locator key addresses its World registration");
+            assert_eq!(key, &row.key);
+            assert_eq!(record.peer_id.public_key(), peers[0].public_key());
         }
         assert!(map.get(peers[1].public_key()).is_none());
         drop(map);
@@ -3045,6 +3128,11 @@ mod tests {
             state.world.consensus_evidence.view().get(&due),
             Some(&original)
         );
+        assert!(
+            budget.reserved_bytes() > 0,
+            "the retried action graph retains its original backing"
+        );
+        drop(actions);
         assert_eq!(budget.reserved_bytes(), 0);
     }
     #[test]
@@ -3390,6 +3478,11 @@ mod tests {
             state.world.consensus_evidence.view().get(&due),
             Some(&original)
         );
+        assert!(
+            budget.reserved_bytes() > 0,
+            "the retried action graph retains its original backing"
+        );
+        drop(actions);
         assert_eq!(budget.reserved_bytes(), 0);
     }
     #[test]
@@ -3422,8 +3515,8 @@ mod tests {
             assert_eq!(locators[0].activation_height, 1);
             let exposure = original_slashable_exposure(
                 &snapshot.stake_index,
-                locators[0].lane_id,
-                &locators[0].validator,
+                locators[0].lane_id(),
+                locators[0].validator(),
             )
             .unwrap();
             assert_eq!(exposure, &Quantity::from(10_000_u64));
@@ -3890,7 +3983,7 @@ mod tests {
         let effects = NposConsensusEffects {
             parent_service_commit_qc: None,
             evidence_admissions: Vec::new(),
-            penalty_actions,
+            penalty_actions: penalty_actions.as_slice().to_vec(),
         };
         let evidence_prune_keys =
             crate::sumeragi::evidence::committed_evidence_prune_keys_from_state(&state, 2)
@@ -4098,7 +4191,7 @@ mod tests {
         let effects = NposConsensusEffects {
             parent_service_commit_qc: None,
             evidence_admissions: Vec::new(),
-            penalty_actions: actions,
+            penalty_actions: actions.as_slice().to_vec(),
         };
         apply_npos_consensus_effects_to_transaction(
             &mut tx,
@@ -4147,7 +4240,7 @@ mod tests {
                 .derive_npos_penalty_actions(&penalty_header(22))
                 .unwrap();
             assert_eq!(
-                actions,
+                actions.as_slice(),
                 vec![NposPenaltyAction::MarkConsensusEvidenceApplied(
                     NposMarkConsensusEvidenceAppliedAction {
                         evidence_key,
@@ -4242,7 +4335,7 @@ mod tests {
             .derive_npos_penalty_actions(&penalty_header(22))
             .unwrap();
         assert_eq!(
-            actions,
+            actions.as_slice(),
             vec![NposPenaltyAction::MarkConsensusEvidenceApplied(
                 NposMarkConsensusEvidenceAppliedAction {
                     evidence_key,
@@ -4254,7 +4347,7 @@ mod tests {
         let effects = NposConsensusEffects {
             parent_service_commit_qc: None,
             evidence_admissions: Vec::new(),
-            penalty_actions: actions,
+            penalty_actions: actions.as_slice().to_vec(),
         };
         let mut block = state
             .consensus_effects_probe_block(penalty_header(22))
@@ -4377,5 +4470,215 @@ mod tests {
                 EvidencePenaltyStatus::Pending
             );
         }
+    }
+
+    /// Certified NPoS parent whose native history authenticates one local report.
+    fn certified_npos_chain() -> crate::sumeragi::test_chain::CertifiedTestChain {
+        use crate::sumeragi::test_chain::{CertifiedTestChain, TestChainConfig};
+        use iroha_data_model::parameter::system::SumeragiConsensusMode;
+        let mut config = TestChainConfig::new(World::new(), 1_000);
+        config.consensus_mode = SumeragiConsensusMode::Npos;
+        config.genesis_parameters.push(Parameter::Custom(
+            SumeragiNposParameters {
+                slashing_delay_blocks: 2,
+                ..SumeragiNposParameters::default()
+            }
+            .into_custom_parameter(),
+        ));
+        CertifiedTestChain::start(config).unwrap()
+    }
+
+    #[test]
+    fn pending_selection_refusal_crosses_effects_boundary_as_bare_typed_preparation() {
+        use crate::sumeragi::{evidence::EvidenceAdmissionError, test_chain::Signers};
+        use iroha_sumeragi::{message::Evidence as NativeEvidence, types::Hash32};
+        let mut chain = certified_npos_chain();
+        chain.commit(Vec::new());
+        let native = NativeEvidence::ConflictingCertificates(
+            chain.commit_qc(2, Hash32([0x31; 32]), Hash32([0x32; 32]), Signers::Quorum),
+            chain.commit_qc(
+                2,
+                Hash32([0x33; 32]),
+                Hash32([0x34; 32]),
+                Signers::LastThree,
+            ),
+        );
+        let state = chain.state();
+        assert!(crate::sumeragi::evidence::observe(state, &native).unwrap());
+        let budget = state.evidence_preparation_budget();
+        let carrier = state.view().height() as u64 + 1;
+        let header = penalty_header(carrier);
+        // Fund the exact parent snapshot; only the first selection backing is refused.
+        let view = state.view();
+        let observed = budget.reserved_bytes();
+        let snapshot =
+            PenaltyApplier::parent_snapshot(&view, carrier, budget, state.stake_index_budget())
+                .unwrap();
+        let snapshot_bytes = budget.reserved_bytes() - observed;
+        drop(snapshot);
+        drop(view);
+        let requested_bytes = Layout::array::<ChargedBuffer<u8>>(1).unwrap().size();
+        let blocker = budget
+            .try_reserve_bytes(
+                budget.limit_bytes() - observed - snapshot_bytes - requested_bytes + 1,
+            )
+            .unwrap();
+        let report = PenaltyApplier::new(state, None)
+            .derive_npos_consensus_effects(&header)
+            .expect_err("an unfunded selection backing refuses the proposal effects locally");
+        // Payload assembly types its staking refusal by exactly this downcast.
+        let refusal = report.downcast_ref::<EvidencePreparationError>().expect(
+            "HC915 a selection refusal must cross the effects boundary as its bare typed cause",
+        );
+        assert!(matches!(
+            refusal,
+            EvidencePreparationError::Admission(AllocationRefusal::Capacity {
+                requested_bytes: actual,
+                ..
+            }) if *actual == requested_bytes
+        ));
+        assert!(
+            refusal.release_wait().is_some(),
+            "the original release observation survives the boundary"
+        );
+        assert!(report.downcast_ref::<EvidenceAdmissionError>().is_none());
+        drop(report);
+        drop(blocker);
+        let effects = PenaltyApplier::new(state, None)
+            .derive_npos_consensus_effects(&header)
+            .expect("the same selection retries after its original capacity is released");
+        assert_eq!(
+            effects.evidence_admissions,
+            [Evidence::from_native(&native).unwrap()]
+        );
+        assert_eq!(budget.reserved_bytes(), observed);
+    }
+
+    #[test]
+    fn selection_report_unwraps_only_preparation_refusals() {
+        use crate::sumeragi::evidence::EvidenceAdmissionError;
+        let pool = AllocationBudget::new(1);
+        let blocker = pool.try_reserve_bytes(1).unwrap();
+        let capacity = pool.try_reserve_bytes(1).unwrap_err();
+        let report = selection_report(EvidenceAdmissionError::Preparation(
+            EvidencePreparationError::Admission(capacity.clone()),
+        ));
+        let bare = report
+            .downcast_ref::<EvidencePreparationError>()
+            .expect("HC915 a preparation refusal crosses the eyre boundary unwrapped");
+        assert!(matches!(bare, EvidencePreparationError::Admission(actual) if actual == &capacity));
+        assert!(bare.release_wait().is_some());
+        let invalid = selection_report(EvidenceAdmissionError::Invalid("forged".into()));
+        assert!(invalid.downcast_ref::<EvidencePreparationError>().is_none());
+        assert!(matches!(
+            invalid.downcast_ref::<EvidenceAdmissionError>(),
+            Some(EvidenceAdmissionError::Invalid(reason)) if reason == "forged"
+        ));
+        drop(blocker);
+    }
+
+    #[test]
+    fn proposal_wire_admissions_copy_exact_frames_and_refuse_typed_allocations() {
+        let frames = [fixture_vote_evidence(1, 0), fixture_vote_evidence(2, 1)];
+        let wire = wire_evidence_admissions(&frames).unwrap();
+        assert_eq!(wire, frames);
+        for (copy, original) in wire.iter().zip(&frames) {
+            assert_ne!(
+                copy.native_frame().as_ptr(),
+                original.native_frame().as_ptr(),
+                "the wire vector owns an independent frame copy"
+            );
+        }
+        assert!(wire_evidence_admissions(&[]).unwrap().is_empty());
+        for layout in [
+            Layout::array::<Evidence>(frames.len()).unwrap(),
+            Layout::array::<u8>(frames[0].native_frame().len()).unwrap(),
+        ] {
+            let (result, refused) =
+                crate::test_allocations::refuse_one_layout_during(layout, || {
+                    wire_evidence_admissions(&frames)
+                });
+            assert!(
+                refused,
+                "the exact wire layout {layout:?} reaches the allocator"
+            );
+            assert!(matches!(
+                result,
+                Err(EvidencePreparationError::Allocator { requested_bytes })
+                    if requested_bytes == layout.size()
+            ));
+        }
+    }
+
+    #[test]
+    fn action_demand_reserves_one_marker_slot_per_retained_record() {
+        use iroha_data_model::block::consensus::EvidenceOffender;
+        let state = native_penalty_state();
+        install_one_block_delay_npos(&state);
+        let key = insert_evidence(&state, fixture_vote_evidence(1, 0), 1);
+        // Attribute every roster signer to the one retained record: four pending rows.
+        {
+            let mut block = state.world.consensus_evidence.block();
+            let mut record = block.get(&key).unwrap().canonical_projection();
+            record.attribution.offenders = roster()
+                .into_iter()
+                .zip(0_u32..)
+                .map(|(peer_id, signer)| EvidenceOffender {
+                    lane_stake: None,
+                    signer,
+                    peer_id,
+                })
+                .collect();
+            let record = crate::state::RetainedEvidenceRecord::from_fixture(
+                record,
+                &state.ivm_execution_budget(),
+            )
+            .unwrap();
+            block.insert(key, record);
+            block.commit();
+        }
+        let view = state.view();
+        let snapshot = PenaltyApplier::parent_snapshot(
+            &view,
+            2,
+            state.evidence_preparation_budget(),
+            state.stake_index_budget(),
+        )
+        .unwrap();
+        assert_eq!(snapshot.pending.as_slice().len(), 4);
+        let slashes: usize = snapshot
+            .pending
+            .as_slice()
+            .iter()
+            .filter_map(|row| row.0.5.as_ref())
+            .map(|(_, peer, _, _)| {
+                snapshot
+                    .validator_map
+                    .get(peer.public_key())
+                    .map_or(0, <[ValidatorLocator]>::len)
+            })
+            .sum();
+        let demand = funded_actions::ActionDemand::from_snapshot(&snapshot).unwrap();
+        assert_eq!(
+            demand.action_slots(),
+            1 + slashes,
+            "four offender rows of one record reserve one marker slot"
+        );
+        drop(snapshot);
+        drop(view);
+        let (actions, _index) = PenaltyApplier::new(&state, None)
+            .derive_npos_penalty_actions(&penalty_header(2))
+            .unwrap();
+        assert_eq!(
+            actions
+                .iter()
+                .filter(|action| matches!(
+                    action,
+                    NposPenaltyAction::MarkConsensusEvidenceApplied(mark)
+                        if mark.evidence_key == key && mark.height == 2
+                ))
+                .count(),
+            1
+        );
     }
 }

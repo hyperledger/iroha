@@ -127,12 +127,8 @@ fn each_projection_rejects_omitted_members_in_both_images() {
             }
             let name = match index {
                 0 => omit!(asset_definition_domains, id(), domain()),
-                1 => omit!(
-                    asset_definitions_by_owner,
-                    ALICE_ID.clone(),
-                    BTreeSet::from([id()])
-                ),
-                2 => omit!(domain_asset_definitions, domain(), BTreeSet::from([id()])),
+                1 => omit!(asset_definitions_by_owner, (ALICE_ID.clone(), id()), ()),
+                2 => omit!(domain_asset_definitions, (domain(), id()), ()),
                 _ => unreachable!(),
             };
             assert_eq!(
@@ -144,9 +140,9 @@ fn each_projection_rejects_omitted_members_in_both_images() {
 }
 
 #[test]
-fn optional_and_unknown_contexts_and_empty_or_foreign_groups_are_rejected() {
+fn optional_and_unknown_contexts_and_foreign_rows_are_rejected() {
     for previous in [false, true] {
-        for case in 0..5 {
+        for case in 0..4 {
             let mut world = fixture(false);
             macro_rules! extra {
                 ($field:ident, $key:expr, $value:expr) => {{
@@ -167,26 +163,13 @@ fn optional_and_unknown_contexts_and_empty_or_foreign_groups_are_rejected() {
                     AssetDefinitionId::derive_from_components(domain(), "absent".parse().unwrap()),
                     domain()
                 ),
-                2 => extra!(domain_asset_definitions, domain(), BTreeSet::new()),
-                3 => extra!(domain_asset_definitions, domain(), BTreeSet::from([id()])),
-                4 => extra!(
-                    asset_definitions_by_owner,
-                    BOB_ID.clone(),
-                    BTreeSet::from([id()])
-                ),
+                2 => extra!(domain_asset_definitions, (domain(), id()), ()),
+                3 => extra!(asset_definitions_by_owner, (BOB_ID.clone(), id()), ()),
                 _ => unreachable!(),
             };
             assert_eq!(
                 check(&world, 16_777_216),
-                Err(corrupt(
-                    name,
-                    previous,
-                    if case == 2 {
-                        GroupMismatch::EmptyGroup
-                    } else {
-                        GroupMismatch::ForeignMember
-                    }
-                ))
+                Err(corrupt(name, previous, GroupMismatch::ForeignMember))
             );
         }
     }
@@ -238,7 +221,7 @@ fn source_reference_failures_precede_index_checks_and_leave_sources_unchanged() 
 
 #[test]
 fn work_is_charged_before_rows_domain_lookups_and_absent_undo_inspections() {
-    for (context, exact, delta) in [(false, 434, 175), (true, 1218, 245)] {
+    for (context, exact, delta) in [(false, 428, 175), (true, 1206, 245)] {
         let world = fixture(context);
         assert_eq!(test_support::world_work(&world), exact);
         assert_eq!(check(&world, exact), Ok(()));

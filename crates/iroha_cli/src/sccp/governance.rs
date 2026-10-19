@@ -463,8 +463,6 @@ mod tests {
                 height: 41,
                 transition: retired,
             }],
-            relay_ballots: vec![ballot],
-            finalize_ballots: vec![ballot],
         };
         let steps = plan_steps(&plan);
         assert_eq!(

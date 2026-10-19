@@ -304,7 +304,7 @@ pub fn verify_retained(
     // ambient I105 prefix must not reinterpret its fee-policy account literals.
     let _address_profile = ChainDiscriminantGuard::enter(client.account_chain_discriminant);
     prepared.load_operator_key_pair()?;
-    verify_private_credentials(prepared, spec)?;
+    verify_private_credentials(prepared)?;
     let bytes =
         iroha_fs::read_private(root.join("genesis.signed.nrt"), SIGNED_GENESIS_MAX_BYTES_V1)?;
     let block =
@@ -376,10 +376,7 @@ pub fn verify_retained(
     Ok(())
 }
 
-fn verify_private_credentials(
-    prepared: &PreparedLocalnet,
-    spec: &PrivateRootSpec,
-) -> crate::managed::Result<()> {
+fn verify_private_credentials(prepared: &PreparedLocalnet) -> crate::managed::Result<()> {
     let invalid = || Error::Invalid("private-root listener credential binding is invalid".into());
     let client = iroha_fs::read_private(&prepared.context.client_config, 1024 * 1024)?;
     let client = crate::secret_toml::Table::new(
@@ -1354,7 +1351,7 @@ mod tests {
             Zeroizing::new(toml::to_string(&*table).unwrap()).as_bytes(),
         )
         .unwrap();
-        assert!(verify_private_credentials(&prepared, &spec).is_err());
+        assert!(verify_private_credentials(&prepared).is_err());
         assert!(verify_retained(&directory.canonicalize().unwrap(), &prepared, &spec).is_err());
         assert_eq!(
             iroha_data_model::account::address::chain_discriminant(),
@@ -1385,7 +1382,7 @@ mod tests {
         )
         .unwrap();
         assert!(
-            verify_private_credentials(&prepared, &spec).is_err(),
+            verify_private_credentials(&prepared).is_err(),
             "a node-local zero-fee rewrite cannot replace the signed private fee policy"
         );
         custody::replace(peer_path, bytes.as_slice()).unwrap();

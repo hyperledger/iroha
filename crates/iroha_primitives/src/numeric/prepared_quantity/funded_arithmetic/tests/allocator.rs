@@ -106,13 +106,13 @@ pub(super) fn observe<T>(
     refuse: bool,
     operation: impl FnOnce() -> T,
 ) -> (T, Observation) {
-    assert!(OBSERVATION.with(Cell::get).is_none());
     struct Clear;
     impl Drop for Clear {
         fn drop(&mut self) {
             OBSERVATION.with(|slot| slot.set(None));
         }
     }
+    assert!(OBSERVATION.with(Cell::get).is_none());
     OBSERVATION.with(|slot| {
         slot.set(Some(Observation {
             budget,

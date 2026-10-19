@@ -12,13 +12,13 @@ use mv::storage::History;
 #[derive(Default)]
 struct Image {
     domains: BTreeMap<AssetDefinitionId, DomainId>,
-    domain_definitions: BTreeMap<DomainId, BTreeSet<AssetDefinitionId>>,
-    owners: BTreeMap<AccountId, BTreeSet<AssetDefinitionId>>,
-    holders: BTreeMap<AssetDefinitionId, BTreeSet<AccountId>>,
-    definition_assets: BTreeMap<AssetDefinitionId, BTreeSet<AssetId>>,
-    account_assets: BTreeMap<AccountId, BTreeSet<AssetId>>,
-    domain_assets: BTreeMap<DomainId, BTreeSet<AssetId>>,
-    nonzero_holders: BTreeMap<AssetDefinitionId, BTreeSet<AccountId>>,
+    domain_definitions: BTreeMap<(DomainId, AssetDefinitionId), ()>,
+    owners: BTreeMap<(AccountId, AssetDefinitionId), ()>,
+    holders: BTreeMap<(AssetDefinitionId, AccountId), ()>,
+    asset_counts: BTreeMap<AssetDefinitionId, u64>,
+    definition_assets: BTreeMap<(AssetDefinitionId, AssetId), ()>,
+    domain_assets: BTreeMap<(DomainId, AssetId), ()>,
+    nonzero_holders: BTreeMap<(AssetDefinitionId, AccountId), ()>,
 }
 
 fn project<'a>(
@@ -47,15 +47,11 @@ fn project<'a>(
             image.domains.insert(id.clone(), domain.clone());
             image
                 .domain_definitions
-                .entry(domain.clone())
-                .or_default()
-                .insert(id.clone());
+                .insert((domain.clone(), id.clone()), ());
         }
         image
             .owners
-            .entry(definition.owned_by().clone())
-            .or_default()
-            .insert(id.clone());
+            .insert((definition.owned_by().clone(), id.clone()), ());
     }
     for (id, value) in assets {
         if !definition_exists(id.definition()) {
@@ -66,32 +62,21 @@ fn project<'a>(
         }
         image
             .holders
-            .entry(id.definition().clone())
-            .or_default()
-            .insert(id.account().clone());
+            .insert((id.definition().clone(), id.account().clone()), ());
         image
             .definition_assets
+            .insert((id.definition().clone(), id.clone()), ());
+        *image
+            .asset_counts
             .entry(id.definition().clone())
-            .or_default()
-            .insert(id.clone());
-        image
-            .account_assets
-            .entry(id.account().clone())
-            .or_default()
-            .insert(id.clone());
+            .or_default() += 1;
         if let Some(domain) = image.domains.get(id.definition()) {
-            image
-                .domain_assets
-                .entry(domain.clone())
-                .or_default()
-                .insert(id.clone());
+            image.domain_assets.insert((domain.clone(), id.clone()), ());
         }
         if !value.as_ref().is_zero() {
             image
                 .nonzero_holders
-                .entry(id.definition().clone())
-                .or_default()
-                .insert(id.account().clone());
+                .insert((id.definition().clone(), id.account().clone()), ());
         }
     }
     Ok(image)
@@ -100,11 +85,12 @@ fn project<'a>(
 #[derive(Default)]
 struct Touches {
     definitions: BTreeSet<AssetDefinitionId>,
-    domains: BTreeSet<DomainId>,
-    owners: BTreeSet<AccountId>,
+    domains: BTreeSet<(DomainId, AssetDefinitionId)>,
+    owners: BTreeSet<(AccountId, AssetDefinitionId)>,
+    holders: BTreeSet<(AssetDefinitionId, AccountId)>,
+    definition_assets: BTreeSet<(AssetDefinitionId, AssetId)>,
     asset_definitions: BTreeSet<AssetDefinitionId>,
-    accounts: BTreeSet<AccountId>,
-    asset_domains: BTreeSet<DomainId>,
+    asset_domains: BTreeSet<(DomainId, AssetId)>,
 }
 
 impl Touches {
@@ -119,18 +105,22 @@ impl Touches {
                 .into_iter()
                 .flatten()
             {
-                touched.owners.insert(definition.owned_by().clone());
+                touched
+                    .owners
+                    .insert((definition.owned_by().clone(), id.clone()));
                 if let Some(domain) = definition.owning_domain() {
-                    touched.domains.insert(domain.clone());
-                    // Untouched balances follow the definition's domain in each
-                    // image; a definition change alone can move this bucket.
-                    touched.asset_domains.insert(domain.clone());
+                    touched.domains.insert((domain.clone(), id.clone()));
                 }
             }
         }
         for (id, _) in assets.revert_map().iter() {
             touched.asset_definitions.insert(id.definition().clone());
-            touched.accounts.insert(id.account().clone());
+            touched
+                .holders
+                .insert((id.definition().clone(), id.account().clone()));
+            touched
+                .definition_assets
+                .insert((id.definition().clone(), id.clone()));
             for definition in [
                 definitions.current().get(id.definition()),
                 definitions.get_before_block(id.definition()),
@@ -139,7 +129,7 @@ impl Touches {
             .flatten()
             {
                 if let Some(domain) = definition.owning_domain() {
-                    touched.asset_domains.insert(domain.clone());
+                    touched.asset_domains.insert((domain.clone(), id.clone()));
                 }
             }
         }
@@ -147,7 +137,7 @@ impl Touches {
     }
 }
 
-/// Keep changed buckets and redundant source touches, with complete old members.
+/// Keep changed rows and redundant source touches with their prior value.
 fn restore<K: mv::Key, V: mv::Value + PartialEq>(
     current: BTreeMap<K, V>,
     mut previous: BTreeMap<K, V>,
@@ -169,7 +159,7 @@ fn restore<K: mv::Key, V: mv::Value + PartialEq>(
     Storage::from_snapshot_parts(current, undo)
 }
 
-/// Check both source images before replacing all eight derived lookup indexes.
+/// Check both source images before replacing membership rows and asset counters.
 pub(super) fn assets(world: &mut World) -> Result<(), String> {
     // Borrow the backing once so all three histories retain disjoint source fields.
     let world: &mut WorldData = world;
@@ -231,20 +221,16 @@ pub(super) fn assets(world: &mut World) -> Result<(), String> {
         &touched.domains,
     );
     world.asset_definitions_by_owner = restore(current.owners, previous.owners, &touched.owners);
-    world.asset_definition_holders = restore(
-        current.holders,
-        previous.holders,
+    world.asset_definition_holders = restore(current.holders, previous.holders, &touched.holders);
+    world.asset_definition_asset_counts = restore(
+        current.asset_counts,
+        previous.asset_counts,
         &touched.asset_definitions,
     );
     world.asset_definition_assets = restore(
         current.definition_assets,
         previous.definition_assets,
-        &touched.asset_definitions,
-    );
-    world.assets_by_account = restore(
-        current.account_assets,
-        previous.account_assets,
-        &touched.accounts,
+        &touched.definition_assets,
     );
     world.assets_by_domain = restore(
         current.domain_assets,
@@ -254,7 +240,7 @@ pub(super) fn assets(world: &mut World) -> Result<(), String> {
     world.asset_definition_nonzero_holders = restore(
         current.nonzero_holders,
         previous.nonzero_holders,
-        &touched.asset_definitions,
+        &touched.holders,
     );
     Ok(())
 }

@@ -221,6 +221,10 @@ fn original_read(fixture: &Fixture) {
         assert_eq!(body.source(), fixture.body.source());
         assert_eq!(body, fixture.body);
         assert_eq!(qc, fixture.qc);
+        let metadata = read(fixture, &fixture.executed, 2).poll_metadata().unwrap();
+        assert_eq!(metadata.manifest.header, *fixture.body.header());
+        assert_eq!(metadata.manifest.availability, *fixture.body.availability());
+        assert_eq!(metadata.commit_qc, fixture.qc);
     }
     assert_eq!(fixture.store.execution_budget.reserved_bytes(), retained);
 }
@@ -237,6 +241,11 @@ fn reject_changed(fixture: &Fixture, changed: &SignedBlock) -> io::Error {
         let mut reader = read(fixture, changed, 2);
         for _ in 0..2 {
             let error = invalid_data(reader.poll().unwrap_err());
+            assert_eq!(error.to_string(), direct.to_string());
+        }
+        let mut metadata = read(fixture, changed, 2);
+        for _ in 0..2 {
+            let error = invalid_data(metadata.poll_metadata().unwrap_err());
             assert_eq!(error.to_string(), direct.to_string());
         }
     }

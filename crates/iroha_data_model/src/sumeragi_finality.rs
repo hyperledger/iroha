@@ -77,7 +77,7 @@ use std::collections::BTreeMap;
 
 use iroha_crypto::{
     Algorithm, BlsNormalPopVerifiedKey, Hash, HashOf, PublicKey, SignatureOf,
-    bls::consensus::{self, ConsensusAggregateScratch, ConsensusDigest},
+    bls::consensus::{self, ConsensusDigest},
 };
 use iroha_model_base::peer::PeerId;
 use iroha_sumeragi::{
@@ -1709,10 +1709,7 @@ impl Crypto for ProofCrypto {
         if keys.iter().any(|key| !self.keys.contains_key(*key)) {
             return false;
         }
-        let mut scratch =
-            ConsensusAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
-                .unwrap_or_else(|never| match never {});
-        scratch.verify_fast_aggregate(
+        consensus::verify_fast_aggregate_iter(
             keys.iter().filter_map(|key| self.keys.get(*key)),
             &digest,
             &signature.0,
@@ -1729,10 +1726,7 @@ impl Crypto for ProofCrypto {
         }) {
             return false;
         }
-        let mut scratch =
-            ConsensusAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
-                .unwrap_or_else(|never| match never {});
-        scratch.verify_aggregate_multi(
+        consensus::verify_aggregate_multi_iter(
             groups.iter().filter_map(|(keys, message)| {
                 ConsensusDigest::from_preimage(message)
                     .map(|digest| (keys.iter().filter_map(|key| self.keys.get(*key)), digest))

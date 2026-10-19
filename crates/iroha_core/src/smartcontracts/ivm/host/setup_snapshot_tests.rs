@@ -487,19 +487,11 @@ fn vrf_epoch_seed_projection_matches_eager_verification_across_state_changes() {
     let later_oracle = assert_vrf_projection_matches_oracle(&later_view, &[2, 4, 6]);
     assert_eq!(first_oracle[&2], later_oracle[&2]);
     assert_eq!(first_oracle[&4], later_oracle[&4]);
-    drop(later_view);
 
-    // The same comparison holds for a host bound to an executing transaction.
-    let header = BlockHeader::new(
-        NonZeroU64::new(19).expect("nonzero height"),
-        None,
-        None,
-        0,
-        0,
-    );
-    let mut block = later.block(header);
-    let transaction = block.transaction();
-    assert_vrf_projection_matches_oracle(&transaction, &[2, 4, 6]);
+    // The deferred scan dispatches every query-state kind to the same
+    // projection; a lightweight query view observes the same seeds.
+    let query_view = later.query_view();
+    assert_vrf_projection_matches_oracle(&query_view, &[2, 4, 6]);
 }
 
 #[test]
@@ -621,5 +613,230 @@ fn deferred_host_setup_charges_a_representative_contract_identically() {
         assert_eq!(eager_vm.remaining_gas(), deferred_vm.remaining_gas());
         assert_eq!(queued_instructions(&eager), queued_instructions(&deferred));
         assert_eq!(eager.next_nft_sequence(), deferred.next_nft_sequence());
+    }
+}
+
+/// Mean wall time of `run` over `iterations` calls, in microseconds.
+fn mean_micros(iterations: u32, mut run: impl FnMut()) -> u128 {
+    let start = std::time::Instant::now();
+    for _ in 0..iterations {
+        run();
+    }
+    start.elapsed().as_micros() / u128::from(iterations)
+}
+
+/// One canonical native verifying-key registry entry.
+fn canonical_transfer_key_entry() -> (VerifyingKeyId, VerifyingKeyRecord) {
+    let backend = "pipa-r/pasta";
+    let key = crate::zk::confidential_v2::confidential_transfer_v2_vk_box()
+        .expect("canonical confidential-transfer verifier key");
+    let mut record = VerifyingKeyRecord::new_with_owner(
+        1,
+        crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID.to_owned(),
+        None,
+        "core",
+        iroha_data_model::zk::BackendTag::NativePipaRPasta,
+        "vesta",
+        Hash::new(crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_PUBLIC_INPUTS_SCHEMA_V1)
+            .into(),
+        crate::zk::hash_vk_bytes(backend, &key.bytes),
+    );
+    record.status = iroha_data_model::confidential::ConfidentialStatus::Active;
+    record.max_proof_bytes = 1024 * 1024;
+    record.gas_schedule_id = Some("native_pipa_r_default".to_owned());
+    record.vk_len = u32::try_from(key.bytes.len()).expect("key length fits u32");
+    record.key = Some(key);
+    (
+        VerifyingKeyId::new(backend, "setup-cost-diagnostic"),
+        record,
+    )
+}
+
+#[test]
+#[ignore = "timing diagnostic for host-setup snapshots; run with --ignored --nocapture"]
+fn host_setup_snapshot_cost_diagnostic() {
+    const ACCOUNTS: u32 = 20_000;
+    const NULLIFIERS: u32 = 100_000;
+    let mut world = World::default();
+    for index in 0..ACCOUNTS {
+        world.accounts.insert(
+            seeded_account(index),
+            AccountValue::new(AccountDetails::default()),
+        );
+    }
+    let asset = AssetDefinitionId::derive_from_components(
+        DomainId::try_new("setupcost", "universal").expect("fixture domain"),
+        "asset".parse().expect("fixture asset name"),
+    );
+    let mut zk_state = ZkAssetState::default();
+    let leaves = (0_u32..1_024)
+        .map(|index| {
+            // Small outer bytes keep the leaf canonical in either byte order.
+            let mut leaf = [0_u8; 32];
+            leaf[0] = 0x01;
+            leaf[1..5].copy_from_slice(&index.to_le_bytes());
+            leaf[31] = 0x01;
+            leaf
+        })
+        .collect::<Vec<_>>();
+    zk_state
+        .push_commitments(
+            &leaves,
+            NonZeroUsize::new(64).expect("non-zero root history cap"),
+        )
+        .expect("canonical confidential tree");
+    for index in 0..NULLIFIERS {
+        let mut nullifier = [0_u8; 32];
+        nullifier[..4].copy_from_slice(&index.to_le_bytes());
+        zk_state.nullifiers.insert(nullifier);
+    }
+    world.zk_assets.insert(asset, zk_state);
+    let state = State::new_for_testing(
+        world,
+        Kura::blank_kura_for_testing(),
+        LiveQueryStore::start_test(),
+    );
+    let view = state.view();
+
+    let accounts_before = mean_micros(20, || {
+        std::hint::black_box(Arc::new(complete_account_snapshot(view.world())));
+    });
+    let accounts_after = mean_micros(20, || {
+        std::hint::black_box(create_nfts_for_all_recipient_snapshot(view.world()));
+    });
+    println!("accounts ({ACCOUNTS}): before {accounts_before} us, after {accounts_after} us");
+
+    let roots_before = mean_micros(20, || {
+        let owned = view
+            .world()
+            .zk_assets()
+            .iter()
+            .map(|(asset_id, state)| (asset_id.clone(), state.clone()))
+            .collect::<BTreeMap<_, _>>();
+        std::hint::black_box(CoreHost::validated_zk_roots_snapshot(&owned).expect("roots"));
+    });
+    let roots_after = mean_micros(20, || {
+        std::hint::black_box(
+            CoreHost::validated_zk_roots_snapshot(view.world().zk_assets().iter()).expect("roots"),
+        );
+    });
+    println!(
+        "zk roots (1024 leaves, {NULLIFIERS} nullifiers): before {roots_before} us, after {roots_after} us"
+    );
+
+    let (id, record) = canonical_transfer_key_entry();
+    CoreHost::prepare_verifying_key(&id, &record).expect("prepare the canonical key");
+    let key_before = mean_micros(20, || {
+        let owned = record.clone();
+        std::hint::black_box(
+            crate::zk::validate_and_prepare_verifying_key_record_v1(&id, &owned)
+                .expect("validate the canonical key"),
+        );
+    });
+    let key_after = mean_micros(20, || {
+        std::hint::black_box(
+            CoreHost::prepare_verifying_key(&id, &record).expect("memoized canonical key"),
+        );
+    });
+    println!("verifying key (one record): before {key_before} us, after {key_after} us");
+
+    let budget = iroha_allocation::AllocationBudget::new(64 * 1024 * 1024);
+    let heights = (1_u64..=12).map(|epoch| epoch * 3 + 2).collect::<Vec<_>>();
+    let (key_record, pulses) = signed_fixture_pulses(&heights, 0, &budget);
+    let vrf_state = vrf_fixture_state(&key_record, pulses.values().copied(), 40);
+    let vrf_view = vrf_state.view();
+    assert_eq!(eager_vrf_epoch_seed_oracle(&vrf_view).len(), heights.len());
+    let vrf_before = mean_micros(3, || {
+        std::hint::black_box(eager_vrf_epoch_seed_oracle(&vrf_view));
+    });
+    let vrf_scan = mean_micros(3, || {
+        let mut host = CoreHost::new(seeded_account(1));
+        host.set_vrf_epoch_seeds_from_state(&vrf_view)
+            .expect("eager VRF scan");
+        std::hint::black_box(host);
+    });
+    let vrf_deferred = mean_micros(3, || {
+        let mut host = CoreHostImpl::new(seeded_account(1));
+        host.set_query_state_with_vrf_epoch_seeds(
+            &vrf_view,
+            vrf_epoch_length_from_state(&vrf_view).expect("committed NPoS parameters"),
+        );
+        std::hint::black_box(host);
+    });
+    let vrf_one_epoch = mean_micros(3, || {
+        let mut host = CoreHostImpl::new(seeded_account(1));
+        host.set_query_state_with_vrf_epoch_seeds(
+            &vrf_view,
+            vrf_epoch_length_from_state(&vrf_view).expect("committed NPoS parameters"),
+        );
+        std::hint::black_box(host.vrf_epoch_seed(2));
+    });
+    let vm_syscall_pair = mean_micros(3, || {
+        let mut host = CoreHostImpl::new(seeded_account(1));
+        host.set_query_state_with_vrf_epoch_seeds(
+            &vrf_view,
+            vrf_epoch_length_from_state(&vrf_view).expect("committed NPoS parameters"),
+        );
+        std::hint::black_box(read_vrf_epoch_seed(&mut host, 2));
+    });
+    println!(
+        "vrf ({} boundary pulses): before {vrf_before} us, scanned setup {vrf_scan} us, deferred setup {vrf_deferred} us, deferred setup + one epoch lookup {vrf_one_epoch} us, deferred setup + fresh IVM + quote/execute pair {vm_syscall_pair} us",
+        heights.len()
+    );
+}
+
+#[test]
+fn shared_election_hydration_preserves_tally_bytes_and_gas() {
+    let mut world = World::new();
+    world.elections.insert(
+        "election-1".into(),
+        crate::state::ElectionState {
+            options: 3,
+            finalized: true,
+            tally: vec![u128::from(u64::MAX) + 1, 2, 0],
+            ..crate::state::ElectionState::default()
+        },
+    );
+    let state = State::new_for_testing(
+        world,
+        Kura::blank_kura_for_testing(),
+        LiveQueryStore::start_test(),
+    );
+    let view = state.view();
+    let mut eager = CoreHost::new(seeded_account(1));
+    eager
+        .set_zk_snapshots_from_world(view.world(), &view.zk)
+        .expect("standalone projection");
+    let mut cached = CoreHost::new(seeded_account(1));
+    cached
+        .set_zk_snapshots_from_state(&view)
+        .expect("cached projection");
+    let mut sibling = CoreHost::new(seeded_account(1));
+    sibling
+        .set_zk_snapshots_from_state(&view)
+        .expect("shared projection");
+    assert!(Arc::ptr_eq(&cached.zk_elections, &sibling.zk_elections));
+    assert_eq!(eager.zk_elections, cached.zk_elections);
+
+    for id in ["election-1", "missing"] {
+        let read = |host: &mut CoreHost| {
+            let mut vm = IVM::new(10_000);
+            let payload = norito::to_bytes(&ivm::zk_verify::VoteGetTallyRequest {
+                election_id: id.into(),
+            })
+            .unwrap();
+            let ptr = super::tests::store_tlv(&mut vm, PointerType::NoritoBytes, &payload);
+            vm.set_register(10, ptr);
+            let quote = host
+                .prepare_syscall(ivm_sys::SYSCALL_ZK_VOTE_GET_TALLY, &vm)
+                .unwrap();
+            let gas = host
+                .syscall(ivm_sys::SYSCALL_ZK_VOTE_GET_TALLY, &mut vm)
+                .unwrap();
+            let response = vm.validate_tlv(vm.register(10)).unwrap().payload.to_vec();
+            (quote, gas, response)
+        };
+        assert_eq!(read(&mut eager), read(&mut cached));
+        assert_eq!(read(&mut eager), read(&mut sibling));
     }
 }

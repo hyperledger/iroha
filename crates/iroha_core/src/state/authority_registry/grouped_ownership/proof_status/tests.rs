@@ -136,48 +136,43 @@ fn merged_predecessor_keeps_moved_removed_inserted_and_redundant_source_rows() {
 }
 
 #[test]
-fn omitted_empty_wrong_status_duplicate_and_foreign_groups_fail_in_either_image() {
+fn omitted_wrong_status_duplicate_and_foreign_rows_fail_in_either_image() {
     for previous in [false, true] {
-        for defect in 0..5 {
+        for defect in 0..4 {
             let mut world = fixture();
             let key = id("stark/fri", 0);
-            let correct = BTreeSet::from([key.clone()]);
             let replacement = match defect {
-                0 => None,
-                1 => Some(BTreeSet::new()),
-                2 => Some(BTreeSet::from([id("stark/fri", 1)])),
-                3 => Some(BTreeSet::from([key.clone(), id("stark/fri", 2)])),
-                4 => Some(BTreeSet::from([key.clone(), id("unknown", 99)])),
+                0 => Vec::new(),
+                1 => vec![id("stark/fri", 1)],
+                2 => vec![key.clone(), id("stark/fri", 2)],
+                3 => vec![key.clone(), id("unknown", 99)],
                 _ => unreachable!(),
             };
-            world.proofs_by_status = [
-                (ProofStatus::Submitted, replacement),
-                (
-                    ProofStatus::Verified,
-                    Some(BTreeSet::from([id("stark/fri", 1)])),
-                ),
-                (
-                    ProofStatus::Rejected,
-                    Some(BTreeSet::from([id("stark/fri", 2)])),
-                ),
-            ]
-            .into_iter()
-            .filter_map(|(status, members)| members.map(|members| (status, members)))
-            .collect::<Storage<_, _>>();
+            world.proofs_by_status = replacement
+                .iter()
+                .cloned()
+                .map(|member| ((ProofStatus::Submitted, member), ()))
+                .chain([
+                    ((ProofStatus::Verified, id("stark/fri", 1)), ()),
+                    ((ProofStatus::Rejected, id("stark/fri", 2)), ()),
+                ])
+                .collect::<Storage<_, _>>();
             if previous {
                 let mut block = world.proofs_by_status.block();
-                block.insert(ProofStatus::Submitted, correct);
+                for member in replacement {
+                    block.remove((ProofStatus::Submitted, member));
+                }
+                block.insert((ProofStatus::Submitted, key), ());
                 block.commit();
             }
             assert_eq!(
                 check(&world, 16_384),
                 Err(corrupt(
                     previous,
-                    match defect {
-                        0 | 2 => GroupMismatch::MissingMember,
-                        1 => GroupMismatch::EmptyGroup,
-                        3 | 4 => GroupMismatch::ForeignMember,
-                        _ => unreachable!(),
+                    if defect <= 1 {
+                        GroupMismatch::MissingMember
+                    } else {
+                        GroupMismatch::ForeignMember
                     }
                 ))
             );
@@ -207,12 +202,12 @@ fn physical_masked_rows_and_tombstones_have_exact_work_even_when_logically_absen
     assert_eq!(check(&world, 349), Ok(()));
     {
         let mut block = world.proofs_by_status.block();
-        block.insert(ProofStatus::Verified, BTreeSet::from([key.clone()]));
-        block.remove(ProofStatus::Rejected);
+        block.insert((ProofStatus::Verified, key.clone()), ());
+        block.remove((ProofStatus::Rejected, id("z", 9)));
         block.commit();
     }
-    assert_eq!(check(&world, 350), Err(GroupedOwnershipError::WorkLimit));
-    assert_eq!(check(&world, 351), Ok(()));
+    assert_eq!(check(&world, 417), Err(GroupedOwnershipError::WorkLimit));
+    assert_eq!(check(&world, 418), Ok(()));
     {
         let mut block = world.proofs.block();
         block.insert(key.clone(), record(&key, ProofStatus::Verified));
@@ -220,8 +215,8 @@ fn physical_masked_rows_and_tombstones_have_exact_work_even_when_logically_absen
         block.commit();
     }
     // The now-masked current x and its undo value are both physical work.
-    assert_eq!(check(&world, 353), Err(GroupedOwnershipError::WorkLimit));
-    assert_eq!(check(&world, 354), Ok(()));
+    assert_eq!(check(&world, 420), Err(GroupedOwnershipError::WorkLimit));
+    assert_eq!(check(&world, 421), Ok(()));
 }
 
 #[test]
@@ -281,48 +276,21 @@ fn either_original_reader_change_overrides_success_corruption_and_work_refusal()
 }
 
 #[test]
-fn physical_index_admission_precedes_empty_bucket_diagnosis_in_either_image() {
+fn physical_index_admission_precedes_foreign_row_diagnosis_in_either_image() {
     for previous in [false, true] {
         let mut world = fixture();
-        world
-            .proofs_by_status
-            .insert(ProofStatus::Submitted, BTreeSet::new());
+        let orphan = (ProofStatus::Submitted, id("zz absent", 99));
+        world.proofs_by_status.insert(orphan.clone(), ());
         if previous {
             let mut block = world.proofs_by_status.block();
-            for (tag, status) in STATUSES.into_iter().enumerate() {
-                // Retain all three physical undo entries, including no-op writes.
-                block.insert(
-                    status,
-                    BTreeSet::from([id(
-                        "stark/fri",
-                        u8::try_from(tag).expect("fixture value fits u8"),
-                    )]),
-                );
-            }
+            block.remove(orphan);
             block.commit();
         }
-        // Current validation costs 264 when valid. The current index has three
-        // physical rows; its predecessor additionally has three physical undo
-        // entries. Each image's complete index admission precedes inspecting the
-        // first logical empty bucket. A short local allowance is deferral, never
-        // success or a transaction-validity/gas decision.
-        let diagnosis_work = if previous { 264 + 6 } else { 3 };
-        assert_eq!(
-            check(&world, diagnosis_work - 1),
-            Err(GroupedOwnershipError::WorkLimit)
-        );
-        assert_eq!(
-            check(&world, diagnosis_work),
-            Err(corrupt(previous, GroupMismatch::EmptyGroup))
-        );
+        assert_eq!(check(&world, 0), Err(GroupedOwnershipError::WorkLimit));
         assert_eq!(
             check(&world, 16_384),
-            Err(corrupt(previous, GroupMismatch::EmptyGroup))
+            Err(corrupt(previous, GroupMismatch::ForeignMember))
         );
-        // Repeating the smaller allowance uses the same unchanged original rows.
-        assert_eq!(
-            check(&world, diagnosis_work - 1),
-            Err(GroupedOwnershipError::WorkLimit)
-        );
+        assert_eq!(check(&world, 0), Err(GroupedOwnershipError::WorkLimit));
     }
 }

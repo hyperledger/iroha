@@ -477,7 +477,7 @@ fn send_held_fee_cannot_skip_or_replace_either_map_obligation() {
     }
 }
 
-/// Actual σ_send for the Payment carrier, without a sigma-Q source: the payer's own
+/// Actual `σ_send` for the Payment carrier, without a sigma-Q source: the payer's own
 /// lineage proves the relation inline.
 #[allow(dead_code)] // Used by the complete Send-chain fixture and the Receive Payment bounds.
 pub(crate) fn genuine_send_sigma(before: &StateWitness) -> (send_objects::SendFixture, Vec<u8>) {

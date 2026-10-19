@@ -313,6 +313,7 @@ pub(super) fn source_error(error: SccpNativeReadError) -> Response {
         }
         SccpNativeReadError::Allocation(_)
         | SccpNativeReadError::PhysicalAllocation
+        | SccpNativeReadError::PairingAllocation(_)
         | SccpNativeReadError::DecodeResource(_)
         | SccpNativeReadError::Source(NativeCommitCertificateReadErrorV1::Allocation)
         | SccpNativeReadError::CertifiedResult(CertifiedResultError::Body(

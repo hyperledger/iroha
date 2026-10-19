@@ -14297,6 +14297,56 @@ pub enum FeeQuoteRequest<'a> {
     },
 }
 
+/// Validated capacity backpressure from a fee quote for an unsigned transaction draft.
+///
+/// This is only a server-advertised read retry hint, not proof of query-count
+/// exhaustion or transient capacity. The same Torii response can represent
+/// authentication or fee-state refusal, including permanent internal limits.
+/// The SDK never retries automatically; callers must retain their original deadline
+/// and must never repeat a signed submission because of this hint.
+#[derive(Clone, Copy, Debug, thiserror::Error)]
+#[error("fee quote capacity backpressure; retry after {retry_after:?}")]
+pub struct FeeQuoteBackpressure {
+    retry_after: Duration,
+}
+
+impl FeeQuoteBackpressure {
+    /// Exact validated delay advertised by Torii, between one and sixty seconds.
+    #[must_use]
+    pub const fn retry_after(&self) -> Duration {
+        self.retry_after
+    }
+}
+
+fn fee_quote_backpressure(response: &Response<Vec<u8>>) -> Option<FeeQuoteBackpressure> {
+    if response.status() != StatusCode::TOO_MANY_REQUESTS {
+        return None;
+    }
+    let retry_after = crate::error::retry_after(response.headers())?;
+    if !(1..=60).contains(&retry_after.as_secs()) {
+        return None;
+    }
+    let media = exact_single_response_header_bytes(response, "content-type").ok()?;
+    let envelope: ErrorEnvelope = if Client::is_exact_json_content_type_bytes(media) {
+        norito::json::from_slice(response.body()).ok()?
+    } else if media == APPLICATION_NORITO.as_bytes() {
+        norito::decode_canonical(response.body()).ok()?
+    } else {
+        return None;
+    };
+    // The generic code alone does not distinguish capacity from permanent query
+    // validation. Require the exact native CapacityLimit representation as well
+    // as independent HTTP status, closed envelope and matching retry metadata.
+    if envelope.code() != "query_validation_failed"
+        || envelope.message()
+            != iroha_data_model::query::error::QueryExecutionFail::CapacityLimit.to_string()
+        || envelope.details.as_ref()?.retry_after_seconds != Some(retry_after.as_secs())
+    {
+        return None;
+    }
+    Some(FeeQuoteBackpressure { retry_after })
+}
+
 /// Immutable account-authorized SDK context.
 ///
 /// Clones share transport pools and compatibility state. Endpoint, network,
@@ -15287,7 +15337,9 @@ impl AccountClient {
     /// Returns an error for a foreign network or authority, an invalid direct
     /// or multisignature authorization, request construction or transport
     /// failure, Torii rejection, an oversized response, or a response that is
-    /// not bound to the exact payload.
+    /// not bound to the exact payload. A validated capacity refusal retains a
+    /// downcastable [`FeeQuoteBackpressure`] and the original response error;
+    /// this operation still sends exactly one request.
     pub async fn quote_fees(&self, request: FeeQuoteRequest<'_>) -> Result<FeeQuoteResponse> {
         let (payload, authorization) = match request {
             FeeQuoteRequest::AccountSignature { payload } => (payload, None),
@@ -17880,11 +17932,14 @@ impl Client {
             ));
         }
         if response.status() != StatusCode::OK {
-            return Err(
+            let original: eyre::Report =
                 ResponseReport::with_msg("failed to quote transaction fees", response)
                     .unwrap_or_else(core::convert::identity)
-                    .into(),
-            );
+                    .into();
+            return Err(match fee_quote_backpressure(response) {
+                Some(backpressure) => original.wrap_err(backpressure),
+                None => original,
+            });
         }
         let content_type = exact_single_response_header_bytes(response, "content-type")
             .wrap_err("fee quote response has ambiguous content-type")?;
@@ -28043,6 +28098,159 @@ mod tests {
             "invalid witnesses must not dispatch or replay a request"
         );
     }
+    #[tokio::test]
+    async fn fee_quote_backpressure_requires_typed_response_and_never_replays() {
+        let client = client_with_base_url(base_url());
+        let payload = account_context(&client)
+            .prepare_transaction(AccountTransactionDraft::new(
+                Vec::<InstructionBox>::new(),
+                FeePaymentIntent::authority(Vec::new(), None),
+                Metadata::default(),
+            ))
+            .unwrap();
+        let envelope = ErrorEnvelope::new(
+            "query_validation_failed",
+            iroha_data_model::query::error::QueryExecutionFail::CapacityLimit.to_string(),
+        )
+        .with_details(iroha_torii_shared::ErrorDetails {
+            retry_after_seconds: Some(1),
+            ..Default::default()
+        });
+        for native in [false, true] {
+            let body = if native {
+                norito::to_bytes(&envelope).unwrap()
+            } else {
+                norito::json::to_vec(&envelope).unwrap()
+            };
+            let response = HttpResponse::builder()
+                .status(StatusCode::TOO_MANY_REQUESTS)
+                .header(
+                    "content-type",
+                    if native {
+                        APPLICATION_NORITO
+                    } else {
+                        APPLICATION_JSON
+                    },
+                )
+                .header("retry-after", "1")
+                .body(body)
+                .unwrap();
+            let requests: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+            let error = quote_fees_with_response(&client, &payload, &requests, response)
+                .await
+                .unwrap_err();
+            assert_eq!(
+                error
+                    .downcast_ref::<FeeQuoteBackpressure>()
+                    .unwrap()
+                    .retry_after(),
+                Duration::from_secs(1)
+            );
+            assert!(format!("{error:#}").contains("failed to quote transaction fees; status: 429"));
+            assert_eq!(
+                requests.lock().unwrap().len(),
+                1,
+                "the SDK must never retry a quote"
+            );
+        }
+    }
+
+    #[test]
+    fn fee_quote_backpressure_preserves_all_other_response_errors() {
+        let client = client_with_base_url(base_url());
+        let payload = account_context(&client)
+            .prepare_transaction(AccountTransactionDraft::new(
+                Vec::<InstructionBox>::new(),
+                FeePaymentIntent::authority(Vec::new(), None),
+                Metadata::default(),
+            ))
+            .unwrap();
+        let envelope = ErrorEnvelope::new(
+            "query_validation_failed",
+            iroha_data_model::query::error::QueryExecutionFail::CapacityLimit.to_string(),
+        )
+        .with_details(iroha_torii_shared::ErrorDetails {
+            retry_after_seconds: Some(1),
+            ..Default::default()
+        });
+        let valid = || {
+            HttpResponse::builder()
+                .status(StatusCode::TOO_MANY_REQUESTS)
+                .header("content-type", APPLICATION_JSON)
+                .header("retry-after", "1")
+                .body(norito::json::to_vec(&envelope).unwrap())
+                .unwrap()
+        };
+        let mut cases = Vec::new();
+        for raw in [
+            None,
+            Some(""),
+            Some("0"),
+            Some("61"),
+            Some("-1"),
+            Some("1, 2"),
+            Some("Wed, 21 Oct 2015 07:28:00 GMT"),
+            Some("18446744073709551616"),
+        ] {
+            let mut response = valid();
+            response.headers_mut().remove("retry-after");
+            if let Some(raw) = raw {
+                response
+                    .headers_mut()
+                    .insert("retry-after", raw.parse().unwrap());
+            }
+            cases.push(response);
+        }
+        let mut duplicate = valid();
+        duplicate
+            .headers_mut()
+            .append("retry-after", "1".parse().unwrap());
+        cases.push(duplicate);
+        let mut duplicate_media = valid();
+        duplicate_media
+            .headers_mut()
+            .append("content-type", APPLICATION_JSON.parse().unwrap());
+        cases.push(duplicate_media);
+        for status in [
+            StatusCode::BAD_REQUEST,
+            StatusCode::FORBIDDEN,
+            StatusCode::SERVICE_UNAVAILABLE,
+        ] {
+            let mut response = valid();
+            *response.status_mut() = status;
+            cases.push(response);
+        }
+        for body in [
+            br#"{"code":"query_validation_failed","message":"permanent validation failure","details":{"retry_after_seconds":1}}"#.to_vec(),
+            br#"{"code":"fee_quote_rejected","message":"capacity","details":{"retry_after_seconds":1}}"#.to_vec(),
+            b"429 Too Many Requests; Reached the limit of parallel queries; retry_after_seconds=1".to_vec(),
+        ] { let mut response = valid(); *response.body_mut() = body; cases.push(response); }
+        for seconds in [None, Some(0), Some(2)] {
+            let mut mismatch = envelope.clone();
+            mismatch.details.as_mut().unwrap().retry_after_seconds = seconds;
+            let mut response = valid();
+            *response.body_mut() = norito::json::to_vec(&mismatch).unwrap();
+            cases.push(response);
+        }
+        let mut unknown = norito::json::to_value(&envelope).unwrap();
+        unknown
+            .as_object_mut()
+            .unwrap()
+            .insert("unexpected".into(), norito::json::Value::Bool(true));
+        let mut response = valid();
+        *response.body_mut() = norito::json::to_vec(&unknown).unwrap();
+        cases.push(response);
+        for response in cases {
+            let original: eyre::Report =
+                ResponseReport::with_msg("failed to quote transaction fees", &response)
+                    .unwrap_or_else(core::convert::identity)
+                    .into();
+            let error = Client::decode_fee_quote_response(&payload, &response).unwrap_err();
+            assert!(error.downcast_ref::<FeeQuoteBackpressure>().is_none());
+            assert_eq!(format!("{error:#}"), format!("{original:#}"));
+        }
+    }
+
     #[tokio::test]
     async fn quote_fees_accepts_response_bound_to_exact_draft() {
         let client = client_with_base_url(base_url());

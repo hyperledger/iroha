@@ -4423,7 +4423,7 @@ pub(crate) enum TieredKeyHandle {
     PrivateSettlementAbort(iroha_crypto::Hash),
     Proof(iroha_data_model::proof::ProofId),
     ProofTag(iroha_data_model::proof::ProofId),
-    ProofByTag([u8; 4]),
+    ProofByTag(([u8; 4], iroha_data_model::proof::ProofId)),
     ContractManifest(iroha_data_model::smart_contract::ContractArtifactId),
     ContractCode(iroha_data_model::smart_contract::ContractArtifactId),
     ContractCodeUpload(super::SmartContractCodeUploadKey),
@@ -4820,6 +4820,53 @@ include!("tiered_hot_byte_accounting.rs");
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn proof_tag_snapshot_diff_removes_only_one_membership() {
+        let temp = tempdir().expect("tmpdir");
+        let mut backend =
+            TieredStateBackend::new(true, 0, 0, 0, Some(temp.path().to_path_buf()), None, 0, 0);
+        let mut world = World::default();
+        let member = |byte| {
+            (
+                *b"PROF",
+                iroha_data_model::proof::ProofId {
+                    backend: "halo2/test".into(),
+                    proof_hash: [byte; 32],
+                },
+            )
+        };
+        let first = member(1);
+        let second = member(2);
+        world.proofs_by_tag.insert(first.clone(), ());
+        world.proofs_by_tag.insert(second.clone(), ());
+        backend.record_world_snapshot(&world).unwrap();
+        let first_key = TieredKeyHandle::ProofByTag(first.clone())
+            .encode_key()
+            .unwrap();
+        let second_key = TieredKeyHandle::ProofByTag(second).encode_key().unwrap();
+        assert_ne!(first_key, second_key);
+        {
+            let mut block = world.proofs_by_tag.block();
+            block.remove(first.clone());
+            block.commit();
+        }
+        let mut diff = TieredSnapshotDiff::default();
+        diff.push(TieredKeyHandle::ProofByTag(first));
+        backend
+            .record_world_snapshot_with_diff(&world, &diff)
+            .unwrap();
+        let manifest = backend.last_manifest().unwrap();
+        let members: Vec<_> = manifest
+            .hot_entries
+            .iter()
+            .chain(&manifest.cold_entries)
+            .filter(|entry| entry.segment == TieredSegment::ProofsByTag)
+            .collect();
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].key_payload, second_key);
+    }
+
     fn tiered_x509_root_world() -> World {
         use crate::privacy_state::{
             PrivacyCommitmentKeyV1, PrivacyRootHeadKeyV1, PrivacyRootHeadRecordV1,

@@ -3173,7 +3173,7 @@ impl Queue {
     }
     /// Resident inputs still pending at `state_view`, as shared queue handles.
     ///
-    /// Every DashMap shard guard is released before consulting the durability-transition
+    /// Every `DashMap` shard guard is released before consulting the durability-transition
     /// index. A terminal transition keeps its per-hash marker live while removing the
     /// transaction; taking the locks in the opposite order here could otherwise make
     /// enumeration wait on that marker while the remover waits for a shard read guard.

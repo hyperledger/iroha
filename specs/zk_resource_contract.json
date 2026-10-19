@@ -11011,7 +11011,7 @@
           "name": "slice_decoder_rejects_declared_oversize_before_body_access"
         }
       ],
-      "test_note": "The constructor test accepts a name of exactly 255 bytes (ASCII, and the longest two-byte text below the bound) and refuses one of 256. The decoder test refuses a declared length of 256 before the body is read. The constant lies outside the four compared crates; the node compares it by name (crates/iroha_core/src/sns.rs, crates/iroha_core/src/smartcontracts/isi/query/canonical_topk.rs), which is how the scan finds it."
+      "test_note": "The constructor test accepts a name of exactly 255 bytes (ASCII, and the longest two-byte text below the bound) and refuses one of 256. The decoder test refuses a declared length of 256 before the body is read. The constant lies outside the four compared crates; the node compares it by name (crates/iroha_core/src/sns.rs), which is how the scan finds it."
     },
     {
       "id": "transaction.json_document_max_bytes",
@@ -19495,21 +19495,6 @@
             }
           },
           {
-            "path": "crates/iroha_core/src/smartcontracts/isi/query/canonical_topk.rs",
-            "symbols": [
-              "CANONICAL_QUERY_RETAINED_ITEM_OVERHEAD_BYTES",
-              "CANONICAL_QUERY_OUTPUT_CONTAINER_OVERHEAD_BYTES",
-              "CANONICAL_QUERY_ID_DECODE_FIXED_OVERHEAD_BYTES",
-              "MIN_DIRECT_PAYLOAD_CAPACITY"
-            ],
-            "exprs": {
-              "CANONICAL_QUERY_RETAINED_ITEM_OVERHEAD_BYTES": "512",
-              "CANONICAL_QUERY_OUTPUT_CONTAINER_OVERHEAD_BYTES": "512",
-              "CANONICAL_QUERY_ID_DECODE_FIXED_OVERHEAD_BYTES": "512",
-              "MIN_DIRECT_PAYLOAD_CAPACITY": "1024"
-            }
-          },
-          {
             "path": "crates/iroha_core/src/smartcontracts/isi/query/ordinary_memory.rs",
             "symbols": [
               "ORDINARY_QUERY_FIXED_CONTAINER_OVERHEAD_BYTES",
@@ -20545,13 +20530,11 @@
             "symbols": [
               "QUERY_FANOUT_BASE_OVERHEAD_BYTES",
               "QUERY_FANOUT_ROUTE_OVERHEAD_BYTES",
-              "QUERY_FANOUT_SOURCE_OVERHEAD_BYTES",
               "QUERY_FANOUT_CANDIDATE_CONTAINER_OVERHEAD_BYTES"
             ],
             "exprs": {
               "QUERY_FANOUT_BASE_OVERHEAD_BYTES": "64 * 1024",
               "QUERY_FANOUT_ROUTE_OVERHEAD_BYTES": "1024",
-              "QUERY_FANOUT_SOURCE_OVERHEAD_BYTES": "iroha_core::smartcontracts::isi::query::CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES as usize",
               "QUERY_FANOUT_CANDIDATE_CONTAINER_OVERHEAD_BYTES": "4 * 1024"
             }
           },
@@ -21514,7 +21497,7 @@
             "exprs": {
               "query_ingress_fixed_overhead_bytes": "let route_catalogue = QUERY_FANOUT_ROUTE_OVERHEAD_BYTES .checked_mul(iroha_data_model::nexus::MAX_ACTIVE_EXECUTION_LANES)?; checked_sum([ QUERY_FANOUT_BASE_OVERHEAD_BYTES, route_catalogue, QUERY_FANOUT_PUBLIC_KEY_VALIDATION_SCRATCH_BYTES, ])",
               "query_fanout_candidate_snapshot_overhead_bytes": "let identities = iroha_crypto::MAX_PUBLIC_KEY_PAYLOAD_BYTES .checked_mul(QUERY_FANOUT_CANDIDATE_IDENTITY_REPRESENTATIONS)?; let per_candidate = checked_sum([ identities, iroha_core::governance::manifest::MANIFEST_SOURCE_MAX_VALUE_BYTES_V1, QUERY_FANOUT_CANDIDATE_CONTAINER_OVERHEAD_BYTES, ])?; per_candidate.checked_mul(iroha_core::governance::manifest::LANE_MANIFEST_MAX_VALIDATORS_V1)",
-              "query_fanout_fixed_overhead_bytes": "checked_sum([ query_ingress_fixed_overhead_bytes()?, QUERY_FANOUT_SOURCE_OVERHEAD_BYTES, query_fanout_candidate_snapshot_overhead_bytes()?, ])"
+              "query_fanout_fixed_overhead_bytes": "checked_sum([ query_ingress_fixed_overhead_bytes()?, query_fanout_candidate_snapshot_overhead_bytes()?, ])"
             }
           }
         ]
@@ -21821,20 +21804,6 @@
               ],
               "PRIVACY_RELEASE_CASE_COUNT_V1": [
                 "crates/iroha_core/src/privacy_release_evidence.rs: PRIVACY_RELEASE_STAGE_COUNT_V1"
-              ]
-            }
-          },
-          {
-            "path": "crates/iroha_core/src/smartcontracts/isi/query/canonical_topk.rs",
-            "symbols": [
-              "CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES"
-            ],
-            "exprs": {
-              "CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES": "1024"
-            },
-            "term_of": {
-              "CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES": [
-                "crates/iroha_torii/src/torii_fanout_decode_helpers.rs: QUERY_FANOUT_SOURCE_OVERHEAD_BYTES"
               ]
             }
           },
@@ -27323,7 +27292,7 @@
           ]
         },
         {
-          "reason": "Fractions and multiples of an amount one node computed or was configured with: a drand quorum must be more than half of the configured endpoints; half of the open-file budget, a quarter of the dispatch slots and half of a scan's time budget are set aside; an expiry index is compacted at twice its capacity; a scan budget is eight times the page limit, under its named ceiling; a decode allowance is at most half of the fanout's; half of the history-checkpoint slots, up to a named capacity, are recent ones; a name suggestion tolerates an edit distance of a quarter of the name, at least 2; and a query scans the assets directly when its selection covers an eighth of them. Each splits or scales a local amount that is bounded where it is configured or computed and decides no validity: none is a transaction, block, frame or proof ceiling. Likewise the age budget of the queue-pressure heuristic is three block times and a resolver bloom filter takes 16 bits for each expected item, each clamped between two named values, and a staging buffer of the authority registry doubles its capacity up to its maximum.",
+          "reason": "Fractions and multiples of an amount one node computed or was configured with: a drand quorum must be more than half of the configured endpoints; half of the open-file budget, a quarter of the dispatch slots and half of a scan's time budget are set aside; an expiry index is compacted at twice its capacity; a scan budget is eight times the page limit, under its named ceiling; a decode allowance is at most half of the fanout's; half of the history-checkpoint slots, up to a named capacity, are recent ones; a name suggestion tolerates an edit distance of a quarter of the name, at least 2; and a query scans the assets directly when its selection covers an eighth of them. Each splits or scales a local amount that is bounded where it is configured or computed and decides no validity: none is a transaction, block, frame or proof ceiling. Likewise the age budget of the queue-pressure heuristic is three block times and a resolver bloom filter takes 16 bits for each expected item, each clamped between two named values, and a staging buffer of the authority registry doubles its capacity up to its maximum. The signed-query decode phase reserves at least two bytes so the retained request and one local clone each receive a nonzero half; this is local working-set geometry, not a protocol validity limit.",
           "files": [
             {
               "path": "crates/iroha_torii/src/collections/engine.rs",
@@ -27372,7 +27341,9 @@
               "path": "crates/iroha_torii/src/torii_fanout_decode_helpers.rs",
               "sites": {
                 "self.decode_allocated_bytes .min(provisional_fanout.request_decode_allocated_bytes / 2)": 1,
-                "json_decode_allocated_bytes.min(provisional_fanout.request_decode_allocated_bytes / 2)": 1
+                "json_decode_allocated_bytes.min(provisional_fanout.request_decode_allocated_bytes / 2)": 1,
+                "phase_bytes < 2": 1,
+                "max_content_bytes .max(2)": 1
               }
             },
             {

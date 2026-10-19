@@ -43,6 +43,7 @@ fn plain_ballot_rejected_outside_window() {
             1_000_000_u64.into(),
             0,
         );
+        let plain_context = iroha_core::query::standalone_plain_test_fixture::context(&stx.gov, 0);
         stx.world.governance_referenda_mut().insert(
             "ref-window".to_string(),
             iroha_core::state::GovernanceReferendumRecord {
@@ -50,9 +51,7 @@ fn plain_ballot_rejected_outside_window() {
                 h_end: 6,
                 status: iroha_core::state::GovernanceReferendumStatus::Proposed,
                 mode: iroha_core::state::GovernanceReferendumMode::Plain,
-                plain_context: iroha_core::query::standalone_plain_test_fixture::context(
-                    &stx.gov, 0,
-                ),
+                plain_context,
                 plain_result:
                     iroha_data_model::governance::conviction::PlainVotingResultV1::Pending,
             },
@@ -92,6 +91,8 @@ fn plain_ballot_rejected_outside_window() {
             1_000_000_u64.into(),
             0,
         );
+        let plain_context =
+            iroha_core::query::standalone_plain_test_fixture::context(&stx_late.gov, 0);
         stx_late.world.governance_referenda_mut().insert(
             "ref-window".to_string(),
             iroha_core::state::GovernanceReferendumRecord {
@@ -99,10 +100,7 @@ fn plain_ballot_rejected_outside_window() {
                 h_end: 6,
                 status: iroha_core::state::GovernanceReferendumStatus::Closed,
                 mode: iroha_core::state::GovernanceReferendumMode::Plain,
-                plain_context: iroha_core::query::standalone_plain_test_fixture::context(
-                    &stx_late.gov,
-                    0,
-                ),
+                plain_context,
                 plain_result:
                     iroha_data_model::governance::conviction::PlainVotingResultV1::Decided(
                         iroha_data_model::governance::conviction::PlainVotingDecisionV1 {

@@ -17,6 +17,17 @@ interfaces directly, with no compatibility engine, decoder or calling path.
   syscall owner enforces admission, deterministic charging and privacy checks;
   typed host adapters validate their pointer envelopes and semantic payloads.
   Custom instrumentation must preserve those checks.
+- Core hosts with a pinned query state validate contract registry bindings in
+  place; only detached hosts retain bytecode snapshots. VRF configuration is
+  checked during setup, while the pulse scan and requested-epoch verification
+  run on first use. Election projections are reused within each immutable view
+  and among untouched block transactions. The MV election undo journal
+  invalidates reuse after edits; aborted children restore access to the exact
+  block-start cache.
+  These changes preserve syscall results, gas and setup validation order.
+- Warm memory reset restores modified leaves and updates their canonical Merkle
+  parents once per level. Pending template writes remain dirty until committed;
+  roots and proof paths use the same canonical SHA-256 tree on every backend.
 - `kotodama_lang` owns parsing, semantic analysis, IR/lowering, register allocation
   and bytecode emission. `ivm_abi` owns shared calling, schema and syscall contracts;
   artifact admission owns static bytecode/interface validation.

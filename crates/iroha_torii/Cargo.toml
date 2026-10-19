@@ -228,6 +228,11 @@ name = "torii_hot_paths"
 harness = false
 required-features = ["app_api", "bench"]
 
+[[bench]]
+name = "collection_metadata"
+harness = false
+required-features = ["app_api", "bench"]
+
 [[test]]
 name = "taira_app_contracts"
 path = "tests/grouped/taira_app_contracts.rs"

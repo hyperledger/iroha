@@ -10,7 +10,7 @@ use iroha_test_samples::{ALICE_ID, BOB_ID};
 use mv::storage::Storage;
 #[test]
 fn independent_balance_reference_and_original_fixture_boundaries_are_exact() {
-    for (context, exact) in [(false, 2144), (true, 2838)] {
+    for (context, exact) in [(false, 1570), (true, 2258)] {
         let world = fixture(context);
         assert_eq!(world_work(&world), exact);
         assert_eq!(
@@ -35,15 +35,15 @@ fn independent_balance_reference_and_original_fixture_boundaries_are_exact() {
         .build(&ALICE_ID),
     );
     world.rebuild_asset_definition_indexes().unwrap();
-    // No undo: source137/inverse138; source173/inverse174; references850;
-    // domain392; holder104; nonzero105, with actual domain geometry63+63.
+    // No undo: definition source136/inverse136; references847; domain390;
+    // holder102; nonzero103; count69, with actual domain geometry63+63.
     assert_eq!(
         ASSET_BALANCE_WORK_PER_ROW,
-        2 * (275 + 347 + 850 + 392 + 104 + 105)
+        2 * (272 + 847 + 390 + 102 + 103 + 69)
     );
-    assert_eq!(world_work(&world), 4146);
-    assert_eq!(check(&world, 4145), Err(GroupedOwnershipError::WorkLimit));
-    assert_eq!(check(&world, 4146), Ok(()));
+    assert_eq!(world_work(&world), 3566);
+    assert_eq!(check(&world, 3565), Err(GroupedOwnershipError::WorkLimit));
+    assert_eq!(check(&world, 3566), Ok(()));
     world.asset_definitions.insert(
         definition("coin"),
         AssetDefinition::numeric(
@@ -55,9 +55,9 @@ fn independent_balance_reference_and_original_fixture_boundaries_are_exact() {
         .build(&ALICE_ID),
     );
     // Original Restricted condition accesses its first Option before the always-accessed second Option.
-    assert_eq!(world_work(&world), 4146 + 2);
-    assert_eq!(check(&world, 4147), Err(GroupedOwnershipError::WorkLimit));
-    assert_eq!(check(&world, 4148), Ok(()));
+    assert_eq!(world_work(&world), 3566 + 2);
+    assert_eq!(check(&world, 3567), Err(GroupedOwnershipError::WorkLimit));
+    assert_eq!(check(&world, 3568), Ok(()));
 }
 #[test]
 fn every_asset_physical_mask_lookup_and_member_tail_is_prepaid() {
@@ -123,14 +123,31 @@ fn every_asset_physical_mask_lookup_and_member_tail_is_prepaid() {
             Ok(view.current().get(key))
         );
     }
-    let members = BTreeSet::from([first, second]);
+    let members = [first.clone(), second.clone()];
+    let member_rows: Storage<_, _> = members
+        .iter()
+        .map(|member| ((first.clone(), member.clone()), ()))
+        .collect();
+    let member_view = member_rows.try_committed_view_nonblocking().unwrap();
     for key in &members {
         assert_eq!(
-            contains(&members, key, &mut AssetBalanceWork::bounded(205)),
+            contains(
+                &member_view,
+                GroupImage::Current,
+                &first,
+                key,
+                &mut AssetBalanceWork::bounded(2 * (206) - 3)
+            ),
             Err(GroupedOwnershipError::WorkLimit)
         );
         assert_eq!(
-            contains(&members, key, &mut AssetBalanceWork::bounded(206)),
+            contains(
+                &member_view,
+                GroupImage::Current,
+                &first,
+                key,
+                &mut AssetBalanceWork::bounded(2 * (206) - 2)
+            ),
             Ok(true)
         );
     }
@@ -292,13 +309,19 @@ fn predecessor_partition_search_funds_masked_absent_and_matching_full_tails() {
 #[test]
 fn asset_group_reference_and_image_phases_keep_original_failure_precedence() {
     let mut world = fixture(true);
-    let saved = omit_initial(&mut world.asset_definition_assets, &definition("coin"));
+    let saved = omit_initial(
+        &mut world.asset_definition_assets,
+        &(definition("coin"), id()),
+    );
     {
         let mut block = world.asset_definition_assets.block();
-        block.insert(definition("coin"), saved);
+        block.insert((definition("coin"), id()), saved);
         block.commit();
     }
-    omit_initial(&mut world.assets_by_account, &ALICE_ID);
+    omit_initial(
+        &mut world.asset_definition_holders,
+        &(definition("coin"), ALICE_ID.clone()),
+    );
     assert_eq!(
         check(&world, 16_777_216),
         Err(corrupt(
@@ -308,17 +331,20 @@ fn asset_group_reference_and_image_phases_keep_original_failure_precedence() {
         ))
     );
     let mut world = fixture(true);
-    let saved = omit_initial(&mut world.assets_by_account, &ALICE_ID);
+    let saved = omit_initial(
+        &mut world.asset_definition_assets,
+        &(definition("coin"), id()),
+    );
     {
-        let mut block = world.assets_by_account.block();
-        block.insert(ALICE_ID.clone(), saved);
+        let mut block = world.asset_definition_assets.block();
+        block.insert((definition("coin"), id()), saved);
         block.commit();
     }
     omit_initial(&mut world.asset_definitions, &definition("coin"));
     assert_eq!(
         check(&world, 16_777_216),
         Err(corrupt(
-            "world.assets_by_account",
+            "world.asset_definition_assets",
             true,
             GroupMismatch::MissingMember
         ))
@@ -404,7 +430,7 @@ pub(super) fn publish(world: &World, source: usize) {
         1 => world.asset_definitions.block().commit(),
         2 => world.domains.block().commit(),
         3 => world.asset_definition_assets.block().commit(),
-        4 => world.assets_by_account.block().commit(),
+        4 => world.asset_definition_asset_counts.block().commit(),
         5 => world.assets_by_domain.block().commit(),
         6 => world.asset_definition_holders.block().commit(),
         7 => world.asset_definition_nonzero_holders.block().commit(),
@@ -439,8 +465,8 @@ fn first_busy_balance_source_keeps_original_release_before_later_changed_sources
 }
 
 #[test]
-fn additional_absent_global_source_undo_has_exact_seven_and_eight_visit_boundaries() {
-    for (context, base, delta) in [(false, 2144, 7 * 105), (true, 2838, 8 * 105)] {
+fn additional_absent_global_source_undo_has_exact_five_and_six_visit_boundaries() {
+    for (context, base, delta) in [(false, 1570, 5 * 105), (true, 2258, 6 * 105)] {
         let world = fixture(context);
         assert_eq!(world_work(&world), base);
         {

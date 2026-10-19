@@ -200,6 +200,12 @@ mod canonical_evidence_reader_tests {
         norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX)
     }
 
+    // The fixed-size marker decodes in place without allocating, so its
+    // enclosing-scope refusal is exercised through the per-field byte limit.
+    fn no_decode_field_bytes() -> norito::DecodeLimits {
+        norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, usize::MAX)
+    }
+
     fn assert_original_decode_refusal(error: CanonicalKuraEvidenceError) {
         use std::error::Error as _;
 
@@ -221,11 +227,29 @@ mod canonical_evidence_reader_tests {
     fn read_only_evidence_marker_refusal_preserves_original_decode_origin() {
         let fixture = Fixture::new();
         let before = fixture.snapshot();
-        let error = norito::with_decode_limits_scope(no_decode_allocation(), || {
+        let error = norito::with_decode_limits_scope(no_decode_field_bytes(), || {
             CanonicalKuraEvidenceReader::open(&fixture.root, fixture.limits())
         })
         .expect_err("actual marker decoding must respect the enclosing operation");
-        assert_original_decode_refusal(error);
+        {
+            use std::error::Error as _;
+
+            assert!(error.source().is_some());
+            let CanonicalKuraEvidenceError::Decode(error) = error else {
+                panic!("original canonical decoder cause required");
+            };
+            assert_eq!(
+                error.kind(),
+                norito::core::DecodeAttemptErrorKind::EnclosingLimit
+            );
+            assert!(matches!(
+                error.into_error().decode_resource_error(),
+                Some(
+                    norito::core::DecodeResourceError::FieldLengthExceeded { limit: 0, .. }
+                        | norito::core::DecodeResourceError::ArchiveLengthExceeded { limit: 0, .. }
+                )
+            ));
+        }
         assert_eq!(fixture.snapshot(), before);
         let mut retry = fixture.open();
         fixture.read_all(&mut retry);
@@ -238,7 +262,7 @@ mod canonical_evidence_reader_tests {
         bytes[0] ^= 0xff;
         fs::write(marker_path, bytes).unwrap();
         assert!(matches!(
-            norito::with_decode_limits_scope(no_decode_allocation(), || {
+            norito::with_decode_limits_scope(no_decode_field_bytes(), || {
                 CanonicalKuraEvidenceReader::open(&fixture.root, fixture.limits())
             }),
             Err(CanonicalKuraEvidenceError::Decode(error))
@@ -906,12 +930,9 @@ mod canonical_evidence_reader_tests {
                 1 => limits.max_output_bytes = 1,
                 _ => limits.max_decode_allocation_bytes = 1,
             }
-            let result = CanonicalKuraEvidenceReader::open(&fixture.root, limits);
-            if variant == 2 {
-                assert!(result.is_err(), "marker allocation alone exceeds one byte");
-                continue;
-            }
-            let mut reader = result.unwrap();
+            // The fixed-size marker decodes in place, so a one-byte allocation
+            // budget admits the reader and refuses the first carrier body.
+            let mut reader = CanonicalKuraEvidenceReader::open(&fixture.root, limits).unwrap();
             assert!(reader.read_carrier(1).is_err());
             assert!(reader.finish().is_err());
         }

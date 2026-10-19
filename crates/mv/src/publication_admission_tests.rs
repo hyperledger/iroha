@@ -13,11 +13,11 @@ fn complete_initial_publication_admission_includes_original_release_control() {
     assert!(budget.try_reserve_bytes(required).is_err());
     assert_eq!(budget.reserved_bytes(), 0);
     budget.set_limit_bytes(required);
-    let original = budget.try_reserve_bytes(required).unwrap();
+    let mut original = budget.try_reserve_bytes(required).unwrap();
     // Construction only splits the already admitted complete owner. It never
     // silently acquires more capacity after another participant takes a writer.
     budget.set_limit_bytes(0);
-    let publication = Publication::from_admission(original);
+    let publication = Publication::try_from_original(&mut original).unwrap();
     assert_eq!(budget.reserved_bytes(), required);
     drop(publication);
     assert_eq!(budget.reserved_bytes(), 0);
@@ -30,8 +30,9 @@ fn original_publication_observers_keep_their_exact_charge_after_identity_destruc
     let budget = AllocationBudget::new(required);
     let foreign = AllocationBudget::new(required);
     let foreign_publication =
-        Publication::from_admission(foreign.try_reserve_bytes(required).unwrap());
-    let publication = Publication::from_admission(budget.try_reserve_bytes(required).unwrap());
+        Publication::try_from_original(&mut foreign.try_reserve_bytes(required).unwrap()).unwrap();
+    let publication =
+        Publication::try_from_original(&mut budget.try_reserve_bytes(required).unwrap()).unwrap();
     let identity = publication.capture();
     let original = publication.released.observe();
     let retained = original.clone();
@@ -59,7 +60,8 @@ fn charged_identity_busy_release_unlocks_before_signal_and_retains_original_cont
     let required = Publication::allocation_demand().unwrap().bytes();
     let notification = ReleaseNotification::allocation_layout::<AllocationCharge>().size();
     let budget = AllocationBudget::new(required);
-    let publication = Publication::from_admission(budget.try_reserve_bytes(required).unwrap());
+    let publication =
+        Publication::try_from_original(&mut budget.try_reserve_bytes(required).unwrap()).unwrap();
     let identity = publication.capture();
     let writer = publication.lock_version();
     let wait = match identity.try_prepare_current::<()>(&publication) {
@@ -104,7 +106,8 @@ fn pending_publication_waiter_keeps_original_control_until_cancelled() {
         iroha_allocation::release::ReleaseRegistration::allocation_layout().size();
     let budget = AllocationBudget::new(required + registration_bytes);
     let mut registration = crate::release_test_support::registration(&budget);
-    let publication = Publication::from_admission(budget.try_reserve_bytes(required).unwrap());
+    let publication =
+        Publication::try_from_original(&mut budget.try_reserve_bytes(required).unwrap()).unwrap();
     let mut future = publication
         .released
         .observe()
@@ -128,7 +131,7 @@ fn all_original_publication_constructors_initialize_cold_observation_mutexes() {
     let mut reservation = budget.try_reserve_bytes(required).unwrap();
     let sources = [
         Publication::new(),
-        Publication::from_admission(budget.try_reserve_bytes(required).unwrap()),
+        Publication::try_from_original(&mut budget.try_reserve_bytes(required).unwrap()).unwrap(),
         Publication::try_from_original(&mut reservation).unwrap(),
     ];
     assert_eq!(reservation.remaining_bytes(), 0);

@@ -451,12 +451,14 @@ mod tests {
         let mut fixture = NativeFinalityFixture::new();
         let block = fixture.block_with_submitted_work(fixture.next_header());
         let proof = fixture.certify_with_world_root(block, snapshot.root().unwrap());
-        let tip = fixture.verifier().verify_retained_decision(&proof).unwrap();
+        let verifier = fixture.verifier();
+        let tip = verifier.verify_retained_decision(&proof).unwrap();
         let original = AuthenticatedOrigin {
             network: [1; 32],
             instance: [2; 32],
             world: snapshot.authenticate(&tip).unwrap(),
             element_count: 2,
+            verifier,
         };
         let evidence = original.receipt_authority_evidence().unwrap();
         assert_eq!(evidence.label, "taira.evm_receipt_authority");

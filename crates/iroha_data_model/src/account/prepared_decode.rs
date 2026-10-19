@@ -12,7 +12,7 @@ use iroha_crypto::{
 use norito::core::{self as ncore, DecodeIntoError};
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum AccountDecodeError {
+pub enum AccountDecodeError {
     #[error(transparent)]
     Multisig(#[from] super::MultisigPolicyError),
     #[error(transparent)]
@@ -66,7 +66,7 @@ fn destination(error: Error) -> DecodeIntoError<Error> {
         error => DecodeIntoError::Destination(error),
     }
 }
-pub(crate) enum ControllerCustody {
+pub enum ControllerCustody {
     Single(AllocationCharge),
     Multisig {
         members: AllocationCharge,
@@ -103,7 +103,7 @@ impl ControllerCustody {
         }
     }
 }
-pub(crate) struct ChargedAccount {
+pub struct ChargedAccount {
     pub(crate) value: AccountId,
     pub(crate) custody: ControllerCustody,
 }
@@ -111,7 +111,7 @@ struct ChargedMember {
     value: MultisigMember,
     pub(crate) charge: AllocationCharge,
 }
-pub(crate) struct ChargedPolicy {
+pub struct ChargedPolicy {
     pub(crate) value: MultisigPolicy,
     custody: ControllerCustody,
 }
@@ -152,7 +152,7 @@ fn tag(bytes: &[u8]) -> Result<u32, Error> {
 fn invalid_tag() -> Error {
     norito::Error::Message("invalid enum discriminant".into()).into()
 }
-pub(crate) struct AccountDestination {
+pub struct AccountDestination {
     pub(crate) complete: Option<ChargedAccount>,
     pub(crate) key: Option<ChargedPublicKey>,
     pub(crate) policy: PolicyDestination,
@@ -257,7 +257,7 @@ fn bind_single(key: ChargedPublicKey) -> ChargedAccount {
         custody: ControllerCustody::Single(charge),
     }
 }
-pub(crate) struct PolicyDestination {
+pub struct PolicyDestination {
     complete: Option<ChargedPolicy>,
     pub(crate) members: MembersDestination,
 }
@@ -321,7 +321,7 @@ impl PolicyDestination {
         Ok(())
     }
 }
-pub(crate) struct MembersDestination {
+pub struct MembersDestination {
     pub(crate) members: Option<ChargedBuffer<MultisigMember>>,
     pub(crate) keys: Option<ChargedBuffer<AllocationCharge>>,
     pub(crate) key: Option<ChargedPublicKey>,
@@ -439,7 +439,7 @@ impl MembersDestination {
         Ok(())
     }
 }
-pub(crate) struct MemberParts {
+pub struct MemberParts {
     pub(crate) members: Option<Vec<MultisigMember>>,
     pub(crate) charge: AllocationCharge,
     pub(crate) keys: ChargedBuffer<AllocationCharge>,

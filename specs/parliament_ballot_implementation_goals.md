@@ -29,6 +29,20 @@ Implement the actual candidate relations; binding production use remains
 disabled until qualification. Engineering completion does not replace B6's
 missing evidence.
 
+The owner's subsequent 2026-10-18 instruction explicitly enables development
+testing before qualification. Run `scripts/test_parliament_ballot_local.sh`
+for genuine candidate registration, wallet admission/execution/closure and
+independent replay; `--full` runs the typed protocol crate's complete suite.
+The board, registration authority and block anchors are fixtures, so this is
+local protocol testing. Core, Torii and client integration are not present in
+the current checkout, despite earlier crate comments describing them as wired.
+
+| Development goal | Completion criterion | State |
+| --- | --- | --- |
+| E1 — runnable candidate tests | One command exercises the actual registration and vote proofs, stamped admission, execution decisions, corpus closure and replay without requiring qualification | Complete; all three focused protocol tests pass |
+| E2 — node integration | Canonical signerless input/result variants, Core registration and ballot state, bounded admission and gossip, rollback-safe execution, authenticated publication/replay, Torii and client paths | Open; these are missing implementation, not an approval blocker |
+| E3 — network testing | Run the integrated candidate through ordinary four-validator execution and restart with real finality and API submissions | Open; depends on E2 |
+
 The [standalone validation record](../docs/validation/parliament_ballot_standalone.md)
 retains the source-bound measurements, conformance scope, reproduction commands
 and remaining limitations; [B6 evidence](../docs/validation/parliament_ballot_b6.md)

@@ -124,6 +124,8 @@ pub(super) fn parse(bytes: &[u8]) -> Result<QcMetadata, norito::Error> {
 }
 
 /// Validate the exact standalone canonical Qc frame without accepting a second layout.
+/// Test oracle only: production certificate reads use `certified_chain::artifacts::metadata`.
+#[cfg(test)]
 pub(super) fn parse_frame(raw: &[u8]) -> Result<QcMetadata, norito::Error> {
     if raw.len() > MAX_QC_METADATA_BYTES + ncore::Header::SIZE {
         return Err(norito::Error::FieldLengthExceeded {

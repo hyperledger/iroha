@@ -50,7 +50,7 @@ fn queue_reuses_gossip_payload_without_side_cache() {
         default_limits.max_metadata_depth(),
     );
     let crypto_cfg = iroha_config::parameters::actual::Crypto::default();
-    let tx = AcceptedTransaction::accept_gossip_entrypoint_with_payload(
+    let tx = AcceptedTransaction::accept_gossip_entrypoint_with_payload_and_prepared_metadata(
         entrypoint,
         Arc::clone(&payload),
         entrypoint_hash,
@@ -58,6 +58,8 @@ fn queue_reuses_gossip_payload_without_side_cache() {
         Duration::from_millis(10),
         tx_limits,
         &crypto_cfg,
+        None,
+        false,
     )
     .expect("accept gossip entrypoint with cached payload");
     let hash = tx.hash_as_entrypoint();

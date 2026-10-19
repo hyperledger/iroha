@@ -2400,7 +2400,7 @@ pub mod torii {
     /// Minimum aggregate V1 query-memory pool for four ingress slots plus one fanout.
     pub const QUERY_FANOUT_MIN_POOL_BYTES_V1: u64 = 20_000_000;
     /// Source-derived route/catalogue/key/candidate bytes in one V1 fanout.
-    pub const QUERY_FANOUT_FIXED_OVERHEAD_BYTES_V1: u64 = 9_562_690;
+    pub const QUERY_FANOUT_FIXED_OVERHEAD_BYTES_V1: u64 = 9_561_666;
     /// Variable-size units retained by the conservative V1 pre-body envelope.
     pub const QUERY_FANOUT_PREBODY_UNITS_V1: u64 = 15;
     /// Divisor reserving one quarter of aggregate query memory for ingress.
@@ -2430,9 +2430,14 @@ pub mod torii {
         max_working_set_bytes: u64,
         max_content_bytes: u64,
     ) -> Option<u64> {
+        if max_content_bytes == 0 {
+            return None;
+        }
         let ingress_pool = aggregate_bytes / QUERY_MEMORY_INGRESS_POOL_DIVISOR_V1;
         let fanout_pool = aggregate_bytes.checked_sub(ingress_pool)?;
+        // Retained request and one local clone share the request-decode phase.
         let desired = max_content_bytes
+            .max(2)
             .checked_mul(QUERY_FANOUT_PREBODY_UNITS_V1)?
             .checked_add(QUERY_FANOUT_FIXED_OVERHEAD_BYTES_V1)?;
         let working_set = desired.min(max_working_set_bytes).min(fanout_pool);
@@ -3717,7 +3722,7 @@ pub mod nexus {
                 fee_sink_account_id: AccountId::parse_encoded(FEE_SINK_ACCOUNT_ID)
                     .expect("canonical default fee sink"),
                 sponsor_vault_custody_account_id: sponsor_vault_custody_account_id(),
-                successful_claim_fee_exempt_authorities: Default::default(),
+                successful_claim_fee_exempt_authorities: std::collections::BTreeSet::default(),
                 base_fee: base_fee(),
                 per_byte_fee: per_byte_fee(),
                 per_instruction_fee: per_instruction_fee(),

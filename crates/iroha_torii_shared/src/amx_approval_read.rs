@@ -245,7 +245,7 @@ mod tests {
         ] {
             let failure =
                 AmxApprovalReadFailureV1::new(&approval, &relay, 2, reason, observed).unwrap();
-            let bytes = norito::encode_canonical(&failure.clone().into_error_envelope()).unwrap();
+            let bytes = norito::encode_canonical(&failure.into_error_envelope()).unwrap();
             assert_eq!(
                 AmxApprovalReadFailureV1::decode_response(
                     reason.http_status(),
@@ -277,7 +277,7 @@ mod tests {
                     .is_err()
                 );
             }
-            let mut wrong = failure.clone();
+            let mut wrong = failure;
             wrong.relay_header_hash = Hash::new(b"another signer");
             let bytes = norito::encode_canonical(&wrong.into_error_envelope()).unwrap();
             assert!(

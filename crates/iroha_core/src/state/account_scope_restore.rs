@@ -4,7 +4,9 @@ use super::*;
 
 type Directory = BTreeMap<AccountId, AccountScopeDirectoryEntry>;
 type ScopeKey = (DataSpaceId, AccountAliasDomain);
-type AccountsIndex = BTreeMap<ScopeKey, BTreeSet<AccountId>>;
+type AccountsIndex = BTreeMap<(ScopeKey, AccountId), ()>;
+type AccountCounts = BTreeMap<ScopeKey, u64>;
+type RestoredIndex = (Storage<(ScopeKey, AccountId), ()>, Storage<ScopeKey, u64>);
 
 /// Shared pure semantics for live refresh and both restored source images.
 pub(super) fn entry<'a>(
@@ -95,10 +97,10 @@ fn directory<'a>(
 fn accounts_index<'a>(
     directory: impl Iterator<Item = (&'a AccountId, &'a AccountScopeDirectoryEntry)>,
 ) -> AccountsIndex {
-    let mut index = BTreeMap::<ScopeKey, BTreeSet<AccountId>>::new();
+    let mut index = AccountsIndex::new();
     for (account_id, entry) in directory {
         for key in account_scope_index_keys(entry) {
-            index.entry(key).or_default().insert(account_id.clone());
+            index.insert((key, account_id.clone()), ());
         }
     }
     index
@@ -108,7 +110,7 @@ fn index_with_history(
     current: &Directory,
     previous: &Directory,
     touched: &BTreeSet<AccountId>,
-) -> Storage<ScopeKey, BTreeSet<AccountId>> {
+) -> RestoredIndex {
     let index = accounts_index(current.iter());
     let prior_index = accounts_index(previous.iter());
     let mut touched_keys = BTreeSet::new();
@@ -117,7 +119,11 @@ fn index_with_history(
             .into_iter()
             .flatten()
         {
-            touched_keys.extend(account_scope_index_keys(entry));
+            touched_keys.extend(
+                account_scope_index_keys(entry)
+                    .into_iter()
+                    .map(|key| (key, account.clone())),
+            );
         }
     }
     for key in index.keys().chain(prior_index.keys()) {
@@ -125,14 +131,30 @@ fn index_with_history(
             touched_keys.insert(key.clone());
         }
     }
+    let counts = |index: &AccountsIndex| {
+        let mut counts = AccountCounts::new();
+        for (scope, _) in index.keys() {
+            *counts.entry(scope.clone()).or_default() += 1;
+        }
+        counts
+    };
+    let current_counts = counts(&index);
+    let previous_counts = counts(&prior_index);
+    let count_undo = touched_keys
+        .iter()
+        .map(|(scope, _)| (scope.clone(), previous_counts.get(scope).copied()))
+        .collect();
     let undo = touched_keys
         .into_iter()
         .map(|key| {
-            let previous = prior_index.get(&key).cloned();
+            let previous = prior_index.get(&key).copied();
             (key, previous)
         })
         .collect();
-    Storage::from_snapshot_parts(index, undo)
+    (
+        Storage::from_snapshot_parts(index, undo),
+        Storage::from_snapshot_parts(current_counts, count_undo),
+    )
 }
 
 /// Validate both authoritative cuts before replacing either derived owner.
@@ -174,7 +196,7 @@ pub(super) fn rebuild(world: &mut World) -> Result<(), String> {
             touched.insert(account.clone());
         }
     }
-    let index = index_with_history(&current, &previous, &touched);
+    let (index, counts) = index_with_history(&current, &previous, &touched);
     let undo = touched
         .into_iter()
         .map(|account| {
@@ -185,12 +207,13 @@ pub(super) fn rebuild(world: &mut World) -> Result<(), String> {
     let directory = Storage::from_snapshot_parts(current, undo);
     world.account_scope_directory = directory;
     world.account_scope_accounts = index;
+    world.account_scope_account_counts = counts;
     Ok(())
 }
 
 /// Catalog pruning already publishes directory MV history; preserve it in the inverse.
 pub(super) fn rebuild_accounts_index(world: &mut World) {
-    let index = {
+    let (index, counts) = {
         let history = world.account_scope_directory.history();
         let current = history
             .current()
@@ -205,6 +228,7 @@ pub(super) fn rebuild_accounts_index(world: &mut World) {
         index_with_history(&current, &previous, &touched)
     };
     world.account_scope_accounts = index;
+    world.account_scope_account_counts = counts;
 }
 
 #[cfg(test)]

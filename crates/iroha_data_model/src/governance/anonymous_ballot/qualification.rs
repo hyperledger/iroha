@@ -7,10 +7,11 @@
 //! Ed25519 signature that release validation verifies against the owner's separately
 //! pinned qualification key. No environment variable, Cargo feature, node-local setting
 //! or governance instruction asserts qualification, and engineering completion, local
-//! tests or this module never constitute it. While the constant is `None`, Core must
-//! refuse binding attempt creation, binding registration and sealing, anonymous-ballot
-//! admission and inclusion, and binding certification and enactment; that enforcement is
-//! wired by the Core integration.
+//! tests or this module never constitute it. The constant records production
+//! qualification; it does not prohibit engineering testing of the actual candidate.
+//! Core integration is pending, including production enforcement at binding attempt
+//! creation, registration, sealing, admission, inclusion, certification and enactment.
+//! The local protocol tests run without claiming this record exists.
 
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};

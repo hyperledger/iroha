@@ -9,8 +9,8 @@ use std::alloc::Layout;
 use parking_lot::Mutex;
 
 use iroha_allocation::{
-    AllocationBudget, AllocationCharge, AllocationRefusal, AllocationReservation, ChargedBuffer,
-    InsufficientReservation, PrepaidBufferError,
+    AllocationBudget, AllocationCharge, AllocationRefusal, AllocationReservation, AllocatorRefusal,
+    ChargedBuffer, InsufficientReservation, PrepaidBufferError,
 };
 use iroha_crypto::{PublicKeyAllocationError, PublicKeyEnvelopeError, SignatureVerificationError};
 use iroha_data_model::sumeragi::epoch::ValidatorCommitteeMemberV1;
@@ -23,6 +23,9 @@ pub(crate) enum CommitteeAdmissionError {
     /// The complete physical graph did not fit its original finite pool.
     #[error(transparent)]
     Admission(#[from] AllocationRefusal),
+    /// Pairing backing failed after admission; this retains no capacity-release wait.
+    #[error(transparent)]
+    PhysicalAllocation(PairingBackingError),
     /// The offered reservation belongs to another pool.
     #[error("committee reservation belongs to another original pool")]
     ForeignPool,
@@ -59,6 +62,32 @@ pub(crate) enum CommitteeAdmissionError {
         /// Original unformatted cryptographic rejection.
         error: SignatureVerificationError,
     },
+}
+
+/// Why admitted pairing backing was not constructed; neither cause is a key verdict.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum PairingBackingError {
+    /// The physical allocator refused the exact admitted layout (original cause).
+    #[error(transparent)]
+    Allocator(AllocatorRefusal),
+    /// The linked `blst` context size cannot be initialized. Node startup refuses
+    /// such a build, so this never reaches a running validator.
+    #[error("the linked blst pairing context of {context_bytes} bytes is unsupported")]
+    Geometry {
+        /// `blst_pairing_sizeof()` reported by the linked implementation.
+        context_bytes: usize,
+    },
+}
+
+impl From<PairingBackingError> for ExecutionDeferred {
+    fn from(error: PairingBackingError) -> Self {
+        match error {
+            PairingBackingError::Allocator(original) => original.into(),
+            PairingBackingError::Geometry { .. } => {
+                ivm::error::ExecutionDeferral::VerifierInitializationUnavailable.into()
+            }
+        }
+    }
 }
 
 /// One exact compact allocation, always destroyed before its original credit.
@@ -103,16 +132,19 @@ pub(crate) struct FundedBlsCommittee {
     scratch: Mutex<ConsensusAggregateScratch<AllocationCharge>>,
 }
 
-fn pairing_layout() -> Result<Layout, AllocationRefusal> {
-    // The shared crypto API reports the exact u64-array backing of blst::Pairing.
-    Layout::from_size_align(
-        ConsensusAggregateScratch::<()>::backing_bytes(),
-        std::mem::align_of::<u64>(),
-    )
-    .map_err(|_| AllocationRefusal::DemandOverflow)
+fn pairing_layout() -> Layout {
+    ConsensusAggregateScratch::<()>::backing_layout()
 }
 
 impl FundedBlsCommittee {
+    /// Exact credential-array layout for ownership and allocator-fault controls.
+    #[cfg(test)]
+    pub(crate) fn credential_allocation_layout(
+        member_count: usize,
+    ) -> Result<Layout, std::alloc::LayoutError> {
+        Layout::array::<Credential>(member_count)
+    }
+
     /// Sum actual credential-array, compact-key and pairing layouts without allocating.
     /// This measures source storage; it confers no committee validity or authority.
     pub(crate) fn allocation_demand(
@@ -122,7 +154,7 @@ impl FundedBlsCommittee {
             .map_err(|_| AllocationRefusal::DemandOverflow)?;
         let bytes = backing
             .size()
-            .checked_add(pairing_layout()?.size())
+            .checked_add(pairing_layout().size())
             .ok_or(AllocationRefusal::DemandOverflow)?;
         members.iter().try_fold(bytes, |sum, member| {
             sum.checked_add(
@@ -153,8 +185,9 @@ impl FundedBlsCommittee {
     /// This never reacquires capacity or replaces the pool. A foreign/short parent is
     /// refused before splitting. A key/allocator refusal drops all constructed storage
     /// before returning its credits. Unused parent remainder stays with the caller.
-    /// Existing `ConsensusAggregateScratch` has an infallible physical allocation;
-    /// its process-abort OOM behavior is not upgraded into a recoverable refusal here.
+    /// Pairing allocation is fallible and retains its exact physical cause, separately
+    /// from an original pool refusal and its release observation. An unsupported linked
+    /// context is a local verifier-initialization refusal, never a key verdict.
     #[allow(
         unsafe_code,
         reason = "exact compact key and charge move immediately into a private drop-ordered owner"
@@ -168,12 +201,37 @@ impl FundedBlsCommittee {
             return Err(CommitteeAdmissionError::ForeignPool);
         }
         let mut original = parent.try_partition_bytes(Self::allocation_demand(members)?)?;
-        let pairing = pairing_layout()?;
+        let pairing = pairing_layout();
         let scratch = ConsensusAggregateScratch::new(|bytes| {
             debug_assert_eq!(bytes, pairing.size());
             original.try_split(pairing)
+        })
+        .map_err(|error| match error {
+            consensus::AggregateScratchError::Admission(original) => {
+                CommitteeAdmissionError::Reservation(original)
+            }
+            consensus::AggregateScratchError::Allocator { error, layout } => {
+                #[cfg(all(test, sumeragi_core_mutation = "HC940"))]
+                {
+                    let _ = (error, layout);
+                    CommitteeAdmissionError::Admission(AllocationRefusal::DemandOverflow)
+                }
+                #[cfg(not(all(test, sumeragi_core_mutation = "HC940")))]
+                CommitteeAdmissionError::PhysicalAllocation(PairingBackingError::Allocator(
+                    AllocatorRefusal::from_vec_reserve(error, layout),
+                ))
+            }
+            consensus::AggregateScratchError::UnsupportedGeometry { context_bytes } => {
+                CommitteeAdmissionError::PhysicalAllocation(PairingBackingError::Geometry {
+                    context_bytes,
+                })
+            }
         })?;
+        #[cfg(test)]
+        construction_checkpoint(Checkpoint::Pairing);
         let mut credentials = ChargedBuffer::from_reservation(members.len(), &mut original)?;
+        #[cfg(test)]
+        construction_checkpoint(Checkpoint::CredentialBacking);
         for (index, member) in members.iter().enumerate() {
             let key = member.validator.public_key();
             let (algorithm, _) = key
@@ -183,12 +241,28 @@ impl FundedBlsCommittee {
                 return Err(CommitteeAdmissionError::Algorithm { index, algorithm });
             }
             let charge = original.try_split(key.retained_allocation_layout())?;
-            let owned = key
-                .try_clone_from_charge(budget, charge)
-                .map_err(|(charge, error)| {
-                    drop(charge);
-                    CommitteeAdmissionError::KeyAllocation(error)
-                })?;
+            let clone = || key.try_clone_from_charge(budget, charge);
+            #[cfg(not(test))]
+            let owned = clone();
+            #[cfg(test)]
+            let owned = if REFUSE_KEY_AT.with(|selected| selected.get() == Some(index)) {
+                REFUSE_KEY_AT.with(|selected| selected.set(None));
+                let (owned, observed) = crate::test_allocations::refuse_one_layout_during(
+                    key.retained_allocation_layout(),
+                    clone,
+                );
+                assert!(
+                    observed,
+                    "selected exact compact-key allocation was attempted"
+                );
+                owned
+            } else {
+                clone()
+            };
+            let owned = owned.map_err(|(charge, error)| {
+                drop(charge);
+                CommitteeAdmissionError::KeyAllocation(error)
+            })?;
             // SAFETY: no fallible/panicking work separates extraction from the private
             // owner. Its compact key always drops before this unchanged original charge.
             let (key, charge) = unsafe { owned.into_allocation_parts() };
@@ -299,6 +373,8 @@ impl Crypto for FundedBlsCommittee {
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Checkpoint {
+    Pairing,
+    CredentialBacking,
     Key(usize),
     Credential(usize),
     Complete,
@@ -306,6 +382,34 @@ enum Checkpoint {
 #[cfg(test)]
 thread_local! {
     static UNWIND_AT: std::cell::Cell<Option<Checkpoint>> = const { std::cell::Cell::new(None) };
+    static REFUSE_KEY_AT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+/// Refuse one actual credential-key allocator request at its original member index.
+/// The returned flag confirms the selected constructor reached that allocation;
+/// the thread-local selection is cleared even if the caller unwinds.
+#[cfg(test)]
+pub(crate) fn refuse_key_allocation_at<R>(
+    index: usize,
+    operation: impl FnOnce() -> R,
+) -> (R, bool) {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            REFUSE_KEY_AT.with(|selected| selected.set(None));
+        }
+    }
+    REFUSE_KEY_AT.with(|selected| {
+        assert!(
+            selected.get().is_none(),
+            "nested credential-key allocator injection"
+        );
+        selected.set(Some(index));
+    });
+    let reset = Reset;
+    let result = operation();
+    let observed = REFUSE_KEY_AT.with(|selected| selected.get().is_none());
+    drop(reset);
+    (result, observed)
 }
 #[cfg(test)]
 fn construction_checkpoint(checkpoint: Checkpoint) {

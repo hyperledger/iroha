@@ -158,64 +158,79 @@ fn stage(block: &mut StateBlock<'_>) {
         fixture::definition("absent"),
         ALICE_ID.clone(),
     ));
-    let coin = BTreeSet::from([
-        fixture::id(),
-        scoped(ALICE_ID.clone()),
-        scoped(BOB_ID.clone()),
-    ]);
-    block
-        .world
-        .asset_definition_assets
-        .insert(fixture::definition("coin"), coin.clone());
-    block
-        .world
-        .asset_definition_assets
-        .insert(fixture::definition("spare"), BTreeSet::from([spare()]));
-    block
-        .world
-        .asset_definition_assets
-        .remove(fixture::definition("absent"));
-    block.world.assets_by_account.insert(
-        ALICE_ID.clone(),
-        BTreeSet::from([fixture::id(), scoped(ALICE_ID.clone())]),
+    macro_rules! reset_members {
+        ($field:ident, $rows:expr) => {{
+            let old: Vec<_> = block
+                .world
+                .$field
+                .iter()
+                .map(|(key, ())| key.clone())
+                .collect();
+            for key in old {
+                block.world.$field.remove(key);
+            }
+            for key in $rows {
+                block.world.$field.insert(key, ());
+            }
+        }};
+    }
+    reset_members!(
+        asset_definition_assets,
+        [
+            (fixture::definition("coin"), fixture::id()),
+            (fixture::definition("coin"), scoped(ALICE_ID.clone())),
+            (fixture::definition("coin"), scoped(BOB_ID.clone())),
+            (fixture::definition("spare"), spare()),
+        ]
     );
-    block.world.assets_by_account.insert(
-        BOB_ID.clone(),
-        BTreeSet::from([scoped(BOB_ID.clone()), spare()]),
+    block
+        .world
+        .asset_definition_asset_counts
+        .insert(fixture::definition("coin"), 3);
+    block
+        .world
+        .asset_definition_asset_counts
+        .insert(fixture::definition("spare"), 1);
+    reset_members!(
+        assets_by_domain,
+        [
+            (other_domain(), fixture::id()),
+            (other_domain(), scoped(ALICE_ID.clone())),
+            (other_domain(), scoped(BOB_ID.clone())),
+        ]
     );
+    reset_members!(
+        asset_definition_holders,
+        [
+            (fixture::definition("coin"), ALICE_ID.clone()),
+            (fixture::definition("coin"), BOB_ID.clone()),
+            (fixture::definition("spare"), BOB_ID.clone()),
+        ]
+    );
+    reset_members!(
+        asset_definition_nonzero_holders,
+        [
+            (fixture::definition("coin"), ALICE_ID.clone()),
+            (fixture::definition("coin"), BOB_ID.clone()),
+            (fixture::definition("spare"), BOB_ID.clone()),
+        ]
+    );
+    block
+        .world
+        .asset_definition_assets
+        .remove((fixture::definition("absent"), fixture::id()));
     block
         .world
         .assets_by_domain
-        .remove(fixture::domain("balances"));
-    block.world.assets_by_domain.insert(other_domain(), coin);
-    block
-        .world
-        .assets_by_domain
-        .remove(fixture::domain("unused"));
-    block.world.asset_definition_holders.insert(
-        fixture::definition("coin"),
-        BTreeSet::from([ALICE_ID.clone(), BOB_ID.clone()]),
-    );
-    block.world.asset_definition_holders.insert(
-        fixture::definition("spare"),
-        BTreeSet::from([BOB_ID.clone()]),
-    );
+        .remove((fixture::domain("unused"), fixture::id()));
     block
         .world
         .asset_definition_holders
-        .remove(fixture::definition("absent"));
-    block.world.asset_definition_nonzero_holders.insert(
-        fixture::definition("coin"),
-        BTreeSet::from([ALICE_ID.clone(), BOB_ID.clone()]),
-    );
-    block.world.asset_definition_nonzero_holders.insert(
-        fixture::definition("spare"),
-        BTreeSet::from([BOB_ID.clone()]),
-    );
+        .remove((fixture::definition("absent"), ALICE_ID.clone()));
     block
         .world
         .asset_definition_nonzero_holders
-        .remove(fixture::definition("absent"));
+        .remove((fixture::definition("absent"), ALICE_ID.clone()));
 }
 fn freeze(block: &mut StateBlock<'_>) {
     block.world.begin_freeze();
@@ -228,10 +243,10 @@ fn exact(original: &Original<'_>) -> u64 {
         &original.definitions,
         &original.domains,
         &original.by_definition,
-        &original.by_account,
         &original.by_domain,
         &original.holders,
         &original.nonzero,
+        &original.asset_counts,
     )
 }
 fn equal(actual: &CanonicalTablePairedSnapshot, expected: &CanonicalTablePairedSnapshot) {
@@ -267,13 +282,16 @@ fn ordinary_partition_domain_migration_insert_delete_noop_and_absent_history_ret
         original
             .by_definition
             .undo_entries()
-            .any(|(id, prior)| id == &fixture::definition("absent") && prior.is_none())
+            .any(
+                |((definition, _), prior)| definition == &fixture::definition("absent")
+                    && prior.is_none()
+            )
     );
     assert!(
         original
             .by_domain
             .undo_entries()
-            .any(|(id, prior)| id == &other_domain() && prior.is_none())
+            .any(|((domain, _), prior)| domain == &other_domain() && prior.is_none())
     );
     let work = exact(&original);
     assert_eq!(
@@ -342,15 +360,15 @@ fn replace_retains_exact_rewound_eight_owner_images_and_modes() {
     block
         .world
         .asset_definition_assets
-        .remove(fixture::definition("absent"));
+        .remove((fixture::definition("absent"), fixture::id()));
     block
         .world
         .asset_definition_holders
-        .remove(fixture::definition("absent"));
+        .remove((fixture::definition("absent"), ALICE_ID.clone()));
     block
         .world
         .asset_definition_nonzero_holders
-        .remove(fixture::definition("absent"));
+        .remove((fixture::definition("absent"), ALICE_ID.clone()));
     freeze(&mut block);
     let original = Original::retain(&block).unwrap();
     for mode in [
@@ -358,7 +376,7 @@ fn replace_retains_exact_rewound_eight_owner_images_and_modes() {
         original.definitions.mode(),
         original.domains.mode(),
         original.by_definition.mode(),
-        original.by_account.mode(),
+        original.asset_counts.mode(),
         original.by_domain.mode(),
         original.holders.mode(),
         original.nonzero.mode(),
@@ -420,22 +438,15 @@ macro_rules! defect {
         let case = $case;
         let restore = $restore;
         macro_rules! group {
-            ($field:ident,$key:expr,$foreign:expr,$valid:expr) => {{
-                let key = if case % 3 == 0 { $key } else { $foreign };
+            ($field:ident,$key:expr,$foreign:expr,$member:expr,$orphan:expr) => {{
+                let bucket = if case % 3 == 0 { $key } else { $foreign };
+                let member = if case % 3 == 1 { $orphan } else { $member };
                 let value = if restore {
-                    if case % 3 == 0 { Some($valid) } else { None }
+                    (case % 3 == 0).then_some(())
                 } else {
-                    if case % 3 == 0 {
-                        None
-                    } else {
-                        Some(if case % 3 == 1 {
-                            BTreeSet::new()
-                        } else {
-                            $valid
-                        })
-                    }
+                    (case % 3 != 0).then_some(())
                 };
-                alter!($world, $kind, $field, key, value);
+                alter!($world, $kind, $field, (bucket, member), value);
             }};
         }
         match case / 3 {
@@ -443,31 +454,46 @@ macro_rules! defect {
                 asset_definition_assets,
                 fixture::definition("coin"),
                 fixture::definition("absent"),
-                BTreeSet::from([fixture::id()])
+                fixture::id(),
+                AssetId::new(fixture::definition("absent"), ALICE_ID.clone())
             ),
-            1 => group!(
-                assets_by_account,
-                ALICE_ID.clone(),
-                BOB_ID.clone(),
-                BTreeSet::from([fixture::id()])
-            ),
+            1 => {
+                let key = if case % 3 == 0 {
+                    fixture::definition("coin")
+                } else {
+                    fixture::definition("absent")
+                };
+                let value = if restore {
+                    (case % 3 == 0).then_some(1)
+                } else {
+                    match case % 3 {
+                        0 => None,
+                        1 => Some(0),
+                        _ => Some(1),
+                    }
+                };
+                alter!($world, $kind, asset_definition_asset_counts, key, value);
+            }
             2 => group!(
                 assets_by_domain,
                 fixture::domain("balances"),
                 other_domain(),
-                BTreeSet::from([fixture::id()])
+                fixture::id(),
+                AssetId::new(fixture::definition("absent"), ALICE_ID.clone())
             ),
             3 => group!(
                 asset_definition_holders,
                 fixture::definition("coin"),
                 fixture::definition("absent"),
-                BTreeSet::from([ALICE_ID.clone()])
+                ALICE_ID.clone(),
+                BOB_ID.clone()
             ),
             4 => group!(
                 asset_definition_nonzero_holders,
                 fixture::definition("coin"),
                 fixture::definition("absent"),
-                BTreeSet::from([ALICE_ID.clone()])
+                ALICE_ID.clone(),
+                BOB_ID.clone()
             ),
             _ => unreachable!(),
         }
@@ -495,7 +521,7 @@ fn all_five_balance_index_defects_reject_either_original_image_before_allocation
             );
             let index = [
                 "world.asset_definition_assets",
-                "world.assets_by_account",
+                "world.asset_definition_asset_counts",
                 "world.assets_by_domain",
                 "world.asset_definition_holders",
                 "world.asset_definition_nonzero_holders",
@@ -512,7 +538,6 @@ fn all_five_balance_index_defects_reject_either_original_image_before_allocation
                         },
                         mismatch: match case % 3 {
                             0 => GroupMismatch::MissingMember,
-                            1 => GroupMismatch::EmptyGroup,
                             _ => GroupMismatch::ForeignMember,
                         }
                     }
@@ -619,7 +644,7 @@ fn each_of_eight_foreign_released_partial_and_mixed_balance_sources_refuses() {
                 1 => replace!(asset_definitions),
                 2 => replace!(domains),
                 3 => replace!(asset_definition_assets),
-                4 => replace!(assets_by_account),
+                4 => replace!(asset_definition_asset_counts),
                 5 => replace!(assets_by_domain),
                 6 => replace!(asset_definition_holders),
                 7 => replace!(asset_definition_nonzero_holders),
@@ -638,7 +663,7 @@ fn each_of_eight_foreign_released_partial_and_mixed_balance_sources_refuses() {
             1 => block.world.asset_definitions.release_writers(),
             2 => block.world.domains.release_writers(),
             3 => block.world.asset_definition_assets.release_writers(),
-            4 => block.world.assets_by_account.release_writers(),
+            4 => block.world.asset_definition_asset_counts.release_writers(),
             5 => block.world.assets_by_domain.release_writers(),
             6 => block.world.asset_definition_holders.release_writers(),
             7 => block
@@ -749,28 +774,24 @@ fn later_equal_or_changed_publications_cannot_refresh_any_asset_original() {
                 ),
                 3 => publish!(
                     asset_definition_assets,
-                    fixture::definition("absent"),
-                    BTreeSet::from([fixture::id()])
+                    (fixture::definition("absent"), fixture::id()),
+                    ()
                 ),
                 4 => publish!(
-                    assets_by_account,
-                    BOB_ID.clone(),
-                    BTreeSet::from([fixture::id()])
+                    asset_definition_asset_counts,
+                    fixture::definition("absent"),
+                    1
                 ),
-                5 => publish!(
-                    assets_by_domain,
-                    other_domain(),
-                    BTreeSet::from([fixture::id()])
-                ),
+                5 => publish!(assets_by_domain, (other_domain(), fixture::id()), ()),
                 6 => publish!(
                     asset_definition_holders,
-                    fixture::definition("absent"),
-                    BTreeSet::from([ALICE_ID.clone()])
+                    (fixture::definition("absent"), ALICE_ID.clone()),
+                    ()
                 ),
                 7 => publish!(
                     asset_definition_nonzero_holders,
-                    fixture::definition("absent"),
-                    BTreeSet::from([ALICE_ID.clone()])
+                    (fixture::definition("absent"), ALICE_ID.clone()),
+                    ()
                 ),
                 _ => unreachable!(),
             }
@@ -801,9 +822,9 @@ fn canonical_balance_rows_roots_and_zero_nonzero_partitions_match_original_commi
         original
             .nonzero
             .current_entries()
-            .find(|(id, _)| *id == &fixture::definition("coin"))
+            .find(|((id, owner), ())| id == &fixture::definition("coin") && owner == &*ALICE_ID)
             .unwrap()
             .1,
-        &BTreeSet::from([ALICE_ID.clone()])
+        &()
     );
 }

@@ -362,12 +362,14 @@ owners, equal acquisition modes and its original allocation pool; it feeds curre
 canonical rows into the existing paired encoder. The proof-status adapter checks
 the complete stored `ProofId`/`ProofStatus` inverse in `world.proofs_by_status` at
 both original cuts. It does not admit proof contents, proof-record payload IDs,
-verifier keys, proof tags or historical finality. Its closed status enum uses three
-borrowed stack slots and admits all physical current/undo index rows before
-inspecting logical buckets. Insufficient local work can therefore defer before
-latent empty-bucket corruption is reported; sufficient work on the same originals
-reports that corruption, and neither refusal implies success. Valid exact work
-and transaction gas are unchanged. Work, row and byte allowances remain
+verifier keys, proof tags or historical finality. The inverse stores one
+`(ProofStatus, ProofId) -> ()` membership per row. The checker streams current
+and undo rows in key order and compares each status with the corresponding
+canonical proof sequence, without rebuilding grouped sets. Physical row visits
+and variable-key comparisons consume admitted work before inspection; missing
+or foreign memberships fail the exact relation. Insufficient local work defers
+without implying successful validation. The work schedule reflects tuple-row
+geometry; transaction gas is unchanged. Work, row and byte allowances remain
 caller-admitted local controls, and refusal leaves the original frozen source
 available for retry. These scoped consumers do not publish a root or establish
 complete State currentness.

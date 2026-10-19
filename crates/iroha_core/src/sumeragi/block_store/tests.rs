@@ -1070,3 +1070,6 @@ fn stored_native_result_requires_fixed_x_and_exact_carrier_time() {
 
 #[path = "replay_output_tests.rs"]
 mod replay_outputs;
+
+#[path = "metadata_read_tests.rs"]
+mod metadata_reads;

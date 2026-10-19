@@ -7,7 +7,7 @@
 //! the attempt identifiers, the role, `B` and `C`; `D_reg` is recomputed by the proof crate
 //! with the candidate descriptor. The proof shows that one secret opens `C` and produces
 //! `auth`. It does not show authority, invitation, eligibility, freshness or uniqueness,
-//! which Core checks itself.
+//! which the pending Core integration must check independently.
 
 use iroha_data_model::{
     account::AccountId,

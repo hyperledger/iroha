@@ -285,11 +285,14 @@ seiyaku DispatchRoles {
             Grant::account_permission(malformed_permission.clone(), authority.clone()).into(),
         )
         .expect_err("native Grant rejects the recognized malformed permission before mutation");
-    assert!(matches!(
-        malformed_grant,
-        ValidationFail::NotPermitted(message)
-            if message.contains("Invalid permission payload")
-    ));
+    assert!(
+        matches!(
+            &malformed_grant,
+            ValidationFail::NotPermitted(message)
+                if message.contains("Invalid permission payload")
+        ),
+        "{malformed_grant:?}"
+    );
     assert_eq!(
         norito::to_bytes(
             &tx.world
