@@ -21,7 +21,7 @@ class KagemushaWalletHostNativeV1Test {
 
     @BeforeEach
     fun requireCurrentNativeBridge() {
-        assertTrue(NativeSignerBridge.isNativeAvailable(), "The supplied ABI-30 native bridge must load")
+        assertTrue(NativeSignerBridge.isNativeAvailable(), "The supplied ABI-31 native bridge must load")
         assertEquals(1, KagemushaWalletNativeV1.revision())
     }
 
@@ -94,6 +94,47 @@ class KagemushaWalletHostNativeV1Test {
         for (reply in malformed) {
             assertEquals(-1, reply.status)
             assertTrue(reply.bytes().isEmpty())
+        }
+    }
+
+    @Test
+    fun verifiedDeliveryAndPaymentCompanionSetupUseActualJniAndCheckBoundsBeforeOwnerLookup() {
+        // Handle zero cannot own a wallet. These originals exercise intake shape only:
+        // admitted selectors reach owner lookup (-2), while malformed calls stop at -1.
+        fun call(selector: Int, identity: ByteArray, first: ByteArray = byteArrayOf(1),
+            second: ByteArray = byteArrayOf(), third: ByteArray = byteArrayOf(),
+            low: Long = 0, high: Long = 0, token: Long = 0) =
+            assertNotNull(KagemushaWalletNativeV1.setup(0, identity, selector, low, high,
+                token, first, second, third))
+        for (selector in listOf(54, 55)) {
+            val id = if (selector == 54) ByteArray(32) { 1 } else ByteArray(32)
+            for (length in listOf(1, 10_000)) {
+                val reply = call(selector, id, first = ByteArray(length) { 1 })
+                assertEquals(-2, reply.status, "selector $selector length $length must reach owner lookup")
+                assertEquals(-1, reply.reason)
+                assertEquals(0, reply.platformCode)
+                assertTrue(reply.bytes().isEmpty())
+            }
+            val wrongIdentity = if (selector == 54) ByteArray(32) else ByteArray(32) { 1 }
+            val malformed = listOf(
+                "empty identity" to call(selector, byteArrayOf()),
+                "short identity" to call(selector, ByteArray(31)),
+                "long identity" to call(selector, ByteArray(33)),
+                "wrong identity value" to call(selector, wrongIdentity),
+                "empty original" to call(selector, id, first = byteArrayOf()),
+                "oversized original" to call(selector, id, first = ByteArray(10_001)),
+                "second original" to call(selector, id, second = byteArrayOf(1)),
+                "third original" to call(selector, id, third = byteArrayOf(1)),
+                "low amount" to call(selector, id, low = 1),
+                "high amount" to call(selector, id, high = 1),
+                "token" to call(selector, id, token = 1),
+            )
+            for ((label, reply) in malformed) {
+                assertEquals(-1, reply.status, "selector $selector $label must fail before owner lookup")
+                assertEquals(-1, reply.reason)
+                assertEquals(0, reply.platformCode)
+                assertTrue(reply.bytes().isEmpty())
+            }
         }
     }
 

@@ -132,7 +132,7 @@ fn hex(bytes: &[u8]) -> String {
     result
 }
 
-fn standard_policy() -> Result<FrozenBallotPolicyV1> {
+fn standard_policy(body_role: ParliamentBody) -> Result<FrozenBallotPolicyV1> {
     let pipeline = [
         ParliamentBody::RulesCommittee,
         ParliamentBody::AgendaCouncil,
@@ -151,7 +151,7 @@ fn standard_policy() -> Result<FrozenBallotPolicyV1> {
         1_000,
         3_600,
     )?;
-    let policy = attempt.ballot_policy(RiskTierV1::Standard, ParliamentBody::PolicyJury)?;
+    let policy = attempt.ballot_policy(RiskTierV1::Standard, body_role)?;
     if policy.binding.stamp_difficulty_bits != 28 {
         return Err("the default standard-tier policy no longer has 28-bit stamps".into());
     }
@@ -172,11 +172,16 @@ fn prepare(seats: u16) -> Result<Prepared> {
     if !matches!(seats, 3 | 500 | 1000) {
         return Err("unsupported fixture roster".into());
     }
+    let body_role = if seats == 1000 {
+        ParliamentBody::ConfirmationJury
+    } else {
+        ParliamentBody::PolicyJury
+    };
     let body = BallotBodyContextV1 {
         network_id: network_id(0x5a),
         governance_attempt_id: GovernanceAttemptId::new([0x11; 32]),
         election_attempt_id: BodyElectionAttemptId::new([0x22; 32]),
-        body_role: ParliamentBody::PolicyJury,
+        body_role,
     };
     let body_digest = body_digest_v1(&body)?;
     let commitments = (0..seats)
@@ -194,7 +199,7 @@ fn prepare(seats: u16) -> Result<Prepared> {
         Digest512::new([0x33; 64]),
         BodyInstanceId::new([0x03; 32]),
         &list,
-        standard_policy()?,
+        standard_policy(body_role)?,
     )?;
     let profile = proof_profile_v1()?;
     let roster_member = seats - 1;
@@ -268,6 +273,8 @@ struct Manifest {
     network_id: String,
     alternate_network_id: String,
     body_instance_id: String,
+    body_role: Option<ParliamentBody>,
+    target_seats: Option<u16>,
     roster_member_index: u16,
     sealed_position: Option<u16>,
     public_secret_encoding: &'static str,
@@ -317,6 +324,8 @@ impl Manifest {
             network_id: network_id(0x5a).to_string(),
             alternate_network_id: network_id(0x5b).to_string(),
             body_instance_id: hex(&[0x03; 32]),
+            body_role: None,
+            target_seats: None,
             roster_member_index: options.seats - 1,
             sealed_position: None,
             public_secret_encoding: "48 bytes: u16 little-endian roster index followed by 46 bytes of 0x40",
@@ -356,6 +365,20 @@ impl Manifest {
         }
     }
 
+    fn record_context(&mut self, prepared: &Prepared) -> Result<()> {
+        let target_seats = prepared
+            .context
+            .policy()
+            .body_target_seats()
+            .ok_or("fixture context has no frozen body target")?;
+        self.body_role = Some(prepared.context.body_context().body_role);
+        self.target_seats = Some(target_seats);
+        self.roster_member_index = prepared.roster_member;
+        self.sealed_position = Some(prepared.position);
+        self.scope_hex = Some(hex(prepared.context.scope().as_bytes()));
+        Ok(())
+    }
+
     fn save(&self, output: &Path) -> Result<()> {
         fs::write(
             output.join("manifest.json"),
@@ -367,9 +390,7 @@ impl Manifest {
 
 fn generate(options: &Options, manifest: &mut Manifest) -> Result<()> {
     let prepared = prepare(options.seats)?;
-    manifest.roster_member_index = prepared.roster_member;
-    manifest.sealed_position = Some(prepared.position);
-    manifest.scope_hex = Some(hex(prepared.context.scope().as_bytes()));
+    manifest.record_context(&prepared)?;
     let context_bytes = enc(prepared.context.context())?;
     if context_bytes != prepared.context.encoded_context().as_bytes() {
         return Err("context encoding disagrees with the stamp context".into());
@@ -593,7 +614,10 @@ mod tests {
             threads: NonZeroUsize::MIN,
             variant: Variant::Valid,
         };
-        let manifest = Manifest::new(&options);
+        let mut manifest = Manifest::new(&options);
+        manifest.record_context(&prepared).expect("checked context");
+        assert_eq!(manifest.body_role, Some(ParliamentBody::PolicyJury));
+        assert_eq!(manifest.target_seats, Some(500));
         assert!(manifest.public_fixture_only);
         assert!(
             !manifest.production_qualified
@@ -623,6 +647,39 @@ mod tests {
         let wrapped = envelope(&authorization, stamp);
         assert_eq!(wrapped.authorization(), authorization);
         assert_eq!(wrapped.ballot.stamp, stamp);
+    }
+
+    #[test]
+    fn thousand_seats_use_the_unchanged_default_confirmation_jury_policy() {
+        let prepared = prepare(1000).expect("default confirmation jury accepts 1000 seats");
+        let policy = prepared.context.policy();
+        assert_eq!(prepared.context.seats(), 1000);
+        assert_eq!(
+            prepared.context.body_context().body_role,
+            ParliamentBody::ConfirmationJury
+        );
+        assert_eq!(policy.body_role, ParliamentBody::ConfirmationJury);
+        assert_eq!(policy.body_target_seats(), Some(1000));
+        assert_eq!(policy.risk_tier, RiskTierV1::Standard);
+        assert_eq!(policy.binding.stamp_difficulty_bits, 28);
+        assert_eq!(
+            policy,
+            &standard_policy(ParliamentBody::ConfirmationJury).expect("unchanged defaults")
+        );
+        assert!(prepared.position < 1000);
+        let options = Options {
+            output: PathBuf::from("unused"),
+            seats: 1000,
+            threads: NonZeroUsize::MIN,
+            variant: Variant::Valid,
+        };
+        let mut manifest = Manifest::new(&options);
+        manifest.record_context(&prepared).expect("checked context");
+        assert_eq!(manifest.body_role, Some(ParliamentBody::ConfirmationJury));
+        assert_eq!(manifest.target_seats, Some(1000));
+        let json = norito::json::to_json(&manifest).expect("manifest JSON");
+        assert!(json.contains("\"body_role\":\"confirmation-jury\""));
+        assert!(json.contains("\"target_seats\":1000"));
     }
 
     #[test]

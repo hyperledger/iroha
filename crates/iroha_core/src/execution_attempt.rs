@@ -383,6 +383,7 @@ pub(crate) fn prepared_signature_block_attempt_error<E>(
     };
     use iroha_data_model::block::commit_certificate::CertificateCustodyError;
     use iroha_data_model::block::{BlockSignatureCustodyError, PreparedSignatureBlockError};
+    use iroha_data_model::consensus::{NposPenaltyActionsCustodyError, ParentServiceCustodyError};
     use iroha_data_model::da::commitment::{DaCommitmentCustodyError, DaProofPolicyCustodyError};
     use norito::core::{PreparedDecodeError, PreparedDecodeScopeError};
     fn buffer(error: ChargedBufferError) -> ExecutionDeferred {
@@ -406,24 +407,50 @@ pub(crate) fn prepared_signature_block_attempt_error<E>(
             PrepaidSharedError::Reservation(_) => ExecutionDeferral::ActiveMemoryCapacity.into(),
         }
     }
+    if cfg!(all(test, sumeragi_core_mutation = "HC459"))
+        && matches!(&error, PreparedSignatureBlockError::PenaltyActions(_))
+    {
+        return ExecutionAttemptError::Deferred(ExecutionDeferral::ActiveMemoryCapacity.into());
+    }
+    if cfg!(all(test, sumeragi_core_mutation = "HC461"))
+        && matches!(&error, PreparedSignatureBlockError::ParentService(_))
+    {
+        return ExecutionAttemptError::Deferred(ExecutionDeferral::ActiveMemoryCapacity.into());
+    }
     match error {
-        PreparedSignatureBlockError::Storage(original) => {
+        PreparedSignatureBlockError::PenaltyActions(NposPenaltyActionsCustodyError::Buffer(
+            original,
+        ))
+        | PreparedSignatureBlockError::Storage(original) => {
             ExecutionAttemptError::Deferred(buffer(original))
         }
-        PreparedSignatureBlockError::Frame(original)
+        PreparedSignatureBlockError::ParentService(ParentServiceCustodyError::Decode(original))
+        | PreparedSignatureBlockError::Frame(original)
         | PreparedSignatureBlockError::Certificate(CertificateCustodyError::Decode(original))
         | PreparedSignatureBlockError::Policy(DaProofPolicyCustodyError::Decode(original))
         | PreparedSignatureBlockError::Commitments(DaCommitmentCustodyError::Decode(original))
+        | PreparedSignatureBlockError::PenaltyActions(NposPenaltyActionsCustodyError::Decode(
+            original,
+        ))
         | PreparedSignatureBlockError::Decode(
             PreparedDecodeError::Codec(original)
             | PreparedDecodeError::Destination(BlockSignatureCustodyError::Decode(original)),
         ) => canonical_decode_attempt_error(original, |error| rejected(error.to_string())),
-        PreparedSignatureBlockError::Certificate(CertificateCustodyError::Admission(original))
+        PreparedSignatureBlockError::PenaltyActions(
+            NposPenaltyActionsCustodyError::ControlAdmission(original),
+        )
+        | PreparedSignatureBlockError::ParentService(ParentServiceCustodyError::Admission(
+            original,
+        ))
+        | PreparedSignatureBlockError::Certificate(CertificateCustodyError::Admission(original))
         | PreparedSignatureBlockError::Policy(DaProofPolicyCustodyError::Admission(original))
         | PreparedSignatureBlockError::Commitments(DaCommitmentCustodyError::Admission(original)) => {
             ExecutionAttemptError::Deferred(original.into())
         }
-        PreparedSignatureBlockError::Certificate(CertificateCustodyError::Buffer(
+        PreparedSignatureBlockError::ParentService(ParentServiceCustodyError::Buffer(
+            original @ ChargedBufferFromChargeError::Allocator { .. },
+        ))
+        | PreparedSignatureBlockError::Certificate(CertificateCustodyError::Buffer(
             original @ ChargedBufferFromChargeError::Allocator { .. },
         ))
         | PreparedSignatureBlockError::Policy(DaProofPolicyCustodyError::Buffer(
@@ -436,7 +463,10 @@ pub(crate) fn prepared_signature_block_attempt_error<E>(
                 .expect("matched allocator failure")
                 .into(),
         ),
-        PreparedSignatureBlockError::Certificate(CertificateCustodyError::Control(
+        PreparedSignatureBlockError::ParentService(ParentServiceCustodyError::Control(
+            original @ SharedFromChargeError::Allocator { .. },
+        ))
+        | PreparedSignatureBlockError::Certificate(CertificateCustodyError::Control(
             original @ SharedFromChargeError::Allocator { .. },
         ))
         | PreparedSignatureBlockError::Policy(DaProofPolicyCustodyError::Control(
@@ -458,6 +488,11 @@ pub(crate) fn prepared_signature_block_attempt_error<E>(
         PreparedSignatureBlockError::Decode(PreparedDecodeError::Destination(
             BlockSignatureCustodyError::ControlAllocation(original),
         )) => ExecutionAttemptError::Deferred(control(original)),
+        PreparedSignatureBlockError::PenaltyActions(
+            NposPenaltyActionsCustodyError::ControlAllocation(
+                original @ PrepaidSharedError::Allocator { .. },
+            ),
+        ) => ExecutionAttemptError::Deferred(control(original)),
         PreparedSignatureBlockError::Scope(PreparedDecodeScopeError::Allocation(original))
         | PreparedSignatureBlockError::Decode(PreparedDecodeError::Scope(
             PreparedDecodeScopeError::Allocation(original),
@@ -2039,3 +2074,157 @@ mod move_only_owner_tests;
 #[cfg(test)]
 #[path = "execution_attempt/physical_allocator_tests.rs"]
 mod physical_allocator_tests;
+
+#[cfg(test)]
+#[test]
+fn prepared_penalty_action_attempt_retains_exact_capacity_and_allocator_causes() {
+    use iroha_allocation::{AllocationBudget, ChargedBufferError, PrepaidSharedError};
+    use iroha_data_model::{
+        block::PreparedSignatureBlockError, consensus::NposPenaltyActionsCustodyError,
+    };
+    let pool = AllocationBudget::new(8);
+    let blocker = pool.try_reserve_bytes(8).unwrap();
+    let original = pool.try_reserve_bytes(1).unwrap_err();
+    for cause in [
+        NposPenaltyActionsCustodyError::Buffer(ChargedBufferError::Admission(original.clone())),
+        NposPenaltyActionsCustodyError::ControlAdmission(original.clone()),
+    ] {
+        let result = prepared_signature_block_attempt_error(
+            PreparedSignatureBlockError::PenaltyActions(cause),
+            |_| panic!("original action capacity must defer"),
+        );
+        let ExecutionAttemptError::<String>::Deferred(retained) = result else {
+            panic!("original action pool refusal")
+        };
+        assert_eq!(
+            retained.allocation_refusal(),
+            Some(&original),
+            "field 5 must preserve the exact original capacity cause"
+        );
+        assert_eq!(retained.reason(), ExecutionDeferral::ActiveMemoryCapacity);
+    }
+    // Typed transport controls, not evidence of a physical allocator injection.
+    for (control, cause) in [
+        (
+            false,
+            NposPenaltyActionsCustodyError::Buffer(ChargedBufferError::Allocator {
+                requested_bytes: 31,
+            }),
+        ),
+        (
+            true,
+            NposPenaltyActionsCustodyError::ControlAllocation(PrepaidSharedError::Allocator {
+                requested_bytes: 47,
+            }),
+        ),
+    ] {
+        let result = prepared_signature_block_attempt_error(
+            PreparedSignatureBlockError::PenaltyActions(cause),
+            |_| panic!("original action allocator must defer"),
+        );
+        let ExecutionAttemptError::<String>::Deferred(retained) = result else {
+            panic!("original action allocator refusal")
+        };
+        assert_eq!(retained.reason(), ExecutionDeferral::AllocationUnavailable);
+        assert!(retained.allocation_refusal().is_none());
+        let ivm::VMError::AllocatorDeferred(original) = retained.into_vm_error() else {
+            panic!("original action allocator transport")
+        };
+        if control {
+            assert!(original.buffer_error().is_none());
+            assert_eq!(
+                original.shared_error(),
+                Some(&PrepaidSharedError::Allocator {
+                    requested_bytes: 47,
+                })
+            );
+            assert_eq!(
+                original.into_shared_error().unwrap(),
+                PrepaidSharedError::Allocator {
+                    requested_bytes: 47,
+                }
+            );
+        } else {
+            assert!(original.shared_error().is_none());
+            assert!(matches!(
+                original.buffer_error(),
+                Some(ChargedBufferError::Allocator {
+                    requested_bytes: 31,
+                })
+            ));
+            assert!(matches!(
+                original.into_buffer_error().unwrap(),
+                ChargedBufferError::Allocator {
+                    requested_bytes: 31,
+                }
+            ));
+        }
+    }
+    drop(blocker);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[cfg(test)]
+#[test]
+fn prepared_parent_service_attempt_preserves_original_capacity_and_allocator_fields() {
+    use iroha_allocation::{AllocationBudget, ChargedBufferFromChargeError, SharedFromChargeError};
+    use iroha_data_model::{
+        block::PreparedSignatureBlockError, consensus::ParentServiceCustodyError,
+    };
+    let pool = AllocationBudget::new(8);
+    let blocker = pool.try_reserve_bytes(8).unwrap();
+    let cause = pool.try_reserve_bytes(1).unwrap_err();
+    let result = prepared_signature_block_attempt_error(
+        PreparedSignatureBlockError::ParentService(ParentServiceCustodyError::Admission(
+            cause.clone(),
+        )),
+        |_| panic!("original parent-QC credit must defer"),
+    );
+    let ExecutionAttemptError::<String>::Deferred(retained) = result else {
+        panic!("original parent-QC deferral")
+    };
+    assert_eq!(
+        retained.allocation_refusal(),
+        Some(&cause),
+        "parent-QC decode must retain its original capacity cause"
+    );
+    assert_eq!(retained.reason(), ExecutionDeferral::ActiveMemoryCapacity);
+    // Typed transport controls, not evidence of an injected physical allocator failure.
+    let layout = std::alloc::Layout::from_size_align(97, 32).unwrap();
+    for (control, original) in [
+        (
+            false,
+            ParentServiceCustodyError::Buffer(ChargedBufferFromChargeError::Allocator { layout }),
+        ),
+        (
+            true,
+            ParentServiceCustodyError::Control(SharedFromChargeError::Allocator { layout }),
+        ),
+    ] {
+        let result = prepared_signature_block_attempt_error(
+            PreparedSignatureBlockError::ParentService(original),
+            |_| panic!("original parent-QC physical refusal must defer"),
+        );
+        let ExecutionAttemptError::<String>::Deferred(retained) = result else {
+            panic!("physical parent-QC refusal")
+        };
+        assert_eq!(retained.reason(), ExecutionDeferral::AllocationUnavailable);
+        assert!(retained.allocation_refusal().is_none());
+        let ivm::VMError::AllocatorDeferred(original) = retained.into_vm_error() else {
+            panic!("typed allocator transport")
+        };
+        if control {
+            assert_eq!(
+                original.into_shared_from_charge_error().unwrap(),
+                SharedFromChargeError::Allocator { layout }
+            );
+        } else {
+            assert_eq!(
+                original.into_buffer_from_charge_error().unwrap(),
+                ChargedBufferFromChargeError::Allocator { layout }
+            );
+        }
+    }
+    drop(blocker);
+    assert_eq!(pool.reserved_bytes(), 0);
+}

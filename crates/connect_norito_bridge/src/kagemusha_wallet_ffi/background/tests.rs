@@ -1012,6 +1012,7 @@ fn setup_inputs_preempt_only_when_they_prove_sign_or_delete_custody() {
             wrap: false,
             original: vec![1],
         },
+        S::PaymentCompanion { payment: vec![1] },
         S::CreditedOriginal {
             status: true,
             original: vec![1],
@@ -1040,18 +1041,14 @@ fn setup_inputs_preempt_only_when_they_prove_sign_or_delete_custody() {
         S::Bootstrap,
         S::Activation,
         S::CloseLoads { id: [1; 32] },
-        S::Offer {
-            id: [1; 32],
-            amount: 1,
-        },
         S::Request {
             id: [1; 32],
-            offer: vec![1],
+            amount: 1,
             fee: None,
         },
         S::RequestWithFeePolicy {
             id: [1; 32],
-            offer: vec![1],
+            amount: 1,
             schedule: vec![1],
             certificates: vec![1],
         },

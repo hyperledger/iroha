@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble and verify the exact ABI-30 native inventory for the C# NuGet SDK.
+"""Assemble and verify the exact ABI-31 native inventory for the C# NuGet SDK.
 
 Each native artifact must have been exercised on its matching host and recorded
 with ``check_native_sdk_artifact.py``.  This helper deliberately does not
@@ -33,7 +33,7 @@ import check_native_sdk_artifact as artifact_checker  # noqa: E402
 
 SCHEMA = "iroha.csharp-native-package.v1"
 PACKAGE_MANIFEST_NAME = "native-package-manifest.json"
-EVIDENCE_MANIFEST_NAME = "native-sdk-abi30.json"
+EVIDENCE_MANIFEST_NAME = "native-sdk-abi31.json"
 MAX_TREE_ENTRIES = 128
 MAX_PACKAGE_BYTES = 1024 * 1024 * 1024
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
@@ -200,7 +200,7 @@ def _validate_evidence(
         digest != manifest["artifact_sha256"]
         or size != manifest["artifact_size"]
     ):
-        fail(f"{asset.target}: native artifact bytes do not match their ABI-30 evidence")
+        fail(f"{asset.target}: native artifact bytes do not match their ABI-31 evidence")
     return manifest
 
 
@@ -339,7 +339,7 @@ def validate_package_manifest(value: object) -> dict[str, object]:
     if manifest["schema"] != SCHEMA or manifest["sdk"] != "csharp":
         fail("C# native package manifest schema or SDK is unsupported")
     if manifest["bridge_abi_version"] != artifact_checker.REQUIRED_BRIDGE_ABI_VERSION:
-        fail("C# native package manifest does not require exact bridge ABI 30")
+        fail("C# native package manifest does not require exact bridge ABI 31")
     commit = manifest["source_commit"]
     if type(commit) is not str or artifact_checker.COMMIT_RE.fullmatch(commit) is None:
         fail("C# native package source commit is not canonical")
@@ -620,7 +620,7 @@ def verify_package(
                     read_size != expected_size
                     or digest.hexdigest() != row["artifact_sha256"]
                 ):
-                    fail(f"{asset.package_path}: NuGet native bytes do not match ABI-30 evidence")
+                    fail(f"{asset.package_path}: NuGet native bytes do not match ABI-31 evidence")
     except zipfile.BadZipFile as error:
         raise CSharpNativePackageError(
             f"C# NuGet package is not a readable ZIP archive: {package_path}"

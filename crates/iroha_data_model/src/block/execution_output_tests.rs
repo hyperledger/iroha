@@ -1,5 +1,8 @@
 //! Pure output encoding/identity controls; none of these fixtures authenticate execution.
 
+#[path = "execution_output_ballot_tests.rs"]
+mod anonymous_ballot;
+
 use super::*;
 use crate::{
     NetworkId, ValidationFail,
@@ -117,7 +120,7 @@ fn rejected() -> TransactionResult {
 }
 
 fn receipt() -> AssetBatchTransferOutcome {
-    let authority = input().authority().clone();
+    let authority = input().authority_opt().expect("signed fixture").clone();
     AssetBatchTransferOutcome {
         leg_index: 0,
         leg_id: "owned-leg".into(),
@@ -653,7 +656,7 @@ fn synthetic_time_entrypoint_cannot_decode_or_own_a_network_output() {
     }
     let old = RetiredTimeEntrypoint {
         id: trigger().trigger_id,
-        authority: input().authority().clone(),
+        authority: input().authority_opt().expect("signed fixture").clone(),
         instructions: step(),
     };
     assert!(
@@ -894,7 +897,7 @@ fn trigger_use_rejects_retired_parallel_authority_slot() {
     assert!(!json.as_object().unwrap().contains_key("authority"));
     for value in [
         norito::json::Value::Null,
-        norito::json::to_value(input().authority()).unwrap(),
+        norito::json::to_value(input().authority_opt().expect("signed fixture")).unwrap(),
     ] {
         let mut retired = json.clone();
         retired
@@ -906,7 +909,7 @@ fn trigger_use_rejects_retired_parallel_authority_slot() {
 
     let retired = RetiredTriggerUse {
         trigger_id: current.trigger_id.clone(),
-        authority: input().authority().clone(),
+        authority: input().authority_opt().expect("signed fixture").clone(),
         registered_at_height: current.registered_at_height,
         action_hash: current.action_hash,
     };

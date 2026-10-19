@@ -643,7 +643,8 @@ impl Kura {
         let transaction = match entrypoint {
             TransactionEntrypoint::External(transaction) => transaction,
             TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-            TransactionEntrypoint::SealedCommitment(_) => {
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => {
                 return None;
             }
         };

@@ -11,6 +11,7 @@ use iroha_crypto::{
 };
 use norito::core::{self as ncore, DecodeIntoError};
 
+/// Failure while decoding an account with its original allocation custody.
 #[derive(Debug, thiserror::Error)]
 pub enum AccountDecodeError {
     #[error(transparent)]
@@ -66,6 +67,7 @@ fn destination(error: Error) -> DecodeIntoError<Error> {
         error => DecodeIntoError::Destination(error),
     }
 }
+/// Original allocation charges retained with a decoded account controller.
 pub enum ControllerCustody {
     Single(AllocationCharge),
     Multisig {
@@ -103,6 +105,7 @@ impl ControllerCustody {
         }
     }
 }
+/// Canonical account value paired with its controller allocation charges.
 pub struct ChargedAccount {
     pub(crate) value: AccountId,
     pub(crate) custody: ControllerCustody,
@@ -111,6 +114,7 @@ struct ChargedMember {
     value: MultisigMember,
     pub(crate) charge: AllocationCharge,
 }
+/// Canonical multisig policy paired with its original allocation charges.
 pub struct ChargedPolicy {
     pub(crate) value: MultisigPolicy,
     custody: ControllerCustody,
@@ -152,6 +156,7 @@ fn tag(bytes: &[u8]) -> Result<u32, Error> {
 fn invalid_tag() -> Error {
     norito::Error::Message("invalid enum discriminant".into()).into()
 }
+/// Retained partial account destination for canonical decode and retry.
 pub struct AccountDestination {
     pub(crate) complete: Option<ChargedAccount>,
     pub(crate) key: Option<ChargedPublicKey>,
@@ -257,6 +262,7 @@ fn bind_single(key: ChargedPublicKey) -> ChargedAccount {
         custody: ControllerCustody::Single(charge),
     }
 }
+/// Retained partial multisig policy destination for canonical decode and retry.
 pub struct PolicyDestination {
     complete: Option<ChargedPolicy>,
     pub(crate) members: MembersDestination,
@@ -321,6 +327,7 @@ impl PolicyDestination {
         Ok(())
     }
 }
+/// Original member and key destinations retained across decode refusal.
 pub struct MembersDestination {
     pub(crate) members: Option<ChargedBuffer<MultisigMember>>,
     pub(crate) keys: Option<ChargedBuffer<AllocationCharge>>,
@@ -439,6 +446,7 @@ impl MembersDestination {
         Ok(())
     }
 }
+/// Decoded multisig members paired with their original allocation charges.
 pub struct MemberParts {
     pub(crate) members: Option<Vec<MultisigMember>>,
     pub(crate) charge: AllocationCharge,

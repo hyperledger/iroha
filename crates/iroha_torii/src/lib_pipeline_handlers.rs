@@ -18,6 +18,10 @@ fn accept_transaction_metadata(
             "PRTRY:NTS_UNHEALTHY",
             format!("failed to accept transaction: {err}"),
         ),
+        iroha_core::tx::AcceptTransactionFail::AnonymousBallotUnavailable => (
+            "anonymous_ballot_unavailable",
+            "Anonymous ballot State/context verification is locally unavailable.".to_owned(),
+        ),
         iroha_core::tx::AcceptTransactionFail::TransactionLimit(limit) => (
             "transaction_rejected",
             format!("failed to accept transaction: {}", limit.reason),
@@ -105,7 +109,7 @@ async fn handler_post_transactions_batch(
                         PreparedTransactionIngress::Fresh(transaction) => {
                             let prepared =
                                 prepare_fresh_transaction_ingress(&worker_app, transaction)?;
-                            ordinary_transaction_ingress::authenticate(
+                            ordinary_transaction_ingress::authenticate_lifecycle_certificate(
                                 &worker_app,
                                 prepared.transaction.entrypoint(),
                                 &prepared.routing_plan,
@@ -1492,7 +1496,7 @@ fn transaction_details_authority_is_involved(
     authority: &AccountId,
     transaction: &CommittedTransaction,
 ) -> bool {
-    let already_involved = transaction.entrypoint().authority() == authority
+    let already_involved = transaction.entrypoint().authority_opt() == Some(authority)
         || transaction
             .result()
             .batch_transfer_outcomes()

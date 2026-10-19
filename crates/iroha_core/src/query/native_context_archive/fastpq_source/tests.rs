@@ -415,3 +415,70 @@ fn actual_empty_genesis_manifest_advances_without_optional_tape() {
     assert_eq!(pool.reserved_bytes(), 0);
     assert_eq!(chain.height(), 2, "no unrelated traffic or empty block");
 }
+
+#[test]
+fn complete_source_takes_multiple_original_tapes_in_order_without_allocation() {
+    let (mut chain, asset) = fixture();
+    let first = chain.sign(
+        &ALICE_KEYPAIR,
+        [Transfer::asset_quantity(asset.clone(), 3_u32, BOB_ID.clone()).into()],
+        1_998,
+    );
+    let second = chain.sign(
+        &ALICE_KEYPAIR,
+        [Transfer::asset_quantity(asset, 4_u32, BOB_ID.clone()).into()],
+        1_999,
+    );
+    assert_eq!(chain.commit_at(2_000, vec![first, second]), [true, true]);
+    let pool = AllocationBudget::new(16 * 1024 * 1024);
+    let mut read = reader(&chain, 2, &pool);
+    while read.tape_bytes.is_none() {
+        assert!(read.poll().unwrap().is_none());
+    }
+    let bytes = read.tape_bytes.as_ref().unwrap();
+    let record: SourceRecord = norito::decode_canonical(bytes.as_slice()).unwrap();
+    assert_eq!(record.tapes.len(), 2);
+    let mut destination = SourceDestination::new(&pool, limits());
+    let address = std::ptr::from_ref(&destination);
+    let before = pool.reserved_bytes();
+    let mut refused = None;
+    let allocations = crate::test_allocations::allocations_during(|| {
+        refused = Some(destination.take_complete());
+    });
+    assert_eq!(allocations, 0);
+    assert!(matches!(
+        refused.unwrap(),
+        Err(SourceReadError::Source(
+            "incomplete retained source destination"
+        ))
+    ));
+    assert_eq!(std::ptr::from_ref(&destination), address);
+    assert_eq!(pool.reserved_bytes(), before);
+    destination
+        .decode(bytes, read.workspace.as_mut().unwrap())
+        .unwrap();
+    let mut completed = None;
+    let allocations = crate::test_allocations::allocations_during(|| {
+        completed = Some(destination.take_complete());
+    });
+    assert_eq!(
+        allocations, 0,
+        "completion moves only original funded graphs"
+    );
+    let funded = completed.unwrap().unwrap();
+    assert_eq!(funded.height, record.height);
+    assert_eq!(funded.carrier, record.carrier);
+    assert_eq!(funded.manifest, record.manifest);
+    assert_eq!(funded.entries.as_slice(), record.entries.as_slice());
+    assert_eq!(funded.leaves.as_slice(), record.leaves.as_slice());
+    assert_eq!(funded.tapes.as_slice().len(), record.tapes.len());
+    for (actual, expected) in funded.tapes.as_slice().iter().zip(&record.tapes) {
+        assert_eq!(actual.canonical(), expected);
+    }
+    assert!(funded.belongs_to(&pool));
+    assert!(destination.take_complete().is_err());
+    drop((destination, read));
+    assert_eq!(pool.reserved_bytes(), funded.allocation_bytes().unwrap());
+    drop(funded);
+    assert_eq!(pool.reserved_bytes(), 0);
+}

@@ -48,7 +48,10 @@ pub(super) fn cached_snapshot(
 }
 
 /// Validate borrowed elections in hydration order, then build their visible fields.
-pub(crate) fn project(
+///
+/// # Errors
+/// Rejects invalid tally geometry, overflowing totals or malformed selectors.
+pub fn project(
     elections: &impl StorageReadOnly<String, ElectionState>,
 ) -> Result<Arc<IvmElectionsSnapshot>, InvalidIvmElectionSnapshot> {
     // Keep hydration's original order: all shapes precede all selectors.
@@ -75,10 +78,10 @@ pub(crate) fn project(
 }
 
 /// Check V1 option geometry and overflow before exposing a tally.
-pub(crate) fn validate_tally(
-    options: u32,
-    tally: &[u128],
-) -> Result<(), InvalidIvmElectionSnapshot> {
+///
+/// # Errors
+/// Rejects invalid option counts, tally lengths or overflowing totals.
+pub fn validate_tally(options: u32, tally: &[u128]) -> Result<(), InvalidIvmElectionSnapshot> {
     iroha_data_model::isi::zk::validate_election_tally_v1(options, tally.len())
         .map_err(|_| InvalidIvmElectionSnapshot)?;
     tally
@@ -95,6 +98,7 @@ mod tests {
     fn election(weight: u128) -> ElectionState {
         ElectionState {
             options: 2,
+            finalized: true,
             tally: vec![weight, 0],
             ..ElectionState::default()
         }
@@ -116,7 +120,7 @@ mod tests {
         let view = state.view();
         let first = view.ivm_elections_snapshot().unwrap();
         assert!(Arc::ptr_eq(&first, &view.ivm_elections_snapshot().unwrap()));
-        assert_eq!(first["election-1"], (2, false, vec![3, 0]));
+        assert_eq!(first["election-1"], (2, true, vec![3, 0]));
         let query = state.query_view();
         let first_query = query.ivm_elections_snapshot().unwrap();
         assert!(Arc::ptr_eq(

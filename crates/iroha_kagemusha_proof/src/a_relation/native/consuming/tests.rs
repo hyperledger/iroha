@@ -4,17 +4,67 @@ use super::*;
 use iroha_pasta::PastaAffine;
 
 #[test]
-fn lean_schedule_has_two_a_one_w_and_the_pinned_trivial_part() {
-    assert_eq!(A_STAGE_COUNT, 2);
-    assert_eq!(W_STAGE_COUNT, 1);
-    // No own sigma verifier: W0 folds the explicit pinned filler, exactly the words
-    // every internal frame already uses for absent Vesta slots.
+fn lean_schedule_is_one_terminal_a_owning_q0_and_both_tasks() {
+    assert_eq!(A_STAGE_COUNT, 1);
+    for (variant, effect) in [
+        (Variant::Unload, OperationTask::UnloadRecovery),
+        (Variant::Retiring, OperationTask::RetiringState),
+    ] {
+        let schedule =
+            crate::a_relation::schedule::compiled::OperationSchedule::for_variant(variant);
+        // No W: the one stage verifies the hard predecessor and the own receipt Q0
+        // and proves the transition and the authorization beside them.
+        assert_eq!(schedule.stage_count(), A_STAGE_COUNT);
+        assert_eq!(schedule.q_partitions(), [vec![0]]);
+        assert_eq!(
+            schedule.tasks(),
+            [vec![effect, OperationTask::UnloadAuthorization]]
+        );
+    }
+}
+
+#[test]
+fn terminal_frame_keeps_the_pinned_trivial_part_and_the_predecessor_slot() {
+    // No own sigma verifier and no W: the part slot is the explicit pinned filler,
+    // exactly the words of the absent incoming slot.
     let part = trivial_vesta_claim().unwrap();
     assert_eq!(part.source_k(), 16);
     assert_eq!(vesta_words(&part), trivial_vesta_words().unwrap());
-    let public = internal_public(Fp::from(5), &part).unwrap();
+    let ep = iroha_plonk::transcript::decode_point::<Ep>(
+        &iroha_plonk_recursion::PALLAS_TRIVIAL_GENERATOR,
+    )
+    .unwrap();
+    let pallas = FoldInput::from_normalized(ep, 16, [Fq::ONE; K]).unwrap();
+    let predecessor = FoldInput::<Eq>::from_normalized(*part.g(), 16, [Fp::from(3); K]).unwrap();
+    let fields = core::array::from_fn(|i| Fp::from(i as u64 + 1));
+    let public = terminal_public(&fields, &pallas, &predecessor).unwrap();
+    assert_eq!(public.len(), 69);
+    assert_eq!(public[0], terminal_digest(&fields, &pallas).unwrap());
     assert_eq!(public[1], Fp::from(16));
-    assert_eq!(&public[2..22], &public[22..42]);
+    assert_eq!(&public[2..22], trivial_vesta_words().unwrap().as_slice());
+    assert_eq!(&public[22..42], vesta_words(&predecessor).as_slice());
+    assert_eq!(&public[2..22], &public[42..62]);
+    assert_eq!(&public[62..65], &[Fp::ZERO, Fp::ONE, Fp::ZERO]);
+    assert_eq!(&public[65..69], &public[2..6]);
+    // The folded Pallas claim enters `D_A` only; every other word is fixed by the
+    // predecessor obligation and the pinned filler.
+    let mut challenges = *pallas.challenges();
+    challenges[15] = Fq::from(2).pow_vartime([200]);
+    let changed = FoldInput::from_normalized(ep, 16, challenges).unwrap();
+    let altered = terminal_public(&fields, &changed, &predecessor).unwrap();
+    assert_ne!(altered[0], public[0]);
+    assert_eq!(&altered[1..], &public[1..]);
+    // A different predecessor obligation changes only its own slot.
+    let other = terminal_public(&fields, &pallas, &part).unwrap();
+    assert_eq!(other[..22], public[..22]);
+    assert_ne!(other[22..42], public[22..42]);
+    assert_eq!(other[42..], public[42..]);
+    // Only a full k16 fold output can be bound as the Pallas claim.
+    let short = FoldInput::<Ep>::from_opening(ep, &[Fq::ONE; 12]).unwrap();
+    assert_eq!(
+        terminal_public(&fields, &short, &predecessor),
+        Err(Error::Input)
+    );
 }
 
 #[test]
@@ -83,12 +133,13 @@ fn final_digest_has_exact52_fields_and_keeps_high_foreign_challenge_limbs() {
         )
         .unwrap()
     );
-    let part = FoldInput::from_normalized(eq, 16, [Fp::ONE; K]).unwrap();
-    let public = internal_public(digest, &part).unwrap();
+    let predecessor = FoldInput::from_normalized(eq, 16, [Fp::ONE; K]).unwrap();
+    let public = terminal_public(&fields, &pallas, &predecessor).unwrap();
     assert_eq!(public.len(), 69);
+    assert_eq!(public[0], digest);
     assert_eq!(&public[62..65], &[Fp::ZERO, Fp::ONE, Fp::ZERO]);
-    assert_eq!(&public[22..42], &public[42..62]);
-    assert_eq!(&public[65..69], &public[22..26]);
+    assert_eq!(&public[2..22], &public[42..62]);
+    assert_eq!(&public[65..69], &public[2..6]);
 }
 
 #[test]
@@ -142,6 +193,9 @@ fn identity_generator_claims_preserve_public_word_and_frame_encoding() {
     let vwords = vesta_words(&v);
     assert_eq!(&vwords[..4], &[Fp::ZERO; 4]);
     assert_eq!(&vwords[4..], &[Fp::ONE; K]);
+    let identity = terminal_public(&[Fp::ZERO; 18], &p, &v).unwrap();
+    assert_eq!(identity.len(), 69);
+    assert_eq!(&identity[22..42], vwords.as_slice());
     let accumulated = AccumulatorT::<Eq>::new(*v.g(), [Fp::ONE; K]).unwrap();
     let public = omega_instances(Fp::from(23), &accumulated).unwrap();
     assert_eq!(public[0], [Fq::from(23)]);

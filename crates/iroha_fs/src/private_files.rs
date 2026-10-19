@@ -319,6 +319,111 @@ impl SealedPrivateFile {
     }
 }
 
+/// One strictly sealed private file opened inside a closed directory read transaction.
+///
+/// Opening, [`Self::revalidate`] and [`Self::snapshot`] run every strict access, single-link,
+/// identity, extent and named-leaf check of [`SealedPrivateFile`]. Only the complete ancestry
+/// walk moves: the enclosing [`PrivateDirectory::read_scope`] (or tree scope) checks it at entry
+/// and again before any ordinary result leaves, instead of before and after each leaf check.
+/// The capability borrows that transaction and cannot outlive it. It has no writer, clone,
+/// descriptor accessor or publication.
+///
+/// ```compile_fail
+/// use iroha_fs::{PrivateDirectory, ScopedSealedPrivateFile};
+/// fn escape(directory: &PrivateDirectory) -> ScopedSealedPrivateFile<'static> {
+///     directory
+///         .read_scope(|scope| {
+///             Ok::<_, std::io::Error>(scope.open_sealed_optional("receipt", 64)?.unwrap())
+///         })
+///         .unwrap()
+/// }
+/// ```
+#[derive(Debug)]
+pub struct ScopedSealedPrivateFile<'scope> {
+    inner: platform::RetainedFile<&'scope platform::Directory>,
+    maximum: u64,
+    position: u64,
+}
+
+impl<'scope> PrivateReadScope<'scope> {
+    /// Retain one optional sealed original inside this read transaction.
+    ///
+    /// Present files pass the same strict owner-read-only, single-link, identity, extent and
+    /// named-leaf checks as [`PrivateDirectory::open_retained_read_only_optional`]; only initial
+    /// native absence returns `None`. The enclosing transaction checks the complete directory
+    /// ancestry at its entry and before any ordinary result leaves it.
+    ///
+    /// # Errors
+    /// Refuses invalid names, unsafe or changing leaves, excessive length and native errors.
+    pub fn open_sealed_optional(
+        &self,
+        name: impl AsRef<OsStr>,
+        maximum: usize,
+    ) -> io::Result<Option<ScopedSealedPrivateFile<'scope>>> {
+        let maximum = byte_ceiling(maximum)?;
+        let directory: &'scope platform::Directory = self.directory;
+        directory
+            .open_scoped_read_only_optional(checked_name(name.as_ref())?)?
+            .map(|inner| {
+                let file = ScopedSealedPrivateFile {
+                    inner,
+                    maximum,
+                    position: 0,
+                };
+                file.len()?;
+                Ok(file)
+            })
+            .transpose()
+    }
+}
+
+impl ScopedSealedPrivateFile<'_> {
+    /// Capture exact identity and metadata after this file's strict leaf checks.
+    ///
+    /// # Errors
+    /// Refuses changed content, custody or name and native metadata failures.
+    pub fn snapshot(&self) -> io::Result<FileSnapshot> {
+        Ok(FileSnapshot {
+            inner: self.inner.snapshot()?,
+        })
+    }
+
+    /// Recheck strict access, original content metadata and the named leaf.
+    ///
+    /// # Errors
+    /// Refuses changed content, custody or name and native metadata failures.
+    pub fn revalidate(&self) -> io::Result<()> {
+        self.inner.revalidate()
+    }
+
+    /// Observe bounded length; content authentication still requires stable snapshots.
+    ///
+    /// # Errors
+    /// Refuses an excessive file extent or native metadata failure.
+    pub fn len(&self) -> io::Result<u64> {
+        bounded_length(self.inner.file(), self.maximum)
+    }
+
+    /// Whether the bounded current extent is empty.
+    ///
+    /// # Errors
+    /// Refuses an excessive file extent or native metadata failure.
+    pub fn is_empty(&self) -> io::Result<bool> {
+        self.len().map(|length| length == 0)
+    }
+}
+
+impl io::Read for ScopedSealedPrivateFile<'_> {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        bounded_read(
+            self.inner.file_mut(),
+            self.maximum,
+            &mut self.position,
+            bytes,
+        )
+    }
+}
+
 fn byte_ceiling(maximum: usize) -> io::Result<u64> {
     u64::try_from(maximum).map_err(|_| invalid("private file byte ceiling exceeds native extent"))
 }

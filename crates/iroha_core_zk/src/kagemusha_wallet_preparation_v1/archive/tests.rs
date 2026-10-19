@@ -60,16 +60,19 @@ fn originals() -> (
     let scheme = object("KagemushaWalletSchemeV1");
     let payer = object("KagemushaWalletCredentialV1");
     let payment: KagemushaWalletPaymentV1 = object("KagemushaWalletPaymentV1");
-    let certificates = messages()
-        .into_iter()
-        .find_map(|m| match m {
-            KagemushaWalletMessageV1::Offer { offer } => Some(offer.certificates),
-            _ => None,
-        })
-        .unwrap();
+    let companion: KagemushaWalletPayerCompanionV1 = object("KagemushaWalletPayerCompanionV1");
+    let certificates = companion.certificates;
     use KagemushaWalletRetainedInputRoleV1 as R;
     let originals = vec![
-        (R::Request, norito::to_bytes(&request()).unwrap()),
+        (
+            R::Request,
+            norito::to_bytes(
+                &request()
+                    .complete_with(&payment.signed_request().unwrap())
+                    .unwrap(),
+            )
+            .unwrap(),
+        ),
         (R::Payment, payment.to_canonical_bytes().unwrap()),
         (R::Credential, norito::to_bytes(&payer).unwrap()),
         (R::CertificateSet, norito::to_bytes(&certificates).unwrap()),

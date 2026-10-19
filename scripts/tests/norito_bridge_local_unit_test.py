@@ -47,7 +47,7 @@ def originals():
                'source_changes': [], 'source_before': source, 'source_after': source,
                'finished_unix': 12, 'native_companion_sha256': 'c' * 64}
     component = {'emitter_path': '/owned/emitter.json', 'emitter_sha256': 'd' * 64,
-                 'qualified': True, 'observed_abi_version': 30,
+                 'qualified': True, 'observed_abi_version': 31,
                  'artifact_path': '/owned/retained/lib.dylib', 'artifact_sha256': 'c' * 64,
                  'source_before': source, 'source_after': source,
                  'toolchain_before': tools, 'toolchain_after': tools,
@@ -332,7 +332,7 @@ def test_make_dependency_words_are_not_shell_evaluated():
 
 def manifest_fixture():
     return {'schema': unit.SCHEMA, 'artifact_scope': 'local-unit', 'purpose': unit.PURPOSE,
-            'version': '0.1.0', 'native_bridge_abi_version': 30,
+            'version': '0.1.0', 'native_bridge_abi_version': 31,
             'target_triple': 'aarch64-apple-darwin', 'hashes': {'macos-arm64': 'a' * 64},
             'producer_record': '/owned/producer-record.json', 'producer_record_sha256': 'b' * 64,
             'source_inputs': {'inert-source': 'c' * 64}, 'tool_inputs': {'inert-tool': 'd' * 64},

@@ -1198,6 +1198,92 @@ fn real_reserve_pays_unload_once_and_online_controls_defer_without_consuming_it(
 }
 
 #[test]
+fn retained_request_normalizes_distinct_payer_completions_without_replacing_signed_terms() {
+    let mut memory = Memory::new();
+    memory.history = true;
+    let claim: KagemushaWalletFeeClaimV1 = fixture("KagemushaWalletFeeClaimV1");
+    let history = memory.fee_inputs(&claim).unwrap();
+    let open = history.request;
+    open.verify_open(&memory.registration.scheme).unwrap();
+    let first = open.complete(&history.payer, 4).unwrap();
+    // Retention authenticates receiver-signed terms, not these payer identities or a proof.
+    let second = KagemushaWalletRequestV1 {
+        body: open.body.completed([0x71; 32], [0x72; 32], 9),
+        ..open.clone()
+    };
+    first.verify(&memory.registration.scheme).unwrap();
+    second.verify(&memory.registration.scheme).unwrap();
+    assert_ne!(first.body.payer_wallet_id, second.body.payer_wallet_id);
+    assert_ne!(
+        first.body.payer_account_digest,
+        second.body.payer_account_digest
+    );
+    assert_ne!(first.credit_id(), second.credit_id());
+    let key = storage::key(storage::REQUEST, open.body.scheme_id, open.request_digest());
+    storage::validate_row(&key, &storage::encode(&open).unwrap()).unwrap();
+    for completed in [&first, &second] {
+        assert!(matches!(
+            storage::validate_row(&key, &storage::encode(completed).unwrap()),
+            Err(Error::Model(_))
+        ));
+    }
+    let mut state = world_state(&memory, true);
+    register(&mut state, &memory, 1).unwrap();
+    let retained = |state: &State| -> KagemushaWalletRequestV1 {
+        let view = state.view();
+        let bytes = view.world.kagemusha_wallet_ledger().get(&key).unwrap();
+        storage::decode(bytes, bytes.len()).unwrap()
+    };
+    // A completed form arrives first; later open/completed retries must use that same row.
+    for (height, request) in [
+        (2, first.clone()),
+        (3, open.clone()),
+        (4, second),
+        (5, first),
+    ] {
+        assert_eq!(request.request_digest(), open.request_digest());
+        assert_eq!(request.signature, open.signature);
+        transact(&mut state, height, |tx| {
+            wsv::WsvLedger::new(tx, &memory.authority)?.retain_request(request)
+        })
+        .unwrap();
+        assert_eq!(retained(&state), open);
+    }
+    let mut changed_terms = open.clone();
+    changed_terms.body.nonce[0] ^= 1;
+    let mut changed_signature = open.clone();
+    changed_signature.signature = history.payer.signature;
+    assert_ne!(changed_signature.signature, open.signature);
+    let row_count = state.view().world.kagemusha_wallet_ledger().iter().count();
+    for invalid in [changed_terms, changed_signature] {
+        let invalid_key = storage::key(
+            storage::REQUEST,
+            invalid.body.scheme_id,
+            invalid.request_digest(),
+        );
+        assert_ne!(invalid_key, key);
+        assert!(matches!(
+            transact(&mut state, 6, |tx| {
+                wsv::WsvLedger::new(tx, &memory.authority)?.retain_request(invalid)
+            }),
+            Err(Error::Model(_))
+        ));
+        assert_eq!(retained(&state), open);
+        let view = state.view();
+        assert!(
+            view.world
+                .kagemusha_wallet_ledger()
+                .get(&invalid_key)
+                .is_none()
+        );
+        assert_eq!(
+            view.world.kagemusha_wallet_ledger().iter().count(),
+            row_count
+        );
+    }
+}
+
+#[test]
 fn real_fee_payout_requires_retained_history_and_never_requires_receive() {
     let mut memory = Memory::new();
     memory.history = true;
@@ -1686,27 +1772,54 @@ fn ordinary_load_receipt_is_recovered_after_growth_and_local_qc_loss() {
             tiny.receipt_for(&memory.authority, &scheme, &wallet, &request),
             Err(Error::Unavailable)
         ));
-        let bounded = CommittedLoadReceipts::new(
-            &view,
-            2_000_000,
-            norito::DecodeLimits::new(2_000_000, 2_000_000, 16_000_000, 64_000, 128),
-        )
-        .unwrap();
+        // Derive the allowance from actual owned decoding, not an assumed charge per read.
+        // Borrowed field and fixed-array codecs can reduce that charge without changing the
+        // cumulative lifetime of the committed reader's original budget.
+        let (measured, construction_usage) =
+            norito::core::with_decode_limits_measured(limits, || {
+                CommittedLoadReceipts::new(&view, 2_000_000, limits)
+            });
+        let measured = measured.unwrap();
+        let (receipt, read_usage) = norito::core::with_decode_limits_measured(limits, || {
+            measured.receipt_for(&memory.authority, &scheme, &wallet, &request)
+        });
+        assert_eq!(receipt.unwrap(), original);
+        let read_bytes = read_usage.total_allocated_bytes();
+        assert!(
+            read_bytes > 0,
+            "the receipt's owned account keys consume decode credit"
+        );
+        let one_read_bytes = construction_usage
+            .total_allocated_bytes()
+            .checked_add(read_bytes)
+            .expect("one committed receipt's measured allocation fits usize");
+        let one_read_limits =
+            norito::DecodeLimits::new(2_000_000, 2_000_000, 16_000_000, one_read_bytes, 128);
+        let bounded = CommittedLoadReceipts::new(&view, 2_000_000, one_read_limits).unwrap();
         assert_eq!(
             bounded
                 .receipt_for(&memory.authority, &scheme, &wallet, &request)
                 .unwrap(),
             original
         );
-        assert!((0..128).any(|_| {
+        assert!(
             bounded
                 .receipt_for(&memory.authority, &scheme, &wallet, &request)
-                .is_err()
-        }));
+                .is_err(),
+            "a second read cannot replenish the same owner's exhausted budget"
+        );
         assert!(
             bounded
                 .receipt_for(&memory.authority, &scheme, &wallet, &request)
                 .is_err()
+        );
+        let independent = CommittedLoadReceipts::new(&view, 2_000_000, one_read_limits).unwrap();
+        assert_eq!(
+            independent
+                .receipt_for(&memory.authority, &scheme, &wallet, &request)
+                .unwrap(),
+            original,
+            "a fresh owner has its own allowance for one complete read"
         );
         let fresh = CommittedLoadReceipts::new(&view, 2_000_000, limits).unwrap();
         assert!(

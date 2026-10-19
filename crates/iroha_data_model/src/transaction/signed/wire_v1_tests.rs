@@ -332,10 +332,22 @@ fn signed_canonical_rewrite_preserves_original_writer_refusal_after_decode() {
 
 #[test]
 fn entrypoint_canonical_rewrite_preserves_original_writer_refusal_after_decode() {
-    let entrypoint = TransactionEntrypoint::External(support::signed("advance"));
-    let wire = entrypoint.encode_wire_v1().unwrap();
-    assert_canonical_rewrite_original_refusal(&entrypoint, &wire);
-    assert_eq!(entrypoint.encode_wire_v1().unwrap(), wire);
+    use crate::governance::anonymous_ballot::{
+        BallotChoiceV1, CanonicalAnonymousBallotEnvelopeV1, test_fixtures,
+    };
+    let envelope = CanonicalAnonymousBallotEnvelopeV1::from_envelope(&test_fixtures::envelope(
+        BallotChoiceV1::Aye,
+        1,
+    ))
+    .unwrap();
+    for entrypoint in [
+        TransactionEntrypoint::External(support::signed("advance")),
+        TransactionEntrypoint::AnonymousBallot(envelope),
+    ] {
+        let wire = entrypoint.encode_wire_v1().unwrap();
+        assert_canonical_rewrite_original_refusal(&entrypoint, &wire);
+        assert_eq!(entrypoint.encode_wire_v1().unwrap(), wire);
+    }
 }
 
 #[test]

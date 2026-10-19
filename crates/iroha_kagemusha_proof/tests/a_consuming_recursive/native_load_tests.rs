@@ -51,7 +51,7 @@ fn synthetic_load_fixture(expected_rebuilds: usize) -> (load_chain::LoadFixture,
 }
 
 #[test]
-#[ignore = "genuine Bootstrap, lean Load and every lean Unload/Retiring stage at k16 from a synthetic receipt and the two-terminal catalog; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
+#[ignore = "genuine Bootstrap, lean Load and the one-stage lean Unload/Retiring A at k16 from a synthetic receipt and the two-terminal catalog; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
 fn synthetic_two_terminal_wallet_proves_lean_unload_and_retiring() {
     let (fixture, rebuilds) = synthetic_load_fixture(2);
     super::two_terminal_loaded_wallet_proves_unload_and_retiring_with_all_owners(&fixture);

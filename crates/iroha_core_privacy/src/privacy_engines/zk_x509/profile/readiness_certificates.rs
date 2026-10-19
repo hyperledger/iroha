@@ -747,7 +747,7 @@ fn append_observation_v1(frame: &mut CertificateFrameV1, observation: ZkX509Reso
     frame.field(&observation.relation_depth.to_be_bytes());
     frame.field(&observation.relation_depth_ceiling.to_be_bytes());
 }
-fn resource_certificate_digest_v1(certificate: ZkX509ResourceCertificateV1<'_>) -> [u8; 32] {
+fn resource_certificate_digest_v1(certificate: &ZkX509ResourceCertificateV1<'_>) -> [u8; 32] {
     let mut frame = CertificateFrameV1::new(
         RESOURCE_CERTIFICATE_DOMAIN_V1,
         RESOURCE_CERTIFICATE_FIELD_COUNT_V1,
@@ -860,12 +860,12 @@ fn observation_is_valid_v1(
         && actual.peak_address_space_bytes > 0
         && actual.peak_address_space_bytes <= limits.address_space_ceiling_bytes
 }
-/// Validate and digest a capture payload without consulting the bootstrap pin.
+/// Validate and digest a borrowed capture payload without consulting the bootstrap pin.
 ///
 /// Capture uses this before the independent source pin exists. Final evidence
 /// validation additionally calls [`resource_certificate_matches_source_v1`].
 pub fn validate_resource_certificate_payload_v1(
-    certificate: ZkX509ResourceCertificateV1<'_>,
+    certificate: &ZkX509ResourceCertificateV1<'_>,
 ) -> Option<[u8; 32]> {
     if certificate.schema_version != ZK_X509_RESOURCE_CERTIFICATE_SCHEMA_VERSION_V1
         || !digest_is_nonzero_v1(certificate.compiled_profile_digest)
@@ -894,27 +894,27 @@ pub fn validate_resource_certificate_payload_v1(
     }
     Some(resource_certificate_digest_v1(certificate))
 }
-/// Require a validated capture payload to equal every installed source field
+/// Require a borrowed, validated capture payload to equal every installed source field
 /// and the distinct compiled certificate pin.
 pub fn resource_certificate_matches_source_v1(
-    certificate: ZkX509ResourceCertificateV1<'_>,
+    certificate: &ZkX509ResourceCertificateV1<'_>,
     claimed_certificate_sha256: [u8; 32],
 ) -> bool {
     let source = source_resource_certificate_v1(certificate.compiled_profile_digest);
     resource_certificate_matches_expected_v1(
         certificate,
-        source,
+        &source,
         claimed_certificate_sha256,
         ZK_X509_RESOURCE_CERTIFICATE_SHA256_V1,
     )
 }
 pub(super) fn resource_certificate_is_pinned_v1(compiled_profile_digest: [u8; 32]) -> bool {
     let certificate = source_resource_certificate_v1(compiled_profile_digest);
-    resource_certificate_matches_source_v1(certificate, ZK_X509_RESOURCE_CERTIFICATE_SHA256_V1)
+    resource_certificate_matches_source_v1(&certificate, ZK_X509_RESOURCE_CERTIFICATE_SHA256_V1)
 }
 fn resource_certificate_matches_expected_v1(
-    certificate: ZkX509ResourceCertificateV1<'_>,
-    expected_source: ZkX509ResourceCertificateV1<'_>,
+    certificate: &ZkX509ResourceCertificateV1<'_>,
+    expected_source: &ZkX509ResourceCertificateV1<'_>,
     claimed_certificate_sha256: [u8; 32],
     expected_certificate_sha256: [u8; 32],
 ) -> bool {
@@ -1084,11 +1084,11 @@ mod tests {
                 ($mutate:expr) => {{
                     let mut mutation = $certificate;
                     ($mutate)(&mut mutation.process_limits);
-                    assert_ne!(resource_certificate_digest_v1(mutation), $digest);
+                    assert_ne!(resource_certificate_digest_v1(&mutation), $digest);
                     assert!(!resource_certificate_matches_expected_v1(
-                        mutation,
-                        $certificate,
-                        resource_certificate_digest_v1(mutation),
+                        &mutation,
+                        &$certificate,
+                        resource_certificate_digest_v1(&mutation),
                         $digest,
                     ));
                 }};
@@ -1131,11 +1131,11 @@ mod tests {
                 ($mutate:expr) => {{
                     let mut mutation = $certificate;
                     ($mutate)(&mut mutation.$field);
-                    assert_ne!(resource_certificate_digest_v1(mutation), $digest);
+                    assert_ne!(resource_certificate_digest_v1(&mutation), $digest);
                     assert!(!resource_certificate_matches_expected_v1(
-                        mutation,
-                        $certificate,
-                        resource_certificate_digest_v1(mutation),
+                        &mutation,
+                        &$certificate,
+                        resource_certificate_digest_v1(&mutation),
                         $digest,
                     ));
                 }};
@@ -1321,32 +1321,32 @@ mod tests {
     #[test]
     fn resource_certificate_accepts_only_distinct_nonzero_measurements_and_pin() {
         let certificate = test_resource_certificate_v1();
-        let digest = validate_resource_certificate_payload_v1(certificate)
+        let digest = validate_resource_certificate_payload_v1(&certificate)
             .expect("canonical capture certificate");
         assert_ne!(digest, [0; 32]);
         assert!(resource_certificate_matches_expected_v1(
-            certificate,
-            certificate,
+            &certificate,
+            &certificate,
             digest,
             digest,
         ));
         assert!(!resource_certificate_matches_expected_v1(
-            certificate,
-            certificate,
+            &certificate,
+            &certificate,
             [0; 32],
             digest,
         ));
         assert!(!resource_certificate_matches_expected_v1(
-            certificate,
-            certificate,
+            &certificate,
+            &certificate,
             digest,
             [0; 32],
         ));
         let mut wrong_digest = digest;
         wrong_digest[0] ^= 0x80;
         assert!(!resource_certificate_matches_expected_v1(
-            certificate,
-            certificate,
+            &certificate,
+            &certificate,
             wrong_digest,
             digest,
         ));
@@ -1380,28 +1380,28 @@ mod tests {
                 ..certificate
             },
         ] {
-            assert!(validate_resource_certificate_payload_v1(mutation).is_none());
+            assert!(validate_resource_certificate_payload_v1(&mutation).is_none());
         }
     }
     #[test]
     fn every_resource_certificate_field_is_hashed_and_source_bound() {
         let certificate = test_resource_certificate_v1();
-        let digest = validate_resource_certificate_payload_v1(certificate)
+        let digest = validate_resource_certificate_payload_v1(&certificate)
             .expect("canonical capture certificate");
         macro_rules! reject_mutation {
             ($mutate:expr) => {{
                 let mut mutation = certificate;
                 ($mutate)(&mut mutation);
                 assert_ne!(
-                    resource_certificate_digest_v1(mutation),
+                    resource_certificate_digest_v1(&mutation),
                     digest,
                     "mutated resource field must change the payload digest"
                 );
                 assert!(
                     !resource_certificate_matches_expected_v1(
-                        mutation,
-                        certificate,
-                        resource_certificate_digest_v1(mutation),
+                        &mutation,
+                        &certificate,
+                        resource_certificate_digest_v1(&mutation),
                         digest,
                     ),
                     "mutated resource field must fail the installed source and pin"

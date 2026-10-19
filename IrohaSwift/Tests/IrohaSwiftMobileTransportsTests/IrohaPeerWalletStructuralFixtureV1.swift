@@ -21,7 +21,7 @@ func irohaPeerWalletStructuralEnvelopeV1(
     // The variant mirrors the version and scheme field paths of the real message layouts.
     let variant: [UInt8]
     switch kind {
-    case .offer, .request:
+    case .request:
         variant = irohaPeerWalletField(irohaPeerWalletField(leaf))
     case .payment:
         let emptyVector = [UInt8](repeating: 0, count: 8)
@@ -31,8 +31,6 @@ func irohaPeerWalletStructuralEnvelopeV1(
         let send = version + irohaPeerWalletField(leaf) + irohaPeerWalletField(present)
             + irohaPeerWalletField(step) + irohaPeerWalletField([])
         variant = irohaPeerWalletField(version + irohaPeerWalletField([]) + irohaPeerWalletField(send))
-    case .lineage:
-        variant = irohaPeerWalletField(version + irohaPeerWalletField(irohaPeerWalletField(leaf)))
     case .credited, .sessionControl, .policyData:
         variant = irohaPeerWalletField(leaf)
     }
@@ -90,12 +88,25 @@ func irohaPeerWalletRequestAccountOriginalV1() throws -> Data {
     return bytes
 }
 
+/// Synthetic payer companion DATA of `count` bytes: opaque to every carrier, never a decodable
+/// `KagemushaWalletPayerCompanionV1`, and carrying no credential or Receive authority.
+func irohaPeerWalletPayerCompanionV1(count: Int = 900) -> Data {
+    Data((0..<count).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ 7) })
+}
+
 /// Current carrier payload, preserving the small structural envelope for generic wire sizing.
 func irohaPeerWalletStructuralPayloadV1(kind: IrohaPeerWireKindV1, payload: Data) throws -> Data {
     let envelope = irohaPeerWalletStructuralEnvelopeV1(kind: kind, payload: payload)
-    return kind == .request
-        ? try IrohaPeerWalletRequestV1(requestEnvelope: envelope,
-            destinationAccountOriginal: irohaPeerWalletRequestAccountOriginalV1()).encode() : envelope
+    switch kind {
+    case .request:
+        return try IrohaPeerWalletRequestV1(requestEnvelope: envelope,
+            destinationAccountOriginal: irohaPeerWalletRequestAccountOriginalV1()).encode()
+    case .payment:
+        return try IrohaPeerWalletPaymentV1(paymentEnvelope: envelope,
+            payerCompanion: irohaPeerWalletPayerCompanionV1()).encode()
+    case .credited, .sessionControl, .policyData:
+        return envelope
+    }
 }
 
 /// Exact record-count exchange DATA. Nested credentials/proofs remain opaque and unadmitted.
@@ -109,7 +120,10 @@ func irohaPeerWalletExchangeEnvelopeV1(
         fields.flatMap { irohaPeerWalletField([UInt8]($0)) }
     }
     let version = Data([1, 0])
-    let bodyFields = [version, schemeID, Data([requestBodyByte])] + Array(repeating: Data(), count: 14)
+    var bodyFields = [version, schemeID, Data([requestBodyByte])] + Array(repeating: Data(), count: 14)
+    bodyFields[3] = Data(repeating: 0, count: 32)
+    bodyFields[4] = Data(repeating: 0, count: 32)
+    bodyFields[7] = Data(repeating: 0, count: 16)
     let body = Data(record(bodyFields))
     let signature = Data(repeating: requestSignatureByte, count: 64)
     let fields: [Data]
@@ -152,7 +166,8 @@ func irohaPeerWalletExchangeMessageV1(
     let envelope = irohaPeerWalletExchangeEnvelopeV1(kind: kind, payload: payload,
         schemeID: schemeID, requestBodyByte: requestBodyByte, requestSignatureByte: requestSignatureByte)
     return try IrohaPeerKagemushaWalletAdapterV1.wrap(envelope,
-        destinationAccountOriginal: kind == .request ? irohaPeerWalletRequestAccountOriginalV1() : nil)
+        destinationAccountOriginal: kind == .request ? irohaPeerWalletRequestAccountOriginalV1() : nil,
+        payerCompanion: kind == .payment ? irohaPeerWalletPayerCompanionV1() : nil)
 }
 
 /// Structural Payment DATA with each signed Request field in its sole canonical owner.

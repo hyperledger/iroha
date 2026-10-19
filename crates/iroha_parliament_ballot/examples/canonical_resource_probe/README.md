@@ -18,8 +18,35 @@ canonical_resource_probe ENVELOPE CONTEXT \
 `ENVELOPE` is `AnonymousBallotEnvelopeV1::encode_canonical_bounded()`.
 `CONTEXT` is `anonymous_ballot::framing::enc(&AuthenticatedBallotContextV1)`.
 The caller supplies the trusted network and sealed body identity separately.
+Those fixed scalar identities live in counted control storage, outside the
+serialized-input byte debit.
 The context's derived values and scope are recomputed; that computation does
 not itself authenticate the context's chain provenance.
+
+Context decoding uses `AuthenticatedBallotContextV1::decode_canonical_bounded`:
+the outer byte cap precedes decoding, each sequence permits at most 1,000
+elements, and the combined sequence count is at most 1,010. Its 327,680-byte
+cumulative nominal codec allocation allowance covers decoder charges, not
+physical heap or workspace. Structural validation then enforces the policy's
+ten distinct ordered bodies. Generic Norito decoding does not supply these
+schema-specific limits. Structurally invalid canonical contexts fail at
+`context_decode`; the remaining scope and digest checks still follow.
+
+Envelope decoding permits no sequence elements and exactly 233,012 bytes of
+nominal allocation for its sole proof copy. Both typed decoders preserve local
+allocator/enclosing-budget refusals separately from malformed input and schema
+violations. The block verifier reports a local shortage as unavailable, without
+declaring the ballot invalid. Nominal decoder charges exclude control owners,
+allocator overhead and error scratch; the arena diagnostic measures its own
+separate allocation scope.
+
+The current envelope is exactly 233,455 bytes. The maximal structurally valid
+context is 130,995 bytes, including all ten bodies and the largest permitted
+bond, for a combined 364,450 bytes. The genuine default-policy 1,000-seat
+fixture below is 130,963 bytes, not this maximum. The
+[resource contract](../../../../specs/parliament_ballot_resource_contract.md#verification-and-debit-boundary)
+derives the complete wire formula; model tests exercise its prefix transitions,
+body subsets, bond widths, maximal roundtrip and malformed inner counts.
 
 Each file is retrieved as a bounded regular file and closed before invocation.
 Its immutable staging owner remains live through worker join, outside the
@@ -46,6 +73,16 @@ counted. No default arena allocation falls back to System. All owned input,
 context, proof/error and result values end before routing is disabled.
 Surviving allocations after thread join are a child error, never a successful
 cleanup claim. The published mapping remains allocated until process exit.
+
+The canonical decoder's first use installs a global panic hook with an owned
+capture. Inside the charged interval, this diagnostic preserves the exact
+original hook, forwards its behavior while decoding runs, then drops the
+installed hook and restores the original. The operation is caught before
+restoration because Rust prohibits changing hooks during unwinding; any caught
+panic payload is dropped while routing is active and yields `verification_panic`
+as a local error. This does not prewarm or alter the production decoder. Its
+initialized hook marker cannot be reset, which is an additional reason to use
+one fresh process per request.
 
 Use a fresh process with no concurrent application work. This process-global
 allocator switch is not an embeddable node service. Runtime/TLS allocations
@@ -110,7 +147,10 @@ A minimal digest-and-mode record alone is not proof of source correspondence.
 The generator's CLI is
 `canonical_resource_fixtures OUTPUT_DIR SEATS THREADS [valid|late-invalid]`.
 It accepts seats 3, 500 and 1000, defaults to `valid`, and refuses an existing
-output directory. Its secrets and proving tape are deterministic public test
+output directory. Seats 3 and 500 use the default Policy Jury (target 500);
+1000 uses the default Confirmation Jury (target 1000). Both preserve the full
+default standard-tier policy; the manifest records the actual `body_role` and
+`target_seats`. Its secrets and proving tape are deterministic public test
 material, unsuitable for real credentials. Each fixture proves and verifies an
 honest candidate ballot. The late-invalid variant then changes the first
 coefficient byte, requires backend `ChallengeMismatch`, and mines a new stamp
@@ -155,8 +195,14 @@ caps, budget, trusted-identity and fatal-allocation controls. Overall `pass`
 requires all four fixture identities and all supplied cases to pass. A timeout
 or missing/contradictory evidence is operational failure, never a proof result.
 
-Current validation: 18 probe unit tests and 52 campaign/supervisor Python tests
-passed. The generator and full canonical fixture campaign have not yet run.
+The final candidate passes 19 probe and six fixture-generator unit tests,
+including an isolated three-case hook-cleanup subprocess test. Both portable
+and accelerated builds pass the same 55 genuine-input/control cases; exact
+inputs, exits and complete reports match. The
+[retained results](../../../../docs/validation/parliament_ballot_canonical_resources/README.md)
+bind those observations to their source snapshots and executables. The earlier
+exit-74 smoke and fixture/build failures remain retained as failed evidence.
+The campaign/supervisor Python suite separately passes 52 tests.
 The focused tests cover parser bounds, independent reservations, staging,
 outcome classification, fatal control, arena behavior and native stack
 placement; they do not activate process-wide routing concurrently with the
@@ -173,6 +219,6 @@ all-native-allocation coverage, complete workspace certification, profile and
 production qualification false. These are finite validity/resource
 observations; independent review and required hardware evidence remain open.
 
-TODO: establish fresh current-source fixture results, complete native-memory
-coverage and all-input sufficiency, independent unsafe review and required
-target measurements. Production qualification remains unchanged.
+TODO: establish complete native-memory coverage and all-input sufficiency,
+independent unsafe review and required target measurements. Production
+qualification remains unchanged.

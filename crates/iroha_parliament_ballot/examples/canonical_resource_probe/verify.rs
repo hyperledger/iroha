@@ -8,9 +8,7 @@ use std::sync::Arc;
 use iroha_data_model::{
     NetworkId,
     governance::{
-        anonymous_ballot::{
-            AuthenticatedBallotContextV1, BallotScopeV1, NullifierV1, framing::decode_enc_bounded,
-        },
+        anonymous_ballot::{AuthenticatedBallotContextV1, BallotScopeV1, NullifierV1},
         types::BodyInstanceId,
     },
 };
@@ -20,8 +18,6 @@ use iroha_parliament_ballot::{
     },
     context::ScopedBallotContextV1,
 };
-
-use super::budget::CONTEXT_MAX;
 
 /// Fixed metadata crosses the worker boundary; no decoded value or error owner escapes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,11 +69,10 @@ impl BlockBallotStateV1 for Scope {
 /// Decode the complete context, recompute all derived fields, verify the actual stamp
 /// and proof, and destroy every decoded/derived value before returning fixed metadata.
 pub fn cold(envelope: &[u8], context: &[u8], network: NetworkId, body: BodyInstanceId) -> Outcome {
-    let context: AuthenticatedBallotContextV1 =
-        match decode_enc_bounded(context, "authenticated ballot context", CONTEXT_MAX) {
-            Ok(context) => context,
-            Err(_) => return Outcome::unavailable("context_decode"),
-        };
+    let context = match AuthenticatedBallotContextV1::decode_canonical_bounded(context) {
+        Ok(context) => context,
+        Err(_) => return Outcome::unavailable("context_decode"),
+    };
     if context.body_context.network_id != network {
         return Outcome::unavailable("context_network");
     }
@@ -110,6 +105,7 @@ fn rejected(reason: BlockInvalidReasonV1) -> Outcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::budget::CONTEXT_MAX;
 
     #[test]
     fn invalid_ballots_and_local_unavailability_are_distinct() {

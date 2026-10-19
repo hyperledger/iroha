@@ -48,8 +48,8 @@ pub enum VerificationUnavailableV1 {
     /// failed); carries the proof crate's error.
     #[error("the proof verifier cannot run: {0}")]
     Verifier(VerifyError),
-    /// A stamp or envelope digest could not be computed.
-    #[error("a ballot digest could not be computed: {0}")]
+    /// A local decode resource refusal or a failure to compute a stamp/envelope digest.
+    #[error("a ballot codec operation is unavailable: {0}")]
     Codec(AnonymousBallotCodecErrorV1),
     /// The caller's state answered a scope lookup with another scope's context.
     #[error("the state returned the context of another scope")]

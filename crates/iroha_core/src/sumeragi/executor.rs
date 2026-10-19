@@ -1038,6 +1038,24 @@ impl SignatureDecodeAttempt {
                 "completed proposal lost its original signature custody".into(),
             ));
         }
+        let original_actions = self
+            .decoder
+            .retains_npos_penalty_action_custody(source, original)
+            .map_err(|error| payload::PayloadError::SignatureCustodyInvariant(error.to_string()))?;
+        if !cfg!(all(test, sumeragi_core_mutation = "HC458")) && !original_actions {
+            return Err(payload::PayloadError::SignatureCustodyInvariant(
+                "completed proposal lost its original penalty-action custody".into(),
+            ));
+        }
+        let original_parent = self
+            .decoder
+            .retains_parent_service_custody(source, original)
+            .map_err(|error| payload::PayloadError::SignatureCustodyInvariant(error.to_string()))?;
+        if !cfg!(all(test, sumeragi_core_mutation = "HC460")) && !original_parent {
+            return Err(payload::PayloadError::SignatureCustodyInvariant(
+                "completed proposal lost its original parent-QC custody".into(),
+            ));
+        }
         Ok(original)
     }
 
@@ -1094,7 +1112,31 @@ impl SignatureDecodeAttempt {
             Ok(original_control)
                 if original_control || cfg!(all(test, sumeragi_core_mutation = "HC131")) =>
             {
-                Ok(())
+                let original_actions = self
+                    .decoder
+                    .retains_npos_penalty_action_custody(source, original);
+                if matches!(original_actions, Ok(true))
+                    || cfg!(all(test, sumeragi_core_mutation = "HC458"))
+                {
+                    let original_parent = self
+                        .decoder
+                        .retains_parent_service_custody(source, original);
+                    if matches!(original_parent, Ok(true))
+                        || cfg!(all(test, sumeragi_core_mutation = "HC460"))
+                    {
+                        Ok(())
+                    } else {
+                        self.returned_refusal = Some(ReturnedDecodedRefusal::SourceMismatch);
+                        Err(PublicationError::RecoveryRequired(
+                            "returned proposal lost its original parent-QC custody".into(),
+                        ))
+                    }
+                } else {
+                    self.returned_refusal = Some(ReturnedDecodedRefusal::SourceMismatch);
+                    Err(PublicationError::RecoveryRequired(
+                        "returned proposal lost its original penalty-action custody".into(),
+                    ))
+                }
             }
             _ => {
                 self.returned_refusal = Some(ReturnedDecodedRefusal::SourceMismatch);
@@ -1131,6 +1173,7 @@ struct Worker<'s> {
         OriginalPayloadScope,
         super::certified_chain::ParentServicePreparation,
     )>,
+    incoming_lane_reads: Option<payload_owner::IncomingLaneReads>,
     signature_decode: Option<SignatureDecodeAttempt>,
     proposal_decode: Option<proposal_publication::ProposalRecovery>,
     context: &'s ExecutorContext,
@@ -1164,6 +1207,7 @@ struct Worker<'s> {
 impl Drop for Worker<'_> {
     fn drop(&mut self) {
         self.cancel_proposal_reads();
+        self.cancel_incoming_lane_reads();
     }
 }
 
@@ -1171,6 +1215,7 @@ fn run(context: &ExecutorContext, requests: &mpsc::Receiver<Request>) {
     let state = Arc::clone(&context.state);
     let mut worker = Worker {
         proposal_reads: None,
+        incoming_lane_reads: None,
         payload_build: None,
         assembly_parent_service: None,
         signature_decode: None,
@@ -1588,6 +1633,7 @@ impl<'s> Worker<'s> {
         if matches!(outcome, Ok(None)) {
             // Only a completed intrinsic rejection retires this original decode custody.
             self.signature_decode = None;
+            self.cancel_incoming_lane_reads();
         }
         outcome
     }
@@ -1636,6 +1682,7 @@ impl<'s> Worker<'s> {
         {
             // A different authenticated candidate explicitly retires the old original owners.
             self.signature_decode = None;
+            self.cancel_incoming_lane_reads();
         }
         if self.signature_decode.is_none() {
             // Recovery already paid for this exact graph. Transfer its custody, then
@@ -1800,6 +1847,9 @@ impl<'s> Worker<'s> {
             self.context.time_source.now(),
             certified,
         )?;
+        let references_lanes = iroha_block
+            .lane_merge()
+            .is_some_and(|section| !section.merges.is_empty());
         if height > 2 {
             let prepared = self
                 .signature_decode
@@ -1827,6 +1877,7 @@ impl<'s> Worker<'s> {
             .sumeragi()
             .max_clock_drift_ms();
         drop(original_view);
+        self.retain_incoming_lane_reads(block, block_hash, references_lanes);
         let iroha_block = self
             .signature_decode
             .as_ref()
@@ -1839,6 +1890,11 @@ impl<'s> Worker<'s> {
             iroha_block,
             &*self.context.lane_blocks,
             Duration::from_millis(scheduled.params.exec_budget_ms),
+            &mut self
+                .incoming_lane_reads
+                .as_mut()
+                .expect("original incoming request")
+                .scope,
         ) {
             Ok(expansion) => expansion,
             Err(error @ lanes::merge::MergeError::SourceChanged { .. }) => {
@@ -1868,6 +1924,9 @@ impl<'s> Worker<'s> {
                 return Err(error.map_rejection(|_| reason).into());
             }
         };
+        // Every requested lane frame is authenticated and transferred into expansion.
+        // No native read remains necessary for this completed merge attempt.
+        self.cancel_incoming_lane_reads();
         let committee = scheduled
             .epoch
             .committee
@@ -2509,6 +2568,18 @@ impl<'s> Worker<'s> {
         }
         if self.recovery.is_some() || self.publication_pending() {
             return;
+        }
+        if self.signature_decode.as_ref().is_some_and(|original| {
+            original.source.header().height == height && !keep.contains(&original.block_hash)
+        }) {
+            self.signature_decode = None;
+        }
+        if !cfg!(all(test, sumeragi_core_mutation = "HC435"))
+            && self.incoming_lane_reads.as_ref().is_some_and(|original| {
+                original.height == height && !keep.contains(&original.block_hash)
+            })
+        {
+            self.cancel_incoming_lane_reads();
         }
         if self
             .live
@@ -3767,6 +3838,11 @@ impl<'s> Worker<'s> {
         }) {
             // Explicit rejection retires only this original partial decode and its source.
             self.signature_decode = None;
+        }
+        if self.incoming_lane_reads.as_ref().is_some_and(|original| {
+            original.block_hash == block_hash && original.height == height && original.view == view
+        }) {
+            self.cancel_incoming_lane_reads();
         }
         if self.quarantine_context.is_some_and(|checked| {
             (checked.height, checked.view, checked.block_hash) == (height, view, block_hash)

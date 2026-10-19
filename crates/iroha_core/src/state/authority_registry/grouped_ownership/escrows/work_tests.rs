@@ -149,10 +149,10 @@ fn escrow_physical_mask_lookup_and_member_tails_are_fully_prepaid() {
             Ok(view.current().get(key))
         );
     }
-    let members = [first.clone(), second.clone()];
+    let members = [first, second];
     let member_rows: Storage<_, _> = members
         .iter()
-        .map(|member| ((first.clone(), member.clone()), ()))
+        .map(|member| ((first, *member), ()))
         .collect();
     let member_view = member_rows.try_committed_view_nonblocking().unwrap();
     for key in &members {
@@ -335,13 +335,13 @@ fn original_absent_source_and_membership_visits_have_literal_exact_boundaries() 
 #[test]
 fn escrow_group_and_image_phases_keep_original_first_failure() {
     let mut world = fixture(true);
-    let saved = omit_initial(
+    omit_initial(
         &mut world.asset_escrows_by_seller,
         &(ALICE_ID.clone(), id()),
     );
     {
         let mut block = world.asset_escrows_by_seller.block();
-        block.insert((ALICE_ID.clone(), id()), saved);
+        block.insert((ALICE_ID.clone(), id()), ());
         block.commit();
     }
     omit_initial(&mut world.asset_escrows_by_buyer, &(BOB_ID.clone(), id()));
@@ -354,10 +354,10 @@ fn escrow_group_and_image_phases_keep_original_first_failure() {
         ))
     );
     let mut world = fixture(true);
-    let saved = omit_initial(&mut world.asset_escrows_by_buyer, &(BOB_ID.clone(), id()));
+    omit_initial(&mut world.asset_escrows_by_buyer, &(BOB_ID.clone(), id()));
     {
         let mut block = world.asset_escrows_by_buyer.block();
-        block.insert((BOB_ID.clone(), id()), saved);
+        block.insert((BOB_ID.clone(), id()), ());
         block.commit();
     }
     omit_initial(

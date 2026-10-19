@@ -1,8 +1,8 @@
-//! Genuine lean Unload/Retiring: A1 proves the transition beside the hard predecessor,
-//! A2 authenticates the own receipt under the carried payment key (no own sigma
-//! verifier, no credential or certificate re-check). The two-terminal predecessor
-//! catalog is a component scope, not the complete release catalog. Every source
-//! proof, pending claim and operation task is real.
+//! Genuine lean Unload/Retiring: one terminal A proves the transition beside the hard
+//! predecessor and authenticates the own receipt under the carried payment key (no own
+//! sigma verifier, no W, no credential or certificate re-check). The two-terminal
+//! predecessor catalog is a component scope, not the complete release catalog. Every
+//! source proof, pending claim and operation task is real.
 #![allow(clippy::duplicate_mod)]
 #[path = "common/bootstrap.rs"]
 mod bootstrap;
@@ -18,8 +18,6 @@ mod common;
 mod load_objects;
 #[path = "a_consuming_recursive/native_load_tests.rs"]
 mod native_load_tests;
-#[path = "common/native_source_factory_checks.rs"]
-mod native_source_factory_checks;
 use catalog::{LoadFixture, send_chain::load_outer};
 use load_outer::load_chain::bootstrap_outer::bootstrap_chain::SourceProfile;
 #[path = "common/unload_objects.rs"]
@@ -28,11 +26,12 @@ use ff::{Field, PrimeField};
 use iroha_kagemusha_proof::{
     a_relation::{
         AProofPlan, LineagePublicCells, ProofMessageCells, QProofPlan, VestaClaimCells,
+        bind_signature_q,
         context::{ContextInputs, ContextPlan, ContextPredecessor, ContextState},
         schedule::OperationTask,
-        split::close_first,
+        split::close_single,
         unload::{UnloadObjects, UnloadStagePlan, UnloadStageWitness},
-        verify_predecessor,
+        verify_predecessor, verify_q,
     },
     admin_sigma::{ConsumingWitness, RetiringCircuit, StateWitness, UnloadCircuit},
     operation_relation::{map_effects::InsertCells, state::StateCells, statement::StatementCells},
@@ -45,7 +44,7 @@ use iroha_plonk::{
     create_proof_owned_with_claim,
     cs::{Column, ConstraintSystem, Instance},
     frontend::{Circuit, Error, Layouter, Region, SimpleFloorPlanner, Value, synthesize},
-    keys::{KeygenConfigV2, keygen_pk_v2},
+    keys::{KeygenConfigV2, keygen_pk_v2, keygen_vk_with_binding_v2},
     pcs::ipa::PinnedParams,
     verifier::accumulate_generator,
 };
@@ -146,11 +145,6 @@ fn lineage_bytes(
     out.extend(proof);
     out.extend(p.to_bytes());
     out.extend(v.to_bytes());
-    out
-}
-fn frame(bytes: &[u8]) -> Vec<u8> {
-    let mut out = u32::try_from(bytes.len()).unwrap().to_le_bytes().to_vec();
-    out.extend(bytes);
     out
 }
 #[derive(Clone)]
@@ -286,7 +280,7 @@ fn sources(artifact: &Head<'_>, retiring: bool) -> Sources {
     };
     let params = PinnedParams::<Ep>::derive(16).unwrap();
     let vparams = common::vesta_params(16);
-    // No own sigma verifier: W0 folds the pinned trivial part.
+    // No own sigma verifier and no W: the part slot is the pinned trivial claim.
     let part = AccumulatorT::<Eq>::trivial(&vparams, MemoryBudget::DEFAULT)
         .unwrap()
         .as_input();
@@ -362,13 +356,15 @@ fn sources(artifact: &Head<'_>, retiring: bool) -> Sources {
     }
 }
 #[derive(Clone)]
-struct First {
+struct Single {
     source: Arc<Sources>,
     profile: SourceProfile,
     plan: ContextPlan,
     pallas: AccumulatorT<Ep>,
     fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes,
     known: bool,
+    // Adversarial control only: skip verifying the own receipt Q0 in place.
+    omit_q: bool,
 }
 #[derive(Clone, Debug)]
 struct Config {
@@ -376,7 +372,7 @@ struct Config {
     bytes: BytesConfig,
     public: Column<Instance>,
 }
-impl First {
+impl Single {
     fn value<T: Copy>(&self, value: T) -> Value<T> {
         if self.known {
             Value::known(value)
@@ -455,7 +451,7 @@ impl First {
         ProofMessageCells::from_run(chip, region, &run, 0, body.len())
     }
 }
-impl First {
+impl Single {
     fn objects(
         &self,
         chip: &mut VerifierChip<Ep>,
@@ -471,7 +467,7 @@ impl First {
     }
 }
 
-impl Circuit<Fp> for First {
+impl Circuit<Fp> for Single {
     type Config = Config;
     type FloorPlanner = SimpleFloorPlanner;
     type Params = SourceProfile;
@@ -506,7 +502,7 @@ impl Circuit<Fp> for First {
         chip.load_tables(&mut layouter)?;
         bytes.load_table(&mut layouter)?;
         let out = layouter.assign_region(
-            || "genuine consuming predecessor-first relation",
+            || "genuine consuming terminal relation",
             |mut region| {
                 let mut maps = self.source.maps.clone();
                 maps.known = self.known;
@@ -603,14 +599,40 @@ impl Circuit<Fp> for First {
                     &pv,
                     &proof,
                 )?;
-                // A1 proves the transition beside the hard predecessor; the own
-                // receipt Q belongs to A2.
+                // The one stage proves the transition beside the hard predecessor and
+                // verifies the own receipt Q0 in place; its hard slot authorizes the
+                // receipt under the carried payment key.
                 let tasks = self.plan.operation_tasks(0).ok_or(Error::Synthesis)?;
                 let recovery = if tasks.contains(&OperationTask::UnloadRecovery) {
                     Some(maps.insertion(&mut chip.uint(), &mut region)?)
                 } else {
                     None
                 };
+                assert_eq!(self.plan.q_partition(0), Some([0_usize].as_slice()));
+                let mut verified = Vec::new();
+                let mut slots = None;
+                if !self.omit_q {
+                    let proof =
+                        self.carrier(&mut chip, &mut bytes, &mut region, &self.source.q_proofs[0])?;
+                    let q = verify_q(
+                        &mut chip,
+                        &mut region,
+                        self.plan.operation(),
+                        0,
+                        &q_instances[0],
+                        &proof,
+                    )?;
+                    let bound = bind_signature_q(
+                        &mut chip,
+                        &mut region,
+                        self.plan.operation(),
+                        0,
+                        &self.source.signature_schema,
+                        &q,
+                    )?;
+                    verified.push(bound.verified().clone());
+                    slots = Some(bound);
+                }
                 UnloadStagePlan::new(self.plan.clone(), load_objects::policy())?.constrain_stage(
                     &mut chip,
                     &mut region,
@@ -619,213 +641,21 @@ impl Circuit<Fp> for First {
                     &input,
                     UnloadStageWitness {
                         recovery: recovery.as_ref(),
-                        ..UnloadStageWitness::default()
+                        signatures: slots.as_ref(),
                     },
                 )?;
-                assert_eq!(self.plan.first_q_count(), 0);
                 let fold = self.carrier(&mut chip, &mut bytes, &mut region, &self.fold)?;
-                let first = close_first(
+                close_single(
                     &mut chip,
                     &mut region,
                     &self.plan,
                     &input,
-                    Some(&pred),
-                    &[],
-                    &[],
-                    Some(&fold),
-                    &self.source.params,
-                )?;
-                first.words(&mut chip, &mut region)
-            },
-        )?;
-        for (row, word) in out.iter().enumerate() {
-            layouter.constrain_instance(word.cell(), config.public, row)?;
-        }
-        Ok(())
-    }
-}
-#[derive(Clone)]
-struct Continuation {
-    first: First,
-    plan: iroha_kagemusha_proof::a_relation::split::SplitPlan,
-    wrapper: Vec<u8>,
-    vesta: AccumulatorT<Eq>,
-    fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes,
-    pallas: AccumulatorT<Ep>,
-    carried: AccumulatorT<Ep>,
-    omit_q: Option<usize>,
-}
-impl Circuit<Fp> for Continuation {
-    type Config = Config;
-    type FloorPlanner = SimpleFloorPlanner;
-    type Params = SourceProfile;
-    fn params(&self) -> SourceProfile {
-        self.first.profile
-    }
-    fn without_witnesses(&self) -> Self {
-        Self {
-            first: self.first.without_witnesses(),
-            ..self.clone()
-        }
-    }
-    fn configure(meta: &mut ConstraintSystem<Fp>) -> Config {
-        First::configure(meta)
-    }
-    fn configure_with_params(meta: &mut ConstraintSystem<Fp>, profile: SourceProfile) -> Config {
-        First::configure_with_params(meta, profile)
-    }
-    fn synthesize(&self, config: Config, mut layouter: impl Layouter<Fp>) -> Result<(), Error> {
-        let first = &self.first;
-        let mut chip = VerifierChip::new(config.verifier);
-        let mut bytes = BytesChip::new(config.bytes);
-        chip.load_tables(&mut layouter)?;
-        bytes.load_table(&mut layouter)?;
-        let out = layouter.assign_region(
-            || "Consuming deferred Q continuation",
-            |mut region| {
-                let mut maps = first.source.maps.clone();
-                maps.known = first.known;
-                let (old, pred_public) =
-                    maps.state(&mut chip, &mut region, &maps.witness.predecessor)?;
-                let (new, next_public) =
-                    maps.state(&mut chip, &mut region, &maps.witness.successor)?;
-                let fields = chip
-                    .uint()
-                    .glue()
-                    .witnesses(&mut region, &maps.witness.statement.map(|v| first.value(v)))?
-                    .try_into()
-                    .map_err(|_| Error::Synthesis)?;
-                let statement = StatementCells::constrain_with_verifier(
-                    &mut chip,
-                    &mut region,
-                    first.source.variant,
-                    &fields,
-                )?;
-                let objects = first.objects(&mut chip, &mut bytes, &mut region)?;
-                let context_objects = objects.context();
-                let q_instances = first
-                    .source
-                    .q_instances
-                    .iter()
-                    .map(|cols| {
-                        cols.iter()
-                            .map(|column| {
-                                column
-                                    .iter()
-                                    .map(|v| first.scalar(&mut chip, &mut region, *v))
-                                    .collect()
-                            })
-                            .collect()
-                    })
-                    .collect::<Result<Vec<Vec<Vec<_>>>, _>>()?;
-                let pp = first.pallas(
-                    &mut chip,
-                    &mut region,
-                    &first.source.predecessor.pallas.as_input(),
-                )?;
-                let pv = first.vesta(&mut chip, &mut region, &first.source.predecessor.vesta)?;
-                let input = ContextInputs {
-                    own_statement: &statement,
-                    incoming_statement: None,
-                    predecessor: Some(ContextPredecessor {
-                        state: &old,
-                        public: &pred_public,
-                        pallas: &pp,
-                        vesta: &pv,
-                    }),
-                    successor: ContextState {
-                        state: &new,
-                        public: &next_public,
-                    },
-                    incoming: None,
-                    q_instances: &q_instances,
-                    objects: context_objects,
-                    modes: &[],
-                    pallas_corrections: &[],
-                    vesta_corrections: &[],
-                    receive_results: None,
-                };
-                let cp = first.pallas(&mut chip, &mut region, &self.carried.as_input())?;
-                let cv = first.vesta(&mut chip, &mut region, &self.vesta)?;
-                let proof = first.carrier(&mut chip, &mut bytes, &mut region, &self.wrapper)?;
-                let resumed = iroha_kagemusha_proof::a_relation::split::resume_context(
-                    &mut chip,
-                    &mut region,
-                    &self.plan,
-                    &input,
-                    &cp,
-                    &cv,
-                    &proof,
-                    &[],
-                )?;
-                let mut verified = Vec::new();
-                for index in first
-                    .plan
-                    .q_partition(self.plan.stage())
-                    .ok_or(Error::Synthesis)?
-                    .iter()
-                    .copied()
-                {
-                    let columns = &q_instances[index];
-                    if self.omit_q == Some(index) {
-                        continue;
-                    }
-                    let proof = first.carrier(
-                        &mut chip,
-                        &mut bytes,
-                        &mut region,
-                        &first.source.q_proofs[index],
-                    )?;
-                    let q = {
-                        let q = iroha_kagemusha_proof::a_relation::verify_q(
-                            &mut chip,
-                            &mut region,
-                            first.plan.operation(),
-                            index,
-                            columns,
-                            &proof,
-                        )?;
-                        let slots = iroha_kagemusha_proof::a_relation::bind_signature_q(
-                            &mut chip,
-                            &mut region,
-                            first.plan.operation(),
-                            index,
-                            &first.source.signature_schema,
-                            &q,
-                        )?;
-                        UnloadStagePlan::new(first.plan.clone(), load_objects::policy())?
-                            .constrain_stage(
-                                &mut chip,
-                                &mut region,
-                                self.plan.stage(),
-                                &objects,
-                                &input,
-                                UnloadStageWitness {
-                                    signatures: Some(&slots),
-                                    ..UnloadStageWitness::default()
-                                },
-                            )?;
-                        slots.verified().clone()
-                    };
-                    verified.push(q);
-                }
-                let fold = first.carrier(&mut chip, &mut bytes, &mut region, &self.fold)?;
-                let closed = iroha_kagemusha_proof::a_relation::split::close_stage(
-                    &mut chip,
-                    &mut region,
-                    &self.plan,
-                    &resumed,
-                    None,
-                    None,
-                    None,
+                    &pred,
                     &verified,
                     &fold,
-                )?;
-                if self.plan.is_terminal() {
-                    closed.words(&mut chip, &mut region, &next_public)
-                } else {
-                    closed.continuation()?.words(&mut chip, &mut region)
-                }
+                    &self.source.params,
+                    &next_public,
+                )
             },
         )?;
         for (row, word) in out.iter().enumerate() {
@@ -834,65 +664,33 @@ impl Circuit<Fp> for Continuation {
         Ok(())
     }
 }
-impl Continuation {
-    fn public(&self) -> Vec<Vec<Fp>> {
-        if !self.plan.is_terminal() {
-            let digest = stage_digest(
-                &self.first.plan,
-                self.plan.stage(),
-                context_digest(&self.first),
-                &self.pallas,
-            );
-            return internal_public(digest, &self.vesta.as_input());
-        }
-        let mut lineage = self.first.source.maps.witness.successor.lineage.to_vec();
-        let (x, y) =
-            iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(self.pallas.g());
-        lineage.extend([x, y]);
-        for u in self.pallas.challenges() {
-            lineage.extend(foreign_limbs(u).map(Fp::from_u128));
-        }
-        let digest = hash_with_domain(u64::from_le_bytes(*b"kgwomg_1"), &lineage);
-        let mut out = vec![digest, Fp::from(16)];
-        out.extend(vesta_words(&self.vesta.as_input()));
-        out.extend(vesta_words(&self.first.source.predecessor.vesta.as_input()));
-        let trivial =
-            AccumulatorT::trivial(&common::vesta_params(16), MemoryBudget::DEFAULT).unwrap();
-        let words = vesta_words(&trivial.as_input());
-        out.extend(&words);
-        out.extend([Fp::ZERO, Fp::ONE, Fp::ZERO]);
-        out.extend(&words[..4]);
-        assert_eq!(out.len(), 69);
-        vec![out]
+/// The exact final frame `close_single` emits: `D_A` over the successor lineage and the
+/// folded Pallas claim, the pinned trivial part (no own sigma verifier and no W), the
+/// predecessor Vesta claim and the absent incoming slot with its Trivial mode.
+fn terminal_public(single: &Single) -> Vec<Vec<Fp>> {
+    let mut lineage = single.source.maps.witness.successor.lineage.to_vec();
+    let (x, y) =
+        iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(single.pallas.g());
+    lineage.extend([x, y]);
+    for u in single.pallas.challenges() {
+        lineage.extend(foreign_limbs(u).map(Fp::from_u128));
     }
-}
-fn stage_digest(plan: &ContextPlan, stage: usize, base: Fp, current: &AccumulatorT<Ep>) -> Fp {
-    assert!(stage + 1 < plan.stage_count());
-    let mut words = vec![
-        Fp::ONE,
-        plan.schema()[1],
-        Fp::from(u64::try_from(stage + 1).unwrap()),
-        base,
-    ];
-    push_pallas(&mut words, &current.as_input());
-    hash_with_domain(u64::from_le_bytes(*b"kgwlink1"), &words)
-}
-fn internal_public(digest: Fp, part: &FoldInput<Eq>) -> Vec<Vec<Fp>> {
-    let mut words = vec![digest, Fp::from(u64::from(part.source_k()))];
-    words.extend(vesta_words(part));
-    let trivial =
-        AccumulatorT::<Eq>::trivial(&common::vesta_params(16), MemoryBudget::DEFAULT).unwrap();
-    let trivial = vesta_words(&trivial.as_input());
-    words.extend(&trivial);
-    words.extend(&trivial);
-    words.extend([Fp::ZERO, Fp::ONE, Fp::ZERO]);
-    words.extend(&trivial[..4]);
-    assert_eq!(words.len(), 69);
-    vec![words]
+    let digest = hash_with_domain(u64::from_le_bytes(*b"kgwomg_1"), &lineage);
+    let mut out = vec![digest, Fp::from(16)];
+    out.extend(vesta_words(&single.source.part));
+    out.extend(vesta_words(&single.source.predecessor.vesta.as_input()));
+    let trivial = AccumulatorT::trivial(&common::vesta_params(16), MemoryBudget::DEFAULT).unwrap();
+    let words = vesta_words(&trivial.as_input());
+    out.extend(&words);
+    out.extend([Fp::ZERO, Fp::ONE, Fp::ZERO]);
+    out.extend(&words[..4]);
+    assert_eq!(out.len(), 69);
+    vec![out]
 }
 /// Genuine authenticated Unload/Retiring terminal artifacts for outer/next-operation tests.
 /// The supplied predecessor's catalog/profile provenance is retained unchanged;
 /// this fixture does not declare the resulting lineage admitted by a final catalog.
+/// The frame's part slot is the pinned trivial claim, so no part obligation is carried.
 #[derive(Clone)]
 #[allow(dead_code)] // Outer and next-operation tests consume all carried artifacts.
 pub(crate) struct AuthenticatedConsuming {
@@ -902,7 +700,6 @@ pub(crate) struct AuthenticatedConsuming {
     pub(crate) instances: Vec<Fp>,
     pub(crate) opening: FoldInput<Eq>,
     pub(crate) pallas: AccumulatorT<Ep>,
-    pub(crate) vesta_part: AccumulatorT<Eq>,
     pub(crate) predecessor_vesta: AccumulatorT<Eq>,
     pub(crate) state: iroha_kagemusha_proof::admin_sigma::StateWitness,
 }
@@ -946,378 +743,91 @@ fn artifact_diagnostics(
         proof.len()
     );
 }
-fn continue_schedule(
-    first: &First,
-    first_key: &iroha_plonk::ProvingKey<Eq>,
-    first_proof: iroha_plonk::ProverOutput<Eq>,
-    first_public: &[Vec<Fp>],
-    adversarial: bool,
-    native_differential: bool,
-) -> Option<AuthenticatedConsuming> {
-    use iroha_kagemusha_proof::a_relation::split::{SplitPlan, WCircuit, WKey};
-    let params = &first.source.params;
+/// Every claim, tape and proof the one terminal A consumes is hard: dropping or doubling
+/// a fold claim, omitting or corrupting Q0, or substituting the receipt tape or a
+/// predecessor obligation leaves the stage unsatisfiable.
+fn adversarial_terminal(single: &Single, claims: &[FoldInput<Ep>], required: usize) {
+    let params = &single.source.params;
     let vparams = common::vesta_params(16);
-    let mut source_key = first_key.clone();
-    let mut source_proof = first_proof;
-    let mut source_public = first_public.to_vec();
-    let mut carried = first.pallas.clone();
-    let mut intermediate_keys = vec![first_key.vk().clone()];
-    let mut installed_a = vec![Arc::new(first_key.clone())];
-    let mut installed_w = Vec::new();
-    let mut originals_a = vec![(source_proof.proof.clone(), carried.to_bytes())];
-    let mut originals_w = Vec::new();
-    for stage in 1..first.plan.stage_count() {
-        let terminal = iroha_plonk_recursion::terminal::TerminalPlan::new(
-            source_key.binding().encoded(),
-            &[source_key.vk().to_bytes().to_vec()],
-            vparams.clone(),
-        )
-        .unwrap();
-        let (vfold, vesta) = terminal
-            .read(
-                0,
-                &source_public,
-                &source_proof.proof,
-                &FoldConfig::default(),
-            )
+    let public = terminal_public(single);
+    let unsatisfied = |bad: &Single, public: &[Vec<Fp>]| {
+        !iroha_plonk::check::check_circuit(bad, 16, public, CheckMode::Strict)
+            .is_ok_and(|r| r.is_satisfied())
+    };
+    let mut changed = (*single.source).clone();
+    let last = changed.objects[0].bytes.len() - 1;
+    changed.objects[0].bytes[last] ^= 1;
+    let mut cross_receipt = single.clone();
+    cross_receipt.source = Arc::new(changed);
+    assert!(
+        unsatisfied(&cross_receipt, &terminal_public(&cross_receipt)),
+        "the terminal A cannot substitute the context-committed receipt tape"
+    );
+    for omitted in 0..required {
+        let mut kept = claims.to_vec();
+        kept[omitted] = AccumulatorT::trivial(params, MemoryBudget::DEFAULT)
             .unwrap()
-            .create(
-                common::public_fixture_tape(123 + u64::try_from(stage).unwrap()),
-                &FoldConfig::default(),
-            )
-            .unwrap();
-        vesta.decide(&vparams, MemoryBudget::DEFAULT).unwrap();
-        let witness = iroha_kagemusha_proof::omega::OmegaWitness {
-            key: source_key.vk().clone(),
-            instances: source_public[0].clone(),
-            length: source_proof.proof.len().try_into().unwrap(),
-            proof: source_proof.proof,
-            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
-                vfold.to_private_bytes(),
-            ),
-        };
-        assert!(
-            WCircuit::new(
-                &first.plan,
-                first.plan.stage_count() - 1,
-                source_key.binding().clone(),
-                vparams.clone(),
-                vec![
-                    source_key
-                        .vk()
-                        .kagemusha_digest(source_key.binding())
-                        .unwrap()
-                ],
-                witness.clone()
-            )
-            .is_err(),
-            "terminal A cannot be wrapped as an intermediate stage"
-        );
-        let circuit = WCircuit::new(
-            &first.plan,
-            stage - 1,
-            source_key.binding().clone(),
-            vparams.clone(),
-            vec![
-                source_key
-                    .vk()
-                    .kagemusha_digest(source_key.binding())
-                    .unwrap(),
-            ],
-            witness,
-        )
-        .unwrap();
-        let (wkey, wprover) = WKey::keygen(&circuit, params).unwrap();
-        installed_w.push(Arc::new(wprover.clone()));
-        for wrong_stage in 0..=first.plan.stage_count() {
-            if wrong_stage != stage {
-                assert!(
-                    SplitPlan::new(first.plan.clone(), wrong_stage, wkey.clone(), params).is_err(),
-                    "wrong-stage W must not resume at {wrong_stage}"
-                );
-            }
-        }
-        let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Eq>(vesta.g());
-        let wpublic = vec![
-            vec![Fq::from_repr(source_public[0][0].to_repr()).unwrap()],
-            vec![x, y],
-            vesta
-                .challenges()
-                .iter()
-                .map(|v| Fq::from_repr(v.to_repr()).unwrap())
-                .collect(),
-        ];
-        let wrapper = create_proof_owned_with_claim(
+            .as_input();
+        let (fold, _) = create_fold(
             params,
-            &wprover,
-            Witness::from_circuit(&wprover, &circuit, &wpublic).unwrap(),
-            common::fresh_randomness(),
-            ProverConfig::default(),
-        )
-        .unwrap();
-        let wopening = accumulate_generator(
-            params,
-            wprover.binding(),
-            wprover.vk(),
-            &wpublic,
-            &wrapper.proof,
-            MemoryBudget::DEFAULT,
-        )
-        .unwrap();
-        wopening.decide(params, MemoryBudget::DEFAULT).unwrap();
-        let indices = first.plan.q_partition(stage).unwrap();
-        let mut claims = vec![
-            carried.as_input(),
-            FoldInput::from_opening(*wopening.g(), wopening.challenges()).unwrap(),
-        ];
-        claims.extend(indices.iter().map(|i| first.source.q_openings[*i].clone()));
-        let required_count = claims.len();
-        let purpose = if stage + 1 == first.plan.stage_count() {
-            let filler = AccumulatorT::trivial(params, MemoryBudget::DEFAULT).unwrap();
-            while claims.len() < 4 {
-                claims.push(filler.as_input());
-            }
-            iroha_plonk_recursion::FoldPurpose::ATerminal
-        } else {
-            iroha_plonk_recursion::FoldPurpose::AContinuation
-        };
-        let (fold, pallas) = create_fold(
-            params,
-            &claims,
-            common::public_fixture_tape(124 + stage as u64),
-            purpose,
+            &kept,
+            common::public_fixture_tape(122),
+            iroha_plonk_recursion::FoldPurpose::ATerminal,
             &FoldConfig::default(),
         )
         .unwrap();
-        pallas.decide(params, MemoryBudget::DEFAULT).unwrap();
-        originals_w.push((wrapper.proof.clone(), vesta.to_bytes()));
-        let continuation = Continuation {
-            first: first.clone(),
-            plan: SplitPlan::new(first.plan.clone(), stage, wkey, params).unwrap(),
-            wrapper: wrapper.proof,
-            vesta: vesta.clone(),
-            fold: iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
-                fold.to_private_bytes(),
-            ),
-            pallas: pallas.clone(),
-            carried: carried.clone(),
-            omit_q: None,
-        };
-        let public = continuation.public();
-        let (assigned, k) = match synthesize(&continuation, 16, Some(&public)) {
-            Ok(a) => (a, 16),
-            Err(error) => {
-                eprintln!(
-                    "actual consuming A{} fails k16 {error:?}; diagnostic k18 only",
-                    stage + 1
-                );
-                (synthesize(&continuation, 18, Some(&public)).unwrap(), 18)
-            }
-        };
-        let report = check(&assigned.cs, &assigned.tables, CheckMode::Strict).unwrap();
-        assert!(report.is_satisfied(), "{:?}", report.failures().first());
-        let unknown = synthesize(&continuation.without_witnesses(), k, None).unwrap();
-        assert_eq!(assigned.tables.fixed(), unknown.tables.fixed());
-        assert_eq!(assigned.tables.permutation(), unknown.tables.permutation());
-        assert_eq!(
-            assigned.tables.advice_assigned(),
-            unknown.tables.advice_assigned()
+        let mut bad = single.clone();
+        bad.fold = iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
+            fold.to_private_bytes(),
         );
-        let lanes: Vec<_> = assigned
-            .tables
-            .advice_assigned()
-            .iter()
-            .map(|c| c.iter().rposition(|v| *v).map_or(0, |i| i + 1))
-            .collect();
-        eprintln!(
-            "genuine consuming A{} hard W+Q{indices:?}+context+fold range_buses={} lanes={lanes:?}, production_k16_fit={}",
-            stage + 1,
-            first.profile.range_buses(),
-            k == 16
+        assert!(
+            unsatisfied(&bad, &public),
+            "dropped terminal claim{omitted}"
         );
-        if adversarial {
-            if indices.contains(&0) {
-                let mut changed = (*first.source).clone();
-                let last = changed.objects[0].bytes.len() - 1;
-                changed.objects[0].bytes[last] ^= 1;
-                let mut cross_receipt = continuation.clone();
-                cross_receipt.first.source = Arc::new(changed);
-                assert!(
-                    !iroha_plonk::check::check_circuit(
-                        &cross_receipt,
-                        k,
-                        &cross_receipt.public(),
-                        CheckMode::Strict,
-                    )
-                    .is_ok_and(|r| r.is_satisfied()),
-                    "signature stage cannot substitute context-committed receipt tape"
-                );
-            }
-            for omitted in 0..required_count {
-                let mut kept = claims.clone();
-                kept[omitted] = AccumulatorT::trivial(params, MemoryBudget::DEFAULT)
-                    .unwrap()
-                    .as_input();
-                let (fold, _) = create_fold(
-                    params,
-                    &kept,
-                    common::public_fixture_tape(124 + stage as u64),
-                    purpose,
-                    &FoldConfig::default(),
-                )
-                .unwrap();
-                let mut bad = continuation.clone();
-                bad.fold = iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
-                    fold.to_private_bytes(),
-                );
-                assert!(
-                    !iroha_plonk::check::check_circuit(&bad, k, &public, CheckMode::Strict)
-                        .is_ok_and(|r| r.is_satisfied()),
-                    "dropped stage{stage} claim{omitted}"
-                );
-            }
-            let mut doubled = claims.clone();
-            doubled[1] = claims[0].clone();
-            let (fold, _) = create_fold(
-                params,
-                &doubled,
-                common::public_fixture_tape(124 + stage as u64),
-                purpose,
-                &FoldConfig::default(),
-            )
-            .unwrap();
-            let mut bad = continuation.clone();
-            bad.fold = iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(
-                fold.to_private_bytes(),
-            );
-            assert!(
-                !iroha_plonk::check::check_circuit(&bad, k, &public, CheckMode::Strict)
-                    .is_ok_and(|r| r.is_satisfied()),
-                "double-consumed stage{stage} contextP"
-            );
-            for index in indices {
-                let mut bad = continuation.clone();
-                bad.omit_q = Some(*index);
-                assert!(
-                    !iroha_plonk::check::check_circuit(&bad, k, &public, CheckMode::Strict)
-                        .is_ok_and(|r| r.is_satisfied()),
-                    "partial W cannot omit stage{stage} Q{index}"
-                );
-                let mut source = (*first.source).clone();
-                source.q_proofs[*index][0] ^= 1;
-                let mut bad = continuation.clone();
-                bad.first.source = Arc::new(source);
-                assert!(
-                    !iroha_plonk::check::check_circuit(&bad, k, &public, CheckMode::Strict)
-                        .is_ok_and(|r| r.is_satisfied()),
-                    "wrong deferred proof stage{stage} Q{index}"
-                );
-            }
-            for replace_pallas in [true, false] {
-                let mut bad = continuation.clone();
-                if replace_pallas {
-                    bad.carried = AccumulatorT::trivial(params, MemoryBudget::DEFAULT).unwrap();
-                } else {
-                    bad.vesta = AccumulatorT::trivial(&vparams, MemoryBudget::DEFAULT).unwrap();
-                }
-                assert!(
-                    !iroha_plonk::check::check_circuit(&bad, k, &public, CheckMode::Strict)
-                        .is_ok_and(|r| r.is_satisfied()),
-                    "substituted current P/V obligation at stage{stage}"
-                );
-            }
-        }
-        if k != 16 {
-            return None;
-        }
-        let mut cfg = KeygenConfigV2::pipa_r(vec![iroha_plonk::cs::InstanceType::Bounded]);
-        cfg.compress_selectors = false;
-        let key = keygen_pk_v2(&vparams, &continuation, &cfg).unwrap();
-        assert_eq!(key.binding().descriptor(), first_key.binding().descriptor());
-        let proof = create_proof_owned_with_claim(
-            &vparams,
-            &key,
-            Witness::from_circuit(&key, &continuation, &public).unwrap(),
-            common::fresh_randomness(),
-            ProverConfig::default(),
-        )
-        .unwrap();
-        proof
-            .opening
-            .decide(&vparams, MemoryBudget::DEFAULT)
-            .unwrap();
-        eprintln!(
-            "actual consuming A{} proof={}B; terminal={}; final Omega/full catalog still pending",
-            stage + 1,
-            proof.proof.len(),
-            continuation.plan.is_terminal()
-        );
-        artifact_diagnostics(stage, &key, &proof.proof, first.profile.range_buses());
-        installed_a.push(Arc::new(key.clone()));
-        originals_a.push((proof.proof.clone(), pallas.to_bytes()));
-        if continuation.plan.is_terminal() {
-            let final_digest = key.vk().kagemusha_digest(key.binding()).unwrap();
-            let final_catalog = iroha_kagemusha_proof::omega::OmegaPlan::new(
-                key.binding().clone(),
-                vparams.clone(),
-                vec![final_digest],
-            )
-            .unwrap();
-            assert!(
-                final_catalog
-                    .clone()
-                    .with_key_catalog(vec![key.vk().clone()])
-                    .is_ok()
-            );
-            for internal in &intermediate_keys {
-                assert_ne!(
-                    internal.kagemusha_digest(key.binding()).unwrap(),
-                    final_digest
-                );
-                assert!(
-                    final_catalog
-                        .clone()
-                        .with_key_catalog(vec![internal.clone()])
-                        .is_err(),
-                    "terminal-only catalog rejects every intermediate A key"
-                );
-            }
-            if native_differential {
-                native_installed_consuming_differential(
-                    first,
-                    installed_a,
-                    installed_w,
-                    &originals_a,
-                    &originals_w,
-                );
-            }
-            return Some(AuthenticatedConsuming {
-                key: key.vk().clone(),
-                binding: key.binding().clone(),
-                opening: FoldInput::from_opening(*proof.opening.g(), proof.opening.challenges())
-                    .unwrap(),
-                proof: proof.proof,
-                instances: public[0].clone(),
-                pallas,
-                vesta_part: vesta,
-                predecessor_vesta: first.source.predecessor.vesta.clone(),
-                state: first.source.maps.witness.successor,
-            });
-        }
-        intermediate_keys.push(key.vk().clone());
-        carried = pallas;
-        source_key = key;
-        source_proof = proof;
-        source_public = public;
     }
-    None
-}
-fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) {
-    words.push(Fp::from(16));
-    let (x, y) = iroha_plonk::transcript::generator_coordinates::<iroha_pasta::Ep>(claim.g());
-    words.extend([x, y]);
-    for u in claim.challenges() {
-        words.extend(foreign_limbs(u).map(Fp::from_u128));
+    let mut doubled = claims.to_vec();
+    doubled[1] = claims[0].clone();
+    let (fold, _) = create_fold(
+        params,
+        &doubled,
+        common::public_fixture_tape(122),
+        iroha_plonk_recursion::FoldPurpose::ATerminal,
+        &FoldConfig::default(),
+    )
+    .unwrap();
+    let mut bad = single.clone();
+    bad.fold =
+        iroha_kagemusha_proof::private_fold::PrivateFoldBytes::from_owned(fold.to_private_bytes());
+    assert!(
+        unsatisfied(&bad, &public),
+        "double-consumed predecessor claim"
+    );
+    let mut bad = single.clone();
+    bad.omit_q = true;
+    assert!(
+        unsatisfied(&bad, &public),
+        "the terminal A cannot omit the own receipt Q0"
+    );
+    let mut source = (*single.source).clone();
+    source.q_proofs[0][0] ^= 1;
+    let mut bad = single.clone();
+    bad.source = Arc::new(source);
+    assert!(unsatisfied(&bad, &public), "wrong own receipt Q0 proof");
+    for replace_pallas in [true, false] {
+        let mut source = (*single.source).clone();
+        if replace_pallas {
+            source.predecessor.pallas =
+                AccumulatorT::trivial(params, MemoryBudget::DEFAULT).unwrap();
+        } else {
+            source.predecessor.vesta =
+                AccumulatorT::trivial(&vparams, MemoryBudget::DEFAULT).unwrap();
+        }
+        let mut bad = single.clone();
+        bad.source = Arc::new(source);
+        assert!(
+            unsatisfied(&bad, &terminal_public(&bad)),
+            "substituted predecessor P/V obligation"
+        );
     }
 }
 fn vesta_words(claim: &FoldInput<Eq>) -> Vec<Fp> {
@@ -1328,78 +838,6 @@ fn vesta_words(claim: &FoldInput<Eq>) -> Vec<Fp> {
     }
     words.extend(claim.challenges());
     words
-}
-fn context_digest(first: &First) -> Fp {
-    let s = &first.source;
-    let mut words = first.plan.schema().to_vec();
-    words.extend(s.maps.witness.statement);
-    let before = &s.maps.witness.predecessor;
-    let after = &s.maps.witness.successor;
-    words.extend(before.core);
-    words.extend(before.rest);
-    words.extend(before.lineage);
-    push_pallas(&mut words, &s.predecessor.pallas.as_input());
-    words.extend(vesta_words(&s.predecessor.vesta.as_input()));
-    words.extend(after.core);
-    words.extend(after.rest);
-    words.extend(after.lineage);
-    for v in s.q_instances.iter().flatten().flatten() {
-        words.extend(foreign_limbs(v).map(Fp::from_u128));
-    }
-    let all = s
-        .objects
-        .iter()
-        .map(|o| o.bytes.clone())
-        .collect::<Vec<_>>();
-    let kinds = [iroha_kagemusha_proof::operation_relation::objects::ObjectKind::Receipt];
-    for ((object, spec), kind) in all
-        .iter()
-        .zip(UnloadObjects::context_specs().unwrap())
-        .zip(kinds)
-    {
-        let mut tape = vec![
-            Fp::from(u64::from(spec.tag)),
-            Fp::from(u64::from(spec.capacity)),
-        ];
-        for chunk in frame(object).chunks(31) {
-            let mut repr = [0; 32];
-            repr[..chunk.len()].copy_from_slice(chunk);
-            tape.push(Fp::from_repr(repr).unwrap());
-        }
-        let end = kind.body_len();
-        let mut values = vec![iroha_plonk_gadgets::bytes::p_bytes_native(
-            kind.signing_domain(),
-            &object[..end],
-        )];
-        for offset in [16, 0, 48, 32] {
-            values.push(Fp::from_u128(u128::from_be_bytes(
-                object[end + offset..end + offset + 16].try_into().unwrap(),
-            )));
-        }
-        let digest = hash_with_domain(kind.object_domain(), &values);
-        words.extend([
-            digest,
-            Fp::from(u64::from(spec.capacity)),
-            hash_with_domain(u64::from_le_bytes(*b"kgwctap1"), &tape),
-        ]);
-    }
-    hash_with_domain(u64::from_le_bytes(*b"kgwctx_1"), &words)
-}
-fn first_public(first: &First) -> Vec<Vec<Fp>> {
-    let mut words = vec![
-        stage_digest(&first.plan, 0, context_digest(first), &first.pallas),
-        Fp::from(u64::from(first.source.part.source_k())),
-    ];
-    words.extend(vesta_words(&first.source.part));
-    let trivial =
-        AccumulatorT::<Eq>::trivial(&common::vesta_params(16), MemoryBudget::DEFAULT).unwrap();
-    let trivial = vesta_words(&trivial.as_input());
-    words.extend(&trivial);
-    words.extend(&trivial);
-    words.extend([Fp::ZERO, Fp::ONE, Fp::ZERO]);
-    words.extend(&trivial[..4]);
-    assert_eq!(words.len(), 69);
-    vec![words]
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
@@ -1426,38 +864,46 @@ fn run_consuming_from_head(
     let source = Arc::new(sources(head, retiring));
     let context = ContextPlan::with_schedule(
         source.plan.clone(),
-        vec![vec![], vec![0]],
+        vec![vec![0]],
         Some(0),
         UnloadObjects::context_specs().unwrap().to_vec(),
     )
     .unwrap()
-    .with_operation_tasks(vec![
-        vec![if retiring {
+    .with_operation_tasks(vec![vec![
+        if retiring {
             OperationTask::RetiringState
         } else {
             OperationTask::UnloadRecovery
-        }],
-        vec![OperationTask::UnloadAuthorization],
-    ])
+        },
+        OperationTask::UnloadAuthorization,
+    ]])
     .unwrap();
     UnloadStagePlan::new(context.clone(), load_objects::policy()).unwrap();
     let profile = SourceProfile::Tagged { buses: 3 };
-    let claims = [
+    // The fixed terminal fold: the hard predecessor's carried claim and opening, then the
+    // own receipt Q0 opening, padded with the pinned trivial claim to four.
+    let mut claims = vec![
         source.predecessor.pallas.as_input(),
         source.predecessor.opening.clone(),
+        source.q_openings[0].clone(),
     ];
+    let required = claims.len();
+    let filler = AccumulatorT::trivial(&source.params, MemoryBudget::DEFAULT).unwrap();
+    while claims.len() < 4 {
+        claims.push(filler.as_input());
+    }
     let (fold, pallas) = create_fold(
         &source.params,
         &claims,
         common::public_fixture_tape(122),
-        iroha_plonk_recursion::FoldPurpose::AInitial,
+        iroha_plonk_recursion::FoldPurpose::ATerminal,
         &FoldConfig::default(),
     )
     .unwrap();
     pallas
         .decide(&source.params, MemoryBudget::DEFAULT)
         .unwrap();
-    let first = First {
+    let single = Single {
         source: source.clone(),
         profile,
         plan: context,
@@ -1466,13 +912,14 @@ fn run_consuming_from_head(
             fold.to_private_bytes(),
         ),
         known: true,
+        omit_q: false,
     };
-    let public = first_public(&first);
-    let (assigned, k) = match synthesize(&first, 16, Some(&public)) {
+    let public = terminal_public(&single);
+    let (assigned, k) = match synthesize(&single, 16, Some(&public)) {
         Ok(a) => (a, 16),
         Err(error) => {
-            eprintln!("Consuming A1 k16 capacity failure {error:?}");
-            (synthesize(&first, 18, Some(&public)).unwrap(), 18)
+            eprintln!("Consuming terminal A k16 capacity failure {error:?}");
+            (synthesize(&single, 18, Some(&public)).unwrap(), 18)
         }
     };
     let report = check(&assigned.cs, &assigned.tables, CheckMode::Strict).unwrap();
@@ -1484,58 +931,92 @@ fn run_consuming_from_head(
         .map(|c| c.iter().rposition(|v| *v).map_or(0, |i| i + 1))
         .collect::<Vec<_>>();
     eprintln!(
-        "GENUINE_CONSUMING_A1 lanes={lanes:?} production_k16_fit={}",
+        "GENUINE_CONSUMING_TERMINAL lanes={lanes:?} production_k16_fit={}",
         k == 16
     );
     assert_eq!(k, 16, "hard capacity cannot be relaxed");
-    // A1 proves the transition only. The receipt, including its sigma-only proof
-    // digest, is authenticated at A2 by the own-receipt signature under the carried
-    // payment key; the adversarial schedule below rejects a substituted receipt.
+    // The one stage proves the transition and authenticates the receipt, including its
+    // sigma-only proof digest, by the own-receipt signature under the carried payment
+    // key; the adversarial checks below reject a substituted receipt.
     let mut changed = (*source).clone();
     changed.maps.witness.successor.core[iroha_kagemusha_proof::witness::core_index::BALANCE] +=
         Fp::ONE;
-    let mut wrong_effect = first.clone();
+    let mut wrong_effect = single.clone();
     wrong_effect.source = Arc::new(changed);
     assert!(
         !iroha_plonk::check::check_circuit(
             &wrong_effect,
             16,
-            &first_public(&wrong_effect),
+            &terminal_public(&wrong_effect),
             CheckMode::Strict,
         )
         .is_ok_and(|r| r.is_satisfied()),
-        "A1 must reject a successor balance the transition does not prove"
+        "the terminal A must reject a successor balance the transition does not prove"
     );
-    let unknown = synthesize(&first.without_witnesses(), 16, None).unwrap();
+    let unknown = synthesize(&single.without_witnesses(), 16, None).unwrap();
     assert_eq!(assigned.tables.fixed(), unknown.tables.fixed());
     assert_eq!(assigned.tables.permutation(), unknown.tables.permutation());
     assert_eq!(
         assigned.tables.advice_assigned(),
         unknown.tables.advice_assigned()
     );
+    drop((assigned, unknown));
+    adversarial_terminal(&single, &claims, required);
     let mut cfg = KeygenConfigV2::pipa_r(vec![iroha_plonk::cs::InstanceType::Bounded]);
     cfg.compress_selectors = false;
-    let params = common::vesta_params(16);
-    let key = keygen_pk_v2(&params, &first, &cfg).unwrap();
+    let vparams = common::vesta_params(16);
+    let key = keygen_pk_v2(&vparams, &single, &cfg).unwrap();
     let proof = create_proof_owned_with_claim(
-        &params,
+        &vparams,
         &key,
-        Witness::from_circuit(&key, &first, &public).unwrap(),
+        Witness::from_circuit(&key, &single, &public).unwrap(),
         common::fresh_randomness(),
         ProverConfig::default(),
     )
     .unwrap();
     proof
         .opening
-        .decide(&params, MemoryBudget::DEFAULT)
+        .decide(&vparams, MemoryBudget::DEFAULT)
         .unwrap();
-    let output = continue_schedule(&first, &key, proof, &public, true, native_differential)
-        .expect("complete consuming schedule must meet k16");
+    eprintln!(
+        "actual consuming terminal A proof={}B; final Omega/full catalog still pending",
+        proof.proof.len()
+    );
+    artifact_diagnostics(0, &key, &proof.proof, single.profile.range_buses());
+    let final_digest = key.vk().kagemusha_digest(key.binding()).unwrap();
+    let final_catalog = iroha_kagemusha_proof::omega::OmegaPlan::new(
+        key.binding().clone(),
+        vparams.clone(),
+        vec![final_digest],
+    )
+    .unwrap();
+    assert!(
+        final_catalog
+            .with_key_catalog(vec![key.vk().clone()])
+            .is_ok()
+    );
+    let output = AuthenticatedConsuming {
+        key: key.vk().clone(),
+        binding: key.binding().clone(),
+        opening: FoldInput::from_opening(*proof.opening.g(), proof.opening.challenges()).unwrap(),
+        proof: proof.proof.clone(),
+        instances: public[0].clone(),
+        pallas: single.pallas.clone(),
+        predecessor_vesta: source.predecessor.vesta.clone(),
+        state: source.maps.witness.successor,
+    };
+    if native_differential {
+        native_installed_consuming_differential(
+            &single,
+            key,
+            &(proof.proof, single.pallas.to_bytes()),
+        );
+    }
     assert_eq!(output.state.core, source.maps.witness.successor.core);
     assert_eq!(output.state.rest, source.maps.witness.successor.rest);
     assert_eq!(output.state.lineage, source.maps.witness.successor.lineage);
     eprintln!(
-        "CONSUMING_COMPLETE_TASK_COMPONENT hard_predecessor=true lean_inline_transition=true mandatory_own_receipt_1V=true all_maps=true all_openings=true full_catalog=false release_qualified=false"
+        "CONSUMING_COMPLETE_TASK_COMPONENT hard_predecessor=true one_terminal_a=true lean_inline_transition=true mandatory_own_receipt_1V=true all_maps=true all_openings=true full_catalog=false release_qualified=false"
     );
     output
 }
@@ -1561,7 +1042,7 @@ pub fn installed_native_consuming_proves_and_restores_every_stage(fixture: &Load
 }
 
 #[test]
-#[ignore = "genuine compact Bootstrap and lean 2A/1W Retiring proofs, strict imports and canonical3 fresh-session replay; run optimized"]
+#[ignore = "genuine compact Bootstrap and lean one-stage Retiring proofs, strict import and canonical fresh-session replay; run optimized"]
 fn installed_native_retiring_from_bootstrap_preserves_every_original_and_checkpoint() {
     use iroha_kagemusha_proof::witness::core_index as core;
     let rooted =
@@ -1602,28 +1083,26 @@ fn installed_native_retiring_from_bootstrap_preserves_every_original_and_checkpo
     );
     assert_eq!(retired.state.lineage[17], before.lineage[17]);
     eprintln!(
-        "BOOTSTRAP_RETIRING_COMPONENT zero_balance_preserved=true genuine_predecessor=true native_original_imports=true canonical3_replay=true final_omega_admitted=false full_catalog=false"
+        "BOOTSTRAP_RETIRING_COMPONENT zero_balance_preserved=true genuine_predecessor=true native_original_imports=true canonical_replay=true final_omega_admitted=false full_catalog=false"
     );
 }
 
 fn native_installed_consuming_differential(
-    first: &First,
-    a: Vec<Arc<iroha_plonk::ProvingKey<Eq>>>,
-    w: Vec<Arc<iroha_plonk::ProvingKey<Ep>>>,
-    originals_a: &[(Vec<u8>, [u8; 544])],
-    originals_w: &[(Vec<u8>, [u8; 544])],
+    single: &Single,
+    proving_key: iroha_plonk::ProvingKey<Eq>,
+    original: &(Vec<u8>, [u8; 544]),
 ) {
     use iroha_kagemusha_proof::a_relation::{native::consuming as native, own::OwnPolicy};
     use iroha_plonk::cs::{
         CircuitDescriptorV2, CurveV1, InstanceModeV1, InstanceType, ProofSuffixV1, TranscriptV2,
     };
     assert_eq!(
-        first.profile,
+        single.profile,
         SourceProfile::Tagged {
             buses: native::SOURCE_RANGE_BUSES,
         }
     );
-    let source = &first.source;
+    let source = &single.source;
     let input = native::Inputs {
         state: source.maps.witness,
         objects: core::array::from_fn(|i| source.objects[i].bytes.clone()),
@@ -1647,110 +1126,59 @@ fn native_installed_consuming_differential(
         common::vesta_params(16),
     )
     .unwrap();
-    assert_eq!(plan.context().schema(), first.plan.schema());
-    native_source_factory_checks::assert_factories(
-        plan.context(),
-        &PinnedParams::<Ep>::derive(16).unwrap(),
+    assert_eq!(plan.context().schema(), single.plan.schema());
+    assert_eq!(plan.context().stage_count(), native::A_STAGE_COUNT);
+    // The offline source factory reconstructs exactly the genuinely proved source key.
+    let mut a_config = KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]);
+    a_config.compress_selectors = false;
+    let (binding, key) = keygen_vk_with_binding_v2(
         &common::vesta_params(16),
-        &a.iter()
-            .map(|key| {
-                iroha_kagemusha_proof::a_relation::native::artifact::KeyArtifact::new(
-                    key.binding().clone(),
-                    key.vk().clone(),
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>(),
-        &w.iter()
-            .map(|key| {
-                iroha_kagemusha_proof::a_relation::native::artifact::KeyArtifact::new(
-                    key.binding().clone(),
-                    key.vk().clone(),
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>(),
-        |stage, previous| plan.source_circuit(stage, previous),
-        |stage, binding, key| plan.wrapper_source(stage, binding, key),
+        &plan.source_circuit().unwrap(),
+        &a_config,
+    )
+    .unwrap();
+    assert_eq!(&binding, proving_key.binding(), "terminal A descriptor");
+    assert_eq!(
+        key.to_bytes(),
+        proving_key.vk().to_bytes(),
+        "terminal A key"
     );
-    let a_originals: [NativeConsumingOriginal; native::A_STAGE_COUNT] = a
-        .iter()
-        .map(|key| NativeConsumingOriginal::from_key(key.as_ref()))
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap_or_else(|_| panic!("exact two A originals"));
-    let w_originals: [NativeConsumingOriginal; native::W_STAGE_COUNT] = w
-        .iter()
-        .map(|key| NativeConsumingOriginal::from_key(key.as_ref()))
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap_or_else(|_| panic!("exact one W original"));
+    let terminal = NativeConsumingOriginal::from_key(&proving_key);
+    // Test-owned original files survive, but no diagnostic proving polynomials
+    // remain during the metadata-only producer's import/proof replay.
+    drop(proving_key);
     let config = iroha_plonk::keys::pk::artifact::ReadConfig {
-        maximum_bytes: a_originals
-            .iter()
-            .chain(&w_originals)
-            .map(|original| original.pk.len())
-            .max()
-            .unwrap(),
+        maximum_bytes: terminal.pk.len(),
         maximum_rows: 1 << 16,
         coset_cache: iroha_plonk::keys::CosetCachePolicy::OnDemand,
         msm_budget: MemoryBudget::DEFAULT,
     };
     let install = |plan: native::Plan,
-                   a: &[NativeConsumingOriginal; native::A_STAGE_COUNT],
-                   w: &[NativeConsumingOriginal; native::W_STAGE_COUNT],
+                   terminal: &NativeConsumingOriginal,
                    config|
      -> Result<native::Prover, native::Error> {
-        let a_metadata = a
-            .iter()
-            .map(NativeConsumingOriginal::metadata)
-            .collect::<Result<Vec<_>, _>>()?
-            .try_into()
-            .map_err(|_| native::Error::Artifact)?;
-        let w_metadata = w
-            .iter()
-            .map(NativeConsumingOriginal::metadata)
-            .collect::<Result<Vec<_>, _>>()?
-            .try_into()
-            .map_err(|_| native::Error::Artifact)?;
-        let prover = native::Prover::from_artifacts(plan, a_metadata, w_metadata)?;
-        for (stage, original) in a.iter().enumerate() {
-            prover.import_a(stage, &original.pk, config)?;
-            if let Some(original) = w.get(stage) {
-                prover.import_w(stage, &original.pk, config)?;
-            }
-        }
+        let prover = native::Prover::from_artifacts(plan, terminal.metadata()?)?;
+        prover.import_terminal(&terminal.pk, config)?;
         Ok(prover)
     };
-    let installed = install(plan.clone(), &a_originals, &w_originals, config).unwrap();
-    for mutation in 0..13 {
-        let mut bad_a = a_originals.clone();
-        let mut bad_w = w_originals.clone();
+    let installed = install(plan.clone(), &terminal, config).unwrap();
+    for mutation in 0..5 {
+        let mut bad = terminal.clone();
         match mutation {
-            0 => bad_a[0].vk.clone_from(&a_originals[1].vk),
-            1 => bad_a[0].pk[44 + a_originals[0].vk.len()] ^= 1,
-            2 => bad_a[0].pk[44 + a_originals[0].vk.len() + 32] ^= 1,
-            3 => bad_a.swap(0, 1),
-            4 => {
-                bad_w[0].pk.pop();
+            0 => bad.pk[44 + terminal.vk.len()] ^= 1,
+            1 => bad.pk[44 + terminal.vk.len() + 32] ^= 1,
+            2 => {
+                bad.pk.pop();
             }
-            5 => {
-                bad_a[0].pk.pop();
-            }
-            6 => bad_w[0].descriptor.clone_from(&a_originals[0].descriptor),
-            7 => bad_a[1].vk.clone_from(&a_originals[0].vk),
-            8 => bad_w[0].vk.clone_from(&a_originals[1].vk),
-            9 => bad_w[0].pk[44 + w_originals[0].vk.len()] ^= 1,
-            10 => bad_a[1].pk[44 + a_originals[1].vk.len()] ^= 1,
-            11 => bad_a[0].pk.push(0),
-            _ => bad_w[0].pk[44 + w_originals[0].vk.len() + 32] ^= 1,
+            3 => bad.pk.push(0),
+            _ => bad.vk[0] ^= 1,
         }
         assert!(
-            install(plan.clone(), &bad_a, &bad_w, config).is_err(),
+            install(plan.clone(), &bad, config).is_err(),
             "consuming original mutation{mutation}"
         );
     }
-    let descriptor = CircuitDescriptorV2::decode(&a_originals[0].descriptor).unwrap();
+    let descriptor = CircuitDescriptorV2::decode(&terminal.descriptor).unwrap();
     for mutation in 0..6 {
         let mut wrong = descriptor.clone();
         match mutation {
@@ -1761,10 +1189,10 @@ fn native_installed_consuming_differential(
             4 => wrong.instance_lengths[0] = 68,
             _ => wrong.curve = CurveV1::Pallas,
         }
-        let mut bad_a = a_originals.clone();
-        bad_a[0].descriptor = wrong.encode().unwrap();
+        let mut bad = terminal.clone();
+        bad.descriptor = wrong.encode().unwrap();
         assert!(
-            install(plan.clone(), &bad_a, &w_originals, config).is_err(),
+            install(plan.clone(), &bad, config).is_err(),
             "consuming profile mutation{mutation}"
         );
     }
@@ -1778,23 +1206,33 @@ fn native_installed_consuming_differential(
         common::vesta_params(16),
     )
     .unwrap();
-    // The receipt binding pins the provider, so a changed policy changes every A source.
-    assert!(install(changed, &a_originals, &w_originals, config).is_err());
+    // The receipt binding pins the provider, so a changed policy changes the source.
+    assert!(install(changed.clone(), &terminal, config).is_err());
+    // A valid key of the same descriptor for another provider policy is never this
+    // source's key: neither its VK beside this original nor, below, its bound view.
+    let other_policy = NativeConsumingOriginal::from_key(
+        &keygen_pk_v2(
+            &common::vesta_params(16),
+            &changed.source_circuit().unwrap(),
+            &a_config,
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        other_policy.descriptor, terminal.descriptor,
+        "same terminal descriptor"
+    );
+    assert_ne!(other_policy.vk, terminal.vk, "another policy's key");
+    let mut bad = terminal.clone();
+    bad.vk.clone_from(&other_policy.vk);
     assert!(
-        installed
-            .import_a(native::A_STAGE_COUNT, &a_originals[0].pk, config)
-            .is_err()
+        install(plan.clone(), &bad, config).is_err(),
+        "foreign verifying key"
     );
     assert!(
         installed
-            .import_w(native::W_STAGE_COUNT, &w_originals[0].pk, config)
-            .is_err()
-    );
-    assert!(
-        installed
-            .import_a(
-                0,
-                &a_originals[0].pk,
+            .import_terminal(
+                &terminal.pk,
                 iroha_plonk::keys::pk::artifact::ReadConfig {
                     maximum_bytes: 0,
                     ..config
@@ -1804,9 +1242,8 @@ fn native_installed_consuming_differential(
     );
     assert!(
         installed
-            .import_w(
-                0,
-                &w_originals[0].pk,
+            .import_terminal(
+                &terminal.pk,
                 iroha_plonk::keys::pk::artifact::ReadConfig {
                     maximum_rows: (1 << 16) - 1,
                     ..config
@@ -1814,18 +1251,14 @@ fn native_installed_consuming_differential(
             )
             .is_err()
     );
-    // Test-owned original files survive, but no diagnostic proving polynomials
-    // remain during the metadata-only producer's per-stage import/proof replay.
-    drop((a, w));
-    assert_eq!(installed.descriptors().len(), 3);
-    let layouts = installed.checkpoint_layouts().unwrap();
-    assert_eq!(layouts.len(), 3);
+    assert_eq!(installed.descriptors().len(), 1);
+    let [layout] = installed.checkpoint_layouts().unwrap();
     let budget = MemoryBudget::DEFAULT;
     let mut session = installed.prepare(input.clone(), budget).unwrap();
     let unrelated_session = installed.prepare(input.clone(), budget).unwrap();
     // D6a (DP §7.4 test 8): a detached session resumes only on the prover instance
-    // that prepared it, never on another instance installed from the same originals.
-    let other = install(plan.clone(), &a_originals, &w_originals, config).unwrap();
+    // that prepared it, never on another instance installed from the same original.
+    let other = install(plan.clone(), &terminal, config).unwrap();
     let detached = installed
         .prepare(input.clone(), budget)
         .unwrap()
@@ -1833,22 +1266,28 @@ fn native_installed_consuming_differential(
     assert!(matches!(other.resume(detached), Err(native::Error::Input)));
     drop(other);
     let fold = FoldConfig::default();
-    let foreign_seal = installed.import_a(1, &a_originals[1].pk, config).unwrap();
-    let foreign = installed.bind_a(1, &foreign_seal, None).unwrap();
-    assert!(matches!(
-        session.first(
-            &foreign,
-            common::public_fixture_tape(122),
-            &fold,
-            common::fresh_randomness(),
-            ProverConfig::default()
-        ),
-        Err(native::Error::Artifact)
-    ));
-    let key_seal = installed.import_a(0, &a_originals[0].pk, config).unwrap();
-    let key = installed.bind_a(0, &key_seal, None).unwrap();
+    let key_seal = installed.import_terminal(&terminal.pk, config).unwrap();
+    let key = installed.bind_terminal(&key_seal, None).unwrap();
+    {
+        let foreign_prover = install(changed, &other_policy, config).unwrap();
+        let foreign_seal = foreign_prover
+            .import_terminal(&other_policy.pk, config)
+            .unwrap();
+        let foreign_key = foreign_prover.bind_terminal(&foreign_seal, None).unwrap();
+        assert!(matches!(
+            session.terminal(
+                &foreign_key,
+                common::public_fixture_tape(122),
+                &fold,
+                common::fresh_randomness(),
+                ProverConfig::default(),
+            ),
+            Err(native::Error::Artifact)
+        ));
+    }
+    // The same public tape reproduces the reference fold, so only the proof differs.
     let generated = session
-        .first(
+        .terminal(
             &key,
             common::public_fixture_tape(122),
             &fold,
@@ -1856,235 +1295,99 @@ fn native_installed_consuming_differential(
             ProverConfig::default(),
         )
         .unwrap();
-    assert_ne!(generated.proof(), originals_a[0].0, "fresh proof attempt");
-    let mut current = session
-        .restore_first(originals_a[0].0.clone(), &originals_a[0].1, budget)
+    assert_ne!(generated.proof, original.0, "fresh proof attempt");
+    let restored = session
+        .restore_terminal(original.0.clone(), &original.1, budget)
         .unwrap();
-    assert_eq!(current.proof(), originals_a[0].0, "exact retained original");
-    let first_payload = session.encode_a_checkpoint(&current, budget).unwrap();
-    assert_eq!(first_payload.len(), layouts[0].payload_bytes());
-    assert!(
-        session
-            .restore_first_checkpoint(&first_payload[..first_payload.len() - 1], budget)
-            .is_err()
-    );
-    current = session
-        .restore_first_checkpoint(&first_payload, budget)
-        .unwrap();
-    let mut payloads = vec![first_payload];
-    // T5 (C2 n2): a checkpoint restored under another session of the same prover.
-    let foreign_current = unrelated_session
-        .restore_first_checkpoint(&payloads[0], budget)
-        .unwrap();
-    assert_eq!(current.stage(), 0);
-    assert_eq!(generated.instances(), current.instances());
-    assert_eq!(generated.pallas_bytes(), current.pallas_bytes());
-    assert_eq!(current.instances(), first_public(first)[0]);
-    assert!(session.terminal(&current, budget).is_err());
-    assert!(unrelated_session.terminal(&current, budget).is_err());
-    let mut changed = originals_a[0].0.clone();
+    assert_eq!(restored.proof, original.0, "exact retained original");
+    assert_eq!(generated.instances, restored.instances);
+    assert_eq!(generated.pallas, restored.pallas);
+    assert_eq!(restored.instances, terminal_public(single)[0]);
+    assert_eq!(restored.predecessor_vesta, source.predecessor.vesta);
+    restored.pallas.decide(&source.params, budget).unwrap();
+    let vparams = common::vesta_params(16);
+    restored.predecessor_vesta.decide(&vparams, budget).unwrap();
+    restored.opening.decide(&vparams, budget).unwrap();
+    let mut changed = original.0.clone();
     changed[0] ^= 1;
     assert!(
         session
-            .restore_first(changed, &originals_a[0].1, budget)
+            .restore_terminal(changed, &original.1, budget)
             .is_err()
     );
     assert!(
         session
-            .restore_first(originals_a[0].0.clone(), &originals_a[0].1[..543], budget)
+            .restore_terminal(original.0.clone(), &original.1[..543], budget)
             .is_err()
     );
-    // One W exists; a foreign W stage is refused at import (checked above).
-    for stage in 0..native::W_STAGE_COUNT {
-        // D6a: each continuation runs on a session detached and resumed between
-        // fold calls; checkpoints restored before detaching keep their source.
-        session = installed.resume(session.into_retained()).unwrap();
-        // T5 (C2 n2): the resumed session still refuses another session's checkpoint, before
-        // any verification.
-        assert!(matches!(
-            session.encode_a_checkpoint(&foreign_current, budget),
-            Err(native::Error::Input)
-        ));
-        let key_seal = installed
-            .import_w(stage, &w_originals[stage].pk, config)
-            .unwrap();
-        let key = installed.bind_w(stage, &key_seal, None).unwrap();
-        let generated_w = session
-            .wrapper(
-                &current,
-                &key,
-                common::public_fixture_tape(124 + stage as u64),
-                &fold,
-                common::fresh_randomness(),
-                ProverConfig::default(),
-            )
-            .unwrap();
-        assert_ne!(
-            generated_w.proof(),
-            originals_w[stage].0,
-            "fresh proof attempt"
-        );
-        let restored_w = session
-            .restore_wrapper(
-                &current,
-                originals_w[stage].0.clone(),
-                &originals_w[stage].1,
-                budget,
-            )
-            .unwrap();
-        let payload = session
-            .encode_wrapper_checkpoint(&restored_w, budget)
-            .unwrap();
-        assert_eq!(payload.len(), layouts[2 * stage + 1].payload_bytes());
-        let restored_w = session
-            .restore_wrapper_checkpoint(&current, &payload, budget)
-            .unwrap();
-        payloads.push(payload);
-        assert_eq!(generated_w.vesta_bytes(), restored_w.vesta_bytes());
-        assert_eq!(generated_w.stage(), stage);
-        assert_eq!(
-            restored_w.proof(),
-            originals_w[stage].0,
-            "exact retained original"
-        );
-        // Replay the exact original W proof and opening at every continuation.
-        if stage == 0 {
-            let foreign_seal = installed.import_a(0, &a_originals[0].pk, config).unwrap();
-            let foreign = installed.bind_a(0, &foreign_seal, None).unwrap();
-            assert!(matches!(
-                session.advance(
-                    &restored_w,
-                    &foreign,
-                    common::public_fixture_tape(125),
-                    &fold,
-                    common::fresh_randomness(),
-                    ProverConfig::default()
-                ),
-                Err(native::Error::Artifact)
-            ));
-        }
-        let key_seal = installed
-            .import_a(stage + 1, &a_originals[stage + 1].pk, config)
-            .unwrap();
-        let key = installed.bind_a(stage + 1, &key_seal, None).unwrap();
-        let generated_a = session
-            .advance(
-                &restored_w,
-                &key,
-                common::public_fixture_tape(125 + stage as u64),
-                &fold,
-                common::fresh_randomness(),
-                ProverConfig::default(),
-            )
-            .unwrap();
-        assert_ne!(
-            generated_a.proof(),
-            originals_a[stage + 1].0,
-            "fresh proof attempt"
-        );
-        let restored_a = session
-            .restore_a(
-                &restored_w,
-                originals_a[stage + 1].0.clone(),
-                &originals_a[stage + 1].1,
-                budget,
-            )
-            .unwrap();
-        assert_eq!(generated_a.instances(), restored_a.instances());
-        assert_eq!(generated_a.pallas_bytes(), restored_a.pallas_bytes());
-        assert_eq!(restored_a.stage(), stage + 1);
-        assert_eq!(
-            restored_a.proof(),
-            originals_a[stage + 1].0,
-            "exact retained original"
-        );
-        assert!(
-            unrelated_session
-                .restore_a(
-                    &restored_w,
-                    originals_a[stage + 1].0.clone(),
-                    &originals_a[stage + 1].1,
-                    budget
-                )
-                .is_err()
-        );
-        let mut wrong = originals_w[stage].0.clone();
-        wrong[0] ^= 1;
-        assert!(
-            session
-                .restore_wrapper(&current, wrong, &originals_w[stage].1, budget)
-                .is_err()
-        );
-        let mut wrong = originals_a[stage + 1].0.clone();
-        wrong[0] ^= 1;
-        assert!(
-            session
-                .restore_a(&restored_w, wrong, &originals_a[stage + 1].1, budget)
-                .is_err()
-        );
-        let payload = session.encode_a_checkpoint(&restored_a, budget).unwrap();
-        assert_eq!(payload.len(), layouts[2 * stage + 2].payload_bytes());
-        let mut changed = payload.clone();
-        *changed.last_mut().unwrap() ^= 1;
-        assert!(
-            session
-                .restore_a_checkpoint(&restored_w, &changed, budget)
-                .is_err()
-        );
-        current = session
-            .restore_a_checkpoint(&restored_w, &payload, budget)
-            .unwrap();
-        payloads.push(payload);
-    }
-    let terminal = session.terminal(&current, budget).unwrap();
-    assert_eq!(terminal.instances, current.instances());
-    assert_eq!(terminal.pallas.to_bytes(), current.pallas_bytes());
-    terminal.pallas.decide(&source.params, budget).unwrap();
-    let vparams = common::vesta_params(16);
-    terminal.vesta_part.decide(&vparams, budget).unwrap();
-    terminal.predecessor_vesta.decide(&vparams, budget).unwrap();
-    terminal.opening.decide(&vparams, budget).unwrap();
-    assert_eq!(payloads.len(), 3);
-    let restarted = installed.prepare(input.clone(), budget).unwrap();
-    let mut replayed = restarted
-        .restore_first_checkpoint(&payloads[0], budget)
+    let mut claim = original.1;
+    claim[40] ^= 1;
+    assert!(
+        session
+            .restore_terminal(original.0.clone(), &claim, budget)
+            .is_err()
+    );
+    let payload = session
+        .encode_terminal_checkpoint(&restored, budget)
         .unwrap();
-    for stage in 0..native::W_STAGE_COUNT {
-        let wrapper = restarted
-            .restore_wrapper_checkpoint(&replayed, &payloads[2 * stage + 1], budget)
-            .unwrap();
-        replayed = restarted
-            .restore_a_checkpoint(&wrapper, &payloads[2 * stage + 2], budget)
-            .unwrap();
-    }
-    assert_eq!(replayed.proof(), current.proof());
-    assert_eq!(replayed.instances(), current.instances());
-    assert_eq!(replayed.pallas_bytes(), current.pallas_bytes());
-    let replayed_terminal = restarted.terminal(&replayed, budget).unwrap();
-    assert_eq!(replayed_terminal.proof, terminal.proof);
-    assert_eq!(replayed_terminal.instances, terminal.instances);
-    assert_eq!(replayed_terminal.pallas, terminal.pallas);
-    assert_eq!(replayed_terminal.vesta_part, terminal.vesta_part);
+    assert_eq!(payload.len(), layout.payload_bytes());
+    assert!(
+        session
+            .restore_terminal_checkpoint(&payload[..payload.len() - 1], budget)
+            .is_err()
+    );
+    let mut changed = payload.clone();
+    *changed.last_mut().unwrap() ^= 1;
+    assert!(
+        session
+            .restore_terminal_checkpoint(&changed, budget)
+            .is_err()
+    );
+    let current = session
+        .restore_terminal_checkpoint(&payload, budget)
+        .unwrap();
+    assert_eq!(current.proof, original.0, "exact retained original");
+    let generated_payload = session
+        .encode_terminal_checkpoint(&generated, budget)
+        .unwrap();
+    assert_eq!(generated_payload.len(), layout.payload_bytes());
+    let mut substituted = current.clone();
+    substituted.instances[0] += Fp::ONE;
+    assert!(
+        session
+            .encode_terminal_checkpoint(&substituted, budget)
+            .is_err()
+    );
+    // A checkpoint names its source, not a session: another session prepared from the
+    // same originals on this prover restores it too.
+    let foreign = unrelated_session
+        .restore_terminal_checkpoint(&payload, budget)
+        .unwrap();
+    assert_eq!(foreign.instances, current.instances);
+    // D6a: the session detached and resumed between fold calls restores the same payload.
+    session = installed.resume(session.into_retained()).unwrap();
+    let resumed = session
+        .restore_terminal_checkpoint(&payload, budget)
+        .unwrap();
+    assert_eq!(resumed.proof, current.proof);
+    let restarted = installed.prepare(input.clone(), budget).unwrap();
+    let replayed = restarted
+        .restore_terminal_checkpoint(&payload, budget)
+        .unwrap();
+    assert_eq!(replayed.proof, current.proof);
+    assert_eq!(replayed.instances, current.instances);
+    assert_eq!(replayed.pallas, current.pallas);
+    assert_eq!(replayed.predecessor_vesta, current.predecessor_vesta);
+    assert_eq!(replayed.opening, current.opening);
     assert_eq!(
-        replayed_terminal.predecessor_vesta,
-        terminal.predecessor_vesta
+        restarted
+            .encode_terminal_checkpoint(&replayed, budget)
+            .unwrap(),
+        payload,
+        "exact checkpoint bytes after cold replay"
     );
     eprintln!(
         "NATIVE_CONSUMING_PARITY metadata_only_producer=true borrowed_stage_PK=true exact_original_proof_bytes=true canonical_fresh_session_replay=true"
-    );
-    let key_seal = installed.import_w(0, &w_originals[0].pk, config).unwrap();
-    let key = installed.bind_w(0, &key_seal, None).unwrap();
-    assert!(
-        session
-            .wrapper(
-                &current,
-                &key,
-                common::public_fixture_tape(130),
-                &fold,
-                common::fresh_randomness(),
-                ProverConfig::default()
-            )
-            .is_err()
     );
     for object in 0..input.objects.len() {
         for offset in [0, input.objects[object].len() - 1] {

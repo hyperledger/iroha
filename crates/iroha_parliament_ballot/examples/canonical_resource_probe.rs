@@ -32,6 +32,12 @@ mod fatal;
     target_pointer_width = "64",
     any(target_os = "macos", target_os = "linux")
 ))]
+#[path = "canonical_resource_probe/hook_scope.rs"]
+mod hook_scope;
+#[cfg(all(
+    target_pointer_width = "64",
+    any(target_os = "macos", target_os = "linux")
+))]
 #[path = "../../iroha_parliament_ballot_proof/examples/resource_contract/native.rs"]
 mod native;
 #[cfg(all(

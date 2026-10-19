@@ -1,4 +1,5 @@
-//! Exact tuple tags, narrow roots, padding, boundary and assignment adversaries.
+//! Exact tuple tags, narrow roots, padding, boundary and assignment adversaries,
+//! for the single-bus indicator form and the bank form's precomputed coefficients.
 
 use super::*;
 use ff::Field;
@@ -14,13 +15,14 @@ struct Tagged<F: PastaField> {
     values: Vec<(usize, F)>,
     start: usize,
     known: bool,
+    bank: bool,
 }
 impl<F: PastaField> Circuit<F> for Tagged<F> {
     type Config = (RunningSumConfig, Column<Instance>);
     type FloorPlanner = SimpleFloorPlanner;
-    type Params = usize;
-    fn params(&self) -> usize {
-        self.values.len()
+    type Params = (usize, bool);
+    fn params(&self) -> (usize, bool) {
+        (self.values.len(), self.bank)
     }
     fn without_witnesses(&self) -> Self {
         Self {
@@ -29,11 +31,18 @@ impl<F: PastaField> Circuit<F> for Tagged<F> {
         }
     }
     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-        Self::configure_with_params(meta, 1)
+        Self::configure_with_params(meta, (1, false))
     }
-    fn configure_with_params(meta: &mut ConstraintSystem<F>, count: usize) -> Self::Config {
+    fn configure_with_params(
+        meta: &mut ConstraintSystem<F>,
+        (count, bank): (usize, bool),
+    ) -> Self::Config {
         let advice = meta.advice_column();
-        let range = RunningSumConfig::configure_tagged(meta, advice);
+        let range = if bank {
+            RunningSumConfig::configure_tagged_bank(meta, &[advice])[0]
+        } else {
+            RunningSumConfig::configure_tagged(meta, advice)
+        };
         let public = meta.instance_column(count);
         meta.enable_equality(public);
         meta.set_minimum_degree(9);
@@ -74,20 +83,21 @@ impl<F: PastaField> Circuit<F> for Tagged<F> {
 fn public<F: PastaField>(circuit: &Tagged<F>) -> [Vec<F>; 1] {
     [circuit.values.iter().map(|(_, value)| *value).collect()]
 }
-fn assert_value<F: PastaField>(bits: usize, value: F, accepted: bool) {
+fn assert_value<F: PastaField>(bank: bool, bits: usize, value: F, accepted: bool) {
     let circuit = Tagged {
         values: vec![(bits, value)],
         start: 0,
         known: true,
+        bank,
     };
     let report = check_circuit(&circuit, 16, &public(&circuit), CheckMode::Strict).unwrap();
     assert_eq!(
         report.is_satisfied(),
         accepted,
-        "width={bits}, value={value:?}: {report:?}"
+        "bank={bank}, width={bits}, value={value:?}: {report:?}"
     );
 }
-fn bounds<F: PastaField>() {
+fn bounds<F: PastaField>(bank: bool) {
     let values = (1..=252)
         .map(|bits| (bits, F::from(2).pow_vartime([bits as u64]) - F::ONE))
         .collect();
@@ -95,6 +105,7 @@ fn bounds<F: PastaField>() {
         values,
         start: 0,
         known: true,
+        bank,
     };
     let known = synthesize(&circuit, 16, Some(&public(&circuit))).unwrap();
     assert!(
@@ -106,6 +117,13 @@ fn bounds<F: PastaField>() {
     assert_eq!(known.cs.lookups()[0].input_expressions().len(), 2);
     let unknown = synthesize(&circuit.without_witnesses(), 16, None).unwrap();
     assert_eq!(known.tables.fixed(), unknown.tables.fixed());
+    let required = known.cs.lookups()[0].required_degree();
+    assert_eq!(required, if bank { 8 } else { 14 });
+    if bank {
+        let (config, _) =
+            Tagged::<F>::configure_with_params(&mut ConstraintSystem::default(), (252, bank));
+        config.assert_tagged_coefficients(known.tables.fixed());
+    }
     assert_eq!(known.tables.selectors(), unknown.tables.selectors());
     assert_eq!(known.tables.permutation(), unknown.tables.permutation());
     assert_eq!(
@@ -125,32 +143,35 @@ fn bounds<F: PastaField>() {
     drop(unknown);
     for bits in 1..=15 {
         let limit = F::from(2).pow_vartime([bits as u64]);
-        assert_value(bits, F::ZERO, true);
-        assert_value(bits, limit, false);
-        assert_value(bits, -F::ONE, false);
+        assert_value(bank, bits, F::ZERO, true);
+        assert_value(bank, bits, limit, false);
+        assert_value(bank, bits, -F::ONE, false);
         // These would land in another interval if a scalar offset union were
         // incorrectly substituted for the authenticating (tag,value) tuple.
         let positive_alias = F::from((16 - bits as u64) << 15) + F::ONE;
         let wrapped_alias = -F::from((bits as u64 + 1) << 15) + F::ONE;
-        assert_value(bits, positive_alias, false);
-        assert_value(bits, wrapped_alias, false);
+        assert_value(bank, bits, positive_alias, false);
+        assert_value(bank, bits, wrapped_alias, false);
     }
     for bits in [87, 105, 128, 252] {
-        assert_value(bits, F::from(2).pow_vartime([bits as u64]), false);
+        assert_value(bank, bits, F::from(2).pow_vartime([bits as u64]), false);
     }
 }
 #[test]
 fn tagged_widths_bounds_cross_tag_aliases_and_table_padding_both_fields() {
-    bounds::<Fp>();
-    bounds::<Fq>();
+    for bank in [false, true] {
+        bounds::<Fp>(bank);
+        bounds::<Fq>(bank);
+    }
 }
-fn tamper_and_boundary<F: PastaField>() {
+fn tamper_and_boundary<F: PastaField>(bank: bool) {
     let circuit = Tagged {
         values: [1, 2, 3, 15, 16, 31, 87, 128, 252]
             .map(|bits| (bits, F::from(2).pow_vartime([bits as u64]) - F::ONE))
             .to_vec(),
         start: 0,
         known: true,
+        bank,
     };
     assert!(
         crate::tamper::undetected_tampers(&circuit, 16, &public(&circuit))
@@ -161,6 +182,7 @@ fn tamper_and_boundary<F: PastaField>() {
         values: vec![(15, F::from(32767))],
         start: 65_529,
         known: true,
+        bank,
     };
     assert!(
         check_circuit(&boundary, 16, &public(&boundary), CheckMode::Strict)
@@ -176,11 +198,13 @@ fn tamper_and_boundary<F: PastaField>() {
 }
 #[test]
 fn tagged_every_cell_and_final_usable_row_both_fields() {
-    tamper_and_boundary::<Fp>();
-    tamper_and_boundary::<Fq>();
+    for bank in [false, true] {
+        tamper_and_boundary::<Fp>(bank);
+        tamper_and_boundary::<Fq>(bank);
+    }
 }
 
-fn native<C: iroha_pasta::PastaCurve>() {
+fn native<C: iroha_pasta::PastaCurve>(bank: bool) {
     use iroha_plonk::{
         ProverConfig, ProverRandomness, Witness, create_proof_owned,
         cs::InstanceType,
@@ -198,6 +222,7 @@ fn native<C: iroha_pasta::PastaCurve>() {
             .to_vec(),
         start: 0,
         known: true,
+        bank,
     };
     let public = public(&circuit);
     let params = PinnedParams::<C>::derive(16).unwrap();
@@ -241,6 +266,8 @@ fn native<C: iroha_pasta::PastaCurve>() {
 
 #[test]
 fn tagged_native_proof_binds_tuple_lookup_and_public_values_both_curves() {
-    native::<iroha_pasta::Ep>();
-    native::<iroha_pasta::Eq>();
+    for bank in [false, true] {
+        native::<iroha_pasta::Ep>(bank);
+        native::<iroha_pasta::Eq>(bank);
+    }
 }

@@ -283,7 +283,9 @@ fn signed(input: &TransactionEntrypoint) -> Option<&SignedTransaction> {
     match input {
         TransactionEntrypoint::External(tx) => Some(tx),
         TransactionEntrypoint::SealedReveal(reveal) => Some(reveal.signed_transaction()),
-        TransactionEntrypoint::SealedCommitment(_) => None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => {
+            None
+        }
     }
 }
 

@@ -6,7 +6,10 @@
 use ff::{Field, PrimeField};
 use iroha_kagemusha_proof::{
     admin_sigma::{ArchiveWitness, BootstrapWitness, StateWitness},
-    operation_relation::{map_effects::PENDING_DOMAIN, objects::ObjectKind},
+    operation_relation::{
+        map_effects::PENDING_DOMAIN,
+        objects::{ObjectKind, signed_message_native},
+    },
     tree::{IndexedRemove, IndexedTree},
     witness::core_index as core,
 };
@@ -92,7 +95,7 @@ pub fn pending(descriptor: [Fp; 7]) -> IndexedTree<Fp> {
 pub fn object_digest(kind: ObjectKind, raw: &[u8]) -> Fp {
     assert_eq!(raw.len(), kind.body_len() + 64);
     let end = kind.body_len();
-    let mut words = vec![p_bytes_native(kind.signing_domain(), &raw[..end])];
+    let mut words = vec![signed_message_native(kind, &raw[..end])];
     for offset in [16, 0, 48, 32] {
         words.push(Fp::from_u128(u128::from_be_bytes(
             raw[end + offset..end + offset + 16].try_into().unwrap(),

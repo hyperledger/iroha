@@ -72,7 +72,11 @@ impl CaJointVerifierOraclesV1 {
             proof.trace_groups[0].base_root,
         )
         .map_err(map_credential_pre_aux_error_v1)?;
-        if !auxiliary.matches_v1(pre_aux, JointSubproofV1::Ca, proof.trace_groups[0].aux_root) {
+        if !auxiliary.matches_v1(
+            &pre_aux,
+            JointSubproofV1::Ca,
+            proof.trace_groups[0].aux_root,
+        ) {
             return Err(ZkX509CaAccumulatorProofErrorV1::TranscriptMismatch);
         }
         absorb_zk_x509_credential_pre_aux_binding_v1(&mut transcript, pre_aux)

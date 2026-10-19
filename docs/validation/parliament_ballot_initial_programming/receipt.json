@@ -1,0 +1,188 @@
+{
+  "aes_advantage_sum": null,
+  "binding_production_activation": false,
+  "captured_at_utc": "2026-10-19T17:21:57.604565+00:00",
+  "complete_driver_resources": null,
+  "concrete_backend_oracle_model_justified_here": false,
+  "conditional_initial_programming_derivation_written": true,
+  "conditional_join_to_IdealFrontierSim_written": true,
+  "development_testing_enabled": true,
+  "endpoint": "B_0 with prescribed challenges and the identical bounded primary schedule plus private unused auxiliary/fallback opening",
+  "entry": "Real fresh-tape mathematical prover game with actual H4-derived IV and common valid-witness atomic request interface",
+  "entry_formula": "T*F(qhat,2^-256) + T*F(qhat,2^-2112) + T*M*F(qhat,2^-832)",
+  "entry_location_mass_ceilings": {
+    "challenge_1": "2^-256",
+    "challenge_2": "2^-2112",
+    "challenge_3_fixed_counter": "2^-832"
+  },
+  "fallback": {
+    "both_roles": true,
+    "candidate_limit": 229,
+    "candidate_revealed_nodes": 11,
+    "comparator_limit": 225,
+    "comparator_revealed_nodes": 12,
+    "evidence": "docs/validation/parliament_ballot_zero_challenge/report.json",
+    "no_new_opening_or_primary_write_on_exhaustion": true,
+    "sha256": "da1c8d3259301e9f65dd53de054372928cc757aea63ab841a9c3194b00fb69ac"
+  },
+  "frozen_arguments_revised": false,
+  "frozen_security_ledger_revised": false,
+  "independent_cryptographic_review": false,
+  "local_reviews": {
+    "P1_P2_source_and_theorem_adapter_review": true,
+    "P3_source_and_counterwise_adapter_review": true,
+    "calculator_and_test_reviews": 1,
+    "complete_derivation_reviews": 2,
+    "independent_cryptographic_review": false,
+    "remaining_blocking_findings": 0,
+    "resolved_findings": [
+      "Link the later both-row zero-fallback certificate explicitly; the frozen driver proposal itself leaves the comparator check open."
+    ]
+  },
+  "primary_theorem_rechecked": {
+    "identity_source": "Versioned URL and retained H5 receipt; current readback, not a new PDF download or hash assertion.",
+    "sections": [
+      "Figure 2, PDF page 6",
+      "Theorem 1, PDF page 7",
+      "Appendix A auxiliary-output and multiple-instruction discussion"
+    ],
+    "url": "https://arxiv.org/pdf/2010.15103v2"
+  },
+  "primitive_game_accepted": false,
+  "prior_manifests_verified_unchanged": [
+    {
+      "manifest": "docs/validation/parliament_ballot_root_entry/SHA256SUMS",
+      "sha256": "72ce31b9c6e366b4ee91bbe0f7f76fd25be3a8e7d38a5f3b93cfa1474ef3432c",
+      "verified_entries": 7
+    },
+    {
+      "manifest": "docs/validation/parliament_ballot_material_entry/SHA256SUMS",
+      "sha256": "2492e8ef05a04c9b22b2a02b1039066443d175e401ed900657d6a7ebb6f1eb79",
+      "verified_entries": 7
+    },
+    {
+      "manifest": "docs/validation/parliament_ballot_hybrid_driver/SHA256SUMS",
+      "sha256": "cafef98be2c9bf77c614a50afda07fc9b881fd93ace250cd173dc8961ca096f5",
+      "verified_entries": 3
+    },
+    {
+      "manifest": "docs/validation/parliament_ballot_conditional_composition/SHA256SUMS",
+      "sha256": "3e2b1f90c52f1ce1a697fc37c18d3a92015582b61de5f1083945e5b8c3a3cf57",
+      "verified_entries": 10
+    }
+  ],
+  "prior_post_entry_calculator_revised": false,
+  "profile_qualified": false,
+  "query_accounting": {
+    "Q_all_scope": "All lifetime non-prover combined backend evaluations, including preprocessing, interleaving, verification, diagnostics, relevant invalid-request checks and post-proof access; count actual lookup/unlookup calls.",
+    "counter_domains": 1048576,
+    "external_dispatch_target_calls_per_combined_evaluation": 2,
+    "honest_target_reads_per_reached_valid_request": 1,
+    "instructions_per_family_or_fixed_counter": "at most T",
+    "role_multiplier": 1,
+    "target_query_ceiling": "2*Q_all+T"
+  },
+  "required_next_work": [
+    "Full source-to-game and coherent-oracle resource realization",
+    "Justified or explicitly accepted quantitative AES and backend-model premises",
+    "Dependent anonymity and authorization reductions using the new simulator and bound",
+    "Complete concrete-security ledger and independent attack-cost review",
+    "Native resource and named hardware qualification"
+  ],
+  "schema": "parliament-ballot-initial-programming-evidence-v1",
+  "scope": "Conditional source-informed QROM entry derivation and stdlib exact formula arithmetic. No Rust execution, full compiler refinement, resource qualification or independent cryptographic review.",
+  "source_review_limits": [
+    "Welltyped fixed-profile mathematical execution only; arbitrary caller-chosen tapes excluded.",
+    "Invalid requests follow the common outer path; no claim that wrappers never access tape bytes before rejection.",
+    "Deferred-domain operations preserve functional oracle behavior, not a physical append-log order or timing.",
+    "Dummy instruction padding occurs after the saved final observation and is not protocol execution.",
+    "Framing check is the existing Python model; Rust suites and instrumented failed-retry query counts were not rerun here."
+  ],
+  "square_root_enclosure": {
+    "decimal_used_for_decisions": false,
+    "exact_rational_endpoints": true,
+    "method": "Integer dyadic grid chosen from exact floor(log2(n/d)); integer square root; exact collapse test",
+    "relative_width_bits": 400
+  },
+  "sum_scope": "Clipped conditional entry formula plus unchanged post-entry K. This omits AES advantages and full resource/model justification; its lower endpoint is not an advantage lower bound.",
+  "validation": {
+    "existing_framing_combinations": 12,
+    "existing_framing_tests_passed": 1,
+    "full_workspace_tests_run": false,
+    "input_scope": "45 scoped source, antecedent specification/receipt, helper and test inputs; not a transitive dependency or build closure.",
+    "inputs_unchanged_across_capture": true,
+    "new_tests_failed": 0,
+    "new_tests_passed": 16,
+    "phases": {
+      "framing-test": {
+        "command": [
+          "python3.11",
+          "-m",
+          "unittest",
+          "scripts.tests.parliament_ballot_write_framing_test.FramingTest.test_actual_shape_bytes_and_domain_last_all_rows_roles",
+          "-v"
+        ],
+        "expected_returncode": 0,
+        "returncode": 0,
+        "seconds": 0.6482725839596242,
+        "started_utc": "2026-10-19T17:20:16.206316+00:00"
+      },
+      "help": {
+        "command": [
+          "python3.11",
+          "scripts/parliament_ballot_initial_programming.py",
+          "--help"
+        ],
+        "expected_returncode": 0,
+        "returncode": 0,
+        "seconds": 0.030369458021596074,
+        "started_utc": "2026-10-19T17:20:16.917141+00:00"
+      },
+      "report": {
+        "command": [
+          "python3.11",
+          "scripts/parliament_ballot_initial_programming.py",
+          "--json"
+        ],
+        "expected_returncode": 0,
+        "returncode": 0,
+        "seconds": 0.03088554204441607,
+        "started_utc": "2026-10-19T17:20:16.855050+00:00"
+      },
+      "require-qualified": {
+        "command": [
+          "python3.11",
+          "scripts/parliament_ballot_initial_programming.py",
+          "--json",
+          "--require-qualified"
+        ],
+        "expected_returncode": 2,
+        "returncode": 2,
+        "seconds": 0.030417833011597395,
+        "started_utc": "2026-10-19T17:20:16.886310+00:00"
+      },
+      "tests": {
+        "command": [
+          "python3.11",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts/tests",
+          "-p",
+          "parliament_ballot_initial_programming_test.py",
+          "-v"
+        ],
+        "expected_returncode": 0,
+        "returncode": 0,
+        "seconds": 0.3151848749257624,
+        "started_utc": "2026-10-19T17:20:15.890516+00:00"
+      }
+    },
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "python": "3.11.17 (main, Oct  1 2026, 00:48:48) [Clang 21.0.0 (clang-2100.3.34.2)]",
+    "require_qualified_stdout_matches_report": true,
+    "rust_build_or_tests_run": false,
+    "source_count": 45
+  }
+}

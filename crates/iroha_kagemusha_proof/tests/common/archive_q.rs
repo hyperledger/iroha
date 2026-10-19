@@ -16,7 +16,7 @@ use iroha_kagemusha_proof::{
         schedule::sigma_selector,
     },
     admin_sigma::{ArchiveCircuit, StateWitness},
-    operation_relation::objects::ObjectKind,
+    operation_relation::objects::{ObjectKind, signed_message_native},
     q_sigma::{
         QSigmaPlan, SigmaClass, SigmaSlotWitness,
         native::{IncomingMode, IncomingSigma, QSigmaProver},
@@ -146,7 +146,7 @@ fn signed(kind: ObjectKind, raw: &[u8], secret: u64) -> Signed {
         kind,
         bytes: raw.to_vec(),
         signature: SignatureWitness {
-            digest: p_bytes_native(kind.signing_domain(), &raw[..end]),
+            digest: signed_message_native(kind, &raw[..end]),
             key: [point.x, point.y],
             signature: [integer(&raw[end..end + 32]), integer(&raw[end + 32..])],
         },

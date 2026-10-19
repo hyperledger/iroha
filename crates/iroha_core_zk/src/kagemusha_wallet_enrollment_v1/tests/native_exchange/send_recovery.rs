@@ -64,8 +64,7 @@ fn resume_selected_a_send_then_b_to_c_unload_with_restart_and_replay() {
     device_b
         .platform
         .with(|state| state.sign_fault_at = Some(0));
-    let offer = a.offer([210; 32], LOAD_AMOUNT).unwrap();
-    let request = b.request([211; 32], &offer, None).unwrap();
+    let request = b.request([211; 32], LOAD_AMOUNT, None).unwrap();
     assert_eq!(device_a.platform.with(|state| state.sign_calls), 0);
     assert_eq!(device_b.platform.with(|state| state.sign_calls), 0);
     device_a.platform.with(|state| state.sign_fault_at = None);
@@ -89,7 +88,7 @@ fn resume_selected_a_send_then_b_to_c_unload_with_restart_and_replay() {
         "consumer_binary_sha256": (executable_hash()),
         "consumer_source_sha256": (env_pin("KAGEMUSHA_NATIVE_SOURCE_SHA256")),
         "target_sha256": (sha(&target_bytes)),
-        "retained_offer_sha256": (sha(&offer)), "retained_request_sha256": (sha(&request)),
+        "retained_request_sha256": (sha(&request)),
         "request_id": (hex::encode([212; 32])), "status_before_resume": "Pending",
         "new_enrollments": 0, "new_loads": 0, "new_setup_signatures": 0,
         "retained_custody_recovery": "Exact existing engineering key, public frames, native slot, credential, pre-key selection and signed E5/E6 originals; durable adoption preserves bytes and missing originals are refused without reconstruction"
@@ -132,12 +131,15 @@ fn resume_selected_a_send_then_b_to_c_unload_with_restart_and_replay() {
             },
         ],
         send,
-        SendOriginals { offer, payment },
+        payment,
     );
 }
 
 fn require_payment_request(payment: &KagemushaWalletPaymentV1, original: &[u8]) {
     let request: KagemushaWalletRequestV1 = decode(original);
+    let request = request
+        .complete_with(&payment.signed_request().unwrap())
+        .unwrap();
     assert_eq!(
         payment.signed_request().unwrap(),
         request.signed(),
@@ -562,12 +564,7 @@ fn continue_completed_a_send_then_b_to_c_unload_with_restart_and_replay() {
     device_b
         .platform
         .with(|state| state.sign_fault_at = Some(0));
-    let offer = a.offer([210; 32], LOAD_AMOUNT).unwrap();
-    let request = b.request([211; 32], &offer, None).unwrap();
-    assert_eq!(
-        previous["retained_offer_sha256"].as_str(),
-        Some(sha(&offer).as_str())
-    );
+    let request = b.request([211; 32], LOAD_AMOUNT, None).unwrap();
     assert_eq!(
         previous["retained_request_sha256"].as_str(),
         Some(sha(&request).as_str())
@@ -634,7 +631,7 @@ fn continue_completed_a_send_then_b_to_c_unload_with_restart_and_replay() {
             },
         ],
         send,
-        SendOriginals { offer, payment },
+        payment,
     );
 }
 

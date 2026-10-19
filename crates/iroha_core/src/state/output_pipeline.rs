@@ -40,7 +40,8 @@ impl ExecutionOutputProducer<'_, '_, '_> {
                 let signed = match input {
                     TransactionEntrypoint::External(signed) => signed,
                     TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-                    TransactionEntrypoint::SealedCommitment(_) => {
+                    TransactionEntrypoint::SealedCommitment(_)
+                    | TransactionEntrypoint::AnonymousBallot(_) => {
                         self.skip_uninvoked(ExecutionOutputPhase::Pipeline, maximum)?;
                         continue;
                     }

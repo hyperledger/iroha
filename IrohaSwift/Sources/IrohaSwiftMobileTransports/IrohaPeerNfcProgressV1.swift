@@ -251,7 +251,6 @@ final class IrohaPeerNfcAsyncSignalV1: @unchecked Sendable {
 public enum IrohaPeerNfcProgressStageV1: String, CaseIterable, Sendable {
     case phase1SessionActive = "phase1_session_active"
     case tagDetected = "tag_detected"
-    case offerDelivered = "offer_delivered"
     case requestRead = "request_read"
     case readerEnded = "reader_ended"
     case ownerAuthRequested = "owner_auth_requested"

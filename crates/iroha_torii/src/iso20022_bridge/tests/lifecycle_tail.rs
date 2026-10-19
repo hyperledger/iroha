@@ -1096,3 +1096,19 @@ fn lifecycle_sese025_rejects_conflicting_settlement_references() {
         );
     }
 }
+
+#[test]
+fn anonymous_ballot_rejection_metadata_preserves_the_committed_reason() {
+    use iroha_data_model::governance::anonymous_ballot::AnonymousBallotRejectionV1;
+    for reason in [
+        AnonymousBallotRejectionV1::OutsideCastingWindow,
+        AnonymousBallotRejectionV1::DuplicateNullifier,
+    ] {
+        let expected = format!("Anonymous ballot rejected: {reason}");
+        let (code, detail) = Iso20022BridgeRuntime::rejection_reason_metadata(
+            &TransactionRejectionReason::AnonymousBallot(reason),
+        );
+        assert_eq!(code, "PRTRY:ANONYMOUS_BALLOT");
+        assert_eq!(detail, expected);
+    }
+}

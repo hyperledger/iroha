@@ -179,12 +179,12 @@ internal class KagemushaWalletDeviceStages(
                     "boundaryHeight" to value.boundaryHeight.toString())
                 "native-epoch-prefix-observed"
             }
-            "offer", "request" -> {
+            "request" -> {
                 val identity = id("setup-id"); bind("setup", identity, family(command.action))
-                val original = if (command.action == "offer") wallet.offer(identity, KagemushaMonetaryProbeManifest.amount(input("amount")))
-                    else wallet.request(identity, input("offer"), values["fee-schedule"], values["fee-certificate"])
+                val original = wallet.request(identity, KagemushaMonetaryProbeManifest.amount(input("amount")),
+                    values["fee-schedule"], values["fee-certificate"])
                 val returned = SystemClock.elapsedRealtimeNanos()
-                val kind = if (command.action == "offer") KagemushaWalletTransportKindV1.OFFER else KagemushaWalletTransportKindV1.REQUEST
+                val kind = KagemushaWalletTransportKindV1.REQUEST
                 output("peer-original.norito", original, sequence)
                 output("peer-envelope.norito", wallet.envelope(kind, original), sequence)
                 event("setup-export", sequence, "nativeReturnedTicks" to returned.toString(),
@@ -213,9 +213,16 @@ internal class KagemushaWalletDeviceStages(
                 "native-review-awaiting-explicit-decision"
             }
             "decide-review" -> decideReview(input("decision"), sequence)
+            "payment-companion" -> {
+                val companion = wallet.paymentCompanion(input("payment")); val returned = SystemClock.elapsedRealtimeNanos()
+                output("payer-companion.norito", companion, sequence)
+                event("payment-companion", sequence, "nativeReturnedTicks" to returned.toString(),
+                    "carrierDeliveryClaimed" to "false", "monetaryAdmissionClaimed" to "false")
+                "native-payment-companion-exported-carrier-unobserved"
+            }
             "receive" -> {
                 val identity = id(); bind("operation", identity, family("receive"))
-                val value = wallet.receiveFromOffer(identity, input("payment"), input("offer"))
+                val value = wallet.receiveWithCompanion(identity, input("payment"), input("companion"))
                 completion(value, SystemClock.elapsedRealtimeNanos(), identity, sequence)
             }
             "credit" -> {
@@ -290,9 +297,8 @@ internal class KagemushaWalletDeviceStages(
                     "height" to unsigned(value.heightBits), "blockHash" to hex(value.blockHash()))
                 "native-unload-confirmed"
             }
-            "decode-offer", "decode-request", "decode-payment", "decode-credited" -> {
+            "decode-request", "decode-payment", "decode-credited" -> {
                 val kind = when (command.action) {
-                    "decode-offer" -> KagemushaWalletTransportKindV1.OFFER
                     "decode-request" -> KagemushaWalletTransportKindV1.REQUEST
                     "decode-payment" -> KagemushaWalletTransportKindV1.PAYMENT
                     else -> KagemushaWalletTransportKindV1.CREDITED

@@ -184,6 +184,21 @@ impl LaneStoreAuthorities for Authorities {
         }))
     }
 }
+fn register_original_ready(
+    stores: &LaneStores,
+    store: Arc<FileLaneBlockStore>,
+) -> Option<StoreSlot> {
+    let mut original_map = stores.stores.lock();
+    let registration = stores.next_registration(&mut original_map).unwrap();
+    original_map.insert(
+        (LANE, INCARNATION),
+        StoreSlot::Ready(ReadyStore {
+            registration,
+            store,
+        }),
+    )
+}
+
 struct Fixture {
     dir: tempfile::TempDir,
     stores: LaneStores,
@@ -674,7 +689,7 @@ fn retired_failed_openings_release_original_funding_and_lock_but_keep_replay_fra
         assert_eq!(f.stores.budget.reserved_bytes(), baseline + original.len());
         assert!(matches!(
             f.stores.stores.lock().get(&(LANE, INCARNATION)),
-            Some(StoreSlot::Opening(_, true))
+            Some(StoreSlot::Opening(_, owners)) if owners.historical
         ));
         f.stores.budget.set_limit_bytes(1 << 25);
         assert_eq!(f.stores.tip(LANE, &INCARNATION).unwrap(), Some(1));
@@ -756,8 +771,8 @@ fn storage_corruption_is_repeated_error_not_missing_block_or_recovered_tip() {
     let Some(StoreSlot::Ready(retained)) = stores.get(&(LANE, INCARNATION)) else {
         panic!("a corrupt pending read must not be dropped and reopened");
     };
-    assert!(Arc::ptr_eq(&original, retained));
-    assert!(retained.retains_pending_work());
+    assert!(Arc::ptr_eq(&original, &retained.store));
+    assert!(retained.store.retains_pending_work());
     assert_eq!(f.stores.budget.reserved_bytes(), retained_bytes);
     assert_eq!(f.authorities.calls.load(Ordering::SeqCst), authority_calls);
 }
@@ -957,13 +972,7 @@ fn retired_ready_store_preserves_original_unfinished_publication_until_exact_ret
         .complete()
         .unwrap_or_else(|(_, error)| panic!("empty source store: {error:?}"));
         let store = Arc::new(store);
-        assert!(
-            f.stores
-                .stores
-                .lock()
-                .insert((LANE, INCARNATION), StoreSlot::Ready(store.clone()),)
-                .is_none()
-        );
+        assert!(register_original_ready(&f.stores, store.clone()).is_none());
         let weak = Arc::downgrade(&store);
         let baseline = f.stores.budget.reserved_bytes();
         let ceiling = f.stores.budget.limit_bytes();
@@ -1342,7 +1351,7 @@ fn original_opening_refund_control(completion: OriginalOpeningCompletion) {
     assert_eq!(budget.reserved_bytes(), retained + original.len());
     assert!(matches!(
         fixture.stores.stores.lock().get(&(LANE, INCARNATION)),
-        Some(StoreSlot::Opening(_, false))
+        Some(StoreSlot::Opening(_, owners)) if !owners.historical
     ));
     // Restore the unchanged fixture's original ceiling before registering a fresh refusal.
     // Its real opening still owns the original buffer; no release notification is inherited.
@@ -1874,7 +1883,7 @@ fn original_authority_recheck_retains_reentrant_opening_and_historical_interest(
                     assert_eq!(error.io_kind(), io::ErrorKind::WouldBlock);
                     assert!(matches!(
                         fixture.stores.stores.lock().get(&(lane, *incarnation)),
-                        Some(StoreSlot::Opening(_, false))
+                        Some(StoreSlot::Opening(_, owners)) if !owners.historical
                     ));
                 }
             }
@@ -1907,7 +1916,7 @@ fn original_authority_recheck_retains_reentrant_opening_and_historical_interest(
     assert!(
         matches!(
             fixture.stores.stores.lock().get(&(LANE, INCARNATION)),
-            Some(StoreSlot::Opening(_, true))
+            Some(StoreSlot::Opening(_, owners)) if owners.historical
         ),
         "historical interest must join the exact reentrant opening"
     );
@@ -1915,7 +1924,7 @@ fn original_authority_recheck_retains_reentrant_opening_and_historical_interest(
     fixture.stores.release(LANE, &INCARNATION);
     assert!(matches!(
         fixture.stores.stores.lock().get(&(LANE, INCARNATION)),
-        Some(StoreSlot::Opening(_, true))
+        Some(StoreSlot::Opening(_, owners)) if owners.historical
     ));
     budget.set_limit_bytes(ceiling);
     let original = fixture.stores.store(LANE, &INCARNATION).unwrap();
@@ -2033,14 +2042,7 @@ fn retired_publication_continuation_control(step: crate::sumeragi::records::FsSt
         .complete()
         .unwrap_or_else(|(_, error)| panic!("original empty store: {error}")),
     );
-    assert!(
-        fixture
-            .stores
-            .stores
-            .lock()
-            .insert((LANE, INCARNATION), StoreSlot::Ready(Arc::clone(&store)))
-            .is_none()
-    );
+    assert!(register_original_ready(&fixture.stores, Arc::clone(&store)).is_none());
     let original = Arc::downgrade(&store);
     let budget = fixture.stores.budget.clone();
     let Fixture {
@@ -2202,14 +2204,7 @@ fn retired_reconcile_does_not_wait_for_an_in_flight_original_publication() {
         .complete()
         .unwrap_or_else(|(_, error)| panic!("original empty store: {error}")),
     );
-    assert!(
-        fixture
-            .stores
-            .stores
-            .lock()
-            .insert((LANE, INCARNATION), StoreSlot::Ready(Arc::clone(&store)))
-            .is_none()
-    );
+    assert!(register_original_ready(&fixture.stores, Arc::clone(&store)).is_none());
     let stores = Arc::new(fixture.stores);
     let runner = retired_publication_runner(&chain, Arc::clone(&stores), fixture.dir.path());
     let publication_owner =
@@ -2497,14 +2492,7 @@ fn observe_original_sync<R>(
         .complete()
         .unwrap_or_else(|(_, error)| panic!("original empty store: {error}")),
     );
-    assert!(
-        fixture
-            .stores
-            .stores
-            .lock()
-            .insert((LANE, INCARNATION), StoreSlot::Ready(Arc::clone(&store)))
-            .is_none()
-    );
+    assert!(register_original_ready(&fixture.stores, Arc::clone(&store)).is_none());
     let calls = fixture.authorities.calls.load(Ordering::SeqCst);
     let budget = fixture.stores.budget.clone();
     let limit = budget.limit_bytes();

@@ -3,6 +3,11 @@
 //! TODO: admit reconstruction scratch through the original snapshot resource
 //! owner together with the remaining derived-index reconstruction.
 
+#![expect(
+    clippy::zero_sized_map_values,
+    reason = "MV snapshot restoration requires complete current and undo key/value maps"
+)]
+
 use super::*;
 use iroha_data_model::proof::ProofId;
 

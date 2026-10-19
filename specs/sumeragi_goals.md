@@ -43,13 +43,13 @@ S2 and S3 come before S4. S5 and S6 build on S4. S7 gates the release.
 
 ### Active handoff completion gates
 
-This coding task owns H1–H5: production integration, native dataspaces and AMX,
-staking and committee transitions, authenticated snapshot restoration, and
-current-source validation with rebuilt native SDK artifacts. Taira deployment
-and live cutover execution and evidence (H6) are managed separately by the
-deployment owner and are outside this task. H6 remains an open project gate.
+This handoff task owns H1–H6: production integration, native data spaces and AMX,
+staking and committee transitions, authenticated snapshot restoration,
+current-source validation with rebuilt native SDK artifacts, and authenticated
+Linux artifacts with fresh four-validator Taira cutover evidence. H6 requires the
+deployment owner's authenticated operator context and runtime-only signing inputs.
 
-H1–H5 remain active. All work uses the required checkout and branch above.
+H1–H6 remain active. All work uses the required checkout and branch above.
 Work starts with H1; independent implementation and simulator work may proceed
 in parallel. Each gate requires current-source
 evidence, and implementation coverage alone does not close its network or release acceptance.

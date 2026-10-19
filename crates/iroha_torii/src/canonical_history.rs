@@ -83,7 +83,7 @@ pub fn signed_calls(
         let signed = match source {
             TransactionEntrypoint::External(signed) => signed,
             TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-            TransactionEntrypoint::SealedCommitment(_) => return None,
+            TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => return None,
         };
         Some((source.hash(), signed, &output.result))
     }))

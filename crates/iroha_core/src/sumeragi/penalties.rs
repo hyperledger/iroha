@@ -1,11 +1,12 @@
 //! Deterministic `NPoS` consensus-evidence slashing.
 //!
 //! Parent validator locators retain exact original-pool backing and nested key custody.
+//! Planning borrows their complete registration keys without allocating replacement accounts.
 //! Action ordering and quantity comparisons use no allocator scratch.
 //! Pristine penalty preparation retains the complete action graph through apply.
 //! TODO(S8): slash planning/application storage and exposure arithmetic still need
 //! complete original-pool owners. The proposal effects handoff still copies into
-//! the bare data-model Vec and requires a coordinated immutable carrier migration.
+//! untrusted data-model transport and requires a coordinated immutable carrier migration.
 //! Evidence and history ownership is tracked by their respective modules.
 #[cfg(test)]
 use crate::smartcontracts::isi::staking::max_slash_amount;
@@ -66,20 +67,32 @@ struct ValidatorLocator {
     peer_key: ChargedPublicKey,
     /// Exact World storage key, cloned once under original-pool custody. Planning
     /// borrows it for a keyed lookup, so no lookup scans or allocates.
-    key: (LaneId, AccountId),
+    registration_key: (LaneId, AccountId),
     activation_height: u64,
     deactivation_height: Option<u64>,
     root_authority: bool,
 }
 impl ValidatorLocator {
+    /// Borrow the original prepaid composite key while reading the current overlay.
+    fn registration<'a>(
+        &self,
+        world: &'a impl WorldReadOnly,
+    ) -> Option<&'a iroha_data_model::nexus::PublicLaneValidatorRecord> {
+        #[cfg(all(test, sumeragi_core_mutation = "HC444"))]
+        let key = &self.registration_key.clone();
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC444")))]
+        let key = &self.registration_key;
+        world.public_lane_validators().get(key)
+    }
+
     /// Public lane of the retained registration.
     fn lane_id(&self) -> LaneId {
-        self.key.0
+        self.registration_key.0
     }
 
     /// Validator account of the retained registration.
     fn validator(&self) -> &AccountId {
-        &self.key.1
+        &self.registration_key.1
     }
 }
 /// Immutable flat lookup. Concrete keys/accounts cannot unwind during destruction;
@@ -254,7 +267,7 @@ impl ValidatorMap {
             let validator = clone_locator_account(&key.1, &mut reservation, &mut account_charges)?;
             rows.try_push(ValidatorLocator {
                 peer_key,
-                key: (key.0, validator),
+                registration_key: (key.0, validator),
                 activation_height: record.activation_height,
                 deactivation_height: record.deactivation_height,
                 root_authority: view.is_lane_active_for_authority(key.0)
@@ -273,7 +286,7 @@ impl ValidatorMap {
             left.peer_key
                 .get()
                 .cmp(right.peer_key.get())
-                .then_with(|| left.key.cmp(&right.key))
+                .then_with(|| left.registration_key.cmp(&right.registration_key))
         });
         Ok(Self {
             rows,
@@ -649,10 +662,13 @@ impl<'a> PenaltyApplier<'a> {
         Ok(NposConsensusEffects {
             parent_service_commit_qc: None,
             // TODO(S8): replace both independently owned wire copies with the
-            // shared immutable carrier in the coordinated proposal/block migration.
-            // Never extract the admitted vector and refund its ledger here.
+            // shared admitted carrier in the coordinated proposal/block migration.
+            // This transport remains untrusted; never extract the funded vector
+            // and refund its ledger before its canonical allocations retire.
             evidence_admissions: wire_evidence_admissions(evidence_admissions.as_slice())?,
-            penalty_actions: penalty_actions.as_slice().to_vec(),
+            penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(
+                penalty_actions.as_slice().to_vec(),
+            ),
         })
     }
     /// Derive deterministic parent-state actions and retain their original funded
@@ -806,11 +822,8 @@ impl<'a> PenaltyApplier<'a> {
                         let (lane_id, validator) = (locator.lane_id(), locator.validator());
                         // Keyed by the locator's retained World key: O(log V), no scan
                         // over every registration and no per-lookup key allocation.
-                        let current_record = scratch
-                            .world
-                            .public_lane_validators
-                            .get(&locator.key)
-                            .ok_or_else(|| {
+                        let current_record =
+                            locator.registration(&scratch.world).ok_or_else(|| {
                                 eyre!(
                                     "penalty planning lost retained validator {} on lane {}",
                                     validator,
@@ -1474,6 +1487,7 @@ mod tests {
     }
     use super::*;
     include!("penalties/sccp_tests.rs");
+    include!("penalties/key_custody_tests.rs");
     use crate::{
         kura::Kura,
         query::store::LiveQueryStore,
@@ -2983,7 +2997,7 @@ mod tests {
                 .get(peer)
                 .unwrap()
                 .iter()
-                .map(|row| row.key.clone())
+                .map(|row| row.registration_key.clone())
                 .collect::<Vec<_>>();
             assert_eq!(actual.as_slice(), expected.as_slice());
         }
@@ -3005,9 +3019,9 @@ mod tests {
             let (key, record) = view
                 .world
                 .public_lane_validators()
-                .get_key_value(&row.key)
+                .get_key_value(&row.registration_key)
                 .expect("retained locator key addresses its World registration");
-            assert_eq!(key, &row.key);
+            assert_eq!(key, &row.registration_key);
             assert_eq!(record.peer_id.public_key(), peers[0].public_key());
         }
         assert!(map.get(peers[1].public_key()).is_none());
@@ -3983,7 +3997,9 @@ mod tests {
         let effects = NposConsensusEffects {
             parent_service_commit_qc: None,
             evidence_admissions: Vec::new(),
-            penalty_actions: penalty_actions.as_slice().to_vec(),
+            penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(
+                penalty_actions.as_slice().to_vec(),
+            ),
         };
         let evidence_prune_keys =
             crate::sumeragi::evidence::committed_evidence_prune_keys_from_state(&state, 2)
@@ -4191,7 +4207,9 @@ mod tests {
         let effects = NposConsensusEffects {
             parent_service_commit_qc: None,
             evidence_admissions: Vec::new(),
-            penalty_actions: actions.as_slice().to_vec(),
+            penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(
+                actions.as_slice().to_vec(),
+            ),
         };
         apply_npos_consensus_effects_to_transaction(
             &mut tx,
@@ -4347,7 +4365,9 @@ mod tests {
         let effects = NposConsensusEffects {
             parent_service_commit_qc: None,
             evidence_admissions: Vec::new(),
-            penalty_actions: actions.as_slice().to_vec(),
+            penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(
+                actions.as_slice().to_vec(),
+            ),
         };
         let mut block = state
             .consensus_effects_probe_block(penalty_header(22))

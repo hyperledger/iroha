@@ -309,13 +309,13 @@ fn predecessor_partition_search_funds_masked_absent_and_matching_full_tails() {
 #[test]
 fn asset_group_reference_and_image_phases_keep_original_failure_precedence() {
     let mut world = fixture(true);
-    let saved = omit_initial(
+    omit_initial(
         &mut world.asset_definition_assets,
         &(definition("coin"), id()),
     );
     {
         let mut block = world.asset_definition_assets.block();
-        block.insert((definition("coin"), id()), saved);
+        block.insert((definition("coin"), id()), ());
         block.commit();
     }
     omit_initial(
@@ -331,13 +331,13 @@ fn asset_group_reference_and_image_phases_keep_original_failure_precedence() {
         ))
     );
     let mut world = fixture(true);
-    let saved = omit_initial(
+    omit_initial(
         &mut world.asset_definition_assets,
         &(definition("coin"), id()),
     );
     {
         let mut block = world.asset_definition_assets.block();
-        block.insert((definition("coin"), id()), saved);
+        block.insert((definition("coin"), id()), ());
         block.commit();
     }
     omit_initial(&mut world.asset_definitions, &definition("coin"));

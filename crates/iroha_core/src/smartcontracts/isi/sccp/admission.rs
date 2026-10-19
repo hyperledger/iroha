@@ -297,7 +297,9 @@ pub(crate) fn exempt_class_of_entrypoint_from(
             reveal.signed_transaction().payload(),
             committed_time_ms,
         ),
-        TransactionEntrypoint::SealedCommitment(_) => None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => {
+            None
+        }
     }
 }
 

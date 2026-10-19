@@ -18,9 +18,9 @@ use std::{num::NonZeroU64, sync::Arc};
 use iroha_data_model::{
     NetworkId,
     governance::anonymous_ballot::{
-        ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1, AnonymousBallotCorpusEntryV1,
-        AnonymousBallotEnvelopeV1, AnonymousBallotRejectionV1, BallotScopeV1, Digest512,
-        NullifierV1,
+        ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1, AnonymousBallotCodecErrorV1,
+        AnonymousBallotCorpusEntryV1, AnonymousBallotEnvelopeV1, AnonymousBallotRejectionV1,
+        BallotScopeV1, Digest512, NullifierV1,
         digests::{envelope_digest_v1, verify_stamp_encoded_v1},
     },
 };
@@ -146,7 +146,8 @@ impl BlockBallotDecisionV1 {
 /// encoded once per scope; it decides exactly as `verify_stamp_v1`) and the proof.
 ///
 /// # Errors
-/// [`VerificationUnavailableV1`] when the node cannot decide; never for an invalid input.
+/// [`VerificationUnavailableV1`] when the node cannot decide, including a local
+/// decode resource refusal. Such a refusal does not establish input invalidity.
 pub fn check_block_ballot_v1<S: BlockBallotStateV1 + ?Sized>(
     state: &S,
     envelope_bytes: &[u8],
@@ -160,6 +161,9 @@ pub fn check_block_ballot_v1<S: BlockBallotStateV1 + ?Sized>(
     }
     let envelope = match AnonymousBallotEnvelopeV1::decode_canonical_bounded(envelope_bytes) {
         Ok(envelope) => envelope,
+        Err(error @ AnonymousBallotCodecErrorV1::DecodeUnavailable(_)) => {
+            return Err(VerificationUnavailableV1::Codec(error));
+        }
         Err(error) => {
             return invalid(BlockInvalidReasonV1::Malformed {
                 reason: error.to_string(),
@@ -350,6 +354,56 @@ mod tests {
             envelope_digest_v1(&bytes).expect("digest")
         );
         assert_eq!(entry.position(), (100, 3));
+    }
+
+    #[test]
+    fn caller_decode_shortage_does_not_invalidate_a_ballot_or_mutate_state() {
+        use iroha_data_model::governance::anonymous_ballot::BallotProofBytesV1;
+        use norito::core::{DecodeLocalRefusalKind, DecodeResourceError};
+
+        let state = State::new(true);
+        let bytes = fixture_bytes(AYE_0);
+        let proof_bytes = BallotProofBytesV1::LENGTH;
+        // The second case has the same numeric ceiling as the schema but an
+        // already consumed byte. Classification must retain the failing scope.
+        for (limit, prior) in [(0, 0), (proof_bytes, 1)] {
+            let limits =
+                norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, limit, usize::MAX);
+            let result = norito::with_decode_limits_scope(limits, || {
+                norito::core::reserve_decode_allocation(prior).expect("prior caller charge");
+                decide_block_ballot_v1(&state, &bytes, NonZeroU64::new(100).unwrap(), 0)
+            });
+            let Err(VerificationUnavailableV1::Codec(
+                AnonymousBallotCodecErrorV1::DecodeUnavailable(refusal),
+            )) = result
+            else {
+                panic!("a caller budget shortage is local unavailability");
+            };
+            assert_eq!(refusal.kind(), DecodeLocalRefusalKind::EnclosingLimit);
+            assert_eq!(
+                refusal.resource_error(),
+                DecodeResourceError::TotalAllocationExceeded {
+                    attempted: u64::try_from(prior + proof_bytes).unwrap(),
+                    limit: u64::try_from(limit).unwrap(),
+                }
+            );
+            assert!(state.accepted.borrow().is_empty());
+        }
+        // A malformed header is still a protocol failure, even with no local budget.
+        let zero = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let malformed =
+            norito::with_decode_limits_scope(zero, || check_block_ballot_v1(&state, &[]));
+        assert!(matches!(
+            malformed,
+            Ok(BlockBallotValidityV1::Invalid(
+                BlockInvalidReasonV1::Malformed { .. }
+            ))
+        ));
+        assert!(matches!(
+            check_block_ballot_v1(&state, &bytes),
+            Ok(BlockBallotValidityV1::Valid(_))
+        ));
+        assert!(state.accepted.borrow().is_empty());
     }
 
     #[test]

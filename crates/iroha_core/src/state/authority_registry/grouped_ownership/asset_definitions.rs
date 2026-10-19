@@ -453,10 +453,10 @@ pub(in crate::state) fn validate_original_asset_definitions(
         };
         visit_original(rows, image, &mut work, |id, definition, work| {
             work.prepay(1)?;
-            if let Some(domain) = definition.owning_domain().as_ref() {
-                if !contains(by_domain, image, domain, id, work)? {
-                    return Err(corrupt(GroupMismatch::MissingMember));
-                }
+            if let Some(domain) = definition.owning_domain().as_ref()
+                && !contains(by_domain, image, domain, id, work)?
+            {
+                return Err(corrupt(GroupMismatch::MissingMember));
             }
             Ok(())
         })?;

@@ -9,6 +9,10 @@
 use super::*;
 use mv::storage::History;
 
+#[expect(
+    clippy::zero_sized_map_values,
+    reason = "MV snapshot restoration requires complete current and undo key/value maps"
+)]
 #[derive(Default)]
 struct Image {
     domains: BTreeMap<AssetDefinitionId, DomainId>,

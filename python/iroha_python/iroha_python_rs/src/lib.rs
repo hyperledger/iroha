@@ -5562,7 +5562,7 @@ mod tests {
     include!("tests/python_crypto_boundary_tests.rs");
     #[test]
     fn native_sdk_bridge_abi_version_is_exactly_twenty_two() {
-        assert_eq!(connect_norito_bridge_abi_version_py(), 29);
+        assert_eq!(connect_norito_bridge_abi_version_py(), 31);
     }
     #[test]
     fn attachments_json_decodes_versioned_signed_transaction() {
@@ -7364,6 +7364,26 @@ mod tests {
                 "message": null,
             }))
         );
+    }
+    #[test]
+    fn anonymous_ballot_rejection_projection_preserves_both_typed_reasons() {
+        use iroha_data_model::governance::anonymous_ballot::AnonymousBallotRejectionV1;
+
+        for (reason, code) in [
+            (
+                AnonymousBallotRejectionV1::OutsideCastingWindow,
+                "OutsideCastingWindow",
+            ),
+            (
+                AnonymousBallotRejectionV1::DuplicateNullifier,
+                "DuplicateNullifier",
+            ),
+        ] {
+            let rejection = TransactionRejectionReason::AnonymousBallot(reason);
+            assert_eq!(transaction_rejection_code(&rejection), code);
+            assert!(transaction_contract_rejection_json(&rejection).is_none());
+            assert!(transaction_ivm_fault_json(&rejection).is_none());
+        }
     }
     #[test]
     fn ivm_fault_projection_retains_typed_origin_without_presentation() {
@@ -12396,6 +12416,10 @@ fn transaction_rejection_code(reason: &TransactionRejectionReason) -> &str {
         },
         TransactionRejectionReason::InstructionExecution(_) => "InstructionExecutionFailed",
         TransactionRejectionReason::TriggerExecution(_) => "TriggerExecutionFailed",
+        TransactionRejectionReason::AnonymousBallot(reason) => match reason {
+            iroha_data_model::governance::anonymous_ballot::AnonymousBallotRejectionV1::OutsideCastingWindow => "OutsideCastingWindow",
+            iroha_data_model::governance::anonymous_ballot::AnonymousBallotRejectionV1::DuplicateNullifier => "DuplicateNullifier",
+        },
     }
 }
 fn transaction_ivm_fault_json(reason: &TransactionRejectionReason) -> Option<json::Value> {
@@ -12515,6 +12539,7 @@ fn verify_committed_transaction_inclusion_py(
         TransactionEntrypoint::External(_) => "External",
         TransactionEntrypoint::SealedCommitment(_) => "SealedCommitment",
         TransactionEntrypoint::SealedReveal(_) => "SealedReveal",
+        TransactionEntrypoint::AnonymousBallot(_) => "AnonymousBallot",
     };
     let external_transaction = match &committed.entrypoint {
         TransactionEntrypoint::External(transaction) => Some(transaction),

@@ -65,8 +65,8 @@ use circuit::Stage;
 pub const INTERNAL_RANGE_BUSES: usize = 4;
 /// The operation terminal uses the common tagged-three catalog layout.
 pub const TERMINAL_RANGE_BUSES: usize = 3;
-/// Nine A stages separated by eight authenticated W continuations.
-pub const A_STAGE_COUNT: usize = 9;
+/// Five A stages separated by four authenticated W continuations.
+pub const A_STAGE_COUNT: usize = 5;
 /// Exact internal wrapper count for the fixed Receive owner sequence.
 pub const W_STAGE_COUNT: usize = A_STAGE_COUNT - 1;
 /// Maximum combined original Omega/public and sigma bytes within Payment.
@@ -218,7 +218,7 @@ pub struct Inputs {
     pub incoming: IncomingWitness,
 }
 
-/// Immutable complete nine-stage Receive metadata, pinned by artifact installation.
+/// Immutable complete five-stage Receive metadata, pinned by artifact installation.
 #[derive(Clone, Debug)]
 pub struct Plan {
     stage: ReceiveStagePlan,

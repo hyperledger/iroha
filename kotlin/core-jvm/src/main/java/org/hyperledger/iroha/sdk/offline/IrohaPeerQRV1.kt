@@ -121,7 +121,7 @@ class IrohaPeerQRFrameV1(
     }
 }
 
-/** Canonical RFC 9285 Base45 IQR1 codec and fixed 256-byte shard encoder. */
+/** Canonical RFC 9285 Base45 IQR1 codec and fixed 256-byte shard encoder with Reed-Solomon parity. */
 object IrohaPeerQRCodecV1 {
     const val TEXT_PREFIX = "IQR1:"
     const val TEXT_SUFFIX = ":"
@@ -165,14 +165,20 @@ object IrohaPeerQRCodecV1 {
         }
     }
 
-    /** Header,D0,D1,P0,... with the identical header repeated every 12 non-header frames. */
+    /**
+     * Header,D0,D1,P0,... with the identical header repeated every 12 non-header frames. Parity
+     * frame `j` is Reed-Solomon row `j` over all data shards, so any `total` distinct data and
+     * parity frames recover the message, whichever ones the camera missed.
+     */
     @JvmStatic
     fun animatedFrameTexts(message: IrohaPeerWireMessageV1): List<String> {
         val body = message.encodedBody
         val encodedMessage = message.encode()
         try {
             val dataCount = (body.size + SHARD_BYTES - 1) / SHARD_BYTES
-            require(dataCount in 1..0xffff) { "Peer message cannot be represented as QR" }
+            require(dataCount in 1..IrohaPeerQRParityV1.MAXIMUM_DATA_SHARDS) {
+                "Peer message cannot be represented as QR"
+            }
             val shards = ArrayList<ByteArray>(dataCount)
             repeat(dataCount) { index ->
                 val shard = ByteArray(SHARD_BYTES)
@@ -219,13 +225,7 @@ object IrohaPeerQRCodecV1 {
                         shards[firstIndex + 1],
                     ))
                 }
-                val parity = shards[firstIndex].copyOf()
-                if (firstIndex + 1 < dataCount) {
-                    repeat(SHARD_BYTES) { byteIndex ->
-                        parity[byteIndex] = (parity[byteIndex].toInt() xor
-                            shards[firstIndex + 1][byteIndex].toInt()).toByte()
-                    }
-                }
+                val parity = IrohaPeerQRParityV1.parity(shards, pairIndex)
                 append(IrohaPeerQRFrameV1(
                     IrohaPeerQRFrameKindV1.PARITY,
                     message.canonicalPayload.profile,
@@ -285,10 +285,12 @@ class IrohaPeerQRScanResultV1 internal constructor(
     val receivedDataFrames: Int,
     val totalDataFrames: Int,
     val recoveredDataFrames: Int,
+    /** Distinct data and parity frames so far, at most [totalDataFrames]; that many complete it. */
+    val usableFrames: Int,
 ) {
     val isComplete: Boolean get() = message != null
     val progress: Double get() = when {
-        totalDataFrames > 0 -> minOf(1.0, receivedDataFrames.toDouble() / totalDataFrames.toDouble())
+        totalDataFrames > 0 -> minOf(1.0, usableFrames.toDouble() / totalDataFrames.toDouble())
         isComplete -> 1.0
         else -> 0.0
     }
@@ -504,6 +506,7 @@ class IrohaPeerQRScanSessionV1 @JvmOverloads constructor(
                     0,
                     0,
                     0,
+                    0,
                 )
             } catch (failure: RuntimeException) {
                 quarantine(key, nowMillis)
@@ -554,10 +557,15 @@ class IrohaPeerQRScanSessionV1 @JvmOverloads constructor(
             } ?: run { candidate.declaredTotal = frame.total }
 
             if (candidate.header == null && frame.frameKind != IrohaPeerQRFrameKindV1.HEADER) {
-                require(candidate.preheaderFrameCount < scanLimits.maximumPreheaderFramesPerStream &&
-                    frame.payload.size <=
-                    scanLimits.maximumPreheaderPayloadBytesPerStream - candidate.preheaderPayloadBytes) {
-                    "IRQR preheader limit exceeded"
+                if (candidate.preheaderFrameCount >= scanLimits.maximumPreheaderFramesPerStream ||
+                    frame.payload.size >
+                    scanLimits.maximumPreheaderPayloadBytesPerStream - candidate.preheaderPayloadBytes
+                ) {
+                    // The bound limits buffering, not the stream: a scan that missed the header must
+                    // not be refused. This frame is dropped unbuffered and returns in the next loop.
+                    encoded.fill(0)
+                    candidates[key] = candidate
+                    return result(candidate)
                 }
                 candidate.preheaderFrameCount += 1
                 candidate.preheaderPayloadBytes += frame.payload.size
@@ -607,6 +615,7 @@ class IrohaPeerQRScanSessionV1 @JvmOverloads constructor(
                         dataCount(header),
                         dataCount(header),
                         candidate.recovered.size,
+                        dataCount(header),
                     )
                 }
             }
@@ -641,24 +650,20 @@ class IrohaPeerQRScanSessionV1 @JvmOverloads constructor(
         }
     }
 
+    /** Once the parity frames outnumber the missing data shards, solve for all of them at once. */
     private fun recover(candidate: Candidate, total: Int) {
-        repeat((total + 1) / 2) { pair ->
-            val parity = candidate.parityFrames[pair] ?: return@repeat
-            val first = pair * 2
-            val end = minOf(first + 2, total)
-            val missing = (first until end).filter { candidate.dataFrames[it] == null }
-            if (missing.size != 1) return@repeat
-            val recovered = parity.copyOf()
-            for (index in first until end) {
-                if (index == missing.single()) continue
-                val present = candidate.dataFrames[index] ?: continue
-                present.indices.forEach { offset ->
-                    recovered[offset] =
-                        (recovered[offset].toInt() xor present[offset].toInt()).toByte()
-                }
-            }
-            candidate.dataFrames[missing.single()] = recovered
-            candidate.recovered += missing.single()
+        val missing = (0 until total).filter { candidate.dataFrames[it] == null }
+        if (missing.isEmpty() || candidate.parityFrames.size < missing.size) return
+        val rows = candidate.parityFrames.keys.sorted().take(missing.size)
+        val recovered = IrohaPeerQRParityV1.recover(
+            total,
+            candidate.dataFrames,
+            rows.map { it to candidate.parityFrames.getValue(it) },
+            missing,
+        )
+        missing.forEachIndexed { position, index ->
+            candidate.dataFrames[index] = recovered[position]
+            candidate.recovered += index
         }
     }
 
@@ -700,14 +705,18 @@ class IrohaPeerQRScanSessionV1 @JvmOverloads constructor(
             require(it in 1..0xffff)
         }
 
-    private fun result(candidate: Candidate) = IrohaPeerQRScanResultV1(
-        null,
-        candidate.profile,
-        candidate.payloadKind,
-        candidate.dataFrames.size,
-        candidate.header?.let(::dataCount) ?: 0,
-        candidate.recovered.size,
-    )
+    private fun result(candidate: Candidate): IrohaPeerQRScanResultV1 {
+        val total = candidate.header?.let(::dataCount) ?: 0
+        return IrohaPeerQRScanResultV1(
+            null,
+            candidate.profile,
+            candidate.payloadKind,
+            candidate.dataFrames.size,
+            total,
+            candidate.recovered.size,
+            minOf(total, candidate.dataFrames.size + candidate.parityFrames.size),
+        )
+    }
 
     private fun quarantine(key: StreamKey, nowMillis: Long) {
         candidates.remove(key)?.clear()
@@ -735,7 +744,103 @@ class IrohaPeerQRScanSessionV1 @JvmOverloads constructor(
     }
 }
 
-internal object PeerBase45 {
+/**
+ * Systematic Cauchy Reed-Solomon parity over GF(2^8) with polynomial 0x11D. Parity row `j` of
+ * `k` data shards is `P_j = sum_i d_i / ((k + j) xor i)`, bytewise. Row and data indices are
+ * disjoint field elements, so every square submatrix of the coefficients is invertible: any `k`
+ * distinct data and parity shards determine the data. Addition is xor.
+ */
+internal object IrohaPeerQRParityV1 {
+    /** `k` data shards and `ceil(k / 2)` parity rows must all be distinct field elements. */
+    const val MAXIMUM_DATA_SHARDS = 170
+
+    private val exp = IntArray(510)
+    private val log = IntArray(256)
+
+    init {
+        var value = 1
+        for (power in 0 until 255) {
+            exp[power] = value
+            log[value] = power
+            value = value shl 1
+            if (value and 0x100 != 0) value = value xor 0x11d
+        }
+        for (power in 255 until 510) exp[power] = exp[power - 255]
+    }
+
+    private fun mul(a: Int, b: Int): Int = if (a == 0 || b == 0) 0 else exp[log[a] + log[b]]
+
+    private fun inverse(a: Int): Int {
+        require(a != 0) { "IRQR parity coefficient is zero" }
+        return exp[255 - log[a]]
+    }
+
+    private fun coefficient(total: Int, row: Int, index: Int): Int {
+        require(total in 1..MAXIMUM_DATA_SHARDS && row in 0 until (total + 1) / 2 && index in 0 until total)
+        return inverse((total + row) xor index)
+    }
+
+    /** `target ^= factor * source`, bytewise. */
+    private fun addScaled(target: ByteArray, source: ByteArray, factor: Int) {
+        if (factor == 0) return
+        val logFactor = log[factor]
+        for (offset in target.indices) {
+            val value = source[offset].toInt() and 0xff
+            if (value != 0) {
+                target[offset] = (target[offset].toInt() xor exp[log[value] + logFactor]).toByte()
+            }
+        }
+    }
+
+    /** Parity row [row] over all data [shards]. */
+    fun parity(shards: List<ByteArray>, row: Int): ByteArray {
+        val output = ByteArray(IrohaPeerQRCodecV1.SHARD_BYTES)
+        shards.forEachIndexed { index, shard -> addScaled(output, shard, coefficient(shards.size, row, index)) }
+        return output
+    }
+
+    /**
+     * The [missing] data shards from the present [data] shards and exactly `missing.size`
+     * parity [rows], in the order of [missing]. Callers own and zeroize the returned shards.
+     */
+    fun recover(
+        total: Int,
+        data: Map<Int, ByteArray>,
+        rows: List<Pair<Int, ByteArray>>,
+        missing: List<Int>,
+    ): List<ByteArray> {
+        val count = missing.size
+        require(count >= 1 && rows.size == count && data.size + count == total)
+        val matrix = Array(count) { r -> IntArray(count) { c -> coefficient(total, rows[r].first, missing[c]) } }
+        val values = Array(count) { r ->
+            rows[r].second.copyOf().also { value ->
+                data.forEach { (index, shard) -> addScaled(value, shard, coefficient(total, rows[r].first, index)) }
+            }
+        }
+        for (column in 0 until count) {
+            val pivot = (column until count).first { matrix[it][column] != 0 }
+            if (pivot != column) {
+                matrix[pivot] = matrix[column].also { matrix[column] = matrix[pivot] }
+                values[pivot] = values[column].also { values[column] = values[pivot] }
+            }
+            val scale = inverse(matrix[column][column])
+            for (c in 0 until count) matrix[column][c] = mul(matrix[column][c], scale)
+            val scaled = ByteArray(values[column].size)
+            addScaled(scaled, values[column], scale)
+            values[column].fill(0)
+            values[column] = scaled
+            for (r in 0 until count) {
+                val factor = matrix[r][column]
+                if (r == column || factor == 0) continue
+                for (c in 0 until count) matrix[r][c] = matrix[r][c] xor mul(factor, matrix[column][c])
+                addScaled(values[r], values[column], factor)
+            }
+        }
+        return values.toList()
+    }
+}
+
+private object PeerBase45 {
     private val alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ \$%*+-./:".toByteArray(Charsets.US_ASCII)
     private val reverse = IntArray(128) { -1 }.also { table ->
         alphabet.forEachIndexed { index, byte -> table[byte.toInt()] = index }

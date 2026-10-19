@@ -16,7 +16,7 @@ use norito::json::JsonSerialize;
 use super::{
     arena::{Arena, HEAP_BYTES},
     budget::{Budget, Charge},
-    fatal, native,
+    fatal, hook_scope, native,
     verify::{self, Outcome},
 };
 
@@ -265,7 +265,10 @@ fn execute(request: &Request) -> ResultState {
     let context =
         unsafe { std::slice::from_raw_parts(request.context, request.context_length) }.to_vec();
     let outcome = match reservation.consume(&envelope, &context) {
-        Ok(_) => verify::cold(&envelope, &context, request.network, request.body),
+        Ok(_) => {
+            hook_scope::run(|| verify::cold(&envelope, &context, request.network, request.body))
+                .unwrap_or_else(|()| Outcome::unavailable("verification_panic"))
+        }
         Err(_) => Outcome::unavailable("input_length"),
     };
     // Explicit drops keep the complete owned-input lifetime inside ACTIVE.

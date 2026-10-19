@@ -129,7 +129,7 @@ import iroha_python as sdk
 
 print(f"iroha_python version: {sdk.__version__}")
 assert hasattr(sdk, "ToriiClient")
-assert sdk.PRIVACY_REQUIRED_BRIDGE_ABI_VERSION == 30
+assert sdk.PRIVACY_REQUIRED_BRIDGE_ABI_VERSION == 31
 assert sdk.privacy_bridge_abi_version() == sdk.PRIVACY_REQUIRED_BRIDGE_ABI_VERSION
 assert sdk.is_privacy_native_available() is True
 catalog = sdk.privacy_compiled_profile_catalog_v1()

@@ -149,8 +149,23 @@ These types sit alongside the existing Ed25519/BLS/ML-DSA primitives and become 
 - `SignedTransaction` (versioned with `iroha_version`): carries `TransactionSignature` and payload; provides hashing and signature verification.
 - Entrypoints and results:
   - `TransactionEntrypoint`: `External(SignedTransaction)` |
-    `SealedCommitment(SignedSealedTransactionCommitment)` | `SealedReveal(SealedTransactionReveal)`.
-  - `TransactionResult` = `Result<DataTriggerSequence, TransactionRejectionReason>` with hashing helpers.
+    `SealedCommitment(SignedSealedTransactionCommitment)` | `SealedReveal(SealedTransactionReveal)` |
+    `AnonymousBallot(CanonicalAnonymousBallotEnvelopeV1)`. Their explicit tags are
+    0, 1, 2 and 4; retired tag 3 is invalid. The anonymous carrier retains the
+    complete canonical ballot envelope and has no account authority, creation
+    timestamp or metadata. Use `authority_opt()` when inspecting arbitrary inputs.
+  - `TransactionResult` carries `Result<DataTriggerSequence, TransactionRejectionReason>`
+    plus batch-transfer receipts, a required nullable Nexus fee receipt and contract
+    emissions. An anonymous Network output is an empty success or
+    `AnonymousBallot(OutsideCastingWindow | DuplicateNullifier)` (rejection tag 5),
+    with no triggers, completions, receipts, fees or emissions. Ballot rejections
+    are invalid on ordinary or internal outputs. Repeated identical anonymous
+    envelopes retain their envelope hash but each output owns a distinct ordered
+    input index, permitting success followed by a duplicate rejection. Ordinary
+    and internal execution-call hashes remain unique. Structural validity does not
+    authenticate the proof or execution. Core admission remains locally unavailable
+    pending the authoritative ballot State/context adapter; development proof tests
+    are available through `scripts/test_parliament_ballot_local.sh`.
   - `ExecutionStep(ConstVec<InstructionBox>)`: a single ordered batch of instructions in a transaction.
 
 The only supported SDK/node compatibility handshake is

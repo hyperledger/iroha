@@ -4767,7 +4767,7 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         self.install_zk_snapshots(state.world(), state.zk(), elections)
     }
     /// Hydrate a standalone World fixture without an enclosing State cache.
-    #[cfg(any(test, feature = "iroha-core-tests"))]
+    #[cfg(test)]
     pub(crate) fn set_zk_snapshots_from_world(
         &mut self,
         world: &impl WorldReadOnly,

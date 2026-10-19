@@ -206,7 +206,7 @@ public final class DeterministicKeyExporterTests {
 
   private static void mlDsaExportRoundTrips() throws Exception {
     if (!NativeSignerBridge.isNativeAvailable()) {
-      throw new AssertionError("connect_norito_bridge ABI 30 is required for ML-DSA export");
+      throw new AssertionError("connect_norito_bridge ABI 31 is required for ML-DSA export");
     }
     final SoftwareKeyProvider provider = new SoftwareKeyProvider(SigningAlgorithm.ML_DSA);
     final KeyPair original = provider.generate("ml-dsa-alias");
@@ -227,7 +227,7 @@ public final class DeterministicKeyExporterTests {
   private static void mixedAlgorithmRestoreRejected() throws Exception {
     if (!NativeSignerBridge.isNativeAvailable()) {
       throw new AssertionError(
-          "connect_norito_bridge ABI 30 is required for mixed-algorithm export");
+          "connect_norito_bridge ABI 31 is required for mixed-algorithm export");
     }
     final SoftwareKeyProvider mlDsaProvider = new SoftwareKeyProvider(SigningAlgorithm.ML_DSA);
     mlDsaProvider.generate("ml-dsa-cross-alias");

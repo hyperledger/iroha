@@ -8,7 +8,8 @@
 //! Retention scenarios restart every process, then authenticate a paid successor signed
 //! by the unchanged generation and a fresh, separately identified future attempt.
 //! The complete rotation withdraws a departing seat's full bond only after replacement and liability
-//! expiry. Its genuine Parliament pulse consumes current credentials while the next
+//! expiry, then restarts every process and proves paid progress and consumed-plan rejection.
+//! Every validator boot must close successfully. Its genuine Parliament pulse consumes current credentials while the next
 //! committee remains pending. Retail monthly policy and network slashing remain separate gates.
 
 use eyre::{Result, WrapErr as _, ensure, eyre};
@@ -64,7 +65,7 @@ use iroha_test_network::{
     CommitteeValidatorP2pBootstrap, DisposableBeaconProviderBinding, DisposableGenesisDkgOutput,
     DisposablePendingCustodyInput, DisposablePreparedBeaconCustody,
     DisposableRetainedBeaconCredential, DisposableRotationDkgOutput, DisposableRotationProofInput,
-    Network, NetworkBuilder, NetworkPeer, init_instruction_registry,
+    Network, NetworkBuilder, NetworkPeer, PeerLifecycleEvent, init_instruction_registry,
     prepare_disposable_pending_custody, read_on_dedicated_thread, run_disposable_genesis_dkg,
     run_disposable_rotation_dkg,
 };
@@ -251,6 +252,128 @@ fn verify_equal_vote_context(proof: &CertifiedBlock, expected: &BTreeSet<PeerId>
     Ok(())
 }
 
+/// Require exactly one successful terminal event from the original shutdown subscription.
+fn verify_clean_peer_exit(
+    events: &mut tokio::sync::broadcast::Receiver<PeerLifecycleEvent>,
+) -> Result<()> {
+    let mut terminated = false;
+    loop {
+        match events.try_recv() {
+            Ok(PeerLifecycleEvent::Terminated { status }) => {
+                ensure!(
+                    !terminated && status.success(),
+                    "validator boot did not close exactly once with successful status: {status:?}"
+                );
+                terminated = true;
+            }
+            Ok(PeerLifecycleEvent::Killed | PeerLifecycleEvent::Spawned) => {
+                return Err(eyre!(
+                    "validator was killed or another boot replaced the shutdown source"
+                ));
+            }
+            Ok(PeerLifecycleEvent::ServerStarted | PeerLifecycleEvent::BlockApplied { .. }) => {}
+            Err(
+                tokio::sync::broadcast::error::TryRecvError::Empty
+                | tokio::sync::broadcast::error::TryRecvError::Closed,
+            ) => break,
+            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {
+                return Err(eyre!("validator shutdown evidence lost lifecycle events"));
+            }
+        }
+    }
+    ensure!(
+        terminated,
+        "validator shutdown has no retained terminal event"
+    );
+    Ok(())
+}
+
+/// Join every original process before a restart or test completion, retaining its exit evidence.
+async fn shutdown_all_cleanly(network: &Network) -> Result<()> {
+    let mut boots = Vec::new();
+    for peer in network.all_peers() {
+        let events = peer.events();
+        let pid = peer.process_id().await;
+        boots.push((
+            peer,
+            peer.is_running(),
+            pid,
+            peer.latest_stdout_log_path(),
+            events,
+        ));
+    }
+    network.shutdown().await;
+    ensure!(
+        !boots.is_empty(),
+        "qualification cannot close an empty process census"
+    );
+    let mut original_pids = BTreeSet::new();
+    for (peer, was_running, pid, log, events) in &mut boots {
+        let id = peer.id();
+        ensure!(
+            *was_running && pid.is_some(),
+            "validator {id} exited before its shutdown evidence subscription"
+        );
+        ensure!(
+            original_pids.insert(pid.expect("checked original live process")),
+            "validator process census reused one PID for two peers"
+        );
+        verify_clean_peer_exit(events).wrap_err_with(|| format!("validator {id} shutdown"))?;
+        ensure!(
+            !peer.is_running()
+                && peer.process_id().await.is_none()
+                && log.is_some()
+                && peer.latest_stdout_log_path() == *log,
+            "validator {id} retained a process or replaced its original boot log during shutdown"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn process_closure_requires_one_original_successful_terminal_without_event_loss() -> Result<()> {
+    use tokio::sync::broadcast;
+    let success = PeerLifecycleEvent::Terminated {
+        status: std::process::ExitStatus::default(),
+    };
+    let (sender, mut receiver) = broadcast::channel(4);
+    assert!(verify_clean_peer_exit(&mut receiver).is_err());
+    sender.send(PeerLifecycleEvent::BlockApplied { height: 12 })?;
+    sender.send(success)?;
+    verify_clean_peer_exit(&mut receiver)?;
+    for events in [
+        vec![success, success],
+        vec![PeerLifecycleEvent::Killed],
+        vec![success, PeerLifecycleEvent::Spawned],
+    ] {
+        let (sender, mut receiver) = broadcast::channel(4);
+        for event in events {
+            sender.send(event)?;
+        }
+        assert!(verify_clean_peer_exit(&mut receiver).is_err());
+    }
+    let (sender, mut receiver) = broadcast::channel(1);
+    sender.send(PeerLifecycleEvent::BlockApplied { height: 12 })?;
+    sender.send(success)?;
+    assert!(verify_clean_peer_exit(&mut receiver).is_err());
+    let (sender, mut receiver) = broadcast::channel::<PeerLifecycleEvent>(1);
+    drop(sender);
+    assert!(verify_clean_peer_exit(&mut receiver).is_err());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        for status in [
+            std::process::ExitStatus::from_raw(256),
+            std::process::ExitStatus::from_raw(9),
+        ] {
+            let (sender, mut receiver) = broadcast::channel(1);
+            sender.send(PeerLifecycleEvent::Terminated { status })?;
+            assert!(verify_clean_peer_exit(&mut receiver).is_err());
+        }
+    }
+    Ok(())
+}
+
 async fn prove_retained_successor_after_restart(
     network: &sandbox::SerializedNetwork,
     admin: &Client,
@@ -289,7 +412,7 @@ async fn prove_retained_successor_after_restart(
                     .map_err(|error| eyre!(error))?,
         "cancelled preparation cannot be shrunk or reused as the next attempt"
     );
-    network.shutdown().await;
+    shutdown_all_cleanly(network).await?;
     network.start_all().await?;
     network.ensure_blocks(CUTOFF).await?;
     let restarted = read_validator_committee(admin, 2).await?;
@@ -1788,7 +1911,7 @@ async fn execute_rotation_preparation_with_workload(
             "target custody contains a duplicate seat"
         );
     }
-    network.shutdown().await;
+    shutdown_all_cleanly(network).await?;
     stage_prepared_brokers(network, &prepared, provider_revision).await?;
     network.start_all().await?;
     network.ensure_blocks(proof_end).await?;
@@ -2280,6 +2403,22 @@ async fn run_custody_or_activation_scenario(
     })
     .await
     .wrap_err("return cutoff finality worker failed")?;
+    let preparation_blocks = return_chain
+        .iter()
+        .filter(|block| (TARGET_FIRST..=second_cutoff).contains(&block.height()))
+        .collect::<Vec<_>>();
+    ensure!(
+        preparation_blocks.len() == usize::try_from(EPOCH)?,
+        "return preparation must retain every certified block of the full seven-seat epoch"
+    );
+    for (index, block) in preparation_blocks.iter().enumerate() {
+        verify_equal_vote_context(block, &seven_set)?;
+        ensure!(
+            block.height() == TARGET_FIRST + u64::try_from(index)?
+                && block.commitment().schedule.current == seven.commitment().schedule.current,
+            "pending four-seat credentials became active before the complete seven-seat preparation interval ended"
+        );
+    }
     let return_boundary = return_chain
         .last()
         .ok_or_else(|| eyre!("return boundary lacks finality"))?;
@@ -2501,7 +2640,7 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
         })
         .await
         .wrap_err("genesis beacon install worker failed")?;
-        network.shutdown().await;
+        shutdown_all_cleanly(&network).await?;
         let genesis_catalogs = stage_genesis_brokers(&network, &genesis_dkg).await?;
         network.start_all().await?;
         network.ensure_blocks(5).await?;
@@ -2667,8 +2806,15 @@ async fn run_overfull_qualification(scenario: QualificationScenario) -> Result<(
         .await
     })
     .await;
+    let closure = shutdown_all_cleanly(&network).await;
     network.shutdown_and_release().await;
-    result
+    match (result, closure) {
+        (Ok(()), closure) => closure,
+        (Err(error), Ok(())) => Err(error),
+        (Err(error), Err(closure)) => Err(error).wrap_err(format!(
+            "validator process closure also failed: {closure:#}"
+        )),
+    }
 }
 
 // Native authenticated history decoding runs inside the test driver during DKG.

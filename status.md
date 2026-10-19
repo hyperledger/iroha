@@ -434,11 +434,14 @@ passes.
 - **Parliament:** binding juries move to [anonymous on-chain ballots](specs/parliament_private_ballot_design.md):
   public votes and tally, voter-to-ballot linkage hidden by a PQ membership and
   nullifier proof, and no ballot custodian. No proof profile is selected,
-  nothing is qualified and the ballot is not implemented in Core. The real
+  nothing is qualified and authenticated ballot execution is not implemented in
+  Core. Canonical signerless transaction inputs and restricted ballot results are
+  implemented; unfinished node paths return local unavailability. The real
   typed protocol is available for local testing with
   `scripts/test_parliament_ballot_local.sh` (or `--full`); its fixture board
-  covers registration, voting, admission/execution, closure and replay.
-  The owner explicitly authorized testing before qualification.
+  covers registration, voting, admission/execution, closure, replay and canonical
+  block input/output roundtrips. The owner explicitly authorized testing before
+  qualification.
   Binding-governance mainnet launch is no-go. The
   [profile record](specs/parliament_ballot_proof_profile.md) states the
   construction under development: a proof of selection from the sealed
@@ -538,8 +541,9 @@ passes.
   intervals; it does not bound hidden paths or complete native memory.
   Complete compiler/runtime correspondence, stack sufficiency and physical cost
   calibration remain open.
-  Complete envelope/work/allocation certificates and the named validator/phone
-  baselines remain open; Intel measurements are deferred to the owner.
+  The typed envelope and maximal structurally valid context fit their separate
+  wire caps. Final integrated ingress/work/allocation certificates and the named
+  validator/phone baselines remain open; Intel measurements are deferred to the owner.
   Nothing is wired into Core. Selection is
   blocked: no section 5 gate is discharged. The review's arguments
   ([arguments record](specs/parliament_ballot_proof_arguments.md)) are

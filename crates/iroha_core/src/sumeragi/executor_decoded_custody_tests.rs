@@ -5,6 +5,7 @@
 
 use super::*;
 use iroha_allocation::AllocationBudget;
+use iroha_sumeragi::preimage::payload_hash;
 use norito::core::EncodeValueDepthGuard;
 
 fn original_attempt(worker: &Worker<'_>, block: &AvailableBody) -> SignatureDecodeAttempt {
@@ -536,6 +537,251 @@ fn same_source_same_pool_distinct_prepared_signature_owner_is_refused_at_both_bo
         assert!(events.try_recv().is_err());
         assert!(worker.live.is_none());
         assert!(worker.finishing.is_none());
+        assert_eq!(worker.state.view().height(), 1);
+    });
+}
+
+#[test]
+fn same_wire_distinct_action_owner_is_refused_at_original_lend_and_validation_return() {
+    use iroha_data_model::consensus::{NposConsensusEffects, NposPenaltyActions};
+    publication_tests::with_worker(|chain, worker, _blocks, events| {
+        let carrier = publication_tests::proposal(chain, worker);
+        let mut proposal = payload::decode(carrier.payload().as_slice()).unwrap();
+        let mut effects = proposal
+            .npos_consensus_effects()
+            .cloned()
+            .unwrap_or_else(NposConsensusEffects::default);
+        // Transport/custody fixture only; no execution or penalty authority is granted.
+        if effects.penalty_actions.is_empty() {
+            effects.penalty_actions = NposPenaltyActions::from_untrusted(vec![
+                iroha_data_model::consensus::NposPenaltyAction::MarkConsensusEvidenceApplied(
+                    iroha_data_model::consensus::NposMarkConsensusEvidenceAppliedAction {
+                        evidence_key: iroha_crypto::Hash::new([0x5a; 32]),
+                        height: proposal.header().height().get(),
+                    },
+                ),
+            ]);
+        }
+        proposal.set_npos_consensus_effects(Some(effects));
+        let bytes = payload::encode(&proposal).unwrap();
+        let mut header = carrier.header().clone();
+        header.payload_hash = payload_hash(&**worker.context.crypto.as_ref().unwrap(), &bytes);
+        header.payload_len = u32::try_from(bytes.len()).unwrap();
+        let block = chain.author_payload(header, bytes);
+        let budget = worker.state.ivm_execution_budget();
+        let mut attempt = original_attempt(worker, &block);
+        attempt.original_decoded(&budget).unwrap();
+        let original = attempt.decoded.take().unwrap();
+        let source = block.payload().charged_source(&budget).unwrap();
+        let mut second =
+            iroha_data_model::block::PreparedSignedBlockSignaturesDecode::new(&budget).unwrap();
+        let separately_decoded = payload::decode_prepared(source, &mut second).unwrap();
+        let mut substituted = original.clone();
+        let mut effects = substituted.npos_consensus_effects().unwrap().clone();
+        effects.penalty_actions = separately_decoded
+            .npos_consensus_effects()
+            .unwrap()
+            .penalty_actions
+            .clone();
+        substituted.set_npos_consensus_effects(Some(effects));
+        assert!(original.same_signature_custody(&substituted));
+        assert_eq!(
+            original.encode_wire().unwrap(),
+            substituted.encode_wire().unwrap()
+        );
+        assert!(
+            substituted
+                .matches_resultless_proposal_wire(source.as_slice())
+                .unwrap()
+        );
+        assert!(
+            substituted
+                .npos_consensus_effects()
+                .unwrap()
+                .penalty_actions
+                .admitted_to(&budget)
+        );
+        assert!(!NposPenaltyActions::ptr_eq(
+            &original.npos_consensus_effects().unwrap().penalty_actions,
+            &substituted
+                .npos_consensus_effects()
+                .unwrap()
+                .penalty_actions
+        ));
+        assert!(
+            attempt
+                .decoder
+                .retains_npos_penalty_action_custody(source, &original)
+                .unwrap()
+        );
+        assert!(
+            !attempt
+                .decoder
+                .retains_npos_penalty_action_custody(source, &substituted)
+                .unwrap()
+        );
+        let occupied = budget.reserved_bytes();
+        attempt.decoded = Some(substituted);
+        assert!(
+            matches!(attempt.original_decoded(&budget), Err(payload::PayloadError::SignatureCustodyInvariant(ref reason)) if reason == "completed proposal lost its original penalty-action custody"),
+            "same-wire action substitution must fail original lend"
+        );
+        assert_eq!(budget.reserved_bytes(), occupied);
+        let substituted = attempt.decoded.take().unwrap();
+        let expected_actions = original
+            .npos_consensus_effects()
+            .unwrap()
+            .penalty_actions
+            .clone();
+        attempt.decoded = Some(original);
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+        norito::with_decode_limits_scope(limits, || {
+            let original = attempt
+                .original_decoded(&budget)
+                .expect("original actions must lend without canonical reentry");
+            assert!(NposPenaltyActions::ptr_eq(
+                &expected_actions,
+                &original.npos_consensus_effects().unwrap().penalty_actions
+            ));
+        });
+        let original = attempt.decoded.take().unwrap();
+        assert!(
+            matches!(attempt.retain_validation_return(substituted, &budget), Err(PublicationError::RecoveryRequired(ref reason)) if reason == "returned proposal lost its original penalty-action custody"),
+            "same-wire action substitution must fail validation return"
+        );
+        assert!(matches!(
+            attempt.returned_refusal,
+            Some(ReturnedDecodedRefusal::SourceMismatch)
+        ));
+        let retained = attempt.decoded.as_ref().unwrap();
+        assert!(original.same_signature_custody(retained));
+        assert!(!NposPenaltyActions::ptr_eq(
+            &original.npos_consensus_effects().unwrap().penalty_actions,
+            &retained.npos_consensus_effects().unwrap().penalty_actions
+        ));
+        assert_eq!(budget.reserved_bytes(), occupied);
+        assert!(matches!(
+            attempt.original_decoded(&budget),
+            Err(payload::PayloadError::SignatureCustodyInvariant(_))
+        ));
+        assert!(events.try_recv().is_err());
+        assert!(worker.live.is_none() && worker.finishing.is_none());
+        assert_eq!(worker.state.view().height(), 1);
+    });
+}
+
+#[test]
+fn same_wire_parent_qc_substitution_preserving_actions_and_signatures_is_refused_at_both_boundaries()
+ {
+    use iroha_data_model::consensus::{
+        NposConsensusEffects, NposParentServiceCommitQc, NposPenaltyActions,
+    };
+    fn parent(block: &SignedBlock) -> &NposParentServiceCommitQc {
+        block
+            .npos_consensus_effects()
+            .unwrap()
+            .parent_service_commit_qc
+            .as_ref()
+            .unwrap()
+    }
+    publication_tests::with_worker(|chain, worker, _blocks, events| {
+        let carrier = publication_tests::proposal(chain, worker);
+        let mut proposal = payload::decode(carrier.payload().as_slice()).unwrap();
+        let mut effects = proposal
+            .npos_consensus_effects()
+            .cloned()
+            .unwrap_or_else(NposConsensusEffects::default);
+        // Transport/custody fixture only. The decoder grants no native QC authority.
+        effects.parent_service_commit_qc =
+            Some(NposParentServiceCommitQc::from_untrusted(vec![0x21, 0x32]));
+        proposal.set_npos_consensus_effects(Some(effects));
+        let bytes = payload::encode(&proposal).unwrap();
+        let mut header = carrier.header().clone();
+        header.payload_hash = payload_hash(&**worker.context.crypto.as_ref().unwrap(), &bytes);
+        header.payload_len = u32::try_from(bytes.len()).unwrap();
+        let block = chain.author_payload(header, bytes);
+        let budget = worker.state.ivm_execution_budget();
+        let mut attempt = original_attempt(worker, &block);
+        attempt.original_decoded(&budget).unwrap();
+        let original = attempt.decoded.take().unwrap();
+        let source = block.payload().charged_source(&budget).unwrap();
+        let mut second =
+            iroha_data_model::block::PreparedSignedBlockSignaturesDecode::new(&budget).unwrap();
+        let separately_decoded = payload::decode_prepared(source, &mut second).unwrap();
+        let mut substituted = original.clone();
+        let mut effects = substituted.npos_consensus_effects().unwrap().clone();
+        effects.parent_service_commit_qc = Some(parent(&separately_decoded).clone());
+        substituted.set_npos_consensus_effects(Some(effects));
+        assert!(original.same_signature_custody(&substituted));
+        assert!(NposPenaltyActions::ptr_eq(
+            &original.npos_consensus_effects().unwrap().penalty_actions,
+            &substituted
+                .npos_consensus_effects()
+                .unwrap()
+                .penalty_actions
+        ));
+        assert_eq!(
+            original.encode_wire().unwrap(),
+            substituted.encode_wire().unwrap()
+        );
+        assert!(
+            substituted
+                .matches_resultless_proposal_wire(source.as_slice())
+                .unwrap()
+        );
+        assert!(parent(&substituted).admitted_to(&budget));
+        assert!(!NposParentServiceCommitQc::ptr_eq(
+            parent(&original),
+            parent(&substituted)
+        ));
+        assert!(
+            attempt
+                .decoder
+                .retains_parent_service_custody(source, &original)
+                .unwrap()
+        );
+        assert!(
+            !attempt
+                .decoder
+                .retains_parent_service_custody(source, &substituted)
+                .unwrap()
+        );
+        let occupied = budget.reserved_bytes();
+        attempt.decoded = Some(substituted);
+        assert!(
+            matches!(attempt.original_decoded(&budget), Err(payload::PayloadError::SignatureCustodyInvariant(ref reason)) if reason == "completed proposal lost its original parent-QC custody"),
+            "same-wire parent-QC substitution must fail original lend"
+        );
+        assert_eq!(budget.reserved_bytes(), occupied);
+        let substituted = attempt.decoded.take().unwrap();
+        let expected = parent(&original).clone();
+        attempt.decoded = Some(original);
+        norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
+            || {
+                assert!(NposParentServiceCommitQc::ptr_eq(
+                    &expected,
+                    parent(attempt.original_decoded(&budget).unwrap())
+                ));
+            },
+        );
+        let original = attempt.decoded.take().unwrap();
+        assert!(
+            matches!(attempt.retain_validation_return(substituted, &budget), Err(PublicationError::RecoveryRequired(ref reason)) if reason == "returned proposal lost its original parent-QC custody")
+        );
+        assert!(matches!(
+            attempt.returned_refusal,
+            Some(ReturnedDecodedRefusal::SourceMismatch)
+        ));
+        let refused = attempt.decoded.as_ref().unwrap();
+        assert!(original.same_signature_custody(refused));
+        assert!(!NposParentServiceCommitQc::ptr_eq(
+            parent(&original),
+            parent(refused)
+        ));
+        assert_eq!(budget.reserved_bytes(), occupied);
+        assert!(events.try_recv().is_err());
+        assert!(worker.live.is_none() && worker.finishing.is_none());
         assert_eq!(worker.state.view().height(), 1);
     });
 }

@@ -30,7 +30,7 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 47, first: Data([1])))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 47, second: Data([1])))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 47, third: Data([1])))
-    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 54))
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 56))
     XCTAssertThrowsError(try KagemushaWalletCallV1(status: 50, sequenceLow: 1, sequenceHigh: 0, detail: 0, bytes: Data()))
     let progress = try KagemushaWalletCallV1(status: 51, sequenceLow: 1, sequenceHigh: 0, detail: 0, bytes: Data())
     XCTAssertThrowsError(try KagemushaWalletCollectionStatusV1(progress, expectedSequence: .init(low: 2, high: 0)))
@@ -209,6 +209,73 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
     }
   }
 
+  func testActualNativeDeliverySelectorsRefuseUnknownOwnerWithoutReceiptBytes() throws {
+    let driver = try KagemushaWalletNativeDriverV1()
+    // Opaque DATA only: an admitted request shape reaches the missing-owner check,
+    // before any wallet, receipt proof, or monetary operation can run.
+    for selector in [UInt32(54), 55] {
+      for count in [1, 10_000] {
+        let input = try KagemushaWalletSetupInputV1(selector: selector,
+          identity: Data(repeating: selector == 54 ? 9 : 0, count: 32),
+          first: Data(repeating: 0xa5, count: count))
+        XCTAssertThrowsError(try driver.result { output in
+          input.withRequest { request in
+            let status = driver.setup(0, request, output)
+            XCTAssertEqual(status, -2, "selector \(selector), first length \(count)")
+            XCTAssertEqual(output.pointee.status, -2)
+            XCTAssertEqual(output.pointee.reason, -1)
+            XCTAssertEqual(output.pointee.platform_code, 0)
+            XCTAssertEqual(output.pointee.sequence_low, 0)
+            XCTAssertEqual(output.pointee.sequence_high, 0)
+            XCTAssertEqual(output.pointee.detail, 0)
+            XCTAssertNil(output.pointee.bytes)
+            XCTAssertEqual(output.pointee.length, 0)
+            return status
+          }
+        }) { error in
+          XCTAssertEqual(error as? KagemushaWalletErrorV1, .closed)
+        }
+      }
+    }
+  }
+
+  func testActualNativeDeliverySelectorsRejectForeignScalarsAndUnknownSelector() throws {
+    let driver = try KagemushaWalletNativeDriverV1()
+    for selector in [UInt32(54), 55] {
+      let input = try KagemushaWalletSetupInputV1(selector: selector,
+        identity: Data(repeating: selector == 54 ? 9 : 0, count: 32), first: Data([0xa5]))
+      for field in ["token", "amount.low", "amount.high", "selector"] {
+        XCTAssertThrowsError(try driver.result { output in
+          input.withRequest { request in
+            // Copy only the C value; all borrowed buffers stay alive in withRequest.
+            // No pointer or length mutation is needed to exercise Native intake.
+            var malformed = request.pointee
+            switch field {
+            case "token": malformed.token = 1
+            case "amount.low": malformed.amount.low = 1
+            case "amount.high": malformed.amount.high = 1
+            default: malformed.selector = 56
+            }
+            let status = driver.setup(0, &malformed, output)
+            XCTAssertEqual(status, -1, "selector \(selector), invalid \(field)")
+            XCTAssertEqual(output.pointee.status, -1)
+            XCTAssertEqual(output.pointee.reason, -1)
+            XCTAssertEqual(output.pointee.platform_code, 0)
+            XCTAssertEqual(output.pointee.sequence_low, 0)
+            XCTAssertEqual(output.pointee.sequence_high, 0)
+            XCTAssertEqual(output.pointee.detail, 0)
+            XCTAssertNil(output.pointee.bytes)
+            XCTAssertEqual(output.pointee.length, 0)
+            return status
+          }
+        }) { error in
+          XCTAssertEqual(error as? KagemushaWalletErrorV1,
+            .native(status: -1, reason: -1, platformCode: 0))
+        }
+      }
+    }
+  }
+
   func testUnloadClaimRequiresRetainedIdentityAndPreservesNativeData() throws {
     let id = Data(repeating: 7, count: 32)
     XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 45, identity: id))
@@ -382,9 +449,9 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
   }
   func testTypedSetupHasExactUnusedFieldsAndUnsignedAmount() throws {
     let id = Data(repeating: 7, count: 32)
-    let offer = try KagemushaWalletSetupInputV1(selector: 1, identity: id, amount: .init(low: .max, high: .max))
-    offer.withRequest {
-      XCTAssertEqual($0.pointee.selector, 1)
+    let request = try KagemushaWalletSetupInputV1(selector: 2, identity: id, amount: .init(low: .max, high: .max))
+    request.withRequest {
+      XCTAssertEqual($0.pointee.selector, 2)
       XCTAssertEqual($0.pointee.amount.high, .max)
       XCTAssertEqual($0.pointee.amount.low, .max)
       XCTAssertEqual($0.pointee.token, 0)
@@ -395,13 +462,13 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
     XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 6, token: 1))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 6))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 6, token: 1, first: Data([1])))
-    XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 2, identity: id, first: Data([1])))
+    XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 2, identity: id, amount: .init(low: 1, high: 0)))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 2, identity: id, first: Data([1]), second: Data([2])))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 2, identity: id, first: Data([1]), second: Data([2]), third: Data(repeating: 1, count: 513)))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 4, identity: id))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 5, token: 0, first: Data([1]), second: Data([1])))
-    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 1, identity: id))
-    for selector in UInt32(7)...14 {
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 2, identity: id))
+    for selector in [UInt32(8), 9, 10, 12, 13, 14] {
       XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: selector, first: Data([1])))
       XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: selector))
       XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: selector, first: Data(repeating: 1, count: 10_001)))
@@ -430,41 +497,59 @@ final class KagemushaWalletSetupV1Tests: XCTestCase {
     }
   }
   func testFeePolicyOriginalsArePairedAndRetainedWithoutReinterpretation() throws {
-    let id = Data(repeating: 7, count: 32)
-    var offer = Data([1]), schedule = Data(repeating: 2, count: 10_000), certificates = Data(repeating: 3, count: 10_000)
-    let input = try KagemushaWalletSetupInputV1.requestWithFeePolicy(identity: id, offer: offer,
-      feeSchedulePolicyData: schedule, certificatesPolicyData: certificates)
-    offer[0] = 9; schedule[0] = 9; certificates[0] = 9
+    let id = Data(repeating: 7, count: 32), amount = KagemushaWalletUInt128V1(low: 7, high: 8)
+    var schedule = Data(repeating: 2, count: 10_000), certificates = Data(repeating: 3, count: 10_000)
+    let input = try KagemushaWalletSetupInputV1.requestWithFeePolicy(identity: id, amount: amount,
+      schedule: schedule, certificates: certificates)
+    schedule[0] = 9; certificates[0] = 9
     input.withRequest { request in
       XCTAssertEqual(request.pointee.selector, 39)
       XCTAssertEqual(Data(bytes: request.pointee.setup_id!, count: 32), id)
-      XCTAssertEqual(Data(bytes: request.pointee.first!, count: 1), Data([1]))
-      XCTAssertEqual(Data(bytes: request.pointee.second!, count: 10_000), Data(repeating: 2, count: 10_000))
-      XCTAssertEqual(Data(bytes: request.pointee.third!, count: 10_000), Data(repeating: 3, count: 10_000))
+      XCTAssertEqual(request.pointee.amount.low, 7)
+      XCTAssertEqual(request.pointee.amount.high, 8)
+      XCTAssertEqual(Data(bytes: request.pointee.first!, count: 10_000), Data(repeating: 2, count: 10_000))
+      XCTAssertEqual(Data(bytes: request.pointee.second!, count: 10_000), Data(repeating: 3, count: 10_000))
+      XCTAssertEqual(request.pointee.third_length, 0)
     }
-    XCTAssertNoThrow(try KagemushaWalletSetupInputV1.requestWithFeePolicy(identity: id, offer: offer,
-      feeSchedulePolicyData: nil, certificatesPolicyData: nil))
+    XCTAssertNoThrow(try KagemushaWalletSetupInputV1.requestWithFeePolicy(identity: id, amount: amount,
+      schedule: nil, certificates: nil))
     for (schedule, certificates) in [(Data([1]) as Data?, nil as Data?), (nil, Data([1])),
       (Data(), Data()), (Data(), Data([1])), (Data([1]), Data()),
       (Data(repeating: 1, count: 10_001), Data([1])), (Data([1]), Data(repeating: 1, count: 10_001))] {
-      XCTAssertThrowsError(try KagemushaWalletSetupInputV1.requestWithFeePolicy(identity: id, offer: offer,
-        feeSchedulePolicyData: schedule, certificatesPolicyData: certificates))
+      XCTAssertThrowsError(try KagemushaWalletSetupInputV1.requestWithFeePolicy(identity: id, amount: amount,
+        schedule: schedule, certificates: certificates))
     }
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1.requestWithFeePolicy(identity: id,
+      amount: .init(low: 0, high: 0), schedule: nil, certificates: nil))
     XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 38))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 38, identity: id))
-    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 38, first: offer))
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 38, first: schedule))
     XCTAssertNoThrow(try KagemushaWalletSetupInputV1(selector: 40, first: schedule, second: certificates))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 40, identity: id, first: schedule, second: certificates))
     XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 40, first: schedule))
-    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 40, first: schedule, second: certificates, third: offer))
-    for selector in [UInt32(38), 39, 40] {
-      let identity = selector == 39 ? id : Data(repeating: 0, count: 32)
-      let first = selector == 38 ? Data() : offer, second = selector == 40 ? certificates : Data()
-      XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: selector, identity: identity,
-        amount: .init(low: 1, high: 0), first: first, second: second))
-      XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: selector, identity: identity,
-        token: 1, first: first, second: second))
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 40, first: schedule, second: certificates, third: Data([1])))
+    for selector in [UInt32(38), 40] {
+      XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: selector,
+        amount: amount, first: selector == 38 ? Data() : schedule, second: selector == 38 ? Data() : certificates))
     }
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 39, identity: id, amount: amount,
+      token: 1, first: schedule, second: certificates))
+  }
+
+  func testPaymentCompanionSelectorIsBoundedAndCannotCarryForeignAuthority() throws {
+    let payment = Data(repeating: 5, count: 10_000)
+    let input = try KagemushaWalletSetupInputV1(selector: 55, first: payment)
+    input.withRequest { request in
+      XCTAssertEqual(request.pointee.selector, 55)
+      XCTAssertEqual(request.pointee.first_length, payment.count)
+      XCTAssertEqual(Data(bytes: request.pointee.first!, count: payment.count), payment)
+    }
+    for invalid in [Data(), Data(repeating: 1, count: 10_001)] {
+      XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 55, first: invalid))
+    }
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 55, identity: Data(repeating: 1, count: 32), first: payment))
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 55, amount: .init(low: 1, high: 0), first: payment))
+    XCTAssertThrowsError(try KagemushaWalletSetupInputV1(selector: 55, first: payment, second: Data([1])))
   }
 
   func testNativeFeeSelectionHasExactDigestGeometryAndIsOnlyData() throws {

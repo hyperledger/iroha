@@ -6,7 +6,8 @@ and explicitly hash-pinned Zig/cargo-zigbuild executables. Optional `check` runs
 development diagnostics in the existing sibling .taira-testnet-build-targets/routine
 lane (override with --target-dir or TAIRA_TESTNET_CARGO_TARGET_DIR; both must agree).
 `prepare` keeps repo target/ by default, ignoring the development-only environment
-selector, and builds the four Linux release binaries
+selector, and builds the four Linux release binaries for --target
+(aarch64-unknown-linux-gnu by default, or explicit x86_64-unknown-linux-gnu)
 from one fixed Git-object source capture with six jobs and captures read-only
 copies. Explicit --source-mode canonical-checkout instead compiles the selected
 checkout; its HEAD, index and tracked bytes must match the signed selection before
@@ -100,13 +101,14 @@ sys.dont_write_bytecode = True
 from release_artifact_contract import (
     ReleaseArtifactError, canonical_json_bytes, create_fresh_directory, ensure_private_directory,
     exclusive_output_fd, exclusive_write_bytes, publish_directory_noreplace, stable_hash_path,
-    stable_open_relative,
+    stable_open_relative, LINUX_GNU_TARGETS, linux_gnu_elf_matches_target,
 )
 from taira_cargo_cache import (admit_source_fingerprints, local_package_names,
                                local_package_roots, source_fingerprints)
 from taira_cargo_artifact import cargo_hash_path, cargo_open_relative
 
 
+# The existing explicit CLI default; helpers always receive the selected target.
 TARGET = "aarch64-unknown-linux-gnu"
 BINARIES = (("iroha3d_taira", "irohad"), ("iroha", "iroha_cli"),
             ("sorafs-node", "sorafs_node"), ("kagami", "iroha_kagami"))
@@ -1196,11 +1198,12 @@ def verify_tool(path: Path, expected: str) -> dict[str, object]:
     return {"path": str(path), "sha256": info.sha256, "size": info.size}
 
 
-def build_command(root: Path, target_dir: Path, cargo: str) -> list[str]:
+def build_command(root: Path, target_dir: Path, cargo: str, target: str) -> list[str]:
+    require(target in LINUX_GNU_TARGETS, "unsupported Linux artifact target")
     # cwd=/ plus this explicit config excludes the mutable checkout's ancestors.
     command = [cargo, "zigbuild", "--config", str(root / ".cargo/config.toml"),
                "--manifest-path", str(root / "Cargo.toml"), "--target-dir", str(target_dir), "--locked", "--offline",
-               "--profile", "release", "--target", TARGET]
+               "--profile", "release", "--target", target]
     for name, package in BINARIES:
         command.extend(("-p", package, "--bin", name))
     return command
@@ -1295,12 +1298,6 @@ def run_build(root: Path, command: list[str], env: dict[str, str], log: Path,
         raise failure
 
 
-def valid_elf(header: bytes) -> bool:
-    return (len(header) >= 20 and header[:7] == b"\x7fELF\x02\x01\x01"
-            and struct.unpack("<H", header[16:18])[0] in (2, 3)
-            and struct.unpack("<H", header[18:20])[0] == 183)
-
-
 def freeze(path: Path, *, directory: bool = False) -> None:
     flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
     if directory:
@@ -1317,8 +1314,9 @@ def freeze(path: Path, *, directory: bool = False) -> None:
         os.close(fd)
 
 
-def capture_artifacts(target_dir: Path, output_dir: Path) -> list[dict[str, object]]:
-    sources = [(name, package, cargo_hash_path(target_dir / TARGET / "release" / name,
+def capture_artifacts(target_dir: Path, output_dir: Path, target: str) -> list[dict[str, object]]:
+    require(target in LINUX_GNU_TARGETS, "unsupported Linux artifact target")
+    sources = [(name, package, cargo_hash_path(target_dir / target / "release" / name,
                                                 max_size=MAX_BINARY_BYTES))
                for name, package in BINARIES]
     capacity_preflight([(output_dir, sum(info.size for _, _, info in sources)
@@ -1326,14 +1324,15 @@ def capture_artifacts(target_dir: Path, output_dir: Path) -> list[dict[str, obje
     capture = create_fresh_directory(output_dir / "bin", mode=0o700)
     rows = []
     for name, package, expected in sources:
-        relative = f"{TARGET}/release/{name}"
+        relative = f"{target}/release/{name}"
         original = target_dir / relative
         require(expected.size >= 20 and bool(expected.mode & stat.S_IXUSR),
                 "release artifact must be an executable ELF")
         require(original.stat().st_uid == os.geteuid(), "release artifact must be owner-held")
         destination = capture / name
         with cargo_open_relative(target_dir, relative, expected=expected) as source:
-            require(valid_elf(os.read(source, 20)), "release artifact is not AArch64 Linux ELF: " + name)
+            require(linux_gnu_elf_matches_target(os.read(source, 20), target),
+                    "release artifact ELF differs from requested target " + target + ": " + name)
             os.lseek(source, 0, os.SEEK_SET)
             with exclusive_output_fd(destination, mode=0o755) as output:
                 digest, size = hashlib.sha256(), 0
@@ -1450,6 +1449,8 @@ def verify_capture(result: dict[str, object], base: dict[str, object], output: P
     require(all(result.get(key) == value for key, value in base.items())
             and set(result) == set(base) | {"artifacts", "timings_seconds", "attempt"},
             "completed preparation identity differs from this command")
+    target = base["target"]
+    require(target in LINUX_GNU_TARGETS, "unsupported Linux artifact target")
     attempt = result["attempt"]
     require(isinstance(attempt, str) and re.fullmatch(r"attempts/[0-9]{6}", attempt),
             "invalid completed attempt path")
@@ -1466,6 +1467,9 @@ def verify_capture(result: dict[str, object], base: dict[str, object], output: P
         require(actual.sha256 == row["sha256"] and actual.size == row["size"]
                 and actual.mode == 0o500 and path.stat().st_uid == os.geteuid(),
                 "captured artifact changed; retained output must be inspected: " + str(path))
+        with stable_open_relative(capture, name, expected=actual) as opened:
+            require(linux_gnu_elf_matches_target(os.pread(opened, 20, 0), target),
+                    "captured artifact ELF differs from receipt target " + target + ": " + name)
 
 
 def routine_target(root: Path) -> Path:
@@ -1736,6 +1740,8 @@ def prepare(args: argparse.Namespace) -> dict[str, object]:
 
 def prepare_in_lane(args: argparse.Namespace, source: Path, lane_lock_fd: int, mode_lock_fd: int) -> dict[str, object]:
     root, target_dir = real_path(args.repo_root), real_path(args.target_dir)
+    target = args.target
+    require(target in LINUX_GNU_TARGETS, "unsupported Linux artifact target")
     require(args.native_check_scope == "build-only", "preparation is build-only; use check for regression tests")
     source_mode = getattr(args, "source_mode", "captured")
     require(source_mode in {"captured", "canonical-checkout"}, "unsupported compiler source mode")
@@ -1804,7 +1810,7 @@ def prepare_in_lane(args: argparse.Namespace, source: Path, lane_lock_fd: int, m
     native_env = preparation_native_environment(
         native_check_environment(env, {"CARGO_INCREMENTAL": incremental}), native_linker)
     print("[taira-release] pinned native linker " + json.dumps(native_linker, sort_keys=True), flush=True)
-    command = build_command(source, target_dir, env["CARGO"])
+    command = build_command(source, target_dir, env["CARGO"], target)
     base = {"commit": args.expected_commit, "signer_fingerprint": args.expected_signer,
             "native_check_scope": "build-only",
             "native_incremental": native_env["CARGO_INCREMENTAL"] == "1",
@@ -1814,7 +1820,7 @@ def prepare_in_lane(args: argparse.Namespace, source: Path, lane_lock_fd: int, m
             # CARGO_BUILD_TARGET, and both commit variables are normalized above.
             # Bind path-dependent tests without publishing environment values.
             "native_environment_sha256": hashlib.sha256(canonical_json_bytes(native_env)).hexdigest(),
-            "tree": tree, "target": TARGET, "profile": "release", "jobs": 6,
+            "tree": tree, "target": target, "profile": "release", "jobs": 6,
             "source_unchanged": True, "toolchain_unchanged": True,
             "source_snapshot_sha256": hashlib.sha256(canonical_json_bytes(authority_before)).hexdigest(),
             # Source root names immutable authority; command binds the actual compiler root.
@@ -1927,7 +1933,7 @@ def prepare_in_lane(args: argparse.Namespace, source: Path, lane_lock_fd: int, m
         def retire_checks():
             retire_checkpoint(checks)
 
-        admit_source_fingerprints(source, target_dir, TARGET, packages, before_retire=retire_checks,
+        admit_source_fingerprints(source, target_dir, target, packages, before_retire=retire_checks,
                                   **fingerprint_options)
         revalidate()
         if checks.exists():
@@ -1937,9 +1943,9 @@ def prepare_in_lane(args: argparse.Namespace, source: Path, lane_lock_fd: int, m
             print("[taira-release] build-only: native checks not run; artifacts remain unqualified", flush=True)
         revalidate()
         stage("Linux release build", lambda: run_build(source, command, env, attempt / "cargo.log", lock_fd=lock_fd, lane_lock_fd=lane_lock_fd, mode_lock_fd=mode_lock_fd))
-        with source_fingerprints(source, target_dir, TARGET, packages, repair=False, **fingerprint_options):
+        with source_fingerprints(source, target_dir, target, packages, repair=False, **fingerprint_options):
             revalidate()
-            artifacts = stage("read-only artifact capture", lambda: capture_artifacts(target_dir, attempt))
+            artifacts = stage("read-only artifact capture", lambda: capture_artifacts(target_dir, attempt, target))
             revalidate()
         result = {**base, "artifacts": artifacts, "timings_seconds": timings,
                   "attempt": "attempts/" + attempt.name}
@@ -2375,6 +2381,8 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--focus-regression", action="append", metavar="HARNESS=EXACT_TEST",
                                  help="development diagnostic: run selected portable ownership targets first, then mandatory configuration and remaining explicit harnesses; not qualification")
         if name == "prepare":
+            command.add_argument("--target", choices=LINUX_GNU_TARGETS, default=TARGET,
+                                 help="exact Linux artifact target, retained through build/capture/resume; no host or deployment authority")
             command.set_defaults(native_check_scope="build-only")
             command.add_argument("--source-mode", choices=("captured", "canonical-checkout"), default="captured",
                                  help="compiler input: immutable capture (default), or the exact clean signed HEAD in repo-root; capture remains authority evidence")

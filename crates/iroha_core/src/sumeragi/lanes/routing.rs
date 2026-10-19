@@ -136,6 +136,9 @@ impl<W: WorldReadOnly> RoutingInputs<'_, W> {
         tx: &dyn TransactionRoutingView,
         height: u64,
     ) -> Result<Option<LaneId>, crate::execution_attempt::ExecutionDeferred> {
+        if tx.is_anonymous_ballot() {
+            return Err(crate::tx::anonymous_ballot_unavailable());
+        }
         let Some(scope) = self.root_scope.filter(|scope| scope.validate().is_ok()) else {
             return Ok(None);
         };
@@ -570,6 +573,42 @@ mod tests {
             Some(GLOBAL_LANE)
         );
     }
+    #[test]
+    fn anonymous_ballot_route_is_unavailable_before_default_or_missing_scope() {
+        let world = test_support::world(SumeragiRootScope::Global);
+        let view = world.view();
+        let dataspaces = DataSpaceCatalog::default();
+        let lanes = lanes(Vec::new());
+        let entry = crate::tx::anonymous_ballot_tests::entrypoint();
+        let accepted = crate::tx::AcceptedTransaction::new_unchecked_entrypoint(
+            std::borrow::Cow::Borrowed(&entry),
+        );
+        for root_scope in [None, Some(SumeragiRootScope::Global)] {
+            let inputs = RoutingInputs {
+                root_scope,
+                policy: None,
+                lanes: &lanes,
+                dataspaces: &dataspaces,
+                world: &view,
+                ledger_time_ms: 0,
+            };
+            for result in [
+                inputs.route(&accepted, 1).map(|_| ()),
+                inputs.execution_route(&accepted, 1).map(|_| ()),
+            ] {
+                assert_eq!(
+                    result.unwrap_err().reason(),
+                    ivm::error::ExecutionDeferral::VerifierInitializationUnavailable
+                );
+            }
+        }
+        assert!(
+            matches!(native_execution_target(&accepted, &dataspaces, &view, 0),
+            Err(crate::queue::RoutingResolveError::Deferred(reason))
+                if reason.reason() == ivm::error::ExecutionDeferral::VerifierInitializationUnavailable)
+        );
+    }
+
     #[test]
     fn execution_route_preserves_actual_pinned_dataspace_and_closing_boundary() {
         let world = test_support::world(SumeragiRootScope::Global);

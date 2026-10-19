@@ -1512,7 +1512,7 @@ pub fn zk_x509_rfc5280_der_source_terminals_v1(
                     F(u64::try_from(address).map_err(|_| ZkX509Rfc5280StarkErrorV1::Resource)?),
                     byte.value.value,
                     lane,
-                    challenges,
+                    &challenges,
                 )?);
             }
         }
@@ -1545,7 +1545,7 @@ pub fn zk_x509_rfc5280_der_source_terminals_v1(
             };
             for lane in 0..ZK_X509_RFC5280_STARK_BUS_LANES_V1 {
                 node[lane] =
-                    node[lane].mul(zk_x509_der_stark_node_factor_v1(event, lane, challenges)?);
+                    node[lane].mul(zk_x509_der_stark_node_factor_v1(event, lane, &challenges)?);
             }
         }
     }
@@ -6978,7 +6978,7 @@ fn product_relation_factor_v1(
             row[BASE_ADDRESS],
             row[BASE_VALUE],
             lane,
-            der_challenges,
+            &der_challenges,
         )?),
         1 => Ok(zk_x509_der_stark_node_factor_v1(
             ZkX509DerStarkNodeEventV1 {
@@ -6995,7 +6995,7 @@ fn product_relation_factor_v1(
                 content_len: row[BASE_A],
             },
             lane,
-            der_challenges,
+            &der_challenges,
         )?),
         _ => Err(ZkX509Rfc5280StarkErrorV1::Shape),
     }
@@ -8498,7 +8498,7 @@ fn evaluate_rfc5280_relation_v1<A: PolynomialAirFieldV1>(
             current[BASE_ADDRESS],
             current[BASE_VALUE],
             lane,
-            der_challenges,
+            &der_challenges,
         )?;
         let der_node_factor = zk_x509_der_stark_node_factor_v1(
             ZkX509DerStarkNodeEventV1 {
@@ -8515,7 +8515,7 @@ fn evaluate_rfc5280_relation_v1<A: PolynomialAirFieldV1>(
                 content_len: current[BASE_A],
             },
             lane,
-            der_challenges,
+            &der_challenges,
         )?;
         for (before, after, gate, factor) in [
             (

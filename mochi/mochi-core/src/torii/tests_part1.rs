@@ -1511,6 +1511,103 @@ fn block_summary_and_smoke_join_keep_scheduled_outputs_separate_from_network_inp
     assert!(smoke_transaction_result_in_block(&block, &missing).is_none());
 }
 #[test]
+fn signed_smoke_lookup_skips_anonymous_ballot_results() {
+    use iroha_data_model::{
+        block::{BlockHeader, builder::BlockBuilder},
+        governance::anonymous_ballot::{
+            AdmissionNonceV1, AdmissionStampV1, AnonymousBallotEnvelopeV1,
+            AnonymousBallotRejectionV1, AnonymousBallotV1, BallotChoiceV1, BallotProofBytesV1,
+            BallotScopeV1, CanonicalAnonymousBallotEnvelopeV1, NullifierV1, ProofProfileIdV1,
+            VoteAuthorizationV1,
+        },
+        transaction::{FeePaymentIntent, error::TransactionRejectionReason},
+    };
+    let network = test_network_id();
+    // Codec/shape fixture only: these proof and stamp bytes are not cryptographic
+    // evidence, and attaching an output here does not authenticate execution.
+    let anonymous = CanonicalAnonymousBallotEnvelopeV1::from_envelope(&AnonymousBallotEnvelopeV1 {
+        network_id: network,
+        ballot: AnonymousBallotV1 {
+            scope: BallotScopeV1::new([0x44; 64]),
+            vote: BallotChoiceV1::Aye,
+            nullifier: NullifierV1::new([0x33; 128]),
+            auth_v: VoteAuthorizationV1::new([0x55; 64]),
+            profile_id: ProofProfileIdV1::V1,
+            stamp: AdmissionStampV1 {
+                nonce: AdmissionNonceV1::new([0x66; 32]),
+            },
+            proof: BallotProofBytesV1::new(vec![0x6b; BallotProofBytesV1::LENGTH]).unwrap(),
+        },
+    })
+    .unwrap();
+    let mut signed_builder = TransactionBuilder::new(
+        network,
+        ALICE_ID.clone(),
+        FeePaymentIntent::authority(Vec::new(), None),
+    );
+    signed_builder.set_creation_time(Duration::from_millis(42_000));
+    let signed = signed_builder
+        .with_instructions(core::iter::empty::<InstructionBox>())
+        .sign(ALICE_KEYPAIR.private_key());
+    let signed_hash = signed.hash();
+    let mut builder = BlockBuilder::new(BlockHeader::new(
+        NonZeroU64::new(2).unwrap(),
+        Some(HashOf::from_untyped_unchecked(Hash::new(
+            b"anonymous smoke parent",
+        ))),
+        None,
+        43_000,
+        0,
+    ));
+    assert_eq!(builder.push_anonymous_ballot(anonymous), 0);
+    assert_eq!(builder.push_transaction(signed), 1);
+    let proposed = builder.build_with_signature(0, PEER_KEYPAIR.private_key());
+    let anonymous_as_signed_hash = HashOf::<SignedTransaction>::from_untyped_unchecked(
+        proposed.network_entrypoint_at(0).unwrap().hash().into(),
+    );
+    for anonymous_result in [
+        Ok(vec![]),
+        Err(TransactionRejectionReason::AnonymousBallot(
+            AnonymousBallotRejectionV1::OutsideCastingWindow,
+        )),
+        Err(TransactionRejectionReason::AnonymousBallot(
+            AnonymousBallotRejectionV1::DuplicateNullifier,
+        )),
+    ] {
+        let mut block = proposed.clone();
+        block
+            .set_execution_outputs(
+                vec![
+                    ExecutionOutputV1::Network(NetworkExecutionOutputV1 {
+                        input_index: 0,
+                        result: anonymous_result.into(),
+                        completions: vec![],
+                    }),
+                    ExecutionOutputV1::Network(NetworkExecutionOutputV1 {
+                        input_index: 1,
+                        result: Ok(vec![]).into(),
+                        completions: vec![],
+                    }),
+                ],
+                1,
+                Default::default(),
+                vec![],
+                Default::default(),
+                Default::default(),
+                &SAMPLE_OUTPUT_LIMITS,
+            )
+            .unwrap();
+        assert_eq!(
+            smoke_transaction_result_in_block(&block, &signed_hash)
+                .expect("the signed input has its own output")
+                .expect("signed success"),
+            2,
+        );
+        assert!(smoke_transaction_result_in_block(&block, &anonymous_as_signed_hash).is_none());
+    }
+}
+
+#[test]
 fn block_hash_presence_without_aligned_result_is_not_smoke_success() {
     let block = sample_block_proposal();
     assert!(block.is_resultless_proposal());

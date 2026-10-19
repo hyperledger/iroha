@@ -1,0 +1,14 @@
+test_actual_source_shapes_and_production_metadata_without_gate_expansion (scripts.tests.parliament_ballot_static_overlay_test.StaticOverlayTests.test_actual_source_shapes_and_production_metadata_without_gate_expansion) ... ok
+test_cli_help_fresh_output_and_qualification_refusal (scripts.tests.parliament_ballot_static_overlay_test.StaticOverlayTests.test_cli_help_fresh_output_and_qualification_refusal) ... ok
+test_correlated_superposition_write_then_lookup_has_no_phase_or_residue (scripts.tests.parliament_ballot_static_overlay_test.StaticOverlayTests.test_correlated_superposition_write_then_lookup_has_no_phase_or_residue) ... ok
+test_disjoint_request_slots_and_exact_full_w0_counts (scripts.tests.parliament_ballot_static_overlay_test.StaticOverlayTests.test_disjoint_request_slots_and_exact_full_w0_counts) ... ok
+test_fixed_slot_all_values_disabled_nonzero_targets_and_inverse (scripts.tests.parliament_ballot_static_overlay_test.StaticOverlayTests.test_fixed_slot_all_values_disabled_nonzero_targets_and_inverse) ... ok
+test_helper_custody_refuses_changed_or_unknown_source (scripts.tests.parliament_ballot_static_overlay_test.StaticOverlayTests.test_helper_custody_refuses_changed_or_unknown_source) ... ok
+test_refuses_malformed_dimensions_indices_and_non_bool_inverse (scripts.tests.parliament_ballot_static_overlay_test.StaticOverlayTests.test_refuses_malformed_dimensions_indices_and_non_bool_inverse) ... ok
+test_shorter_later_prefix_preserves_old_high_counter (scripts.tests.parliament_ballot_static_overlay_test.StaticOverlayTests.test_shorter_later_prefix_preserves_old_high_counter) ... ok
+test_w0_supplied_frames_validity_prefix_padding_and_cleanup (scripts.tests.parliament_ballot_static_overlay_test.StaticOverlayTests.test_w0_supplied_frames_validity_prefix_padding_and_cleanup) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.304s
+
+OK

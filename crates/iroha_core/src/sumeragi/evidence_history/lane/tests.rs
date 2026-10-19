@@ -65,6 +65,28 @@ impl LaneBlockSource for OriginalFrames {
     > {
         self.block(lane, incarnation, height)
     }
+    fn execution_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        _request: &crate::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<
+        Option<CommittedLaneBlock>,
+        crate::execution_attempt::ExecutionAttemptError<std::io::Error>,
+    > {
+        self.block(lane, incarnation, height)
+    }
+    fn execution_wait_for(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        timeout: Duration,
+        _request: &crate::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<bool, crate::execution_attempt::ExecutionAttemptError<std::io::Error>> {
+        self.wait_for(lane, incarnation, height, timeout)
+    }
     fn release_cancelled_proposal_reads(&self) {}
     fn wait_for(
         &self,
@@ -846,7 +868,7 @@ fn native_lane_admission_and_restore_keep_original_carrier_clock_through_penalty
             proposal.set_npos_consensus_effects(Some(NposConsensusEffects {
                 parent_service_commit_qc,
                 evidence_admissions: vec![proof.clone()],
-                penalty_actions: Vec::new(),
+                penalty_actions: Default::default(),
             }));
         },
     );
@@ -2203,32 +2225,58 @@ fn original_lane_observer_late_policy_refusal_retains_observation_and_retries() 
                 .is_some()
         );
     });
-    // Pair canonicalization charges counted output after scope admission.
-    let canonical_bytes = norito::with_decode_limits_scope(limits(ceiling), || {
+    // Admission encodes the canonical evidence after the first policy read. Its
+    // exact bounded pair frames consume this same cumulative decoder allowance.
+    // Fund that complete prefix so the intended refusal is the later prune read,
+    // never an earlier canonicalization refusal accepted under the wrong label.
+    let before_prune = || {
+        assert!(
+            state
+                .view()
+                .world()
+                .sumeragi_npos_parameters()
+                .unwrap()
+                .is_some()
+        );
         assert_eq!(
             iroha_data_model::block::consensus::Evidence::from_native(&native).unwrap(),
             original
         );
-        let norito::Error::TotalAllocationExceeded { attempted, .. } =
+    };
+    let prefix_bytes = norito::with_decode_limits_scope(limits(ceiling), || {
+        before_prune();
+        let norito::Error::TotalAllocationExceeded { attempted, limit } =
             norito::core::reserve_decode_allocation(ceiling + 1).unwrap_err()
         else {
-            panic!("non-charging canonical pair allocation probe");
+            panic!("non-charging complete-prefix allocation probe");
         };
+        assert_eq!(limit, u64::try_from(ceiling).unwrap());
         usize::try_from(attempted).unwrap() - ceiling - 1
     });
-    // Scope admission consumes exactly one original policy read and canonicalization
-    // its counted pair output. The retained collection needs a second policy read
-    // before pruning any entry.
-    let error = norito::with_decode_limits_scope(limits(policy_bytes + canonical_bytes), || {
+    assert!(prefix_bytes > policy_bytes);
+    let expected = norito::with_decode_limits_scope(limits(prefix_bytes), || {
+        before_prune();
+        state.view().world().sumeragi_npos_parameters().unwrap_err()
+    });
+    let ExecutionAttemptError::Deferred(expected) = expected else {
+        panic!("the second original policy read must retain its refusal");
+    };
+    let expected = expected.decode_refusal().unwrap().resource_error();
+    assert!(matches!(expected,
+        norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit }
+        if limit == u64::try_from(prefix_bytes).unwrap() && attempted > limit));
+    let error = norito::with_decode_limits_scope(limits(prefix_bytes), || {
         evidence::observe_lane(state, scope.lane, scope.incarnation, &native)
     })
     .unwrap_err();
-    assert!(
-        matches!(
-            error,
-            evidence::EvidenceAdmissionError::Policy(ExecutionAttemptError::Deferred(_))
-        ),
-        "{error:?}"
+    let evidence::EvidenceAdmissionError::Policy(ExecutionAttemptError::Deferred(actual)) = error
+    else {
+        panic!("the late original policy read must refuse: {error:?}");
+    };
+    assert_eq!(
+        actual.decode_refusal().unwrap().resource_error(),
+        expected,
+        "the exact original late policy refusal must survive observation"
     );
     assert_eq!(
         state.evidence_preparation_budget().reserved_bytes(),

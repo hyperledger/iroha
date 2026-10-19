@@ -450,12 +450,13 @@ pub mod codec {
     /// in memory. The type's [`core::DecodeFromSlice`] implementation must prove that all bytes are
     /// consumed. Payload-derived resource limits are always active, so an encoded sequence length
     /// cannot request more elements or allocation than the complete input can justify.
+    /// The fixed-layout decode restores the caller's payload, root span and layout state;
+    /// enclosing resource scopes remain active throughout the attempt.
     pub fn decode_exact_from_slice<T>(bytes: &[u8]) -> Result<T, Error>
     where
         T: for<'de> DeserializePayload<'de> + for<'de> core::DecodeFromSlice<'de>,
     {
-        core::reset_decode_state();
-        let _reset = DecodeResetGuard;
+        let _state = core::IsolatedDecodeGuard::enter();
         crate::with_decode_limits(crate::canonical_decode_limits(bytes.len()), || {
             decode_exact_from_slice_under_active_limits(bytes)
         })
@@ -465,6 +466,8 @@ pub mod codec {
     /// The caller-provided limits compose with the payload-derived defaults by taking the stricter
     /// bound in every dimension. This lets protocol boundaries constrain their exact maximum vector
     /// counts without losing the generic allocation-bomb protection.
+    /// Caller decoder context is restored on success or failure, without resetting its
+    /// enclosing resource counters.
     pub fn decode_exact_from_slice_with_limits<T>(
         bytes: &[u8],
         limits: crate::DecodeLimits,
@@ -472,8 +475,7 @@ pub mod codec {
     where
         T: for<'de> DeserializePayload<'de> + for<'de> core::DecodeFromSlice<'de>,
     {
-        core::reset_decode_state();
-        let _reset = DecodeResetGuard;
+        let _state = core::IsolatedDecodeGuard::enter();
         crate::with_decode_limits(crate::canonical_decode_limits(bytes.len()), || {
             crate::with_decode_limits(limits, || {
                 decode_exact_from_slice_under_active_limits(bytes)

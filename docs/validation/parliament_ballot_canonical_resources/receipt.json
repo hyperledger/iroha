@@ -1,0 +1,475 @@
+{
+  "campaign": {
+    "all_normal_exit_arena_owners_released": true,
+    "cases_per_mode": 55,
+    "exact_input_exit_and_report_parity": true,
+    "fatal_cleanup_claimed": false,
+    "fatal_exhaustions_per_mode": 3,
+    "modes": [
+      "portable",
+      "accel"
+    ],
+    "normal_arena_exits_per_mode": 46,
+    "originals": [
+      {
+        "fixture": "s3-valid",
+        "report": {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19071,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 4765632,
+          "arena_peak_requested_bytes": 3924851,
+          "charged_bytes": 234807,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 1352,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "accepted",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "complete",
+          "workspace_reserved_bytes": 43106304
+        },
+        "returncode": 0
+      },
+      {
+        "fixture": "s500-valid",
+        "report": {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19071,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 5281728,
+          "arena_peak_requested_bytes": 4309766,
+          "charged_bytes": 299418,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 65963,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "accepted",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "complete",
+          "workspace_reserved_bytes": 43106304
+        },
+        "returncode": 0
+      },
+      {
+        "fixture": "s1000-valid",
+        "report": {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19070,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 5674944,
+          "arena_peak_requested_bytes": 4698862,
+          "charged_bytes": 364418,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 130963,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "accepted",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "complete",
+          "workspace_reserved_bytes": 43106304
+        },
+        "returncode": 0
+      },
+      {
+        "fixture": "s1000-late-invalid",
+        "report": {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19068,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 5674944,
+          "arena_peak_requested_bytes": 4698862,
+          "charged_bytes": 364418,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 130963,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "rejected",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "proof",
+          "workspace_reserved_bytes": 43106304
+        },
+        "returncode": 1
+      }
+    ],
+    "outcomes_per_mode": {
+      "accepted": 3,
+      "admission_rejected": 12,
+      "input_error": 6,
+      "rejected": 16,
+      "resource_exhausted": 3,
+      "worker_error": 15
+    },
+    "total_observations": 110
+  },
+  "evidence": [
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/source-manifest.json",
+      "sha256": "948ce1a0cda0f0b876995235878f6223807355d40bc646bdb2c58426bc7f7a9d"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/source-manifest.json",
+      "sha256": "d002d2cb4c7600b288c3fdfe7f2e2f2520ed2ac225eb4c7a8ba44273979bf110"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/test-only-change.json",
+      "sha256": "95421e1ff271833e2282a3b38867f3c177eff8ecc7b72e5c6c9c5c646c7ba247"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/host.json",
+      "sha256": "a716826881d10e9807227aa0a87911e0749bf7257b6d68983effacf663598b49"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures-result.json",
+      "sha256": "682009b8ef688a61cfe63939bf8f6533c0c241fbe8e66544db62afc9ed1e74ed"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/build-portable-runtime/build-record.json",
+      "sha256": "c93ac797b45f5fb339eff7a6ac305367f22584081ab42c074661b1b24704a3a3"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/build-portable2/build-record.json",
+      "sha256": "e6abe276e0cc4b4e313340dc7faf9fe56f14b504b143dba69c7d14f968499317"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/build-portable2/build.start.json",
+      "sha256": "cae55f995cb0c0540b869e80b8369b8c2274dbde100fde16fd66ee5cbf14b601"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/build-portable2/build.exit.json",
+      "sha256": "0b38af940235538d55e9a20b63836caed3abac27beee901bd0bedba65c2f1c51"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/build-portable2/build.stdout.txt",
+      "sha256": "e8ddd519684768850a1116c05e7dd6d2062a0b2f4e3180de2e8469f7a01913dc"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/build-portable2/build.stderr.txt",
+      "sha256": "530d8e55a9dee6ce5bc611a70ff4b2e70ed08950486fa526b81882d5c36b9409"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/portable-aes-feature-tree.json",
+      "sha256": "1f85a0ca582c08aa243364c11074fda9fa4a67220a98c5eb85eec4c739fdd7ad"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/portable-aes-feature-tree.txt",
+      "sha256": "1e367d0b5dec4cd8609abf3c2f78e88ac6fdfcdb1d7cfc59c3c3d524852a2e04"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/campaign-portable/SHA256SUMS",
+      "sha256": "6b8b59df9009442fc048ea89742a9ac20683aacf6677688a014ec4f6c3d34cb8"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/campaign-portable-process/start.json",
+      "sha256": "b7f8080acbc34ef6b40744424cb60b2b94da7d05798a11135326cce9d14e0a00"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/campaign-portable-process/exit.json",
+      "sha256": "af082d3123b4d406b7913cd2c3edea2cb771d0a85f6c7abbcc677c77c04ceb8b"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/campaign-portable-process/stdout.txt",
+      "sha256": "5503e088d6a5a2fd9c0baa9a62af11ca8cac5d143843aee901333d11937a00d6"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/campaign-portable-process/stderr.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/build-accel/build-record.json",
+      "sha256": "8324d1b0775f89cbdeb1c78e4d8ccefc63c97eb6cae1a70cddc88e9828fee6ee"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/build-accel/build.start.json",
+      "sha256": "5a4d62c070aa47112be88949300ea2f8595362688decebbe0084a570077b1dfa"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/build-accel/build.exit.json",
+      "sha256": "d1dd5f7a41a17592c0e5a5bb7ea6afb0d70146b5a643168fe671561ae4d723f8"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/build-accel/build.stdout.txt",
+      "sha256": "d39c05918e9a6cbccb6d4a8dc0bb5b15e511b35f99b1dbe63c49b5413aeca444"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/build-accel/build.stderr.txt",
+      "sha256": "f19b1996734d95168b1191603bcfe5221ebc4e675c6b285c76c8fb6cc9ce838c"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/accel-aes-feature-tree.json",
+      "sha256": "f16fd3fe05257b9103e374ebe7187c184c6f22525521e4e362360333b2b290e9"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/accel-aes-feature-tree.txt",
+      "sha256": "99302563546613253763ad69bcc74362b6d8f12d31a3c6c0caf416fa20144246"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/campaign-accel/SHA256SUMS",
+      "sha256": "12d9b91debfaa1866daea976d06a7b673f779929acfc1bc2672b2c860e37c224"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/campaign-accel-process/start.json",
+      "sha256": "48663b47462890aa57f62785bc7140061aa7538e26a0e3acd4463406c7e50725"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/campaign-accel-process/exit.json",
+      "sha256": "9bafae44e684793613ead24a9c8f232214e70e1a4d8bc30f9639fef394380a86"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/campaign-accel-process/stdout.txt",
+      "sha256": "5503e088d6a5a2fd9c0baa9a62af11ca8cac5d143843aee901333d11937a00d6"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/campaign-accel-process/stderr.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/build-portable2/test.start.json",
+      "sha256": "b1692e8a0b6c55f0a580def2e862e32fb7a84b9b491e423ef12f3c4040bc1c43"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/build-portable2/test.exit.json",
+      "sha256": "d893b56ad175eb813653c9eda821f8bba9f9a728a0731370e698b44ab510d567"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/build-portable2/test.stdout.txt",
+      "sha256": "1d1eb0da472b1860ab9d274a7ea5f7e156361937fdbf8c55cff48e0fe9047e45"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision3-20261019/build-portable2/test.stderr.txt",
+      "sha256": "0058806f1f8322a82e6b2fb9d72176d3bb7181d4fbaaab0663c6f74ac5a27c3a"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/full-protocol-tests/start.json",
+      "sha256": "fc665a77c803031879abc3f74a94c5c845881fabca37d4a3f269ef2fd27b29f4"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/full-protocol-tests/exit.json",
+      "sha256": "8cb022f1215bda0e608814b6477f7e5399d1a2796f5e1b4598840606d75ee43b"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/full-protocol-tests/stdout.txt",
+      "sha256": "44866aa931f693ea54426637a261403c61c9b876d9e7a7d12fff2b5b5b5eac5d"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/full-protocol-tests/stderr.txt",
+      "sha256": "0681d517e085bb5bee93e89b9c00d2fdcda7149f01635ff92778ab6c59065338"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/full-protocol-tests/source-postcheck.json",
+      "sha256": "ea5a6c8c881593dfb88d5b05eea5c258995b75759eaa4443c09b54337176e2dd"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s3-valid/manifest.json",
+      "sha256": "ea994f90deaef358bbb6997a3567bb958780e0226d26169c42f46f9807efee05"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s3-valid/envelope.norito",
+      "sha256": "da5abc3509710c09c1b0429da781ce50bb3bd5834fffe7505d98786d7683a11d"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s3-valid/context.norito",
+      "sha256": "67b8389efbd62765f15d419e33332f3b03804c4d3ba4d3a2592408943566a6da"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s3-valid/authorization.norito",
+      "sha256": "11371e548444960692840dbed5003b72092325d18674f383901c44e8eb5b9d1c"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s3-valid/start.json",
+      "sha256": "aefeb944671a97d028817a91d864a1bc09429b97f3dfb70d14107ba1b098aaeb"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s3-valid/exit.json",
+      "sha256": "62489874bfabe3b743ef5eab91936d8ba966ca5c13b5e70550df02838b43fc95"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s3-valid/stdout.txt",
+      "sha256": "18895755a64df76e96d546422be8f30529506b7805db25cf5b5d413e857f32a9"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s3-valid/stderr.txt",
+      "sha256": "7b45184a4649450b432e8c7859d29dc854e23f449626fd56fb16810b66f788ae"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s500-valid/manifest.json",
+      "sha256": "32317d898b2be1f8a303a9ff6078ec05eff84382635df5ee8a45b97d7c05444a"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s500-valid/envelope.norito",
+      "sha256": "26b22981c502aef4870d4b01afb89faf146f40f2aeaddbb499a7fc26db71062e"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s500-valid/context.norito",
+      "sha256": "1f3a9d3ba6672d245b35efdafc59d3681cef00211554d13014d60938af29dcf6"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s500-valid/authorization.norito",
+      "sha256": "11ffddb6f256f0e54e777b11c97f86ff253fdc0e6f199dc99425d071c9cc1070"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s500-valid/start.json",
+      "sha256": "b51869fd8d601797a7ca295e15809fa216c4d3a6ee51373406c407e847dd5d90"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s500-valid/exit.json",
+      "sha256": "bd5dd50792618293b3f9d17b9d936fa3a5f5a0e0f8981c0873a3207c01bad0c7"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s500-valid/stdout.txt",
+      "sha256": "5b0758feff134fb51ef8300b6bd278dae145d51c8c5750d8b56f0e9e83ed8f74"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s500-valid/stderr.txt",
+      "sha256": "5e421634fedb74e8c141c479662e77af2ce011acd3cf70bdf202859e852a9e77"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s1000-valid/manifest.json",
+      "sha256": "39d787bbb9bb206f250a1682b9fac71236e91e7be49db9422ad584f6f5c09623"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s1000-valid/envelope.norito",
+      "sha256": "230d4d77c7ae663c4648146ee1f0c37c193699c5951685374f742122c5c0ed6f"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s1000-valid/context.norito",
+      "sha256": "9523ca8048a9b9f6b3b946b70e0bec7bf2d7b298b08b6e716f6c5a2b797e84fc"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s1000-valid/authorization.norito",
+      "sha256": "e005868f15b1967d64fc0024e014952ea0ad1e35e5b00b7433db9d638d11111f"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s1000-valid/start.json",
+      "sha256": "f1789d674a79da4d305cb42cb3b2c4fbe5f71d13b63296c87d85e1dbe0068fad"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s1000-valid/exit.json",
+      "sha256": "f2c0ab036ce87810ccdc268d513871a7e9141a76f20fb68752a776bc4a039b6a"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s1000-valid/stdout.txt",
+      "sha256": "940b337a2e9f6ee66ce363635612483f7482818e749e4acca1dd001261b6d7d1"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s1000-valid/stderr.txt",
+      "sha256": "af7932006173a54de558f7a81aaa10a95e745b3b7a4e1d3343a9017f77ec067f"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s1000-late-invalid/manifest.json",
+      "sha256": "31428dfb81bbca8f5476492515754cc290ef66c4917656db88bb3087b7bdfcd4"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s1000-late-invalid/envelope.norito",
+      "sha256": "03d00cbb6e22b524fc49e4ef7aecc0c5e99bf9215d6d37a1931f8261030e1120"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s1000-late-invalid/context.norito",
+      "sha256": "9523ca8048a9b9f6b3b946b70e0bec7bf2d7b298b08b6e716f6c5a2b797e84fc"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixtures/s1000-late-invalid/authorization.norito",
+      "sha256": "b2cd61e5ea67da4ff95c249973267b95d9f865043c443597ea3d14e411ec7bb3"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s1000-late-invalid/start.json",
+      "sha256": "3fbf519fc40ed1672b1c7842b162465e39cda1eb601dbbb420013f764b70d358"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s1000-late-invalid/exit.json",
+      "sha256": "d58c2014683b83745387d0c0d582724eaaaa80f5b2ef700cf8d47a39238d0d1d"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s1000-late-invalid/stdout.txt",
+      "sha256": "c3297ef6267913af369fdaa86a3e137f14722fa0c5ea53342784f8b090c983c5"
+    },
+    {
+      "path": ".codex/parliament-canonical-resource-revision2-20261019/fixture-runs/s1000-late-invalid/stderr.txt",
+      "sha256": "5c0b205e013d0297f59ee3477053c78c635baa66fb14af4164848476a05ed282"
+    }
+  ],
+  "limitations": [
+    "One fresh process per request; global allocator/hook operations are not an embeddable concurrent node service.",
+    "Reserved mapping excludes caller staging and does not bound every runtime/System/TLS/native allocation.",
+    "Fixture authority and history anchors are synthetic public test material.",
+    "Historical model evidence is not transferred to this worker.",
+    "Results apply to retained captures; later checkout changes require appropriate fresh validation."
+  ],
+  "observed_utc": "2026-10-19T15:21:11.310546+00:00",
+  "qualification": {
+    "all_inputs_covered": false,
+    "all_native_allocations_covered": false,
+    "chain_history_authenticated": false,
+    "complete_workspace_certificate": false,
+    "independent_cryptographic_review": false,
+    "production_enabled": false,
+    "profile_qualified": false,
+    "protocol_effect": false,
+    "required_hardware_baseline": false
+  },
+  "schema": "parliament-canonical-resource-validation-v1",
+  "scope": "Finite one-shot canonical vote-validity and resource observations; no ledger execution or chain-history authentication",
+  "source_scope": {
+    "atomic_working_tree_capture": false,
+    "external_dependency_sources_fully_captured": false,
+    "fixture_and_typed_protocol": "revision2",
+    "primary": "revision3",
+    "source3_only_delta_from_source2": "Two example-test pointer assertions; generator/library unchanged",
+    "source_bookends_unchanged": true
+  },
+  "tests": {
+    "source2_typed_protocol": {
+      "failed": 0,
+      "ignored_fixture_helpers": 2,
+      "passed": 75
+    },
+    "source3_portable_examples": {
+      "failed": 0,
+      "passed": 25
+    }
+  }
+}

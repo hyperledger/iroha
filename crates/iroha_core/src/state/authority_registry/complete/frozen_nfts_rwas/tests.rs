@@ -346,9 +346,21 @@ fn replacement_retains_all_seven_rewound_owners_modes_and_original_canonical_row
         ns.root(),
         capture_nfts_once(&state, limits()).unwrap().unwrap().root()
     );
+    // Tuple-key preimages retain every touched membership. The committed control
+    // uses a per-row reference budget, so allow its complete mixed history here;
+    // the frozen capture above still uses the independently computed exact work.
     assert_ne!(
         rs.root(),
-        capture_rwas_once(&state, limits()).unwrap().unwrap().root()
+        capture_rwas_once(
+            &state,
+            LeafLimits {
+                max_rows: 32,
+                ..limits()
+            },
+        )
+        .unwrap()
+        .unwrap()
+        .root()
     );
     assert_eq!(
         n.rows
@@ -681,22 +693,22 @@ fn exact_raw_shapes_and_independent_work_callbacks_cover_both_complete_images() 
     freeze(&mut block);
     let n = OriginalNfts::retain(&block).unwrap();
     let r = OriginalRwas::retain(&block).unwrap();
-    assert_eq!(nft_work(&n), 732);
-    assert_eq!(rwa_work(&r), 1482);
+    assert_eq!(nft_work(&n), 720);
+    assert_eq!(rwa_work(&r), 1464);
     assert_eq!(
-        capture_nfts(&block, limits(), 731).err(),
+        capture_nfts(&block, limits(), 719).err(),
         Some(LeafError::GroupedOwnership(
             GroupedOwnershipError::WorkLimit
         ))
     );
     assert_eq!(
-        capture_rwas(&block, limits(), 1481).err(),
+        capture_rwas(&block, limits(), 1463).err(),
         Some(LeafError::GroupedOwnership(
             GroupedOwnershipError::WorkLimit
         ))
     );
-    assert!(capture_nfts(&block, limits(), 732).unwrap().is_some());
-    assert!(capture_rwas(&block, limits(), 1482).unwrap().is_some());
+    assert!(capture_nfts(&block, limits(), 720).unwrap().is_some());
+    assert!(capture_rwas(&block, limits(), 1464).unwrap().is_some());
     let state = self::state(initial());
     let mut block = state.block(header());
     change(&mut block.world);
@@ -715,14 +727,14 @@ fn exact_raw_shapes_and_independent_work_callbacks_cover_both_complete_images() 
             n.owners.current_entries().count(),
             n.owners.undo_entries().count()
         ),
-        (2, 3)
+        (4, 6)
     );
     assert_eq!(
         (
             n.domains.current_entries().count(),
             n.domains.undo_entries().count()
         ),
-        (1, 2)
+        (4, 5)
     );
     assert_eq!(
         (
@@ -736,21 +748,21 @@ fn exact_raw_shapes_and_independent_work_callbacks_cover_both_complete_images() 
             r.owners.current_entries().count(),
             r.owners.undo_entries().count()
         ),
-        (2, 3)
+        (4, 6)
     );
     assert_eq!(
         (
             r.statuses.current_entries().count(),
             r.statuses.undo_entries().count()
         ),
-        (2, 3)
+        (4, 6)
     );
     assert_eq!(
         (
             r.frozen.current_entries().count(),
             r.frozen.undo_entries().count()
         ),
-        (2, 2)
+        (4, 5)
     );
     let nw = nft_work(&n);
     let rw = rwa_work(&r);

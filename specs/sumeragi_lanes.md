@@ -522,6 +522,24 @@ refusal and incidental State publication changes. The build parameters and actua
 parent identify that request before payload assembly has a scope. Actual request replacement,
 explicit matching discard/rejection, successful parent commit and final worker shutdown cancel
 its proposal interest. No pending or refused commit cancels a still-owned request.
+An incoming authenticated global candidate has a retained read request outside the signature
+decoder and execution overlay. Fixed instance, height, view and block-hash coordinates select
+cancellation interest; they grant no authority and duplicate no body/header/source metadata.
+The original decoder retains and compares the complete available source before this handoff.
+A candidate with actual lane references can move the same local request after scheduled
+source/header and applied-parent checks; this transfers interest only, leaving native source,
+height, schedule, QC and original-pool checks intact. A candidate without lane references
+leaves local publication interest unchanged. Deferred execution and high-PQC keep entries
+retain the exact incoming request; exclusion, matching rejection, authenticated replacement,
+completed lane expansion and final worker shutdown retire it.
+
+Incoming expansion uses the same explicitly scoped load algorithm for writable stores and
+read-only replay sources. A read-only source gains no local proposal or tip authority. Its
+short ownership mutex serializes cancellation with parking the original native operation;
+I/O, authority destruction and refunds happen outside that mutex. Unfinished store openings
+record runtime, historical and request interest independently. Request-only cancellation
+releases an idle opening, and the last active recovery caller acknowledges cancellation after
+releasing its progress guard and Arc. An independent historical join keeps that same recovery.
 
 Ready read and batch slots retain their exact native job/body, source, schedule and request.
 A same-height historical joining read independently promotes only that slot; proposal cancellation
@@ -531,6 +549,9 @@ height cannot acquire it. The existing global worker invokes bounded source clea
 cancellation. It selects original store Arcs under the registry map, releases cancelled slots with
 separate nonblocking probes, and drops all read/authority owners outside map and native guards.
 A busy original native operation inherits cleanup at its own return, after releasing its guards.
+Cleanup rechecks the same monotonic request control after unlocking; one bounded matching
+retry closes cancellation during the original flag observation without revoking historical
+promotion or a replacement request.
 Only a physically idle Ready owner with no live driver/joiner/reader Arcs or pending work can leave
 the registry. The node's single global worker serializes proposal source calls and cancellation;
 when no independent caller holds the store, cancellation and final shutdown release that idle

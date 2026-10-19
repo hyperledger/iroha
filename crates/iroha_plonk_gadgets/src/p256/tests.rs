@@ -1107,8 +1107,8 @@ const VARIABLE_SHA_CELLS: usize = 139_208;
 /// Q-leaf layout.
 const VARIABLE_SHA_SHARED_ROWS: usize = 12_097;
 
-/// Ordinary arithmetic gates retain [`crate::MAX_GATE_DEGREE`]; the
-/// expression-dependent norm lookups separately determine total degree 10.
+/// Ordinary arithmetic gates retain [`crate::MAX_GATE_DEGREE`]; the window's
+/// norm lookup (table degree 2) separately determines total degree 10.
 #[test]
 fn p256_gate_degree_at_most_six() {
     let mut rng = ChaCha20Rng::seed_from_u64(12);
@@ -1135,9 +1135,8 @@ fn p256_gate_degree_at_most_six() {
         for lookup in cs.lookups() {
             let expected = match lookup.name() {
                 "ff c_0 range" | "ff c_1 range" | "ff c_2 range" | "ff q_0 range"
-                | "ff q_1 range" | "ff q_2 range" => (3, 1, 10),
-                "ff u_0 range" | "ff u_1 range" | "ff u_2 range" | "ff u_3 range"
-                | "sha256 spread" => (2, 1, 8),
+                | "ff q_1 range" | "ff q_2 range" | "ff u_0 range" | "ff u_1 range"
+                | "ff u_2 range" | "ff u_3 range" | "sha256 spread" => (2, 1, 8),
                 "p256 window" => (2, 2, 10),
                 other => panic!("unexpected P-256 lookup: {other}"),
             };
@@ -2583,8 +2582,10 @@ struct ProtocolSignature {
 
 fn protocol_signatures() -> Vec<ProtocolSignature> {
     use norito::json::Value as Json;
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/kagemusha/wallet_v1_vectors.json");
+    let root = std::env::var_os("IROHA_KAGEMUSHA_TEST_FIXTURE_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."));
+    let path = root.join("fixtures/kagemusha/wallet_v1_vectors.json");
     let text = std::fs::read_to_string(&path).expect("read the wallet vectors");
     let json = norito::json::parse_value(&text).expect("parse the wallet vectors");
     let text_of = |value: &Json, key: &str| -> String {
@@ -2620,12 +2621,12 @@ fn protocol_signatures() -> Vec<ProtocolSignature> {
 
 /// The in-circuit message path reproduces the protocol's signatures: every
 /// signing message of the shared wallet vectors (ECDSA-P256-SHA256 over the
-/// 32-byte canonical little-endian encoding of `P_bytes(domain,
-/// transcript)`, `kagemusha_wallet_signing_message_v1`) is the codec's
+/// 32-byte canonical little-endian digest encoding) is the codec's
 /// encoding of its digest, and each signature verifies in circuit from the
 /// digest cell, while another object's message does not. Reading the 32
 /// bytes big-endian instead would not even give an `Fp` value for most of
-/// them.
+/// them. Request signs `P(kgwrqst2, terms)`; the other bodies use
+/// `P_bytes(domain, transcript)`.
 #[test]
 fn p256_protocol_signature_fixtures_verify_from_the_digest() {
     let vectors = protocol_signatures();
@@ -2637,7 +2638,6 @@ fn p256_protocol_signature_fixtures_verify_from_the_digest() {
         [
             "payer issuer certificate",
             "payer credential",
-            "Offer",
             "Request",
             "Send receipt",
             "Receive receipt binding the Payment digest",

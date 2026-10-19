@@ -1,0 +1,21 @@
+STDOUT (retained stream)
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-development
+[cargo-fast] CARGO_BUILD_JOBS=4
+[cargo-fast] sccache=disabled
+[cargo-fast] linker=system-default
+[cargo-fast] VERGEN_GIT_SHA=local-fast-build
+[cargo-fast] running: cargo test --locked --offline --profile local-release -p iroha_zkp_vole --test material_slot_interface --features accel -- --nocapture --test-threads=1
+
+running 3 tests
+test affine_inverse_reconstructs_controlled_raw_replies_for_zero_and_nonzero_h0 ... ok
+test nine_block_leaf_projection_matches_source_and_retains_its_opening ... ok
+test selected_row_matches_source_and_changes_only_its_index_columns ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+
+
+STDERR (retained stream)
+   Compiling iroha_zkp_vole v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_zkp_vole)
+    Finished `local-release` profile [optimized] target(s) in 0.51s
+     Running tests/material_slot_interface.rs (target/cargo-fast/parliament-development/local-release/deps/material_slot_interface-ee3d9257ea7e6def)

@@ -12,14 +12,16 @@ final class KagemushaWalletExchangeBindingV1Tests: XCTestCase {
 
     func testDifferentQuotedBodyOrSignatureIsRejected() throws {
         let request = envelope(.request, requestFields())
-        for index in [0, 9] {
+        // Unique field 0 is the payer account: completing an open Request may fill it.
+        // Fields 1...8 are immutable receiver terms; field 9 is the receiver signature.
+        for index in 1...9 {
             var signedRequest = uniqueRequestFields()
             if signedRequest[index].isEmpty { signedRequest[index] = Data([1]) }
             else { signedRequest[index][signedRequest[index].count - 1] ^= 1 }
             var payment = paymentFields()
             payment[1] = record(signedRequest)
             XCTAssertThrowsError(try KagemushaWalletWireV1.requireExchangeBinding(
-                request: request, payment: envelope(.payment, payment))) {
+                request: request, payment: envelope(.payment, payment)), "unique Request field \(index)") {
                 XCTAssertEqual($0 as? KagemushaWalletWireErrorV1,
                     .invalidField("payment.request.binding"))
             }
@@ -222,82 +224,39 @@ final class KagemushaWalletExchangeBindingV1Tests: XCTestCase {
         }
     }
 
-    func testOfferDisplayAmountReadsTheRealOfferVectorAndTheSharedFixture() throws {
-        // `vector_offer` of the Rust fixture generator: 1,000 units at send ordinal 4.
-        let envelopes = try irohaPeerWalletVectorEnvelopesV1()
-        let offer = try XCTUnwrap(envelopes.first { $0.kind == .offer })
-        XCTAssertEqual(offer.variant, "Offer")
-        let amount = try KagemushaWalletWireV1.offerAmountData(offer.frame)
-        XCTAssertEqual(amount, KagemushaWalletUInt128V1(low: 1_000, high: 0))
-        let shared = try XCTUnwrap(irohaPeerAskFixtureV1()["offer_amount"] as? [String: Any])
-        XCTAssertEqual(amount, try irohaPeerAskAmountV1(decimal: shared["amount_decimal"]))
-        // Native requires Request.amount == Offer.amount; the vectors' Request quotes the same.
-        let request = try XCTUnwrap(envelopes.first { $0.kind == .request })
-        XCTAssertEqual(try KagemushaWalletWireV1.requestAmountData(request.frame), amount)
-        for other in envelopes where other.kind != .offer {
-            XCTAssertThrowsError(try KagemushaWalletWireV1.offerAmountData(other.frame), other.variant)
+    func testOpenRequestAcceptsPayerCompletionButCompletedRequestCannotBeRetargeted() throws {
+        let open = bodyFields(), completed = completedBodyFields()
+        let payment = envelope(.payment, irohaPeerWalletPaymentFieldsV1(body: completed, signature: signature, proof: Data([4])))
+        for body in [open, completed] {
+            try KagemushaWalletWireV1.requireExchangeBinding(
+                request: envelope(.request, [record(body), Data([1]), Data(), Data(), signature]), payment: payment)
+        }
+        for field in [3, 4, 7] {
+            var changed = completed
+            changed[field][0] ^= 1
+            XCTAssertThrowsError(try KagemushaWalletWireV1.requireExchangeBinding(
+                request: envelope(.request, [record(changed), Data([1]), Data(), Data(), signature]), payment: payment))
         }
     }
 
-    func testOfferDisplayAmountPreservesExactUnsignedData() throws {
-        // Synthetic DATA records: the amount a receiver compares with its ask, nothing more.
-        for amount: KagemushaWalletUInt128V1 in [
-            .init(low: 1, high: 0), .init(low: 0, high: 1),
-            .init(low: 0x0123_4567_89ab_cdef, high: 0xfedc_ba98_7654_3210),
-            .init(low: 0, high: UInt64(1) << 63), .init(low: .max, high: .max)
-        ] {
-            let bytes = withUnsafeBytes(of: amount.low.littleEndian) { Data($0) }
-                + withUnsafeBytes(of: amount.high.littleEndian) { Data($0) }
-            XCTAssertEqual(try KagemushaWalletWireV1.offerAmountData(offerWithAmount(bytes)), amount)
-        }
-    }
-
-    func testOfferDisplayAmountRejectsZeroNoncanonicalScalarsWrongKindsAndShapes() throws {
-        for bytes in [Data(repeating: 0, count: 16), Data(repeating: 1, count: 15),
-                      Data(repeating: 1, count: 17), Data()] {
-            XCTAssertThrowsError(try KagemushaWalletWireV1.offerAmountData(offerWithAmount(bytes))) {
-                XCTAssertEqual($0 as? KagemushaWalletWireErrorV1, .invalidField("offer.amount"))
+    func testOpenRequestRequiresCanonicalPayerFieldWidths() throws {
+        let payment = envelope(.payment, irohaPeerWalletPaymentFieldsV1(body: completedBodyFields(), signature: signature, proof: Data([4])))
+        for field in [3, 4, 7] {
+            for width in [0, 1, field == 7 ? 15 : 31, field == 7 ? 17 : 33] {
+                var malformed = bodyFields()
+                malformed[field] = Data(repeating: 0, count: width)
+                XCTAssertThrowsError(try KagemushaWalletWireV1.requireExchangeBinding(
+                    request: envelope(.request, [record(malformed), Data([1]), Data(), Data(), signature]), payment: payment))
             }
         }
-        for kind: IrohaPeerWireKindV1 in [.request, .payment, .credited] {
-            let fields = kind == .request ? requestFields()
-                : kind == .payment ? paymentFields() : creditedFields()
-            XCTAssertThrowsError(try KagemushaWalletWireV1.offerAmountData(envelope(kind, fields)))
-        }
-        // The Request quotes its amount at body field 9 of 17; the Offer reader never reads it.
-        XCTAssertThrowsError(try KagemushaWalletWireV1.offerAmountData(
-            envelope(.offer, [record(bodyFields()), Data([1]), Data(), signature])))
-        let body = offerBodyFields(amount: Data([1]) + Data(repeating: 0, count: 15))
-        for malformed in [Array(body.dropLast()), body + [Data()]] {
-            XCTAssertThrowsError(try KagemushaWalletWireV1.offerAmountData(
-                envelope(.offer, [record(malformed), Data([1]), Data(), signature]))) {
-                XCTAssertEqual($0 as? KagemushaWalletWireErrorV1, .invalidField("offer.body"))
-            }
-        }
-        let fields = [record(body), Data([1]), Data(), signature]
-        for malformed in [Array(fields.dropLast()), fields + [Data()]] {
-            XCTAssertThrowsError(try KagemushaWalletWireV1.offerAmountData(envelope(.offer, malformed))) {
-                XCTAssertEqual($0 as? KagemushaWalletWireErrorV1, .invalidField("exchange.fields"))
-            }
-        }
-        let offer = offerWithAmount(Data([1]) + Data(repeating: 0, count: 15))
-        XCTAssertEqual(try KagemushaWalletWireV1.offerAmountData(offer), .init(low: 1, high: 0))
-        for invalid in [Data(offer.dropLast()), offer + Data([0]),
-                        Data(repeating: 0, count: KagemushaWalletWireV1.messageMaximumBytes + 1)] {
-            XCTAssertThrowsError(try KagemushaWalletWireV1.offerAmountData(invalid))
-        }
     }
 
-    /// Offer `{body, payer_credential, certificates, signature}` with the 8-field body.
-    private func offerWithAmount(_ amount: Data) -> Data {
-        envelope(.offer, [record(offerBodyFields(amount: amount)), Data([1]), Data(), signature])
-    }
-
-    /// `{version, scheme_id, asset_digest, payer_wallet_id, payer_credential_digest, next_send,
-    /// amount, session_nonce}`.
-    private func offerBodyFields(amount: Data) -> [Data] {
-        [version, irohaPeerWalletStructuralSchemeV1, Data([0x29]), Data(), Data(),
-         Data([4]) + Data(repeating: 0, count: 15), amount, Data(repeating: 0x5e, count: 32)]
+    private func completedBodyFields() -> [Data] {
+        var body = bodyFields()
+        body[3] = Data(repeating: 0x31, count: 32)
+        body[4] = Data(repeating: 0x42, count: 32)
+        body[7] = Data([1]) + Data(repeating: 0, count: 15)
+        return body
     }
 
     private func requestWithAmount(_ amount: Data) -> Data {
@@ -339,8 +298,12 @@ final class KagemushaWalletExchangeBindingV1Tests: XCTestCase {
     private let signature = Data(repeating: 0x36, count: 64)
 
     private func bodyFields() -> [Data] {
-        [version, irohaPeerWalletStructuralSchemeV1, Data([0x29])]
+        var body = [version, irohaPeerWalletStructuralSchemeV1, Data([0x29])]
             + Array(repeating: Data(), count: 14)
+        body[3] = Data(repeating: 0, count: 32)
+        body[4] = Data(repeating: 0, count: 32)
+        body[7] = Data(repeating: 0, count: 16)
+        return body
     }
 
     private func requestFields() -> [Data] {

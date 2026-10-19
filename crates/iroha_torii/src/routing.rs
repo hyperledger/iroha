@@ -2210,7 +2210,7 @@ fn kaigi_signal_authority(
         TransactionEntrypoint::SealedReveal(reveal) => {
             Some(reveal.signed_transaction().authority())
         }
-        TransactionEntrypoint::SealedCommitment(_) => None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => None,
     }
 }
 #[cfg(test)]
@@ -2439,7 +2439,7 @@ fn kaigi_signal_metadata_from_transaction(
     }
     let metadata = match tx.entrypoint() {
         TransactionEntrypoint::External(signed) => signed.metadata(),
-        TransactionEntrypoint::SealedCommitment(_) => return None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => return None,
         TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction().metadata(),
     };
     let key: Name = "kaigi_signal".parse().ok()?;
@@ -2471,7 +2471,7 @@ fn kaigi_signal_from_metadata(
         TransactionEntrypoint::External(signed) => {
             reveal_authorities.then(|| crate::account_literal::display_literal(signed.authority()))
         }
-        TransactionEntrypoint::SealedCommitment(_) => return None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => return None,
         TransactionEntrypoint::SealedReveal(reveal) => reveal_authorities.then(|| {
             crate::account_literal::display_literal(reveal.signed_transaction().authority())
         }),
@@ -9599,6 +9599,7 @@ pub fn accept_transaction_for_ingress(
         TransactionEntrypoint::SealedCommitment(_) => {
             (1, tx_limits.max_signatures().get(), "sealed_commitment")
         }
+        TransactionEntrypoint::AnonymousBallot(_) => (0, 0, "anonymous_ballot"),
         TransactionEntrypoint::SealedReveal(reveal) => {
             let signed = reveal.signed_transaction();
             let authority_label = match signed.authority().controller() {
@@ -9633,7 +9634,7 @@ pub fn accept_transaction_for_ingress(
             Ok(tx)
         }
         Err(err) => {
-            iroha_logger::warn!(?err, "transaction rejected during admission");
+            iroha_logger::warn!(?err, "transaction admission did not complete");
             #[cfg(feature = "telemetry")]
             telemetry.with_metrics(|tel| {
                 if let AcceptTransactionFail::TransactionLimit(limit) = &err {
@@ -9759,7 +9760,7 @@ pub fn accept_decoded_signed_transaction_for_ingress_with_precheck(
             Ok(tx)
         }
         Err(err) => {
-            iroha_logger::warn!(?err, "transaction rejected during admission");
+            iroha_logger::warn!(?err, "transaction admission did not complete");
             #[cfg(feature = "telemetry")]
             telemetry.with_metrics(|tel| {
                 if let AcceptTransactionFail::TransactionLimit(limit) = &err {
@@ -32183,6 +32184,7 @@ fn append_account_history_projections_for_tx(
         }
     };
     match tx.entrypoint() {
+        TransactionEntrypoint::AnonymousBallot(_) => {}
         TransactionEntrypoint::External(signed) => {
             for instruction in signed.instructions().explicit_instructions() {
                 append_for_instruction(instruction);
@@ -32406,7 +32408,7 @@ fn bound_contract_call(tx: &impl HistoryTransaction) -> Option<BoundContractCall
     let signed = match tx.entrypoint() {
         TransactionEntrypoint::External(signed) => signed,
         TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-        TransactionEntrypoint::SealedCommitment(_) => return None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => return None,
     };
     let Executable::ContractCall(invocation) = signed.instructions() else {
         return None;
@@ -32866,9 +32868,11 @@ fn tx_field_value(
             iroha_data_model::transaction::signed::TransactionEntrypoint::SealedReveal(_) => {
                 "sealed_reveal".to_owned()
             }
+            TransactionEntrypoint::AnonymousBallot(_) => "anonymous_ballot".to_owned(),
         }),
         // authority account id string if External entrypoint
         "authority" => match &tx.entrypoint() {
+            TransactionEntrypoint::AnonymousBallot(_) => None,
             iroha_data_model::transaction::signed::TransactionEntrypoint::External(signed) => {
                 // For server-side filtering/sorting, expose the authority regardless of
                 // transparent_api feature. The response projection still controls visibility.
@@ -32883,6 +32887,7 @@ fn tx_field_value(
         },
         // creation timestamp if External entrypoint
         "timestamp_ms" => match &tx.entrypoint() {
+            TransactionEntrypoint::AnonymousBallot(_) => None,
             iroha_data_model::transaction::signed::TransactionEntrypoint::External(signed) => {
                 // Use API method to avoid relying on internal payload field names
                 Some(format!("{}", signed.creation_time().as_millis()))
@@ -32912,6 +32917,7 @@ fn tx_field_value(
             let rest = field.strip_prefix("metadata.")?;
             let name: iroha_model_base::name::Name = rest.parse().ok()?;
             match &tx.entrypoint() {
+                TransactionEntrypoint::AnonymousBallot(_) => None,
                 iroha_data_model::transaction::signed::TransactionEntrypoint::External(signed) => {
                     signed.metadata().get(&name).map(|json| json.get().clone())
                 }
@@ -32941,7 +32947,7 @@ fn tx_metadata_json_value(
         }
         TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction().metadata()
             .get(&name).map(|json| json.get().clone()),
-        TransactionEntrypoint::SealedCommitment(_) => None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => None,
     }?;
     norito::json::from_str(&raw).ok()
 }
@@ -33124,6 +33130,7 @@ pub fn tx_references_account_id(
     expected: &AccountId,
 ) -> bool {
     match tx.entrypoint() {
+        TransactionEntrypoint::AnonymousBallot(_) => false,
         TransactionEntrypoint::External(signed) => {
             signed.authority() == expected
                 || executable_contains_account_id(signed.instructions(), expected)
@@ -33179,7 +33186,7 @@ fn tx_collect_asset_ids(
         TransactionEntrypoint::External(signed) => {
             executable_explicit_instructions(signed.instructions(), &mut visit_instruction);
         }
-        TransactionEntrypoint::SealedCommitment(_) => {}
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => {}
         TransactionEntrypoint::SealedReveal(reveal) => {
             executable_explicit_instructions(
                 reveal.signed_transaction().instructions(),
@@ -33198,6 +33205,7 @@ fn tx_matches_account_history_subject(
     account_id: &iroha_data_model::account::AccountId,
 ) -> bool {
     match tx.entrypoint() {
+        TransactionEntrypoint::AnonymousBallot(_) => false,
         TransactionEntrypoint::External(signed) => {
             signed.authority().controller() == account_id.controller()
                 || executable_contains_account_id(signed.instructions(), account_id)
@@ -33255,7 +33263,7 @@ fn tx_fee_projection(
         TransactionEntrypoint::SealedReveal(reveal) => {
             Some(reveal.signed_transaction().fee_payment_intent().clone())
         }
-        TransactionEntrypoint::SealedCommitment(_) => None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => None,
     }
 }
 static SUBSCRIPTION_PLAN_KEY: LazyLock<Name> = LazyLock::new(|| {
@@ -48876,7 +48884,7 @@ fn faucet_pow_recent_claims(
         let state_view = app.state.view();
         // Count in place: copying every pending transaction just to filter it is O(queue).
         app.queue.count_pending_transactions(&state_view, |tx| {
-            tx.authority() == &faucet.authority
+            tx.authority_opt() == Some(&faucet.authority)
                 && tx.external().is_some_and(|signed| {
                     faucet_executable_is_claim(
                         signed.instructions(),
@@ -53705,7 +53713,7 @@ fn network_signed_transaction_at(block: &SignedBlock, index: usize) -> Option<(H
     let signed = match source {
         TransactionEntrypoint::External(signed) => signed,
         TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-        TransactionEntrypoint::SealedCommitment(_) => return None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => return None,
     };
     Some((source.hash(), signed))
 }
@@ -53738,7 +53746,7 @@ fn external_signed_transaction_result_at(
     let signed = match source {
         TransactionEntrypoint::External(signed) => signed,
         TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-        TransactionEntrypoint::SealedCommitment(_) => return None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => return None,
     };
     let entrypoint_hash = source.hash();
     let (_, output) = block.network_output_at(u32::try_from(index).ok()?)?;

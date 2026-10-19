@@ -490,7 +490,7 @@ pub enum FoldProgress {
 pub enum Completion {
     /// Original released output bytes. This is the only successful completion result.
     Complete(Vec<u8>),
-    /// Fresh CreditStatus for an identical duplicate Receive whose old evidence was collected.
+    /// Fresh `CreditStatus` for an identical duplicate Receive whose old evidence was collected.
     CreditStatus(Vec<u8>),
     /// A selected or uncertain operation needs reconciliation, never a new debit.
     Pending,

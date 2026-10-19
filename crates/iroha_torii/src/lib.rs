@@ -13860,7 +13860,9 @@ fn signed_transaction_hash_for_entrypoint(
     match entrypoint {
         TransactionEntrypoint::External(signed) => Some(signed.hash()),
         TransactionEntrypoint::SealedReveal(reveal) => Some(reveal.signed_transaction().hash()),
-        TransactionEntrypoint::SealedCommitment(_) => None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => {
+            None
+        }
     }
 }
 fn transaction_entrypoint_matches_indexed_identity(
@@ -28855,8 +28857,12 @@ async fn submit_prepared_transaction_ingress(
     } = prepared;
 
     require_current_transaction_route(&routing_plan)?;
-    ordinary_transaction_ingress::authenticate(app, transaction.entrypoint(), &routing_plan)
-        .map_err(|message| Error::Query(iroha_data_model::ValidationFail::NotPermitted(message)))?;
+    ordinary_transaction_ingress::authenticate_lifecycle_certificate(
+        app,
+        transaction.entrypoint(),
+        &routing_plan,
+    )
+    .map_err(|message| Error::Query(iroha_data_model::ValidationFail::NotPermitted(message)))?;
     if (committed_replay && !app.queue.is_expired(&transaction))
         || app
             .queue
@@ -43389,6 +43395,14 @@ impl IntoResponse for Error {
                 }
                 response
             }
+            Self::AcceptTransaction(err @ AcceptTransactionFail::AnonymousBallotUnavailable) => {
+                let (code, detail) = accept_transaction_metadata(&err);
+                utils::respond_with_status_and_format(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    ErrorEnvelope::new(code, detail),
+                    format,
+                )
+            }
             Self::AcceptTransaction(err) => {
                 let (code, detail) = accept_transaction_metadata(&err);
                 let details = ErrorDetails {
@@ -43462,7 +43476,7 @@ impl Error {
                 envelope
             }
             Self::AcceptTransaction(err) => {
-                iroha_logger::warn!(?err, "Transaction rejected during admission");
+                iroha_logger::warn!(?err, "Transaction admission did not complete");
                 let (code, detail) = accept_transaction_metadata(&err);
                 ErrorEnvelope::new(code, detail)
             }
@@ -43583,6 +43597,9 @@ impl Error {
         match self {
             Query(e) => Self::query_status_code(e),
             NativeEvidenceDecode(_) => StatusCode::TOO_MANY_REQUESTS,
+            AcceptTransaction(AcceptTransactionFail::AnonymousBallotUnavailable) => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
             AcceptTransaction(_) => StatusCode::BAD_REQUEST,
             AppQueryValidation { .. } => StatusCode::BAD_REQUEST,
             #[cfg(feature = "app_api")]
@@ -43745,6 +43762,9 @@ fn validate_native_transaction_submission_identity(
 }
 #[cfg(all(test, feature = "connect"))]
 mod native_transaction_proxy_tests;
+
+#[cfg(test)]
+mod anonymous_ballot_test_support;
 
 #[cfg(test)]
 mod service_checked_writer_test_support;

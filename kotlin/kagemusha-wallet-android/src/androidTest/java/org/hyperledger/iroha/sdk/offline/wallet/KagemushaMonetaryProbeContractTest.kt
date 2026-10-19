@@ -35,7 +35,8 @@ class KagemushaMonetaryProbeContractTest {
         }
         refused { command("execute-reviewed", setOf("request-id", "unsigned-permission")) }
         refused { command("destructively-delete", emptySet()) }
-        refused { command("request", setOf("setup-id", "offer", "fee-schedule")) }
+        refused { command("request", setOf("setup-id", "amount", "fee-schedule")) }
+        refused { command("request", setOf("setup-id", "offer")) }
         refused { command("review-unload", setOf("request-id", "amount", "quote", "certificates")) }
         assertEquals(36 * 1024 * 1024, KagemushaMonetaryProbeManifest.maximum("finality"))
     }

@@ -98,7 +98,7 @@ const VECTOR_PROOF_LEN: usize = STAND_IN_SIGMA_BYTES;
 /// Stand-in Ω(h) transport proof length of the vectored `CreditStatus`: the allowlist's exact Ω
 /// length, like every other vectored Ω (defect d2).
 const STATUS_LINEAGE_LEN: usize = STAND_IN_LINEAGE_BYTES;
-/// Session nonce of the vectored Offer and session controls.
+/// Session nonce of the vectored session controls.
 const SESSION_NONCE: [u8; 32] = [0x5e; 32];
 /// Renewal challenge of the vectored renewal request.
 const RENEWAL_CHALLENGE: [u8; 32] = [0x7c; 32];
@@ -150,18 +150,19 @@ pub(super) struct VectorWorld {
     manifest: KagemushaWalletArtifactManifestV1,
     /// Android renewal request of the payer.
     renewal: KagemushaWalletRenewalRequestV1,
-    /// Payer Offer.
-    offer: KagemushaWalletOfferV1,
     /// Signed `Close` control of the payer.
     close: KagemushaWalletSessionControlV1,
-    /// Unsigned `UnsupportedScheme` control.
-    unsupported: KagemushaWalletSessionControlV1,
-    /// Receiver-signed Request with the fee schedule; the Payment carries its signed body.
+    /// Unsigned `SetupDeclined` of the payer, sent before it has sent anything in the session.
+    decline: KagemushaWalletSessionControlV1,
+    /// Receiver-signed open Request with the fee schedule: the Request envelope.
+    open_request: KagemushaWalletRequestV1,
+    /// The payer's completion of `open_request` at send ordinal 4: the Payment carries its
+    /// signed body, and the Credited, fee-claim and Receive capsule vectors hold it.
     request: KagemushaWalletRequestV1,
     /// Fee-bearing compact Payment carrying Ω(pred).
     payment: KagemushaWalletPaymentV1,
-    /// Lineage message carrying the Payment's exact Ω(pred) bytes.
-    lineage: KagemushaWalletLineageMessageV1,
+    /// Payer credential and issuer certificate carried beside the Payment.
+    companion: KagemushaWalletPayerCompanionV1,
     /// Receiver's Receive package of the Payment, receipted over `capsule`.
     receive: KagemushaWalletPackageV1,
     /// Recovery capsule of the Receive.
@@ -190,28 +191,7 @@ pub(super) fn vector_world() -> &'static VectorWorld {
     WORLD.get_or_init(build_world)
 }
 
-/// Payer Offer of 1,000 units at send ordinal 4.
-pub(super) fn vector_offer(f: &MessageFixture) -> KagemushaWalletOfferV1 {
-    let body = KagemushaWalletOfferBodyV1 {
-        version: KAGEMUSHA_WALLET_VERSION_V1,
-        scheme_id: f.scheme_id(),
-        asset_digest: f.asset_digest(),
-        payer_wallet_id: f.payer.credential.body.wallet_id,
-        payer_credential_digest: f.payer.credential.credential_digest(),
-        next_send: 4,
-        amount: 1_000,
-        session_nonce: SESSION_NONCE,
-    };
-    KagemushaWalletOfferV1::sign(
-        body,
-        f.payer.credential,
-        &f.payer.enrollment_certificate,
-        raw_output(&f.payer.payment, &body.signing_message()),
-    )
-    .expect("offer")
-}
-
-/// Payer session control of `kind`; signed except `UnsupportedScheme`.
+/// Payer session control of `kind`, signed by the payer payment key.
 pub(super) fn vector_control(
     f: &MessageFixture,
     kind: KagemushaWalletSessionControlKindV1,
@@ -221,17 +201,13 @@ pub(super) fn vector_control(
         version: KAGEMUSHA_WALLET_VERSION_V1,
         scheme_id: f.scheme_id(),
         asset_digest: f.asset_digest(),
-        sender_wallet_id: if kind == Kind::UnsupportedScheme {
-            [0; 32]
-        } else {
-            f.payer.credential.body.wallet_id
-        },
+        sender_wallet_id: f.payer.credential.body.wallet_id,
         peer_wallet_id: f.receiver.credential.body.wallet_id,
         session_nonce: SESSION_NONCE,
         kind,
         reason: match kind {
             Kind::SetupDeclined | Kind::ReceiveDeferred => 7,
-            Kind::UnsupportedScheme | Kind::Close => 0,
+            Kind::Close => 0,
         },
         credit_id: if kind == Kind::ReceiveDeferred {
             field_value(0x71)
@@ -240,16 +216,23 @@ pub(super) fn vector_control(
         },
         auth: KagemushaWalletSessionAuthV1::Unsigned,
     };
-    if kind == Kind::UnsupportedScheme {
-        control.validate().expect("unsigned control");
-        return control;
-    }
     control
         .sign(
             &f.payer.credential,
             raw_output(&f.payer.payment, &control.signing_message()),
         )
         .expect("signed control")
+}
+
+/// The payer's unsigned `SetupDeclined`: a decline of the Request before the payer has sent
+/// anything in the session.
+fn vector_decline(f: &MessageFixture) -> KagemushaWalletSessionControlV1 {
+    let decline = KagemushaWalletSessionControlV1 {
+        auth: KagemushaWalletSessionAuthV1::Unsigned,
+        ..vector_control(f, KagemushaWalletSessionControlKindV1::SetupDeclined)
+    };
+    decline.verify(None).expect("unsigned decline");
+    decline
 }
 
 /// Signed blacklist of `count` distinct stand-in account digests in limb order (owner answer
@@ -513,11 +496,17 @@ fn build_world() -> VectorWorld {
     )
     .expect("renewal request");
 
-    let offer = vector_offer(&f);
     let close = vector_control(&f, KagemushaWalletSessionControlKindV1::Close);
-    let unsupported = vector_control(&f, KagemushaWalletSessionControlKindV1::UnsupportedScheme);
+    let decline = vector_decline(&f);
 
+    // The receiver issues the open Request; the payer completes it and pays.
+    let open_request = f.open_request(true);
     let request = f.request(true);
+    assert_eq!(
+        open_request.complete(&payer, 4).expect("payer completion"),
+        request
+    );
+    assert_eq!(open_request.request_digest(), request.request_digest());
     let payment = f.payment(true, VECTOR_PROOF_LEN);
     assert_eq!(payment.signed_request().unwrap(), request.signed());
     assert_eq!(
@@ -530,14 +519,21 @@ fn build_world() -> VectorWorld {
     );
     let payer_issuer = KagemushaWalletCertificateSetV1::new(vec![f.payer.enrollment_certificate])
         .expect("payer issuer set");
+    // The receiver verifies the Payment against its held open Request with the companion.
+    let companion = KagemushaWalletPayerCompanionV1::new(payer, &f.payer.enrollment_certificate)
+        .expect("payer companion");
+    companion
+        .check_payment(&payment)
+        .expect("the companion names the Payment's payer");
     let payment_digest = payment
-        .verify(&scheme, &payer, &payer_issuer, &request)
+        .verify(
+            &scheme,
+            &companion.payer_credential,
+            &companion.certificates,
+            &open_request,
+        )
         .expect("payment verifies")
         .payment;
-    let lineage = f.lineage_message(&payment);
-    lineage
-        .verify_for_offer(&offer)
-        .expect("lineage matches the offer");
 
     // The Receive package is receipted over its real capsule, so the completion record verifies.
     // Its successor is the computed commitment of the capsule's successor state.
@@ -578,7 +574,7 @@ fn build_world() -> VectorWorld {
             0,
             KagemushaWalletLifecycleV1::Active,
             payment
-                .receive_effect(&request, &receiver, &receiver_head_state(&receiver))
+                .receive_effect(&open_request, &receiver, &receiver_head_state(&receiver))
                 .expect("receive effect"),
         )
     };
@@ -762,9 +758,6 @@ fn build_world() -> VectorWorld {
         .check_package(&receive)
         .expect("the Receive package has the allowlisted σ length");
     allowlist
-        .check_lineage(&lineage.lineage)
-        .expect("the Lineage message's Ω has the allowlisted length");
-    allowlist
         .check_lineage(&fold.lineage)
         .expect("the fold record's Ω has the allowlisted length");
     let KagemushaWalletCreditedEvidenceV1::Status { status } = &credited_status.evidence else {
@@ -789,12 +782,12 @@ fn build_world() -> VectorWorld {
         load_receipt,
         manifest,
         renewal,
-        offer,
         close,
-        unsupported,
+        decline,
+        open_request,
         request,
         payment,
-        lineage,
+        companion,
         receive,
         capsule,
         completion,
@@ -1284,8 +1277,8 @@ fn object_digest_vectors(w: &VectorWorld) -> Vec<ObjectDigestVector> {
         object_digest_vector(
             ObjectDomain::Request,
             "Request",
-            w.request.body.signing_message(),
-            w.request.signature,
+            w.open_request.body.signing_message(),
+            w.open_request.signature,
             digests.request,
         ),
     ]
@@ -1350,9 +1343,20 @@ struct SignatureVector {
 }
 
 impl SignatureVector {
-    /// The 32-byte signing message `P_bytes(domain, transcript)`.
+    /// The 32-byte signing message: `P_bytes(domain, transcript)`, or `P(kgwrqst2, terms)` for
+    /// the Request.
     fn message(&self) -> [u8; 32] {
         kagemusha_wallet_signing_message_v1(self.domain, &self.transcript)
+    }
+
+    /// The σ-field elements the signing message hashes: the 19 terms elements of a Request
+    /// transcript, the `P_bytes` packing of every other transcript.
+    fn message_items(&self) -> Vec<[u8; 32]> {
+        if self.domain == Domain::Request {
+            kagemusha_wallet_request_terms_items_v1(&self.transcript)
+        } else {
+            kagemusha_wallet_packed_bytes_v1(&self.transcript)
+        }
     }
 }
 
@@ -1363,7 +1367,7 @@ fn signature_vectors(w: &VectorWorld) -> Vec<SignatureVector> {
     let payer_key = payer.body.payment_key;
     let regulator_key = f.regulator_certificate.body.key;
     let certificate = &f.payer.enrollment_certificate;
-    let request = &w.request;
+    let request = &w.open_request;
     let send = &w.payment.send;
     let receipt_body = send
         .receipt
@@ -1404,13 +1408,6 @@ fn signature_vectors(w: &VectorWorld) -> Vec<SignatureVector> {
             key: certificate.body.key,
             transcript: payer.body.transcript(),
             signature: payer.signature,
-        },
-        SignatureVector {
-            object: "Offer",
-            domain: Domain::Offer,
-            key: payer_key,
-            transcript: w.offer.body.transcript(),
-            signature: w.offer.signature,
         },
         SignatureVector {
             object: "Request",
@@ -1568,6 +1565,13 @@ fn signature_vectors_json(vectors: &[SignatureVector]) -> Value {
                     vector.object
                 );
                 let message = vector.message();
+                let items = vector.message_items();
+                assert_eq!(
+                    kagemusha_wallet_poseidon_v1(vector.domain.domain(), &items).ok(),
+                    Some(message),
+                    "{}",
+                    vector.object
+                );
                 let raw = vector.signature.as_raw_bytes();
                 assert_eq!(
                     signature_verdicts(&vector.key, &message, raw),
@@ -1610,10 +1614,7 @@ fn signature_vectors_json(vectors: &[SignatureVector]) -> Value {
                     ("domain", json_text(vector.domain.as_str())),
                     ("public_key_hex", json_hex(vector.key.as_sec1_bytes())),
                     ("transcript_hex", json_hex(&vector.transcript)),
-                    (
-                        "elements",
-                        json_number(kagemusha_wallet_packed_bytes_v1(&vector.transcript).len()),
-                    ),
+                    ("elements", json_number(items.len())),
                     ("message_hex", json_hex(&message)),
                     ("signature_hex", json_hex(raw)),
                     ("codec_ok", Value::Bool(true)),
@@ -1774,20 +1775,13 @@ fn boundary_json() -> Value {
 // Envelope vectors and frame identities
 // ---------------------------------------------------------------------------------------
 
-/// One message of every kind and variant, in tag order.
+/// One message of every kind and variant, in tag order; the Request travels open.
 fn envelope_messages(w: &VectorWorld) -> Vec<(&'static str, KagemushaWalletMessageV1, bool)> {
     vec![
         (
-            "Offer",
-            KagemushaWalletMessageV1::Offer {
-                offer: w.offer.clone(),
-            },
-            false,
-        ),
-        (
             "Request",
             KagemushaWalletMessageV1::Request {
-                request: w.request.clone(),
+                request: w.open_request.clone(),
             },
             false,
         ),
@@ -1818,10 +1812,8 @@ fn envelope_messages(w: &VectorWorld) -> Vec<(&'static str, KagemushaWalletMessa
             false,
         ),
         (
-            "SessionControl::UnsupportedScheme",
-            KagemushaWalletMessageV1::SessionControl {
-                control: w.unsupported,
-            },
+            "SessionControl::SetupDeclined",
+            KagemushaWalletMessageV1::SessionControl { control: w.decline },
             false,
         ),
         (
@@ -1833,25 +1825,16 @@ fn envelope_messages(w: &VectorWorld) -> Vec<(&'static str, KagemushaWalletMessa
             },
             false,
         ),
-        (
-            "Lineage",
-            KagemushaWalletMessageV1::Lineage {
-                lineage: w.lineage.clone(),
-            },
-            true,
-        ),
     ]
 }
 
 fn message_kind_name(message: &KagemushaWalletMessageV1) -> &'static str {
     match message {
-        KagemushaWalletMessageV1::Offer { .. } => "Offer",
         KagemushaWalletMessageV1::Request { .. } => "Request",
         KagemushaWalletMessageV1::Payment { .. } => "Payment",
         KagemushaWalletMessageV1::Credited { .. } => "Credited",
         KagemushaWalletMessageV1::SessionControl { .. } => "SessionControl",
         KagemushaWalletMessageV1::PolicyData { .. } => "PolicyData",
-        KagemushaWalletMessageV1::Lineage { .. } => "Lineage",
     }
 }
 
@@ -2009,6 +1992,10 @@ fn frame_pins() -> Vec<FramePin> {
         frame_pin::<KagemushaWalletPaymentV1>(
             "KagemushaWalletPaymentV1",
             KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1,
+        ),
+        frame_pin::<KagemushaWalletPayerCompanionV1>(
+            "KagemushaWalletPayerCompanionV1",
+            KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1,
         ),
         frame_pin::<KagemushaWalletPackageV1>(
             "KagemushaWalletPackageV1",
@@ -2283,9 +2270,12 @@ fn ledger_objects(w: &VectorWorld) -> LedgerObjects {
         payment: w.payment.clone(),
         beneficiary: test_account(BENEFICIARY_SEED),
     };
-    fee_claim
-        .verify(&w.scheme(), &w.request, payer, &w.payer_issuer_set())
-        .expect("fee claim verifies");
+    // The ledger retains the receiver's open Request; the claimed Payment completes it.
+    for request in [&w.open_request, &w.request] {
+        fee_claim
+            .verify(&w.scheme(), request, payer, &w.payer_issuer_set())
+            .expect("fee claim verifies");
+    }
 
     let activation = KagemushaWalletActivationV1 {
         version: KAGEMUSHA_WALLET_VERSION_V1,
@@ -2668,6 +2658,19 @@ fn object_pins(w: &VectorWorld) -> Vec<ObjectPin> {
             &scheme_id,
             true
         ),
+        {
+            let frame = w.companion.to_canonical_bytes().expect("companion frame");
+            let decoded = KagemushaWalletPayerCompanionV1::decode_canonical(&frame)
+                .expect("companion decode");
+            object_pin(
+                "KagemushaWalletPayerCompanionV1",
+                "payer issuer",
+                &w.companion,
+                frame,
+                &decoded,
+                false,
+            )
+        },
         object_pin(
             "KagemushaWalletPackageV1",
             "Receive",
@@ -2988,7 +2991,7 @@ fn enum_tag_table(w: &VectorWorld) -> Vec<EnumTags> {
         .filter(|(variant, _, _)| {
             !matches!(
                 *variant,
-                "Credited::Status" | "SessionControl::UnsupportedScheme"
+                "Credited::Status" | "SessionControl::SetupDeclined"
             )
         })
         .map(|(_, message, _)| (message_kind_name(&message), message))
@@ -3108,17 +3111,12 @@ fn enum_tag_table(w: &VectorWorld) -> Vec<EnumTags> {
         unit_tags(
             "KagemushaWalletSessionControlKindV1",
             &KagemushaWalletSessionControlKindV1::ALL,
-            &[
-                "SetupDeclined",
-                "UnsupportedScheme",
-                "ReceiveDeferred",
-                "Close",
-            ],
+            &["SetupDeclined", "ReceiveDeferred", "Close"],
             KagemushaWalletSessionControlKindV1::tag,
         ),
         EnumTags {
             name: "KagemushaWalletSessionAuthV1",
-            variants: [("Unsigned", w.unsupported.auth), ("Signed", w.close.auth)]
+            variants: [("Unsigned", w.decline.auth), ("Signed", w.close.auth)]
                 .iter()
                 .map(|&(variant, ref auth)| tag_row(variant, auth, auth.tag()))
                 .collect(),
@@ -3291,8 +3289,8 @@ fn stand_ins_json() -> Value {
 }
 
 fn header_json(w: &VectorWorld) -> Value {
-    let frame = KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Offer {
-        offer: w.offer.clone(),
+    let frame = KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Request {
+        request: w.open_request.clone(),
     })
     .to_canonical_bytes()
     .expect("frame");
@@ -3515,7 +3513,6 @@ fn signing_domain_use(domain: Domain) -> &'static str {
         Domain::QuotaShare => "signing_quota_share",
         Domain::TimeAnchor => "signing_time_anchor",
         Domain::ChargeQuote => "signing_charge_quote",
-        Domain::Offer => "signing_offer",
         Domain::SessionControl => "signing_session_control",
         Domain::Request => "signing_request",
         Domain::LedgerControl => "signing_ledger_control",
@@ -3704,6 +3701,16 @@ fn field_encodings_json(w: &VectorWorld) -> Value {
                 "P_bytes(domain, b) = P(domain, [len(b)] || c_0 || ... || c_(m-1)), m = \
                  ceil(len(b) / 31), c_i = bytes 31i..31i+30 of b as a little-endian integer, \
                  the last chunk zero-filled",
+            ),
+        ),
+        (
+            "request_terms_rule",
+            json_text(
+                "the Request signs m = P(kgwrqst2, terms), not P_bytes: terms are the 24 credit_id \
+                 elements of the 418-byte Request body without elements 5 and 6 (payer wallet), 7 \
+                 and 8 (payer account) and 13 (send ordinal), 19 elements; the receiver signs the \
+                 open body (payer fields zero) and each completion keeps the message, signature \
+                 and Request digest",
             ),
         ),
         ("domains", Value::Array(domain_rows)),
@@ -3901,7 +3908,7 @@ fn poseidon_json(w: &VectorWorld) -> Value {
             "lineage digest over the stand-in Ω(pred) bytes of the Payment",
             KAGEMUSHA_WALLET_LINEAGE_DOMAIN_V1,
             &omega.bytes(),
-            &w.lineage.lineage_digest(),
+            &omega.lineage_digest(),
         ),
         packed_digest(
             "credit-opening digest of the CreditStatus opening",
@@ -3928,8 +3935,11 @@ fn poseidon_json(w: &VectorWorld) -> Value {
             &credited_status,
         ),
     ];
+    // Every `P_bytes` signing message. The Request's `kgwrqst2` message is `P` over its terms
+    // elements and is pinned in `poseidon.request_terms` instead.
     let signing_messages = signature_vectors(w)
         .iter()
+        .filter(|vector| vector.domain != Domain::Request)
         .map(|vector| {
             packed_digest(
                 vector.object,
@@ -3939,6 +3949,15 @@ fn poseidon_json(w: &VectorWorld) -> Value {
             )
         })
         .collect();
+    // The open Request and the payer's completion share the terms, message and Request digest;
+    // `credit_id` covers the completed body.
+    let open = &w.open_request;
+    let terms = kagemusha_wallet_request_terms_items_v1(&open.body.transcript());
+    assert_eq!(
+        kagemusha_wallet_request_terms_items_v1(&request.body.transcript()),
+        terms
+    );
+    assert_eq!(open.request_digest(), digests.request);
 
     // Every map value and its key.
     let consumed = payment
@@ -4106,6 +4125,26 @@ fn poseidon_json(w: &VectorWorld) -> Value {
                 ),
                 &kagemusha_wallet_unload_nullifier_v1(&w.scheme_id(), &w.payer().body.wallet_id, 2),
             ),
+        ),
+        (
+            "request_terms",
+            json_object(vec![
+                ("open_body_hex", json_hex(&open.body.transcript())),
+                ("completed_body_hex", json_hex(&request.body.transcript())),
+                (
+                    "skipped_credit_elements",
+                    Value::Array([5, 6, 7, 8, 13].into_iter().map(json_number).collect()),
+                ),
+                (
+                    "signing_message",
+                    json_poseidon(
+                        Domain::Request.domain(),
+                        &terms,
+                        &open.body.signing_message(),
+                    ),
+                ),
+                ("request_digest_hex", json_hex(&digests.request)),
+            ]),
         ),
         ("large_input_digests", Value::Array(large_inputs)),
         ("signing_messages", Value::Array(signing_messages)),
@@ -4617,8 +4656,9 @@ fn vectors_file_text(w: &VectorWorld) -> String {
             "signature_rule",
             json_text(
                 "ECDSA-P256-SHA256 over the 32-byte message_hex = P_bytes(domain, \
-                 transcript_hex); RFC 6979 from the fixed scalars, frozen to low S; a consumer \
-                 accepts iff codec_ok and verify_ok",
+                 transcript_hex), except the Request: P(kgwrqst2, the 19 terms elements of \
+                 transcript_hex, field_encodings.request_terms_rule); RFC 6979 from the fixed \
+                 scalars, frozen to low S; a consumer accepts iff codec_ok and verify_ok",
             ),
         ),
         ("stand_ins", stand_ins_json()),
@@ -4941,11 +4981,19 @@ fn kagemusha_wallet_v1_quota_usage_vectors_open_and_charge_fixed_slots() {
 fn kagemusha_wallet_v1_signature_vectors_and_boundaries() {
     let world = vector_world();
     let vectors = signature_vectors(world);
-    assert_eq!(vectors.len(), 17);
+    assert_eq!(vectors.len(), 16);
     let Value::Array(rows) = signature_vectors_json(&vectors) else {
         panic!("array");
     };
     assert_eq!(rows.len(), vectors.len());
+    // The receiver signs the open Request's 19 terms elements; every other body is packed.
+    let request = vectors
+        .iter()
+        .find(|vector| vector.domain == Domain::Request)
+        .expect("Request signature");
+    assert_eq!(request.transcript, world.open_request.body.transcript());
+    assert_eq!(request.message_items().len(), 19);
+    assert_eq!(request.message(), world.request.body.signing_message());
 
     let boundary = boundary_vector();
     let cases = boundary_cases(&boundary);
@@ -5002,13 +5050,11 @@ fn kagemusha_wallet_v1_envelope_vectors_and_frame_pins() {
         .map(|(_, message, _)| message_kind_name(message))
         .collect();
     for kind in [
-        "Offer",
         "Request",
         "Payment",
         "Credited",
         "SessionControl",
         "PolicyData",
-        "Lineage",
     ] {
         assert!(kinds.contains(&kind), "{kind}");
     }
@@ -5167,7 +5213,7 @@ fn kagemusha_wallet_v1_every_version_field_precedes_the_scheme() {
         status.statement.version = 2;
     }
     assert_version_error(status.require_versions(), "statement.version");
-    let mut request = w.request.clone();
+    let mut request = w.open_request.clone();
     if let KagemushaWalletFeeScheduleSlotV1::Present { schedule } = &mut request.fee_schedule {
         schedule.body.version = 2;
     }
@@ -5182,9 +5228,15 @@ fn kagemusha_wallet_v1_every_version_field_precedes_the_scheme() {
         ),
         "fee_schedule.version",
     );
-    let mut offer = w.offer.clone();
-    offer.certificates.certificates[0].body.version = 2;
-    assert_version_error(offer.require_versions(), "certificate.version");
+    let mut companion = w.companion.clone();
+    companion.certificates.certificates[0].body.version = 2;
+    assert_version_error(companion.require_versions(), "certificate.version");
+    assert_version_error(
+        KagemushaWalletPayerCompanionV1::decode_canonical(
+            &norito::encode_canonical(&companion).expect("encode"),
+        ),
+        "certificate.version",
+    );
     let mut list = w.blacklist.clone();
     list.body.version = 2;
     assert_version_error(list.require_versions(), "blacklist.version");
@@ -5221,6 +5273,7 @@ fn kagemusha_wallet_v1_every_version_field_precedes_the_scheme() {
     l.activation.require_versions().expect("activation");
     l.close_loads.require_versions().expect("close loads");
     l.abandonment.require_versions().expect("abandonment");
+    w.companion.require_versions().expect("companion");
 }
 
 #[test]
@@ -5249,20 +5302,23 @@ fn kagemusha_wallet_v1_every_enum_norito_tag_equals_its_transcript_tag() {
 fn kagemusha_wallet_v1_vector_world_objects_validate() {
     let w = vector_world();
     let scheme = w.scheme();
-    w.payment
-        .verify(&scheme, w.payer(), &w.payer_issuer_set(), &w.request)
-        .expect("payment");
-    w.credited_receive
-        .verify_for(&w.scheme(), &w.request, &w.payment)
-        .expect("credited receive");
-    w.credited_status
-        .verify_for(&w.scheme(), &w.request, &w.payment)
-        .expect("credited status");
-    w.lineage.verify_for_offer(&w.offer).expect("lineage");
+    w.open_request.verify_open(&scheme).expect("open request");
+    w.request.verify(&scheme).expect("completed request");
+    for request in [&w.open_request, &w.request] {
+        w.payment
+            .verify(&scheme, w.payer(), &w.payer_issuer_set(), request)
+            .expect("payment");
+        w.credited_receive
+            .verify_for(&w.scheme(), request, &w.payment)
+            .expect("credited receive");
+        w.credited_status
+            .verify_for(&w.scheme(), request, &w.payment)
+            .expect("credited status");
+    }
+    w.companion.check_payment(&w.payment).expect("companion");
     w.fold.validate().expect("fold record");
-    w.offer.verify(&scheme).expect("offer");
     w.close.verify(Some(w.payer())).expect("close");
-    w.unsupported.verify(None).expect("unsupported");
+    w.decline.verify(None).expect("decline");
     w.scheme_policy
         .verify(&scheme, &w.f.regulator_certificate)
         .expect("scheme policy");
@@ -5354,9 +5410,10 @@ fn kagemusha_wallet_v1_vector_artifacts_bind_manifest_and_exact_proof_lengths() 
             panic!("{name} proofs differ from the vectored allowlist: {error:?}");
         });
     }
+    let omega = w.payment.send.lineage.lineage().expect("Ω(pred)");
     w.allowlist
-        .check_lineage(&w.lineage.lineage)
-        .expect("Lineage Ω length");
+        .check_lineage(omega)
+        .expect("Payment Ω(pred) length");
     w.allowlist
         .check_lineage(&w.fold.lineage)
         .expect("fold Ω length");
@@ -5364,10 +5421,7 @@ fn kagemusha_wallet_v1_vector_artifacts_bind_manifest_and_exact_proof_lengths() 
     w.allowlist
         .check_lineage(&status.lineage)
         .expect("status Ω length");
-    assert_ne!(
-        w.lineage.lineage.proof, status.lineage.proof,
-        "distinct Ω proof bodies"
-    );
+    assert_ne!(omega.proof, status.lineage.proof, "distinct Ω proof bodies");
     let status_entry = w
         .allowlist
         .entry(KagemushaWalletOperationKindV1::Receive, 0)
@@ -5452,28 +5506,50 @@ fn kagemusha_wallet_v1_flips_certificate() {
 }
 
 #[test]
-fn kagemusha_wallet_v1_flips_offer() {
+fn kagemusha_wallet_v1_flips_request() {
     let w = vector_world();
     let scheme = w.scheme();
-    assert_flips(&w.offer, w.offer.body.signing_message(), |bytes| {
-        let offer: KagemushaWalletOfferV1 =
-            decode_frame_v1(bytes, KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1).ok()?;
-        offer.verify(&scheme).ok()?;
-        Some(offer.body.signing_message())
+    let request = &w.open_request;
+    assert_flips(request, request.request_digest(), |bytes| {
+        let request: KagemushaWalletRequestV1 =
+            decode_frame_v1(bytes, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1).ok()?;
+        request.verify_open(&scheme).ok()?;
+        Some(request.request_digest())
     });
 }
 
 #[test]
-fn kagemusha_wallet_v1_flips_request() {
+fn kagemusha_wallet_v1_flips_completed_request() {
+    // The completion keeps the open Request's digest; `credit_id` binds its payer fields.
     let w = vector_world();
     let scheme = w.scheme();
     let request = &w.request;
-    assert_flips(request, request.request_digest(), |bytes| {
+    assert_flips(request, request.credit_id(), |bytes| {
         let request: KagemushaWalletRequestV1 =
             decode_frame_v1(bytes, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1).ok()?;
         request.verify(&scheme).ok()?;
-        Some(request.request_digest())
+        Some(request.credit_id())
     });
+}
+
+#[test]
+fn kagemusha_wallet_v1_flips_payer_companion() {
+    let w = vector_world();
+    let scheme = w.scheme();
+    let companion = &w.companion;
+    assert_flips(
+        companion,
+        companion.payer_credential.credential_digest(),
+        |bytes| {
+            let companion = KagemushaWalletPayerCompanionV1::decode_canonical(bytes).ok()?;
+            companion.check_payment(&w.payment).ok()?;
+            companion
+                .payer_credential
+                .verify(&scheme, &w.f.payer.enrollment_certificate)
+                .ok()?;
+            Some(companion.payer_credential.credential_digest())
+        },
+    );
 }
 
 #[test]
@@ -5520,17 +5596,6 @@ fn kagemusha_wallet_v1_flips_credited_status() {
             .verify_for(&w.scheme(), &w.request, &w.payment)
             .ok()
             .map(|(digest, _)| digest)
-    });
-}
-
-#[test]
-fn kagemusha_wallet_v1_flips_lineage_message() {
-    let w = vector_world();
-    assert_flips(&w.lineage, w.lineage.lineage_digest(), |bytes| {
-        let lineage: KagemushaWalletLineageMessageV1 =
-            decode_frame_v1(bytes, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1).ok()?;
-        lineage.verify_for_offer(&w.offer).ok()?;
-        Some(lineage.lineage_digest())
     });
 }
 
@@ -5690,7 +5755,7 @@ fn kagemusha_wallet_v1_vector_json_helpers() {
     };
     assert_eq!(map.keys().collect::<Vec<_>>(), ["a", "b"]);
     assert_eq!(bytes32(&"01".repeat(32)), [1; 32]);
-    let signature = vector_world().offer.signature;
+    let signature = vector_world().request.signature;
     let body = signed_object_body(&[9; 32], &signature);
     assert_eq!(&body[..32], &[9; 32]);
     assert_eq!(&body[32..], signature.as_raw_bytes());

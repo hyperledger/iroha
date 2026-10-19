@@ -72,6 +72,9 @@ pub mod wallet;
 #[cfg(test)]
 mod test_support;
 
+#[cfg(test)]
+mod entrypoint_tests;
+
 use iroha_parliament_ballot_proof::profile::Row;
 
 pub use self::entropy::EntropyUnavailableV1;

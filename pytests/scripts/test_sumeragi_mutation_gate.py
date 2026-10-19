@@ -30,6 +30,20 @@ rust_index = importlib.util.module_from_spec(RUST_INDEX_SPEC)
 RUST_INDEX_SPEC.loader.exec_module(rust_index)
 
 
+@pytest.fixture(autouse=True)
+def accounting_source_observation(monkeypatch):
+    """Keep existing subprocess doubles independent of live Git/source hashing.
+
+    Source-boundary controls below replace these explicit accounting doubles
+    with the real shared observer over their own minimal Git fixture.
+    """
+    state = {"root": str(ROOT), "branch": "refs/heads/optimizations"}
+    monkeypatch.setattr(gate, "workspace_source_git_state", lambda _root: dict(state))
+    monkeypatch.setattr(gate, "workspace_source_observation", lambda _root: {
+        **state, "workspace_source_manifest_sha256": "a" * 64,
+        "cargo_source_consumption": "not_proven"})
+
+
 def named_rust_function(source: str, name: str) -> str:
     """Select one complete function without borrowing neighboring controls."""
     matches = [item for item in rust_index.functions(source) if item.name == name]
@@ -2619,7 +2633,12 @@ def test_worker_exception_retains_original_item_and_complete_failed_report(
     failed_id = "baseline" if failed_item == "baseline" else table[1].id
     rows = {row["id"]: row for row in [report["baseline"], *report["mutations"]]}
     assert rows[failed_id] == {"id": failed_id, "verdict": "error",
-                              "reason": f"worker evaluation raised {error_type.__name__}: original source guard refused"}
+                              "reason": f"worker evaluation raised {error_type.__name__}: original source guard refused",
+                              "source_git": {
+                                  "before": {"root": str(ROOT), "branch": "refs/heads/optimizations"},
+                                  "after": {"root": str(ROOT), "branch": "refs/heads/optimizations"},
+                                  "errors": [],
+                              }}
     assert report["summary"]["baseline"] == ("error" if failed_item == "baseline" else "pass")
     assert report["summary"]["error"] == ([] if failed_item == "baseline" else [failed_id])
     assert report["summary"]["killed_by_test"] == [mu.id for mu in table if mu.id != failed_id]
@@ -2864,6 +2883,15 @@ MODEL_NAMES = {
     "DM41": "compute::tests::price_delta_bounds_keep_full_width_before_comparison",
     "DM42": "compute::tests::sponsor_caps_keep_exact_daily_total_and_per_call_precedence",
     "DM43": "compute::tests::price_delta_wide_numerator_rejects_extreme_reduction",
+    "DM44": "fastpq::execution_effect::admitted::tests::completed_tape_take_rejects_prepared_replay_without_reminting_custody",
+    "DM45": "consensus::penalty_actions::prepared::tests::penalty_action_owner_preserves_sole_wire_schema_json_and_original_shared_graph",
+    "DM46": "consensus::penalty_actions::prepared::tests::penalty_action_source_binds_full_original_frame_pool_and_layout",
+    "DM47": "consensus::penalty_actions::prepared::tests::penalty_action_original_partial_refusal_retains_exact_prefix_pool_and_retry",
+    "DM48": "block::prepared_signatures::tests::penalty_action_tests::field5_penalty_actions_keep_canonical_wire_and_original_shared_graph",
+    "DM49": "block::prepared_signatures::tests::penalty_action_tests::field5_penalty_refusal_retains_original_prefix_pool_and_exact_retry",
+    "DM50": "consensus::parent_service::prepared::tests::parent_service_owner_keeps_vec_wire_json_and_exact_admitted_clone",
+    "DM51": "consensus::parent_service::prepared::tests::parent_service_source_and_capacity_retry_preserve_original_full_frame_pool_and_layout",
+    "DM52": "block::prepared_signatures::tests::parent_service_tests::field5_parent_service_survives_later_action_refusal_with_exact_original_cut_and_retry",
 }
 MODEL_ALLOCATION_OBSERVER = "amx_prepare_streaming_allocations::observer_counts_all_three_allocation_routes_and_resets_after_unwind"
 
@@ -3024,16 +3052,20 @@ def test_model_gate_requires_actual_named_failure_classification(monkeypatch, tm
         return gate.Step(status=status, failed=list(args[3]) if status == "fail" else [])
     monkeypatch.setattr(gate, "run_step", run)
     args = SimpleNamespace(model=True, target_dir=tmp_path, timeout_test=900, fast=False)
-    result = gate.evaluate(args, tmp_path, gate.MODEL_MUTATIONS[0])
+    rule = gate.index_mutations(gate.MODEL_MUTATIONS)["DM1"]
+    result = gate.evaluate(args, tmp_path, rule)
     assert result["verdict"] == verdict
     assert result["id"] == "DM1"
     assert len(observed) == 1
-    assert observed[0][2:6] == ("DM1", gate.MODEL_MUTATIONS[0].tests, None, 900)
+    assert observed[0][2:6] == ("DM1", rule.tests, None, 900)
     assert "scenario" not in result
 
 
 @pytest.mark.parametrize("baseline,expected", [("pass", 0), ("fail", 1), ("error", 1)])
-def test_model_main_keeps_positive_baseline_exact_report_and_default_caps(monkeypatch, tmp_path, baseline, expected):
+@pytest.mark.parametrize("reverse_registry", [False, True])
+def test_model_main_keeps_positive_baseline_exact_report_and_default_caps(monkeypatch, tmp_path, baseline, expected, reverse_registry):
+    rules = list(reversed(gate.MODEL_MUTATIONS)) if reverse_registry else list(gate.MODEL_MUTATIONS)
+    monkeypatch.setattr(gate, "MODEL_MUTATIONS", rules)
     target = tmp_path / "model"
     captured = []
     monkeypatch.setattr(sys, "argv", ["sumeragi_mutation_gate.py", "--model", "--jobs", "1", "--strict", "--target-dir", str(target)])
@@ -3045,7 +3077,9 @@ def test_model_main_keeps_positive_baseline_exact_report_and_default_caps(monkey
     assert gate.main() == expected
     assert len(captured) == 1
     args, directory, ids = captured[0]
-    assert ids == tuple(MODEL_NAMES)
+    assert len(ids) == len(set(ids)) == len(MODEL_NAMES)
+    assert set(ids) == set(MODEL_NAMES)
+    assert ids == tuple(rule.id for rule in rules)
     assert directory == target / "job0"
     assert (args.timeout_build, args.timeout_test, args.timeout_scenario, args.seeds) == (1200, 900, 3600, 200)
     assert not args.fast and not args.skip_baseline
@@ -3152,6 +3186,7 @@ def model_build_script(tmp_path_factory):
     (True, "DM41", "", True, True), (False, "DM41", "", True, False),
     (True, "DM42", "", True, True), (False, "DM42", "", True, False),
     (True, "DM43", "", True, True), (False, "DM43", "", True, False),
+    (True, "DM44", "", True, True), (False, "DM44", "", True, False),
     (False, None, '--cfg\x1fsumeragi_model_mutation="DM41"', False, False),
     (False, None, '--cfg\x1fsumeragi_model_mutation="DM42"', False, False),
     (False, None, '--cfg\x1fsumeragi_model_mutation="DM43"', False, False),
@@ -3161,6 +3196,9 @@ def model_build_script(tmp_path_factory):
     (True, "DM41", '--cfg\x1fsumeragi_model_mutation="DM42"', False, False),
     (True, "DM42", '--cfg\x1fsumeragi_model_mutation="DM43"', False, False),
     (True, "DM43", '--cfg\x1fsumeragi_model_mutation="DM41"', False, False),
+    (False, None, '--cfg\x1fsumeragi_model_mutation="DM44"', False, False),
+    (True, "DM44", '--cfg\x1fsumeragi_model_mutation="DM44"', False, False),
+    (True, "DM44", '--cfg\x1fsumeragi_model_mutation="DM43"', False, False),
     (True, "unknown_rule", "", False, False), (True, "HC1", "", False, False),
     (False, None, '--cfg\x1fsumeragi_model_mutation="DM1"', False, False),
     (True, "DM1", '--cfg\x1fsumeragi_model_mutation="DM2"', False, False),
@@ -8544,7 +8582,7 @@ def test_lane_retirement_refunds_cover_original_registry_and_enclosing_runner(mi
     registry = (root / "sumeragi/lanes/registry.rs").read_text()
     runner = (root / "sumeragi/lanes/runner.rs").read_text()
     controls = (root / "sumeragi/lanes/registry/tests.rs").read_text()
-    original_refund_owners = ("store_with_runtime_owner", "release", "release_retired",
+    original_refund_owners = ("store_with_demand", "release", "release_retired",
                               "clean_cancelled_proposal_reads")
     for function in original_refund_owners:
         assert named_rust_function(registry, function).count("self.with_original_refunds(|| {") == 1
@@ -8554,7 +8592,7 @@ def test_lane_retirement_refunds_cover_original_registry_and_enclosing_runner(mi
     assert "let retired = { self.running.lock().remove(&key) };" in runner
     assert "let replaced = { self.running.lock().insert(key, lane) };" in runner
     for obligation in (
-        'Fixture::new(true)', 'StoreSlot::Opening(_, false)', 'ReleaseRegistration::from_reservation(',
+        'Fixture::new(true)', 'StoreSlot::Opening(_, owners)) if !owners.historical', 'ReleaseRegistration::from_reservation(',
         'budget.same_pool(&fixture.stores.budget)', 'CertifiedTestChain::start(',
         'runner.reconcile()', 'runner.running_lock_available()', 'stores.stores.try_lock()',
         'probe.reentered.load(Ordering::SeqCst)', 'fs::read(&path).unwrap(), original',
@@ -8749,7 +8787,7 @@ def test_native_history_physical_reader_notifications_retain_original_sources_ou
     authority = lookup.index(".authority(lane, incarnation, instance)?")
     reacquire = lookup.index("let mut stores = self.stores.lock();", authority)
     ready = lookup.index("Some(StoreSlot::Ready(store))", reacquire)
-    opening = lookup.index("Self::resume_store_opening(&mut stores, key, runtime_owner)", ready)
+    opening = lookup.index("Self::resume_store_opening(&mut stores, key, &demand)", ready)
     begin = lookup.index("Self::open_store_with_authority(", opening)
     assert unlock < authority < reacquire < ready < opening < begin
     controls = (root / "sumeragi/lanes/registry/tests.rs").read_text()
@@ -8759,7 +8797,7 @@ def test_native_history_physical_reader_notifications_retain_original_sources_ou
         "assert_original_state_readers_available_for_test()", "stores.stores.try_lock()",
         "drop(state.da_pin_intents.read())", "Arc::ptr_eq(inner, &outer)",
         "StateViewError::Busy(retained)", "assert_eq!(*retained, original_wait)",
-        "Some(StoreSlot::Opening(_, true))", "budget.reserved_bytes(), baseline + bytes.len()",
+        "Some(StoreSlot::Opening(_, owners)) if owners.historical", "budget.reserved_bytes(), baseline + bytes.len()",
     ):
         assert obligation in controls
     assert "stack_size" not in controls and "RUST_MIN_STACK" not in controls
@@ -9303,7 +9341,7 @@ def test_lane_recovery_keeps_exact_per_key_owner_without_shared_map_io():
               if re.search(r'sumeragi_core_mutation\s*=\s*"HC364"', path.read_text())}
     assert owners == {"sumeragi/lanes/registry.rs"}
     registry = (root / "sumeragi/lanes/registry.rs").read_text()
-    assert "Opening(Arc<StoreOpening>, bool)" in registry
+    assert "Opening(Arc<StoreOpening>, OpeningOwners)" in registry
     assert "Pending(Option<LaneStoreOpen>)" in registry
     assert "progress: Mutex<OpeningProgress>" in registry
     lookup = registry[registry.index("fn store_with_runtime_owner("):registry.index("fn open_store_with_authority(")]
@@ -9314,11 +9352,12 @@ def test_lane_recovery_keeps_exact_per_key_owner_without_shared_map_io():
     assert "opening.progress.try_lock()" in completion
     assert completion.index("OpeningProgress::Ready(store)") < completion.index("self.progress_store_opening(")
     assert "*progress = OpeningProgress::Ready(Arc::clone(&store));" in completion
-    assert "Arc::ptr_eq(retained, &opening)" in completion
-    assert "StoreSlot::Ready(Arc::clone(&store))" in completion
+    assert "Arc::ptr_eq(retained, opening)" in completion
+    assert re.search(r"StoreSlot::Ready\(ReadyStore\{registration,store:Arc::clone\(&store\),?\}\)", re.sub(r"\s+", "", completion))
+    assert completion.index("owners.registration") < completion.index("StoreSlot::Ready(ReadyStore")
     assert registry.count("Arc::strong_count(opening) > 1") == 2
     assert registry.count("#[inline(never)]") == 2
-    original_refund_owners = ("store_with_runtime_owner", "release", "release_retired",
+    original_refund_owners = ("store_with_demand", "release", "release_retired",
                               "clean_cancelled_proposal_reads")
     for function in original_refund_owners:
         assert named_rust_function(registry, function).count("self.with_original_refunds(|| {") == 1
@@ -11010,7 +11049,9 @@ def test_original_proposal_read_lifecycle_has_one_explicit_owner_and_no_historic
     assert "source.block(" not in proposal
     registry = (lanes / "registry.rs").read_text()
     cleanup = named_rust_function(registry, "clean_cancelled_proposal_reads")
-    assert "Arc::ptr_eq(original, &store)" in cleanup and "Arc::strong_count(original) == 2" in cleanup
+    compact_cleanup = re.sub(r"\s+", "", cleanup)
+    assert "Arc::ptr_eq(&original.store,&store)" in compact_cleanup
+    assert "Arc::strong_count(&original.store)==2" in compact_cleanup
     assert "store.release_cancelled_reads();" in cleanup and "drop(retired);" in cleanup
     owner = (ROOT / "crates/iroha_core/src/sumeragi/executor/payload_owner.rs").read_text()
     request = owner.split("pub(super) struct ProposalReadRequest", 1)[1].split("}", 1)[0]
@@ -11020,5 +11061,748 @@ def test_original_proposal_read_lifecycle_has_one_explicit_owner_and_no_historic
     store = (lanes / "store.rs").read_text()
     cleanup = named_rust_function(store, "release_cancelled_reads")
     assert "self.state.try_lock()" in cleanup and "self.batch_read.try_lock()" in cleanup
-    assert cleanup.index("drop(read);") > cleanup.index("self.batch_read.try_lock()")
-    assert "drop(batch);" in cleanup and ".cancelled()" in cleanup
+    assert cleanup.index("drop((read, batch, observed_read, observed_batch));") > cleanup.index("self.batch_read.try_lock()")
+    assert ".same_request(interest)" in cleanup and ".cancelled()" in cleanup
+
+
+INCOMING_READ_RULES = (('HC435', ('sumeragi::executor::proposal_read_tests::discarded_incoming_execution_releases_its_original_lane_read_after_keep_exclusion',), 'discarded incoming execution must release its own actual lane read without successor traffic', 'crates/iroha_core/src/sumeragi/executor/proposal_read_tests.rs'), ('HC436', ('sumeragi::executor::proposal_read_tests::authenticated_incoming_execution_moves_the_original_local_lane_request_without_reopening',), 'authenticated incoming execution must move the exact original local lane request and continue its native source', 'crates/iroha_core/src/sumeragi/executor/proposal_read_tests.rs'), ('HC437', ('sumeragi::lanes::registry::tests::proposal_reads::cancelled_read_only_incoming_frame_is_released_when_original_inflight_owner_parks',), 'cancelled incoming read-only custody must retire when the original in-flight owner parks', 'crates/iroha_core/src/sumeragi/lanes/registry/proposal_reads.rs'), ('HC438', ('sumeragi::lanes::store::refund_tests::state_read_cancellation_after_cleanup_observation_cannot_be_lost', 'sumeragi::lanes::store::refund_tests::batch_read_cancellation_after_cleanup_observation_cannot_be_lost'), 'cancellation after the original cleanup observation must release that exact read without successor traffic', 'crates/iroha_core/src/sumeragi/lanes/store/refund_tests.rs'), ('HC439', ('sumeragi::lanes::registry::tests::isolation_tests::final_inflight_incoming_opening_cleans_cancelled_request_but_keeps_historical_recovery',), 'the final incoming opening caller must acknowledge cancellation without dropping independent historical recovery', 'crates/iroha_core/src/sumeragi/lanes/registry/isolation_tests.rs'))
+
+@pytest.mark.parametrize("mid,selectors,cause,source", INCOMING_READ_RULES)
+def test_incoming_native_read_rule_preserves_exact_completed_custody(mid, selectors, cause, source):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    assert rule.tests == selectors and not rule.scenarios
+    assert rule.causes == tuple(gate.ExpectedFailure(cause, source) for _ in selectors)
+    assert gate.has_switch(mid, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch(mid, **family)
+    native = (ROOT / source).read_text()
+    if mid == "HC438":
+        function = named_rust_function(native, "cancellation_after_native_cleanup_observation")
+        for selector, mode in zip(selectors, ("false", "true")):
+            control = named_rust_function(native, selector.rsplit("::", 1)[-1])
+            assert "cancellation_after_native_cleanup_observation(" + mode + ");" in control
+    else:
+        function = named_rust_function(native, selectors[0].rsplit("::", 1)[-1])
+    assert function.index("assert_eq!(budget.reserved_bytes(), 0);") < function.index(json.dumps(cause))
+    rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and all(selector in rows[0] for selector in selectors)
+
+@pytest.mark.parametrize("mid,selectors,cause,source", INCOMING_READ_RULES)
+@pytest.mark.parametrize("defect", ["none", "unrelated", "wrong-source", "missing-terminal", "one-passes", "abort", "timeout"])
+def test_incoming_read_mutation_kill_requires_exact_completed_native_cause(monkeypatch, tmp_path, mid, selectors, cause, source, defect):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    rows = [(name, "ok" if defect == "one-passes" else "FAILED") for name in rule.tests]
+    if defect == "missing-terminal": rows.pop()
+    code, output = causal_control_output(rule, rows)
+    if defect == "unrelated": output = output.replace(cause, "unrelated fixture failure", 1)
+    elif defect == "wrong-source": output = output.replace(source + ':123:', 'foreign.rs:123:', 1)
+    elif defect == "abort": code = -6
+    elif defect == "timeout": code = None
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    verdict = "killed_by_test" if defect == "none" else "survived" if defect == "one-passes" else "error"
+    assert result["verdict"] == verdict, result
+
+
+def test_incoming_execution_uses_one_scoped_merge_algorithm_and_explicit_native_cleanup():
+    lanes = ROOT / "crates/iroha_core/src/sumeragi/lanes"
+    merge = (lanes / "merge.rs").read_text()
+    assert merge.count("pub fn expand<'state>(") == 1
+    load = named_rust_function(merge, "load")
+    assert ".execution_block(" in load and ".execution_wait_for(" in load
+    assert ".block(" not in load and ".wait_for(" not in load
+    expansion = named_rust_function(merge, "expand_from_view")
+    assert "request.admit(&state.ivm_execution_budget())" in re.sub(r"\s+", "", expansion)
+    owner = (ROOT / "crates/iroha_core/src/sumeragi/executor/payload_owner.rs").read_text()
+    handoff = named_rust_function(owner, "retain_incoming_lane_reads")
+    for obligation in ("references_lanes", "self.parent_applied(source)", "request.applied == self.applied", "original.instance != header.instance", "original.height != header.height", "original.view != header.origin_view", "original.block_hash != block_hash"):
+        assert obligation in handoff
+    assert re.search(r"self\.proposal_reads\s*\.take\(\)", handoff)
+    assert ".clone()" not in handoff
+    coordinates = owner.split("pub(super) struct IncomingLaneReads {", 1)[1].split("}", 1)[0]
+    fields = re.findall(r"pub\(super\) (\w+): ([^,]+),", coordinates)
+    assert fields == [("instance", "Hash32"), ("height", "u64"), ("view", "u64"),
+                      ("block_hash", "Hash32"), ("scope", "lanes::ProposalReadScope")]
+    execution = named_rust_function((ROOT / "crates/iroha_core/src/sumeragi/executor.rs").read_text(), "run_execution_with_finisher")
+    assert execution.index("if attempt.source != *block") < execution.index("self.retain_incoming_lane_reads(")
+    assert execution.index("block.source().config() != &configured") < execution.index("self.retain_incoming_lane_reads(")
+    assert execution.index("proposal_matches_header(") < execution.index("self.retain_incoming_lane_reads(")
+    registry = (lanes / "registry.rs").read_text()
+    completion = named_rust_function(registry, "complete_store_opening")
+    assert completion.index("self.progress_registered_opening(") < completion.index("drop(opening);") < completion.index("self.clean_cancelled_proposal_reads(false)")
+    readonly = (lanes / "registry/read_only.rs").read_text()
+    parking = readonly.split("impl Drop for OriginalRead", 1)[1].split("/// One retained", 1)[0]
+    assert parking.index("self.slot.lock()") < parking.index("read.interest.cancelled()") < parking.index("ReadSlot::Available(self.selected.take())")
+    assert parking.index("drop(previous);") < parking.index("drop(cancelled);")
+
+
+SCCP_MERGED_CUSTODY_RULES = (('HC905', 'HC420', 'smartcontracts/isi/sccp/forgery/execution/event_graph.rs', 'sumeragi/driver/startup/pending.rs', 'smartcontracts::isi::sccp::forgery::execution::event_graph::tests::event_graph_retains_exact_original_layouts_through_publication_and_last_reader', 'event graph retains the original pool', 'smartcontracts/isi/sccp/forgery/execution/event_graph/tests.rs'), ('HC906', 'HC422', 'sumeragi/evidence/sccp_record.rs', 'sumeragi/lanes/store.rs', 'sumeragi::evidence::record::sccp_record::tests::offender_preflight_rejects_each_oversized_graph_before_nested_decode', 'oversized SCCP graph is refused before nested decode', 'sumeragi/evidence/sccp_record/tests.rs'), ('HC907', 'HC424', 'smartcontracts/isi/sccp/forgery/execution.rs', 'sumeragi/lanes/store.rs', 'smartcontracts::isi::sccp::forgery::execution::tests::exact_local_refusal_survives_instruction_mapping_and_protocol_error_does_not_poison', 'local SCCP refusal cannot allocate a replacement diagnostic', 'smartcontracts/isi/sccp/forgery/execution/tests.rs'))
+
+
+@pytest.mark.parametrize("mid,old_mid,owner,old_owner,selector,cause,source", SCCP_MERGED_CUSTODY_RULES)
+def test_sccp_merged_custody_mutations_keep_distinct_native_owners(
+    mid, old_mid, owner, old_owner, selector, cause, source
+):
+    rules = gate.index_mutations(gate.CORE_MUTATIONS)
+    rule = rules[mid]
+    control_source = "crates/iroha_core/src/" + source
+    assert rule.tests == (selector,) and not rule.scenarios
+    assert rule.causes == (gate.ExpectedFailure(cause, control_source),)
+    assert set(rule.tests).isdisjoint(rules[old_mid].tests)
+    for reserved in ("HC435", "HC436", "HC437", "HC438", "HC439"):
+        assert set(rule.tests).isdisjoint(rules[reserved].tests)
+    core = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(core).as_posix() for path in core.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"' + mid + '"', path.read_text())}
+    assert owners == {owner}
+    old_owners = {path.relative_to(core).as_posix() for path in core.rglob("*.rs")
+                  if re.search(r'sumeragi_core_mutation\s*=\s*"' + old_mid + '"', path.read_text())}
+    assert old_owners == {old_owner}
+    assert gate.has_switch(mid, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch(mid, **family)
+    native = named_rust_function((ROOT / control_source).read_text(), selector.rsplit("::", 1)[-1])
+    assert json.dumps(cause) in native
+    assert "#[cfg(all(test, sumeragi_core_mutation = \"" + mid + "\"))]" in (core / owner).read_text()
+    rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and selector in rows[0]
+
+
+@pytest.mark.parametrize("mid,old_mid,owner,old_owner,selector,cause,source", SCCP_MERGED_CUSTODY_RULES)
+@pytest.mark.parametrize("defect", ["none", "unrelated", "wrong-source", "missing-terminal", "one-passes", "abort", "timeout"])
+def test_sccp_merged_custody_mutation_kill_requires_original_named_cause(
+    monkeypatch, tmp_path, mid, old_mid, owner, old_owner, selector, cause, source, defect
+):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    rows = [(selector, "ok" if defect == "one-passes" else "FAILED")]
+    if defect == "missing-terminal":
+        rows.pop()
+    code, output = causal_control_output(rule, rows)
+    if defect == "unrelated":
+        output = output.replace(cause, "unrelated fixture failure", 1)
+    elif defect == "wrong-source":
+        output = output.replace("crates/iroha_core/src/" + source + ':123:', 'foreign.rs:123:', 1)
+    elif defect == "abort":
+        code = -6
+    elif defect == "timeout":
+        code = None
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    verdict = "killed_by_test" if defect == "none" else "survived" if defect == "one-passes" else "error"
+    assert result["verdict"] == verdict, result
+    if defect == "none":
+        assert result["named"]["causal_failures"] == {selector: True}
+
+
+ORIGINAL_SWEEP_CONTROLS = (('sumeragi::lanes::registry::tests::proposal_reads::cancelled_original_sweep_does_not_wait_for_new_disjoint_opening', 'original cancelled lane cleanup cannot wait for an unrelated newly registered opening'), ('sumeragi::lanes::registry::tests::proposal_reads::original_sweep_preserves_a_later_same_key_native_owner', 'an original lane sweep cannot retire a later same-key registration'))
+
+
+def test_original_lane_sweep_binds_initial_membership_and_preserves_native_controls():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC443"]
+    source = "crates/iroha_core/src/sumeragi/lanes/registry/proposal_reads.rs"
+    assert rule.tests == tuple(name for name, _ in ORIGINAL_SWEEP_CONTROLS)
+    assert rule.causes == tuple(gate.ExpectedFailure(cause, source) for _, cause in ORIGINAL_SWEEP_CONTROLS)
+    assert not rule.scenarios and gate.has_switch("HC443", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch("HC443", **family)
+    root = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(root).as_posix() for path in root.rglob("*.rs")
+              if re.search(r'sumeragi_core_mutation\s*=\s*"HC443"', path.read_text())}
+    assert owners == {"sumeragi/lanes/registry.rs"}
+    registry = (root / "sumeragi/lanes/registry.rs").read_text()
+    compact = re.sub(r"\s+", "", registry)
+    assert "registrations:AtomicU64" in compact
+    registration = named_rust_function(registry, "next_registration")
+    assert "last.checked_add(1)" in registration and ".map_err(" in registration
+    assert "wrapping" not in registration and "unwrap" not in registration
+    assert "MutexGuard" in registration
+    capture = re.sub(r"\s+", "", named_rust_function(registry, "original_sweep"))
+    assert "letstores=self.stores.lock();" in capture
+    assert "(stores.len(),self.registrations.load(Ordering::Relaxed))" in capture
+    for function in ("clean_cancelled_proposal_reads", "release_retired", "resume_retired_publications"):
+        body = re.sub(r"\s+", "", named_rust_function(registry, function))
+        assert "self.original_sweep()" in body and "slot.belongs_to_sweep(watermark)" in body
+        assert ".collect" not in body and "Vec::" not in body
+    completion = named_rust_function(registry, "progress_registered_opening")
+    assert completion.index("Arc::ptr_eq(retained, opening)") < completion.index("owners.registration")
+    assert "store: Arc::clone(&store)" in completion
+    native = (ROOT / source).read_text()
+    for name, cause in ORIGINAL_SWEEP_CONTROLS:
+        body = named_rust_function(native, name.rsplit("::", 1)[-1])
+        assert body.index("assert_eq!(budget.reserved_bytes(), 0);") < body.index(json.dumps(cause))
+    assert "FsStep::CreateDir" in native
+    assert "stores.runtime_store(inserted.0,&inserted.1)" in re.sub(r"\s+", "", native)
+    assert "stores.release_cancelled_proposal_reads()" in native
+    assert "drop(replacement);" in native
+    assert "u64::MAX" in named_rust_function(native, "exhausted_registration_identity_refuses_before_new_native_custody")
+    rows = re.findall(r"^\| HC443 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and all(name in rows[0] for name, _ in ORIGINAL_SWEEP_CONTROLS)
+
+
+@pytest.mark.parametrize("defect", ["none", "unrelated", "wrong-source", "missing-terminal", "all-pass", "first-passes", "second-passes", "abort", "timeout"])
+def test_original_lane_sweep_mutation_requires_both_completed_native_causes(monkeypatch, tmp_path, defect):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC443"]
+    passing = {"all-pass": {0, 1}, "first-passes": {0}, "second-passes": {1}}.get(defect, set())
+    rows = [(name, "ok" if index in passing else "FAILED") for index, name in enumerate(rule.tests)]
+    if defect == "missing-terminal":
+        rows.pop()
+    code, output = causal_control_output(rule, rows)
+    if defect == "unrelated":
+        output = output.replace(ORIGINAL_SWEEP_CONTROLS[0][1], "unrelated fixture failure", 1)
+    elif defect == "wrong-source":
+        output = output.replace("crates/iroha_core/src/sumeragi/lanes/registry/proposal_reads.rs:123:", "foreign.rs:123:", 1)
+    elif defect == "abort":
+        code = -6
+    elif defect == "timeout":
+        code = None
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    verdict = "killed_by_test" if defect == "none" else "survived" if defect == "all-pass" else "error"
+    assert result["verdict"] == verdict, result
+    if defect in ("none", "first-passes", "second-passes"):
+        assert result["named"]["status"] == "fail"
+        assert result["named"]["causal_failures"] == {name: index not in passing for index, name in enumerate(rule.tests)}
+    if defect in ("first-passes", "second-passes"):
+        assert result["reason"] == "named tests: every declared causal control must fail at its exact owned assertion"
+
+
+def source_observation_fixture(tmp_path, monkeypatch):
+    """A minimal source fixture, never a copied checkout or build workspace."""
+    source_module = gate._workspace_source
+
+    root = tmp_path / "observed-source"
+    root.mkdir()
+    def git(*arguments, **kwargs):
+        return subprocess.run(["git", *arguments], cwd=root, check=True,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
+    git("init", "--quiet")
+    git("symbolic-ref", "HEAD", "refs/heads/optimizations")
+    (root / "Cargo.lock").write_text("version = 4\n")
+    (root / "source.rs").write_text("original source\n")
+    git("add", "Cargo.lock", "source.rs")
+    # Dirty source is a valid candidate. The manifest binds these actual bytes.
+    (root / "source.rs").write_text("the intended dirty candidate\n")
+    observations = []
+    def observe(_root):
+        observations.append("full manifest")
+        return source_module.workspace_source_observation(root)
+    monkeypatch.setattr(gate, "workspace_source_observation", observe)
+    monkeypatch.setattr(gate, "workspace_source_git_state",
+                        lambda _root: source_module.workspace_source_git_state(root))
+    return root, git, observations
+
+
+@pytest.mark.parametrize("drift", ["none", "stage-same-source", "bytes", "untracked", "branch", "merge", "conflict"])
+def test_campaign_source_binding_surrounds_completed_native_mutation(
+    monkeypatch, tmp_path, drift,
+):
+    root, git, observations = source_observation_fixture(tmp_path, monkeypatch)
+    # Retain the real read-only Git runner while the existing native subprocess
+    # double owns Popen. The observer still reads actual fixture bytes/index.
+    real_run = subprocess.run
+    real_popen = subprocess.Popen
+    def read_only_run(*args, **kwargs):
+        # subprocess.run resolves Popen in its module; isolate only this call.
+        with monkeypatch.context() as local:
+            local.setattr(subprocess, "Popen", real_popen)
+            return real_run(*args, **kwargs)
+    source_module = gate._workspace_source
+    monkeypatch.setattr(source_module.subprocess, "run", read_only_run)
+    target = tmp_path / "target"
+    (target / "job0").mkdir(parents=True)
+    args = SimpleNamespace()
+    baseline = fixture_artifact(args, target / "job0", None)
+    mutant = fixture_artifact(args, target / "job0", "SOURCE")
+    rule = gate.m("SOURCE", "source receipt control", ["tests::named"])
+    monkeypatch.setattr(gate, "MUTATIONS", [rule])
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(sys, "argv", ["gate", "--strict", "--fast", "--only", "SOURCE",
+                                     "--target-dir", str(target)])
+    changed = []
+    def native_output(command, options):
+        active = options["env"].get("SUMERAGI_MUTATION") == "SOURCE"
+        if command[0] == "cargo":
+            return artifact_envelopes(mutant if active else baseline)
+        if "--list" in command:
+            return "tests::named: test\n\n1 test, 0 benchmarks\n"
+        if active:
+            changed.append(drift)
+            if drift == "bytes": (root / "source.rs").write_text("changed during native execution\n")
+            elif drift == "untracked": (root / "extra.rs").write_text("new nonignored source\n")
+            elif drift == "branch": git("symbolic-ref", "HEAD", "refs/heads/different")
+            elif drift == "merge": (root / ".git/MERGE_HEAD").write_text("a" * 40 + "\n")
+            elif drift == "conflict":
+                blob = git("hash-object", "-w", "--stdin", input=b"original conflict source\n").stdout.decode().strip()
+                git("update-index", "--index-info", input=(
+                    f"0 {'0' * len(blob)}\tsource.rs\n"
+                    f"100644 {blob} 1\tsource.rs\n100644 {blob} 2\tsource.rs\n").encode())
+            elif drift == "stage-same-source": git("add", "source.rs")
+        status = "FAILED" if active else "ok"
+        return (f"running 1 test\ntest tests::named ... {status}\n"
+                f"test result: {status}. {0 if active else 1} passed; {1 if active else 0} failed; "
+                "0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n")
+    calls = stub_artifact_cargo(monkeypatch, native_output)
+    captured_popen = gate.subprocess.Popen
+    def popen(command, **options):
+        process = captured_popen(command, **options)
+        if (command[0] == mutant["executable"] and "--list" not in command
+                and options["env"].get("SUMERAGI_MUTATION") == "SOURCE"):
+            process.returncode = 101
+        return process
+    monkeypatch.setattr(gate.subprocess, "Popen", popen)
+    valid = drift in ("none", "stage-same-source")
+    assert gate.main() == (0 if valid else 1)
+    report = json.loads((target / "report.json").read_text())
+    assert observations == ["full manifest", "full manifest"]
+    assert changed == [drift] and len(calls) == 6
+    assert report["baseline"]["verdict"] == "pass"
+    assert report["mutations"][0]["named"]["failed"] == ["tests::named"]
+    assert report["mutations"][0]["named"]["status"] == "fail"
+    assert report["source"]["before"]["branch"] == "refs/heads/optimizations"
+    assert report["source"]["before"]["cargo_source_consumption"] == "not_proven"
+    assert report["source"]["unchanged"] is valid
+    assert report["summary"]["source"] == ("pass" if valid else "error")
+    if drift in ("branch", "merge", "conflict"):
+        assert report["mutations"][0]["verdict"] == "error"
+        assert report["mutations"][0]["execution_verdict"] == "killed_by_test"
+    else:
+        assert report["mutations"][0]["verdict"] == "killed_by_test"
+    if valid:
+        assert report["source"]["before"] == report["source"]["after"]
+        assert report["source"]["errors"] == []
+    else:
+        assert report["source"]["errors"]
+
+
+def test_campaign_refuses_initial_merge_without_running_owned_work(monkeypatch, tmp_path):
+    root, _git, observations = source_observation_fixture(tmp_path, monkeypatch)
+    (root / ".git/MERGE_HEAD").write_text("a" * 40 + "\n")
+    target = tmp_path / "target"
+    monkeypatch.setattr(sys, "argv", ["gate", "--strict", "--fast", "--only", "MX1",
+                                     "--target-dir", str(target)])
+    monkeypatch.setattr(gate, "evaluate_baseline", lambda *_: pytest.fail("merge cannot build baseline"))
+    monkeypatch.setattr(gate, "evaluate", lambda *_: pytest.fail("merge cannot build mutant"))
+    assert gate.main() == 1
+    report = json.loads((target / "report.json").read_text())
+    assert observations == ["full manifest", "full manifest"]
+    assert report["source"]["before"] is None and report["source"]["after"] is None
+    assert report["summary"]["source"] == "error"
+    assert report["summary"]["baseline"] == "error"
+    assert report["summary"]["error"] == ["MX1"]
+    assert all("active Git operation" in error for error in report["source"]["errors"][:2])
+    assert report["source"]["errors"][2] == "work-item source Git state refused: MX1, baseline"
+
+
+def test_campaign_branch_drift_stops_next_item_without_refreshing_candidate(monkeypatch, tmp_path):
+    root, git, observations = source_observation_fixture(tmp_path, monkeypatch)
+    target = tmp_path / "target"
+    monkeypatch.setattr(sys, "argv", ["gate", "--strict", "--fast", "--only", "MX1",
+                                     "--target-dir", str(target)])
+    def baseline(*_args):
+        git("symbolic-ref", "HEAD", "refs/heads/replacement")
+        return {"id": "baseline", "verdict": "pass"}
+    monkeypatch.setattr(gate, "evaluate_baseline", baseline)
+    monkeypatch.setattr(gate, "evaluate", lambda *_: pytest.fail("branch drift cannot launch next work item"))
+    assert gate.main() == 1
+    report = json.loads((target / "report.json").read_text())
+    assert observations == ["full manifest", "full manifest"]
+    assert report["baseline"]["execution_verdict"] == "pass"
+    assert report["baseline"]["verdict"] == "error"
+    assert report["mutations"][0]["verdict"] == "error"
+    assert report["source"]["before"]["branch"] == "refs/heads/optimizations"
+    assert report["source"]["after"]["branch"] == "refs/heads/replacement"
+
+
+def test_campaign_accepts_stable_detached_ci_observation(monkeypatch, tmp_path):
+    state = {"root": str(ROOT), "branch": None}
+    monkeypatch.setattr(gate, "workspace_source_git_state", lambda _root: dict(state))
+    monkeypatch.setattr(gate, "workspace_source_observation", lambda _root: {
+        **state, "workspace_source_manifest_sha256": "b" * 64,
+        "cargo_source_consumption": "not_proven"})
+    monkeypatch.setattr(sys, "argv", ["gate", "--strict", "--fast", "--only", "MX1",
+                                     "--target-dir", str(tmp_path)])
+    monkeypatch.setattr(gate, "evaluate_baseline", lambda *_: {"id": "baseline", "verdict": "pass"})
+    monkeypatch.setattr(gate, "evaluate", lambda *_: {"id": "MX1", "verdict": "killed_by_test"})
+    assert gate.main() == 0
+    report = json.loads((tmp_path / "report.json").read_text())
+    assert report["source"]["unchanged"] and report["source"]["before"]["branch"] is None
+
+
+@pytest.mark.parametrize("returncode,branch", [(1, ""), (2, ""), (0, "refs/tags/foreign")])
+def test_workspace_source_git_state_distinguishes_detached_from_failed_git(
+    monkeypatch, tmp_path, returncode, branch,
+):
+    source_module = gate._workspace_source
+
+    root, _git, _observations = source_observation_fixture(tmp_path, monkeypatch)
+    real_run = subprocess.run
+    def run(command, **kwargs):
+        if command[-3:] == ["symbolic-ref", "--quiet", "HEAD"]:
+            return subprocess.CompletedProcess(command, returncode, branch, "")
+        return real_run(command, **kwargs)
+    monkeypatch.setattr(source_module.subprocess, "run", run)
+    if returncode == 1:
+        assert source_module.workspace_source_git_state(root) == {"root": str(root), "branch": None}
+    else:
+        with pytest.raises((subprocess.CalledProcessError, RuntimeError)):
+            source_module.workspace_source_git_state(root)
+
+
+def test_gate_import_uses_exact_sibling_source_helper_from_foreign_cwd(tmp_path):
+    (tmp_path / "compute_workspace_source_manifest.py").write_text(
+        "raise RuntimeError('a foreign helper must never be loaded')\n")
+    program = '''
+import importlib.util
+from pathlib import Path
+import sys
+import types
+
+sys.path.insert(0, str(Path.cwd()))
+sys.modules["compute_workspace_source_manifest"] = types.ModuleType("foreign_source_helper")
+sys.modules["sumeragi_workspace_source_manifest"] = types.ModuleType("foreign_cached_helper")
+path = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("gate_from_foreign_cwd", path)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+assert module._workspace_source.__file__ == str(path.with_name("compute_workspace_source_manifest.py"))
+assert module.workspace_source_observation is module._workspace_source.workspace_source_observation
+print("exact sibling loaded")
+'''
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", program, str(ROOT / "scripts/sumeragi_mutation_gate.py")],
+        cwd=tmp_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    assert completed.stdout == "exact sibling loaded\n" and completed.stderr == ""
+
+
+def test_seen_git_drift_cannot_pass_after_original_boundary_source_returns(monkeypatch, tmp_path):
+    source_module = gate._workspace_source
+
+    root, git, observations = source_observation_fixture(tmp_path, monkeypatch)
+    target = tmp_path / "target"
+    seen = []
+    def observe_git(_root):
+        state = source_module.workspace_source_git_state(root)
+        if state["branch"] == "refs/heads/replacement":
+            seen.append(state)
+            git("symbolic-ref", "HEAD", "refs/heads/optimizations")
+        return state
+    monkeypatch.setattr(gate, "workspace_source_git_state", observe_git)
+    monkeypatch.setattr(sys, "argv", ["gate", "--strict", "--fast", "--only", "MX1",
+                                     "--target-dir", str(target)])
+    def baseline(*_args):
+        git("symbolic-ref", "HEAD", "refs/heads/replacement")
+        return {"id": "baseline", "verdict": "pass"}
+    monkeypatch.setattr(gate, "evaluate_baseline", baseline)
+    monkeypatch.setattr(gate, "evaluate", lambda *_: {"id": "MX1", "verdict": "killed_by_test"})
+    assert gate.main() == 1
+    report = json.loads((target / "report.json").read_text())
+    assert observations == ["full manifest", "full manifest"] and len(seen) == 1
+    assert report["source"]["before"] == report["source"]["after"]
+    assert report["source"]["boundaries_match"] is True
+    assert report["source"]["unchanged"] is False
+    assert report["summary"]["source"] == "error"
+    assert report["baseline"]["execution_verdict"] == "pass"
+    assert report["mutations"][0]["verdict"] == "killed_by_test"
+    assert report["source"]["errors"] == ["work-item source Git state refused: baseline"]
+
+
+def test_fastpq_terminal_take_model_mutation_keeps_original_custody_and_owned_control():
+    rule = gate.index_mutations(gate.MODEL_MUTATIONS)["DM44"]
+    owner = "crates/iroha_data_model/src/fastpq/execution_effect/admitted.rs"
+    source = "crates/iroha_data_model/src/fastpq/execution_effect/admitted/tests.rs"
+    selector = "fastpq::execution_effect::admitted::tests::completed_tape_take_rejects_prepared_replay_without_reminting_custody"
+    cause = "completed FASTPQ tape must refuse prepared replay without minting another graph"
+    assert rule.tests == (selector,) and not rule.scenarios
+    assert rule.causes == (gate.ExpectedFailure(cause, source),)
+    model = ROOT / "crates/iroha_data_model/src"
+    owners = {path.relative_to(ROOT).as_posix() for path in model.rglob("*.rs")
+              if re.search(r'sumeragi_model_mutation\s*=\s*"DM44"', path.read_text())}
+    assert owners == {owner}
+    assert gate.has_switch("DM44", model=True)
+    for family in ({}, {"core": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch("DM44", **family)
+    model_source = (ROOT / owner).read_text()
+    reset = named_rust_function(model_source, "reset")
+    compact = re.sub(r"\s+", "", reset)
+    assert '#[cfg(not(all(test,sumeragi_model_mutation="DM44")))]' in compact
+    assert "ifself.phase==TapePhase::Taken{return;}self.phase=TapePhase::Pending;" in compact
+    assert "pub fn finish(&mut self) -> Result<AllocatedFastpqEffectsV1, Error>" in model_source
+    assert "Result<AllocatedFastpqEffectsV1, Self>" not in model_source
+    native = named_rust_function((ROOT / source).read_text(), selector.rsplit("::", 1)[-1])
+    assert json.dumps(cause) in native and "sumeragi_model_mutation" not in native
+    assert "decode(&mut workspace, &bytes, &mut pending)" in native
+    assert "complete.canonical().effects.as_ptr(), pointer" in native
+    assert "pool.reserved_bytes(), 0" in native
+    core = (ROOT / "crates/iroha_core/src/query/native_context_archive/fastpq_source/read/decode.rs").read_text()
+    complete = re.sub(r"\s+", "", named_rust_function(core, "take_complete"))
+    assert "pending.as_mut_slice().last_mut()" in complete
+    assert "original.finish().map_err(|_|incomplete())?" in complete
+    assert "pending.truncate(pending.as_slice().len()-1)" in complete
+    assert "pending.pop()" not in complete
+    rows = re.findall(r"^\| DM44 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and selector in rows[0]
+
+
+@pytest.mark.parametrize("defect", ["none", "unrelated", "wrong-source", "missing-terminal", "survived", "abort", "timeout"])
+def test_fastpq_terminal_take_mutation_requires_exact_completed_native_cause(monkeypatch, tmp_path, defect):
+    rule = gate.index_mutations(gate.MODEL_MUTATIONS)["DM44"]
+    rows = [(rule.tests[0], "ok" if defect == "survived" else "FAILED")]
+    if defect == "missing-terminal":
+        rows.pop()
+    code, output = causal_control_output(rule, rows)
+    if defect == "unrelated":
+        output = output.replace(rule.causes[0].cause, "unrelated fixture failure", 1)
+    elif defect == "wrong-source":
+        output = output.replace(rule.causes[0].source + ":123:", "foreign.rs:123:", 1)
+    elif defect == "abort":
+        code = -6
+    elif defect == "timeout":
+        code = None
+    monkeypatch.setattr(gate, "has_switch", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *_args: gate.Step(status="pass"))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    result = gate.evaluate(SimpleNamespace(model=True, target_dir=tmp_path, timeout_test=900, fast=False), tmp_path, rule)
+    verdict = "killed_by_test" if defect == "none" else "survived" if defect == "survived" else "error"
+    assert result["verdict"] == verdict, result
+    if defect == "none":
+        assert result["named"]["causal_failures"] == {rule.tests[0]: True}
+
+
+def test_native_socket_row_withholding_has_unique_causal_harness_control():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC449"]
+    owner = "crates/iroha_core/src/sumeragi/node/tests/selective_rs16_tests.rs"
+    selector = "sumeragi::node::tests::dataspace_roots::selective_rs16_tests::native_socket_selective_signed_rows_preserve_partial_delivery_and_original_paid_recovery"
+    cause = "selected original row deprivation must prevent native Apply"
+    assert rule.tests == (selector,)
+    assert rule.causes == (gate.ExpectedFailure(cause, owner),)
+    assert not rule.scenarios and gate.has_switch("HC449", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch("HC449", **family)
+    owners = {path.relative_to(ROOT).as_posix() for path in (ROOT / "crates/iroha_core/src").rglob("*.rs")
+              if 'sumeragi_core_mutation = "HC449"' in path.read_text()}
+    assert owners == {owner}
+    source = (ROOT / owner).read_text()
+    assert 'cfg!(all(test, sumeragi_core_mutation = "HC449"))' in source
+    assert "fn " + selector.rsplit("::", 1)[1] + "(" in source
+    assert cause in source
+    assert "| HC449 |" in (ROOT / "specs/sumeragi.md").read_text()
+
+
+def test_penalty_registration_lookup_mutation_uses_original_key_control():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC444"]
+    owner = "crates/iroha_core/src/sumeragi/penalties/key_custody_tests.rs"
+    selector = "sumeragi::penalties::tests::validator_registration_lookup_borrows_original_single_and_multisig_keys_without_allocation"
+    cause = "penalty registration lookup must borrow the exact funded key without replacement allocation"
+    assert rule.tests == (selector,)
+    assert rule.causes == (gate.ExpectedFailure(cause, owner),)
+    assert not rule.scenarios and gate.has_switch("HC444", core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch("HC444", **family)
+    source = (ROOT / "crates/iroha_core/src/sumeragi/penalties.rs").read_text()
+    assert '#[cfg(all(test, sumeragi_core_mutation = "HC444"))]' in source
+    assert "let key = &self.registration_key.clone();" in source
+    controls = (ROOT / owner).read_text()
+    assert "fn " + selector.rsplit("::", 1)[1] + "(" in controls
+    assert cause in controls
+
+
+def test_penalty_sort_and_lane_wake_mutations_have_distinct_hooks_and_controls():
+    registered = gate.index_mutations(gate.CORE_MUTATIONS)
+    ordering = registered["HC901"]
+    wake = registered["HC405"]
+    penalty_owner = "crates/iroha_core/src/sumeragi/penalties.rs"
+    lane_owner = "crates/iroha_core/src/sumeragi/lanes/runner/startup.rs"
+    assert ordering.tests == (
+        "sumeragi::penalties::tests::canonical_action_order_deduplicates_without_allocator_scratch",
+    )
+    assert ordering.causes == (gate.ExpectedFailure(
+        "HC901 canonical penalty sorting must not allocate stable-sort scratch", penalty_owner,
+    ),)
+    assert wake.tests == (
+        "sumeragi::driver::tests::threaded::retirement_tests::ready_transfer_reissues_consumed_transaction_wake_to_original_workers",
+    )
+    assert wake.causes == (gate.ExpectedFailure(
+        "Ready transfer must redeliver the consumed transaction wake to the original workers",
+        "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs",
+    ),)
+    owners = {"HC405": set(), "HC901": set()}
+    for path in (ROOT / "crates/iroha_core/src").rglob("*.rs"):
+        for mid in re.findall(r'sumeragi_core_mutation\s*=\s*"(HC405|HC901)"', path.read_text()):
+            owners[mid].add(path.relative_to(ROOT).as_posix())
+    assert owners == {"HC405": {lane_owner}, "HC901": {penalty_owner}}
+    source = (ROOT / penalty_owner).read_text()
+    assert '#[cfg(all(test, sumeragi_core_mutation = "HC901"))]\n    actions.sort();' in source
+    assert '#[cfg(not(all(test, sumeragi_core_mutation = "HC901")))]\n    actions.sort_unstable();' in source
+    for mid in owners:
+        assert gate.has_switch(mid, core=True)
+        assert not registered[mid].scenarios
+
+
+def test_native_penalty_action_model_custody_controls_are_unique_and_causal():
+    controls = {
+        "DM45": ("penalty_action_owner_preserves_sole_wire_schema_json_and_original_shared_graph", "admitted penalty action clone must retain the original graph", "crates/iroha_data_model/src/consensus/penalty_actions.rs"),
+        "DM46": ("penalty_action_source_binds_full_original_frame_pool_and_layout", "penalty action custody must bind the full original source", "crates/iroha_data_model/src/consensus/penalty_actions/prepared.rs"),
+        "DM47": ("penalty_action_original_partial_refusal_retains_exact_prefix_pool_and_retry", "partial penalty retry must retain exact original refusal and release cut", "crates/iroha_data_model/src/consensus/penalty_actions/prepared.rs"),
+    }
+    cause_source = "crates/iroha_data_model/src/consensus/penalty_actions/prepared/tests.rs"
+    rules = gate.index_mutations(gate.MODEL_MUTATIONS)
+    assert set(rules) == set(MODEL_NAMES)
+    build = (gate.REPO / "crates/iroha_data_model/build.rs").read_text()
+    assert tuple(re.findall(r'"(DM\d+)"', build.split("const IDS:", 1)[1].split(";", 1)[0])) == tuple(MODEL_NAMES)
+    for identity, (test, cause, owner) in controls.items():
+        rule = rules[identity]
+        assert rule.tests == ("consensus::penalty_actions::prepared::tests::" + test,)
+        assert rule.causes == (gate.ExpectedFailure(cause, cause_source),)
+        assert not rule.scenarios and gate.has_switch(identity, model=True)
+        for family in ({}, {"core": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+            assert not gate.has_switch(identity, **family)
+        owners = {path.relative_to(gate.REPO).as_posix() for path in (gate.REPO / "crates/iroha_data_model/src").rglob("*.rs") if f'sumeragi_model_mutation = "{identity}"' in path.read_text()}
+        assert owners == {owner}
+        assert cause in (gate.REPO / cause_source).read_text()
+        assert "fn " + test + "(" in (gate.REPO / cause_source).read_text()
+        assert f"| {identity} |" in (gate.REPO / "specs/sumeragi.md").read_text()
+
+
+@pytest.mark.parametrize("mid,name,cause", [
+    ("HC446", "change_intent_matches_complete_stream_but_cannot_emit_a_snapshot", "change-only original capture must refuse complete snapshot delivery before callbacks"),
+    ("HC447", "change_intent_ignores_untouched_native_rows_and_replays_exact_original_changes", "change capture must inspect only original touched native rows"),
+    ("HC448", "change_capture_refusal_retains_original_partial_frame_through_retry_and_refund", "change capture retry must retain its original partial key frame"),
+])
+def test_original_change_capture_mutations_bind_native_custody_controls(mid, name, cause):
+    source_owner = "crates/iroha_core/src/state/authority_registry/complete/original_stream.rs"
+    test_owner = "crates/iroha_core/src/state/authority_registry/complete/original_stream/changes_tests.rs"
+    selector = "state::authority_registry::complete::original_stream::tests::" + name
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    assert rule.tests == (selector,)
+    assert rule.causes == (gate.ExpectedFailure(cause, test_owner),)
+    assert not rule.scenarios and gate.has_switch(mid, core=True)
+    owners = {
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "crates/iroha_core/src").rglob("*.rs")
+        if re.search(r'sumeragi_core_mutation\s*=\s*"' + mid + '"', path.read_text())
+    }
+    assert owners == {source_owner}
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True}, {"deploy": True}, {"torii": True}, {"norito": True}, {"p2p": True}):
+        assert not gate.has_switch(mid, **family)
+    controls = (ROOT / test_owner).read_text()
+    assert "fn " + name + "(" in controls and cause in controls
+    rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and selector in rows[0]
+
+
+@pytest.mark.parametrize("mid,selector,cause,test_owner,source_owner", [
+    ('HC454', 'state::authority_registry::complete::original_stream::tests::membership_delta_capacity_refusal_keeps_original_key_base_cause_and_refund', 'membership retry must retain the exact original partial-key capacity cause', 'crates/iroha_core/src/state/authority_registry/complete/original_stream/membership_delta_tests.rs', 'crates/iroha_core/src/state/authority_registry/complete/original_stream/membership.rs'),
+    ('HC450', 'state::storage_transactions::authority::tests::paired_publication_delta_recreates_exact_advance_replace_repeat_and_empty_cuts', 'original rollback delta must recreate exact successor pair', 'crates/iroha_core/src/state/storage_transactions/authority/delta_tests.rs', 'crates/iroha_core/src/state/storage_transactions.rs'),
+    ('HC451', 'state::storage_transactions::authority::tests::paired_publication_delta_requires_exact_original_surface_before_visitation', 'membership delta must reject a substituted original publication surface', 'crates/iroha_core/src/state/storage_transactions/authority/delta_tests.rs', 'crates/iroha_core/src/state/storage_transactions/authority.rs'),
+    ('HC452', 'state::authority_registry::complete::original_stream::tests::membership_delta_base_refusal_precedes_every_change_and_retains_original_retry', 'membership base refusal must precede every original change callback', 'crates/iroha_core/src/state/authority_registry/complete/original_stream/membership_delta_tests.rs', 'crates/iroha_core/src/state/authority_registry/complete/original_stream.rs'),
+    ('HC453', 'state::authority_registry::complete::original_stream::tests::change_membership_capture_uses_only_delta_sets_and_recreates_complete_pair', 'membership change capture must avoid complete history scans', 'crates/iroha_core/src/state/authority_registry/complete/original_stream/membership_delta_tests.rs', 'crates/iroha_core/src/state/authority_registry/complete/original_stream/membership.rs'),
+ ])
+def test_paired_membership_delta_mutations_bind_exact_original_native_controls(mid, selector, cause, test_owner, source_owner):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    assert rule.tests == (selector,)
+    assert rule.causes == (gate.ExpectedFailure(cause, test_owner),)
+    assert not rule.scenarios and gate.has_switch(mid, core=True)
+    owners = {
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "crates/iroha_core/src").rglob("*.rs")
+        if re.search(r'sumeragi_core_mutation\s*=\s*"' + mid + '"', path.read_text())
+    }
+    assert owners == {source_owner}
+    all_rules = [*gate.MUTATIONS, *gate.CORE_MUTATIONS, *gate.DAEMON_MUTATIONS, *gate.MODEL_MUTATIONS,
+                 *gate.SDK_MUTATIONS, *gate.DEPLOY_MUTATIONS, *gate.TORII_MUTATIONS,
+                 *gate.NORITO_MUTATIONS, *gate.P2P_MUTATIONS]
+    assert len(gate.index_mutations(all_rules)) == len(all_rules)
+    controls = (ROOT / test_owner).read_text()
+    assert "fn " + selector.rsplit("::", 1)[-1] + "(" in controls and cause in controls
+    rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and selector in rows[0]
+
+
+@pytest.mark.parametrize("mid,selector,cause,test_owner,source_owner", [
+    ('HC455', 'state::authority_registry::complete::original_stream::tests::untouched_cell_delta_keeps_original_identity_without_value_work_or_credit', 'untouched cell change capture must admit no value work or credit', 'crates/iroha_core/src/state/authority_registry/complete/original_stream/cell_policy_delta_tests.rs', 'crates/iroha_core/src/state/authority_registry/complete/original_stream.rs'),
+    ('HC456', 'state::authority_registry::complete::original_stream::tests::unchanged_policy_delta_skips_projection_scratch_with_exhausted_original_pool', 'unchanged policies must skip borrowed projection scratch before allocation', 'crates/iroha_core/src/state/authority_registry/complete/original_stream/cell_policy_delta_tests.rs', 'crates/iroha_core/src/state/authority_registry/complete/original_stream.rs'),
+    ('HC457', 'state::authority_registry::complete::original_stream::tests::runtime_catalog_touch_keeps_manifest_preimage_and_refuses_foreign_binding', 'runtime catalog touches must retain original manifest preimage', 'crates/iroha_core/src/state/authority_registry/complete/original_stream/cell_policy_delta_tests.rs', 'crates/iroha_core/src/state/authority_registry/complete/original_stream/policies.rs'),
+ ])
+def test_cell_policy_delta_mutations_keep_exact_source_and_causal_controls(mid, selector, cause, test_owner, source_owner):
+    all_rules = [*gate.MUTATIONS, *gate.CORE_MUTATIONS, *gate.DAEMON_MUTATIONS, *gate.MODEL_MUTATIONS,
+                 *gate.SDK_MUTATIONS, *gate.DEPLOY_MUTATIONS, *gate.TORII_MUTATIONS,
+                 *gate.NORITO_MUTATIONS, *gate.P2P_MUTATIONS]
+    assert len(gate.index_mutations(all_rules)) == len(all_rules)
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    assert rule.tests == (selector,)
+    assert rule.causes == (gate.ExpectedFailure(cause, test_owner),)
+    assert not rule.scenarios and gate.has_switch(mid, core=True)
+    owners = {
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "crates/iroha_core/src").rglob("*.rs")
+        if re.search(r'sumeragi_core_mutation\s*=\s*"' + mid + '"', path.read_text())
+    }
+    assert owners == {source_owner}
+    controls = (ROOT / test_owner).read_text()
+    assert "fn " + selector.rsplit("::", 1)[-1] + "(" in controls and cause in controls
+    rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and selector in rows[0]
+
+
+def test_field5_penalty_custody_mutations_have_unique_original_owners_and_causal_controls():
+    controls = (('DM48', 'block::prepared_signatures::tests::penalty_action_tests::field5_penalty_actions_keep_canonical_wire_and_original_shared_graph', 'field 5 must retain the original admitted action graph', 'crates/iroha_data_model/src/block/prepared_signatures/tests/penalty_action_tests.rs', 'crates/iroha_data_model/src/block/prepared_signatures.rs'), ('DM49', 'block::prepared_signatures::tests::penalty_action_tests::field5_penalty_refusal_retains_original_prefix_pool_and_exact_retry', 'field 5 retry must retain the original partial action owner and release cut', 'crates/iroha_data_model/src/block/prepared_signatures/tests/penalty_action_tests.rs', 'crates/iroha_data_model/src/block/prepared_signatures.rs'), ('HC458', 'sumeragi::executor::decoded_custody_tests::same_wire_distinct_action_owner_is_refused_at_original_lend_and_validation_return', 'same-wire action substitution must fail original lend', 'crates/iroha_core/src/sumeragi/executor_decoded_custody_tests.rs', 'crates/iroha_core/src/sumeragi/executor.rs'), ('HC459', 'execution_attempt::prepared_penalty_action_attempt_retains_exact_capacity_and_allocator_causes', 'field 5 must preserve the exact original capacity cause', 'crates/iroha_core/src/execution_attempt.rs', 'crates/iroha_core/src/execution_attempt.rs'))
+    all_rules = [*gate.MUTATIONS, *gate.CORE_MUTATIONS, *gate.DAEMON_MUTATIONS, *gate.MODEL_MUTATIONS,
+                 *gate.SDK_MUTATIONS, *gate.DEPLOY_MUTATIONS, *gate.TORII_MUTATIONS,
+                 *gate.NORITO_MUTATIONS, *gate.P2P_MUTATIONS]
+    assert len(gate.index_mutations(all_rules)) == len(all_rules)
+    for mid, selector, cause, test_owner, source_owner in controls:
+        model = mid.startswith("DM")
+        rules = gate.MODEL_MUTATIONS if model else gate.CORE_MUTATIONS
+        rule = gate.index_mutations(rules)[mid]
+        assert rule.tests == (selector,)
+        assert rule.causes == (gate.ExpectedFailure(cause, test_owner),)
+        assert not rule.scenarios and gate.has_switch(mid, **({"model": True} if model else {"core": True}))
+        family = "model" if model else "core"
+        folder = ROOT / ("crates/iroha_data_model/src" if model else "crates/iroha_core/src")
+        owners = {path.relative_to(ROOT).as_posix() for path in folder.rglob("*.rs")
+                  if re.search(r"sumeragi_" + family + r'_mutation\s*=\s*"' + mid + '"', path.read_text())}
+        assert owners == {source_owner}
+        controls_source = (ROOT / test_owner).read_text()
+        assert "fn " + selector.rsplit("::", 1)[-1] + "(" in controls_source and cause in controls_source
+        rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+        assert len(rows) == 1 and selector in rows[0]
+        if model:
+            assert MODEL_NAMES[mid] == selector
+    build = (ROOT / "crates/iroha_data_model/build.rs").read_text()
+    assert tuple(re.findall(r'"(DM\d+)"', build.split("const IDS:", 1)[1].split(";", 1)[0])) == tuple(MODEL_NAMES)
+
+
+def test_parent_qc_custody_mutations_have_unique_owners_and_causal_controls():
+    controls = (('DM50', 'consensus::parent_service::prepared::tests::parent_service_owner_keeps_vec_wire_json_and_exact_admitted_clone', 'parent-QC clone must retain the original immutable byte owner', 'crates/iroha_data_model/src/consensus/parent_service/tests.rs', 'crates/iroha_data_model/src/consensus/parent_service.rs'), ('DM51', 'consensus::parent_service::prepared::tests::parent_service_source_and_capacity_retry_preserve_original_full_frame_pool_and_layout', 'parent-QC custody must bind bytes outside the selected field', 'crates/iroha_data_model/src/consensus/parent_service/tests.rs', 'crates/iroha_data_model/src/consensus/parent_service/prepared.rs'), ('DM52', 'block::prepared_signatures::tests::parent_service_tests::field5_parent_service_survives_later_action_refusal_with_exact_original_cut_and_retry', 'outer retry must retain parent-QC custody and original release cut', 'crates/iroha_data_model/src/block/prepared_signatures/tests/parent_service_tests.rs', 'crates/iroha_data_model/src/block/prepared_signatures.rs'), ('HC460', 'sumeragi::executor::decoded_custody_tests::same_wire_parent_qc_substitution_preserving_actions_and_signatures_is_refused_at_both_boundaries', 'same-wire parent-QC substitution must fail original lend', 'crates/iroha_core/src/sumeragi/executor_decoded_custody_tests.rs', 'crates/iroha_core/src/sumeragi/executor.rs'), ('HC461', 'execution_attempt::prepared_parent_service_attempt_preserves_original_capacity_and_allocator_fields', 'parent-QC decode must retain its original capacity cause', 'crates/iroha_core/src/execution_attempt.rs', 'crates/iroha_core/src/execution_attempt.rs'))
+    all_rules = [*gate.MUTATIONS, *gate.CORE_MUTATIONS, *gate.DAEMON_MUTATIONS, *gate.MODEL_MUTATIONS,
+                 *gate.SDK_MUTATIONS, *gate.DEPLOY_MUTATIONS, *gate.TORII_MUTATIONS,
+                 *gate.NORITO_MUTATIONS, *gate.P2P_MUTATIONS]
+    assert len(gate.index_mutations(all_rules)) == len(all_rules)
+    for mid, selector, cause, test_owner, source_owner in controls:
+        model = mid.startswith("DM")
+        rules = gate.MODEL_MUTATIONS if model else gate.CORE_MUTATIONS
+        rule = gate.index_mutations(rules)[mid]
+        assert rule.tests == (selector,)
+        assert rule.causes == (gate.ExpectedFailure(cause, test_owner),)
+        assert not rule.scenarios and gate.has_switch(mid, **({"model": True} if model else {"core": True}))
+        family = "model" if model else "core"
+        folder = ROOT / ("crates/iroha_data_model/src" if model else "crates/iroha_core/src")
+        owners = {path.relative_to(ROOT).as_posix() for path in folder.rglob("*.rs")
+                  if re.search(r"sumeragi_" + family + r'_mutation\s*=\s*"' + mid + '"', path.read_text())}
+        assert owners == {source_owner}
+        controls_source = (ROOT / test_owner).read_text()
+        assert "fn " + selector.rsplit("::", 1)[-1] + "(" in controls_source and cause in controls_source
+        rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+        assert len(rows) == 1 and selector in rows[0]
+        if model:
+            assert MODEL_NAMES[mid] == selector
+    build = (ROOT / "crates/iroha_data_model/build.rs").read_text()
+    assert tuple(re.findall(r'"(DM\d+)"', build.split("const IDS:", 1)[1].split(";", 1)[0])) == tuple(MODEL_NAMES)

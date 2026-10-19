@@ -30180,7 +30180,7 @@ impl State {
             query_handle: &self.query_handle,
             query_ledger_time_ms,
             accounts_snapshot_cache: SyncOnceCell::new(),
-            ivm_elections_cache: Default::default(),
+            ivm_elections_cache: ivm_elections::SnapshotCache::new(),
             #[cfg(feature = "telemetry")]
             telemetry: &self.telemetry,
             pipeline: crate::pipeline_validity_policy::effective_pipeline(
@@ -31459,7 +31459,7 @@ impl State {
                 query_handle: &self.query_handle,
                 query_ledger_time_ms,
                 accounts_snapshot_cache: SyncOnceCell::new(),
-                ivm_elections_cache: Default::default(),
+                ivm_elections_cache: ivm_elections::SnapshotCache::new(),
                 #[cfg(feature = "telemetry")]
                 telemetry: &self.telemetry,
                 pipeline,
@@ -44902,14 +44902,14 @@ mod npos_effect_application_tests {
 
     fn marker_effects(height: u64) -> iroha_data_model::consensus::NposConsensusEffects {
         iroha_data_model::consensus::NposConsensusEffects {
-            penalty_actions: vec![
+            penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(vec![
                 iroha_data_model::consensus::NposPenaltyAction::MarkConsensusEvidenceApplied(
                     iroha_data_model::consensus::NposMarkConsensusEvidenceAppliedAction {
                         evidence_key: Hash::new([0xA5]),
                         height,
                     },
                 ),
-            ],
+            ]),
             ..Default::default()
         }
     }

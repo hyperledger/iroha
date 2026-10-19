@@ -63,3 +63,50 @@ fn query_conversion_error_does_not_infer_a_reject_code_header() {
         "conversion messages never carry a protocol-specific reject code"
     );
 }
+
+#[test]
+fn anonymous_ballot_unavailable_is_not_a_transaction_rejection() {
+    let error = super::Error::AcceptTransaction(
+        iroha_core::tx::AcceptTransactionFail::AnonymousBallotUnavailable,
+    );
+    assert_eq!(error.status_code(), StatusCode::SERVICE_UNAVAILABLE);
+    let response = error.into_response();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(response.headers().get("x-iroha-reject-code").is_none());
+    let body = executor::block_on(http_body_util::BodyExt::collect(response.into_body()))
+        .expect("collect body")
+        .to_bytes();
+    let envelope = norito::decode_from_bytes::<super::ErrorEnvelope>(&body).unwrap();
+    assert_eq!(envelope.code(), "anonymous_ballot_unavailable");
+    assert!(
+        envelope
+            .details
+            .as_ref()
+            .is_none_or(|details| details.reject_code.is_none())
+    );
+}
+
+#[test]
+fn anonymous_ballot_pipeline_rejection_labels_are_exact_committed_outcomes() {
+    use iroha_data_model::{
+        governance::anonymous_ballot::AnonymousBallotRejectionV1,
+        transaction::error::TransactionRejectionReason,
+    };
+    for (reason, summary) in [
+        (
+            AnonymousBallotRejectionV1::OutsideCastingWindow,
+            "Anonymous ballot is outside its casting window.",
+        ),
+        (
+            AnonymousBallotRejectionV1::DuplicateNullifier,
+            "Anonymous ballot nullifier was already accepted.",
+        ),
+    ] {
+        let reason = TransactionRejectionReason::AnonymousBallot(reason);
+        assert_eq!(
+            super::transaction_rejection_code(&reason),
+            "anonymous_ballot"
+        );
+        assert_eq!(super::pipeline_rejection_summary(&reason), summary);
+    }
+}

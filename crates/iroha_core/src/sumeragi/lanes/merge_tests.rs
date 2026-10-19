@@ -89,6 +89,32 @@ impl LaneBlockSource for Deferred {
             stores.proposal_block(lane, incarnation, height, request)
         })
     }
+    fn execution_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        request: &crate::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<
+        Option<CommittedLaneBlock>,
+        crate::execution_attempt::ExecutionAttemptError<std::io::Error>,
+    > {
+        self.0.get().map_or(Ok(None), |stores| {
+            stores.execution_block(lane, incarnation, height, request)
+        })
+    }
+    fn execution_wait_for(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        timeout: Duration,
+        request: &crate::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<bool, crate::execution_attempt::ExecutionAttemptError<std::io::Error>> {
+        self.0.get().map_or(Ok(false), |stores| {
+            stores.execution_wait_for(lane, incarnation, height, timeout, request)
+        })
+    }
     fn release_cancelled_proposal_reads(&self) {
         if let Some(stores) = self.0.get() {
             stores.release_cancelled_proposal_reads();
@@ -669,6 +695,7 @@ fn malformed_merges_are_invalid_and_missing_blocks_pending() {
             &fixture.proposal(merges, floor),
             &*fixture.stores,
             Duration::ZERO,
+            &mut crate::sumeragi::lanes::ProposalReadScope::new(),
         )
     };
     let expand_at = |merges: &[SumeragiLaneMerge]| expand_with(merges, created + 1);
@@ -739,6 +766,7 @@ fn expansion_consumes_only_the_exact_original_proposal() {
         &proposal,
         &*fixture.stores,
         Duration::ZERO,
+        &mut crate::sumeragi::lanes::ProposalReadScope::new(),
     )
     .unwrap();
     let mut foreign = proposal.clone();
@@ -764,6 +792,7 @@ fn expansion_consumes_only_the_exact_original_proposal() {
         &proposal,
         &*fixture.stores,
         Duration::ZERO,
+        &mut crate::sumeragi::lanes::ProposalReadScope::new(),
     )
     .unwrap();
     let expected = proposal.canonical_proposal_wire_hash().unwrap();
@@ -788,7 +817,14 @@ fn expansion_refuses_equivalent_foreign_state_and_changed_publication() {
         vec![fixture.log(&other_user(), "original proposal", GENESIS_MS - 1)],
     );
     let expected = proposal.canonical_proposal_wire_hash().unwrap();
-    let expansion = expand(&state, &proposal, &*fixture.stores, Duration::ZERO).unwrap();
+    let expansion = expand(
+        &state,
+        &proposal,
+        &*fixture.stores,
+        Duration::ZERO,
+        &mut crate::sumeragi::lanes::ProposalReadScope::new(),
+    )
+    .unwrap();
     assert_eq!(
         state.state_view_generation(),
         foreign.chain.state().state_view_generation()
@@ -803,7 +839,14 @@ fn expansion_refuses_equivalent_foreign_state_and_changed_publication() {
     assert!(matches!(reason, MergeError::Pending(_)));
     assert_eq!(returned.canonical_proposal_wire_hash().unwrap(), expected);
 
-    let expansion = expand(&state, &returned, &*fixture.stores, Duration::ZERO).unwrap();
+    let expansion = expand(
+        &state,
+        &returned,
+        &*fixture.stores,
+        Duration::ZERO,
+        &mut crate::sumeragi::lanes::ProposalReadScope::new(),
+    )
+    .unwrap();
     let captured = state.state_view_generation();
     fixture.chain.commit(Vec::new());
     assert_ne!(state.state_view_generation(), captured);
@@ -814,7 +857,14 @@ fn expansion_refuses_equivalent_foreign_state_and_changed_publication() {
     );
     assert_eq!(returned.canonical_proposal_wire_hash().unwrap(), expected);
 
-    let expansion = expand(&state, &returned, &*fixture.stores, Duration::ZERO).unwrap();
+    let expansion = expand(
+        &state,
+        &returned,
+        &*fixture.stores,
+        Duration::ZERO,
+        &mut crate::sumeragi::lanes::ProposalReadScope::new(),
+    )
+    .unwrap();
     let (returned, reason) = expansion.apply(returned, &state, captured).unwrap_err();
     assert!(
         matches!(reason, MergeError::SourceChanged { authenticated_generation, observed_generation }
@@ -899,7 +949,14 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
             .map(|(peer, _)| peer.clone()),
     );
     drop(view);
-    let expansion = expand(state, &proposal, &*fixture.stores, Duration::ZERO).unwrap();
+    let expansion = expand(
+        state,
+        &proposal,
+        &*fixture.stores,
+        Duration::ZERO,
+        &mut crate::sumeragi::lanes::ProposalReadScope::new(),
+    )
+    .unwrap();
     let generation = state.state_view_generation();
     let mut events = Vec::new();
     let (rejected, error) = ValidBlock::validate_sumeragi_block(
@@ -979,6 +1036,28 @@ fn leader_proposal_preserves_local_storage_error_instead_of_omitting_lane_work()
             crate::execution_attempt::ExecutionAttemptError<std::io::Error>,
         > {
             self.block(lane, incarnation, height)
+        }
+        fn execution_block(
+            &self,
+            lane: LaneId,
+            incarnation: &[u8; 32],
+            height: u64,
+            _request: &crate::sumeragi::lanes::ProposalReadScope,
+        ) -> Result<
+            Option<CommittedLaneBlock>,
+            crate::execution_attempt::ExecutionAttemptError<std::io::Error>,
+        > {
+            self.block(lane, incarnation, height)
+        }
+        fn execution_wait_for(
+            &self,
+            lane: LaneId,
+            incarnation: &[u8; 32],
+            height: u64,
+            timeout: Duration,
+            _request: &crate::sumeragi::lanes::ProposalReadScope,
+        ) -> Result<bool, crate::execution_attempt::ExecutionAttemptError<std::io::Error>> {
+            self.wait_for(lane, incarnation, height, timeout)
         }
         fn release_cancelled_proposal_reads(&self) {}
         fn wait_for(

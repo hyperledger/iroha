@@ -1,0 +1,521 @@
+{
+  "campaigns": {
+    "accel": {
+      "checksum_manifest": {
+        "path": "../../../.codex/parliament-context-boundary-20261020/campaign-accel/SHA256SUMS",
+        "sha256": "e68454ecd5d469c928c4a1b1304134115dd9778fad9dc8a2219bf59d51a0f47c"
+      },
+      "observations": 55,
+      "originals": [
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19074,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 4765632,
+          "arena_peak_requested_bytes": 3924851,
+          "charged_bytes": 234807,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 1352,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "fixture": "s3-valid",
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "accepted",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "complete",
+          "workspace_reserved_bytes": 43106304
+        },
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19074,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 5281728,
+          "arena_peak_requested_bytes": 4309766,
+          "charged_bytes": 299418,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 65963,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "fixture": "s500-valid",
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "accepted",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "complete",
+          "workspace_reserved_bytes": 43106304
+        },
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19073,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 5674944,
+          "arena_peak_requested_bytes": 4698862,
+          "charged_bytes": 364418,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 130963,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "fixture": "s1000-valid",
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "accepted",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "complete",
+          "workspace_reserved_bytes": 43106304
+        },
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19071,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 5674944,
+          "arena_peak_requested_bytes": 4698862,
+          "charged_bytes": 364418,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 130963,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "fixture": "s1000-late-invalid",
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "rejected",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "proof",
+          "workspace_reserved_bytes": 43106304
+        }
+      ],
+      "process_exit": {
+        "path": "../../../.codex/parliament-context-boundary-20261020/campaign-accel-process/exit.json",
+        "sha256": "67caa3b933f6c455d2093fbcd3e11f46e65fdb217dbf9f68c5807120876cf767"
+      },
+      "summary": {
+        "path": "../../../.codex/parliament-context-boundary-20261020/campaign-accel/summary.json",
+        "sha256": "b2c4f922fc46d9c29dbffcd6165a12d39a7f019d6aad0218c73c6b6740e1d0d0"
+      },
+      "worker_sha256": "c47f0a4ba6c4efa366dd8481b4d6db7579d63e3ad80436e6b116b33254ada9ad"
+    },
+    "portable": {
+      "checksum_manifest": {
+        "path": "../../../.codex/parliament-context-boundary-20261020/campaign-portable/SHA256SUMS",
+        "sha256": "3bb78ae91693d78609d5149e2099476c63e8c420f0a305153bdb23278af9d369"
+      },
+      "observations": 55,
+      "originals": [
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19074,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 4765632,
+          "arena_peak_requested_bytes": 3924851,
+          "charged_bytes": 234807,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 1352,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "fixture": "s3-valid",
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "accepted",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "complete",
+          "workspace_reserved_bytes": 43106304
+        },
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19074,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 5281728,
+          "arena_peak_requested_bytes": 4309766,
+          "charged_bytes": 299418,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 65963,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "fixture": "s500-valid",
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "accepted",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "complete",
+          "workspace_reserved_bytes": 43106304
+        },
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19073,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 5674944,
+          "arena_peak_requested_bytes": 4698862,
+          "charged_bytes": 364418,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 130963,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "fixture": "s1000-valid",
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "accepted",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "complete",
+          "workspace_reserved_bytes": 43106304
+        },
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19071,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 5674944,
+          "arena_peak_requested_bytes": 4698862,
+          "charged_bytes": 364418,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 130963,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "fixture": "s1000-late-invalid",
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "rejected",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "proof",
+          "workspace_reserved_bytes": 43106304
+        }
+      ],
+      "process_exit": {
+        "path": "../../../.codex/parliament-context-boundary-20261020/campaign-portable-process/exit.json",
+        "sha256": "b8c551ebff6918cd5a7b26eb85edb490fd1a99b05e15f9358207e18a937d27a7"
+      },
+      "summary": {
+        "path": "../../../.codex/parliament-context-boundary-20261020/campaign-portable/summary.json",
+        "sha256": "8247b3ad989984394cb0a865c0364306a5ec5dda3cc17f96a4aaf96d6ee608e7"
+      },
+      "worker_sha256": "77414fe05c6673661ad39bc0962e3496e73b09773d19ceab279d1e82c2f70fcf"
+    }
+  },
+  "chain_history_authenticated": false,
+  "complete_workspace_certificate": false,
+  "decoder_limits": {
+    "nominal_codec_allocation_charge_bytes": 327680,
+    "outer_bytes": 163840,
+    "per_sequence_elements": 1000,
+    "physical_workspace_bound": false,
+    "total_elements": 1010
+  },
+  "environment": {
+    "path": "../../../.codex/parliament-context-boundary-20261020/environment.json",
+    "sha256": "68bea2ad05a3decd65e31c504f7a4dddfe15ee42839f628fae6652626b723c0b"
+  },
+  "feature_trees": {
+    "accel": {
+      "json": {
+        "path": "../../../.codex/parliament-context-boundary-20261020/accel-aes-feature-tree.json",
+        "sha256": "426bec4086a85496752c8192dfef1bf7b8fba9a9d92b26d03308030b2d62d480"
+      },
+      "stderr.txt": {
+        "path": "../../../.codex/parliament-context-boundary-20261020/accel-aes-feature-tree.stderr.txt",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "txt": {
+        "path": "../../../.codex/parliament-context-boundary-20261020/accel-aes-feature-tree.txt",
+        "sha256": "d72d90850a963b73d35991c437622b53fa6036229e021ab83725d662972d4280"
+      }
+    },
+    "portable": {
+      "json": {
+        "path": "../../../.codex/parliament-context-boundary-20261020/portable-aes-feature-tree.json",
+        "sha256": "8067117438b7a73ccaa3e6bac567753e5764de854f23868fdc022956276b3920"
+      },
+      "stderr.txt": {
+        "path": "../../../.codex/parliament-context-boundary-20261020/portable-aes-feature-tree.stderr.txt",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "txt": {
+        "path": "../../../.codex/parliament-context-boundary-20261020/portable-aes-feature-tree.txt",
+        "sha256": "58ac2b81a24613b734851c192c964fac70c96a41ad9b39cd4cedcbfc31f7c074"
+      }
+    }
+  },
+  "full_mode_reports_equal": true,
+  "helpers": {
+    "run.py": {
+      "path": "../../../.codex/parliament-context-boundary-20261020/run.py",
+      "sha256": "60e316553a7df316fd7a5fad781871fb0fa4c10f1dd8dab049ec3e1204ff7201"
+    },
+    "run_campaign.py": {
+      "path": "../../../.codex/parliament-context-boundary-20261020/run_campaign.py",
+      "sha256": "c7bc4b52970165b11576c1901724d47e80be16f0c8122c91aea9be78aa09b6be"
+    },
+    "verify_campaigns.py": {
+      "path": "../../../.codex/parliament-context-boundary-20261020/verify_campaigns.py",
+      "sha256": "c6b2ad2171beeaea7a47f4ec337f3b72a69430a4712cf33ef1845b9b88f766c9"
+    }
+  },
+  "host": {
+    "path": "../../../.codex/parliament-context-boundary-20261020/host.json",
+    "sha256": "1b6846ff8e0c0660292135150a3c8650ac2db155023edafb038a99ae6b52c959"
+  },
+  "phases": {
+    "accel-build": {
+      "build_record": {
+        "path": "../../../.codex/parliament-context-boundary-20261020/accel-build/build-record.json",
+        "sha256": "b751bfc6378bce8220c77cfa78b73933eb59d140dce05cd475a219d26104afde"
+      },
+      "exit_code": 0,
+      "records": {
+        "exit.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/accel-build/exit.json",
+          "sha256": "5f51c0a5125206dbf5c17f97fe153a59cc69c6a492d9bfe378732f890a3a6a7e"
+        },
+        "scoped-inputs-after.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/accel-build/scoped-inputs-after.json",
+          "sha256": "a333c0156cc7794b06323e34d51d872d7afad1a72ad597bf520d64d6b61e7075"
+        },
+        "scoped-inputs-before.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/accel-build/scoped-inputs-before.json",
+          "sha256": "a333c0156cc7794b06323e34d51d872d7afad1a72ad597bf520d64d6b61e7075"
+        },
+        "start.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/accel-build/start.json",
+          "sha256": "a1b2670d6cd9dcfeaa4e7c8758026b2bd9cb785963c38c2a24111fb3ebdfaa14"
+        },
+        "stderr.txt": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/accel-build/stderr.txt",
+          "sha256": "281a9fd6ebb0465d7c85953953c86e706ab8289633bbe1090b645e1e5f99e33b"
+        },
+        "stdout.txt": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/accel-build/stdout.txt",
+          "sha256": "e9b6b7d8d08eabb53795b1285f1247cb7de96782556a4414f0a30bbf907a3fb8"
+        }
+      },
+      "scoped_input_count": 51,
+      "scoped_inputs_unchanged_during_phase": true
+    },
+    "example-tests": {
+      "exit_code": 0,
+      "failed": 0,
+      "ignored": 0,
+      "passed": 25,
+      "records": {
+        "exit.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/example-tests/exit.json",
+          "sha256": "818c6e3b4de3a23f44e51f2af5b8df75c688e639fc9dd82cd0c74696a38ee8a2"
+        },
+        "scoped-inputs-after.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/example-tests/scoped-inputs-after.json",
+          "sha256": "a333c0156cc7794b06323e34d51d872d7afad1a72ad597bf520d64d6b61e7075"
+        },
+        "scoped-inputs-before.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/example-tests/scoped-inputs-before.json",
+          "sha256": "a333c0156cc7794b06323e34d51d872d7afad1a72ad597bf520d64d6b61e7075"
+        },
+        "start.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/example-tests/start.json",
+          "sha256": "48d941b536e35fcfc78b193c739c03d444c4b84a491ff79deabb164e95080add"
+        },
+        "stderr.txt": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/example-tests/stderr.txt",
+          "sha256": "f65dd1c2cf3a781790b5cc6940668382e3efb5996a322dd5bfa431578fbde556"
+        },
+        "stdout.txt": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/example-tests/stdout.txt",
+          "sha256": "cc372a030218fe2be43321b7d846043abc72dff8feca5233af7fa1f2fd31e2c8"
+        }
+      },
+      "scoped_input_count": 51,
+      "scoped_inputs_unchanged_during_phase": true
+    },
+    "model-tests": {
+      "exit_code": 0,
+      "failed": 0,
+      "ignored": 0,
+      "passed": 94,
+      "records": {
+        "exit.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/model-tests/exit.json",
+          "sha256": "b0c28aa97d1486452e1ae876bca25059fe5f62c8a0296f8184317fd5123abb7b"
+        },
+        "scoped-inputs-after.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/model-tests/scoped-inputs-after.json",
+          "sha256": "a333c0156cc7794b06323e34d51d872d7afad1a72ad597bf520d64d6b61e7075"
+        },
+        "scoped-inputs-before.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/model-tests/scoped-inputs-before.json",
+          "sha256": "a333c0156cc7794b06323e34d51d872d7afad1a72ad597bf520d64d6b61e7075"
+        },
+        "start.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/model-tests/start.json",
+          "sha256": "e252970400ba60356a4928e4d214f4d0a4334dbc56f366866bb315a9d58dabda"
+        },
+        "stderr.txt": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/model-tests/stderr.txt",
+          "sha256": "025fdc0f824c67b53328aba396f4a3c6bb94265139e50defdf75d52f3fd39b13"
+        },
+        "stdout.txt": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/model-tests/stdout.txt",
+          "sha256": "aaebec594a12345f7ea7e442cd3d9d19d3d05190490b8e3eccf96e37be05810c"
+        }
+      },
+      "scoped_input_count": 51,
+      "scoped_inputs_unchanged_during_phase": true
+    },
+    "portable-build": {
+      "build_record": {
+        "path": "../../../.codex/parliament-context-boundary-20261020/portable-build/build-record.json",
+        "sha256": "5f964bf57d9b03d2447e4f34b6285185def36baad8c59d20ab7c277b05ae61a6"
+      },
+      "exit_code": 0,
+      "records": {
+        "exit.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/portable-build/exit.json",
+          "sha256": "b30c4ce783b511c93dbd81ee7d87eb3cf589eaa2bf8774142f444dda0d48ce4a"
+        },
+        "scoped-inputs-after.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/portable-build/scoped-inputs-after.json",
+          "sha256": "a333c0156cc7794b06323e34d51d872d7afad1a72ad597bf520d64d6b61e7075"
+        },
+        "scoped-inputs-before.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/portable-build/scoped-inputs-before.json",
+          "sha256": "a333c0156cc7794b06323e34d51d872d7afad1a72ad597bf520d64d6b61e7075"
+        },
+        "start.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/portable-build/start.json",
+          "sha256": "045a2140bf570b2bc3a18b8d4765e8257bf433d193de8dd2a90568a218859233"
+        },
+        "stderr.txt": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/portable-build/stderr.txt",
+          "sha256": "5f1d98133f271041874c5869db7b9a8c7409f92ddaf6841c6e95d98969dc08ee"
+        },
+        "stdout.txt": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/portable-build/stdout.txt",
+          "sha256": "64936642789a7b22cc53f8d17ee0c85ae58ab8694b44708b074ab0e7d29f5f6e"
+        }
+      },
+      "scoped_input_count": 51,
+      "scoped_inputs_unchanged_during_phase": true
+    },
+    "protocol-tests": {
+      "exit_code": 0,
+      "failed": 0,
+      "ignored": 2,
+      "passed": 75,
+      "records": {
+        "exit.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/protocol-tests/exit.json",
+          "sha256": "c09f3180ba607956d9681c74c4aff0cd3d7eb6308faade0c6ab3a40038e2fa28"
+        },
+        "scoped-inputs-after.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/protocol-tests/scoped-inputs-after.json",
+          "sha256": "a333c0156cc7794b06323e34d51d872d7afad1a72ad597bf520d64d6b61e7075"
+        },
+        "scoped-inputs-before.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/protocol-tests/scoped-inputs-before.json",
+          "sha256": "a333c0156cc7794b06323e34d51d872d7afad1a72ad597bf520d64d6b61e7075"
+        },
+        "start.json": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/protocol-tests/start.json",
+          "sha256": "b0eb0e98831faa6e7dd59efa51291ad9a68e3fa2ec5f9653e314017e08eecf3e"
+        },
+        "stderr.txt": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/protocol-tests/stderr.txt",
+          "sha256": "2618775d1dd411911251790b50778d52c571928474de3914779ddcf02d8831a0"
+        },
+        "stdout.txt": {
+          "path": "../../../.codex/parliament-context-boundary-20261020/protocol-tests/stdout.txt",
+          "sha256": "4d84ca7f1e8162300f6967a27602913e9aa874a5a4e6e0f5e150e71a6c507798"
+        }
+      },
+      "scoped_input_count": 51,
+      "scoped_inputs_unchanged_during_phase": true
+    }
+  },
+  "profile_qualified": false,
+  "qualification": false,
+  "remaining": [
+    "Complete physical workspace/native coverage and worst-case cost calibration",
+    "Independent cryptographic and implementation review and required premise/owner records",
+    "Named hardware and physical cross-architecture qualification",
+    "Final integrated schemas, ingress and Core/Torii/SDK qualification"
+  ],
+  "schema": "parliament-context-boundary-regression-v1",
+  "source_scope": "Ordinary live-checkout engineering regression. Each build/test has 51 unchanged scoped inputs; this is not a complete frozen compiler-input inventory. Documentation was updated after those runs.",
+  "status": "passed",
+  "verification": {
+    "path": "../../../.codex/parliament-context-boundary-20261020/verification.json",
+    "sha256": "bdbeca6110da4515ffefb696a00536a0b6cb029a48bdfc49981073c608f30132"
+  },
+  "wire_bounds": {
+    "combined_bytes": 364450,
+    "envelope_bytes": 233455,
+    "fixture_max_context_bytes": 130963,
+    "maximum_structurally_valid_context_bytes": 130995
+  }
+}

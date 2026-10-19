@@ -193,7 +193,7 @@ impl StreamAuthorization for ToriiStreamReadAuthorization {
 ///
 /// Capacity/history refusals remain distinct from authorization revocation. A
 /// cached decision never grants a new query owner or extends decoder custody.
-pub(crate) struct ExplorerStreamReadAuthorization {
+pub struct ExplorerStreamReadAuthorization {
     context: crate::stream_control::ExplorerReadContext,
     decision: Option<StreamReadDecision>,
 }

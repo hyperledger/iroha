@@ -2,6 +2,8 @@
 
 #[path = "unix/custody_io.rs"]
 mod custody_io;
+#[path = "unix/custody_transaction.rs"]
+pub mod custody_transaction;
 
 use super::*;
 use rustix::fs::{AtFlags, FileType, Mode, OFlags};
@@ -97,6 +99,9 @@ impl DirectoryAccess {
 struct Link {
     path: PathBuf,
     file: File,
+    // Kernel identity of `file`, read when the link was admitted. A retained descriptor
+    // names one object for its lifetime, so its volume/object pair never changes.
+    identity: FileIdentity,
     private: bool,
     // Preserve this access across native namespace revalidation, including shared ancestors.
     access: DirectoryAccess,
@@ -119,9 +124,9 @@ impl Link {
                     DirectoryAccess::Read.flags(),
                     Mode::empty(),
                 )?);
-                if validate_directory(&readable, self.private)?
-                    != validate_directory(&self.file, self.private)?
-                {
+                if validate_directory(&readable, self.private)? != self.identity {
+                    // Report the held object's own refusal first, as before.
+                    validate_directory(&self.file, self.private)?;
                     return Err(changed());
                 }
                 readable.sync_all()
@@ -271,8 +276,8 @@ fn validate_directory(file: &File, private: bool) -> io::Result<FileIdentity> {
     #[cfg(target_vendor = "apple")]
     apple_acl::validate(file, private)?;
     // This fresh metadata identifies the live, privately held descriptor. Its
-    // device/inode pair cannot change during this borrow; custody is still
-    // checked independently for the held and freshly opened named handles.
+    // device/inode pair cannot change while the descriptor is held: links record
+    // it at admission, and each walk checks a freshly opened named handle against it.
     let mut object = [0; 16];
     object[..8].copy_from_slice(&metadata.ino().to_le_bytes());
     Ok(FileIdentity {
@@ -429,10 +434,11 @@ impl Directory {
         }
         let root_access = DirectoryAccess::for_component(parts.len() == 1);
         let root = open_directory(Path::new("/"), root_access)?;
-        validate_directory(&root, parts.len() == 1 && private)?;
+        let root_identity = validate_directory(&root, parts.len() == 1 && private)?;
         let mut links = vec![Arc::new(Link {
             path: PathBuf::from("/"),
             file: root,
+            identity: root_identity,
             private: parts.len() == 1 && private,
             access: root_access,
         })];
@@ -490,10 +496,11 @@ impl Directory {
             };
             let file = File::from(descriptor);
             let private_link = created || (last && private);
-            validate_directory(&file, private_link)?;
+            let held = validate_directory(&file, private_link)?;
             links.push(Arc::new(Link {
                 path: current,
                 file,
+                identity: held,
                 private: private_link,
                 access,
             }));
@@ -511,7 +518,8 @@ impl Directory {
     }
 
     pub(super) fn revalidate(&self) -> io::Result<()> {
-        self.revalidate_from(0)
+        // A custody transaction that joined this chain observes it at its own boundaries.
+        custody_transaction::revalidate(self)
     }
 
     // Only a strict descendant with this complete shared native chain omits the prefix.
@@ -534,20 +542,40 @@ impl Directory {
     fn revalidate_from(&self, first: usize) -> io::Result<()> {
         crate::custody_work::record_ancestry_walk(self.links.len().saturating_sub(first));
         for (index, link) in self.links.iter().enumerate().skip(first) {
-            let held_identity = validate_directory(&link.file, link.private)?;
+            // The held descriptor's identity was fixed when the link was admitted. When the
+            // freshly named handle has that identity it is the same object, so validating its
+            // current ownership, mode and ACL validates the held object too: one metadata and
+            // ACL read per link, not two, with the same verdict. A refusal still validates the
+            // held handle first, so every refusal keeps its original error.
             let named = if index == 0 {
-                open_directory(&link.path, link.access)?
+                open_directory(&link.path, link.access)
             } else {
-                File::from(rustix::fs::openat(
-                    &self.links[index - 1].file,
-                    link.path.file_name().ok_or_else(changed)?,
-                    link.access.flags(),
-                    Mode::empty(),
-                )?)
+                link.path
+                    .file_name()
+                    .ok_or_else(changed)
+                    .and_then(|name| {
+                        rustix::fs::openat(
+                            &self.links[index - 1].file,
+                            name,
+                            link.access.flags(),
+                            Mode::empty(),
+                        )
+                        .map(File::from)
+                        .map_err(io::Error::from)
+                    })
             };
-            let named_identity = validate_directory(&named, link.private)?;
-            if named_identity != held_identity {
-                return Err(changed());
+            let named = named
+                .and_then(|named| validate_directory(&named, link.private))
+                .and_then(|identity| {
+                    if identity == link.identity {
+                        Ok(())
+                    } else {
+                        Err(changed())
+                    }
+                });
+            if let Err(error) = named {
+                validate_directory(&link.file, link.private)?;
+                return Err(error);
             }
         }
         Ok(())
@@ -561,7 +589,7 @@ impl Directory {
             OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
             Mode::empty(),
         )?);
-        validate_directory(&file, false)?;
+        let held = validate_directory(&file, false)?;
         let mut links = self.links.clone();
         if links.len() >= 128 {
             return Err(invalid("private directory depth bound exceeded"));
@@ -569,6 +597,7 @@ impl Directory {
         links.push(Arc::new(Link {
             path: self.path().join(name),
             file,
+            identity: held,
             private: false,
             access: DirectoryAccess::Read,
         }));
@@ -660,7 +689,7 @@ impl Directory {
             Err(error) => return Err(error.into()),
         };
         let file = File::from(descriptor);
-        validate_directory(&file, private)?;
+        let held = validate_directory(&file, private)?;
         if file.metadata()?.uid() != rustix::process::geteuid().as_raw() {
             return Err(denied("child directory requires current ownership"));
         }
@@ -671,6 +700,7 @@ impl Directory {
         links.push(Arc::new(Link {
             path: self.path().join(name),
             file,
+            identity: held,
             private,
             access: DirectoryAccess::Read,
         }));
@@ -1141,7 +1171,8 @@ impl Directory {
     }
 
     pub(super) fn remove_empty(mut self) -> io::Result<()> {
-        self.revalidate()?;
+        // The removal acts on this directory's own name, which must denote it now.
+        custody_transaction::revalidate_name(&self)?;
         if self.links.len() < 2 {
             return Err(denied("filesystem root cannot be removed"));
         }
@@ -1179,7 +1210,8 @@ impl Directory {
                 "directory publication requires an absent destination",
             ));
         }
-        self.revalidate()?;
+        // The publication renames this directory's own name, which must denote it now.
+        custody_transaction::revalidate_name(&self)?;
         if self.links.len() < 2 {
             return Err(denied("filesystem root cannot be published"));
         }
@@ -1243,7 +1275,7 @@ impl Directory {
                 Mode::empty(),
             )?);
             if directory {
-                validate_directory(&file, false)?;
+                let held = validate_directory(&file, false)?;
                 if self.links.len() >= 128 {
                     return Err(invalid("private removal depth bound exceeded"));
                 }
@@ -1251,12 +1283,14 @@ impl Directory {
                 links.push(Arc::new(Link {
                     path: self.path().join(name),
                     file,
+                    identity: held,
                     private: false,
                     access: DirectoryAccess::Read,
                 }));
                 let child = Self { links };
                 child.clear(&[], remaining)?;
-                child.revalidate()?;
+                // The removal acts on the child's name, which must denote it now.
+                custody_transaction::revalidate_name(&child)?;
                 rustix::fs::unlinkat(&self.current().file, name, AtFlags::REMOVEDIR)?;
             } else {
                 validate_file(&file, false)?;
@@ -1290,6 +1324,17 @@ pub struct RetainedFile<D = Directory, N = std::ffi::OsString> {
     writable: bool,
     read_only: bool,
     publication: PublicationAuthority,
+    ancestry: AncestryCheck,
+}
+
+/// Which owner observes the complete retained directory ancestry around a file's leaf checks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AncestryCheck {
+    /// Every revalidation walks the complete ancestry before and after its leaf checks.
+    EachCall,
+    /// A closed read transaction checked the complete ancestry at its entry and checks it
+    /// again before any ordinary result leaves. Leaf checks are unchanged and use no path text.
+    EnclosingScope,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1425,6 +1470,7 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
             } else {
                 PublicationAuthority::None
             },
+            ancestry: AncestryCheck::EachCall,
         };
         retained.revalidate()?;
         Ok(retained)
@@ -1464,7 +1510,7 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
         Ok(expected)
     }
     pub(super) fn revalidate(&self) -> io::Result<()> {
-        self.directory.borrow().revalidate()?;
+        self.revalidate_ancestry()?;
         let after = validate_file_links(&self.file, self.private, self.links)?;
         if self.read_only {
             private_files::validate_read_only(&self.file)?;
@@ -1479,7 +1525,13 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
         if !unchanged(&after, &named_metadata) {
             return Err(changed());
         }
-        self.directory.borrow().revalidate()
+        self.revalidate_ancestry()
+    }
+    fn revalidate_ancestry(&self) -> io::Result<()> {
+        match self.ancestry {
+            AncestryCheck::EachCall => self.directory.borrow().revalidate(),
+            AncestryCheck::EnclosingScope => Ok(()),
+        }
     }
 }
 

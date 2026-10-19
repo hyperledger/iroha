@@ -610,7 +610,8 @@ fn build_at(
         })?;
         effects
             .get_or_insert_with(Default::default)
-            .parent_service_commit_qc = Some(original);
+            .parent_service_commit_qc =
+            Some(iroha_data_model::consensus::NposParentServiceCommitQc::from_untrusted(original));
     }
     proposal.set_npos_consensus_effects(effects);
     Ok(proposal)
@@ -670,6 +671,7 @@ pub(crate) fn decode_prepared(
         BlockSignatureCustodyError, PreparedSignatureBlockError,
         commit_certificate::CertificateCustodyError,
     };
+    use iroha_data_model::consensus::{NposPenaltyActionsCustodyError, ParentServiceCustodyError};
     use iroha_data_model::da::commitment::{DaCommitmentCustodyError, DaProofPolicyCustodyError};
     use norito::core::{PreparedDecodeError, SequenceSpan};
     let block = decoder
@@ -685,9 +687,14 @@ pub(crate) fn decode_prepared(
             // Only actual canonical byte failures can become deterministic proposal rejection.
             let canonical = matches!(
                 &error,
-                PreparedSignatureBlockError::Frame(_)
+                PreparedSignatureBlockError::ParentService(ParentServiceCustodyError::Decode(_))
+                    | PreparedSignatureBlockError::Frame(_)
                     | PreparedSignatureBlockError::Certificate(CertificateCustodyError::Decode(_))
                     | PreparedSignatureBlockError::Policy(DaProofPolicyCustodyError::Decode(_))
+                    | PreparedSignatureBlockError::PenaltyActions(
+                        NposPenaltyActionsCustodyError::Decode(_)
+                            | NposPenaltyActionsCustodyError::Controller(_)
+                    )
                     | PreparedSignatureBlockError::Commitments(
                         DaCommitmentCustodyError::Decode(_)
                             | DaCommitmentCustodyError::Signature(

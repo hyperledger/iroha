@@ -6,8 +6,8 @@ package org.hyperledger.iroha.sdk.offline
 /**
  * Typed Iroha peer NFC V1 command, one case per Swift `IrohaPeerNfcCommandV1` case. Construction
  * validates every field (16-byte nonzero session `s`, 32-byte nonzero hashes, BE32 offsets,
- * 1–4,096-byte chunks and the IPM1 headers of BEGIN_OFFER and BEGIN_PAYMENT), so a command always
- * has exactly one canonical APDU ([IrohaPeerNfcAPDUCodecV1]).
+ * 1–4,096-byte chunks and the IPM1 header of BEGIN_PAYMENT), so a command always has exactly one
+ * canonical APDU ([IrohaPeerNfcAPDUCodecV1]).
  */
 sealed class IrohaPeerNfcCommandV1 {
     abstract val operation: IrohaPeerNfcOperationV1
@@ -30,79 +30,6 @@ sealed class IrohaPeerNfcCommandV1 {
         override val operation: IrohaPeerNfcOperationV1 get() = IrohaPeerNfcOperationV1.GET_INTAKE
 
         override fun toString(): String = "GET_INTAKE"
-    }
-
-    /** GET_ASK (`34`), Le 56: the receiver's `IAK1` ask ([IrohaPeerAskV1]). */
-    object GetAsk : IrohaPeerNfcCommandV1() {
-        override val operation: IrohaPeerNfcOperationV1 get() = IrohaPeerNfcOperationV1.GET_ASK
-
-        override fun toString(): String = "GET_ASK"
-    }
-
-    /** BEGIN_OFFER (`31`): `s ‖` Offer IPM1 header (84). */
-    class BeginOffer(sessionId: ByteArray, offerHeader: ByteArray) : IrohaPeerNfcCommandV1() {
-        private val session = nfcRequireSession(sessionId)
-        private val header = offerHeader.copyOf().also { nfcInspectHeader(it, IrohaPeerPayloadKind.OFFER) }
-        val sessionId: ByteArray get() = session.copyOf()
-        val offerHeader: ByteArray get() = header.copyOf()
-        override val operation: IrohaPeerNfcOperationV1 get() = IrohaPeerNfcOperationV1.BEGIN_OFFER
-
-        internal fun sessionEquals(candidate: ByteArray): Boolean = session.contentEquals(candidate)
-
-        internal fun headerEquals(candidate: ByteArray): Boolean = header.contentEquals(candidate)
-
-        override fun equals(other: Any?): Boolean = other is BeginOffer &&
-            session.contentEquals(other.session) && header.contentEquals(other.header)
-
-        override fun hashCode(): Int = 31 * session.contentHashCode() + header.contentHashCode()
-
-        override fun toString(): String = "BEGIN_OFFER"
-    }
-
-    /** WRITE_OFFER (`32`): `s ‖ w_o ‖ BE32 offset ‖` 1–4,096 bytes. */
-    class WriteOffer(sessionId: ByteArray, offerWireHash: ByteArray, @JvmField val offset: Long, bytes: ByteArray) :
-        IrohaPeerNfcCommandV1() {
-        private val session = nfcRequireSession(sessionId)
-        private val hash = nfcRequireHash(offerWireHash)
-        private val chunk = nfcRequireChunk(offset, bytes)
-        val sessionId: ByteArray get() = session.copyOf()
-        val offerWireHash: ByteArray get() = hash.copyOf()
-        val bytes: ByteArray get() = chunk.copyOf()
-        val byteCount: Int get() = chunk.size
-        override val operation: IrohaPeerNfcOperationV1 get() = IrohaPeerNfcOperationV1.WRITE_OFFER
-
-        internal fun sessionEquals(candidate: ByteArray): Boolean = session.contentEquals(candidate)
-
-        internal fun hashEquals(candidate: ByteArray): Boolean = hash.contentEquals(candidate)
-
-        internal fun chunkView(): ByteArray = chunk
-
-        override fun equals(other: Any?): Boolean = other is WriteOffer && offset == other.offset &&
-            session.contentEquals(other.session) && hash.contentEquals(other.hash) && chunk.contentEquals(other.chunk)
-
-        override fun hashCode(): Int = (31 * hash.contentHashCode() + offset.hashCode()) * 31 + chunk.contentHashCode()
-
-        override fun toString(): String = "WRITE_OFFER(offset=$offset, bytes=${chunk.size})"
-    }
-
-    /** SUBMIT_OFFER (`33`): `s ‖ w_o`. */
-    class SubmitOffer(sessionId: ByteArray, offerWireHash: ByteArray) : IrohaPeerNfcCommandV1() {
-        private val session = nfcRequireSession(sessionId)
-        private val hash = nfcRequireHash(offerWireHash)
-        val sessionId: ByteArray get() = session.copyOf()
-        val offerWireHash: ByteArray get() = hash.copyOf()
-        override val operation: IrohaPeerNfcOperationV1 get() = IrohaPeerNfcOperationV1.SUBMIT_OFFER
-
-        internal fun sessionEquals(candidate: ByteArray): Boolean = session.contentEquals(candidate)
-
-        internal fun hashEquals(candidate: ByteArray): Boolean = hash.contentEquals(candidate)
-
-        override fun equals(other: Any?): Boolean = other is SubmitOffer &&
-            session.contentEquals(other.session) && hash.contentEquals(other.hash)
-
-        override fun hashCode(): Int = 31 * session.contentHashCode() + hash.contentHashCode()
-
-        override fun toString(): String = "SUBMIT_OFFER"
     }
 
     /** GET_INFO (`10`), Le 98: the card's `INF1` record. */
@@ -304,16 +231,6 @@ object IrohaPeerNfcAPDUCodecV1 {
         )
         is IrohaPeerNfcCommandV1.GetIntake ->
             encodeProprietary(IrohaPeerNfcInstructionV1.GET_INTAKE, ByteArray(0), IrohaPeerNfcV1.INTAKE_BYTES)
-        is IrohaPeerNfcCommandV1.GetAsk ->
-            encodeProprietary(IrohaPeerNfcInstructionV1.GET_ASK, ByteArray(0), IrohaPeerNfcV1.ASK_BYTES)
-        is IrohaPeerNfcCommandV1.BeginOffer ->
-            encodeProprietary(IrohaPeerNfcInstructionV1.BEGIN_OFFER, command.sessionId + command.offerHeader)
-        is IrohaPeerNfcCommandV1.WriteOffer -> encodeProprietary(
-            IrohaPeerNfcInstructionV1.WRITE_OFFER,
-            command.sessionId + command.offerWireHash + nfcU32Bytes(command.offset) + command.chunkView(),
-        )
-        is IrohaPeerNfcCommandV1.SubmitOffer ->
-            encodeProprietary(IrohaPeerNfcInstructionV1.SUBMIT_OFFER, command.sessionId + command.offerWireHash)
         is IrohaPeerNfcCommandV1.GetInfo ->
             encodeProprietary(IrohaPeerNfcInstructionV1.GET_INFO, ByteArray(0), IrohaPeerNfcV1.INFO_BYTES)
         is IrohaPeerNfcCommandV1.ReadRequest -> encodeProprietary(
@@ -377,31 +294,6 @@ object IrohaPeerNfcAPDUCodecV1 {
             IrohaPeerNfcInstructionV1.GET_INTAKE -> {
                 if (data.isNotEmpty() || le != IrohaPeerNfcV1.INTAKE_BYTES) nfcFail(IrohaPeerNfcErrorV1.INVALID_APDU)
                 IrohaPeerNfcCommandV1.GetIntake
-            }
-            IrohaPeerNfcInstructionV1.GET_ASK -> {
-                if (data.isNotEmpty() || le != IrohaPeerNfcV1.ASK_BYTES) nfcFail(IrohaPeerNfcErrorV1.INVALID_APDU)
-                IrohaPeerNfcCommandV1.GetAsk
-            }
-            IrohaPeerNfcInstructionV1.BEGIN_OFFER -> {
-                if (le != null || data.size != SESSION + IrohaPeerWireMessageV1.HEADER_LENGTH) {
-                    nfcFail(IrohaPeerNfcErrorV1.INVALID_APDU)
-                }
-                IrohaPeerNfcCommandV1.BeginOffer(data.copyOfRange(0, SESSION), data.copyOfRange(SESSION, data.size))
-            }
-            IrohaPeerNfcInstructionV1.WRITE_OFFER -> {
-                if (le != null || data.size <= CHUNK_PREFIX || data.size > CHUNK_PREFIX + IrohaPeerNfcV1.MAXIMUM_CHUNK_BYTES) {
-                    nfcFail(IrohaPeerNfcErrorV1.INVALID_APDU)
-                }
-                IrohaPeerNfcCommandV1.WriteOffer(
-                    data.copyOfRange(0, SESSION),
-                    data.copyOfRange(SESSION, SESSION_HASH),
-                    data.nfcU32(SESSION_HASH),
-                    data.copyOfRange(CHUNK_PREFIX, data.size),
-                )
-            }
-            IrohaPeerNfcInstructionV1.SUBMIT_OFFER -> {
-                if (le != null || data.size != SESSION_HASH) nfcFail(IrohaPeerNfcErrorV1.INVALID_APDU)
-                IrohaPeerNfcCommandV1.SubmitOffer(data.copyOfRange(0, SESSION), data.copyOfRange(SESSION, SESSION_HASH))
             }
             IrohaPeerNfcInstructionV1.GET_INFO -> {
                 if (data.isNotEmpty() || le != IrohaPeerNfcV1.INFO_BYTES) nfcFail(IrohaPeerNfcErrorV1.INVALID_APDU)

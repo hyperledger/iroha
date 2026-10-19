@@ -1013,12 +1013,15 @@ fn kagemusha_wallet_v1_fee_claim_pays_the_schedule_beneficiary() {
             payment: digests.payment,
         }
     );
-    assert_eq!(
-        claim
-            .verify(&m.payer.scheme, &request, &m.payer.credential, &payer_set)
-            .expect("verify"),
-        payout
-    );
+    // The ledger retains the receiver's open Request; the claimed Payment completes it.
+    for request in [m.open_request(true), request] {
+        assert_eq!(
+            claim
+                .verify(&m.payer.scheme, &request, &m.payer.credential, &payer_set)
+                .expect("verify"),
+            payout
+        );
+    }
     let frame = claim.to_canonical_bytes().expect("frame");
     assert!(frame.len() <= KAGEMUSHA_WALLET_FEE_CLAIM_MAX_BYTES_V1);
     assert_eq!(

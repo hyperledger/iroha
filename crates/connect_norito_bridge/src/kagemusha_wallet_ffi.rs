@@ -587,20 +587,35 @@ fn archive_call<T>(
     wallet: &mut dyn Wallet,
     action: impl FnOnce(&mut dyn Wallet) -> Result<T>,
 ) -> Result<T> {
-    wallet.open_archive_call();
-    let result = action(&mut *wallet);
-    let closed = wallet.close_archive_call(result.is_ok());
-    let value = result?;
-    closed?;
-    Ok(value)
+    custody_transaction(|| {
+        wallet.open_archive_call();
+        let result = action(&mut *wallet);
+        let closed = wallet.close_archive_call(result.is_ok());
+        let value = result?;
+        closed?;
+        Ok(value)
+    })
+}
+/// Run one custody-owning step as one `iroha_fs` custody transaction. The custody root's
+/// complete ancestry is checked when the step first uses it, before each effect outside the
+/// store (core's fences) and before the step's answer or owner is released, instead of around
+/// every custody file operation; every leaf check and sync stays. An exit refusal replaces the
+/// answer with `UNAVAILABLE`, as a failed durability fence does.
+fn custody_transaction<T>(step: impl FnOnce() -> Result<T>) -> Result<T> {
+    iroha_fs::custody_transaction(|| Ok::<_, std::io::Error>(step())).unwrap_or_else(|error| {
+        Err(Failure::unavailable(
+            UNAVAILABLE,
+            advance::kagemusha_wallet_custody_refusal_v1(&error),
+        ))
+    })
 }
 pub(crate) fn snapshot(id: u64) -> Result<state::Snapshot> {
     // A view does not cancel a useful background fold. Call off the UI thread.
     with_wallet(id, false, |wallet| wallet.snapshot())
 }
 /// Setup inputs that prove, sign, commit an Advance or delete custody take payment priority.
-/// Activation, ledger, epoch, fee and time ingests, conversions and status reads never cancel
-/// the running fold sub-proof.
+/// Activation, ledger, epoch, fee and time ingests, conversions, the payer companion and status
+/// reads never cancel the running fold sub-proof.
 fn setup_priority(input: &setup::Setup) -> Priority {
     use setup::Setup as S;
     match input {
@@ -629,6 +644,7 @@ fn setup_priority(input: &setup::Setup) -> Priority {
         | S::FeeOriginal { .. }
         | S::FeeClaimTransport { .. }
         | S::Transport { .. }
+        | S::PaymentCompanion { .. }
         | S::CreditedOriginal { .. }
         | S::CreditProjection { .. }
         | S::BoundCredited { query: true, .. }

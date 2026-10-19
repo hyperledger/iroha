@@ -112,6 +112,10 @@ const AMX_POLICY_REJECT_CROSS_DATASPACE: &str = "reject_cross_dataspace";
 /// quote discovery and queue admission execute the same routing code. Signatures and
 /// envelope attachments deliberately do not participate in routing.
 pub trait TransactionRoutingView {
+    /// Whether this is a signerless ballot requiring its authenticated context adapter.
+    fn is_anonymous_ballot(&self) -> bool {
+        false
+    }
     /// Return the signed native network for occurrence derivation.
     fn network_id(&self) -> Option<&NetworkId>;
     /// Return the authority when this entrypoint has one.
@@ -135,13 +139,20 @@ fn executable_any_matching_instruction(
         .any(|instruction| predicate(&**instruction))
 }
 impl TransactionRoutingView for AcceptedTransaction<'_> {
+    fn is_anonymous_ballot(&self) -> bool {
+        matches!(
+            self.entrypoint(),
+            iroha_data_model::transaction::TransactionEntrypoint::AnonymousBallot(_)
+        )
+    }
     fn network_id(&self) -> Option<&NetworkId> {
         match self.entrypoint() {
             iroha_data_model::transaction::TransactionEntrypoint::External(tx) => tx.network_id(),
             iroha_data_model::transaction::TransactionEntrypoint::SealedReveal(tx) => {
                 tx.signed_transaction().network_id()
             }
-            iroha_data_model::transaction::TransactionEntrypoint::SealedCommitment(_) => None,
+            iroha_data_model::transaction::TransactionEntrypoint::SealedCommitment(_)
+            | iroha_data_model::transaction::TransactionEntrypoint::AnonymousBallot(_) => None,
         }
     }
     fn authority_opt(&self) -> Option<&AccountId> {
@@ -158,7 +169,8 @@ impl TransactionRoutingView for AcceptedTransaction<'_> {
             iroha_data_model::transaction::TransactionEntrypoint::SealedReveal(reveal) => {
                 Some(reveal.signed_transaction().instructions())
             }
-            iroha_data_model::transaction::TransactionEntrypoint::SealedCommitment(_) => None,
+            iroha_data_model::transaction::TransactionEntrypoint::SealedCommitment(_)
+            | iroha_data_model::transaction::TransactionEntrypoint::AnonymousBallot(_) => None,
         }
     }
     fn any_matching_instruction(
@@ -175,7 +187,8 @@ impl TransactionRoutingView for AcceptedTransaction<'_> {
                     predicate,
                 )
             }
-            iroha_data_model::transaction::TransactionEntrypoint::SealedCommitment(_) => false,
+            iroha_data_model::transaction::TransactionEntrypoint::SealedCommitment(_)
+            | iroha_data_model::transaction::TransactionEntrypoint::AnonymousBallot(_) => false,
         }
     }
     fn routing_hash(&self) -> Hash {
@@ -3000,6 +3013,11 @@ pub(crate) fn native_execution_target<W: WorldReadOnly>(
     world: &W,
     ledger_time_ms: u64,
 ) -> Result<NativeExecutionTarget, RoutingResolveError> {
+    if tx.is_anonymous_ballot() {
+        return Err(RoutingResolveError::Deferred(
+            crate::tx::anonymous_ballot_unavailable(),
+        ));
+    }
     if let Some(Executable::ContractCall(call)) = transaction_executable(tx) {
         return Ok(NativeExecutionTarget {
             dataspace: contract_address_dataspace_target(&call.contract_address),

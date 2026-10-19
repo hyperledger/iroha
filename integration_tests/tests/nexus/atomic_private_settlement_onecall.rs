@@ -87,7 +87,11 @@ fn sidecar_digest(
     capsule: &iroha_data_model::nexus::PrivateSettlementAuditCapsuleV1,
 ) -> Result<Hash> {
     Ok(Hash::new(norito::encode_canonical(&(
-        policy, authority, statement, delta, capsule,
+        policy.clone(),
+        authority.clone(),
+        statement.clone(),
+        delta.clone(),
+        capsule.clone(),
     ))?))
 }
 impl PreparedPublic {
@@ -403,13 +407,13 @@ impl N3SdkFlow {
             .as_ref()
             .ok_or_else(|| eyre!("original encrypted artifact inventory absent"))?
             .iter()
-            .map(|(name, hash)| norito::json!({"name": name, "hash": hash.to_string()}))
+            .map(|(name, hash)| norito::json!({"name": name, "hash": (hash.to_string())}))
             .collect::<Vec<_>>();
         let evidence = norito::json!({"version": 1, "operation": "one_call_cold_process",
-            "child_test": child::test_filter()?, "children": records, "encrypted_originals": originals,
-            "original_case_limit_ms": COLD_CASE_LIMIT.as_millis() as u64,
-            "original_deadline_unix_ms": flow.input.deadline_unix_ms,
-            "child_report_bound_bytes": child::CHILD_REPORT_MAX, "child_log_bound_bytes": child::CHILD_LOG_MAX,
+            "child_test": (child::test_filter()?), "children": records, "encrypted_originals": originals,
+            "original_case_limit_ms": (COLD_CASE_LIMIT.as_millis() as u64),
+            "original_deadline_unix_ms": (flow.input.deadline_unix_ms),
+            "child_report_bound_bytes": (child::CHILD_REPORT_MAX), "child_log_bound_bytes": (child::CHILD_LOG_MAX),
             "read_only_before_every_continuation": true});
         files.push(write_smoke_evidence(
             root,
@@ -606,13 +610,13 @@ impl ColdFlow {
                 *original = Some(artifacts);
             }
         }
-        let record = norito::json!({"sequence": input.sequence, "mode": mode.label(), "pid": report.pid,
-            "input_binding": input.binding()?.to_string(), "report_sha256": sha256_hex(&completed.report_bytes),
-            "report_bytes": completed.report_bytes.len() as u64, "stdout_sha256": sha256_hex(&completed.stdout),
-            "stderr_sha256": sha256_hex(&completed.stderr), "preparation_id": hex::encode(report.preparation_id),
-            "settlement_id": report.settlement_id.map(hex::encode), "openings": report.openings, "reservations": report.reservations,
-            "read_only_custody_unchanged": mode == child::Mode::ReadOnly,
-            "original_artifacts_unchanged": report.prepared.is_some()});
+        let record = norito::json!({"sequence": (input.sequence), "mode": (mode.label()), "pid": (report.pid),
+            "input_binding": (input.binding()?.to_string()), "report_sha256": (sha256_hex(&completed.report_bytes)),
+            "report_bytes": (completed.report_bytes.len() as u64), "stdout_sha256": (sha256_hex(&completed.stdout)),
+            "stderr_sha256": (sha256_hex(&completed.stderr)), "preparation_id": (hex::encode(report.preparation_id)),
+            "settlement_id": (report.settlement_id.map(hex::encode)), "openings": (report.openings), "reservations": (report.reservations),
+            "read_only_custody_unchanged": (mode == child::Mode::ReadOnly),
+            "original_artifacts_unchanged": (report.prepared.is_some())});
         self.children.borrow_mut().push((
             record,
             completed.report_bytes,

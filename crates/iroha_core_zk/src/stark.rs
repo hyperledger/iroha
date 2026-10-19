@@ -66,7 +66,7 @@ pub const STARK_FRI_CONSENSUS_MIN_BLOWUP_LOG2: u8 = 3;
 /// The first-release query schedule is a multiple of eight and never contains fewer than 64
 /// distinct transcript-derived positions.
 pub const STARK_FRI_CONSENSUS_MIN_QUERIES: u16 = 64;
-/// Trace width of the generic OpenVerify binding AIR used by STARK/FRI v1 proofs.
+/// Trace width of the generic `OpenVerify` binding AIR used by STARK/FRI v1 proofs.
 pub const STARK_BINDING_AIR_TRACE_WIDTH_V1: u16 = 8;
 /// Largest generic Binding AIR domain whose canonical trace root V1 reconstructs during
 /// verification.
@@ -288,7 +288,7 @@ struct Fq(u64);
 impl Fq {
     /// Construct an element from an arbitrary 64-bit integer by reducing it modulo `MOD_P`.
     fn new(v: u64) -> Self {
-        Self::reduce(v as u128)
+        Self::reduce(u128::from(v))
     }
     /// Construct from canonical representative. Returns `None` if the input is
     /// outside `[0, MOD_P)`.
@@ -313,20 +313,20 @@ impl Fq {
         ]))
     }
     fn add(self, rhs: Self) -> Self {
-        let mut x = (self.0 as u128) + (rhs.0 as u128);
+        let mut x = u128::from(self.0) + u128::from(rhs.0);
         if x >= MOD_P {
             x -= MOD_P;
         }
         Self::from_reduced(x)
     }
     fn sub(self, rhs: Self) -> Self {
-        let a = self.0 as u128;
-        let b = rhs.0 as u128;
+        let a = u128::from(self.0);
+        let b = u128::from(rhs.0);
         let x = if a >= b { a - b } else { (a + MOD_P) - b };
         Self::from_reduced(x)
     }
     fn mul(self, rhs: Self) -> Self {
-        let x = (self.0 as u128) * (rhs.0 as u128);
+        let x = u128::from(self.0) * u128::from(rhs.0);
         Self::reduce(x)
     }
     fn pow(self, mut e: u128) -> Self {
@@ -642,7 +642,7 @@ pub fn stark_public_digest_v1(
         &[circuit_id.as_bytes(), statement_bytes],
     )
 }
-/// Derive the six-lane digest used as the canonical generic OpenVerify STARK domain tag.
+/// Derive the six-lane digest used as the canonical generic `OpenVerify` STARK domain tag.
 #[must_use]
 pub fn stark_open_verify_domain_digest_v1(
     binding_preimage: &[u8],

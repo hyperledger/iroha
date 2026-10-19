@@ -1,7 +1,12 @@
 # Local Taira release preparation
 
-Build the four AArch64 Linux executables and capture read-only copies through
-one maintained command. `prepare` always records build-only evidence and runs no
+Build the four Linux executables and capture read-only copies through one
+maintained command. `prepare --target` accepts exactly
+`aarch64-unknown-linux-gnu` (the default) or `x86_64-unknown-linux-gnu`. The
+selected target binds the build, cache, immutable request and capture; every
+executable must have the matching ELF64 little-endian machine and executable
+header. Target selection grants no host or deployment authority. The current
+signed MacStadium host-pair corridor remains AArch64-only. `prepare` always records build-only evidence and runs no
 regression checks. Optional Basic, Full and focused diagnostics use `check`; none
 is a deployment prerequisite for Taira or production. This replaces per-release
 local build and capture scripts. Python 3.11+, Git, the repository Rust toolchain,

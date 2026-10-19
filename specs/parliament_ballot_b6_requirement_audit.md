@@ -1,6 +1,6 @@
 # Parliament ballot B6 requirement audit
 
-Status, 2026-10-18: **no profile selected or qualified; production remains
+Status, 2026-10-20: **no profile selected or qualified; production remains
 gated**. This matrix maps the current [design](parliament_private_ballot_design.md)
 §5, §12.2 and §13 to retained evidence and remaining work. It is a source and
 requirements audit, not independent cryptographic review, owner acceptance,
@@ -19,6 +19,36 @@ complete; B6 qualification still requires the evidence below. A listed source te
   Mac, iPhone 17 Pro Max and Samsung SM-S942B; digest/retry agreement; separate
   requested Rust heap and sampled process memory. These are supplementary
   devices, not the named launch baselines or cold-process/cache qualification.
+- [Canonical-input resource observations](../docs/validation/parliament_ballot_canonical_resources/README.md):
+  55 vote-validity cases per mode exercise the complete envelope/context,
+  actual stamp/proof and cleanup. The later [typed context boundary and encoding
+  bound](parliament_ballot_resource_contract.md#verification-and-debit-boundary)
+  establish source-derived sizes of 233,455 envelope bytes and at most 130,995
+  context bytes, 364,450 combined. Six [wire-size tests](../crates/iroha_data_model/src/governance/anonymous_ballot/context_wire_size_tests.rs)
+  and nine [context decoder controls](../crates/iroha_data_model/src/governance/anonymous_ballot/context_decode_tests.rs),
+  plus nine [envelope controls](../crates/iroha_data_model/src/governance/anonymous_ballot/envelope_decode_tests.rs),
+  pass within the [captured boundary/refusal run](../docs/validation/parliament_ballot_canonical_resources/envelope-refusal-receipt.json):
+  107 model tests, 79 protocol tests (two fixture helpers ignored), 25 example
+  tests and 55 cases per worker mode. Inputs, full reports and debits agree across
+  modes; 114 scoped inputs were unchanged around each successful build/test.
+  Original local refusals remain unavailable through nested carriers, admission,
+  block validation and seal replay. The context's 327,680-byte and envelope's
+  233,012-byte allowances bound nominal codec charges, not physical heap. These
+  are observations on that captured checkout. Subsequent carrier and shared decoder
+  changes require their own validation; these results do not qualify the current
+  integration source.
+  Neither the decoder nor the encoder cap authenticates supplied chain history.
+- [Node-representation engineering observations](../docs/validation/parliament_ballot_node_representation/observations.json):
+  the real candidate-proof component suite passed 82 tests (two fixture-maintenance
+  helpers ignored), and nine shared exact-slice decoder tests passed. The four
+  runner-filter tests are a subset of those 82. The first model run passed 120
+  tests and failed the nested decoder-state restoration check; that prompted a
+  shared decoder change, while the model rerun failed to build on a full filesystem.
+  The cross-crate node check exposed two Torii call sites, now edited but not
+  recompiled, and also failed with ENOSPC. The selected source hashes were captured
+  after the runs, not before and after every build; they do not establish complete
+  candidate identity. These observations establish neither authenticated Core State
+  execution, network finality, complete resource bounds nor qualification.
 - [Security ledger](parliament_ballot_b6_security_review.md) and
   [generator interface](parliament_ballot_b6_generator_interface.md): checked
   arithmetic, precise missing primitive/reduction/resource terms and limited
@@ -39,6 +69,21 @@ complete; B6 qualification still requires the evidence below. A listed source te
   using one source-shaped reconstruction. Primitive entry, acceptance of this
   new simulator and full reduction resources remain open; equality to real-root
   `Sim+` has not been established.
+  The separate [conditional root-entry lemma](parliament_ballot_b6_root_entry.md)
+  supplies the source-use census, exact five-query slot reduction and
+  `10/2^128` switching bound under the proposed chosen-input game. Equal
+  numeric keys remain allowed. The [conditional material-entry extension](parliament_ballot_b6_material_entry.md)
+  supplies the path/leaf/row reductions under the same game and reaches the
+  independent-material boundary with real H5 processing. Each parent/leaf
+  switching step precedes the next fresh-key embedding, and earlier replacement
+  slots keep their prescribed status. The [conditional composition](parliament_ballot_b6_conditional_composition.md)
+  joins that endpoint through H5, mask coordinates and deletion to the direct
+  public sampler, with a separate fail-closed arithmetic report. The
+  [initial-programming derivation](parliament_ballot_b6_initial_programming.md)
+  supplies the real-prover entry samplers under the common QROM premises,
+  including the global counterwise hybrid and `2*Q_all+T` query accounting.
+  Quantitative AES premises, complete driver resources, dependent application
+  reductions and acceptance of the proposed model remain open.
   Its separate [executable logical accounting](parliament_ballot_b6_ideal_sampler_accounting.md)
   checks bounded schedules, reads versus programming writes and persistent
   chronological records with 30 controls. A separate [explicit reversible log](parliament_ballot_b6_oracle_log_circuit.md)
@@ -164,7 +209,7 @@ its own evidence; this audit does not independently certify those paths.
 | 4. Unlinkability and non-frameability | Explicit games and disclosure exclusions | Qualified `P` and joint ZK; gates 2 and 8 for non-frameability |
 | 5. Joint quantum ZK and anonymity | Exact salted/affine implementation and independent vectors; explicit leaf interface and conditional bijection | Extended simulation/hiding proof; actual key/IV/auxiliary-state and request embedding; four generator bounds; privacy composition |
 | 6. Concrete security | Exact/high-precision ledger, conditional thresholds and explicit unknowns | Complete applicable bound below `1/2` at `2^64` adversarial queries, full threshold reporting, all reduction resources, primitive/model justification and independent `2^128`-gate attack assessment |
-| 7. Deterministic bounded verification | Fixed standalone encodings, bounded tests, ARM-platform agreement and conditional resource model | Complete charged work and allocation/failure certificates, physical x86 parity, production mappings and baseline qualification |
+| 7. Deterministic bounded verification | Fixed typed envelope and valid-context size formula; typed decoder controls pass in the scoped 94-test model run; bounded component tests, ARM-platform agreement and conditional resource model | Complete charged work and allocation/failure certificates, physical x86 parity, production mappings and baseline qualification |
 | 8. Registration authorization | Exact registration relation and context-binding faults; conditional reduction | Soundness, `P`, commitment uniqueness at target contexts, registration-frame bounds and joint ZK |
 
 No gate is cryptographically qualified. In particular, the written bound
@@ -178,14 +223,14 @@ continue engineering.
 
 | Requirement | Current scope | Remaining work / owner |
 | --- | --- | --- |
-| Complete envelope ≤262,144 bytes; shared list context ≤163,840 bytes | Raw proof sizes and standalone preimage/test-record formulas exist | Complete authenticated envelope and context accounting; owner/reviewer must resolve the sequencing obligation below |
-| Uncached verification ≤250 ms | Cold-input measurements start in a warm process; no named Xeon measurement | Owner-deferred Xeon Silver 4310 run: one physical core, 2.10 GHz, turbo off, idle SMT sibling, Linux x86-64; accelerated build judged against the limit |
-| Verifier workspace ≤64 MiB | Implemented bounded-copy/arena/stack proposal; original 120 calls and earlier 122 in-memory calls retained. A fatal stdout blockage is reproduced and fixed through a counted shared page; the new 122 calls and output controls pass with 41.109375 MiB reserved on this Mac. Conditional all-length source-model arena sufficiency and earlier image's selected compiled evidence retained | Complete compiled allocation correspondence and indirect/native/recursive stack bounds for the actual candidate, runtime/System/TLS coverage, independent unsafe review, target execution and ingress allocation certificate; concurrency/caller scope is explicit |
+| Complete envelope ≤262,144 bytes; shared list context ≤163,840 bytes | Current typed envelope is exactly 233,455 bytes; the source-derived valid-context maximum is 130,995, or 364,450 combined. Boundary/prefix/maximal-roundtrip tests and fresh protocol/worker regressions pass in the scoped live-checkout run | Final integrated schemas and ingress/copy/verification costs remain; structural context validity does not authenticate chain history |
+| Uncached verification ≤250 ms | Warm-process cold-input measurements and separate fresh-child canonical diagnostics; no calibrated uncached or named Xeon measurement | Owner-deferred Xeon Silver 4310 run: one physical core, 2.10 GHz, turbo off, idle SMT sibling, Linux x86-64; accelerated build judged against the limit |
+| Verifier workspace ≤64 MiB | Bounded-copy/arena/stack workers and retained standalone campaigns; fresh typed workers pass 55 canonical calls per mode with 41.109375 MiB reserved on this Mac. The context entry caps nominal codec charges at 327,680 bytes and its model tests pass. Earlier conditional source/image bounds retain their original scope | Complete compiled allocation correspondence and indirect/native/recursive stack bounds for the actual candidate, runtime/System/TLS coverage, independent unsafe review, target execution and ingress allocation certificate; nominal codec charges do not bound physical heap; concurrency/caller scope is explicit |
 | Phone proving p95 ≤10 s and peak ≤256 MiB | Supplementary iPhone 17 Pro Max and Samsung observations | Pixel 6a and iPhone SE third generation; native release apps, battery operation, sustained thermal runs and complete memory scope |
 | Both proofs, all three roster sizes and each path | Registration and votes at 3/500/1,000 on both rows and feature modes | Physical x86/ARM result/byte/error/charge parity and baseline measurements; scalar timing need not meet 250 ms |
 | Cold, warm, late-invalid and malformed measurements | Fresh list decoding/digest/transcript preparation, warm and canonical late-invalid samples retained; [malformed distributions/maxima](../docs/validation/parliament_ballot_b6/malformed-results.md) cover 164 selected classes per mode, with 31 repetitions each | Cold-process/cache methodology, complete malformed-input resource bounds and baseline qualification remain open; repeated selected mutants are not exhaustive coverage |
 | Fresh randomness, exhaustion and cancellation | Explicit tape, entropy failure, deterministic test parity and typed exhaustion tests; [finish-and-discard lifecycle](parliament_ballot_prover_lifecycle.md) with eight tests per mode and selected still-live buffer cleanup observations | Named-phone cancellation latency/memory and independent randomness/constant-time/comprehensive-erasure review; process termination does not establish Drop cleanup |
-| Deterministic budgets and admission capacity | Implemented one-whole-call plus actual-byte reservation, atomic admission and no refunds; feature-mode outcome/stage/debit parity | Complete `B_work`/`B_bytes` and stamp-cost derivation from qualified worst case; show 1,000 ballots for each of `K` attempts fit casting windows and per-block budgets at minimum cadence; production policy/admission follows selection |
+| Deterministic budgets and admission capacity | Implemented one-whole-call plus actual-byte reservation, atomic admission and no refunds; feature-mode outcome/stage/debit parity | Complete `B_work`/`B_bytes` and stamp-cost derivation from qualified worst case; show 1,000 ballots for each of `K` attempts fit casting windows and per-block budgets at minimum cadence. Admission engineering is authorized; activation requires qualification |
 | Source and execution identity | B5/B6 source snapshots, binary/toolchain identities and raw observations retained separately | Identify and validate each later candidate; do not silently retarget old measurements to changed source |
 
 ## Section 12.2 selection and implementation order
@@ -197,7 +242,7 @@ continue engineering.
 | Step 2.2: complete written arguments | **Unmet**: missing adaptations, primitive premises and numerical substitution |
 | Step 2.3: complete ledger and independent attack assessment | **Unmet**: arithmetic checks do not supply missing bounds or an assessment |
 | Step 2.4: exact standalone implementation and meaningful checks | Component/adversarial evidence and the local checks below are recorded; independent implementation qualification remains open |
-| Step 2.5: envelope/work/allocation evidence and three-roster measurements | **Unmet** despite all-size measurements; complete certificates remain absent |
+| Step 2.5: envelope/work/allocation evidence and three-roster measurements | **Unmet**: typed size/decoder tests, protocol/worker regressions and all-size observations pass within their recorded scopes; complete work/workspace certificates remain absent |
 | Step 2.6: enumerate remaining obligations | This matrix and the profile/B6 record enumerate them; enumeration does not discharge them |
 | Step 2.7: launch gate false | Current `parliament_binding_ballot_available()` returns false; qualified attempt latency remains `None` |
 | Step 3: production schemas | In progress under the engineering authorization of design §12.2 (owner instruction of 2026-10-18): signerless envelope, stored records and authenticated context mappings; activation still requires qualification |
@@ -250,7 +295,7 @@ not supply node authentication, duplicate handling or wallet policy.
 | V11: exact ballot relayed before creator | Standalone exact-proof acceptance exists; first-in-canonical-order and later duplicate handling remain unqualified |
 | V12: replay into another body scope | Changed body/scope proof rejection exists; chain authentication remains unqualified |
 | V13: unknown/mismatched profile | Standalone retired-descriptor, role/row and descriptor checks exist; production profile admission remains unqualified |
-| V14: concurrent/same-block duplicate nullifier | Pending integration: atomic admission and canonical-order tests |
+| V14: concurrent/same-block duplicate nullifier | [Canonical output correction](../docs/validation/parliament_ballot_node_representation/pending-validation.json) permits identical anonymous envelopes at distinct ordered input positions; the setter/wire and malformed-index regression is written and source-reviewed but unexecuted after disk exhaustion. Atomic admission, actual canonical-order execution and network tests remain pending integration |
 | V15: invalid proof claims honest nullifier | Invalid proof rejection exists; proving that later honest admission remains available requires integration state tests |
 | V16: rerandomized pending flood | Pending integration: admission/dedup/queue test before verification |
 | V17: stamp reused with altered proof bytes | Pending integration: stamp binding and cheap-rejection test |
@@ -310,12 +355,13 @@ activation qualification.
 | Constructive valid-nonminimal-counter acceptance | Local component check complete: four tests and strict lint pass in each feature mode; [receipt](../docs/validation/parliament_ballot_b6/nonminimal-counter-receipt.json) pins the 92-file source scope and binaries. Vote cases use `S=3`; no production or hardware qualification inferred |
 | Malformed-encoding time/allocation distributions and maxima | Selected local campaign complete: 10,168 observations across both modes, expected refusal and 164-class input/outcome/diagnostic parity; [receipt](../docs/validation/parliament_ballot_b6/malformed-receipt.json) pins the new 225-file source scope. Shared warm-process observations only; complete malformed-input bounds and baseline qualification remain open |
 | Standalone charge and workspace contract | Owner-authorized research/proposal implemented: [fixed reservation and bounded worker](parliament_ballot_resource_contract.md), 10 Rust tests per mode, 33 supervisor tests and 120 source-bound worker calls pass. Full physical cost and runtime/workspace certificates remain open; the prior front-end inventory remains a distinct frozen worksheet |
-| Actual generator driver, remaining reductions and full resource vectors | Cryptographic author and independent reviewer; open. The [write-frame component](parliament_ballot_b6_write_framing.md) prices supplied-field preparation/cleanup, and the [admissibility circuit](parliament_ballot_b6_admissibility_circuit.md) prices the actual grinding/opening predicate. Source generation, controller, remaining reconstruction/primitive costs and full reductions remain unresolved. Reference games do not accept new premises |
+| Typed envelope/context sizes, bounded decode and local refusals | Maximum valid pair 364,450 bytes; context per-sequence/combined limits 1,000/1,010 and nominal charge cap 327,680. Envelope decoding permits zero sequence elements and one 233,012-byte proof charge. Local shortages remain unavailable through nested carriers, admission, block validation and seal replay. The captured run passed 107 model, 79 protocol and 25 example tests, with 55 worker cases per mode. Later carrier/decoder changes require matching validation. No physical-workspace or authentication claim |
+| Actual generator driver, remaining reductions and full resource vectors | Cryptographic author and independent reviewer; open. The [post-entry conditional composition](parliament_ballot_b6_conditional_composition.md), [conditional real-prover entry](parliament_ballot_b6_initial_programming.md) and [application joins](parliament_ballot_b6_application_reconciliation.md) are written. The application joins require the newly specified `P_F` experiment; old `Sim+` bounds do not transfer automatically. Quantified premises, adversary-to-aggregate query conversion and whole-driver resources remain unresolved. The captured fixed-scan request construction has a repeated-body lifetime cost above `2^151` elementary gates; this is not an attack or a lower bound on all reductions. The [write-frame component](parliament_ballot_b6_write_framing.md) and [admissibility circuit](parliament_ballot_b6_admissibility_circuit.md) price their stated boundaries. The separate [static-slot writer](parliament_ballot_b6_static_overlay.md) removes that construction's append scan with nine circuit tests and retains the prior cost record. Root/material ordinary semantic reads are bounded by `Q_all+1445*T`; source generation, controller, base/coherent-read realization and full reductions remain unresolved. Reference games do not accept new premises |
 | Primitive/model qualification and independent attack-cost assessment | Independent cryptographic reviewers; open |
-| Both security weakenings, approved premises and envelope-order resolution | Design owner with required independent review; open |
+| Both security weakenings and approved premises | Design owner with required independent review; open. Schema and integration development/testing are authorized by §12.2; envelope sequencing is not a remaining engineering permission gate |
 | Exact Xeon and named phone evidence, physical x86 parity, battery/thermal/cancellation conditions | Hardware/qualification owners; open; Intel run explicitly deferred by owner |
 | Capacity/admission derivation | Resource and governance-policy owners; open, using complete qualified worst-case costs; no policy parameter silently chosen |
-| Current integration source-contract reconciliation | Scoped structural checkpoint complete. Queue/Kura, phase, construction, Torii release, daemon startup, beacon-witness and execution-result guards bind the reviewed owners and order. The full Python capture passed 1,755 tests on its recorded sources; a later constructor migration changed two observed Rust files. Their originals remain archived, and the [post-merge source check](../docs/validation/parliament_ballot_post_merge_source_check/README.md) passes across 402 stable inputs. Prior tests are not transferred to those changed files. Resolver/compiler/runtime premises remain; no Rust runtime or production qualification follows |
+| Captured integration source-contract reconciliation | Scoped structural checkpoint complete. Queue/Kura, phase, construction, Torii release, daemon startup, beacon-witness and execution-result guards bind the reviewed owners and order. The full Python capture passed 1,755 tests on its recorded sources; a later constructor migration changed two observed Rust files. Their originals remain archived, and the [post-merge source check](../docs/validation/parliament_ballot_post_merge_source_check/README.md) passes across 402 stable inputs. Prior tests are not transferred to those changed files. The later anonymous carrier migration changes observed owners again and requires fresh source-contract checks. Resolver/compiler/runtime premises remain; no Rust runtime or production qualification follows |
 | Production implementation, retirement and launch qualification | Integration owners may implement schemas, paths and coordinated retirement alongside B6 under design §12.2; binding production activation requires every qualification condition and the owner's qualification record |
 
 The three focused accounting suites pass 38 tests and six subtests on the

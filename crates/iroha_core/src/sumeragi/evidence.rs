@@ -1127,8 +1127,11 @@ pub(crate) fn prepare<'state>(
         &effects.evidence_admissions,
     )
     .map_err(classify)?;
-    validate_admission_penalty_separation(admissions.as_slice(), &effects.penalty_actions)
-        .map_err(classify)?;
+    validate_admission_penalty_separation(
+        admissions.as_slice(),
+        effects.penalty_actions.as_slice(),
+    )
+    .map_err(classify)?;
     let (actions, index) = if npos {
         let (actions, index) = super::penalties::PenaltyApplier::new(state, None)
             .derive_npos_penalty_actions(&header)

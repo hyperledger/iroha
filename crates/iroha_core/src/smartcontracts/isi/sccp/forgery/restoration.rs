@@ -305,7 +305,8 @@ impl SccpRestore {
                     TransactionEntrypoint::SealedReveal(reveal) => {
                         Some(reveal.signed_transaction())
                     }
-                    TransactionEntrypoint::SealedCommitment(_) => None,
+                    TransactionEntrypoint::SealedCommitment(_)
+                    | TransactionEntrypoint::AnonymousBallot(_) => None,
                 };
                 if let Some(transaction) = transaction {
                     if let Executable::Instructions(instructions) = transaction.instructions() {

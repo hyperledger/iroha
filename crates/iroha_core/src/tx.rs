@@ -76,7 +76,7 @@ type StateTelemetry = crate::telemetry::StateTelemetry;
 type StateTelemetry = ();
 type NexusDataSpaceId = iroha_model_base::topology::DataSpaceId;
 type NexusLaneId = iroha_model_base::topology::LaneId;
-/// Decode one canonical Norito-framed [`TransactionEntrypoint`] and return its identity.
+/// Fixture helper: decode a canonical Norito-framed entrypoint and return its identity.
 ///
 /// The identity is derived from the decoded signed intent rather than the transport frame. This
 /// prevents alternate framing, authorization-proof changes, or zero-filled logical tails from
@@ -97,7 +97,9 @@ pub(crate) fn exact_signed_transaction_hash(
     match entrypoint {
         TransactionEntrypoint::External(signed) => Some(signed.hash()),
         TransactionEntrypoint::SealedReveal(reveal) => Some(reveal.signed_transaction().hash()),
-        TransactionEntrypoint::SealedCommitment(_) => None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => {
+            None
+        }
     }
 }
 /// Collect replay identities for fixture comparisons.
@@ -197,11 +199,22 @@ pub(crate) fn rejected_transaction_gas_is_accountable(
         )
 }
 
-/// Project envelope admission failures into the canonical Network rejection type.
+/// The anonymous ballot State/context adapter is not yet available locally.
+///
+/// TODO(E2): replace this boundary with authenticated context and ballot execution.
+/// This is never a committed transaction rejection.
+pub(crate) fn anonymous_ballot_unavailable() -> ExecutionDeferred {
+    ivm::error::ExecutionDeferral::VerifierInitializationUnavailable.into()
+}
+
+/// Project completed admission failures while retaining a local unfinished attempt.
 pub(crate) fn execution_rejection_from_admission_failure(
     fail: AcceptTransactionFail,
-) -> TransactionRejectionReason {
-    match fail {
+) -> Result<TransactionRejectionReason, ExecutionDeferred> {
+    Ok(match fail {
+        AcceptTransactionFail::AnonymousBallotUnavailable => {
+            return Err(anonymous_ballot_unavailable());
+        }
         AcceptTransactionFail::TransactionLimit(err) => TransactionRejectionReason::LimitCheck(err),
         // The committed rejection keeps the class attachment shape failures
         // always had; the typed violation is its deterministic reason text.
@@ -246,7 +259,7 @@ pub(crate) fn execution_rejection_from_admission_failure(
                 format!("network time service unhealthy: {reason}"),
             ))
         }
-    }
+    })
 }
 
 /// Project a hash known to identify an external signed transaction into its entrypoint identity.
@@ -977,6 +990,8 @@ impl SignatureVerificationFail {
 /// Error type for transaction from [`SignedTransaction`] to [`AcceptedTransaction`]
 #[derive(Debug, displaydoc::Display, PartialEq, Eq, FromVariant, thiserror::Error)]
 pub enum AcceptTransactionFail {
+    /// Anonymous ballot State/context verification is locally unavailable
+    AnonymousBallotUnavailable,
     /// Failure during limits check
     TransactionLimit(#[source] TransactionLimitError),
     /// Signed attachment schema violation: {0}
@@ -1302,6 +1317,9 @@ fn enforce_nts_health_for_entrypoint(
             enforce_nts_health_for_time_sensitive(reveal.signed_transaction(), snapshot)
         }
         TransactionEntrypoint::SealedCommitment(_) => Ok(()),
+        TransactionEntrypoint::AnonymousBallot(_) => {
+            Err(AcceptTransactionFail::AnonymousBallotUnavailable)
+        }
     }
 }
 /// Whether an executor route consumes the attachments of this operation.
@@ -1377,9 +1395,9 @@ impl<'tx> AcceptedTransaction<'tx> {
                 TransactionEntrypoint::SealedReveal(reveal) => {
                     state.has_entrypoint(reveal.signed_transaction().hash_as_entrypoint())
                 }
-                TransactionEntrypoint::External(_) | TransactionEntrypoint::SealedCommitment(_) => {
-                    false
-                }
+                TransactionEntrypoint::External(_)
+                | TransactionEntrypoint::SealedCommitment(_)
+                | TransactionEntrypoint::AnonymousBallot(_) => false,
             }
     }
     fn from_external_with_cached_bytes(
@@ -1467,6 +1485,9 @@ impl<'tx> AcceptedTransaction<'tx> {
                 Self::framed_encoded_len(entrypoint)
             }
             TransactionEntrypoint::SealedReveal(entrypoint) => Self::framed_encoded_len(entrypoint),
+            TransactionEntrypoint::AnonymousBallot(entrypoint) => {
+                Self::framed_encoded_len(entrypoint)
+            }
         }
     }
     fn signed_encoded_len_for_limit(tx: &SignedTransaction) -> u64 {
@@ -2393,7 +2414,8 @@ impl<'tx> AcceptedTransaction<'tx> {
             TransactionEntrypoint::SealedReveal(entrypoint) => {
                 Some(entrypoint.signed_transaction())
             }
-            TransactionEntrypoint::SealedCommitment(_) => None,
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => None,
         }
     }
     /// Return the canonical hash of the complete wrapped entrypoint.
@@ -2512,22 +2534,19 @@ impl<'tx> AcceptedTransaction<'tx> {
     pub fn authority_opt(&self) -> Option<&AccountId> {
         self.entrypoint().authority_opt()
     }
-    /// Borrow the transaction authority account identifier.
-    #[must_use]
-    pub fn authority(&self) -> &AccountId {
-        self.entrypoint().authority()
-    }
     /// Entry-point metadata when present.
     #[must_use]
     pub fn metadata(&self) -> Option<&Metadata> {
         self.entrypoint().metadata()
     }
-    /// Creation timestamp for queue expiry and projections.
+    /// Signed creation timestamp, or zero for carriers without one.
+    /// Queue expiry uses only the signed projection or a local commitment residence time.
     #[must_use]
     pub fn creation_time(&self) -> Duration {
         match self.entrypoint() {
             TransactionEntrypoint::External(entrypoint) => entrypoint.creation_time(),
-            TransactionEntrypoint::SealedCommitment(_) => Duration::ZERO,
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => Duration::ZERO,
             TransactionEntrypoint::SealedReveal(entrypoint) => {
                 entrypoint.signed_transaction().creation_time()
             }
@@ -2602,6 +2621,9 @@ impl AcceptedTransaction<'static> {
             }
         };
         match tx {
+            TransactionEntrypoint::AnonymousBallot(_) => {
+                return Err(AcceptTransactionFail::AnonymousBallotUnavailable);
+            }
             TransactionEntrypoint::External(signed) => {
                 Self::validate_with_now_and_signature_check(
                     signed,
@@ -3130,10 +3152,15 @@ impl StateBlock<'_> {
         policy_route: CapturedNetworkPolicyRoute,
         genesis: Option<&crate::block::AuthenticatedGenesisTransaction>,
     ) -> Result<DataTriggerSequence, ExecutionAttemptError<TransactionRejectionReason>> {
-        state_transaction.genesis_execution_scope = None;
         state_transaction
             .ensure_execution_ready()
             .map_err(ExecutionAttemptError::Deferred)?;
+        if matches!(tx.entrypoint(), TransactionEntrypoint::AnonymousBallot(_)) {
+            return Err(ExecutionAttemptError::Deferred(
+                anonymous_ballot_unavailable(),
+            ));
+        }
+        state_transaction.genesis_execution_scope = None;
         if genesis.is_some() && !matches!(tx.entrypoint(), TransactionEntrypoint::External(_)) {
             return Err(
                 reject_not_permitted("genesis admission requires an external input").into(),
@@ -3154,6 +3181,11 @@ impl StateBlock<'_> {
                 );
             }
             TransactionEntrypoint::External(signed) => signed,
+            TransactionEntrypoint::AnonymousBallot(_) => {
+                return Err(ExecutionAttemptError::Deferred(
+                    anonymous_ballot_unavailable(),
+                ));
+            }
         };
         let admission = Self::validate_stateful_admission(
             signed,
@@ -8231,7 +8263,8 @@ pub mod tests {
                     assert!(cache.signed_bytes.is_none());
                 }
                 TransactionEntrypoint::SealedCommitment(_)
-                | TransactionEntrypoint::SealedReveal(_) => {
+                | TransactionEntrypoint::SealedReveal(_)
+                | TransactionEntrypoint::AnonymousBallot(_) => {
                     assert!(
                         prepared.is_none(),
                         "sealed carrier metadata must not be labeled as an External signed frame"
@@ -14788,3 +14821,6 @@ pub mod tests {
 }
 #[cfg(test)]
 include!("tx/numeric_to_u64_tests.rs");
+
+#[cfg(test)]
+pub(crate) mod anonymous_ballot_tests;

@@ -1,15 +1,15 @@
 //! Unload and Retiring's complete fixed operation-task composition (lean lineage).
 //!
-//! Both consume an already folded predecessor. A proves the transition directly,
-//! so there is no own sigma verifier, and the own receipt is authenticated under
-//! the predecessor's payment key. The credential digest and payment key are
-//! carried by continuity, so the credential and its certificate are not
-//! re-verified. The receipt's `proof_digest` names the `Omega(pred) || sigma`
-//! carriers the ledger verifies natively; Λ reads it from the signed receipt body,
-//! and `receipt::bind` keeps it nonzero. Stage keys must additionally close their
-//! exact recursive obligation ledger before admission.
-//! TODO: qualify the genuine complete stage chains and admit only their terminal
-//! keys through the final rooted artifact catalog.
+//! Both consume an already folded predecessor. One terminal A proves the transition
+//! directly, so there is no own sigma verifier, and authenticates the own receipt
+//! under the predecessor's payment key in the same stage; no W follows it. The
+//! credential digest and payment key are carried by continuity, so the credential
+//! and its certificate are not re-verified. The receipt's `proof_digest` names the
+//! `Omega(pred) || sigma` carriers the ledger verifies natively; Λ reads it from the
+//! signed receipt body, and `receipt::bind` keeps it nonzero. The stage key must
+//! additionally close its exact recursive obligation ledger before admission.
+//! TODO: qualify the genuine complete terminal stage and admit only its key through
+//! the final rooted artifact catalog.
 
 use ff::Field;
 use iroha_pasta::{Ep, Fp};
@@ -104,7 +104,7 @@ impl UnloadObjects {
         })
     }
 
-    /// Same-tape commitments retained by every stage's split context.
+    /// Same-tape commitments the one terminal stage binds.
     pub const fn context(&self) -> &[ContextObjectCells; 1] {
         &self.context
     }
@@ -200,10 +200,11 @@ impl UnloadStagePlan {
         }])
     }
 
-    /// Require every task once, exact object/Q schemas and the owning stage.
+    /// Require every task once, exact object/Q schemas and the one owning stage.
     /// The plan is inline (no own sigma verifier), and Q0 is the hard own receipt.
     /// # Errors
-    /// Wrong variant, missing task, schema mismatch or misplaced owner.
+    /// Wrong variant, missing task, schema mismatch, another stage count or misplaced
+    /// owner.
     pub fn new(context: ContextPlan, policy: OwnPolicy) -> Result<Self, Error> {
         let variant = context.operation().frame().variant();
         if !matches!(variant, Variant::Unload | Variant::Retiring)
@@ -231,26 +232,23 @@ impl UnloadStagePlan {
             .map(|stage| context.operation_tasks(stage).unwrap_or_default().to_vec())
             .collect::<Vec<_>>();
         OperationTask::validate(variant, &groups)?;
-        // A1: the transition beside the hard predecessor; A2: the own receipt on Q0.
+        // One terminal A: the transition and the own receipt on Q0, beside the hard
+        // predecessor; no W precedes or follows it.
         let effect = if variant == Variant::Unload {
             OperationTask::UnloadRecovery
         } else {
             OperationTask::RetiringState
         };
-        let partitions = [vec![], vec![0]];
-        if groups != [vec![effect], vec![OperationTask::UnloadAuthorization]]
+        if groups != [vec![effect, OperationTask::UnloadAuthorization]]
             || context.predecessor_stage() != Some(0)
-            || partitions
-                .iter()
-                .enumerate()
-                .any(|(stage, expected)| context.q_partition(stage) != Some(expected.as_slice()))
+            || context.q_partition(0) != Some([0_usize].as_slice())
         {
             return Err(Error::Synthesis);
         }
         Ok(Self { context, policy })
     }
 
-    /// Exact context whose digest every fixed continuation binds.
+    /// Exact one-stage context the terminal A closes.
     pub const fn context(&self) -> &ContextPlan {
         &self.context
     }

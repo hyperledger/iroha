@@ -1,5 +1,10 @@
 //! Derive account visibility and its inverse from matching authoritative MV cuts.
 
+#![expect(
+    clippy::zero_sized_map_values,
+    reason = "MV snapshot restoration requires complete current and undo key/value maps"
+)]
+
 use super::*;
 
 type Directory = BTreeMap<AccountId, AccountScopeDirectoryEntry>;

@@ -50,6 +50,10 @@ pub(super) fn grouped<K: mv::Key, V: mv::Value, B: mv::Key>(
 ///
 /// Source writes retain their old and new membership preimages, including a
 /// remove/insert of an unchanged membership. Unrelated members never share a row.
+#[expect(
+    clippy::zero_sized_map_values,
+    reason = "MV snapshot restoration requires complete current and undo key/value maps"
+)]
 pub(super) fn members<K: mv::Key, V: mv::Value, B: mv::Key>(
     history: &History<'_, K, V>,
     bucket: impl Fn(&K, &V) -> Option<B>,

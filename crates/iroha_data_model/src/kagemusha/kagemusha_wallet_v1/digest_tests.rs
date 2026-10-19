@@ -11,6 +11,7 @@ use sha2::{Digest as _, Sha256};
 use super::*;
 use crate::kagemusha::kagemusha_wallet_v1::poseidon::{
     KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1, kagemusha_wallet_poseidon_bytes_v1,
+    kagemusha_wallet_poseidon_v1,
 };
 
 /// Exact role labels in declaration order. Every digest a relation recomputes (`credit_id`,
@@ -54,11 +55,11 @@ const OBJECT_DOMAINS: [(&str, &str); 10] = [
     ("kgwoqsh1", "kgwqshr1"),
     ("kgwotim1", "kgwtanc1"),
     ("kgwochg1", "kgwchgq1"),
-    ("kgworeq1", "kgwrqst1"),
+    ("kgworeq1", "kgwrqst2"),
 ];
 
 /// Signing domains in declaration order with their exact transcript lengths (wire record §1).
-const SIGNING_DOMAINS: [(&str, usize); 16] = [
+const SIGNING_DOMAINS: [(&str, usize); 15] = [
     ("kgwcert1", 108),
     ("kgwcred1", 468),
     ("kgwrnch1", 130),
@@ -71,9 +72,8 @@ const SIGNING_DOMAINS: [(&str, usize); 16] = [
     ("kgwqshr1", 190),
     ("kgwtanc1", 138),
     ("kgwchgq1", 219),
-    ("kgwoffr1", 194),
     ("kgwsctl1", 197),
-    ("kgwrqst1", 418),
+    ("kgwrqst2", 418),
     ("kgwlctl1", 211),
 ];
 
@@ -87,9 +87,20 @@ fn preimage(role: KagemushaWalletDigestRoleV1, body: &[u8]) -> Vec<u8> {
     preimage
 }
 
-/// A transcript of the exact length of `domain`, filled with `fill`.
+/// Offsets of the four σ-field slots of a Request transcript: the receiver credential, fee
+/// schedule, scheme policy and certificate-set digests, one terms element each.
+const REQUEST_FIELD_SLOTS: [usize; 4] = [210, 258, 314, 354];
+
+/// A transcript of the exact length of `domain`, filled with `fill`. The top byte of each
+/// σ-field slot of a Request transcript stays zero, so its terms are canonical field elements.
 fn transcript(domain: KagemushaWalletSigningDomainV1, fill: u8) -> Vec<u8> {
-    vec![fill; domain.transcript_bytes()]
+    let mut body = vec![fill; domain.transcript_bytes()];
+    if domain == KagemushaWalletSigningDomainV1::Request {
+        for slot in REQUEST_FIELD_SLOTS {
+            body[slot + 31] = 0;
+        }
+    }
+    body
 }
 
 /// P-256 group order `n`.
@@ -291,7 +302,19 @@ fn kagemusha_wallet_v1_signing_domains_are_pinned_and_distinct() {
     for domain in KagemushaWalletObjectDigestDomainV1::ALL {
         assert!(words.insert(domain.domain()), "{}", domain.as_str());
     }
-    assert_eq!(words.len(), 59);
+    assert_eq!(words.len(), 58);
+    // The Offer domain is gone and the Request signs its terms under a new word, so no
+    // `kgwrqst1` signature verifies under the open-Request rule (owner, 2026-10-18).
+    assert_eq!(KagemushaWalletSigningDomainV1::ALL.len(), 15);
+    assert_eq!(KagemushaWalletSigningDomainV1::Request.as_str(), "kgwrqst2");
+    for retired in ["kgwoffr1", "kgwrqst1"] {
+        assert!(
+            KagemushaWalletSigningDomainV1::ALL
+                .iter()
+                .all(|domain| domain.as_str() != retired),
+            "{retired}"
+        );
+    }
 }
 
 #[test]
@@ -300,10 +323,17 @@ fn kagemusha_wallet_v1_signing_message_is_the_packed_poseidon_digest() {
     for domain in KagemushaWalletSigningDomainV1::ALL {
         let body = transcript(domain, 0x5a);
         let message = kagemusha_wallet_signing_message_v1(domain, &body);
-        assert_eq!(
-            message,
+        // The Request alone hashes its 19 terms elements instead of its packed transcript.
+        let expected = if domain == KagemushaWalletSigningDomainV1::Request {
+            kagemusha_wallet_poseidon_v1(
+                domain.domain(),
+                &kagemusha_wallet_request_terms_items_v1(&body),
+            )
+            .expect("canonical terms")
+        } else {
             kagemusha_wallet_poseidon_bytes_v1(domain.domain(), &body)
-        );
+        };
+        assert_eq!(message, expected, "{}", domain.as_str());
         assert!(kagemusha_wallet_is_canonical_field_v1(&message));
         assert!(messages.insert(message), "{}", domain.as_str());
         // One byte of the transcript changes the message.
@@ -314,6 +344,70 @@ fn kagemusha_wallet_v1_signing_message_is_the_packed_poseidon_digest() {
             message
         );
     }
+}
+
+#[test]
+fn kagemusha_wallet_v1_request_signing_message_covers_only_the_terms() {
+    let domain = KagemushaWalletSigningDomainV1::Request;
+    let body = transcript(domain, 0x21);
+    let items = kagemusha_wallet_request_terms_items_v1(&body);
+    assert_eq!(KAGEMUSHA_WALLET_REQUEST_TERMS_FIELD_ITEMS_V1, 19);
+    assert_eq!(items.len(), KAGEMUSHA_WALLET_REQUEST_TERMS_FIELD_ITEMS_V1);
+    // The `credit_id` element encoding of every receiver field, in transcript order: integers
+    // as one element, SHA-256 digests and identifiers as two limbs, σ-field values as one.
+    let integer = |offset: usize, width: usize| {
+        let mut item = [0_u8; 32];
+        item[..width].copy_from_slice(&body[offset..offset + width]);
+        item
+    };
+    let field = |offset: usize| {
+        let mut item = [0_u8; 32];
+        item.copy_from_slice(&body[offset..offset + 32]);
+        item
+    };
+    let mut expected = vec![integer(0, 2)];
+    for offset in [2, 34, 130, 162] {
+        expected.extend([integer(offset, 16), integer(offset + 16, 16)]);
+    }
+    expected.extend([
+        field(210),
+        integer(242, 16),
+        field(258),
+        integer(290, 16),
+        integer(306, 8),
+        field(314),
+        integer(346, 8),
+        field(354),
+        integer(386, 16),
+        integer(402, 16),
+    ]);
+    assert_eq!(items, expected);
+    let message = kagemusha_wallet_signing_message_v1(domain, &body);
+    assert_eq!(
+        kagemusha_wallet_poseidon_v1(domain.domain(), &items).ok(),
+        Some(message)
+    );
+    assert_ne!(
+        message,
+        kagemusha_wallet_poseidon_bytes_v1(domain.domain(), &body)
+    );
+    // Payer wallet (66..98), payer account (98..130) and send ordinal (194..210) are outside
+    // the message; every other byte of the transcript is inside it.
+    let payer = |index: usize| (66..130).contains(&index) || (194..210).contains(&index);
+    for index in 0..body.len() {
+        let mut changed = body.clone();
+        changed[index] ^= 1;
+        assert_eq!(
+            kagemusha_wallet_signing_message_v1(domain, &changed) == message,
+            payer(index),
+            "byte {index}"
+        );
+    }
+    // A transcript of any other length has no terms.
+    assert!(kagemusha_wallet_request_terms_items_v1(&body[1..]).is_empty());
+    let mut longer = body;
+    longer.push(0);
+    assert!(kagemusha_wallet_request_terms_items_v1(&longer).is_empty());
 }
 
 #[test]
@@ -341,7 +435,7 @@ fn kagemusha_wallet_v1_object_digest_domains_are_pinned_and_distinct() {
     for (name, word) in KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1 {
         assert!(words.insert(word), "{name}");
     }
-    assert_eq!(words.len(), 10 + 16 + 33);
+    assert_eq!(words.len(), 10 + 15 + 33);
 }
 
 #[test]
@@ -622,12 +716,12 @@ fn kagemusha_wallet_v1_signature_boundary_scalars() {
     assert!(matches!(
         kagemusha_wallet_freeze_signature_v1(
             &public,
-            KagemushaWalletSigningDomainV1::Offer,
+            KagemushaWalletSigningDomainV1::SessionControl,
             &[0; 32],
             KagemushaWalletSignerOutputV1::Raw(raw(&one, &half_plus_one))
         ),
         Err(KagemushaWalletValidationErrorV1::InvalidSignature {
-            domain: KagemushaWalletSigningDomainV1::Offer
+            domain: KagemushaWalletSigningDomainV1::SessionControl
         })
     ));
 }

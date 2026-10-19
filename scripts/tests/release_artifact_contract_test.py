@@ -396,3 +396,25 @@ def test_directory_custody_rejects_sticky_shared_ancestor_without_repair(tmp_pat
     assert stat.S_IMODE(shared.stat().st_mode) == 0o1777
     assert stat.S_IMODE(anchor.stat().st_mode) == 0o700
     assert list(anchor.iterdir()) == []
+
+
+@pytest.mark.parametrize("target,machine", [("aarch64-unknown-linux-gnu", 183), ("x86_64-unknown-linux-gnu", 62)])
+def test_linux_elf_header_is_bound_to_exact_target_class_endian_and_machine(target, machine):
+    """Accept a requested native ELF, never another target or malformed header."""
+    header = bytearray(64)
+    header[:7] = b"\x7fELF\x02\x01\x01"
+    header[16:18] = (2).to_bytes(2, "little")
+    header[18:20] = machine.to_bytes(2, "little")
+    assert contract.linux_gnu_elf_matches_target(header, target)
+    header[16] = 3
+    assert contract.linux_gnu_elf_matches_target(header, target)
+    other = next(value for value in contract.LINUX_GNU_TARGETS if value != target)
+    assert not contract.linux_gnu_elf_matches_target(header, other)
+    for index, byte in [(0, 0), (4, 1), (5, 2), (6, 0), (16, 1), (17, 1), (18, 0), (19, 1)]:
+        wrong = header.copy()
+        wrong[index] = byte
+        assert not contract.linux_gnu_elf_matches_target(wrong, target), (index, byte)
+    for length in range(20):
+        assert not contract.linux_gnu_elf_matches_target(header[:length], target)
+    for unsupported in ["", None, [], "x86_64-unknown-linux-musl", "x86_64-unknown-linux-gnu.2.17", "aarch64-apple-darwin"]:
+        assert not contract.linux_gnu_elf_matches_target(header, unsupported)

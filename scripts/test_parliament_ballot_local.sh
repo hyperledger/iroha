@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Exercise the real candidate protocol without a running node or qualification record.
+# Requires Cargo and the repository's native build dependencies. No runtime secrets
+# or environment overrides are required; this script never enables a live network.
 set -euo pipefail
 
 case "${1:-}" in
@@ -7,8 +9,9 @@ case "${1:-}" in
     cat <<'USAGE'
 Usage: scripts/test_parliament_ballot_local.sh [--full]
 
-Runs real registration, wallet admission/execution/closure, and independent replay
-tests against public fixtures. --full runs the entire typed ballot crate suite.
+Runs real registration, wallet admission/execution/closure, independent replay,
+and canonical block input/output tests against public fixtures.
+--full runs the entire typed ballot crate suite.
 Uses the parliament-development Cargo target slot and the local-release profile.
 This is an in-process protocol test; it does not start or enable a network.
 USAGE
@@ -31,6 +34,7 @@ if [[ "${1:-}" != --full ]]; then
     registration::tests::an_honest_registration_verifies_through_the_typed_inputs
     wallet::prepare::tests::a_wallet_ballot_goes_through_admission_execution_corpus_and_closure
     replay::tests::an_honest_interval_verifies_independently
+    entrypoint_tests::genuine_ballot_entrypoint_roundtrips_proposal_and_each_permitted_output
     --exact
   )
 fi

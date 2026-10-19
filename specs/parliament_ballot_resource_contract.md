@@ -1,11 +1,13 @@
-# Standalone ballot verification resource contract
+# Ballot verification resource contract
 
-Status, 2026-10-13: **proposal implemented for standalone qualification;
+Status, 2026-10-20: **standalone and canonical-input diagnostic workers implemented;
 not a selected profile, production policy or activation qualification**.
 The owner requested research, a concrete proposal and implementation after
 the [B6 audit](parliament_ballot_b6_requirement_audit.md) identified undefined
 charge and workspace scopes. That instruction authorizes this engineering
-contract; it is not acceptance of cryptographic assumptions or launch evidence.
+contract. Design §12.2 authorizes development, testing and production integration
+engineering alongside B6; cryptographic assumptions and launch evidence still
+need their own qualification.
 
 ## Decision and research basis
 
@@ -38,27 +40,81 @@ the sum a complete memory certificate.
 
 ## Verification and debit boundary
 
-The in-memory entry is one borrowed, bounded `TEST_RECORD`, with trusted row and role
-selected by the qualification caller. It is the existing test codec, not a new
-production format. The service includes profile construction, fresh statement
-and list decoding/validation, transcript preparation, full proof verification,
-and destruction of verifier-owned values before returning a fixed result.
-No warm-cache discount applies.
+The current [canonical-input worker](../crates/iroha_parliament_ballot/examples/canonical_resource_probe/README.md)
+borrows two inputs: `Enc(AnonymousBallotEnvelopeV1)` and
+`Enc(AuthenticatedBallotContextV1)`, with trusted network and body identifiers
+supplied separately. It copies both inputs, decodes the canonical context,
+checks its structure and derived fields, verifies the actual stamp and vote
+proof, and destroys its owned values before returning fixed metadata. This is
+vote validity only: it does not authenticate chain history or execute a casting
+window/nullifier decision. No warm-cache discount applies.
 
-The maximum copied record is 425,984 bytes: the design's 262,144-byte envelope
-allowance plus its 163,840-byte shared-context allowance. This combined cap
-accommodates the existing standalone records. It does **not** prove that a
-future authenticated envelope and shared context individually fit their caps.
-Their exact layouts and framing remain subject to the selection order.
+The separate copy-in caps are 262,144 envelope bytes and 163,840 context bytes,
+425,984 combined. The current envelope has a fixed canonical size of **233,455
+bytes**. For every structurally valid context, let `S` be the sealed seats
+(`3..=1000`), `N` the distinct ordered required bodies (`2..=10`), and `K` the
+minimal signed byte length of the positive integral citizenship bond
+(`1..=17`, since the bond is at most `u128::MAX`). With `u(x)` the unsigned
+LEB128 prefix length, its complete frame size is
+`803 + 130*S + 17*N + K + u(8 + 130*S) + u(8 + 17*N)`.
+The maximum is **130,995 bytes**, so the maximal valid pair is **364,450
+bytes**. This includes the pinned Norito header and every field prefix. The
+measured 1,000-seat context was 130,963 bytes: it used nine bodies and a
+two-byte bond, rather than the maximum configuration.
 
-The separately prepared [in-memory worker](../crates/iroha_parliament_ballot_proof/examples/memory_entry/README.md)
-implements this boundary. The supervisor retrieves a bounded regular file and
-closes it before invocation. Its immutable staging owner stays alive until the
-worker joins; the actual slice length, not a file metadata claim or spare
-capacity, supplies admission. Retrieval and that caller-owned buffer are outside
-verification. The arena-owned copy and its destruction are inside. The frozen
-original worker reads its file during the charged path; its evidence remains
-valid for that older scope and is not transferred to this changed binary.
+The [typed context decoder](../crates/iroha_data_model/src/governance/anonymous_ballot/context.rs)
+checks the outer cap before decoding, then limits each sequence to 1,000
+elements, both sequences together to 1,010, and cumulative nominal Norito
+allocation charges to **327,680 bytes**. The ten-body restriction is checked
+structurally after decoding; generic Norito decode APIs do not inherit this
+entry-specific policy. The charge includes sequence counts, span storage,
+element payload charges, retained vectors and bounded numeric backing.
+It is not physical heap or workspace: codec controls, allocator overhead,
+validation/error scratch and the rest of verification require separate bounds.
+Structural validation does not authenticate supplied digests. The
+`EncodedBallotContextV1` constructor checks the same byte cap before allocating
+its encoded output; its caller still owns structural validation and authentication.
+
+The [typed envelope decoder](../crates/iroha_data_model/src/governance/anonymous_ballot/ballot.rs)
+permits zero sequence elements and exactly **233,012 bytes** of cumulative
+nominal allocation: its one fixed proof copy. Positional fields borrow input;
+other scalar and fixed-byte values stay inline. Wrong field or proof lengths
+fail before that copy. A failure after proof construction retains the nominal
+charge even though the failed value's owner is dropped. These charges exclude
+codec controls, allocator overhead and error storage, so this is not a physical
+workspace certificate.
+
+Both typed decoders retain Norito's original local refusal owner. Schema and
+canonical-default ceilings are created inside the classification boundary and
+remain invalid-input errors; an original enclosing budget or reported allocator
+failure is local unavailability. Equal numeric ceilings do not determine origin.
+Binary and JSON byte carriers preserve that distinction through nested decoding.
+Admission and block checks must not turn a local decode shortage into malformed
+ballot evidence or consume a nullifier. Independent replay applies the same rule
+to sealed-list decoding. No wire representation or proof rule changes.
+
+The six [wire-size tests](../crates/iroha_data_model/src/governance/anonymous_ballot/context_wire_size_tests.rs)
+cover the formula, prefix transitions, body subsets, bond widths, maximal
+context roundtrip and fixed envelope size. Nine [context decoder controls](../crates/iroha_data_model/src/governance/anonymous_ballot/context_decode_tests.rs)
+cover valid-header malicious counts, combined limits, early refusal and nested
+carrier budgets. Nine [envelope controls](../crates/iroha_data_model/src/governance/anonymous_ballot/envelope_decode_tests.rs)
+cover exact proof charges, malformed fields, late failure and nested binary/JSON
+refusal provenance. The [current receipt](../docs/validation/parliament_ballot_canonical_resources/envelope-refusal-receipt.json)
+records 107 model tests, 79 protocol tests (two fixture helpers ignored) and
+25 example tests. Fresh portable and accelerated workers each pass 55 campaign
+cases with identical inputs, full reports and debits. All 114 scoped inputs were
+unchanged around each successful build/test. This is ordinary live-checkout
+validation, not a complete frozen compiler-input inventory. The initial failed
+test assertions and earlier campaigns retain their own scope.
+
+The earlier [in-memory worker](../crates/iroha_parliament_ballot_proof/examples/memory_entry/README.md)
+accepts one bounded standalone `TEST_RECORD`, with trusted row and role.
+Its evidence remains specific to that source and format. Both workers retrieve
+bounded regular files before invocation and retain immutable caller storage
+until the worker joins. Actual slice lengths, not metadata or spare capacity,
+supply admission. Retrieval and caller buffers are outside verification; owned
+copies and their destruction are inside. The frozen original file-reading
+worker has its own earlier scope.
 The earlier [122-observation campaign](../docs/validation/parliament_ballot_memory_entry/README.md)
 passed but its fatal stdout write could block inside charged work. The
 [shared-control revision](../docs/validation/parliament_ballot_fatal_control/README.md)
@@ -66,13 +122,13 @@ removes that write and passes its own 122 observations, including direct borrowe
 oversize refusal and separate full/broken-output controls. This is finite
 boundary evidence; complete workspace and physical-cost claims remain open.
 
-Admission reads only trusted metadata and the actual outer byte length:
+Admission reads only trusted metadata and actual borrowed byte lengths:
 
-1. Reject an outer length above the copy-in cap before arena allocation or
+1. Reject an input length above its copy-in cap before arena allocation or
    decoding. The supervisor caps staging independently, and the borrowed entry
    checks the actual slice length even if file staging was bypassed.
 2. Require at least one work unit and an available byte budget no smaller than
-   the actual outer length. Check both counters before mutating either one.
+   the sum of actual input lengths. Check both counters before mutating either one.
 3. Debit both dimensions atomically and return a linear, single-use reservation.
 4. Copy at most the reserved bytes into the worker, then execute once. A changed
    length cannot reuse the reservation. Declared inner lengths and roster size
@@ -85,9 +141,9 @@ The diagnostic's fixed mapping and native thread setup precede worker-local
 admission; refusal reports still include that reservation. Zero charged units
 or arena allocations do not imply zero supervisor/setup cost.
 
-One unit covers either row and role and any supported roster size, conservatively
-including the comparator's larger reconstruction tree and the candidate's
-larger proof. It is an abstract whole-call reservation, not one instruction,
+The standalone unit covers either row and role and any supported roster size;
+the typed diagnostic uses the same unit for one complete V1 vote-validity call.
+It is an abstract whole-call reservation, not one instruction,
 millisecond, gas price or assumed 250 ms certificate. Portable and accelerated
 builds use the same debit logic. Work shortage and byte shortage execute no
 verification and leave both remaining budgets unchanged.
@@ -147,8 +203,14 @@ Tests must establish atomic debit boundaries, no early-failure refund,
 same-length reservation enforcement, bounded copy-in, arena alignment and
 non-overlap, reallocation/copy behavior, reclamation/coalescing, exhaustion,
 native stack placement, and outcome/charge parity across feature modes. The
-campaign uses the eight existing independent ballot fixtures, malformed and
-late-invalid variants, insufficient budgets and explicit arena exhaustion.
+standalone campaign uses eight independent ballot fixtures and their controls.
+The separate [canonical campaign](../docs/validation/parliament_ballot_canonical_resources/README.md)
+retains 55 cases per mode over genuine 3-, 500- and 1,000-seat votes, a separately
+stamped late-invalid vote, malformed inputs, insufficient budgets and exhaustion.
+Its earlier frozen captures precede the typed decoder limits described above;
+the separately retained context-boundary and envelope-refusal runs each repeat
+all 55 cases per mode on their changed workers, with full report and input parity
+checked from raw evidence.
 Every case records its input identity, executable/source identity, result,
 debit and enforced mapping sizes. Interrupted or source-drifted campaigns must
 retain completed cases while refusing a successful final publication.
@@ -206,7 +268,9 @@ post-synchrony inclusion assumptions. No casting-window formula or committed
 policy value is silently chosen here.
 
 The cryptographic proof, primitive/resource premises, independent assessments,
-owner acknowledgements, exact production envelope accounting and named phone
-qualification remain required. Design section 12.2 authorizes production-schema
+owner acknowledgements, validation of the final integrated schemas and ingress
+costs, and named phone qualification remain required. The exact encoding formula
+and nominal decoder limits do not close the physical-workspace requirement.
+Design section 12.2 authorizes production-schema
 and Core integration engineering alongside qualification; binding production
 activation remains disabled until all qualification requirements hold.
