@@ -264,7 +264,7 @@ public enum IrohaPeerQRCodecV1 {
     ) throws -> [String] {
         let shardBytes = IrohaPeerWireMessageV1.qrDataShardBytes
         let dataCount = message.encodedBody.count.qrCeilingDivisor(shardBytes)
-        guard dataCount > 0, dataCount <= Int(UInt16.max) else {
+        guard dataCount > 0, dataCount <= IrohaPeerQRParityV1.maximumDataShards else {
             throw IrohaPeerQRErrorV1.messageTooLarge
         }
         func shard(at index: Int) -> Data {
@@ -287,6 +287,9 @@ public enum IrohaPeerQRCodecV1 {
             limits: limits
         )
         let parityCount = dataCount.qrCeilingDivisor(2)
+        // Parity frame `j` is Reed-Solomon row `j` over every data shard, so any `dataCount`
+        // distinct data and parity frames recover the message, whichever the camera missed.
+        let shards = (0..<dataCount).map(shard(at:))
         let nonHeaderFrameCount = dataCount + parityCount
         let headerEmissionCount = 1 + nonHeaderFrameCount / headerRepeatInterval
         let headerText = encodeFrame(header)
@@ -301,7 +304,7 @@ public enum IrohaPeerQRCodecV1 {
         }
         for pairIndex in 0..<parityCount {
             let firstIndex = pairIndex * 2
-            let firstShard = shard(at: firstIndex)
+            let firstShard = shards[firstIndex]
             appendNonHeader(try IrohaPeerQRFrameV1(
                 frameKind: .data,
                 profile: message.profile,
@@ -312,10 +315,7 @@ public enum IrohaPeerQRCodecV1 {
                 payload: firstShard,
                 limits: limits
             ))
-            let secondShard: Data?
             if firstIndex + 1 < dataCount {
-                let value = shard(at: firstIndex + 1)
-                secondShard = value
                 appendNonHeader(try IrohaPeerQRFrameV1(
                     frameKind: .data,
                     profile: message.profile,
@@ -323,18 +323,11 @@ public enum IrohaPeerQRCodecV1 {
                     streamID: message.streamID,
                     index: firstIndex + 1,
                     total: dataCount,
-                    payload: value,
+                    payload: shards[firstIndex + 1],
                     limits: limits
                 ))
-            } else {
-                secondShard = nil
             }
-            var parity = firstShard
-            if let secondShard {
-                for byteIndex in 0..<shardBytes {
-                    parity[byteIndex] ^= secondShard[byteIndex]
-                }
-            }
+            let parity = IrohaPeerQRParityV1.parity(of: shards, row: pairIndex)
             appendNonHeader(try IrohaPeerQRFrameV1(
                 frameKind: .parity,
                 profile: message.profile,
@@ -413,10 +406,12 @@ public struct IrohaPeerQRScanProgressV1: Equatable, Sendable {
     public let receivedDataShards: Int
     public let totalDataShards: Int
     public let recoveredDataShards: Int
+    /// Distinct data and parity shards so far, at most `totalDataShards`; that many complete it.
+    public let usableShards: Int
 
     public var fractionComplete: Double {
         guard totalDataShards > 0 else { return 0 }
-        return min(1, Double(receivedDataShards) / Double(totalDataShards))
+        return min(1, Double(usableShards) / Double(totalDataShards))
     }
 }
 
@@ -727,22 +722,21 @@ public final class IrohaPeerQRScanSessionV1: @unchecked Sendable {
         }
     }
 
+    /// Once the parity shards outnumber the missing data shards, solve for all of them at once.
     private func recoverData(in candidate: inout Candidate, total: Int) {
-        for pairIndex in 0..<total.qrCeilingDivisor(2) {
-            guard let parity = candidate.parity[pairIndex] else { continue }
-            let first = pairIndex * 2
-            let indices = first + 1 < total ? [first, first + 1] : [first]
-            let missing = indices.filter { candidate.data[$0] == nil }
-            guard missing.count == 1 else { continue }
-            var recovered = parity
-            for index in indices where index != missing[0] {
-                guard let present = candidate.data[index] else { continue }
-                for byteIndex in 0..<IrohaPeerWireMessageV1.qrDataShardBytes {
-                    recovered[byteIndex] ^= present[byteIndex]
-                }
-            }
-            candidate.data[missing[0]] = recovered
-            candidate.recovered.insert(missing[0])
+        let missing = (0..<total).filter { candidate.data[$0] == nil }
+        guard !missing.isEmpty, candidate.parity.count >= missing.count else { return }
+        let rows = candidate.parity.keys.sorted().prefix(missing.count)
+            .map { ($0, candidate.parity[$0]!) }
+        let recovered = IrohaPeerQRParityV1.recover(
+            total: total,
+            data: candidate.data,
+            rows: rows,
+            missing: missing
+        )
+        for (position, index) in missing.enumerated() {
+            candidate.data[index] = recovered[position]
+            candidate.recovered.insert(index)
         }
     }
 
@@ -786,7 +780,11 @@ public final class IrohaPeerQRScanSessionV1: @unchecked Sendable {
             streamID: candidate.streamID,
             receivedDataShards: candidate.data.count,
             totalDataShards: candidate.header?.dataShardCount ?? 0,
-            recoveredDataShards: candidate.recovered.count
+            recoveredDataShards: candidate.recovered.count,
+            usableShards: min(
+                candidate.header?.dataShardCount ?? 0,
+                candidate.data.count + candidate.parity.count
+            )
         )
     }
 
@@ -906,6 +904,101 @@ enum IrohaPeerCRC32CV1 {
             crc = (crc >> 8) ^ table[tableIndex]
         }
         return crc ^ 0xFFFF_FFFF
+    }
+}
+
+/// Systematic Cauchy Reed-Solomon parity over GF(2^8) with polynomial 0x11D. Parity row `j` of
+/// `k` data shards is `P_j = sum_i d_i / ((k + j) xor i)`, bytewise. Row and data indices are
+/// disjoint field elements, so every square submatrix of the coefficients is invertible: any `k`
+/// distinct data and parity shards determine the data. Addition is xor.
+enum IrohaPeerQRParityV1 {
+    /// `k` data shards and `ceil(k / 2)` parity rows must all be distinct field elements.
+    static let maximumDataShards = 170
+
+    private static let tables: (exp: [Int], log: [Int]) = {
+        var exp = [Int](repeating: 0, count: 510)
+        var log = [Int](repeating: 0, count: 256)
+        var value = 1
+        for power in 0..<255 {
+            exp[power] = value
+            log[value] = power
+            value <<= 1
+            if value & 0x100 != 0 { value ^= 0x11d }
+        }
+        for power in 255..<510 { exp[power] = exp[power - 255] }
+        return (exp, log)
+    }()
+
+    private static func mul(_ a: Int, _ b: Int) -> Int {
+        a == 0 || b == 0 ? 0 : tables.exp[tables.log[a] + tables.log[b]]
+    }
+
+    private static func inverse(_ a: Int) -> Int {
+        precondition(a != 0, "IRQR parity coefficient is zero")
+        return tables.exp[255 - tables.log[a]]
+    }
+
+    private static func coefficient(total: Int, row: Int, index: Int) -> Int {
+        precondition((1...maximumDataShards).contains(total)
+            && (0..<total.qrCeilingDivisor(2)).contains(row) && (0..<total).contains(index))
+        return inverse((total + row) ^ index)
+    }
+
+    /// `target ^= factor * source`, bytewise.
+    private static func addScaled(_ target: inout [UInt8], _ source: [UInt8], _ factor: Int) {
+        guard factor != 0 else { return }
+        let logFactor = tables.log[factor]
+        for offset in target.indices where source[offset] != 0 {
+            target[offset] ^= UInt8(tables.exp[tables.log[Int(source[offset])] + logFactor])
+        }
+    }
+
+    /// Parity row `row` over all data `shards`.
+    static func parity(of shards: [Data], row: Int) -> Data {
+        var output = [UInt8](repeating: 0, count: IrohaPeerWireMessageV1.qrDataShardBytes)
+        for (index, shard) in shards.enumerated() {
+            addScaled(&output, [UInt8](shard), coefficient(total: shards.count, row: row, index: index))
+        }
+        return Data(output)
+    }
+
+    /// The `missing` data shards from the present `data` shards and exactly `missing.count`
+    /// parity `rows`, in the order of `missing`.
+    static func recover(
+        total: Int,
+        data: [Int: Data],
+        rows: [(Int, Data)],
+        missing: [Int]
+    ) -> [Data] {
+        let count = missing.count
+        precondition(count >= 1 && rows.count == count && data.count + count == total)
+        var matrix = rows.map { row in missing.map { coefficient(total: total, row: row.0, index: $0) } }
+        var values: [[UInt8]] = rows.map { row in
+            var value = [UInt8](row.1)
+            for (index, shard) in data {
+                addScaled(&value, [UInt8](shard), coefficient(total: total, row: row.0, index: index))
+            }
+            return value
+        }
+        for column in 0..<count {
+            let pivot = (column..<count).first { matrix[$0][column] != 0 }!
+            if pivot != column {
+                matrix.swapAt(pivot, column)
+                values.swapAt(pivot, column)
+            }
+            let scale = inverse(matrix[column][column])
+            matrix[column] = matrix[column].map { mul($0, scale) }
+            var scaled = [UInt8](repeating: 0, count: values[column].count)
+            addScaled(&scaled, values[column], scale)
+            values[column] = scaled
+            for row in 0..<count where row != column {
+                let factor = matrix[row][column]
+                guard factor != 0 else { continue }
+                for c in 0..<count { matrix[row][c] ^= mul(factor, matrix[column][c]) }
+                addScaled(&values[row], values[column], factor)
+            }
+        }
+        return values.map { Data($0) }
     }
 }
 

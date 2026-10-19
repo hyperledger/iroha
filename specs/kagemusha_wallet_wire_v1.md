@@ -1286,14 +1286,19 @@ payload ‖ BE32 CRC-32C` of everything before the checksum; frame kinds are com
 header 1, data 2 and parity 3. A message whose complete frame fits one text may be shown
 as that single static text. Otherwise the sequence is the header frame (the 84-byte IPM1
 header), then
-256-byte data shards (the last zero-filled) with one XOR parity shard per pair, in the
-order D0, D1, P0, D2, D3, P1, …, and the identical header again after every 12
-non-header frames; `total` counts data shards (48 for a maximum 12,064-byte Payment
-carrier, 56 for a maximum 14,112-byte Request carrier). A receiver
-accepts frames in any order, ignores identical duplicates, recovers one missing shard
-per pair from parity, quarantines a stream on a conflicting duplicate or an invalid
-message, bounds active streams (3) and frames before the header (12 frames, 3,072 bytes
-per stream), and decodes only a complete message. The receiver's Request carrier (about
+256-byte data shards `d_0 … d_(K-1)` (the last zero-filled) and `ceil(K/2)` Reed–Solomon
+parity shards `P_j = Σ_i d_i / ((K + j) ⊕ i)`, bytewise over GF(2^8) with polynomial
+`x^8+x^4+x^3+x^2+1` (0x11D), in the order D0, D1, P0, D2, D3, P1, …, and the identical
+header again after every 12 non-header frames; `total` counts data shards `K`, at most 170
+so that every row and data index is a distinct field element (48 for a maximum
+12,064-byte Payment carrier, 56 for a maximum 14,112-byte Request carrier). Every square
+submatrix of these Cauchy coefficients is invertible, so any `K` distinct data and parity
+shards recover the message, whichever frames the camera missed. A receiver accepts frames
+in any order, ignores identical duplicates, solves for the missing data shards once its
+parity shards outnumber them, quarantines a stream on a conflicting duplicate or an
+invalid message, bounds active streams (3) and frames buffered before the header (12
+frames, 3,072 bytes per stream; later ones are dropped, not refused), and decodes only a
+complete message. The receiver's Request carrier (about
 2 KB) is always an animated stream; the three codes of one exchange are the Request, the
 Payment and the Credited receipt, in that order.
 

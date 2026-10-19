@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import IrohaSwift
 
@@ -181,7 +182,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         }
     }
 
-    func testStaticCandidateAndFixedPairParitySequence() throws {
+    func testStaticCandidateAndReedSolomonParitySequence() throws {
         let small = try makeMessage(count: 96, seed: 1)
         let staticText = try XCTUnwrap(
             IrohaPeerQRCodecV1.staticCompleteTextCandidate(for: small)
@@ -216,11 +217,31 @@ final class IrohaPeerQRV1Tests: XCTestCase {
 
         let d0 = try XCTUnwrap(frames.first { $0.frameKind == .data && $0.index == 0 })
         let d1 = try XCTUnwrap(frames.first { $0.frameKind == .data && $0.index == 1 })
-        let p0 = try XCTUnwrap(frames.first { $0.frameKind == .parity && $0.index == 0 })
-        for index in 0..<256 { XCTAssertEqual(p0.payload[index], d0.payload[index] ^ d1.payload[index]) }
         let d2 = try XCTUnwrap(frames.first { $0.frameKind == .data && $0.index == 2 })
+        let p0 = try XCTUnwrap(frames.first { $0.frameKind == .parity && $0.index == 0 })
         let p1 = try XCTUnwrap(frames.first { $0.frameKind == .parity && $0.index == 1 })
-        XCTAssertEqual(p1.payload, d2.payload)
+        // Parity row j is sum_i d_i / ((3 + j) xor i) over GF(2^8) mod 0x11D: a bitwise reference.
+        func gfMul(_ a: UInt8, _ b: UInt8) -> UInt8 {
+            var (a, b, product) = (UInt16(a), b, UInt16(0))
+            while b != 0 {
+                if b & 1 != 0 { product ^= a }
+                a <<= 1
+                if a & 0x100 != 0 { a ^= 0x11d }
+                b >>= 1
+            }
+            return UInt8(product)
+        }
+        func gfInverse(_ a: UInt8) -> UInt8 { (1...255).map(UInt8.init).first { gfMul(a, $0) == 1 }! }
+        let data = [d0.payload, d1.payload, d2.payload]
+        for (row, parity) in [p0, p1].enumerated() {
+            for byte in 0..<256 {
+                var expected: UInt8 = 0
+                for (index, shard) in data.enumerated() {
+                    expected ^= gfMul(gfInverse(UInt8((3 + row) ^ index)), shard[byte])
+                }
+                XCTAssertEqual(parity.payload[byte], expected)
+            }
+        }
         XCTAssertTrue(d2.payload[136..<256].allSatisfy { $0 == 0 })
     }
 
@@ -292,17 +313,16 @@ final class IrohaPeerQRV1Tests: XCTestCase {
             expectedSchemaVersion: 1
         )
         var completed: IrohaPeerWireMessageV1?
-        var recoveredDataShards = 0
+        var completedAt: Int?
         for (index, text) in texts.enumerated() where index != lost {
-            switch try session.ingest(text, atUptime: 0) {
-            case let .accepted(progress), let .duplicate(progress):
-                recoveredDataShards = max(recoveredDataShards, progress.recoveredDataShards)
-            case let .completed(decoded):
-                completed = decoded
+            if case let .completed(decoded) = try session.ingest(text, atUptime: 0) {
+                (completed, completedAt) = (decoded, index)
+                break
             }
-            if completed != nil { break }
         }
-        XCTAssertEqual(recoveredDataShards, 1)
+        // Reed-Solomon completes on the 56th distinct shard of 84, two thirds into the loop.
+        let shardPositions = texts.indices.filter { $0 != lost && frames[$0].frameKind != .header }
+        XCTAssertEqual(completedAt, shardPositions[55])
         let decoded = try XCTUnwrap(completed)
         XCTAssertEqual(decoded, message)
         XCTAssertEqual(try IrohaPeerKagemushaWalletAdapterV1.decode(decoded), envelope)
@@ -334,17 +354,16 @@ final class IrohaPeerQRV1Tests: XCTestCase {
             expectedSchemaVersion: 1
         )
         var completed: IrohaPeerWireMessageV1?
-        var recoveredDataShards = 0
+        var completedAt: Int?
         for (index, text) in texts.enumerated() where index != lost {
-            switch try session.ingest(text, atUptime: 0) {
-            case let .accepted(progress), let .duplicate(progress):
-                recoveredDataShards = max(recoveredDataShards, progress.recoveredDataShards)
-            case let .completed(decoded):
-                completed = decoded
+            if case let .completed(decoded) = try session.ingest(text, atUptime: 0) {
+                (completed, completedAt) = (decoded, index)
+                break
             }
-            if completed != nil { break }
         }
-        XCTAssertEqual(recoveredDataShards, 1)
+        // Reed-Solomon completes on the 48th distinct shard of 72, two thirds into the loop.
+        let shardPositions = texts.indices.filter { $0 != lost && frames[$0].frameKind != .header }
+        XCTAssertEqual(completedAt, shardPositions[47])
         let decoded = try XCTUnwrap(completed)
         XCTAssertEqual(decoded, message)
         XCTAssertEqual(try IrohaPeerKagemushaWalletAdapterV1.decode(decoded), envelope)
@@ -372,7 +391,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         }
     }
 
-    func testOutOfOrderPreheaderFramesAndPairParityRecoverMessage() throws {
+    func testOutOfOrderPreheaderFramesAndParityRecoverMessage() throws {
         let message = try makeMessage(count: 600, seed: 12)
         let frames = try indexedFrames(message)
         let session = IrohaPeerQRScanSessionV1(
@@ -389,6 +408,48 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         }
         XCTAssertEqual(decoded, message)
         XCTAssertEqual(decoded.canonicalPayload, message.canonicalPayload)
+    }
+
+    func testAnyFortyOfSixtyShardsRecoverAMaximumMessage() throws {
+        let message = try makeMessage(count: 9_952, seed: 46)
+        let texts = try IrohaPeerQRCodecV1.animatedFrameTexts(for: message)
+        let frames = try texts.map { try IrohaPeerQRCodecV1.decodeFrame($0) }
+        let shardFrames = frames.indices.filter { frames[$0].frameKind != .header }
+        XCTAssertEqual(shardFrames.count, 60)
+        func scan(losing lost: Set<Int>) throws -> IrohaPeerWireMessageV1? {
+            let session = IrohaPeerQRScanSessionV1()
+            // One pass of the loop only: completion may not wait for a repeat of a lost frame.
+            for index in texts.indices where !lost.contains(index) {
+                if case let .completed(decoded) = try session.ingest(texts[index], atUptime: 1) {
+                    return decoded
+                }
+            }
+            return nil
+        }
+        var random = SplitMix64(state: 46)
+        let dataFrames = shardFrames.filter { frames[$0].frameKind == .data }
+        let patterns: [Set<Int>] = [
+            Set(dataFrames.prefix(20)), // Half the data: every parity row is needed.
+            Set(dataFrames.prefix(2)), // Both shards of one pair, which pair parity could not recover.
+        ] + (0..<3).map { _ in Set(shardFrames.shuffled(using: &random).prefix(20)) }
+        for lost in patterns {
+            let decoded = try XCTUnwrap(try scan(losing: lost), "lost frames \(lost.sorted())")
+            XCTAssertEqual(decoded, message)
+        }
+        // Twenty-one lost leaves thirty-nine shards, one too few: the scan waits for the next loop.
+        XCTAssertNil(try scan(losing: Set(shardFrames.prefix(21))))
+    }
+
+    func testReedSolomonParityMatchesSharedCrossPlatformVector() {
+        // Shard i byte b = (73 i + 31 b + 7) mod 256; Kotlin pins the same digests.
+        func digest(_ count: Int) -> String {
+            let shards = (0..<count).map { i in Data((0..<256).map { b in UInt8((73 * i + 31 * b + 7) % 256) }) }
+            var all = Data()
+            for row in 0..<(count + 1) / 2 { all.append(IrohaPeerQRParityV1.parity(of: shards, row: row)) }
+            return SHA256.hash(data: all).map { String(format: "%02x", $0) }.joined()
+        }
+        XCTAssertEqual(digest(3), "d218dc10e7482f1afb8753f100542879651bc6e2f0641a94bb2d33a11e433dd8")
+        XCTAssertEqual(digest(40), "85f3a1490a000f345272c2fb1b4dc449bafd07e95a1c694d58c5a341f07f375c")
     }
 
     func testConflictingDuplicateQuarantinesOnlyThatStream() throws {
@@ -966,5 +1027,17 @@ private extension Dictionary where Key == IrohaPeerQRV1Tests.FrameLookup,
                                    Value == IrohaPeerQRFrameV1 {
     subscript(_ kind: IrohaPeerQRFrameKindV1, _ index: Int) -> IrohaPeerQRFrameV1? {
         self[IrohaPeerQRV1Tests.FrameLookup(kind: kind, index: index)]
+    }
+}
+
+/// Seeded generator so shuffled loss patterns are the same on every run.
+private struct SplitMix64: RandomNumberGenerator {
+    var state: UInt64
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
     }
 }
