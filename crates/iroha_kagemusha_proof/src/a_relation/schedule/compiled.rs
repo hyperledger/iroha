@@ -32,10 +32,9 @@ impl OperationSchedule {
                 vec![vec![0]],
                 vec![vec![BootstrapState, BootstrapAuthorization]],
             ),
-            Variant::Load => (
-                vec![vec![], vec![0]],
-                vec![vec![LoadRecovery], vec![LoadReceipt]],
-            ),
+            // Lean, one terminal A: the hard predecessor, the recovery and the own
+            // receipt on its single signature Q; no W follows it.
+            Variant::Load => (vec![vec![0]], vec![vec![LoadRecovery, LoadReceipt]]),
             // Lean: A1 proves the transition and its objects beside the hard predecessor,
             // A2 both map insertions, A3 the own receipt. The two-stage packing (maps in
             // A1) exceeds k16's usable rows once A1 verifies the real Omega predecessor.
@@ -116,18 +115,18 @@ impl OperationSchedule {
                     vec![ArchiveEffects],
                 ],
             ),
-            // Lean: A1 proves the transition beside the hard predecessor; A2 owns
-            // the own-receipt leaf.
+            // Lean, one terminal A: the transition beside the hard predecessor and the
+            // own-receipt leaf; no W follows it.
             Variant::Unload | Variant::Retiring => (
-                vec![vec![], vec![0]],
-                vec![
-                    vec![if variant == Variant::Unload {
+                vec![vec![0]],
+                vec![vec![
+                    if variant == Variant::Unload {
                         UnloadRecovery
                     } else {
                         RetiringState
-                    }],
-                    vec![UnloadAuthorization],
-                ],
+                    },
+                    UnloadAuthorization,
+                ]],
             ),
             Variant::RefreshQuotaShare => (
                 vec![vec![], vec![], vec![], vec![0], vec![1], vec![2], vec![]],
@@ -343,7 +342,7 @@ mod tests {
         // Every route except Refresh is lean: no own Q_sigma. Bootstrap, Load, Send,
         // Unload, Retiring and ArchiveStatus have one signature leaf; Receive and
         // ArchiveReceive add the incoming-only Q_sigma.
-        let expected = [1, 2, 3, 5, 5, 9, 8, 2, 2, 4, 4, 7, 4];
+        let expected = [1, 1, 3, 5, 5, 9, 8, 1, 1, 4, 4, 7, 4];
         for (variant, count) in Variant::ALL.into_iter().zip(expected) {
             let schedule = OperationSchedule::for_variant(variant);
             assert_eq!(schedule.stage_count(), count);

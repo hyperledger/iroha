@@ -386,14 +386,14 @@ fn native_profile_matches_complete_compiled_encoder_preimage() {
         hex::encode(Sha256::digest(&body)),
         hex::encode(artifact_digest(b"native-profile", &body))
     );
-    assert_eq!(body.len(), 2_407);
+    assert_eq!(body.len(), 2_353);
     // Pin the complete compiled schedules, sigma policy and Omega layout of this source.
     assert_eq!(
         hex::encode(Sha256::digest(&body)),
-        "8b2dc2c8dae3e14820408b96552dfd234a7913bacf5154d3706bf02feca02782"
+        "3b14369ac4f5184398c8342f707f84415b4e04d21e12078e09b3076a5af5003a"
     );
     assert_eq!(
         hex::encode(artifact_digest(b"native-profile", &body)),
-        "e5c3e728d61d3f0ae5bb55ea83e2dac8f8aefd87c3934e14486fd57ed819097d"
+        "e9e0bd23e67cdd238c3684e5f10e8aeea9842e88d159635f3c0e9b38152a5e37"
     );
 }

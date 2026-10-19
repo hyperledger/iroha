@@ -1,4 +1,5 @@
-//! Fixed A → W continuation schedules, with no native lineage acceptance entry point.
+//! Fixed A → W continuation schedules and the one-stage terminal closure, with no
+//! native lineage acceptance entry point.
 
 use super::{
     AOutputCells, BoundSigmaCells, IncomingVestaCells, LineagePublicCells, PredecessorCells,
@@ -404,6 +405,79 @@ pub fn close_first(
         pallas,
         part: sigma.part,
     })
+}
+/// Close a one-stage plan (lean Load, Unload and Retiring): its single A binds the
+/// hard predecessor and its whole Q partition, folds both predecessor claims and the
+/// Q openings under the fixed terminal schedule, padded with the pinned trivial
+/// claim to four, and emits the same final frame a split terminal stage emits. No W
+/// precedes or follows it, so no context digest is formed: nothing outside this
+/// stage consumes one.
+///
+/// # Errors
+/// Another plan shape, missing/reordered Q, wrong predecessor, bad hard fold or
+/// layout failure.
+#[allow(clippy::too_many_arguments)]
+pub fn close_single(
+    chip: &mut VerifierChip<Ep>,
+    region: &mut Region<'_, Fp>,
+    context: &ContextPlan,
+    inputs: &ContextInputs<'_>,
+    predecessor: &PredecessorCells,
+    q: &[VerifiedQCells],
+    fold: &ProofMessageCells,
+    params: &PinnedParams<Ep>,
+    public: &LineagePublicCells,
+) -> Result<Vec<Word<Fp>>, Error> {
+    let operation = context.operation();
+    if context.stage_count() != 1
+        || !context.predecessor_in_first()
+        || operation.frame().has_incoming()
+        || operation.sigma().is_some()
+    {
+        return Err(Error::Synthesis);
+    }
+    context.bind_q_partition(region, inputs, q, 0)?;
+    let sigma = bind_stage_sigma(chip, region, operation, inputs, &[])?;
+    let expected = inputs.predecessor.as_ref().ok_or(Error::Synthesis)?;
+    bind_predecessor(
+        region,
+        expected.public.fields(),
+        expected.pallas,
+        expected.vesta,
+        inputs.successor.public.omega_key_digest(),
+        predecessor,
+    )?;
+    let mut claims = vec![predecessor.pallas.clone(), predecessor.opening.clone()];
+    claims.extend(q.iter().map(|q| q.opening.clone()));
+    if claims.len() > 4 {
+        return Err(Error::Synthesis);
+    }
+    while claims.len() < 4 {
+        claims.push(FoldInputCells::pinned_trivial(chip, region)?);
+    }
+    let plan = FoldPlan::with_sources(
+        params,
+        vec![FoldSource::Fixed(16); 4],
+        iroha_plonk_recursion::FoldPurpose::ATerminal,
+    )
+    .map_err(|_| Error::Synthesis)?;
+    let result = chip.verify_fold(
+        region,
+        &plan,
+        &claims,
+        fold.messages(),
+        fold.length(),
+        VerificationMode::Hard,
+    )?;
+    FinalHalfCells {
+        pallas: FoldInputCells::from_claim(chip, region, &result.claim)?,
+        part: sigma.part,
+        successor: inputs.successor.public.fields().clone(),
+        predecessor: Some(expected.vesta.clone()),
+        incoming: None,
+        frame: operation.frame(),
+    }
+    .words(chip, region, public)
 }
 #[derive(Clone, Debug)]
 struct BoundLineage {

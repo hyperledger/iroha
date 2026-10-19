@@ -1457,9 +1457,10 @@ fn ff_gate_shape_and_degree() {
     let (cs, config) = configure(&circuit).expect("configure");
     let (ff, _, _, _) = config;
     // Gate polynomials retain the degree-3 bound. Norm lookup constraints
-    // require max(6, 2 + 2*d_input + 2*d_table): C/Q inputs have degree 3,
-    // U inputs degree 2, and the fixed table degree 1, giving totals 10/8.
-    assert_eq!(cs.degree(), 10);
+    // require max(6, 2 + 2*d_input + 2*d_table): with step and top indicator
+    // columns every input has degree 2 and the fixed table degree 1, giving
+    // 8 for every argument.
+    assert_eq!(cs.degree(), 8);
     for gate in cs.gates() {
         for polynomial in gate.polynomials() {
             assert!(polynomial.degree() <= 3, "{}", gate.name());
@@ -1467,31 +1468,39 @@ fn ff_gate_shape_and_degree() {
         }
     }
     assert_eq!(cs.lookups().len(), FF_ADVICE_COLUMNS);
-    for (index, lookup) in cs.lookups().iter().enumerate() {
+    for lookup in cs.lookups() {
         // One width-1 argument per column, into `V`.
         assert_eq!(lookup.width(), 1);
-        let (input_degree, expected) = if index < 2 * LIMBS { (3, 10) } else { (2, 8) };
-        assert_eq!(lookup.input_expressions()[0].degree(), input_degree);
+        assert_eq!(lookup.input_expressions()[0].degree(), 2);
         assert_eq!(lookup.table_expressions()[0].degree(), 1);
-        assert_eq!(lookup.required_degree(), expected, "{}", lookup.name());
+        assert_eq!(lookup.required_degree(), 8, "{}", lookup.name());
     }
     // Three queries per operand column (rotations 0, 1, 6): no extra
     // blinding rows.
     assert_eq!(cs.blinding_factors(), 5);
     assert_eq!(ff.advice_columns().len(), FF_ADVICE_COLUMNS);
-    // Four pattern columns and the table column; the glue chip adds its six
+    // Six pattern columns and the table column; the glue chip adds its six
     // coefficient columns and the constants column.
     assert_eq!(ff.pattern_columns().len(), 4);
-    assert_eq!(cs.num_fixed_columns(), FF_PATTERN_COLUMNS + 1 + 6 + 1);
+    assert_eq!(ff.top_columns().map(|tops| tops.len()), Some(2));
+    assert_eq!(
+        cs.num_fixed_columns(),
+        FF_PATTERN_COLUMNS + FF_TOP_COLUMNS + 1 + 6 + 1
+    );
     assert!(cs.usable_rows(K).expect("usable") > RANGE_TABLE_ROWS);
     assert_eq!(RANGE_TABLE_ROWS, 32_768);
+    // The shared configuration keeps ternary C/Q patterns (degree 10; the
+    // Q-leaf shape test pins its arguments).
+    let (_, (shared, _, _, _)) = configure(&circuit.in_leaf()).expect("configure");
+    assert_eq!(shared.top_columns(), None);
 }
 
 /// The range table holds exactly the 15-bit values, and a running sum's
 /// lookups are active on exactly the block rows the layout documents: `C`
 /// and `Q` steps on rows 1..=5, their tops on row 6 (plain) and row 0
 /// (scaled, through rotation 6), `U` steps on rows 0..=5 and its top on
-/// row 6. The patterns are fixed: the same for every witness.
+/// row 6. The patterns are fixed: the same for every witness. The shared
+/// layout's ternary patterns are `s + 2 t` of these indicators.
 #[test]
 fn ff_range_patterns_follow_the_block_layout() {
     let circuit = FfCircuit::new(
@@ -1504,7 +1513,7 @@ fn ff_range_patterns_follow_the_block_layout() {
     let public = limb_fields_big::<Fq>(&BigUint::from(15_u8));
     let (_, config) = configure(&circuit).expect("configure");
     let (ff, _, _, _) = config;
-    let synthesized = synthesize(&circuit, K, Some(&[public][..])).expect("synthesis");
+    let synthesized = synthesize(&circuit, K, Some(&[public.clone()][..])).expect("synthesis");
     let fixed = synthesized.tables.fixed();
     let value = &fixed[ff.value_column().index()];
     for (row, entry) in value.iter().enumerate().take(RANGE_TABLE_ROWS) {
@@ -1515,44 +1524,57 @@ fn ff_range_patterns_follow_the_block_layout() {
             .iter()
             .all(|entry| *entry == Fq::ZERO)
     );
-    let [h_c, h_q, s_u, t_u] = ff.pattern_columns().map(|column| &fixed[column.index()]);
+    let [s_c, s_q, s_u, t_u] = ff.pattern_columns().map(|column| &fixed[column.index()]);
+    let [t_c, t_q] = ff
+        .top_columns()
+        .expect("standalone indicators")
+        .map(|column| &fixed[column.index()]);
+    let indicator = |on: bool| Fq::from(u64::from(on));
     // Three blocks: two witnesses (C only) and one product (C, Q, U).
-    let two = Fq::from(2_u64);
     for block in 0..3 {
-        let start = block * BLOCK_ROWS;
-        let h_expected = [Fq::ZERO, Fq::ONE, Fq::ONE, Fq::ONE, Fq::ONE, Fq::ONE, two];
-        for (offset, expected) in h_expected.iter().enumerate() {
-            assert_eq!(h_c[start + offset], *expected, "block {block} row {offset}");
-            let q_expected = if block == 2 { *expected } else { Fq::ZERO };
-            assert_eq!(
-                h_q[start + offset],
-                q_expected,
-                "block {block} row {offset}"
-            );
-            let (s, t) = if block == 2 {
-                (
-                    Fq::from(u64::from(offset < BLOCK_ROWS - 1)),
-                    Fq::from(u64::from(offset == BLOCK_ROWS - 1)),
-                )
-            } else {
-                (Fq::ZERO, Fq::ZERO)
-            };
-            assert_eq!((s_u[start + offset], t_u[start + offset]), (s, t));
+        for offset in 0..BLOCK_ROWS {
+            let row = block * BLOCK_ROWS + offset;
+            let top = indicator(offset == BLOCK_ROWS - 1);
+            let cq = (indicator((ROOT_ROW..BLOCK_ROWS - 1).contains(&offset)), top);
+            let u = (indicator(offset < BLOCK_ROWS - 1), top);
+            let zero = (Fq::ZERO, Fq::ZERO);
+            let (q, u) = if block == 2 { (cq, u) } else { (zero, zero) };
+            let what = format!("block {block} row {offset}");
+            assert_eq!((s_c[row], t_c[row]), cq, "{what}");
+            assert_eq!((s_q[row], t_q[row]), q, "{what}");
+            assert_eq!((s_u[row], t_u[row]), u, "{what}");
         }
     }
-    // Nothing else: a top value 2 six rows below a nonzero pattern would
-    // enable two terms of one residual on that row.
-    for column in [h_c, h_q] {
-        for row in 0..column.len() - 6 {
-            if column[row + 6] == two {
-                assert_eq!(column[row], Fq::ZERO, "row {row}");
+    // Nothing else: a top six rows below a step or top would enable two
+    // terms of one residual on that row.
+    for (s, t) in [(s_c, t_c), (s_q, t_q)] {
+        for row in 0..t.len() - 6 {
+            if t[row + 6] == Fq::ONE {
+                assert_eq!((s[row], t[row]), (Fq::ZERO, Fq::ZERO), "row {row}");
             }
         }
-        assert!(
-            column[3 * BLOCK_ROWS..]
-                .iter()
-                .all(|entry| *entry == Fq::ZERO)
-        );
+        for column in [s, t] {
+            assert!(
+                column[3 * BLOCK_ROWS..]
+                    .iter()
+                    .all(|entry| *entry == Fq::ZERO)
+            );
+        }
+    }
+    // The same program in the shared layout: one ternary pattern per group,
+    // `h = s + 2 t` on every row.
+    let leaf = circuit.in_leaf();
+    let (_, (shared, _, _, _)) = configure(&leaf).expect("configure");
+    let synthesized = synthesize(&leaf, K, Some(&[public][..])).expect("synthesis");
+    let leaf_fixed = synthesized.tables.fixed();
+    let [h_c, h_q, _, _] = shared
+        .pattern_columns()
+        .map(|column| &leaf_fixed[column.index()]);
+    let two = Fq::from(2_u64);
+    for (h, s, t) in [(h_c, s_c, t_c), (h_q, s_q, t_q)] {
+        for (row, ((h, s), t)) in h.iter().zip(s).zip(t).enumerate() {
+            assert_eq!(*h, *s + two * *t, "row {row}");
+        }
     }
 }
 

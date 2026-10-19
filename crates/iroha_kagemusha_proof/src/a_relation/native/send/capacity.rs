@@ -109,7 +109,11 @@ fn every_mask_inline_relation_stage_fits_k16() {
             "lean Send mask{mask} A1 rows={a_rows} relation_permutations={}",
             plan.shape().permutations()
         );
-        assert!(a_rows < (1 << 16), "mask{mask} A1 exceeds k16");
+        // The stand-in predecessor has no fixed, advice or permutation commitments, so
+        // A1 here is a lower bound: the two-stage packing passed this check and then
+        // overflowed production keygen. The real-Omega bound is the producer
+        // compiler's `every_predecessor_stage_fits_k16_against_the_real_omega`.
+        assert!(a_rows < 65_529, "mask{mask} A1 exceeds k16");
     }
 }
 
@@ -148,7 +152,7 @@ fn three_a_two_w_original_sources_qualify_at_k16() {
                 .unwrap();
             let a_rows = rows(&source);
             eprintln!("lean Send mask{mask} A{} rows={a_rows}", stage + 1);
-            assert!(a_rows < (1 << 16));
+            assert!(a_rows < 65_529);
             let key = keygen_pk_v2(&plan.vesta, &source, &a_config).unwrap();
             assert!(
                 plan.wrapper_source(A_STAGE_COUNT - 1, key.binding(), key.vk())

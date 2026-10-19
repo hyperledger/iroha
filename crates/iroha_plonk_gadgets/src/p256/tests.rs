@@ -1107,8 +1107,8 @@ const VARIABLE_SHA_CELLS: usize = 139_208;
 /// Q-leaf layout.
 const VARIABLE_SHA_SHARED_ROWS: usize = 12_097;
 
-/// Ordinary arithmetic gates retain [`crate::MAX_GATE_DEGREE`]; the
-/// expression-dependent norm lookups separately determine total degree 10.
+/// Ordinary arithmetic gates retain [`crate::MAX_GATE_DEGREE`]; the window's
+/// norm lookup (table degree 2) separately determines total degree 10.
 #[test]
 fn p256_gate_degree_at_most_six() {
     let mut rng = ChaCha20Rng::seed_from_u64(12);
@@ -1135,9 +1135,8 @@ fn p256_gate_degree_at_most_six() {
         for lookup in cs.lookups() {
             let expected = match lookup.name() {
                 "ff c_0 range" | "ff c_1 range" | "ff c_2 range" | "ff q_0 range"
-                | "ff q_1 range" | "ff q_2 range" => (3, 1, 10),
-                "ff u_0 range" | "ff u_1 range" | "ff u_2 range" | "ff u_3 range"
-                | "sha256 spread" => (2, 1, 8),
+                | "ff q_1 range" | "ff q_2 range" | "ff u_0 range" | "ff u_1 range"
+                | "ff u_2 range" | "ff u_3 range" | "sha256 spread" => (2, 1, 8),
                 "p256 window" => (2, 2, 10),
                 other => panic!("unexpected P-256 lookup: {other}"),
             };

@@ -1,5 +1,5 @@
 //! Shared genuine proof builder; no registered test cases.
-//! Native four-stage Load fixture intake. Callers must supply the installed
+//! Native single-terminal Load fixture intake. Callers must supply the installed
 //! originals and genuine finalized receipt evidence for the exact predecessor.
 //! No synthetic funding source or alternate test-only Load circuit exists here.
 

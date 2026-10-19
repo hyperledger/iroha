@@ -718,6 +718,32 @@ impl<'a> OfflineCompilerV1<'a> {
                 )
             }};
         }
+        // Load, Unload and Retiring are one terminal A beside the hard predecessor: no W
+        // source follows it.
+        macro_rules! single {
+            ($plan:expr) => {{
+                let plan = $plan;
+                if originals.is_some_and(|old| old.a.len() != 1 || !old.w.is_empty()) {
+                    return Err(CompilationErrorV1::Closure);
+                }
+                let circuit = source(plan.source_circuit(), CompilationPhaseV1::ASource)?;
+                let key = if let Some(old) = originals {
+                    self.import(&old.a[0], &circuit, &eq)?
+                } else {
+                    self.key(&circuit, &eq, &acfg)
+                        .map_err(|error| stage_error(error, route, 0, false))?
+                };
+                (
+                    plan.context()
+                        .schema()
+                        .iter()
+                        .map(PrimeField::to_repr)
+                        .collect(),
+                    vec![key],
+                    Vec::new(),
+                )
+            }};
+        }
         let (context, a, w) = if route.variant == Variant::Bootstrap {
             // Bootstrap is one unsplit terminal A: no W source follows it.
             if omega.is_some() || originals.is_some_and(|old| old.a.len() != 1 || !old.w.is_empty())
@@ -758,11 +784,11 @@ impl<'a> OfflineCompilerV1<'a> {
                 CompilationPhaseV1::OperationRecipe,
             )?;
             match plan {
-                operation::Plan::Load(p) => stages!(p),
+                operation::Plan::Load(p) => single!(p),
                 operation::Plan::Send(p) => stages!(p),
                 operation::Plan::Receive(p) => stages!(p),
                 operation::Plan::Archive(p) => stages!(p),
-                operation::Plan::Consuming(p) => stages!(p),
+                operation::Plan::Consuming(p) => single!(p),
                 operation::Plan::Refresh(p) => stages!(p),
             }
         };

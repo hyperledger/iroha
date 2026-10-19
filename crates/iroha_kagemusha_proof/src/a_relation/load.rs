@@ -111,7 +111,7 @@ impl LoadObjects {
             context: [receipt_context, object_context],
         })
     }
-    /// Same-tape object commitments rebound by every split stage.
+    /// Same-tape object commitments the one terminal stage binds.
     pub const fn context(&self) -> &[ContextObjectCells; 2] {
         &self.context
     }
@@ -251,7 +251,8 @@ pub struct LoadStagePlan {
 }
 impl LoadStagePlan {
     /// Require recovery and the receipt-term binding with own receipt authorization
-    /// exactly once, the latter with the single hard own-receipt signature Q slot0.
+    /// exactly once in the one terminal A, with the single hard own-receipt signature
+    /// Q slot0 beside the hard predecessor.
     /// # Errors
     /// Wrong variant/task set, signature-Q count or stage assignment.
     pub fn new(context: super::context::ContextPlan) -> Result<Self, Error> {
@@ -267,11 +268,11 @@ impl LoadStagePlan {
             .map(|i| context.operation_tasks(i).unwrap_or_default().to_vec())
             .collect::<Vec<_>>();
         OperationTask::validate(Variant::Load, &groups)?;
-        let required = vec![
-            vec![OperationTask::LoadRecovery],
-            vec![OperationTask::LoadReceipt],
-        ];
-        let partitions = [vec![], vec![0]];
+        let required = vec![vec![
+            OperationTask::LoadRecovery,
+            OperationTask::LoadReceipt,
+        ]];
+        let partitions = [vec![0]];
         if groups != required
             || context.predecessor_stage() != Some(0)
             || partitions
@@ -294,7 +295,7 @@ impl LoadStagePlan {
         }
         Ok(Self { context })
     }
-    /// Context committed by every stage and its pinned W wrapper.
+    /// Context the one terminal stage binds.
     pub const fn context(&self) -> &super::context::ContextPlan {
         &self.context
     }

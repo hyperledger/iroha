@@ -55,6 +55,7 @@ pub struct SecondaryRangeConfig {
     phases: PhaseColumns,
     primary: Column<Fixed>,
     control: Column<Fixed>,
+    range: RunningSumConfig,
 }
 
 fn constant<F: PastaField>(value: u64) -> Expression<F> {
@@ -211,6 +212,7 @@ impl SecondaryRangeConfig {
             phases,
             primary: pattern,
             control,
+            range: primary,
         })
     }
 
@@ -259,8 +261,8 @@ impl SecondaryRangeConfig {
             self.phases.enable(phase.code(), None).enable(region, row)?;
             let top = index + 1 == shape.rows;
             let forced = !top && forced_tops[index];
-            let primary = F::from(if forced { 2 } else { 1 });
-            let control = F::from(if forced {
+            let primary = if forced { 2 } else { 1 };
+            let control = if forced {
                 15
             } else if !top {
                 1
@@ -272,11 +274,9 @@ impl SecondaryRangeConfig {
                     18 | 93 => 4,
                     _ => unreachable!(),
                 }
-            });
-            for (column, value) in [(self.primary, primary), (self.control, control)] {
-                region.expect_fixed(column, row, value)?;
-                region.assign_fixed(column, row, value)?;
-            }
+            };
+            self.range
+                .assign_tagged_code(region, row, primary, Some(control), true)?;
             let word = self.assign_digits(region, row, phase, bits, top, entry)?;
             if root.is_none() {
                 root = Some(word);

@@ -322,8 +322,9 @@ fn real_bootstrap_offline_construction_needs_no_signed_placeholder_or_qualified_
     let retiring = compiler
         .operation(retiring_route, &retiring_q, Some(omega.key()))
         .unwrap();
-    // Lean Retiring proves its own step inline: A1, W0, A2.
-    assert_eq!(retiring.stages(), 2);
+    // Lean Retiring is one terminal A beside the hard predecessor; no W follows it.
+    assert_eq!(retiring.stages(), 1);
+    assert!(retiring.w.is_empty());
     let final_omega = compiler
         .omega(&[operation.terminal(), retiring.terminal()])
         .unwrap();
@@ -355,7 +356,7 @@ fn real_bootstrap_offline_construction_needs_no_signed_placeholder_or_qualified_
         .unwrap();
     assert!(closed_bootstrap.predecessor.is_none());
     eprintln!(
-        "OFFLINE_FINAL_OMEGA_REBIND terminals=2 RetiringA=2 RetiringW=1 exact_originals=true changed_omega_key=true context_unchanged=true complete_catalog=false"
+        "OFFLINE_FINAL_OMEGA_REBIND terminals=2 RetiringA=1 RetiringW=0 exact_originals=true changed_omega_key=true context_unchanged=true complete_catalog=false"
     );
     assert!(
         compiler
@@ -479,4 +480,101 @@ fn changed_source_regenerates<C: PastaCurve>() {
 fn indexed_original_reuse_regenerates_changed_source_on_both_curves() {
     changed_source_regenerates::<Ep>();
     changed_source_regenerates::<Eq>();
+}
+
+/// Rows of the most-used advice column and that column, laid out at k18 so an
+/// overflowing stage still reports its size.
+fn advice_rows<F: PastaField, C: Circuit<F>>(circuit: &C) -> (usize, usize) {
+    let assigned = iroha_plonk::frontend::synthesize(circuit, 18, None).unwrap();
+    assigned
+        .tables
+        .advice_assigned()
+        .iter()
+        .map(|column| {
+            column
+                .iter()
+                .rposition(|assigned| *assigned)
+                .map_or(0, |row| row + 1)
+        })
+        .enumerate()
+        .max_by_key(|(_, rows)| *rows)
+        .map(|(column, rows)| (rows, column))
+        .unwrap()
+}
+
+#[test]
+#[ignore = "real11 sigma, one Q per class, Bootstrap A and a one-key Omega; lays out every class's predecessor stage at k18; optimized explicit run"]
+fn every_predecessor_stage_fits_k16_against_the_real_omega() {
+    // The A stage that binds the hard predecessor witnesses the Omega key and verifies
+    // its proof in circuit, so its size depends on the real Omega descriptor. A
+    // layout-only stand-in undercounts it: the two-stage Send A1 fit against one and
+    // overflowed production key generation. Omega's descriptor does not depend on its
+    // catalog, so one Bootstrap terminal suffices.
+    const USABLE: usize = 65_529;
+    let mut disk = Disk(tempfile::tempdir().unwrap());
+    let mut compiler = OfflineCompilerV1::new(scope(), &mut disk, limits(), 4 << 30).unwrap();
+    let sigmas = compiler.sigmas().unwrap();
+    let q = compiler.q(Variant::Bootstrap, &[0], &[], &sigmas).unwrap();
+    let bootstrap = compiler.operation(compiled_routes()[0], &q, None).unwrap();
+    let omega = compiler.omega(&[bootstrap.terminal()]).unwrap();
+    let pallas = PinnedParams::<Ep>::derive(16).unwrap();
+    let vesta = PinnedParams::<Eq>::derive(16).unwrap();
+    let mut overflowing = Vec::new();
+    for variant in Variant::ALL {
+        if variant == Variant::Bootstrap {
+            continue;
+        }
+        // One route per Q class: a class shares its A/W sources.
+        for class in q_classes(variant, &sigmas) {
+            let route = compiled_routes()
+                .into_iter()
+                .find(|route| {
+                    route.variant == variant
+                        && class.own.contains(&route.own)
+                        && route
+                            .incoming
+                            .is_none_or(|incoming| class.incoming.contains(&incoming))
+                })
+                .unwrap();
+            let q = compiler
+                .q(variant, &class.own, &class.incoming, &sigmas)
+                .unwrap();
+            let plan = operation::plan_with_parameters(
+                route,
+                scope(),
+                q.recipe(),
+                omega.key().metadata(),
+                pallas.clone(),
+                vesta.clone(),
+            )
+            .unwrap();
+            let (rows, column) = match &plan {
+                operation::Plan::Load(plan) => advice_rows(&plan.source_circuit().unwrap()),
+                operation::Plan::Consuming(plan) => advice_rows(&plan.source_circuit().unwrap()),
+                operation::Plan::Send(plan) => advice_rows(&plan.source_circuit(0, None).unwrap()),
+                operation::Plan::Receive(plan) => {
+                    advice_rows(&plan.source_circuit(0, None).unwrap())
+                }
+                operation::Plan::Archive(plan) => {
+                    advice_rows(&plan.source_circuit(0, None).unwrap())
+                }
+                operation::Plan::Refresh(plan) => {
+                    advice_rows(&plan.source_circuit(0, None).unwrap())
+                }
+            };
+            eprintln!(
+                "REAL_OMEGA_PREDECESSOR_STAGE {route:?} stages={} rows={rows} column={column} usable={USABLE} margin={} over={}",
+                plan.context().stage_count(),
+                USABLE.saturating_sub(rows),
+                rows.saturating_sub(USABLE),
+            );
+            if rows >= USABLE {
+                overflowing.push((route, rows));
+            }
+        }
+    }
+    assert!(
+        overflowing.is_empty(),
+        "predecessor stages exceed k16: {overflowing:?}"
+    );
 }

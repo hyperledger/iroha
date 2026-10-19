@@ -6,8 +6,7 @@ use ff::{Field, PrimeField};
 use iroha_kagemusha_proof::{
     a_relation::{
         AProofPlan, QProofPlan,
-        native::load::{A_STAGE_COUNT, Inputs, Plan, PredecessorInput, QInput},
-        split::WKey,
+        native::load::{Inputs, Plan, PredecessorInput, QInput},
     },
     admin_sigma::{LoadCircuit, LoadWitness, StateWitness},
     operation_relation::map_effects::LOAD_DOMAIN,
@@ -95,8 +94,8 @@ pub fn build(
     let pallas = PinnedParams::<Ep>::derive(16).unwrap();
     let vesta = PinnedParams::<Eq>::derive(16).unwrap();
     // The wallet still proves its k12 step relation before Advance, and the own receipt
-    // binds that proof's digest. Lean lineage proves the Load transition in A1 directly,
-    // so no Q_sigma verifies this proof inside the lineage.
+    // binds that proof's digest. Lean lineage proves the Load transition in its single
+    // terminal A directly, so no Q_sigma verifies this proof inside the lineage.
     let sigma_params = PinnedParams::<Eq>::derive(12).unwrap();
     let sigma = LoadCircuit::new(&state);
     let sigma_instances = sigma.instances();
@@ -178,41 +177,21 @@ pub fn build(
         },
     };
     let _prepared = plan.prepare(inputs.clone(), MemoryBudget::DEFAULT).unwrap();
-    let mut a = Vec::new();
-    let mut w = Vec::new();
-    let mut previous = None;
+    // One terminal A original; no W source follows it.
     let mut config = KeygenConfigV2::pipa_r(vec![InstanceType::Bounded]);
     config.compress_selectors = false;
-    for stage in 0..A_STAGE_COUNT {
-        let source = plan.source_circuit(stage, previous.take()).unwrap();
-        let key = keygen_pk_v2(&vesta, &source, &config).unwrap();
-        let binding = key.binding().clone();
-        let vk = key.vk().clone();
-        a.push(load_chain::Original::persist(
-            &directory.join(format!("a{stage}.pk")),
-            binding.encoded().to_vec(),
-            vk.to_bytes().to_vec(),
-            key.artifact_bytes_v2().unwrap(),
-        ));
-        drop(key);
-        if stage + 1 < A_STAGE_COUNT {
-            let source = plan.wrapper_source(stage, &binding, &vk).unwrap();
-            let (fixed, key) = WKey::keygen(&source, &pallas).unwrap();
-            w.push(load_chain::Original::persist(
-                &directory.join(format!("w{stage}.pk")),
-                key.binding().encoded().to_vec(),
-                key.vk().to_bytes().to_vec(),
-                key.artifact_bytes_v2().unwrap(),
-            ));
-            drop(key);
-            previous = Some(fixed);
-        }
-        eprintln!("ORDINARY_LOAD_ARTIFACT stage={} lean2A1W=true", stage + 1);
-    }
+    let key = keygen_pk_v2(&vesta, &plan.source_circuit().unwrap(), &config).unwrap();
+    let terminal = load_chain::Original::persist(
+        &directory.join("a0.pk"),
+        key.binding().encoded().to_vec(),
+        key.vk().to_bytes().to_vec(),
+        key.artifact_bytes_v2().unwrap(),
+    );
+    drop(key);
+    eprintln!("ORDINARY_LOAD_ARTIFACT stage=1 lean1A=true");
     load_chain::InstalledLoad {
         plan,
-        a: a.try_into().ok().unwrap(),
-        w: w.try_into().ok().unwrap(),
+        terminal,
         inputs,
         read: ReadConfig {
             maximum_bytes: 256 << 20,

@@ -5,7 +5,7 @@ use iroha_pasta::PastaAffine;
 
 fn original() -> Inputs {
     let state = StateWitness {
-        core: [Fp::ZERO; 29],
+        core: [Fp::ZERO; crate::witness::CORE_FIELDS],
         rest: [Fp::ZERO; 6],
         lineage: [Fp::ZERO; 18],
     };
@@ -60,7 +60,8 @@ fn exact_load_receipt_tape_matches_bound_statement_digest() {
 
 #[test]
 fn lean_load_forwards_the_pinned_trivial_part_without_a_sigma_verifier() {
-    // Λ proves the Load transition in A1; the part W0 folds is the pinned trivial claim.
+    // Λ proves the Load transition in the terminal A; its frame part is the pinned
+    // trivial claim, exactly as `close_single` emits it.
     let part = trivial_vesta_claim().unwrap();
     assert_eq!(part.source_k(), 16);
     assert_eq!(part.challenges(), &[Fp::ONE; K]);
@@ -140,12 +141,27 @@ fn final_digest_has_exact52_fields_and_keeps_high_foreign_challenge_limbs() {
         )
         .unwrap()
     );
-    let part = FoldInput::from_normalized(eq, 16, [Fp::ONE; K]).unwrap();
-    let public = internal_public(digest, &part).unwrap();
+    // The final frame binds that digest, then the trivial part, the predecessor
+    // Vesta claim, the absent incoming slot and its fixed mode/correction filler.
+    let mut predecessor = [Fp::ONE; K];
+    predecessor[3] = Fp::from(7);
+    let predecessor = FoldInput::from_normalized(eq, 16, predecessor).unwrap();
+    let public = terminal_public(&fields, &pallas, &predecessor).unwrap();
     assert_eq!(public.len(), 69);
+    assert_eq!(public[0], digest);
+    assert_eq!(public[1], Fp::from(16));
+    let trivial = trivial_vesta_words().unwrap();
+    assert_eq!(&public[2..22], trivial.as_slice());
+    assert_eq!(&public[22..42], vesta_words(&predecessor).as_slice());
+    assert_eq!(&public[42..62], trivial.as_slice());
     assert_eq!(&public[62..65], &[Fp::ZERO, Fp::ONE, Fp::ZERO]);
-    assert_eq!(&public[22..42], &public[42..62]);
-    assert_eq!(&public[65..69], &public[22..26]);
+    assert_eq!(&public[65..69], &trivial[..4]);
+    // Only a full k16 Pallas claim enters D_A.
+    let short = FoldInput::<Ep>::from_opening(ep, &[Fq::ONE; 12]).unwrap();
+    assert_eq!(
+        terminal_public(&fields, &short, &predecessor),
+        Err(Error::Input)
+    );
 }
 
 #[test]
@@ -169,19 +185,20 @@ fn original_key_bounds_reject_empty_oversized_and_excess_domain() {
 }
 
 #[test]
-fn second_checkpoint_is_terminal_and_out_of_range_source_is_rejected() {
-    assert_eq!(A_STAGE_COUNT, 2);
-    assert_eq!(W_STAGE_COUNT, 1);
+fn single_terminal_stage_owns_the_own_receipt_q_and_both_load_tasks() {
+    use crate::a_relation::schedule::OperationTask;
+    assert_eq!(A_STAGE_COUNT, 1);
+    let schedule =
+        crate::a_relation::schedule::compiled::OperationSchedule::for_variant(Variant::Load);
+    assert_eq!(schedule.stage_count(), A_STAGE_COUNT);
+    assert_eq!(schedule.q_partitions(), &[vec![0]]);
     assert_eq!(
-        crate::a_relation::schedule::compiled::OperationSchedule::for_variant(Variant::Load)
-            .stage_count(),
-        A_STAGE_COUNT
+        schedule.tasks(),
+        &[vec![
+            OperationTask::LoadRecovery,
+            OperationTask::LoadReceipt
+        ]]
     );
-    for stage in 0..A_STAGE_COUNT {
-        assert_eq!(checkpoint_stage(stage), Ok(()));
-    }
-    assert_eq!(checkpoint_stage(A_STAGE_COUNT), Err(Error::Input));
-    assert_eq!(checkpoint_stage(usize::MAX), Err(Error::Input));
 }
 
 #[test]

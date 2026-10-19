@@ -415,14 +415,12 @@ impl<F: PastaField> Replay<F> {
 }
 impl<F: PastaField> ReplayState<F> {
     fn fixed(&self, region: &mut Region<'_, F>, row: usize) -> Result<(), Error> {
-        for (col, value) in [
-            (self.secondary.primary, self.plan.pattern[row]),
-            (self.secondary.control, self.plan.control[row]),
-        ] {
-            let value = F::from(u64::from(value));
-            region.expect_fixed(col, row, value)?;
-            region.assign_fixed(col, row, value)?;
-        }
-        Ok(())
+        self.primary.assign_tagged_code(
+            region,
+            row,
+            u64::from(self.plan.pattern[row]),
+            Some(u64::from(self.plan.control[row])),
+            true,
+        )
     }
 }

@@ -1,7 +1,7 @@
 //! Shared native-BLS Load fixture with fresh originals for each exact predecessor.
 //!
 //! The captured ledger execution is synthetic component data. This fixture authenticates
-//! its real BLS certificate, then uses the ordinary native four-A/three-W monetary source.
+//! its real BLS certificate, then uses the ordinary native single-terminal monetary source.
 
 use super::{load_chain::LoadFixture, load_fixture, ordinary_load_receipt};
 use std::{

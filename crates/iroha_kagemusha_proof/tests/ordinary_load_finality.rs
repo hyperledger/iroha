@@ -10,7 +10,7 @@ mod bootstrap;
 #[allow(dead_code)]
 mod bootstrap_objects;
 mod common;
-/// The same native Load four-A/three-W producer used by subsequent chain fixtures.
+/// The same native single-terminal Load producer used by subsequent chain fixtures.
 #[path = "a_load_recursive.rs"]
 pub mod load_chain;
 #[path = "common/ordinary_load_fixture.rs"]
@@ -38,7 +38,7 @@ fn first_load_certificate_and_receipt_verify_without_proving_keys() {
 }
 
 #[test]
-#[ignore = "explicit genuine four-A/three-W Load proof construction after direct BLS admission"]
+#[ignore = "explicit genuine single-terminal Load proof construction after direct BLS admission"]
 fn exact_first_load_native_finality_then_native_load() {
     let output = PathBuf::from(
         std::env::var_os("KAGEMUSHA_LOAD_OUTPUT")
