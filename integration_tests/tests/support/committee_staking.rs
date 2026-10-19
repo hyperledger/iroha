@@ -493,7 +493,7 @@ impl WithdrawalLifecycle {
             replay.hash() != transaction.hash(),
             "withdrawal replay must be a new signed transaction carrying the exact consumed plan"
         );
-        let after_replay = self.observe(observation_intent).await?;
+        let after_replay = self.observe(observation_intent.clone()).await?;
         let replay_fee = actual_fee(
             &after,
             &after_replay,
@@ -513,7 +513,88 @@ impl WithdrawalLifecycle {
             &self.owner.account,
             &replay_fee,
         )?;
-        for block in after_replay
+        // Restore actual daemon State/Kura on every original process after the
+        // withdrawal and its first rejected replay, then prove the consumed plan
+        // cannot move the same bond again. No successor traffic hides replay drift.
+        shutdown_all_cleanly(network).await?;
+        network.start_all().await?;
+        network
+            .ensure_blocks(after_replay.prepared.observed_height)
+            .await?;
+        let restored = self.observe(observation_intent.clone()).await?;
+        ensure!(
+            same_observed_tip(&after_replay.prepared, &restored.prepared),
+            "all-seat restart changed the original withdrawal tip without paid traffic"
+        );
+        assert_effects(
+            &after_replay,
+            &restored,
+            &self.escrow,
+            &self.destination,
+            &Quantity::zero(),
+            &Quantity::zero(),
+            &Quantity::zero(),
+            &self.owner.account,
+            &Quantity::zero(),
+        )?;
+        let restarted_replay =
+            submit_signed(&self.owner.client, self.withdrawal(&before)?.into(), false).await?;
+        ensure!(
+            restarted_replay.hash() != replay.hash()
+                && restarted_replay.hash() != transaction.hash(),
+            "post-restart rejection must execute a fresh signed transaction carrying the consumed withdrawal plan"
+        );
+        let after_restarted_replay = self.observe(observation_intent.clone()).await?;
+        let fee = actual_fee(
+            &restored,
+            &after_restarted_replay,
+            &restarted_replay,
+            false,
+            Some("validator has no retained positive stake custody"),
+            self.escrow.definition(),
+        )?;
+        assert_effects(
+            &restored,
+            &after_restarted_replay,
+            &self.escrow,
+            &self.destination,
+            &Quantity::zero(),
+            &Quantity::zero(),
+            &Quantity::zero(),
+            &self.owner.account,
+            &fee,
+        )?;
+        let successor = submit_signed(
+            &self.owner.client,
+            Log::new(
+                Level::INFO,
+                "paid progress after full bond withdrawal and all-seat restart".to_owned(),
+            )
+            .into(),
+            true,
+        )
+        .await?;
+        let after_successor = self.observe(observation_intent).await?;
+        let fee = actual_fee(
+            &after_restarted_replay,
+            &after_successor,
+            &successor,
+            true,
+            None,
+            self.escrow.definition(),
+        )?;
+        assert_effects(
+            &after_restarted_replay,
+            &after_successor,
+            &self.escrow,
+            &self.destination,
+            &Quantity::zero(),
+            &Quantity::zero(),
+            &Quantity::zero(),
+            &self.owner.account,
+            &fee,
+        )?;
+        for block in after_successor
             .chain
             .iter()
             .filter(|block| block.height() > TARGET_LAST)

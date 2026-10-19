@@ -505,7 +505,7 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
     ///
     /// # Errors
     /// Conflicting request, missing native custody, unavailable storage/artifacts, invalid proof
-    /// or uncertain Advance. A stale prepared source returns NotPerformed without rebasing.
+    /// or uncertain Advance. A stale prepared source returns `NotPerformed` without rebasing.
     pub fn execute(&mut self, request: OperationRequestV1) -> Result<Completion, Error> {
         self.execute_intent(NativeIntentV1::user(request))
     }

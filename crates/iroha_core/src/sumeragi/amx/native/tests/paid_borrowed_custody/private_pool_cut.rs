@@ -1,7 +1,7 @@
 //! Real paid native transfer and original funded World publication of public pool facts.
 //!
-//! The fixture seeds a valid empty pool through the native bootstrap planner, then certifies
-//! an ordinary paid transfer. It does not synthesize a spent note or a proof of settlement.
+//! The fixture seeds one governed origin commitment through the native bootstrap planner,
+//! then certifies an ordinary paid transfer. It creates no private spend or settlement proof.
 
 use super::*;
 use crate::private_settlement::{
@@ -119,7 +119,7 @@ fn fixture_with_assignment(assignment: bool) -> (CertifiedTestChain, PrivateSett
         &config.world.private_settlement_pools.view(),
         &config.world.private_settlement_roots.view(),
         governance,
-        &[],
+        &[PrivacyCommitmentV1::new([0xD3; 32])],
         1,
     )
     .unwrap()
@@ -248,7 +248,7 @@ fn private_pool_cut_borrows_real_paid_native_world_and_authenticates_selected_ro
     assert_eq!(cut.height(), 2);
     assert_eq!(cut.key(), key);
     cut.pool().validate().unwrap();
-    assert_eq!(cut.pool().tree_size, 0);
+    assert_eq!(cut.pool().tree_size, 1);
     assert_eq!(
         cut.governance().governance_digest,
         cut.pool().restricted_pool_policy_digest()
@@ -427,7 +427,7 @@ fn private_context_borrows_same_paid_world_assignment_and_refuses_local_capacity
         .verify_output_absent(PrivacyCommitmentV1::new([0xD8; 32]))
         .unwrap();
     // Same original complete World root authenticates the fee/native-execution cut and all
-    // public authority rows; the empty private pool does not claim an executed private spend.
+    // public authority rows; the governed origin commitment does not claim an executed spend.
     drop(bytes);
     drop(charge);
     assert_eq!(request.reserved_bytes(), 0);

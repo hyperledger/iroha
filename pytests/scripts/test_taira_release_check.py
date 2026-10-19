@@ -294,6 +294,8 @@ def assert_native_coverage(case, labels=None):
 class BeaconGateTests(unittest.TestCase):
     def test_current_declared_owner_and_runtime_controls_are_required_exactly_once(self):
         required = (
+            'sumeragi::executor::decoded_custody_tests::same_wire_distinct_action_owner_is_refused_at_original_lend_and_validation_return',
+            'sumeragi::executor::decoded_custody_tests::same_wire_parent_qc_substitution_preserving_actions_and_signatures_is_refused_at_both_boundaries',
             'kagemusha_wallet_v1::tests::wsv_tests::compact_fee_claim_routes_by_the_validated_send_asset_and_permanent_scope',
             'sumeragi::executor::preparation::tests::original_evidence_decode_owner_survives_worker_deferral_until_its_last_reader',
             'sumeragi::schedule::execution::tests::executed_genesis_requires_committed_fee_policy_without_defaults',
@@ -315,6 +317,9 @@ class BeaconGateTests(unittest.TestCase):
             'sumeragi::lanes::store::refund_tests::batch_read_cancellation_after_cleanup_observation_cannot_be_lost',
             'sumeragi::lanes::registry::tests::isolation_tests::final_inflight_incoming_opening_cleans_cancelled_request_but_keeps_historical_recovery',
             'sumeragi::lanes::registry::tests::proposal_reads::cancelled_incoming_read_retires_request_only_opening_and_preserves_historical_join',
+            'sumeragi::lanes::registry::tests::proposal_reads::cancelled_original_sweep_does_not_wait_for_new_disjoint_opening',
+            'sumeragi::lanes::registry::tests::proposal_reads::original_sweep_preserves_a_later_same_key_native_owner',
+            'sumeragi::lanes::registry::tests::proposal_reads::exhausted_registration_identity_refuses_before_new_native_custody',
             'sumeragi::executor::proposal_read_tests::successful_parent_commit_cancels_proposal_read_only_after_original_publication',
             'smartcontracts::isi::domain::isi::private_root_home_tests::original_private_root_registers_confined_home_and_never_creates_global_bucket',
             'smartcontracts::isi::domain::isi::private_root_home_tests::restricted_home_requires_original_private_root_not_global_missing_or_foreign_scope',

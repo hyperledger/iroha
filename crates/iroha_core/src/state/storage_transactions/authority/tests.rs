@@ -490,3 +490,5 @@ fn detached_changed_predecessor_cannot_gain_a_successor_capture() {
     field.release_writers();
     assert!(field.prepared_membership_writer().is_none());
 }
+
+include!("delta_tests.rs");

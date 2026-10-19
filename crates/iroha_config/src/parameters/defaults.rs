@@ -3717,7 +3717,7 @@ pub mod nexus {
                 fee_sink_account_id: AccountId::parse_encoded(FEE_SINK_ACCOUNT_ID)
                     .expect("canonical default fee sink"),
                 sponsor_vault_custody_account_id: sponsor_vault_custody_account_id(),
-                successful_claim_fee_exempt_authorities: Default::default(),
+                successful_claim_fee_exempt_authorities: std::collections::BTreeSet::default(),
                 base_fee: base_fee(),
                 per_byte_fee: per_byte_fee(),
                 per_instruction_fee: per_instruction_fee(),

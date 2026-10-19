@@ -1505,6 +1505,7 @@ pub use block::{TransactionsBlock, TransactionsBlockError, TransactionsBlockFiel
 /// predecessor identity. The pending `BlockInfo` allocation is immutable and is
 /// replaced only by staging a different row. Pointer equality therefore binds
 /// the exact publication without copying or sorting its membership set.
+#[derive(Clone)]
 pub(in crate::state) struct TransactionsPublicationSurface {
     predecessor: Identity,
     current: Option<Tip>,
@@ -1809,6 +1810,50 @@ mod membership_projection {
                     && !promoted.is_some_and(|previous| previous.transactions.contains(key))
                 {
                     visit(key, *value)?;
+                }
+            }
+            Ok(())
+        }
+
+        /// Exact physical set-entry visits for both committed-pair delta streams.
+        /// History is probed only by key, never scanned; this does not bound tree
+        /// comparisons, hash buckets or elapsed work inside those point lookups.
+        pub(in crate::state) fn publication_delta_row_visits(&self) -> Option<usize> {
+            let latest = self
+                .before
+                .latest
+                .as_ref()
+                .map_or(0, |tip| tip.transactions.len());
+            let changed_rollback =
+                !self.before.revert && self.staged_height().get() != self.committed_height();
+            self.current
+                .transactions
+                .len()
+                .checked_add(if self.before.revert { latest } else { 0 })?
+                .checked_add(if changed_rollback { latest } else { 0 })
+        }
+
+        /// Net rollback-map changes from the committed pair to this successor.
+        /// Ordinary advance promotes the exact previous tip into rollback;
+        /// replacement and repeated publication retain the original rollback.
+        /// The physical history remains borrowed under this writer throughout.
+        pub(in crate::state) fn visit_committed_rollback_changes<E>(
+            &self,
+            mut visit: impl FnMut(&Key, Option<Value>, Option<Value>) -> Result<(), E>,
+        ) -> Result<(), E> {
+            if self.before.revert || self.staged_height().get() == self.committed_height() {
+                return Ok(());
+            }
+            if cfg!(all(test, sumeragi_core_mutation = "HC450")) {
+                return Ok(());
+            }
+            if let Some(previous) = &self.before.latest {
+                for key in &previous.transactions {
+                    visit(
+                        key,
+                        self.before.history_before(key, previous.height),
+                        Some(previous.height),
+                    )?;
                 }
             }
             Ok(())

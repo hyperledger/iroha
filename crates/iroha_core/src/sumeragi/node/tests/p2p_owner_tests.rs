@@ -17,7 +17,7 @@ use iroha_sumeragi::{
 };
 use std::collections::BTreeSet;
 
-fn runtime() -> tokio::runtime::Runtime {
+pub(super) fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -52,7 +52,7 @@ fn network_config(replay_root: &std::path::Path) -> iroha_config::parameters::ac
     config
 }
 
-async fn live_network(
+pub(super) async fn live_network(
     key: &KeyPair,
     network_id: NetworkId,
     targets: BTreeSet<PeerId>,

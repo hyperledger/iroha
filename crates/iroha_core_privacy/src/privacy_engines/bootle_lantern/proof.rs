@@ -245,7 +245,7 @@ struct ProjectionProofV1 {
 }
 /// Prove one validated anonymous-credential presentation.
 ///
-/// The transcript must carry `application_relation_digest_v1(relation)`.
+/// The borrowed transcript must carry `application_relation_digest_v1(relation)`.
 /// Randomness is obtained once from the caller's fallible cryptographic RNG,
 /// then every internal stream is independently domain-separated.
 ///
@@ -264,13 +264,13 @@ struct ProjectionProofV1 {
 pub fn prove_presentation_v1<R: CryptoRng + RngCore>(
     relation: &BootleLanternApplicationRelationV1,
     witness: &BootleLanternPresentationWitnessV1,
-    transcript: PresentationTranscriptV1,
+    transcript: &PresentationTranscriptV1,
     rng: &mut R,
 ) -> Result<BootleLanternPresentationProofV1, PresentationProofErrorV1> {
     prove_with_transcript_core_v1(
         relation,
         witness,
-        transcript.proof_core(),
+        &transcript.proof_core(),
         rng,
         MAX_PROOF_SAMPLING_ATTEMPTS_V1,
     )
@@ -278,13 +278,13 @@ pub fn prove_presentation_v1<R: CryptoRng + RngCore>(
 pub(crate) fn prove_blind_issuance_request_v1<R: CryptoRng + RngCore>(
     relation: &BootleLanternApplicationRelationV1,
     witness: &BootleLanternPresentationWitnessV1,
-    transcript: BlindIssuanceRequestTranscriptV1,
+    transcript: &BlindIssuanceRequestTranscriptV1,
     rng: &mut R,
 ) -> Result<BootleLanternBlindIssuanceRequestProofV1, PresentationProofErrorV1> {
     let body = prove_with_transcript_core_v1(
         relation,
         witness,
-        transcript.proof_core(),
+        &transcript.proof_core(),
         rng,
         MAX_PROOF_SAMPLING_ATTEMPTS_V1,
     )?;
@@ -294,14 +294,14 @@ pub(crate) fn prove_blind_issuance_request_v1<R: CryptoRng + RngCore>(
 fn prove_presentation_with_rejection_limit_v1<R: CryptoRng + RngCore>(
     relation: &BootleLanternApplicationRelationV1,
     witness: &BootleLanternPresentationWitnessV1,
-    transcript: PresentationTranscriptV1,
+    transcript: &PresentationTranscriptV1,
     rng: &mut R,
     rejection_draw_limit: u32,
 ) -> Result<BootleLanternPresentationProofV1, PresentationProofErrorV1> {
     prove_with_transcript_core_v1(
         relation,
         witness,
-        transcript.proof_core(),
+        &transcript.proof_core(),
         rng,
         rejection_draw_limit,
     )
@@ -309,7 +309,7 @@ fn prove_presentation_with_rejection_limit_v1<R: CryptoRng + RngCore>(
 fn prove_with_transcript_core_v1<R: CryptoRng + RngCore>(
     relation: &BootleLanternApplicationRelationV1,
     witness: &BootleLanternPresentationWitnessV1,
-    transcript: ProofTranscriptCoreV1,
+    transcript: &ProofTranscriptCoreV1,
     rng: &mut R,
     rejection_draw_limit: u32,
 ) -> Result<BootleLanternPresentationProofV1, PresentationProofErrorV1> {
@@ -322,7 +322,7 @@ fn prove_with_transcript_core_v1<R: CryptoRng + RngCore>(
     let mut randomness =
         ProofRandomnessV1::from_rng(rng).map_err(PresentationProofErrorV1::Sampling)?;
     let matrices =
-        InternalMatricesV1::expand(&transcript).map_err(PresentationProofErrorV1::Toolbox)?;
+        InternalMatricesV1::expand(transcript).map_err(PresentationProofErrorV1::Toolbox)?;
     let mut rejection_budget = ProofRejectionBudgetV1::new(rejection_draw_limit);
     while !rejection_budget.is_exhausted() {
         let draws_before = rejection_budget.total_draws();
@@ -347,7 +347,7 @@ fn prove_with_transcript_core_v1<R: CryptoRng + RngCore>(
     }
     Err(rejection_budget.exhaustion_error())
 }
-/// Verify one strictly decoded presentation proof.
+/// Verify one strictly decoded presentation proof against the borrowed transcript.
 ///
 /// # Errors
 ///
@@ -355,21 +355,25 @@ fn prove_with_transcript_core_v1<R: CryptoRng + RngCore>(
 /// Schwartz commitment shape, or Fiat--Shamir challenge mismatch.
 pub fn verify_presentation_v1(
     relation: &BootleLanternApplicationRelationV1,
-    transcript: PresentationTranscriptV1,
+    transcript: &PresentationTranscriptV1,
     proof: &BootleLanternPresentationProofV1,
 ) -> Result<(), PresentationProofErrorV1> {
-    verify_with_transcript_core_v1(relation, transcript.proof_core(), proof)
+    verify_with_transcript_core_v1(relation, &transcript.proof_core(), proof)
 }
 pub(crate) fn verify_blind_issuance_request_v1(
     relation: &BootleLanternApplicationRelationV1,
-    transcript: BlindIssuanceRequestTranscriptV1,
+    transcript: &BlindIssuanceRequestTranscriptV1,
     proof: &BootleLanternBlindIssuanceRequestProofV1,
 ) -> Result<(), PresentationProofErrorV1> {
-    verify_with_transcript_core_v1(relation, transcript.proof_core(), proof.validated_body_v1())
+    verify_with_transcript_core_v1(
+        relation,
+        &transcript.proof_core(),
+        proof.validated_body_v1(),
+    )
 }
 fn verify_with_transcript_core_v1(
     relation: &BootleLanternApplicationRelationV1,
-    transcript: ProofTranscriptCoreV1,
+    transcript: &ProofTranscriptCoreV1,
     proof: &BootleLanternPresentationProofV1,
 ) -> Result<(), PresentationProofErrorV1> {
     require_relation_digest(relation, transcript)?;
@@ -385,7 +389,7 @@ fn verify_with_transcript_core_v1(
     let challenge = proof.challenge_polynomial();
     require_schwartz_commitment_shape(&h)?;
     let matrices =
-        InternalMatricesV1::expand(&transcript).map_err(PresentationProofErrorV1::Toolbox)?;
+        InternalMatricesV1::expand(transcript).map_err(PresentationProofErrorV1::Toolbox)?;
     let (projection_r, projection_r_prime) = derive_projection_matrices(transcript, &t_b)?;
     let weights = derive_schwartz_weights(transcript, &t_b)?;
     let multipliers = derive_equation_multipliers(transcript, &t_b, &h, &z3, &z4)?;
@@ -444,7 +448,7 @@ fn verify_with_transcript_core_v1(
 fn prove_attempt(
     relation: &BootleLanternApplicationRelationV1,
     short: &super::toolbox::ShortWitnessV1,
-    transcript: ProofTranscriptCoreV1,
+    transcript: &ProofTranscriptCoreV1,
     matrices: &InternalMatricesV1,
     randomness: &mut ProofRandomnessV1,
     rejection_budget: &mut ProofRejectionBudgetV1,
@@ -643,7 +647,7 @@ fn prove_attempt(
 fn prove_projected_responses(
     relation: &BootleLanternApplicationRelationV1,
     short: &[ProofPolynomialV1; TBOX_M1_V1],
-    transcript: ProofTranscriptCoreV1,
+    transcript: &ProofTranscriptCoreV1,
     matrices: &InternalMatricesV1,
     s2: &[ProofPolynomialV1; TBOX_M2_V1],
     messages: &mut [ProofPolynomialV1; TBOX_LEXT_V1],
@@ -779,20 +783,20 @@ fn prove_projected_responses(
     Ok(None)
 }
 fn derive_projection_matrices(
-    transcript: ProofTranscriptCoreV1,
+    transcript: &ProofTranscriptCoreV1,
     t_b: &[ProofPolynomialV1; TBOX_LEXT_V1],
 ) -> Result<(Box<[i8]>, Box<[i8]>), PresentationProofErrorV1> {
     let projection_commitments = encode_polynomials_v1(&t_b[..BETA_MESSAGE_INDEX_V1 + 1]);
     let components = [projection_commitments.as_slice()];
     let projection_r = expand_projection_matrix_v1(
-        &transcript,
+        transcript,
         PROJECTION_R_STAGE_V1,
         &components,
         50 * APPLICATION_RING_DEGREE_V1,
     )
     .map_err(PresentationProofErrorV1::Toolbox)?;
     let projection_r_prime = expand_projection_matrix_v1(
-        &transcript,
+        transcript,
         PROJECTION_R_PRIME_STAGE_V1,
         &components,
         8 * APPLICATION_RING_DEGREE_V1,
@@ -801,7 +805,7 @@ fn derive_projection_matrices(
     Ok((projection_r, projection_r_prime))
 }
 fn derive_schwartz_weights(
-    transcript: ProofTranscriptCoreV1,
+    transcript: &ProofTranscriptCoreV1,
     t_b: &[ProofPolynomialV1; TBOX_LEXT_V1],
 ) -> Result<Box<[u64]>, PresentationProofErrorV1> {
     let commitment = encode_polynomials_v1(&t_b[..QUADRATIC_MESSAGE_POLYNOMIALS_V1]);
@@ -815,7 +819,7 @@ fn derive_schwartz_weights(
         .map_err(|error| PresentationProofErrorV1::Toolbox(ToolboxErrorV1::Transcript(error)))
 }
 fn derive_equation_multipliers(
-    transcript: ProofTranscriptCoreV1,
+    transcript: &ProofTranscriptCoreV1,
     t_b: &[ProofPolynomialV1; TBOX_LEXT_V1],
     h: &[ProofPolynomialV1; H_POLYNOMIALS_V1],
     z3: &[ProofPolynomialV1; Z3_POLYNOMIALS_V1],
@@ -1137,7 +1141,7 @@ fn pre_challenge_wire(
 }
 fn require_relation_digest(
     relation: &BootleLanternApplicationRelationV1,
-    transcript: ProofTranscriptCoreV1,
+    transcript: &ProofTranscriptCoreV1,
 ) -> Result<(), PresentationProofErrorV1> {
     if transcript.relation_digest() != application_relation_digest_v1(relation) {
         return Err(PresentationProofErrorV1::RelationDigestMismatch);
@@ -2515,7 +2519,7 @@ mod tests {
                 .compile_transcript_v1(&context, genesis_hash, &policy, &authorization)
                 .expect("canonical P1 relation and transcript");
             let p1_proof = request.proof_v1().clone();
-            verify_blind_issuance_request_v1(&p1_relation, p1_transcript, &p1_proof)
+            verify_blind_issuance_request_v1(&p1_relation, &p1_transcript, &p1_proof)
                 .expect("holder's nominal P1 proof verifies before issuance");
             let mut issuer_issuance_rng = TestRng::healthy(0xa54f_f53a_5f1d_36f1);
             let response = issuer_blind_issue_once_with_rng_v1(
@@ -2626,7 +2630,7 @@ mod tests {
             let (p1_relation, p1_transcript) = request
                 .compile_transcript_v1(&context, genesis_hash, &policy, &authorization)
                 .expect("sealed-fixture P1 relation and transcript");
-            verify_blind_issuance_request_v1(&p1_relation, p1_transcript, request.proof_v1())
+            verify_blind_issuance_request_v1(&p1_relation, &p1_transcript, request.proof_v1())
                 .expect("sealed-fixture P1 proof verifies before issuance");
             let mut issuer_issuance_rng = TestRng::healthy(0xa54f_f53a_5f1d_36f1);
             let response = issuer_blind_issue_once_with_rng_v1(
@@ -3105,10 +3109,10 @@ mod tests {
             }))
         });
         let proof_core = fixture.transcript.proof_core();
-        let (projection_r, projection_r_prime) = derive_projection_matrices(proof_core, &t_b)
+        let (projection_r, projection_r_prime) = derive_projection_matrices(&proof_core, &t_b)
             .expect("transcript-bound projection matrices");
-        let weights = derive_schwartz_weights(proof_core, &t_b).expect("Schwartz weights");
-        let multipliers = derive_equation_multipliers(proof_core, &t_b, &h, &z3, &z4)
+        let weights = derive_schwartz_weights(&proof_core, &t_b).expect("Schwartz weights");
+        let multipliers = derive_equation_multipliers(&proof_core, &t_b, &h, &z3, &z4)
             .expect("ring equation multipliers");
         QuadraticEquationV1::new(
             &fixture.relation,
@@ -3642,12 +3646,12 @@ mod tests {
         match prove_presentation_with_rejection_limit_v1(
             &fixture.relation,
             &fixture.witness,
-            fixture.transcript,
+            &fixture.transcript,
             &mut rng,
             32,
         ) {
             Ok(proof) => {
-                verify_presentation_v1(&fixture.relation, fixture.transcript, &proof)
+                verify_presentation_v1(&fixture.relation, &fixture.transcript, &proof)
                     .expect("short-budget proof self-verifies");
                 eprintln!("short-budget diagnostic: proof accepted");
             }
@@ -3672,7 +3676,7 @@ mod tests {
             &mut rng,
         )
         .expect("fully governed native proof");
-        verify_presentation_v1(&fixture.relation, fixture.transcript, &proof)
+        verify_presentation_v1(&fixture.relation, &fixture.transcript, &proof)
             .expect("native proof verifies");
         verify_bound_presentation_v1(
             &fixture.statement,
@@ -3693,7 +3697,7 @@ mod tests {
         )
         .expect("strict wire round trip");
         assert_eq!(decoded, proof);
-        verify_presentation_v1(&fixture.relation, fixture.transcript, &decoded)
+        verify_presentation_v1(&fixture.relation, &fixture.transcript, &decoded)
             .expect("decoded native proof verifies");
         verify_bound_presentation_encoded_v1(
             &fixture.statement,
@@ -3709,7 +3713,7 @@ mod tests {
         let decoded_p1 =
             BootleLanternBlindIssuanceRequestProofV1::decode_exact(&p1_encoded, proof_cap)
                 .expect("strict nominal P1 wire round trip");
-        verify_blind_issuance_request_v1(&issued.p1_relation, issued.p1_transcript, &decoded_p1)
+        verify_blind_issuance_request_v1(&issued.p1_relation, &issued.p1_transcript, &decoded_p1)
             .expect("decoded nominal P1 proof verifies");
         assert_ne!(
             proof.challenge_polynomial(),
@@ -3749,7 +3753,7 @@ mod tests {
         assert!(
             verify_presentation_v1(
                 &issued.p1_relation,
-                p2_transcript_for_p1_relation,
+                &p2_transcript_for_p1_relation,
                 &p1_body_as_p2,
             )
             .is_err(),
@@ -3781,7 +3785,7 @@ mod tests {
         assert!(
             verify_blind_issuance_request_v1(
                 &fixture.relation,
-                p1_transcript_for_p2_relation,
+                &p1_transcript_for_p2_relation,
                 &p2_body_as_p1,
             )
             .is_err(),
@@ -3955,7 +3959,7 @@ mod tests {
                 coefficients[index] = alternate_residue(coefficients[index]);
             });
             assert!(
-                verify_presentation_v1(&fixture.relation, fixture.transcript, &changed).is_err(),
+                verify_presentation_v1(&fixture.relation, &fixture.transcript, &changed).is_err(),
                 "mutation at flat coefficient {index} must fail"
             );
         }
@@ -3970,21 +3974,21 @@ mod tests {
             coefficients[CHALLENGE_START_TEST] = proof_residue_from_centered_v1(replacement);
         });
         assert!(
-            verify_presentation_v1(&fixture.relation, fixture.transcript, &challenge_changed)
+            verify_presentation_v1(&fixture.relation, &fixture.transcript, &challenge_changed)
                 .is_err()
         );
         let invalid_h = proof_from_mutation(&proof, |coefficients| {
             coefficients[H_START_TEST] = 1;
         });
         assert!(matches!(
-            verify_presentation_v1(&fixture.relation, fixture.transcript, &invalid_h),
+            verify_presentation_v1(&fixture.relation, &fixture.transcript, &invalid_h),
             Err(PresentationProofErrorV1::InvalidSchwartzCommitment)
         ));
         let excessive_z1 = proof_from_mutation(&proof, |coefficients| {
             coefficients[Z1_START_TEST] = proof_residue_from_centered_v1(1_040_728_452);
         });
         assert!(matches!(
-            verify_presentation_v1(&fixture.relation, fixture.transcript, &excessive_z1),
+            verify_presentation_v1(&fixture.relation, &fixture.transcript, &excessive_z1),
             Err(PresentationProofErrorV1::ResponseBound(
                 ResponseBoundErrorV1::Z1NormExceeded
             ))
@@ -3995,7 +3999,7 @@ mod tests {
             );
         });
         assert!(matches!(
-            verify_presentation_v1(&fixture.relation, fixture.transcript, &invalid_hint),
+            verify_presentation_v1(&fixture.relation, &fixture.transcript, &invalid_hint),
             Err(PresentationProofErrorV1::ResponseBound(
                 ResponseBoundErrorV1::HintOutOfRange
             ))
@@ -4004,7 +4008,7 @@ mod tests {
             coefficients[Z3_START_TEST] = proof_residue_from_centered_v1(10_661_921);
         });
         assert!(matches!(
-            verify_presentation_v1(&fixture.relation, fixture.transcript, &excessive_z3),
+            verify_presentation_v1(&fixture.relation, &fixture.transcript, &excessive_z3),
             Err(PresentationProofErrorV1::ResponseBound(
                 ResponseBoundErrorV1::Z3NormExceeded
             ))
@@ -4015,7 +4019,7 @@ mod tests {
             );
         });
         assert!(matches!(
-            verify_presentation_v1(&fixture.relation, fixture.transcript, &excessive_z4),
+            verify_presentation_v1(&fixture.relation, &fixture.transcript, &excessive_z4),
             Err(PresentationProofErrorV1::ResponseBound(
                 ResponseBoundErrorV1::Z4InfinityNormExceeded
             ))
@@ -4045,7 +4049,9 @@ mod tests {
                 fixture.transcript.relation_digest(),
             )
             .expect("changed transcript remains structurally valid");
-            assert!(verify_presentation_v1(&fixture.relation, changed_transcript, &proof).is_err());
+            assert!(
+                verify_presentation_v1(&fixture.relation, &changed_transcript, &proof).is_err()
+            );
         }
         let wrong_relation_transcript = PresentationTranscriptV1::new(
             fixture.transcript.binding(),
@@ -4054,7 +4060,7 @@ mod tests {
         )
         .expect("non-zero wrong relation digest");
         assert!(matches!(
-            verify_presentation_v1(&fixture.relation, wrong_relation_transcript, &proof),
+            verify_presentation_v1(&fixture.relation, &wrong_relation_transcript, &proof),
             Err(PresentationProofErrorV1::RelationDigestMismatch)
         ));
         // The all-zero algebraic forgery is canonical on the wire but invalid.
@@ -4063,7 +4069,7 @@ mod tests {
         )
         .expect("zero proof has a canonical challenge representation");
         assert!(
-            verify_presentation_v1(&fixture.relation, fixture.transcript, &zero_forgery).is_err()
+            verify_presentation_v1(&fixture.relation, &fixture.transcript, &zero_forgery).is_err()
         );
     }
     #[test]
@@ -4079,7 +4085,7 @@ mod tests {
                 prove_presentation_v1(
                     &fixture.relation,
                     &fixture.witness,
-                    fixture.transcript,
+                    &fixture.transcript,
                     &mut rng
                 ),
                 Err(PresentationProofErrorV1::Sampling(
@@ -4093,7 +4099,7 @@ mod tests {
             .expect("canonical application coefficient");
         let mut rng = TestRng::healthy(0x243f_6a88_85a3_08d3);
         assert!(matches!(
-            prove_presentation_v1(&fixture.relation, &invalid, fixture.transcript, &mut rng),
+            prove_presentation_v1(&fixture.relation, &invalid, &fixture.transcript, &mut rng),
             Err(PresentationProofErrorV1::Toolbox(_))
         ));
     }

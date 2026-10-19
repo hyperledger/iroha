@@ -1038,6 +1038,24 @@ impl SignatureDecodeAttempt {
                 "completed proposal lost its original signature custody".into(),
             ));
         }
+        let original_actions = self
+            .decoder
+            .retains_npos_penalty_action_custody(source, original)
+            .map_err(|error| payload::PayloadError::SignatureCustodyInvariant(error.to_string()))?;
+        if !cfg!(all(test, sumeragi_core_mutation = "HC458")) && !original_actions {
+            return Err(payload::PayloadError::SignatureCustodyInvariant(
+                "completed proposal lost its original penalty-action custody".into(),
+            ));
+        }
+        let original_parent = self
+            .decoder
+            .retains_parent_service_custody(source, original)
+            .map_err(|error| payload::PayloadError::SignatureCustodyInvariant(error.to_string()))?;
+        if !cfg!(all(test, sumeragi_core_mutation = "HC460")) && !original_parent {
+            return Err(payload::PayloadError::SignatureCustodyInvariant(
+                "completed proposal lost its original parent-QC custody".into(),
+            ));
+        }
         Ok(original)
     }
 
@@ -1094,7 +1112,31 @@ impl SignatureDecodeAttempt {
             Ok(original_control)
                 if original_control || cfg!(all(test, sumeragi_core_mutation = "HC131")) =>
             {
-                Ok(())
+                let original_actions = self
+                    .decoder
+                    .retains_npos_penalty_action_custody(source, original);
+                if matches!(original_actions, Ok(true))
+                    || cfg!(all(test, sumeragi_core_mutation = "HC458"))
+                {
+                    let original_parent = self
+                        .decoder
+                        .retains_parent_service_custody(source, original);
+                    if matches!(original_parent, Ok(true))
+                        || cfg!(all(test, sumeragi_core_mutation = "HC460"))
+                    {
+                        Ok(())
+                    } else {
+                        self.returned_refusal = Some(ReturnedDecodedRefusal::SourceMismatch);
+                        Err(PublicationError::RecoveryRequired(
+                            "returned proposal lost its original parent-QC custody".into(),
+                        ))
+                    }
+                } else {
+                    self.returned_refusal = Some(ReturnedDecodedRefusal::SourceMismatch);
+                    Err(PublicationError::RecoveryRequired(
+                        "returned proposal lost its original penalty-action custody".into(),
+                    ))
+                }
             }
             _ => {
                 self.returned_refusal = Some(ReturnedDecodedRefusal::SourceMismatch);

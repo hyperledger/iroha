@@ -184,7 +184,11 @@ fn transcript_proposal(
         assert!(!original.is_empty());
         assert!(original.len() <= iroha_data_model::consensus::PARENT_SERVICE_COMMIT_QC_MAX_BYTES);
         iroha_data_model::consensus::NposConsensusEffects {
-            parent_service_commit_qc: Some(original.to_vec()),
+            parent_service_commit_qc: Some(
+                iroha_data_model::consensus::NposParentServiceCommitQc::from_untrusted(
+                    original.to_vec(),
+                ),
+            ),
             ..Default::default()
         }
     });

@@ -386,8 +386,8 @@ pub enum KagemushaWalletKeyGenerationV1 {
 pub enum KagemushaWalletKeyProfileV1 {
     /// iPhone Secure Enclave (the Apple platform's only profile).
     SecureElement,
-    /// Android: StrongBox where the phone declares it, otherwise the TEE (the Android
-    /// platform's only profile). A StrongBox failure before key creation never falls back on
+    /// Android: `StrongBox` where the phone declares it, otherwise the TEE (the Android
+    /// platform's only profile). A `StrongBox` failure before key creation never falls back on
     /// the same slot: the slot is abandoned locally and a fresh enrollment, with a new
     /// challenge and slot, may carry only the platform adapter's TEE hint (design §2.2).
     SecureElementOrTee,
@@ -419,8 +419,8 @@ impl KagemushaWalletKeyProfileV1 {
 ///
 /// Bridge mapping. Android (JNI): `KeyGenParameterSpec.Builder(alias, PURPOSE_SIGN)` with
 /// secp256r1, `DIGEST_SHA256`, `setAttestationChallenge(challenge_digest)` and
-/// `setIsStrongBoxBacked(true)` where the phone declares StrongBox, otherwise the TEE. A
-/// StrongBox failure never retries on the same alias, grant or challenge: the platform reports
+/// `setIsStrongBoxBacked(true)` where the phone declares `StrongBox`, otherwise the TEE. A
+/// `StrongBox` failure never retries on the same alias, grant or challenge: the platform reports
 /// it, the provider abandons the slot locally and a fresh enrollment uses a new slot and
 /// challenge. Never any user-authentication,
 /// unlocked-device, usage-count or confirmation option. iPhone (C vtable): a Secure Enclave

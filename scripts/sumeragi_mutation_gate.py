@@ -45,6 +45,14 @@ Purpose
     remain fully accounted, but their failures cannot replace a declared control.
     These independent invocations retain the configured per-step deadlines, and any
     step error prevents the aggregate result from qualifying.
+    The campaign observes the complete nonignored workspace manifest and branch
+    before queueing work and after every owned child has closed naturally. Dirty
+    source and detached CI checkouts are accepted when those observations agree.
+    Cheap per-work-item checks reject branch drift, conflicts and unfinished Git
+    operations without repeated full source hashes or new native deadlines.
+    Any source observation error invalidates the entire report, even when every
+    native mutation was killed. These boundary observations detect persistent
+    drift; they are not a source seal or proof of Cargo input consumption.
 
     The table MUTATIONS mirrors §13.4 (MS*/ML* rows and the MX* rows of the simulator's toy AMX application, §11) plus ME*
     (the as-built rules E1-E7 of Appendix E, with their regression tests) and MR-* (revision-4
@@ -72,7 +80,7 @@ Prerequisites
     modified.
 
 Outputs
-    <target-dir>/report.json   per-mutation results and a summary
+    <target-dir>/report.json   source observations, per-mutation results and a summary
     <target-dir>/logs/*.log    exact combined Cargo/native bytes of every step
     <target-dir>/logs/*.runtime.json  capture-only Cargo runner cwd/environment
     <target-dir>/logs/*.compiler.log  selected compiler native-host query
@@ -99,6 +107,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import queue
@@ -110,6 +119,22 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+
+def _load_workspace_source_helper():
+    """Load the exact sibling helper, independent of caller paths and caches."""
+    path = Path(__file__).resolve().with_name("compute_workspace_source_manifest.py")
+    spec = importlib.util.spec_from_file_location("sumeragi_workspace_source_manifest", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load workspace source helper: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_workspace_source = _load_workspace_source_helper()
+workspace_source_git_state = _workspace_source.workspace_source_git_state
+workspace_source_observation = _workspace_source.workspace_source_observation
 
 REPO = Path(__file__).resolve().parent.parent
 CRATE = "iroha_sumeragi"
@@ -588,6 +613,22 @@ MUTATIONS = [
 # Core-owned rules use the same strict harness classifier; no simulator hook can stand in
 # for production State/custody admission. Opt in explicitly with --core.
 CORE_MUTATIONS = [
+    m("HC460", "Original decoded proposal accepts a different equal-wire parent-QC owner",
+      ["sumeragi::executor::decoded_custody_tests::same_wire_parent_qc_substitution_preserving_actions_and_signatures_is_refused_at_both_boundaries"],
+      causes=(ExpectedFailure("same-wire parent-QC substitution must fail original lend", "crates/iroha_core/src/sumeragi/executor_decoded_custody_tests.rs"),)),
+
+    m("HC461", "Parent-QC decode drops original typed refusal provenance",
+      ["execution_attempt::prepared_parent_service_attempt_preserves_original_capacity_and_allocator_fields"],
+      causes=(ExpectedFailure("parent-QC decode must retain its original capacity cause", "crates/iroha_core/src/execution_attempt.rs"),)),
+
+    m("HC459", "Native action decode drops original typed refusal provenance",
+      ["execution_attempt::prepared_penalty_action_attempt_retains_exact_capacity_and_allocator_causes"],
+      causes=(ExpectedFailure("field 5 must preserve the exact original capacity cause", "crates/iroha_core/src/execution_attempt.rs"),)),
+
+    m("HC458", "Original decoded proposal accepts another same-wire action owner",
+      ["sumeragi::executor::decoded_custody_tests::same_wire_distinct_action_owner_is_refused_at_original_lend_and_validation_return"],
+      causes=(ExpectedFailure("same-wire action substitution must fail original lend", "crates/iroha_core/src/sumeragi/executor_decoded_custody_tests.rs"),)),
+
     m("HC440", "SCCP forgery events: replace the original event pool with an unbound budget",
       ["smartcontracts::isi::sccp::forgery::execution::event_graph::tests::event_graph_retains_exact_original_layouts_through_publication_and_last_reader"],
       causes=(ExpectedFailure("event graph retains the original pool",
@@ -1653,6 +1694,81 @@ CORE_MUTATIONS = [
       ["sumeragi::lanes::registry::tests::isolation_tests::final_inflight_incoming_opening_cleans_cancelled_request_but_keeps_historical_recovery"],
       causes=(ExpectedFailure("the final incoming opening caller must acknowledge cancellation without dropping independent historical recovery", "crates/iroha_core/src/sumeragi/lanes/registry/isolation_tests.rs"),)),
 
+    m("HC443", "Lane sweeps let later registrations consume original cleanup or retirement membership",
+      ['sumeragi::lanes::registry::tests::proposal_reads::cancelled_original_sweep_does_not_wait_for_new_disjoint_opening', 'sumeragi::lanes::registry::tests::proposal_reads::original_sweep_preserves_a_later_same_key_native_owner'],
+      causes=(ExpectedFailure('original cancelled lane cleanup cannot wait for an unrelated newly registered opening', 'crates/iroha_core/src/sumeragi/lanes/registry/proposal_reads.rs'),
+          ExpectedFailure('an original lane sweep cannot retire a later same-key registration', 'crates/iroha_core/src/sumeragi/lanes/registry/proposal_reads.rs'),)),
+
+    m("HC455", "Change capture encodes untouched cell values",
+      ["state::authority_registry::complete::original_stream::tests::untouched_cell_delta_keeps_original_identity_without_value_work_or_credit"],
+      causes=(ExpectedFailure("untouched cell change capture must admit no value work or credit",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/cell_policy_delta_tests.rs"),)),
+
+    m("HC456", "Change capture constructs unchanged borrowed policy scratch",
+      ["state::authority_registry::complete::original_stream::tests::unchanged_policy_delta_skips_projection_scratch_with_exhausted_original_pool"],
+      causes=(ExpectedFailure("unchanged policies must skip borrowed projection scratch before allocation",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/cell_policy_delta_tests.rs"),)),
+
+    m("HC457", "Manifest projection ignores original runtime catalog touches",
+      ["state::authority_registry::complete::original_stream::tests::runtime_catalog_touch_keeps_manifest_preimage_and_refuses_foreign_binding"],
+      causes=(ExpectedFailure("runtime catalog touches must retain original manifest preimage",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/cell_policy_delta_tests.rs"),)),
+
+    m("HC454", "Membership change retry duplicates its retained partial key before original value admission",
+      ["state::authority_registry::complete::original_stream::tests::membership_delta_capacity_refusal_keeps_original_key_base_cause_and_refund"],
+      causes=(ExpectedFailure("membership retry must retain the exact original partial-key capacity cause",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/membership_delta_tests.rs"),)),
+
+    m("HC450", "Membership publication omits exact rollback advancement",
+      ["state::storage_transactions::authority::tests::paired_publication_delta_recreates_exact_advance_replace_repeat_and_empty_cuts"],
+      causes=(ExpectedFailure("original rollback delta must recreate exact successor pair",
+          "crates/iroha_core/src/state/storage_transactions/authority/delta_tests.rs"),)),
+
+    m("HC451", "Membership delta accepts a substituted original publication surface",
+      ["state::storage_transactions::authority::tests::paired_publication_delta_requires_exact_original_surface_before_visitation"],
+      causes=(ExpectedFailure("membership delta must reject a substituted original publication surface",
+          "crates/iroha_core/src/state/storage_transactions/authority/delta_tests.rs"),)),
+
+    m("HC452", "Original State delta skips committed membership baseline admission",
+      ["state::authority_registry::complete::original_stream::tests::membership_delta_base_refusal_precedes_every_change_and_retains_original_retry"],
+      causes=(ExpectedFailure("membership base refusal must precede every original change callback",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/membership_delta_tests.rs"),)),
+
+    m("HC453", "Change capture scans and replaces complete membership tables",
+      ["state::authority_registry::complete::original_stream::tests::change_membership_capture_uses_only_delta_sets_and_recreates_complete_pair"],
+      causes=(ExpectedFailure("membership change capture must avoid complete history scans",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/membership_delta_tests.rs"),)),
+
+    m("HC446", "Change-only original State capture is delivered as a complete snapshot",
+      ["state::authority_registry::complete::original_stream::tests::change_intent_matches_complete_stream_but_cannot_emit_a_snapshot"],
+      causes=(ExpectedFailure("change-only original capture must refuse complete snapshot delivery before callbacks",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/changes_tests.rs"),)),
+
+    m("HC447", "Change-only original State capture scans untouched native rows",
+      ["state::authority_registry::complete::original_stream::tests::change_intent_ignores_untouched_native_rows_and_replays_exact_original_changes"],
+      causes=(ExpectedFailure("change capture must inspect only original touched native rows",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/changes_tests.rs"),)),
+
+    m("HC448", "Original change capture replaces its partially encoded key after refusal",
+      ["state::authority_registry::complete::original_stream::tests::change_capture_refusal_retains_original_partial_frame_through_retry_and_refund"],
+      causes=(ExpectedFailure("change capture retry must retain its original partial key frame",
+          "crates/iroha_core/src/state/authority_registry/complete/original_stream/changes_tests.rs"),)),
+
+    m("HC445", "Penalty canonical ordering allocates stable-sort scratch outside original-pool custody",
+      ["sumeragi::penalties::tests::canonical_action_order_deduplicates_without_allocator_scratch"],
+      causes=(ExpectedFailure("canonical penalty sorting must not allocate stable-sort scratch",
+          "crates/iroha_core/src/sumeragi/penalties.rs"),)),
+
+    m("HC444", "Penalty registration lookup clones a replacement key outside original-pool custody",
+      ["sumeragi::penalties::tests::validator_registration_lookup_borrows_original_single_and_multisig_keys_without_allocation"],
+      causes=(ExpectedFailure("penalty registration lookup must borrow the exact funded key without replacement allocation",
+          "crates/iroha_core/src/sumeragi/penalties/key_custody_tests.rs"),)),
+
+    m("HC449", "Native socket qualification disables selected original row withholding",
+      ["sumeragi::node::tests::dataspace_roots::selective_rs16_tests::native_socket_selective_signed_rows_preserve_partial_delivery_and_original_paid_recovery"],
+      causes=(ExpectedFailure("selected original row deprivation must prevent native Apply",
+          "crates/iroha_core/src/sumeragi/node/tests/selective_rs16_tests.rs"),)),
+
     m("HC432", "Lane startup erases the original decode refusal into a bare WouldBlock",
       ["sumeragi::lanes::executor::native_decode_tests::startup_refusal_observation_borrows_the_original_native_recovery_carrier"],
       causes=(ExpectedFailure("lane startup must retain its original decode refusal through the public startup projection",
@@ -2246,6 +2362,35 @@ CORE_MUTATIONS = [
 
 # Model resource-custody rules execute only in the owning DataModel unit-test crate.
 MODEL_MUTATIONS = [
+    m("DM50", "Admitted parent-QC clone recopies untrusted bytes",
+      ["consensus::parent_service::prepared::tests::parent_service_owner_keeps_vec_wire_json_and_exact_admitted_clone"],
+      causes=(ExpectedFailure("parent-QC clone must retain the original immutable byte owner", "crates/iroha_data_model/src/consensus/parent_service/tests.rs"),)),
+
+    m("DM51", "Prepared parent-QC ignores complete source identity",
+      ["consensus::parent_service::prepared::tests::parent_service_source_and_capacity_retry_preserve_original_full_frame_pool_and_layout"],
+      causes=(ExpectedFailure("parent-QC custody must bind bytes outside the selected field", "crates/iroha_data_model/src/consensus/parent_service/tests.rs"),)),
+
+    m("DM52", "Outer field-5 retry replaces completed parent-QC custody",
+      ["block::prepared_signatures::tests::parent_service_tests::field5_parent_service_survives_later_action_refusal_with_exact_original_cut_and_retry"],
+      causes=(ExpectedFailure("outer retry must retain parent-QC custody and original release cut", "crates/iroha_data_model/src/block/prepared_signatures/tests/parent_service_tests.rs"),)),
+
+    m("DM49", "Payload field 5 discards retained partial action preparation on retry",
+      ["block::prepared_signatures::tests::penalty_action_tests::field5_penalty_refusal_retains_original_prefix_pool_and_exact_retry"],
+      causes=(ExpectedFailure("field 5 retry must retain the original partial action owner and release cut", "crates/iroha_data_model/src/block/prepared_signatures/tests/penalty_action_tests.rs"),)),
+
+    m("DM48", "Payload field 5 bypasses original native action custody",
+      ["block::prepared_signatures::tests::penalty_action_tests::field5_penalty_actions_keep_canonical_wire_and_original_shared_graph"],
+      causes=(ExpectedFailure("field 5 must retain the original admitted action graph", "crates/iroha_data_model/src/block/prepared_signatures/tests/penalty_action_tests.rs"),)),
+
+    m("DM45", "native penalty action custody: deep-copy an admitted immutable graph",
+      ["consensus::penalty_actions::prepared::tests::penalty_action_owner_preserves_sole_wire_schema_json_and_original_shared_graph"],
+      causes=(ExpectedFailure("admitted penalty action clone must retain the original graph", "crates/iroha_data_model/src/consensus/penalty_actions/prepared/tests.rs"),)),
+    m("DM46", "native penalty action custody: ignore changed complete original source",
+      ["consensus::penalty_actions::prepared::tests::penalty_action_source_binds_full_original_frame_pool_and_layout"],
+      causes=(ExpectedFailure("penalty action custody must bind the full original source", "crates/iroha_data_model/src/consensus/penalty_actions/prepared/tests.rs"),)),
+    m("DM47", "native penalty action custody: discard partial leaf backing on retry",
+      ["consensus::penalty_actions::prepared::tests::penalty_action_original_partial_refusal_retains_exact_prefix_pool_and_retry"],
+      causes=(ExpectedFailure("partial penalty retry must retain exact original refusal and release cut", "crates/iroha_data_model/src/consensus/penalty_actions/prepared/tests.rs"),)),
     m("DM1", "AMX instruction custody: deep-copy the original funded instruction graph",
       ["isi::amx_owner::tests::original_amx_instruction_clone_retains_exact_graph_and_pool_through_last_reader"]),
     m("DM2", "AMX proof custody: omit the actual Begin participant allocation from admission",
@@ -2358,6 +2503,10 @@ MODEL_MUTATIONS = [
       ["compute::tests::price_delta_wide_numerator_rejects_extreme_reduction"],
       causes=(ExpectedFailure("price percentage must widen the numerator before multiplication",
           "crates/iroha_data_model/src/compute/mod.rs"),)),
+    m("DM44", "completed FASTPQ tape: reset revives the terminal original destination",
+      ["fastpq::execution_effect::admitted::tests::completed_tape_take_rejects_prepared_replay_without_reminting_custody"],
+      causes=(ExpectedFailure("completed FASTPQ tape must refuse prepared replay without minting another graph",
+          "crates/iroha_data_model/src/fastpq/execution_effect/admitted/tests.rs"),)),
 
 ]
 
@@ -3338,6 +3487,15 @@ def main():
         selected = [by_id[x] for x in wanted]
     args.target_dir.mkdir(parents=True, exist_ok=True)
 
+    source = {"before": None, "after": None, "errors": [],
+              "scope": "campaign-boundary manifest and per-work-item Git state; not a source seal"}
+    try:
+        source["before"] = workspace_source_observation(REPO)
+    except Exception as error:
+        source["errors"].append(f"initial source observation: {type(error).__name__}: {error}")
+    expected_git = ({key: source["before"][key] for key in ("root", "branch")}
+                    if source["before"] is not None else None)
+
     work = queue.Queue()
     if not args.skip_baseline:
         work.put(("baseline", None))
@@ -3355,7 +3513,17 @@ def main():
                 kind, mu = work.get_nowait()
             except queue.Empty:
                 return
+            git_state = {"before": None, "after": None, "errors": []}
             try:
+                try:
+                    if expected_git is None:
+                        raise RuntimeError("campaign lacks its original source observation")
+                    git_state["before"] = workspace_source_git_state(REPO)
+                    if git_state["before"] != expected_git:
+                        raise RuntimeError("workspace branch changed before work item")
+                except Exception as error:
+                    git_state["errors"].append(f"{type(error).__name__}: {error}")
+                    raise
                 if kind == "baseline":
                     res = evaluate_baseline(args, target_dir, selected)
                 else:
@@ -3366,6 +3534,16 @@ def main():
                 res = {"id": "baseline" if kind == "baseline" else mu.id,
                        "verdict": "error",
                        "reason": f"worker evaluation raised {type(error).__name__}: {error}"}
+            if expected_git is not None:
+                try:
+                    git_state["after"] = workspace_source_git_state(REPO)
+                    if git_state["after"] != expected_git:
+                        raise RuntimeError("workspace branch changed during work item")
+                except Exception as error:
+                    git_state["errors"].append(f"{type(error).__name__}: {error}")
+                    res["execution_verdict"] = res["verdict"]
+                    res.update(verdict="error", reason="work-item source Git state changed or became unavailable")
+            res["source_git"] = git_state
             with lock:
                 results[res["id"]] = res
                 done[0] += 1
@@ -3381,11 +3559,25 @@ def main():
     for t in threads:
         t.join()
 
+    try:
+        source["after"] = workspace_source_observation(REPO)
+        if source["after"] != source["before"]:
+            source["errors"].append("workspace source or branch changed during the campaign")
+    except Exception as error:
+        source["errors"].append(f"final source observation: {type(error).__name__}: {error}")
+    refused_git = [identity for identity, result in sorted(results.items())
+                   if result["source_git"]["errors"]]
+    if refused_git:
+        source["errors"].append("work-item source Git state refused: " + ", ".join(refused_git))
+    source["boundaries_match"] = source["before"] is not None and source["before"] == source["after"]
+    source["unchanged"] = source["boundaries_match"] and not source["errors"]
+
     verdicts = {}
     for mu in selected:
         verdicts.setdefault(results[mu.id]["verdict"], []).append(mu.id)
     baseline = results.get("baseline")
     summary = {
+        "source": "pass" if source["unchanged"] else "error",
         "baseline": baseline["verdict"] if baseline else ("skipped" if args.skip_baseline else "error"),
         "mutations": len(selected),
         "killed_by_test": verdicts.get("killed_by_test", []),
@@ -3404,6 +3596,7 @@ def main():
         "seeds": None if args.fast else args.seeds,
         "fast": args.fast,
         "summary": summary,
+        "source": source,
         "baseline": baseline,
         "mutations": [results[mu.id] for mu in selected],
     }
@@ -3411,7 +3604,8 @@ def main():
     report_path.write_text(json.dumps(report, indent=1))
     print(json.dumps(summary, indent=1))
     print(f"report: {report_path}")
-    failed = (summary["baseline"] not in ("pass", "skipped")
+    failed = (summary["source"] != "pass"
+              or summary["baseline"] not in ("pass", "skipped")
               or summary["survived"] or summary["error"]
               or (args.strict and summary["killed_by_scenario_only"]))
     return 1 if failed else 0

@@ -2,7 +2,7 @@
 use super::*;
 
 /// Exact indexed-tree nonmembership under the latest locally verified pending-outgoing root.
-/// Generic acknowledgements and an ArchiveSent operation name cannot authorize collection.
+/// Generic acknowledgements and an `ArchiveSent` operation name cannot authorize collection.
 struct DerivedOutgoingAbsence {
     /// Predecessor leaf bracketing the committed Send credit.
     low: KagemushaWalletIndexedLeafV1,

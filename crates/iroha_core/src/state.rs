@@ -8043,6 +8043,7 @@ impl<'block> WorldTransaction<'block, '_> {
     }
     /// Insert an asset definition and keep derived indexes consistent.
     /// This generic replacement remains an unowned quantity write.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub(crate) fn insert_asset_definition_entry(
         &mut self,
         definition_id: AssetDefinitionId,
@@ -44991,14 +44992,14 @@ mod npos_effect_application_tests {
 
     fn marker_effects(height: u64) -> iroha_data_model::consensus::NposConsensusEffects {
         iroha_data_model::consensus::NposConsensusEffects {
-            penalty_actions: vec![
+            penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(vec![
                 iroha_data_model::consensus::NposPenaltyAction::MarkConsensusEvidenceApplied(
                     iroha_data_model::consensus::NposMarkConsensusEvidenceAppliedAction {
                         evidence_key: Hash::new([0xA5]),
                         height,
                     },
                 ),
-            ],
+            ]),
             ..Default::default()
         }
     }

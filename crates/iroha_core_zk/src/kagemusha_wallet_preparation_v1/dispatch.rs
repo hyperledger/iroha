@@ -112,7 +112,7 @@ pub struct OperationPreparationV1<'a> {
 /// that made it. It binds the exact native plan bytes, source capsule and installed verifier
 /// manifest it was derived from. It has no clone, codec or `Send`, so no review, slot,
 /// worker, process or later call can retain it, and it grants no Advance authority: commit
-/// always derives again from the durable plan. A review's speculative σ_send proves from its
+/// always derives again from the durable plan. A review's speculative `σ_send` proves from its
 /// own separate derivation (`SpeculativeSendStepV1`) and never yields one of these.
 ///
 /// ```
@@ -497,7 +497,7 @@ impl PreparedOperationV1 {
     }
 }
 
-/// The Send step of one derivation, retained only to prove a speculative σ_send without the
+/// The Send step of one derivation, retained only to prove a speculative `σ_send` without the
 /// wallet owner (design §5.1, Payment row). It holds no plan, custody, signing or Advance
 /// capability: execute derives again from its durable plan and uses the σ only through
 /// [`PreparedOperationV1::freeze_speculated`] for an identical statement and relation.
@@ -506,7 +506,7 @@ pub(crate) struct SpeculativeSendStepV1 {
     step: Box<MonetaryStepV1>,
 }
 
-/// A σ_send proved speculatively for one exact statement and relation. DATA only: it is
+/// A `σ_send` proved speculatively for one exact statement and relation. DATA only: it is
 /// never signed or retained durably.
 pub(crate) struct SpeculativeSigmaV1 {
     statement: KagemushaWalletStatementV1,
@@ -536,7 +536,7 @@ impl SpeculativeSendStepV1 {
         self.selector
     }
 
-    /// Prove σ_send with `imported` under today's hedged prover randomness, exactly like
+    /// Prove `σ_send` with `imported` under today's hedged prover randomness, exactly like
     /// execute's proof of this step, stopping at `preparation`'s cancellation signal. The
     /// prover is dropped before this returns; nothing is signed.
     pub(crate) fn prove(

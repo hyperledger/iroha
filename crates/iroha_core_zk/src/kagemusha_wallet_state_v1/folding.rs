@@ -1,4 +1,4 @@
-//! Ordered persisted sub-proofs, recorded Ω identities and native CreditStatus construction.
+//! Ordered persisted sub-proofs, recorded Ω identities and native `CreditStatus` construction.
 //!
 //! One sub-proof runs in three phases: a locked prepare under the wallet owner, a proof
 //! without it, and a locked publication that re-checks the fold fields. The background
@@ -917,7 +917,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             }
         }
     }
-    /// Construct CreditStatus from the latest covering recorded Ω and a bounded persistent
+    /// Construct `CreditStatus` from the latest covering recorded Ω and a bounded persistent
     /// tree opening. The first Payment digest and burn flag survive unrelated later heads.
     ///
     /// # Errors

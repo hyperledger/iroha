@@ -77,7 +77,7 @@ impl<'a> ZkX509MainCompositionPhaseV1<'a> {
             return Err(ZkX509StarkErrorV1::TranscriptMismatch);
         }
         JointAuxiliaryBindingV1::new_v1(
-            self.binding,
+            &self.binding,
             [self.trace_groups[0].aux_root, ca.auxiliary_root_v1()],
         )
         .map_err(map_transparent_error_v1)
@@ -472,7 +472,7 @@ impl<'a> MainJointVerifierOraclesV1<'a> {
             || proof.aggregate.composition_roots.len() != 1
             || proof.aggregate.fri_mask_roots.len() != 1
             || !auxiliary.matches_v1(
-                binding,
+                &binding,
                 JointSubproofV1::Main,
                 proof.aggregate.trace_groups[0].aux_root,
             )
@@ -748,7 +748,7 @@ impl MainJointVerifierDeepV1<'_> {
 /// Public roots used only to reconstruct the paired transcript. Neither this
 /// decode nor the returned binding constitutes acceptance of either subproof.
 pub fn main_joint_auxiliary_from_proofs_v1(
-    binding: ZkX509CredentialPreAuxBindingV1,
+    binding: &ZkX509CredentialPreAuxBindingV1,
     main: &[u8],
     ca: &[u8],
 ) -> Result<JointAuxiliaryBindingV1, ZkX509StarkErrorV1> {

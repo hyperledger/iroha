@@ -36,6 +36,7 @@ import threading
 import types
 
 sys.dont_write_bytecode = True
+from release_artifact_contract import LINUX_GNU_TARGETS, linux_gnu_elf_matches_target
 SCHEMA = "taira.release-transfer.v1"
 RESULT_SCHEMA = "taira.release-transfer.completed.v1"
 NAMES = ("iroha3d_taira", "iroha", "sorafs-node", "kagami")
@@ -290,7 +291,7 @@ def admit_preparation(plan, loaded, tree):
     base = {key: request[key] for key in BASE_FIELDS}
     need(base["commit"] == plan["expected_commit"] and base["tree"] == tree
          and base["signer_fingerprint"] == plan["expected_signer"]
-         and base["target"] == "aarch64-unknown-linux-gnu" and base["profile"] == "release"
+         and base["target"] in LINUX_GNU_TARGETS and base["profile"] == "release"
          and type(base["jobs"]) is int and base["jobs"] > 0
          and base["native_check_scope"] in ("basic", "full", "build-only")
          and base["source_unchanged"] is True and base["toolchain_unchanged"] is True
@@ -306,7 +307,8 @@ def admit_preparation(plan, loaded, tree):
     for row in result["artifacts"]:
         need(type(row["size"]) is int and 20 <= row["size"] <= MAX_BINARY, "native artifact size exceeds role bound")
         with pinned(row["path"], expected=row["sha256"], maximum=MAX_BINARY, mode=0o500) as (fd, size, _):
-            need(size == row["size"] and release.valid_elf(os.pread(fd, 20, 0)), "prepared binary is not exact AArch64 ELF")
+            need(size == row["size"] and linux_gnu_elf_matches_target(os.pread(fd, 20, 0), base["target"]),
+                 "prepared binary ELF differs from exact receipt target")
     return result
 
 
@@ -544,6 +546,12 @@ def remote_entry(envelope, stream):
         need(not DeadlineReader(stream, 60).read(1), "native invocation has unexpected payload")
         need(sys.platform == "linux" and platform.machine() in ("aarch64", "arm64")
              and os.geteuid() == 0, "native invocation requires AArch64 Linux root")
+        # Target policy does not widen the independently admitted host corridor.
+        # TODO: admit a different native target only with its actual supported host authority.
+        request = envelope["request"]
+        need(isinstance(request, dict) and isinstance(request.get("build"), dict)
+             and request["build"].get("target") == "aarch64-unknown-linux-gnu",
+             "native invocation target differs from the admitted AArch64 host")
         return native_guest(envelope["request"])
     capacity = importlib.import_module("taira_disk_capacity")
     operation = envelope["operation"]
@@ -874,7 +882,7 @@ def admit_native_records(plan, tree, build, request, completed):
          and sha(canonical_json_bytes(build)) == request["result_sha256"]
          and build["commit"] == request["commit"] and build["tree"] == tree
          and build["signer_fingerprint"] == request["signer_fingerprint"]
-         and build["target"] == "aarch64-unknown-linux-gnu" and build["profile"] == "release"
+         and build["target"] in LINUX_GNU_TARGETS and build["profile"] == "release"
          and build["source_unchanged"] is True and build["toolchain_unchanged"] is True
          and build["release_qualified"] is False and build["deployed"] is False
          and build["native_check_scope"] in ("basic", "full", "build-only"), "native preparation identity differs")
@@ -1088,8 +1096,8 @@ def native_guest(value):
     with pinned(program, expected=row["sha256"], maximum=row["size"], mode=0o755) as (image, size, _), \
          contextlib.ExitStack() as stack:
         header = os.pread(image, 20, 0)
-        need(size == row["size"] and len(header) == 20 and header[:7] == b"\x7fELF\x02\x01\x01"
-             and header[18:20] == b"\xb7\x00", "selected native executable is not AArch64 ELF")
+        need(size == row["size"] and linux_gnu_elf_matches_target(header, value["build"]["target"]),
+             "selected native executable ELF differs from exact receipt target")
         need(os.execve in os.supports_fd, "native execution requires descriptor exec support")
         inputs = [stack.enter_context(native_file(entry["path"])) for entry in plan["files"]]
         stdout = None if plan["stdout_file"] is None else stack.enter_context(native_file(plan["stdout_file"], output=True))

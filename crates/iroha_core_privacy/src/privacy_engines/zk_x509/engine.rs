@@ -274,7 +274,7 @@ fn verify_zk_x509_credential_subproofs_v1(
         ZkX509CredentialProofErrorV1::CrossSubproofMismatch
     })?;
     let auxiliary =
-        main_joint_auxiliary_from_proofs_v1(credential_binding, main_aggregate, ca_subproof)
+        main_joint_auxiliary_from_proofs_v1(&credential_binding, main_aggregate, ca_subproof)
             .map_err(|_| ZkX509CredentialProofErrorV1::CrossSubproofMismatch)?;
     let main = MainJointVerifierOraclesV1::new_v1(
         statement,

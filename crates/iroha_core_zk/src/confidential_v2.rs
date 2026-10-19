@@ -2023,7 +2023,7 @@ pub(super) fn normalize_supplied_confidential_merkle_path_v2(
 }
 #[derive(Clone)]
 /// Secret openings and authenticated paths consumed by the secure transfer
-/// gadget when it is embedded in the recursive StepEq circuit.
+/// gadget when it is embedded in the recursive `StepEq` circuit.
 pub(crate) struct ConfidentialTransferWitnessV2 {
     include_input_1: bool,
     include_output_1: bool,
@@ -2111,7 +2111,7 @@ impl Drop for ConfidentialUnshieldWitnessV2 {
 }
 #[derive(Clone)]
 /// Secret input openings, paths, and private change opening consumed by the
-/// secure change-unshield gadget embedded in recursive StepEq.
+/// secure change-unshield gadget embedded in recursive `StepEq`.
 pub(crate) struct ConfidentialUnshieldWitnessV3 {
     include_input_1: bool,
     include_output_0: bool,

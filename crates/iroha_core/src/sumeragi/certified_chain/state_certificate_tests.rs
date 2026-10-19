@@ -1177,7 +1177,11 @@ fn parent_service_common_proposal_is_independent_of_local_certificate_subset() {
 
     let mut other_proposal = proposal.clone();
     let mut effects = proposal.npos_consensus_effects().unwrap().clone();
-    effects.parent_service_commit_qc = Some(norito::to_bytes(&other_qc).unwrap());
+    effects.parent_service_commit_qc = Some(
+        iroha_data_model::consensus::NposParentServiceCommitQc::from_untrusted(
+            norito::to_bytes(&other_qc).unwrap(),
+        ),
+    );
     other_proposal.set_npos_consensus_effects(Some(effects));
     assert_ne!(proposal.hash(), other_proposal.hash());
     let other = reader
@@ -1234,7 +1238,8 @@ fn parent_service_proof_requires_exact_native_quorum_and_complete_subject() {
     for bytes in cases {
         let mut changed = proposal.clone();
         let mut effects = proposal.npos_consensus_effects().unwrap().clone();
-        effects.parent_service_commit_qc = Some(bytes);
+        effects.parent_service_commit_qc =
+            Some(iroha_data_model::consensus::NposParentServiceCommitQc::from_untrusted(bytes));
         changed.set_npos_consensus_effects(Some(effects));
         assert!(matches!(
             reader.authenticate_parent_service(&changed, |_, _| Ok(())),

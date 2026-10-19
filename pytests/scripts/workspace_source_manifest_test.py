@@ -2011,3 +2011,57 @@ def test_ignore_policy_discovery_rejects_root_policy_change_during_rule_lookup(
     with pytest.raises(module.DirtyReleaseSourceError, match="root ignore policy changed"):
         module._git_source_paths(root)
     assert changed == [True]
+
+
+def test_workspace_source_observation_pins_one_canonical_root_across_alias_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Do not attribute a temporary alias target's digest to the original root."""
+
+    module = load_module()
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / "source.rs").write_text("original candidate\n", encoding="utf-8")
+    (second / "source.rs").write_text("unrelated candidate\n", encoding="utf-8")
+    alias = tmp_path / "candidate"
+    alias.symlink_to(first, target_is_directory=True)
+    # This composition control uses the actual manifest/file reader. Git
+    # discovery is a fixed source inventory, so no copied checkout is needed.
+    monkeypatch.setattr(module, "_git_source_paths", lambda _root: ["source.rs"])
+    manifest = module.workspace_source_manifest
+    expected = manifest(first)
+    unrelated = manifest(second)
+    assert expected != unrelated
+    inputs = []
+
+    def observe_git(root):
+        inputs.append(("git", root))
+        canonical = root.resolve()
+        if len(inputs) == 1:
+            alias.unlink()
+            alias.symlink_to(second, target_is_directory=True)
+        return {"root": str(canonical), "branch": "refs/heads/optimizations"}
+
+    def observe_manifest(root):
+        inputs.append(("manifest", root))
+        digest = manifest(root)
+        alias.unlink()
+        alias.symlink_to(first, target_is_directory=True)
+        return digest
+
+    monkeypatch.setattr(module, "workspace_source_git_state", observe_git)
+    monkeypatch.setattr(module, "workspace_source_manifest", observe_manifest)
+    observed = module.workspace_source_observation(alias)
+    assert observed["workspace_source_manifest_sha256"] == expected, (
+        "one source observation must hash the same canonical root it identifies"
+    )
+    assert observed["workspace_source_manifest_sha256"] != unrelated
+    assert observed["root"] == str(first)
+    assert observed["branch"] == "refs/heads/optimizations"
+    assert observed["cargo_source_consumption"] == "not_proven"
+    assert inputs == [("git", first), ("manifest", first), ("git", first)]
+    assert alias.resolve() == first
+    assert (first / "source.rs").read_text() == "original candidate\n"
+    assert (second / "source.rs").read_text() == "unrelated candidate\n"

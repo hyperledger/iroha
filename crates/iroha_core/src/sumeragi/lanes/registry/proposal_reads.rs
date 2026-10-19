@@ -447,3 +447,317 @@ fn cancelled_read_only_incoming_frame_is_released_when_original_inflight_owner_p
         "cancelled incoming read-only custody must retire when the original in-flight owner parks"
     );
 }
+
+// Pause only an existing physical boundary; the registry operation remains the production API.
+struct SweepBoundary {
+    armed: AtomicBool,
+    entered: Mutex<Option<std::sync::mpsc::SyncSender<()>>>,
+    resumed: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+impl SweepBoundary {
+    fn pause(&self) -> io::Result<()> {
+        if !self.armed.swap(false, Ordering::SeqCst) {
+            return Ok(());
+        }
+        if let Some(entered) = self.entered.lock().take() {
+            entered.send(()).map_err(io::Error::other)?;
+        }
+        self.resumed
+            .lock()
+            .recv_timeout(Duration::from_secs(30))
+            .map_err(io::Error::other)
+    }
+}
+impl crate::sumeragi::records::Faults for SweepBoundary {
+    fn before(&self, step: crate::sumeragi::records::FsStep, _: &Path) -> io::Result<()> {
+        if step == crate::sumeragi::records::FsStep::CreateDir {
+            self.pause()?;
+        }
+        Ok(())
+    }
+}
+fn sweep_boundary() -> (
+    Arc<SweepBoundary>,
+    std::sync::mpsc::Receiver<()>,
+    std::sync::mpsc::SyncSender<()>,
+) {
+    let (entered, received) = std::sync::mpsc::sync_channel(1);
+    let (resume, resumed) = std::sync::mpsc::sync_channel(1);
+    (
+        Arc::new(SweepBoundary {
+            armed: AtomicBool::new(false),
+            entered: Mutex::new(Some(entered)),
+            resumed: Mutex::new(resumed),
+        }),
+        received,
+        resume,
+    )
+}
+struct SweepRetiringSchedule {
+    original: Arc<Schedule>,
+    boundary: Arc<SweepBoundary>,
+}
+impl AvailabilitySchedule for SweepRetiringSchedule {
+    fn instance(&self) -> Hash32 {
+        self.original.instance()
+    }
+    fn height_config(&self, height: u64) -> Result<Option<HeightConfig>, Attempt<io::Error>> {
+        self.original.height_config(height)
+    }
+}
+impl Drop for SweepRetiringSchedule {
+    fn drop(&mut self) {
+        // A failed control must still let the genuine native callers join for diagnostic cleanup.
+        let _ = self.boundary.pause();
+    }
+}
+struct SweepAuthorities {
+    original: Arc<Authorities>,
+    before: (LaneId, [u8; 32], Arc<Schedule>),
+    inserted: (LaneId, [u8; 32], Arc<Schedule>),
+    boundary: Arc<SweepBoundary>,
+}
+impl LaneStoreAuthorities for SweepAuthorities {
+    fn authority(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        instance: Hash32,
+    ) -> Result<Option<LaneStoreAuthority>, Attempt<io::Error>> {
+        if (lane, *incarnation) == (self.before.0, self.before.1) {
+            assert_eq!(instance, self.before.2.instance);
+            return Ok(Some(LaneStoreAuthority {
+                schedule: Arc::new(SweepRetiringSchedule {
+                    original: Arc::clone(&self.before.2),
+                    boundary: Arc::clone(&self.boundary),
+                }),
+            }));
+        }
+        if (lane, *incarnation) == (self.inserted.0, self.inserted.1) {
+            assert_eq!(instance, self.inserted.2.instance);
+            return Ok(Some(LaneStoreAuthority {
+                schedule: self.inserted.2.clone(),
+            }));
+        }
+        self.original.authority(lane, incarnation, instance)
+    }
+}
+
+#[test]
+fn cancelled_original_sweep_does_not_wait_for_new_disjoint_opening() {
+    let mut fixture = transaction_fixture();
+    let budget = fixture.stores.budget.clone();
+    let frame = fs::read(fixture.path()).unwrap();
+    let before = (LaneId::new(1), [0x11; 32]);
+    let inserted = (LaneId::new(1), [0x22; 32]);
+    assert!(before < inserted && inserted < (LANE, INCARNATION));
+    let (retiring, retired_entered, resume_retirement) = sweep_boundary();
+    let (opening, opening_entered, resume_opening) = sweep_boundary();
+    let before_schedule = Arc::new(Schedule {
+        instance: fixture.stores.instance(before.0, &before.1),
+        config: fixture.source.config().clone(),
+    });
+    let inserted_schedule = Arc::new(Schedule {
+        instance: fixture.stores.instance(inserted.0, &inserted.1),
+        config: fixture.source.config().clone(),
+    });
+    fixture.stores.opening_faults = Some((inserted_schedule.instance, opening.clone()));
+    fixture.stores.authorities = Arc::new(SweepAuthorities {
+        original: fixture.authorities.clone(),
+        before: (before.0, before.1, before_schedule),
+        inserted: (inserted.0, inserted.1, inserted_schedule),
+        boundary: retiring.clone(),
+    });
+    // Initial registry membership is A<C. A is an idle actual native owner; C retains the
+    // original incoming frame. No synthetic StoreSlot or copied cancellation interest is used.
+    drop(fixture.stores.runtime_store(before.0, &before.1).unwrap());
+    let baseline = budget.reserved_bytes();
+    let store = fixture.stores.runtime_store(LANE, &INCARNATION).unwrap();
+    let original = Arc::downgrade(&store);
+    let mut request = ProposalReadScope::new();
+    request.admit(&budget).unwrap();
+    let mut rows = Vec::<TransactionEntrypoint>::new();
+    rows.try_reserve(1).unwrap();
+    let layout = std::alloc::Layout::array::<TransactionEntrypoint>(rows.capacity()).unwrap();
+    drop(rows);
+    let (result, refused) = crate::test_allocations::refuse_one_layout_during(layout, || {
+        fixture
+            .stores
+            .execution_block(LANE, &INCARNATION, 1, &request)
+    });
+    assert!(refused);
+    assert!(matches!(result, Err(Attempt::Deferred(_))));
+    assert!(store.has_pending_work_for_test());
+    assert!(budget.reserved_bytes() > baseline);
+    assert_eq!(fixture.stores.stores.lock().len(), 2);
+    drop((store, request));
+    retiring.armed.store(true, Ordering::SeqCst);
+    opening.armed.store(true, Ordering::SeqCst);
+    let (retired_entered, opened, unlocked, registered, released, exact_refund, native_unlocked) =
+        std::thread::scope(|threads| {
+            let stores = &fixture.stores;
+            let cleanup = threads.spawn(|| stores.release_cancelled_proposal_reads());
+            let retired_entered = retired_entered.recv_timeout(Duration::from_secs(5)).is_ok();
+            let unlocked = stores.stores.try_lock().is_some();
+            let new_runtime = threads.spawn(|| stores.runtime_store(inserted.0, &inserted.1));
+            let opened = opening_entered.recv_timeout(Duration::from_secs(5)).is_ok();
+            let registered = stores
+                .stores
+                .try_lock()
+                .is_some_and(|map| matches!(map.get(&inserted), Some(StoreSlot::Opening(_, _))));
+            let _ = resume_retirement.send(());
+            cleanup.join().unwrap();
+            // Observe the actual Worker cleanup return while the unrelated B remains in
+            // physical CreateDir. No later reconciliation, new request or B completion helped C.
+            let released = original.upgrade().is_none();
+            let exact_refund = budget.reserved_bytes()
+                == baseline - crate::sumeragi::driver::PublicationSession::retained_bytes();
+            let probe = FileLaneBlockStore::begin_open(
+                stores.root(),
+                &fixture.source.instance(),
+                stores.crypto.clone(),
+                budget.clone(),
+                fixture.authorities.schedule.clone(),
+            );
+            let native_unlocked = probe.is_ok();
+            drop(probe);
+            // Only after capturing the causal verdict may B finish its genuine operation.
+            let _ = resume_opening.send(());
+            drop(new_runtime.join().unwrap().unwrap());
+            (
+                retired_entered,
+                opened,
+                unlocked,
+                registered,
+                released,
+                exact_refund,
+                native_unlocked,
+            )
+        });
+    fixture.stores.release_cancelled_proposal_reads();
+    fixture.stores.release(inserted.0, &inserted.1);
+    fixture.stores.release(LANE, &INCARNATION);
+    assert_eq!(fs::read(fixture.path()).unwrap(), frame);
+    let replay = fixture
+        .stores
+        .block(LANE, &INCARNATION, 1)
+        .unwrap()
+        .unwrap();
+    assert_eq!(replay.block_hash, fixture.qc.block_hash);
+    assert_eq!(replay.result, fixture.qc.result);
+    assert!(replay.batch.is_some());
+    drop((replay, fixture));
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert!(retired_entered && opened && unlocked && registered);
+    assert!(
+        released && exact_refund && native_unlocked,
+        "original cancelled lane cleanup cannot wait for an unrelated newly registered opening"
+    );
+}
+
+#[test]
+fn original_sweep_preserves_a_later_same_key_native_owner() {
+    let mut fixture = transaction_fixture();
+    let budget = fixture.stores.budget.clone();
+    let frame = fs::read(fixture.path()).unwrap();
+    let before = (LaneId::new(1), [0x11; 32]);
+    let (retiring, retired_entered, resume_retirement) = sweep_boundary();
+    let before_schedule = Arc::new(Schedule {
+        instance: fixture.stores.instance(before.0, &before.1),
+        config: fixture.source.config().clone(),
+    });
+    fixture.stores.authorities = Arc::new(SweepAuthorities {
+        original: fixture.authorities.clone(),
+        before: (before.0, before.1, before_schedule.clone()),
+        // This control opens only A and the independently authenticated original C.
+        inserted: (before.0, before.1, before_schedule),
+        boundary: retiring.clone(),
+    });
+    drop(fixture.stores.runtime_store(before.0, &before.1).unwrap());
+    let original = Arc::downgrade(&fixture.stores.runtime_store(LANE, &INCARNATION).unwrap());
+    assert_eq!(fixture.stores.stores.lock().len(), 2);
+    retiring.armed.store(true, Ordering::SeqCst);
+    let (entered, unlocked, original_retired, replacement_retained) =
+        std::thread::scope(|threads| {
+            let stores = &fixture.stores;
+            let cleanup = threads.spawn(|| stores.release_cancelled_proposal_reads());
+            let entered = retired_entered.recv_timeout(Duration::from_secs(5)).is_ok();
+            let unlocked = stores.stores.try_lock().is_some();
+            stores.release(LANE, &INCARNATION);
+            let original_retired = original.upgrade().is_none();
+            let replacement = stores.runtime_store(LANE, &INCARNATION).unwrap();
+            assert_eq!(replacement.height(), 1);
+            let replacement_identity = Arc::downgrade(&replacement);
+            drop(replacement);
+            let _ = resume_retirement.send(());
+            cleanup.join().unwrap();
+            let replacement_retained = replacement_identity.upgrade().is_some();
+            (entered, unlocked, original_retired, replacement_retained)
+        });
+    assert_eq!(fs::read(fixture.path()).unwrap(), frame);
+    let replay = fixture
+        .stores
+        .block(LANE, &INCARNATION, 1)
+        .unwrap()
+        .unwrap();
+    assert_eq!(replay.block_hash, fixture.qc.block_hash);
+    assert_eq!(replay.result, fixture.qc.result);
+    drop((replay, fixture));
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert!(entered && unlocked && original_retired);
+    assert!(
+        replacement_retained,
+        "an original lane sweep cannot retire a later same-key registration"
+    );
+}
+
+#[test]
+fn exhausted_registration_identity_refuses_before_new_native_custody() {
+    let mut fixture = transaction_fixture();
+    let budget = fixture.stores.budget.clone();
+    let other = (LaneId::new(3), [0x66; 32]);
+    let other_schedule = Arc::new(Schedule {
+        instance: fixture.stores.instance(other.0, &other.1),
+        config: fixture.source.config().clone(),
+    });
+    fixture.stores.authorities = Arc::new(DisjointAuthorities {
+        first: fixture.authorities.clone(),
+        other_lane: other.0,
+        other_incarnation: other.1,
+        other: other_schedule.clone(),
+    });
+    let original = fixture.stores.runtime_store(LANE, &INCARNATION).unwrap();
+    let baseline = budget.reserved_bytes();
+    let frame = fs::read(fixture.path()).unwrap();
+    fixture
+        .stores
+        .registrations
+        .store(u64::MAX, Ordering::Relaxed);
+    let error = fixture.stores.runtime_store(other.0, &other.1).unwrap_err();
+    assert_eq!(error.io_kind(), io::ErrorKind::Other);
+    assert!(
+        error
+            .to_string()
+            .contains("original lane registration identity exhausted")
+    );
+    assert!(
+        !fixture
+            .stores
+            .root()
+            .join(hex::encode(other_schedule.instance.0))
+            .exists()
+    );
+    assert_eq!(fixture.stores.stores.lock().len(), 1);
+    assert_eq!(
+        fixture.stores.registrations.load(Ordering::Relaxed),
+        u64::MAX
+    );
+    assert!(Arc::ptr_eq(
+        &original,
+        &fixture.stores.runtime_store(LANE, &INCARNATION).unwrap()
+    ));
+    assert_eq!(budget.reserved_bytes(), baseline);
+    assert_eq!(fs::read(fixture.path()).unwrap(), frame);
+    drop((error, original, fixture));
+    assert_eq!(budget.reserved_bytes(), 0);
+}

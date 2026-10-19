@@ -346,7 +346,7 @@ pub fn is_production_claim_backend_label(backend: &str) -> bool {
         .iter()
         .any(|fragment| compact.contains(fragment))
 }
-/// Return the expected OpenVerify backend tag for labels admitted by native
+/// Return the expected `OpenVerify` backend tag for labels admitted by native
 /// verifier dispatch.
 #[inline]
 #[must_use]
@@ -665,9 +665,9 @@ fn verifying_key_content_uri_is_portable_v1(uri: &str) -> bool {
     })
 }
 include!("strict_verifying_key_preparation_tests.rs");
-/// Borrow the exact profile-qualified generic OpenVerify circuit identifier.
+/// Borrow the exact profile-qualified generic `OpenVerify` circuit identifier.
 /// Bare native-protocol identifiers have their own typed consumer and are not
-/// alternate spellings of a generic OpenVerify circuit.
+/// alternate spellings of a generic `OpenVerify` circuit.
 pub(crate) fn canonical_stark_fri_circuit_id_for_backend<'a>(
     backend: &str,
     circuit_id: &'a str,
@@ -3960,7 +3960,7 @@ pub struct ZkVerifyGuardrails {
     pub pipa_r_max_proof_bytes: usize,
     /// Whether STARK verification is enabled.
     pub stark_enabled: bool,
-    /// Maximum accepted outer STARK OpenVerifyEnvelope size (bytes).
+    /// Maximum accepted outer STARK `OpenVerifyEnvelope` size (bytes).
     pub stark_max_envelope_bytes: usize,
     /// Maximum accepted backend-native STARK proof payload size (bytes).
     pub stark_max_proof_bytes: usize,

@@ -49,7 +49,7 @@ class TairaPrepareTests(unittest.TestCase):
             tool.write_bytes(b"disposable tool fixture")
             tool.chmod(0o755)
         self.args = argparse.Namespace(
-            repo_root=SCRIPT.parent.parent, target_dir=self.target,
+            repo_root=SCRIPT.parent.parent, target_dir=self.target, target=release.TARGET,
             native_check_scope="build-only", native_linker="system",
             output_dir=self.out, expected_commit="a" * 40, expected_signer="A" * 40, zig=self.zig,
             zig_sha256=hashlib.sha256(self.zig.read_bytes()).hexdigest(),
@@ -70,8 +70,10 @@ class TairaPrepareTests(unittest.TestCase):
                 path.chmod(0o700 if path.is_dir() else 0o600)
         self.directory.cleanup()
 
-    def binaries(self, machine=183):
-        output = self.target / release.TARGET / "release"
+    def binaries(self, machine=None):
+        if machine is None:
+            machine = {"aarch64-unknown-linux-gnu": 183, "x86_64-unknown-linux-gnu": 62}[self.args.target]
+        output = self.target / self.args.target / "release"
         output.parent.mkdir(mode=0o700, exist_ok=True)
         output.mkdir(mode=0o700, exist_ok=True)
         for name, _ in release.BINARIES:
@@ -107,6 +109,49 @@ class TairaPrepareTests(unittest.TestCase):
             result = release.prepare(self.args)
         return result, gate, compile
 
+    def test_explicit_x86_target_binds_build_capture_cache_and_resume(self):
+        self.args.target = "x86_64-unknown-linux-gnu"
+        observed = []
+        result, gate, compiled = self.prepare(cache_admission=lambda _s, _d, target, *_a, **_k: observed.append(target))
+        self.assertEqual(observed, [self.args.target])
+        command = compiled.call_args.args[1]
+        self.assertEqual(command[command.index("--target") + 1], self.args.target)
+        self.assertEqual(result["target"], self.args.target)
+        self.assertFalse(result["release_qualified"])
+        gate.assert_not_called()
+        for row in result["artifacts"]:
+            image = Path(row["path"]).read_bytes()
+            self.assertTrue(release.linux_gnu_elf_matches_target(image, self.args.target))
+            self.assertFalse(release.linux_gnu_elf_matches_target(image, release.TARGET))
+        repeated, _, compiled = self.prepare()
+        self.assertEqual(repeated, result)
+        compiled.assert_not_called()
+        original_request = (self.out / "request.json").read_bytes()
+        self.args.target = release.TARGET
+        with self.assertRaisesRegex(release.PrepareError, "checkpoint belongs to different inputs"):
+            self.prepare(build=lambda *_: self.fail("changed target rebuilt into original custody"))
+        self.assertEqual((self.out / "request.json").read_bytes(), original_request)
+
+    def test_x86_target_refuses_arm_image_and_retains_failed_attempt(self):
+        self.args.target = "x86_64-unknown-linux-gnu"
+        def wrong(_root, _command, _env, log):
+            self.binaries(183)
+            log.write_bytes(b"fixture wrong-architecture build\n")
+        with self.assertRaisesRegex(release.PrepareError, "ELF differs from requested target x86_64"):
+            self.prepare(build=wrong)
+        self.assertFalse((self.out / "result.json").exists())
+        self.assertEqual(release.read_record(self.out / "request.json")["target"], self.args.target)
+        self.assertTrue((self.out / "attempts/000001/cargo.log").exists())
+
+    def test_linux_artifact_target_is_explicit_and_closed_before_build_inputs(self):
+        for target in ["x86_64-unknown-linux-musl", "aarch64-apple-darwin", "x86_64-unknown-linux-gnu.2.17", "", None]:
+            self.args.target = target
+            with self.subTest(target=target), self.assertRaisesRegex(release.PrepareError, "unsupported Linux artifact target"):
+                self.prepare()
+            self.assertFalse(self.out.exists())
+            with self.assertRaises(release.PrepareError):
+                release.build_command(self.source, self.target, "/fixed/cargo", target)
+
     def test_offline_package_failure_precedes_attempt_native_gate_and_build(self):
         def must_not_run(*_args, **_kwargs):
             self.fail("missing offline package reached the native gate or build")
@@ -139,7 +184,7 @@ class TairaPrepareTests(unittest.TestCase):
         def build(_root, command, environment, log):
             events.append("build")
             self.assertEqual(environment["IROHA_GIT_COMMIT_HASH"], self.args.expected_commit)
-            self.assertEqual(command, release.build_command(self.source, self.target, "/fixed/cargo"))
+            self.assertEqual(command, release.build_command(self.source, self.target, "/fixed/cargo", self.args.target))
             self.binaries()
             log.write_bytes(b"fixture build\n")
         result, gate, compile = self.prepare(check=check, build=build)
@@ -185,28 +230,28 @@ class TairaPrepareTests(unittest.TestCase):
         def build(_root, _command, _env, log):
             self.binaries(machine=62)
             log.write_bytes(b"fixture wrong architecture\n")
-        with self.assertRaisesRegex(release.PrepareError, "AArch64 Linux ELF"):
+        with self.assertRaisesRegex(release.PrepareError, "ELF differs from requested target aarch64-unknown-linux-gnu"):
             self.prepare(build=build)
         self.assertFalse((self.out / "result.json").exists())
 
     def test_capture_rejects_symlink(self):
         self.binaries()
         self.out.mkdir()
-        original = self.target / release.TARGET / "release" / release.BINARIES[0][0]
+        original = self.target / self.args.target / "release" / release.BINARIES[0][0]
         original.rename(original.with_suffix(".retained"))
         original.symlink_to(original.with_suffix(".retained"))
         with self.assertRaises(release.ReleaseArtifactError):
-            release.capture_artifacts(self.target, self.out)
+            release.capture_artifacts(self.target, self.out, self.args.target)
         self.assertFalse((self.out / "result.json").exists())
 
     def test_capture_accepts_only_closed_cargo_pair_and_keeps_output_single_link(self):
         self.binaries()
         self.out.mkdir()
-        profile = self.target / release.TARGET / 'release'
+        profile = self.target / self.args.target / 'release'
         deps = profile / 'deps'; deps.mkdir()
         for name, _ in release.BINARIES:
             os.link(profile / name, deps / (name.replace('-', '_') + '-0123456789abcdef'))
-        rows = release.capture_artifacts(self.target, self.out)
+        rows = release.capture_artifacts(self.target, self.out, self.args.target)
         self.assertEqual(len(rows), len(release.BINARIES))
         for row in rows:
             captured = Path(row['path'])
@@ -220,7 +265,7 @@ class TairaPrepareTests(unittest.TestCase):
     def test_artifact_replacement_after_hash_is_rejected(self):
         self.binaries()
         self.out.mkdir()
-        original = self.target / release.TARGET / "release" / release.BINARIES[0][0]
+        original = self.target / self.args.target / "release" / release.BINARIES[0][0]
         real_open = release.cargo_open_relative
         def replace_before_open(root, relative, *, expected):
             original.rename(original.with_suffix(".retained"))
@@ -229,7 +274,7 @@ class TairaPrepareTests(unittest.TestCase):
             return real_open(root, relative, expected=expected)
         with patch.object(release, "cargo_open_relative", side_effect=replace_before_open):
             with self.assertRaises(release.ReleaseArtifactError):
-                release.capture_artifacts(self.target, self.out)
+                release.capture_artifacts(self.target, self.out, self.args.target)
 
     def test_existing_output_and_symlink_target_fail_before_gate(self):
         self.out.mkdir()
@@ -263,7 +308,7 @@ class TairaPrepareTests(unittest.TestCase):
         self.assertEqual(build.call_count, 1)
         self.assertEqual(result["attempt"], "attempts/000002")
         self.assertEqual(original.read_bytes(), before)
-        self.assertEqual(build.call_args.args[1], release.build_command(self.source, self.target, "/fixed/cargo"))
+        self.assertEqual(build.call_args.args[1], release.build_command(self.source, self.target, "/fixed/cargo", self.args.target))
 
     def test_crash_after_request_recovers_attempts_directory_before_work(self):
         real_create = release.create_fresh_directory
@@ -701,6 +746,11 @@ class TairaPrepareTests(unittest.TestCase):
                    "--cargo-zigbuild", str(self.zigbuild),
                    "--cargo-zigbuild-sha256", self.args.cargo_zigbuild_sha256]
         self.assertEqual(release.parser().parse_args(["prepare", *options]).native_check_scope, "build-only")
+        self.assertEqual(release.parser().parse_args(["prepare", *options]).target, release.TARGET)
+        self.assertEqual(release.parser().parse_args(["prepare", *options, "--target", "x86_64-unknown-linux-gnu"]).target,
+                         "x86_64-unknown-linux-gnu")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            release.parser().parse_args(["prepare", *options, "--target", "x86_64-unknown-linux-musl"])
         for scope in ("basic", "full"):
             self.assertEqual(release.parser().parse_args(["check", "--native-check-scope", scope]).native_check_scope, scope)
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
@@ -709,7 +759,7 @@ class TairaPrepareTests(unittest.TestCase):
             release.parser().parse_args(["prepare", "--build-only", *options])
 
     def test_build_command_uses_four_fixed_binaries_six_jobs_and_warm_lane(self):
-        command = release.build_command(Path("/frozen"), self.target, "/fixed/cargo")
+        command = release.build_command(Path("/frozen"), self.target, "/fixed/cargo", self.args.target)
         self.assertEqual(command[:4], ["/fixed/cargo", "zigbuild", "--config", "/frozen/.cargo/config.toml"])
         self.assertEqual(command[4:6], ["--manifest-path", "/frozen/Cargo.toml"])
         self.assertEqual(command.count("--bin"), 4)
@@ -1794,7 +1844,7 @@ class TairaPrepareTests(unittest.TestCase):
         self.assertNotEqual(isolated, cache)
         self.assertEqual((isolated / "registry").resolve(), cache / "registry")
         self.assertFalse((isolated / "config.toml").exists())
-        command = release.build_command(self.source, self.target, selected["CARGO"])
+        command = release.build_command(self.source, self.target, selected["CARGO"], self.args.target)
         self.assertEqual(command[2:4], ["--config", str(self.source / ".cargo/config.toml")])
         class Child:
             def wait(self, timeout=None): return 0

@@ -8,7 +8,7 @@ fn invalid() -> Error {
     Error::Original("initial enrollment credential binding")
 }
 
-/// One hardware profile per platform: Android generates in StrongBox where the phone declares
+/// One hardware profile per platform: Android generates in `StrongBox` where the phone declares
 /// it and in the TEE otherwise, and the attested level chooses the evidence kind; Apple uses
 /// the Secure Enclave. No policy selects or refuses a hardware level.
 pub(super) fn evidence_matches_policy(

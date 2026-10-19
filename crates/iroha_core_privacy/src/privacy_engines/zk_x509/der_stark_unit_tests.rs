@@ -89,7 +89,7 @@ fn assert_lookup_inverse_witnesses(
                         base[BASE_BYTE_VALUE],
                     ),
                     lane,
-                    challenges,
+                    &challenges,
                 );
                 let inverse = denominator.inv().unwrap_or(F::ZERO);
                 let zero = F(u64::from(denominator == F::ZERO));
@@ -111,7 +111,7 @@ fn assert_lookup_inverse_witnesses(
                         AUX_BYTE_RIGHT_QUERY_ZERO + lane,
                     ),
                 ] {
-                    let denominator = byte_denominator_v1(tuple, lane, challenges);
+                    let denominator = byte_denominator_v1(tuple, lane, &challenges);
                     let inverse = denominator.inv().unwrap_or(F::ZERO);
                     let zero = F(u64::from(denominator == F::ZERO));
                     assert_eq!(aux[inverse_column], inverse);
@@ -796,11 +796,13 @@ fn complete_numeric_trace_closes_stack_set_document_and_byte_buses() {
     let trace = build_zk_x509_der_stark_trace_v1(base, challenges).expect("complete DER trace");
     let schedule =
         compile_zk_x509_der_stark_fixed_schedule_v1(ZkX509DerStarkShapeV1).expect("fixed schedule");
-    let public = derive_zk_x509_der_stark_public_terminals_v1(&ZkX509DerStarkShapeV1, challenges)
+    let public = derive_zk_x509_der_stark_public_terminals_v1(&ZkX509DerStarkShapeV1, &challenges)
         .expect("public terminal");
-    let private_document_product =
-        derive_zk_x509_der_stark_private_document_product_v1(&trace.base.private_shape, challenges)
-            .expect("private document product");
+    let private_document_product = derive_zk_x509_der_stark_private_document_product_v1(
+        &trace.base.private_shape,
+        &challenges,
+    )
+    .expect("private document product");
     let terminals = zk_x509_der_stark_terminals_v1(&trace).expect("terminals");
     let terminal_claims = zk_x509_der_stark_terminal_claims_v1(&trace).expect("terminal claims");
     assert_eq!(terminals.stack_push, terminals.stack_pop);
@@ -963,7 +965,7 @@ fn every_auxiliary_cell_and_post_commitment_base_cell_is_observed() {
     let trace = build_zk_x509_der_stark_trace_v1(base, challenges).expect("complete DER trace");
     let schedule =
         compile_zk_x509_der_stark_fixed_schedule_v1(ZkX509DerStarkShapeV1).expect("fixed schedule");
-    let public = derive_zk_x509_der_stark_public_terminals_v1(&ZkX509DerStarkShapeV1, challenges)
+    let public = derive_zk_x509_der_stark_public_terminals_v1(&ZkX509DerStarkShapeV1, &challenges)
         .expect("public");
     let terminal_claims = zk_x509_der_stark_terminal_claims_v1(&trace).expect("terminal claims");
     let fixed = schedule.fixed_row(0).expect("fixed");
@@ -1173,7 +1175,7 @@ fn adversarial_bus_challenge_shape_and_terminal_mutations_fail_closed() {
     let fixed = schedule.fixed_row(final_index).expect("fixed");
     let next_fixed = schedule.fixed_row(0).expect("next fixed");
     let public =
-        derive_zk_x509_der_stark_public_terminals_v1(&ZkX509DerStarkShapeV1, canonical_challenges)
+        derive_zk_x509_der_stark_public_terminals_v1(&ZkX509DerStarkShapeV1, &canonical_challenges)
             .expect("public");
     let mut terminal_claims =
         zk_x509_der_stark_terminal_claims_v1(&trace).expect("terminal claims");

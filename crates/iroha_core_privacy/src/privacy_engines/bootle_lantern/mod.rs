@@ -129,7 +129,7 @@ fn prove_bound_presentation_enabled_v1<R: CryptoRng + RngCore>(
 ) -> Result<codec::BootleLanternPresentationProofV1, BoundPresentationErrorV1> {
     let (relation, transcript) =
         compile_bound_presentation_v1(statement, policy, canonical_genesis_hash)?;
-    proof::prove_presentation_v1(&relation, witness, transcript, rng)
+    proof::prove_presentation_v1(&relation, witness, &transcript, rng)
         .map_err(BoundPresentationErrorV1::from)
 }
 fn verify_bound_presentation_enabled_v1(
@@ -140,7 +140,7 @@ fn verify_bound_presentation_enabled_v1(
 ) -> Result<(), BoundPresentationErrorV1> {
     let (relation, transcript) =
         compile_bound_presentation_v1(statement, policy, canonical_genesis_hash)?;
-    proof::verify_presentation_v1(&relation, transcript, proof)
+    proof::verify_presentation_v1(&relation, &transcript, proof)
         .map_err(BoundPresentationErrorV1::from)
 }
 fn verify_bound_presentation_encoded_enabled_v1(

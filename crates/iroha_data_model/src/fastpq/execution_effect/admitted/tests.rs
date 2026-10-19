@@ -84,7 +84,7 @@ fn decode(
         pending,
     )
 }
-fn finish(pending: PendingFastpqEffectsDecodeV1) -> AllocatedFastpqEffectsV1 {
+fn finish(mut pending: PendingFastpqEffectsDecodeV1) -> AllocatedFastpqEffectsV1 {
     match pending.finish() {
         Ok(owner) => owner,
         Err(_) => panic!("canonical complete tape was not consumable"),
@@ -152,6 +152,29 @@ fn last_effect_allocation_refusal_preserves_completed_multisig_prefix_and_retrie
     let count = values.as_slice().len();
     assert!(pending.belongs_to(&pool));
     let retained = pool.reserved_bytes();
+    let owner_address = std::ptr::from_ref(&pending);
+    let source = pending.source;
+    let context_source = pending.context_source;
+    let ledger_pointer = pending.ledger.as_ref().unwrap().as_slice().as_ptr();
+    assert!(matches!(
+        pending.finish(),
+        Err(Error::Invariant("unfinished tape destination"))
+    ));
+    assert_eq!(std::ptr::from_ref(&pending), owner_address);
+    assert_eq!(pending.source, source);
+    assert_eq!(pending.context_source, context_source);
+    assert_eq!(
+        pending.effects.as_ref().unwrap().as_slice().as_ptr(),
+        pointer
+    );
+    assert_eq!(pending.effects.as_ref().unwrap().as_slice().len(), count);
+    assert_eq!(
+        pending.ledger.as_ref().unwrap().as_slice().as_ptr(),
+        ledger_pointer
+    );
+    assert_eq!(pool.reserved_bytes(), retained);
+    assert!(!pending.is_complete());
+    assert!(pending.belongs_to(&pool));
     drop(blocker);
     assert_eq!(pool.reserved_bytes(), retained - 1);
     decode(&mut controls, &bytes, &mut pending).unwrap();
@@ -344,4 +367,51 @@ fn source_leaf_raw_arrays_keep_exact_width_and_complete_record_checks() {
         Err(Error::Codec(norito::Error::LengthMismatch))
     ));
     assert_eq!(source_leaf_field(payload).unwrap(), source_leaf());
+}
+
+#[test]
+fn completed_tape_take_rejects_prepared_replay_without_reminting_custody() {
+    let original = fixture();
+    let bytes = norito::encode_canonical(&original).unwrap();
+    let pool = AllocationBudget::new(8 * 1024 * 1024);
+    let mut workspace = workspace(&pool);
+    let controls = pool.reserved_bytes();
+    let mut pending = PendingFastpqEffectsDecodeV1::new(&pool, original.effects.len());
+    decode(&mut workspace, &bytes, &mut pending).unwrap();
+    let pointer = pending.effects.as_ref().unwrap().as_slice().as_ptr();
+    let complete = pending.finish().unwrap();
+    assert_eq!(complete.canonical(), &original);
+    assert_eq!(complete.canonical().effects.as_ptr(), pointer);
+    assert!(complete.belongs_to(&pool));
+    let retained = controls + complete.allocation_bytes().unwrap();
+    assert_eq!(pool.reserved_bytes(), retained);
+    assert!(!pending.is_complete());
+    assert!(matches!(
+        pending.finish(),
+        Err(Error::Invariant("completed tape was already taken"))
+    ));
+    assert!(matches!(
+        pending.decode_payload(&[]),
+        Err(Error::Invariant("completed tape was already taken"))
+    ));
+    // The public prepared decoder resets a destination before traversal; reset must
+    // never revive this consumed original or allocate another copy of its tape.
+    assert!(
+        matches!(
+            decode(&mut workspace, &bytes, &mut pending),
+            Err(PreparedDecodeError::Destination(Error::Invariant(
+                "completed tape was already taken"
+            )))
+        ),
+        "completed FASTPQ tape must refuse prepared replay without minting another graph"
+    );
+    assert_eq!(pool.reserved_bytes(), retained);
+    assert!(!pending.is_complete());
+    assert_eq!(complete.canonical(), &original);
+    drop(pending);
+    assert_eq!(pool.reserved_bytes(), retained);
+    drop(complete);
+    assert_eq!(pool.reserved_bytes(), controls);
+    drop(workspace);
+    assert_eq!(pool.reserved_bytes(), 0);
 }
