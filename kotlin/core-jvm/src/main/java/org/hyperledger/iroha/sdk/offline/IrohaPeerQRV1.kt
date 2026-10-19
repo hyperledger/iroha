@@ -554,10 +554,15 @@ class IrohaPeerQRScanSessionV1 @JvmOverloads constructor(
             } ?: run { candidate.declaredTotal = frame.total }
 
             if (candidate.header == null && frame.frameKind != IrohaPeerQRFrameKindV1.HEADER) {
-                require(candidate.preheaderFrameCount < scanLimits.maximumPreheaderFramesPerStream &&
-                    frame.payload.size <=
-                    scanLimits.maximumPreheaderPayloadBytesPerStream - candidate.preheaderPayloadBytes) {
-                    "IRQR preheader limit exceeded"
+                if (candidate.preheaderFrameCount >= scanLimits.maximumPreheaderFramesPerStream ||
+                    frame.payload.size >
+                    scanLimits.maximumPreheaderPayloadBytesPerStream - candidate.preheaderPayloadBytes
+                ) {
+                    // The bound limits buffering, not the stream: a scan that missed the header must
+                    // not be refused. This frame is dropped unbuffered and returns in the next loop.
+                    encoded.fill(0)
+                    candidates[key] = candidate
+                    return result(candidate)
                 }
                 candidate.preheaderFrameCount += 1
                 candidate.preheaderPayloadBytes += frame.payload.size
@@ -735,7 +740,7 @@ class IrohaPeerQRScanSessionV1 @JvmOverloads constructor(
     }
 }
 
-internal object PeerBase45 {
+private object PeerBase45 {
     private val alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ \$%*+-./:".toByteArray(Charsets.US_ASCII)
     private val reverse = IntArray(128) { -1 }.also { table ->
         alphabet.forEachIndexed { index, byte -> table[byte.toInt()] = index }

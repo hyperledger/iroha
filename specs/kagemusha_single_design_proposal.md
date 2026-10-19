@@ -66,7 +66,7 @@ implementation returns an explicit error rather than reporting a payment complet
 | R3 | Load from the ledger | A finalized reserve debit creates one wallet-bound ordinary Load receipt (§6). |
 | R4 | Final device-to-device value, unbounded hops | Send irreversibly transfers value to the bound receiver. Receive makes it immediately and durably owned by the receiver, subject only to the P4 burn exception (§3.2). The value becomes onward-spendable offline once the receiver's local lineage fold reaches its current head, which covers the crediting head; the fold needs no network, counterparty or approval. Only exact Payment replay can finish delivery; no refund or hop ceiling (§§3–5). |
 | R5 | Optional return online | Unload is the holder's choice, available from any folded head (§3.1). Remaining offline has no deadline unless an enabled regulatory control supplies one (§§6–7). |
-| R6 | Account blacklist | Each wallet may hold one authenticated list, signed by the RegulatoryPolicy role, installed locally only when its `list_version` strictly increases and never sent to peers (owner decision 2026-10-17, blacklist local-only). While a list is held, the payer refuses to Send to a listed receiver account before the irreversible debit, and the receiver refuses to issue a Request to, or accept a Payment from, a listed payer account. Nothing about the list is committed in wallet state, proved by any σ, Λ or Ω, or carried in Offer, Request, Payment, Credited or PolicyData. Lists are best effort and may differ between phones; no list distribution path exists (§7). |
+| R6 | Account blacklist | Each wallet may hold one authenticated list, signed by the RegulatoryPolicy role, installed locally only when its `list_version` strictly increases and never sent to peers (owner decision 2026-10-17, blacklist local-only). While a list is held, the payer refuses to Send to a listed receiver account before the irreversible debit, and the receiver refuses to accept a Payment from a listed payer account (an open Request names no payer). Nothing about the list is committed in wallet state, proved by any σ, Λ or Ω, or carried in a Request, Payment, PayerCompanion, Credited or PolicyData. Lists are best effort and may differ between phones; no list distribution path exists (§7). |
 | R7 | Optional daily/monthly limits | Disabled by default; enforced through signed quotas and persistent counters when enabled (§7). |
 | R8 | Optional attestation expiry | Disabled by default; an enabled lease can require renewal before future sending (§7). |
 | R9 | Compact payment | Canonical binary Payment is at most 10,000 bytes, independent of history (§8). |
@@ -109,8 +109,11 @@ Unload or device move, including after its own previous Send, waits until its
 current head is folded; the UI shows this as the fold backlog. At Send commit
 the payer reports **sent — irreversible, delivery unconfirmed**; valid
 `Credited` evidence changes that to **delivered**, or to **delivered, burned**
-when it reports the P4 burn. This distinction reports delivery, not provisional
-value. A lost receipt changes neither party's monetary rights.
+when it reports the P4 burn. Native verifies that evidence read-only when it
+arrives, so the status changes at once; the ArchiveSent step that consumes it
+is deferred (§5.3). Receipt arrival therefore does not itself start another fold.
+This distinction reports delivery, not provisional value. A lost receipt
+changes neither party's monetary rights.
 
 Defaults, for the POC and production, are: spending limits off, attestation
 expiry off and transfer fees zero; a wallet holds no account blacklist until one
@@ -1103,8 +1106,10 @@ and recovery capsule commitment. The operation tag fixes the `proof_digest` doma
 `P_bytes` under a distinct σ-only domain over `LE32 len(σ) ‖ σ`. Either value is
 one canonical Fp element (§3). A Receive receipt also binds the full canonical
 Payment digest (§5.1). σ_recv's statement and successor commitment never
-contain that digest or any value derived from it (§3), so σ_recv can be
-precomputed at Request signing. Λ_recv constrains the receipt's Payment digest
+contain that digest or any value derived from it (§3). The open Request has no
+payer or send ordinal, so σ_recv is prepared after the Payment completes those
+fields and determines the credit identifier and consumed-credit update.
+Λ_recv constrains the receipt's Payment digest
 in-circuit against the Payment it verifies and inserts it into the credit-digest
 root (§3.2). τ is never signed over a declined or unconfirmed speculative σ
 (§5.1). Before first release, persist the assembled canonical output,
@@ -1260,21 +1265,26 @@ digests (each the `account_digest` of that party's credential), payer send
 ordinal `s`, receiver credential,
 amount, signed fee schedule and exact fee, regulatory policy references, the
 receiver's authenticated accepted time (§7) and a fresh 256-bit nonce. The
-receiver signs these fields in the Request domain. No free-form field changes
-the monetary interpretation.
+receiver signs the terms, every field except the payer wallet, the payer account
+digest and `s`, in the Request domain, and issues the Request open (those three
+fields zero). The payer completes them for its own wallet, account and next `s`;
+the signature and the Request digest do not change, and `credit_id` over the
+completed fields is unique per payer and ordinal (owner, 2026-10-18: three codes,
+receiver first). No free-form field changes the monetary interpretation.
 
 | Step | Message and state effect |
 |---|---|
-| Offer | Payer advertises its next `s`, amount and supported scheme, and carries its `CredentialV1` (at most 1,024 bytes); its payment key signs the Offer. It is an authenticated session hint, with no debit or credit authority. The receiver verifies the credential natively and authenticates the Offer with it. A delivery retry also opens with an Offer, so the receiver always holds the payer's credential. After the Offer, the payer may send a Lineage message (§8) carrying Ω of its folded head. The receiver verifies it only after an authenticated Offer, rate-limits it, and checks Ω's `wallet_id`, credential digest and `payment_key` against the Offer's credential. |
-| Request | Receiver signs a nonmonetary setup quote containing the exact fields above, with the payer account digest taken from the Offer's credential. While it holds a local blacklist that contains that account, it issues no Request and replies SetupDeclined (§7). It creates no state transition, receiver ordinal or reserved receive slot. The payer verifies its signature and the receiver credential natively before proving Send (below). |
+| Request | Receiver signs a nonmonetary open setup quote containing its terms (the fields above except the payer wallet, payer account digest and `s`, which are zero). It is issued before any payer message, so it consults no blacklist; the receiver's list applies at Receive. Any payer completes it for its own wallet, account and next `s`. |
 | Payment | From a folded head, the payer verifies the Request and the applicable Send policy in one native pre-check, which applies every enabled control (§7) and returns σ_send's control witnesses, and checks `s == next_send`. The Request's payer account digest must be the payer credential's and its receiver account digest the Request receiver credential's; while the payer holds a local blacklist, that list must not contain the receiver's account, checked natively at Send preparation and again at commit, before the irreversible debit (§7). It may prove σ_send *speculatively*, after verifying the Request and before the payer confirms; a declined speculative σ_send is discarded and never signed. It natively verifies σ_send and uses the Ω(pred) recorded as self-verified at fold time (§3.1), which is not re-verified on the payment path. It then permanently subtracts `amount + fee`, increments `next_send`, appends to `send_chain` and inserts the credit descriptor in its pending outbox. It commits and retains the full canonical Payment before first release. Payment contains the unique signed Request fields and signature, and the Send package {statement, Ω(pred), σ_send, τ_send}. It reconstructs the exact signed Request from those single owners; the payer key and credential digest come from Ω(pred). Assembly rejects any mismatch with the original full signed Request before compaction. The receiver's credential, fee schedule and certificates are bound by digest in the Request body, which the receiver holds. |
-| Receive | After the §5.3 runtime capacity check passes on the receiving phone, the receiver natively verifies before mutation: the payer credential from the session's Offer, whose digest equals Payment's credential digest, σ_send's statement and `Ω(pred).credential`; Ω(pred), including the decide; the §3.2 consumer checks; σ_send and τ_send; its own bound identity, matched by the Request's receiver `wallet_id` and the `payment_key` of the Request's receiver credential, never by credential-digest equality, so that credential may be an earlier one of this incarnation; the Request it signed, whose payer account digest equals the Offer credential's; and, while it holds a local blacklist, that the list does not contain that payer account (§7). If Payment's Ω(pred) is byte-identical to a Lineage Ω that the receiver already verified in this session, that verification is reused; otherwise it verifies Ω(pred) in full. It proves σ_recv (precomputed at Request signing, re-proved if its head changed), whose statement and successor commitment exclude the Payment digest (§3), and adds exactly `amount`. In the serialized Advance (§4.2) it checks nonmembership and inserts `credit_id → (amount, receive sequence)` into the permanent consumed-credit map; the Receive receipt also binds the full canonical Payment digest. Show complete only after durable completion. Λ_recv later proves the incoming objects, the map update and the receipt's Payment digest in-circuit and records the digest in the credit-digest root, or takes the burn branch (§3.2). |
+| Receive | After the §5.3 runtime capacity check passes on the receiving phone, the receiver natively verifies before mutation: the payer credential from the PayerCompanion carried beside the Payment, whose digest equals Payment's credential digest, σ_send's statement and `Ω(pred).credential`; Ω(pred), including the decide; the §3.2 consumer checks; σ_send and τ_send; its own bound identity, matched by the Request's receiver `wallet_id` and the `payment_key` of the Request's receiver credential, never by credential-digest equality, so that credential may be an earlier one of this incarnation; the open Request it signed, completed by the Payment, whose payer account digest equals the PayerCompanion credential's; and, while it holds a local blacklist, that the list does not contain that payer account (§7). If Payment's Ω(pred) is byte-identical to a Lineage Ω that the receiver already verified in this session, that verification is reused; otherwise it verifies Ω(pred) in full. Using the completed Request and selected receiver head, it proves σ_recv, whose statement and successor commitment exclude the Payment digest (§3), and adds exactly `amount`. In the serialized Advance (§4.2) it checks nonmembership and inserts `credit_id → (amount, receive sequence)` into the permanent consumed-credit map; the Receive receipt also binds the full canonical Payment digest. Show complete only after durable completion. Λ_recv later proves the incoming objects, the map update and the receipt's Payment digest in-circuit and records the digest in the credit-digest root, or takes the burn branch (§3.2). |
 | Credited | Optional delivery evidence, in one of two forms. (i) The receiver's Receive package {statement, σ_recv, τ_recv}, whose receipt binds the exact Payment digest; its status is *credited, unfolded*. (ii) A read-only `CreditStatus` against a folded receiver head `h` that covers the credit: {statement(h), proof_digest(h), τ(h), Ω(h), 32-sibling membership opening of `credit_id → (Payment digest, burned flag)` in Ω(h)'s credit-digest root}, with no σ and no Ω(pred); its status is *credited* or *burned*. Credited advances no state. The receiver need not retain it. A payer keeps Credited evidence it consumed as a fold witness until its ArchiveSent step is folded (§4.1). |
-| ArchiveSent | Payer verifies matching Credited evidence (credited or burned) and proves removal of the matching pending outgoing descriptor. It may delete the delivered Payment bytes only after a durable Ω covers the ArchiveSent step on its archive branch (§3.2), and never the copies a fee claim still needs (§6.2). Balance, quotas and consumed-credit entries stay unchanged. |
+| ArchiveSent | Payer verifies matching Credited evidence (credited or burned) and proves removal of the matching pending outgoing descriptor. It may delete the delivered Payment bytes only after a durable Ω covers the ArchiveSent step on its archive branch (§3.2), and never the copies a fee claim still needs (§6.2). Balance, quotas and consumed-credit entries stay unchanged. The delivery verdict comes first: the payer verifies the evidence read-only when it arrives and defers ArchiveSent to an idle drain (§5.3). An ArchiveSent that Advance never selected, planned from an older head, is planned again on the current head under the same request and Credited original; one archive per Send capsule, wallet and Credited original still holds. Replacement requires both custody nonselection and authenticated absence from the permanent operation index. The selected stale entry and plan retain the retired capsule identity until idempotent draft and capsule cleanup succeeds; only then may a replacement plan be published. A batch-only original is retained under the authenticated entry before its immutable draft key is retired. Interrupted cleanup repeats after restart; selected, uncertain or delivery-data-loss operations never replan. |
 
 A Request has no cancellation or expiry that can invalidate an already
-committed Payment. Its validity for Send is scoped to the payer's still-unused
-`s`; consuming that ordinal prevents another Send under the same quote.
+committed Payment. A payer's completion is scoped to its still-unused `s`;
+the payer's Send retry identity is derived from the Request digest, so paying
+the same Request again replays the same Send. Different payers of one open
+Request make distinct credits.
 Quote creation authenticates setup, not receiver spending authority. The payer
 verifies the Request signature and receiver credential natively before proving
 Send.
@@ -1315,8 +1325,8 @@ unrelated sends, receives and cleanup.
 - The first valid Receive credits once. A duplicate with identical bytes returns
   optional Credited evidence without another credit. Permanent consumed-credit
   membership prevents replay after cleanup, restart or unrelated transactions.
-- A stale Offer or an unacceptable quote detected before Send can start a new
-  setup without debit. After Send, a newer Request, policy, fee schedule or
+- An unacceptable quote detected before Send can start a new setup without
+  debit. After Send, a newer Request, policy, fee schedule or
   retirement state cannot cancel the recipient's existing claim. Verify the
   historical policy and fee terms proved by Send, not a new quote's terms.
 - The receiver may be absent or temporarily unable to store or process Payment.
@@ -1348,7 +1358,7 @@ unrelated sends, receives and cleanup.
 
 Keep exact unresolved outgoing Payment bytes until verified Credited evidence
 allows ArchiveSent and a durable Ω covers that ArchiveSent step on its archive
-branch. Keep consumed-credit IDs, Payment digests, private map
+branch; deferring ArchiveSent only holds them longer. Keep consumed-credit IDs, Payment digests, private map
 openings and recovery data for the lifetime of the wallet incarnation. Do not
 prune these by age, peer absence or an arbitrary history limit. Local storage
 grows with received credits and unresolved operations; constant-size proofs do
@@ -1460,6 +1470,18 @@ reports the P4 burn). A wallet's next Send, Unload or device move, including
 after its own previous Send, waits until its current head is folded; the UI
 shows this as the fold backlog. Reconnecting the same phones
 resumes delivery of the existing Payment; it does not create another payment.
+
+The payer shows **delivered** as soon as Native verifies the evidence read-only,
+before any ArchiveSent. It first persists the exact Credited original. An
+ArchiveSent commits a head that needs its own fold before the next Send, so the
+wallet defers it. A selected (pending) ArchiveSent always finishes at once. An
+unselected one runs in an idle drain, one at a time and never inside a payment
+step. The drain runs only when no exchange is open or requested and the fold backlog is
+empty, and then only while the phone charges, once 16 ArchiveSent steps are
+deferred, or once the oldest is 24 hours old. The wallet re-checks these gates
+immediately before every ArchiveSent dispatch. An already dispatched ArchiveSent
+may finish; a concurrently opened exchange can wait for its completion and fold.
+These admission gates never defer a selected or pending ArchiveSent recovery.
 
 ## 6. Ledger boundary, fees and wallet replacement
 
@@ -1610,8 +1632,8 @@ Retirement closes new Request quotes and funding, while preserving existing clai
    no new Request quotes, but
    continues to Receive valid Payments under previously signed quotes, including
    Sends that commit later. It may Ordinary Load receipts already issued, Send or Unload
-   remaining value and finish delivery, fee and redemption claims. New Offers
-   remain available for those Sends. The lifecycle
+   remaining value and finish delivery, fee and redemption claims; it pays other
+   receivers' open Requests as usual. The lifecycle
    never reverts to Active.
 2. Submit a ledger-control instruction carrying the complete Retiring package,
    or a later complete Send or Unload package proving that lifecycle and its
@@ -1697,11 +1719,11 @@ and entries root, and replaces a held list only when the new `list_version`
 strictly increases. Installing a list is not a wallet operation: it has no
 Advance, receipt, state change, fold or lineage proof. While a list is held, the
 payer refuses a Send to a listed receiver account at Send preparation and again
-at commit, before the irreversible debit; the receiver refuses to issue a
-Request to a listed payer account (it replies SetupDeclined) and refuses a
-Payment from one before any mutation. With no list held, no account is refused.
+at commit, before the irreversible debit; the receiver refuses a Payment from a
+listed payer account before any mutation (an open Request names no payer, so
+issuing one consults no list). With no list held, no account is refused.
 Nothing about the list is committed in wallet state, proved by any σ, Λ or Ω, or
-carried in an Offer, Request, Payment, Credited, PolicyData or other peer
+carried in a Request, Payment, PayerCompanion, Credited, PolicyData or other peer
 message. Lists are best effort: different phones can and will hold different
 lists, there is no cross-device consistency requirement, and a later list never
 invalidates a completed payment. A list has no age rule and never requires
@@ -1780,9 +1802,8 @@ additional carrier overhead, not hidden in the binary budget.
 
 | Object | Maximum canonical binary bytes |
 |---|---:|
-| Offer (with the payer's `CredentialV1`) and simple session-control frame | 2,048 |
+| PayerCompanion (the payer's `CredentialV1` and its issuer certificate) and simple session-control frame | 2,048 |
 | Request, Payment or Credited (a Receive package, or CreditStatus {statement, `proof_digest`, τ, Ω, opening} of a folded head), with required dependencies | 10,000 each |
-| Lineage (Ω of the payer's folded head) | 10,000 |
 
 Payment uses the compact §5.1 layout: the unique signed Request fields and
 signature, and {statement, Ω(pred), σ_send, τ_send},
@@ -1811,15 +1832,15 @@ its exact fields; both wallets verify the signature natively, and the
 receiver's Λ_recv verifies it in-circuit. Credited binds the full Payment
 digest. ArchiveSent consumes that evidence locally and creates no additional
 peer-message round trip.
-An unknown scheme can be declined during Offer. Malformed unauthenticated
+A payer refuses a Request for a scheme it does not hold. Malformed unauthenticated
 traffic is dropped. A setup error before Send carries no monetary authority;
 a decode, version, policy or capacity error after Send cannot reverse the debit.
 Valid committed Payments retain their recipient binding and historical terms.
 Each package contains the certificates and authenticated terms its verifier
 needs beyond the preinstalled scheme roots and the fixed artifact set. For a
 Payment, the receiver's own credential, fee schedule and certificates are bound
-by digest in the Request body, and the payer's credential and certificates
-travel in the session's Offer. A missing dependency cannot trigger an
+by digest in the Request body, and the payer's credential and its issuer
+certificate travel beside the Payment in the PayerCompanion. A missing dependency cannot trigger an
 implicit online fetch during payment.
 
 Keep NFC, supported local radio transports, QR and Petal Stream as carriers of
@@ -1834,7 +1855,7 @@ receiver durable completion (P1a). It includes the payer's remaining step-proof
 time, transfer, receiver verification, the receiver step proof and both
 durable commits. Report separately, per measured phone: the time until the value
 is ready to spend onward (fold), and tap-to-done including setup and the
-confirmation dwell. Measure Offer/Request setup, cold startup and payer
+confirmation dwell. Measure Request issuance, cold startup and payer
 receipt-confirmation latency separately. Schemes with enabled controls report
 latency separately. With the fixed quota-usage array (§3), the quota σ_send is
 estimated at about 350 permutations, a single-lane shape near 3.4 KB; its
@@ -1894,7 +1915,7 @@ historical test artifacts remain evidence only.
 ### 9.1 Cutover sequencing
 
 The first release uses chain-only Android E1 attestation, the closed E5/E6
-exchange, the signed client runtime and bridge ABI 29. No first-device
+exchange, the signed client runtime and bridge ABI 31. No first-device
 Google authentication or Play Integrity input remains. Fact bit 9 is reserved
 zero for every credential evidence record, including retained enrollment
 evidence and renewal fresh evidence. Native record validation and the
@@ -1994,7 +2015,7 @@ and wallet installation remain mandatory after lossless decoding.
 Nothing in this revision is deployed piecemeal. The cutover is one coordinated
 change, and the release driver builds and releases it:
 
-1. **Bridge ABI 28 → 29.** `connect_norito_bridge` deletes the first-device
+1. **Bridge ABI 31.** `connect_norito_bridge` deletes the first-device
    authentication-key C/JNI exports (`first_device_auth_key_v1.rs` and its JNI
    adapter), its enrollment `prepare_request` takes the Android chain only, and
    the runtime capacity results of §5.3 become typed. Abandonment returns an
@@ -2003,8 +2024,9 @@ change, and the release driver builds and releases it:
    Refusals carry the closed §2.4
    codes. The first-device authentication and Play Integrity token inputs leave
    every startup consumer together (step 2). The export inventory changes
-   accordingly. ABI 29 artifacts refuse ABI 28 callers; there is no
-   compatibility export.
+   accordingly. The current ABI also carries open-Request setup, Payment-companion
+   setup 55 and verified-delivery setup 54. ABI 31 artifacts refuse older callers;
+   there is no compatibility export.
 2. **`firstDeviceAuthentication` is removed everywhere at once.** That selection
    carries a Google OAuth client, a Play Integrity cloud project and a second
    attested sign-up key. It goes from the signed v7 runtime the release driver
@@ -2047,7 +2069,7 @@ change, and the release driver builds and releases it:
    READMEs that still describe Play Integrity change with their code.
 4. **Mobile Native rebuild.** The release driver rebuilds Native for the three
    Android ABIs and the Apple xcframework from the cutover source, and the
-   Android and iOS apps bind ABI 29. No other work package builds, promotes or
+   Android and iOS apps bind ABI 31. No other work package builds, promotes or
    deploys mobile natives.
 
 **Cutover acceptance.** Each case below passes against the cutover source and

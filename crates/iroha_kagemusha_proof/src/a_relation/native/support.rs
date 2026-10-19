@@ -5,7 +5,7 @@
 
 use crate::{
     a_relation::context::{ContextObjectSpec, ContextPlan},
-    operation_relation::objects::ObjectKind,
+    operation_relation::objects::{ObjectKind, signed_message_native},
     q_sigma::{QSigmaPlan, native::IncomingMode},
 };
 use ff::{Field, PrimeField};
@@ -195,7 +195,7 @@ pub(super) fn object_digest(kind: ObjectKind, raw: &[u8]) -> Result<Fp, Error> {
     if raw.len() != end + 64 {
         return Err(Error::Input);
     }
-    let mut words = vec![p_bytes_native(kind.signing_domain(), &raw[..end])];
+    let mut words = vec![signed_message_native(kind, &raw[..end])];
     for offset in [16, 0, 48, 32] {
         words.push(Fp::from_u128(u128::from_be_bytes(
             raw[end + offset..end + offset + 16]
@@ -258,7 +258,7 @@ fn check_hard_slot(
     proved: &[Fq],
 ) -> Result<(), Error> {
     let end = kind.body_len();
-    let mut expected = vec![p_bytes_native(kind.signing_domain(), &raw[..end])];
+    let mut expected = vec![signed_message_native(kind, &raw[..end])];
     expected.extend(authorized);
     for offset in [16, 0, 48, 32] {
         expected.push(Fp::from_u128(u128::from_be_bytes(

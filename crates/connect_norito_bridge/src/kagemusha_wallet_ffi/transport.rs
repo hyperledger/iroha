@@ -6,10 +6,8 @@ pub(super) fn convert(kind: u8, wrap: bool, original: &[u8], scheme: &[u8; 32]) 
         return Err(Failure::code(INVALID));
     }
     let envelope = if wrap {
+        // Kind 1 was the payer Offer; it has no message and is refused like any unknown kind.
         let message = match kind {
-            1 => KagemushaWalletMessageV1::Offer {
-                offer: decode(original)?,
-            },
             2 => KagemushaWalletMessageV1::Request {
                 request: decode(original)?,
             },
@@ -38,7 +36,6 @@ pub(super) fn convert(kind: u8, wrap: bool, original: &[u8], scheme: &[u8; 32]) 
     // decode_canonical already validated the message representation and enforced the
     // complete Envelope bound. Do not verify and serialize that same envelope a second time.
     let object = match envelope.message {
-        KagemushaWalletMessageV1::Offer { offer } => norito::encode_canonical(&offer),
         KagemushaWalletMessageV1::Request { request } => norito::encode_canonical(&request),
         KagemushaWalletMessageV1::Payment { payment } => norito::encode_canonical(&payment),
         KagemushaWalletMessageV1::Credited { credited } => norito::encode_canonical(&credited),
@@ -88,12 +85,7 @@ mod tests {
             "../../../../fixtures/kagemusha/wallet_v1_vectors.json"
         ))
         .unwrap();
-        for (kind, name) in [
-            (1, "Offer"),
-            (2, "Request"),
-            (3, "Payment"),
-            (4, "Credited"),
-        ] {
+        for (kind, name) in [(2, "Request"), (3, "Payment"), (4, "Credited")] {
             let row = vectors["envelopes"]
                 .as_array()
                 .unwrap()
@@ -114,6 +106,9 @@ mod tests {
             assert!(convert(kind, true, &original, &[0; 32]).is_err());
             assert!(convert(kind, false, &frame, &[0; 32]).is_err());
             assert!(convert(kind % 4 + 1, false, &frame, &scheme).is_err());
+            // Kind 1 was the deleted payer Offer: no frame or object converts under it.
+            assert!(convert(1, false, &frame, &scheme).is_err());
+            assert!(convert(1, true, &original, &scheme).is_err());
             let mut trailing = frame.clone();
             trailing.push(0);
             assert!(convert(kind, false, &trailing, &scheme).is_err());
@@ -124,7 +119,7 @@ mod tests {
         }
     }
     #[test]
-    fn extraction_preserves_version_signature_and_full_envelope_bound_checks() {
+    fn extraction_preserves_version_signature_and_open_request_checks() {
         let vectors: norito::json::Value = norito::json::from_str(include_str!(
             "../../../../fixtures/kagemusha/wallet_v1_vectors.json"
         ))
@@ -133,7 +128,7 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .find(|row| row["kind"].as_str() == Some("Offer"))
+            .find(|row| row["kind"].as_str() == Some("Request"))
             .unwrap();
         let frame = hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap();
         let scheme: [u8; 32] = hex::decode(row["scheme_id_hex"].as_str().unwrap())
@@ -141,55 +136,59 @@ mod tests {
             .try_into()
             .unwrap();
         let envelope = KagemushaWalletEnvelopeV1::decode_canonical(&frame, &scheme).unwrap();
+        // Every remaining transport kind has the message bound, so the bridge cap is exact.
+        assert_eq!(
+            envelope.message.max_bytes(),
+            KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1
+        );
         let mut wrong_version = envelope.clone();
         wrong_version.version += 1;
         assert!(
             convert(
-                1,
+                2,
                 false,
                 &norito::encode_canonical(&wrong_version).unwrap(),
                 &scheme
             )
             .is_err()
         );
-        let KagemushaWalletMessageV1::Offer { offer } = envelope.message else {
-            panic!("canonical Offer fixture");
+        let KagemushaWalletMessageV1::Request { request } = envelope.message else {
+            panic!("canonical Request fixture");
         };
-        let mut changed_offer = offer.clone();
-        changed_offer.body.amount += 1;
-        let changed = KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Offer {
-            offer: changed_offer,
-        });
-        assert!(
-            convert(
-                1,
+        assert!(request.body.is_open());
+        // A changed signed term no longer verifies under the receiver signature.
+        let mut changed = request.clone();
+        changed.body.amount += 1;
+        for (wrap, bytes) in [
+            (true, norito::encode_canonical(&changed).unwrap()),
+            (
                 false,
-                &norito::encode_canonical(&changed).unwrap(),
-                &scheme
-            )
-            .is_err()
-        );
-
-        let certificate = offer.certificates.certificates[0].clone();
-        for count in 2..=32 {
-            let mut enlarged = offer.clone();
-            enlarged.certificates.certificates = vec![certificate.clone(); count];
-            let enlarged =
-                KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Offer { offer: enlarged });
-            let frame = norito::encode_canonical(&enlarged).unwrap();
-            if frame.len() > KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1 {
-                // This passes the bridge's global cap, so the model's stricter Offer
-                // envelope limit must still reject it before message validation.
-                assert!(frame.len() <= KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1);
-                assert!(matches!(
-                    KagemushaWalletEnvelopeV1::decode_canonical(&frame, &scheme),
-                    Err(KagemushaWalletValidationErrorV1::EncodedSizeExceeded { .. })
-                ));
-                assert!(convert(1, false, &frame, &scheme).is_err());
-                return;
-            }
+                norito::encode_canonical(&KagemushaWalletEnvelopeV1::new(
+                    KagemushaWalletMessageV1::Request { request: changed },
+                ))
+                .unwrap(),
+            ),
+        ] {
+            assert!(convert(2, wrap, &bytes, &scheme).is_err());
         }
-        panic!("fixture did not exceed the Offer envelope bound");
+        // The payer fields are outside the signature, so a completion still verifies; but a
+        // peer Request travels open only, and full-Envelope validation refuses the completion.
+        let mut completed = request.clone();
+        completed.body = completed.body.completed([0x71; 32], [0x72; 32], 1);
+        completed.validate().unwrap();
+        for (wrap, bytes) in [
+            (true, norito::encode_canonical(&completed).unwrap()),
+            (
+                false,
+                norito::encode_canonical(&KagemushaWalletEnvelopeV1::new(
+                    KagemushaWalletMessageV1::Request { request: completed },
+                ))
+                .unwrap(),
+            ),
+        ] {
+            assert!(bytes.len() <= KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1);
+            assert!(convert(2, wrap, &bytes, &scheme).is_err());
+        }
     }
     #[test]
     fn credited_projection_preserves_both_native_outputs_and_rejects_other_sources() {

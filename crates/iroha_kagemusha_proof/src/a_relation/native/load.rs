@@ -71,7 +71,7 @@ use crate::{
     omega::OmegaWitness,
     operation_relation::{
         map_effects::{InsertCells, MapState},
-        objects::ObjectKind,
+        objects::{ObjectKind, signed_message_native},
         state::StateCells,
         statement::StatementCells,
     },
@@ -2546,7 +2546,7 @@ fn object_digest(kind: ObjectKind, bytes: &[u8]) -> Result<Fp, Error> {
     if bytes.len() != end + 64 {
         return Err(Error::Input);
     }
-    let mut words = vec![p_bytes_native(kind.signing_domain(), &bytes[..end])];
+    let mut words = vec![signed_message_native(kind, &bytes[..end])];
     for offset in [16, 0, 48, 32] {
         words.push(Fp::from_u128(u128::from_be_bytes(
             bytes[end + offset..end + offset + 16]

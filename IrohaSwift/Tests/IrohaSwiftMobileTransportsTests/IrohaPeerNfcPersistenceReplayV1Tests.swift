@@ -110,7 +110,6 @@ final class IrohaPeerNfcPersistenceReplayV1Tests: XCTestCase {
         let card = try PersistenceReplayCard(beginFailures: 2, commitFailures: 1)
         let checkpoint = IrohaPeerNfcCheckpointBoxV1(nil)
         let payment = try irohaPeerWalletExchangeMessageV1(kind: .payment, payload: Data([3]))
-        let offer = try irohaPeerWalletExchangeMessageV1(kind: .offer, payload: Data([1]))
         let approvals = ReplayCounter()
         let sleeps = ReplayCounter()
         let result = try await irohaPeerNfcWithPersistenceReplayV1(
@@ -121,10 +120,9 @@ final class IrohaPeerNfcPersistenceReplayV1Tests: XCTestCase {
             },
             operation: {
                 try await IrohaPeerNfcReaderExchangeV1.run(
-                    offer: offer, restoredCheckpoint: checkpoint.load(),
+                    restoredCheckpoint: checkpoint.load(),
                     profilePolicy: .init(profile: .kagemushaWalletV1),
                     transceive: { try await card.transceive($0) },
-                    sleep: { _ in },
                     loadOrCreateDurableCheckpoint: { info, request in
                         approvals.increment()
                         let created = try IrohaPeerNfcSenderCheckpointV1(
@@ -142,7 +140,6 @@ final class IrohaPeerNfcPersistenceReplayV1Tests: XCTestCase {
         XCTAssertEqual(result.checkpoint.payment, payment)
         XCTAssertNotNil(result.checkpoint.durableAcknowledgement)
         let commands = await card.commands
-        XCTAssertEqual(commands.filter { $0.operation == .beginOffer }.count, 1)
         XCTAssertEqual(commands.filter { $0.operation == .readRequest }.count, 1)
         XCTAssertEqual(commands.filter { $0.operation == .beginPayment }.count, 3)
         XCTAssertEqual(commands.filter { $0.operation == .commit }.count, 2)
@@ -251,10 +248,10 @@ private actor PersistenceReplayCard {
     private(set) var commits = 0
 
     init(beginFailures: Int, commitFailures: Int) throws {
-        endpoint = IrohaPeerNfcCardEndpointV1(
-            applicationIdentifier: .protocolDefault,
-            intake: try IrohaPeerNfcOfferIntakeV1(profilePolicy: .init(profile: .kagemushaWalletV1)))
         request = try irohaPeerWalletExchangeMessageV1(kind: .request, payload: Data([2]))
+        endpoint = IrohaPeerNfcCardEndpointV1(receiver: try IrohaPeerNfcReceiverSessionV1(
+            sessionID: Data(repeating: 7, count: 16), receiveRequest: request.encoded,
+            profilePolicy: .init(profile: .kagemushaWalletV1)))
         credited = try irohaPeerWalletExchangeMessageV1(kind: .credited, payload: Data([4]))
         self.beginFailures = beginFailures
         self.commitFailures = commitFailures
@@ -277,8 +274,7 @@ private actor PersistenceReplayCard {
             durableCommit: {
                 try IrohaPeerNfcDurableAcknowledgementV1(context: $0, acknowledgement: credited.encoded)
             })
-        if step.submittedOffer != nil { try endpoint.installRequest(request.encoded) }
-        if case .commit = command, step.response.statusWord == .success { commits += 1 }
-        return step.response
+        if case .commit = command, step.statusWord == .success { commits += 1 }
+        return step
     }
 }

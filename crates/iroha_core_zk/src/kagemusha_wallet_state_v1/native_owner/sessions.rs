@@ -1,4 +1,5 @@
-//! Durable native Offer/Request setup, without an Advance or caller-supplied signing body.
+//! Durable native open Request setup and the payer companion, without an Advance or a
+//! caller-supplied signing body.
 
 use super::*;
 use rand::rand_core::TryRngCore as _;
@@ -8,11 +9,8 @@ const ACTION_MAX: usize = KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 + 4096;
 #[derive(Clone, norito::Encode, norito::Decode, norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core_zk::kagemusha_wallet_state_v1::SetupActionV1")]
 pub(in crate::kagemusha_wallet_state_v1) enum Action {
-    Offer {
-        amount: u128,
-    },
     Request {
-        offer: Vec<u8>,
+        amount: u128,
         fee: Option<
             Box<(
                 KagemushaWalletFeeScheduleV1,
@@ -119,8 +117,8 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         }
         let source = self.indexed_step(&manifest, manifest.indexed.ok_or(Error::NoHead)?)?;
         self.source_custody(&manifest, &source)?;
-        // Retirement stops new receiving quotes. It preserves Send of remaining value,
-        // whose peer session still starts with an Offer (§6.3).
+        // Retirement stops new receiving quotes. It preserves Send of remaining value: the
+        // payer pays another receiver's open Request (§6.3).
         if matches!(action, Action::Request { .. })
             && source.frozen.capsule.body().successor_state.core.lifecycle
                 != KagemushaWalletLifecycleV1::Active
@@ -181,7 +179,6 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         match (action, issued) {
             (Action::Request { .. }, Some(request))
                 if request.body.nonce == plan.nonce && archive::encode(request)? == bytes => {}
-            (Action::Offer { .. }, None) => {}
             _ => return Err(Error::WitnessLost("setup output binding")),
         }
         plan.output = Some(
@@ -264,97 +261,30 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         self.archive_credited(&credit, bytes.to_vec())
     }
 
-    /// Sign and durably retain a native Offer for the selected Active or Retiring head.
-    /// The caller identity is a retry key, never a signing message or monetary authority.
+    /// Issue one exact open receiver Request for `amount` from selected local policy: any payer
+    /// completes it with its own wallet, account and next ordinal. A nonzero held fee schedule
+    /// requires its signed original and issuer. The exact signed Request is durable before any
+    /// bytes leave this method.
     ///
     /// # Errors
-    /// Unavailable custody, invalid amount, reused identity with different input, or lost
-    /// selected bytes. An unfinished setup whose source changed must use a new identity.
-    pub fn offer(&mut self, setup_id: [u8; 32], amount: u128) -> Result<Vec<u8>, Error> {
-        let _payment = self.scheduler.payment();
-        if amount == 0 {
-            return Err(Error::Invalid("Offer amount"));
-        }
-        let action = Action::Offer { amount };
-        let mut plan = self.setup(setup_id, &action)?;
-        let scheme = *self.proofs.installed.verifier().scheme();
-        if let Some(output) = plan.output {
-            let bytes = self
-                .archive
-                .read_object(&output, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?;
-            let offer: KagemushaWalletOfferV1 = archive::decode(&bytes)?;
-            valid(offer.verify(&scheme))?;
-            if offer.body.session_nonce != plan.nonce
-                || offer.body.amount != amount
-                || offer.body.payer_wallet_id != self.wallet_id
-            {
-                return Err(Error::WitnessLost("retained Offer binding"));
-            }
-            return Ok(bytes);
-        }
-        let (source, snapshot) = self.setup_source(&plan)?;
-        let credential = source.frozen.credential;
-        let certificates = self.setup_certificates(&source, &snapshot)?;
-        let issuer = valid(certificates.certificate(
-            &credential.body.issuer_certificate,
-            KagemushaWalletSignerRoleV1::Enrollment,
-        ))?;
-        valid(credential.verify(&scheme, issuer))?;
-        let body = KagemushaWalletOfferBodyV1 {
-            version: 1,
-            scheme_id: self.scheme_id,
-            asset_digest: credential.body.asset_digest,
-            payer_wallet_id: self.wallet_id,
-            payer_credential_digest: credential.credential_digest(),
-            next_send: source.frozen.capsule.body().successor_state.core.next_send,
-            amount,
-            session_nonce: plan.nonce,
-        };
-        valid(body.validate())?;
-        let signature = self.custody.sign_setup(
-            plan.source,
-            &credential.body.payment_key,
-            KagemushaWalletSigningDomainV1::Offer,
-            &body.transcript(),
-        )?;
-        let offer = valid(KagemushaWalletOfferV1::sign(
-            body,
-            credential,
-            issuer,
-            KagemushaWalletSignerOutputV1::Raw(*signature.as_raw_bytes()),
-        ))?;
-        valid(offer.verify(&scheme))?;
-        let bytes = archive::encode(&offer)?;
-        self.finish_setup(setup_id, &action, &mut plan, &bytes, None)?;
-        Ok(bytes)
-    }
-
-    /// Authenticate an Offer and issue one exact receiver Request from selected local policy.
-    /// A nonzero held fee schedule requires its signed original and issuer. The exact signed
-    /// Request is durable before any bytes leave this method.
-    ///
-    /// # Errors
-    /// Invalid Offer, mismatched fee evidence, a payer on the local blacklist
-    /// ([`Error::Blocked`]), unavailable custody or changed unfinished setup source. Retries
-    /// return retained bytes and never sign a replacement.
+    /// A zero amount, mismatched fee evidence, unavailable custody or changed unfinished setup
+    /// source. Retries return retained bytes and never sign a replacement.
     pub fn request(
         &mut self,
         setup_id: [u8; 32],
-        offer_bytes: &[u8],
+        amount: u128,
         fee: Option<&(
             KagemushaWalletFeeScheduleV1,
             KagemushaWalletSignerCertificateV1,
         )>,
     ) -> Result<Vec<u8>, Error> {
         let _payment = self.scheduler.payment();
-        if offer_bytes.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
-            return Err(Error::Invalid("Offer bound"));
+        if amount == 0 {
+            return Err(Error::Invalid("Request amount"));
         }
         let scheme = *self.proofs.installed.verifier().scheme();
-        let offer: KagemushaWalletOfferV1 = archive::decode(offer_bytes)?;
-        valid(offer.verify(&scheme))?;
         let action = Action::Request {
-            offer: offer_bytes.to_vec(),
+            amount,
             fee: fee.map(|original| Box::new(*original)),
         };
         let mut plan = self.setup(setup_id, &action)?;
@@ -371,9 +301,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
                 KagemushaWalletSignerRoleV1::Enrollment,
             ))?;
             valid(credential.verify(&scheme, &issuer))?;
-            if credential.body.payment_key == offer.payer_credential.body.payment_key {
-                return Err(Error::Invalid("self Request key"));
-            }
             let (slot, fee_amount, certificates) = match fee {
                 None if state.rest.fee_schedule == [0; 32] => (
                     KagemushaWalletFeeScheduleSlotV1::None,
@@ -385,10 +312,9 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
                         && schedule.body.asset_digest == state.core.asset_digest =>
                 {
                     valid(schedule.verify(&scheme, &fee_issuer))?;
-                    let amount = valid(schedule.fee(offer.body.amount))?;
                     (
                         KagemushaWalletFeeScheduleSlotV1::Present { schedule },
-                        amount,
+                        valid(schedule.fee(amount))?,
                         valid(KagemushaWalletCertificateSetV1::new(vec![
                             issuer, fee_issuer,
                         ]))?,
@@ -400,13 +326,13 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
                 version: 1,
                 scheme_id: self.scheme_id,
                 asset_digest: state.core.asset_digest,
-                payer_wallet_id: offer.payer_credential.body.wallet_id,
-                payer_account_digest: offer.payer_credential.body.account_digest,
+                payer_wallet_id: [0; 32],
+                payer_account_digest: [0; 32],
                 receiver_wallet_id: self.wallet_id,
                 receiver_account_digest: credential.body.account_digest,
-                send_ordinal: offer.body.next_send,
+                send_ordinal: 0,
                 receiver_credential_digest: credential.credential_digest(),
-                amount: offer.body.amount,
+                amount,
                 fee_schedule: state.rest.fee_schedule,
                 fee: fee_amount,
                 policy_epoch: state.core.policy_epoch,
@@ -415,14 +341,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
                 certificates: valid(certificates.digest())?,
                 nonce: plan.nonce,
             };
-            let blacklist = self.local_blacklist()?;
-            valid(body.check_request_rule(
-                &scheme,
-                &offer,
-                &credential,
-                &state,
-                blacklist.as_ref(),
-            ))?;
+            valid(body.check_request_rule(&credential, &state))?;
             let signature = self.custody.sign_setup(
                 plan.source,
                 &credential.body.payment_key,
@@ -431,7 +350,6 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             )?;
             let request = valid(KagemushaWalletRequestV1::sign(
                 &scheme,
-                &offer,
                 body,
                 credential,
                 slot,
@@ -443,17 +361,47 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             bytes
         };
         let request: KagemushaWalletRequestV1 = archive::decode(&bytes)?;
-        valid(request.verify(&scheme))?;
+        valid(request.verify_open(&scheme))?;
         if request.body.nonce != plan.nonce
             || request.body.receiver_wallet_id != self.wallet_id
-            || request.body.send_ordinal != offer.body.next_send
-            || request.body.amount != offer.body.amount
-            || request.body.payer_wallet_id != offer.payer_credential.body.wallet_id
-            || request.body.payer_account_digest != offer.payer_credential.body.account_digest
+            || request.body.amount != amount
         {
             return Err(Error::WitnessLost("retained Request binding"));
         }
         self.issued_setup_request(&request)
+    }
+
+    /// Recover the companion of an exact retained Send from its historical source custody.
+    /// Later renewal or head advancement cannot replace the credential that authenticated the
+    /// Payment. Receive needs that credential and its issuer beside the Payment (`KWPYPC1`).
+    /// Nothing is signed, so a running fold sub-proof keeps proving.
+    ///
+    /// # Errors
+    /// A malformed, foreign or changed Payment, or unavailable retained Send custody or issuer.
+    pub fn payment_companion(&mut self, payment_bytes: &[u8]) -> Result<Vec<u8>, Error> {
+        if payment_bytes.is_empty() || payment_bytes.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
+            return Err(Error::Invalid("Payment input bound"));
+        }
+        let payment = read_model_original(
+            || KagemushaWalletPaymentV1::decode_canonical(payment_bytes, &self.scheme_id),
+            Error::Invalid("G1 validation"),
+        )?;
+        let identity = valid(payment.digests())?;
+        let (source, certificates) = self.archive_send_source(&identity.credit_id)?;
+        if source.retained.record.output != payment_bytes {
+            return Err(Error::WitnessLost(
+                "payer companion retained Payment binding",
+            ));
+        }
+        let certificates: KagemushaWalletCertificateSetV1 = archive::decode(&certificates)?;
+        let credential = source.frozen.credential;
+        let issuer = valid(certificates.certificate(
+            &credential.body.issuer_certificate,
+            KagemushaWalletSignerRoleV1::Enrollment,
+        ))?;
+        let companion = valid(KagemushaWalletPayerCompanionV1::new(credential, issuer))?;
+        valid(companion.check_payment(&payment))?;
+        valid(companion.to_canonical_bytes())
     }
 }
 
@@ -467,7 +415,11 @@ mod tests {
     #[test]
     fn setup_index_retains_exact_choices_and_rejects_changed_input_or_lost_original() {
         let mut store = MemoryArchive::new();
-        let action = action_bytes(&Action::Offer { amount: 7 }).unwrap();
+        let action = action_bytes(&Action::Request {
+            amount: 7,
+            fee: None,
+        })
+        .unwrap();
         let id = [4; 32];
         let plan = Plan {
             source: [1; 32],
@@ -485,7 +437,11 @@ mod tests {
                 &mut store,
                 root,
                 &id,
-                &action_bytes(&Action::Offer { amount: 8 }).unwrap()
+                &action_bytes(&Action::Request {
+                    amount: 8,
+                    fee: None
+                })
+                .unwrap()
             ),
             Err(Error::OperationConflict)
         ));
@@ -522,26 +478,16 @@ mod tests {
         assert_ne!(nonce().unwrap(), [0; 32]);
         assert!(
             action_bytes(&Action::Request {
-                offer: vec![0; ACTION_MAX + 1],
+                amount: u128::MAX,
                 fee: None
             })
-            .is_err()
+            .unwrap()
+            .len()
+                <= ACTION_MAX
         );
     }
 
-    fn setup_quote(
-        source: &FrozenTransition,
-    ) -> (KagemushaWalletOfferV1, KagemushaWalletRequestV1) {
-        fn sign(
-            credential: &KagemushaWalletCredentialV1,
-            message: &[u8],
-        ) -> KagemushaDeviceSignatureV1 {
-            let signature: Signature = signer(credential).sign(message);
-            KagemushaDeviceSignatureV1::from_raw_bytes(
-                &signature.normalize_s().unwrap_or(signature).to_bytes(),
-            )
-            .unwrap()
-        }
+    fn setup_quote(source: &FrozenTransition) -> KagemushaWalletRequestV1 {
         let template: KagemushaWalletRecoveryCapsuleV1 =
             fixture("KagemushaWalletRecoveryCapsuleV1");
         let original = template
@@ -551,32 +497,7 @@ mod tests {
             .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::Request)
             .unwrap();
         let mut request: KagemushaWalletRequestV1 = archive::decode(&original.bytes).unwrap();
-        let remote = request.receiver_credential;
-        let issuer = *request
-            .certificates
-            .certificate(
-                &remote.body.issuer_certificate,
-                KagemushaWalletSignerRoleV1::Enrollment,
-            )
-            .unwrap();
-        let body = KagemushaWalletOfferBodyV1 {
-            version: 1,
-            scheme_id: remote.body.scheme_id,
-            asset_digest: remote.body.asset_digest,
-            payer_wallet_id: remote.body.wallet_id,
-            payer_credential_digest: remote.credential_digest(),
-            next_send: 0,
-            amount: 7,
-            session_nonce: [72; 32],
-        };
-        let offer = KagemushaWalletOfferV1 {
-            body,
-            payer_credential: remote,
-            certificates: KagemushaWalletCertificateSetV1::new(vec![issuer]).unwrap(),
-            signature: sign(&remote, &body.signing_message()),
-        };
         let scheme: KagemushaWalletSchemeV1 = fixture("KagemushaWalletSchemeV1");
-        offer.verify(&scheme).unwrap();
         let local = source.credential;
         let state = &source.capsule.body().successor_state;
         let issuer = enrollment_issuer(&local);
@@ -587,13 +508,13 @@ mod tests {
             version: 1,
             scheme_id: local.body.scheme_id,
             asset_digest: local.body.asset_digest,
-            payer_wallet_id: remote.body.wallet_id,
-            payer_account_digest: remote.body.account_digest,
+            payer_wallet_id: [0; 32],
+            payer_account_digest: [0; 32],
             receiver_wallet_id: local.body.wallet_id,
             receiver_account_digest: local.body.account_digest,
-            send_ordinal: offer.body.next_send,
+            send_ordinal: 0,
             receiver_credential_digest: local.credential_digest(),
-            amount: offer.body.amount,
+            amount: 7,
             fee_schedule: [0; 32],
             fee: 0,
             policy_epoch: state.core.policy_epoch,
@@ -602,9 +523,13 @@ mod tests {
             certificates: request.certificates.digest().unwrap(),
             nonce: [73; 32],
         };
-        request.signature = sign(&local, &request.body.signing_message());
-        request.verify(&scheme).unwrap();
-        (offer, request)
+        let signature: Signature = signer(&local).sign(&request.body.signing_message());
+        request.signature = KagemushaDeviceSignatureV1::from_raw_bytes(
+            &signature.normalize_s().unwrap_or(signature).to_bytes(),
+        )
+        .unwrap();
+        request.verify_open(&scheme).unwrap();
+        request
     }
 
     #[test]
@@ -613,11 +538,11 @@ mod tests {
             let mut wallet = wallet();
             let boot = bootstrap();
             wallet.commit(boot.clone()).unwrap();
-            let (offer, mut request) = setup_quote(&boot);
+            let mut request = setup_quote(&boot);
             let source = boot.capsule.custody_digest();
             let id = [74; 32];
             let action = Action::Request {
-                offer: archive::encode(&offer).unwrap(),
+                amount: 7,
                 fee: None,
             };
             let mut plan = wallet.setup(id, &action).unwrap();
@@ -728,10 +653,10 @@ mod tests {
         let mut wallet = wallet();
         let boot = bootstrap();
         wallet.commit(boot.clone()).unwrap();
-        let (offer, request) = setup_quote(&boot);
+        let request = setup_quote(&boot);
         let id = [74; 32];
         let action = Action::Request {
-            offer: archive::encode(&offer).unwrap(),
+            amount: 7,
             fee: None,
         };
         let mut plan = wallet.setup(id, &action).unwrap();

@@ -121,50 +121,35 @@ fixed checkpoint ordinal authorizes recovery.
 B's later folded-head status is additionally retained as
 `b-final-credit-status.envelope.norito`, with exact A→B Request/Payment bindings,
 canonical Credited model verification and separate installed lineage verification.
-Its `b_final_credit_status` result is distinct from the ten-frame census below.
+Its `b_final_credit_status` result is distinct from the six-frame census below.
 The capture checks unchanged wallet snapshots and signature counts; this case
 has an unburned opening and does not qualify burned-status execution.
 
-The exchange additionally retains the **complete canonical envelopes** for both
-Offers, Requests and Payments, their predecessor Lineage messages, the Receive
-acknowledgement and the CreditStatus acknowledgement. The Offers and Requests
-are the exact producer originals; the census neither reconstructs nor signs them.
-`message_envelopes` records each full frame's
-role, byte count, SHA-256 and bound. Each frame and its measurement are synced
-before checking the bound, so an oversized failure remains inspectable. A naked
-Payment or Credited object's byte count does not establish the carrying frame's
-size. All measured frames are retained before Sigma proofs and the Omega
-opening/accumulator decisions are verified against the admitted catalog. The
-separate `proof-checks.json` retains each proof decision, including failures.
-It also records Offer signature/credential/certificate verification and Payment
-model verification against that payer credential and the exact signed Request,
-including the receiver credential, certificates and fee schedule. This does not
-assert that Payment commits to the Offer's session nonce or proposed amount.
-The census separately runs canonical `Credited::verify_for` against the exact
-held Request and retained Payment. It checks the Receive receipt and monetary
-bindings, or the CreditStatus receipt, credit-membership opening and receiver,
-credit and Payment bindings. The separately recorded Sigma/Omega proof decisions
-remain mandatory; model verification cannot substitute for them. The parent
-exchange's Archive owner performs native operation admission separately. These ten
-observed messages cover the zero-fee, controls-off ABC exchange only; they do not
-qualify every fee/control variant, all message types, or physical carriers.
+The exchange retains six **complete canonical envelopes**: Request, Payment and
+Credited for each leg. Requests are the exact receiver-issued open originals;
+the payer companions are separately retained bounded canonical originals beside
+the Payment. The census never reconstructs or signs them. `message_envelopes`
+records each envelope's role, byte count, SHA-256 and bound. Each frame and its
+measurement are synced before checking the bound so oversized failures remain
+inspectable. A naked Payment's length does not establish its envelope or
+Payment-with-companion carrier length.
 
-The separate controls producer retains all five carrying-frame roles for every
-executed Send mask 0–3 and its after-expiry exchange: actual Offer, Request,
-Payment, Receive Credited and the Payment's exact predecessor Lineage. The fee
-producer retains those same five roles for its fee-3, amount-97 exchange, plus
-the original Offer in `producer_originals`. Their `complete_exchange_roles`
-inventory requires each named role exactly once, checks its tag and successful
-frame-bound measurement, and keeps the proof/operation verdicts separate. These
-are capture paths; fresh genuine execution is still required to establish each
-variant's measured bounds. They do not qualify CreditStatus for every
-control/fee case or physical carriers.
+Before accepting the capture, `proof-checks.json` records open Request signature
+verification, companion-to-Payment credential binding, Payment model linkage,
+and the installed Sigma/Omega proof decisions. `Credited::verify_for` checks
+each exact Request/Payment pair for both Receive and CreditStatus receipts.
+Model checks do not substitute for proofs or native admission. These six frames
+cover the zero-fee, controls-off ABC exchange only; they do not establish all
+fee/control variants or physical carrier acceptance.
 
-The renewal continuation retains the same five roles for each of its five
-existing reverse payments, including the daily and monthly boundary cases and
-the renewed-receiver case. Its inventory uses one consistent label per session;
-it also retains the already-signed Offer from the retiring receiver's refused
-Request. No extra payment or signature is created for measurement.
+The controls, fee and renewal producers require exactly three carrying-frame
+roles per executed exchange through `complete_exchange_roles`. Their separate
+raw predecessor Lineage proofs remain diagnostic originals, not peer messages.
+The fee producer retains its payer companion in `producer_originals`. Renewal
+also exercises recovery of the original Payment companion after a selected
+credential renewal and process restart, before delivery. Retirement refuses a
+new open Request while retaining outgoing Payment and companion recovery.
+Fresh genuine execution is required for every proof, size and lifecycle claim.
 
 The online-charge producer retains its root-verified certificate set in a
 `PolicyData::Certificates` carrying envelope and preserves the exact certificate
@@ -192,8 +177,8 @@ requires `KAGEMUSHA_NATIVE_MESSAGE_ORIGINALS` and `_SHA256`, a privately retaine
 JSON manifest with schema `iroha.kagemusha.message-originals.v1`, the exact seven
 `source_pins`, and exactly eight `originals` entries (`name`, `bytes`, `sha256`):
 `a-b-payment.norito`, `b-c-payment.norito`, `a-credited-receive.norito` and
-`b-credited-status.norito`, plus `a-b-offer.norito`, `a-b-request.norito`,
-`b-c-offer.norito` and `b-c-request.norito`. Those files are siblings of the
+`b-credited-status.norito`, plus `a-b-request.norito`, `a-b-companion.norito`,
+`b-c-request.norito` and `b-c-companion.norito`. Those files are siblings of the
 manifest; a four-original manifest is rejected. Use a fresh
 `KAGEMUSHA_NATIVE_MESSAGE_CENSUS_OUTPUT`. The result binds its observer binary
 and source snapshot separately. The snapshot is diagnostic and is not a guarded
@@ -202,28 +187,20 @@ evidence into a current-candidate lifecycle result. Its proof verification is
 not a new native message/operation-admission verdict. Both archive-recovery
 continuations require this same pinned manifest at entry. They check roles,
 bounds, hashes and source pins before opening custody. Both also compare the
-exact A→B Offer and Request hashes against `retained_offer_sha256` and
-`retained_request_sha256` in the pinned selected-Send continuation. The
-interrupted archive continuation requires the exact manifest hash recorded as
-`message_originals_manifest_sha256` by its preceding archive continuation;
-missing or changed pins are refused before custody opens. These producer pins
-prevent substituting a different valid same-payer Offer whose nonce is not bound
-by Payment. The continuations then require equality
-with the retained monetary originals and authenticate the session bindings
-before resuming archives, folds or Unload. A missing original is not replaced
-by another wallet operation.
+exact A→B Request hash against `retained_request_sha256` in the pinned
+selected-Send continuation. The interrupted continuation also requires the
+exact `message_originals_manifest_sha256` from its predecessor. Missing or
+changed pins are refused before custody opens. Companions are pinned by that
+manifest and authenticated against the retained Payment. The continuations
+require equality with retained monetary originals before resuming archives,
+folds or Unload; missing originals are never replaced by another operation.
 
-The ordinary `message_census` regressions use clearly labelled structural
-vectors, never genuine-proof qualification. They check exact signed-Request
-linkage (including a different valid Request signed by the same receiver),
-valid same-payer Offer substitution against the producer pin, missing or changed
-predecessor manifest pins, manifest substitution, Offer/Request frame bounds, and retention of oversized
-Offer and Payment frames. A payload that fits while its complete carrying
-envelope exceeds the bound is still rejected.
-Additional structural regressions check both Credited forms against a distinct
-valid same-receiver Request and altered Payment linkage, exact extraction of
-the Payment's predecessor Lineage, and rejection of missing, duplicated,
-mislabeled or failed-bound roles in each exchange inventory.
+The ordinary `message_census` regressions use structural vectors, not genuine
+proof evidence. They check exact open Request linkage, altered companion and
+same-receiver Request rejection, predecessor/manifest pins, Request and Payment
+envelope bounds, and retained oversized failure frames. Both Credited forms
+are checked against altered Request/Payment linkage. Exchange inventories
+reject missing, duplicated, mislabeled and failed-bound roles.
 
 No host-census result supplies a physical latency measurement. Device campaigns
 must retain separate monotonic events for payer confirmation, receiver durable

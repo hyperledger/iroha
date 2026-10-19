@@ -100,6 +100,7 @@ impl Directory {
             writable: false,
             read_only: false,
             publication: PublicationAuthority::None,
+            ancestry: AncestryCheck::EachCall,
         };
         retained.revalidate()?;
         Ok(Some(retained))
@@ -111,13 +112,32 @@ impl Directory {
     ) -> io::Result<Option<RetainedFile>> {
         // Reuse native optional admission: only its first open may return None.
         // The public boundary holds directory custody around every result.
+        self.admit_sealed_optional(name, self.clone(), AncestryCheck::EachCall)
+    }
+
+    // The same optional sealed admission inside a closed read transaction, which owns the
+    // complete ancestry checks at its entry and exit.
+    pub(crate) fn open_scoped_read_only_optional(
+        &self,
+        name: &OsStr,
+    ) -> io::Result<Option<RetainedFile<&Self>>> {
+        self.admit_sealed_optional(name, self, AncestryCheck::EnclosingScope)
+    }
+
+    // Sole strict sealed admission for both owners of the ancestry checks: one leaf recipe.
+    fn admit_sealed_optional<D: Borrow<Self>>(
+        &self,
+        name: &OsStr,
+        directory: D,
+        ancestry: AncestryCheck,
+    ) -> io::Result<Option<RetainedFile<D>>> {
         let Some(file) = self.open_readonly_native(name, true)? else {
             return Ok(None);
         };
         let before = validate_file(&file, true)?;
         validate_read_only(&file)?;
         let retained = RetainedFile {
-            directory: self.clone(),
+            directory,
             name: name.to_owned(),
             file,
             before,
@@ -126,6 +146,7 @@ impl Directory {
             writable: false,
             read_only: true,
             publication: PublicationAuthority::None,
+            ancestry,
         };
         retained.revalidate()?;
         Ok(Some(retained))
@@ -174,6 +195,7 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
             writable: true,
             read_only: false,
             publication: PublicationAuthority::ExclusiveCreation,
+            ancestry: AncestryCheck::EachCall,
         };
         retained.revalidate()?;
         retained.file.sync_all()?;
@@ -249,6 +271,7 @@ impl<D: Borrow<Directory>, N: AsRef<OsStr>> RetainedFile<D, N> {
             writable: self.writable,
             read_only: self.read_only,
             publication: PublicationAuthority::None,
+            ancestry: self.ancestry,
         };
         published.directory.borrow().sync()?;
         published.revalidate()?;

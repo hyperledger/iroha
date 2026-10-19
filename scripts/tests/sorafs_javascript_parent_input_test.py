@@ -68,7 +68,7 @@ def setup(tmp_path, originals):
         _write(tool_originals/name,raw)
         _write(environment/'qualification/tools'/name,raw)
     manifest = {'artifact_sha256':hashlib.sha256(NATIVE).hexdigest(),'artifact_size':len(NATIVE),
-        'bridge_abi_version':30,'privacy_c_exports':[],'privacy_c_exports_inspected':False,
+        'bridge_abi_version':31,'privacy_c_exports':[],'privacy_c_exports_inspected':False,
         'required_symbols':list(parent.native.REQUIRED_SYMBOLS['node']),
         'schema':parent.native.SCHEMA,'sdk':'node','source_commit':COMMIT,'source_tree_clean':True,
         'target':'darwin-arm64-node24','workspace_source_manifest_sha256':WORKSPACE}

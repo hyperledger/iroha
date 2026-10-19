@@ -211,7 +211,7 @@ public final class SorafsReferenceValidatorsJavaConsumerTest {
     assertTrue(SorafsOrderbookSide.BID.bridgeCode == 1);
     assertTrue(SorafsOrderbookTier.ARCHIVE.bridgeCode == 3);
     assertTrue(SorafsOrderbookCancelReason.REPLACED.bridgeCode == 4);
-    assertTrue(SorafsReferenceValidators.REQUIRED_BRIDGE_ABI_VERSION == 30);
+    assertTrue(SorafsReferenceValidators.REQUIRED_BRIDGE_ABI_VERSION == 31);
     // Internal ABI/symbol admission predicates remain covered by SorafsReferenceValidatorsTest.
     assertTrue(SorafsReferenceValidators.ORDERBOOK_OWNER_ACCOUNT_MAX_BYTES_V1 == 256);
     assertTrue(SorafsReferenceValidators.GOVERNANCE_DAG_MAX_BLOCKS_V1 == 64);
@@ -964,7 +964,7 @@ public final class SorafsReferenceValidatorsJavaConsumerTest {
   private static void requireNativeBridge() {
     if (!SorafsReferenceValidators.isNativeAvailable()) {
       throw new AssertionError(
-          "ABI-30 connect_norito_bridge with all SoraFS reference symbols is required.");
+          "ABI-31 connect_norito_bridge with all SoraFS reference symbols is required.");
     }
   }
 

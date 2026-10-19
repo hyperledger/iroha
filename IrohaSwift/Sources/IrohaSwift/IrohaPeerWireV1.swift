@@ -6,21 +6,22 @@ import zlib
 public enum IrohaPeerWireProfileV1: UInt16, CaseIterable, Sendable {
     /// Reserved on the wire so a zero-filled or omitted profile is never accepted.
     case reject = 0
-    /// KAGEMUSHA wallet V1 peer messages: Request carries its unchanged envelope and mandatory account companion;
-    /// other payloads are one complete `KagemushaWalletEnvelopeV1` frame (`specs/kagemusha_wallet_wire_v1.md` §§2, 3.4).
+    /// KAGEMUSHA wallet V1 peer messages: Request carries its unchanged envelope and mandatory account companion
+    /// (`KWRQAC1`), Payment its unchanged envelope and mandatory payer companion (`KWPYPC1`); other payloads are
+    /// one complete `KagemushaWalletEnvelopeV1` frame (`specs/kagemusha_wallet_wire_v1.md` §§2, 3.4).
     case kagemushaWalletV1 = 1
 }
 
 /// Wire-stable message kinds carried by an `IPM1` peer message.
 ///
 /// Each raw value equals the KAGEMUSHA wallet V1 envelope message tag
-/// (`KagemushaWalletMessageKindV1`) of the frame the message carries.
+/// (`KagemushaWalletMessageKindV1`) of the frame the message carries. One exchange is three
+/// messages on every carrier: the receiver's open Request, the payer's Payment and the
+/// receiver's Credited.
 public enum IrohaPeerWireKindV1: UInt8, CaseIterable, Sendable {
-    /// Payer session hint.
-    case offer = 1
-    /// Receiver setup quote.
+    /// Receiver's open setup quote with its destination account.
     case request = 2
-    /// Complete committed Payment.
+    /// Complete committed Payment with its payer companion.
     case payment = 3
     /// Receiver delivery evidence.
     case credited = 4
@@ -28,8 +29,6 @@ public enum IrohaPeerWireKindV1: UInt8, CaseIterable, Sendable {
     case sessionControl = 5
     /// Nonmonetary policy data.
     case policyData = 6
-    /// Ω of the payer's folded head, sent only after an authenticated Offer.
-    case lineage = 7
 }
 
 /// Canonical cross-SDK spellings shared with the upstream Iroha SDK.
@@ -50,19 +49,22 @@ public extension IrohaPeerWireKindV1 {
     /// KAGEMUSHA wallet V1 envelope message kind carried under this IPM1 kind.
     var walletMessageKind: KagemushaWalletMessageKindV1 {
         switch self {
-        case .offer: return .offer
         case .request: return .request
         case .payment: return .payment
         case .credited: return .credited
         case .sessionControl: return .sessionControl
         case .policyData: return .policyData
-        case .lineage: return .lineage
         }
     }
 
-    /// Exact complete-frame cap of a wallet envelope of this kind, header and padding included.
+    /// Exact cap of this kind's canonical wallet payload: the complete companion carrier for
+    /// Request and Payment, otherwise one complete envelope frame, header and padding included.
     var maximumWalletFrameBytes: Int {
-        self == .request ? IrohaPeerWalletRequestV1.maximumBytes : walletMessageKind.maximumFrameBytes
+        switch self {
+        case .request: return IrohaPeerWalletRequestV1.maximumBytes
+        case .payment: return IrohaPeerWalletPaymentV1.maximumBytes
+        case .credited, .sessionControl, .policyData: return walletMessageKind.maximumFrameBytes
+        }
     }
 }
 
@@ -82,8 +84,9 @@ public enum IrohaPeerWireCompressionPolicyV1: Sendable {
 
 /// Allocation limits applied before an untrusted body is decompressed.
 public struct IrohaPeerWireLimitsV1: Equatable, Sendable {
-    /// Largest complete KAGEMUSHA wallet V1 envelope frame carried by IPM1.
-    public static let maximumWalletProfileBytes = IrohaPeerWalletRequestV1.maximumBytes
+    /// Largest canonical KAGEMUSHA wallet V1 payload carried by IPM1: the larger companion carrier.
+    public static let maximumWalletProfileBytes =
+        max(IrohaPeerWalletRequestV1.maximumBytes, IrohaPeerWalletPaymentV1.maximumBytes)
 
     public let maximumCanonicalBytes: Int
     public let maximumWalletEncodedBytes: Int
@@ -433,8 +436,9 @@ public struct IrohaPeerWireMessageV1: Equatable, Sendable {
         return Self(header: header, canonicalPayload: canonicalPayload, encodedBody: encodedBody)
     }
 
-    /// A wallet-profile Request requires its account companion and unchanged Native envelope.
-    /// Other kinds contain one complete canonical `KagemushaWalletEnvelopeV1` frame within its kind's bound whose message tag is this IPM1 kind. The check is
+    /// A wallet-profile Request requires its account companion and a Payment its payer companion,
+    /// each beside its unchanged Native envelope. Other kinds contain one complete canonical
+    /// `KagemushaWalletEnvelopeV1` frame within its kind's bound whose message tag is this IPM1 kind. The check is
     /// structural (`KagemushaWalletWireV1.inspectEnvelope`): the wallet still decodes, validates
     /// and verifies the message, and decides its scheme, before acting on it.
     private static func validateCanonicalPayload(
@@ -444,12 +448,20 @@ public struct IrohaPeerWireMessageV1: Equatable, Sendable {
     ) throws {
         guard profile == .kagemushaWalletV1 else { return }
         let original: Data
-        if kind == .request {
+        switch kind {
+        case .request:
             guard let request = try? IrohaPeerWalletRequestV1.decode(canonicalPayload) else {
                 throw IrohaPeerWireMessageErrorV1.invalidCanonicalPayload(profile: profile, kind: kind)
             }
             original = request.requestEnvelope
-        } else { original = canonicalPayload }
+        case .payment:
+            guard let payment = try? IrohaPeerWalletPaymentV1.decode(canonicalPayload) else {
+                throw IrohaPeerWireMessageErrorV1.invalidCanonicalPayload(profile: profile, kind: kind)
+            }
+            original = payment.paymentEnvelope
+        case .credited, .sessionControl, .policyData:
+            original = canonicalPayload
+        }
         guard canonicalPayload.count <= kind.maximumWalletFrameBytes,
               let envelope = try? KagemushaWalletWireV1.inspectEnvelope(original),
               envelope.kind == kind.walletMessageKind else {

@@ -23181,7 +23181,7 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
     /// canonical Norito bytes selected by the server.
     ///
     /// This authority-bearing route is deliberately unavailable over HTTP,
-    /// JSON, redirects, mock catalogs, or without the loaded exact ABI30
+    /// JSON, redirects, mock catalogs, or without the loaded exact ABI31
     /// artifact. The returned model retains the response bytes and binds every
     /// compiled row to that artifact's natively validated local catalog and the
     /// expected network from `localSigningContext`.
@@ -23201,7 +23201,7 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
             )
         }
         // Fail before network I/O when the bridge is absent, stale, or missing
-        // any of the exact six privacy ABI30 symbols.
+        // any of the exact six privacy ABI31 symbols.
         _ = try PrivacyNativeBridge.compiledProfileCatalogV1()
         let request = try makePrivacyExact12CapabilityRequestV1(canonicalAuth: canonicalAuth)
         let (data, response) = try await sendBoundedResponse(

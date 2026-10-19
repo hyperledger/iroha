@@ -149,7 +149,10 @@ pub fn kagemusha_wallet_digest_v1(role: KagemushaWalletDigestRoleV1, body: &[u8]
 // ---------------------------------------------------------------------------------------
 
 /// Signing domain of one signed wallet body: the Poseidon domain of its 32-byte signing
-/// message `m = P_bytes(d, transcript)` (§§3, 8; owner answer A1 of 2026-10-05).
+/// message `m = P_bytes(d, transcript)` (§§3, 8; owner answer A1 of 2026-10-05). The Request
+/// alone signs `m = P(d, terms)` over the 19 terms elements of its transcript, so the payer
+/// fields stay outside the receiver signature
+/// ([`kagemusha_wallet_signing_message_v1`]; owner, 2026-10-18).
 ///
 /// Every P-256 signature of the protocol signs `m` as its message with standard
 /// ECDSA-P256-SHA256: the ECDSA hash is `SHA-256(m)`, one SHA-256 block in circuit. The Secure
@@ -183,11 +186,9 @@ pub enum KagemushaWalletSigningDomainV1 {
     TimeAnchor,
     /// `kgwchgq1`: charge quote body, signed by a RegulatoryPolicy-role key.
     ChargeQuote,
-    /// `kgwoffr1`: Offer body, signed by the payer payment key.
-    Offer,
     /// `kgwsctl1`: session control body, signed by the session payment key.
     SessionControl,
-    /// `kgwrqst1`: Request body, signed by the receiver payment key.
+    /// `kgwrqst2`: Request terms, signed by the receiver payment key.
     Request,
     /// `kgwlctl1`: ledger control body, signed by the payment key.
     LedgerControl,
@@ -195,7 +196,7 @@ pub enum KagemushaWalletSigningDomainV1 {
 
 impl KagemushaWalletSigningDomainV1 {
     /// Every signing domain, in declaration order.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 15] = [
         Self::Certificate,
         Self::Credential,
         Self::RenewalChallenge,
@@ -208,7 +209,6 @@ impl KagemushaWalletSigningDomainV1 {
         Self::QuotaShare,
         Self::TimeAnchor,
         Self::ChargeQuote,
-        Self::Offer,
         Self::SessionControl,
         Self::Request,
         Self::LedgerControl,
@@ -230,9 +230,8 @@ impl KagemushaWalletSigningDomainV1 {
             Self::QuotaShare => *b"kgwqshr1",
             Self::TimeAnchor => *b"kgwtanc1",
             Self::ChargeQuote => *b"kgwchgq1",
-            Self::Offer => *b"kgwoffr1",
             Self::SessionControl => *b"kgwsctl1",
-            Self::Request => *b"kgwrqst1",
+            Self::Request => *b"kgwrqst2",
             Self::LedgerControl => *b"kgwlctl1",
         }
     }
@@ -253,9 +252,8 @@ impl KagemushaWalletSigningDomainV1 {
             Self::QuotaShare => "kgwqshr1",
             Self::TimeAnchor => "kgwtanc1",
             Self::ChargeQuote => "kgwchgq1",
-            Self::Offer => "kgwoffr1",
             Self::SessionControl => "kgwsctl1",
-            Self::Request => "kgwrqst1",
+            Self::Request => "kgwrqst2",
             Self::LedgerControl => "kgwlctl1",
         }
     }
@@ -282,7 +280,6 @@ impl KagemushaWalletSigningDomainV1 {
             Self::QuotaShare => 190,
             Self::TimeAnchor => 138,
             Self::ChargeQuote => 219,
-            Self::Offer => 194,
             Self::SessionControl => 197,
             Self::Request => 418,
             Self::LedgerControl => 211,
@@ -293,13 +290,72 @@ impl KagemushaWalletSigningDomainV1 {
 /// Signing message `m`: the 32-byte canonical encoding of `P_bytes(domain, transcript)` (§§3,
 /// 8; owner answer A1). Every P-256 signature of the protocol signs exactly these 32 bytes with
 /// ECDSA-P256-SHA256.
+///
+/// The Request is the one exception: its message is `P(kgwrqst2, terms)` over the 19 terms
+/// elements of its 418-byte transcript ([`kagemusha_wallet_request_terms_items_v1`]). The
+/// receiver signs it with the payer wallet, payer account and send ordinal zero, and every
+/// completion by a payer keeps the same message, signature and Request digest.
 #[must_use]
 pub fn kagemusha_wallet_signing_message_v1(
     domain: KagemushaWalletSigningDomainV1,
     transcript: &[u8],
 ) -> [u8; 32] {
     debug_assert_eq!(transcript.len(), domain.transcript_bytes());
+    if domain == KagemushaWalletSigningDomainV1::Request {
+        return poseidon_items_v1(
+            domain.domain(),
+            &kagemusha_wallet_request_terms_items_v1(transcript),
+        );
+    }
     kagemusha_wallet_poseidon_bytes_v1(domain.domain(), transcript)
+}
+
+/// Exact σ-field elements of the Request terms: the receiver-signed part of the Request body.
+pub const KAGEMUSHA_WALLET_REQUEST_TERMS_FIELD_ITEMS_V1: usize = 19;
+
+/// The 19 terms elements of one 418-byte Request body transcript, in transcript order: version;
+/// scheme (2); asset (2); receiver wallet (2); receiver account (2); receiver credential digest;
+/// amount; fee schedule; fee; policy epoch; scheme policy; receiver accepted time; certificate
+/// set digest; nonce (2). Payer wallet, payer account and send ordinal are skipped. The
+/// element encoding is the `credit_id` encoding, so the circuit's `hash_words` over the same
+/// cells recomputes this message. A transcript of any other length yields no elements; the
+/// caller's length check rejects it first.
+#[must_use]
+pub fn kagemusha_wallet_request_terms_items_v1(transcript: &[u8]) -> Vec<[u8; 32]> {
+    if transcript.len() != KagemushaWalletSigningDomainV1::Request.transcript_bytes() {
+        return Vec::new();
+    }
+    let digest = |offset: usize| -> [u8; 32] {
+        let mut value = [0_u8; 32];
+        value.copy_from_slice(&transcript[offset..offset + 32]);
+        value
+    };
+    let integer = |offset: usize, width: usize| -> u128 {
+        let mut value = [0_u8; 16];
+        value[..width].copy_from_slice(&transcript[offset..offset + width]);
+        u128::from_le_bytes(value)
+    };
+    // Offsets: version 0, scheme 2, asset 34, payer wallet 66, payer account 98, receiver
+    // wallet 130, receiver account 162, send ordinal 194, receiver credential 210, amount 242,
+    // fee schedule 258, fee 290, policy epoch 306, scheme policy 314, accepted time 346,
+    // certificates 354, nonce 386, end 418.
+    let items = WalletFieldItemsV1::with_capacity(KAGEMUSHA_WALLET_REQUEST_TERMS_FIELD_ITEMS_V1)
+        .integer(integer(0, 2))
+        .digest(&digest(2))
+        .digest(&digest(34))
+        .digest(&digest(130))
+        .digest(&digest(162))
+        .field(&digest(210))
+        .integer(integer(242, 16))
+        .field(&digest(258))
+        .integer(integer(290, 16))
+        .integer(integer(306, 8))
+        .field(&digest(314))
+        .integer(integer(346, 8))
+        .field(&digest(354))
+        .digest(&digest(386));
+    debug_assert_eq!(items.len(), KAGEMUSHA_WALLET_REQUEST_TERMS_FIELD_ITEMS_V1);
+    items.finish()
 }
 
 /// Object-digest domain of one signed body whose digest a relation recomputes (wire record §1,

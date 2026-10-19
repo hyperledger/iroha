@@ -23,7 +23,7 @@ const fn canonical_padding<T>() -> usize {
 }
 
 // Every direct u128 root is pinned, including map/payout records which can be
-// retained or framed outside one of the 29 bounded standalone object types.
+// retained or framed outside one of the 30 bounded standalone object types.
 const _: () = {
     // The owner and its wire DTO must agree on every supported pointer width.
     // In particular, a 32-bit pointer must not reintroduce Body's u128 padding.
@@ -41,7 +41,6 @@ const _: () = {
     assert!(norito::core::archived_payload_align::<KagemushaWalletFeePayoutV1>() == 16);
     assert!(norito::core::archived_payload_align::<KagemushaWalletLedgerControlActionV1>() == 16);
     assert!(norito::core::archived_payload_align::<KagemushaWalletPayoutRecordV1>() == 16);
-    assert!(norito::core::archived_payload_align::<KagemushaWalletOfferBodyV1>() == 16);
     assert!(norito::core::archived_payload_align::<KagemushaWalletRequestBodyV1>() == 16);
     assert!(norito::core::archived_payload_align::<KagemushaWalletFeeScheduleBodyV1>() == 16);
     assert!(norito::core::archived_payload_align::<KagemushaWalletQuotaWindowV1>() == 16);
@@ -97,6 +96,7 @@ assert_frame_padding! {
     KagemushaWalletTimeAnchorV1 => 0, KAGEMUSHA_WALLET_TIME_ANCHOR_MAX_BYTES_V1;
     KagemushaWalletChargeQuoteV1 => 8, KAGEMUSHA_WALLET_CHARGE_QUOTE_MAX_BYTES_V1;
     KagemushaWalletPaymentV1 => 8, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1;
+    KagemushaWalletPayerCompanionV1 => 0, KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1;
     KagemushaWalletPackageV1 => 8, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1;
     KagemushaWalletMarkerV1 => 8, KAGEMUSHA_WALLET_MARKER_MAX_BYTES_V1;
     KagemushaWalletRecoveryBodyV1 => 8, KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1;
@@ -118,7 +118,6 @@ assert_frame_padding! {
 const _: () = {
     assert!(canonical_padding::<KagemushaWalletRequestV1>() == 8);
     assert!(canonical_padding::<KagemushaWalletLineageV1>() == 8);
-    assert!(canonical_padding::<KagemushaWalletLineageMessageV1>() == 8);
     assert!(canonical_padding::<KagemushaWalletStateV1>() == 8);
     assert!(canonical_padding::<KagemushaWalletStatementV1>() == 8);
     assert!(canonical_padding::<KagemushaWalletReceiptV1>() == 0);
@@ -193,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn kagemusha_wallet_v1_frozen_frames_preserve_all_29_padding_contracts() {
+    fn kagemusha_wallet_v1_frozen_frames_preserve_all_30_padding_contracts() {
         let Value::Object(document) = vectors() else {
             panic!("fixture object");
         };
@@ -232,7 +231,7 @@ mod tests {
         let Value::Array(frames) = document.get("frames").expect("frames") else {
             panic!("frames array");
         };
-        assert_eq!(covered.len(), 29);
+        assert_eq!(covered.len(), 30);
         assert_eq!(frames.len(), covered.len());
         for frame in frames {
             let Value::Object(row) = frame else {
@@ -274,15 +273,16 @@ mod tests {
                     );
                     requests += 1;
                 }
-                KagemushaWalletMessageV1::Lineage { lineage } => {
-                    let frame =
-                        norito::encode_canonical(&lineage.lineage).expect("retained Lineage");
-                    check_frame::<KagemushaWalletLineageV1>(
-                        &frame,
-                        8,
-                        KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1,
-                    );
-                    lineages += 1;
+                KagemushaWalletMessageV1::Payment { payment } => {
+                    if let Some(lineage) = payment.send.lineage.lineage() {
+                        let frame = norito::encode_canonical(lineage).expect("retained Lineage");
+                        check_frame::<KagemushaWalletLineageV1>(
+                            &frame,
+                            8,
+                            KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1,
+                        );
+                        lineages += 1;
+                    }
                 }
                 _ => {}
             }

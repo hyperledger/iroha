@@ -406,19 +406,11 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
     assert_eq!(a.snapshot().unwrap().owned_balance, 100);
     assert_eq!(b.snapshot().unwrap().owned_balance, 0);
 
-    let offer = a.offer([210; 32], 97).unwrap();
-    let offer_measurement = message_census::record(
-        &output,
-        "fee-offer",
-        KagemushaWalletMessageV1::Offer {
-            offer: decode(&offer),
-        },
-    );
     let request_bytes = b
-        .request([211; 32], &offer, Some(&(schedule, certificate)))
+        .request([211; 32], 97, Some(&(schedule, certificate)))
         .unwrap();
     let request: KagemushaWalletRequestV1 = decode(&request_bytes);
-    request.verify(scheme).unwrap();
+    request.verify_open(scheme).unwrap();
     assert_eq!((request.body.amount, request.body.fee), (97, 3));
     assert_eq!(request.body.fee_schedule, schedule.fee_schedule_digest());
     assert_eq!(request.body.policy_epoch, 1);
@@ -441,6 +433,11 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
     );
     let payment_bytes = complete(a.execute(send.clone()).unwrap());
     let payment: KagemushaWalletPaymentV1 = decode(&payment_bytes);
+    let companion = a.payment_companion(&payment_bytes).unwrap();
+    KagemushaWalletPayerCompanionV1::decode_canonical(&companion)
+        .unwrap()
+        .check_payment(&payment)
+        .unwrap();
     let payment_measurement = message_census::record(
         &output,
         "fee-payment",
@@ -472,7 +469,10 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
         .unwrap()
         .expect("earned fee originals");
     assert_eq!(retained.payment, payment_bytes);
-    assert_eq!(retained.request, request_bytes);
+    assert_eq!(
+        retained.request,
+        norito::encode_canonical(&request.complete_with(&payment.signed_request().unwrap()).unwrap()).unwrap()
+    );
     let beneficiary_original = norito::encode_canonical(&setup.accounts[2]).unwrap();
     let claim_bytes = retained
         .ledger_claim_bytes(&scheme.scheme_id(), &beneficiary_original)
@@ -505,7 +505,8 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
     assert_eq!(device_a.platform.with(|state| state.sign_calls), signatures);
     fold(&mut a);
 
-    let receive = receive(&payment_bytes, &frames_a, 213);
+    assert_eq!(a.payment_companion(&payment_bytes).unwrap(), companion);
+    let receive = receive(&payment_bytes, &companion, 213);
     let received = complete(b.execute(receive.clone()).unwrap());
     assert_eq!(complete(b.execute(receive).unwrap()), received);
     let received_package: KagemushaWalletPackageV1 = decode(&received);
@@ -562,7 +563,7 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
     );
     let b_signatures = device_b.platform.with(|state| state.sign_calls);
     assert_eq!(
-        b.request([211; 32], &offer, Some(&(schedule, certificate)))
+        b.request([211; 32], 97, Some(&(schedule, certificate)))
             .unwrap(),
         request_bytes
     );
@@ -605,7 +606,7 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
     let mut producer_originals = Vec::new();
     for (name, bytes) in [
         ("target.json", target_bytes.clone()),
-        ("offer.norito", offer),
+        ("payer-companion.norito", companion),
         ("load-package.norito", loaded),
         (
             "regulatory-certificate.norito",
@@ -636,7 +637,6 @@ fn actual_native_fee_send_retains_historical_claim_across_restart_and_archive() 
             .push(norito::json!({"name":name,"bytes":(bytes.len()),"sha256":(sha(&bytes))}));
     }
     let complete_envelopes = vec![
-        offer_measurement,
         request_measurement,
         payment_measurement,
         credited_measurement,

@@ -1009,7 +1009,8 @@ impl KagemushaWalletBlacklistV1 {
 /// Local blacklist block (owner decision 2026-10-17): refuse a counterparty whose
 /// `account_digest` the wallet's held, authenticated `list` contains. With no list held nothing
 /// is refused. The payer calls it on the Request's receiver account before Send, the receiver on
-/// the payer account before it issues a Request and again before it accepts a Payment.
+/// the completed Request's payer account before it accepts a Payment. The receiver's open
+/// Request names no payer, so issuing it is never blocked.
 ///
 /// # Errors
 ///

@@ -18,6 +18,16 @@ fn capture_io(error: io::Error) -> Error {
     }
 }
 
+/// A capture refusal. Native custody errors, including the read transaction's own entry and
+/// exit checks, keep the [`capture_io`] classification of the per-file reads they replace.
+struct Captured(Error);
+
+impl From<io::Error> for Captured {
+    fn from(error: io::Error) -> Self {
+        Self(capture_io(error))
+    }
+}
+
 impl StoredSource for Cursor<&[u8]> {
     fn recheck(&self) -> io::Result<()> {
         // The immutable borrow is into the private, bounded transaction snapshot.
@@ -106,57 +116,71 @@ impl EncodedDirectoryOriginalsV1 {
     fn capture_snapshot(&self) -> Result<SnapshotSource, Error> {
         // Check the complete sum and row count before any file open/allocation.
         self.snapshot_extent()?;
-        let mut originals = BTreeMap::new();
-        for (&digest, &identity) in &self.originals {
-            let (file, _) = self
-                .retained_file(digest)
-                .map_err(capture_io)?
-                .ok_or(Error::Unavailable)?;
-            let mut reader = StoredReader {
-                file,
-                expected: identity.stored,
-                hash: Sha256::new(),
-                bytes: 0,
-            };
-            let length = usize::try_from(identity.stored.bytes).map_err(|_| Error::Inventory)?;
-            let mut stored = vec![0; length];
-            reader.read_exact(&mut stored).map_err(capture_io)?;
-            let mut excess = [0; 1];
-            if reader.read(&mut excess).map_err(capture_io)? != 0 {
-                return Err(Error::Inventory);
-            }
-            reader.finish().map_err(capture_io)?;
-            drop(reader);
-            // Authenticate even originals that the body might never request.
-            // No decoded table is retained in the snapshot.
-            let mut decoded = decode_stored(Cursor::new(stored.as_slice()), identity)
-                .map_err(|_| Error::Inventory)?;
-            let mut buffer = [0; 16 << 10];
-            while decoded.read(&mut buffer).map_err(|_| Error::Inventory)? != 0 {}
-            drop(decoded);
-            originals.insert(digest, SnapshotOriginal { identity, stored });
-        }
-        Ok(SnapshotSource { originals })
+        // One closed read transaction checks the complete ancestry at its entry and again
+        // before the snapshot can leave. Every file keeps its strict leaf, extent, identity,
+        // observed-snapshot and per-read checks; only the per-file ancestry walks are gone.
+        self.directory
+            .read_scope(|scope| -> Result<SnapshotSource, Captured> {
+                let mut originals = BTreeMap::new();
+                for (&digest, &identity) in &self.originals {
+                    let (file, _) = self
+                        .scoped_file(scope, digest)?
+                        .ok_or(Captured(Error::Unavailable))?;
+                    let mut reader = StoredReader {
+                        file,
+                        expected: identity.stored,
+                        hash: Sha256::new(),
+                        bytes: 0,
+                    };
+                    let length = usize::try_from(identity.stored.bytes)
+                        .map_err(|_| Captured(Error::Inventory))?;
+                    let mut stored = vec![0; length];
+                    reader.read_exact(&mut stored)?;
+                    let mut excess = [0; 1];
+                    if reader.read(&mut excess)? != 0 {
+                        return Err(Captured(Error::Inventory));
+                    }
+                    reader.finish()?;
+                    drop(reader);
+                    // Authenticate even originals that the body might never request.
+                    // No decoded table is retained in the snapshot.
+                    let mut decoded = decode_stored(Cursor::new(stored.as_slice()), identity)
+                        .map_err(|_| Captured(Error::Inventory))?;
+                    let mut buffer = [0; 16 << 10];
+                    while decoded
+                        .read(&mut buffer)
+                        .map_err(|_| Captured(Error::Inventory))?
+                        != 0
+                    {}
+                    drop(decoded);
+                    originals.insert(digest, SnapshotOriginal { identity, stored });
+                }
+                Ok(SnapshotSource { originals })
+            })
+            .map_err(|Captured(error)| error)
     }
 
     fn revalidate_observed(&self) -> Result<(), Error> {
-        self.directory.revalidate().map_err(|_| Error::Inventory)?;
         let observed = self.observed.lock().map_err(|_| Error::Inventory)?.clone();
-        // Reopen one file at a time. The retained snapshot includes identity,
-        // name, ancestry and change metadata; closing needs no second hash of
-        // unchanged immutable bytes and no collection of open descriptors.
-        for (digest, baseline) in observed {
-            let (_file, snapshot) = self
-                .retained_file(digest)
-                .map_err(|_| Error::Inventory)?
-                .ok_or(Error::Inventory)?;
-            // The helper just checked this snapshot against observed custody.
-            // Keep its native file held through this independent closing comparison.
-            if snapshot != baseline {
-                return Err(Error::Inventory);
-            }
-        }
-        self.directory.revalidate().map_err(|_| Error::Inventory)
+        // Reopen one file at a time inside one closed read transaction, which checks the
+        // complete ancestry at its entry and exit. The retained snapshot includes identity,
+        // name and change metadata; closing needs no second hash of unchanged immutable
+        // bytes and no collection of open descriptors.
+        self.directory
+            .read_scope(|scope| -> io::Result<()> {
+                for (digest, baseline) in observed {
+                    let (_file, snapshot) = self
+                        .scoped_file(scope, digest)?
+                        .ok_or_else(|| invalid("observed encoded original disappeared"))?;
+                    // The helper just checked this snapshot against observed custody.
+                    // Keep its native file held through this independent closing comparison.
+                    if snapshot != baseline {
+                        return Err(invalid("observed encoded original changed"));
+                    }
+                }
+                Ok(())
+            })
+            .map_err(|_| Error::Inventory)
     }
 }
 

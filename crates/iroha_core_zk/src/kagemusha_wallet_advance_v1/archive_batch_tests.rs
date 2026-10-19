@@ -679,8 +679,8 @@ impl EntriesV1 {
                     slot,
                     self.source,
                     &self.key,
-                    KagemushaWalletSigningDomainV1::Offer,
-                    &vec![0; KagemushaWalletSigningDomainV1::Offer.transcript_bytes()],
+                    KagemushaWalletSigningDomainV1::Request,
+                    &vec![0; KagemushaWalletSigningDomainV1::Request.transcript_bytes()],
                 )
                 .map(|_| ()),
         }

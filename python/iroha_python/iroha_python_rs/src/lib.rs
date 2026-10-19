@@ -5562,7 +5562,7 @@ mod tests {
     include!("tests/python_crypto_boundary_tests.rs");
     #[test]
     fn native_sdk_bridge_abi_version_is_exactly_twenty_two() {
-        assert_eq!(connect_norito_bridge_abi_version_py(), 29);
+        assert_eq!(connect_norito_bridge_abi_version_py(), 31);
     }
     #[test]
     fn attachments_json_decodes_versioned_signed_transaction() {

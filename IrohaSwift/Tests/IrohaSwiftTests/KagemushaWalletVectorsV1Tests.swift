@@ -16,7 +16,7 @@ import XCTest
 final class KagemushaWalletVectorsV1Tests: XCTestCase {
   private typealias Wire = KagemushaWalletWireV1
 
-  /// The 59 domains: 33 protocol hashes, 16 signing messages, 10 signed objects.
+  /// The 58 domains: 33 protocol hashes, 15 signing messages, 10 signed objects.
   private static let poseidonDomains = [
     "kgwcore1",
     "kgwrest1",
@@ -63,9 +63,8 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     "kgwqshr1",
     "kgwtanc1",
     "kgwchgq1",
-    "kgwoffr1",
     "kgwsctl1",
-    "kgwrqst1",
+    "kgwrqst2",
     "kgwlctl1",
     "kgwocrt1",
     "kgwocrd1",
@@ -105,8 +104,7 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     XCTAssertEqual(Wire.messageMaximumBytes, 10_000)
     XCTAssertEqual(Wire.sessionTextMaximumBytes, 2_736)
     XCTAssertEqual(Wire.messageTextMaximumBytes, 13_339)
-    XCTAssertEqual(
-      try int(bounds, "lineage_max_bytes"), KagemushaWalletMessageKindV1.lineage.maximumFrameBytes)
+    XCTAssertEqual(try int(bounds, "lineage_max_bytes"), Wire.messageMaximumBytes)
     // Exact σ and Ω lengths come from the frozen verifying-key allowlist and must fit
     // their complete carrying envelopes.
     XCTAssertNil(bounds["proof_max_bytes"])
@@ -219,20 +217,22 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     }
     for kind in KagemushaWalletMessageKindV1.allCases {
       switch kind {
-      case .offer, .sessionControl:
+      case .sessionControl:
         XCTAssertEqual(kind.maximumFrameBytes, 2_048)
         XCTAssertEqual(kind.maximumTextBytes, 2_736)
-      case .request, .payment, .credited, .policyData, .lineage:
+      case .request, .payment, .credited, .policyData:
         XCTAssertEqual(kind.maximumFrameBytes, 10_000)
         XCTAssertEqual(kind.maximumTextBytes, 13_339)
       }
     }
-    XCTAssertEqual(KagemushaWalletMessageKindV1.allCases.map(\.rawValue), [1, 2, 3, 4, 5, 6, 7])
+    XCTAssertEqual(KagemushaWalletMessageKindV1.allCases.map(\.rawValue), [2, 3, 4, 5, 6])
   }
 
   func testFrameSchemaHashesFollowFrameNames() throws {
     let frames = try objects(loadFixture(), "frames")
-    XCTAssertEqual(frames.count, 29)
+    XCTAssertEqual(frames.count, 30)
+    let companion = try XCTUnwrap(frames.first { $0["type"] as? String == "KagemushaWalletPayerCompanionV1" })
+    XCTAssertEqual(try int(companion, "max_bytes"), Wire.payerCompanionMaximumBytes)
     var sawEnvelope = false
     for frame in frames {
       let name = try string(frame, "frame_name")
@@ -339,10 +339,10 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
 
   func testSigningDomainsMirrorTheRustTableAndEveryVectorSignsItsMessage() throws {
     let fixture = try loadFixture()
-    // 16 signing domains in Rust declaration order, each with its exact transcript length.
+    // 15 signing domains in Rust declaration order, each with its exact transcript length.
     let domains = KagemushaWalletSigningDomainV1.allCases
-    XCTAssertEqual(domains.count, 16)
-    XCTAssertEqual(domains.map(\.rawValue), Array(Self.poseidonDomains[33..<49]))
+    XCTAssertEqual(domains.count, 15)
+    XCTAssertEqual(domains.map(\.rawValue), Array(Self.poseidonDomains[33..<48]))
     for domain in domains {
       XCTAssertEqual(domain.rawValue.utf8.count, 8, domain.rawValue)
     }
@@ -353,12 +353,12 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
 
     let signatures = try objects(fixture, "signatures")
     let messages = try objects(object(fixture, "poseidon"), "signing_messages")
-    XCTAssertEqual(signatures.count, 17)
+    XCTAssertEqual(signatures.count, 16)
     XCTAssertEqual(
-      try signatures.map { try string($0, "object") }, try messages.map { try string($0, "object") }
+      try signatures.filter { try signingDomain($0) != .request }.map { try string($0, "object") }, try messages.map { try string($0, "object") }
     )
     XCTAssertEqual(Set(try signatures.map(signingDomain)), Set(domains))
-    for (vector, row) in zip(signatures, messages) {
+    for (vector, row) in zip(try signatures.filter { try signingDomain($0) != .request }, messages) {
       let label = try string(vector, "object")
       let domain = try signingDomain(vector)
       let transcript = try hexData(string(vector, "transcript_hex"))
@@ -373,6 +373,23 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
       XCTAssertEqual(message.count, Wire.signingMessageBytes, label)
       assertPoseidonValue(message, label)
     }
+    let requestSignature = try XCTUnwrap(signatures.first { try signingDomain($0) == .request })
+    let terms = try object(object(fixture, "poseidon"), "request_terms")
+    let signing = try object(terms, "signing_message")
+    let open = try hexData(string(terms, "open_body_hex"))
+    let completed = try hexData(string(terms, "completed_body_hex"))
+    let skipped = Set([5, 6, 7, 8, 13])
+    let openItems = try transcriptFieldElements([UInt8](open), requestBodyLayout)
+    let completedItems = try transcriptFieldElements([UInt8](completed), requestBodyLayout)
+    let expected = openItems.enumerated().filter { !skipped.contains($0.offset) }.map(\.element)
+    XCTAssertEqual(expected.count, 19)
+    XCTAssertEqual(expected, completedItems.enumerated().filter { !skipped.contains($0.offset) }.map(\.element))
+    XCTAssertEqual(try fieldElements(signing, "items"), expected)
+    XCTAssertEqual(try string(signing, "domain"), "kgwrqst2")
+    XCTAssertEqual(try int(requestSignature, "elements"), 19)
+    XCTAssertEqual(try string(requestSignature, "message_hex"), try string(signing, "digest_hex"))
+    XCTAssertNil(KagemushaWalletSigningDomainV1(rawValue: "kgwrqst1"))
+    XCTAssertNil(KagemushaWalletSigningDomainV1(rawValue: "kgwoffr1"))
     XCTAssertEqual(
       Set(try signatures.map { try string($0, "message_hex") }).count, signatures.count,
       "distinct messages")
@@ -406,12 +423,13 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     let fixture = try loadFixture()
     XCTAssertEqual(
       try string(fixture, "signature_rule"),
-      "ECDSA-P256-SHA256 over the 32-byte message_hex = P_bytes(domain, transcript_hex); "
+      "ECDSA-P256-SHA256 over the 32-byte message_hex = P_bytes(domain, transcript_hex), "
+        + "except the Request: P(kgwrqst2, the 19 terms elements of transcript_hex, field_encodings.request_terms_rule); "
         + "RFC 6979 from the fixed scalars, frozen to low S; "
         + "a consumer accepts iff codec_ok and verify_ok")
     let keys = try objects(fixture, "keys").map { try hexData(string($0, "public_key_hex")) }
     let vectors = try objects(fixture, "signatures")
-    XCTAssertEqual(vectors.count, 17)
+    XCTAssertEqual(vectors.count, 16)
     for vector in vectors {
       let label = try string(vector, "object")
       let publicKey = try hexData(string(vector, "public_key_hex"))
@@ -733,8 +751,8 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
         .invalidField("frame.header"))
     }
 
-    for tag: UInt32 in [0, 8, 0x0100_0001] {
-      var unknown = SyntheticEnvelope(kind: .offer, scheme: scheme)
+    for tag: UInt32 in [0, 1, 7, 8, 0x0100_0001] {
+      var unknown = SyntheticEnvelope(kind: .request, scheme: scheme)
       unknown.tag = tag
       assertWireError(
         try Wire.validateEnvelope(unknown.frame(), expectedSchemeID: expected),
@@ -742,17 +760,17 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     }
 
     let version = compactField([1, 0])
-    let offer = compactField(compactField(compactField([1, 0]) + compactField(scheme)))
+    let request = compactField(compactField(compactField([1, 0]) + compactField(scheme)))
     let cases: [(String, [UInt8])] = [
       ("message.tag", version + compactField([1, 0, 0])),
-      ("message.fields", version + compactField(le32(1) + offer + compactField([0]))),
-      ("envelope.version", compactField([1, 0, 0]) + compactField(le32(1) + offer)),
+      ("message.fields", version + compactField(le32(2) + request + compactField([0]))),
+      ("envelope.version", compactField([1, 0, 0]) + compactField(le32(2) + request)),
       ("envelope.fields", version),
       ("frame.length", [0x05, 1, 0]),
       ("frame.length", version + [0x80]),
-      ("frame.varint", [0x82, 0x00, 1, 0] + compactField(le32(1) + offer)),
+      ("frame.varint", [0x82, 0x00, 1, 0] + compactField(le32(2) + request)),
       ("frame.varint", [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02]),
-      ("frame.length", version + compactField(le32(1) + compactField([0x05, 1]))),
+      ("frame.length", version + compactField(le32(2) + compactField([0x05, 1]))),
     ]
     for (field, payload) in cases {
       let frame = noritoEncode(
@@ -767,9 +785,7 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     let fixture = try loadFixture()
     let vectors = try Dictionary(
       uniqueKeysWithValues: objects(fixture, "envelopes").map { (try string($0, "variant"), $0) })
-    let offer = try vectorMessage(XCTUnwrap(vectors["Offer"]))
     let request = try vectorMessage(XCTUnwrap(vectors["Request"]))
-    XCTAssertEqual(offer.fields.count, 4)
     XCTAssertEqual(request.fields.count, 5)
 
     // Payment stores each signed value once; reconstruct all 17 Request body fields
@@ -778,7 +794,17 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     XCTAssertEqual(payment.fields.count, 3)
     let signedRequest = try reconstructedPaymentRequest(
       VectorFrame(envelopeFrame(fixture, "Payment")))
-    XCTAssertEqual(signedRequest.body, request.bytes(request.fields[0]))
+    try Wire.requireExchangeBinding(request: envelopeFrame(fixture, "Request"), payment: envelopeFrame(fixture, "Payment"))
+    let completedBody = [UInt8](signedRequest.body)
+    let completedFields = try XCTUnwrap(compactFields(completedBody, 0..<completedBody.count))
+    let openFields = try XCTUnwrap(compactFields(request.payload, request.fields[0]))
+    for index in 0..<17 {
+      if [3, 4, 7].contains(index) {
+        XCTAssertEqual(request.bytes(openFields[index]), Data(repeating: 0, count: index == 7 ? 16 : 32))
+      } else {
+        XCTAssertEqual(Data(completedBody[completedFields[index]]), request.bytes(openFields[index]))
+      }
+    }
     XCTAssertEqual(signedRequest.signature, request.bytes(request.fields[4]))
     XCTAssertTrue(Wire.isValidPublicKey(signedRequest.payerKey))
     XCTAssertEqual(signedRequest.payerCredential.count, Wire.digestBytes)
@@ -823,25 +849,26 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     XCTAssertEqual(receivePackage.count, 5)
     XCTAssertEqual(receive.tag(receivePackage[2]), 0)
 
-    // Lineage {version, lineage: {public, proof}}: Ω's 13 public outputs name the Offer's
-    // payer wallet and a valid payment key.
-    let lineage = try vectorMessage(XCTUnwrap(vectors["Lineage"]))
-    XCTAssertEqual(lineage.fields.count, 2)
-    let omega = try XCTUnwrap(compactFields(lineage.payload, lineage.fields[1]))
+    // Ω remains inside Payment: its predecessor binds the completed payer identity.
+    let present = try XCTUnwrap(compactFields(payment.payload, (send[2].lowerBound + 4)..<send[2].upperBound))
+    let omega = try XCTUnwrap(compactFields(payment.payload, present[0]))
     XCTAssertEqual(omega.count, 2)
-    let omegaPublic = try XCTUnwrap(compactFields(lineage.payload, omega[0]))
+    let omegaPublic = try XCTUnwrap(compactFields(payment.payload, omega[0]))
     XCTAssertEqual(omegaPublic.count, 13)
-    let offerBody = try XCTUnwrap(compactFields(offer.payload, offer.fields[0]))
-    XCTAssertEqual(lineage.bytes(omegaPublic[4]), offer.bytes(offerBody[3]))
-    XCTAssertTrue(Wire.isValidPublicKey(lineage.bytes(omegaPublic[6])))
+    XCTAssertEqual(payment.bytes(omegaPublic[4]), Data(completedBody[completedFields[3]]))
+    XCTAssertTrue(Wire.isValidPublicKey(payment.bytes(omegaPublic[6])))
 
     // SessionControl {version, scheme_id, asset_digest, sender, peer, session_nonce, kind,
     // reason, credit_id, auth}: credit_id is a canonical σ-field value, zero except for
     // ReceiveDeferred.
-    for variant in ["SessionControl::Close", "SessionControl::UnsupportedScheme"] {
+    XCTAssertNil(vectors["SessionControl::UnsupportedScheme"], "The retired control has no wire vector")
+    for (variant, kind, auth) in [("SessionControl::Close", UInt32(4), UInt32(1)),
+                                  ("SessionControl::SetupDeclined", 1, 0)] {
       let control = try vectorMessage(XCTUnwrap(vectors[variant], variant))
       XCTAssertEqual(control.fields.count, 10, variant)
+      XCTAssertEqual(control.tag(control.fields[6]), kind, variant)
       XCTAssertEqual(control.bytes(control.fields[8]), Data(count: 32), variant)
+      XCTAssertEqual(control.tag(control.fields[9]), auth, variant)
     }
   }
 
@@ -1112,7 +1139,6 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
       "signing_quota_share",
       "signing_time_anchor",
       "signing_charge_quote",
-      "signing_offer",
       "signing_session_control",
       "signing_request",
       "signing_ledger_control",
@@ -1379,7 +1405,17 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     let body = try hexData(string(creditID, "request_body_hex"))
     // credit_id = P(kgwcrdt1, the 24 Request-body elements in transcript order) (owner answers
     // Q1 and A5: both account digests are inside the preimage).
-    XCTAssertEqual(body, try signedBody(fixture, object: "Request"))
+    let requestTerms = try object(object(fixture, "poseidon"), "request_terms")
+    XCTAssertEqual(body, try hexData(string(requestTerms, "completed_body_hex")))
+    let signedOpenBody = try signedBody(fixture, object: "Request")
+    XCTAssertEqual(signedOpenBody, try hexData(string(requestTerms, "open_body_hex")))
+    let payerElements = Set([5, 6, 7, 8, 13])
+    let signedItems = try transcriptFieldElements([UInt8](signedOpenBody), requestBodyLayout)
+    let completedItems = try transcriptFieldElements([UInt8](body), requestBodyLayout)
+    XCTAssertEqual(
+      signedItems.enumerated().filter { !payerElements.contains($0.offset) }.map(\.element),
+      completedItems.enumerated().filter { !payerElements.contains($0.offset) }.map(\.element),
+      "receiver terms unchanged by payer completion")
     XCTAssertEqual(body.count, KagemushaWalletSigningDomainV1.request.transcriptBytes)
     XCTAssertEqual(body.count, 418)
     let hashed = try object(creditID, "poseidon")
@@ -1394,7 +1430,12 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     XCTAssertEqual(message.tag, 2)
     let bodyFields = try request.fields(XCTUnwrap(message.fields.first))
     XCTAssertEqual(bodyFields.count, 17)
-    XCTAssertEqual(bodyFields.reduce(Data()) { $0 + request.data($1) }, body)
+    XCTAssertEqual(bodyFields.reduce(Data()) { $0 + request.data($1) },
+      try hexData(string(object(object(fixture, "poseidon"), "request_terms"), "open_body_hex")))
+    let completed = try reconstructedPaymentRequest(VectorFrame(envelopeFrame(fixture, "Payment"))).body
+    let completedBytes = [UInt8](completed)
+    let completedFields = try XCTUnwrap(compactFields(completedBytes, 0..<completedBytes.count))
+    XCTAssertEqual(completedFields.reduce(Data()) { $0 + Data(completedBytes[$1]) }, body)
   }
 
   func testRequestAccountDigestsNameBothCredentialsInsideTheCreditIDPreimage() throws {
@@ -1404,22 +1445,12 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     let request = try VectorFrame(envelopeFrame(fixture, "Request"))
     let requestMessage = try request.envelopeMessage()
     XCTAssertEqual(requestMessage.fields.count, 5)
-    let body = try request.fields(requestMessage.fields[0]).map { request.data($0) }
+    let completed = [UInt8](try reconstructedPaymentRequest(VectorFrame(envelopeFrame(fixture, "Payment"))).body)
+    let body = try XCTUnwrap(compactFields(completed, 0..<completed.count)).map { Data(completed[$0]) }
     XCTAssertEqual(body.count, 17)
     guard body.count == 17 else { return }
-
-    // The payer's digest is the Offer credential's, the receiver's the Request credential's.
-    let offer = try VectorFrame(envelopeFrame(fixture, "Offer"))
-    let offerMessage = try offer.envelopeMessage()
-    XCTAssertEqual(offerMessage.fields.count, 4)
-    let offerBody = try offer.fields(offerMessage.fields[0])
-    let payerCredential = try offer.fields(offer.field(offerMessage.fields[1], 0))
     let receiverCredential = try request.fields(request.field(requestMessage.fields[1], 0))
-    XCTAssertEqual(offer.data(offerBody[3]), body[Self.requestPayerWallet])
-    XCTAssertEqual(offer.data(payerCredential[3]), body[Self.requestPayerWallet])
-    XCTAssertEqual(offer.data(payerCredential[4]), body[Self.requestPayerAccount])
-    XCTAssertEqual(
-      try digestValue(digestVectors(fixture), "account"), body[Self.requestPayerAccount])
+    XCTAssertEqual(try digestValue(digestVectors(fixture), "account"), body[Self.requestPayerAccount])
     XCTAssertEqual(request.data(receiverCredential[3]), body[Self.requestReceiverWallet])
     XCTAssertEqual(request.data(receiverCredential[4]), body[Self.requestReceiverAccount])
     XCTAssertNotEqual(body[Self.requestPayerAccount], body[Self.requestReceiverAccount])
@@ -1655,9 +1686,12 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     let nullifierItems = try fieldElements(nullifier, "items")
     XCTAssertEqual(nullifierItems.count, 5)
     XCTAssertEqual(Array(nullifierItems.prefix(2)), fieldDigestLimbs(try digestValue(digests, "scheme")))
-    let requestFrame = try VectorFrame(envelopeFrame(fixture, "Request"))
-    let requestBody = try requestFrame.envelopeMessage().fields[0]
-    XCTAssertEqual(Array(nullifierItems[2..<4]), try fieldDigestLimbs(requestFrame.data(requestFrame.field(requestBody, Self.requestPayerWallet))))
+    let completed = [UInt8](try reconstructedPaymentRequest(VectorFrame(envelopeFrame(fixture, "Payment"))).body)
+    let requestFields = try XCTUnwrap(compactFields(completed, 0..<completed.count))
+    XCTAssertEqual(requestFields.count, 17)
+    guard requestFields.count == 17 else { return }
+    let payerWallet = Data(completed[requestFields[Self.requestPayerWallet]])
+    XCTAssertEqual(Array(nullifierItems[2..<4]), fieldDigestLimbs(payerWallet))
     XCTAssertEqual(try unsignedElement(nullifierItems[4]), 2)
     assertPoseidonValue(try hexData(string(nullifier, "digest_hex")), "unload nullifier")
     assertPoseidonValue(redeemItems[1], "recovery nullifier")
@@ -2150,10 +2184,7 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
       }
     }
     XCTAssertEqual(tags, [Self.sendTag, Self.receiveTag, 6, 8, 1])
-    // Ω carried alone: the Lineage message and the fold record.
-    let lineage = try VectorFrame(envelopeFrame(fixture, "Lineage"))
-    try omegas.append(
-      ("Lineage envelope", omegaBytes(lineage, lineage.envelopeMessage().fields[1])))
+    // Ω carried by the local fold record remains independently bounded.
     let fold = try VectorFrame(objectFrame(fixture, "KagemushaWalletFoldRecordV1"))
     try omegas.append(("fold record", omegaBytes(fold, fold.field(fold.root, 7))))
     for (label, omega) in omegas {
@@ -2253,7 +2284,7 @@ final class KagemushaWalletVectorsV1Tests: XCTestCase {
     assertWireError(
       try Wire.decodeEnvelopeText(Wire.encodeText(overCap), expectedSchemeID: Data(scheme)),
       .encodedSizeExceeded(actual: 13_340, maximum: 13_339))
-    let overSession = try sizedEnvelope(kind: .offer, scheme: scheme, frameBytes: 2_049)
+    let overSession = try sizedEnvelope(kind: .sessionControl, scheme: scheme, frameBytes: 2_049)
     let overSessionText = Wire.encodeText(overSession)
     XCTAssertEqual(overSessionText.utf8.count, 2_737)
     assertWireError(
@@ -2285,7 +2316,7 @@ private struct SyntheticEnvelope {
       + compactField([UInt8](repeating: 0xa5, count: fillerBytes))
     let variant: [UInt8]
     switch kind {
-    case .offer, .request:
+    case .request:
       variant = compactField(compactField(leaf))
     case .payment:
       let emptyVector = [UInt8](repeating: 0, count: 8)
@@ -2295,8 +2326,6 @@ private struct SyntheticEnvelope {
       let send = version + compactField(leaf) + compactField(present)
         + compactField(step) + compactField([])
       variant = compactField(version + compactField([]) + compactField(send))
-    case .lineage:
-      variant = compactField(version + compactField(compactField(leaf)))
     case .credited, .sessionControl, .policyData:
       variant = compactField(leaf)
     }
@@ -3126,13 +3155,11 @@ private enum WalletFixtureFailure: Error {
 
 private func kindName(_ kind: KagemushaWalletMessageKindV1) -> String {
   switch kind {
-  case .offer: "Offer"
   case .request: "Request"
   case .payment: "Payment"
   case .credited: "Credited"
   case .sessionControl: "SessionControl"
   case .policyData: "PolicyData"
-  case .lineage: "Lineage"
   }
 }
 

@@ -72,12 +72,15 @@ enum class KagemushaWalletDigestRoleV1(
 /**
  * Signing domain of one signed KAGEMUSHA wallet V1 body (wire record section 1, owner answer A1).
  *
- * Mirrors Rust `KagemushaWalletSigningDomainV1::ALL` (17 domains) in declaration order. Every
+ * Mirrors Rust `KagemushaWalletSigningDomainV1::ALL` (15 domains) in declaration order. Every
  * P-256 signature of the protocol signs, as its message, the 32-byte canonical encoding `m` of
  * the Poseidon value `P_bytes(d, transcript)` with standard ECDSA-P256-SHA256 (the ECDSA hash is
  * `SHA-256(m)`): Android KeyMint through a `DIGEST_SHA256` key and `SHA256withECDSA`, the Secure
  * Enclave through `kSecKeyAlgorithmECDSASignatureMessageX962SHA256`, and issuer, policy, ledger
- * and artifact signers with the same algorithm. No-digest modes are never used. The native core
+ * and artifact signers with the same algorithm. No-digest modes are never used. The Request alone
+ * signs `m = P(kgwrqst2, terms)` over the 19 receiver terms elements of its transcript: payer
+ * wallet, payer account and send ordinal stay outside the signature, so the open Request and every
+ * payer's completion of it share one message, signature and Request digest. The native core
  * computes `m`; Kotlin treats it as an opaque canonical σ-field value.
  */
 enum class KagemushaWalletSigningDomainV1(
@@ -98,9 +101,10 @@ enum class KagemushaWalletSigningDomainV1(
     QUOTA_SHARE("kgwqshr1", 190),
     TIME_ANCHOR("kgwtanc1", 138),
     CHARGE_QUOTE("kgwchgq1", 219),
-    OFFER("kgwoffr1", 194),
     SESSION_CONTROL("kgwsctl1", 197),
-    REQUEST("kgwrqst1", 418),
+
+    /** The 418-byte Request body transcript; the receiver signs only its 19 terms elements. */
+    REQUEST("kgwrqst2", 418),
     LEDGER_CONTROL("kgwlctl1", 211),
     ;
 
@@ -111,7 +115,10 @@ enum class KagemushaWalletSigningDomainV1(
     }
 }
 
-/** Peer message kind carried by a KAGEMUSHA wallet V1 envelope; its tag selects the frame bound. */
+/**
+ * Peer message kind carried by a KAGEMUSHA wallet V1 envelope; its tag selects the frame bound.
+ * Tags 1 and 7 (the former Offer and Lineage hint) are unused.
+ */
 enum class KagemushaWalletMessageKindV1(
     /** Norito `u32` enum tag of `KagemushaWalletMessageV1`. */
     @JvmField val wireTag: Int,
@@ -122,12 +129,7 @@ enum class KagemushaWalletMessageKindV1(
     /** Maximum complete `kgm1:` text of an envelope of this kind. */
     @JvmField val maximumTextBytes: Int,
 ) {
-    OFFER(
-        1,
-        "Offer",
-        KagemushaWalletWireV1.SESSION_MAX_BYTES,
-        KagemushaWalletWireV1.SESSION_TEXT_MAX_BYTES,
-    ),
+    /** The receiver's open Request: payer wallet, payer account and send ordinal are zero. */
     REQUEST(
         2,
         "Request",
@@ -155,14 +157,6 @@ enum class KagemushaWalletMessageKindV1(
     POLICY_DATA(
         6,
         "PolicyData",
-        KagemushaWalletWireV1.MESSAGE_MAX_BYTES,
-        KagemushaWalletWireV1.MESSAGE_TEXT_MAX_BYTES,
-    ),
-
-    /** Ω of the payer's folded head; sent only after an authenticated Offer. */
-    LINEAGE(
-        7,
-        "Lineage",
         KagemushaWalletWireV1.MESSAGE_MAX_BYTES,
         KagemushaWalletWireV1.MESSAGE_TEXT_MAX_BYTES,
     ),
@@ -247,16 +241,24 @@ object KagemushaWalletWireV1 {
     /** Length of every wallet V1 digest. */
     const val DIGEST_BYTES: Int = 32
 
-    /** Maximum complete envelope frame for Offer and SessionControl. */
+    /** Maximum complete envelope frame for SessionControl. */
     const val SESSION_MAX_BYTES: Int = 2_048
 
     /**
-     * Maximum complete envelope frame for Request, Payment, Credited, PolicyData and Lineage.
+     * Maximum complete envelope frame for Request, Payment, Credited and PolicyData.
      *
      * Payment structural admission enforces both source role maxima and the joint proof budget.
      * Native additionally checks exact admitted proof lengths and verifies the complete messages.
      */
     const val MESSAGE_MAX_BYTES: Int = 10_000
+
+    /**
+     * Maximum canonical payer companion (`KagemushaWalletPayerCompanionV1`: the payer credential and
+     * its issuer certificate set) that travels beside a Payment ([IrohaPeerWalletPaymentV1]),
+     * mirroring the Rust `KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1`. Native decodes and checks
+     * it at Receive.
+     */
+    const val PAYER_COMPANION_MAX_BYTES: Int = 2_048
 
     /** `F_payment`: the bytes of a Payment envelope frame other than its Ω and σ_send proofs. */
     const val PAYMENT_FIXED_BYTES: Int = 1_394
@@ -352,16 +354,15 @@ object KagemushaWalletWireV1 {
     private const val TAG_BYTES: Int = 4
 
     // Top-level field layouts of the bound messages (wire record section 3.4).
-    private const val OFFER_FIELDS: Int = 4
-    private const val OFFER_BODY_FIELD: Int = 0
-    private const val OFFER_BODY_FIELDS: Int = 8
-    private const val OFFER_BODY_AMOUNT_FIELD: Int = 6
     private const val REQUEST_FIELDS: Int = 5
     private const val REQUEST_BODY_FIELD: Int = 0
     private const val REQUEST_SIGNATURE_FIELD: Int = 4
     private const val REQUEST_BODY_FIELDS: Int = 17
     private const val REQUEST_BODY_SCHEME_FIELD: Int = 1
     private const val REQUEST_BODY_AMOUNT_FIELD: Int = 9
+
+    /** Request body fields a payer completes and the receiver signature leaves out. */
+    private val REQUEST_BODY_PAYER_FIELDS: IntArray = intArrayOf(3, 4, 7)
     private const val PAYMENT_FIELDS: Int = 3
     private const val PAYMENT_REQUEST_FIELD: Int = 1
     private const val CREDITED_FIELDS: Int = 3
@@ -611,20 +612,22 @@ object KagemushaWalletWireV1 {
     }
 
     /**
-     * Require that one exchange's envelopes are structurally bound: [payment] carries exactly the
-     * signed Request of [request], and [credited], when present, is evidence under that Request's
-     * scheme.
+     * Require that one exchange's envelopes are structurally bound: [payment] carries a completion
+     * of [request] with its signature, and [credited], when present, is evidence under that
+     * Request's scheme.
      *
      * Each frame is first checked by [inspectEnvelope], must have the kind of its parameter and
      * must split into exactly the record fields of its message (wire record section 3.4: Request
      * `{body, receiver_credential, fee_schedule, certificates, signature}` with a 17-field body,
      * Payment `{version, request: PaymentRequest, send}` and Credited `{version, scheme_id,
-     * evidence}`). Payment reconstructs the exact 17 signed Request fields from its unique
-     * Request fields and the Send statement/effect/lineage, then compares every field and the
-     * original signature. Credited's scheme must match the Request. A carrier thus
-     * rejects a Payment that belongs to another Request, and Credited evidence under another
-     * scheme, before handing either to the wallet. No digest or signature is checked here and
-     * nothing grants monetary authority.
+     * evidence}`). Payment reconstructs the payer's completed 17-field Request body from its
+     * unique Request fields and the Send statement/effect/lineage. [request] is the receiver's open
+     * Request (payer wallet, payer account and send ordinal zero) or one completion of it: the
+     * reconstructed body must equal it in every other field and carry its signature, and a
+     * completed [request] must equal it in the payer fields too (the Rust `complete_with` rule).
+     * Credited's scheme must match the Request. A carrier thus rejects a Payment that belongs to
+     * another Request, and Credited evidence under another scheme, before handing either to the
+     * wallet. No digest or signature is checked here and nothing grants monetary authority.
      * The shared native wallet's exact-Send delivery admission checks Credited evidence against
      * the held Request and retained Payment (its credit, payer wallet and amount, or its opening,
      * and the Payment digest the evidence binds). The receiver is matched by the Request's
@@ -641,7 +644,10 @@ object KagemushaWalletWireV1 {
         val requestBody = recordFields(requestFields[REQUEST_BODY_FIELD], REQUEST_BODY_FIELDS, "Request body")
         val paymentFields = messageFields(payment, KagemushaWalletMessageKindV1.PAYMENT, PAYMENT_FIELDS)
         val (body, signature) = paymentSignedRequestFields(paymentFields)
-        require(body.indices.all { body[it].contentEquals(requestBody[it]) } &&
+        val open = REQUEST_BODY_PAYER_FIELDS.all { field ->
+            requestBody[field].size == (if (field == 7) 16 else 32) && requestBody[field].all { it.toInt() == 0 }
+        }
+        require(body.indices.all { body[it].contentEquals(requestBody[it]) || (open && it in REQUEST_BODY_PAYER_FIELDS) } &&
             signature.contentEquals(requestFields[REQUEST_SIGNATURE_FIELD])) {
             "KAGEMUSHA wallet V1 Payment does not carry this Request"
         }
@@ -667,10 +673,11 @@ object KagemushaWalletWireV1 {
         return BigInteger(1, amount.reversedArray()).also { require(it.signum() > 0) { "Payment amount must be positive" } }
     }
 
-    /** Exact unsigned amount quoted in a Request's signed body, for display only: what a receiver
-     * shows as on its way before the payer approves. This bounded structural parser authenticates
-     * nothing. A wallet must first obtain the exact Request from its own genuine Native output.
-     * Neither a decoded amount nor successful framing establishes a payment, a credit or a receipt.
+    /** Exact unsigned amount quoted in a Request's signed terms, for display only: what a receiver
+     * shows as on its way and a payer reviews before Native completes the open Request. This bounded
+     * structural parser authenticates nothing. A wallet must first obtain the exact Request from its
+     * own genuine Native output or Native review. Neither a decoded amount nor successful framing
+     * establishes a payment, a credit or a receipt.
      */
     @JvmStatic
     fun requestAmountData(request: ByteArray): BigInteger {
@@ -681,21 +688,10 @@ object KagemushaWalletWireV1 {
         return BigInteger(1, amount.reversedArray()).also { require(it.signum() > 0) { "Request amount must be positive" } }
     }
 
-    /** Exact unsigned amount proposed in an Offer's signed body, for display and the receiver's ask
-     * guard only: a receiver that asked for an amount ([IrohaPeerAskV1]) declines an Offer for any
-     * other amount before it issues a Request. This bounded structural parser authenticates nothing;
-     * Native verifies the Offer and requires the Request amount to equal it.
+    /**
+     * Reconstruct the payer's completed Request field bytes and the receiver signature; this
+     * structural operation authenticates nothing.
      */
-    @JvmStatic
-    fun offerAmountData(offer: ByteArray): BigInteger {
-        val fields = messageFields(offer, KagemushaWalletMessageKindV1.OFFER, OFFER_FIELDS)
-        val body = recordFields(fields[OFFER_BODY_FIELD], OFFER_BODY_FIELDS, "Offer body")
-        val amount = body[OFFER_BODY_AMOUNT_FIELD]
-        require(amount.size == 16) { "Offer amount must be canonical LE128" }
-        return BigInteger(1, amount.reversedArray()).also { require(it.signum() > 0) { "Offer amount must be positive" } }
-    }
-
-    /** Reconstruct exact signed field bytes; this structural operation authenticates nothing. */
     private fun paymentSignedRequestFields(payment: List<ByteArray>): Pair<List<ByteArray>, ByteArray> {
         val unique = recordFields(payment[PAYMENT_REQUEST_FIELD], 10, "Payment Request")
         val send = recordFields(payment[2], 5, "Payment Send package")
@@ -790,7 +786,7 @@ object KagemushaWalletWireV1 {
         }
         val message = payload.copyOfRange(cursor, payload.size)
         val versionPath = when (kind) {
-            KagemushaWalletMessageKindV1.OFFER, KagemushaWalletMessageKindV1.REQUEST -> intArrayOf(0, 0)
+            KagemushaWalletMessageKindV1.REQUEST -> intArrayOf(0, 0)
             else -> intArrayOf(0)
         }
         val messageVersion = messageField(message, versionPath, "message version")
@@ -801,9 +797,8 @@ object KagemushaWalletWireV1 {
             "KAGEMUSHA wallet V1 message version is unsupported"
         }
         val schemePath = when (kind) {
-            KagemushaWalletMessageKindV1.OFFER, KagemushaWalletMessageKindV1.REQUEST -> intArrayOf(0, 1)
+            KagemushaWalletMessageKindV1.REQUEST -> intArrayOf(0, 1)
             KagemushaWalletMessageKindV1.PAYMENT -> intArrayOf(2, 1, 1)
-            KagemushaWalletMessageKindV1.LINEAGE -> intArrayOf(1, 0, 1)
             else -> intArrayOf(1)
         }
         require(messageField(message, schemePath, "scheme identity").size == DIGEST_BYTES) {

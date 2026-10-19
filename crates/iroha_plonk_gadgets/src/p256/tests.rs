@@ -2583,8 +2583,10 @@ struct ProtocolSignature {
 
 fn protocol_signatures() -> Vec<ProtocolSignature> {
     use norito::json::Value as Json;
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/kagemusha/wallet_v1_vectors.json");
+    let root = std::env::var_os("IROHA_KAGEMUSHA_TEST_FIXTURE_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."));
+    let path = root.join("fixtures/kagemusha/wallet_v1_vectors.json");
     let text = std::fs::read_to_string(&path).expect("read the wallet vectors");
     let json = norito::json::parse_value(&text).expect("parse the wallet vectors");
     let text_of = |value: &Json, key: &str| -> String {
@@ -2620,12 +2622,12 @@ fn protocol_signatures() -> Vec<ProtocolSignature> {
 
 /// The in-circuit message path reproduces the protocol's signatures: every
 /// signing message of the shared wallet vectors (ECDSA-P256-SHA256 over the
-/// 32-byte canonical little-endian encoding of `P_bytes(domain,
-/// transcript)`, `kagemusha_wallet_signing_message_v1`) is the codec's
+/// 32-byte canonical little-endian digest encoding) is the codec's
 /// encoding of its digest, and each signature verifies in circuit from the
 /// digest cell, while another object's message does not. Reading the 32
 /// bytes big-endian instead would not even give an `Fp` value for most of
-/// them.
+/// them. Request signs `P(kgwrqst2, terms)`; the other bodies use
+/// `P_bytes(domain, transcript)`.
 #[test]
 fn p256_protocol_signature_fixtures_verify_from_the_digest() {
     let vectors = protocol_signatures();
@@ -2637,7 +2639,6 @@ fn p256_protocol_signature_fixtures_verify_from_the_digest() {
         [
             "payer issuer certificate",
             "payer credential",
-            "Offer",
             "Request",
             "Send receipt",
             "Receive receipt binding the Payment digest",

@@ -24,7 +24,7 @@ use iroha_kagemusha_proof::{
 };
 use iroha_pasta::{Ep, Eq, Fp, msm::MemoryBudget, poseidon::hash_with_domain};
 use iroha_plonk::{DescriptorBinding, VerifyingKey, verifier::verify_full};
-use iroha_plonk_recursion::{FoldConfig, create_fold, verify_fold};
+use iroha_plonk_recursion::{FoldConfig, create_fold, obligation::ledger::Variant, verify_fold};
 use receive_chain::compact_catalog::{self, Terminal};
 
 /// Exact resulting receiver sources retained for subsequent `ArchiveStatus` tests.
@@ -47,13 +47,14 @@ pub(crate) struct CompactReceiveOmega {
 /// Build both signed source chains again after extending the immutable catalog,
 /// then prove every Receive stage and close its exact four-slot native outer fold.
 pub(crate) fn compact_receive(
+    variant: Variant,
     corrected: bool,
     fixture: compact_catalog::LoadFixture,
 ) -> CompactReceiveOmega {
     let (seed, initial_program, initial_wallets) =
         compact_catalog::compact_shared_wallet_seed(fixture);
     let (expected_binding, expected_key) =
-        receive_chain::receive_terminal_identity(&initial_wallets);
+        receive_chain::receive_terminal_identity(&initial_wallets, variant);
     let (program, wallets) = seed.extend(
         &initial_program,
         &initial_wallets,
@@ -69,7 +70,7 @@ pub(crate) fn compact_receive(
     } else {
         (wallets, None)
     };
-    let source = receive_chain::authenticated_receive_from_wallets(wallets, correction);
+    let source = receive_chain::authenticated_receive_from_wallets(wallets, variant, correction);
     assert_eq!(source.binding, expected_binding);
     assert_eq!(source.key.to_bytes(), expected_key.to_bytes());
     assert_eq!(program.catalog().len(), 3);
@@ -188,6 +189,7 @@ pub(crate) fn wrap_receive(
     };
     let transport = output.transport();
     assert_eq!(transport.len(), 4992);
+    compact_catalog::assert_omega_peer_budget(&transport);
     let mut raw = receive_chain::public_bytes(&source.state.lineage);
     raw.extend_from_slice(&transport);
     assert_eq!(raw.len(), 5312);
@@ -234,7 +236,7 @@ pub(crate) fn wrap_receive(
 /// No funded source or Load trust is needed to prove the malformed-input burn.
 /// Both Bootstrap and Receive are rebuilt under one final two-terminal key.
 #[test]
-#[ignore = "genuine immutable Bootstrap+Receive catalog, all9A8W and final native Omega; run optimized"]
+#[ignore = "genuine immutable Bootstrap+Receive catalog, all5A4W and final native Omega; run optimized"]
 fn bootstrap_only_invalid_sigma_burn_closes_all_four_outer_obligations() {
     let (seed, initial_program, initial_receiver) =
         compact_catalog::compact_bootstrap_catalog_seed();
@@ -260,7 +262,7 @@ fn bootstrap_only_invalid_sigma_burn_closes_all_four_outer_obligations() {
     );
     assert_eq!(result.source.terminal.incoming_mode, IncomingMode::Trivial);
     eprintln!(
-        "BOOTSTRAP_ONLY_INVALID_SIGMA_RECEIVE_OMEGA full9A8W=true canonical_custody_all17=true original_sigma_soft_false=true no_Load_trust=true adjusted_spendable_zero=true terminal_omega=true immutable_catalog_size=2 full_catalog=false release_qualified=false"
+        "BOOTSTRAP_ONLY_INVALID_SIGMA_RECEIVE_OMEGA full5A4W=true canonical_custody_all9=true original_sigma_soft_false=true no_Load_trust=true adjusted_spendable_zero=true terminal_omega=true immutable_catalog_size=2 full_catalog=false release_qualified=false"
     );
 }
 
@@ -269,7 +271,17 @@ fn bootstrap_only_invalid_sigma_burn_closes_all_four_outer_obligations() {
 pub fn genuine_receive_acceptance_closes_all_four_outer_obligations(
     fixture: compact_catalog::LoadFixture,
 ) {
-    let _ = compact_receive(false, fixture);
+    let _ = compact_receive(Variant::Receive, false, fixture);
+}
+
+/// Close genuine funded ReceiveRenewed under its exact rebuilt native catalog.
+#[allow(dead_code)] // Other component harnesses include this shared builder.
+pub fn genuine_renewed_receive_acceptance_closes_all_four_outer_obligations(
+    fixture: compact_catalog::LoadFixture,
+) {
+    let result = compact_receive(Variant::ReceiveRenewed, false, fixture);
+    assert!(result.source.accepted_credit);
+    assert_eq!(result.source.terminal.incoming_mode, IncomingMode::Accept);
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
@@ -277,7 +289,7 @@ pub fn genuine_receive_acceptance_closes_all_four_outer_obligations(
 pub fn genuine_receive_corrected_burn_closes_all_four_outer_obligations(
     fixture: compact_catalog::LoadFixture,
 ) {
-    let _ = compact_receive(true, fixture);
+    let _ = compact_receive(Variant::Receive, true, fixture);
 }
 
 /// Equal original claim bytes still occupy four prescribed obligation slots.

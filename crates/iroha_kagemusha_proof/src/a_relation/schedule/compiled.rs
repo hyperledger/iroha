@@ -37,7 +37,8 @@ impl OperationSchedule {
                 vec![vec![LoadRecovery], vec![LoadReceipt]],
             ),
             // Lean: A1 proves the transition and its objects beside the hard predecessor,
-            // A2 both map insertions, A3 the own receipt.
+            // A2 both map insertions, A3 the own receipt. The two-stage packing (maps in
+            // A1) exceeds k16's usable rows once A1 verifies the real Omega predecessor.
             Variant::Send => (
                 vec![vec![], vec![], vec![0]],
                 vec![
@@ -46,31 +47,24 @@ impl OperationSchedule {
                     vec![SendAuthorization],
                 ],
             ),
-            // Lean: A1 proves the transition beside the hard predecessor; Q0 is the
-            // incoming-only Q_sigma, Q1 the merged signature leaf (own receipt hard,
-            // incoming slots soft) owned by Authorization and projected by Signatures.
+            // Lean, repacked into five stages: A1 proves the transition and both map
+            // effects beside the hard predecessor; A2 verifies Q0, the incoming-only
+            // Q_sigma; A3 checks the payer's proofs and the signed objects; A4 verifies
+            // Q1, the merged signature leaf (own receipt hard, incoming slots soft), owned
+            // by Authorization and projected by Signatures; the terminal A5 searches the
+            // consumed-credit map, hashes both proof tapes and applies the effects.
             Variant::Receive | Variant::ReceiveRenewed => (
+                vec![vec![], vec![0], vec![], vec![1], vec![]],
                 vec![
+                    vec![
+                        ReceiveConsumedEffects,
+                        ReceiveCreditEffects,
+                        ReceiveTransition,
+                    ],
                     vec![],
-                    vec![0],
-                    vec![],
-                    vec![],
-                    vec![],
-                    vec![1],
-                    vec![],
-                    vec![],
-                    vec![],
-                ],
-                vec![
-                    vec![ReceiveConsumedEffects, ReceiveTransition],
-                    vec![],
-                    vec![ReceiveProofs],
-                    vec![ReceiveProofDigest],
-                    vec![ReceiveObjects],
-                    vec![ReceiveAuthorization],
-                    vec![ReceiveSignatures, ReceiveCreditEffects],
-                    vec![ReceiveNonmembership],
-                    vec![ReceiveEffects],
+                    vec![ReceiveProofs, ReceiveObjects],
+                    vec![ReceiveSignatures, ReceiveAuthorization],
+                    vec![ReceiveNonmembership, ReceiveEffects, ReceiveProofDigest],
                 ],
             ),
             // Lean: A already proves sigma_archive's relation (LineagePending runs the
@@ -349,7 +343,7 @@ mod tests {
         // Every route except Refresh is lean: no own Q_sigma. Bootstrap, Load, Send,
         // Unload, Retiring and ArchiveStatus have one signature leaf; Receive and
         // ArchiveReceive add the incoming-only Q_sigma.
-        let expected = [1, 2, 3, 9, 9, 9, 8, 2, 2, 4, 4, 7, 4];
+        let expected = [1, 2, 3, 5, 5, 9, 8, 2, 2, 4, 4, 7, 4];
         for (variant, count) in Variant::ALL.into_iter().zip(expected) {
             let schedule = OperationSchedule::for_variant(variant);
             assert_eq!(schedule.stage_count(), count);
@@ -377,20 +371,23 @@ mod tests {
         assert_eq!(plain.q, renewed.q);
         assert_eq!(plain.predecessor, renewed.predecessor);
         assert_eq!(plain.tasks, renewed.tasks);
+        assert_eq!(plain.stage_count(), 5);
         assert_eq!(
             plain.tasks[0],
             [
                 OperationTask::ReceiveConsumedEffects,
+                OperationTask::ReceiveCreditEffects,
                 OperationTask::ReceiveTransition
             ]
         );
         assert_eq!(
-            plain.tasks[6],
+            plain.tasks[3],
             [
                 OperationTask::ReceiveSignatures,
-                OperationTask::ReceiveCreditEffects
+                OperationTask::ReceiveAuthorization
             ]
         );
+        assert_eq!(plain.q[3], [1]);
         let mut untransitioned = plain.tasks.clone();
         assert_eq!(
             untransitioned[0].pop(),
@@ -398,10 +395,10 @@ mod tests {
         );
         assert!(OperationTask::validate(Variant::Receive, &untransitioned).is_err());
         let mut dropped = renewed.tasks.clone();
-        assert_eq!(dropped[6].pop(), Some(OperationTask::ReceiveCreditEffects));
+        assert_eq!(dropped[0].remove(1), OperationTask::ReceiveCreditEffects);
         assert!(OperationTask::validate(Variant::ReceiveRenewed, &dropped).is_err());
         let mut substituted = dropped;
-        substituted[6].push(OperationTask::ReceiveConsumedEffects);
+        substituted[0].insert(1, OperationTask::ReceiveConsumedEffects);
         assert!(OperationTask::validate(Variant::ReceiveRenewed, &substituted).is_err());
         let mut duplicate = renewed.tasks.clone();
         duplicate[0].push(OperationTask::ReceiveCreditEffects);

@@ -152,6 +152,17 @@ mod credential_retry_tests {
             "/../../fixtures/kagemusha/wallet_v1_vectors.json"
         )))
         .unwrap();
+        let companion: KagemushaWalletPayerCompanionV1 = fixture("KagemushaWalletPayerCompanionV1");
+        if let Some(certificate) = companion
+            .certificates
+            .certificates
+            .iter()
+            .find(|certificate| {
+                certificate.certificate_digest() == credential.body.issuer_certificate
+            })
+        {
+            return *certificate;
+        }
         for row in vectors["envelopes"].as_array().unwrap() {
             let bytes = hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap();
             let envelope: KagemushaWalletEnvelopeV1 = norito::decode_canonical_with_limits(
@@ -160,7 +171,6 @@ mod credential_retry_tests {
             )
             .unwrap();
             let certificates = match envelope.message {
-                KagemushaWalletMessageV1::Offer { offer } => offer.certificates,
                 KagemushaWalletMessageV1::Request { request } => request.certificates,
                 _ => continue,
             };

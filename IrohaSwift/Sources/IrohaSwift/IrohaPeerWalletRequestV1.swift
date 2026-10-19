@@ -52,26 +52,28 @@ public struct IrohaPeerWalletRequestV1: Sendable, Equatable {
     }
 }
 
-/// The current IPM1 wallet carrier. Request always includes its account companion.
+/// The current IPM1 wallet carrier. Request always includes its account companion (`KWRQAC1`)
+/// and Payment its payer companion (`KWPYPC1`); the other kinds carry their envelope alone.
 public enum IrohaPeerKagemushaWalletAdapterV1 {
     public static func wrap(_ envelope: Data, destinationAccountOriginal: Data? = nil,
+                            payerCompanion: Data? = nil,
                             compressionPolicy: IrohaPeerWireCompressionPolicyV1 = .disabled) throws -> IrohaPeerWireMessageV1 {
         let frame = try KagemushaWalletWireV1.inspectEnvelope(envelope)
         guard let kind = IrohaPeerWireKindV1(rawValue: UInt8(frame.kind.rawValue)) else {
             throw IrohaPeerWireMessageErrorV1.invalidKind(UInt8(frame.kind.rawValue))
         }
         let payload: Data
-        if kind == .request {
-            guard let destinationAccountOriginal else {
-                throw IrohaPeerWireMessageErrorV1.invalidCanonicalPayload(profile: .kagemushaWalletV1, kind: .request)
-            }
+        switch (kind, destinationAccountOriginal, payerCompanion) {
+        case (.request, let destinationAccountOriginal?, nil):
             payload = try IrohaPeerWalletRequestV1(requestEnvelope: envelope,
                 destinationAccountOriginal: destinationAccountOriginal).encode()
-        } else {
-            guard destinationAccountOriginal == nil else {
-                throw IrohaPeerWireMessageErrorV1.invalidCanonicalPayload(profile: .kagemushaWalletV1, kind: kind)
-            }
+        case (.payment, nil, let payerCompanion?):
+            payload = try IrohaPeerWalletPaymentV1(paymentEnvelope: envelope,
+                payerCompanion: payerCompanion).encode()
+        case (.credited, nil, nil), (.sessionControl, nil, nil), (.policyData, nil, nil):
             payload = envelope
+        default:
+            throw IrohaPeerWireMessageErrorV1.invalidCanonicalPayload(profile: .kagemushaWalletV1, kind: kind)
         }
         return try IrohaPeerWireMessageV1(profile: .kagemushaWalletV1, kind: kind,
             schemaVersion: KagemushaWalletWireV1.version, canonicalPayload: payload,
@@ -82,8 +84,11 @@ public enum IrohaPeerKagemushaWalletAdapterV1 {
         guard message.profile == .kagemushaWalletV1 else {
             throw IrohaPeerWireMessageErrorV1.invalidProfile(message.profile.rawValue)
         }
-        return message.kind == .request
-            ? try IrohaPeerWalletRequestV1.decode(message.canonicalPayload).requestEnvelope : message.canonicalPayload
+        switch message.kind {
+        case .request: return try IrohaPeerWalletRequestV1.decode(message.canonicalPayload).requestEnvelope
+        case .payment: return try IrohaPeerWalletPaymentV1.decode(message.canonicalPayload).paymentEnvelope
+        case .credited, .sessionControl, .policyData: return message.canonicalPayload
+        }
     }
 
     public static func destinationAccountOriginal(_ message: IrohaPeerWireMessageV1) throws -> Data {
@@ -91,5 +96,13 @@ public enum IrohaPeerKagemushaWalletAdapterV1 {
             throw IrohaPeerWireMessageErrorV1.invalidCanonicalPayload(profile: message.profile, kind: message.kind)
         }
         return try IrohaPeerWalletRequestV1.decode(message.canonicalPayload).destinationAccountOriginal
+    }
+
+    /// The payer companion a Payment carries, exact bytes for `KagemushaWalletV1.receiveWithCompanion`.
+    public static func payerCompanion(_ message: IrohaPeerWireMessageV1) throws -> Data {
+        guard message.profile == .kagemushaWalletV1 && message.kind == .payment else {
+            throw IrohaPeerWireMessageErrorV1.invalidCanonicalPayload(profile: message.profile, kind: message.kind)
+        }
+        return try IrohaPeerWalletPaymentV1.decode(message.canonicalPayload).payerCompanion
     }
 }

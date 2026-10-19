@@ -121,14 +121,14 @@ def fixture(harness, temporary):
         "python": {**child_input["python"], "version": "3.12.14"}, "pytest": {"path": str(ENV / a.SITE / "pytest/__init__.py"), **a.identity(environment[a.SITE + "pytest/__init__.py"]), "version": "9.0.3"},
         "wheels": observations, "dependencies": source_deps, "cases": [{"nodeid": name, "phases": [{"phase": phase, "outcome": "passed"} for phase in ("setup", "call", "teardown")]} for name in expected_node_ids(sources[TEST_PATH])], "captured_output": {"bytes": 0, "sha256": hashlib.sha256(b"").hexdigest()}}
     native_body = a.native_member(originals["iroha_native.whl"], parsed_wheels[0])
-    native_raw = a.native.canonical_manifest_bytes({"schema": a.native.SCHEMA, "sdk": "python", "target": "aarch64-apple-darwin", "artifact_sha256": a.identity(native_body)["sha256"], "artifact_size": len(native_body), "bridge_abi_version": 30,
+    native_raw = a.native.canonical_manifest_bytes({"schema": a.native.SCHEMA, "sdk": "python", "target": "aarch64-apple-darwin", "artifact_sha256": a.identity(native_body)["sha256"], "artifact_size": len(native_body), "bridge_abi_version": 31,
         "source_commit": COMMIT, "source_tree_clean": True, "workspace_source_manifest_sha256": SOURCE_DIGEST, "required_symbols": list(a.native.REQUIRED_SYMBOLS["python"]), "privacy_c_exports": [], "privacy_c_exports_inspected": False})
     members.update({"environment/" + name: raw for name, raw in environment.items()})
     for wheel in parsed_wheels:
         for name in ("RECORD", "direct_url.json"):
             member = wheel.dist_info_root + "/" + name
             members["installed-metadata/" + member] = environment[a.SITE + member]
-    members.update({"inputs/runtime.json": runtime_raw, "inputs/dependencies.json": dep_raw, "inputs/native-abi30.json": native_raw, "inputs/child.json": input_raw,
+    members.update({"inputs/runtime.json": runtime_raw, "inputs/dependencies.json": dep_raw, "inputs/native-abi31.json": native_raw, "inputs/child.json": input_raw,
         "inputs/requirements.txt": a.pinned_requirements([(p, a.verifier.FileSeal.parse(s).sha256) for p, s in zip(paths, seals, strict=True)] + [(dep_paths[x.wheel.module], x.wheel.file.sha256) for x in archives]), "child-report.json": canonical_json(report)})
     catalog = a.execution_commands(source_root=WORK.parent.parent, work=WORK, runtime=runtime, pip_filename="pip.whl", native_filename="_crypto.abi3.so")
     commands = []

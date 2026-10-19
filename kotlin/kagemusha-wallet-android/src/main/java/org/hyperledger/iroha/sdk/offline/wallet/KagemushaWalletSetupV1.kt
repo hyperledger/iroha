@@ -35,9 +35,9 @@ internal class KagemushaWalletSetupInputV1(
     private val c: ByteArray
     init {
         val limits = when (selector) {
-            0, 1, 4, 6, 15, 18, 19, 20, 24, 27, 38, 43, 47, 48, 49, 50, 51, 52 -> intArrayOf(0, 0, 0)
+            0, 4, 6, 15, 18, 19, 20, 24, 27, 38, 43, 47, 48, 49, 50, 51, 52 -> intArrayOf(0, 0, 0)
             53 -> intArrayOf(256 * 1024, 0, 0)
-            39 -> intArrayOf(10_000, 10_000, 10_000)
+            39 -> intArrayOf(10_000, 10_000, 0)
             40, 44 -> intArrayOf(10_000, 10_000, 0)
             21, 22 -> intArrayOf(21_024, 0, 0)
             23 -> intArrayOf(36 * 1024 * 1024, 0, 0)
@@ -46,8 +46,8 @@ internal class KagemushaWalletSetupInputV1(
             45 -> intArrayOf(16_384, 0, 0)
             29, 30, 33, 35, 37, 46 -> intArrayOf(65_536, 0, 0)
             34, 36 -> intArrayOf(65_536, 36 * 1024 * 1024, 0)
-            2 -> intArrayOf(10_000, 1_024, 512)
-            3, in 7..14, in 16..17, 41, 42 -> intArrayOf(10_000, 0, 0)
+            2 -> intArrayOf(0, 1_024, 512)
+            3, in 8..10, in 12..14, in 16..17, 41, 42, 54, 55 -> intArrayOf(10_000, 0, 0)
             5 -> intArrayOf(512, 512, 0)
             else -> throw IllegalArgumentException("unknown setup action")
         }
@@ -58,16 +58,18 @@ internal class KagemushaWalletSetupInputV1(
         a = first.copyOf()
         b = second.copyOf()
         c = third.copyOf()
-        require((selector in listOf(1, 2, 19, 20, 25, 27, 30, 33, 34, 39, 41, 42, 43, 44, 45)) == id.any { it != 0.toByte() }) { "setup identity" }
-        require(selector in listOf(47, 53) || (selector in listOf(1, 27)) == (amount.low != 0L || amount.high != 0L)) { "Offer or Load amount" }
+        require((selector in listOf(2, 19, 20, 25, 27, 30, 33, 34, 39, 41, 42, 43, 44, 45, 54)) == id.any { it != 0.toByte() }) { "setup identity" }
+        require(selector in listOf(47, 53) || (selector in listOf(2, 27, 39)) == (amount.low != 0L || amount.high != 0L)) { "Request or Load amount" }
         require(selector != 53 || (amount.high == 0L && a.isNotEmpty())) { "epoch and boundary original" }
         require(token >= 0 && ((selector in listOf(5, 6, 29, 49, 51)) == (token != 0L))) { "native setup token" }
         require(selector !in listOf(30, 33, 34, 35, 36, 37, 46) || a.isNotEmpty()) { "ledger original" }
         require(selector != 29 || (token in 1L..3L && a.isNotEmpty())) { "ledger transport kind and original" }
-        require(selector !in listOf(2, 39) || (a.isNotEmpty() && b.isEmpty() == c.isEmpty())) { "Request originals" }
+        require(selector != 2 || b.isEmpty() == c.isEmpty()) { "Request fee originals" }
+        require(selector != 39 || a.isEmpty() == b.isEmpty()) { "Request fee PolicyData pair" }
+        require(selector != 55 || a.isNotEmpty()) { "Payment original" }
         require(selector != 40 || (a.isNotEmpty() && b.isNotEmpty())) { "fee PolicyData pair" }
-        require(selector !in listOf(41, 42, 44) || a.isNotEmpty()) { "bound Credited original" }
-        require((selector != 3 && selector !in 7..14 && selector !in 16..17 && selector !in 21..23) || a.isNotEmpty()) { "Credited original" }
+        require(selector !in listOf(41, 42, 44, 54) || a.isNotEmpty()) { "bound Credited original" }
+        require((selector != 3 && selector !in 8..14 && selector !in 16..17 && selector !in 21..23) || a.isNotEmpty()) { "Credited original" }
         require(selector !in listOf(5, 25, 26, 34, 36) || (a.isNotEmpty() && b.isNotEmpty())) { "paired setup originals" }
     }
     fun identity(): ByteArray = id.copyOf()
@@ -77,9 +79,10 @@ internal class KagemushaWalletSetupInputV1(
     override fun toString(): String = "KagemushaWalletSetupInputV1(originals=[REDACTED])"
 }
 
-/** Exact peer-envelope kind; this cannot select proof keys or operation authority. */
+/** Exact peer-envelope kind (wrap selector 6 + tag, unwrap 10 + tag); this cannot select proof keys or
+ * operation authority. Tag 1, the former Offer, is unused. */
 enum class KagemushaWalletTransportKindV1(internal val tag: Int) {
-    OFFER(1), REQUEST(2), PAYMENT(3), CREDITED(4),
+    REQUEST(2), PAYMENT(3), CREDITED(4),
 }
 
 /** Worker scheduling state; use snapshot for the durable current backlog. */

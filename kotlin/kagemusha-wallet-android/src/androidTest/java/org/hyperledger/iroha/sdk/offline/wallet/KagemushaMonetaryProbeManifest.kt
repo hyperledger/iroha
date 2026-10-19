@@ -17,12 +17,12 @@ internal object KagemushaMonetaryProbeManifest {
         "load" to setOf(setOf("request-id", "receipt", "finality")),
         "ledger-finality" to setOf(setOf("finality")), "ledger-status" to setOf(emptySet()),
         "epoch-boundary" to setOf(setOf("epoch", "boundary")), "epoch-status" to setOf(emptySet()),
-        "offer" to setOf(setOf("setup-id", "amount")),
-        "request" to setOf(setOf("setup-id", "offer"), setOf("setup-id", "offer", "fee-schedule", "fee-certificate")),
+        "request" to setOf(setOf("setup-id", "amount"), setOf("setup-id", "amount", "fee-schedule", "fee-certificate")),
+        "payment-companion" to setOf(setOf("payment")),
         "review-send" to setOf(setOf("request-id", "request", "destination")),
         "review-unload" to setOf(setOf("request-id", "amount"), setOf("request-id", "amount", "quote", "certificates", "beneficiary")),
         "decide-review" to setOf(setOf("decision")),
-        "receive" to setOf(setOf("request-id", "payment", "offer")), "credit" to setOf(setOf("request-id")),
+        "receive" to setOf(setOf("request-id", "payment", "companion")), "credit" to setOf(setOf("request-id")),
         "accept-credited" to setOf(setOf("request-id", "credited")),
         "credited-status" to setOf(setOf("request-id", "credited")),
         "fold-once" to setOf(emptySet()), "fold-status" to setOf(emptySet()), "snapshot" to setOf(emptySet()),
@@ -33,7 +33,7 @@ internal object KagemushaMonetaryProbeManifest {
         "unload-status" to setOf(setOf("transaction-hash", "claim")),
         "unload-finality" to setOf(setOf("transaction-hash", "claim", "finality")),
         "confirm-unload" to setOf(setOf("transaction-hash", "claim")),
-        "decode-offer" to setOf(setOf("envelope")), "decode-request" to setOf(setOf("envelope")),
+        "decode-request" to setOf(setOf("envelope")),
         "decode-payment" to setOf(setOf("envelope")), "decode-credited" to setOf(setOf("envelope")),
         "refresh-time" to setOf(setOf("request-id", "anchor", "certificates")),
         "begin-time" to setOf(emptySet()), "finish-time" to setOf(setOf("anchor", "certificate")),
@@ -50,7 +50,8 @@ internal object KagemushaMonetaryProbeManifest {
         "receipt", "fee-certificate", "anchor", "certificate" -> 512
         "fee-schedule", "quote" -> 1024
         "destination", "beneficiary", "decision" -> 4096
-        "offer", "request", "payment", "credited", "certificates", "envelope" -> 10_000
+        "companion" -> 2_048
+        "request", "payment", "credited", "certificates", "envelope" -> 10_000
         else -> throw EnrollmentProbeFailure("input")
     }
     fun word(bytes: ByteArray): ByteArray {

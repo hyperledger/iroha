@@ -1,7 +1,9 @@
 //! Canonical signed-object tapes, shared Rust vectors and total malformed decoding.
 
 use ff::{Field, PrimeField};
-use iroha_kagemusha_proof::operation_relation::objects::{ObjectKind, SignedObjectCells};
+use iroha_kagemusha_proof::operation_relation::objects::{
+    ObjectKind, SignedObjectCells, signed_message_native,
+};
 
 #[path = "operation_objects/credit_opening.rs"]
 mod credit_opening;
@@ -188,7 +190,7 @@ fn fixture() -> Json {
 impl ObjectCircuit {
     fn public(&self, credit: Fp) -> Vec<Fp> {
         let end = self.kind.body_len();
-        let message = p_bytes_native(self.kind.signing_domain(), &self.bytes[..end]);
+        let message = signed_message_native(self.kind, &self.bytes[..end]);
         let signature = &self.bytes[end..];
         let halves: Vec<_> = [16, 0, 48, 32]
             .map(|i| {
@@ -231,32 +233,68 @@ fn cases() -> Vec<(ObjectCircuit, Fp, String, Option<Fp>)> {
         let mut body = decode(row["transcript_hex"].as_str().expect("body"));
         assert_eq!(body.len(), kind.body_len(), "{kind:?}");
         body.extend(decode(row["signature_hex"].as_str().expect("signature")));
+        let circuit = ObjectCircuit {
+            kind,
+            bytes: body,
+            soft: false,
+            valid: true,
+            known: true,
+            body_check: BodyCheck::Structural,
+        };
         let credit = if kind == ObjectKind::Request {
-            // Filled by the native shared Request body field vector.
-            let credit = &json["poseidon"]["credit_id"];
-            field(
-                credit["poseidon"]["digest_hex"]
-                    .as_str()
-                    .expect("credit digest"),
-            )
+            // The signature vector carries the open Request. Its credit differs
+            // from the completed Payment's separately pinned credit identity.
+            semantics::request_credit(&circuit)
         } else {
             Fp::ZERO
         };
         result.push((
-            ObjectCircuit {
-                kind,
-                bytes: body,
-                soft: false,
-                valid: true,
-                known: true,
-                body_check: BodyCheck::Structural,
-            },
+            circuit,
             credit,
             name.to_owned(),
             object.map(|object| field(object["digest_hex"].as_str().expect("digest"))),
         ));
     }
     result
+}
+
+/// The completed Request of the pinned Payment, with the receiver's unchanged signature.
+fn completed_request() -> ObjectCircuit {
+    let mut request = cases()
+        .into_iter()
+        .find(|(c, ..)| c.kind == ObjectKind::Request)
+        .expect("Request")
+        .0;
+    let open = request.clone();
+    let json = fixture();
+    let credit = &json["poseidon"]["credit_id"];
+    let body = decode(
+        credit["request_body_hex"]
+            .as_str()
+            .expect("completed Request"),
+    );
+    let end = ObjectKind::Request.body_len();
+    assert_eq!(body.len(), end);
+    // Only payer wallet/account and ordinal may be completed after receiver signing.
+    assert_eq!(&body[..66], &open.bytes[..66]);
+    assert_eq!(&body[130..194], &open.bytes[130..194]);
+    assert_eq!(&body[210..], &open.bytes[210..end]);
+    request.bytes[..end].copy_from_slice(&body);
+    assert_eq!(&request.bytes[end..], &open.bytes[end..], "same signature");
+    assert_eq!(
+        &request.public(Fp::ZERO)[..6],
+        &open.public(Fp::ZERO)[..6],
+        "same signed terms, signature and object digest"
+    );
+    assert_eq!(
+        semantics::request_credit(&request),
+        field(
+            credit["poseidon"]["digest_hex"]
+                .as_str()
+                .expect("credit digest")
+        )
+    );
+    request
 }
 
 #[test]
@@ -334,4 +372,77 @@ fn malformed_bodies_decode_totally_without_canonical_field_aliases() {
     assert!(c.accepts(Fp::ZERO));
     c.valid = true;
     assert!(!c.accepts(Fp::ZERO));
+}
+
+/// A structurally valid Request tape whose payer wallet, payer account and
+/// send ordinal all carry `payer`; zero gives the receiver's open Request.
+fn request_tape(payer: u8) -> Vec<u8> {
+    let field = |value: u64| Fp::from(value).to_repr();
+    let mut tape = 1_u16.to_le_bytes().to_vec();
+    for byte in [3, 5, payer, payer, 7, 9] {
+        tape.extend([byte; 32]);
+    }
+    tape.extend(u128::from(payer).to_le_bytes());
+    tape.extend(field(11));
+    tape.extend(12_u128.to_le_bytes());
+    tape.extend(field(13));
+    tape.extend(1_u128.to_le_bytes());
+    tape.extend(2_u64.to_le_bytes());
+    tape.extend(field(14));
+    tape.extend(15_u64.to_le_bytes());
+    tape.extend(field(16));
+    tape.extend([17; 32]);
+    assert_eq!(tape.len(), ObjectKind::Request.body_len());
+    tape.extend([41; 64]);
+    tape
+}
+
+#[test]
+fn request_message_signs_only_the_receiver_terms() {
+    use iroha_data_model::kagemusha::kagemusha_wallet_v1::{
+        KagemushaWalletSigningDomainV1, kagemusha_wallet_signing_message_v1,
+    };
+    let kind = ObjectKind::Request;
+    let end = kind.body_len();
+    let model = |tape: &[u8]| {
+        kagemusha_wallet_signing_message_v1(KagemushaWalletSigningDomainV1::Request, &tape[..end])
+    };
+    let circuit = |bytes| ObjectCircuit {
+        kind,
+        bytes,
+        soft: false,
+        valid: true,
+        known: true,
+        body_check: BodyCheck::Structural,
+    };
+    let open = circuit(request_tape(0));
+    let completed = circuit(request_tape(19));
+    let message = signed_message_native(kind, &open.bytes[..end]);
+    assert_eq!(message.to_repr(), model(&open.bytes));
+    assert_ne!(
+        message,
+        p_bytes_native(kind.signing_domain(), &open.bytes[..end])
+    );
+    // The circuit exports this message (`public[0]`) and its own credit identity.
+    for c in [&open, &completed] {
+        assert!(c.accepts(semantics::request_credit(c)));
+    }
+    // A payer completion keeps the message, signature limbs and object digest;
+    // `credit_id` still names the completed payer fields.
+    assert_eq!(open.public(Fp::ZERO), completed.public(Fp::ZERO));
+    assert_eq!(model(&completed.bytes), message.to_repr());
+    assert_ne!(
+        semantics::request_credit(&open),
+        semantics::request_credit(&completed)
+    );
+    // Every terms byte moves the message; the payer wallet and account
+    // (66..130) and the send ordinal (194..210) never do.
+    for offset in 0..end {
+        let mut changed = open.bytes.clone();
+        changed[offset] ^= 1;
+        let moved = signed_message_native(kind, &changed[..end]);
+        assert_eq!(moved.to_repr(), model(&changed), "byte {offset}");
+        let payer = (66..130).contains(&offset) || (194..210).contains(&offset);
+        assert_eq!(moved == message, payer, "byte {offset}");
+    }
 }

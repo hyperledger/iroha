@@ -22,8 +22,8 @@ final class IrohaPeerNearbyDeliveryBarrierV1Tests: XCTestCase {
         XCTAssertEqual(configuration.maximumPendingWorkerActions, 64)
         XCTAssertEqual(configuration.maximumPendingCallbacks, 16)
         XCTAssertEqual(configuration.maximumPendingReceiveCallbacks, 4)
-        // Hello, authentication, the receiver's ask, the Request and the Credited.
-        XCTAssertEqual(configuration.maximumReceiveRecordsPerConnection, 5)
+        // Hello, authentication, the Request and the Credited.
+        XCTAssertEqual(configuration.maximumReceiveRecordsPerConnection, 4)
         XCTAssertEqual(
             IrohaPeerNearbyConnectionsConfigurationV1(operationTimeout: 300).operationTimeout,
             300
@@ -793,7 +793,7 @@ final class IrohaPeerNearbyDeliveryBarrierV1Tests: XCTestCase {
     }
 
     func testDefaultConnectionAdmitsThePayersFiveRecordTranscriptOnly() {
-        // The payer receives hello, authentication, the receiver's sealed ask, the Request and
+        // The payer receives hello, authentication, the Request and
         // the Credited acknowledgement; the transport moves each as opaque bytes of any kind.
         let configuration = IrohaPeerNearbyConnectionsConfigurationV1()
         var scheduled: [() -> Void] = []
@@ -807,7 +807,7 @@ final class IrohaPeerNearbyDeliveryBarrierV1Tests: XCTestCase {
             }
         )
         pump.activate(epoch: 6, peerID: "receiver")
-        for value in 1...5 {
+        for value in 1...4 {
             XCTAssertEqual(
                 pump.enqueue(epoch: 6, peerID: "receiver") { delivered.append(value) },
                 .accepted
@@ -819,12 +819,12 @@ final class IrohaPeerNearbyDeliveryBarrierV1Tests: XCTestCase {
             pump.enqueue(epoch: 6, peerID: "receiver") { delivered.append(6) },
             .budgetExceeded
         )
-        XCTAssertEqual(delivered, [1, 2, 3, 4, 5])
+        XCTAssertEqual(delivered, [1, 2, 3, 4])
         // The next connection starts with a fresh budget.
         pump.activate(epoch: 7, peerID: "receiver")
         XCTAssertEqual(pump.enqueue(epoch: 7, peerID: "receiver") { delivered.append(7) }, .accepted)
         scheduled.removeFirst()()
-        XCTAssertEqual(delivered, [1, 2, 3, 4, 5, 7])
+        XCTAssertEqual(delivered, [1, 2, 3, 4, 7])
     }
 
     func testCallbackDispatcherPreservesConfiguredQueueAndRejectsListenerOverflow() {

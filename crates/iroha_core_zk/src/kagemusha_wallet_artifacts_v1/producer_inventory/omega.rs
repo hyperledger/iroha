@@ -313,8 +313,17 @@ mod tests {
             .map(|(index, program)| (installation, u32::try_from(index).unwrap(), *program))
             .collect();
         require_route_identities(installation, &programs, &identities).unwrap();
+        let incomplete = programs
+            .len()
+            .checked_sub(1)
+            .expect("at least one compiled route");
         assert!(
-            require_route_identities(installation, &programs[..51], &identities[..51]).is_err()
+            require_route_identities(
+                installation,
+                &programs[..incomplete],
+                &identities[..incomplete],
+            )
+            .is_err()
         );
         for index in 0..identities.len() {
             let mut changed = identities.clone();

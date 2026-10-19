@@ -381,14 +381,8 @@ impl PreparedInstallation {
             key,
             mut opening,
         } = self;
-        let fs = advance::KagemushaWalletStdFsV1::open(custody_root)
-            .map_err(|error| Failure::unavailable(UNAVAILABLE, error))?;
-        let provider = advance::KagemushaWalletProviderV1::open(
-            fs,
-            platform,
-            selected.scheme.scheme_id(),
-            advance::KagemushaWalletProviderOptionsV1::default(),
-        )?;
+        let scheme_id = selected.scheme.scheme_id();
+        let provider = open_custody_provider(platform, custody_root, scheme_id)?;
         // Each owner gets its own provider and custody root; only public DATA is shared.
         let runtime = state::NativeWalletRuntimeV1::new(
             provider,
@@ -405,6 +399,28 @@ impl PreparedInstallation {
         opening.finish();
         Ok((owner, opening, (key, admitted)))
     }
+}
+
+// Open the provider with filesystem custody held through the complete transaction.
+fn open_custody_provider<P: advance::KagemushaWalletPlatformV1>(
+    platform: P,
+    custody_root: std::path::PathBuf,
+    scheme_id: [u8; 32],
+) -> Result<advance::KagemushaWalletProviderV1<advance::KagemushaWalletStdFsV1, P>> {
+    let fs = advance::KagemushaWalletStdFsV1::open(custody_root)
+        .map_err(|error| Failure::unavailable(UNAVAILABLE, error))?;
+    // Failed Provider::open drops its store and lock before the transaction observes exit.
+    // Retain custody here so that an exit refusal still overrides the ordinary opening error.
+    let provider = super::custody_transaction(|| {
+        Ok(advance::KagemushaWalletProviderV1::open(
+            fs.clone(),
+            platform,
+            scheme_id,
+            advance::KagemushaWalletProviderOptionsV1::default(),
+        )?)
+    });
+    drop(fs);
+    provider
 }
 
 #[cfg(test)]

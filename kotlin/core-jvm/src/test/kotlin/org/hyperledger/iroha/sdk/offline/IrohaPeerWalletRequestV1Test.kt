@@ -14,8 +14,13 @@ internal object IrohaPeerRequestFixtureV1 {
         .map { it as Map<*, *> }.map { hex(it["account_id_frame_hex"]) }.first { it.size <= 4096 }
     fun envelope(kind: IrohaPeerPayloadKind): ByteArray = (json("fixtures/kagemusha/wallet_v1_vectors.json")["envelopes"] as List<*>)
         .map { it as Map<*, *> }.first { (it["tag"] as Number).toInt() == kind.code }.let { hex(it["canonical_hex"]) }
-    fun payload(kind: IrohaPeerPayloadKind, original: ByteArray): ByteArray =
-        if (kind == IrohaPeerPayloadKind.REQUEST) IrohaPeerWalletRequestV1(original, account()).encode() else original
+    /** Synthetic payer companion DATA (a real one is 609..2,048 bytes); transport checks only its bounds. */
+    fun companion(): ByteArray = ByteArray(609) { (it * 13 + 7).toByte() }
+    fun payload(kind: IrohaPeerPayloadKind, original: ByteArray): ByteArray = when (kind) {
+        IrohaPeerPayloadKind.REQUEST -> IrohaPeerWalletRequestV1(original, account()).encode()
+        IrohaPeerPayloadKind.PAYMENT -> IrohaPeerWalletPaymentV1(original, companion()).encode()
+        else -> original
+    }
 }
 
 class IrohaPeerWalletRequestV1Test {
@@ -63,11 +68,13 @@ class IrohaPeerWalletRequestV1Test {
         assertContentEquals(request,IrohaPeerKagemushaWalletAdapterV1.decode(restored))
         assertContentEquals(account,IrohaPeerKagemushaWalletAdapterV1.destinationAccountOriginal(restored))
     }
-    @Test fun expandedAllocationBelongsOnlyToRequest() {
+    @Test fun expandedAllocationsBelongOnlyToRequestAndPayment() {
         assertEquals(14112,IrohaPeerPayloadKind.REQUEST.maximumWalletFrameBytes)
-        assertEquals(10000,IrohaPeerPayloadKind.PAYMENT.maximumWalletFrameBytes)
-        val payment=IrohaPeerKagemushaWalletAdapterV1.wrap(IrohaPeerRequestFixtureV1.envelope(IrohaPeerPayloadKind.PAYMENT)).encode()
-        java.nio.ByteBuffer.wrap(payment,12,4).putInt(10001)
+        assertEquals(12064,IrohaPeerPayloadKind.PAYMENT.maximumWalletFrameBytes)
+        assertEquals(10000,IrohaPeerPayloadKind.CREDITED.maximumWalletFrameBytes)
+        val payment=IrohaPeerKagemushaWalletAdapterV1.wrap(IrohaPeerRequestFixtureV1.envelope(IrohaPeerPayloadKind.PAYMENT),
+            payerCompanion=IrohaPeerRequestFixtureV1.companion()).encode()
+        java.nio.ByteBuffer.wrap(payment,12,4).putInt(12065)
         assertFailsWith<IllegalArgumentException>{IrohaPeerWireMessageV1.decode(payment)}
         val request=IrohaPeerRequestFixtureV1.envelope(IrohaPeerPayloadKind.REQUEST)
         assertEquals(4096,IrohaPeerWalletRequestV1(request,ByteArray(4096)).destinationAccountOriginal().size)

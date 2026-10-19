@@ -71,7 +71,7 @@ def originals(tmp_path, monkeypatch):
                 "source_commit": identity["head_commit"], "source_tree_clean": True,
                 "workspace_source_manifest_sha256": identity["workspace_source_manifest_sha256"],
                 "artifact_sha256": hashlib.sha256(native).hexdigest(), "artifact_size": len(native),
-                "bridge_abi_version": 30, "required_symbols": list(delivery.artifact.REQUIRED_SYMBOLS["python"]),
+                "bridge_abi_version": 31, "required_symbols": list(delivery.artifact.REQUIRED_SYMBOLS["python"]),
                 "privacy_c_exports": [], "privacy_c_exports_inspected": False}
     manifest_path = tmp_path / "manifest.json"
     manifest_path.write_bytes(delivery.artifact.canonical_manifest_bytes(manifest))

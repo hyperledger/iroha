@@ -831,8 +831,7 @@ impl From<KagemushaWalletSignErrorV1> for KagemushaWalletProviderErrorV1 {
 }
 
 /// Signing domains the payment key may sign outside a provider receipt (spec §2.3).
-pub const KAGEMUSHA_WALLET_PAYMENT_KEY_DOMAINS_V1: [KagemushaWalletSigningDomainV1; 6] = [
-    KagemushaWalletSigningDomainV1::Offer,
+pub const KAGEMUSHA_WALLET_PAYMENT_KEY_DOMAINS_V1: [KagemushaWalletSigningDomainV1; 5] = [
     KagemushaWalletSigningDomainV1::Request,
     KagemushaWalletSigningDomainV1::SessionControl,
     KagemushaWalletSigningDomainV1::LedgerControl,
@@ -912,6 +911,9 @@ fn sign_with_key<P: KagemushaWalletPlatformV1 + ?Sized>(
         });
     }
     let message = kagemusha_wallet_signing_message_v1(domain, body);
+    // A signature only follows custody observed just now (custody transaction fence).
+    super::store::kagemusha_wallet_custody_fence_v1()
+        .map_err(KagemushaWalletSignErrorV1::Unavailable)?;
     let output = platform
         .key_sign(
             slot,

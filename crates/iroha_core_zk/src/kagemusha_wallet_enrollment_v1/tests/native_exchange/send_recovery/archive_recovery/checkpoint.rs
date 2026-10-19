@@ -158,7 +158,6 @@ fn retain_current_send_checkpoint_once_without_monetary_replay() {
     );
     message_census::require_selected_send_session(
         &census_originals[4],
-        &census_originals[5],
         &prior,
     );
     let sources = Sources::admit(&output.join("source-admission"));

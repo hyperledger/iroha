@@ -6,25 +6,26 @@ use super::*;
 fn retained_delivery() -> (Wallet, [u8; 32], Vec<u8>, Vec<u8>) {
     let mut wallet = wallet();
     let payment: KagemushaWalletPaymentV1 = fixture("KagemushaWalletPaymentV1");
-    let mut offer = None;
+    let companion: KagemushaWalletPayerCompanionV1 = fixture("KagemushaWalletPayerCompanionV1");
     let mut request = None;
     for row in vectors()["envelopes"].as_array().unwrap() {
         let envelope: KagemushaWalletEnvelopeV1 =
             archive::decode(&hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap()).unwrap();
         match envelope.message {
-            KagemushaWalletMessageV1::Offer { offer: original } => offer = Some(original),
             KagemushaWalletMessageV1::Request { request: original } => request = Some(original),
             _ => {}
         }
     }
-    let offer = offer.unwrap();
-    let request = request.unwrap();
+    let request = request
+        .unwrap()
+        .complete_with(&payment.signed_request().unwrap())
+        .unwrap();
     assert_eq!(request.signed(), payment.signed_request().unwrap());
     payment
         .verify(
             &fixture("KagemushaWalletSchemeV1"),
-            &offer.payer_credential,
-            &offer.certificates,
+            &companion.payer_credential,
+            &companion.certificates,
             &request,
         )
         .unwrap();
@@ -52,7 +53,7 @@ fn retained_delivery() -> (Wallet, [u8; 32], Vec<u8>, Vec<u8>) {
             online_charge: 0,
         },
     );
-    archived.credential = offer.payer_credential.clone();
+    archived.credential = companion.payer_credential.clone();
     let mut body = archived.capsule.body().clone();
     body.wallet_id = wallet.wallet_id;
     body.kind = KagemushaWalletOperationKindV1::ArchiveSent;
@@ -81,7 +82,7 @@ fn retained_delivery() -> (Wallet, [u8; 32], Vec<u8>, Vec<u8>) {
         ),
         (
             KagemushaWalletRetainedInputRoleV1::CertificateSet,
-            archive::encode(&offer.certificates).unwrap(),
+            archive::encode(&companion.certificates).unwrap(),
         ),
     ]
     .into_iter()
@@ -178,8 +179,8 @@ fn retained_delivery() -> (Wallet, [u8; 32], Vec<u8>, Vec<u8>) {
         send_capsule,
         request,
         credited.clone(),
-        offer.payer_credential.to_canonical_bytes().unwrap(),
-        archive::encode(&offer.certificates).unwrap(),
+        companion.payer_credential.to_canonical_bytes().unwrap(),
+        archive::encode(&companion.certificates).unwrap(),
     );
     wallet
         .retain_delivery_test_mapping(

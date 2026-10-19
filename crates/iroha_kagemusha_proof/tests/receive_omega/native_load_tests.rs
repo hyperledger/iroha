@@ -86,13 +86,11 @@ fn funded_receive_corrected_burn_closes_all_four_outer_obligations() {
 }
 
 #[test]
-#[ignore = "native BLS receipt and genuine funded ReceiveRenewed nine-A/eight-W chain; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
+#[ignore = "native BLS receipt, genuine funded ReceiveRenewed and four-slot Omega; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
 fn funded_renewed_receive_accepts_exact_payer_and_receiver_heads() {
-    let (fixture, rebuilds) = first_load_fixture(2);
-    super::receive_chain::canonical_envelope_receive_renewed_accepts_exact_payer_and_receiver_heads(
-        &fixture,
-    );
-    assert_eq!(rebuilds.load(Ordering::Relaxed), 2);
+    let (fixture, rebuilds) = first_load_fixture(3);
+    super::genuine_renewed_receive_acceptance_closes_all_four_outer_obligations(fixture);
+    assert_eq!(rebuilds.load(Ordering::Relaxed), 3);
 }
 
 #[test]
@@ -106,7 +104,7 @@ fn funded_receive_corrected_burn_preserves_consumed_root() {
 }
 
 #[test]
-#[ignore = "native BLS receipt and genuine funded accepted Receive nine-A/eight-W chain; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
+#[ignore = "native BLS receipt and genuine funded accepted Receive five-A/four-W chain; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
 fn funded_receive_accepts_exact_payer_and_receiver_heads() {
     let (fixture, rebuilds) = first_load_fixture(2);
     super::receive_chain::canonical_envelope_receive_accepts_exact_payer_and_receiver_heads(
@@ -148,7 +146,7 @@ fn funded_catalog_rebinds_bootstrap_load_and_send() {
 }
 
 #[test]
-#[ignore = "native BLS receipt and genuine installed three-A/two-W Send differential; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
+#[ignore = "native BLS receipt and genuine installed two-A/one-W Send differential; run alone optimized with fresh KAGEMUSHA_LOAD_OUTPUT"]
 fn funded_native_send_preserves_all_stages_and_originals() {
     let (fixture, rebuilds) = first_load_fixture(2);
     compact_catalog::compact_predecessor_native_send_preserves_every_installed_stage_and_original(

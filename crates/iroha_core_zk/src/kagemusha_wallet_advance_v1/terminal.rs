@@ -486,15 +486,20 @@ where
     ) -> Result<(), KagemushaWalletProviderErrorV1> {
         match self.probe_key(slot)? {
             KagemushaWalletProbeV1::Absent => {}
-            KagemushaWalletProbeV1::Present(_) => match self.platform.key_delete(slot) {
-                KagemushaWalletRemoveOutcomeV1::Removed => {}
-                KagemushaWalletRemoveOutcomeV1::NotRemoved(reason) => {
-                    return Err(KagemushaWalletProviderErrorV1::Unavailable(reason));
+            KagemushaWalletProbeV1::Present(_) => {
+                // Deletion only follows custody observed just now (custody transaction fence).
+                super::store::kagemusha_wallet_custody_fence_v1()
+                    .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
+                match self.platform.key_delete(slot) {
+                    KagemushaWalletRemoveOutcomeV1::Removed => {}
+                    KagemushaWalletRemoveOutcomeV1::NotRemoved(reason) => {
+                        return Err(KagemushaWalletProviderErrorV1::Unavailable(reason));
+                    }
+                    KagemushaWalletRemoveOutcomeV1::Uncertain(reason) => {
+                        return Err(KagemushaWalletProviderErrorV1::Uncertain(reason));
+                    }
                 }
-                KagemushaWalletRemoveOutcomeV1::Uncertain(reason) => {
-                    return Err(KagemushaWalletProviderErrorV1::Uncertain(reason));
-                }
-            },
+            }
             KagemushaWalletProbeV1::Unavailable(reason) => {
                 return Err(KagemushaWalletProviderErrorV1::Unavailable(reason));
             }

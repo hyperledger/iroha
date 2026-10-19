@@ -558,8 +558,8 @@ require_signature_parity(
     | {"connect_norito_bridge_abi_version", "connect_norito_free", "connect_norito_domain_id_validate_v1"}
 )
 
-require(r"#define\s+CONNECT_NORITO_BRIDGE_ABI_VERSION\s+30\b", header, "C bridge ABI version")
-require(r"pub\s+const\s+PRIVACY_BRIDGE_ABI_VERSION_V1:\s*u32\s*=\s*30\s*;", privacy, "Rust bridge ABI version")
+require(r"#define\s+CONNECT_NORITO_BRIDGE_ABI_VERSION\s+31\b", header, "C bridge ABI version")
+require(r"pub\s+const\s+PRIVACY_BRIDGE_ABI_VERSION_V1:\s*u32\s*=\s*31\s*;", privacy, "Rust bridge ABI version")
 require(
     r"const\s+CONNECT_NORITO_BRIDGE_ABI_VERSION:\s*u32\s*=\s*PRIVACY_BRIDGE_ABI_VERSION_V1\s*;",
     rust,
@@ -648,7 +648,7 @@ if umbrella_contract(umbrella) != [
     raise SystemExit("[connect-norito-header] umbrella header drift")
 
 print(
-    "[connect-norito-header] ABI 30 synchronized: "
+    "[connect-norito-header] ABI 31 synchronized: "
     f"{len(PRIVACY_EXPORTS)} privacy, "
     f"{len(SORAFS_REFERENCE_EXPORTS)} SoraFS, {len(DETACHED_EXPORTS)} detached, "
     f"{len(RETAIL_EXPORTS)} retail-fee, "
@@ -957,7 +957,7 @@ if [[ "${MODE}" == --self-test-* ]]; then
       ;;
     --self-test-bad-abi)
       replace_once "${tmp_header}" \
-        "#define CONNECT_NORITO_BRIDGE_ABI_VERSION 30" \
+        "#define CONNECT_NORITO_BRIDGE_ABI_VERSION 31" \
         "#define CONNECT_NORITO_BRIDGE_ABI_VERSION 22"
       ;;
     --self-test-bad-wallet-memory-rust-status)

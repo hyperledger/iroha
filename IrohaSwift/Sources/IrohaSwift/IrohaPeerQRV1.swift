@@ -21,7 +21,6 @@ public enum IrohaPeerQRErrorV1: Error, Equatable, LocalizedError, Sendable {
     case frameTextTooLarge(actual: Int, maximum: Int)
     case messageTooLarge
     case tooManyActiveStreams(maximum: Int)
-    case preheaderLimitExceeded
     case invalidUptime
     case streamQuarantined
     case conflictingDuplicate
@@ -48,7 +47,6 @@ public enum IrohaPeerQRErrorV1: Error, Equatable, LocalizedError, Sendable {
         case .messageTooLarge: return "The IPM1 message exceeds the bounded QR stream."
         case .tooManyActiveStreams(let maximum):
             return "The QR decoder already has \(maximum) active streams."
-        case .preheaderLimitExceeded: return "The QR preheader buffer limit was exceeded."
         case .invalidUptime:
             return "QR scanner uptime must be finite, nonnegative, and monotonic until reset."
         case .streamQuarantined: return "The QR stream is quarantined."
@@ -443,6 +441,7 @@ public final class IrohaPeerQRScanSessionV1: @unchecked Sendable {
         let firstSeen: TimeInterval
         var lastProgress: TimeInterval
         var header: IrohaPeerWireHeaderV1?
+        var declaredTotal: Int?
         var encodedFrames: [FrameKey: Data] = [:]
         var data: [Int: Data] = [:]
         var parity: [Int: Data] = [:]
@@ -623,11 +622,16 @@ public final class IrohaPeerQRScanSessionV1: @unchecked Sendable {
 
         do {
             try validateFrameTotal(frame, candidate: candidate)
+            // Retain the stream's immutable total even when the payload cannot be buffered.
+            if candidate.declaredTotal == nil { candidate.declaredTotal = frame.total }
             if candidate.header == nil, frame.frameKind != .header {
                 guard candidate.preheaderFrameCount < scanLimits.maximumPreheaderFramesPerStream,
                       candidate.preheaderPayloadBytes
                         <= scanLimits.maximumPreheaderPayloadBytesPerStream - frame.payload.count else {
-                    throw IrohaPeerQRErrorV1.preheaderLimitExceeded
+                    // The bound limits buffering, not the stream: a scan that missed the header
+                    // must not be refused. This frame is dropped unbuffered and returns next loop.
+                    candidates[frame.streamID] = candidate
+                    return .duplicate(progress(for: candidate))
                 }
                 candidate.preheaderFrameCount += 1
                 candidate.preheaderPayloadBytes += frame.payload.count
@@ -698,9 +702,7 @@ public final class IrohaPeerQRScanSessionV1: @unchecked Sendable {
             guard frame.total == header.dataShardCount else {
                 throw IrohaPeerQRErrorV1.conflictingDuplicate
             }
-        } else if let existing = candidate.encodedFrames.values.first,
-                  let previous = try? IrohaPeerQRFrameV1.decode(existing, limits: wireLimits),
-                  previous.total != frame.total {
+        } else if let declaredTotal = candidate.declaredTotal, declaredTotal != frame.total {
             throw IrohaPeerQRErrorV1.conflictingDuplicate
         }
     }

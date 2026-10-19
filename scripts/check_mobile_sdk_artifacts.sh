@@ -548,6 +548,11 @@ REQUIRED_PRIVACY_JNI_SYMBOLS=(
 )
 # Retired with the Google first-device sign-up key at bridge ABI 29.
 RETIRED_AUTH_JNI_SYMBOLS=(
+  Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_nativeBridgeAbiVersion
+  Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_nativeVerifyCastingProofV1
+  Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_nativeVerifyCastingProofPageV1
+  Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_nativeRegistrationFromProofV1
+  Java_org_hyperledger_iroha_sdk_governance_ParliamentTimedOvnNativeEndpointV1_nativeBallotFromProofV1
   Java_org_hyperledger_iroha_sdk_crypto_keystore_NativeFirstDeviceAuthKeyJniV1_reserve
   Java_org_hyperledger_iroha_sdk_crypto_keystore_NativeFirstDeviceAuthKeyJniV1_restore
 )
@@ -557,6 +562,10 @@ RETIRED_AUDITOR_CAPSULE_VERIFY_PARTS=(
   v1
 )
 RETIRED_PROTOCOL_C_SYMBOLS=(
+  connect_norito_parliament_timed_ovn_verify_casting_proof_page_v1
+  connect_norito_parliament_timed_ovn_verify_casting_proof_v1
+  connect_norito_parliament_timed_ovn_registration_from_proof_v1
+  connect_norito_parliament_timed_ovn_ballot_from_proof_v1
   "${RETIRED_AUDITOR_CAPSULE_VERIFY_PARTS[0]}_${RETIRED_AUDITOR_CAPSULE_VERIFY_PARTS[1]}_${RETIRED_AUDITOR_CAPSULE_VERIFY_PARTS[2]}"
 )
 RETIRED_KAGEMUSHA_PARTS=(cash offline)

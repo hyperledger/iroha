@@ -32,9 +32,9 @@ public struct IrohaPeerNearbyConnectionsConfigurationV1: Equatable, Sendable {
     public let maximumPendingWorkerActions: Int
     public let maximumPendingCallbacks: Int
     public let maximumPendingReceiveCallbacks: Int
-    /// Records one connection delivers at most. The payer receives five: hello,
-    /// authentication, the receiver's ask, the Request and the Credited
-    /// acknowledgement; the receiver receives four.
+    /// Records one connection delivers at most. The payer receives four: hello,
+    /// authentication, the receiver's Request and the Credited acknowledgement;
+    /// the receiver receives three: hello, authentication and the Payment.
     public let maximumReceiveRecordsPerConnection: Int
 
     public init(
@@ -44,7 +44,7 @@ public struct IrohaPeerNearbyConnectionsConfigurationV1: Equatable, Sendable {
         maximumPendingWorkerActions: Int = 64,
         maximumPendingCallbacks: Int = 16,
         maximumPendingReceiveCallbacks: Int = 4,
-        maximumReceiveRecordsPerConnection: Int = 5
+        maximumReceiveRecordsPerConnection: Int = 4
     ) {
         precondition(Self.isValidOperationTimeout(operationTimeout))
         precondition(maximumRecordBytes > 0 && maximumRecordBytes <= 32 * 1_024)
@@ -52,7 +52,7 @@ public struct IrohaPeerNearbyConnectionsConfigurationV1: Equatable, Sendable {
         precondition((1...256).contains(maximumPendingWorkerActions))
         precondition((1...64).contains(maximumPendingCallbacks))
         precondition((1...4).contains(maximumPendingReceiveCallbacks))
-        precondition((maximumPendingReceiveCallbacks...5).contains(maximumReceiveRecordsPerConnection))
+        precondition((maximumPendingReceiveCallbacks...4).contains(maximumReceiveRecordsPerConnection))
         self.operationTimeout = operationTimeout
         self.maximumRecordBytes = maximumRecordBytes
         self.maximumPendingSends = maximumPendingSends

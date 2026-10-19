@@ -34,7 +34,9 @@ pub enum OperationActionV1 {
     },
     /// Irreversible Send to the exact receiver-signed Request.
     Send {
-        /// Original canonical Request, including its credential and certificates.
+        /// Original canonical Request, including its credential and certificates: the
+        /// receiver's open Request, or this payer's completion of it. Native completes it for
+        /// the selected source before every check.
         request: Vec<u8>,
     },
     /// Receive the exact Payment; Native selects its durably issued Request by digest.
@@ -138,7 +140,11 @@ impl OperationRequestV1 {
             OperationActionV1::Send { request } => {
                 bounded(request, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?;
                 let request: KagemushaWalletRequestV1 = archive::decode(request)?;
-                valid(request.verify(scheme))?;
+                valid(if request.body.is_open() {
+                    request.verify_open(scheme)
+                } else {
+                    request.verify(scheme)
+                })?;
             }
             OperationActionV1::Receive {
                 payment,

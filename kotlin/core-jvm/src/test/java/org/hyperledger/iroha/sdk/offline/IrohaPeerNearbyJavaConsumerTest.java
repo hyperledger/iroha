@@ -52,8 +52,8 @@ final class IrohaPeerNearbyJavaConsumerTest {
           KagemushaWalletWireV1.inspectEnvelope(requestEnvelope).kind);
 
       final IrohaPeerWireMessageV1 payment = exchange(pair.sender, pair.receiver, fixtures.payment, 0);
-      final byte[] paymentEnvelope = payment.getCanonicalPayload().getBytes();
-      assertArrayEquals(fixtures.payment.getCanonicalPayload().getBytes(), paymentEnvelope);
+      final byte[] paymentEnvelope = IrohaPeerKagemushaWalletAdapterV1.decode(payment);
+      assertArrayEquals(IrohaPeerKagemushaWalletAdapterV1.decode(fixtures.payment), paymentEnvelope);
       KagemushaWalletWireV1.requireExchangeBinding(requestEnvelope, paymentEnvelope);
 
       final IrohaPeerWireMessageV1 credited =
@@ -321,6 +321,13 @@ final class IrohaPeerNearbyJavaConsumerTest {
           final IrohaPeerWalletRequestV1 recovered = IrohaPeerWalletRequestV1.decode(payload);
           assertArrayEquals(canonical, recovered.requestEnvelope());
           assertArrayEquals(account, recovered.destinationAccountOriginal());
+          assertThrows(IllegalArgumentException.class,
+              () -> new IrohaPeerCanonicalPayload(PROFILE, kind, 1, canonical));
+        } else if (kind == IrohaPeerPayloadKind.PAYMENT) {
+          final byte[] companion = bytes(900, 7); // Opaque carriage DATA, never monetary authority.
+          payload = new IrohaPeerWalletPaymentV1(canonical, companion).encode();
+          assertArrayEquals(canonical, IrohaPeerWalletPaymentV1.decode(payload).paymentEnvelope());
+          assertArrayEquals(companion, IrohaPeerWalletPaymentV1.decode(payload).payerCompanion());
           assertThrows(IllegalArgumentException.class,
               () -> new IrohaPeerCanonicalPayload(PROFILE, kind, 1, canonical));
         } else {

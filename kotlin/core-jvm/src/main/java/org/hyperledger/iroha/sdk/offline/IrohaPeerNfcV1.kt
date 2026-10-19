@@ -12,12 +12,12 @@ import org.hyperledger.iroha.sdk.norito.Varint
  * Transport-neutral Iroha peer NFC V1 constants (`specs/kagemusha_wallet_wire_v1.md` §6, NFC).
  *
  * The receiver's phone is the card (host card emulation) and the payer's phone is the reader.
- * One continuous hold reads the receiver's ask ([IrohaPeerAskV1]) and carries the payer's Offer for that amount to
- * the card, which answers with the receiver's Request ([IrohaPeerNfcOfferExchangeV1],
- * [IrohaPeerNfcOfferIntakeV1]), then carries the approved
- * Payment and returns the receiver's durable acknowledgement, the wallet's Credited envelope
- * ([IrohaPeerNfcReaderExchangeV1], [IrohaPeerNfcReceiverSessionV1]). Every value matches the
- * Swift `IrohaPeerNfcV1` byte for byte. TODO(G4): SessionControl and Lineage over NFC.
+ * The card hosts the receiver's open Request from the moment the receiver confirms the amount
+ * ([IrohaPeerNfcCardEndpointV1], [IrohaPeerNfcReceiverSessionV1]). One continuous hold reads it
+ * ([IrohaPeerNfcReaderExchangeV1.readRequest]), carries the payer's approved Payment with its payer
+ * companion and returns the receiver's durable acknowledgement, the wallet's Credited envelope
+ * ([IrohaPeerNfcReaderExchangeV1.run]). Every value matches the Swift `IrohaPeerNfcV1` byte for
+ * byte. TODO(G4): SessionControl over NFC.
  */
 object IrohaPeerNfcV1 {
     /** Proprietary ISO/IEC 7816-4 class of every command except SELECT. */
@@ -31,15 +31,12 @@ object IrohaPeerNfcV1 {
     const val MAXIMUM_MESSAGE_BYTES =
         IrohaPeerWireMessageV1.HEADER_LENGTH + IrohaPeerWireMessageV1.MAXIMUM_WALLET_ENCODED_BYTES
 
-    /** The 84-byte IPM1 header plus the 2,048-byte Offer envelope bound. */
-    const val MAXIMUM_OFFER_BYTES =
-        IrohaPeerWireMessageV1.HEADER_LENGTH + KagemushaWalletWireV1.SESSION_MAX_BYTES
+    /** The 84-byte IPM1 header plus the maximum Payment carrier with its payer companion (12,064 bytes). */
+    const val MAXIMUM_PAYMENT_BYTES =
+        IrohaPeerWireMessageV1.HEADER_LENGTH + IrohaPeerWalletPaymentV1.MAXIMUM_BYTES
 
     /** Length of the `IOI1` record returned by GET_INTAKE. */
     const val INTAKE_BYTES = 68
-
-    /** Length of the receiver's `IAK1` ask returned by GET_ASK ([IrohaPeerAskV1]). */
-    const val ASK_BYTES = IrohaPeerAskV1.RECORD_BYTES
 
     /** Length of the `INF1` record returned by GET_INFO. */
     const val INFO_BYTES = 98
@@ -138,11 +135,7 @@ enum class IrohaPeerNfcInstructionV1(val code: Int) {
     READ_ACKNOWLEDGEMENT(0x23),
     CONFIRM_ACKNOWLEDGEMENT(0x24),
     GET_STATUS(0x25),
-    GET_INTAKE(0x30),
-    BEGIN_OFFER(0x31),
-    WRITE_OFFER(0x32),
-    SUBMIT_OFFER(0x33),
-    GET_ASK(0x34);
+    GET_INTAKE(0x30);
 
     companion object {
         @JvmStatic fun fromCode(code: Int): IrohaPeerNfcInstructionV1? =
@@ -163,13 +156,12 @@ enum class IrohaPeerNfcPhaseV1(val code: Int) {
     }
 }
 
-/** Offer intake states exposed by GET_INTAKE (`IOI1`). */
+/**
+ * Card state exposed by GET_INTAKE (`IOI1`). The card hosts its open Request from the start, so
+ * REQUEST_READY (4) is the only state; codes 1, 2, 3 and 5 of the retired Offer intake are unused.
+ */
 enum class IrohaPeerNfcIntakeStateV1(val code: Int) {
-    AWAITING_OFFER(1),
-    RECEIVING_OFFER(2),
-    PREPARING_REQUEST(3),
-    REQUEST_READY(4),
-    DECLINED(5);
+    REQUEST_READY(4);
 
     companion object {
         @JvmStatic fun fromCode(code: Int): IrohaPeerNfcIntakeStateV1? =
@@ -284,15 +276,6 @@ enum class IrohaPeerNfcErrorV1 {
 
     /** The card answered `6581` (it could not persist) to [IrohaPeerNfcExceptionV1.operation]. */
     PEER_PERSISTENCE_FAILURE,
-
-    /** The receiver's wallet declined the Offer; [IrohaPeerNfcExceptionV1.detail] is the reason. */
-    OFFER_DECLINED,
-
-    /** The card did not finish preparing the Request within the reader's preparation budget. */
-    REQUEST_PREPARATION_TIMED_OUT,
-
-    /** The card answered GET_ASK with a 56-byte record that is not a valid `IAK1` ask. */
-    INVALID_ASK,
 }
 
 /**
@@ -302,10 +285,6 @@ enum class IrohaPeerNfcErrorV1 {
 enum class IrohaPeerNfcOperationV1 {
     SELECT_APPLICATION,
     GET_INTAKE,
-    GET_ASK,
-    BEGIN_OFFER,
-    WRITE_OFFER,
-    SUBMIT_OFFER,
     GET_INFO,
     READ_REQUEST,
     BEGIN_PAYMENT,
@@ -318,10 +297,10 @@ enum class IrohaPeerNfcOperationV1 {
 
 /**
  * Typed NFC carrier failure. [detail] is the class byte of [IrohaPeerNfcErrorV1.INVALID_COMMAND_CLASS],
- * the instruction byte of [IrohaPeerNfcErrorV1.UNSUPPORTED_INSTRUCTION], the actual length of
- * [IrohaPeerNfcErrorV1.MESSAGE_TOO_LARGE] (whose bound is [maximum]) or the reason of
- * [IrohaPeerNfcErrorV1.OFFER_DECLINED]; it is `0` otherwise. [operation] names the command a peer
- * rejected ([IrohaPeerNfcErrorV1.PEER_REJECTED], [IrohaPeerNfcErrorV1.PEER_PERSISTENCE_FAILURE]).
+ * the instruction byte of [IrohaPeerNfcErrorV1.UNSUPPORTED_INSTRUCTION] or the actual length of
+ * [IrohaPeerNfcErrorV1.MESSAGE_TOO_LARGE] (whose bound is [maximum]); it is `0` otherwise. [operation]
+ * names the command a peer rejected ([IrohaPeerNfcErrorV1.PEER_REJECTED],
+ * [IrohaPeerNfcErrorV1.PEER_PERSISTENCE_FAILURE]).
  */
 class IrohaPeerNfcExceptionV1 @JvmOverloads constructor(
     @JvmField val error: IrohaPeerNfcErrorV1,
@@ -334,13 +313,7 @@ class IrohaPeerNfcExceptionV1 @JvmOverloads constructor(
         val peerFailure = error == IrohaPeerNfcErrorV1.PEER_REJECTED ||
             error == IrohaPeerNfcErrorV1.PEER_PERSISTENCE_FAILURE
         require((operation != null) == peerFailure) { "NFC peer failures name exactly their operation" }
-        require(error != IrohaPeerNfcErrorV1.OFFER_DECLINED || detail in 1..0xffff) {
-            "An Offer decline carries a reason in 1..65535"
-        }
     }
-
-    /** The decline reason of [IrohaPeerNfcErrorV1.OFFER_DECLINED], else `0`. */
-    val declineReason: Int get() = if (error == IrohaPeerNfcErrorV1.OFFER_DECLINED) detail else 0
 
     private companion object {
         fun describe(
@@ -374,9 +347,6 @@ class IrohaPeerNfcExceptionV1 @JvmOverloads constructor(
             IrohaPeerNfcErrorV1.PEER_REJECTED -> "The nearby NFC peer rejected ${operation?.name}."
             IrohaPeerNfcErrorV1.PEER_PERSISTENCE_FAILURE ->
                 "The nearby NFC peer could not durably persist ${operation?.name}."
-            IrohaPeerNfcErrorV1.OFFER_DECLINED -> "The receiver declined the Offer (reason $detail)."
-            IrohaPeerNfcErrorV1.REQUEST_PREPARATION_TIMED_OUT -> "The receiver did not prepare a Request in time."
-            IrohaPeerNfcErrorV1.INVALID_ASK -> "The NFC card's ask is not a valid IAK1 record."
         }
 
         fun hexByte(value: Int): String {
@@ -429,14 +399,11 @@ enum class IrohaPeerNfcStatusWordV1(val code: Int) {
             IrohaPeerNfcErrorV1.CONFLICTING_REPLAY,
             IrohaPeerNfcErrorV1.PEER_REJECTED,
             IrohaPeerNfcErrorV1.PEER_PERSISTENCE_FAILURE,
-            IrohaPeerNfcErrorV1.OFFER_DECLINED,
-            IrohaPeerNfcErrorV1.REQUEST_PREPARATION_TIMED_OUT,
             -> CONDITIONS_NOT_SATISFIED
             IrohaPeerNfcErrorV1.INVALID_APPLICATION_IDENTIFIER -> NOT_FOUND
             IrohaPeerNfcErrorV1.INVALID_APDU,
             IrohaPeerNfcErrorV1.INVALID_OFFSET,
             IrohaPeerNfcErrorV1.INVALID_FLAGS,
-            IrohaPeerNfcErrorV1.INVALID_ASK,
             -> WRONG_DATA
         }
     }
@@ -535,59 +502,31 @@ class IrohaPeerNfcRequestIdentityV1(
 }
 
 /**
- * Fixed 68-byte `IOI1` response to GET_INTAKE: `"IOI1" ‖ 1 ‖ state ‖ BE16 profile ‖ s ‖
- * BE32 offer_length ‖ BE32 received_offer_bytes ‖ w_o ‖ BE16 max_write_chunk ‖ BE16 reason`.
+ * Fixed 68-byte `IOI1` response to GET_INTAKE: `"IOI1" ‖ 1 ‖ state ‖ BE16 profile ‖ s ‖ 40 zero
+ * bytes ‖ BE16 max_write_chunk ‖ BE16 0`.
  *
- * The Offer fields are zero while awaiting an Offer and when the card hosts a Request built from
- * an Offer that arrived over another carrier (direct mode, [IrohaPeerNfcIntakeStateV1.REQUEST_READY]);
- * [reason] is nonzero exactly when [IrohaPeerNfcIntakeStateV1.DECLINED].
+ * The card hosts its open Request from the start, so [state] is always
+ * [IrohaPeerNfcIntakeStateV1.REQUEST_READY]. The 40 bytes where the retired Offer intake reported
+ * `BE32 offer_length ‖ BE32 received_offer_bytes ‖ w_o` are zero, and so is the retired reason.
  */
 class IrohaPeerNfcIntakeRecordV1(
-    @JvmField val state: IrohaPeerNfcIntakeStateV1,
     @JvmField val profile: IrohaPeerPayloadProfile,
     sessionId: ByteArray,
-    @JvmField val offerLength: Int,
-    @JvmField val receivedOfferBytes: Int,
-    offerWireHash: ByteArray,
     @JvmField val maximumWriteChunkBytes: Int,
-    @JvmField val reason: Int,
 ) {
     private val session: ByteArray = nfcRequireSession(sessionId)
-    private val offerHash: ByteArray = offerWireHash.copyOf()
 
     init {
-        if (offerHash.size != IrohaPeerNfcV1.HASH_BYTES) nfcFail(IrohaPeerNfcErrorV1.INVALID_HASH)
         nfcRequireChunkLimit(maximumWriteChunkBytes)
-        val zeroOffer = offerLength == 0 && receivedOfferBytes == 0 && nfcIsZero(offerHash)
-        val boundOffer = offerLength > IrohaPeerWireMessageV1.HEADER_LENGTH &&
-            offerLength <= IrohaPeerNfcV1.MAXIMUM_OFFER_BYTES &&
-            receivedOfferBytes == offerLength && !nfcIsZero(offerHash)
-        val valid = when (state) {
-            IrohaPeerNfcIntakeStateV1.AWAITING_OFFER -> zeroOffer
-            IrohaPeerNfcIntakeStateV1.RECEIVING_OFFER ->
-                offerLength > IrohaPeerWireMessageV1.HEADER_LENGTH &&
-                    offerLength <= IrohaPeerNfcV1.MAXIMUM_OFFER_BYTES &&
-                    receivedOfferBytes in 0..offerLength && !nfcIsZero(offerHash)
-            IrohaPeerNfcIntakeStateV1.PREPARING_REQUEST -> boundOffer
-            IrohaPeerNfcIntakeStateV1.REQUEST_READY -> zeroOffer || boundOffer
-            IrohaPeerNfcIntakeStateV1.DECLINED -> boundOffer
-        }
-        val reasonValid = if (state == IrohaPeerNfcIntakeStateV1.DECLINED) reason in 1..0xffff else reason == 0
-        if (!valid || !reasonValid) nfcFail(IrohaPeerNfcErrorV1.INVALID_LENGTH)
     }
 
-    /** Session identifier `s` the card chose at intake start; a defensive copy. */
+    /** Always [IrohaPeerNfcIntakeStateV1.REQUEST_READY]. */
+    @JvmField val state: IrohaPeerNfcIntakeStateV1 = IrohaPeerNfcIntakeStateV1.REQUEST_READY
+
+    /** Session identifier `s` of the hosted Request; a defensive copy. */
     val sessionId: ByteArray get() = session.copyOf()
 
-    /** Wire hash `w_o` of the Offer this intake is receiving or bound to (zero when none). */
-    val offerWireHash: ByteArray get() = offerHash.copyOf()
-
-    /** Whether the record names an Offer (false while awaiting one and in direct mode). */
-    val hasOffer: Boolean get() = offerLength != 0
-
     internal fun sessionEquals(candidate: ByteArray): Boolean = session.contentEquals(candidate)
-
-    internal fun offerHashEquals(candidate: ByteArray): Boolean = offerHash.contentEquals(candidate)
 
     fun encode(): ByteArray = NfcRecordWriter(IrohaPeerNfcV1.INTAKE_BYTES).apply {
         bytes(IrohaPeerNfcV1.INTAKE_MAGIC)
@@ -595,46 +534,41 @@ class IrohaPeerNfcIntakeRecordV1(
         u8(state.code)
         u16(profile.code)
         bytes(session)
-        u32(offerLength.toLong())
-        u32(receivedOfferBytes.toLong())
-        bytes(offerHash)
+        bytes(ByteArray(RETIRED_OFFER_BYTES))
         u16(maximumWriteChunkBytes)
-        u16(reason)
+        u16(0)
     }.finish(IrohaPeerNfcV1.INTAKE_BYTES)
 
     override fun equals(other: Any?): Boolean = other is IrohaPeerNfcIntakeRecordV1 &&
-        state == other.state && profile == other.profile && session.contentEquals(other.session) &&
-        offerLength == other.offerLength && receivedOfferBytes == other.receivedOfferBytes &&
-        offerHash.contentEquals(other.offerHash) && maximumWriteChunkBytes == other.maximumWriteChunkBytes &&
-        reason == other.reason
+        profile == other.profile && session.contentEquals(other.session) &&
+        maximumWriteChunkBytes == other.maximumWriteChunkBytes
 
-    override fun hashCode(): Int = ((state.hashCode() * 31 + session.contentHashCode()) * 31 +
-        offerHash.contentHashCode()) * 31 + receivedOfferBytes
+    override fun hashCode(): Int = (profile.hashCode() * 31 + session.contentHashCode()) * 31 + maximumWriteChunkBytes
 
-    override fun toString(): String =
-        "IrohaPeerNfcIntakeRecordV1(${state.name}, offer=$receivedOfferBytes/$offerLength, reason=$reason)"
+    override fun toString(): String = "IrohaPeerNfcIntakeRecordV1(${state.name}, write=$maximumWriteChunkBytes)"
 
     companion object {
+        /** The retired `BE32 offer_length ‖ BE32 received_offer_bytes ‖ w_o`, always zero. */
+        private const val RETIRED_OFFER_BYTES = 40
+
+        /**
+         * Strictly decode one `IOI1` record: another length is [IrohaPeerNfcErrorV1.INVALID_LENGTH], another
+         * magic, version, state or profile [IrohaPeerNfcErrorV1.INVALID_APDU], and a nonzero retired
+         * Offer field or reason [IrohaPeerNfcErrorV1.INVALID_LENGTH].
+         */
         @JvmStatic
         fun decode(data: ByteArray): IrohaPeerNfcIntakeRecordV1 {
             if (data.size != IrohaPeerNfcV1.INTAKE_BYTES) nfcFail(IrohaPeerNfcErrorV1.INVALID_LENGTH)
             if (!nfcHasMagic(data, IrohaPeerNfcV1.INTAKE_MAGIC) || data.nfcU8(4) != IrohaPeerNfcV1.WIRE_VERSION) {
                 nfcFail(IrohaPeerNfcErrorV1.INVALID_APDU)
             }
-            val state = IrohaPeerNfcIntakeStateV1.fromCode(data.nfcU8(5))
-                ?: nfcFail(IrohaPeerNfcErrorV1.INVALID_APDU)
+            IrohaPeerNfcIntakeStateV1.fromCode(data.nfcU8(5)) ?: nfcFail(IrohaPeerNfcErrorV1.INVALID_APDU)
             val profile = IrohaPeerPayloadProfile.fromCode(data.nfcU16(6))
                 ?: nfcFail(IrohaPeerNfcErrorV1.INVALID_APDU)
-            return IrohaPeerNfcIntakeRecordV1(
-                state,
-                profile,
-                data.copyOfRange(8, 24),
-                nfcLength(data.nfcU32(24)),
-                nfcLength(data.nfcU32(28)),
-                data.copyOfRange(32, 64),
-                data.nfcU16(64),
-                data.nfcU16(66),
-            )
+            if (!nfcIsZero(data.copyOfRange(24, 24 + RETIRED_OFFER_BYTES)) || data.nfcU16(66) != 0) {
+                nfcFail(IrohaPeerNfcErrorV1.INVALID_LENGTH)
+            }
+            return IrohaPeerNfcIntakeRecordV1(profile, data.copyOfRange(8, 24), data.nfcU16(64))
         }
     }
 }
@@ -1016,9 +950,9 @@ internal fun nfcDecodeMessage(
 private val IPM1_MAGIC = "IPM1".toByteArray(Charsets.US_ASCII)
 
 /**
- * The Payment must carry exactly the hosted Request's signed body and signature, and Credited
- * must name that Request's scheme ([KagemushaWalletWireV1.requireExchangeBinding]). Carrier
- * checks preserve exact bytes; only Native authenticates monetary effects.
+ * The Payment must carry a completion of the hosted open Request (its terms and signature), and
+ * Credited must name that Request's scheme ([KagemushaWalletWireV1.requireExchangeBinding]). Carrier
+ * checks preserve exact bytes; only Native authenticates monetary effects and the payer companion.
  */
 internal fun nfcRequireWalletExchange(
     request: IrohaPeerWireMessageV1,
