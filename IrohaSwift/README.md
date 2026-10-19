@@ -537,9 +537,12 @@ Unset `MOBILE_SDK_LOCAL_UNIT_ARTIFACT_DIR`, `MOBILE_SDK_APPLE_ARTIFACT_DIR`, and
 `MOBILE_SDK_REQUIRE_EXTERNAL_APPLE_ARTIFACT` before running it. The command builds
 the current native source, produces and verifies its local-unit artifact, then
 runs every Swift test and verifies the inputs again. Cargo reuses
-`target/native-sdk-host-local` (override with an absolute `--target-dir`); SwiftPM
-reuses `IrohaSwift/.build`. Fresh artifacts and logs remain under
-`target/qualification/swift-local-*`. `--jobs` optionally sets the Cargo job budget.
+`target/native-sdk-host-local` (override with an absolute `--target-dir`). SwiftPM
+uses a fresh `swift-build` directory inside each
+`target/qualification/swift-local-*` run so XCTest loads the current bundled
+fixtures together with its executable. Earlier `IrohaSwift/.build` outputs remain
+untouched. Fresh artifacts and logs remain beside the Swift build outputs.
+`--jobs` optionally sets the Cargo job budget.
 The command leaves `dist/` untouched and never accepts a stale ABI. Direct
 `swift test` still requires a matching artifact to be prepared and selected first.
 

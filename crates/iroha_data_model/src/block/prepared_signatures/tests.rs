@@ -751,3 +751,7 @@ fn prepared_signature_custody_observation_requires_exact_source_and_completed_ow
     drop(foreign_source);
     assert_eq!(foreign.reserved_bytes(), 0);
 }
+
+mod penalty_action_tests;
+
+mod parent_service_tests;

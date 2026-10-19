@@ -62,6 +62,9 @@ fn bootstrap_world() -> World {
     )
 }
 
+#[path = "selective_rs16_tests.rs"]
+mod selective_rs16_tests;
+
 #[path = "dataspace_roots/amx_scope_tests.rs"]
 mod amx_scope_tests;
 #[path = "dataspace_roots/scope_refusal_tests.rs"]
@@ -263,19 +266,29 @@ impl DataspaceChain {
                     &self.nexus.fees.fee_asset_id.canonical_address(),
                 )
                 .unwrap();
-                let mut state = State::new_with_chain_and_network_id_for_testing(
+                // Match fresh startup's ordering. The generic test constructor
+                // seeds its free fee policy before the private Nexus is installed,
+                // so it would retain a different pre-genesis parameter preimage.
+                let mut state = State::try_new_with_chain_and_network_id(
+                    world.sccp_committee_generations.allocation_budget().clone(),
                     world,
                     Arc::clone(kura),
                     LiveQueryStore::start_test(),
                     self.chain.chain_id.clone(),
                     network,
-                );
+                    #[cfg(feature = "telemetry")]
+                    <_>::default(),
+                )
+                .expect("original private-root State startup journals");
                 state
                     .prepare_configured_primary_geometry_anchor(&self.nexus.configured_lane_catalog)
                     .unwrap();
                 state
                     .restore_kura_lane_segments_before_startup_replay()
                     .unwrap();
+                state.set_nexus_from_config(self.nexus.clone()).unwrap();
+                state.install_active_lane_markers_for_tests();
+                state.configure_test_runtime_defaults();
                 (state, Arc::clone(kura))
             }
         };
@@ -442,6 +455,29 @@ impl DataspaceChain {
             );
         }
     }
+}
+
+#[test]
+fn private_root_fresh_and_replay_preserve_identical_pre_genesis_parameters() {
+    let parent = chain(4, 200);
+    let root = DataspaceChain::new(
+        NetworkId::from_genesis_hash(parent.genesis.hash()),
+        DataSpaceId::new((1_u64 << 40) + 16),
+    );
+    let (fresh, kura) = root.state(None);
+    let original = norito::codec::Encode::encode(fresh.view().world().parameters());
+    assert_eq!(fresh.view().height(), 0);
+    assert_eq!(kura.blocks_count(), 0);
+    drop(fresh);
+    let (restarted, retained_kura) = root.state(Some(&kura));
+    assert!(Arc::ptr_eq(&kura, &retained_kura));
+    assert_eq!(
+        norito::codec::Encode::encode(restarted.view().world().parameters()),
+        original,
+        "private restart must retain the exact pre-genesis parameter preimages"
+    );
+    assert_eq!(restarted.view().height(), 0);
+    assert_eq!(kura.blocks_count(), 0);
 }
 
 #[test]
@@ -699,7 +735,7 @@ fn preaccepted_foreign_input_reaches_private_executor_but_cannot_publish_or_spen
         .expect("the original local executor revalidates the foreign network");
     assert_eq!(
         error,
-        "fixture block 2 does not execute: Some(Invalid); native rejection: Some(TransactionValidationFailed)"
+        "fixture block 2 does not execute: Ok(Some(Invalid)); native rejection: Some(TransactionValidationFailed)"
     );
     assert_eq!(state.view().height(), 1);
     assert_eq!(kura.blocks_count(), 1);

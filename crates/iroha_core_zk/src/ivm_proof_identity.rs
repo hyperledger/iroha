@@ -5,7 +5,7 @@
 /// Reserve complete colon/slash components named `ivm` and their hyphenated or
 /// snake-case stems at every depth. Prefixing a tenant or appending a leaf does
 /// not change ownership of that namespace. This is rejection, not alias
-/// normalization: portable OpenVerify identifiers remain lowercase ASCII and
+/// normalization: portable `OpenVerify` identifiers remain lowercase ASCII and
 /// their existing grammar is checked separately. Other component names remain
 /// available for generic public-input bindings.
 pub(super) fn circuit_id_uses_reserved_ivm_namespace(circuit_id: &str) -> bool {

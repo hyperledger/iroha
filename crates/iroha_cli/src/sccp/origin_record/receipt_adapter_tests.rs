@@ -114,12 +114,7 @@ impl RpcMock {
                     }
                     Err(e) => panic!("local RPC listener: {e}"),
                 };
-                stream
-                    .set_read_timeout(Some(Duration::from_secs(2)))
-                    .unwrap();
-                stream
-                    .set_write_timeout(Some(Duration::from_secs(2)))
-                    .unwrap();
+                Self::configure_stream(&stream);
                 let mut input = std::io::BufReader::new(&mut stream);
                 let mut line = String::new();
                 input.read_line(&mut line).unwrap();
@@ -159,6 +154,17 @@ impl RpcMock {
             worker: Some(worker),
         }
     }
+    fn configure_stream(stream: &std::net::TcpStream) {
+        // Accepted sockets can inherit the listener's nonblocking mode. The
+        // listener polls for shutdown; request parsing uses bounded blocking I/O.
+        stream.set_nonblocking(false).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+    }
     fn assert_drained(&self) {
         assert!(self.pending.lock().unwrap().is_empty());
     }
@@ -173,6 +179,41 @@ impl Drop for RpcMock {
             }
         }
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn rpc_mock_normalizes_accepted_socket_mode_without_changing_io_deadlines() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let _client = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    let (stream, _) = listener.accept().unwrap();
+    // Force the inherited mode on every Unix host, including hosts whose
+    // accept implementation creates a blocking socket by default.
+    stream.set_nonblocking(true).unwrap();
+    assert!(
+        rustix::fs::fcntl_getfl(&stream)
+            .unwrap()
+            .contains(rustix::fs::OFlags::NONBLOCK)
+    );
+    RpcMock::configure_stream(&stream);
+    assert!(
+        !rustix::fs::fcntl_getfl(&stream)
+            .unwrap()
+            .contains(rustix::fs::OFlags::NONBLOCK),
+        "accepted RPC sockets must block within the original I/O deadline"
+    );
+    assert!(
+        rustix::fs::fcntl_getfl(&listener)
+            .unwrap()
+            .contains(rustix::fs::OFlags::NONBLOCK),
+        "the listener must still poll for shutdown"
+    );
+    assert_eq!(stream.read_timeout().unwrap(), Some(Duration::from_secs(2)));
+    assert_eq!(
+        stream.write_timeout().unwrap(),
+        Some(Duration::from_secs(2))
+    );
 }
 
 fn rpc(method: &'static str, params: Value, result: Value) -> RpcRead {
@@ -352,7 +393,9 @@ impl Fixture {
             instance: native.verifier().instance().0,
             world: snapshot.authenticate(&tip).unwrap(),
             element_count: snapshot.entries.len(),
+            verifier: native.verifier(),
         };
+        origin.verify_retained_block(&certificate).unwrap();
         let proof = json!({"address": (format_data(&CONTRACT)), "balance":"0x0", "nonce":"0x1", "codeHash": (format_data(&CODE_HASH)), "storageHash": (format_data(&storage_root)), "accountProof": (hex_nodes(&mpt_proof(&accounts, &account_key).unwrap().nodes)), "storageProof": [{"key": (format_data(&slot)), "value": (U256::from_be_bytes(word).to_quantity()), "proof": (hex_nodes(&mpt_proof(&storage, &storage_key).unwrap().nodes))}]});
         Self {
             origin,

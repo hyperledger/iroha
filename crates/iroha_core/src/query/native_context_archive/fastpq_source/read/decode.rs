@@ -139,16 +139,12 @@ impl SourceDestination {
         {
             return Err(incomplete());
         }
-        // Pop in reverse order so an unexpected unfinished owner can be restored
-        // without dropping any other pending source or completed physical graph.
-        while let Some(original) = pending.pop() {
-            match original.finish() {
-                Ok(tape) => tapes.push_reserved(tape),
-                Err(original) => {
-                    pending.push_reserved(original);
-                    return Err(incomplete());
-                }
-            }
+        // Finish each original in its admitted slot. Refusal leaves its address and
+        // custody unchanged; only a successful move retires that now-empty slot.
+        while let Some(original) = pending.as_mut_slice().last_mut() {
+            let tape = original.finish().map_err(|_| incomplete())?;
+            tapes.push_reserved(tape);
+            pending.truncate(pending.as_slice().len() - 1);
         }
         tapes.as_mut_slice().reverse();
         self.valid = false;

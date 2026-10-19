@@ -18,9 +18,10 @@ the linked specifications. Routine repair receipts belong in PRs and CI.
    history releases its certified dependencies.
 3. Complete original funded execution through State/World acquisition,
    certification, Kura publication and restart; finish DS-local State and AMX.
-4. Qualify Sumeragi and authenticated Linux artifacts; Taira's deployment
-   owner manages cutover, live four-validator readiness, paid writes and restart
-   evidence, including DPN/contracts. This coding task owns H1–H5 in the
+4. Complete Sumeragi handoff H1–H6, including authenticated Linux artifacts and
+   fresh four-validator Taira cutover, readiness, paid writes and restart evidence.
+   The deployment owner supplies authenticated operator context and runtime-only
+   signing inputs. This handoff task owns the outcomes in the
    [Sumeragi handoff goals](specs/sumeragi_goals.md#active-handoff-completion-gates)
    and works only in `/Users/takemiyamakoto/dev/iroha` on `optimizations`.
 5. Validate the combined fixture/runtime repairs through fresh workspace,

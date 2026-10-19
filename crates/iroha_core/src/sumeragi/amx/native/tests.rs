@@ -567,6 +567,14 @@ fn native_amx_paid_commit_survives_certified_restart_and_rejects_bypass() {
     assert!(native(&roots.participants[0]).escrows.is_empty());
     let first = roots.prepare(0, &transaction, &begin);
     let second = roots.prepare(1, &transaction, &begin);
+    // The original owner grants are real committed work. Capture each actual Prepare
+    // height and proof now, before relay consumes its admitted source.
+    let prepared_heights = roots
+        .participants
+        .each_ref()
+        .map(CertifiedTestChain::height);
+    let prepared_proofs =
+        [&first, &second].map(|proof| norito::encode_canonical(proof.canonical()).unwrap());
     for (id, chain) in [FIRST, SECOND].into_iter().zip(&roots.participants) {
         let native = native(chain);
         assert_eq!(
@@ -686,7 +694,11 @@ fn native_amx_paid_commit_survives_certified_restart_and_rejects_bypass() {
         );
         assert_eq!(chain.commit_at(6_100, vec![repeated]), vec![false]);
     }
-    for (id, source) in [FIRST, SECOND].into_iter().zip(&roots.participants) {
+    for (index, (id, source)) in [FIRST, SECOND]
+        .into_iter()
+        .zip(&roots.participants)
+        .enumerate()
+    {
         let mut restored = CertifiedTestChain::start(private_config(&roots.global, id)).unwrap();
         restored.replay_from(source).unwrap();
         assert_eq!(native(&restored), native(source));
@@ -704,18 +716,30 @@ fn native_amx_paid_commit_survives_certified_restart_and_rejects_bypass() {
         );
         let proof = super::super::amx_record_proof(
             &restored.state().view(),
-            3,
+            prepared_heights[index],
             AmxRecordKind::Prepared,
             transaction.id().unwrap(),
         )
         .complete()
-        .unwrap();
-        if id == FIRST {
-            assert!(
-                proof.is_some(),
-                "first prepared archive survives rejection and replay"
-            );
-        }
+        .unwrap()
+        .expect("each original Prepare archive survives all subsequent work and replay");
+        assert_eq!(
+            norito::encode_canonical(proof.canonical()).unwrap(),
+            prepared_proofs[index],
+            "restoration retains the exact original Prepare certificate, result and witness"
+        );
+        assert!(
+            super::super::amx_record_proof(
+                &restored.state().view(),
+                prepared_heights[index] - 1,
+                AmxRecordKind::Prepared,
+                transaction.id().unwrap(),
+            )
+            .complete()
+            .unwrap()
+            .is_none(),
+            "the preceding owner grant or rejected debit cannot stand in for Prepare"
+        );
     }
 }
 

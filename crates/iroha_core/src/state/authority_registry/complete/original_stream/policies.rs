@@ -59,7 +59,7 @@ pub(super) fn append(
     let runtime_touched = runtime.touched_value().is_some();
     macro_rules! immutable {
         ($id:literal, $value:expr) => {
-            if !output.already_captured($id, &source())? {
+            if !output.skip_cell_projection($id, source(), false)? {
                 let value = $value;
                 output.projected_cell(
                     $id,
@@ -87,7 +87,7 @@ pub(super) fn append(
             .map_err(order)?
     );
 
-    if !output.already_captured("state.pipeline", &source())? {
+    if !output.skip_cell_projection("state.pipeline", source(), parameters_touched)? {
         let current = pipeline_policy::BorrowedPipelinePolicy::new(
             current_parameters.pipeline_policy(),
             current_parameters.gas(),
@@ -108,7 +108,7 @@ pub(super) fn append(
             |writer| bare(&before, writer),
         )?;
     }
-    if !output.already_captured("state.zk", &source())? {
+    if !output.skip_cell_projection("state.zk", source(), parameters_touched)? {
         let current = zk_policy::borrowed(current_parameters.zk_policy());
         let before = zk_policy::borrowed(before_parameters.zk_policy());
         output.projected_cell(
@@ -119,9 +119,10 @@ pub(super) fn append(
             |writer| bare(&before, writer),
         )?;
     }
-    if !output.already_captured(
+    if !output.skip_cell_projection(
         "runtime.lanes",
-        &SourceIdentity::Journal(runtime.publication_identity()),
+        SourceIdentity::Journal(runtime.publication_identity()),
+        runtime_touched,
     )? {
         let current = runtime_lane_policy::borrowed(&current_runtime.lanes)
             .map_err(|error| CaptureError::Source(error.to_string()))?;
@@ -142,7 +143,7 @@ pub(super) fn append(
         (None, None) => false,
         _ => true,
     };
-    if !output.already_captured("state.lane_compliance", &source())? {
+    if !output.skip_cell_projection("state.lane_compliance", source(), compliance_touched)? {
         let current = crate::compliance::authority::BorrowedCompliance(current_compliance);
         let before = crate::compliance::authority::BorrowedCompliance(before_compliance);
         output.projected_cell(
@@ -157,7 +158,16 @@ pub(super) fn append(
     let before_manifests = fields.runtime_policy.manifests.as_ref();
     let manifests_touched =
         !std::sync::Arc::ptr_eq(&fields.lane_manifests, &fields.runtime_policy.manifests);
-    if !output.already_captured("state.lane_manifests", &source())? {
+    // Materialized manifest validation and bytes also depend on the exact lane
+    // catalog. A runtime touch, even an equal one, must retain that preimage and
+    // cannot skip the original catalog binding check.
+    let manifest_projection_touched = manifests_touched
+        || (runtime_touched && !cfg!(all(test, sumeragi_core_mutation = "HC457")));
+    if !output.skip_cell_projection(
+        "state.lane_manifests",
+        source(),
+        manifest_projection_touched,
+    )? {
         let current = current_manifests
             .borrowed_materialized_for_frozen_catalog(
                 current_runtime.lane_count,
@@ -173,12 +183,14 @@ pub(super) fn append(
         output.projected_cell(
             "state.lane_manifests",
             source(),
-            manifests_touched,
+            manifest_projection_touched,
             |writer| bare(&current, writer),
             |writer| bare(&before, writer),
         )?;
     }
-    if !output.already_captured("state.nexus", &source())? {
+    let nexus_touched =
+        parameters_touched || runtime_touched || compliance_touched || manifests_touched;
+    if !output.skip_cell_projection("state.nexus", source(), nexus_touched)? {
         let current_digest = current_compliance
             .map(crate::compliance::authority::borrowed_digest)
             .transpose()
@@ -206,7 +218,7 @@ pub(super) fn append(
         output.projected_cell(
             "state.nexus",
             source(),
-            parameters_touched || runtime_touched || compliance_touched || manifests_touched,
+            nexus_touched,
             |writer| bare(&current, writer),
             |writer| bare(&before, writer),
         )?;

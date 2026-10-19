@@ -102,7 +102,7 @@ pub struct ZkX509CredentialMainPreAuxV1 {
     main_base_roots: [PrivacyOuterDigestV1; ZK_X509_CREDENTIAL_MAIN_BASE_ROOT_COUNT_V1],
 }
 impl ZkX509CredentialMainPreAuxV1 {
-    pub(crate) const fn proof_instance_v1(self) -> ZkX509ProofInstanceV1 {
+    pub(crate) const fn proof_instance_v1(&self) -> ZkX509ProofInstanceV1 {
         self.proof_instance
     }
     /// Mint MAIN pre-auxiliary state from the completed canonical commitment
@@ -232,7 +232,7 @@ impl ZkX509CredentialMainPostBaseChallengesV1 {
         self.p256_arithmetic_copy
     }
     /// Post-challenge state bound into both local subproof transcripts.
-    pub(crate) const fn transcript_state(self) -> PrivacyOuterDigestV1 {
+    pub(crate) const fn transcript_state(&self) -> PrivacyOuterDigestV1 {
         self.transcript_state
     }
 }
@@ -252,7 +252,7 @@ pub struct ZkX509CredentialPreAuxBindingV1 {
     main_post_base: ZkX509CredentialMainPostBaseChallengesV1,
 }
 impl ZkX509CredentialPreAuxBindingV1 {
-    pub(crate) const fn proof_instance_v1(self) -> ZkX509ProofInstanceV1 {
+    pub(crate) const fn proof_instance_v1(&self) -> ZkX509ProofInstanceV1 {
         self.main_pre_aux.proof_instance_v1()
     }
     /// Test exact typed provenance without exposing its component roots.
@@ -277,7 +277,7 @@ impl ZkX509CredentialPreAuxBindingV1 {
         self.main_post_base.rfc5280()
     }
     /// Post-challenge state bound into both local subproof transcripts.
-    pub(crate) const fn transcript_state(self) -> PrivacyOuterDigestV1 {
+    pub(crate) const fn transcript_state(&self) -> PrivacyOuterDigestV1 {
         self.main_post_base.transcript_state()
     }
 }

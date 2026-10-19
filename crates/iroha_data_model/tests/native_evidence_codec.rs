@@ -75,6 +75,39 @@ fn native_pair_constructor_is_order_independent_and_wire_is_strict() {
     assert_eq!(evidence.native_frame(), evidence.native.as_slice());
 }
 
+fn assert_original_depth_refusal(error: norito::Error, depth: usize, limit: usize) {
+    use norito::core::{DecodeAttemptErrorKind, DecodeResourceError, classify_decode_attempt};
+    assert_eq!(
+        error.decode_resource_error(),
+        Some(DecodeResourceError::NestingDepthExceeded {
+            depth,
+            limit,
+            context: "decode budget",
+        })
+    );
+    let norito::Error::ScopedDecodeResource(original) = &error else {
+        panic!("nested evidence must preserve its original scoped refusal: {error:?}")
+    };
+    let original = original.clone();
+    let transported = norito::json::Error::from_decode_resource(error).into_core_error();
+    assert!(matches!(
+        &transported,
+        norito::Error::ScopedDecodeResource(actual) if actual == &original
+    ));
+    // Retired scope identity survives transport, but cannot acquire authority from
+    // a later caller with the same numeric limit.
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, limit);
+    let stale = norito::with_decode_limits_scope(limits, || {
+        classify_decode_attempt(|| Err::<(), _>(transported))
+    })
+    .unwrap_err();
+    assert_eq!(stale.kind(), DecodeAttemptErrorKind::Invalid);
+    assert!(matches!(
+        stale.error(),
+        norito::Error::ScopedDecodeResource(actual) if actual == &original
+    ));
+}
+
 #[test]
 fn nested_native_evidence_resource_refusal_is_preserved_and_retryable() {
     #[derive(norito::Encode, norito::Decode, norito::derive::JsonDeserialize)]
@@ -92,10 +125,7 @@ fn nested_native_evidence_resource_refusal_is_preserved_and_retryable() {
     let error =
         norito::with_decode_limits_scope(limits, || Evidence::decode_all(&mut binary.as_slice()))
             .unwrap_err();
-    assert!(
-        matches!(error, norito::Error::NestingDepthExceeded { limit: 4, .. }),
-        "{error:?}"
-    );
+    assert_original_depth_refusal(error, 5, 4);
     // JSON has no outer binary field scope, so the same native depth is one lower.
     let json_limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 3);
     norito::with_decode_limits_scope(json_limits, || {
@@ -106,14 +136,10 @@ fn nested_native_evidence_resource_refusal_is_preserved_and_retryable() {
         norito::with_decode_limits_scope(json_limits, || norito::json::from_str::<Evidence>(&json))
             .unwrap_err();
     assert!(
-        matches!(
-            error,
-            norito::json::Error::DecodeResource(
-                norito::core::DecodeResourceError::NestingDepthExceeded { limit: 3, .. }
-            )
-        ),
+        matches!(&error, norito::json::Error::ScopedDecodeResource(_)),
         "{error:?}"
     );
+    assert_original_depth_refusal(error.into_core_error(), 4, 3);
     assert_eq!(
         Evidence::decode_all(&mut binary.as_slice()).unwrap(),
         evidence
@@ -206,7 +232,7 @@ fn native_effects_require_parent_service_and_both_vectors_and_reject_retired_slo
         evidence_admissions: vec![
             Evidence::from_native(&native()).expect("original native admission"),
         ],
-        penalty_actions: Vec::new(),
+        penalty_actions: Default::default(),
     };
     assert!(!effects.is_empty());
     assert_eq!(
@@ -310,7 +336,11 @@ fn lane_attribution_roundtrip_preserves_native_height_and_original_root_cut() {
 #[test]
 fn native_parent_service_original_is_required_nonempty_bundle_input() {
     let effects = NposConsensusEffects {
-        parent_service_commit_qc: Some(vec![0x19, 0x2a, 0x3b]),
+        parent_service_commit_qc: Some(
+            iroha_data_model::consensus::NposParentServiceCommitQc::from_untrusted(vec![
+                0x19, 0x2a, 0x3b,
+            ]),
+        ),
         ..Default::default()
     };
     assert!(!effects.is_empty());

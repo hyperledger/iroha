@@ -148,7 +148,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, N: NativeProofs>
         Err(unavailable())
     }
 
-    /// Authenticate and durably retain a direct response before ordinary TimeAnchor Refresh.
+    /// Authenticate and durably retain a direct response before ordinary `TimeAnchor` Refresh.
     /// Refresh alone cannot create this native observation. A lost token requires reanchoring.
     ///
     /// # Errors

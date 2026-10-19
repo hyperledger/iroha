@@ -1,6 +1,6 @@
 // Core STARK verifier and transcript regression tests.
 //
-// Included by `zk_stark::tests` to preserve exact libtest names.
+// Included by `stark::tests` to preserve exact libtest names.
 use super::*;
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core::zk_stark::tests::RetiredSelectorParamsV0")]

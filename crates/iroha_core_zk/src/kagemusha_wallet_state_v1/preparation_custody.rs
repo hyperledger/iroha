@@ -468,7 +468,7 @@ impl<'a> PreparationCustodyV1<'a> {
     }
 
     /// Recover native direct-exchange observations for the exact committed anchor.
-    /// A signed TimeAnchor or Refresh by itself never populates this index.
+    /// A signed `TimeAnchor` or Refresh by itself never populates this index.
     ///
     /// # Errors
     /// A committed anchor without direct-exchange custody, corrupt binding or storage failure.

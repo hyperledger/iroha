@@ -269,6 +269,8 @@ NATIVE_CORE_TEST_OWNERS = (
         'original_validation_return_cannot_rebind_changed_header_to_authenticated_wire',
         'explicit_completed_decoded_rejection_retires_only_original_height_view_hash',
         'same_source_same_pool_distinct_prepared_signature_owner_is_refused_at_both_boundaries',
+        'same_wire_distinct_action_owner_is_refused_at_original_lend_and_validation_return',
+        'same_wire_parent_qc_substitution_preserving_actions_and_signatures_is_refused_at_both_boundaries',
     )),
     ('native validator return custody', 'sumeragi/executor.rs', 'sumeragi/executor_validation_refusal_tests.rs', 'validation_refusal_tests', 'sumeragi::executor::validation_refusal_tests', (
         'original_prepared_certificate_read_refusal_retains_worker_owner_and_funded_execution',

@@ -109,18 +109,22 @@ fn read_proof(
 }
 
 fn path(chain: &CertifiedTestChain) -> PathBuf {
-    let paths = fs::read_dir(chain.kura().store_root().join("native-contexts"))
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| {
-            path.file_name()
-                .unwrap()
-                .to_string_lossy()
-                .starts_with("00000000000000000002-")
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(paths.len(), 1);
-    paths.into_iter().next().unwrap()
+    // A height may also retain its separate .ami outbound-intent archive. Select
+    // the exact original certified projection consumed by the proof reader.
+    let path = chain
+        .kura()
+        .store_root()
+        .join("native-contexts")
+        .join(format!(
+            "{:020}-{}.nrt",
+            2,
+            hex::encode(chain.committed(2).block().hash().as_ref())
+        ));
+    assert!(
+        path.is_file(),
+        "original certified native projection exists"
+    );
+    path
 }
 
 #[test]

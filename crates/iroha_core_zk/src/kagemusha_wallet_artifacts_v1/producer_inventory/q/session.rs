@@ -241,7 +241,7 @@ impl AuthenticatedProducerInventoryV1 {
     /// Only exact signature sources admitted within this call may be reused. Each
     /// hit checks the same ordered slots, original member, current profile/limits
     /// and all three signed originals before returning its private source seal.
-    /// Every QSigma source is strictly imported independently. Program identities
+    /// Every `QSigma` source is strictly imported independently. Program identities
     /// remain distinct, and complete A/W/context/Omega qualification remains required.
     /// Original-reader cancellation has the standalone qualifier's semantics and
     /// returns no partial vector or success event for the interrupted program.

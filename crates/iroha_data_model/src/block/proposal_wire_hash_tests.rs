@@ -218,12 +218,14 @@ fn complete_comparison_proposal() -> SignedBlock {
             ManifestDigest::new([0x22; 32]),
         )]));
     proposal.payload.npos_consensus_effects = Some(NposConsensusEffects {
-        penalty_actions: vec![NposPenaltyAction::MarkConsensusEvidenceApplied(
-            NposMarkConsensusEvidenceAppliedAction {
-                evidence_key: Hash::new(b"comparison evidence"),
-                height: 2,
-            },
-        )],
+        penalty_actions: crate::consensus::NposPenaltyActions::from_untrusted(vec![
+            NposPenaltyAction::MarkConsensusEvidenceApplied(
+                NposMarkConsensusEvidenceAppliedAction {
+                    evidence_key: Hash::new(b"comparison evidence"),
+                    height: 2,
+                },
+            ),
+        ]),
         ..NposConsensusEffects::default()
     });
     proposal
@@ -334,8 +336,7 @@ fn checked_resultless_comparison_binds_signatures_and_all_seven_payload_fields()
                 .npos_consensus_effects
                 .as_mut()
                 .unwrap()
-                .penalty_actions
-                .clear();
+                .penalty_actions = Default::default();
         }),
     ];
     for (field, edit) in edits {
@@ -968,11 +969,15 @@ fn parent_service_original_changes_complete_proposal_commitment() {
     let mut left = plain_signed_block();
     let mut right = left.clone();
     let mut effects = crate::consensus::NposConsensusEffects {
-        parent_service_commit_qc: Some(vec![0x21, 0x32]),
+        parent_service_commit_qc: Some(
+            crate::consensus::NposParentServiceCommitQc::from_untrusted(vec![0x21, 0x32]),
+        ),
         ..Default::default()
     };
     left.set_npos_consensus_effects(Some(effects.clone()));
-    effects.parent_service_commit_qc = Some(vec![0x21, 0x33]);
+    effects.parent_service_commit_qc = Some(
+        crate::consensus::NposParentServiceCommitQc::from_untrusted(vec![0x21, 0x33]),
+    );
     right.set_npos_consensus_effects(Some(effects));
     left.validate_proposal_commitments().unwrap();
     right.validate_proposal_commitments().unwrap();

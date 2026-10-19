@@ -1207,8 +1207,9 @@ pub fn holder_prepare_blind_issuance_with_rng_v1<R: CryptoRng + RngCore>(
         signature_two: [ApplicationPolynomialV1::ZERO; 8],
         attributes,
     };
-    let proof = prove_blind_issuance_request_v1(&relation, &p1_witness, transcript, &mut proof_rng)
-        .map_err(|_| BootleLanternIssuanceErrorV1::BlindRequestProofFailed)?;
+    let proof =
+        prove_blind_issuance_request_v1(&relation, &p1_witness, &transcript, &mut proof_rng)
+            .map_err(|_| BootleLanternIssuanceErrorV1::BlindRequestProofFailed)?;
     let request_digest = blind_request_digest_v1(
         &target_digest,
         &authorization.authorization_digest,
@@ -1486,7 +1487,7 @@ fn validate_encoded_request_v1(
         request.compile_transcript_after_binding_v1(context, canonical_genesis_hash, policy)?;
     let matrix_seed = matrix_seed_v1(*context.parameter_digest.as_bytes())
         .map_err(|_| BootleLanternIssuanceErrorV1::TranscriptFailed)?;
-    verify_blind_issuance_request_v1(&relation, transcript, &request.proof)
+    verify_blind_issuance_request_v1(&relation, &transcript, &request.proof)
         .map_err(|_| BootleLanternIssuanceErrorV1::BlindRequestProofFailed)?;
     Ok(ValidatedIssuerRequestV1 {
         request,
@@ -1579,7 +1580,7 @@ pub(crate) fn issuer_blind_issue_once_with_rng_v1<R: CryptoRng + RngCore>(
         request.compile_transcript_after_binding_v1(context, canonical_genesis_hash, policy)?;
     let matrix_seed = matrix_seed_v1(*context.parameter_digest.as_bytes())
         .map_err(|_| BootleLanternIssuanceErrorV1::TranscriptFailed)?;
-    verify_blind_issuance_request_v1(&relation, transcript, &request.proof)
+    verify_blind_issuance_request_v1(&relation, &transcript, &request.proof)
         .map_err(|_| BootleLanternIssuanceErrorV1::BlindRequestProofFailed)?;
     match store.claim_v1(
         authorization.authorization_id,
@@ -3460,7 +3461,7 @@ mod tests {
                 &fixture.authorization,
             )
             .expect("same P1 reusable across action and intent");
-        verify_blind_issuance_request_v1(&relation, transcript, &fixture.request.proof)
+        verify_blind_issuance_request_v1(&relation, &transcript, &fixture.request.proof)
             .expect("existing P1 remains valid");
     }
     #[test]
@@ -3853,7 +3854,7 @@ mod tests {
                 &fixture.authorization,
             )
             .expect("cloned exact request binding");
-        verify_blind_issuance_request_v1(&relation, transcript, &cloned.proof)
+        verify_blind_issuance_request_v1(&relation, &transcript, &cloned.proof)
             .expect("cloned exact P1");
     }
     #[test]

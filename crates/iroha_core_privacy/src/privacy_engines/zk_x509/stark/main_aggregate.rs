@@ -3274,7 +3274,7 @@ impl DerMainFp4AirEvaluatorV1 {
             next_fixed
                 .try_into()
                 .map_err(|_| ZkX509StarkErrorV1::ProfileMismatch)?,
-            context.challenges,
+            &context.challenges,
             context.public,
         )
         .map_err(|_| ZkX509StarkErrorV1::ConstraintOpening)?;

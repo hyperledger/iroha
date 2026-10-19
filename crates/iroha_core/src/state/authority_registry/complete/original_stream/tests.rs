@@ -79,7 +79,12 @@ fn actual_world_inventory_has_exact_canonical_coverage_including_empty_tables() 
     let state = state();
     let mut block = state.block(header(1));
     freeze(&mut block);
-    let mut output = Collector::new(state.ivm_execution_budget(), limits()).unwrap();
+    let mut output = Collector::new(
+        state.ivm_execution_budget(),
+        limits(),
+        CaptureIntent::Complete,
+    )
+    .unwrap();
     world::append(&block, &mut output).unwrap();
     let mut expected = Vec::new();
     visit(
@@ -162,7 +167,12 @@ fn actual_table_insert_delete_noop_and_absent_undo_replay_exactly_once() {
         .smart_contract_state
         .insert(path("longer/key"), vec![10]);
     freeze(&mut block);
-    let mut output = Collector::new(state.ivm_execution_budget(), limits()).unwrap();
+    let mut output = Collector::new(
+        state.ivm_execution_budget(),
+        limits(),
+        CaptureIntent::Complete,
+    )
+    .unwrap();
     append_native(&block, &mut output).unwrap();
     let field = find(&output, "world.smart_contract_state");
     assert!(
@@ -244,7 +254,12 @@ fn actual_cell_equal_touch_keeps_its_original_preimage() {
     let before = *block.world.soradns_last_publish_ms.get();
     *block.world.soradns_last_publish_ms.get_mut() = before;
     freeze(&mut block);
-    let mut output = Collector::new(state.ivm_execution_budget(), limits()).unwrap();
+    let mut output = Collector::new(
+        state.ivm_execution_budget(),
+        limits(),
+        CaptureIntent::Complete,
+    )
+    .unwrap();
     output
         .cell(
             "world.soradns_last_publish_ms",
@@ -279,7 +294,12 @@ fn registry_rejects_missing_extra_duplicate_and_changed_original_sources() {
     let mut foreign = other.block(header(1));
     freeze(&mut block);
     freeze(&mut foreign);
-    let mut output = Collector::new(state.ivm_execution_budget(), limits()).unwrap();
+    let mut output = Collector::new(
+        state.ivm_execution_budget(),
+        limits(),
+        CaptureIntent::Complete,
+    )
+    .unwrap();
     append_native(&block, &mut output).unwrap();
     assert!(matches!(
         append_native(&block, &mut output),
@@ -314,7 +334,7 @@ fn allocation_refusal_retains_the_actual_partial_key_and_original_pool_for_retry
         .smart_contract_state
         .insert(path("stream/large"), vec![7; 4096]);
     freeze(&mut block);
-    let mut output = Collector::new(budget.clone(), limits()).unwrap();
+    let mut output = Collector::new(budget.clone(), limits(), CaptureIntent::Complete).unwrap();
     let original_limit = budget.limit_bytes();
     let initial = budget.reserved_bytes();
     let image = block.world.smart_contract_state.frozen_images().unwrap();
@@ -408,7 +428,12 @@ fn empty_membership_replacement_clears_every_old_row_and_keeps_pair_separate() {
         .insert_block(Default::default(), NonZeroUsize::MIN);
     block.transactions.try_prepare_publication().unwrap();
     freeze(&mut block);
-    let mut output = Collector::new(state.ivm_execution_budget(), limits()).unwrap();
+    let mut output = Collector::new(
+        state.ivm_execution_budget(),
+        limits(),
+        CaptureIntent::Complete,
+    )
+    .unwrap();
     membership::append(&block, &mut output).unwrap();
     for id in ["state.transactions.current", "state.transactions.rollback"] {
         let field = find(&output, id);
@@ -434,7 +459,12 @@ fn repeated_membership_retains_equal_frontier_preimage_once() {
         .insert_block([key(1)].into_iter().collect(), NonZeroUsize::MIN);
     block.transactions.try_prepare_publication().unwrap();
     freeze(&mut block);
-    let mut output = Collector::new(state.ivm_execution_budget(), limits()).unwrap();
+    let mut output = Collector::new(
+        state.ivm_execution_budget(),
+        limits(),
+        CaptureIntent::Complete,
+    )
+    .unwrap();
     membership::append(&block, &mut output).unwrap();
     let frontier = find(&output, "state.transactions.frontier");
     assert_eq!(frontier.current.as_slice().len(), 1);
@@ -464,7 +494,12 @@ fn replacement_membership_shrinks_current_and_retains_exact_distinct_rollback() 
     );
     block.transactions.try_prepare_publication().unwrap();
     freeze(&mut block);
-    let mut output = Collector::new(state.ivm_execution_budget(), limits()).unwrap();
+    let mut output = Collector::new(
+        state.ivm_execution_budget(),
+        limits(),
+        CaptureIntent::Complete,
+    )
+    .unwrap();
     membership::append(&block, &mut output).unwrap();
     let current = values(find(&output, "state.transactions.current"));
     let rollback = values(find(&output, "state.transactions.rollback"));
@@ -533,7 +568,7 @@ fn validated_original_with_crypto_source(
     );
     assert!(std::sync::Arc::ptr_eq(&block.crypto, &captured_crypto));
     assert!(
-        OriginalCut::new(&block, limits()).is_err(),
+        OriginalCut::new(&block, limits(), CaptureIntent::Complete).is_err(),
         "unchecked group never becomes a complete cut"
     );
     start(&mut block, &state.ivm_execution_budget());
@@ -578,7 +613,7 @@ fn validated_original_with_crypto_source(
 fn complete_original_fixture_covers_every_table_and_all_cells() {
     let (state, proposal) = crate::state::publication::musubi_materializer_test_support::fixture();
     let block = validated_original(&state, proposal.header());
-    let mut cut = OriginalCut::new(&block, limits()).unwrap();
+    let mut cut = OriginalCut::new(&block, limits(), CaptureIntent::Complete).unwrap();
     cut.advance().unwrap();
     let mut identities = Vec::new();
     cut.visit(
@@ -647,6 +682,7 @@ fn complete_original_fixture_covers_every_table_and_all_cells() {
     let mut actual_bindings = BTreeMap::new();
     let mut replacements = Vec::new();
     cut.changes(
+        |_| Ok(()),
         |id| {
             replacements.push(id);
             Ok::<_, core::convert::Infallible>(())
@@ -684,6 +720,7 @@ fn complete_original_fixture_covers_every_table_and_all_cells() {
     assert_eq!(row_visits.get(), 0);
     assert!(matches!(
         cut.changes(
+            |_| Ok(()),
             |_| Err("clear refused"),
             |id, _| {
                 assert!(!id.starts_with("state.transactions."));
@@ -761,7 +798,7 @@ fn validated_publication_refuses_foreign_manifest_rebinding_and_runtime_target_a
         }))
         .is_err()
     );
-    let mut cut = OriginalCut::new(&block, limits()).unwrap();
+    let mut cut = OriginalCut::new(&block, limits(), CaptureIntent::Complete).unwrap();
     cut.advance().unwrap();
     let retained = values(find(&cut.collector, "runtime.lanes"));
     // A new publication with equal payload still changes the exact original
@@ -788,7 +825,12 @@ fn direct_target_advance_refuses_the_retained_cut_instead_of_recapturing_values(
         .smart_contract_state
         .insert(path("original/value"), vec![1]);
     freeze(&mut block);
-    let mut output = Collector::new(state.ivm_execution_budget(), limits()).unwrap();
+    let mut output = Collector::new(
+        state.ivm_execution_budget(),
+        limits(),
+        CaptureIntent::Complete,
+    )
+    .unwrap();
     append_native(&block, &mut output).unwrap();
     let original = values(find(&output, "world.smart_contract_state"));
     {
@@ -815,7 +857,7 @@ fn field_and_row_admission_precede_canonical_backing() {
     let mut denied = limits();
     denied.max_fields = 0;
     assert!(matches!(
-        Collector::new(budget.clone(), denied),
+        Collector::new(budget.clone(), denied, CaptureIntent::Complete),
         Err(CaptureError::CountLimit)
     ));
     assert_eq!(before, budget.reserved_bytes());
@@ -823,7 +865,7 @@ fn field_and_row_admission_precede_canonical_backing() {
     freeze(&mut block);
     denied = limits();
     denied.max_rows = 0;
-    let mut output = Collector::new(budget.clone(), denied).unwrap();
+    let mut output = Collector::new(budget.clone(), denied, CaptureIntent::Complete).unwrap();
     let before = budget.reserved_bytes();
     assert!(matches!(
         append_native(&block, &mut output),
@@ -839,7 +881,7 @@ fn original_static_input_survives_prepublication_foreign_source_and_deferred_cut
     let expected = state.crypto();
     let block = validated_original_with_crypto_source(&state, proposal.header(), true);
     let owner = std::ptr::from_ref(block.runtime_policy.static_inputs());
-    let mut cut = OriginalCut::new(&block, limits()).unwrap();
+    let mut cut = OriginalCut::new(&block, limits(), CaptureIntent::Complete).unwrap();
     cut.advance().unwrap();
     let field = find(&cut.collector, "state.crypto");
     assert!(field.undo.as_slice().is_empty());
@@ -905,7 +947,8 @@ fn world_and_membership_share_physical_traversal_admission_on_first_pass_and_ret
     bound.max_source_visits = 100;
     assert!(native_visits + 10 <= bound.max_source_visits);
     assert!(native_visits + 20 > bound.max_source_visits);
-    let mut output = Collector::new(state.ivm_execution_budget(), bound).unwrap();
+    let mut output =
+        Collector::new(state.ivm_execution_budget(), bound, CaptureIntent::Complete).unwrap();
     append_native(&block, &mut output).unwrap();
     assert_eq!(output.source_visits, native_visits);
     assert!(matches!(
@@ -957,7 +1000,8 @@ fn world_and_membership_share_physical_traversal_admission_on_first_pass_and_ret
 
     let complete_visits = native_visits + 3 * 10 + 2;
     bound.max_source_visits = complete_visits - 1;
-    let mut short = Collector::new(state.ivm_execution_budget(), bound).unwrap();
+    let mut short =
+        Collector::new(state.ivm_execution_budget(), bound, CaptureIntent::Complete).unwrap();
     append_native(&block, &mut short).unwrap();
     assert!(matches!(
         membership::append(&block, &mut short),
@@ -969,7 +1013,8 @@ fn world_and_membership_share_physical_traversal_admission_on_first_pass_and_ret
         "both frontier values are admitted together before either is encoded"
     );
     bound.max_source_visits = complete_visits;
-    let mut exact = Collector::new(state.ivm_execution_budget(), bound).unwrap();
+    let mut exact =
+        Collector::new(state.ivm_execution_budget(), bound, CaptureIntent::Complete).unwrap();
     append_native(&block, &mut exact).unwrap();
     membership::append(&block, &mut exact).unwrap();
     assert_eq!(
@@ -977,3 +1022,9 @@ fn world_and_membership_share_physical_traversal_admission_on_first_pass_and_ret
         "all original World rows + three 10-row scans + two frontier values"
     );
 }
+
+include!("changes_tests.rs");
+
+include!("membership_delta_tests.rs");
+
+include!("cell_policy_delta_tests.rs");

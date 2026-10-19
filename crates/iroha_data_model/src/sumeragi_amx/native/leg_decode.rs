@@ -383,7 +383,7 @@ impl DecodeField<0, AssetId> for LegDestination {
         field.with_payload(|bytes| {
             self.source
                 .decode(bytes, &self.budget, cached)
-                .map_err(|error| destination(error.into()))
+                .map_err(destination)
         })
     }
 }

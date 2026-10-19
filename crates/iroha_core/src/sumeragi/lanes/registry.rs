@@ -10,7 +10,10 @@ use std::{
     collections::BTreeMap,
     io,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
@@ -64,7 +67,24 @@ pub trait LaneStoreAuthorities: Send + Sync {
 // Ready readers retain actual Arcs and original pending native work instead.
 enum StoreSlot {
     Opening(Arc<StoreOpening>, OpeningOwners),
-    Ready(Arc<FileLaneBlockStore>),
+    Ready(ReadyStore),
+}
+// Registration stays inline in the existing map owner through Opening -> Ready.
+// It allocates no snapshot, side map, shared control, or replacement native owner.
+struct ReadyStore {
+    registration: u64,
+    store: Arc<FileLaneBlockStore>,
+}
+impl StoreSlot {
+    fn registration(&self) -> u64 {
+        match self {
+            Self::Opening(_, owners) => owners.registration,
+            Self::Ready(ready) => ready.registration,
+        }
+    }
+    fn belongs_to_sweep(&self, watermark: u64) -> bool {
+        cfg!(all(test, sumeragi_core_mutation = "HC443")) || self.registration() <= watermark
+    }
 }
 
 enum StoreDemand {
@@ -73,24 +93,28 @@ enum StoreDemand {
     Request(ReadInterest),
 }
 struct OpeningOwners {
+    registration: u64,
     runtime: bool,
     historical: bool,
     request: Option<ReadInterest>,
 }
 impl OpeningOwners {
-    fn new(demand: StoreDemand) -> Self {
+    fn new(demand: StoreDemand, registration: u64) -> Self {
         match demand {
             StoreDemand::Runtime => Self {
+                registration,
                 runtime: true,
                 historical: false,
                 request: None,
             },
             StoreDemand::Historical => Self {
+                registration,
                 runtime: false,
                 historical: true,
                 request: None,
             },
             StoreDemand::Request(request) => Self {
+                registration,
                 runtime: false,
                 historical: false,
                 request: Some(request),
@@ -167,6 +191,7 @@ pub struct LaneStores {
     budget: AllocationBudget,
     authorities: Arc<dyn LaneStoreAuthorities>,
     stores: Mutex<BTreeMap<(LaneId, [u8; 32]), StoreSlot>>,
+    registrations: AtomicU64,
     // Native I/O observation only; genuine authority and recovery validation remain unchanged.
     #[cfg(test)]
     opening_faults: Option<(Hash32, Arc<dyn crate::sumeragi::records::Faults>)>,
@@ -204,9 +229,29 @@ impl LaneStores {
             budget,
             authorities,
             stores: Mutex::new(BTreeMap::new()),
+            registrations: AtomicU64::new(0),
             #[cfg(test)]
             opening_faults: None,
         }
+    }
+
+    // Issuance and insertion share the actual registry guard. A failed admission never
+    // wraps or reuses an identity, and no observer captures an uninserted earlier ordinal.
+    fn next_registration(
+        &self,
+        _registry: &mut parking_lot::MutexGuard<'_, BTreeMap<(LaneId, [u8; 32]), StoreSlot>>,
+    ) -> io::Result<u64> {
+        self.registrations
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |last| {
+                last.checked_add(1)
+            })
+            .map(|last| last + 1)
+            .map_err(|_| io::Error::other("original lane registration identity exhausted"))
+    }
+
+    fn original_sweep(&self) -> (usize, u64) {
+        let stores = self.stores.lock();
+        (stores.len(), self.registrations.load(Ordering::Relaxed))
     }
 
     /// The root directory.
@@ -299,7 +344,7 @@ impl LaneStores {
             let key = (lane, *incarnation);
             let mut stores = self.stores.lock();
             if let Some(StoreSlot::Ready(store)) = stores.get(&key) {
-                return Ok(Arc::clone(store));
+                return Ok(Arc::clone(&store.store));
             }
             if stores.contains_key(&key) {
                 let (opening, retired) = Self::resume_store_opening(&mut stores, key, &demand)?;
@@ -335,7 +380,7 @@ impl LaneStores {
             // Join its exact Ready/Opening owner before constructing any new opening. A
             // historical join still records its independent interest in unfinished recovery.
             if let Some(StoreSlot::Ready(store)) = stores.get(&key) {
-                return Ok(Arc::clone(store));
+                return Ok(Arc::clone(&store.store));
             }
             if stores.contains_key(&key) {
                 let (opening, retired) = Self::resume_store_opening(&mut stores, key, &demand)?;
@@ -344,8 +389,15 @@ impl LaneStores {
                 drop(retired);
                 return self.complete_store_opening(key, opening);
             }
-            let opening =
-                Self::open_store_with_authority(&mut stores, key, instance, authority, demand);
+            let registration = self.next_registration(&mut stores)?;
+            let opening = Self::open_store_with_authority(
+                &mut stores,
+                key,
+                instance,
+                authority,
+                demand,
+                registration,
+            );
             drop(stores);
             self.complete_store_opening(key, opening)
         })
@@ -359,11 +411,15 @@ impl LaneStores {
         instance: Hash32,
         authority: LaneStoreAuthority,
         demand: StoreDemand,
+        registration: u64,
     ) -> Arc<StoreOpening> {
         let opening = StoreOpening::new(instance, authority.schedule);
         stores.insert(
             key,
-            StoreSlot::Opening(Arc::clone(&opening), OpeningOwners::new(demand)),
+            StoreSlot::Opening(
+                Arc::clone(&opening),
+                OpeningOwners::new(demand, registration),
+            ),
         );
         opening
     }
@@ -421,16 +477,25 @@ impl LaneStores {
         *progress = OpeningProgress::Ready(Arc::clone(&store));
         let mut stores = self.stores.lock();
         // An active Opening Arc prevents retirement; only this per-key guard can finish it.
-        if !matches!(stores.get(&key), Some(StoreSlot::Opening(retained, _))
-            if Arc::ptr_eq(retained, opening))
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "original lane recovery owner is no longer registered",
-            )
-            .into());
-        }
-        stores.insert(key, StoreSlot::Ready(Arc::clone(&store)));
+        let registration = match stores.get(&key) {
+            Some(StoreSlot::Opening(retained, owners)) if Arc::ptr_eq(retained, opening) => {
+                owners.registration
+            }
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "original lane recovery owner is no longer registered",
+                )
+                .into());
+            }
+        };
+        stores.insert(
+            key,
+            StoreSlot::Ready(ReadyStore {
+                registration,
+                store: Arc::clone(&store),
+            }),
+        );
         Ok(store)
     }
 
@@ -489,7 +554,7 @@ impl LaneStores {
             let original = {
                 let stores = self.stores.lock();
                 match stores.get(&(lane, *incarnation)) {
-                    Some(StoreSlot::Ready(store)) => Some(Arc::clone(store)),
+                    Some(StoreSlot::Ready(store)) => Some(Arc::clone(&store.store)),
                     _ => None,
                 }
             };
@@ -504,7 +569,7 @@ impl LaneStores {
                 }
                 if let Some(StoreSlot::Ready(store)) = stores.get(&(lane, *incarnation)) {
                     // Reader Arcs and original pending work retain this exact owner.
-                    if Arc::strong_count(store) > 1 || store.retains_pending_work() {
+                    if Arc::strong_count(&store.store) > 1 || store.store.retains_pending_work() {
                         return;
                     }
                 }
@@ -537,8 +602,8 @@ impl LaneStores {
         physically_retired: impl Fn(&(LaneId, [u8; 32])) -> bool,
     ) {
         // A callback may register another historical owner while maps are unlocked.
-        // Bound this pass by its initial owner count; additions can wait for the next tick.
-        let owner_count = self.stores.lock().len();
+        // Bound this pass by original membership; additions cannot consume its owner count.
+        let (owner_count, watermark) = self.original_sweep();
         let mut after = None;
         for _ in 0..owner_count {
             let next = {
@@ -546,6 +611,7 @@ impl LaneStores {
                 let lower = after.map_or(std::ops::Bound::Unbounded, std::ops::Bound::Excluded);
                 stores
                     .range((lower, std::ops::Bound::Unbounded))
+                    .filter(|(_, slot)| slot.belongs_to_sweep(watermark))
                     .find_map(|(key, slot)| {
                         if lanes
                             .lane(key.0)
@@ -554,7 +620,7 @@ impl LaneStores {
                             return None;
                         }
                         match slot {
-                            StoreSlot::Ready(store) => Some((*key, Arc::clone(store))),
+                            StoreSlot::Ready(store) => Some((*key, Arc::clone(&store.store))),
                             StoreSlot::Opening(_, _) => None,
                         }
                     })
@@ -588,10 +654,10 @@ impl LaneStores {
         // incarnation retirement decision. Explicit request shutdown may release an idle cache.
         self.clean_cancelled_proposal_reads(false);
         self.with_original_refunds(|| {
-            // A destructor can register another original owner. Bound this pass
-            // by its starting size and move one removed owner at a time, without
-            // a separately allocated retirement list or callbacks under the map.
-            let owner_count = self.stores.lock().len();
+            // A destructor can register another owner. Select only registrations present
+            // at this pass's start, so insertions cannot consume its original finite count.
+            // Move one removed owner at a time without a snapshot or callbacks under the map.
+            let (owner_count, watermark) = self.original_sweep();
             let mut after = None;
             for _ in 0..owner_count {
                 let next = {
@@ -599,7 +665,7 @@ impl LaneStores {
                     let lower = after.map_or(std::ops::Bound::Unbounded, std::ops::Bound::Excluded);
                     let key = stores
                         .range((lower, std::ops::Bound::Unbounded))
-                        .next()
+                        .find(|(_, slot)| slot.belongs_to_sweep(watermark))
                         .map(|(key, _)| *key);
                     key.map(|key| {
                         let active = lanes
@@ -618,8 +684,8 @@ impl LaneStores {
                                     owners.retains_read() || Arc::strong_count(opening) > 1
                                 }
                                 StoreSlot::Ready(store) => {
-                                    Arc::strong_count(store) > 1
-                                        || store.retains_pending_work()
+                                    Arc::strong_count(&store.store) > 1
+                                        || store.store.retains_pending_work()
                                         || cfg!(all(test, sumeragi_core_mutation = "HC122"))
                                 }
                             };
@@ -640,9 +706,9 @@ impl LaneStores {
     }
     fn clean_cancelled_proposal_reads(&self, release_idle: bool) {
         // Cancellation can occur with no running lane driver, including global Worker Drop.
-        // Bound work by the original registry size; callbacks may register later owners.
+        // Bound work by original membership; concurrent additions cannot hide an old cancellation.
         self.with_original_refunds(|| {
-            let count = self.stores.lock().len();
+            let (count, watermark) = self.original_sweep();
             let mut after = None;
             for _ in 0..count {
                 let next = {
@@ -650,12 +716,12 @@ impl LaneStores {
                     let lower = after.map_or(std::ops::Bound::Unbounded, std::ops::Bound::Excluded);
                     let key = stores
                         .range((lower, std::ops::Bound::Unbounded))
-                        .next()
+                        .find(|(_, slot)| slot.belongs_to_sweep(watermark))
                         .map(|(key, _)| *key);
                     key.map(|key| {
                         let slot = stores.get(&key).expect("selected under original map");
                         let ready = match slot {
-                            StoreSlot::Ready(store) => Some(Arc::clone(store)),
+                            StoreSlot::Ready(store) => Some(Arc::clone(&store.store)),
                             StoreSlot::Opening(_, _) => None,
                         };
                         let cancelled = matches!(slot, StoreSlot::Opening(opening, owners)
@@ -679,8 +745,8 @@ impl LaneStores {
                     let mut stores = self.stores.lock();
                     let idle_original = release_idle
                         && matches!(stores.get(&key), Some(StoreSlot::Ready(original))
-                        if Arc::ptr_eq(original, &store) && Arc::strong_count(original) == 2
-                            && !original.retains_pending_work());
+                        if Arc::ptr_eq(&original.store, &store) && Arc::strong_count(&original.store) == 2
+                            && !original.store.retains_pending_work());
                     if idle_original {
                         stores.remove(&key)
                     } else {

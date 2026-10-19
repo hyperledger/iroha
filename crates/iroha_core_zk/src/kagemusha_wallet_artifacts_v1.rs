@@ -101,7 +101,7 @@ pub struct VerifierPackV1 {
     pub scheme: Vec<u8>,
     /// Original canonical Artifact-role signer certificate frame.
     pub signer_certificate: Vec<u8>,
-    /// Original canonical signed ArtifactManifest frame.
+    /// Original canonical signed `ArtifactManifest` frame.
     pub manifest: Vec<u8>,
     /// Original canonical verifying-key allowlist frame.
     pub allowlist: Vec<u8>,
@@ -121,7 +121,7 @@ pub struct VerifierPackV1 {
 pub struct InstallationV1 {
     /// Exact nonzero scheme identity installed for this wallet runtime.
     pub scheme_id: [u8; 32],
-    /// Exact nonzero signed ArtifactManifest digest installed for this runtime.
+    /// Exact nonzero signed `ArtifactManifest` digest installed for this runtime.
     pub manifest_digest: [u8; 32],
 }
 

@@ -121,7 +121,9 @@ fn sccp_penalty_uses_captured_tuple_start_and_record_delay_without_generation_or
             &NposConsensusEffects {
                 parent_service_commit_qc: None,
                 evidence_admissions: Vec::new(),
-                penalty_actions: actions,
+                penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(
+                    actions,
+                ),
             },
             Some(&index),
             &[],
@@ -393,7 +395,9 @@ fn sccp_penalty_later_sink_failure_rolls_back_slash_and_applied_marker() {
             &NposConsensusEffects {
                 parent_service_commit_qc: None,
                 evidence_admissions: Vec::new(),
-                penalty_actions: actions
+                penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(
+                    actions
+                )
             },
             &[],
             &[],
@@ -538,7 +542,9 @@ fn sccp_penalty_late_marker_refusal_rolls_back_prior_child_monetary_effects() {
             &NposConsensusEffects {
                 parent_service_commit_qc: None,
                 evidence_admissions: Vec::new(),
-                penalty_actions: actions,
+                penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(
+                    actions,
+                ),
             },
             Some(&index),
             &[],

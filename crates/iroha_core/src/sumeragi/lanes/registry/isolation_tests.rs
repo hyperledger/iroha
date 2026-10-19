@@ -47,13 +47,16 @@ fn retain_original_opening(
 ) {
     let retained = StoreOpening::new(stores.instance(LANE, &INCARNATION), schedule);
     *retained.progress.lock() = OpeningProgress::Pending(Some(opening));
+    let mut original_map = stores.stores.lock();
+    let registration = stores.next_registration(&mut original_map).unwrap();
     assert!(
-        stores
-            .stores
-            .lock()
+        original_map
             .insert(
                 (LANE, INCARNATION),
-                StoreSlot::Opening(retained, OpeningOwners::new(StoreDemand::Runtime))
+                StoreSlot::Opening(
+                    retained,
+                    OpeningOwners::new(StoreDemand::Runtime, registration)
+                )
             )
             .is_none()
     );
@@ -299,17 +302,27 @@ fn original_lane_opening_cloned_before_completion_joins_the_same_ready_store() {
         baseline + original_bytes.len()
     );
     let key = (LANE, INCARNATION);
-    let earlier_join = {
+    let (earlier_join, original_registration) = {
         let stores = fixture.stores.stores.lock();
         let Some(StoreSlot::Opening(original, owners)) = stores.get(&key) else {
             panic!("original runtime recovery remains retained");
         };
         assert!(!owners.historical && owners.runtime);
-        Arc::clone(original)
+        (Arc::clone(original), owners.registration)
     };
     let authority_calls = fixture.authorities.calls.load(Ordering::SeqCst);
     fixture.stores.budget.set_limit_bytes(ceiling);
     let completed = fixture.stores.runtime_store(LANE, &INCARNATION).unwrap();
+    assert_eq!(
+        fixture
+            .stores
+            .stores
+            .lock()
+            .get(&key)
+            .unwrap()
+            .registration(),
+        original_registration
+    );
     let original = Arc::downgrade(&completed);
     assert_eq!(completed.height(), 1);
     assert_eq!(fixture.stores.budget.reserved_bytes(), baseline);

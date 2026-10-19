@@ -184,6 +184,21 @@ impl LaneStoreAuthorities for Authorities {
         }))
     }
 }
+fn register_original_ready(
+    stores: &LaneStores,
+    store: Arc<FileLaneBlockStore>,
+) -> Option<StoreSlot> {
+    let mut original_map = stores.stores.lock();
+    let registration = stores.next_registration(&mut original_map).unwrap();
+    original_map.insert(
+        (LANE, INCARNATION),
+        StoreSlot::Ready(ReadyStore {
+            registration,
+            store,
+        }),
+    )
+}
+
 struct Fixture {
     dir: tempfile::TempDir,
     stores: LaneStores,
@@ -756,8 +771,8 @@ fn storage_corruption_is_repeated_error_not_missing_block_or_recovered_tip() {
     let Some(StoreSlot::Ready(retained)) = stores.get(&(LANE, INCARNATION)) else {
         panic!("a corrupt pending read must not be dropped and reopened");
     };
-    assert!(Arc::ptr_eq(&original, retained));
-    assert!(retained.retains_pending_work());
+    assert!(Arc::ptr_eq(&original, &retained.store));
+    assert!(retained.store.retains_pending_work());
     assert_eq!(f.stores.budget.reserved_bytes(), retained_bytes);
     assert_eq!(f.authorities.calls.load(Ordering::SeqCst), authority_calls);
 }
@@ -957,13 +972,7 @@ fn retired_ready_store_preserves_original_unfinished_publication_until_exact_ret
         .complete()
         .unwrap_or_else(|(_, error)| panic!("empty source store: {error:?}"));
         let store = Arc::new(store);
-        assert!(
-            f.stores
-                .stores
-                .lock()
-                .insert((LANE, INCARNATION), StoreSlot::Ready(store.clone()),)
-                .is_none()
-        );
+        assert!(register_original_ready(&f.stores, store.clone()).is_none());
         let weak = Arc::downgrade(&store);
         let baseline = f.stores.budget.reserved_bytes();
         let ceiling = f.stores.budget.limit_bytes();
@@ -2033,14 +2042,7 @@ fn retired_publication_continuation_control(step: crate::sumeragi::records::FsSt
         .complete()
         .unwrap_or_else(|(_, error)| panic!("original empty store: {error}")),
     );
-    assert!(
-        fixture
-            .stores
-            .stores
-            .lock()
-            .insert((LANE, INCARNATION), StoreSlot::Ready(Arc::clone(&store)))
-            .is_none()
-    );
+    assert!(register_original_ready(&fixture.stores, Arc::clone(&store)).is_none());
     let original = Arc::downgrade(&store);
     let budget = fixture.stores.budget.clone();
     let Fixture {
@@ -2202,14 +2204,7 @@ fn retired_reconcile_does_not_wait_for_an_in_flight_original_publication() {
         .complete()
         .unwrap_or_else(|(_, error)| panic!("original empty store: {error}")),
     );
-    assert!(
-        fixture
-            .stores
-            .stores
-            .lock()
-            .insert((LANE, INCARNATION), StoreSlot::Ready(Arc::clone(&store)))
-            .is_none()
-    );
+    assert!(register_original_ready(&fixture.stores, Arc::clone(&store)).is_none());
     let stores = Arc::new(fixture.stores);
     let runner = retired_publication_runner(&chain, Arc::clone(&stores), fixture.dir.path());
     let publication_owner =
@@ -2497,14 +2492,7 @@ fn observe_original_sync<R>(
         .complete()
         .unwrap_or_else(|(_, error)| panic!("original empty store: {error}")),
     );
-    assert!(
-        fixture
-            .stores
-            .stores
-            .lock()
-            .insert((LANE, INCARNATION), StoreSlot::Ready(Arc::clone(&store)))
-            .is_none()
-    );
+    assert!(register_original_ready(&fixture.stores, Arc::clone(&store)).is_none());
     let calls = fixture.authorities.calls.load(Ordering::SeqCst);
     let budget = fixture.stores.budget.clone();
     let limit = budget.limit_bytes();

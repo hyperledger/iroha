@@ -453,11 +453,13 @@ mod tests {
         let proof = fixture.certify_with_world_root(block, snapshot.root().unwrap());
         let tip = fixture.verifier().verify_retained_decision(&proof).unwrap();
         let original = AuthenticatedOrigin {
-            network: [1; 32],
-            instance: [2; 32],
+            network: *fixture.network_id().as_bytes(),
+            instance: fixture.verifier().instance().0,
             world: snapshot.authenticate(&tip).unwrap(),
             element_count: 2,
+            verifier: fixture.verifier(),
         };
+        original.verify_retained_block(&proof).unwrap();
         let evidence = original.receipt_authority_evidence().unwrap();
         assert_eq!(evidence.label, "taira.evm_receipt_authority");
         let metadata: norito::json::Value = norito::json::from_slice(&evidence.bytes).unwrap();

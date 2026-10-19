@@ -71,11 +71,15 @@ pub(in super::super) fn validate_records(candidate: &Candidate, records: &[Value
             "qualification base differs",
         )?;
     }
+    need(
+        linux_elf_machine(&candidate.revision.target).is_some(),
+        "unsupported candidate Linux artifact target",
+    )?;
     for (key, value) in [
         ("commit", candidate.commit.as_str()),
         ("tree", candidate.tree.as_str()),
         ("signer_fingerprint", candidate.signer_fingerprint.as_str()),
-        ("target", "aarch64-unknown-linux-gnu"),
+        ("target", candidate.revision.target.as_str()),
         ("profile", "release"),
     ] {
         need(
@@ -374,7 +378,10 @@ pub(super) fn admit(candidate: &Candidate) -> Result<Vec<Pin>> {
         file.rewind()?;
         let mut magic = [0; 20];
         file.read_exact(&mut magic)?;
-        need(valid_elf(&magic), "transferred binary is not AArch64 ELF")?;
+        need(
+            valid_elf(&magic, &candidate.revision.target),
+            "transferred binary ELF differs from candidate target",
+        )?;
         ensure_pinned_unchanged(
             Path::new(&value.path),
             "transferred binary",
@@ -386,9 +393,19 @@ pub(super) fn admit(candidate: &Candidate) -> Result<Vec<Pin>> {
     Ok(binaries)
 }
 
-pub(in super::super) fn valid_elf(header: &[u8]) -> bool {
-    header.len() >= 20
+// Artifact policy only. Host-pair and revision admission still own execution authority.
+fn linux_elf_machine(target: &str) -> Option<u16> {
+    match target {
+        "aarch64-unknown-linux-gnu" => Some(183),
+        "x86_64-unknown-linux-gnu" => Some(62),
+        _ => None,
+    }
+}
+
+pub(in super::super) fn valid_elf(header: &[u8], target: &str) -> bool {
+    linux_elf_machine(target).is_some()
+        && header.len() >= 20
         && header[..7] == *b"\x7fELF\x02\x01\x01"
         && matches!(u16::from_le_bytes([header[16], header[17]]), 2 | 3)
-        && u16::from_le_bytes([header[18], header[19]]) == 183
+        && Some(u16::from_le_bytes([header[18], header[19]])) == linux_elf_machine(target)
 }

@@ -203,7 +203,7 @@ fn der_fp4_downstream_factors_preserve_exact_tuple_order() {
                 sum.add(value.mul_base(*coefficient))
             });
         assert_eq!(
-            zk_x509_der_stark_node_factor_v1(event, lane, challenges).unwrap(),
+            zk_x509_der_stark_node_factor_v1(event, lane, &challenges).unwrap(),
             expected
         );
         let expected_byte = E::from_base(F(6).mul(c[0]))
@@ -212,18 +212,22 @@ fn der_fp4_downstream_factors_preserve_exact_tuple_order() {
             .add(values[2].mul_base(c[3]));
         assert_eq!(
             zk_x509_der_stark_input_byte_factor_v1(
-                values[0], values[1], values[2], lane, challenges
+                values[0],
+                values[1],
+                values[2],
+                lane,
+                &challenges
             )
             .unwrap(),
             expected_byte
         );
     }
     assert_eq!(
-        zk_x509_der_stark_node_factor_v1(event, 4, challenges),
+        zk_x509_der_stark_node_factor_v1(event, 4, &challenges),
         Err(ZkX509DerStarkErrorV1::Challenge)
     );
     assert_eq!(
-        zk_x509_der_stark_input_byte_factor_v1(values[0], values[1], values[2], 4, challenges),
+        zk_x509_der_stark_input_byte_factor_v1(values[0], values[1], values[2], 4, &challenges),
         Err(ZkX509DerStarkErrorV1::Challenge)
     );
 }

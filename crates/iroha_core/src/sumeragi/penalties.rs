@@ -1,6 +1,7 @@
 //! Deterministic `NPoS` consensus-evidence slashing.
 //!
 //! Parent validator locators retain exact original-pool backing and nested key custody.
+//! Planning borrows their complete registration keys without allocating replacement accounts.
 //! Action ordering and quantity comparisons use no allocator scratch.
 //! TODO(S8): action backing and nested account/key/amount custody, and slash
 //! planning/application still need complete original-pool owners. The bare Vec
@@ -62,12 +63,25 @@ enum EffectsApplicationMode {
 }
 struct ValidatorLocator {
     peer_key: ChargedPublicKey,
-    lane_id: LaneId,
-    validator: AccountId,
+    registration_key: (LaneId, AccountId),
     activation_height: u64,
     deactivation_height: Option<u64>,
     root_authority: bool,
 }
+impl ValidatorLocator {
+    /// Borrow the original prepaid composite key while reading the current overlay.
+    fn registration<'a>(
+        &self,
+        world: &'a impl WorldReadOnly,
+    ) -> Option<&'a iroha_data_model::nexus::PublicLaneValidatorRecord> {
+        #[cfg(all(test, sumeragi_core_mutation = "HC444"))]
+        let key = &self.registration_key.clone();
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC444")))]
+        let key = &self.registration_key;
+        world.public_lane_validators().get(key)
+    }
+}
+
 /// Immutable flat lookup. Concrete keys/accounts cannot unwind during destruction;
 /// row destruction releases every account before the final nested-charge ledger.
 struct ValidatorMap {
@@ -240,8 +254,7 @@ impl ValidatorMap {
             let validator = clone_locator_account(&key.1, &mut reservation, &mut account_charges)?;
             rows.try_push(ValidatorLocator {
                 peer_key,
-                lane_id: key.0,
-                validator,
+                registration_key: (key.0, validator),
                 activation_height: record.activation_height,
                 deactivation_height: record.deactivation_height,
                 root_authority: view.is_lane_active_for_authority(key.0)
@@ -259,8 +272,7 @@ impl ValidatorMap {
             left.peer_key
                 .get()
                 .cmp(right.peer_key.get())
-                .then_with(|| left.lane_id.cmp(&right.lane_id))
-                .then_with(|| left.validator.cmp(&right.validator))
+                .then_with(|| left.registration_key.cmp(&right.registration_key))
         });
         Ok(Self {
             rows,
@@ -590,10 +602,15 @@ impl<'a> PenaltyApplier<'a> {
     ) -> Result<NposConsensusEffects> {
         let (evidence_admissions, penalty_actions, _index) =
             self.derive_from_stable_parent(block_header, true)?;
+        // TODO: prepay the full Core-produced effects graph before collecting or
+        // cloning its actions/evidence. This transport construction is untrusted;
+        // it does not claim the model's source-bound admitted action custody.
         Ok(NposConsensusEffects {
             parent_service_commit_qc: None,
             evidence_admissions,
-            penalty_actions,
+            penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(
+                penalty_actions,
+            ),
         })
     }
     /// Derive deterministic parent-state actions and retain their original funded
@@ -732,16 +749,12 @@ impl<'a> PenaltyApplier<'a> {
                         {
                             continue;
                         }
-                        let validator_key = (locator.lane_id, locator.validator.clone());
-                        let current_record = scratch
-                            .world
-                            .public_lane_validators
-                            .get(&validator_key)
-                            .ok_or_else(|| {
+                        let current_record =
+                            locator.registration(&scratch.world).ok_or_else(|| {
                                 eyre!(
                                     "penalty planning lost retained validator {} on lane {}",
-                                    locator.validator,
-                                    locator.lane_id
+                                    locator.registration_key.1,
+                                    locator.registration_key.0
                                 )
                             })?;
                         if !liability.names_registration(&scratch.world, current_record)? {
@@ -749,11 +762,11 @@ impl<'a> PenaltyApplier<'a> {
                         }
                         let share_keys = snapshot
                             .stake_index
-                            .share_keys(locator.lane_id, &locator.validator);
+                            .share_keys(locator.registration_key.0, &locator.registration_key.1);
                         let current_exposure = indexed_slashable_validator_exposure(
                             &scratch.world,
-                            locator.lane_id,
-                            &locator.validator,
+                            locator.registration_key.0,
+                            &locator.registration_key.1,
                             current_record,
                             &liability,
                             share_keys,
@@ -761,13 +774,13 @@ impl<'a> PenaltyApplier<'a> {
                         .wrap_err_with(|| {
                             format!(
                                 "failed to recompute slashable exposure for {} on lane {}",
-                                locator.validator, locator.lane_id
+                                locator.registration_key.1, locator.registration_key.0
                             )
                         })?;
                         let original_exposure = original_slashable_exposure(
                             &snapshot.stake_index,
-                            locator.lane_id,
-                            &locator.validator,
+                            locator.registration_key.0,
+                            &locator.registration_key.1,
                         )?;
                         if &current_exposure > original_exposure {
                             return Err(eyre!(
@@ -782,8 +795,8 @@ impl<'a> PenaltyApplier<'a> {
                             evidence_key: key,
                             signer: *signer,
                             peer_id: peer_id.clone(),
-                            lane_id: locator.lane_id,
-                            validator: locator.validator.clone(),
+                            lane_id: locator.registration_key.0,
+                            validator: locator.registration_key.1.clone(),
                             slash_id,
                             amount,
                         };
@@ -827,9 +840,9 @@ impl<'a> PenaltyApplier<'a> {
 /// Canonical action order needs no stable-sort scratch: equal actions are identical
 /// protocol values and are immediately deduplicated.
 fn canonicalize_penalty_actions(actions: &mut Vec<NposPenaltyAction>) {
-    #[cfg(all(test, sumeragi_core_mutation = "HC405"))]
+    #[cfg(all(test, sumeragi_core_mutation = "HC445"))]
     actions.sort();
-    #[cfg(not(all(test, sumeragi_core_mutation = "HC405")))]
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC445")))]
     actions.sort_unstable();
     actions.dedup();
 }
@@ -1396,7 +1409,7 @@ mod tests {
         });
         assert_eq!(
             allocations, 0,
-            "HC405 canonical penalty sorting must not allocate stable-sort scratch"
+            "canonical penalty sorting must not allocate stable-sort scratch"
         );
         assert_eq!(actions, expected);
         assert_eq!(actions.as_ptr(), pointer);
@@ -1404,6 +1417,7 @@ mod tests {
     }
     use super::*;
     include!("penalties/sccp_tests.rs");
+    include!("penalties/key_custody_tests.rs");
     use crate::{
         kura::Kura,
         query::store::LiveQueryStore,
@@ -1846,12 +1860,12 @@ mod tests {
             .get(peers[0].public_key())
             .and_then(|locators| locators.first())
             .expect("first validator indexed");
-        assert_eq!(first_locator.validator, first);
+        assert_eq!(first_locator.registration_key.1, first);
         assert_eq!(
             original_slashable_exposure(
                 &snapshot.stake_index,
-                first_locator.lane_id,
-                &first_locator.validator
+                first_locator.registration_key.0,
+                &first_locator.registration_key.1
             )
             .unwrap(),
             &Quantity::from(13_000_u64)
@@ -1861,12 +1875,12 @@ mod tests {
             .get(peers[1].public_key())
             .and_then(|locators| locators.first())
             .expect("second validator indexed");
-        assert_eq!(second_locator.validator, second);
+        assert_eq!(second_locator.registration_key.1, second);
         assert_eq!(
             original_slashable_exposure(
                 &snapshot.stake_index,
-                second_locator.lane_id,
-                &second_locator.validator
+                second_locator.registration_key.0,
+                &second_locator.registration_key.1
             )
             .unwrap(),
             &Quantity::from(10_000_u64)
@@ -2521,7 +2535,9 @@ mod tests {
             peer
         );
         assert_eq!(
-            moved.get(peers[0].public_key()).unwrap()[0].validator,
+            moved.get(peers[0].public_key()).unwrap()[0]
+                .registration_key
+                .1,
             validator
         );
         assert!(moved.get(peers[1].public_key()).is_none());
@@ -2800,7 +2816,7 @@ mod tests {
         );
         let retry = ValidatorMap::from_world(&view, &index, &original_pool).unwrap();
         assert_eq!(
-            retry.get(peer.public_key()).unwrap()[0].validator,
+            retry.get(peer.public_key()).unwrap()[0].registration_key.1,
             validator
         );
         assert_eq!(
@@ -2908,7 +2924,7 @@ mod tests {
                 .get(peer)
                 .unwrap()
                 .iter()
-                .map(|row| (row.lane_id, row.validator.clone()))
+                .map(|row| row.registration_key.clone())
                 .collect::<Vec<_>>();
             assert_eq!(actual.as_slice(), expected.as_slice());
         }
@@ -2918,12 +2934,21 @@ mod tests {
             3,
             "the lane count resets at the next authoritative lane"
         );
-        assert_eq!(locators[2].lane_id, LaneId::new(1));
-        assert_eq!(locators[2].validator, second);
-        assert!(locators[..2].iter().any(|row| row.validator == first));
+        assert_eq!(locators[2].registration_key.0, LaneId::new(1));
+        assert_eq!(locators[2].registration_key.1, second);
+        assert!(
+            locators[..2]
+                .iter()
+                .any(|row| row.registration_key.1 == first)
+        );
         for row in locators {
             assert_eq!(
-                original_slashable_exposure(&index, row.lane_id, &row.validator).unwrap(),
+                original_slashable_exposure(
+                    &index,
+                    row.registration_key.0,
+                    &row.registration_key.1
+                )
+                .unwrap(),
                 &Quantity::from(10_000_u64)
             );
         }
@@ -3422,8 +3447,8 @@ mod tests {
             assert_eq!(locators[0].activation_height, 1);
             let exposure = original_slashable_exposure(
                 &snapshot.stake_index,
-                locators[0].lane_id,
-                &locators[0].validator,
+                locators[0].registration_key.0,
+                &locators[0].registration_key.1,
             )
             .unwrap();
             assert_eq!(exposure, &Quantity::from(10_000_u64));
@@ -3890,7 +3915,9 @@ mod tests {
         let effects = NposConsensusEffects {
             parent_service_commit_qc: None,
             evidence_admissions: Vec::new(),
-            penalty_actions,
+            penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(
+                penalty_actions,
+            ),
         };
         let evidence_prune_keys =
             crate::sumeragi::evidence::committed_evidence_prune_keys_from_state(&state, 2)
@@ -4098,7 +4125,9 @@ mod tests {
         let effects = NposConsensusEffects {
             parent_service_commit_qc: None,
             evidence_admissions: Vec::new(),
-            penalty_actions: actions,
+            penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(
+                actions,
+            ),
         };
         apply_npos_consensus_effects_to_transaction(
             &mut tx,
@@ -4254,7 +4283,9 @@ mod tests {
         let effects = NposConsensusEffects {
             parent_service_commit_qc: None,
             evidence_admissions: Vec::new(),
-            penalty_actions: actions,
+            penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(
+                actions,
+            ),
         };
         let mut block = state
             .consensus_effects_probe_block(penalty_header(22))

@@ -39,10 +39,10 @@ fn values() -> JointOriginalOpeningsV1 {
 
 #[test]
 fn joint_auxiliary_binding_preserves_both_original_roots_and_context() {
-    let original = JointAuxiliaryBindingV1::new_v1(binding(), [digest(8), digest(9)]).unwrap();
-    assert!(original.matches_v1(binding(), JointSubproofV1::Main, digest(8)));
-    assert!(original.matches_v1(binding(), JointSubproofV1::Ca, digest(9)));
-    assert!(!original.matches_v1(binding(), JointSubproofV1::Ca, digest(8)));
+    let original = JointAuxiliaryBindingV1::new_v1(&binding(), [digest(8), digest(9)]).unwrap();
+    assert!(original.matches_v1(&binding(), JointSubproofV1::Main, digest(8)));
+    assert!(original.matches_v1(&binding(), JointSubproofV1::Ca, digest(9)));
+    assert!(!original.matches_v1(&binding(), JointSubproofV1::Ca, digest(8)));
     let mut baseline = transcript(10, JointSubproofV1::Main);
     original.absorb_v1(&mut baseline).unwrap();
     for roots in [
@@ -50,7 +50,7 @@ fn joint_auxiliary_binding_preserves_both_original_roots_and_context() {
         [digest(8), digest(7)],
         [digest(9), digest(8)],
     ] {
-        let changed = JointAuxiliaryBindingV1::new_v1(binding(), roots).unwrap();
+        let changed = JointAuxiliaryBindingV1::new_v1(&binding(), roots).unwrap();
         let mut actual = transcript(10, JointSubproofV1::Main);
         changed.absorb_v1(&mut actual).unwrap();
         assert_ne!(actual.state(), baseline.state());
@@ -62,14 +62,14 @@ fn joint_auxiliary_binding_preserves_both_original_roots_and_context() {
         digest(6),
     )
     .unwrap();
-    assert!(!original.matches_v1(foreign, JointSubproofV1::Main, digest(8)));
-    let changed = JointAuxiliaryBindingV1::new_v1(foreign, [digest(8), digest(9)]).unwrap();
+    assert!(!original.matches_v1(&foreign, JointSubproofV1::Main, digest(8)));
+    let changed = JointAuxiliaryBindingV1::new_v1(&foreign, [digest(8), digest(9)]).unwrap();
     assert_ne!(changed.digest, original.digest);
 }
 
 #[test]
 fn shared_point_binds_every_oracle_and_both_complete_local_transcript_states() {
-    let auxiliary = JointAuxiliaryBindingV1::new_v1(binding(), [digest(8), digest(9)]).unwrap();
+    let auxiliary = JointAuxiliaryBindingV1::new_v1(&binding(), [digest(8), digest(9)]).unwrap();
     let main = transcript(10, JointSubproofV1::Main);
     let ca = transcript(12, JointSubproofV1::Ca);
     let checkpoints = JointOracleCheckpointsV1 {
@@ -195,7 +195,7 @@ fn both_complete_deep_states_and_each_original_opening_precede_each_local_mix() 
 fn original_joint_capabilities_reject_foreign_nonce_and_swapped_families_before_mutation() {
     let instance = TEST_PROOF_INSTANCE_V1;
     let foreign = ZkX509ProofInstanceV1::new_v1([0xa7; 32]);
-    let auxiliary = JointAuxiliaryBindingV1::new_v1(binding(), [digest(8), digest(9)]).unwrap();
+    let auxiliary = JointAuxiliaryBindingV1::new_v1(&binding(), [digest(8), digest(9)]).unwrap();
     for context in [
         foreign.main_context_v1(),
         foreign.ca_context_v1(),
