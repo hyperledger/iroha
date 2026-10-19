@@ -211,18 +211,18 @@ fn event_carrier_refuses_foreign_and_relocated_original_target_before_body_admis
     let kura = chain.kura();
     let height = NonZeroUsize::new(usize::try_from(chain.height()).unwrap()).unwrap();
     let hash = chain.committed(chain.height()).block_hash();
-    let original = kura
+    let mut original = kura
         .native_frame_read(chain.height(), hash)
         .unwrap()
         .unwrap();
-    let foreign_height = kura
+    let mut foreign_height = kura
         .native_frame_read(
             chain.height() - 1,
             chain.committed(chain.height() - 1).block_hash(),
         )
         .unwrap()
         .unwrap();
-    let foreign_store = foreign
+    let mut foreign_store = foreign
         .kura()
         .native_frame_read(
             foreign.height(),
@@ -235,7 +235,7 @@ fn event_carrier_refuses_foreign_and_relocated_original_target_before_body_admis
     let (work, bytes) = exact_recent_bounds(&chain, chain.height(), chain.height());
     let genesis_bytes =
         u64::try_from(chain.committed(1).block().encode_wire().unwrap().len()).unwrap();
-    for descriptor in [&foreign_height, &foreign_store] {
+    for descriptor in [&mut foreign_height, &mut foreign_store] {
         kura.reset_canonical_query_reads_for_test();
         let source = CanonicalHistorySource::new(kura, &hashes, tip, state.ivm_execution_budget());
         let (result, counts) = relation_counts::measure(|| {
@@ -280,7 +280,7 @@ fn event_carrier_refuses_foreign_and_relocated_original_target_before_body_admis
             state.chain_id_ref(),
             *state.network_id_ref(),
             height,
-            &original,
+            &mut original,
             work,
             bytes,
         )
@@ -304,7 +304,7 @@ fn event_carrier_refuses_foreign_and_relocated_original_target_before_body_admis
             state.chain_id_ref(),
             *state.network_id_ref(),
             height,
-            &original,
+            &mut original,
             work,
             bytes,
         )

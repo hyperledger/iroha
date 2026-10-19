@@ -379,6 +379,8 @@ pub enum Error {
     CodecAttempt(#[from] norito::core::DecodeAttemptError),
     /// The original native source pool or physical allocator refused the raw frame backing.
     NativeFrameAllocation(#[source] iroha_allocation::ChargedBufferError),
+    /// The physical allocator refused the original retained raw-frame charge.
+    NativeFrameConstruction(#[source] iroha_allocation::ChargedBufferFromChargeError),
     /// Failed to frame or deframe Norito payload
     NoritoFrame(#[from] norito::core::Error),
 

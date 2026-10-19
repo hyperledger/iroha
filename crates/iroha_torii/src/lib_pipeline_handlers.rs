@@ -1538,7 +1538,7 @@ fn transaction_details_authority_is_involved(
     })
 }
 fn canonical_transaction_details_for_indexed_identity(
-    app: &AppState,
+    app: &SharedAppState,
     block_height: NonZeroUsize,
     indexed_identity: &HashOf<TransactionEntrypoint>,
 ) -> Result<CommittedTransaction, Error> {
@@ -1553,41 +1553,45 @@ fn canonical_transaction_details_for_indexed_identity(
         })?;
     let work = routing::app_query_limits().max_fetch_size;
     let bytes = iroha_core::smartcontracts::isi::tx::transaction_history_byte_limit(work);
-    let carrier = app
-        .state
-        .read_finalized_execution_carrier(block_height, work, bytes)
-        .map_err(crate::canonical_history::query_attempt_error)?;
-    if carrier.block().hash() != expected_hash {
-        return Err(pipeline_status_projection_error(
-            "native carrier differs from its exact committed binding",
-        ));
-    }
-    let mut matched = None;
-    let mut duplicate = false;
-    for (input_index, entrypoint) in carrier.block().network_entrypoints().enumerate() {
-        if transaction_entrypoint_matches_indexed_identity(entrypoint, indexed_identity) {
-            let input_index =
-                u32::try_from(input_index).map_err(pipeline_status_projection_error)?;
-            duplicate |= matched.replace(input_index).is_some();
+    // HTTP observation uses the original State/checkpoint ancestry and request owner.
+    // The deterministic on-chain reader still authenticates and meters its full prefix.
+    let original = read_pipeline_execution_carrier(app, block_height)?;
+    original.owner.scope(|| {
+        let carrier = &original.carrier;
+        if carrier.block().hash() != expected_hash {
+            return Err(pipeline_status_projection_error(
+                "native carrier differs from its exact committed binding",
+            ));
         }
-    }
-    if duplicate {
-        return Err(pipeline_status_projection_error(
-            "indexed identity selects multiple Network inputs",
-        ));
-    }
-    let input_index = matched.ok_or_else(|| {
-        pipeline_status_projection_error("indexed identity is absent from its finalized carrier")
-    })?;
-    let transaction = carrier
-        .transaction_at(input_index, bytes)
-        .map_err(pipeline_status_projection_error)?;
-    if app.state.view().block_hashes().get(block_height.get() - 1) != Some(&expected_hash) {
-        return Err(pipeline_status_projection_error(
-            "canonical carrier changed during identity lookup",
-        ));
-    }
-    Ok(transaction)
+        let mut matched = None;
+        let mut duplicate = false;
+        for (input_index, entrypoint) in carrier.block().network_entrypoints().enumerate() {
+            if transaction_entrypoint_matches_indexed_identity(entrypoint, indexed_identity) {
+                let input_index =
+                    u32::try_from(input_index).map_err(pipeline_status_projection_error)?;
+                duplicate |= matched.replace(input_index).is_some();
+            }
+        }
+        if duplicate {
+            return Err(pipeline_status_projection_error(
+                "indexed identity selects multiple Network inputs",
+            ));
+        }
+        let input_index = matched.ok_or_else(|| {
+            pipeline_status_projection_error(
+                "indexed identity is absent from its finalized carrier",
+            )
+        })?;
+        let transaction = carrier
+            .transaction_at(input_index, bytes)
+            .map_err(pipeline_status_projection_error)?;
+        if app.state.view().block_hashes().get(block_height.get() - 1) != Some(&expected_hash) {
+            return Err(pipeline_status_projection_error(
+                "canonical carrier changed during identity lookup",
+            ));
+        }
+        Ok(transaction)
+    })
 }
 /// This code is reserved for absence of the one authenticated committed proof.
 /// Generic route/account failures must never masquerade as delayed proof visibility.
@@ -1617,11 +1621,8 @@ fn pipeline_transaction_details_response(
         .ok_or_else(transaction_details_not_found_error)?;
     // State already binds this exact carrier. Its authenticated Network projection must not
     // depend on a complete auxiliary index of every unrelated historical transaction.
-    let transaction = canonical_transaction_details_for_indexed_identity(
-        app.as_ref(),
-        block_height,
-        &entrypoint_hash,
-    )?;
+    let transaction =
+        canonical_transaction_details_for_indexed_identity(app, block_height, &entrypoint_hash)?;
     if !is_operator && !transaction_details_authority_is_involved(authority, &transaction) {
         return Err(Error::Query(
             iroha_data_model::ValidationFail::NotPermitted(
@@ -1631,6 +1632,38 @@ fn pipeline_transaction_details_response(
     }
     let hash = entrypoint_hash.to_string();
     Ok(PipelineTransactionDetailsResponse { hash, transaction })
+}
+// Keep native acquisition, authorization, projection and encoding under the same
+// admitted request. Extracted response bytes retain that owner through their last slice.
+fn pipeline_transaction_details_http_response(
+    app: &SharedAppState,
+    authority: &AccountId,
+    entrypoint_hash: HashOf<TransactionEntrypoint>,
+    format: ResponseFormat,
+    owner: &crate::history_producer::HistoryProducerOwner,
+) -> Result<Response, Error> {
+    use http_body_util::BodyExt as _;
+
+    owner.scope(|| {
+        let response = pipeline_transaction_details_response(app, authority, entrypoint_hash)?;
+        if matches!(format, ResponseFormat::Json) {
+            return owner.json(&response);
+        }
+        let capacity = crate::native_projection_response::capacity;
+        let encoded = crate::utils::encode_norito_bounded(&response, owner.response_bytes())
+            .map_err(|_| capacity())?;
+        let bytes =
+            crate::response_memory_custody::owned(encoded, owner).map_err(|_| capacity())?;
+        let source = http_body_util::Full::new(bytes)
+            .map_err(|never: std::convert::Infallible| match never {});
+        let body = crate::response_memory_custody::body(source, owner).map_err(|_| capacity())?;
+        let mut response = Response::new(body);
+        response.headers_mut().insert(
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static(crate::utils::NORITO_MIME_TYPE),
+        );
+        Ok(response)
+    })
 }
 fn pipeline_status_proxy_query(
     hash: &HashOf<SignedTransaction>,
@@ -1883,9 +1916,11 @@ async fn handler_pipeline_transaction_details(
     let authority = verified.authority().clone();
     let entrypoint_hash = exact_transaction_details_query_hash(&verified)?;
     admit_signed_query_authority(app.as_ref(), &authority).await?;
+    // The guard keeps the general/heavy query permits until the response is built. This
+    // route inherits no fanout memory, so the producer owner is one fail-fast reservation.
     let _admission = acquire_signed_query_physical_admission(app.as_ref(), &verified).await?;
-    let response = pipeline_transaction_details_response(&app, &authority, entrypoint_hash)?;
-    Ok(crate::utils::respond_with_format(response, format))
+    let owner = crate::history_producer::HistoryProducerOwner::authentication_read(&app)?;
+    pipeline_transaction_details_http_response(&app, &authority, entrypoint_hash, format, &owner)
 }
 async fn handler_trigger_completions(
     State(app): State<SharedAppState>,

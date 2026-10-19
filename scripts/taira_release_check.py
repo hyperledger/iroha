@@ -1092,6 +1092,13 @@ TEST_NETWORK_STAGES += (("checkout-local owner-private broker custody", (
     "disposable_runtime_provider_broker::tests::configured_broker_root_rejects_oversized_endpoint_before_creating_custody",
 )),)
 
+TEST_NETWORK_STAGES += (("original optional broker shutdown evidence", (
+    "disposable_runtime_provider_broker::shutdown::tests::actual_broker_shutdown_preserves_success_and_nonzero_terminal",
+    "disposable_runtime_provider_broker::shutdown::tests::original_broker_timeout_is_reaped_without_becoming_success",
+    "disposable_runtime_provider_broker::shutdown::tests::retiring_run_retains_actual_optional_broker_receipt_through_best_effort_cleanup",
+    "disposable_runtime_provider_broker::shutdown::tests::original_broker_receipt_rejects_missing_stale_and_changed_boot_without_config_inference",
+)),)
+
 NETWORK_OBSERVATION_STAGES = (("signed genesis paid authority and public failure observation", (
     'dataspace_deploy_cli::signed_genesis_validator_mapping_preserves_runtime_accounts',
     'dataspace_deploy_cli::phase_failure_summary_excludes_signed_payloads',
@@ -1450,6 +1457,17 @@ CURRENT_CONSENSUS_STAGES = (("current nonempty consensus and bounded work wakeup
     'machine::tests::signing::det_ct3_genuine_matching_pqc_reproposes_without_fresh_clock_owner',
     'sim::world::clock_guard::tests::det_ct1_world_retained_execution_rechecks_rewind_before_first_prepare',
 )))
+
+CURRENT_CONSENSUS_STAGES += (("current shared-source semantic QC custody", (
+    'qc_custody::tests::shared_qc_retains_original_source_partial_fields_and_fixed_pool_retry',
+    'qc_custody::tests::shared_qc_refuses_same_wire_replacement_and_different_source_span',
+    'qc_custody::tests::shared_qc_requires_leaf_and_control_to_share_the_exact_original_pool',
+    'qc_custody::physical_tests::every_actual_qc_control_layout_refusal_retains_original_charge_prefix_and_same_source_retry',
+    'qc_custody::physical_tests::actual_qc_bitmap_allocator_refusal_preserves_controls_and_same_source_retry',
+    'qc_custody::physical_tests::complete_qc_decode_has_only_original_controls_and_bitmap_then_publication_and_sharing_allocate_nothing',
+    'qc_custody::physical_tests::actual_original_qc_source_allocation_failure_refunds_only_its_own_charge',
+    'qc_custody::physical_tests::actual_bitmap_allocator_error_chain_borrows_same_cause_and_keeps_original_credit',
+)),)
 
 CURRENT_BEACON_CORE_STAGES = (("current authenticated threshold pulse production and execution", (
     'smartcontracts::isi::world::isi::tests::set_parameter_rejects_consensus_epoch_that_conflicts_with_npos',
@@ -2650,6 +2668,14 @@ MODEL_SHARED_BLOCK_STAGES = (("original immutable shared block controls", (
     'block::shared::tests::prepaid_shared_block_shell_can_be_cancelled_or_initialized_without_new_admission',
 )),)
 DATA_MODEL_STAGES += MODEL_SHARED_BLOCK_STAGES
+DATA_MODEL_STAGES += (("original canonical block constructor custody", (
+    "block::prepared_signatures::tests::prepared_block_counter_physical_refusals_keep_original_charges_prefix_source_and_retry",
+    "block::prepared_signatures::tests::original_shared_block_charge_survives_actual_allocator_refusal_and_retries_without_credit",
+)),)
+DATA_MODEL_STAGES += (("native parent-service producer destination custody", (
+    "consensus::parent_service::prepared::tests::producer_copy_binds_actual_parent_control_pool_and_unchanged_vec_wire",
+    "consensus::parent_service::prepared::tests::producer_input_cannot_substitute_a_canonical_field_or_missing_certificate",
+)),)
 
 CORE_SHARED_BLOCK_HISTORY_STAGES = (("original canonical history and hydration refusal", (
     'kura::tests::startup_history_retains_original_cold_kura_refusal_and_exact_retry',

@@ -392,8 +392,6 @@ fn world_read_trait_borrows_frozen_original_cell_fields_without_execution_deref(
         peers,
         executor,
         executor_data_model,
-        merge_hint_roots,
-        merge_global_state_root,
         sorafs_pricing,
         soradns_directory_latest,
         soradns_rotation_policy,

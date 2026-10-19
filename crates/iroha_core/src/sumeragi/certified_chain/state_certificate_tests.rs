@@ -1127,7 +1127,12 @@ fn parent_service_common_proposal_is_independent_of_local_certificate_subset() {
     let (chain, _) = chain();
     let view = chain.state().view();
     let reader = CertifiedChain::new_for_parent_service(&view).unwrap();
-    let proposal = chain.proposal(Some(6_000), Vec::new());
+    let mut proposal = chain.proposal(Some(6_000), Vec::new());
+    crate::sumeragi::certified_chain::admit_parent_service_fixture(
+        &mut proposal,
+        &chain.state().ivm_execution_budget(),
+    )
+    .unwrap();
     let offered = proposal
         .npos_consensus_effects()
         .unwrap()
@@ -1147,12 +1152,13 @@ fn parent_service_common_proposal_is_independent_of_local_certificate_subset() {
     assert_ne!(source_qc.signers, other_qc.signers);
     let other_source = with_parts(&source, |_, qc, _| *qc = other_qc.clone());
     let predecessor = chain.committed(4);
+    let mut qc_preparation = ParentServicePreparation::default();
     let left = reader
         .verify_parent_service_at(
             &proposal,
             &predecessor,
             &read_frame(source, 5, chain.root_scope()).unwrap(),
-            offered,
+            &mut qc_preparation,
         )
         .unwrap()
         .unwrap();
@@ -1161,18 +1167,28 @@ fn parent_service_common_proposal_is_independent_of_local_certificate_subset() {
             &proposal,
             &predecessor,
             &read_frame(other_source, 5, chain.root_scope()).unwrap(),
-            offered,
+            &mut qc_preparation,
         )
         .unwrap()
         .unwrap();
     assert_eq!(left.height(), right.height());
     assert_eq!(left.timestamp_ms(), right.timestamp_ms());
-    assert_eq!(left.signers(), right.signers());
+    assert_eq!(
+        left.signer_keys().collect::<Vec<_>>(),
+        right.signer_keys().collect::<Vec<_>>()
+    );
     let full = reader
-        .authenticate_parent_service(&proposal, |_, _| Ok(()))
+        .authenticate_parent_service(
+            &proposal,
+            &mut ParentServicePreparation::default(),
+            |_, _| Ok(()),
+        )
         .unwrap()
         .unwrap();
-    assert_eq!(full.signers(), left.signers());
+    assert_eq!(
+        full.signer_keys().collect::<Vec<_>>(),
+        left.signer_keys().collect::<Vec<_>>()
+    );
     full.require_proposal(&proposal).unwrap();
 
     let mut other_proposal = proposal.clone();
@@ -1183,12 +1199,24 @@ fn parent_service_common_proposal_is_independent_of_local_certificate_subset() {
         ),
     );
     other_proposal.set_npos_consensus_effects(Some(effects));
+    crate::sumeragi::certified_chain::admit_parent_service_fixture(
+        &mut other_proposal,
+        &chain.state().ivm_execution_budget(),
+    )
+    .unwrap();
     assert_ne!(proposal.hash(), other_proposal.hash());
     let other = reader
-        .authenticate_parent_service(&other_proposal, |_, _| Ok(()))
+        .authenticate_parent_service(
+            &other_proposal,
+            &mut ParentServicePreparation::default(),
+            |_, _| Ok(()),
+        )
         .unwrap()
         .unwrap();
-    assert_ne!(full.signers(), other.signers());
+    assert_ne!(
+        full.signer_keys().collect::<Vec<_>>(),
+        other.signer_keys().collect::<Vec<_>>()
+    );
     assert!(matches!(
         full.require_proposal(&other_proposal),
         Err(ParentServiceError::Invalid(_))
@@ -1201,7 +1229,12 @@ fn parent_service_proof_requires_exact_native_quorum_and_complete_subject() {
     let (chain, _) = chain();
     let view = chain.state().view();
     let reader = CertifiedChain::new_for_parent_service(&view).unwrap();
-    let proposal = chain.proposal(Some(6_000), Vec::new());
+    let mut proposal = chain.proposal(Some(6_000), Vec::new());
+    crate::sumeragi::certified_chain::admit_parent_service_fixture(
+        &mut proposal,
+        &chain.state().ivm_execution_budget(),
+    )
+    .unwrap();
     let offered = proposal
         .npos_consensus_effects()
         .unwrap()
@@ -1241,8 +1274,17 @@ fn parent_service_proof_requires_exact_native_quorum_and_complete_subject() {
         effects.parent_service_commit_qc =
             Some(iroha_data_model::consensus::NposParentServiceCommitQc::from_untrusted(bytes));
         changed.set_npos_consensus_effects(Some(effects));
+        crate::sumeragi::certified_chain::admit_parent_service_fixture(
+            &mut changed,
+            &chain.state().ivm_execution_budget(),
+        )
+        .unwrap();
         assert!(matches!(
-            reader.authenticate_parent_service(&changed, |_, _| Ok(())),
+            reader.authenticate_parent_service(
+                &changed,
+                &mut ParentServicePreparation::default(),
+                |_, _| Ok(())
+            ),
             Err(ParentServiceError::Invalid(_))
         ));
     }
@@ -1251,7 +1293,11 @@ fn parent_service_proof_requires_exact_native_quorum_and_complete_subject() {
     effects.parent_service_commit_qc = None;
     missing.set_npos_consensus_effects((!effects.is_empty()).then_some(effects));
     assert!(matches!(
-        reader.authenticate_parent_service(&missing, |_, _| Ok(())),
+        reader.authenticate_parent_service(
+            &missing,
+            &mut ParentServicePreparation::default(),
+            |_, _| Ok(())
+        ),
         Err(ParentServiceError::Invalid(_))
     ));
 }
@@ -1262,18 +1308,18 @@ fn parent_service_original_decode_refusal_retries_same_proposal_without_invalidi
     let (chain, _) = chain();
     let view = chain.state().view();
     let reader = CertifiedChain::new_for_parent_service(&view).unwrap();
-    let proposal = chain.proposal(Some(6_000), Vec::new());
-    let offered = proposal
-        .npos_consensus_effects()
-        .unwrap()
-        .parent_service_commit_qc
-        .as_ref()
-        .unwrap();
+    let mut proposal = chain.proposal(Some(6_000), Vec::new());
+    crate::sumeragi::certified_chain::admit_parent_service_fixture(
+        &mut proposal,
+        &chain.state().ivm_execution_budget(),
+    )
+    .unwrap();
+    let mut qc_preparation = ParentServicePreparation::default();
     let current = chain.committed(5);
     let predecessor = chain.committed(4);
     let refused = norito::core::with_decode_limits_scope(
         norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 128),
-        || reader.verify_parent_service_at(&proposal, &predecessor, &current, offered),
+        || reader.verify_parent_service_at(&proposal, &predecessor, &current, &mut qc_preparation),
     );
     let Err(ParentServiceError::Deferred(original)) = refused else {
         panic!("actual offered QC decoder");
@@ -1285,19 +1331,24 @@ fn parent_service_original_decode_refusal_retries_same_proposal_without_invalidi
     let returned = ExecutionDeferred::try_from_vm_error(original.into_vm_error()).unwrap();
     assert_eq!(returned.decode_refusal(), Some(&expected));
     let retry = reader
-        .verify_parent_service_at(&proposal, &predecessor, &current, offered)
+        .verify_parent_service_at(&proposal, &predecessor, &current, &mut qc_preparation)
         .unwrap()
         .unwrap();
     retry.require_proposal(&proposal).unwrap();
     assert_eq!(retry.height(), 5);
-    assert!(!retry.signers().is_empty());
+    assert!(retry.signer_keys().next().is_some());
 }
 
 #[test]
 fn parent_service_source_loss_is_recovery_without_participation_receipt() {
     use crate::sumeragi::certified_chain::ParentServiceError;
     let (chain, _) = chain();
-    let proposal = chain.proposal(Some(6_000), Vec::new());
+    let mut proposal = chain.proposal(Some(6_000), Vec::new());
+    crate::sumeragi::certified_chain::admit_parent_service_fixture(
+        &mut proposal,
+        &chain.state().ivm_execution_budget(),
+    )
+    .unwrap();
     let view = chain.state().view();
     let reader = CertifiedChain::new_for_parent_service(&view).unwrap();
     chain
@@ -1305,7 +1356,11 @@ fn parent_service_source_loss_is_recovery_without_participation_receipt() {
         .corrupt_canonical_body_for_testing(NonZeroUsize::new(4).unwrap())
         .unwrap();
     assert!(matches!(
-        reader.authenticate_parent_service(&proposal, |_, _| Ok(())),
+        reader.authenticate_parent_service(
+            &proposal,
+            &mut ParentServicePreparation::default(),
+            |_, _| Ok(())
+        ),
         Err(ParentServiceError::Source(_))
     ));
 }
@@ -1314,7 +1369,12 @@ fn parent_service_source_loss_is_recovery_without_participation_receipt() {
 fn parent_service_source_allowance_counts_every_original_before_authentication() {
     use crate::sumeragi::certified_chain::ParentServiceError;
     let (chain, _) = chain();
-    let proposal = chain.proposal(Some(6_000), Vec::new());
+    let mut proposal = chain.proposal(Some(6_000), Vec::new());
+    crate::sumeragi::certified_chain::admit_parent_service_fixture(
+        &mut proposal,
+        &chain.state().ivm_execution_budget(),
+    )
+    .unwrap();
     let view = chain.state().view();
     let reader = CertifiedChain::new_for_parent_service(&view).unwrap();
     let bytes = (4..=5)
@@ -1328,19 +1388,23 @@ fn parent_service_source_allowance_counts_every_original_before_authentication()
         let mut remaining_work = work;
         let mut remaining_bytes = allowance;
         let (result, count) = relation_counts::measure(|| {
-            reader.authenticate_parent_service(&proposal, |work, bytes| {
-                remaining_work = remaining_work.checked_sub(work).ok_or(
-                    crate::execution_attempt::ExecutionAttemptError::Deferred(
-                        ivm::error::ExecutionDeferral::CanonicalHistoryCapacity.into(),
-                    ),
-                )?;
-                remaining_bytes = remaining_bytes.checked_sub(bytes).ok_or(
-                    crate::execution_attempt::ExecutionAttemptError::Deferred(
-                        ivm::error::ExecutionDeferral::CanonicalHistoryCapacity.into(),
-                    ),
-                )?;
-                Ok(())
-            })
+            reader.authenticate_parent_service(
+                &proposal,
+                &mut ParentServicePreparation::default(),
+                |work, bytes| {
+                    remaining_work = remaining_work.checked_sub(work).ok_or(
+                        crate::execution_attempt::ExecutionAttemptError::Deferred(
+                            ivm::error::ExecutionDeferral::CanonicalHistoryCapacity.into(),
+                        ),
+                    )?;
+                    remaining_bytes = remaining_bytes.checked_sub(bytes).ok_or(
+                        crate::execution_attempt::ExecutionAttemptError::Deferred(
+                            ivm::error::ExecutionDeferral::CanonicalHistoryCapacity.into(),
+                        ),
+                    )?;
+                    Ok(())
+                },
+            )
         });
         if success {
             assert_eq!(result.unwrap().unwrap().height(), 5);

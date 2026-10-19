@@ -294,6 +294,26 @@ def assert_native_coverage(case, labels=None):
 class BeaconGateTests(unittest.TestCase):
     def test_current_declared_owner_and_runtime_controls_are_required_exactly_once(self):
         required = (
+            'sumeragi::certified_chain::execution_read::prefix_construction_tests::prefix_physical_refusal_retains_original_charge_and_retries_without_credit',
+            'sumeragi::certified_chain::execution_read::prefix_construction_tests::prefix_physical_abandonment_refunds_original_pool_after_storage_guards_retire',
+            'sumeragi::certified_chain::execution_read::prefix_construction_tests::prefix_constructor_preserves_capacity_and_keeps_layout_invariants_terminal',
+            'kura::native_frame_continuation_tests::original_raw_frame_physical_refusal_retains_charge_and_retries_without_credit',
+            'kura::native_frame_continuation_tests::original_raw_frame_retry_refuses_replaced_sidecar_before_backing_allocation',
+            'kura::native_frame_continuation_tests::original_raw_frame_narrower_scope_replay_retains_physical_charge_and_source',
+            'kura::native_frame_continuation_tests::original_raw_frame_partial_backing_survives_narrower_replay_and_abandonment',
+            'kura::native_frame_continuation_tests::original_raw_frame_capacity_and_slot_refusal_preserve_fixed_pool_retry',
+            'kura::native_frame_continuation_tests::original_raw_frame_abandonment_refunds_after_all_storage_guards_retire',
+            'sumeragi::certified_chain::state_certificate::parent_service_signers::tests::original_signer_late_capacity_retains_prefix_waiter_and_same_pool_retry',
+            'sumeragi::certified_chain::state_certificate::parent_service_signers::tests::original_signer_physical_array_root_and_later_key_refusals_keep_exact_charges',
+            'sumeragi::certified_chain::state_certificate::parent_service_signers::tests::original_signer_lend_refuses_same_wire_source_pool_cut_and_selection_substitution',
+            'sumeragi::executor::parent_service_custody_tests::parent_service_signer_worker_keeps_paid_prefix_before_overlay_and_external_release',
+            'sumeragi::executor::parent_service_custody_tests::parent_service_producer_copy_refusal_precedes_queue_lease_and_retries_same_input',
+            'sumeragi::certified_chain::state_certificate::parent_service_copy::tests::producer_copy_physical_byte_and_root_refusals_keep_original_charges_and_retry',
+            'sumeragi::certified_chain::native_acquisition::tests::native_shell_actual_physical_refusal_keeps_original_charge_source_and_retry',
+            'sumeragi::certified_chain::native_acquisition::tests::native_late_certificate_capacity_retains_same_decoder_children_and_original_retry',
+            'sumeragi::certified_chain::native_acquisition::tests::native_counter_actual_physical_refusal_retains_source_and_maps_original_typed_cause',
+            'sumeragi::certified_chain::state_certificate::parent_service_copy::tests::producer_copy_lending_reauthenticates_native_cut_and_rejects_equal_wire_source',
+            'sumeragi::certified_chain::state_certificate::parent_service_copy::tests::producer_copy_original_logical_refusal_precedes_destination_and_physical_retry_does_not_recharge',
             'sumeragi::executor::decoded_custody_tests::same_wire_distinct_action_owner_is_refused_at_original_lend_and_validation_return',
             'sumeragi::executor::decoded_custody_tests::same_wire_parent_qc_substitution_preserving_actions_and_signatures_is_refused_at_both_boundaries',
             'kagemusha_wallet_v1::tests::wsv_tests::compact_fee_claim_routes_by_the_validated_send_asset_and_permanent_scope',
@@ -3929,6 +3949,38 @@ class EarlyReleaseCheckTests(unittest.TestCase):
             with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
                 gate.require_tests("\n".join(f"{name}: test" for name in names[1:]), stages)
 
+    def test_original_broker_shutdown_controls_are_owned_unique_and_each_required(self):
+        required = (
+            "disposable_runtime_provider_broker::shutdown::tests::actual_broker_shutdown_preserves_success_and_nonzero_terminal",
+            "disposable_runtime_provider_broker::shutdown::tests::original_broker_timeout_is_reaped_without_becoming_success",
+            "disposable_runtime_provider_broker::shutdown::tests::retiring_run_retains_actual_optional_broker_receipt_through_best_effort_cleanup",
+            "disposable_runtime_provider_broker::shutdown::tests::original_broker_receipt_rejects_missing_stale_and_changed_boot_without_config_inference",
+        )
+        owned = tuple(name for _, names in gate.TEST_NETWORK_STAGES for name in names)
+        self.assertEqual(
+            tuple(name for name in owned if name.startswith(
+                "disposable_runtime_provider_broker::shutdown::tests::")),
+            required,
+        )
+        for scope in ("basic", "full"):
+            selected = gate.qualification_stages(scope)
+            for name in required:
+                with self.subTest(scope=scope, missing=name):
+                    owners = [harness for harness, stages in selected.items()
+                              for _, names in stages if name in names]
+                    self.assertEqual(owners, ["test-network"])
+                    listing = "\n".join(f"{other}: test" for other in owned if other != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected["test-network"])
+        source = SCRIPT.resolve().parents[1] / (
+            "crates/iroha_test_network/src/disposable_runtime_provider_broker/shutdown.rs")
+        source_names = re.findall(r"#\[tokio::test\]\s+async fn (\w+)\(", source.read_text())
+        self.assertEqual(
+            tuple("disposable_runtime_provider_broker::shutdown::tests::" + name
+                  for name in source_names),
+            required,
+        )
+
     def test_native_devex_scope_controller_and_absence_contracts_are_mandatory(self):
         required = {'cli': ['taira_public_reset::executor_model::tests::occupied_service_state_is_explicit_strict_and_signed',
                  'taira_public_reset::executor_model::tests::stopped_state_identity_survives_archive_restore_and_rejects_substitution',
@@ -7139,6 +7191,22 @@ class NativeExpectedPanicAccountingTests(unittest.TestCase):
             (self.name,), 99, self.completed(output)),
             [f"regression did not pass: {self.name} (ignored)"])
 
+
+
+
+class ExecutionReaderContinuationInventoryTests(unittest.TestCase):
+    def test_execution_reader_continuation_controls_are_required_and_missing_names_refuse(self):
+        prefix = 'sumeragi::certified_chain::execution_read::continuation_tests::'
+        leaves = ('execution_shell_physical_refusal_keeps_original_charge_and_single_wire_delivery', 'execution_late_certificate_refusal_retains_prepared_children_and_exact_cause', 'execution_retry_rejects_replacement_pool_backend_and_expected_hash', 'durable_execution_retry_preserves_original_genesis_wire_through_h2_authentication', 'durable_execution_prefix_refusal_keeps_completed_original_body_and_wire')
+        for scope in ("basic", "full"):
+            stages = gate.qualification_stages(scope)
+            selected = [name for _, names in stages["core"] for name in names]
+            for leaf in leaves:
+                with self.subTest(scope=scope, leaf=leaf):
+                    name = prefix + leaf
+                    self.assertEqual(selected.count(name), 1)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests("\n".join(n + ": test" for n in selected if n != name), stages["core"])
 
 if __name__ == "__main__":
     unittest.main()

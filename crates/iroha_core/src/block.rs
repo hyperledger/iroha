@@ -6317,6 +6317,35 @@ pub(crate) mod valid {
             timings: Option<&mut ValidationTimings>,
             genesis: Option<&AuthenticatedGenesisOutputSource>,
         ) -> Result<(), BlockValidationError> {
+            let mut parent_service =
+                crate::sumeragi::certified_chain::ParentServicePreparation::default();
+            let has_parent = block.header().height().get() > 2;
+            if has_parent {
+                let result = (|| {
+                    crate::sumeragi::certified_chain::admit_parent_service_fixture(
+                        block,
+                        &state_block.execution_budget(),
+                    )?;
+                    parent_service.prepare(&*state_block, block.header().height().get() - 1)?;
+                    parent_service.prepare_proposal_qc(&*state_block, block)
+                })();
+                result.map_err(|error| match error {
+                    crate::sumeragi::certified_chain::ParentServiceError::Deferred(original) => {
+                        BlockValidationError::ExecutionDeferred(original)
+                    }
+                    crate::sumeragi::certified_chain::ParentServiceError::NativeSource(
+                        original,
+                    ) => BlockValidationError::NativeHistory(original),
+                    crate::sumeragi::certified_chain::ParentServiceError::Invalid(reason) => {
+                        Self::execution_context_error(reason)
+                    }
+                    crate::sumeragi::certified_chain::ParentServiceError::Source(original) => {
+                        BlockValidationError::LocalStorageRecoveryRequired {
+                            reason: original.to_string(),
+                        }
+                    }
+                })?;
+            }
             Self::execute_and_record_canonical_outputs_in_context(
                 block,
                 state_block,
@@ -6324,7 +6353,7 @@ pub(crate) mod valid {
                 genesis,
                 crate::smartcontracts::isi::sccp::height::SccpHeightSourceV1::Unauthenticated,
                 None,
-                None,
+                has_parent.then_some(&parent_service),
             )
         }
         /// Execute and seal ordinary outputs. `sccp_height` names the authenticated consensus
@@ -6381,36 +6410,9 @@ pub(crate) mod valid {
                         }
                     })?
             } else {
-                let reader =
-                    crate::sumeragi::certified_chain::CertifiedChain::new_for_parent_service(
-                        &*state_block,
-                    )
-                    .map_err(|error| match error {
-                        crate::sumeragi::certified_chain::ParentServiceError::Deferred(reason) => {
-                            BlockValidationError::ExecutionDeferred(reason)
-                        }
-                        error => BlockValidationError::LocalStorageRecoveryRequired {
-                            reason: error.to_string(),
-                        },
-                    })?;
-                reader
-                    .authenticate_parent_service(block, |_, _| Ok(()))
-                    .map_err(|error| match error {
-                        crate::sumeragi::certified_chain::ParentServiceError::Invalid(reason) => {
-                            Self::execution_context_error(reason)
-                        }
-                        crate::sumeragi::certified_chain::ParentServiceError::NativeSource(
-                            error,
-                        ) => BlockValidationError::NativeHistory(error),
-                        crate::sumeragi::certified_chain::ParentServiceError::Source(error) => {
-                            BlockValidationError::LocalStorageRecoveryRequired {
-                                reason: error.to_string(),
-                            }
-                        }
-                        crate::sumeragi::certified_chain::ParentServiceError::Deferred(reason) => {
-                            BlockValidationError::ExecutionDeferred(reason)
-                        }
-                    })?
+                return Err(BlockValidationError::LocalStorageRecoveryRequired {
+                    reason: "native parent-service preparation is absent".into(),
+                });
             };
             Self::validate_sccp_exempt_cap(block, state_block)?;
             let advertised_fragments = block.committed_fragment_count();

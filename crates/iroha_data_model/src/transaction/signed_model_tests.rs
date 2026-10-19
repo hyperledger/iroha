@@ -701,27 +701,52 @@ fn mutate_direct_privacy_submission(
     payload: &mut TransactionPayload,
     mutate: impl FnOnce(&mut SubmitPrivacyProofV1),
 ) {
-    let Executable::Instructions(instructions) = &payload.instructions else {
-        panic!("test helper requires direct instructions");
+    let submitted = match &payload.instructions {
+        Executable::Instructions(instructions) => instructions
+            .iter()
+            .find_map(|instruction| instruction.as_any().downcast_ref::<SubmitPrivacyProofV1>()),
+        Executable::Batch(items) => items.iter().find_map(|item| match item {
+            ExecutableBatchItem::Instruction(instruction) => {
+                instruction.as_any().downcast_ref::<SubmitPrivacyProofV1>()
+            }
+            ExecutableBatchItem::ContractCall(_) => None,
+        }),
+        _ => None,
     };
-    let mut instructions = instructions.clone().into_vec();
-    let index = instructions
-        .iter()
-        .position(|instruction| {
-            instruction
-                .as_any()
-                .downcast_ref::<SubmitPrivacyProofV1>()
-                .is_some()
-        })
-        .expect("test payload has a privacy submission");
-    let mut submission = instructions[index]
-        .as_any()
-        .downcast_ref::<SubmitPrivacyProofV1>()
-        .expect("located typed privacy submission")
+    let mut submission = submitted
+        .expect("test payload has a direct privacy submission")
         .clone();
     mutate(&mut submission);
-    instructions[index] = submission.into();
-    payload.instructions = Executable::Instructions(instructions.into());
+    payload.instructions = match &payload.instructions {
+        Executable::Instructions(instructions) => Executable::Instructions(
+            instructions
+                .iter()
+                .map(|instruction| {
+                    if instruction.as_any().is::<SubmitPrivacyProofV1>() {
+                        submission.clone().into()
+                    } else {
+                        instruction.clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .into(),
+        ),
+        Executable::Batch(items) => Executable::Batch(
+            items
+                .iter()
+                .map(|item| match item {
+                    ExecutableBatchItem::Instruction(instruction)
+                        if instruction.as_any().is::<SubmitPrivacyProofV1>() =>
+                    {
+                        ExecutableBatchItem::Instruction(submission.clone().into())
+                    }
+                    _ => item.clone(),
+                })
+                .collect::<Vec<_>>()
+                .into(),
+        ),
+        _ => panic!("test helper requires a direct native privacy member"),
+    };
 }
 fn finalized_privacy_payload() -> TransactionPayload {
     let mut payload = draft_privacy_payload();
@@ -897,18 +922,6 @@ fn assert_privacy_dynamic_dispatch_paths_rejected() {
     assert_privacy_binding_absent(
         &contract,
         "an ordinary contract transaction has no privacy binding",
-    );
-    let mixed_batch = privacy_payload_with_executable(Executable::Batch(
-        vec![
-            ExecutableBatchItem::Instruction(draft_privacy_submission().into()),
-            ExecutableBatchItem::ContractCall(privacy_test_contract_call()),
-        ]
-        .into(),
-    ));
-    assert_privacy_binding_rejects_path(
-        &mixed_batch,
-        PrivacyTransactionIntentUnsupportedPathV1::BatchContractCall,
-        "a mixed contract batch can enqueue unsigned instructions",
     );
     let ordinary_contract_batch = privacy_payload_with_executable(Executable::Batch(
         vec![ExecutableBatchItem::ContractCall(
@@ -1178,6 +1191,70 @@ fn privacy_transaction_intent_requires_one_direct_typed_submission() {
         PrivacyTransactionIntentErrorV1::MultipleSubmissions { count: 2 }
     );
 }
+#[test]
+fn privacy_mixed_batch_binds_exact_direct_member_and_contract_order() {
+    let call = privacy_test_contract_call();
+    let mut payload = privacy_payload_with_executable(Executable::Batch(
+        vec![
+            ExecutableBatchItem::ContractCall(call.clone()),
+            ExecutableBatchItem::Instruction(draft_privacy_submission().into()),
+            ExecutableBatchItem::ContractCall(call),
+        ]
+        .into(),
+    ));
+    let intent = payload
+        .privacy_transaction_intent_digest_v1()
+        .expect("mixed intent");
+    mutate_direct_privacy_submission(&mut payload, |submission| {
+        submission
+            .envelope
+            .statement
+            .context_mut()
+            .transaction_intent_digest = intent;
+        submission.envelope.statement_digest = submission.envelope.statement.digest().unwrap();
+    });
+    let (bound, submission) = payload
+        .privacy_transaction_intent_binding_if_present_v1()
+        .expect("mixed binding")
+        .expect("direct submission");
+    assert_eq!(bound, intent);
+    assert_eq!(submission.envelope.statement.context().action_index, 0);
+    let Executable::Batch(items) = &payload.instructions else {
+        unreachable!()
+    };
+    for index in [0, 2] {
+        let mut changed = items.clone().into_vec();
+        let ExecutableBatchItem::ContractCall(call) = &mut changed[index] else {
+            unreachable!()
+        };
+        call.expected_code_hash = Hash::new(b"changed contract binding");
+        let mut tampered = payload.clone();
+        tampered.instructions = Executable::Batch(changed.into());
+        assert_ne!(
+            tampered.privacy_transaction_intent_digest_v1().unwrap(),
+            intent
+        );
+        assert!(
+            tampered
+                .validate_privacy_transaction_intent_binding_v1()
+                .is_err()
+        );
+    }
+    let mut reordered = items.clone().into_vec();
+    reordered.swap(0, 1);
+    let mut tampered = payload.clone();
+    tampered.instructions = Executable::Batch(reordered.into());
+    assert_ne!(
+        tampered.privacy_transaction_intent_digest_v1().unwrap(),
+        intent
+    );
+    assert!(
+        tampered
+            .validate_privacy_transaction_intent_binding_v1()
+            .is_err()
+    );
+}
+
 #[test]
 fn privacy_transaction_intent_rejects_dynamic_paths() {
     assert_privacy_ivm_paths_rejected();

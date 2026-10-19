@@ -6590,23 +6590,6 @@ const DEFECTS: &[Defect] = &[
         ],
     },
     Defect {
-        id: "G1-D8",
-        title: "Root-valued canonical World cells have no writer",
-        assigned: "G.3",
-        related: &[],
-        required: "Either give world.merge_hint_roots and world.merge_global_state_root a committed writer and a defined relation to the keyed State root, or remove the cells. Their unused writer was removed; without a committed writer they remain permanently default root-named values in the keyed schema.",
-        evidence: &[
-            (
-                "crates/iroha_core/src/state/authority_registry/world.rs",
-                "merge_global_state_root: Cell<Option<Hash>> => (\"world.merge_global_state_root\",",
-            ),
-            (
-                "crates/iroha_core/src/state/authority_registry/world.rs",
-                "merge_hint_roots: Cell<Vec<Hash>> => (\"world.merge_hint_roots\",",
-            ),
-        ],
-    },
-    Defect {
         id: "G1-D9",
         title: "A certified per-table root authenticates the retail fee receipt heads",
         assigned: "G.3",
@@ -6705,7 +6688,6 @@ fn defect_fields(id: &str, rows: &[Row]) -> Vec<String> {
         "G1-D5" => named(&["world.state_accumulator"]),
         "G1-D6" => with(Commitment::History),
         "G1-D7" => named(&["world.smart_contract_state"]),
-        "G1-D8" => named(&["world.merge_hint_roots", "world.merge_global_state_root"]),
         "G1-D9" => named(&["world.smart_contract_state"]),
         "G1-D10" => named(&[
             "world.verifying_keys",
@@ -8009,8 +7991,6 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
     typed_cell!(soradns_directory_latest, Some([3_u8; 32]));
     typed_cell!(soracloud_sequence_watermark, 9_u64);
     typed_cell!(governance_last_unlock_sweep_height, 3_u64);
-    typed_cell!(merge_hint_roots, vec![Hash::new(b"hint")]);
-    typed_cell!(merge_global_state_root, Some(Hash::new(b"root")));
     typed_cell!(sccp_reset_nonce, Some([1_u8; 32]));
     typed_cell!(sccp_forgery_max_generation, Some(7_u64));
     typed_cell!(sccp_committee_current, 7_u64);
@@ -8129,8 +8109,6 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
         "world.domains_by_owner",
         "world.global_beacon_active_session",
         "world.governance_last_unlock_sweep_height",
-        "world.merge_global_state_root",
-        "world.merge_hint_roots",
         "world.musubi_domain_ownership_generations",
         "world.proofs_by_tag",
         "world.provider_owners",
@@ -11800,8 +11778,10 @@ fn contract_section_states_every_publication_and_binding_rule_once() {
          committee-member, authorization, beacon-binding and frozen-election-policy records, \
          the lane batch and the lane result, the genesis context parameters, the epoch identity, \
          every walked record of the peer handshake, the network envelope with its Sumeragi \
-         frame, and the DA commitment bundle with its storage variants, canonical parts and \
-         commitment records. In the other walked types a new field fails only when its type is hash-bearing \
+         frame, the DA commitment bundle with its storage variants, canonical parts and \
+         commitment records, the NPoS parent-service CommitQC with its storage variants, and \
+         the NPoS penalty actions with their storage/funded variants and individual slash and \
+         evidence-applied actions. In the other walked types a new field fails only when its type is hash-bearing \
          or names an unclassified nested type.",
         "It also matches a function that reads State and returns a walked record of the peer \
          handshake or of a lane block (`source_scan.carried_records`), whatever the name of \
@@ -11891,6 +11871,21 @@ fn contract_section_states_every_publication_and_binding_rule_once() {
                     "Storage",
                     "CanonicalParts",
                     "DaCommitmentRecord"
+                ][..]
+            ),
+            (
+                "npos_parent_service",
+                &["NposParentServiceCommitQc", "Storage"][..]
+            ),
+            (
+                "npos_penalty_actions",
+                &[
+                    "NposPenaltyActions",
+                    "Storage",
+                    "Funded",
+                    "NposPenaltyAction",
+                    "NposConsensusSlashAction",
+                    "NposMarkConsensusEvidenceAppliedAction",
                 ][..]
             ),
         ]

@@ -2,8 +2,7 @@
 //!
 //! Preparation precedes transient overlay/queue-lease allocation. Final authentication still
 //! consumes the same native verifier and rechecks the exact captured source and proposal.
-//! TODO: nested native body/result decoding and returned signer/output graphs retain their
-//! existing incomplete funding contract; this owner does not enable request-funded HTTP reads.
+//! TODO: nested native body/result decoding retains its incomplete funding contract; this owner does not enable request-funded HTTP reads.
 
 use super::super::{AdmittedFrameRead, funded_authority::FundedAuthorityGraph};
 use super::*;
@@ -15,6 +14,9 @@ use iroha_sumeragi::types::HeightConfig;
 #[derive(Default)]
 pub(crate) struct ParentServicePreparation {
     assembly_parent: Option<SharedSignedBlock>,
+    pub(super) producer_copy: parent_service_copy::ParentServiceCopyPreparation,
+    pub(super) offered_qc: ParentServiceQcPreparation,
+    pub(super) signers: ParentServiceSignersPreparation,
     authority: Option<FundedAuthorityGraph>,
     predecessor: Option<ReceiptRead>,
     parent: Option<ReceiptRead>,
@@ -423,10 +425,75 @@ impl ParentServicePreparation {
             },
         )
     }
+
+    /// Prepare the destination copy before queue leases, retaining original native inputs.
+    pub(crate) fn prepare_producer_copy(
+        &mut self,
+        view: &(impl StateReadOnly + ?Sized),
+        parent: &SignedBlock,
+    ) -> Result<(), ParentServiceError> {
+        self.require_producer_relation(view, parent)?;
+        let original = self
+            .parent
+            .as_ref()
+            .expect("complete original parent")
+            .frame
+            .committed();
+        self.producer_copy
+            .prepare(original.block(), &view.execution_budget())
+    }
+
+    /// Split disjoint retained fields without cloning any original decoded receipt.
+    pub(super) fn prepare_signers(
+        &mut self,
+        view: &(impl StateReadOnly + ?Sized),
+        proposal: &SignedBlock,
+    ) -> Result<(), ParentServiceError> {
+        let predecessor = self
+            .predecessor
+            .as_ref()
+            .expect("complete predecessor")
+            .frame
+            .committed();
+        let current = self
+            .parent
+            .as_ref()
+            .expect("complete parent")
+            .frame
+            .committed();
+        let schedule::ScheduledSlot::Ready(scheduled) = &predecessor.commitment().schedule.next
+        else {
+            unreachable!("original complete authority is ready")
+        };
+        let authority = self.authority.as_ref().expect("complete authority backing");
+        let (instance, root_scope) = self.authenticated.expect("original signed genesis");
+        let qc = self.offered_qc.get(proposal, &view.execution_budget())?;
+        verify_parent_service_relation(
+            predecessor,
+            current,
+            qc,
+            authority.projection(&scheduled.epoch),
+            PrefixVerifierContext {
+                instance,
+                root_scope,
+            },
+        )?;
+        self.signers
+            .prepare(view, proposal, predecessor, current, qc)
+    }
 }
 
 #[cfg(test)]
 impl ParentServicePreparation {
+    /// Exact selected output pointers, including a partially copied key prefix.
+    pub(crate) fn signer_pointers(&self) -> (usize, usize, usize) {
+        self.signers.retained_pointers()
+    }
+
+    /// Original semantic source and completed bitmap identities, used by worker controls.
+    pub(crate) fn qc_pointers(&self) -> (usize, usize) {
+        self.offered_qc.retained_pointers()
+    }
     /// Actual retained allocation identities, used only by caller custody controls.
     pub(crate) fn original_pointers(&self) -> [usize; 5] {
         [

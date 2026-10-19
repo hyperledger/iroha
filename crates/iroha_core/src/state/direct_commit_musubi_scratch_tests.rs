@@ -701,7 +701,7 @@ fn retained_state_late_world_busy_recovers_all_original_cursors_before_retry() {
         StatePublicationOutcome::Deferred(_)
     ));
     drop(occupied);
-    let blocker = state.world.merge_global_state_root.block();
+    let blocker = state.world.governance_last_unlock_sweep_height.block();
     for _ in 0..3 {
         assert!(matches!(
             original.try_publish(),
@@ -1001,9 +1001,9 @@ fn retained_state_successful_musubi_validation_survives_late_writer_refusal() {
         ));
         let refused_prefix = validation_observer::counts();
         drop(occupied);
-        // This actual last World writer refuses only after both pure validators
+        // This actual late World writer refuses only after both pure validators
         // complete. Earlier writers must be recovered on every attempt return.
-        let blocker = state.world.merge_global_state_root.block();
+        let blocker = state.world.governance_last_unlock_sweep_height.block();
         assert!(matches!(
             original.try_publish(),
             StatePublicationOutcome::Deferred(
@@ -1087,7 +1087,7 @@ fn retained_state_validated_musubi_refuses_changed_visibility_before_retry() {
             StatePublicationOutcome::Deferred(_)
         ));
         drop(occupied);
-        let blocker = state.world.merge_global_state_root.block();
+        let blocker = state.world.governance_last_unlock_sweep_height.block();
         assert!(matches!(
             original.try_publish(),
             StatePublicationOutcome::Deferred(
@@ -1141,7 +1141,7 @@ fn retained_state_validated_musubi_refuses_equal_predecessor_advance() {
             StatePublicationOutcome::Deferred(_)
         ));
         drop(occupied);
-        let blocker = state.world.merge_global_state_root.block();
+        let blocker = state.world.governance_last_unlock_sweep_height.block();
         assert!(matches!(
             original.try_publish(),
             StatePublicationOutcome::Deferred(

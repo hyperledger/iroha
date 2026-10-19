@@ -1,3 +1,4 @@
+
 //! This module contains [`State`] snapshot actor service.
 #[cfg(test)]
 use crate::state::StateBlock;
@@ -2419,8 +2420,6 @@ fn canonical_wsv_cell_value<'a>(
         "viral_campaign_budget",
         "executor",
         "executor_data_model",
-        "merge_hint_roots",
-        "merge_global_state_root",
         "governance_last_unlock_sweep_height",
         "external_event_buf",
     ];
@@ -5046,8 +5045,6 @@ fn normalize_mv_cell_fields_in_state_value(value: &mut json::Value) {
         "viral_campaign_budget",
         "executor",
         "executor_data_model",
-        "merge_hint_roots",
-        "merge_global_state_root",
         "governance_last_unlock_sweep_height",
         "external_event_buf",
     ] {

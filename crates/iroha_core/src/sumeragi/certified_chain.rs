@@ -2963,8 +2963,17 @@ pub use execution_read::{
     AuthenticatedExecutionBlock, NativeExecutionRead, NativeExecutionReadError,
     NativeExecutionReadLimits, NativeExecutionReadResource, read_authenticated_execution,
 };
+#[cfg(any(test, feature = "iroha-core-tests", feature = "bench"))]
+pub(crate) use state_certificate::admit_parent_service_fixture;
 pub(crate) use state_certificate::{
     ParentServiceError, ParentServicePreparation, VerifiedParentService,
+};
+
+#[cfg(test)]
+pub(crate) use state_certificate::{
+    ParentServiceCopyAdmissionProbe, ParentServiceQcAdmissionProbe,
+    ParentServiceSignersAdmissionProbe, observe_parent_service_copy_admission,
+    observe_parent_service_qc_admission, observe_parent_service_signers_admission,
 };
 
 #[cfg(test)]

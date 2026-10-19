@@ -725,7 +725,7 @@ fn public_amx_signed_policy_retains_completed_npos_stage_on_metadata_refusal() {
     // This is the actual original native source/prelude/body path, not Kura's cached body.
     // Its shared shell is admitted before the sole canonical body decoder, as in the owner.
     let (original_slot, raw, body) = reference.with(|| {
-        let slot = chain
+        let mut slot = chain
             .kura()
             .native_frame_read(1, expected)
             .unwrap()

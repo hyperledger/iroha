@@ -58,7 +58,10 @@ pub use field_destination::{
     DecodeValueFields, DecodeVariantField, EnumFieldDestination, FieldDestination, OwnedFields,
     PreparedRecordDestination, framed_byte_array_field, framed_field, with_context_fields,
 };
-pub use prepared_scope::{PreparedDecodeError, PreparedDecodeScopeError, PreparedDecodeWorkspace};
+pub use prepared_scope::{
+    PreparedDecodeError, PreparedDecodeScopeError, PreparedDecodeWorkspace,
+    PreparedDecodeWorkspaceConstruction,
+};
 pub use prepared_sequence::{
     ChargedElementSequence, PreparedElementSequence, RetainedElementSequence,
     RetainedSequenceError, SequenceAdmissionError, SequenceDestinationError,
