@@ -272,3 +272,178 @@ fn compatible_cancelled_proposal_adoption_preserves_original_body_certificate_an
     drop((store, f));
     assert_eq!(budget.reserved_bytes(), 0);
 }
+
+#[test]
+fn cancelled_incoming_read_retires_request_only_opening_and_preserves_historical_join() {
+    for historical in [false, true] {
+        let f = transaction_fixture();
+        let budget = f.stores.budget.clone();
+        f.stores.release(LANE, &INCARNATION);
+        let baseline = budget.reserved_bytes();
+        let frame = fs::read(f.path()).unwrap();
+        let ceiling = budget.limit_bytes();
+        let mut request = ProposalReadScope::new();
+        request.admit(&budget).unwrap();
+        let pressure = budget
+            .try_reserve_bytes(ceiling - budget.reserved_bytes() - frame.len())
+            .unwrap();
+        assert!(matches!(
+            f.stores
+                .execution_wait_for(LANE, &INCARNATION, 1, Duration::ZERO, &request),
+            Err(Attempt::Deferred(_))
+        ));
+        assert_eq!(budget.reserved_bytes(), ceiling);
+        let opening = {
+            let map = f.stores.stores.lock();
+            let Some(StoreSlot::Opening(original, owners)) = map.get(&(LANE, INCARNATION)) else {
+                panic!("the request retains actual unfinished native recovery");
+            };
+            assert!(!owners.runtime && !owners.historical);
+            Arc::downgrade(original)
+        };
+        if historical {
+            assert!(matches!(
+                f.stores.store(LANE, &INCARNATION),
+                Err(Attempt::Deferred(_))
+            ));
+        }
+        drop(request);
+        f.stores.release_cancelled_proposal_reads();
+        let retained = opening.upgrade().is_some();
+        drop(pressure);
+        if historical {
+            assert!(retained);
+            assert_eq!(budget.reserved_bytes(), baseline + frame.len());
+        } else {
+            assert!(!retained);
+            assert_eq!(budget.reserved_bytes(), baseline);
+        }
+        assert_eq!(fs::read(f.path()).unwrap(), frame);
+        let replay = f.stores.block(LANE, &INCARNATION, 1).unwrap().unwrap();
+        assert_eq!(replay.block_hash, f.qc.block_hash);
+        assert_eq!(replay.result, f.qc.result);
+        drop((replay, f));
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+}
+
+struct PausedFrameSchedule {
+    original: Arc<dyn AvailabilitySchedule>,
+    entered: Mutex<Option<std::sync::mpsc::SyncSender<()>>>,
+    resume: Mutex<std::sync::mpsc::Receiver<()>>,
+    resumed: AtomicBool,
+}
+impl AvailabilitySchedule for PausedFrameSchedule {
+    fn instance(&self) -> Hash32 {
+        self.original.instance()
+    }
+    fn height_config(&self, height: u64) -> Result<Option<HeightConfig>, Attempt<io::Error>> {
+        let entered = self.entered.lock().take();
+        if let Some(entered) = entered {
+            entered.send(()).map_err(io::Error::other)?;
+            let resumed = self
+                .resume
+                .lock()
+                .recv_timeout(Duration::from_secs(5))
+                .is_ok();
+            self.resumed.store(resumed, Ordering::SeqCst);
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "original historical frame authority paused",
+            )
+            .into());
+        }
+        self.original.height_config(height)
+    }
+}
+struct PausedFrameAuthorities(Arc<PausedFrameSchedule>);
+impl LaneStoreAuthorities for PausedFrameAuthorities {
+    fn authority(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        instance: Hash32,
+    ) -> Result<Option<LaneStoreAuthority>, Attempt<io::Error>> {
+        assert_eq!(
+            (lane, *incarnation, instance),
+            (LANE, INCARNATION, self.0.instance())
+        );
+        Ok(Some(LaneStoreAuthority {
+            schedule: self.0.clone(),
+        }))
+    }
+}
+
+#[test]
+fn cancelled_read_only_incoming_frame_is_released_when_original_inflight_owner_parks() {
+    let f = transaction_fixture();
+    let budget = f.stores.budget.clone();
+    let baseline = budget.reserved_bytes();
+    let ceiling = budget.limit_bytes();
+    let frame = fs::read(f.path()).unwrap();
+    let (entered, acquired) = std::sync::mpsc::sync_channel(1);
+    let (resume, resumed) = std::sync::mpsc::sync_channel(1);
+    let schedule = Arc::new(PausedFrameSchedule {
+        original: f.authorities.schedule.clone(),
+        entered: Mutex::new(Some(entered)),
+        resume: Mutex::new(resumed),
+        resumed: AtomicBool::new(false),
+    });
+    let reader = LaneFrameSource::new(
+        f.dir.path().to_path_buf(),
+        f.stores.network,
+        f.stores.chain_id.clone(),
+        f.stores.crypto.clone(),
+        budget.clone(),
+        Arc::new(PausedFrameAuthorities(schedule.clone())),
+    );
+    let mut request = ProposalReadScope::new();
+    request.admit(&budget).unwrap();
+    let pressure = budget
+        .try_reserve_bytes(ceiling - budget.reserved_bytes() - frame.len())
+        .unwrap();
+    assert!(matches!(
+        reader.execution_block(LANE, &INCARNATION, 1, &request),
+        Err(Attempt::Deferred(_))
+    ));
+    assert_eq!(budget.reserved_bytes(), ceiling);
+    drop(pressure);
+    let (entered, cancellation_returned, result) = std::thread::scope(|threads| {
+        // A historical request at another height first authenticates the original
+        // pending frame; it does not promote that different-height proposal interest.
+        // This real public call borrows no proposal scope, so concurrent Drop is reachable.
+        let reading = threads.spawn(|| reader.block(LANE, &INCARNATION, 2));
+        let entered = acquired.recv_timeout(Duration::from_secs(5)).is_ok();
+        let (done, completed) = std::sync::mpsc::sync_channel(1);
+        let source = &reader;
+        let cancelling = threads.spawn(move || {
+            drop(request);
+            source.release_cancelled_proposal_reads();
+            let _ = done.send(());
+        });
+        let returned = completed.recv_timeout(Duration::from_secs(5)).is_ok();
+        let _ = resume.send(());
+        let result = reading.join().unwrap();
+        cancelling.join().unwrap();
+        (entered, returned, result)
+    });
+    assert!(entered && cancellation_returned && schedule.resumed.load(Ordering::SeqCst));
+    assert!(
+        matches!(result, Err(ref error) if error.to_string().contains("original historical frame authority paused"))
+    );
+    drop(result);
+    let released = budget.reserved_bytes() == baseline;
+    // Record the owner-boundary result before diagnostic cleanup or later traffic.
+    reader.release_cancelled_proposal_reads();
+    assert_eq!(budget.reserved_bytes(), baseline);
+    let replay = reader.block(LANE, &INCARNATION, 1).unwrap().unwrap();
+    assert_eq!(replay.block_hash, f.qc.block_hash);
+    assert_eq!(replay.result, f.qc.result);
+    assert_eq!(fs::read(f.path()).unwrap(), frame);
+    drop((replay, reader, schedule, f));
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert!(
+        released,
+        "cancelled incoming read-only custody must retire when the original in-flight owner parks"
+    );
+}

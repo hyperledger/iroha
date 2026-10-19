@@ -51,7 +51,10 @@ fn retain_original_opening(
         stores
             .stores
             .lock()
-            .insert((LANE, INCARNATION), StoreSlot::Opening(retained, false))
+            .insert(
+                (LANE, INCARNATION),
+                StoreSlot::Opening(retained, OpeningOwners::new(StoreDemand::Runtime))
+            )
             .is_none()
     );
 }
@@ -199,7 +202,7 @@ fn original_recovery_control(control: OriginalRecoveryControl) {
             assert_eq!(error.to_string(), RECOVERY_REFUSAL);
             assert!(matches!(
                 fixture.stores.stores.lock().get(&(LANE, INCARNATION)),
-                Some(StoreSlot::Opening(_, true))
+                Some(StoreSlot::Opening(_, owners)) if owners.historical
             ));
             let retained = fixture.stores.budget.reserved_bytes();
             assert_eq!(retained, observation.bytes_before);
@@ -222,7 +225,7 @@ fn original_recovery_control(control: OriginalRecoveryControl) {
             assert_eq!(error.to_string(), RECOVERY_REFUSAL);
             assert!(matches!(
                 fixture.stores.stores.lock().get(&(LANE, INCARNATION)),
-                Some(StoreSlot::Opening(_, false))
+                Some(StoreSlot::Opening(_, owners)) if !owners.historical
             ));
             assert_eq!(
                 fixture.stores.budget.reserved_bytes(),
@@ -298,9 +301,10 @@ fn original_lane_opening_cloned_before_completion_joins_the_same_ready_store() {
     let key = (LANE, INCARNATION);
     let earlier_join = {
         let stores = fixture.stores.stores.lock();
-        let Some(StoreSlot::Opening(original, false)) = stores.get(&key) else {
+        let Some(StoreSlot::Opening(original, owners)) = stores.get(&key) else {
             panic!("original runtime recovery remains retained");
         };
+        assert!(!owners.historical && owners.runtime);
         Arc::clone(original)
     };
     let authority_calls = fixture.authorities.calls.load(Ordering::SeqCst);
@@ -341,4 +345,96 @@ fn original_lane_opening_cloned_before_completion_joins_the_same_ready_store() {
     assert_eq!(fixture.stores.budget.reserved_bytes(), baseline);
     assert_eq!(fixture.stores.budget.limit_bytes(), ceiling);
     assert_eq!(fs::read(fixture.path()).unwrap(), original_bytes);
+}
+
+#[test]
+fn final_inflight_incoming_opening_cleans_cancelled_request_but_keeps_historical_recovery() {
+    for historical in [false, true] {
+        let mut fixture = Fixture::new(true);
+        fixture.publish();
+        fixture.stores.release(LANE, &INCARNATION);
+        let budget = fixture.stores.budget.clone();
+        let baseline = budget.reserved_bytes();
+        let ceiling = budget.limit_bytes();
+        let bytes = fs::read(fixture.path()).unwrap();
+        let mut request = ProposalReadScope::new();
+        request.admit(&budget).unwrap();
+        let (entered, acquired) = sync_channel(1);
+        let (resume, resumed) = sync_channel(1);
+        fixture.stores.opening_faults = Some((
+            fixture.source.instance(),
+            Arc::new(PausedOriginalRecovery {
+                entered: Mutex::new(Some(entered)),
+                resume: Mutex::new(resumed),
+                refuse: true,
+            }),
+        ));
+        let pressure = budget
+            .try_reserve_bytes(ceiling - budget.reserved_bytes() - bytes.len())
+            .unwrap();
+        // The public incoming entrypoint establishes the exact request-owned recovery.
+        // Capacity stops it before SyncFile without inventing a copied progress owner.
+        assert!(matches!(
+            fixture
+                .stores
+                .execution_wait_for(LANE, &INCARNATION, 1, Duration::ZERO, &request),
+            Err(Attempt::Deferred(_))
+        ));
+        let weak = {
+            let map = fixture.stores.stores.lock();
+            let Some(StoreSlot::Opening(original, owners)) = map.get(&(LANE, INCARNATION)) else {
+                panic!("actual request-owned native recovery");
+            };
+            assert!(!owners.runtime && !owners.historical);
+            Arc::downgrade(original)
+        };
+        drop(pressure);
+        let (entered, unlocked, result) = std::thread::scope(|threads| {
+            let stores = &fixture.stores;
+            // The independent runtime joins and resumes the same physical opening.
+            // It does not borrow the original proposal scope, which may now be dropped.
+            let worker = threads.spawn(|| stores.runtime_store(LANE, &INCARNATION));
+            let entered = acquired.recv_timeout(Duration::from_secs(5)).is_ok();
+            let unlocked = stores.stores.try_lock().is_some();
+            if entered && unlocked {
+                if historical {
+                    assert!(stores.store(LANE, &INCARNATION).is_err());
+                }
+                stores.release(LANE, &INCARNATION);
+                drop(request);
+                stores.release_cancelled_proposal_reads();
+                assert!(
+                    weak.upgrade().is_some(),
+                    "the actual in-flight native owner is still retained"
+                );
+            } else {
+                drop(request);
+            }
+            let _ = resume.send(());
+            (entered, unlocked, worker.join().unwrap())
+        });
+        assert!(entered && unlocked);
+        assert!(matches!(result, Err(ref error) if error.to_string().contains(RECOVERY_REFUSAL)));
+        drop(result);
+        let correct = weak.upgrade().is_some() == historical;
+        // Capture the original return boundary before diagnostic cleanup or replay.
+        fixture.stores.release_cancelled_proposal_reads();
+        if !historical {
+            assert_eq!(budget.reserved_bytes(), baseline);
+        }
+        let replay = fixture
+            .stores
+            .block(LANE, &INCARNATION, 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(replay.block_hash, fixture.qc.block_hash);
+        assert_eq!(replay.result, fixture.qc.result);
+        assert_eq!(fs::read(fixture.path()).unwrap(), bytes);
+        drop((replay, fixture));
+        assert_eq!(budget.reserved_bytes(), 0);
+        assert!(
+            correct,
+            "the final incoming opening caller must acknowledge cancellation without dropping independent historical recovery"
+        );
+    }
 }

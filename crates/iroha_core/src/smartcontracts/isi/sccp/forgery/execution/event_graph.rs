@@ -75,11 +75,11 @@ pub(super) fn prepare_events(
     unslashable: u32,
     original_budget: &AllocationBudget,
 ) -> Result<FundedForgeryEvents, Error> {
-    #[cfg(all(test, sumeragi_core_mutation = "HC420"))]
+    #[cfg(all(test, sumeragi_core_mutation = "HC440"))]
     let replacement = AllocationBudget::new(original_budget.limit_bytes());
-    #[cfg(all(test, sumeragi_core_mutation = "HC420"))]
+    #[cfg(all(test, sumeragi_core_mutation = "HC440"))]
     let budget = &replacement;
-    #[cfg(not(all(test, sumeragi_core_mutation = "HC420")))]
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC440")))]
     let budget = original_budget;
 
     if record.offenders.len() > 31 || unslashable & (1 << 31) != 0 {

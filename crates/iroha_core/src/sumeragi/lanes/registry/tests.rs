@@ -674,7 +674,7 @@ fn retired_failed_openings_release_original_funding_and_lock_but_keep_replay_fra
         assert_eq!(f.stores.budget.reserved_bytes(), baseline + original.len());
         assert!(matches!(
             f.stores.stores.lock().get(&(LANE, INCARNATION)),
-            Some(StoreSlot::Opening(_, true))
+            Some(StoreSlot::Opening(_, owners)) if owners.historical
         ));
         f.stores.budget.set_limit_bytes(1 << 25);
         assert_eq!(f.stores.tip(LANE, &INCARNATION).unwrap(), Some(1));
@@ -1342,7 +1342,7 @@ fn original_opening_refund_control(completion: OriginalOpeningCompletion) {
     assert_eq!(budget.reserved_bytes(), retained + original.len());
     assert!(matches!(
         fixture.stores.stores.lock().get(&(LANE, INCARNATION)),
-        Some(StoreSlot::Opening(_, false))
+        Some(StoreSlot::Opening(_, owners)) if !owners.historical
     ));
     // Restore the unchanged fixture's original ceiling before registering a fresh refusal.
     // Its real opening still owns the original buffer; no release notification is inherited.
@@ -1874,7 +1874,7 @@ fn original_authority_recheck_retains_reentrant_opening_and_historical_interest(
                     assert_eq!(error.io_kind(), io::ErrorKind::WouldBlock);
                     assert!(matches!(
                         fixture.stores.stores.lock().get(&(lane, *incarnation)),
-                        Some(StoreSlot::Opening(_, false))
+                        Some(StoreSlot::Opening(_, owners)) if !owners.historical
                     ));
                 }
             }
@@ -1907,7 +1907,7 @@ fn original_authority_recheck_retains_reentrant_opening_and_historical_interest(
     assert!(
         matches!(
             fixture.stores.stores.lock().get(&(LANE, INCARNATION)),
-            Some(StoreSlot::Opening(_, true))
+            Some(StoreSlot::Opening(_, owners)) if owners.historical
         ),
         "historical interest must join the exact reentrant opening"
     );
@@ -1915,7 +1915,7 @@ fn original_authority_recheck_retains_reentrant_opening_and_historical_interest(
     fixture.stores.release(LANE, &INCARNATION);
     assert!(matches!(
         fixture.stores.stores.lock().get(&(LANE, INCARNATION)),
-        Some(StoreSlot::Opening(_, true))
+        Some(StoreSlot::Opening(_, owners)) if owners.historical
     ));
     budget.set_limit_bytes(ceiling);
     let original = fixture.stores.store(LANE, &INCARNATION).unwrap();

@@ -76,11 +76,12 @@ type StateTelemetry = crate::telemetry::StateTelemetry;
 type StateTelemetry = ();
 type NexusDataSpaceId = iroha_model_base::topology::DataSpaceId;
 type NexusLaneId = iroha_model_base::topology::LaneId;
-/// Decode one canonical Norito-framed [`TransactionEntrypoint`] and return its identity.
+/// Fixture helper: decode a canonical Norito-framed entrypoint and return its identity.
 ///
 /// The identity is derived from the decoded signed intent rather than the transport frame. This
 /// prevents alternate framing, authorization-proof changes, or zero-filled logical tails from
 /// creating replay-distinct transaction identifiers.
+#[cfg(test)]
 pub(crate) fn entrypoint_hash_from_framed_bytes(
     framed: &[u8],
 ) -> Result<HashOf<TransactionEntrypoint>, norito::core::Error> {
@@ -2783,32 +2784,6 @@ impl AcceptedTransaction<'static> {
             other => Self::from_entrypoint(Cow::Owned(other)),
         }
         .with_validation_time(validation_time))
-    }
-    /// Accept an already-decoded gossip entrypoint and seed its canonical entrypoint frame bytes.
-    ///
-    /// # Errors
-    ///
-    /// See [`AcceptTransactionFail`].
-    pub(crate) fn accept_gossip_entrypoint_with_payload(
-        tx: TransactionEntrypoint,
-        entrypoint_bytes: Arc<Vec<u8>>,
-        entrypoint_hash: HashOf<TransactionEntrypoint>,
-        expected_network_id: &NetworkId,
-        max_clock_drift: Duration,
-        limits: TransactionParameters,
-        crypto: &iroha_config::parameters::actual::Crypto,
-    ) -> Result<Self, AcceptTransactionFail> {
-        Self::accept_gossip_entrypoint_with_payload_and_prepared_metadata(
-            tx,
-            entrypoint_bytes,
-            entrypoint_hash,
-            expected_network_id,
-            max_clock_drift,
-            limits,
-            crypto,
-            None,
-            false,
-        )
     }
     /// Accept an already-decoded gossip entrypoint using caller-prepared metadata.
     ///

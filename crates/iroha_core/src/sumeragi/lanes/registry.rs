@@ -26,6 +26,7 @@ pub(in crate::sumeragi) use read_only::LaneFrameSource;
 use super::{
     ProposalReadScope, incarnation_instance,
     merge::{CommittedLaneBlock, LaneBlockSource},
+    proposal_reads::ReadInterest,
     store::{FileLaneBlockStore, LaneStoreOpen},
 };
 use crate::sumeragi::{
@@ -58,13 +59,79 @@ pub trait LaneStoreAuthorities: Send + Sync {
     ) -> Result<Option<LaneStoreAuthority>, Attempt<io::Error>>;
 }
 
-// Runtime cancellation and a historical joining reader are independent interests. A refused
-// historical recovery keeps its original prefix even when its runtime incarnation retires.
-// An unfinished historical recovery has no returned Arc yet; this inline bit records
-// its joining reader. Ready readers retain actual Arcs and original pending work instead.
+// Runtime, independent historical, and original proposal requests are separate interests.
+// An unfinished opening has no returned store Arc yet, so retain its actual demand here.
+// Ready readers retain actual Arcs and original pending native work instead.
 enum StoreSlot {
-    Opening(Arc<StoreOpening>, bool),
+    Opening(Arc<StoreOpening>, OpeningOwners),
     Ready(Arc<FileLaneBlockStore>),
+}
+
+enum StoreDemand {
+    Runtime,
+    Historical,
+    Request(ReadInterest),
+}
+struct OpeningOwners {
+    runtime: bool,
+    historical: bool,
+    request: Option<ReadInterest>,
+}
+impl OpeningOwners {
+    fn new(demand: StoreDemand) -> Self {
+        match demand {
+            StoreDemand::Runtime => Self {
+                runtime: true,
+                historical: false,
+                request: None,
+            },
+            StoreDemand::Historical => Self {
+                runtime: false,
+                historical: true,
+                request: None,
+            },
+            StoreDemand::Request(request) => Self {
+                runtime: false,
+                historical: false,
+                request: Some(request),
+            },
+        }
+    }
+    fn join(&mut self, demand: &StoreDemand) -> Result<Option<ReadInterest>, Attempt<io::Error>> {
+        let mut retired = None;
+        match demand {
+            StoreDemand::Runtime => self.runtime = true,
+            StoreDemand::Historical => {
+                if !cfg!(all(test, sumeragi_core_mutation = "HC124")) {
+                    self.historical = true;
+                    retired = self.request.take();
+                }
+            }
+            StoreDemand::Request(request) if !self.historical => {
+                if let Some(original) = &mut self.request {
+                    // Recovery authenticates the complete instance prefix, independently
+                    // of each caller's later exact requested frame height.
+                    original.join(request, true)?;
+                } else {
+                    self.request = Some(request.clone());
+                }
+            }
+            StoreDemand::Request(_) => {}
+        }
+        Ok(retired)
+    }
+    fn retains_read(&self) -> bool {
+        self.historical
+            || self
+                .request
+                .as_ref()
+                .is_some_and(|request| !request.cancelled())
+    }
+    fn cancelled_request_only(&self) -> bool {
+        !self.runtime
+            && !self.historical
+            && self.request.as_ref().is_some_and(ReadInterest::cancelled)
+    }
 }
 
 // A caller clones this original owner while holding the map, then uses only a
@@ -204,6 +271,30 @@ impl LaneStores {
         incarnation: &[u8; 32],
         runtime_owner: bool,
     ) -> Result<Arc<FileLaneBlockStore>, Attempt<io::Error>> {
+        let demand = if runtime_owner {
+            StoreDemand::Runtime
+        } else {
+            StoreDemand::Historical
+        };
+        self.store_with_demand(lane, incarnation, demand)
+    }
+
+    fn request_store(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        request: &ProposalReadScope,
+    ) -> Result<Arc<FileLaneBlockStore>, Attempt<io::Error>> {
+        let demand = StoreDemand::Request(ReadInterest::proposal(request, &self.budget)?);
+        self.store_with_demand(lane, incarnation, demand)
+    }
+
+    fn store_with_demand(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        demand: StoreDemand,
+    ) -> Result<Arc<FileLaneBlockStore>, Attempt<io::Error>> {
         self.with_original_refunds(|| {
             let key = (lane, *incarnation);
             let mut stores = self.stores.lock();
@@ -211,8 +302,10 @@ impl LaneStores {
                 return Ok(Arc::clone(store));
             }
             if stores.contains_key(&key) {
-                let opening = Self::resume_store_opening(&mut stores, key, runtime_owner);
+                let (opening, retired) = Self::resume_store_opening(&mut stores, key, &demand)?;
                 drop(stores);
+                // Independent historical interest supersedes this proposal-only control.
+                drop(retired);
                 return self.complete_store_opening(key, opening);
             }
             // Native authority acquisition may synchronously notify original State readers.
@@ -245,17 +338,14 @@ impl LaneStores {
                 return Ok(Arc::clone(store));
             }
             if stores.contains_key(&key) {
-                let opening = Self::resume_store_opening(&mut stores, key, runtime_owner);
+                let (opening, retired) = Self::resume_store_opening(&mut stores, key, &demand)?;
                 drop(stores);
+                // Independent historical interest supersedes this proposal-only control.
+                drop(retired);
                 return self.complete_store_opening(key, opening);
             }
-            let opening = Self::open_store_with_authority(
-                &mut stores,
-                key,
-                instance,
-                authority,
-                runtime_owner,
-            );
+            let opening =
+                Self::open_store_with_authority(&mut stores, key, instance, authority, demand);
             drop(stores);
             self.complete_store_opening(key, opening)
         })
@@ -268,12 +358,12 @@ impl LaneStores {
         key: (LaneId, [u8; 32]),
         instance: Hash32,
         authority: LaneStoreAuthority,
-        runtime_owner: bool,
+        demand: StoreDemand,
     ) -> Arc<StoreOpening> {
         let opening = StoreOpening::new(instance, authority.schedule);
         stores.insert(
             key,
-            StoreSlot::Opening(Arc::clone(&opening), !runtime_owner),
+            StoreSlot::Opening(Arc::clone(&opening), OpeningOwners::new(demand)),
         );
         opening
     }
@@ -283,19 +373,34 @@ impl LaneStores {
     fn resume_store_opening(
         stores: &mut BTreeMap<(LaneId, [u8; 32]), StoreSlot>,
         key: (LaneId, [u8; 32]),
-        runtime_owner: bool,
-    ) -> Arc<StoreOpening> {
-        let Some(StoreSlot::Opening(opening, historical)) = stores.get_mut(&key) else {
+        demand: &StoreDemand,
+    ) -> Result<(Arc<StoreOpening>, Option<ReadInterest>), Attempt<io::Error>> {
+        let Some(StoreSlot::Opening(opening, owners)) = stores.get_mut(&key) else {
             unreachable!("ready owner returned while the same map lock is held")
         };
-        *historical |= !runtime_owner && !cfg!(all(test, sumeragi_core_mutation = "HC124"));
-        Arc::clone(opening)
+        let retired = owners.join(demand)?;
+        Ok((Arc::clone(opening), retired))
     }
 
     fn complete_store_opening(
         &self,
         key: (LaneId, [u8; 32]),
         opening: Arc<StoreOpening>,
+    ) -> Result<Arc<FileLaneBlockStore>, Attempt<io::Error>> {
+        let result = self.progress_registered_opening(key, &opening);
+        // An in-flight caller pins Opening while cancellation records its withdrawal.
+        // Release that Arc and every native progress guard before acknowledging cleanup.
+        drop(opening);
+        if !cfg!(all(test, sumeragi_core_mutation = "HC439")) {
+            self.clean_cancelled_proposal_reads(false);
+        }
+        result
+    }
+
+    fn progress_registered_opening(
+        &self,
+        key: (LaneId, [u8; 32]),
+        opening: &Arc<StoreOpening>,
     ) -> Result<Arc<FileLaneBlockStore>, Attempt<io::Error>> {
         let mut progress = opening.progress.try_lock().ok_or_else(|| {
             io::Error::new(io::ErrorKind::WouldBlock, "original lane recovery is busy")
@@ -311,13 +416,13 @@ impl LaneStores {
         let store = {
             #[cfg(all(test, sumeragi_core_mutation = "HC364"))]
             let _registry = self.stores.lock();
-            self.progress_store_opening(&opening, original)?
+            self.progress_store_opening(opening, original)?
         };
         *progress = OpeningProgress::Ready(Arc::clone(&store));
         let mut stores = self.stores.lock();
         // An active Opening Arc prevents retirement; only this per-key guard can finish it.
         if !matches!(stores.get(&key), Some(StoreSlot::Opening(retained, _))
-            if Arc::ptr_eq(retained, &opening))
+            if Arc::ptr_eq(retained, opening))
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -394,6 +499,9 @@ impl LaneStores {
             }
             let retired = {
                 let mut stores = self.stores.lock();
+                if let Some(StoreSlot::Opening(_, owners)) = stores.get_mut(&(lane, *incarnation)) {
+                    owners.runtime = false;
+                }
                 if let Some(StoreSlot::Ready(store)) = stores.get(&(lane, *incarnation)) {
                     // Reader Arcs and original pending work retain this exact owner.
                     if Arc::strong_count(store) > 1 || store.retains_pending_work() {
@@ -402,8 +510,8 @@ impl LaneStores {
                 }
                 if matches!(
                     stores.get(&(lane, *incarnation)),
-                    Some(StoreSlot::Opening(opening, historical))
-                        if *historical || Arc::strong_count(opening) > 1
+                    Some(StoreSlot::Opening(opening, owners))
+                        if owners.retains_read() || Arc::strong_count(opening) > 1
                 ) {
                     return;
                 }
@@ -494,15 +602,20 @@ impl LaneStores {
                         .next()
                         .map(|(key, _)| *key);
                     key.map(|key| {
-                        let keep = lanes
+                        let active = lanes
                             .lane(key.0)
-                            .is_some_and(|record| record.incarnation == key.1)
+                            .is_some_and(|record| record.incarnation == key.1);
+                        if !active && let Some(StoreSlot::Opening(_, owners)) = stores.get_mut(&key)
+                        {
+                            owners.runtime = false;
+                        }
+                        let keep = active
                             || match stores
                                 .get(&key)
                                 .expect("original entry under the same map guard")
                             {
-                                StoreSlot::Opening(opening, historical) => {
-                                    *historical || Arc::strong_count(opening) > 1
+                                StoreSlot::Opening(opening, owners) => {
+                                    owners.retains_read() || Arc::strong_count(opening) > 1
                                 }
                                 StoreSlot::Ready(store) => {
                                     Arc::strong_count(store) > 1
@@ -533,19 +646,34 @@ impl LaneStores {
             let mut after = None;
             for _ in 0..count {
                 let next = {
-                    let stores = self.stores.lock();
+                    let mut stores = self.stores.lock();
                     let lower = after.map_or(std::ops::Bound::Unbounded, std::ops::Bound::Excluded);
-                    stores
+                    let key = stores
                         .range((lower, std::ops::Bound::Unbounded))
-                        .find_map(|(key, slot)| match slot {
-                            StoreSlot::Ready(store) => Some((*key, Arc::clone(store))),
+                        .next()
+                        .map(|(key, _)| *key);
+                    key.map(|key| {
+                        let slot = stores.get(&key).expect("selected under original map");
+                        let ready = match slot {
+                            StoreSlot::Ready(store) => Some(Arc::clone(store)),
                             StoreSlot::Opening(_, _) => None,
-                        })
+                        };
+                        let cancelled = matches!(slot, StoreSlot::Opening(opening, owners)
+                            if owners.cancelled_request_only() && Arc::strong_count(opening) == 1);
+                        let retired = if cancelled { stores.remove(&key) } else { None };
+                        (key, ready, retired)
+                    })
                 };
-                let Some((key, store)) = next else {
+                let Some((key, ready, retired)) = next else {
                     break;
                 };
                 after = Some(key);
+                // Cancelled recovery owns its lock, original schedule and paid prefix.
+                // Drop those only after the registry guard; no native operation runs here.
+                drop(retired);
+                let Some(store) = ready else {
+                    continue;
+                };
                 store.release_cancelled_reads();
                 let retired = {
                     let mut stores = self.stores.lock();
@@ -600,10 +728,32 @@ impl LaneBlockSource for LaneStores {
         request: &ProposalReadScope,
     ) -> Result<Option<CommittedLaneBlock>, Attempt<io::Error>> {
         request.require_pool(&self.budget)?;
-        self.runtime_store(lane, incarnation)?
+        self.request_store(lane, incarnation, request)?
             .proposal_batch(height, request)
     }
 
+    fn execution_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        request: &ProposalReadScope,
+    ) -> Result<Option<CommittedLaneBlock>, Attempt<io::Error>> {
+        self.request_store(lane, incarnation, request)?
+            .proposal_batch(height, request)
+    }
+    fn execution_wait_for(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        timeout: Duration,
+        request: &ProposalReadScope,
+    ) -> Result<bool, Attempt<io::Error>> {
+        Ok(self
+            .request_store(lane, incarnation, request)?
+            .wait_for(height, timeout))
+    }
     fn release_cancelled_proposal_reads(&self) {
         self.clean_cancelled_proposal_reads(true);
     }

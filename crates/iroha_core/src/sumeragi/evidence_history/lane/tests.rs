@@ -65,6 +65,28 @@ impl LaneBlockSource for OriginalFrames {
     > {
         self.block(lane, incarnation, height)
     }
+    fn execution_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        _request: &crate::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<
+        Option<CommittedLaneBlock>,
+        crate::execution_attempt::ExecutionAttemptError<std::io::Error>,
+    > {
+        self.block(lane, incarnation, height)
+    }
+    fn execution_wait_for(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        timeout: Duration,
+        _request: &crate::sumeragi::lanes::ProposalReadScope,
+    ) -> Result<bool, crate::execution_attempt::ExecutionAttemptError<std::io::Error>> {
+        self.wait_for(lane, incarnation, height, timeout)
+    }
     fn release_cancelled_proposal_reads(&self) {}
     fn wait_for(
         &self,

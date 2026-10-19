@@ -160,6 +160,7 @@ fn assert_proposed_source(fixture: &Fixture, expected: &TransactionEntrypoint) {
         &proposal,
         &*fixture.stores,
         Duration::ZERO,
+        &mut crate::sumeragi::lanes::ProposalReadScope::new(),
     )
     .unwrap();
     assert!(
@@ -429,11 +430,33 @@ fn funded_merge_index_refuses_one_short_retries_same_source_and_releases_after_s
             Option<CommittedLaneBlock>,
             crate::execution_attempt::ExecutionAttemptError<std::io::Error>,
         > {
-            let block = self
-                .source_refunds
-                .lock()
-                .unwrap()
-                .with_scope(|_| self.stores.block(lane, incarnation, height))?;
+            self.stores.block(lane, incarnation, height)
+        }
+        fn execution_wait_for(
+            &self,
+            lane: LaneId,
+            incarnation: &[u8; 32],
+            height: u64,
+            timeout: Duration,
+            request: &crate::sumeragi::lanes::ProposalReadScope,
+        ) -> Result<bool, crate::execution_attempt::ExecutionAttemptError<std::io::Error>> {
+            self.stores
+                .execution_wait_for(lane, incarnation, height, timeout, request)
+        }
+        fn execution_block(
+            &self,
+            lane: LaneId,
+            incarnation: &[u8; 32],
+            height: u64,
+            request: &crate::sumeragi::lanes::ProposalReadScope,
+        ) -> Result<
+            Option<CommittedLaneBlock>,
+            crate::execution_attempt::ExecutionAttemptError<std::io::Error>,
+        > {
+            let block = self.source_refunds.lock().unwrap().with_scope(|_| {
+                self.stores
+                    .execution_block(lane, incarnation, height, request)
+            })?;
             assert!(
                 block.is_some(),
                 "the actual certified lane source is available"
@@ -501,12 +524,20 @@ fn funded_merge_index_refuses_one_short_retries_same_source_and_releases_after_s
             &proposal,
             &*fixture.stores,
             Duration::ZERO,
+            &mut crate::sumeragi::lanes::ProposalReadScope::new(),
         )
         .unwrap(),
     );
     let budget = fixture.chain.state().ivm_execution_budget();
     let mut registration = crate::unit_test_support::release_registration(&budget);
     let mut failure_registration = crate::unit_test_support::release_registration(&budget);
+    let before_request = budget.reserved_bytes();
+    let mut request = crate::sumeragi::lanes::ProposalReadScope::new();
+    request.admit(&budget).unwrap();
+    assert_eq!(
+        budget.reserved_bytes(),
+        before_request + crate::sumeragi::lanes::ProposalReadScope::admission_bytes()
+    );
     let before = budget.reserved_bytes();
     let ceiling = budget.limit_bytes();
     let count = proposal.external_entrypoints_slice().len() + 1;
@@ -533,6 +564,7 @@ fn funded_merge_index_refuses_one_short_retries_same_source_and_releases_after_s
         &proposal,
         &failure_source,
         Duration::ZERO,
+        &mut request,
     )
     .expect_err("one byte short must refuse actual merge scratch");
     let MergeError::ResourceDeferred(original_refusal) = error else {
@@ -585,7 +617,14 @@ fn funded_merge_index_refuses_one_short_retries_same_source_and_releases_after_s
         source_refunds: std::sync::Mutex::new(budget.deferred_refund_batch()),
         reads: AtomicUsize::new(0),
     };
-    let expansion = expand(fixture.chain.state(), &proposal, &source, Duration::ZERO).unwrap();
+    let expansion = expand(
+        fixture.chain.state(),
+        &proposal,
+        &source,
+        Duration::ZERO,
+        &mut request,
+    )
+    .unwrap();
     assert_eq!(source.reads.load(Ordering::SeqCst), 1);
     assert_eq!(expansion.entrypoints, vec![commitment]);
     assert_eq!(expansion.source, proposal.hash());
@@ -602,6 +641,8 @@ fn funded_merge_index_refuses_one_short_retries_same_source_and_releases_after_s
     );
     drop(expansion);
     drop(source);
+    drop(request);
+    assert_eq!(budget.reserved_bytes(), before_request);
     budget.set_limit_bytes(ceiling);
     fixture.chain.commit(Vec::new());
     assert_eq!(fixture.record().merged.height, 1);

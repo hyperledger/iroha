@@ -154,9 +154,12 @@ impl StartupRecoveryObservation<'_> {
             let Some(stores) = self.stores.stores.try_lock() else {
                 return false;
             };
-            let Some(StoreSlot::Opening(opening, false)) = stores.get(&self.starting) else {
+            let Some(StoreSlot::Opening(opening, owners)) = stores.get(&self.starting) else {
                 return false;
             };
+            if owners.historical || !owners.runtime {
+                return false;
+            }
             Arc::clone(opening)
         };
         let busy = opening.instance == self.instance && opening.progress.try_lock().is_none();

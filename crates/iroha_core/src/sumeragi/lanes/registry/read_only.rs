@@ -4,6 +4,7 @@ use super::*;
 use crate::sumeragi::lanes::store::{BatchRead, LaneFrameRead};
 
 struct SelectedRead {
+    interest: ReadInterest,
     lane: LaneId,
     incarnation: [u8; 32],
     height: u64,
@@ -37,13 +38,27 @@ struct OriginalRead<'a> {
 
 impl Drop for OriginalRead<'_> {
     fn drop(&mut self) {
-        let previous = {
+        let (previous, cancelled) = {
             let mut slot = self.slot.lock();
-            std::mem::replace(&mut *slot, ReadSlot::Available(self.selected.take()))
+            // Cancellation and parking share this bookkeeping mutex. Native I/O and
+            // final destruction never hold it, so an InFlight cancellation cannot be lost.
+            let cancelled = if !cfg!(all(test, sumeragi_core_mutation = "HC437"))
+                && self
+                    .selected
+                    .as_ref()
+                    .is_some_and(|read| read.interest.cancelled())
+            {
+                self.selected.take()
+            } else {
+                None
+            };
+            let previous = std::mem::replace(&mut *slot, ReadSlot::Available(self.selected.take()));
+            (previous, cancelled)
         };
         // Any unexpected displaced owner still drops after the actual mutex guard.
         debug_assert!(matches!(previous, ReadSlot::InFlight));
         drop(previous);
+        drop(cancelled);
     }
 }
 
@@ -107,6 +122,7 @@ impl LaneFrameSource {
         lane: LaneId,
         incarnation: &[u8; 32],
         height: u64,
+        requested: &ReadInterest,
     ) -> Result<(), Attempt<io::Error>> {
         if height == 0 {
             return Err(
@@ -114,6 +130,8 @@ impl LaneFrameSource {
             );
         }
         if let Some(original) = slot.as_mut() {
+            let same_height = original.matches(lane, incarnation, height);
+            original.interest.join(requested, same_height)?;
             // A different request cannot discard an unfinished paid source. Finish
             // its exact canonical decoding first; reject corruption before switching.
             original.authenticate()?;
@@ -158,6 +176,7 @@ impl LaneFrameSource {
             authority.schedule,
         )?;
         *slot = Some(SelectedRead {
+            interest: requested.clone(),
             lane,
             incarnation: *incarnation,
             height,
@@ -178,25 +197,25 @@ impl LaneFrameSource {
         result
     }
 }
-impl LaneBlockSource for LaneFrameSource {
-    fn tip(&self, _: LaneId, _: &[u8; 32]) -> Result<Option<u64>, Attempt<io::Error>> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "read-only replay has no proposal-selection tip authority",
-        )
-        .into())
-    }
-    fn block(
+impl LaneFrameSource {
+    fn block_with_interest(
         &self,
         lane: LaneId,
         incarnation: &[u8; 32],
         height: u64,
+        requested: ReadInterest,
     ) -> Result<Option<CommittedLaneBlock>, Attempt<io::Error>> {
         self.budget.with_deferred_refund_notifications(|_| {
             let mut original_read = self.original_read()?;
             #[cfg(all(test, sumeragi_core_mutation = "HC402"))]
             let _held_read_mutex = self.read.lock();
-            self.selected(&mut original_read.selected, lane, incarnation, height)?;
+            self.selected(
+                &mut original_read.selected,
+                lane,
+                incarnation,
+                height,
+                &requested,
+            )?;
             let original = original_read
                 .selected
                 .as_ref()
@@ -215,6 +234,47 @@ impl LaneBlockSource for LaneFrameSource {
             Ok(Some(result))
         })
     }
+    fn wait_with_interest(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        requested: ReadInterest,
+    ) -> Result<bool, Attempt<io::Error>> {
+        // One finite read attempt. The enclosing original replay/producer owns
+        // scheduling and the absolute deadline; this reader never sleeps or spins.
+        self.budget.with_deferred_refund_notifications(|_| {
+            let mut original_read = self.original_read()?;
+            #[cfg(all(test, sumeragi_core_mutation = "HC402"))]
+            let _held_read_mutex = self.read.lock();
+            self.selected(
+                &mut original_read.selected,
+                lane,
+                incarnation,
+                height,
+                &requested,
+            )
+            .map(|()| true)
+        })
+    }
+}
+
+impl LaneBlockSource for LaneFrameSource {
+    fn tip(&self, _: LaneId, _: &[u8; 32]) -> Result<Option<u64>, Attempt<io::Error>> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "read-only replay has no proposal-selection tip authority",
+        )
+        .into())
+    }
+    fn block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+    ) -> Result<Option<CommittedLaneBlock>, Attempt<io::Error>> {
+        self.block_with_interest(lane, incarnation, height, ReadInterest::Historical)
+    }
     fn proposal_block(
         &self,
         _: LaneId,
@@ -228,7 +288,56 @@ impl LaneBlockSource for LaneFrameSource {
         )
         .into())
     }
-    fn release_cancelled_proposal_reads(&self) {}
+    fn execution_block(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        request: &ProposalReadScope,
+    ) -> Result<Option<CommittedLaneBlock>, Attempt<io::Error>> {
+        self.block_with_interest(
+            lane,
+            incarnation,
+            height,
+            ReadInterest::proposal(request, &self.budget)?,
+        )
+    }
+    fn execution_wait_for(
+        &self,
+        lane: LaneId,
+        incarnation: &[u8; 32],
+        height: u64,
+        _: Duration,
+        request: &ProposalReadScope,
+    ) -> Result<bool, Attempt<io::Error>> {
+        self.wait_with_interest(
+            lane,
+            incarnation,
+            height,
+            ReadInterest::proposal(request, &self.budget)?,
+        )
+    }
+    fn release_cancelled_proposal_reads(&self) {
+        self.budget.with_deferred_refund_notifications(|_| {
+            let cancelled = {
+                // This is only the Available/InFlight handoff, never the physical read.
+                // Serialize with parking so cancellation cannot miss its final transfer.
+                let mut slot = self.read.lock();
+                match &mut *slot {
+                    ReadSlot::Available(original)
+                        if original
+                            .as_ref()
+                            .is_some_and(|read| read.interest.cancelled()) =>
+                    {
+                        original.take()
+                    }
+                    // An active original owner performs this same cleanup before returning.
+                    ReadSlot::Available(_) | ReadSlot::InFlight => None,
+                }
+            };
+            drop(cancelled);
+        });
+    }
     fn wait_for(
         &self,
         lane: LaneId,
@@ -236,15 +345,7 @@ impl LaneBlockSource for LaneFrameSource {
         height: u64,
         _: Duration,
     ) -> Result<bool, Attempt<io::Error>> {
-        // One finite read attempt. The enclosing original replay/producer owns
-        // scheduling and the absolute deadline; this reader never sleeps or spins.
-        self.budget.with_deferred_refund_notifications(|_| {
-            let mut original_read = self.original_read()?;
-            #[cfg(all(test, sumeragi_core_mutation = "HC402"))]
-            let _held_read_mutex = self.read.lock();
-            self.selected(&mut original_read.selected, lane, incarnation, height)
-                .map(|()| true)
-        })
+        self.wait_with_interest(lane, incarnation, height, ReadInterest::Historical)
     }
 }
 
