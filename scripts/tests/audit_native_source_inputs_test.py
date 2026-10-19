@@ -1,5 +1,7 @@
 """Native source containment failure controls; no mocked build qualifies an artifact."""
+import io
 import json
+import tarfile
 from pathlib import Path
 import subprocess
 import sys
@@ -384,3 +386,188 @@ def test_native_mapping_failure_prevents_a_passing_audit_output(selected, monkey
                     selected.args.output.parent / 'source-snapshot',
                     selected.digest, selected.digest, selected.watched, [{'event': {}}])
     assert not selected.args.output.exists()
+
+
+@pytest.fixture
+def kotodama_generator(selected):
+    root = selected.root / 'crates/kotodama_lang'
+    # Explicit expected originals: do not derive the fixture from the allowlist.
+    originals = ['Cargo.toml', 'build.rs', 'grammar/v1.lex',
+                 'src/i18n/translations/messages.v1.tsv',
+                 'src/assets/diagnostics_v1/diagnostic_explanations_v1.tsv',
+                 'src/assets/diagnostics_v1/compile_fail_cases_v1.tsv',
+                 'src/assets/diagnostics_v1/secret_reject_cases_v1.tsv']
+    for name in originals:
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('canonical original: ' + name)
+        selected.watched.add(path)
+    out = selected.root / 'target/debug/build/kotodama_lang-1234abcd/out'
+    out.mkdir(parents=True)
+    outputs = [out / name for name in ('kotodama_diagnostic_explanations.rs',
+               'kotodama_i18n_v1_offsets.bin', 'kotodama_v1_lexical.rs')]
+    for path in outputs:
+        path.write_bytes(('actual generated fixture: ' + path.name).encode())
+    package = 'path+file://' + str(root) + '#2.0.0-rc.2.0'
+    events = [
+        {'reason': 'build-script-executed', 'package_id': package,
+         'out_dir': str(out), 'cfgs': [], 'env': []},
+        {'reason': 'compiler-artifact', 'package_id': package,
+         'target': {'kind': ['custom-build'], 'src_path': str(root / 'build.rs')},
+         'manifest_path': str(root / 'Cargo.toml'), 'features': [], 'filenames': []},
+    ]
+    selected.build_output.write_text(''.join('cargo:rerun-if-changed=' + str(p) + '\n'
+        for p in sorted(selected.watched | {selected.watcher})))
+    selected.depfile.write_text(selected.depfile.read_text().rstrip() + ' '
+                               + ' '.join(map(str, outputs)) + '\n')
+    return SimpleNamespace(root=root, originals=originals, out=out,
+                           outputs=outputs, events=events)
+
+
+def test_kotodama_exact_outputs_bind_all_generator_originals(selected, kotodama_generator):
+    item = kotodama_generator
+    selected.run(item.events)
+    result = json.loads(selected.args.output.read_text())
+    assert result['passed'] and result['omittedCanonicalInputs'] == []
+    records = result['canonicalGeneratedInputs']
+    assert {Path(row['path']) for row in records} == set(item.outputs)
+    for row in records:
+        assert row['sha256'] == audit.sha(Path(row['path']))
+        assert {Path(value['path']) for value in row['maintainedGeneratorInputs']} == {
+            item.root / name for name in item.originals}
+    assert result['externalDependencyGeneratedInputs'] == []
+
+
+@pytest.mark.parametrize('missing', [
+    'Cargo.toml', 'build.rs', 'grammar/v1.lex', 'src/i18n/translations/messages.v1.tsv',
+    'src/assets/diagnostics_v1/diagnostic_explanations_v1.tsv',
+    'src/assets/diagnostics_v1/compile_fail_cases_v1.tsv',
+    'src/assets/diagnostics_v1/secret_reject_cases_v1.tsv',
+])
+def test_kotodama_cannot_admit_output_without_each_original(selected, kotodama_generator, missing):
+    selected.watched.remove(kotodama_generator.root / missing)
+    with pytest.raises(ValueError, match='generator input omitted'):
+        audit.canonical_generated_inputs(kotodama_generator.events, selected.watched)
+
+
+@pytest.mark.parametrize('change', ['missing-builder', 'wrong-builder', 'wrong-out-dir',
+                                  'missing-output', 'symlink-output'])
+def test_kotodama_requires_exact_selected_producer_and_regular_output(
+        selected, kotodama_generator, tmp_path, change):
+    item = kotodama_generator
+    if change == 'missing-builder':
+        item.events.pop()
+    elif change == 'wrong-builder':
+        wrong = item.root / 'other.rs'; wrong.write_text('different producer')
+        item.events[1]['target']['src_path'] = str(wrong)
+    elif change == 'wrong-out-dir':
+        item.events[0]['out_dir'] = str(item.root)
+    else:
+        item.outputs[0].unlink()
+        if change == 'symlink-output':
+            external = tmp_path / 'other.rs'; external.write_text('outside')
+            item.outputs[0].symlink_to(external)
+    with pytest.raises(ValueError):
+        audit.canonical_generated_inputs(item.events, selected.watched)
+
+
+def test_kotodama_does_not_admit_other_files_in_same_out_dir(selected, kotodama_generator):
+    unexpected = kotodama_generator.out / 'unreviewed.rs'
+    unexpected.write_text('not one of the three selected generated inputs')
+    selected.depfile.write_text(selected.depfile.read_text().rstrip() + ' ' + str(unexpected) + '\n')
+    with pytest.raises(SystemExit, match='1'):
+        selected.run(kotodama_generator.events)
+    assert json.loads(selected.args.output.read_text())['omittedCanonicalInputs'] == [str(unexpected)]
+
+
+def test_kotodama_generated_output_cannot_change_during_audit(selected, kotodama_generator, monkeypatch):
+    def changed(_tool):
+        kotodama_generator.outputs[0].write_text('changed during audit')
+        return selected.digest, selected.watched
+    monkeypatch.setattr(audit, 'actual_snapshot', changed)
+    with pytest.raises(ValueError, match='generated output changed during audit'):
+        selected.run(kotodama_generator.events)
+    assert not selected.args.output.exists()
+
+
+@pytest.fixture
+def oid_generator(selected, tmp_path):
+    root = tmp_path / 'cargo/registry/src/index-fixture/oid-registry-0.8.1'
+    originals = ['Cargo.toml', 'build.rs', 'src/load.rs', 'assets/oid_db.txt']
+    archive = root.parents[2] / 'cache/index-fixture/oid-registry-0.8.1.crate'
+    archive.parent.mkdir(parents=True)
+    with tarfile.open(archive, 'w:gz') as package:
+        for name in originals:
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            data = ('pinned registry original: ' + name).encode()
+            path.write_bytes(data)
+            info = tarfile.TarInfo('oid-registry-0.8.1/' + name); info.size = len(data)
+            package.addfile(info, io.BytesIO(data))
+    checksum = audit.sha(archive)
+    (selected.root / 'Cargo.lock').write_text('[[package]]\nname = "oid-registry"\n'
+        'version = "0.8.1"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\n'
+        'checksum = "' + checksum + '"\n')
+    out = selected.root / 'target/debug/build/oid-registry-1234abcd/out'
+    out.mkdir(parents=True)
+    output = out / 'oid_db.rs'; output.write_text('actual generated OID fixture')
+    package = 'registry+https://github.com/rust-lang/crates.io-index#oid-registry@0.8.1'
+    events = [
+        {'reason': 'build-script-executed', 'package_id': package,
+         'out_dir': str(out), 'cfgs': [], 'env': []},
+        {'reason': 'compiler-artifact', 'package_id': package,
+         'target': {'kind': ['custom-build'], 'src_path': str(root / 'build.rs')},
+         'manifest_path': str(root / 'Cargo.toml'), 'features': ['registry'], 'filenames': []},
+    ]
+    selected.depfile.write_text(selected.depfile.read_text().rstrip() + ' ' + str(output) + '\n')
+    return SimpleNamespace(root=root, originals=originals, archive=archive,
+                           output=output, events=events, checksum=checksum)
+
+
+def test_oid_output_binds_exact_archive_build_include_and_data(selected, oid_generator):
+    item = oid_generator
+    selected.run(item.events)
+    result = json.loads(selected.args.output.read_text())
+    assert result['passed'] and result['omittedCanonicalInputs'] == []
+    [record] = result['externalDependencyGeneratedInputs']
+    assert record['path'] == str(item.output)
+    assert record['sha256'] == audit.sha(item.output)
+    assert record['cargoLockChecksum'] == record['registryArchiveSha256'] == item.checksum
+    assert {Path(row['path']) for row in record['maintainedGeneratorInputs']} == {
+        item.root / name for name in item.originals}
+    assert result['canonicalGeneratedInputs'] == []
+
+
+@pytest.mark.parametrize('changed', ['Cargo.toml', 'build.rs', 'src/load.rs', 'assets/oid_db.txt'])
+def test_oid_cannot_borrow_archive_for_changed_generator_original(oid_generator, changed):
+    (oid_generator.root / changed).write_text('changed since pinned archive')
+    with pytest.raises(ValueError, match='differs from pinned registry archive'):
+        audit.external_generated_inputs(oid_generator.events)
+
+
+@pytest.mark.parametrize('change', ['checksum', 'version', 'missing-builder', 'missing-output', 'symlink-output'])
+def test_oid_requires_pinned_version_archive_producer_and_output(selected, oid_generator, tmp_path, change):
+    item = oid_generator
+    if change == 'checksum':
+        path = selected.root / 'Cargo.lock'
+        path.write_text(path.read_text().replace(item.checksum, '00' * 32))
+    elif change == 'version':
+        item.events[0]['package_id'] = item.events[0]['package_id'].replace('@0.8.1', '@0.8.2')
+    elif change == 'missing-builder':
+        item.events.pop()
+    else:
+        item.output.unlink()
+        if change == 'symlink-output':
+            external = tmp_path / 'other.rs'; external.write_text('outside')
+            item.output.symlink_to(external)
+    with pytest.raises(ValueError):
+        audit.external_generated_inputs(item.events)
+
+
+def test_oid_does_not_admit_other_files_in_same_out_dir(selected, oid_generator):
+    unexpected = oid_generator.output.with_name('unreviewed.rs')
+    unexpected.write_text('not the selected OID output')
+    selected.depfile.write_text(selected.depfile.read_text().rstrip() + ' ' + str(unexpected) + '\n')
+    with pytest.raises(SystemExit, match='1'):
+        selected.run(oid_generator.events)
+    assert json.loads(selected.args.output.read_text())['omittedCanonicalInputs'] == [str(unexpected)]

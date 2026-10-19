@@ -37,7 +37,7 @@ use iroha_plonk_gadgets::{
     UintChip,
     bytes::{
         element::le_message_segments,
-        le_value, p_bytes_native,
+        le_value,
         tape::{BytesChip, BytesConfig, SegmentSpec},
     },
     imt::{LeafCells, OpeningCells, PathCells},
@@ -66,7 +66,10 @@ use crate::{
     admin_sigma::{ConsumingWitness, StateWitness},
     omega::OmegaWitness,
     operation_relation::{
-        map_effects::InsertCells, objects::ObjectKind, state::StateCells, statement::StatementCells,
+        map_effects::InsertCells,
+        objects::{ObjectKind, signed_message_native},
+        state::StateCells,
+        statement::StatementCells,
     },
     q_signature::{QSignaturePlan, SignatureKey},
     tree::IndexedInsert,
@@ -2531,7 +2534,7 @@ fn object_digest(kind: ObjectKind, bytes: &[u8]) -> Result<Fp, Error> {
     if bytes.len() != end + 64 {
         return Err(Error::Input);
     }
-    let mut words = vec![p_bytes_native(kind.signing_domain(), &bytes[..end])];
+    let mut words = vec![signed_message_native(kind, &bytes[..end])];
     for offset in [16, 0, 48, 32] {
         words.push(Fp::from_u128(u128::from_be_bytes(
             bytes[end + offset..end + offset + 16]

@@ -214,21 +214,39 @@ fn word(bytes: [u8; 32]) -> Result<Fp, Error> {
     fields::<1>(vec![bytes]).map(|words| words[0])
 }
 
+/// One completed Request original, verified under `scheme`.
 fn request(
     original: &[u8],
     scheme: &KagemushaWalletSchemeV1,
 ) -> Result<KagemushaWalletRequestV1, Error> {
+    let request = decode_request(original)?;
+    authority(request.verify(scheme))?;
+    Ok(request)
+}
+
+/// The receiver's Request completed for `payer` at `send_ordinal`: an open Request is completed,
+/// a completed one must already be exactly that completion.
+fn payer_request(
+    original: &[u8],
+    scheme: &KagemushaWalletSchemeV1,
+    payer: &KagemushaWalletCredentialV1,
+    send_ordinal: u128,
+) -> Result<KagemushaWalletRequestV1, Error> {
+    let request = authority(decode_request(original)?.complete(payer, send_ordinal))?;
+    authority(request.verify(scheme))?;
+    Ok(request)
+}
+
+fn decode_request(original: &[u8]) -> Result<KagemushaWalletRequestV1, Error> {
     if original.is_empty() || original.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
         return Err(Error::Authority);
     }
-    let request: KagemushaWalletRequestV1 = read_original(|| {
+    read_original(|| {
         norito::decode_canonical_with_limits(
             original,
             norito::canonical_decode_limits(original.len()),
         )
-    })?;
-    authority(request.verify(scheme))?;
-    Ok(request)
+    })
 }
 
 fn request_fields(body: &KagemushaWalletRequestBodyV1) -> Result<RequestBody, Error> {
@@ -568,7 +586,12 @@ impl PreparationV1<'_> {
         {
             return Err(Error::Authority);
         }
-        let request = request(request_original, self.installed.verifier().scheme())?;
+        let request = payer_request(
+            request_original,
+            self.installed.verifier().scheme(),
+            &owner.credential,
+            predecessor.source_state.core.next_send,
+        )?;
         let check = authority(request.check_send(&KagemushaWalletSendInputsV1 {
             payer_credential: &owner.credential,
             payer_state: &predecessor.source_state,
@@ -666,8 +689,10 @@ impl PreparationV1<'_> {
             witness,
             state,
             statement,
+            // The completed Request, whatever form the caller passed: the Send capsule, its
+            // Archive and every fold retain this payer's completion.
+            request_original: norito::encode_canonical(&request).map_err(|_| Error::Authority)?,
             request,
-            request_original: request_original.to_vec(),
             payment_original: None,
             maps: native_maps,
             send_fee_witness: Some(fee_witness),

@@ -436,11 +436,7 @@ impl Status {
 }
 fn status() -> Status {
     let j = fixture();
-    let mut request = cases()
-        .into_iter()
-        .find(|(c, ..)| c.kind == ObjectKind::Request)
-        .expect("Request")
-        .0;
+    let mut request = completed_request();
     let mut receiver = credential();
     receiver.bytes[66..130].copy_from_slice(&request.bytes[130..194]);
     let receiver_digest = receiver.public(Fp::ZERO)[1];

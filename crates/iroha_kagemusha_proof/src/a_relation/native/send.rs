@@ -40,7 +40,7 @@ use iroha_plonk_gadgets::{
     UintChip,
     bytes::{
         element::le_message_segments,
-        le_value, p_bytes_native,
+        le_value,
         tape::{BytesChip, BytesConfig, SegmentSpec},
     },
     imt::{LeafCells, OpeningCells, PathCells},
@@ -74,7 +74,7 @@ use crate::{
     omega::OmegaWitness,
     operation_relation::{
         map_effects::{InsertCells, MapState},
-        objects::ObjectKind,
+        objects::{ObjectKind, signed_message_native},
         state::StateCells,
         statement::StatementCells,
     },
@@ -2735,6 +2735,16 @@ fn check_object_tapes(input: &Inputs, policy: OwnPolicy) -> Result<(), Error> {
     {
         return Err(Error::Input);
     }
+    // The receiver signs only the Request terms, so its digest leaves the payer
+    // fields to `bind_send`: payer wallet and account are the credential's (the
+    // same offsets in both bodies) and the send ordinal is the statement's. Terms
+    // enter the digest as canonical words; the fee schedule is checked below.
+    if request[66..130] != credential[66..130] || le(request, 194, 16)? != statement[20] {
+        return Err(Error::Input);
+    }
+    for offset in [210, 314, 354] {
+        le(request, offset, 32)?;
+    }
     let held = before.rest[rest_index::FEE_SCHEDULE];
     if le(request, 258, 32)? != held
         || (held != Fp::ZERO
@@ -2816,7 +2826,7 @@ fn object_digest(kind: ObjectKind, bytes: &[u8]) -> Result<Fp, Error> {
     if bytes.len() != end + 64 {
         return Err(Error::Input);
     }
-    let mut words = vec![p_bytes_native(kind.signing_domain(), &bytes[..end])];
+    let mut words = vec![signed_message_native(kind, &bytes[..end])];
     for offset in [16, 0, 48, 32] {
         words.push(Fp::from_u128(u128::from_be_bytes(
             bytes[end + offset..end + offset + 16]

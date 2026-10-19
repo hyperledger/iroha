@@ -270,7 +270,7 @@ impl IssuedRequestCustodyV1 {
             store.read_staged_object(&self.request, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?;
         let request: KagemushaWalletRequestV1 = archive::decode(&bytes)?;
         request
-            .validate()
+            .validate_open()
             .map_err(|_| Error::WitnessLost("issued Request encoding or signature"))?;
         if request.request_digest() != *digest
             || request.body.scheme_id != *scheme

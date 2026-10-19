@@ -21,7 +21,7 @@
 //! tree, the statement digest, the object digests of the signed objects, the certificate-set,
 //! package, operation and nullifier digests, and (packed-byte `P_bytes`) `proof_digest`, the
 //! Payment digest, the lineage, credit-opening, credit-status and credited digests and every
-//! signing message. The
+//! signing message but the Request's, which hashes its 19 terms elements. The
 //! remaining digests (`scheme_id`, the enrollment-fixed identities, the enrollment and renewal
 //! attestation transcripts, `account`, the artifact digests, the evidence digest, the output
 //! descriptor and the local custody records) are
@@ -35,7 +35,9 @@
 //! followed by a zero-filled union. A reference to a signer certificate is its 32-byte
 //! certificate digest. Every P-256 signature signs the 32-byte signing message
 //! `m = P_bytes(d, transcript)` of its body's signing domain `d` with ECDSA-P256-SHA256 (owner
-//! answer A1); the signer output is normalized to low S and verified before it is frozen into an
+//! answer A1), except the Request, whose `m = P(kgwrqst2, terms)` leaves out the payer fields a
+//! payer completes after the receiver signed; the signer output is normalized to low S and
+//! verified before it is frozen into an
 //! object. Verifiers recompute `m`, reject high-S signatures and never rewrite received bytes.
 //! The digest of a signed object is `P(d_obj, [m, r_lo, r_hi, s_lo, s_hi])` over the numeric
 //! 128-bit halves of `r` and `s`; only the artifact manifest keeps
@@ -49,7 +51,7 @@
 //! This preserves the same 8-byte padding on `armv7`, `aarch64` and `x86_64`, independently
 //! of the target's primitive `u128` alignment. A `u128` reached only through indirect
 //! Vec-backed storage adds no top-level padding; inline fixed arrays inherit their
-//! elements' alignment. The 26 standalone frame padding values and retained Request,
+//! elements' alignment. The 30 standalone frame padding values and retained Request,
 //! Lineage, state and statement alignment are asserted at compile time in `frame_alignment`.
 //! Payload fields, schemas, flags and existing canonical vectors are unchanged; actual
 //! native runtime and physical-device qualification remain separate.
@@ -116,13 +118,15 @@ pub use self::{
     },
     digest::{
         KAGEMUSHA_WALLET_DIGEST_PREFIX_V1, KAGEMUSHA_WALLET_FIELD_MODULUS_V1,
+        KAGEMUSHA_WALLET_REQUEST_TERMS_FIELD_ITEMS_V1,
         KAGEMUSHA_WALLET_SIGNED_OBJECT_TRANSCRIPT_BYTES_V1, KagemushaWalletDigestRoleV1,
         KagemushaWalletObjectDigestDomainV1, KagemushaWalletSignerOutputV1,
         KagemushaWalletSigningDomainV1, kagemusha_wallet_artifact_manifest_digest_v1,
         kagemusha_wallet_digest_v1, kagemusha_wallet_field_from_u128_v1,
         kagemusha_wallet_freeze_signature_v1, kagemusha_wallet_is_canonical_field_v1,
-        kagemusha_wallet_signed_object_digest_v1, kagemusha_wallet_signed_object_items_v1,
-        kagemusha_wallet_signing_message_v1, kagemusha_wallet_verify_signature_v1,
+        kagemusha_wallet_request_terms_items_v1, kagemusha_wallet_signed_object_digest_v1,
+        kagemusha_wallet_signed_object_items_v1, kagemusha_wallet_signing_message_v1,
+        kagemusha_wallet_verify_signature_v1,
     },
     enrollment_policy::{
         KAGEMUSHA_WALLET_ANDROID_ADAPTER_ID_MAX_BYTES_V1, KAGEMUSHA_WALLET_ANDROID_ROOTS_MAX_V1,
@@ -215,23 +219,22 @@ pub use self::{
         KAGEMUSHA_WALLET_CREDIT_OPENING_TRANSCRIPT_BYTES_V1,
         KAGEMUSHA_WALLET_CREDIT_STATUS_TRANSCRIPT_BYTES_V1,
         KAGEMUSHA_WALLET_CREDITED_TRANSCRIPT_BYTES_V1,
-        KAGEMUSHA_WALLET_OFFER_BODY_TRANSCRIPT_BYTES_V1,
+        KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1,
         KAGEMUSHA_WALLET_PAYMENT_TRANSCRIPT_BYTES_V1, KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1,
         KAGEMUSHA_WALLET_REQUEST_BODY_TRANSCRIPT_BYTES_V1,
         KAGEMUSHA_WALLET_SESSION_CONTROL_BODY_TRANSCRIPT_BYTES_V1,
         KAGEMUSHA_WALLET_SESSION_CONTROL_UNION_BYTES_V1, KagemushaWalletCreditOpeningV1,
         KagemushaWalletCreditStatusV1, KagemushaWalletCreditedEvidenceV1,
         KagemushaWalletCreditedV1, KagemushaWalletDeliveryStatusV1, KagemushaWalletEnvelopeV1,
-        KagemushaWalletFeeScheduleSlotV1, KagemushaWalletLineageMessageV1,
-        KagemushaWalletMessageV1, KagemushaWalletOfferBodyV1, KagemushaWalletOfferV1,
-        KagemushaWalletPaymentDigestsV1, KagemushaWalletPaymentRequestV1, KagemushaWalletPaymentV1,
-        KagemushaWalletPolicyDataItemV1, KagemushaWalletPolicyDataV1,
-        KagemushaWalletReceivePreparationV1, KagemushaWalletRequestBodyV1,
-        KagemushaWalletRequestV1, KagemushaWalletSendCheckV1, KagemushaWalletSendInputsV1,
-        KagemushaWalletSessionAuthV1, KagemushaWalletSessionControlKindV1,
-        KagemushaWalletSessionControlV1, KagemushaWalletSignedRequestV1,
-        kagemusha_wallet_payment_transcript_v1, kagemusha_wallet_text_decode_v1,
-        kagemusha_wallet_text_encode_v1,
+        KagemushaWalletFeeScheduleSlotV1, KagemushaWalletMessageV1,
+        KagemushaWalletPayerCompanionV1, KagemushaWalletPaymentDigestsV1,
+        KagemushaWalletPaymentRequestV1, KagemushaWalletPaymentV1, KagemushaWalletPolicyDataItemV1,
+        KagemushaWalletPolicyDataV1, KagemushaWalletReceivePreparationV1,
+        KagemushaWalletRequestBodyV1, KagemushaWalletRequestV1, KagemushaWalletSendCheckV1,
+        KagemushaWalletSendInputsV1, KagemushaWalletSessionAuthV1,
+        KagemushaWalletSessionControlKindV1, KagemushaWalletSessionControlV1,
+        KagemushaWalletSignedRequestV1, kagemusha_wallet_payment_transcript_v1,
+        kagemusha_wallet_text_decode_v1, kagemusha_wallet_text_encode_v1,
     },
     policy::{
         KAGEMUSHA_WALLET_BLACKLIST_BODY_TRANSCRIPT_BYTES_V1,
@@ -333,10 +336,10 @@ pub const KAGEMUSHA_WALLET_VERSION_V1: u16 = 1;
 /// Text transport discriminator: `kgm1:` followed by unpadded base64url of one canonical
 /// envelope frame (§8).
 pub const KAGEMUSHA_WALLET_TEXT_PREFIX_V1: &str = "kgm1:";
-/// Maximum complete canonical envelope frame for Offer and `SessionControl` (§8).
+/// Maximum complete canonical envelope frame for `SessionControl` (§8).
 pub const KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1: usize = 2_048;
-/// Maximum complete canonical envelope frame for Request, Payment, Credited, `PolicyData` and
-/// Lineage (§8, R9).
+/// Maximum complete canonical envelope frame for Request, Payment, Credited and `PolicyData`
+/// (§8, R9).
 pub const KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1: usize = 10_000;
 /// Maximum complete `kgm1:` text for a session-bounded envelope.
 pub const KAGEMUSHA_WALLET_SESSION_TEXT_MAX_BYTES_V1: usize =

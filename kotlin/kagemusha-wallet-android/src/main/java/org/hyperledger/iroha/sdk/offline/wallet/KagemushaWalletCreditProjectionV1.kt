@@ -6,7 +6,8 @@ import java.nio.ByteOrder
 /** Native-authenticated state of one exact credit. These observations grant no operation permission. */
 class KagemushaWalletCreditProjectionV1 internal constructor(value: KagemushaWalletCallV1) {
     enum class Evidence { UNFOLDED, CREDITED, BURNED }
-    enum class Archive { RECEIVER, AWAITING_FOLD, REMOVED, RETAINED }
+    /** NOT_ARCHIVED: Native verified this receipt for the payer's Send; its Archive has not completed. */
+    enum class Archive { RECEIVER, AWAITING_FOLD, REMOVED, RETAINED, NOT_ARCHIVED }
     val evidence: Evidence
     val archive: Archive
     val corePending: Boolean
@@ -23,7 +24,10 @@ class KagemushaWalletCreditProjectionV1 internal constructor(value: KagemushaWal
         val input = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
         if (input.short.toInt() != 1) invalid()
         evidence = when (input.get().toInt()) { 1 -> Evidence.UNFOLDED; 2 -> Evidence.CREDITED; 3 -> Evidence.BURNED; else -> invalid() }
-        archive = when (input.get().toInt()) { 0 -> Archive.RECEIVER; 1 -> Archive.AWAITING_FOLD; 2 -> Archive.REMOVED; 3 -> Archive.RETAINED; else -> invalid() }
+        archive = when (input.get().toInt()) {
+            0 -> Archive.RECEIVER; 1 -> Archive.AWAITING_FOLD; 2 -> Archive.REMOVED; 3 -> Archive.RETAINED
+            4 -> Archive.NOT_ARCHIVED; else -> invalid()
+        }
         corePending = when (input.get().toInt()) { 0 -> false; 1 -> true; else -> invalid() }
         repeat(3) { if (input.get().toInt() != 0) invalid() }
         credit = ByteArray(32).also(input::get)

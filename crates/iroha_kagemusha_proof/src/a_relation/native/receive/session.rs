@@ -69,7 +69,7 @@ use crate::{
 };
 use iroha_plonk::{ProverConfig, ProverRandomness};
 
-/// Installed A1–A9 and W0–W7 artifacts for the complete Receive owner schedule.
+/// Installed A1–A5 and W0–W3 artifacts for the complete Receive owner schedule.
 /// Only verifier metadata is retained. Each proving call reconstructs one exact
 /// admitted source and drops its temporary PK before verification and decisions.
 /// Package authentication belongs to artifact installation. Original PK intake

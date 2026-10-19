@@ -206,8 +206,8 @@ def check_record_semantics(emitter: dict, capture: dict, component: dict,
     require(capture.get("native_companion_sha256") == item.get("sha256"), "static archive companion differs")
     require(component.get("emitter_path") == str(emitter_path) and component.get("emitter_sha256") == emitter_sha,
             "native component names a different emitter")
-    require(component.get("qualified") is True and component.get("observed_abi_version") == 30,
-            "original ABI component did not pass exact ABI30")
+    require(component.get("qualified") is True and component.get("observed_abi_version") == 31,
+            "original ABI component did not pass exact ABI31")
     require(component.get("artifact_path") == item.get("snapshot")
             and component.get("artifact_sha256") == item.get("sha256"), "native component tested a different library")
     require(check_source_record(component) == source
@@ -416,7 +416,7 @@ def check_manifest(manifest: dict, target: str, producer: Path, producer_pin: st
     require(type(manifest) is dict and set(manifest) == MANIFEST_FIELDS
             and manifest["schema"] == SCHEMA and manifest["artifact_scope"] == SCOPE
             and manifest["purpose"] == PURPOSE and manifest["version"] == "0.1.0"
-            and type(manifest["native_bridge_abi_version"]) is int and manifest["native_bridge_abi_version"] == 30
+            and type(manifest["native_bridge_abi_version"]) is int and manifest["native_bridge_abi_version"] == 31
             and manifest["target_triple"] == target, "local-unit manifest schema/scope/ABI is not exact")
     require(manifest["producer_record"] == str(producer) and manifest["producer_record_sha256"] == producer_pin,
             "manifest producer pin differs")
@@ -637,7 +637,7 @@ def produce(root: Path, pins: dict, output: Path, config: dict, acknowledge_reci
         source[path] = expected
     receipts = {value["path"]: value["sha256"] for value in pins.values()}
     manifest = {"schema": SCHEMA, "artifact_scope": SCOPE, "purpose": PURPOSE, "version": "0.1.0",
-                "native_bridge_abi_version": 30, "target_triple": admitted["target"], "hashes": {identifier: indexed_sha},
+                "native_bridge_abi_version": 31, "target_triple": admitted["target"], "hashes": {identifier: indexed_sha},
                 "source_inputs": source, "tool_inputs": tools, "receipt_inputs": receipts,
                 "producer_record": str(producer), "producer_record_sha256": digest(producer)}
     save(framework / "NoritoBridge.artifacts.json", manifest)

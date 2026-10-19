@@ -140,7 +140,7 @@ fn base() -> Send {
             .0
     };
     let j = fixture();
-    let request = find(ObjectKind::Request);
+    let request = completed_request();
     let schedule = find(ObjectKind::FeeSchedule);
     let mut c = Send {
         request,

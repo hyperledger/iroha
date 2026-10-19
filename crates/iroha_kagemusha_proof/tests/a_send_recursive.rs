@@ -1369,6 +1369,7 @@ fn vesta_words(claim: &FoldInput<Eq>) -> Vec<Fp> {
     words
 }
 fn context_digest(first: &First) -> Fp {
+    use iroha_kagemusha_proof::operation_relation::objects::signed_message_native;
     let s = &first.source;
     let mut words = first.plan.schema().to_vec();
     words.extend(s.maps.witness.statement);
@@ -1414,10 +1415,7 @@ fn context_digest(first: &First) -> Fp {
             tape.push(Fp::from_repr(repr).unwrap());
         }
         let end = kind.body_len();
-        let mut values = vec![iroha_plonk_gadgets::bytes::p_bytes_native(
-            kind.signing_domain(),
-            &object[..end],
-        )];
+        let mut values = vec![signed_message_native(kind, &object[..end])];
         for offset in [16, 0, 48, 32] {
             values.push(Fp::from_u128(u128::from_be_bytes(
                 object[end + offset..end + offset + 16].try_into().unwrap(),

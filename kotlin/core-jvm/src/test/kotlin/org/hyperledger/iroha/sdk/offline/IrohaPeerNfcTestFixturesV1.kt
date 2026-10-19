@@ -10,19 +10,55 @@ import org.hyperledger.iroha.sdk.norito.NoritoHeader
 import org.hyperledger.iroha.sdk.norito.Varint
 
 /**
- * Exchange-bound wallet messages from `fixtures/kagemusha/wallet_v1_vectors.json` (the Offer, the
- * Request with its account companion, the Payment carrying that Request and the Credited naming its
- * scheme), wrapped in IPM1. Public fixture DATA only: structural carriage grants no authority.
+ * Exchange-bound wallet messages from `fixtures/kagemusha/wallet_v1_vectors.json` (the Request with
+ * its account companion, the Payment carrying that Request beside a synthetic payer companion and
+ * the Credited naming its scheme), wrapped in IPM1. Public fixture DATA only: structural carriage
+ * grants no authority.
  */
 internal object IrohaPeerNfcTestFixturesV1 {
     val PROFILE = IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1
     val POLICY = IrohaPeerNfcProfilePolicyV1(PROFILE)
     val BPNG_AID: IrohaPeerNfcApplicationIdentifierV1 = IrohaPeerNfcApplicationIdentifierV1.fromHex("F05047444B4E464301")
 
-    val offer: IrohaPeerWireMessageV1 by lazy { message(IrohaPeerPayloadKind.OFFER) }
     val request: IrohaPeerWireMessageV1 by lazy { message(IrohaPeerPayloadKind.REQUEST) }
     val payment: IrohaPeerWireMessageV1 by lazy { message(IrohaPeerPayloadKind.PAYMENT) }
     val credited: IrohaPeerWireMessageV1 by lazy { message(IrohaPeerPayloadKind.CREDITED) }
+
+    /**
+     * The vector Request with payer wallet, payer account and send ordinal zero: the open form a
+     * receiver hosts, which the vector Payment completes (idempotent for an open fixture Request).
+     */
+    val openRequest: IrohaPeerWireMessageV1 by lazy { requestWithPayerFields(0) }
+
+    /**
+     * The vector Request with every byte of payer wallet, payer account and send ordinal set to
+     * [value], keeping the signature bytes the carrier never verifies.
+     */
+    fun requestWithPayerFields(value: Byte): IrohaPeerWireMessageV1 {
+        val frame = IrohaPeerRequestFixtureV1.envelope(IrohaPeerPayloadKind.REQUEST)
+        val payloadOffset = NoritoHeader.HEADER_LENGTH + KagemushaWalletWireV1.ENVELOPE_PADDING_BYTES
+        var cursor = Varint.decode(frame, payloadOffset).nextOffset + 2
+        cursor = Varint.decode(frame, cursor).nextOffset + 4
+        cursor = Varint.decode(frame, cursor).nextOffset
+        cursor = Varint.decode(frame, cursor).nextOffset
+        for (index in 0..7) {
+            val field = Varint.decode(frame, cursor)
+            val end = field.nextOffset + field.value.toInt()
+            if (index == 3 || index == 4 || index == 7) frame.fill(value, field.nextOffset, end)
+            cursor = end
+        }
+        val crc = CRC64.compute(frame.copyOfRange(payloadOffset, frame.size))
+        for (index in 0 until 8) frame[31 + index] = (crc ushr (8 * index)).toByte()
+        assertEquals(KagemushaWalletMessageKindV1.REQUEST, KagemushaWalletWireV1.inspectEnvelope(frame).kind)
+        return IrohaPeerWireMessageV1(
+            IrohaPeerCanonicalPayload(
+                PROFILE,
+                IrohaPeerPayloadKind.REQUEST,
+                1,
+                IrohaPeerRequestFixtureV1.payload(IrohaPeerPayloadKind.REQUEST, frame),
+            ),
+        )
+    }
 
     fun message(kind: IrohaPeerPayloadKind): IrohaPeerWireMessageV1 = IrohaPeerWireMessageV1(
         IrohaPeerCanonicalPayload(
@@ -31,6 +67,15 @@ internal object IrohaPeerNfcTestFixturesV1 {
             PROFILE.requiredSchemaVersion,
             IrohaPeerRequestFixtureV1.payload(kind, IrohaPeerRequestFixtureV1.envelope(kind)),
         ),
+    )
+
+    /** A card hosting the vector Request under [session], as the receiver arms it after the amount. */
+    fun card(
+        session: ByteArray = ByteArray(16) { 0x5a },
+        limits: IrohaPeerNfcLimitsV1 = IrohaPeerNfcLimitsV1.DEFAULT,
+    ): IrohaPeerNfcCardEndpointV1 = IrohaPeerNfcCardEndpointV1.direct(
+        BPNG_AID,
+        IrohaPeerNfcReceiverSessionV1(session, request.encode(), limits = limits),
     )
 
     /**
@@ -66,15 +111,11 @@ internal class IrohaPeerNfcLostResponseV1(operation: IrohaPeerNfcOperationV1) :
 /**
  * In-memory carrier between the reader exchanges and an [IrohaPeerNfcCardEndpointV1]: every command
  * crosses the canonical APDU codec and every response its encoding. The wallet behind the card
- * prepares [walletRequest] (or declines with [declineReason]) after [preparationPolls] GET_INTAKE
- * polls, durably admits Payments and answers COMMIT with [walletAcknowledgement].
+ * durably admits Payments and answers COMMIT with [walletAcknowledgement].
  */
 internal class IrohaPeerNfcLoopbackV1(
     var endpoint: IrohaPeerNfcCardEndpointV1,
-    private val walletRequest: ByteArray = IrohaPeerNfcTestFixturesV1.request.encode(),
     private val walletAcknowledgement: ByteArray = IrohaPeerNfcTestFixturesV1.credited.encode(),
-    private val preparationPolls: Int = 3,
-    private val declineReason: Int = 0,
 ) : IrohaPeerNfcReaderTransceiverV1 {
     /** Commands in transmission order, plus `persist:` markers written by the reader's storage. */
     val log = mutableListOf<String>()
@@ -84,13 +125,7 @@ internal class IrohaPeerNfcLoopbackV1(
     val acknowledgementRecords = mutableListOf<ByteArray>()
     val persistedCheckpoints = mutableListOf<ByteArray>()
     var loseResponseFor: IrohaPeerNfcOperationV1? = null
-    var offersSubmitted = 0
     var durableCommits = 0
-    var sleeps = 0L
-    private var preparing: IrohaPeerWireMessageV1? = null
-    private var pollsWhilePreparing = 0
-
-    val sleeper = IrohaPeerNfcOfferExchangeV1.Sleeper { millis -> sleeps += millis }
 
     val updateCheckpoint = IrohaPeerNfcReaderExchangeV1.UpdateDurableCheckpoint { checkpoint ->
         log += "persist:checkpoint"
@@ -102,20 +137,13 @@ internal class IrohaPeerNfcLoopbackV1(
     override fun transceive(command: IrohaPeerNfcCommandV1): IrohaPeerNfcAPDUResponseV1 {
         log += command.operation.name
         when (command) {
-            is IrohaPeerNfcCommandV1.GetIntake -> completePreparationAfterPolls()
             is IrohaPeerNfcCommandV1.Write -> writeSizes += command.byteCount
-            is IrohaPeerNfcCommandV1.WriteOffer -> writeSizes += command.byteCount
             is IrohaPeerNfcCommandV1.ReadRequest -> readSizes += command.length
             is IrohaPeerNfcCommandV1.ReadAcknowledgement -> readSizes += command.length
             else -> Unit
         }
         val raw = endpoint.process(
             IrohaPeerNfcAPDUCodecV1.encode(command),
-            IrohaPeerNfcCardEndpointV1.OfferSubmittedHandler { offer ->
-                offersSubmitted += 1
-                preparing = offer
-                pollsWhilePreparing = 0
-            },
             IrohaPeerNfcReceiverSessionV1.DurableAdmissionHandler { context ->
                 IrohaPeerNfcDurablePaymentAdmissionV1(context).also { admissionRecords += it.encode() }
             },
@@ -132,20 +160,5 @@ internal class IrohaPeerNfcLoopbackV1(
             throw IrohaPeerNfcLostResponseV1(command.operation)
         }
         return response
-    }
-
-    /** The wallet finishes after [preparationPolls] polls observed PREPARING_REQUEST. */
-    private fun completePreparationAfterPolls() {
-        val offer = preparing ?: return
-        if (pollsWhilePreparing < preparationPolls) {
-            pollsWhilePreparing += 1
-            return
-        }
-        preparing = null
-        if (declineReason != 0) {
-            endpoint.declineRequest(offer.wireHash, declineReason)
-        } else {
-            endpoint.installRequest(offer.wireHash, walletRequest)
-        }
     }
 }

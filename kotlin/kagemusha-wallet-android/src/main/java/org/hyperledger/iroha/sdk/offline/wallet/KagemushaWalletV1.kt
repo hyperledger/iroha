@@ -361,14 +361,13 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
         val result = setup(KagemushaWalletSetupInputV1(25, identity = creditId, first = world, second = payout))
         if (result.status != 35) throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)
     }
-    /** Retain the native Offer nonce and return exact original bytes under this retry identity. */
-    fun offer(setupId: ByteArray, amount: KagemushaWalletUInt128V1): ByteArray =
-        setup(KagemushaWalletSetupInputV1(1, setupId, amount)).original()
-    /** Native authenticates the Offer and derives an exact Request from its selected policy. */
-    fun request(setupId: ByteArray, offer: ByteArray, feeSchedule: ByteArray? = null, feeCertificate: ByteArray? = null): ByteArray {
+    /** Native issues the open Request for [amount] from its selected policy and retains it by digest;
+     * a retry of this identity returns its exact original bytes. Payer wallet, payer account and send
+     * ordinal are zero: the receiver signature covers only the terms, and the payer completes them. */
+    fun request(setupId: ByteArray, amount: KagemushaWalletUInt128V1, feeSchedule: ByteArray? = null, feeCertificate: ByteArray? = null): ByteArray {
         require((feeSchedule == null) == (feeCertificate == null)) { "fee originals must be paired" }
         if (feeSchedule != null) require(feeSchedule.isNotEmpty() && feeCertificate!!.isNotEmpty()) { "fee originals must not be empty" }
-        return setup(KagemushaWalletSetupInputV1(2, setupId, first = offer,
+        return setup(KagemushaWalletSetupInputV1(2, setupId, amount,
             second = feeSchedule ?: byteArrayOf(), third = feeCertificate ?: byteArrayOf())).original()
     }
     /** Native-selected asset and fee digest for local original lookup; no operation authority. */
@@ -378,14 +377,21 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
     fun validateRequestFeePolicy(scheduleEnvelope: ByteArray, certificatesEnvelope: ByteArray): KagemushaWalletRequestFeeSelectionV1 =
         KagemushaWalletRequestFeeSelectionV1(setup(KagemushaWalletSetupInputV1(40,
             first = scheduleEnvelope, second = certificatesEnvelope)))
-    /** Exact signed fee DATA feeds the ordinary Native Request. Null is accepted only by
-     * Native's zero-fee rule; never retry a failed nonzero-fee Request with missing originals. */
-    fun requestWithFeePolicy(setupId: ByteArray, offer: ByteArray, scheduleEnvelope: ByteArray?, certificatesEnvelope: ByteArray?): ByteArray {
+    /** Exact signed fee DATA feeds the ordinary Native open Request for [amount]. Null is accepted only
+     * by Native's zero-fee rule; never retry a failed nonzero-fee Request with missing originals. */
+    fun requestWithFeePolicy(setupId: ByteArray, amount: KagemushaWalletUInt128V1, scheduleEnvelope: ByteArray?, certificatesEnvelope: ByteArray?): ByteArray {
         require((scheduleEnvelope == null) == (certificatesEnvelope == null)) { "fee PolicyData must be paired" }
         if (scheduleEnvelope != null) require(scheduleEnvelope.isNotEmpty() && certificatesEnvelope!!.isNotEmpty())
-        return setup(KagemushaWalletSetupInputV1(39, setupId, first = offer,
-            second = scheduleEnvelope ?: byteArrayOf(), third = certificatesEnvelope ?: byteArrayOf())).original()
+        return setup(KagemushaWalletSetupInputV1(39, setupId, amount,
+            first = scheduleEnvelope ?: byteArrayOf(), second = certificatesEnvelope ?: byteArrayOf())).original()
     }
+    /** The payer companion of this wallet's own [payment] (its exact Payment original): canonical
+     * `KagemushaWalletPayerCompanionV1` bytes of the retained Send's historical credential and exact
+     * issuer certificate set. Native verifies exact Payment ownership against that Send's durable
+     * custody, so recovery also works after credential renewal. Carry it beside the Payment
+     * (`IrohaPeerWalletPaymentV1`) and retain both for exact-byte retries; it grants no authority. */
+    fun paymentCompanion(payment: ByteArray): ByteArray =
+        setup(KagemushaWalletSetupInputV1(55, first = payment)).original()
     /** Convert durable Receive/Status bytes to canonical peer evidence, without granting a proof verdict. */
     fun credited(received: KagemushaWalletCallV1): ByteArray {
         return setup(received.creditedInput()).original()
@@ -408,6 +414,15 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
         return KagemushaWalletCreditProjectionV1(setup(KagemushaWalletSetupInputV1(44,
             identity = sendRequestId, first = anchor, second = newer ?: byteArrayOf()))).requirePayer()
     }
+    /**
+     * Verify the receiver's receipt for one exact committed Send before any Archive: the same binding
+     * and verifier as [acceptCreditedForSend], with no Advance, so the Send's fold keeps running. Call
+     * [acceptCreditedForSend] later with the same original to Archive it. A completed Archive of that
+     * original returns its [deliveredCredit] projection.
+     */
+    fun verifiedDelivery(sendRequestId: ByteArray, credited: ByteArray): KagemushaWalletCreditProjectionV1 =
+        KagemushaWalletCreditProjectionV1(setup(KagemushaWalletSetupInputV1(54,
+            identity = sendRequestId, first = credited))).requirePayer()
     /** Only the native nonce leaves clock custody; this token has no serialized form. */
     fun beginTimeExchange(): KagemushaWalletTimeExchangeV1 =
         setup(KagemushaWalletSetupInputV1(4)).exchange(this)
@@ -444,11 +459,12 @@ class KagemushaWalletV1 internal constructor(handle: Long) : Closeable, Kagemush
     /** Receive selects the durably issued Request locally by the Payment's digest. */
     fun receive(requestId: ByteArray, payment: ByteArray, payerCredential: ByteArray, certificates: ByteArray): KagemushaWalletCallV1 =
         execute(KagemushaWalletOperationInputV1(requestId, 2, first = payment, second = payerCredential, third = certificates))
-    /** Retain and forward the exact signed session Offer; Native extracts its payer originals.
-     * This performs ordinary Receive authentication and never treats an Offer as payment authority.
+    /** Receive the exact Payment and payer companion of one carrier (`IrohaPeerWalletPaymentV1`). Native
+     * checks the companion against the Payment, completes the durably issued open Request from it and
+     * performs ordinary Receive authentication; the companion is never payment authority.
      */
-    fun receiveFromOffer(requestId: ByteArray, payment: ByteArray, offer: ByteArray): KagemushaWalletCallV1 =
-        execute(KagemushaWalletOperationInputV1(requestId, 10, first = payment, second = offer))
+    fun receiveWithCompanion(requestId: ByteArray, payment: ByteArray, companion: ByteArray): KagemushaWalletCallV1 =
+        execute(KagemushaWalletOperationInputV1(requestId, 10, first = payment, second = companion))
 
     /** Refresh from exact signed originals; Native derives maps and all effective values. */
     fun refresh(requestId: ByteArray, kind: KagemushaWalletRefreshKindV1, update: ByteArray, certificates: ByteArray): KagemushaWalletCallV1 =
@@ -623,7 +639,7 @@ internal class KagemushaWalletOperationInputV1(
             6 -> intArrayOf(512, 10_000, 0)
             7 -> intArrayOf(8_192, 10_000, 0)
             9 -> intArrayOf(0, 0, 0)
-            10 -> intArrayOf(10_000, 10_000, 0)
+            10 -> intArrayOf(10_000, 2_048, 0)
             else -> throw IllegalArgumentException("unknown lifecycle operation")
         }
         require(requestId.size == 32 && requestId.any { it != 0.toByte() } != (selector == 5)) {

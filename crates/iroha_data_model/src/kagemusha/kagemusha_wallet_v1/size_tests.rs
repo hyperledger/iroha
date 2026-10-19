@@ -6,11 +6,12 @@
 //! encoding overhead and exact size limits, not cryptographic proof acceptance or frozen keys.
 //! Receive uses the same conservative 3,456-byte sample. The credit-status opening has exactly
 //! 32 siblings, so its complete envelope has a fixed overhead plus the Omega proof length.
+//! The payer companion travels beside the Payment in its carrier, outside the envelope.
 //! The signed blacklist is local only and has no peer-envelope case here.
 
 use super::{
     messages::messages_tests::MessageFixture,
-    vectors_tests::{vector_control, vector_offer, vector_world},
+    vectors_tests::{vector_control, vector_world},
     *,
 };
 
@@ -81,19 +82,9 @@ fn credited_with(credited: &KagemushaWalletCreditedV1, proof: usize) -> Kagemush
     KagemushaWalletMessageV1::Credited { credited }
 }
 
-/// `lineage` with its transport proof resized.
-fn lineage_with(
-    lineage: &KagemushaWalletLineageMessageV1,
-    omega: usize,
-) -> KagemushaWalletMessageV1 {
-    let mut lineage = lineage.clone();
-    lineage.lineage.proof = bytes_of(omega);
-    KagemushaWalletMessageV1::Lineage { lineage }
-}
-
-/// Measured split-lineage sizes in complete envelope bytes.
+/// Measured split-lineage sizes in complete envelope bytes, and the payer companion frame.
 struct Sizes {
-    offer: usize,
+    companion: usize,
     credential: usize,
     session_control: usize,
     request: usize,
@@ -108,8 +99,6 @@ struct Sizes {
     credited_status_overhead: usize,
     credit_status: usize,
     largest_omega_in_status: usize,
-    lineage: usize,
-    lineage_overhead: usize,
     certificates: usize,
 }
 
@@ -121,7 +110,7 @@ fn measure(f: &MessageFixture) -> Sizes {
         SAMPLE_SIGMA_SEND_BYTES,
         SAMPLE_SIGMA_RECV_BYTES,
     );
-    let request = f.request(true);
+    let request = f.open_request(true);
     let payment = f.payment_with(true, omega, sigma);
     assert!(
         payment.signed_request().unwrap().body.fee > 0,
@@ -134,7 +123,6 @@ fn measure(f: &MessageFixture) -> Sizes {
     let status = f.credit_status(&payment, omega, STATUS_OTHER_CREDITS, false);
     let credited_status =
         KagemushaWalletCreditedV1::from_status(status.clone()).expect("credited status");
-    let lineage = f.lineage_message(&payment);
     let certificates = KagemushaWalletPolicyDataV1 {
         version: KAGEMUSHA_WALLET_VERSION_V1,
         scheme_id: f.scheme_id(),
@@ -148,11 +136,13 @@ fn measure(f: &MessageFixture) -> Sizes {
             .expect("three certificates"),
         },
     };
-    let offer = vector_offer(f);
+    let companion =
+        KagemushaWalletPayerCompanionV1::new(f.payer.credential, &f.payer.enrollment_certificate)
+            .expect("payer companion");
+    companion
+        .check_payment(&payment)
+        .expect("the Payment's payer");
     let messages = [
-        KagemushaWalletMessageV1::Offer {
-            offer: offer.clone(),
-        },
         KagemushaWalletMessageV1::SessionControl {
             control: vector_control(f, KagemushaWalletSessionControlKindV1::ReceiveDeferred),
         },
@@ -165,9 +155,6 @@ fn measure(f: &MessageFixture) -> Sizes {
         },
         KagemushaWalletMessageV1::Credited {
             credited: credited_status.clone(),
-        },
-        KagemushaWalletMessageV1::Lineage {
-            lineage: lineage.clone(),
         },
         KagemushaWalletMessageV1::PolicyData { data: certificates },
     ];
@@ -187,41 +174,40 @@ fn measure(f: &MessageFixture) -> Sizes {
         |omega: usize, sigma: usize| envelope_len(&payment_with(&payment, omega, sigma));
     let receive_len = |proof: usize| envelope_len(&credited_with(&credited_receive, proof));
     let status_len = |proof: usize| envelope_len(&credited_with(&credited_status, proof));
-    let lineage_len = |omega: usize| envelope_len(&lineage_with(&lineage, omega));
-    assert_eq!(payment_len(omega, sigma), lengths[3]);
-    assert_eq!(receive_len(sigma_recv), lengths[4]);
-    assert_eq!(status_len(omega), lengths[5]);
-    assert_eq!(lineage_len(omega), lengths[6]);
+    assert_eq!(payment_len(omega, sigma), lengths[2]);
+    assert_eq!(receive_len(sigma_recv), lengths[3]);
+    assert_eq!(status_len(omega), lengths[4]);
 
     Sizes {
-        offer: lengths[0],
-        credential: offer
+        companion: companion
+            .to_canonical_bytes()
+            .expect("companion frame")
+            .len(),
+        credential: companion
             .payer_credential
             .to_canonical_bytes()
             .expect("credential frame")
             .len(),
-        session_control: lengths[1],
-        request: lengths[2],
-        payment: lengths[3],
-        payment_overhead: lengths[3] - omega - sigma,
+        session_control: lengths[0],
+        request: lengths[1],
+        payment: lengths[2],
+        payment_overhead: lengths[2] - omega - sigma,
         largest_omega_with_sample_sigma: largest_fitting(message_max, SEARCH_LIMIT, |omega| {
             payment_len(omega, sigma)
         }),
         largest_joint_proof: largest_fitting(message_max, SEARCH_LIMIT, |joint| {
             payment_len(joint / 2, joint - joint / 2)
         }),
-        credited_receive: lengths[4],
-        credited_receive_overhead: lengths[4] - sigma_recv,
+        credited_receive: lengths[3],
+        credited_receive_overhead: lengths[3] - sigma_recv,
         largest_sigma_in_receive: largest_fitting(message_max, SEARCH_LIMIT, receive_len),
-        credited_status: lengths[5],
-        credited_status_overhead: lengths[5] - omega,
+        credited_status: lengths[4],
+        credited_status_overhead: lengths[4] - omega,
         credit_status: norito::encode_canonical(&status)
             .expect("credit status frame")
             .len(),
         largest_omega_in_status: largest_fitting(message_max, SEARCH_LIMIT, status_len),
-        lineage: lengths[6],
-        lineage_overhead: lengths[6] - omega,
-        certificates: lengths[7],
+        certificates: lengths[5],
     }
 }
 
@@ -230,61 +216,60 @@ fn kagemusha_wallet_v1_split_lineage_envelopes_fit_their_bounds() {
     let sizes = measure(&vector_world().f);
     let session_max = KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1;
     let message_max = KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1;
+    let companion_max = KAGEMUSHA_WALLET_PAYER_COMPANION_MAX_BYTES_V1;
     println!(
-        "KAGEMUSHA wallet V1 split-lineage envelopes (bytes): Offer {} / {session_max} \
-         (credential frame {} / {}), SessionControl {} / {session_max}, Request {} / \
-         {message_max}, Payment {} / {message_max} with σ_send {SAMPLE_SIGMA_SEND_BYTES} and \
-         sample Ω proof {SAMPLE_OMEGA_PROOF_BYTES}, Credited::Receive {} / \
+        "KAGEMUSHA wallet V1 split-lineage envelopes (bytes): SessionControl {} / \
+         {session_max}, open Request {} / {message_max}, Payment {} / {message_max} with \
+         σ_send {SAMPLE_SIGMA_SEND_BYTES} and sample Ω proof {SAMPLE_OMEGA_PROOF_BYTES}, payer \
+         companion {} / {companion_max} (credential frame {} / {}), Credited::Receive {} / \
          {message_max} with σ_recv {SAMPLE_SIGMA_RECV_BYTES}, Credited::Status \
          {} / {message_max} with sample Ω(h) proof {SAMPLE_OMEGA_PROOF_BYTES} and 32 \
-         siblings (CreditStatus frame {}), Lineage {} / {message_max}, PolicyData \
-         certificates (3) {} / {message_max}",
-        sizes.offer,
-        sizes.credential,
-        KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1,
+         siblings (CreditStatus frame {}), PolicyData certificates (3) {} / {message_max}",
         sizes.session_control,
         sizes.request,
         sizes.payment,
+        sizes.companion,
+        sizes.credential,
+        KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1,
         sizes.credited_receive,
         sizes.credited_status,
         sizes.credit_status,
-        sizes.lineage,
         sizes.certificates,
     );
     println!(
         "KAGEMUSHA wallet V1 fixed overheads (bytes): Payment {} + |Ω proof| + |σ_send|, \
-         Credited::Receive {} + |σ_recv|, Credited::Status {} + |Ω(h) proof| (32 siblings), \
-         Lineage {} + |Ω proof|; largest Ω proof in a Payment with the sample σ_send {}, \
+         Credited::Receive {} + |σ_recv|, Credited::Status {} + |Ω(h) proof| (32 siblings); \
+         largest Ω proof in a Payment with the sample σ_send {}, \
          largest |Ω proof| + |σ_send| {}, largest σ_recv in Credited::Receive {}, \
          largest Ω(h) proof in Credited::Status {}",
         sizes.payment_overhead,
         sizes.credited_receive_overhead,
         sizes.credited_status_overhead,
-        sizes.lineage_overhead,
         sizes.largest_omega_with_sample_sigma,
         sizes.largest_joint_proof,
         sizes.largest_sigma_in_receive,
         sizes.largest_omega_in_status,
     );
     for (name, len, bound) in [
-        ("Offer", sizes.offer, session_max),
-        (
-            "Offer credential",
-            sizes.credential,
-            KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1,
-        ),
         ("SessionControl", sizes.session_control, session_max),
         ("Request", sizes.request, message_max),
         ("Payment", sizes.payment, message_max),
+        ("payer companion", sizes.companion, companion_max),
+        (
+            "payer companion credential",
+            sizes.credential,
+            KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1,
+        ),
         ("Credited::Receive", sizes.credited_receive, message_max),
         ("Credited::Status", sizes.credited_status, message_max),
-        ("Lineage", sizes.lineage, message_max),
         ("PolicyData certificates", sizes.certificates, message_max),
     ] {
         assert!(len <= bound, "{name}: {len} > {bound}");
     }
-    // A Lineage message is smaller than the Payment that carries the same Ω (§8).
-    assert!(sizes.lineage < sizes.payment);
+    // A Payment envelope at its bound and a companion at its bound fit one `KWPYPC1` carrier:
+    // the 8-byte tag, two BE32 lengths and both frames, at most 12,064 bytes.
+    assert!(sizes.companion > sizes.credential);
+    assert_eq!(8 + 4 + 4 + message_max + companion_max, 12_064);
     assert!(sizes.largest_omega_with_sample_sigma >= SAMPLE_OMEGA_PROOF_BYTES);
     assert!(sizes.largest_omega_in_status >= SAMPLE_OMEGA_PROOF_BYTES);
     // F_payment and the joint R9 budget of |Ω| + |σ_send| (owner answer Q6) are pinned.
@@ -381,10 +366,5 @@ fn kagemusha_wallet_v1_size_search_helpers() {
     assert_eq!(
         one_byte_more,
         envelope_len(&credited_with(&credited, 32)) + 1
-    );
-    let lineage = f.lineage_message(&payment);
-    assert_eq!(
-        envelope_len(&lineage_with(&lineage, 49)),
-        envelope_len(&lineage_with(&lineage, 48)) + 1
     );
 }

@@ -51,6 +51,11 @@ fn load_receipt_original(bytes: &[u8]) -> Result<KagemushaWalletLoadReceiptV1> {
     )
 }
 
+fn encode<T: norito::NoritoSerialize>(value: &T) -> Result<Vec<u8>> {
+    norito::encode_canonical(value)
+        .map_err(|_| state::Error::Invalid("native original canonical frame"))
+}
+
 fn decode<T>(bytes: &[u8], maximum: usize) -> Result<T>
 where
     T: norito::NoritoSerialize,
@@ -710,9 +715,14 @@ impl PreparationV1<'_> {
                     )?))
                 }
                 Action::Send { request: original } => {
-                    let request: KagemushaWalletRequestV1 =
+                    // The receiver's open Request is completed here, for this payer and its next
+                    // ordinal, before any check; every later owner retains the completion.
+                    let received: KagemushaWalletRequestV1 =
                         decode(original, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?;
+                    let request =
+                        model(received.complete(&owner.credential, before.core.next_send))?;
                     model(request.verify(scheme))?;
+                    let original = &encode(&request)?;
                     let leaf = KagemushaWalletPendingOutgoingLeafV1 {
                         credit_id: request.credit_id(),
                         receiver_wallet_id: request.body.receiver_wallet_id,
@@ -832,16 +842,21 @@ impl PreparationV1<'_> {
                         Some((digest, _)) => digest,
                         None => model(decoded.signed_request())?.request_digest(),
                     };
-                    let request_original = custody.issued_request(&digest)?;
+                    let issued: KagemushaWalletRequestV1 = decode(
+                        &custody.issued_request(&digest)?,
+                        KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1,
+                    )?;
+                    if issued.request_digest() != digest {
+                        return Err(state::Error::WitnessLost("issued Request identity"));
+                    }
+                    // Every payer of one open Request completes it differently; the Receive
+                    // retains this Payment's completion and credits it once by its credit_id.
+                    let request = model(issued.complete_with(&model(decoded.signed_request())?))?;
+                    let request_original = encode(&request)?;
                     if frozen_request.is_some_and(|(_, bytes)| bytes != request_original) {
                         return Err(state::Error::WitnessLost(
                             "issued/released Request mismatch",
                         ));
-                    }
-                    let request: KagemushaWalletRequestV1 =
-                        decode(&request_original, KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1)?;
-                    if request.request_digest() != digest {
-                        return Err(state::Error::WitnessLost("issued Request identity"));
                     }
                     let leaf = KagemushaWalletConsumedCreditLeafV1 {
                         credit_id: request.credit_id(),

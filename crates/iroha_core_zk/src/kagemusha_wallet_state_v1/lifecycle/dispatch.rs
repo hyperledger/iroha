@@ -265,6 +265,66 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         Ok(())
     }
 
+    /// Retire only an authenticated stale ArchiveSent plan that Advance never selected.
+    /// The durable Entry keeps its exact request and stale capsule locator until every unlink
+    /// succeeds. A crash therefore repeats these idempotent removals before replacing the plan.
+    /// No selected completion, uncertain lookup or monetary operation can reach this path.
+    fn retire_archive_plan(
+        &mut self,
+        request: &NativeIntentV1,
+        source: &[u8; 32],
+        plan: &Plan,
+        entry: &mut Entry,
+        manifest: &mut manifest::Manifest,
+    ) -> Result<(), Error> {
+        entry.require_binding()?;
+        if request.kind() != KagemushaWalletOperationKindV1::ArchiveSent
+            || entry.kind != KagemushaWalletOperationKindV1::ArchiveSent
+            || entry.plan.is_none()
+            || entry.request != Some(plan.request_object)
+            || plan.source == *source
+        {
+            return Err(Error::WitnessLost("stale Archive retirement binding"));
+        }
+        if let Some(operation) = entry.operation {
+            let capsule = entry
+                .capsule
+                .ok_or(Error::WitnessLost("stale Archive capsule"))?;
+            // Low-level Unknown alone is insufficient: an older committed output may be
+            // missing. The permanent authenticated operation index must also prove absence.
+            if !matches!(self.custody.lookup(&operation)?, Lookup::Unknown)
+                || self
+                    .missing_retained_output(&operation, Some(&capsule))?
+                    .is_some()
+            {
+                return Err(Error::WitnessLost("stale Archive already selected"));
+            }
+            let plan_address = entry.plan.ok_or(Error::WitnessLost("stale Archive plan"))?;
+            if manifest
+                .capsule_plans
+                .get(&mut self.archive, &capsule)?
+                .as_deref()
+                != Some(plan_address.as_slice())
+            {
+                return Err(Error::WitnessLost("stale Archive capsule plan binding"));
+            }
+        }
+        // The source-selected stale Entry plus authenticated nonselection authorizes retiring
+        // these preparation artifacts. Keep its locator durable until both removals succeed.
+        // No object/index writes precede the removals: grouped stores refuse pending writes.
+        self.archive
+            .remove(ArchiveKey::PreparationDraft(request.request_id()))?;
+        if let Some(capsule) = entry.capsule {
+            self.archive.remove(ArchiveKey::Capsule(capsule))?;
+            manifest.capsule_plans = manifest.capsule_plans.remove(&mut self.archive, &capsule)?;
+        }
+        entry.capsule = None;
+        entry.capsule_commitment = None;
+        entry.operation = None;
+        entry.plan = None;
+        Ok(())
+    }
+
     pub(in crate::kagemusha_wallet_state_v1) fn transition_preparation(
         &mut self,
         manifest: &manifest::Manifest,
@@ -341,7 +401,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 Some(Completion::Pending)
             }
             Lookup::DeliveryDataLoss => Some(Completion::DeliveryDataLoss),
-            Lookup::Unknown => None,
+            Lookup::Unknown => self.missing_retained_output(operation, Some(capsule))?,
         })
     }
 
@@ -629,15 +689,32 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
         }
         let released = self.indexed_step(&manifest, sequence)?;
         let source_digest = released.frozen.capsule.custody_digest();
-        let held_plan = entry
+        let mut held_plan = entry
             .plan
             .map(|plan| archive::decode::<Plan>(&self.archive.read_object(&plan, PLAN_BOUND)?))
             .transpose()?;
         if let Some(plan) = &held_plan {
             plan.require(&self.scheme_id, &self.wallet_id, &request, &bytes)?;
-            if plan.source != source_digest {
+        }
+        if held_plan
+            .as_ref()
+            .is_some_and(|plan| plan.source != source_digest)
+        {
+            if request.kind() != KagemushaWalletOperationKindV1::ArchiveSent {
                 return Ok(Completion::NotPerformed(NotPerformed::StaleHead));
             }
+            // A deferred, never-selected Archive may replan on the new head. The helper
+            // preserves a durable recovery locator until stale artifact retirement finishes.
+            self.retire_archive_plan(
+                &request,
+                &source_digest,
+                held_plan
+                    .as_ref()
+                    .ok_or(Error::WitnessLost("stale Archive plan"))?,
+                &mut entry,
+                &mut manifest,
+            )?;
+            held_plan = None;
         }
         let folded = self.read_fold(&released)?.map(|fold| fold.record);
         if request.kind().consumes_lineage() && folded.is_none() {

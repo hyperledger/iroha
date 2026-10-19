@@ -193,7 +193,7 @@ jobs:
           --console=plain
 
   swift:
-    # This workflow does not own an authenticated ABI-30 Apple artifact handoff.
+    # This workflow does not own an authenticated ABI-31 Apple artifact handoff.
     # The release orchestrator must materialize NoritoBridge.xcframework outside
     # the checkout, set MOBILE_SDK_APPLE_ARTIFACT_DIR to that canonical directory,
     # and supply the source/tool identity required by check_mobile_sdk_artifacts.sh.
@@ -233,20 +233,20 @@ jobs:
           release_lock="$(IROHA_PRIVACY_CARGO_LOCKFILE_PATH="$release_lock" \
             privacy_sdk_resolve_cargo_lockfile "$GITHUB_WORKSPACE" "$MOBILE_SDK_PYTHON_BINARY")"
           echo "IROHA_PRIVACY_RELEASE_CARGO_LOCKFILE_PATH=$release_lock" >> "$GITHUB_ENV"
-      - name: Authenticate the externally provisioned ABI-30 Swift bridge
+      - name: Authenticate the externally provisioned ABI-31 Swift bridge
         working-directory: ${{ github.workspace }}
         run: |
           if [[ -z "${MOBILE_SDK_APPLE_ARTIFACT_DIR:-}" ]]; then
-            echo "an authenticated external ABI-30 Apple artifact handoff is required" >&2
+            echo "an authenticated external ABI-31 Apple artifact handoff is required" >&2
             exit 1
           fi
           if [[ "$MOBILE_SDK_APPLE_ARTIFACT_DIR" != /* ]]; then
-            echo "the ABI-30 Apple artifact directory must be absolute" >&2
+            echo "the ABI-31 Apple artifact directory must be absolute" >&2
             exit 1
           fi
           case "$MOBILE_SDK_APPLE_ARTIFACT_DIR" in
             "$GITHUB_WORKSPACE"|"$GITHUB_WORKSPACE"/*)
-              echo "the ABI-30 Apple artifact directory must remain outside the checkout" >&2
+              echo "the ABI-31 Apple artifact directory must remain outside the checkout" >&2
               exit 1
               ;;
           esac

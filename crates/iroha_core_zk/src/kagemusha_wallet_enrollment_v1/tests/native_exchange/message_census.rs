@@ -11,10 +11,10 @@ const ORIGINAL_NAMES: [&str; 8] = [
     "b-c-payment.norito",
     "a-credited-receive.norito",
     "b-credited-status.norito",
-    "a-b-offer.norito",
     "a-b-request.norito",
-    "b-c-offer.norito",
+    "a-b-companion.norito",
     "b-c-request.norito",
+    "b-c-companion.norito",
 ];
 
 pub(super) fn record(
@@ -23,13 +23,11 @@ pub(super) fn record(
     message: KagemushaWalletMessageV1,
 ) -> norito::json::Value {
     let role = match &message {
-        KagemushaWalletMessageV1::Offer { .. } => "Offer",
         KagemushaWalletMessageV1::Request { .. } => "Request",
         KagemushaWalletMessageV1::Payment { .. } => "Payment",
         KagemushaWalletMessageV1::Credited { .. } => "Credited",
         KagemushaWalletMessageV1::SessionControl { .. } => "SessionControl",
         KagemushaWalletMessageV1::PolicyData { .. } => "PolicyData",
-        KagemushaWalletMessageV1::Lineage { .. } => "Lineage",
     };
     let variant = match &message {
         KagemushaWalletMessageV1::Credited { credited } => match &credited.evidence {
@@ -67,24 +65,29 @@ pub(super) fn record(
     result
 }
 
+// A predecessor Lineage is proof evidence, not a peer envelope or a fourth code.
+pub(super) fn record_lineage(
+    output: &Path,
+    name: &str,
+    lineage: &KagemushaWalletLineageV1,
+) -> norito::json::Value {
+    let bytes = norito::encode_canonical(lineage).unwrap();
+    let decoded: KagemushaWalletLineageV1 = decode(&bytes);
+    assert_eq!(&decoded, lineage);
+    let filename = format!("{name}.lineage.norito");
+    publish(&output.join(&filename), &bytes);
+    norito::json!({
+        "name": filename, "role": "LineageProof", "bytes": (bytes.len()),
+        "sha256": (sha(&bytes)), "scope": "Raw predecessor proof original; not a peer envelope",
+    })
+}
+
 pub(super) fn record_payment_lineage(
     output: &Path,
     label: &str,
     payment: &KagemushaWalletPaymentV1,
 ) -> norito::json::Value {
-    let lineage = payment
-        .send
-        .lineage
-        .lineage()
-        .expect("Send predecessor Omega")
-        .clone();
-    record(
-        output,
-        &format!("{label}-lineage"),
-        KagemushaWalletMessageV1::Lineage {
-            lineage: KagemushaWalletLineageMessageV1::new(lineage),
-        },
-    )
+    record_lineage(output, label, payment.send.lineage.lineage().unwrap())
 }
 
 fn record_credit_status_model(
@@ -171,11 +174,9 @@ pub(super) fn complete_exchange_roles(
     label: &str,
 ) -> norito::json::Value {
     let roles = [
-        ("Offer", "offer", 1),
         ("Request", "request", 2),
         ("Payment", "payment", 3),
         ("Credited", "credited", 4),
-        ("Lineage", "lineage", 7),
     ];
     let envelopes = roles
         .into_iter()
@@ -195,7 +196,7 @@ pub(super) fn complete_exchange_roles(
         .collect::<Vec<_>>();
     norito::json!({
         "variant": label, "complete_envelopes": envelopes,
-        "scope": "Exactly five retained carrying-frame roles; proof and native-operation verdicts remain separate",
+        "scope": "Exactly three retained carrying-frame roles; proof and native-operation verdicts remain separate",
     })
 }
 
@@ -209,28 +210,26 @@ pub(super) fn retain(
     let verifier = sources.installed.verifier();
     let mut records = Vec::new();
     let mut originals = Vec::new();
-    for (((name, (offer_original, request_original)), original), acknowledgement) in ["a-b", "b-c"]
-        .into_iter()
-        .zip(sessions)
-        .zip(payments)
-        .zip(acknowledgements)
+    for (((name, (request_original, companion_original)), original), acknowledgement) in
+        ["a-b", "b-c"]
+            .into_iter()
+            .zip(sessions)
+            .zip(payments)
+            .zip(acknowledgements)
     {
-        let offer: KagemushaWalletOfferV1 = decode(offer_original);
         let request: KagemushaWalletRequestV1 = decode(request_original);
-        // Preserve the actual signed session originals, including the dependencies
-        // omitted from compact Payment; never reconstruct or sign a replacement.
-        publish(&output.join(format!("{name}-offer.norito")), offer_original);
+        let companion = KagemushaWalletPayerCompanionV1::decode_canonical(companion_original)
+            .expect("bounded canonical payer companion");
+        // Preserve the receiver's exact open Request and the payer companion carried beside
+        // the compact Payment; never reconstruct or sign a replacement.
         publish(
             &output.join(format!("{name}-request.norito")),
             request_original,
         );
-        records.push(record(
-            output,
-            &format!("{name}-offer"),
-            KagemushaWalletMessageV1::Offer {
-                offer: offer.clone(),
-            },
-        ));
+        publish(
+            &output.join(format!("{name}-companion.norito")),
+            companion_original,
+        );
         records.push(record(
             output,
             &format!("{name}-request"),
@@ -239,7 +238,6 @@ pub(super) fn retain(
             },
         ));
         let payment: KagemushaWalletPaymentV1 = decode(original);
-        records.push(record_payment_lineage(output, name, &payment));
         let credited: KagemushaWalletCreditedV1 = decode(acknowledgement);
         records.push(record(
             output,
@@ -255,14 +253,14 @@ pub(super) fn retain(
                 payment: payment.clone(),
             },
         ));
-        originals.push((name, offer, request, payment, credited));
+        originals.push((name, request, companion, payment, credited));
     }
     // Record carrying frames before expensive proof verification. Failed proofs
     // retain their exact originals and decisions; they never become census success.
     let mut proof_checks = Vec::new();
     let mut all_proofs_verified = true;
-    for (name, offer, request, payment, credited) in originals {
-        let session_result = verify_session(verifier.scheme(), &offer, &request, &payment);
+    for (name, request, companion, payment, credited) in originals {
+        let session_result = verify_session(verifier.scheme(), &request, &companion, &payment);
         let credited_model_result = credited.verify_for(verifier.scheme(), &request, &payment);
         let payment_result = verifier.verify_package_proofs(&payment.send, MemoryBudget::DEFAULT);
         let (credited_scope, credited_result) = match &credited.evidence {
@@ -281,7 +279,7 @@ pub(super) fn retain(
             && credited_result.is_ok();
         proof_checks.push(norito::json!({
             "pair": name,
-            "session_verification_scope": "Offer signature, payer credential and issuer; exact signed Request and its receiver credential, certificates and fee schedule; Payment model binding to those session originals",
+            "session_verification_scope": "Exact open Request signature and its receiver credential, certificates and fee schedule; payer companion binding to the Payment's Omega(pred) credential and Request payer; Payment model binding completing that open Request",
             "session_verification_result": (format!("{session_result:?}")),
             "credited_model_scope": "Canonical Credited::verify_for against the exact held Request and retained Payment: Receive receipt signature and credit/Payment/asset linkage, or CreditStatus receipt, membership opening and receiver/credit/Payment linkage; no native operation admission",
             "credited_model_result": (format!("{credited_model_result:?}")),
@@ -305,16 +303,17 @@ pub(super) fn retain(
 
 fn verify_session(
     scheme: &KagemushaWalletSchemeV1,
-    offer: &KagemushaWalletOfferV1,
     request: &KagemushaWalletRequestV1,
+    companion: &KagemushaWalletPayerCompanionV1,
     payment: &KagemushaWalletPaymentV1,
 ) -> Result<(), KagemushaWalletValidationErrorV1> {
-    offer.verify(scheme)?;
+    request.verify_open(scheme)?;
+    companion.check_payment(payment)?;
     payment
         .verify(
             scheme,
-            &offer.payer_credential,
-            &offer.certificates,
+            &companion.payer_credential,
+            &companion.certificates,
             request,
         )
         .map(|_| ())
@@ -348,17 +347,8 @@ pub(super) fn read_pinned_originals() -> (Vec<u8>, [Vec<u8>; 8]) {
     (original, bytes)
 }
 
-// Producer capture pins bind exact session identity beyond Payment's protocol fields.
-pub(super) fn require_selected_send_session(
-    offer: &[u8],
-    request: &[u8],
-    selected_send: &norito::json::Value,
-) {
-    assert_eq!(
-        selected_send["retained_offer_sha256"].as_str(),
-        Some(sha(offer).as_str()),
-        "census Offer differs from the original selected-Send capture"
-    );
+// The producer capture pins the exact open Request the selected Send paid.
+pub(super) fn require_selected_send_session(request: &[u8], selected_send: &norito::json::Value) {
     assert_eq!(
         selected_send["retained_request_sha256"].as_str(),
         Some(sha(request).as_str()),
@@ -389,10 +379,25 @@ pub(super) fn sessions_for_exchange(
     {
         assert_eq!(original, expected, "exact same-campaign monetary original");
     }
-    let [_, _, _, _, offer_ab, request_ab, offer_bc, request_bc] = originals;
-    let sessions = [[offer_ab, request_ab], [offer_bc, request_bc]];
-    for ([offer, request], payment) in sessions.iter().zip(payments) {
-        verify_session(scheme, &decode(offer), &decode(request), &decode(payment)).unwrap();
+    let [
+        _,
+        _,
+        _,
+        _,
+        request_ab,
+        companion_ab,
+        request_bc,
+        companion_bc,
+    ] = originals;
+    let sessions = [[request_ab, companion_ab], [request_bc, companion_bc]];
+    for ([request, companion], payment) in sessions.iter().zip(payments) {
+        verify_session(
+            scheme,
+            &decode(request),
+            &KagemushaWalletPayerCompanionV1::decode_canonical(companion).unwrap(),
+            &decode(payment),
+        )
+        .unwrap();
     }
     sessions
 }
@@ -420,7 +425,7 @@ fn remeasure_retained_genuine_exchange_envelopes_without_wallet_mutation() {
         "message_envelopes": records,
         "complete_exchange_roles": (["a-b", "b-c"].into_iter().map(|name| complete_exchange_roles(&records, name)).collect::<Vec<_>>()),
         "new_wallet_operations": 0, "physical_device_qualified": false,
-        "scope": "Exact retained canonical Offer/Request/Payment/Credited/Lineage envelopes with authenticated session originals, canonical Credited model linkage and separate Sigma/Omega proof verification against admitted catalog. No new native message/operation admission, fresh lifecycle, all policy variants, carrier timings or current-producer qualification."
+        "scope": "Exact retained canonical Request/Payment/Credited envelopes with the authenticated open Request and payer companion originals, canonical Credited model linkage and separate Sigma/Omega proof verification against admitted catalog. No new native message/operation admission, fresh lifecycle, all policy variants, carrier timings or current-producer qualification."
     })).unwrap());
 }
 
@@ -455,6 +460,43 @@ fn fixture_scheme() -> KagemushaWalletSchemeV1 {
         .find(|row| row["type"].as_str() == Some("KagemushaWalletSchemeV1"))
         .unwrap();
     decode(&hex::decode(scheme_row["canonical_hex"].as_str().unwrap()).unwrap())
+}
+
+// The vectored Receive capsule retains the exact payer credential and issuer set its Payment
+// was received with: the payer companion that travels beside that Payment.
+fn fixture_companion() -> KagemushaWalletPayerCompanionV1 {
+    let vectors: norito::json::Value = norito::json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/kagemusha/wallet_v1_vectors.json"
+    )))
+    .unwrap();
+    let row = vectors["objects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["type"].as_str() == Some("KagemushaWalletRecoveryCapsuleV1"))
+        .unwrap();
+    let capsule: KagemushaWalletRecoveryCapsuleV1 =
+        decode(&hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap());
+    let retained = |role| {
+        capsule
+            .body()
+            .retained_inputs
+            .iter()
+            .find(|input| input.role == role)
+            .unwrap()
+            .bytes
+            .clone()
+    };
+    let companion = KagemushaWalletPayerCompanionV1 {
+        version: KAGEMUSHA_WALLET_VERSION_V1,
+        payer_credential: decode(&retained(KagemushaWalletRetainedInputRoleV1::Credential)),
+        certificates: decode(&retained(
+            KagemushaWalletRetainedInputRoleV1::CertificateSet,
+        )),
+    };
+    companion.validate().unwrap();
+    companion
 }
 
 // Re-sign a changed stand-in proof so the replacement remains model-valid. A
@@ -500,9 +542,7 @@ fn message_census_final_status_retains_exact_frame_and_rejects_valid_substitutio
     // Fixture signatures exercise model linkage, never genuine Omega acceptance.
     let directory = tempfile::tempdir().unwrap();
     let scheme = fixture_scheme();
-    let KagemushaWalletMessageV1::Offer { offer } = fixture_message("Offer") else {
-        unreachable!()
-    };
+    let companion = fixture_companion();
     let KagemushaWalletMessageV1::Request { request } = fixture_message("Request") else {
         unreachable!()
     };
@@ -557,9 +597,9 @@ fn message_census_final_status_retains_exact_frame_and_rejects_valid_substitutio
     let signature = signature.normalize_s().unwrap_or(signature);
     changed_request.signature =
         KagemushaDeviceSignatureV1::from_raw_bytes(&signature.to_bytes()).unwrap();
-    changed_request.verify(&scheme).unwrap();
+    changed_request.verify_open(&scheme).unwrap();
 
-    let changed_payment = changed_fixture_payment(&payment, &offer.payer_credential);
+    let changed_payment = changed_fixture_payment(&payment, &companion.payer_credential);
     assert_ne!(
         changed_payment.payment_digest().unwrap(),
         payment.payment_digest().unwrap()
@@ -652,7 +692,7 @@ fn message_census_credited_binds_both_forms_to_exact_request_and_payment() {
     let signature = signature.normalize_s().unwrap_or(signature);
     replacement_request.signature =
         KagemushaDeviceSignatureV1::from_raw_bytes(&signature.to_bytes()).unwrap();
-    replacement_request.verify(&scheme).unwrap();
+    replacement_request.verify_open(&scheme).unwrap();
     for variant in ["Credited::Receive", "Credited::Status"] {
         let KagemushaWalletMessageV1::Credited { credited } = fixture_message(variant) else {
             unreachable!()
@@ -680,11 +720,10 @@ fn message_census_credited_binds_both_forms_to_exact_request_and_payment() {
 }
 
 #[test]
-fn message_census_requires_five_distinct_bounded_exchange_roles() {
+fn message_census_requires_three_distinct_bounded_exchange_roles() {
     let directory = tempfile::tempdir().unwrap();
     let mut records = Vec::new();
     for (suffix, variant) in [
-        ("offer", "Offer"),
         ("request", "Request"),
         ("payment", "Payment"),
         ("credited", "Credited::Receive"),
@@ -695,24 +734,9 @@ fn message_census_requires_five_distinct_bounded_exchange_roles() {
             fixture_message(variant),
         ));
     }
-    let KagemushaWalletMessageV1::Payment { payment } = fixture_message("Payment") else {
-        unreachable!()
-    };
-    records.push(record_payment_lineage(
-        directory.path(),
-        "fixture",
-        &payment,
-    ));
-    let lineage_frame = fs::read(directory.path().join("fixture-lineage.envelope.norito")).unwrap();
-    let KagemushaWalletMessageV1::Lineage { lineage } =
-        decode::<KagemushaWalletEnvelopeV1>(&lineage_frame).message
-    else {
-        unreachable!()
-    };
-    assert_eq!(&lineage.lineage, payment.send.lineage.lineage().unwrap());
     let inventory = complete_exchange_roles(&records, "fixture");
-    assert_eq!(inventory["complete_envelopes"].as_array().unwrap().len(), 5);
-    assert_eq!(records[3]["variant"].as_str(), Some("Credited::Receive"));
+    assert_eq!(inventory["complete_envelopes"].as_array().unwrap().len(), 3);
+    assert_eq!(records[2]["variant"].as_str(), Some("Credited::Receive"));
     for index in 0..records.len() {
         let mut missing = records.clone();
         missing.remove(index);
@@ -746,26 +770,38 @@ fn message_census_authenticates_session_originals_and_rejects_substitution() {
     // Real fixture signatures exercise model admission; the fixture's stand-in
     // financial proofs are deliberately never passed to the genuine census.
     let scheme = fixture_scheme();
-    let KagemushaWalletMessageV1::Offer { offer } = fixture_message("Offer") else {
-        unreachable!()
-    };
+    let companion = fixture_companion();
     let KagemushaWalletMessageV1::Request { request } = fixture_message("Request") else {
         unreachable!()
     };
     let KagemushaWalletMessageV1::Payment { payment } = fixture_message("Payment") else {
         unreachable!()
     };
-    verify_session(&scheme, &offer, &request, &payment).unwrap();
+    verify_session(&scheme, &request, &companion, &payment).unwrap();
 
-    let mut changed_offer = offer.clone();
-    changed_offer.body.session_nonce[0] ^= 1;
-    assert!(verify_session(&scheme, &changed_offer, &request, &payment).is_err());
+    // Another wallet's valid companion: the receiver's own credential and exactly its issuer.
+    let issuer = *request
+        .certificates
+        .certificate(
+            &request.receiver_credential.body.issuer_certificate,
+            KagemushaWalletSignerRoleV1::Enrollment,
+        )
+        .unwrap();
+    let foreign =
+        KagemushaWalletPayerCompanionV1::new(request.receiver_credential, &issuer).unwrap();
+    assert!(verify_session(&scheme, &request, &foreign, &payment).is_err());
+    // The payer's genuine completion verifies, but the session original is the open Request.
+    let completed = request
+        .complete_with(&payment.signed_request().unwrap())
+        .unwrap();
+    completed.verify(&scheme).unwrap();
+    assert!(verify_session(&scheme, &completed, &companion, &payment).is_err());
     let mut changed_request = request.clone();
     changed_request.body.nonce[0] ^= 1;
-    assert!(verify_session(&scheme, &offer, &changed_request, &payment).is_err());
+    assert!(verify_session(&scheme, &changed_request, &companion, &payment).is_err());
     let mut foreign_scheme = scheme;
     foreign_scheme.relation_id[0] ^= 1;
-    assert!(verify_session(&foreign_scheme, &offer, &request, &payment).is_err());
+    assert!(verify_session(&foreign_scheme, &request, &companion, &payment).is_err());
 
     // This replacement is independently valid and signed by the SAME receiver.
     // Its rejection must bind the original Payment's exact signed Request, not
@@ -779,12 +815,12 @@ fn message_census_authenticates_session_originals_and_rejects_substitution() {
     let signature = signature.normalize_s().unwrap_or(signature);
     changed_request.signature =
         KagemushaDeviceSignatureV1::from_raw_bytes(&signature.to_bytes()).unwrap();
-    changed_request.verify(&scheme).unwrap();
-    assert_ne!(changed_request.signed(), payment.signed_request().unwrap());
-    assert!(verify_session(&scheme, &offer, &changed_request, &payment).is_err());
+    changed_request.verify_open(&scheme).unwrap();
+    assert_ne!(changed_request.request_digest(), request.request_digest());
+    assert!(verify_session(&scheme, &changed_request, &companion, &payment).is_err());
 
-    let offer_bytes = norito::encode_canonical(&offer).unwrap();
     let request_bytes = norito::encode_canonical(&request).unwrap();
+    let companion_bytes = companion.to_canonical_bytes().unwrap();
     let payment_bytes = norito::encode_canonical(&payment).unwrap();
     let KagemushaWalletMessageV1::Credited { credited } = fixture_message("Credited::Receive")
     else {
@@ -796,10 +832,10 @@ fn message_census_authenticates_session_originals_and_rejects_substitution() {
         payment_bytes.clone(),
         acknowledgement.clone(),
         acknowledgement.clone(),
-        offer_bytes.clone(),
         request_bytes.clone(),
-        offer_bytes.clone(),
+        companion_bytes.clone(),
         request_bytes.clone(),
+        companion_bytes.clone(),
     ];
     assert_eq!(
         sessions_for_exchange(
@@ -809,8 +845,8 @@ fn message_census_authenticates_session_originals_and_rejects_substitution() {
             [&acknowledgement, &acknowledgement],
         ),
         [
-            [offer_bytes.clone(), request_bytes.clone()],
-            [offer_bytes, request_bytes]
+            [request_bytes.clone(), companion_bytes.clone()],
+            [request_bytes, companion_bytes]
         ]
     );
     for index in 0..4 {
@@ -829,65 +865,50 @@ fn message_census_authenticates_session_originals_and_rejects_substitution() {
 }
 
 #[test]
-fn message_census_recovery_pins_reject_valid_offer_and_manifest_substitution() {
+fn message_census_recovery_pins_reject_valid_request_and_manifest_substitution() {
     use p256::ecdsa::signature::Signer as _;
 
     let scheme = fixture_scheme();
-    let KagemushaWalletMessageV1::Offer { offer } = fixture_message("Offer") else {
-        unreachable!()
-    };
+    let companion = fixture_companion();
     let KagemushaWalletMessageV1::Request { request } = fixture_message("Request") else {
         unreachable!()
     };
     let KagemushaWalletMessageV1::Payment { payment } = fixture_message("Payment") else {
         unreachable!()
     };
-    let offer_bytes = norito::encode_canonical(&offer).unwrap();
     let request_bytes = norito::encode_canonical(&request).unwrap();
-    let selected = norito::json!({
-        "retained_offer_sha256": (sha(&offer_bytes)),
-        "retained_request_sha256": (sha(&request_bytes)),
-    });
-    require_selected_send_session(&offer_bytes, &request_bytes, &selected);
+    let selected = norito::json!({"retained_request_sha256": (sha(&request_bytes))});
+    require_selected_send_session(&request_bytes, &selected);
 
-    // The same payer can sign another valid Offer nonce. Payment deliberately binds
-    // the payer credential, not this nonce: only the capture pin rejects substitution.
+    // The same receiver can sign another valid open Request with a fresh nonce. It cannot
+    // complete into this Payment, and the capture pin refuses it before custody opens.
     // Fixture proof stand-ins remain outside the genuine-proof census.
-    let mut substitute = offer.clone();
-    substitute.body.session_nonce[0] ^= 1;
+    let mut substitute = request.clone();
+    substitute.body.nonce[0] ^= 1;
     assert_eq!(
-        public_key(&signing_key(0x51)),
-        offer.payer_credential.body.payment_key
+        public_key(&signing_key(0x52)),
+        request.receiver_credential.body.payment_key
     );
     let signature: p256::ecdsa::Signature =
-        signing_key(0x51).sign(&substitute.body.signing_message());
+        signing_key(0x52).sign(&substitute.body.signing_message());
     let signature = signature.normalize_s().unwrap_or(signature);
     substitute.signature =
         KagemushaDeviceSignatureV1::from_raw_bytes(&signature.to_bytes()).unwrap();
-    verify_session(&scheme, &substitute, &request, &payment).unwrap();
+    substitute.verify_open(&scheme).unwrap();
+    assert!(verify_session(&scheme, &substitute, &companion, &payment).is_err());
     let substitute = norito::encode_canonical(&substitute).unwrap();
-    assert_ne!(substitute, offer_bytes);
+    assert_ne!(substitute, request_bytes);
     assert!(
-        std::panic::catch_unwind(|| require_selected_send_session(
-            &substitute,
-            &request_bytes,
-            &selected,
-        ))
-        .is_err()
+        std::panic::catch_unwind(|| require_selected_send_session(&substitute, &selected)).is_err()
     );
     let mut foreign_request = request_bytes.clone();
     foreign_request.push(0);
     assert!(
-        std::panic::catch_unwind(|| require_selected_send_session(
-            &offer_bytes,
-            &foreign_request,
-            &selected,
-        ))
-        .is_err()
+        std::panic::catch_unwind(|| require_selected_send_session(&foreign_request, &selected))
+            .is_err()
     );
     assert!(
         std::panic::catch_unwind(|| require_selected_send_session(
-            &offer_bytes,
             &request_bytes,
             &norito::json!({}),
         ))
@@ -974,47 +995,54 @@ fn message_census_manifest_requires_exact_pinned_roles() {
 }
 
 #[test]
-fn message_census_records_session_bounds_and_retains_oversized_offer() {
+fn message_census_records_kind_bounds_and_retains_oversized_request() {
     let directory = tempfile::tempdir().unwrap();
-    for (kind, maximum) in [
-        ("Offer", KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1),
-        ("Request", KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1),
+    for (name, variant, maximum) in [
+        (
+            "control",
+            "SessionControl::Close",
+            KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1,
+        ),
+        ("request", "Request", KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1),
     ] {
-        let message = fixture_message(kind);
-        let row = record(directory.path(), kind, message.clone());
-        let bytes = fs::read(directory.path().join(format!("{kind}.envelope.norito"))).unwrap();
+        let message = fixture_message(variant);
+        let row = record(directory.path(), name, message.clone());
+        let bytes = fs::read(directory.path().join(format!("{name}.envelope.norito"))).unwrap();
         assert_eq!(row["maximum_bytes"].as_u64(), Some(maximum as u64));
         assert_eq!(row["bytes"].as_u64(), Some(bytes.len() as u64));
         assert_eq!(row["sha256"].as_str(), Some(sha(&bytes).as_str()));
         assert_eq!(decode::<KagemushaWalletEnvelopeV1>(&bytes).message, message);
     }
 
-    // This oversized structural Offer is deliberately invalid; it exercises
+    // This oversized structural Request is deliberately invalid; it exercises
     // failure evidence retention, never protocol acceptance or phone sizing.
-    let KagemushaWalletMessageV1::Offer { mut offer } = fixture_message("Offer") else {
+    let KagemushaWalletMessageV1::Request { mut request } = fixture_message("Request") else {
         unreachable!()
     };
-    let issuer = offer.certificates.certificates[0];
-    offer.certificates.certificates.resize(16, issuer);
+    let issuer = request.certificates.certificates[0];
+    while norito::encode_canonical(&request).unwrap().len() <= KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1
+    {
+        request.certificates.certificates.push(issuer);
+    }
     assert!(
         std::panic::catch_unwind(|| record(
             directory.path(),
-            "oversized-offer",
-            KagemushaWalletMessageV1::Offer { offer }
+            "oversized-request",
+            KagemushaWalletMessageV1::Request { request }
         ))
         .is_err()
     );
     let measured: norito::json::Value = norito::json::from_slice(
-        &fs::read(directory.path().join("oversized-offer.measurement.json")).unwrap(),
+        &fs::read(directory.path().join("oversized-request.measurement.json")).unwrap(),
     )
     .unwrap();
     assert_eq!(measured["within_bound"].as_bool(), Some(false));
     assert_eq!(
         measured["maximum_bytes"].as_u64(),
-        Some(KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1 as u64)
+        Some(KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 as u64)
     );
-    assert!(measured["bytes"].as_u64().unwrap() > KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1 as u64);
-    let frame = fs::read(directory.path().join("oversized-offer.envelope.norito")).unwrap();
+    assert!(measured["bytes"].as_u64().unwrap() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 as u64);
+    let frame = fs::read(directory.path().join("oversized-request.envelope.norito")).unwrap();
     assert_eq!(measured["bytes"].as_u64(), Some(frame.len() as u64));
     assert_eq!(measured["sha256"].as_str(), Some(sha(&frame).as_str()));
 }

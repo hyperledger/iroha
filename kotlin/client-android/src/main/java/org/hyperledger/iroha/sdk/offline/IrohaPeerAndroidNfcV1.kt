@@ -18,8 +18,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Conservative command and response limits from Android IsoDep capabilities. Without extended
- * length a WRITE or WRITE_OFFER APDU carries at most 255 data bytes (`s ‖ hash ‖ offset` plus a
- * 203-byte chunk) and a read answers at most 256 bytes.
+ * length a WRITE APDU carries at most 255 data bytes (`s ‖ hash ‖ offset` plus a 203-byte chunk)
+ * and a read answers at most 256 bytes.
  */
 object IrohaPeerIsoDepLimitsV1 {
     /** The largest fixed command, BEGIN_PAYMENT (`80 20 00 00 ‖ Lc ‖` 132 bytes). */
@@ -54,12 +54,11 @@ class IrohaPeerNfcAmbiguousTransceiveExceptionV1(cause: IOException) :
 
 /**
  * Reader-side IsoDep transceiver of one tag, selecting [applicationIdentifier] (the identifier
- * both phones registered). Pass [transceive] to [IrohaPeerNfcOfferExchangeV1.runFromAsk] (or
- * [IrohaPeerNfcOfferExchangeV1.run] to resume with an Offer already built), retain the
- * connection during approval, then continue with [IrohaPeerNfcReaderExchangeV1.run] using
- * [localLimits]. Each phase begins with SELECT for the same identifier without closing this
- * transceiver. A transport failure after a command was sent is an
- * [IrohaPeerNfcAmbiguousTransceiveExceptionV1].
+ * both phones registered). Pass [transceive] to [IrohaPeerNfcReaderExchangeV1.readRequest] to read
+ * the receiver's open Request, retain the connection during review and approval, then continue
+ * with [IrohaPeerNfcReaderExchangeV1.run] using [localLimits]. Each phase begins with SELECT for the
+ * same identifier without closing this transceiver. A transport failure after a command was sent
+ * is an [IrohaPeerNfcAmbiguousTransceiveExceptionV1].
  */
 class IrohaPeerIsoDepTransceiverV1 private constructor(
     private val isoDep: IsoDep,
@@ -154,15 +153,6 @@ interface IrohaPeerNfcCardCompletionV1<T> {
     fun fail(error: Throwable)
 }
 
-/** One-shot completion of [IrohaPeerNfcCardCallbacksV1.prepareRequest]; only the first call counts. */
-interface IrohaPeerNfcRequestPreparationV1 {
-    /** The wallet's Request (complete Request IPM1 bytes), signed under the Request rule for the Offer. */
-    fun prepared(request: ByteArray)
-
-    /** The wallet declined the Offer with [reason] (1–65,535), which the card reports in `IOI1`. */
-    fun declined(reason: Int)
-}
-
 /**
  * Application callbacks of the card. Each runs on the bridge's callback executor, never on the
  * HCE thread, and may complete later on any thread. The durable callbacks must be idempotent: a
@@ -170,12 +160,6 @@ interface IrohaPeerNfcRequestPreparationV1 {
  * later calls them again for the same context.
  */
 interface IrohaPeerNfcCardCallbacksV1 {
-    /**
-     * The card verified the payer's [offer] and answered SUBMIT_OFFER. Build and sign the
-     * Request bound to it (the Request rule), or decline. Never called in direct mode.
-     */
-    fun prepareRequest(offer: IrohaPeerWireMessageV1, preparation: IrohaPeerNfcRequestPreparationV1)
-
     /**
      * BEGIN_PAYMENT: durably admit the Payment header of [context] and complete with its `IPA1`
      * record ([IrohaPeerNfcDurablePaymentAdmissionV1]) after persisting it.
@@ -186,8 +170,9 @@ interface IrohaPeerNfcCardCallbacksV1 {
     )
 
     /**
-     * COMMIT: ingest the Payment of [context] natively, persist the Credited acknowledgement and
-     * complete with its `IDA1` record ([IrohaPeerNfcDurableAcknowledgementV1]).
+     * COMMIT: ingest the Payment of [context] natively (with the payer companion its carrier holds,
+     * `KagemushaWalletV1.receiveWithCompanion`), persist the Credited acknowledgement and complete
+     * with its `IDA1` record ([IrohaPeerNfcDurableAcknowledgementV1]).
      */
     fun durableCommit(
         context: IrohaPeerNfcCommitContextV1,
@@ -197,8 +182,6 @@ interface IrohaPeerNfcCardCallbacksV1 {
 
 /** Why an application boundary of the card failed. */
 enum class IrohaPeerNfcCardFailureV1 {
-    /** The Request callback threw, or its Request is not a valid Request IPM1 of the profile. */
-    REQUEST_PREPARATION_FAILED,
     PAYMENT_ADMISSION_REJECTED,
     PAYMENT_ADMISSION_PERSISTENCE_FAILED,
     PAYMENT_ADMISSION_TIMED_OUT,
@@ -210,8 +193,11 @@ enum class IrohaPeerNfcCardFailureV1 {
 
 /** Observable card progress. Events are idempotent: an exact replay can report a state again. */
 sealed class IrohaPeerNfcCardEventV1 {
-    /** The wallet's Request is installed: the card is REQUEST_READY. */
-    object RequestPrepared : IrohaPeerNfcCardEventV1()
+    /**
+     * The payer's phone read the last byte of the hosted Request (its final READ_REQUEST chunk): the
+     * payer is reviewing and approving it. A repeated read reports it again.
+     */
+    object RequestRead : IrohaPeerNfcCardEventV1()
 
     /** The Payment header is durably admitted. */
     object PaymentAdmitted : IrohaPeerNfcCardEventV1()
@@ -241,16 +227,14 @@ fun interface IrohaPeerNfcCardEventListenerV1 {
 }
 
 /**
- * Host card emulation bridge of one [IrohaPeerNfcCardEndpointV1] (intake mode for a full payment, or
- * direct/restored mode) and its application [callbacks].
+ * Host card emulation bridge of one [IrohaPeerNfcCardEndpointV1] (the receiver's open Request, or a
+ * restored session) and its application [callbacks].
  *
- * SUBMIT_OFFER answers `9000` at once and the Offer goes to [IrohaPeerNfcCardCallbacksV1.prepareRequest]
- * asynchronously; its completion installs the Request (REQUEST_READY) or the decline (DECLINED)
- * whenever it arrives, across RF activations. BEGIN_PAYMENT and COMMIT answer only after
- * [IrohaPeerNfcCardCallbacksV1.admitPayment] or [IrohaPeerNfcCardCallbacksV1.durableCommit] returned
- * its persisted record within the durable deadline; otherwise the card answers `6581`. A durable
- * completion that arrives after RF deactivation or the deadline is dropped, and the reader's exact
- * replay later re-stages it.
+ * Every command but BEGIN_PAYMENT and COMMIT is answered synchronously by the endpoint. BEGIN_PAYMENT
+ * and COMMIT answer only after [IrohaPeerNfcCardCallbacksV1.admitPayment] or
+ * [IrohaPeerNfcCardCallbacksV1.durableCommit] returned its persisted record within the durable
+ * deadline; otherwise the card answers `6581`. A durable completion that arrives after RF
+ * deactivation or the deadline is dropped, and the reader's exact replay later re-stages it.
  */
 class IrohaPeerNfcCardApduBridgeV1 @JvmOverloads constructor(
     @JvmField val endpoint: IrohaPeerNfcCardEndpointV1,
@@ -267,19 +251,20 @@ class IrohaPeerNfcCardApduBridgeV1 @JvmOverloads constructor(
     }
 
     private val activation = IrohaPeerNfcActivationEpochV1()
+    private val requestLength = endpoint.receiver.receiveRequest.byteCount.toLong()
 
     override fun handle(command: IrohaPeerNfcCommandV1, respond: IrohaPeerNfcApduResponseHandlerV1) {
         val epoch = activation.capture()
         when (command) {
-            is IrohaPeerNfcCommandV1.SubmitOffer -> submitOffer(command, respond)
             is IrohaPeerNfcCommandV1.BeginPayment -> beginPayment(command, epoch, respond)
             is IrohaPeerNfcCommandV1.Commit -> commit(command, epoch, respond)
             else -> {
                 val response = answer { IrohaPeerNfcAPDUResponseV1(endpoint.handle(command), IrohaPeerNfcStatusWordV1.SUCCESS) }
                 respond.respond(response)
-                if (command is IrohaPeerNfcCommandV1.ConfirmAcknowledgement &&
-                    response.statusWord == IrohaPeerNfcStatusWordV1.SUCCESS
-                ) {
+                if (response.statusWord != IrohaPeerNfcStatusWordV1.SUCCESS) return
+                if (command is IrohaPeerNfcCommandV1.ReadRequest && command.offset + response.dataLength == requestLength) {
+                    emit(IrohaPeerNfcCardEventV1.RequestRead)
+                } else if (command is IrohaPeerNfcCommandV1.ConfirmAcknowledgement) {
                     emit(IrohaPeerNfcCardEventV1.AcknowledgementConfirmed)
                 }
             }
@@ -289,41 +274,6 @@ class IrohaPeerNfcCardApduBridgeV1 @JvmOverloads constructor(
     override fun onDeactivated(reason: Int) {
         activation.invalidate()
         emit(IrohaPeerNfcCardEventV1.Deactivated(reason))
-    }
-
-    private fun submitOffer(command: IrohaPeerNfcCommandV1.SubmitOffer, respond: IrohaPeerNfcApduResponseHandlerV1) {
-        var offer: IrohaPeerWireMessageV1? = null
-        val response = answer {
-            offer = endpoint.submitOffer(command)
-            SUCCESS
-        }
-        respond.respond(response)
-        val submitted = offer ?: return
-        val offerHash = submitted.wireHash
-        val preparation = object : IrohaPeerNfcRequestPreparationV1 {
-            private val settled = AtomicBoolean(false)
-
-            override fun prepared(request: ByteArray) {
-                if (!settled.compareAndSet(false, true)) return
-                try {
-                    endpoint.installRequest(offerHash, request)
-                } catch (failure: RuntimeException) {
-                    emit(IrohaPeerNfcCardEventV1.Failed(IrohaPeerNfcCardFailureV1.REQUEST_PREPARATION_FAILED, failure))
-                    return
-                }
-                emit(IrohaPeerNfcCardEventV1.RequestPrepared)
-            }
-
-            override fun declined(reason: Int) {
-                if (!settled.compareAndSet(false, true)) return
-                try {
-                    endpoint.declineRequest(offerHash, reason)
-                } catch (failure: RuntimeException) {
-                    emit(IrohaPeerNfcCardEventV1.Failed(IrohaPeerNfcCardFailureV1.REQUEST_PREPARATION_FAILED, failure))
-                }
-            }
-        }
-        dispatch(IrohaPeerNfcCardFailureV1.REQUEST_PREPARATION_FAILED) { callbacks.prepareRequest(submitted, preparation) }
     }
 
     private fun beginPayment(

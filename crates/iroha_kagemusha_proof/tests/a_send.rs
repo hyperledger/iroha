@@ -26,7 +26,7 @@ use iroha_kagemusha_proof::{
     circuit::{PrefixMode, RelationShape},
     operation_relation::{
         map_effects::{InsertCells, MapState},
-        objects::ObjectKind,
+        objects::{ObjectKind, signed_message_native},
         state::StateCells,
         statement::StatementCells,
     },
@@ -41,10 +41,7 @@ use iroha_plonk::{
 };
 use iroha_plonk_gadgets::{
     UintChip,
-    bytes::{
-        p_bytes_native,
-        tape::{BytesChip, BytesConfig},
-    },
+    bytes::tape::{BytesChip, BytesConfig},
     imt::{LeafCells, OpeningCells, PathCells},
 };
 use iroha_plonk_recursion::{
@@ -150,7 +147,7 @@ impl SendMaps {
             .zip(&self.witness.objects)
             .map(|(kind, bytes)| {
                 let end = kind.body_len();
-                let mut fields = vec![p_bytes_native(kind.signing_domain(), &bytes[..end])];
+                let mut fields = vec![signed_message_native(kind, &bytes[..end])];
                 for offset in [16, 0, 48, 32] {
                     fields.push(Fp::from_u128(u128::from_be_bytes(
                         bytes[end + offset..end + offset + 16].try_into().unwrap(),

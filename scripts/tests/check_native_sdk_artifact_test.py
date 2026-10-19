@@ -519,14 +519,15 @@ def test_retired_abi23_manifest_and_schema_are_rejected() -> None:
     }
     MODULE.validate_manifest(manifest)
     for field, retired, expected in (
-        ("bridge_abi_version", 23, "must be exactly 30"),
-        ("bridge_abi_version", 24, "must be exactly 30"),
-        ("bridge_abi_version", 25, "must be exactly 30"),
-        ("bridge_abi_version", 26, "must be exactly 30"),
-        ("bridge_abi_version", 27, "must be exactly 30"),
-        ("bridge_abi_version", 28, "must be exactly 30"),
-        ("bridge_abi_version", 29, "must be exactly 30"),
-        ("bridge_abi_version", 31, "must be exactly 30"),
+        ("bridge_abi_version", 23, "must be exactly 31"),
+        ("bridge_abi_version", 24, "must be exactly 31"),
+        ("bridge_abi_version", 25, "must be exactly 31"),
+        ("bridge_abi_version", 26, "must be exactly 31"),
+        ("bridge_abi_version", 27, "must be exactly 31"),
+        ("bridge_abi_version", 28, "must be exactly 31"),
+        ("bridge_abi_version", 29, "must be exactly 31"),
+        ("bridge_abi_version", 30, "must be exactly 31"),
+        ("bridge_abi_version", 32, "must be exactly 31"),
         ("schema", "iroha.native-sdk-abi29-artifact.v1", "schema is unsupported"),
         ("schema", "iroha.native-sdk-abi28-artifact.v1", "schema is unsupported"),
         ("schema", "iroha.native-sdk-abi27-artifact.v1", "schema is unsupported"),
@@ -1103,7 +1104,7 @@ def test_swift_retained_bridge_exports_have_one_canonical_header_owner() -> None
     assert not prototype_counts(retention), "local bridge declarations substitute for the owner"
 
 
-def test_abi30_rejects_all_retired_timed_ovn_exports() -> None:
+def test_abi31_rejects_all_retired_timed_ovn_exports() -> None:
     for sdk, retired in (
         ("c-jni", (*MODULE.RETIRED_TIMED_OVN_C_EXPORTS, *MODULE.RETIRED_TIMED_OVN_JNI_EXPORTS)),
         ("csharp", MODULE.RETIRED_TIMED_OVN_C_EXPORTS),
@@ -1114,4 +1115,4 @@ def test_abi30_rejects_all_retired_timed_ovn_exports() -> None:
             except MODULE.ArtifactContractError as error:
                 assert "retired protocol symbols" in str(error)
             else:
-                raise AssertionError(f"ABI 30 accepted retired symbol: {symbol}")
+                raise AssertionError(f"ABI 31 accepted retired symbol: {symbol}")

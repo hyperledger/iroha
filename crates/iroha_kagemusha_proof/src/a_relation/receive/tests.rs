@@ -3,7 +3,9 @@
 use super::*;
 use crate::{
     a_relation::incoming_transport::{IncomingTransportPlan, tests::decoder_fixture},
-    operation_relation::incoming_statement::IncomingStatementCells,
+    operation_relation::{
+        incoming_statement::IncomingStatementCells, objects::signed_message_native,
+    },
 };
 use ff::{Field, PrimeField};
 use iroha_pasta::poseidon::hash_with_domain;
@@ -259,7 +261,7 @@ fn half(bytes: &[u8]) -> Fp {
 }
 pub(super) fn object_digest(kind: ObjectKind, source: &[u8]) -> Fp {
     let body = kind.body_len();
-    let mut words = vec![p_bytes_native(kind.signing_domain(), &source[..body])];
+    let mut words = vec![signed_message_native(kind, &source[..body])];
     for offset in [16, 0, 48, 32] {
         words.push(Fp::from_u128(u128::from_be_bytes(
             source[body + offset..body + offset + 16]
@@ -686,8 +688,24 @@ impl Objects {
                 .try_into()
                 .unwrap()
         };
+        // The signed Request is open; this Payment and its statements use its
+        // payer-completed body while retaining the receiver's exact signature.
+        let mut request = signed("Request");
+        let body = decode(
+            j["poseidon"]["credit_id"]["request_body_hex"]
+                .as_str()
+                .expect("completed Request"),
+        );
+        let end = ObjectKind::Request.body_len();
+        assert_eq!(body.len(), end);
+        assert_eq!(&body[..66], &request[..66]);
+        assert_eq!(&body[130..194], &request[130..194]);
+        assert_eq!(&body[210..], &request[210..end]);
+        let request_digest = object_digest(ObjectKind::Request, &request);
+        request[..end].copy_from_slice(&body);
+        assert_eq!(object_digest(ObjectKind::Request, &request), request_digest);
         let source = [
-            signed("Request"),
+            request,
             signed("payer credential"),
             signed("Send receipt"),
             decode(

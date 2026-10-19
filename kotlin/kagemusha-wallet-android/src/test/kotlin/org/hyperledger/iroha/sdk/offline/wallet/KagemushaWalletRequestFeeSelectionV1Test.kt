@@ -20,17 +20,19 @@ class KagemushaWalletRequestFeeSelectionV1Test {
         assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletRequestFeeSelectionV1(KagemushaWalletCallV1(1, -1, 0, 0, 0, 0, ByteArray(64) { 1 })) }
     }
     @Test fun `fee PolicyData setup enforces pair and full envelope bounds`() {
-        val id = ByteArray(32) { 1 }; val frame = byteArrayOf(7)
+        val id = ByteArray(32) { 1 }; val frame = byteArrayOf(7); val amount = KagemushaWalletUInt128V1(1, 0)
         KagemushaWalletSetupInputV1(38)
-        KagemushaWalletSetupInputV1(39, id, first = frame)
-        KagemushaWalletSetupInputV1(39, id, first = frame, second = frame, third = frame)
+        KagemushaWalletSetupInputV1(39, id, amount)
+        KagemushaWalletSetupInputV1(39, id, amount, first = frame, second = frame)
         KagemushaWalletSetupInputV1(40, first = frame, second = frame)
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(38, first = frame) }
+        assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(39, id, amount, first = frame) }
+        assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(39, id, amount, first = frame, second = frame, third = frame) }
+        assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(39, amount = amount, first = frame, second = frame) }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(39, id, first = frame, second = frame) }
-        assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(39, first = frame) }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(40, first = frame) }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(40, id, first = frame, second = frame) }
-        assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(39, id, first = frame, second = ByteArray(10_001), third = frame) }
+        assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(39, id, amount, first = frame, second = ByteArray(10_001)) }
         assertFailsWith<IllegalArgumentException> { KagemushaWalletSetupInputV1(40, first = frame, second = ByteArray(10_001)) }
     }
 }

@@ -592,7 +592,7 @@ fn transaction_submission_native_boundary_pins_wire_hash_and_receipt_signer() {
 }
 #[test]
 fn privacy_bridge_abi_version_python_function_matches_first_release() {
-    assert_eq!(privacy_bridge_abi_version_py(), 30);
+    assert_eq!(privacy_bridge_abi_version_py(), 31);
 }
 #[test]
 fn privacy_compiled_profile_catalog_python_validator_calls_the_exact_local_boundary() {

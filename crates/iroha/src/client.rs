@@ -15281,7 +15281,11 @@ impl AccountClient {
     ///
     /// The request variant explicitly selects direct account authentication or
     /// a complete multisignature witness. The response is decoded and checked
-    /// against the exact payload before it is returned.
+    /// against the exact payload before it is returned. Direct account requests
+    /// honor explicit fee-quote backpressure within the shorter configured HTTP
+    /// timeout or inherited operation deadline, using fresh HTTP authentication
+    /// for the unchanged unsigned payload. An external multisignature witness
+    /// is never replayed automatically.
     ///
     /// # Errors
     /// Returns an error for a foreign network or authority, an invalid direct
@@ -15294,7 +15298,28 @@ impl AccountClient {
             FeeQuoteRequest::MultisigWitness { payload, witness } => (payload, Some(witness)),
         };
         self.ensure_fee_quote_domain(payload)?;
-        let client = self.client();
+        let source_client = self.client();
+        let deadline = if authorization.is_none() {
+            let configured = if source_client.torii_request_timeout.is_zero() {
+                None
+            } else {
+                Some(
+                    std::time::Instant::now()
+                        .checked_add(source_client.torii_request_timeout)
+                        .ok_or_else(|| eyre!("fee quote timeout exceeds the monotonic clock"))?,
+                )
+            };
+            match (source_client.http_transport.deadline(), configured) {
+                (Some(inherited), Some(configured)) => Some(inherited.min(configured)),
+                (inherited, configured) => inherited.or(configured),
+            }
+        } else {
+            None
+        };
+        let client = deadline.map_or_else(
+            || source_client.clone(),
+            |deadline| source_client.with_request_deadline(deadline),
+        );
         let url = join_torii_url(
             &client.torii_url,
             torii_routes::fees::QUOTE_PATH.trim_start_matches('/'),
@@ -15302,21 +15327,49 @@ impl AccountClient {
         let body = norito::json::to_vec(&FeeQuoteWireRequest {
             payload: payload.clone(),
         })?;
-        let builder = if let Some(witness) = authorization {
-            self.multisig_fee_quote_request(payload, witness, url, body)?
-        } else {
+        if authorization.is_none() {
             self.ensure_direct_signing_capability()?;
-            client
-                .account_signed_request(HttpMethod::POST, url, body)?
-                .header("Content-Type", APPLICATION_JSON)
-                .header("Accept", APPLICATION_JSON)
-                .max_response_bytes(FEE_QUOTE_RESPONSE_MAX_BYTES)
-        };
-        let response = client
-            .dispatch_request(builder.build()?)
-            .await
-            .wrap_err("quote exact unsigned account transaction payload")?;
-        Client::decode_fee_quote_response(payload, &response)
+        }
+        loop {
+            let ensure_before_deadline = || {
+                if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
+                    Err(crate::http_default::request_deadline_elapsed())
+                } else {
+                    Ok(())
+                }
+            };
+            ensure_before_deadline()?;
+            let builder = if let Some(witness) = authorization {
+                self.multisig_fee_quote_request(payload, witness, url.clone(), body.clone())?
+            } else {
+                // Authentication has its own replay nonce. Never resend a signed
+                // HTTP request, even though the quoted transaction body is unchanged.
+                client
+                    .account_signed_request(HttpMethod::POST, url.clone(), body.clone())?
+                    .header("Content-Type", APPLICATION_JSON)
+                    .header("Accept", APPLICATION_JSON)
+                    .max_response_bytes(FEE_QUOTE_RESPONSE_MAX_BYTES)
+            };
+            let response = client
+                .dispatch_request(builder.build()?)
+                .await
+                .wrap_err("quote exact unsigned account transaction payload")?;
+            ensure_before_deadline()?;
+            if authorization.is_none()
+                && let Some(deadline) = deadline
+                && let Some(delay) = Client::fee_quote_retry_delay(&response)?
+            {
+                let retry_at = std::time::Instant::now()
+                    .checked_add(delay)
+                    .filter(|retry_at| *retry_at < deadline)
+                    .ok_or_else(crate::http_default::request_deadline_elapsed)?;
+                tokio::time::sleep_until(tokio::time::Instant::from_std(retry_at)).await;
+                continue;
+            }
+            let quote = Client::decode_fee_quote_response(payload, &response)?;
+            ensure_before_deadline()?;
+            return Ok(quote);
+        }
     }
 
     /// Read one wallet's evaluated monthly status through the immutable signing context.
@@ -17869,6 +17922,39 @@ impl Client {
             ),
         }
     }
+    fn fee_quote_retry_delay(response: &Response<Vec<u8>>) -> Result<Option<Duration>> {
+        if response.status() != StatusCode::TOO_MANY_REQUESTS
+            || response.body().len() > FEE_QUOTE_RESPONSE_MAX_BYTES
+        {
+            return Ok(None);
+        }
+        let content_type = exact_single_response_header_bytes(response, "content-type")?;
+        if !Self::is_exact_json_content_type_bytes(content_type) {
+            return Ok(None);
+        }
+        let Ok(envelope) = norito::json::from_slice::<ErrorEnvelope>(response.body()) else {
+            return Ok(None);
+        };
+        if envelope.code() != "query_validation_failed" {
+            return Ok(None);
+        }
+        let Some(delay) = transaction_wait::retry_after_delay(response)? else {
+            return Ok(None);
+        };
+        if delay.is_zero() {
+            return Err(eyre!("fee quote Retry-After must be positive"));
+        }
+        if envelope
+            .details
+            .as_ref()
+            .and_then(|details| details.retry_after_seconds)
+            != Some(delay.as_secs())
+        {
+            return Err(eyre!("fee quote Retry-After differs from error details"));
+        }
+        Ok(Some(delay))
+    }
+
     fn decode_fee_quote_response(
         payload: &TransactionPayload,
         response: &Response<Vec<u8>>,
@@ -27862,6 +27948,396 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].url.path(), torii_routes::fees::QUOTE_PATH);
     }
+
+    fn fee_quote_backpressure_response(retry_after: &str) -> HttpResponse<Vec<u8>> {
+        let mut response = json_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            r#"{"code":"query_validation_failed","message":"local query admission refused","details":{"retry_after_seconds":1}}"#,
+        );
+        response.headers_mut().insert(
+            http::header::RETRY_AFTER,
+            retry_after.parse().expect("retry instruction"),
+        );
+        response
+    }
+
+    #[tokio::test]
+    async fn fee_quote_backpressure_refreshes_http_auth_for_the_same_unsigned_payload() {
+        for valid_quote in [true, false] {
+            let client = client_with_base_url(base_url());
+            let payload = account_context(&client)
+                .prepare_transaction(AccountTransactionDraft::new(
+                    Vec::<InstructionBox>::new(),
+                    FeePaymentIntent::authority(Vec::new(), None),
+                    Metadata::default(),
+                ))
+                .expect("exact unsigned payload");
+            let original = payload.clone();
+            let mut quote = authority_fee_quote_for_draft(&payload);
+            if !valid_quote {
+                quote.observation.next_block_height = 0;
+            }
+            let success = json_response(
+                StatusCode::OK,
+                &norito::json::to_json(&quote).expect("typed quote"),
+            );
+            let snapshots: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+            let observations = Arc::new(Mutex::new(Vec::new()));
+            let store = Arc::clone(&snapshots);
+            let times = Arc::clone(&observations);
+            let transport = DefaultHttpTransport::mock(Arc::new(move |request| {
+                let mut requests = store.lock().expect("requests");
+                requests.push(request);
+                times
+                    .lock()
+                    .expect("request times")
+                    .push(std::time::Instant::now());
+                match requests.len() {
+                    1 => Ok(fee_quote_backpressure_response("1")),
+                    2 => Ok(success.clone()),
+                    _ => panic!("quote must never submit or keep retrying after a final response"),
+                }
+            }));
+            let client = client.with_test_http_transport(transport);
+            let result = account_context(&client)
+                .quote_fees(FeeQuoteRequest::AccountSignature { payload: &payload })
+                .await;
+            if valid_quote {
+                assert_eq!(result.expect("retry accepted quote"), quote);
+            } else {
+                assert!(
+                    result
+                        .expect_err("retry cannot bypass exact draft validation")
+                        .to_string()
+                        .contains("does not match the requested transaction payload")
+                );
+            }
+            assert_eq!(
+                payload, original,
+                "quoting cannot mutate the unsigned draft"
+            );
+            let requests = snapshots.lock().expect("requests");
+            assert_eq!(requests.len(), 2);
+            let times = observations.lock().expect("request times");
+            assert!(times[1].duration_since(times[0]) >= Duration::from_secs(1));
+            for request in requests.iter() {
+                assert_eq!(request.method, HttpMethod::POST);
+                assert_eq!(request.url, requests[0].url);
+                assert_eq!(request.url.path(), torii_routes::fees::QUOTE_PATH);
+                assert_eq!(request.body, requests[0].body);
+                assert_eq!(request.max_response_bytes, FEE_QUOTE_RESPONSE_MAX_BYTES);
+                assert_canonical_account_signed_json_request(&client, request);
+            }
+            let nonce = |request: &RequestSnapshot| {
+                request
+                    .headers
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case(HEADER_NONCE))
+                    .expect("fresh HTTP nonce")
+                    .1
+                    .clone()
+            };
+            assert_ne!(nonce(&requests[0]), nonce(&requests[1]));
+            assert!(
+                requests[1].timeout < requests[0].timeout,
+                "one shrinking budget"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn fee_quote_backpressure_rejects_untrusted_or_ambiguous_retry_responses() {
+        let client = client_with_base_url(base_url());
+        let payload = account_context(&client)
+            .prepare_transaction(AccountTransactionDraft::new(
+                Vec::<InstructionBox>::new(),
+                FeePaymentIntent::authority(Vec::new(), None),
+                Metadata::default(),
+            ))
+            .expect("exact unsigned payload");
+        let mut cases = Vec::new();
+        for instruction in [
+            "0",
+            "-1",
+            "+1",
+            " 1",
+            "1 ",
+            "1,2",
+            "18446744073709551616",
+            "Wed, 21 Oct 2026 07:28:00 GMT",
+        ] {
+            cases.push(fee_quote_backpressure_response(instruction));
+        }
+        let mut duplicate = fee_quote_backpressure_response("1");
+        duplicate
+            .headers_mut()
+            .append(http::header::RETRY_AFTER, "1".parse().unwrap());
+        cases.push(duplicate);
+        let mut missing = fee_quote_backpressure_response("1");
+        missing.headers_mut().remove(http::header::RETRY_AFTER);
+        cases.push(missing);
+        let mut duplicate_media = fee_quote_backpressure_response("1");
+        duplicate_media.headers_mut().append(
+            http::header::CONTENT_TYPE,
+            APPLICATION_JSON.parse().unwrap(),
+        );
+        cases.push(duplicate_media);
+        for body in [
+            r#"{"code":"unrecognized_refusal","message":"busy","details":{"retry_after_seconds":1}}"#,
+            r#"{"code":"query_validation_failed","message":"busy"}"#,
+            r#"{"code":"query_validation_failed","message":"busy","details":{"retry_after_seconds":2}}"#,
+            r#"{"code":"query_validation_failed","message":"busy","details":{"retry_after_seconds":1,"unknown":true}}"#,
+            r#"{"code":"query_validation_failed","message":"busy","details":{"retry_after_seconds":1},"unknown":true}"#,
+            r#"{"code":"query_validation_failed","code":"query_validation_failed","message":"busy","details":{"retry_after_seconds":1}}"#,
+            "not a typed Torii error",
+        ] {
+            let mut response = fee_quote_backpressure_response("1");
+            *response.body_mut() = body.as_bytes().to_vec();
+            cases.push(response);
+        }
+        let mut foreign_media = fee_quote_backpressure_response("1");
+        foreign_media
+            .headers_mut()
+            .insert(http::header::CONTENT_TYPE, "text/plain".parse().unwrap());
+        cases.push(foreign_media);
+        let mut oversized = fee_quote_backpressure_response("1");
+        *oversized.body_mut() = vec![b'x'; FEE_QUOTE_RESPONSE_MAX_BYTES + 1];
+        cases.push(oversized);
+        for status in [
+            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
+            StatusCode::REQUEST_TIMEOUT,
+            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::TEMPORARY_REDIRECT,
+        ] {
+            let mut response = fee_quote_backpressure_response("1");
+            *response.status_mut() = status;
+            cases.push(response);
+        }
+        for response in cases {
+            let store: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+            quote_fees_with_response(&client, &payload, &store, response)
+                .await
+                .expect_err("a refusal must not become an automatic retry");
+            assert_eq!(store.lock().expect("requests").len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn fee_quote_backpressure_cannot_extend_either_deadline_or_create_an_unbounded_retry() {
+        let client = client_with_base_url(base_url());
+        let payload = account_context(&client)
+            .prepare_transaction(AccountTransactionDraft::new(
+                Vec::<InstructionBox>::new(),
+                FeePaymentIntent::authority(Vec::new(), None),
+                Metadata::default(),
+            ))
+            .expect("exact unsigned payload");
+        for (request_timeout, inherited_timeout) in [
+            (Duration::from_secs(3), Duration::from_millis(20)),
+            (Duration::from_millis(20), Duration::from_secs(3)),
+            (Duration::ZERO, Duration::from_millis(20)),
+        ] {
+            let mut selected = client.clone();
+            selected.torii_request_timeout = request_timeout;
+            selected =
+                selected.with_request_deadline(std::time::Instant::now() + inherited_timeout);
+            let store: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+            let error = quote_fees_with_response(
+                &selected,
+                &payload,
+                &store,
+                fee_quote_backpressure_response("1"),
+            )
+            .await
+            .expect_err("retry delay cannot fit the original budget");
+            assert!(error.to_string().contains("deadline elapsed"));
+            let requests = store.lock().expect("requests");
+            assert_eq!(requests.len(), 1, "do not shorten Retry-After");
+            assert!(requests[0].timeout.unwrap() <= Duration::from_millis(20));
+        }
+        let store: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+        let expired = client.with_request_deadline(std::time::Instant::now());
+        quote_fees_with_response(
+            &expired,
+            &payload,
+            &store,
+            fee_quote_backpressure_response("1"),
+        )
+        .await
+        .expect_err("expired operation cannot dispatch");
+        assert!(store.lock().expect("requests").is_empty());
+
+        let mut unbounded = client.clone();
+        unbounded.torii_request_timeout = Duration::ZERO;
+        let store: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+        let error = quote_fees_with_response(
+            &unbounded,
+            &payload,
+            &store,
+            fee_quote_backpressure_response("1"),
+        )
+        .await
+        .expect_err("an unbounded client remains one-shot");
+        assert!(error.to_string().contains("429 Too Many Requests"));
+        assert_eq!(store.lock().expect("requests").len(), 1);
+    }
+
+    #[tokio::test]
+    async fn fee_quote_backpressure_repeated_refusal_does_not_renew_the_request_budget() {
+        let mut client = client_with_base_url(base_url());
+        client.torii_request_timeout = Duration::from_millis(1500);
+        let payload = account_context(&client)
+            .prepare_transaction(AccountTransactionDraft::new(
+                Vec::<InstructionBox>::new(),
+                FeePaymentIntent::authority(Vec::new(), None),
+                Metadata::default(),
+            ))
+            .expect("exact unsigned payload");
+        let store: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+        let started = std::time::Instant::now();
+        let error = tokio::time::timeout(
+            Duration::from_secs(3),
+            quote_fees_with_response(
+                &client,
+                &payload,
+                &store,
+                fee_quote_backpressure_response("1"),
+            ),
+        )
+        .await
+        .expect("one request budget bounds all quote retries")
+        .expect_err("second Retry-After cannot fit the original request budget");
+        assert!(error.to_string().contains("deadline elapsed"));
+        let requests = store.lock().expect("requests");
+        assert_eq!(requests.len(), 2, "the budget must not reset after a retry");
+        assert!(requests[1].timeout.unwrap() < Duration::from_millis(500));
+        assert!(started.elapsed() >= Duration::from_secs(1));
+    }
+
+    #[tokio::test]
+    async fn fee_quote_backpressure_does_not_retry_transport_failure_or_admit_a_late_success() {
+        let mut client = client_with_base_url(base_url());
+        client.torii_request_timeout = Duration::from_millis(20);
+        let payload = account_context(&client)
+            .prepare_transaction(AccountTransactionDraft::new(
+                Vec::<InstructionBox>::new(),
+                FeePaymentIntent::authority(Vec::new(), None),
+                Metadata::default(),
+            ))
+            .expect("exact unsigned payload");
+        for late_success in [false, true] {
+            let store: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+            let requests = Arc::clone(&store);
+            let quote = authority_fee_quote_for_draft(&payload);
+            let response = json_response(StatusCode::OK, &norito::json::to_json(&quote).unwrap());
+            let transport = DefaultHttpTransport::mock(Arc::new(move |request| {
+                requests.lock().expect("requests").push(request);
+                if late_success {
+                    // A custom ready transport can return after its poll blocks.
+                    std::thread::sleep(Duration::from_millis(40));
+                    Ok(response.clone())
+                } else {
+                    Err(eyre!("injected fee quote transport refusal"))
+                }
+            }));
+            let selected = client.clone().with_test_http_transport(transport);
+            let error = account_context(&selected)
+                .quote_fees(FeeQuoteRequest::AccountSignature { payload: &payload })
+                .await
+                .expect_err("transport error or late quote remains an error");
+            assert!(format!("{error:#}").contains(if late_success {
+                "deadline elapsed"
+            } else {
+                "injected fee quote transport refusal"
+            }));
+            assert_eq!(store.lock().expect("requests").len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn fee_quote_backpressure_cancels_the_inflight_transport_at_the_original_deadline() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        #[derive(Debug)]
+        struct PendingQuote {
+            sends: Arc<AtomicUsize>,
+            drops: Arc<AtomicUsize>,
+        }
+        struct DropObservation(Arc<AtomicUsize>);
+        impl Drop for DropObservation {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        impl HttpTransport for PendingQuote {
+            fn send_blocking(&self, _: TransportRequest) -> Result<HttpResponse<Vec<u8>>> {
+                panic!("fee quotes must use the asynchronous transport");
+            }
+            fn send(&self, _: TransportRequest) -> TransportFuture<'_> {
+                self.sends.fetch_add(1, Ordering::SeqCst);
+                let drops = Arc::clone(&self.drops);
+                Box::pin(async move {
+                    let _guard = DropObservation(drops);
+                    std::future::pending::<Result<HttpResponse<Vec<u8>>>>().await
+                })
+            }
+        }
+        let mut client = client_with_base_url(base_url());
+        client.torii_request_timeout = Duration::from_millis(100);
+        let sends = Arc::new(AtomicUsize::new(0));
+        let drops = Arc::new(AtomicUsize::new(0));
+        let client = client.with_test_http_transport(DefaultHttpTransport::from_shared(Arc::new(
+            PendingQuote {
+                sends: Arc::clone(&sends),
+                drops: Arc::clone(&drops),
+            },
+        )));
+        let payload = account_context(&client)
+            .prepare_transaction(AccountTransactionDraft::new(
+                Vec::<InstructionBox>::new(),
+                FeePaymentIntent::authority(Vec::new(), None),
+                Metadata::default(),
+            ))
+            .expect("exact unsigned payload");
+        let error = tokio::time::timeout(
+            Duration::from_secs(2),
+            account_context(&client)
+                .quote_fees(FeeQuoteRequest::AccountSignature { payload: &payload }),
+        )
+        .await
+        .expect("original budget cancels the pending request")
+        .expect_err("pending transport cannot outlive quote deadline");
+        assert!(format!("{error:#}").contains("deadline elapsed"));
+        assert_eq!(sends.load(Ordering::SeqCst), 1);
+        assert_eq!(drops.load(Ordering::SeqCst), 1, "no orphaned HTTP work");
+    }
+
+    #[tokio::test]
+    async fn fee_quote_backpressure_never_replays_an_external_multisig_witness() {
+        let MultisigFeeQuoteFixture {
+            client,
+            payload,
+            witness,
+            body,
+            ..
+        } = multisig_fee_quote_fixture();
+        let requests: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+        let transport = DefaultHttpTransport::mock(Arc::new(respond_with(
+            &requests,
+            fee_quote_backpressure_response("1"),
+        )));
+        let client = client.with_test_http_transport(transport);
+        let error = account_context(&client)
+            .quote_fees(FeeQuoteRequest::MultisigWitness {
+                payload: &payload,
+                witness: &witness,
+            })
+            .await
+            .expect_err("a consumed threshold witness needs external renewal");
+        assert!(format!("{error:#}").contains("429 Too Many Requests"));
+        assert_multisig_fee_quote_request(&requests, &body);
+    }
+
     struct MultisigFeeQuoteFixture {
         client: Client,
         payload: TransactionPayload,

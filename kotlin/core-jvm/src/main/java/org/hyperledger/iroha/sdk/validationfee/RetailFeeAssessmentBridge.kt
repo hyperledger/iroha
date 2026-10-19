@@ -1,10 +1,10 @@
 package org.hyperledger.iroha.sdk.validationfee
 
-/** Canonical consensus payment-intent and signed-assessment codecs; requires the ABI-30 bridge. */
+/** Canonical consensus payment-intent and signed-assessment codecs; requires the ABI-31 bridge. */
 class RetailFeeAssessmentBridge private constructor() {
     companion object {
         private const val LIBRARY_NAME = "connect_norito_bridge"
-        private const val REQUIRED_BRIDGE_ABI_VERSION = 30
+        private const val REQUIRED_BRIDGE_ABI_VERSION = 31
         private const val MAXIMUM_INTENT_JSON_BYTES = 262_144
         private const val MAXIMUM_ASSESSMENT_JSON_BYTES = 4_096
         private const val MAXIMUM_ASSESSMENT_MARKER_BYTES = 4_096

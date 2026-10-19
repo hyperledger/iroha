@@ -65,7 +65,7 @@ fn deletion_intake_accepts_only_zero_unused_fields_and_actual_token_slot() {
             assert!(setup::request(&[0; 32], selector, 0, token, originals).is_err());
         }
     }
-    assert!(setup::bounds(54).is_err());
+    assert!(setup::bounds(56).is_err());
 }
 struct Script {
     base: super::super::tests::TestWallet,

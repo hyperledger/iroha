@@ -67,7 +67,8 @@ pub(super) fn retain_request<A: ObjectWorkspace>(
     index: IndexRoot,
     request: &KagemushaWalletRequestV1,
 ) -> Result<IndexRoot, Error> {
-    valid(request.validate())?;
+    // The receiver retains exactly the open Request it issued; every payer completes it.
+    valid(request.validate_open())?;
     let bytes = archive::encode(request)?;
     if bytes.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
         return Err(Error::Invalid("issued Request size"));

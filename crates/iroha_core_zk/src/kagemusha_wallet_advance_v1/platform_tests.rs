@@ -343,7 +343,7 @@ fn wallet_advance_v1_platform_tags_and_message() {
     let bytes = [7_u8; 32];
     assert_eq!(
         KagemushaWalletSignMessageV1 {
-            domain: KagemushaWalletSigningDomainV1::Offer,
+            domain: KagemushaWalletSigningDomainV1::Request,
             bytes: &bytes,
         }
         .as_bytes(),
@@ -351,11 +351,11 @@ fn wallet_advance_v1_platform_tags_and_message() {
     );
     assert_eq!(
         KagemushaWalletSignMessageV1 {
-            domain: KagemushaWalletSigningDomainV1::Offer,
+            domain: KagemushaWalletSigningDomainV1::Request,
             bytes: &bytes,
         }
         .domain(),
-        KagemushaWalletSigningDomainV1::Offer
+        KagemushaWalletSigningDomainV1::Request
     );
 }
 

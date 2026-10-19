@@ -475,7 +475,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         "expired-lease-time",
         &mut records,
     );
-    let (offer30, request30, request30_setup) = request(
+    let (request30, request30_setup) = request(
         &mut b,
         &mut a,
         30,
@@ -597,6 +597,12 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         &mut records,
     );
     let historical_b = frames_b.clone();
+    // No companion is retained before renewal: model a crash after the irreversible
+    // Send but before the application saved its delivery carrier.
+    let expected_companion30 = KagemushaWalletPayerCompanionV1::new(renewed1, &issuer)
+        .unwrap()
+        .to_canonical_bytes()
+        .unwrap();
     assert_eq!(
         b.snapshot().unwrap().owned_balance + a.snapshot().unwrap().owned_balance + 30,
         100
@@ -747,6 +753,17 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
     ));
     records.push(norito::json!({"case":"pending-renewal-reopen-resume","failed_sign_attempts":1,"eventual_receipts":1,"exact_selected_capsule_preserved":true,"historical_credential_refused":true,"indexed_credential_1_and_2_absent":true}));
     assert_eq!(complete(b.execute(intent30.clone()).unwrap()), payment30);
+    assert_eq!(
+        b.payment_companion(&payment30).unwrap(),
+        expected_companion30
+    );
+    assert!(
+        a.payment_companion(&payment30).is_err(),
+        "foreign Send has no local custody"
+    );
+    let mut noncanonical_payment = payment30.clone();
+    noncanonical_payment.push(0);
+    assert!(b.payment_companion(&noncanonical_payment).is_err());
     assert_eq!(b.snapshot().unwrap().owned_balance, 70);
     // Receive uses exactly the credential that signed the retained Payment. The payer's
     // later renewal cannot invalidate a committed credit or change its historical bytes.
@@ -854,13 +871,16 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         "retiring-with-outgoing-payment.norito",
         &retirement_bytes,
     ));
-    // A correctly signed foreign Offer reaches the lifecycle guard. No new Request may
-    // be signed, while the existing outgoing Payment and its original receipt survive.
-    let offer_for_retired = a.offer([next(&mut id); 32], 1).unwrap();
+    assert_eq!(
+        b.payment_companion(&payment30).unwrap(),
+        expected_companion30
+    );
+    // Retirement refuses new receiving Requests while preserving committed outgoing
+    // Payment and companion recovery without another signature.
     let refused_setup = [next(&mut id); 32];
     for _ in 0..2 {
         assert!(matches!(
-            b.request(refused_setup, &offer_for_retired, None),
+            b.request(refused_setup, 1, None),
             Err(state::Error::Invalid("new Request requires active wallet"))
         ));
         assert_eq!(b.snapshot().unwrap(), retired);
@@ -869,19 +889,6 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         device_b.platform.with(|state| state.sign_calls),
         retirement_signatures + 1
     );
-    records.push(original(
-        &output,
-        "retiring-refused-request-offer.norito",
-        &offer_for_retired,
-    ));
-    records.push(message_census::record(
-        &output,
-        "retiring-refused-request-offer",
-        KagemushaWalletMessageV1::Offer {
-            offer: decode(&offer_for_retired),
-        },
-    ));
-
     // Renew the RECEIVER after Request30 was signed and Payment30 was irrevocably
     // committed. This exact digest inequality selects ReceiveRenewed, not ordinary
     // Receive with a renewed payer. Retain the same request and the same incarnation.
@@ -928,15 +935,14 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
     assert_historical_open_refused(&sources, &device_a, &f_a, &old_frames_a);
     let mut a = sources.open(&device_a, &f_a, &frames_a);
     assert_eq!(a.snapshot().unwrap(), renewed_a_snapshot);
-    assert_eq!(
-        a.request(request30_setup, &offer30, None).unwrap(),
-        request30
-    );
+    assert_eq!(a.request(request30_setup, 30, None).unwrap(), request30);
     assert_eq!(
         device_a.platform.with(|state| state.sign_calls),
         a_renewal_signatures
     );
-    let receive30_intent = receive(&payment30, &historical_b, id);
+    let companion30 = companion(&mut b, &payment30);
+    assert_eq!(companion30, expected_companion30);
+    let receive30_intent = receive(&payment30, &companion30, id);
     let receive_renewed_route = OperationRoute {
         variant: Variant::ReceiveRenewed,
         own: 6,
@@ -969,7 +975,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         &mut a,
         &device_a,
         &sources,
-        &historical_b,
+        &companion30,
         &credential_a,
         &request30,
         &payment30,
@@ -1017,7 +1023,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
     ];
     macro_rules! refused_send {
         ($amount:expr,$label:expr) => {{
-            let (_,request,_)=request(&mut b,&mut a,$amount,&mut id,&output,$label,&mut records);
+            let (request,_)=request(&mut b,&mut a,$amount,&mut id,&output,$label,&mut records);
             review_refused(&mut b,&device_b,&request,&frames_a[2]);
             execute_refused(&mut b,&device_b,&request,&mut id);
             records.push(norito::json!({"case":$label,"amount":($amount.to_string()),"head_and_signatures_unchanged":true}));
@@ -1060,7 +1066,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
     }
     macro_rules! pay {
         ($amount:expr,$label:expr,$a_balance:expr) => {{
-            let (_, request, _) = request(
+            let (request, _) = request(
                 &mut b,
                 &mut a,
                 $amount,
@@ -1108,7 +1114,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
                 &mut a,
                 &device_a,
                 &sources,
-                &frames_b,
+                &companion(&mut b, &payment),
                 &credential_a,
                 &request,
                 &payment,
@@ -1253,10 +1259,7 @@ fn actual_native_renewal_and_daily_monthly_rollover_preserve_received_value() {
         receive30_bytes
     );
     assert_eq!(a.snapshot().unwrap(), final_a);
-    assert_eq!(
-        a.request(request30_setup, &offer30, None).unwrap(),
-        request30
-    );
+    assert_eq!(a.request(request30_setup, 30, None).unwrap(), request30);
     for (intent, payment) in sends {
         assert_eq!(complete(b.execute(intent).unwrap()), payment);
         assert_eq!(b.snapshot().unwrap(), final_b);

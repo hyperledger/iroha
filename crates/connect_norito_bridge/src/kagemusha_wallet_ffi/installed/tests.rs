@@ -141,3 +141,158 @@ fn install_refuses_invalid_originals_before_any_platform_upcall() {
     );
     assert_eq!(refused.err(), Some(Failure::code(INVALID)));
 }
+
+
+#[cfg(unix)]
+mod failed_provider_open {
+    use super::*;
+    use std::{
+        ffi::c_void,
+        fs,
+        os::unix::fs::PermissionsExt,
+        path::PathBuf,
+        sync::{
+            Mutex,
+            atomic::{AtomicUsize, Ordering},
+        },
+    };
+
+    struct Callbacks {
+        root: PathBuf,
+        displaced: Option<PathBuf>,
+        retained: AtomicUsize,
+        released: AtomicUsize,
+        calls: Mutex<Vec<u32>>,
+        moved: Mutex<Option<std::result::Result<(), String>>>,
+    }
+    unsafe extern "C" fn retain(context: *mut c_void) {
+        // SAFETY: failed_open retains this stack-owned, thread-safe context through the call.
+        let state = unsafe { &*context.cast::<Callbacks>() };
+        state.retained.fetch_add(1, Ordering::SeqCst);
+    }
+    unsafe extern "C" fn release(context: *mut c_void) {
+        // SAFETY: the context remains alive until the provider-opening result is consumed.
+        let state = unsafe { &*context.cast::<Callbacks>() };
+        state.released.fetch_add(1, Ordering::SeqCst);
+        if let Some(displaced) = &state.displaced {
+            // This is the ordinary retained-platform release after Provider::open fails.
+            // Record errors for Rust assertions after the callback; never panic across C.
+            let moved = fs::rename(&state.root, displaced).map_err(|error| error.to_string());
+            *state
+                .moved
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = Some(moved);
+        }
+    }
+    unsafe extern "C" fn invoke(
+        context: *mut c_void,
+        operation: u32,
+        _: *const u8,
+        _: *const u8,
+        _: usize,
+        _: u32,
+        _: *mut u8,
+        _: usize,
+        reply: *mut PlatformReply,
+    ) {
+        // SAFETY: CallbackPlatform owns the context and reply buffer for this upcall.
+        let state = unsafe { &*context.cast::<Callbacks>() };
+        state
+            .calls
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push(operation);
+        // Only the storage-availability probe succeeds; no key or anchor operation does.
+        unsafe {
+            reply.write(PlatformReply {
+                tag: if operation == 7 { 0 } else { 2 },
+                reason: 4,
+                code: 0,
+                length: 0,
+            });
+        }
+    }
+    fn failed_open(displace_on_release: bool) -> Failure {
+        let temporary = tempfile::tempdir().unwrap();
+        // Resolve the system temporary directory's aliases before private-root admission.
+        let parent = temporary.path().canonicalize().unwrap();
+        let root = parent.join("custody");
+        fs::create_dir(&root).unwrap();
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        let sentinel = b"invalid root sentinel";
+        fs::write(root.join("root.norito"), sentinel).unwrap();
+        fs::set_permissions(root.join("root.norito"), fs::Permissions::from_mode(0o600)).unwrap();
+        let state = Callbacks {
+            root: root.clone(),
+            displaced: displace_on_release.then(|| parent.join("displaced")),
+            retained: AtomicUsize::new(0),
+            released: AtomicUsize::new(0),
+            calls: Mutex::new(Vec::new()),
+            moved: Mutex::new(None),
+        };
+        // SAFETY: state outlives the call; the callbacks are synchronized and never panic.
+        let platform = unsafe {
+            CallbackPlatform::new(PlatformCallbacks {
+                version: 1,
+                anchor_policy: 1,
+                context: std::ptr::from_ref(&state).cast_mut().cast(),
+                retain: Some(retain),
+                release: Some(release),
+                invoke: Some(invoke),
+            })
+        }
+        .unwrap();
+        let failure = open_custody_provider(platform, root.clone(), [7; 32])
+            .err()
+            .expect("a failed provider open cannot supply a runtime owner");
+        assert_eq!(state.retained.load(Ordering::SeqCst), 1);
+        assert_eq!(state.released.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            *state.calls.lock().unwrap(),
+            [7],
+            "no key or anchor effects"
+        );
+        let retained_root = if let Some(displaced) = &state.displaced {
+            assert_eq!(*state.moved.lock().unwrap(), Some(Ok(())));
+            assert!(
+                !root.exists(),
+                "the displacement persists through transaction exit"
+            );
+            displaced
+        } else {
+            assert!(state.moved.lock().unwrap().is_none());
+            &root
+        };
+        assert_eq!(
+            fs::read(retained_root.join("root.norito")).unwrap(),
+            sentinel.as_slice()
+        );
+        let mut entries: Vec<_> = fs::read_dir(retained_root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        entries.sort();
+        assert_eq!(
+            entries,
+            [
+                std::ffi::OsString::from("lock"),
+                std::ffi::OsString::from("root.norito")
+            ],
+            "failed opening creates no slot, enrollment, journal or monetary state"
+        );
+        failure
+    }
+
+    #[test]
+    fn stationary_failed_provider_open_preserves_the_custody_data_error() {
+        assert_eq!(failed_open(false), Failure::custody(110));
+    }
+
+    #[test]
+    fn moved_failed_provider_open_returns_exit_refusal_without_an_owner_or_money() {
+        assert_eq!(
+            failed_open(true),
+            Failure::unavailable(UNAVAILABLE, advance::KagemushaWalletUnavailableV1::Io(0))
+        );
+    }
+}

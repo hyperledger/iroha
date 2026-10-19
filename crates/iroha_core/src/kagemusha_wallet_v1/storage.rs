@@ -172,7 +172,7 @@ pub fn validate_row(key: &KagemushaWalletLedgerKeyV1, bytes: &[u8]) -> Result<()
         REQUEST => {
             let value: KagemushaWalletRequestV1 =
                 decode(bytes, KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1)?;
-            value.validate()?;
+            value.validate_open()?;
             if value.body.scheme_id != *scheme || value.request_digest() != *owner {
                 return Err(Error::Binding);
             }

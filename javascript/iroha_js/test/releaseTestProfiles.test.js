@@ -163,6 +163,6 @@ test("release workflows require platform provenance, heavy, and SoraFS native la
     "javascript/iroha_js/test/helpers/sorafsNativeSuiteContract.js",
     "javascript/iroha_js/test/fixtures/sorafs_native_suite_contract_v1.json",
   ]) {
-    assert.ok(privacyWorkflow.includes(`- \"${path}\"`), `${path} must trigger ABI-30 checks`);
+    assert.ok(privacyWorkflow.includes(`- \"${path}\"`), `${path} must trigger ABI-31 checks`);
   }
 });

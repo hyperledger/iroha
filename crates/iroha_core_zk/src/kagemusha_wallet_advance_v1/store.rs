@@ -82,6 +82,34 @@ fn staging_name_with_entropy(
     ))
 }
 
+/// Observe the complete custody ancestry before an effect outside the store: a Keychain anchor
+/// write, a payment-key generation or deletion, or a signature.
+///
+/// Inside an `iroha_fs` custody transaction this is its fence: the custody root is walked
+/// completely and every custody directory used since by its own retained suffix. Outside one,
+/// every custody operation already checked its own ancestry and this observes nothing.
+///
+/// # Errors
+///
+/// `Unavailable` with the reason a custody operation reports for the same refused walk; the
+/// effect is then not attempted.
+pub(super) fn kagemusha_wallet_custody_fence_v1() -> Result<(), KagemushaWalletUnavailableV1> {
+    iroha_fs::fence_custody_transaction()
+        .map_err(|error| kagemusha_wallet_custody_refusal_v1(&error))
+}
+
+/// Reason of a refused custody ancestry observation (a custody transaction's fence or exit), as
+/// the native backend reports a refused walk when it selects a custody directory: a vanished
+/// ancestor is changed custody without an OS code, never absence.
+#[must_use]
+pub fn kagemusha_wallet_custody_refusal_v1(error: &io::Error) -> KagemushaWalletUnavailableV1 {
+    if error.kind() == io::ErrorKind::NotFound {
+        KagemushaWalletUnavailableV1::Io(0)
+    } else {
+        unavailable(error)
+    }
+}
+
 /// Durable custody store over one filesystem backend.
 #[derive(Debug, Clone)]
 pub struct KagemushaWalletDurableStoreV1<F> {
@@ -1034,6 +1062,12 @@ mod std_fs {
             &self,
             dir: &KagemushaWalletCustodyDirV1,
         ) -> io::Result<Arc<PrivateDirectory>> {
+            // Inside a custody transaction the root's complete ancestry is checked when it
+            // joins, at every fence before an effect outside the store and at the exit; each
+            // directory below keeps its suffix check at first use and every leaf check.
+            self.root
+                .join_custody_transaction()
+                .map_err(custody_changed)?;
             // Serialize cache selection with any consuming child-removal transition.
             let mut cache = self.directories.lock().map_err(|_| poisoned())?;
             #[cfg(windows)]
@@ -1051,7 +1085,8 @@ mod std_fs {
             if let Some(held) = cache.get(dir.components()) {
                 // The retained directory validates its complete native ancestor chain.
                 // Revalidate it on every selection without repeating the same walk for
-                // each cached prefix; no validation result survives this operation.
+                // each cached prefix; outside a custody transaction no validation result
+                // survives this operation.
                 held.revalidate().map_err(custody_changed)?;
                 return Ok(Arc::clone(held));
             }
@@ -1331,9 +1366,15 @@ mod std_fs {
             result.map_err(custody_changed)
         }
         fn available_bytes(&self) -> io::Result<u64> {
+            self.root
+                .join_custody_transaction()
+                .map_err(custody_changed)?;
             self.root.available_bytes()
         }
         fn try_lock(&self) -> io::Result<Self::Lock> {
+            self.root
+                .join_custody_transaction()
+                .map_err(custody_changed)?;
             let file = self
                 .root
                 .open_ownership_lock(KAGEMUSHA_WALLET_LOCK_NAME_V1)?;

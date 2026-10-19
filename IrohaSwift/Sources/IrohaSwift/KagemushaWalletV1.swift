@@ -14,7 +14,8 @@ public extension KagemushaWalletErrorV1 {
   /// Refused before commit; nothing debited or credited. Never a device verdict.
   static let notEnoughMemoryStatus: Int32 = -14
   /// The wallet's locally installed blacklist lists the counterparty: a payer refusing to pay a
-  /// listed receiver, or a receiver refusing to request or accept money from a listed payer.
+  /// listed receiver, or a receiver refusing to accept money from a listed payer (an open Request
+  /// names no payer, so the receiver's list applies at Receive).
   /// Refused before any mutation; nothing debited, issued or credited.
   static let blockedStatus: Int32 = -15
 }
@@ -224,18 +225,22 @@ public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @uncheck
     let result = try setup(.init(selector: 25, identity: creditId, first: world, second: payout))
     guard result.status == 35 else { throw KagemushaWalletErrorV1.invalidNativeOutput }
   }
-  /// Sign an Offer with a retained native nonce; retries return its exact original bytes.
-  public func offer(setupId: Data, amount: KagemushaWalletUInt128V1) throws -> KagemushaWalletCallV1 {
-    let result = try setup(.init(selector: 1, identity: setupId, amount: amount))
-    _ = try result.original()
-    return result
-  }
-  /// Authenticate the payer Offer and issue a Request from native current policy.
-  public func request(setupId: Data, offer: Data, feeSchedule: Data? = nil, feeCertificate: Data? = nil) throws -> KagemushaWalletCallV1 {
-    let result = try setup(.request(identity: setupId, offer: offer,
+  /// Issue the receiver's open Request for `amount` from native current policy, with the optional
+  /// fee schedule and its signer certificate. It names no payer: the payer's Native completes it.
+  /// Retries with the same setup id return its exact original bytes.
+  public func request(setupId: Data, amount: KagemushaWalletUInt128V1, feeSchedule: Data? = nil,
+    feeCertificate: Data? = nil) throws -> KagemushaWalletCallV1 {
+    let result = try setup(.request(identity: setupId, amount: amount,
       feeSchedule: feeSchedule, feeCertificate: feeCertificate))
     _ = try result.original()
     return result
+  }
+  /// The payer companion of this wallet's exact retained Payment: the historical Send
+  /// credential named by its lineage and that credential's issuer certificate. Native recovers
+  /// these originals after credential renewal too. The companion travels beside the Payment
+  /// (`IrohaPeerWalletPaymentV1`) and moves no value.
+  public func paymentCompanion(payment: Data) throws -> Data {
+    try setup(.init(selector: 55, first: payment)).original()
   }
   /// Convert a durable Receive or CreditStatus output to canonical peer evidence.
   /// Native validates its representation and scheme; this grants no proof or delivery verdict.
@@ -281,7 +286,8 @@ public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @uncheck
   public func load(requestId: Data, receipt: Data, finality: Data) throws -> KagemushaWalletCallV1 {
     try execute(KagemushaWalletOperationInputV1(requestId: requestId, selector: 0, first: receipt, second: finality))
   }
-  /// Authenticate the fully folded Send source before fresh hardware UI confirmation.
+  /// Authenticate the fully folded Send source before fresh hardware UI confirmation. Native
+  /// completes the receiver's open Request with this wallet's account and next send ordinal.
   public func reviewSend(request: Data, destinationAccountOriginal: Data) throws -> KagemushaWalletReviewV1 {
     guard !request.isEmpty, request.count <= 10_000,
       !destinationAccountOriginal.isEmpty, destinationAccountOriginal.count <= 4_096
@@ -293,10 +299,11 @@ public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @uncheck
   public func receive(requestId: Data, payment: Data, payerCredential: Data, certificates: Data) throws -> KagemushaWalletCallV1 {
     try execute(KagemushaWalletOperationInputV1(requestId: requestId, selector: 2, first: payment, second: payerCredential, third: certificates))
   }
-  /// Forward the exact signed session Offer. Native extracts its payer originals and performs
-  /// ordinary Receive authentication; the Offer supplies no monetary authority.
-  public func receiveFromOffer(requestId: Data, payment: Data, offer: Data) throws -> KagemushaWalletCallV1 {
-    try execute(KagemushaWalletOperationInputV1(requestId: requestId, selector: 10, first: payment, second: offer))
+  /// Forward the exact Payment and the payer companion that travelled beside it. Native checks
+  /// the companion against the Payment and performs ordinary Receive authentication; the
+  /// companion supplies no monetary authority.
+  public func receiveWithCompanion(requestId: Data, payment: Data, companion: Data) throws -> KagemushaWalletCallV1 {
+    try execute(KagemushaWalletOperationInputV1(requestId: requestId, selector: 10, first: payment, second: companion))
   }
   /// Apply signed policy originals; Native derives effective values and local map changes.
   public func refresh(requestId: Data, kind: KagemushaWalletRefreshKindV1, update: Data, certificates: Data) throws -> KagemushaWalletCallV1 {
@@ -304,7 +311,7 @@ public final class KagemushaWalletV1: KagemushaWalletCleanupResourceV1, @uncheck
   }
   /// Install a signed blacklist locally; a replacement's list version must increase and
   /// reinstalling the held list is idempotent. The wallet then refuses to pay a listed receiver
-  /// and to request or accept money from a listed payer (`blockedStatus`). Nothing is sent to
+  /// and to accept money from a listed payer (`blockedStatus`). Nothing is sent to
   /// peers or proved; this is no wallet operation and has no retry identity. Complete carries the
   /// held list's 32-byte object digest.
   public func installBlacklist(list: Data, certificates: Data) throws -> KagemushaWalletCallV1 {
@@ -472,7 +479,7 @@ struct KagemushaWalletOperationInputV1 {
     case 6: limits = [512, 10_000, 0]
     case 7: limits = [8_192, 10_000, 0]
     case 9: limits = [0, 0, 0]
-    case 10: limits = [10_000, 10_000, 0]
+    case 10: limits = [10_000, 2_048, 0]
     default: throw KagemushaWalletErrorV1.invalidInput
     }
     let nonzero = amount.low != 0 || amount.high != 0

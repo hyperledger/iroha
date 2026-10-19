@@ -438,24 +438,27 @@ fn coordinator_storage_counts_are_deterministic_and_filesystem_independent() {
     // Checkpoint publication drains: its two copies share one directory sync (one fsync-class
     // call fewer than two single publications) behind a probe before the create-new renames and
     // the probe that closes every archive access (two probes more per publication).
+    // Committed operations also publish their permanent operation-to-step locator.
+    // Its additional index objects are durable before the shared manifest is selected;
+    // retained Send retry still performs no archive writes or fsync-class calls.
     const BASELINE: [(&str, u64, u64, u64); 21] = [
         ("coordinator_open", 0, 0, 31),
-        ("bootstrap_commit", 34, 7, 134),
+        ("bootstrap_commit", 38, 8, 147),
         ("bootstrap_fold_turn_0", 10, 1, 75),
         ("bootstrap_fold_turn_1", 26, 5, 84),
-        ("receive_commit", 22, 4, 177),
+        ("receive_commit", 30, 6, 204),
         ("receive_fold_turn_0", 10, 1, 110),
         ("receive_fold_turn_1", 1_406, 350, 811),
-        ("refresh_policy_commit", 18, 3, 178),
+        ("refresh_policy_commit", 30, 6, 209),
         ("refresh_policy_fold_turn_0", 10, 1, 112),
         ("refresh_policy_fold_turn_1", 26, 5, 123),
-        ("send_commit", 34, 7, 186),
+        ("send_commit", 46, 10, 217),
         ("send_fold_turn_0", 10, 1, 113),
         ("send_fold_turn_1", 34, 7, 130),
-        ("load_commit", 18, 3, 181),
+        ("load_commit", 30, 6, 212),
         ("load_fold_turn_0", 10, 1, 114),
         ("load_fold_turn_1", 26, 5, 125),
-        ("unload_commit", 22, 4, 180),
+        ("unload_commit", 38, 8, 215),
         ("unload_fold_turn_0", 10, 1, 113),
         ("unload_fold_turn_1", 34, 7, 130),
         ("snapshot", 0, 0, 134),

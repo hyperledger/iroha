@@ -246,27 +246,36 @@ fn exact_original_digest_distinguishes_lengths_tails_and_every_signed_limb() {
 
 #[test]
 fn mandatory_owner_schedule_proves_the_step_inline_beside_the_predecessor() {
-    let tasks =
-        crate::a_relation::schedule::compiled::OperationSchedule::for_variant(Variant::Receive)
-            .tasks()
-            .to_vec();
+    let schedule =
+        crate::a_relation::schedule::compiled::OperationSchedule::for_variant(Variant::Receive);
+    let tasks = schedule.tasks().to_vec();
     assert_eq!(tasks.len(), A_STAGE_COUNT);
+    // Both map effects run beside the step and the hard predecessor, never terminal.
     assert_eq!(
         tasks[0],
         [
             OperationTask::ReceiveConsumedEffects,
+            OperationTask::ReceiveCreditEffects,
             OperationTask::ReceiveTransition
         ]
     );
-    assert_eq!(tasks[5], [OperationTask::ReceiveAuthorization]);
+    // Authorization owns Q1 in its own stage, and Signatures projects it there.
+    assert_eq!(schedule.q_partitions()[3], [1]);
     assert_eq!(
-        tasks[6],
+        tasks[3],
         [
             OperationTask::ReceiveSignatures,
-            OperationTask::ReceiveCreditEffects
+            OperationTask::ReceiveAuthorization
         ]
     );
-    assert_eq!(tasks[8], [OperationTask::ReceiveEffects]);
+    assert_eq!(
+        tasks[4],
+        [
+            OperationTask::ReceiveNonmembership,
+            OperationTask::ReceiveEffects,
+            OperationTask::ReceiveProofDigest
+        ]
+    );
     let mut flat = tasks
         .into_iter()
         .flatten()

@@ -116,7 +116,6 @@ fn continue_retained_archives_then_unload_without_repeating_transfers() {
     );
     message_census::require_selected_send_session(
         &census_originals[4],
-        &census_originals[5],
         &prior,
     );
     let custody = selected_path("KAGEMUSHA_NATIVE_RETAINED_EXCHANGE");

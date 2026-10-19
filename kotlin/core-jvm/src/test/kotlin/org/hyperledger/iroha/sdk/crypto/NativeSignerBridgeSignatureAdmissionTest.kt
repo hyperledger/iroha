@@ -9,7 +9,7 @@ class NativeSignerBridgeSignatureAdmissionTest {
     fun mldsaVerifyRejectsMalformedSignatureMaterial() {
         assertTrue(
             NativeSignerBridge.isNativeAvailable(),
-            "connect_norito_bridge ABI 30 is required",
+            "connect_norito_bridge ABI 31 is required",
         )
 
         val seed = ByteArray(32) { 0x44.toByte() }

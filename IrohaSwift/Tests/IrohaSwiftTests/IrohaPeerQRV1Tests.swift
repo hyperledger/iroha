@@ -136,7 +136,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         XCTAssertEqual(encoded[4], 1)
         XCTAssertEqual(encoded[5], 2)
         XCTAssertEqual(readUInt16BE(encoded, 6), 1)
-        XCTAssertEqual(encoded[8], IrohaPeerWireKindV1.payment.rawValue)
+        XCTAssertEqual(encoded[8], IrohaPeerWireKindV1.credited.rawValue)
         XCTAssertEqual(encoded[9], 0)
         XCTAssertEqual(Data(encoded[10..<26]), message.streamID)
         XCTAssertEqual(readUInt16BE(encoded, 28), 3)
@@ -182,8 +182,6 @@ final class IrohaPeerQRV1Tests: XCTestCase {
     }
 
     func testStaticCandidateAndFixedPairParitySequence() throws {
-        // The current Payment frame includes both bounded proof-vector headers.
-        // Keep this below the static QR limit while leaving room for that framing.
         let small = try makeMessage(count: 96, seed: 1)
         let staticText = try XCTUnwrap(
             IrohaPeerQRCodecV1.staticCompleteTextCandidate(for: small)
@@ -199,7 +197,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         )
         let staticEvent = try IrohaPeerQRScanSessionV1(
             expectedProfile: .kagemushaWalletV1,
-            expectedKind: .payment,
+            expectedKind: .credited,
             expectedSchemaVersion: 1
         ).ingest(staticText)
         guard case .completed(let staticDecoded) = staticEvent else {
@@ -252,7 +250,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
 
     func testMaximumStreamFrameCountsAndRepeatedHeaderText() throws {
         let message = try makeMessage(
-            count: IrohaPeerWireKindV1.payment.maximumWalletFrameBytes - 48,
+            count: IrohaPeerWireKindV1.credited.maximumWalletFrameBytes - 48,
             seed: 6
         )
         XCTAssertEqual(message.encodedBody.count, 10_000)
@@ -311,17 +309,66 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         XCTAssertEqual(try IrohaPeerKagemushaWalletAdapterV1.destinationAccountOriginal(decoded), account)
     }
 
+    func testMaximumPaymentCarrierRecoversLostShardAndPreservesBothOriginals() throws {
+        let envelope = irohaPeerWalletStructuralEnvelopeV1(
+            kind: .payment,
+            frameBytes: KagemushaWalletWireV1.messageMaximumBytes
+        )
+        // Bounded transport DATA; the companion's credential is authenticated by Native.
+        let companion = deterministicBytes(count: IrohaPeerWalletPaymentV1.maximumCompanionBytes, seed: 9)
+        let message = try IrohaPeerKagemushaWalletAdapterV1.wrap(envelope, payerCompanion: companion)
+        XCTAssertEqual(message.encodedBody.count, IrohaPeerWalletPaymentV1.maximumBytes)
+        XCTAssertEqual(message.encodedBody.count, 12_064)
+        XCTAssertNil(try IrohaPeerQRCodecV1.staticCompleteTextCandidate(for: message))
+        let texts = try IrohaPeerQRCodecV1.animatedFrameTexts(for: message)
+        let frames = try texts.map { try IrohaPeerQRCodecV1.decodeFrame($0) }
+        XCTAssertEqual(texts.count, 79)
+        XCTAssertEqual(frames.filter { $0.frameKind == .header }.count, 7)
+        XCTAssertEqual(frames.filter { $0.frameKind == .data }.count, 48)
+        XCTAssertEqual(frames.filter { $0.frameKind == .parity }.count, 24)
+        XCTAssertTrue(frames.allSatisfy { $0.total == 48 && $0.payloadKind == .payment })
+        let lost = try XCTUnwrap(frames.firstIndex { $0.frameKind == .data && $0.index == 45 })
+        let session = IrohaPeerQRScanSessionV1(
+            expectedProfile: .kagemushaWalletV1,
+            expectedKind: .payment,
+            expectedSchemaVersion: 1
+        )
+        var completed: IrohaPeerWireMessageV1?
+        var recoveredDataShards = 0
+        for (index, text) in texts.enumerated() where index != lost {
+            switch try session.ingest(text, atUptime: 0) {
+            case let .accepted(progress), let .duplicate(progress):
+                recoveredDataShards = max(recoveredDataShards, progress.recoveredDataShards)
+            case let .completed(decoded):
+                completed = decoded
+            }
+            if completed != nil { break }
+        }
+        XCTAssertEqual(recoveredDataShards, 1)
+        let decoded = try XCTUnwrap(completed)
+        XCTAssertEqual(decoded, message)
+        XCTAssertEqual(try IrohaPeerKagemushaWalletAdapterV1.decode(decoded), envelope)
+        XCTAssertEqual(try IrohaPeerKagemushaWalletAdapterV1.payerCompanion(decoded), companion)
+    }
+
     func testRequestCompanionBoundDoesNotPermitOversizedCompressedPayments() throws {
-        let envelope = irohaPeerWalletStructuralEnvelopeV1(kind: .payment, frameBytes: 10_001)
+        let maximum = try IrohaPeerWalletPaymentV1(
+            paymentEnvelope: irohaPeerWalletStructuralEnvelopeV1(
+                kind: .payment,
+                frameBytes: KagemushaWalletWireV1.messageMaximumBytes,
+                filler: { Data(repeating: 0x41, count: $0) }
+            ),
+            payerCompanion: Data(repeating: 0x41, count: IrohaPeerWalletPaymentV1.maximumCompanionBytes)
+        ).encode()
         XCTAssertThrowsError(try IrohaPeerWireMessageV1(
             profile: .kagemushaWalletV1,
             kind: .payment,
             schemaVersion: 1,
-            canonicalPayload: envelope,
+            canonicalPayload: maximum + Data([0x41]),
             compressionPolicy: .peerOptimized
         )) { error in
             XCTAssertEqual(error as? IrohaPeerWireMessageErrorV1,
-                           .canonicalLengthOutOfRange(actual: 10_001, maximum: 10_000))
+                           .canonicalLengthOutOfRange(actual: 12_065, maximum: 12_064))
         }
     }
 
@@ -330,7 +377,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         let frames = try indexedFrames(message)
         let session = IrohaPeerQRScanSessionV1(
             expectedProfile: .kagemushaWalletV1,
-            expectedKind: .payment,
+            expectedKind: .credited,
             expectedSchemaVersion: 1
         )
         _ = try session.ingest(try text(frames[.data, 0]))
@@ -385,19 +432,20 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         }
         XCTAssertEqual(session.activeStreamCount, 3)
 
-        let kindSession = IrohaPeerQRScanSessionV1(expectedKind: .credited)
-        let paymentText = try XCTUnwrap(
+        // A receiver scanning for the Payment code refuses the receipt code: a role mix-up.
+        let kindSession = IrohaPeerQRScanSessionV1(expectedKind: .payment)
+        let creditedText = try XCTUnwrap(
             IrohaPeerQRCodecV1.staticCompleteTextCandidate(
                 for: try makeMessage(count: 96, seed: 89)
             )
         )
-        XCTAssertThrowsError(try kindSession.ingest(paymentText)) { error in
+        XCTAssertThrowsError(try kindSession.ingest(creditedText)) { error in
             XCTAssertEqual(
                 error as? IrohaPeerQRErrorV1,
-                .unexpectedKind(expected: .credited, actual: .payment)
+                .unexpectedKind(expected: .payment, actual: .credited)
             )
         }
-        XCTAssertThrowsError(try kindSession.ingest(paymentText)) { error in
+        XCTAssertThrowsError(try kindSession.ingest(creditedText)) { error in
             XCTAssertEqual(error as? IrohaPeerQRErrorV1, .streamQuarantined)
         }
     }
@@ -528,12 +576,21 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         let nonHeaders = allFrames.filter { $0.frameKind != .header }
         XCTAssertGreaterThanOrEqual(nonHeaders.count, 13)
         let bounded = IrohaPeerQRScanSessionV1()
+        var buffered: IrohaPeerQRScanProgressV1?
         for frame in nonHeaders.prefix(12) {
-            _ = try bounded.ingest(IrohaPeerQRCodecV1.encodeFrame(frame))
+            guard case .accepted(let progress) = try bounded.ingest(IrohaPeerQRCodecV1.encodeFrame(frame)) else {
+                return XCTFail("Pre-header frames inside the bound are buffered")
+            }
+            buffered = progress
         }
-        XCTAssertThrowsError(try bounded.ingest(IrohaPeerQRCodecV1.encodeFrame(nonHeaders[12]))) { error in
-            XCTAssertEqual(error as? IrohaPeerQRErrorV1, .preheaderLimitExceeded)
+        // The bound limits buffering, not the stream: the thirteenth is dropped unbuffered.
+        guard case .duplicate(let unchanged) = try bounded.ingest(
+            IrohaPeerQRCodecV1.encodeFrame(nonHeaders[12])
+        ) else {
+            return XCTFail("A frame beyond the pre-header bound is dropped, not refused")
         }
+        XCTAssertEqual(unchanged, buffered)
+        XCTAssertEqual(bounded.activeStreamCount, 1)
 
         let timeLimits = IrohaPeerQRScanLimitsV1(
             maximumActiveStreams: 3,
@@ -554,6 +611,96 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         let idle = IrohaPeerQRScanSessionV1(scanLimits: timeLimits)
         _ = try idle.ingest(IrohaPeerQRCodecV1.encodeFrame(nonHeaders[0]), atUptime: start)
         XCTAssertEqual(try idle.expire(atUptime: start + 2), [message.streamID])
+    }
+
+    func testScanThatMissesTheFirstHeaderItMeetsStillCompletes() throws {
+        let message = try makeMessage(count: 9_952, seed: 45)
+        let texts = try IrohaPeerQRCodecV1.animatedFrameTexts(for: message)
+        let kinds = try texts.map { try IrohaPeerQRCodecV1.decodeFrame($0).frameKind }
+        let missed = try XCTUnwrap(kinds.indices.first { $0 > 0 && kinds[$0] == .header })
+        XCTAssertEqual(missed, 13)
+        let session = IrohaPeerQRScanSessionV1()
+        // The camera opens just after the first header and misses the next one, so the twelve
+        // frames between them and one more arrive before any header.
+        for index in 1..<missed {
+            guard case .accepted = try session.ingest(texts[index], atUptime: 10) else {
+                return XCTFail("Frame \(index) is buffered before the header")
+            }
+        }
+        guard case .duplicate = try session.ingest(texts[missed + 1], atUptime: 10) else {
+            return XCTFail("The thirteenth pre-header frame is dropped, not refused")
+        }
+        // Frames beyond the bound are dropped unbuffered, not refused: the next loop supplies them.
+        var completed: IrohaPeerWireMessageV1?
+        for index in Array(missed + 2..<texts.count) + Array(texts.indices) where completed == nil {
+            if case .completed(let value) = try session.ingest(texts[index], atUptime: 10) {
+                completed = value
+            }
+        }
+        XCTAssertEqual(try XCTUnwrap(completed).canonicalPayload, message.canonicalPayload)
+    }
+
+    func testDroppedPreheaderRetainsTotalForDataAndHeaderConflicts() throws {
+        let message = try makeMessage(count: 600, seed: 46)
+        let frames = try indexedFrames(message)
+        let data = try XCTUnwrap(frames[.data, 0])
+        let header = try XCTUnwrap(frames[.header, 0])
+        let changedTotal = try IrohaPeerQRFrameV1(
+            frameKind: .data, profile: data.profile, payloadKind: data.payloadKind,
+            streamID: data.streamID, index: data.index, total: data.total + 1,
+            payload: data.payload
+        )
+        let limits = IrohaPeerQRScanLimitsV1(
+            maximumPreheaderPayloadBytesPerStream: 1, idleTimeout: 2, absoluteTimeout: 3
+        )
+        // Exercise a later conflicting data frame and a valid header contradicting the dropped frame.
+        for (first, conflicting) in [(data, changedTotal), (changedTotal, header)] {
+            let session = IrohaPeerQRScanSessionV1(scanLimits: limits)
+            guard case .duplicate = try session.ingest(
+                IrohaPeerQRCodecV1.encodeFrame(first), atUptime: 100
+            ) else { return XCTFail("The first payload exceeds the custom pre-header byte limit") }
+            XCTAssertEqual(session.activeStreamCount, 1)
+            XCTAssertThrowsError(try session.ingest(
+                IrohaPeerQRCodecV1.encodeFrame(conflicting), atUptime: 100
+            )) { error in
+                XCTAssertEqual(error as? IrohaPeerQRErrorV1, .conflictingDuplicate)
+            }
+            XCTAssertEqual(session.activeStreamCount, 0)
+            XCTAssertThrowsError(try session.ingest(
+                IrohaPeerQRCodecV1.encodeFrame(header), atUptime: 102.999
+            )) { error in
+                XCTAssertEqual(error as? IrohaPeerQRErrorV1, .streamQuarantined)
+            }
+            guard case .accepted = try session.ingest(
+                IrohaPeerQRCodecV1.encodeFrame(header), atUptime: 103
+            ) else { return XCTFail("Quarantine expires at the exact absolute deadline") }
+        }
+    }
+
+    func testDroppedPreheadersDoNotRefreshIdleAndStreamCompletesAfterExpiry() throws {
+        let message = try makeMessage(count: 600, seed: 47)
+        let frames = try indexedFrames(message)
+        let limits = IrohaPeerQRScanLimitsV1(
+            maximumPreheaderPayloadBytesPerStream: 1, idleTimeout: 2, absoluteTimeout: 3
+        )
+        let session = IrohaPeerQRScanSessionV1(scanLimits: limits)
+        var firstProgress: IrohaPeerQRScanProgressV1?
+        for (index, uptime) in [(0, 100.0), (1, 101.5)] {
+            guard case .duplicate(let progress) = try session.ingest(
+                text(frames[.data, index]), atUptime: uptime
+            ) else { return XCTFail("Neither payload fits the custom pre-header byte limit") }
+            if let firstProgress { XCTAssertEqual(progress, firstProgress) }
+            firstProgress = progress
+        }
+        XCTAssertEqual(try session.expire(atUptime: 102), [message.streamID])
+        XCTAssertEqual(session.activeStreamCount, 0)
+        var completed: IrohaPeerWireMessageV1?
+        for value in try IrohaPeerQRCodecV1.animatedFrameTexts(for: message) where completed == nil {
+            if case .completed(let decoded) = try session.ingest(value, atUptime: 102) {
+                completed = decoded
+            }
+        }
+        XCTAssertEqual(try XCTUnwrap(completed).canonicalPayload, message.canonicalPayload)
     }
 
     func testChecksumCorrectHostileHeaderIsQuarantinedUntilExactExpiry() throws {
@@ -683,7 +830,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         )
         let staticSession = IrohaPeerQRScanSessionV1(
             expectedProfile: .kagemushaWalletV1,
-            expectedKind: .payment,
+            expectedKind: .credited,
             expectedSchemaVersion: 2,
             scanLimits: limits
         )
@@ -714,7 +861,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         XCTAssertGreaterThanOrEqual(headerTexts.count, 2)
         let animatedSession = IrohaPeerQRScanSessionV1(
             expectedProfile: .kagemushaWalletV1,
-            expectedKind: .payment,
+            expectedKind: .credited,
             expectedSchemaVersion: 2,
             scanLimits: limits
         )
@@ -739,10 +886,10 @@ final class IrohaPeerQRV1Tests: XCTestCase {
 
         let walletMessage = try IrohaPeerWireMessageV1(
             profile: .kagemushaWalletV1,
-            kind: .payment,
+            kind: .credited,
             schemaVersion: 1,
             canonicalPayload: irohaPeerWalletStructuralEnvelopeV1(
-                kind: .payment,
+                kind: .credited,
                 payload: deterministicBytes(count: 20, seed: 73)
             )
         )
@@ -751,7 +898,7 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         )
         let accepted = try IrohaPeerQRScanSessionV1(
             expectedProfile: .kagemushaWalletV1,
-            expectedKind: .payment,
+            expectedKind: .credited,
             expectedSchemaVersion: 1
         ).ingest(walletText)
         guard case .completed(let decoded) = accepted else {
@@ -780,8 +927,8 @@ final class IrohaPeerQRV1Tests: XCTestCase {
         IrohaPeerQRCodecV1.encodeFrame(try XCTUnwrap(frame))
     }
 
-    /// Structural Payment whose canonical wallet envelope is exactly `48 + count` bytes, so each
-    /// count fixes the shard layout; the opaque field is seeded by `seed`.
+    /// Structural Credited message whose canonical wallet envelope is exactly `48 + count` bytes,
+    /// so each count fixes the shard layout; the opaque field is seeded by `seed`.
     private func makeMessage(
         count: Int,
         seed: UInt8,
@@ -789,10 +936,10 @@ final class IrohaPeerQRV1Tests: XCTestCase {
     ) throws -> IrohaPeerWireMessageV1 {
         try IrohaPeerWireMessageV1(
             profile: .kagemushaWalletV1,
-            kind: .payment,
+            kind: .credited,
             schemaVersion: schemaVersion,
             canonicalPayload: irohaPeerWalletStructuralEnvelopeV1(
-                kind: .payment,
+                kind: .credited,
                 frameBytes: 48 + count,
                 filler: { self.deterministicBytes(count: $0, seed: seed) }
             )

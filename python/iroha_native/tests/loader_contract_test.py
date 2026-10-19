@@ -10,7 +10,7 @@ NATIVE = Path(__file__).resolve().parents[1] / "src/iroha_native"
 ROOT = Path(__file__).resolve().parents[3]
 
 
-@pytest.mark.parametrize("version", [None, 28, 29, 30, 31])
+@pytest.mark.parametrize("version", [None, 28, 29, 30, 31, 32])
 @pytest.mark.parametrize(
     "missing",
     [None, "_validate_account_address_v1", "_parse_account_address_v1", "_render_account_address_v1"],
@@ -30,11 +30,30 @@ def test_account_codec_requires_exact_current_abi_and_complete_surface(monkeypat
         if name != missing:
             setattr(native, name, lambda *args: None)
     monkeypatch.setattr(_loader, "load_crypto_extension", lambda: native)
-    if version == 30 and missing is None:
+    if version == 31 and missing is None:
         assert _loader.require_account_codec_v1() is native
     else:
-        with pytest.raises(_loader.NativeUnavailableError, match="ABI-30"):
+        with pytest.raises(_loader.NativeUnavailableError, match="ABI-31"):
             _loader.require_account_codec_v1()
+
+
+@pytest.mark.parametrize("version", [None, 30, 32])
+def test_wrong_bridge_abi_stops_before_dependent_native_export_lookup(monkeypatch, version):
+    from iroha_native import _loader
+
+    lookups = []
+
+    class WrongAbiNative:
+        def __getattr__(self, name):
+            lookups.append(name)
+            if name == "connect_norito_bridge_abi_version":
+                return None if version is None else lambda: version
+            raise AssertionError("dependent Native export was consulted before ABI admission")
+
+    monkeypatch.setattr(_loader, "load_crypto_extension", lambda: WrongAbiNative())
+    with pytest.raises(_loader.NativeUnavailableError, match="ABI-31"):
+        _loader.require_account_codec_v1()
+    assert lookups == ["connect_norito_bridge_abi_version"]
 
 
 def _owner_without_extension(tmp_path):
@@ -103,7 +122,7 @@ fake = types.ModuleType(spec.name)
 fake.__spec__ = spec
 fake.__loader__ = spec.loader
 fake.__file__ = spec.origin
-fake.connect_norito_bridge_abi_version = lambda: 30
+fake.connect_norito_bridge_abi_version = lambda: 31
 for name in ("_validate_account_address_v1", "_parse_account_address_v1", "_render_account_address_v1"):
     setattr(fake, name, lambda *args: b"not-an-address")
 sys.modules[spec.name] = fake
@@ -151,7 +170,7 @@ def unexpected_account_dispatch(*args):
     raise AssertionError("ABI admission dispatched an account operation")
 
 native = SimpleNamespace(
-    connect_norito_bridge_abi_version=lambda: 30,
+    connect_norito_bridge_abi_version=lambda: 31,
     _validate_account_address_v1=unexpected_account_dispatch,
     _parse_account_address_v1=unexpected_account_dispatch,
     _render_account_address_v1=unexpected_account_dispatch,
@@ -176,10 +195,10 @@ assert loads == [native]
 def test_account_codec_rejects_other_abis_from_loaded_owner(tmp_path):
     root = _owner_without_extension(tmp_path)
     code = _ACCOUNT_CODEC_PREDICATE_SETUP + """
-for rejected in (29, 31):
+for rejected in (30, 32):
     native.connect_norito_bridge_abi_version = lambda: rejected
     try: _loader.require_account_codec_v1()
-    except NativeUnavailableError as error: assert "ABI-30" in str(error)
+    except NativeUnavailableError as error: assert "ABI-31" in str(error)
     else: raise AssertionError(f"non-current ABI {rejected} was accepted")
 assert loads == [native, native]
 """
@@ -200,7 +219,7 @@ for name in (
         if missing: delattr(native, name)
         else: setattr(native, name, None)
         try: _loader.require_account_codec_v1()
-        except NativeUnavailableError as error: assert "ABI-30" in str(error)
+        except NativeUnavailableError as error: assert "ABI-31" in str(error)
         else: raise AssertionError(f"incomplete native surface {name} was accepted")
         setattr(native, name, original)
 assert len(loads) == 8

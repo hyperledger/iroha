@@ -77,7 +77,7 @@ struct KagemushaWalletSetupInputV1 {
        first: Data = Data(), second: Data = Data(), third: Data = Data()) throws {
     let limits: [Int]
     switch selector {
-    case 0, 1, 4, 6, 15, 18, 19, 20, 24, 27, 38, 43, 47, 48, 49, 50, 51, 52: limits = [0, 0, 0]
+    case 0, 4, 6, 15, 18, 19, 20, 24, 27, 38, 43, 47, 48, 49, 50, 51, 52: limits = [0, 0, 0]
     case 53: limits = [256 * 1024, 0, 0]
     case 21, 22: limits = [21_024, 0, 0]
     case 23: limits = [36 * 1024 * 1024, 0, 0]
@@ -86,41 +86,41 @@ struct KagemushaWalletSetupInputV1 {
     case 45: limits = [16_384, 0, 0]
     case 29, 30, 33, 35, 37, 46: limits = [65_536, 0, 0]
     case 34, 36: limits = [65_536, 36 * 1024 * 1024, 0]
-    case 2: limits = [10_000, 1_024, 512]
-    case 3, 7...14, 16...17, 41, 42: limits = [10_000, 0, 0]
-    case 39: limits = [10_000, 10_000, 10_000]
-    case 40, 44: limits = [10_000, 10_000, 0]
+    case 2: limits = [0, 1_024, 512]
+    case 3, 8...10, 12...14, 16...17, 41, 42, 54, 55: limits = [10_000, 0, 0]
+    case 39, 40, 44: limits = [10_000, 10_000, 0]
     case 5: limits = [512, 512, 0]
     default: throw KagemushaWalletErrorV1.invalidInput
     }
-    guard identity.count == 32, ([1, 2, 19, 20, 25, 27, 30, 33, 34, 39, 41, 42, 43, 44, 45].contains(selector)) == identity.contains(where: { $0 != 0 }),
-      ([47, 53].contains(selector) || ([1, 27].contains(selector)) == (amount.low != 0 || amount.high != 0)), ([5, 6, 29, 49, 51].contains(selector)) == (token != 0),
+    guard identity.count == 32, ([2, 19, 20, 25, 27, 30, 33, 34, 39, 41, 42, 43, 44, 45, 54].contains(selector)) == identity.contains(where: { $0 != 0 }),
+      ([47, 53].contains(selector) || ([2, 27, 39].contains(selector)) == (amount.low != 0 || amount.high != 0)), ([5, 6, 29, 49, 51].contains(selector)) == (token != 0),
       selector != 53 || (amount.high == 0 && !first.isEmpty),
       token <= UInt64(Int64.max), selector != 29 || ((1...3).contains(token) && !first.isEmpty), zip([first, second, third], limits).allSatisfy({ $0.count <= $1 }),
-      ![30, 33, 35, 37, 41, 42, 44, 46].contains(selector) || !first.isEmpty,
-      ![2, 39].contains(selector) || (!first.isEmpty && second.isEmpty == third.isEmpty),
-      (selector != 3 && !(7...14).contains(selector) && !(16...17).contains(selector) && !(21...23).contains(selector)) || !first.isEmpty, ![5, 25, 26, 34, 36, 40].contains(selector) || (!first.isEmpty && !second.isEmpty)
+      ![30, 33, 35, 37, 41, 42, 44, 46, 54, 55].contains(selector) || !first.isEmpty,
+      selector != 2 || second.isEmpty == third.isEmpty, selector != 39 || first.isEmpty == second.isEmpty,
+      (selector != 3 && !(8...10).contains(selector) && !(12...14).contains(selector) && !(16...17).contains(selector) && !(21...23).contains(selector)) || !first.isEmpty, ![5, 25, 26, 34, 36, 40].contains(selector) || (!first.isEmpty && !second.isEmpty)
     else { throw KagemushaWalletErrorV1.invalidInput }
     self.selector = selector; self.identity = kagemushaWalletSetupCopyV1(identity)
     self.amount = amount; self.token = token
     self.first = kagemushaWalletSetupCopyV1(first); self.second = kagemushaWalletSetupCopyV1(second)
     self.third = kagemushaWalletSetupCopyV1(third)
   }
-  static func request(identity: Data, offer: Data, feeSchedule: Data?, feeCertificate: Data?) throws -> Self {
+  static func request(identity: Data, amount: KagemushaWalletUInt128V1, feeSchedule: Data?,
+    feeCertificate: Data?) throws -> Self {
     guard (feeSchedule == nil) == (feeCertificate == nil),
       feeSchedule == nil || (!(feeSchedule?.isEmpty ?? true) && !(feeCertificate?.isEmpty ?? true))
     else { throw KagemushaWalletErrorV1.invalidInput }
-    return try Self(selector: 2, identity: identity, first: offer,
+    return try Self(selector: 2, identity: identity, amount: amount,
       second: feeSchedule ?? Data(), third: feeCertificate ?? Data())
   }
-  static func requestWithFeePolicy(identity: Data, offer: Data,
-    feeSchedulePolicyData: Data?, certificatesPolicyData: Data?) throws -> Self {
-    guard (feeSchedulePolicyData == nil) == (certificatesPolicyData == nil),
-      feeSchedulePolicyData.map({ !$0.isEmpty }) ?? true,
-      certificatesPolicyData.map({ !$0.isEmpty }) ?? true
+  static func requestWithFeePolicy(identity: Data, amount: KagemushaWalletUInt128V1,
+    schedule: Data?, certificates: Data?) throws -> Self {
+    guard (schedule == nil) == (certificates == nil),
+      schedule.map({ !$0.isEmpty }) ?? true,
+      certificates.map({ !$0.isEmpty }) ?? true
     else { throw KagemushaWalletErrorV1.invalidInput }
-    return try Self(selector: 39, identity: identity, first: offer,
-      second: feeSchedulePolicyData ?? Data(), third: certificatesPolicyData ?? Data())
+    return try Self(selector: 39, identity: identity, amount: amount,
+      first: schedule ?? Data(), second: certificates ?? Data())
   }
   func withRequest<T>(_ body: (UnsafePointer<connect_norito_kagemusha_wallet_setup_request_v1>) -> T) -> T {
     identity.withUnsafeBytes { id in first.withUnsafeBytes { a in second.withUnsafeBytes { b in third.withUnsafeBytes { c in
@@ -142,7 +142,7 @@ private func kagemushaWalletSetupCopyV1(_ original: Data) -> Data {
 
 /// Exact peer-envelope kind; it cannot select proof keys or operation authority.
 public enum KagemushaWalletTransportKindV1: UInt32, Sendable {
-  case offer = 1, request = 2, payment = 3, credited = 4
+  case request = 2, payment = 3, credited = 4
 }
 
 /// Native worker scheduling state; durable current backlog remains available in `snapshot()`.
@@ -242,11 +242,13 @@ extension KagemushaWalletV1 {
   public func validateRequestFeePolicy(schedule: Data, certificates: Data) throws -> KagemushaWalletRequestFeeSelectionV1 {
     try .init(setup(.init(selector: 40, first: schedule, second: certificates)))
   }
-  /// Authenticate exact original envelopes under current Native policy and retain exact retries.
-  public func requestWithFeePolicy(setupId: Data, offer: Data,
-    feeSchedulePolicyData: Data? = nil, certificatesPolicyData: Data? = nil) throws -> KagemushaWalletCallV1 {
-    let result = try setup(.requestWithFeePolicy(identity: setupId, offer: offer,
-      feeSchedulePolicyData: feeSchedulePolicyData, certificatesPolicyData: certificatesPolicyData))
+  /// Issue the receiver's open Request for `amount` under exact PolicyData `schedule` and
+  /// `certificates` envelopes, authenticated against current Native policy; neither means the zero
+  /// fee. Retries with the same setup id return its exact original bytes.
+  public func requestWithFeePolicy(setupId: Data, amount: KagemushaWalletUInt128V1,
+    schedule: Data? = nil, certificates: Data? = nil) throws -> KagemushaWalletCallV1 {
+    let result = try setup(.requestWithFeePolicy(identity: setupId, amount: amount,
+      schedule: schedule, certificates: certificates))
     _ = try result.original()
     return result
   }

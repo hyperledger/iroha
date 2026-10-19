@@ -151,13 +151,13 @@ function withNativeBinding(native, body) {
 test("validation-fee consensus factories isolate immutable native runtimes", async () => {
   const checkpoint = { checkpointNorito: Buffer.from([100, 3]) };
   const bindingA = {
-    connectNoritoBridgeAbiVersion: () => 30,
+    connectNoritoBridgeAbiVersion: () => 31,
     validationFeeCurrentPolicyProofRequestV1: () => Buffer.from([0xa1]),
     validationFeeVerifyCurrentPolicyProofV1() {},
   };
   const apiA = createValidationFeeConsensusApi(createNativeRuntime(bindingA));
   const apiB = createValidationFeeConsensusApi(createNativeRuntime({
-    connectNoritoBridgeAbiVersion: () => 30,
+    connectNoritoBridgeAbiVersion: () => 31,
     validationFeeCurrentPolicyProofRequestV1: () => Buffer.from([0xb2]),
     validationFeeVerifyCurrentPolicyProofV1() {},
   }));
@@ -182,7 +182,7 @@ function verifyProjectionFixture(projection) {
   return withNativeBinding(
     {
       connectNoritoBridgeAbiVersion() {
-        return 30;
+        return 31;
       },
       validationFeeCurrentPolicyProofRequestV1() {},
       validationFeeVerifyCurrentPolicyProofV1() {
@@ -233,7 +233,7 @@ test("request encoder delegates only full independently retained checkpoint byte
   checkpoint.checkpointNorito.fill(0);
   withNativeBinding(
     {
-      connectNoritoBridgeAbiVersion: () => 30,
+      connectNoritoBridgeAbiVersion: () => 31,
       validationFeeCurrentPolicyProofRequestV1(checkpointNorito) {
         nativeCalls += 1;
         assert.deepEqual(checkpointNorito, Buffer.from([100, 3]));
@@ -279,7 +279,7 @@ test("native verified projection remains bound to the release checkpoint", () =>
   withNativeBinding(
     {
       connectNoritoBridgeAbiVersion() {
-        return 30;
+        return 31;
       },
       validationFeeCurrentPolicyProofRequestV1() {},
       validationFeeVerifyCurrentPolicyProofV1(
@@ -491,7 +491,7 @@ test("verified current policy rejects missing, extra, and mistyped nested fields
 });
 
 test("validation-fee proof path rejects a stale native bridge ABI", () => {
-  for (const abiVersion of [20, 29, 31]) {
+  for (const abiVersion of [20, 29, 30, 32]) {
     withNativeBinding(
       {
         connectNoritoBridgeAbiVersion() {
@@ -505,7 +505,7 @@ test("validation-fee proof path rejects a stale native bridge ABI", () => {
       ({ encodeValidationFeeCurrentPolicyProofRequestV1: encode }) => {
         assert.throws(
           () => encode(binding.checkpoint),
-          /ABI 30/u,
+          /ABI 31/u,
           String(abiVersion),
         );
       },
@@ -515,7 +515,7 @@ test("validation-fee proof path rejects a stale native bridge ABI", () => {
 
 test("Torii validation-fee proofs use the client native runtime", async () => {
   const native = {
-    connectNoritoBridgeAbiVersion: () => 30,
+    connectNoritoBridgeAbiVersion: () => 31,
     validationFeeCurrentPolicyProofRequestV1(checkpointNorito) {
       assert.deepEqual(checkpointNorito, binding.checkpoint.checkpointNorito);
       return Buffer.from([1, 2, 3]);
@@ -615,7 +615,7 @@ function proofPageClient(response, verifyProof = () => {
   assert.fail("rejected proof responses must not reach the native verifier");
 }) {
   const native = {
-    connectNoritoBridgeAbiVersion: () => 30,
+    connectNoritoBridgeAbiVersion: () => 31,
     validationFeeCurrentPolicyProofRequestV1: () => Buffer.from([1, 2, 3]),
     validationFeeVerifyCurrentPolicyProofV1(proofNorito) {
       verifyProof(proofNorito);
@@ -807,7 +807,7 @@ test("native promotion is required and cannot be synthesized from projection sca
     nativePage(projection, Buffer.alloc(0)),
   ]) {
     withNativeBinding({
-      connectNoritoBridgeAbiVersion: () => 30,
+      connectNoritoBridgeAbiVersion: () => 31,
       validationFeeCurrentPolicyProofRequestV1() {},
       validationFeeVerifyCurrentPolicyProofV1() { return result; },
     }, ({ verifyValidationFeeCurrentPolicyProofV1: verify }) => {

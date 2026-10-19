@@ -111,13 +111,13 @@ jobs:
           fi
           cargo build --locked --release -p connect_norito_bridge --target "$target"
 
-      - name: Authenticate and stage exact ABI-30 C# native bridge
+      - name: Authenticate and stage exact ABI-31 C# native bridge
         shell: bash
         run: |
           target="${{ matrix.target }}"
           library_name="${{ matrix.library_name }}"
           artifact="$RUNNER_TEMP/csharp-native-upload/$target/$library_name"
-          manifest="$RUNNER_TEMP/csharp-native-upload/$target/native-sdk-abi30.json"
+          manifest="$RUNNER_TEMP/csharp-native-upload/$target/native-sdk-abi31.json"
           mkdir -p "$(dirname "$artifact")"
           cp "target/$target/release/$library_name" "$artifact"
           python scripts/check_native_sdk_artifact.py record \
@@ -264,7 +264,7 @@ jobs:
           name: csharp-linux-arm-cross-candidate-${{ github.sha }}
           path: ${{ runner.temp }}/csharp-linux-arm-cross-candidate
 
-      - name: Authenticate and stage exact ABI-30 C# Linux ARM bridge natively
+      - name: Authenticate and stage exact ABI-31 C# Linux ARM bridge natively
         shell: bash
         run: |
           machine="$(uname -m)"
@@ -276,7 +276,7 @@ jobs:
           library_name="libconnect_norito_bridge.so"
           candidate_root="$RUNNER_TEMP/csharp-linux-arm-cross-candidate"
           artifact="$RUNNER_TEMP/csharp-native-upload/$target/$library_name"
-          manifest="$RUNNER_TEMP/csharp-native-upload/$target/native-sdk-abi30.json"
+          manifest="$RUNNER_TEMP/csharp-native-upload/$target/native-sdk-abi31.json"
           mkdir -p "$(dirname "$artifact")"
           python -I scripts/csharp_linux_arm_cross_handoff.py verify-stage \
             --candidate-root "$candidate_root" \
@@ -345,7 +345,7 @@ jobs:
           name: csharp-linux-arm-cross-candidate-${{ github.sha }}
           path: ${{ runner.temp }}/csharp-linux-arm-cross-candidate
 
-      - name: Authenticate and stage exact ABI-30 C# Linux ARM bridge natively
+      - name: Authenticate and stage exact ABI-31 C# Linux ARM bridge natively
         shell: bash
         run: |
           machine="$(uname -m)"
@@ -357,7 +357,7 @@ jobs:
           library_name="libconnect_norito_bridge.so"
           candidate_root="$RUNNER_TEMP/csharp-linux-arm-cross-candidate"
           artifact="$RUNNER_TEMP/csharp-native-upload/$target/$library_name"
-          manifest="$RUNNER_TEMP/csharp-native-upload/$target/native-sdk-abi30.json"
+          manifest="$RUNNER_TEMP/csharp-native-upload/$target/native-sdk-abi31.json"
           mkdir -p "$(dirname "$artifact")"
           python -I scripts/csharp_linux_arm_cross_handoff.py verify-stage \
             --candidate-root "$candidate_root" \
@@ -426,7 +426,7 @@ jobs:
           name: csharp-linux-arm-cross-candidate-${{ github.sha }}
           path: ${{ runner.temp }}/csharp-linux-arm-cross-candidate
 
-      - name: Authenticate and stage exact ABI-30 C# Linux ARM bridge natively
+      - name: Authenticate and stage exact ABI-31 C# Linux ARM bridge natively
         shell: bash
         run: |
           machine="$(uname -m)"
@@ -438,7 +438,7 @@ jobs:
           library_name="libconnect_norito_bridge.so"
           candidate_root="$RUNNER_TEMP/csharp-linux-arm-cross-candidate"
           artifact="$RUNNER_TEMP/csharp-native-upload/$target/$library_name"
-          manifest="$RUNNER_TEMP/csharp-native-upload/$target/native-sdk-abi30.json"
+          manifest="$RUNNER_TEMP/csharp-native-upload/$target/native-sdk-abi31.json"
           mkdir -p "$(dirname "$artifact")"
           python -I scripts/csharp_linux_arm_cross_handoff.py verify-stage \
             --candidate-root "$candidate_root" \

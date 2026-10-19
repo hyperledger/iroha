@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Tag;
 class IrohaKeyManagerNativeJavaConsumerTest {
     @Test
     void mlDsaManagerGeneratesLoadsAndSignsThroughItsSoftwareProvider() throws Exception {
-        assertTrue(NativeSignerBridge.isNativeAvailable(), "fresh connect_norito_bridge ABI 30 is required");
+        assertTrue(NativeSignerBridge.isNativeAvailable(), "fresh connect_norito_bridge ABI 31 is required");
         IrohaKeyManager manager = IrohaKeyManager.withSoftwareProvider(SigningAlgorithm.ML_DSA);
         KeyPair pair = manager.generateOrLoad("ml-dsa", KeySecurityPreference.SOFTWARE_ONLY);
         assertEquals(SigningAlgorithm.ML_DSA, manager.signingAlgorithm());

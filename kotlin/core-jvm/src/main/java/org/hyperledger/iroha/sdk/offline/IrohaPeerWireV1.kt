@@ -12,8 +12,9 @@ enum class IrohaPeerPayloadProfile(
     val requiredSchemaVersion: Int,
 ) {
     /**
-     * KAGEMUSHA wallet V1 peer messages: Request carries its unchanged complete envelope and required account companion;
-     * other canonical payloads are one complete `KagemushaWalletEnvelopeV1` frame (`specs/kagemusha_wallet_wire_v1.md` sections 2 and 3.4).
+     * KAGEMUSHA wallet V1 peer messages: Request carries its unchanged complete envelope and required account companion
+     * (`KWRQAC1`), Payment its unchanged complete envelope and required payer companion (`KWPYPC1`); other canonical
+     * payloads are one complete `KagemushaWalletEnvelopeV1` frame (`specs/kagemusha_wallet_wire_v1.md` sections 2 and 3.4).
      */
     KAGEMUSHA_WALLET_V1(1, KagemushaWalletWireV1.VERSION);
 
@@ -25,23 +26,29 @@ enum class IrohaPeerPayloadProfile(
 
 /**
  * Message kinds carried by IPM1. Each code equals the KAGEMUSHA wallet V1 envelope message tag
- * ([KagemushaWalletMessageKindV1.wireTag]) of the frame the message carries.
+ * ([KagemushaWalletMessageKindV1.wireTag]) of the frame the message carries. Codes 1 and 7 (the
+ * former Offer and Lineage hint) are unused.
  */
 enum class IrohaPeerPayloadKind(
     val code: Int,
     /** Wallet envelope message kind carried under this IPM1 kind. */
     val walletMessageKind: KagemushaWalletMessageKindV1,
 ) {
-    OFFER(1, KagemushaWalletMessageKindV1.OFFER),
     REQUEST(2, KagemushaWalletMessageKindV1.REQUEST),
     PAYMENT(3, KagemushaWalletMessageKindV1.PAYMENT),
     CREDITED(4, KagemushaWalletMessageKindV1.CREDITED),
     SESSION_CONTROL(5, KagemushaWalletMessageKindV1.SESSION_CONTROL),
-    POLICY_DATA(6, KagemushaWalletMessageKindV1.POLICY_DATA),
-    LINEAGE(7, KagemushaWalletMessageKindV1.LINEAGE);
+    POLICY_DATA(6, KagemushaWalletMessageKindV1.POLICY_DATA);
 
-    /** Exact complete-frame cap of a wallet envelope of this kind, header and padding included. */
-    val maximumWalletFrameBytes: Int get() = if (this == REQUEST) IrohaPeerWalletRequestV1.MAXIMUM_BYTES else walletMessageKind.maximumFrameBytes
+    /**
+     * Exact complete canonical payload cap of this kind: the Request and Payment carriers with their
+     * companions, otherwise the wallet envelope frame of this kind, header and padding included.
+     */
+    val maximumWalletFrameBytes: Int get() = when (this) {
+        REQUEST -> IrohaPeerWalletRequestV1.MAXIMUM_BYTES
+        PAYMENT -> IrohaPeerWalletPaymentV1.MAXIMUM_BYTES
+        else -> walletMessageKind.maximumFrameBytes
+    }
 
     companion object {
         @JvmStatic fun fromCode(code: Int): IrohaPeerPayloadKind? =
@@ -130,10 +137,10 @@ private fun ByteArray.boundedCanonicalCopy(): ByteArray {
 
 /**
  * A wallet-profile Request contains the required account companion and one unchanged canonical
- * `KagemushaWalletEnvelopeV1`; other kinds contain only that envelope within
- * its kind's bound whose message tag is this IPM1 kind. The check is structural
- * ([KagemushaWalletWireV1.inspectEnvelope]): the wallet still decodes, validates and verifies the
- * message, and decides its scheme, before acting on it.
+ * `KagemushaWalletEnvelopeV1`, a Payment the required payer companion and that envelope; other
+ * kinds contain only that envelope within its kind's bound whose message tag is this IPM1 kind.
+ * The check is structural ([KagemushaWalletWireV1.inspectEnvelope]): the wallet still decodes,
+ * validates and verifies the message and its companion, and decides its scheme, before acting on it.
  */
 private fun validateTypedCanonicalPayload(
     profile: IrohaPeerPayloadProfile,
@@ -143,8 +150,11 @@ private fun validateTypedCanonicalPayload(
     when (profile) {
         IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1 -> {
             val envelope = try {
-                KagemushaWalletWireV1.inspectEnvelope(if (kind == IrohaPeerPayloadKind.REQUEST)
-                    IrohaPeerWalletRequestV1.decode(bytes).requestEnvelope() else bytes)
+                KagemushaWalletWireV1.inspectEnvelope(when (kind) {
+                    IrohaPeerPayloadKind.REQUEST -> IrohaPeerWalletRequestV1.decode(bytes).requestEnvelope()
+                    IrohaPeerPayloadKind.PAYMENT -> IrohaPeerWalletPaymentV1.decode(bytes).paymentEnvelope()
+                    else -> bytes
+                })
             } catch (failure: RuntimeException) {
                 throw IllegalArgumentException(
                     "Invalid KAGEMUSHA wallet V1 envelope for ${kind.name.lowercase()}",
@@ -524,10 +534,15 @@ class IrohaPeerWireMessageV1 private constructor(
 
 /**
  * Bounded handoff adapter for KAGEMUSHA wallet V1 envelopes: the IPM1 kind is the envelope's own
- * message tag, so a caller never chooses it separately.
+ * message tag, so a caller never chooses it separately. A Request always travels with its account
+ * companion (`KWRQAC1`) and a Payment with its payer companion (`KWPYPC1`).
  */
 object IrohaPeerKagemushaWalletAdapterV1 {
-    /** Wrap one canonical wallet envelope frame in IPM1 under the kind its message tag names. */
+    /**
+     * Wrap one canonical wallet envelope frame in IPM1 under the kind its message tag names. A Request
+     * requires [destinationAccountOriginal] and a Payment [payerCompanion] (the exact bytes of
+     * `KagemushaWalletV1.paymentCompanion`); every other kind takes neither.
+     */
     @JvmStatic
     @JvmOverloads
     fun wrap(
@@ -536,17 +551,25 @@ object IrohaPeerKagemushaWalletAdapterV1 {
             IrohaPeerWireCompressionPolicyV1.DISABLED,
         limits: IrohaPeerWireLimitsV1 = IrohaPeerWireLimitsV1.PEER_V1,
         destinationAccountOriginal: ByteArray? = null,
+        payerCompanion: ByteArray? = null,
     ): IrohaPeerWireMessageV1 {
         val bytes = envelope.copyOf()
         return try {
             val kind = IrohaPeerPayloadKind.of(KagemushaWalletWireV1.inspectEnvelope(bytes).kind)
-            val payload = if (kind == IrohaPeerPayloadKind.REQUEST) {
-                IrohaPeerWalletRequestV1(bytes, requireNotNull(destinationAccountOriginal) {
+            require(kind == IrohaPeerPayloadKind.REQUEST || destinationAccountOriginal == null) {
+                "Account companion belongs only to Request"
+            }
+            require(kind == IrohaPeerPayloadKind.PAYMENT || payerCompanion == null) {
+                "Payer companion belongs only to Payment"
+            }
+            val payload = when (kind) {
+                IrohaPeerPayloadKind.REQUEST -> IrohaPeerWalletRequestV1(bytes, requireNotNull(destinationAccountOriginal) {
                     "Request account companion is mandatory"
                 }).encode()
-            } else {
-                require(destinationAccountOriginal == null) { "Account companion belongs only to Request" }
-                bytes
+                IrohaPeerPayloadKind.PAYMENT -> IrohaPeerWalletPaymentV1(bytes, requireNotNull(payerCompanion) {
+                    "Payment payer companion is mandatory"
+                }).encode()
+                else -> bytes
             }
             IrohaPeerWireMessageV1(IrohaPeerCanonicalPayload(
                 IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1,
@@ -566,8 +589,11 @@ object IrohaPeerKagemushaWalletAdapterV1 {
         require(payload.profile == IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1) {
             "Unexpected peer payload profile"
         }
-        return if (payload.kind == IrohaPeerPayloadKind.REQUEST)
-            IrohaPeerWalletRequestV1.decode(payload.bytes).requestEnvelope() else payload.bytes
+        return when (payload.kind) {
+            IrohaPeerPayloadKind.REQUEST -> IrohaPeerWalletRequestV1.decode(payload.bytes).requestEnvelope()
+            IrohaPeerPayloadKind.PAYMENT -> IrohaPeerWalletPaymentV1.decode(payload.bytes).paymentEnvelope()
+            else -> payload.bytes
+        }
     }
 
     /** Exact companion DATA; submit it with the extracted Request to Native review. */
@@ -575,6 +601,16 @@ object IrohaPeerKagemushaWalletAdapterV1 {
         require(message.canonicalPayload.profile == IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1 &&
             message.canonicalPayload.kind == IrohaPeerPayloadKind.REQUEST)
         return IrohaPeerWalletRequestV1.decode(message.canonicalPayload.bytes).destinationAccountOriginal()
+    }
+
+    /**
+     * Exact payer companion DATA a Payment carries; hand it unchanged with the extracted Payment to
+     * `KagemushaWalletV1.receiveWithCompanion`, which checks it against the Payment.
+     */
+    @JvmStatic fun payerCompanion(message: IrohaPeerWireMessageV1): ByteArray {
+        require(message.canonicalPayload.profile == IrohaPeerPayloadProfile.KAGEMUSHA_WALLET_V1 &&
+            message.canonicalPayload.kind == IrohaPeerPayloadKind.PAYMENT)
+        return IrohaPeerWalletPaymentV1.decode(message.canonicalPayload.bytes).payerCompanion()
     }
 }
 

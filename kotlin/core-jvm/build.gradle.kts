@@ -105,7 +105,7 @@ tasks.test {
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/torii/list_query/vectors.json"))
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/kagemusha/wallet_v1_vectors.json"))
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/kagemusha/wallet_account_check_code_v1.json"))
-    inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/kagemusha/peer_ask_v1.json"))
+    inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/kagemusha/nearby_picture_v1.json"))
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/kagemusha/enrollment_service_v1_vectors.json"))
     // Current identifier contracts consume the genuine Native DATA frame/signature fixtures.
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/soracloud/identifier_owner_execute_v1.json"))
@@ -146,7 +146,7 @@ tasks.test {
         ).withPropertyName("packageSurface-$module").ignoreEmptyDirectories()
     }
 
-    // Release CI supplies a freshly built, isolated ABI-30 bridge. Local
+    // Release CI supplies a freshly built, isolated ABI-31 bridge. Local
     // development retains the conventional root target/debug fallback.
     val configuredNativeDir = System.getenv("IROHA_NATIVE_LIBRARY_PATH")
     val hostNativeDir = if (configuredNativeDir.isNullOrBlank()) {
