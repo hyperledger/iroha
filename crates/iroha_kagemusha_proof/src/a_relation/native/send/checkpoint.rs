@@ -18,9 +18,9 @@ use super::{
 /// Fixed native stage kind; no transported kind selects a circuit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CheckpointKind {
-    /// One of the two original A proof stages.
+    /// One of the three original A proof stages.
     A,
-    /// The single original W continuation.
+    /// One of the two original W continuations.
     W,
 }
 impl CheckpointKind {
