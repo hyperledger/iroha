@@ -1177,6 +1177,9 @@ impl<'a> QSigmaProverView<'a> {
         } else {
             self.prove_circuit(&prepared.circuit, prepared, randomness, config)?
         };
+        let _self_verification = iroha_plonk::work_metrics::WorkTimer::start(
+            iroha_plonk::work_metrics::WorkPhase::SelfVerify,
+        );
         // The helper's sole temporary PK has dropped before full verification,
         // including on errors, cancellation and unwinding. No cross-proof cache.
         iroha_plonk::verifier::verify_full_cancellable(

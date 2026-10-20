@@ -245,6 +245,9 @@ impl AdminProver {
                 .map_err(AdminSigmaError::Prover)?;
         let bytes = create_proof_owned(&self.params, &self.key, witness, randomness, config)
             .map_err(AdminSigmaError::Prover)?;
+        let _self_verification = iroha_plonk::work_metrics::WorkTimer::start(
+            iroha_plonk::work_metrics::WorkPhase::SelfVerify,
+        );
         iroha_plonk::verifier::verify_full_cancellable(
             &self.params,
             self.key.binding(),

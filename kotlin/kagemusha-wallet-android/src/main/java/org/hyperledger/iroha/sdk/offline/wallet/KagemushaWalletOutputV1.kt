@@ -114,7 +114,7 @@ internal class KagemushaWalletObservationReplyV1(
 ) {
     private val original = bytes.copyOf()
     init {
-        if (sequenceLow != 0L || sequenceHigh != 0L || detail != 0 || bytes.size > 65_756 ||
+        if (sequenceLow != 0L || sequenceHigh != 0L || detail != 0 || bytes.size > KagemushaWalletFoldMetricsV1.MAX_ORIGINAL_BYTES ||
             (status < 0 && bytes.isNotEmpty()) ||
             (status >= 0 && (status != 12 || reason != -1 || platformCode != 0 || bytes.isEmpty()))) invalidOutput()
     }
@@ -124,6 +124,16 @@ internal class KagemushaWalletObservationReplyV1(
         return original.copyOf()
     }
     override fun toString() = "KagemushaWalletObservationReplyV1(original=[REDACTED])"
+}
+
+/** Diagnostic-only geometry; no financial projection or result bound is widened. */
+internal object KagemushaWalletFoldMetricsV1 {
+    const val MAX_ORIGINAL_BYTES = 131_072
+    fun decode(original: ByteArray): String {
+        if (original.size !in 1..MAX_ORIGINAL_BYTES) invalidOutput()
+        return try { original.decodeToString(throwOnInvalidSequence = true) }
+        catch (_: java.nio.charset.CharacterCodingException) { invalidOutput() }
+    }
 }
 
 internal object KagemushaWalletObservationNativeV1 {

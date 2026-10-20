@@ -8,7 +8,20 @@
 //! ends before its proof finished reports before the background slot is released, so a
 //! joining payment returns only after its own cancellation was reported; a proved turn
 //! reports after its publication. Idle and caught-up wakes report nothing. Values are public
-//! names, durations and counts only.
+//! names, durations and counts only. Verification deltas include calls answered by the
+//! parameter owner's successful-verification and folded-generator memos.
+//! `engineMicros` reports nested key-original revalidation, key reconstruction, physical
+//! witness synthesis, engine proving, new-proof acceptance and commit durations. It must
+//! not be added to enclosing phase or call durations. `commit` includes validation and
+//! durable Advance, not only storage writes. `nativeWork` is a separate bounded ring of
+//! execute/reviewed-execute/speculative-Send calls; `returned` is only Rust `Result::is_ok`,
+//! never a monetary completion or a custody verdict. Speculative publication is volatile.
+//! Cumulative `counts.subProofs` and `nativeWorkCount` let hosts deduplicate each ring within
+//! one open owner and detect overwritten observations without changing poll cadence.
+//! `startedNativeMicros`, `endedNativeMicros` and snapshot `sampledNativeMicros` share one
+//! process-local monotonic origin. They are never wall time, survive owner reopening but
+//! reset on process restart. Hosts may bracket an observation with their monotonic clock
+//! to bound a local clock offset; an end mark is not the later poll or UI observation.
 //! They are kept in memory, never persisted, signed or matched against a profile, and no
 //! admission, scheduling, error, retry or cancellation decision reads them.
 
@@ -16,18 +29,34 @@ use std::{
     cell::Cell,
     collections::VecDeque,
     fmt::Write as _,
+    sync::OnceLock,
     time::{Duration, Instant},
 };
 
 use iroha_data_model::kagemusha::KagemushaWalletOperationKindV1;
 
+pub(in crate::kagemusha_wallet_state_v1) mod admission;
+mod bridge;
+pub use admission::{
+    NATIVE_ADMISSION_RECORDS_V1, NativeAdmissionPhaseV1, NativeAdmissionResultV1,
+    NativeAdmissionV1, NativeAdmissionsV1,
+};
+pub use bridge::{NativeBridgeMetricsV1, NativeBridgePhaseV1, NativeBridgeTimerV1};
+
 use super::{Error, FoldStatus};
+use crate::kagemusha_wallet_proofs_v1::KagemushaWalletVerificationCountsV1;
 
 /// Schema of [`FoldMetricsV1::to_json`].
-pub const FOLD_METRICS_SCHEMA_V1: &str = "iroha.kagemusha.fold-metrics.v1";
+pub const FOLD_METRICS_SCHEMA_V1: &str = "iroha.kagemusha.fold-metrics.v2";
 
 /// Most recent sub-proof records one [`FoldMetricsV1`] keeps.
 pub const FOLD_METRICS_RECORDS_V1: usize = 64;
+
+/// Maximum UTF-8 bytes in the bounded diagnostic JSON returned to mobile hosts.
+pub const FOLD_METRICS_MAX_BYTES_V1: usize = 131_072;
+
+/// Most recent Native execution/speculation observations retained by one open owner.
+pub const NATIVE_WORK_RECORDS_V1: usize = 16;
 
 /// Fixed public phases of one fold turn. The locked prepare runs everything up to
 /// `key_import`; `restore` and `prove` run without the wallet owner; `publish` takes it again.
@@ -208,6 +237,10 @@ impl FoldOutcomeV1 {
 /// One selected sub-proof turn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FoldSubProofV1 {
+    /// Start relative to the process-local monotonic origin, in whole microseconds.
+    pub started_native_micros: u64,
+    /// End relative to the same origin, before the observer receives this record.
+    pub ended_native_micros: u64,
     /// Head sequence being folded.
     pub sequence: u128,
     /// Operation of that head, once its released step was read.
@@ -220,6 +253,11 @@ pub struct FoldSubProofV1 {
     pub outcome: FoldOutcomeV1,
     /// Monotonic time per phase, in [`FoldPhaseV1::ALL`] order.
     pub phases: [Duration; FoldPhaseV1::COUNT],
+    /// Verification work on the calling thread during this turn, including memo hits.
+    /// Kernel threads report no counts; these confer no verification authority.
+    pub verification: KagemushaWalletVerificationCountsV1,
+    /// Nested engine/host phase durations on the same thread. Do not add these to `phases`.
+    pub work: iroha_plonk::work_metrics::WorkMetrics,
     /// Process lifetime peak resident set size, read by the host at the end of the turn.
     pub peak_rss_bytes: Option<u64>,
     /// Ingest and status calls that ran while this sub-proof held the background slot,
@@ -241,6 +279,110 @@ pub trait FoldObserverV1: Send + Sync {
     /// ended before its proof finished, after the publication otherwise. It must not block,
     /// and must not call the scheduler or the wallet.
     fn sub_proof(&self, record: FoldSubProofV1);
+}
+
+/// The fixed Native entry boundaries measured independently of fold turns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeWorkKindV1 {
+    /// Native Request construction and its existing source/fee verification.
+    Request,
+    /// Native wallet Bootstrap.
+    Bootstrap,
+    /// Native Credited intake/query and any required ArchiveSent transition.
+    Credited,
+    /// An ordinary Native execution, including its existing validation and publication.
+    Execute,
+    /// Execution after consuming a hardware-confirmed Native review.
+    ReviewedExecute,
+    /// Preparation and proving of one speculative Send; its publication is volatile only.
+    SpeculativeSend,
+    /// A selected fold turn through its bridge return and final durability fence.
+    Fold,
+}
+impl NativeWorkKindV1 {
+    /// Fixed public identifier; it never contains a request or wallet identity.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Request => "request",
+            Self::Bootstrap => "bootstrap",
+            Self::Credited => "credited",
+            Self::Execute => "execute",
+            Self::ReviewedExecute => "reviewed_execute",
+            Self::SpeculativeSend => "speculative_send",
+            Self::Fold => "fold",
+        }
+    }
+}
+
+/// One observation of an execution or speculative-proof call, never a completion verdict.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NativeWorkRecordV1 {
+    /// Start relative to the process-local monotonic origin, in whole microseconds.
+    pub started_native_micros: u64,
+    /// End relative to the same origin, after the original call returned.
+    pub ended_native_micros: u64,
+    /// The observed entry boundary.
+    pub kind: NativeWorkKindV1,
+    /// Whether the Native call returned `Ok`; even `true` grants no monetary completion.
+    pub returned: bool,
+    /// Wall duration of the whole call, including scheduling/custody waits where present.
+    pub elapsed: Duration,
+    /// Exact owner-local core fold record captured on this thread; only for `Fold`.
+    pub fold_record_id: Option<u64>,
+    /// Nested existing bridge waits/admission, never added to elapsed time.
+    pub bridge: NativeBridgeMetricsV1,
+    /// Existing capacity checks made on the calling thread during this interval.
+    pub admissions: NativeAdmissionsV1,
+    /// Verification work done on the calling thread.
+    pub verification: KagemushaWalletVerificationCountsV1,
+    /// Nested measured phases; do not add them to `elapsed` or to one another.
+    pub work: iroha_plonk::work_metrics::WorkMetrics,
+}
+
+/// Observation-only scope for a Native entry call; keep and finish it on the same thread.
+pub struct NativeWorkTurnV1 {
+    kind: NativeWorkKindV1,
+    started: Instant,
+    started_native_micros: u64,
+    bridge: NativeBridgeMetricsV1,
+    admission_count: u64,
+    verification: KagemushaWalletVerificationCountsV1,
+    work: iroha_plonk::work_metrics::WorkMetrics,
+    // A non-Copy, non-Send marker keeps the scope single-use on its originating thread.
+    _thread: Cell<std::marker::PhantomData<std::rc::Rc<()>>>,
+}
+impl NativeWorkTurnV1 {
+    /// Observe a known entry boundary without changing its scheduling or result.
+    pub fn start(kind: NativeWorkKindV1) -> Self {
+        let (started, started_native_micros) = native_mark();
+        Self {
+            kind,
+            started,
+            started_native_micros,
+            bridge: NativeBridgeMetricsV1::current(),
+            admission_count: admission::count(),
+            verification: KagemushaWalletVerificationCountsV1::current_thread(),
+            work: iroha_plonk::work_metrics::WorkMetrics::current_thread(),
+            _thread: Cell::new(std::marker::PhantomData),
+        }
+    }
+    /// Close the scope after the original call returned, preserving its result separately.
+    pub fn finish(self, returned: bool) -> NativeWorkRecordV1 {
+        let (ended, ended_native_micros) = native_mark();
+        NativeWorkRecordV1 {
+            started_native_micros: self.started_native_micros,
+            ended_native_micros,
+            kind: self.kind,
+            returned,
+            elapsed: ended.saturating_duration_since(self.started),
+            fold_record_id: None,
+            bridge: NativeBridgeMetricsV1::current().since(self.bridge),
+            admissions: admission::since(self.admission_count),
+            verification: KagemushaWalletVerificationCountsV1::current_thread()
+                .since(self.verification),
+            work: iroha_plonk::work_metrics::WorkMetrics::current_thread().since(self.work),
+        }
+    }
 }
 
 /// Cumulative counts since the log was created.
@@ -278,10 +420,33 @@ pub struct FoldCountsV1 {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FoldMetricsV1 {
     records: VecDeque<FoldSubProofV1>,
+    native_work: VecDeque<NativeWorkRecordV1>,
+    native_work_count: u64,
     counts: FoldCountsV1,
+    process_peak_rss_bytes: Option<u64>,
 }
 
 impl FoldMetricsV1 {
+    /// Attach the host's process-lifetime peak RSS observation; this is not Native allocation.
+    pub fn set_process_peak_rss_bytes(&mut self, bytes: Option<u64>) {
+        self.process_peak_rss_bytes = bytes;
+    }
+    /// Keep one Native call observation without changing fold counts or scheduling.
+    pub fn record_native_work(&mut self, record: NativeWorkRecordV1) {
+        self.native_work_count = self.native_work_count.saturating_add(1);
+        retain_observation(&mut self.native_work, record, NATIVE_WORK_RECORDS_V1);
+    }
+
+    /// Total observed Native calls, including those no longer retained. Observation only.
+    pub const fn native_work_count(&self) -> u64 {
+        self.native_work_count
+    }
+
+    /// Recent Native call observations, oldest first; never operation readiness.
+    pub const fn native_work(&self) -> &VecDeque<NativeWorkRecordV1> {
+        &self.native_work
+    }
+
     /// Count `record` and keep it, dropping the oldest record beyond the bound.
     pub fn record(&mut self, record: FoldSubProofV1) {
         let counts = &mut self.counts;
@@ -314,10 +479,7 @@ impl FoldMetricsV1 {
             }
         };
         *count = count.saturating_add(1);
-        if self.records.len() == FOLD_METRICS_RECORDS_V1 {
-            self.records.pop_front();
-        }
-        self.records.push_back(record);
+        retain_observation(&mut self.records, record, FOLD_METRICS_RECORDS_V1);
     }
 
     /// Kept records, oldest first.
@@ -336,7 +498,10 @@ impl FoldMetricsV1 {
     #[must_use]
     pub fn to_json(&self) -> String {
         let counts = self.counts;
-        let mut output = format!("{{\"schema\":\"{FOLD_METRICS_SCHEMA_V1}\",\"counts\":{{");
+        let (_, sampled_native_micros) = native_mark();
+        let mut output = format!(
+            "{{\"schema\":\"{FOLD_METRICS_SCHEMA_V1}\",\"sampledNativeMicros\":{sampled_native_micros},\"counts\":{{"
+        );
         for (index, (field, value)) in [
             ("subProofs", counts.sub_proofs),
             ("checkpoints", counts.checkpoints),
@@ -360,12 +525,31 @@ impl FoldMetricsV1 {
             }
             let _ = write!(output, "\"{field}\":{value}");
         }
-        output.push_str("},\"records\":[");
+        output.push_str("},\"processScratch\":{");
+        let scratch = iroha_pasta::msm::SharedMemoryBudget::process_default();
+        let in_use = scratch.in_use_bytes();
+        // Acquire charges used before updating peak. Both are actual observed reservations;
+        // this nontransactional maximum is a lower bound on the true lifetime peak.
+        let peak = scratch.peak_bytes().max(in_use);
+        let _ = write!(
+            output,
+            "\"limitBytes\":{},\"inUseBytes\":{},\"peakBytes\":{}}}",
+            scratch.limit_bytes(),
+            in_use,
+            peak
+        );
+        output.push_str(",\"processPeakRssBytes\":");
+        push_optional_u64(&mut output, self.process_peak_rss_bytes);
+        output.push_str(",\"records\":[");
         for (index, record) in self.records.iter().enumerate() {
             if index != 0 {
                 output.push(',');
             }
-            let _ = write!(output, "{{\"sequence\":{},\"operation\":", record.sequence);
+            let _ = write!(
+                output,
+                "{{\"startedNativeMicros\":{},\"endedNativeMicros\":{},\"sequence\":{},\"operation\":",
+                record.started_native_micros, record.ended_native_micros, record.sequence
+            );
             push_name(&mut output, record.operation.map(operation_name));
             output.push_str(",\"stage\":");
             push_name(&mut output, record.stage.map(FoldStageV1::name));
@@ -387,6 +571,8 @@ impl FoldMetricsV1 {
                 }
                 None => output.push_str("null"),
             }
+            push_verification(&mut output, record.verification);
+            push_work(&mut output, record.work);
             output.push_str(",\"micros\":{");
             for (position, phase) in FoldPhaseV1::ALL.into_iter().enumerate() {
                 if position != 0 {
@@ -401,9 +587,160 @@ impl FoldMetricsV1 {
             }
             output.push_str("}}");
         }
+        let _ = write!(
+            output,
+            "],\"nativeWorkCount\":{},\"nativeWork\":[",
+            self.native_work_count
+        );
+        for (index, record) in self.native_work.iter().enumerate() {
+            if index != 0 {
+                output.push(',');
+            }
+            let _ = write!(
+                output,
+                "{{\"startedNativeMicros\":{},\"endedNativeMicros\":{},\"kind\":\"{}\",\"returned\":{},\"micros\":{}",
+                record.started_native_micros,
+                record.ended_native_micros,
+                record.kind.name(),
+                record.returned,
+                micros(record.elapsed)
+            );
+            output.push_str(",\"foldRecordId\":");
+            push_optional_u64(&mut output, record.fold_record_id);
+            push_bridge(&mut output, record.bridge);
+            push_admissions(&mut output, record.admissions);
+            push_verification(&mut output, record.verification);
+            push_work(&mut output, record.work);
+            output.push('}');
+        }
         output.push_str("]}");
         output
     }
+}
+
+// Allocate the bounded ring fallibly before appending. Failure loses only observation.
+// Clearing on refusal keeps retained rows a contiguous suffix of the cumulative count.
+fn retain_observation<T>(records: &mut VecDeque<T>, record: T, limit: usize) {
+    retain_observation_with(records, record, limit, |records, additional| {
+        records.try_reserve_exact(additional).map_err(|_| ())
+    });
+}
+fn retain_observation_with<T>(
+    records: &mut VecDeque<T>,
+    record: T,
+    limit: usize,
+    reserve: impl FnOnce(&mut VecDeque<T>, usize) -> Result<(), ()>,
+) {
+    if records.capacity() < limit && reserve(records, limit - records.len()).is_err() {
+        records.clear();
+        return;
+    }
+    if records.len() == limit {
+        records.pop_front();
+    }
+    records.push_back(record);
+}
+
+fn push_optional_u64(output: &mut String, value: Option<u64>) {
+    match value {
+        Some(value) => {
+            let _ = write!(output, "{value}");
+        }
+        None => output.push_str("null"),
+    }
+}
+fn push_bridge(output: &mut String, value: NativeBridgeMetricsV1) {
+    let _ = write!(
+        output,
+        ",\"bridgeMicros\":{{\"scheduler_wait\":{},\"wallet_lock_wait\":{},\"custody_admission\":{}}}",
+        micros(value.scheduler_wait),
+        micros(value.wallet_lock_wait),
+        micros(value.custody_admission)
+    );
+}
+fn push_admissions(output: &mut String, value: NativeAdmissionsV1) {
+    let _ = write!(
+        output,
+        ",\"admissionCount\":{},\"admissions\":[",
+        value.count
+    );
+    for (index, record) in value.records.iter().flatten().enumerate() {
+        if index != 0 {
+            output.push(',');
+        }
+        let _ = write!(
+            output,
+            "{{\"phase\":\"{}\",\"requiredStorageBytes\":{},\"requiredMemoryBytes\":{},\"availableStorageBytes\":",
+            record.phase.name(),
+            record.required.storage_bytes,
+            record.required.memory_bytes
+        );
+        push_optional_u64(
+            output,
+            record.available.map(|resources| resources.storage_bytes),
+        );
+        output.push_str(",\"availableMemoryBytes\":");
+        push_optional_u64(
+            output,
+            record
+                .available
+                .and_then(|resources| resources.memory_bytes),
+        );
+        let _ = write!(output, ",\"result\":\"{}\"}}", record.result.name());
+    }
+    output.push(']');
+}
+
+fn push_verification(output: &mut String, work: KagemushaWalletVerificationCountsV1) {
+    output.push_str(",\"verification\":{");
+    for (index, (field, value)) in [
+        ("lineage", work.verify_lineage),
+        ("full", work.proofs.verify_full),
+        ("decides", work.proofs.decides),
+        ("batches", work.proofs.batches),
+        ("generatorMsms", work.proofs.generator_msms),
+        ("generatorMsmBases", work.proofs.generator_msm_bases),
+        ("reusedVerifications", work.proofs.reused_verifications),
+        ("reusedGenerators", work.proofs.reused_generators),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if index != 0 {
+            output.push(',');
+        }
+        let _ = write!(output, "\"{field}\":{value}");
+    }
+    output.push('}');
+}
+fn push_work(output: &mut String, work: iroha_plonk::work_metrics::WorkMetrics) {
+    output.push_str(",\"engineMicros\":{");
+    for (index, (field, value)) in [
+        ("key_import", work.key_import),
+        ("key_rebuild", work.key_rebuild),
+        ("witness", work.witness),
+        ("prove", work.prove),
+        ("self_verify", work.self_verify),
+        ("commit", work.commit),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if index != 0 {
+            output.push(',');
+        }
+        let _ = write!(output, "\"{field}\":{}", micros(value));
+    }
+    output.push('}');
+}
+
+// Initialized before sampling `now`, so the first mark cannot precede its origin.
+// This clock is observation-only and is independent of wallet/ledger time.
+fn native_mark() -> (Instant, u64) {
+    static ORIGIN: OnceLock<Instant> = OnceLock::new();
+    let origin = *ORIGIN.get_or_init(Instant::now);
+    let now = Instant::now();
+    (now, micros(now.saturating_duration_since(origin)))
 }
 
 fn micros(value: Duration) -> u64 {
@@ -435,9 +772,12 @@ const fn operation_name(kind: KagemushaWalletOperationKindV1) -> &'static str {
 /// The open turn of this thread.
 #[derive(Clone, Copy)]
 struct Active {
+    started_native_micros: u64,
     phase: FoldPhaseV1,
     since: Instant,
     elapsed: [Duration; FoldPhaseV1::COUNT],
+    verification: KagemushaWalletVerificationCountsV1,
+    work: iroha_plonk::work_metrics::WorkMetrics,
     stage: Option<FoldStageV1>,
 }
 
@@ -485,11 +825,15 @@ pub(super) struct FoldTurnV1 {
 impl FoldTurnV1 {
     /// Open a turn on this thread in [`FoldPhaseV1::SyncManifest`].
     pub(super) fn start() -> Self {
+        let (now, started_native_micros) = native_mark();
         let _ = ACTIVE.try_with(|cell| {
             cell.set(Some(Active {
+                started_native_micros,
                 phase: FoldPhaseV1::SyncManifest,
-                since: Instant::now(),
+                since: now,
                 elapsed: [Duration::ZERO; FoldPhaseV1::COUNT],
+                verification: KagemushaWalletVerificationCountsV1::current_thread(),
+                work: iroha_plonk::work_metrics::WorkMetrics::current_thread(),
                 stage: None,
             }));
         });
@@ -530,7 +874,7 @@ impl FoldTurnV1 {
         result: Result<FoldStatus, &Error>,
         cause: Option<FoldCancelCauseV1>,
     ) -> Option<FoldSubProofV1> {
-        let now = Instant::now();
+        let (now, ended_native_micros) = native_mark();
         let active = ACTIVE.try_with(Cell::take).ok().flatten();
         let sequence = self.sequence?;
         let outcome = match result {
@@ -544,21 +888,32 @@ impl FoldTurnV1 {
             Err(Error::Cancelled) => cause.map_or(FoldOutcomeV1::Failed, FoldOutcomeV1::Cancelled),
             Err(_) => FoldOutcomeV1::Failed,
         };
+        let mut started_native_micros = ended_native_micros;
         let mut phases = [Duration::ZERO; FoldPhaseV1::COUNT];
         let mut stage = None;
+        let mut verification = KagemushaWalletVerificationCountsV1::default();
+        let mut work = iroha_plonk::work_metrics::WorkMetrics::default();
         if let Some(active) = active {
+            started_native_micros = active.started_native_micros;
             phases = active.elapsed;
             let spent = &mut phases[active.phase.index()];
             *spent = spent.saturating_add(now.saturating_duration_since(active.since));
             stage = active.stage;
+            verification =
+                KagemushaWalletVerificationCountsV1::current_thread().since(active.verification);
+            work = iroha_plonk::work_metrics::WorkMetrics::current_thread().since(active.work);
         }
         Some(FoldSubProofV1 {
+            started_native_micros,
+            ended_native_micros,
             sequence,
             operation: self.operation,
             stage,
             ordinal: self.ordinal,
             outcome,
             phases,
+            verification,
+            work,
             peak_rss_bytes: None,
             ingests: 0,
         })
