@@ -181,6 +181,9 @@ pub extern "system" fn Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWa
     first: JByteArray<'_>,
     second: JByteArray<'_>,
 ) -> jobject {
+    let observation = (operation == 3)
+        .then(|| wallet::FoldBridgeTurnV1::begin(handle as u64))
+        .flatten();
     let result = wallet::run(|| {
         let first = read(&mut env, &first, 32)?;
         let second = read(&mut env, &second, 32)?;
@@ -196,6 +199,9 @@ pub extern "system" fn Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWa
             _ => Err(wallet::Failure::code(wallet::INVALID)),
         }
     });
+    if let Some(observation) = observation {
+        observation.finish(result.is_ok());
+    }
     response(&mut env, result)
 }
 

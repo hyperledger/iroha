@@ -176,7 +176,12 @@ the same live handle without repeating authorization.
 
 `KagemushaWalletV1` exposes typed setup, Load/Send/Receive/refresh/Unload/Retiring,
 retry/status, folding and activity. Request publication durably selects its exact
-original. A signed blacklist is local-only: `installBlacklist(list:certificates:)` stores
+original. Once `executeReviewed` dispatches to Native, its review remains consumed
+when execution fails, and the original execution error is preserved. Cleanup of
+that consumed token does not close the wallet; use the same request identity's
+status to recover a selected operation or retained Payment. An unresolved cleanup
+failure still retires the owner. A signed blacklist is local-only:
+`installBlacklist(list:certificates:)` stores
 it on the phone (a replacement's version must increase), and Native then refuses to pay a
 listed receiver or accept a Payment from a listed payer with
 `KagemushaWalletErrorV1.blockedStatus` (-15); no proof, wallet state or peer message
@@ -374,15 +379,17 @@ their own registration use the protocol identifier `F0504B45504B524E464301`
 
 The receiver creates its open Request with `KagemushaWalletV1.request(setupId:amount:)`
 and hosts its carrier with `IrohaPeerNfcCardSessionControllerV1.start(sessionID:receiveRequest:)`.
-The payer uses `IrohaPeerNfcReaderServiceV1.run` to keep one reader session open through
-Request, hardware-backed payment approval, durable checkpoint creation, Payment
-and Credited acknowledgement. Its operation deadline includes approval and wallet
-work. The durable checkpoint callback reviews the Request, authorizes Send and retains
-both the exact Payment and `paymentCompanion(payment:)` before delivery. The companion
-comes from that retained Send's historical credential and issuer, including after renewal.
-A normal payment keeps the same connection throughout; a new contact recovers an
-interrupted exchange. The separate `readRequest()` utility reads the open Request and
-ends its session; it is not the continuous-hold payment path.
+The payer uses `IrohaPeerNfcReaderServiceV1.readRequest()` to read the open Request.
+The result returns after CoreNFC invalidates that exact reader session; a missing
+invalidation callback fails the read instead of releasing the app to present an
+overlapping authentication prompt. The app displays the amount and receiver, then
+starts hardware confirmation from the payer's explicit confirmation action.
+After approval it retains both the exact Payment and `paymentCompanion(payment:)`
+in a durable sender checkpoint and calls `run(restoredCheckpoint:)` to deliver the
+Payment and receive its Credited acknowledgement. The companion comes from that
+retained Send's historical credential and issuer, including after renewal.
+Cancelling approval keeps the original Request for an explicit retry and starts no
+delivery reader.
 
 If contact is interrupted, `run(restoredCheckpoint:)` resumes the exact retained
 Payment without another debit. A receiver whose card session stops restarts with

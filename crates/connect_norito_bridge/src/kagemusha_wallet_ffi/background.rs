@@ -7,6 +7,8 @@
 //! that only decides whether an activity update wakes the worker.
 
 use super::*;
+mod observation;
+pub(crate) use observation::FoldBridgeTurnV1;
 use std::sync::{Condvar, Weak};
 use std::thread::{self, JoinHandle};
 
@@ -48,7 +50,12 @@ impl Inner {
 impl state::FoldObserverV1 for Inner {
     fn sub_proof(&self, mut record: state::FoldSubProofV1) {
         record.peak_rss_bytes = peak_rss_bytes();
-        self.lock().fold.record(record);
+        let id = {
+            let mut control = self.lock();
+            control.fold.record(record);
+            control.fold.counts().sub_proofs
+        };
+        observation::capture(self, id);
     }
 }
 /// Process lifetime peak resident set size, read at the end of each fold sub-proof.
@@ -187,9 +194,15 @@ impl Background {
             self.inner.wake();
         }
     }
+    /// Record a finished execution/speculation observation without scheduling work.
+    pub(super) fn record_native_work(&self, record: state::NativeWorkRecordV1) {
+        self.inner.lock().fold.record_native_work(record);
+    }
     /// Observation-only fold telemetry: the last 64 sub-proofs and cumulative counts.
     pub(super) fn fold_metrics(&self) -> state::FoldMetricsV1 {
-        self.inner.lock().fold.clone()
+        let mut metrics = self.inner.lock().fold.clone();
+        metrics.set_process_peak_rss_bytes(peak_rss_bytes());
+        metrics
     }
     pub(super) fn status(&self) -> Result<Response> {
         let mut state = self.inner.lock();
@@ -263,9 +276,15 @@ fn worker(owner: Weak<Owner>, inner: Arc<Inner>) {
         let Some(owner) = owner.upgrade() else {
             return;
         };
+        let observation = FoldBridgeTurnV1::of(&owner.background);
         let result = run(|| {
             let proof = {
-                let mut wallet = owner.wallet.lock().map_err(|_| Failure::code(INTERNAL))?;
+                let mut wallet = {
+                    let _timer = state::NativeBridgeTimerV1::start(
+                        state::NativeBridgePhaseV1::WalletLockWait,
+                    );
+                    owner.wallet.lock().map_err(|_| Failure::code(INTERNAL))?
+                };
                 let wallet = wallet.as_deref_mut().ok_or(Failure::code(CLOSED))?;
                 // A payment can arrive while this worker waits for the wallet mutex.
                 // The core prepare also checks its own payment guard and exact cancellation token.
@@ -284,10 +303,15 @@ fn worker(owner: Weak<Owner>, inner: Arc<Inner>) {
             // The owner is free while this sub-proof proves. The proof releases its scheduler
             // slot before this worker takes the owner again to publish.
             let publication = proof()?;
-            let mut wallet = owner.wallet.lock().map_err(|_| Failure::code(INTERNAL))?;
+            let mut wallet = {
+                let _timer =
+                    state::NativeBridgeTimerV1::start(state::NativeBridgePhaseV1::WalletLockWait);
+                owner.wallet.lock().map_err(|_| Failure::code(INTERNAL))?
+            };
             let wallet = wallet.as_deref_mut().ok_or(Failure::code(CLOSED))?;
             finished(&archive_call(wallet, publication)?)
         });
+        observation.finish(result.is_ok());
         drop(owner); // Never keep custody alive while parked on the condition variable.
         let mut state = inner.lock();
         state.running = false;

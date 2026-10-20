@@ -183,4 +183,102 @@ final class KagemushaWalletNativeWorkerV1Tests: XCTestCase {
     }
     XCTAssertFalse(executed)
   }
+
+  func testWorkerMetricsPreserveResultAndSeparateEnteredPhases() throws {
+    let before = KagemushaWalletNativeWorkerMetricsV1.snapshot().totalRecords
+    XCTAssertEqual(try KagemushaWalletNativeWorkerV1.perform { 731 }, 731)
+    let snapshot = KagemushaWalletNativeWorkerMetricsV1.snapshot()
+    let row = try XCTUnwrap(snapshot.records.last { $0.ordinal > before })
+    XCTAssertEqual(row.path, .worker); XCTAssertEqual(row.outcome, .returned)
+    XCTAssertEqual(row.lane, .foreground)
+    XCTAssertLessThanOrEqual(row.startedWorkerMicros, row.endedWorkerMicros)
+    XCTAssertLessThanOrEqual(row.endedWorkerMicros, snapshot.sampledWorkerMicros)
+    for phase in [row.queueMicros, row.startMicros, row.executeMicros, row.joinMicros] {
+      XCTAssertLessThanOrEqual(try XCTUnwrap(phase), row.endedWorkerMicros - row.startedWorkerMicros)
+    }
+  }
+
+  func testInlineMetricsNeverInventQueueStartupOrJoin() throws {
+    let before = KagemushaWalletNativeWorkerMetricsV1.snapshot().totalRecords
+    try KagemushaWalletNativeWorkerV1.perform {
+      try KagemushaWalletNativeWorkerV1.perform(workClass: .folding) {}
+    }
+    let rows = KagemushaWalletNativeWorkerMetricsV1.snapshot().records.filter { $0.ordinal > before }
+    let nested = try XCTUnwrap(rows.first { $0.path == .inline })
+    XCTAssertEqual(nested.lane, .fold); XCTAssertEqual(nested.outcome, .returned)
+    XCTAssertNil(nested.queueMicros); XCTAssertNil(nested.startMicros); XCTAssertNil(nested.joinMicros)
+    XCTAssertNotNil(nested.executeMicros)
+    let outer = try XCTUnwrap(rows.last { $0.path == .worker })
+    XCTAssertLessThan(nested.ordinal, outer.ordinal)
+    XCTAssertGreaterThanOrEqual(nested.startedWorkerMicros, outer.startedWorkerMicros)
+    XCTAssertLessThanOrEqual(nested.endedWorkerMicros, outer.endedWorkerMicros)
+  }
+
+  func testWorkerMetricsDistinguishStartFailureAndOriginalOperationError() throws {
+    let before = KagemushaWalletNativeWorkerMetricsV1.snapshot().totalRecords
+    let invalid = KagemushaWalletNativeWorkerV1(maximumConcurrentCalls: 1, stackBytes: 1)
+    XCTAssertThrowsError(try invalid.run {})
+    final class Failure: Error {}
+    let failure = Failure()
+    XCTAssertThrowsError(try KagemushaWalletNativeWorkerV1.perform { throw failure }) {
+      XCTAssertTrue($0 as AnyObject === failure)
+    }
+    let rows = KagemushaWalletNativeWorkerMetricsV1.snapshot().records.filter { $0.ordinal > before }
+    let failed = try XCTUnwrap(rows.first { $0.outcome == .startFailed })
+    XCTAssertNotNil(failed.queueMicros); XCTAssertNotNil(failed.startMicros)
+    XCTAssertNil(failed.executeMicros); XCTAssertNil(failed.joinMicros)
+    let thrown = try XCTUnwrap(rows.first { $0.outcome == .threw })
+    XCTAssertNotNil(thrown.executeMicros); XCTAssertNotNil(thrown.joinMicros)
+  }
+
+  func testWorkerMetricsRingSnapshotIsBoundedImmutableAndShowsEviction() throws {
+    let saved = KagemushaWalletNativeWorkerMetricsV1.snapshot()
+    for _ in 0..<40 { try KagemushaWalletNativeWorkerV1.perform {} }
+    let current = KagemushaWalletNativeWorkerMetricsV1.snapshot()
+    XCTAssertEqual(current.schema, "iroha.kagemusha.worker-metrics.v1")
+    XCTAssertEqual(current.records.count, 32)
+    XCTAssertGreaterThanOrEqual(current.totalRecords, saved.totalRecords + 40)
+    XCTAssertEqual(current.evictedRecords, current.totalRecords - 32)
+    XCTAssertEqual(current.records.map(\.ordinal), Array((current.totalRecords - 31)...current.totalRecords))
+    XCTAssertLessThan(saved.totalRecords, current.totalRecords)
+    XCTAssertTrue(saved.records.allSatisfy { $0.ordinal <= saved.totalRecords })
+  }
+
+  func testWorkerMetricsObserveContendedPermit() throws {
+    let before = KagemushaWalletNativeWorkerMetricsV1.snapshot().totalRecords
+    let worker = KagemushaWalletNativeWorkerV1(maximumConcurrentCalls: 1)
+    let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
+    let attempting = DispatchSemaphore(value: 0)
+    let done = expectation(description: "both joined")
+    done.expectedFulfillmentCount = 2
+    let failures = State<[Error]>([])
+    DispatchQueue.global().async {
+      do { try worker.run { entered.signal(); release.wait() } }
+      catch { failures.update { $0.append(error) } }
+      done.fulfill()
+    }
+    XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+    DispatchQueue.global().async {
+      attempting.signal()
+      do { _ = try worker.run { entered.signal() } }
+      catch { failures.update { $0.append(error) } }
+      done.fulfill()
+    }
+    XCTAssertEqual(attempting.wait(timeout: .now() + 5), .success)
+    XCTAssertEqual(entered.wait(timeout: .now() + 0.05), .timedOut)
+    release.signal()
+    wait(for: [done], timeout: 5)
+    XCTAssertTrue(failures.value.isEmpty)
+    let rows = KagemushaWalletNativeWorkerMetricsV1.snapshot().records.filter { $0.ordinal > before }
+    XCTAssertEqual(rows.count, 2)
+    for row in rows {
+      XCTAssertEqual(row.path, .worker)
+      XCTAssertEqual(row.outcome, .returned)
+      let queued = try XCTUnwrap(row.queueMicros)
+      XCTAssertGreaterThanOrEqual(row.endedWorkerMicros, row.startedWorkerMicros)
+      XCTAssertLessThanOrEqual(queued, row.endedWorkerMicros - row.startedWorkerMicros)
+    }
+    // Dispatch can pause after signalling an attempt and before entering run. Completed
+    // records do not expose that entry, so the test imposes no unobserved wait-time floor.
+  }
 }

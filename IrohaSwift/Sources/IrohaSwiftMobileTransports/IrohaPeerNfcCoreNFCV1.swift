@@ -1471,19 +1471,19 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
     private var operationTimeoutTask: Task<Void, Never>?
     private var operationGate = IrohaPeerNfcReaderOperationGateV1()
     private var completed = false
+    private var invalidation = IrohaPeerNfcReaderInvalidationV1<IrohaPeerNfcReaderOutcomeV1>()
+    private var invalidationTimeoutTask: Task<Void, Never>?
 
     public init(configuration: IrohaPeerNfcCoreNFCConfigurationV1) {
         self.configuration = configuration
         super.init()
     }
 
-    /// Keeps one CoreNFC reader session and tag connection open through the
-    /// Request read, exact-payment approval, durable Payment delivery and ACK.
-    /// The application performs hardware confirmation inside the durable
-    /// checkpoint callback; it must not finish this operation to present a
-    /// second scan. After `readRequest()`, pass the Payment's durable checkpoint
-    /// as `restoredCheckpoint`: a contact then resumes only those exact,
-    /// already-debited Payment bytes.
+    /// Delivers a durable Payment and reads its ACK in one CoreNFC session.
+    /// Read a new Request with `readRequest()`, complete hardware confirmation
+    /// in the application after that session closes, and pass the resulting
+    /// durable checkpoint as `restoredCheckpoint`. A resumed contact delivers
+    /// only those exact, already-debited Payment bytes.
     public func run(
         restoredCheckpoint: Data? = nil,
         profilePolicy: IrohaPeerNfcProfilePolicyV1,
@@ -1571,6 +1571,7 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
         guard case .payment(let result) = outcome else {
             throw IrohaPeerNfcErrorV1.stateMismatch
         }
+        try Task.checkCancellation()
         return result
     }
 
@@ -1578,7 +1579,9 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
     /// record, its `INF1` and the open Request it hosts in a short session and
     /// moves no value (`IrohaPeerNfcReaderExchangeV1.readRequest`). The result
     /// carries the Request envelope and the receiver's destination account for
-    /// the payer's review. Approve away from the card, durably store the
+    /// the payer's review. Returns only after CoreNFC has invalidated this
+    /// reader, so its system sheet cannot own the next approval. Approve away
+    /// from the card, durably store the
     /// Payment's sender checkpoint, then call `run(restoredCheckpoint:)` for tap 2.
     public func readRequest(
         profilePolicy: IrohaPeerNfcProfilePolicyV1,
@@ -1604,6 +1607,7 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
         guard case .request(let read) = outcome else {
             throw IrohaPeerNfcErrorV1.stateMismatch
         }
+        try Task.checkCancellation()
         return read
     }
 
@@ -1771,7 +1775,7 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
     }
 
     public func cancel() {
-        finish(.failure(IrohaPeerNfcCoreNFCErrorV1.cancelled), invalidating: true)
+        finish(.failure(IrohaPeerNfcCoreNFCErrorV1.cancelled), invalidating: true, cancelling: true)
     }
 
     /// Replaces the scan sheet's message while this reader's session is active,
@@ -1800,6 +1804,7 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
         _ session: NFCTagReaderSession,
         didInvalidateWithError error: Error
     ) {
+        if finishInvalidation(session: session) { return }
         lock.lock()
         let operationEpoch = operationGate.activeEpoch
         let shouldFinish = !completed
@@ -1814,6 +1819,10 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
                 expectedSession: session
             )
         }
+        // The exchange can finish between the first drain and the locked
+        // lifetime check above. Do not lose the platform's only invalidation
+        // callback if that finish just installed a successful pending result.
+        _ = finishInvalidation(session: session)
     }
 
     public func tagReaderSession(_ session: NFCTagReaderSession, didDetect tags: [NFCTag]) {
@@ -2005,10 +2014,12 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
     private func finish(
         _ result: Result<IrohaPeerNfcReaderOutcomeV1, Error>,
         invalidating: Bool,
+        cancelling: Bool = false,
         expectedEpoch: UInt64? = nil,
         expectedSession: NFCTagReaderSession? = nil
     ) {
         lock.lock()
+        if cancelling { invalidation.cancel(with: IrohaPeerNfcCoreNFCErrorV1.cancelled) }
         let operationEpoch = expectedEpoch ?? operationGate.activeEpoch
         guard !completed,
               operationGate.mayMutate(capturedEpoch: operationEpoch),
@@ -2018,8 +2029,10 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
         }
         completed = true
         _ = operationGate.finishOperation(capturedEpoch: operationEpoch)
-        let continuation = continuation
-        self.continuation = nil
+        let session = session
+        let awaitInvalidation = invalidating && session != nil
+        let continuation = awaitInvalidation ? nil : self.continuation
+        if !awaitInvalidation { self.continuation = nil }
         exchange = nil
         let progressReporter = self.progressReporter
         self.progressReporter = nil
@@ -2033,8 +2046,16 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
         self.operationTimeoutTask = nil
         let task = exchangeTask
         exchangeTask = nil
-        let session = session
-        self.session = nil
+        if let session, awaitInvalidation {
+            invalidation.begin(session: ObjectIdentifier(session), result: result)
+            invalidationTimeoutTask = Task { [weak self, session] in
+                do { try await Task.sleep(nanoseconds: 5_000_000_000) }
+                catch { return }
+                _ = self?.finishInvalidation(session: session, timedOut: true)
+            }
+        } else {
+            self.session = nil
+        }
         lock.unlock()
         retryTimeoutTask?.cancel()
         operationTimeoutTask?.cancel()
@@ -2046,6 +2067,27 @@ public final class IrohaPeerNfcReaderServiceV1: NSObject, @unchecked Sendable,
         task?.cancel()
         if invalidating { session?.invalidate() }
         continuation?.resume(with: result)
+    }
+
+    /// Keep the continuation and session owned until the matching invalidation.
+    /// Old delegate callbacks cannot finish a successor's reader operation.
+    @discardableResult
+    private func finishInvalidation(session: NFCTagReaderSession, timedOut: Bool = false) -> Bool {
+        lock.lock()
+        let identity = ObjectIdentifier(session)
+        let result = timedOut
+            ? invalidation.timedOut(session: identity, error: IrohaPeerNfcCoreNFCErrorV1.readerOperationTimedOut)
+            : invalidation.invalidated(session: identity)
+        guard let result else { lock.unlock(); return false }
+        let continuation = self.continuation
+        self.continuation = nil
+        self.session = nil
+        let timeout = invalidationTimeoutTask
+        invalidationTimeoutTask = nil
+        lock.unlock()
+        timeout?.cancel()
+        continuation?.resume(with: result)
+        return true
     }
 
     private func restartPollingWithDeadline(

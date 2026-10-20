@@ -19,6 +19,7 @@ class KagemushaWalletNativeWorkerExceptionV1 internal constructor(cause: Throwab
  * callbacks already permit native worker threads and prohibit same-wallet reentry.
  */
 internal class KagemushaWalletNativeWorkerV1(
+    private val metrics: KagemushaWalletWorkerRecorderV1 = KagemushaWalletWorkerMetricsV1.recorder,
     private val threadFactory: (Runnable, String, Long) -> Thread = { task, name, stack ->
         Thread(null, task, name, stack)
     },
@@ -32,22 +33,39 @@ internal class KagemushaWalletNativeWorkerV1(
     // Neither may occupy the slots needed by a payment to cancel and join that work.
     // A separate snapshot slot also avoids waiting through an explicit fold's unlocked proof.
     fun <T> setup(selector: Int, action: () -> T): T = run(fold = selector == 47, action = action)
-    fun <T> snapshot(action: () -> T): T = run(snapshots, "iroha-wallet-snapshot", action)
+    fun <T> snapshot(action: () -> T): T = run(snapshots, "iroha-wallet-snapshot", KagemushaWalletWorkerLaneV1.SNAPSHOT, action)
 
     fun <T> run(fold: Boolean = false, action: () -> T): T =
-        run(if (fold) folding else foreground, if (fold) "iroha-wallet-fold" else "iroha-wallet-native", action)
+        run(if (fold) folding else foreground, if (fold) "iroha-wallet-fold" else "iroha-wallet-native",
+            if (fold) KagemushaWalletWorkerLaneV1.FOLD else KagemushaWalletWorkerLaneV1.FOREGROUND, action)
 
-    private fun <T> run(slots: Semaphore, name: String, action: () -> T): T {
+    private fun <T> run(slots: Semaphore, name: String, lane: KagemushaWalletWorkerLaneV1, action: () -> T): T {
         // Nested work already owns this worker and stack. Never acquire another reservation:
         // same-slot nesting would deadlock, and crossing slots could invert their order.
-        if (entered.get() == true) return action()
+        if (entered.get() == true) {
+            val observation = metrics.begin(lane, KagemushaWalletWorkerPathV1.INLINE)
+            var returned = false
+            observation?.actionEntered()
+            try { return action().also { returned = true } }
+            finally {
+                observation?.actionEnded()
+                observation?.finish(if (returned) KagemushaWalletWorkerOutcomeV1.RETURNED else KagemushaWalletWorkerOutcomeV1.THREW)
+            }
+        }
         // Once selected, a native monetary operation must complete before its caller can unwind.
         // Waiting and joining preserve interruption without abandoning an unknown native outcome.
+        val observation = metrics.begin(lane, KagemushaWalletWorkerPathV1.WORKER)
         slots.acquireUninterruptibly()
+        observation?.acquired()
+        var outcome = KagemushaWalletWorkerOutcomeV1.START_FAILED
+        var executionEntered = false // Read only after join establishes worker visibility.
         try {
             val task = FutureTask(Callable {
+                observation?.workerEntered()
                 entered.set(true)
-                try { action() } finally { entered.remove() }
+                observation?.actionEntered()
+                executionEntered = true
+                try { action() } finally { observation?.actionEnded(); entered.remove() }
             })
             val worker = try {
                 threadFactory(task, name, STACK_BYTES)
@@ -60,16 +78,18 @@ internal class KagemushaWalletNativeWorkerV1(
             var interrupted = false
             try {
                 while (true) {
-                    try { worker.join(); break }
+                    try { worker.join(); observation?.joined(); break }
                     catch (_: InterruptedException) { interrupted = true }
                 }
-                return try { task.get() }
+                outcome = if (executionEntered) KagemushaWalletWorkerOutcomeV1.THREW else KagemushaWalletWorkerOutcomeV1.START_FAILED
+                return try { task.get().also { outcome = KagemushaWalletWorkerOutcomeV1.RETURNED } }
                 catch (failure: ExecutionException) { throw checkNotNull(failure.cause) }
             } finally {
                 if (interrupted) Thread.currentThread().interrupt()
             }
         } finally {
             slots.release()
+            observation?.finish(outcome)
         }
     }
 

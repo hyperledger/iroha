@@ -31,6 +31,7 @@ mod android;
 ))]
 pub use android::AndroidPlatform;
 mod background;
+pub(crate) use background::FoldBridgeTurnV1;
 mod closing;
 pub(crate) mod enrollment;
 mod exports;
@@ -561,21 +562,32 @@ fn with_wallet_owner<T>(
     // locked prepare, and the join never needs the owner, because a proved sub-proof releases
     // its slot before it takes the owner again to publish.
     let _priority = match priority {
-        Priority::Payment => Some(
-            owner
-                .background
-                .payment(&owner.scheduler, state::FoldCallClassV1::Payment),
-        ),
+        Priority::Payment => {
+            let _timer =
+                state::NativeBridgeTimerV1::start(state::NativeBridgePhaseV1::SchedulerWait);
+            Some(
+                owner
+                    .background
+                    .payment(&owner.scheduler, state::FoldCallClassV1::Payment),
+            )
+        }
         Priority::Ingest => {
             owner.scheduler.ingest();
             None
         }
         Priority::None => None,
     };
-    let mut guard = owner.wallet.lock().map_err(|_| Failure::code(INTERNAL))?;
+    let mut guard = {
+        let _timer = state::NativeBridgeTimerV1::start(state::NativeBridgePhaseV1::WalletLockWait);
+        owner.wallet.lock().map_err(|_| Failure::code(INTERNAL))?
+    };
     owner.closing.require_open()?;
     let wallet = guard.as_deref_mut().ok_or(Failure::code(CLOSED))?;
-    wallet.require_custody_operations()?;
+    {
+        let _timer =
+            state::NativeBridgeTimerV1::start(state::NativeBridgePhaseV1::CustodyAdmission);
+        wallet.require_custody_operations()?;
+    }
     archive_call(wallet, action)
 }
 /// Run one wallet-owner acquisition as one archive call: the coordinator's archive stages the
@@ -661,9 +673,27 @@ pub(crate) fn setup(id: u64, input: setup::Setup) -> Result<Response> {
     if matches!(input, setup::Setup::BackgroundStatus) {
         return owner(id)?.background.status();
     }
-    with_wallet_owner(owner(id)?, setup_priority(&input), |wallet| {
+    let kind = match &input {
+        setup::Setup::Request { .. } | setup::Setup::RequestWithFeePolicy { .. } => {
+            Some(state::NativeWorkKindV1::Request)
+        }
+        setup::Setup::Bootstrap => Some(state::NativeWorkKindV1::Bootstrap),
+        setup::Setup::Credited(_) | setup::Setup::BoundCredited { .. } => {
+            Some(state::NativeWorkKindV1::Credited)
+        }
+        _ => None,
+    };
+    let owner = owner(id)?;
+    let turn = kind.map(state::NativeWorkTurnV1::start);
+    let result = with_wallet_owner(Arc::clone(&owner), setup_priority(&input), |wallet| {
         wallet.setup(input)
-    })
+    });
+    if let Some(turn) = turn {
+        owner
+            .background
+            .record_native_work(turn.finish(result.is_ok()));
+    }
+    result
 }
 pub(crate) fn execute(id: u64, call: requests::Call) -> Result<Response> {
     let request = match call {
@@ -680,7 +710,15 @@ pub(crate) fn execute(id: u64, call: requests::Call) -> Result<Response> {
     ) {
         return Err(Failure::code(INVALID));
     }
-    with_wallet(id, true, |wallet| wallet.execute(request))
+    let owner = owner(id)?;
+    let turn = state::NativeWorkTurnV1::start(state::NativeWorkKindV1::Execute);
+    let result = with_wallet_owner(Arc::clone(&owner), Priority::Payment, |wallet| {
+        wallet.execute(request)
+    });
+    owner
+        .background
+        .record_native_work(turn.finish(result.is_ok()));
+    result
 }
 pub(crate) fn request_status(id: u64, request: &[u8]) -> Result<Response> {
     let request: &[u8; 32] = request.try_into().map_err(|_| Failure::code(INVALID))?;
@@ -730,10 +768,12 @@ pub(crate) fn credit(id: u64, credit: &[u8], payment: &[u8]) -> Result<Response>
     })
 }
 /// Observation-only fold telemetry of one open wallet handle: its last 64 sub-proofs with
-/// phase times, outcome, cancellation cause and process peak RSS, plus cumulative counts
-/// (`to_json` gives schema `iroha.kagemusha.fold-metrics.v1`). In memory only: never
+/// phase times, verification/memo counts, outcome, cancellation cause and process peak RSS,
+/// plus cumulative counts and the last16 Native execution/speculation observations
+/// (`to_json` gives schema `iroha.kagemusha.fold-metrics.v2`). In memory only: never
 /// persisted or signed, and no admission, scheduling or error path reads it. Host and
-/// component-harness access; the kind-29 background status keeps its byte-free shape.
+/// component-harness access and selector4 of the bounded C/JNI observation API; the kind-29
+/// background status keeps its byte-free shape.
 ///
 /// # Errors
 /// `CLOSED` for a closed, closing or unknown handle.
@@ -755,9 +795,15 @@ pub(crate) fn durability_fence() -> std::io::Result<()> {
     iroha_fs::durability_fence().map(|_| ())
 }
 pub(crate) fn run<T>(action: impl FnOnce() -> Result<T>) -> Result<T> {
+    run_with_fence(action, durability_fence)
+}
+fn run_with_fence<T>(
+    action: impl FnOnce() -> Result<T>,
+    fence: impl FnOnce() -> std::io::Result<()>,
+) -> Result<T> {
     let value = std::panic::catch_unwind(std::panic::AssertUnwindSafe(action))
         .unwrap_or(Err(Failure::code(INTERNAL)))?;
     // The result may carry or name what this call wrote: never release it before durability.
-    durability_fence().map_err(|_| Failure::code(UNAVAILABLE))?;
+    fence().map_err(|_| Failure::code(UNAVAILABLE))?;
     Ok(value)
 }

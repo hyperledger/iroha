@@ -12,8 +12,9 @@
 //! memory; verification runs synchronously on the calling thread, so the
 //! difference of two [`VerificationCounts::current_thread`] readings
 //! ([`VerificationCounts::since`]) is the work done in between. No verifier
-//! reads these values. They are never serialized or persisted, and they
-//! confer no acceptance, readiness or other authority.
+//! reads these values. Hosts may serialize bounded observation-only deltas for diagnostics;
+//! the counters are never persisted or signed and confer no acceptance, readiness or other
+//! authority.
 
 use std::cell::Cell;
 

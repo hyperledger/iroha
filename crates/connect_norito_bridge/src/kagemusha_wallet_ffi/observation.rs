@@ -108,7 +108,7 @@ fn prepared_load(value: &state::NativePreparedLedgerLoadV1) -> Result<Vec<u8>> {
 }
 fn require_identity(selector: u32, identity: &[u8]) -> Result<()> {
     match selector {
-        0 if identity.is_empty() => Ok(()),
+        0 | 4 if identity.is_empty() => Ok(()),
         1..=3 if identity.len() == 32 && identity != [0; 32] => Ok(()),
         _ => Err(Failure::code(INVALID)),
     }
@@ -143,16 +143,30 @@ impl<P: advance::KagemushaWalletPlatformV1, S: OriginalSourceV1 + Send> NativeWa
         })
     }
 }
-/// Shared C/JNI observation dispatch under the same custody and deletion gate.
+/// Shared C/JNI observation dispatch. Original DATA uses the custody and deletion gate;
+/// public fold telemetry reads only the open owner's bounded in-memory background log.
 pub(crate) fn observe(handle: u64, selector: u32, identity: &[u8]) -> Result<Response> {
     require_identity(selector, identity)?;
+    if selector == 4 {
+        let bytes = wallet_fold_metrics(handle)?.to_json().into_bytes();
+        if bytes.len() > state::FOLD_METRICS_MAX_BYTES_V1 {
+            return Err(Failure::code(INTERNAL));
+        }
+        return Ok(Response {
+            kind: 12,
+            bytes,
+            ..Response::default()
+        });
+    }
     with_wallet_owner(owner(handle)?, Priority::Ingest, |wallet| {
         wallet.observe(selector, identity)
     })
 }
 
-/// Read bounded original DATA from the same admitted owner, without a monetary action.
-/// Metadata0 has no identity; Request1, Operation2 and preparedLoad3 use nonzero32.
+/// Read bounded DATA from the same admitted owner, without a monetary action.
+/// Metadata0 and foldMetrics4 have no identity; Request1, Operation2 and preparedLoad3
+/// use nonzero32. FoldMetrics4 is UTF-8 JSON <=131072 bytes with schema
+/// `iroha.kagemusha.fold-metrics.v2`; it neither acquires custody nor cancels proving.
 /// All observations return generic original DATA kind12 with zero sequence/detail.
 /// The selected API domain fixes the exact frame: KWMDV1 metadata, KWROV1 output,
 /// KWLPV1 prepared Load, or exactly KWLNV1\0\0 for absent prepared Load only.
@@ -185,11 +199,13 @@ mod tests {
             assert_eq!(observe(0, selector, &[1; 32]).unwrap_err().status, CLOSED);
             assert_eq!(observe(0, selector, &[0; 32]).unwrap_err().status, INVALID);
         }
-        assert_eq!(observe(0, 4, &[]).unwrap_err().status, INVALID);
+        assert_eq!(observe(0, 4, &[]).unwrap_err().status, CLOSED);
+        assert_eq!(observe(0, 4, &[1]).unwrap_err().status, INVALID);
     }
     #[test]
     fn observation_rejects_unused_identity_and_nonclosed_selectors() {
         assert!(require_identity(0, &[]).is_ok());
+        assert!(require_identity(4, &[]).is_ok());
         for selector in [1, 2, 3] {
             assert!(require_identity(selector, &[1; 32]).is_ok());
             for input in [&[][..], &[0; 32][..], &[1; 31][..], &[1; 33][..]] {
@@ -197,10 +213,93 @@ mod tests {
             }
         }
         assert!(require_identity(0, &[1; 32]).is_err());
-        for selector in [4, 5, 17, u32::MAX] {
+        assert!(require_identity(4, &[1; 32]).is_err());
+        for selector in [5, 17, u32::MAX] {
             assert!(require_identity(selector, &[]).is_err());
         }
     }
+    #[test]
+    fn fold_metrics_do_not_acquire_custody_or_admit_closed_owners() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            mpsc,
+        };
+        use std::time::Duration;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let id = install(
+            Box::new(super::super::tests::TestWallet {
+                calls: Arc::clone(&calls),
+                drops: Arc::new(AtomicUsize::new(0)),
+                expected_request: None,
+            }),
+            state::Scheduler::new(),
+        )
+        .unwrap();
+        let selected = owner(id).unwrap();
+        let custody = selected.wallet.lock().unwrap();
+        let (send, receive) = mpsc::channel();
+        let reader = std::thread::spawn(move || send.send(observe(id, 4, &[])).unwrap());
+        let observed = receive.recv_timeout(Duration::from_secs(5));
+        drop(custody);
+        reader.join().unwrap();
+        let response = observed
+            .expect("telemetry must not wait for the wallet mutex")
+            .unwrap();
+        assert_eq!(
+            (response.kind, response.sequence, response.detail),
+            (12, 0, 0)
+        );
+        let json: norito::json::Value = norito::json::from_slice(&response.bytes).unwrap();
+        let json = json.as_object().unwrap();
+        assert_eq!(json["schema"].as_str(), Some(state::FOLD_METRICS_SCHEMA_V1));
+        assert!(json["sampledNativeMicros"].as_u64().is_some());
+        assert_eq!(json["records"].as_array().unwrap().len(), 0);
+        assert_eq!(json["nativeWorkCount"].as_u64(), Some(0));
+        assert_eq!(json["nativeWork"].as_array().unwrap().len(), 0);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        selected.closing.begin();
+        assert_eq!(observe(id, 4, &[]).unwrap_err().status, CLOSED);
+        close(id).unwrap();
+        assert_eq!(observe(id, 4, &[]).unwrap_err().status, CLOSED);
+    }
+
+    #[test]
+    fn c_fold_metrics_reject_malformed_geometry_and_initialize_failures() {
+        let identity = [1_u8];
+        for (selector, identity, length, expected) in [
+            (4, std::ptr::null(), 0, CLOSED),
+            (4, std::ptr::null(), 1, INVALID),
+            (4, identity.as_ptr(), 1, INVALID),
+            (5, std::ptr::null(), 0, INVALID),
+        ] {
+            let mut output = WalletResult::default();
+            assert_eq!(
+                unsafe {
+                    connect_norito_kagemusha_wallet_observe_v1(
+                        0,
+                        selector,
+                        identity,
+                        length,
+                        &mut output,
+                    )
+                },
+                expected
+            );
+            assert_eq!(output.status, expected);
+            assert_eq!(
+                (
+                    output.sequence_low,
+                    output.sequence_high,
+                    output.detail,
+                    output.length
+                ),
+                (0, 0, 0, 0)
+            );
+            assert!(output.bytes.is_null());
+        }
+    }
+
     #[test]
     fn release_projection_preserves_exact_originals_and_refuses_cross_family_peer() {
         // Copyable projection DATA only, not a Native completion fixture.
