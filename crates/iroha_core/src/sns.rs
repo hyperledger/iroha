@@ -1223,11 +1223,9 @@ fn decode_record_for_selector(
         let decode = || norito::codec::decode_adaptive(bytes);
         // The caller's resource scope encloses this boundary. Query policy limits
         // remain inside it, so exceeding those limits is a completed rejection.
-        if let Some(limits) = limits {
+        limits.map_or_else(decode, |limits| {
             norito::with_decode_limits_scope(limits, decode)
-        } else {
-            decode()
-        }
+        })
     })
     .map_err(|error| sns_decode_error(error, "failed to decode an SNS record"))?;
     if record.selector != *selector || record.name_hash != selector.name_hash() {
@@ -3041,13 +3039,11 @@ fn resolve_active_dataspace_by_id(
                 let record = norito::codec::decode_adaptive(bytes)?;
                 Ok::<_, norito::Error>(validate_candidate(record))
             };
-            if let Some(limits) = limits {
-                // The record's numeric metadata is parsed during validation too, so
-                // the complete candidate must retain this query-owned decode scope.
+            // The record's numeric metadata is parsed during validation too, so
+            // the complete candidate must retain this query-owned decode scope.
+            limits.map_or_else(decode_candidate, |limits| {
                 norito::with_decode_limits_scope(limits, decode_candidate)
-            } else {
-                decode_candidate()
-            }
+            })
         })
         .map_err(|error| sns_decode_error(error, "failed to decode a dataspace SNS record"))??;
         if let Some(alias) = candidate {

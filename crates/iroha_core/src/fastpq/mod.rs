@@ -1448,9 +1448,11 @@ mod tests {
             digest,
             Hash::prehashed(halo2_poseidon::hash_bytes(&encoded_preimage))
         );
+        // The canonical width-three bank has 8 full and 57 partial rounds.
+        // Checked with scripts/zk_bn254_poseidon_reference.py over this preimage.
         assert_eq!(
             hex::encode(digest.as_ref()),
-            "6cb8fd166f7fc8eb87a2af9601a37189a517891e0884f0efe0916a5a51c10f25"
+            "f34ee22cc4cd0b2ea90f03d303ce3c92ac5172d067a663cf2c687de7b95c2f1d"
         );
     }
     #[test]

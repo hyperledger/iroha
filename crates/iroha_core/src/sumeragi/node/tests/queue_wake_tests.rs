@@ -207,6 +207,9 @@ fn duplicate_prepared_start(chain: &Chain, queue: &Arc<Queue>) -> (NodeError, te
 
 #[test]
 fn native_queue_owner_refuses_duplicate_prepared_start_and_requires_fresh_queue_restart() {
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let retirement_pin = crossbeam_epoch::pin();
     let chain = chain(4, 600_000);
     let disks = disks(&chain);
     let validators = start_all(&chain, &disks, true);
@@ -265,6 +268,7 @@ fn native_queue_owner_refuses_duplicate_prepared_start_and_requires_fresh_queue_
     assert_eq!(original[0].retained_bytes(), retained_bytes);
     assert_eq!(original[0].queued_len(), queued);
     assert!(!original[0].contains_entrypoint_hash(retired_hash));
+    drop(retirement_pin);
     drop(retired_state);
     // Notification retirement is permanent even while callback-owned physical joins could
     // still be running. Starting a retired Queue must not reconstruct another native owner.
@@ -313,6 +317,9 @@ fn native_queue_owner_refuses_duplicate_prepared_start_and_requires_fresh_queue_
 
 #[test]
 fn native_queue_reservation_refuses_foreign_funded_pool_without_changing_original_pending() {
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     let chain = chain(4, 600_000);
     let disk = Disk {
         kura: Kura::blank_kura_for_testing(),

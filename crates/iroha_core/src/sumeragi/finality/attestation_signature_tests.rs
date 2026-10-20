@@ -232,6 +232,9 @@ fn check_body_witness_refusals(chain: &CertifiedTestChain) {
 
 #[test]
 fn attestation_tail_active_owner_keeps_original_recipe_and_finite_resource_refusals() {
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     with_chain_at(2, check_active_original_recipe);
 }
 

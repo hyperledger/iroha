@@ -279,9 +279,20 @@ fn metadata_preflight_retains_original_limits_after_retirement_for_both_destinat
                         "equal limits cannot claim the retired original counter owner"
                     );
                 });
-                assert_eq!(original.into_local_refusal().unwrap(), refusal);
-                assert_eq!(pool.reserved_bytes(), 0);
+                // The captured family keeps one original prepared control alive.
+                let retained_control_bytes = if is_funded {
+                    ncore::PreparedDecodeWorkspace::allocation_layouts()[0].size()
+                } else {
+                    0
+                };
+                assert_eq!(pool.reserved_bytes(), retained_control_bytes);
+                let moved = original.into_local_refusal().unwrap();
+                assert_eq!(moved, refusal);
+                drop(moved);
+                assert_eq!(pool.reserved_bytes(), retained_control_bytes);
                 read().expect("unchanged original metadata retries after scope retirement");
+                assert_eq!(pool.reserved_bytes(), retained_control_bytes);
+                drop(refusal);
                 assert_eq!(pool.reserved_bytes(), 0);
             }
         }
@@ -351,6 +362,23 @@ fn qc_preflight_rejects_one_byte_allocation_ceiling_at_all_three_destinations() 
                 limit: 1
             }
         );
+        // Only the funded destination retains a charged control in its refusal.
+        let retained_control_bytes = if destination == 1 {
+            ncore::PreparedDecodeWorkspace::allocation_layouts()[0].size()
+        } else {
+            0
+        };
+        assert_eq!(pool.reserved_bytes(), retained_control_bytes);
+        // An old refusal cannot block or fund a fresh successful read of the same bytes.
+        if destination == 0 {
+            assert_eq!(norito::decode_canonical::<Qc>(&wire).unwrap(), expected);
+        } else if destination == 1 {
+            assert_eq!(*qc(&wire, &pool).unwrap(), expected);
+        } else {
+            assert_eq!(decoded_qc(&wire).unwrap(), expected);
+        }
+        assert_eq!(pool.reserved_bytes(), retained_control_bytes);
+        drop(original);
         assert_eq!(pool.reserved_bytes(), 0);
     }
 }

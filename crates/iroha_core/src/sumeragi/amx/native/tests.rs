@@ -537,6 +537,9 @@ fn check_paid_effects_at_original_pool_capacity(chain: &CertifiedTestChain) {
 
 #[test]
 fn native_amx_paid_commit_survives_certified_restart_and_rejects_bypass() {
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let retirement_pin = crossbeam_epoch::pin();
     let mut roots = Roots::new();
     let transaction = roots.transaction(100, 1);
     let begin = roots.begin(&transaction);
@@ -595,6 +598,7 @@ fn native_amx_paid_commit_survives_certified_restart_and_rejects_bypass() {
         );
         check_paid_effects_at_original_pool_capacity(chain);
     }
+    drop(retirement_pin);
     let custody = native(&roots.participants[0]).custody;
     let bypass = roots.participants[0].sign(
         &payer(),
@@ -861,6 +865,9 @@ fn native_amx_certified_abort_returns_yes_escrow_and_held_decision_never_debits(
 
 #[test]
 fn native_amx_original_graph_refusal_preserves_committed_owner_and_exact_retry_capacity() {
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     let roots = Roots::new();
     let source = native(&roots.participants[0]);
     let budget = roots.participants[0].state().ivm_execution_budget();
@@ -958,6 +965,9 @@ fn native_amx_decision_context_archive_keeps_original_pool_custody_through_copy_
         next
     }
 
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     let mut roots = Roots::new();
     let transaction = roots.transaction(25, 0xE4);
     let begin = roots.begin(&transaction);
@@ -1093,6 +1103,9 @@ fn native_amx_enrolled_receiver_records_certified_no_without_monetary_or_mainten
 fn native_amx_global_source_requires_signed_parent_real_h2_and_exact_instance() {
     use crate::sumeragi::commitment::CertifiedResultV1;
     use iroha_data_model::block::CommitCertificate;
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     let config = global_config();
     let chain_id = config.chain_id.clone();
     let key = config.genesis_key.clone();
@@ -1706,6 +1719,9 @@ fn original_empty_native_amx_checked_refusal_preserves_inherited_depth() {
 #[test]
 fn original_authenticated_native_amx_checked_refusals_keep_graph_pool_and_depth() {
     use norito::json::{BoundedJsonError, JsonSerialize as _};
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     let roots = Roots::new();
     let view = roots.participants[0].state().view();
     let original = view.world().sumeragi_amx_participant();
@@ -1753,6 +1769,9 @@ fn original_authenticated_native_amx_checked_refusals_keep_graph_pool_and_depth(
 #[test]
 fn original_authenticated_native_amx_mv_cell_refusal_keeps_original_cut_graph_and_pool() {
     use norito::json::{BoundedJsonError, JsonSerialize as _};
+    // Keep fixture State generations in the exact pool baseline; unrelated epoch
+    // reclamation must not appear to refund this operation's original custody.
+    let _retirement_pin = crossbeam_epoch::pin();
     let roots = Roots::new();
     let view = roots.participants[0].state().view();
     let slot = &view.world().sumeragi_amx_participant;

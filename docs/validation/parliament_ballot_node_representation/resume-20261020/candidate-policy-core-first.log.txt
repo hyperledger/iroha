@@ -1,0 +1,253 @@
+[cargo-fast] repo=/Users/mtakemiya/dev/iroha
+[cargo-fast] CARGO_TARGET_DIR=/Users/mtakemiya/dev/iroha/target/cargo-fast/parliament-development
+[cargo-fast] CARGO_BUILD_JOBS=4
+[cargo-fast] sccache=not-found
+[cargo-fast] linker=system-default
+[cargo-fast] VERGEN_GIT_SHA=local-fast-build
+[cargo-fast] running: cargo test --profile local-release -p iroha_core --features iroha-core-tests --lib -- candidate_testing network_policy_routes_tests consensus_owned_parameter_tests anonymous signerless unavailable_admission sealed_entrypoints --nocapture --test-threads=1
+   Compiling iroha_plonk v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_plonk)
+   Compiling iroha_fs v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_fs)
+warning: iroha_plonk@2.0.0-rc.2.0: closed source registry disabled: source changed during identity computation
+   Compiling sorafs_manifest v0.1.0 (/Users/mtakemiya/dev/iroha/crates/sorafs_manifest)
+   Compiling iroha_plonk_gadgets v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_plonk_gadgets)
+   Compiling kaigi_zk v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/kaigi_zk)
+   Compiling iroha_plonk_recursion v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_plonk_recursion)
+   Compiling iroha_kagemusha_proof v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_kagemusha_proof)
+   Compiling iroha_data_model v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_data_model)
+   Compiling iroha_executor_data_model v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_executor_data_model)
+   Compiling ivm_abi v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/ivm_abi)
+   Compiling fastpq_prover v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/fastpq_prover)
+   Compiling iroha_torii_shared v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_torii_shared)
+   Compiling kotodama_surface v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/kotodama_surface)
+   Compiling ivm_artifact_admission v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/ivm_artifact_admission)
+   Compiling kotodama_lang v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/kotodama_lang)
+   Compiling iroha_config v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_config)
+   Compiling iroha_telemetry v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_telemetry)
+   Compiling iroha_logger v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_logger)
+   Compiling iroha_futures v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_futures)
+   Compiling ivm v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/ivm)
+   Compiling iroha_core_privacy v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_core_privacy)
+   Compiling iroha_p2p v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_p2p)
+   Compiling iroha_genesis v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_genesis)
+   Compiling iroha_core_zk v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_core_zk)
+   Compiling iroha_test_samples v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_test_samples)
+   Compiling iroha_core_timed_ovn v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_core_timed_ovn)
+warning: method `local_blacklist` is never used
+   --> crates/iroha_core_zk/src/kagemusha_wallet_state_v1/manifest/blacklists.rs:167:49
+    |
+ 93 | impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
+    | ----------------------------------------------------------------------- method in this implementation
+...
+167 |     pub(in crate::kagemusha_wallet_state_v1) fn local_blacklist(
+    |                                                 ^^^^^^^^^^^^^^^
+    |
+    = note: `-W dead-code` implied by `-W unused`
+    = help: to override `-W unused` add `#[allow(dead_code)]`
+
+   Compiling iroha_sccp v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_sccp)
+warning: `iroha_core_zk` (lib) generated 1 warning
+   Compiling iroha_core v2.0.0-rc.2.0 (/Users/mtakemiya/dev/iroha/crates/iroha_core)
+warning: unused import: `StateReadOnly`
+  --> crates/iroha_core/src/state/parliament_candidate_testing.rs:13:25
+   |
+13 | use super::{StateBlock, StateReadOnly, StateTransaction, WorldReadOnly};
+   |                         ^^^^^^^^^^^^^
+   |
+   = note: `-W unused-imports` implied by `-W unused`
+   = help: to override `-W unused` add `#[allow(unused_imports)]`
+
+warning: `iroha_core` (lib test) generated 1 warning
+    Finished `local-release` profile [optimized] target(s) in 37m 38s
+     Running unittests src/lib.rs (target/cargo-fast/parliament-development/local-release/deps/iroha_core-9144a3df5daf35c1)
+
+running 29 tests
+test block::anonymous_ballot_unavailable_has_no_block_rejection_reason ... ok
+test queue::tests::anonymous_ballot_cannot_enter_account_queue_without_the_state_adapter ... ok
+test state::consensus_owned_parameter_tests::every_typed_custom_parameter_is_protected_and_the_list_has_no_duplicate ... ok
+test state::consensus_owned_parameter_tests::executor_reconciliation_cannot_insert_replace_or_remove_any_protected_parameter ... ok
+test state::parliament_candidate_testing::tests::candidate_testing_borrowed_and_user_executor_dispatch_cannot_inherit_direct_authority ... 
+thread 'state::parliament_candidate_testing::tests::candidate_testing_borrowed_and_user_executor_dispatch_cannot_inherit_direct_authority' (73621457) panicked at /Users/mtakemiya/dev/iroha/crates/iroha_genesis/src/lib.rs:2740:9:
+GenesisBuilder::append_instruction does not accept SetParameter; use GenesisBuilder::append_parameter
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+test state::parliament_candidate_testing::tests::candidate_testing_cannot_be_installed_or_replaced_after_genesis ... native lane finalizer before: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0
+native lane finalizer after: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0, outcome=Ok(())
+native lane finalizer before: height=2, reserved=625673, limit=1073741824, peak=693427, samples=0
+native lane finalizer after: height=2, reserved=625673, limit=1073741824, peak=693427, samples=0, outcome=Ok(())
+
+thread 'state::parliament_candidate_testing::tests::candidate_testing_cannot_be_installed_or_replaced_after_genesis' (73621471) panicked at /Users/mtakemiya/dev/iroha/crates/iroha_genesis/src/lib.rs:2740:9:
+GenesisBuilder::append_instruction does not accept SetParameter; use GenesisBuilder::append_parameter
+FAILED
+test state::parliament_candidate_testing::tests::candidate_testing_codec_refusals_stay_deferred_and_invalid_policy_stays_rejected ... ok
+test state::parliament_candidate_testing::tests::candidate_testing_consumption_is_one_use_including_rejected_consumption ... 
+thread 'state::parliament_candidate_testing::tests::candidate_testing_consumption_is_one_use_including_rejected_consumption' (73622398) panicked at /Users/mtakemiya/dev/iroha/crates/iroha_genesis/src/lib.rs:2740:9:
+GenesisBuilder::append_instruction does not accept SetParameter; use GenesisBuilder::append_parameter
+FAILED
+test state::parliament_candidate_testing::tests::candidate_testing_duplicate_and_unsupported_signed_genesis_leave_no_committed_slot ... 
+thread 'state::parliament_candidate_testing::tests::candidate_testing_duplicate_and_unsupported_signed_genesis_leave_no_committed_slot' (73622399) panicked at /Users/mtakemiya/dev/iroha/crates/iroha_genesis/src/lib.rs:2740:9:
+GenesisBuilder::append_instruction does not accept SetParameter; use GenesisBuilder::append_parameter
+FAILED
+test state::parliament_candidate_testing::tests::candidate_testing_genesis_output_seal_rejects_omission_injection_and_change ... 
+thread 'state::parliament_candidate_testing::tests::candidate_testing_genesis_output_seal_rejects_omission_injection_and_change' (73622403) panicked at /Users/mtakemiya/dev/iroha/crates/iroha_genesis/src/lib.rs:2740:9:
+GenesisBuilder::append_instruction does not accept SetParameter; use GenesisBuilder::append_parameter
+FAILED
+test state::parliament_candidate_testing::tests::candidate_testing_native_genesis_and_certified_replay_preserve_the_original_selection ... 
+thread 'state::parliament_candidate_testing::tests::candidate_testing_native_genesis_and_certified_replay_preserve_the_original_selection' (73622434) panicked at /Users/mtakemiya/dev/iroha/crates/iroha_genesis/src/lib.rs:2740:9:
+GenesisBuilder::append_instruction does not accept SetParameter; use GenesisBuilder::append_parameter
+FAILED
+test state::parliament_candidate_testing::tests::candidate_testing_only_exact_direct_original_instruction_can_install ... 
+thread 'state::parliament_candidate_testing::tests::candidate_testing_only_exact_direct_original_instruction_can_install' (73622437) panicked at /Users/mtakemiya/dev/iroha/crates/iroha_genesis/src/lib.rs:2740:9:
+GenesisBuilder::append_instruction does not accept SetParameter; use GenesisBuilder::append_parameter
+FAILED
+test state::parliament_candidate_testing::tests::candidate_testing_preseeded_same_value_never_replaces_original_installation ... native lane finalizer before: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0
+native lane finalizer after: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0, outcome=Ok(())
+
+thread 'state::parliament_candidate_testing::tests::candidate_testing_preseeded_same_value_never_replaces_original_installation' (73622450) panicked at /Users/mtakemiya/dev/iroha/crates/iroha_genesis/src/lib.rs:2740:9:
+GenesisBuilder::append_instruction does not accept SetParameter; use GenesisBuilder::append_parameter
+FAILED
+test state::world_projection::world_state_accumulator::inventory_tests::anonymous_ballot_domains_keep_record_roles_and_exact_source_occurrences ... ok
+test state::world_projection::world_state_accumulator::inventory_tests::anonymous_ballot_tags_hash_records_without_an_authoritative_state_owner ... ok
+test sumeragi::executor::preparation::tests::anonymous_ballot_adapter_absence_stays_deferred_through_publication ... ok
+test sumeragi::lanes::merge::tests::sealed_entrypoints::certified_merge_drops_commitment_height_equality_and_later_digest_aliases ... native lane finalizer before: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0
+native lane finalizer after: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0, outcome=Ok(())
+native lane finalizer before: height=2, reserved=625728, limit=1073741824, peak=694623, samples=0
+native lane finalizer after: height=2, reserved=625728, limit=1073741824, peak=694623, samples=0, outcome=Ok(())
+native lane finalizer before: height=3, reserved=771579, limit=1073741824, peak=798532, samples=0
+native lane finalizer after: height=3, reserved=771579, limit=1073741824, peak=798532, samples=0, outcome=Ok(())
+native lane finalizer before: height=4, reserved=781805, limit=1073741824, peak=861587, samples=0
+native lane finalizer after: height=4, reserved=781805, limit=1073741824, peak=861587, samples=0, outcome=Ok(())
+ok
+test sumeragi::lanes::merge::tests::sealed_entrypoints::certified_merge_preserves_reveal_window_deadline_and_missing_commitment_refusals ... native lane finalizer before: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0
+native lane finalizer after: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0, outcome=Ok(())
+native lane finalizer before: height=2, reserved=625728, limit=1073741824, peak=694623, samples=0
+native lane finalizer after: height=2, reserved=625728, limit=1073741824, peak=694623, samples=0, outcome=Ok(())
+native lane finalizer before: height=3, reserved=771579, limit=1073741824, peak=798532, samples=0
+native lane finalizer after: height=3, reserved=771579, limit=1073741824, peak=798532, samples=0, outcome=Ok(())
+native lane finalizer before: height=4, reserved=781941, limit=1073741824, peak=861587, samples=0
+native lane finalizer after: height=4, reserved=781941, limit=1073741824, peak=861587, samples=0, outcome=Ok(())
+native lane finalizer before: height=5, reserved=798442, limit=1073741824, peak=872746, samples=0
+native lane finalizer after: height=5, reserved=798442, limit=1073741824, peak=872746, samples=0, outcome=Ok(())
+native lane finalizer before: height=6, reserved=813695, limit=1073741824, peak=888721, samples=0
+native lane finalizer after: height=6, reserved=813695, limit=1073741824, peak=888721, samples=0, outcome=Ok(())
+native lane finalizer before: height=7, reserved=833046, limit=1073741824, peak=903974, samples=0
+native lane finalizer after: height=7, reserved=833046, limit=1073741824, peak=903974, samples=0, outcome=Ok(())
+ok
+test sumeragi::lanes::merge::tests::sealed_entrypoints::certified_merge_respects_global_external_and_reveal_prefix_execution_aliases ... native lane finalizer before: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0
+native lane finalizer after: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0, outcome=Ok(())
+native lane finalizer before: height=2, reserved=625728, limit=1073741824, peak=694623, samples=0
+native lane finalizer after: height=2, reserved=625728, limit=1073741824, peak=694623, samples=0, outcome=Ok(())
+native lane finalizer before: height=3, reserved=771579, limit=1073741824, peak=798532, samples=0
+native lane finalizer after: height=3, reserved=771579, limit=1073741824, peak=798532, samples=0, outcome=Ok(())
+native lane finalizer before: height=4, reserved=781805, limit=1073741824, peak=861587, samples=0
+native lane finalizer after: height=4, reserved=781805, limit=1073741824, peak=861587, samples=0, outcome=Ok(())
+native lane finalizer before: height=5, reserved=797772, limit=1073741824, peak=872212, samples=0
+native lane finalizer after: height=5, reserved=797772, limit=1073741824, peak=872212, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0
+native lane finalizer after: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0, outcome=Ok(())
+native lane finalizer before: height=2, reserved=625824, limit=1073741824, peak=694623, samples=0
+native lane finalizer after: height=2, reserved=625824, limit=1073741824, peak=694623, samples=0, outcome=Ok(())
+native lane finalizer before: height=3, reserved=771675, limit=1073741824, peak=798628, samples=0
+native lane finalizer after: height=3, reserved=771675, limit=1073741824, peak=798628, samples=0, outcome=Ok(())
+native lane finalizer before: height=4, reserved=781901, limit=1073741824, peak=861683, samples=0
+native lane finalizer after: height=4, reserved=781901, limit=1073741824, peak=861683, samples=0, outcome=Ok(())
+native lane finalizer before: height=5, reserved=797936, limit=1073741824, peak=872308, samples=0
+native lane finalizer after: height=5, reserved=797936, limit=1073741824, peak=872308, samples=0, outcome=Ok(())
+ok
+test sumeragi::lanes::merge::tests::sealed_entrypoints::certified_merge_retains_sealed_carrier_and_enforces_original_salt_before_execution ... native lane finalizer before: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0
+native lane finalizer after: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0, outcome=Ok(())
+native lane finalizer before: height=2, reserved=625728, limit=1073741824, peak=694623, samples=0
+native lane finalizer after: height=2, reserved=625728, limit=1073741824, peak=694623, samples=0, outcome=Ok(())
+native lane finalizer before: height=3, reserved=771579, limit=1073741824, peak=798532, samples=0
+native lane finalizer after: height=3, reserved=771579, limit=1073741824, peak=798532, samples=0, outcome=Ok(())
+native lane finalizer before: height=4, reserved=781805, limit=1073741824, peak=861587, samples=0
+native lane finalizer after: height=4, reserved=781805, limit=1073741824, peak=861587, samples=0, outcome=Ok(())
+native lane finalizer before: height=5, reserved=797928, limit=1073741824, peak=872212, samples=0
+native lane finalizer after: height=5, reserved=797928, limit=1073741824, peak=872212, samples=0, outcome=Ok(())
+native lane finalizer before: height=6, reserved=813163, limit=1073741824, peak=888207, samples=0
+native lane finalizer after: height=6, reserved=813163, limit=1073741824, peak=888207, samples=0, outcome=Ok(())
+native lane finalizer before: height=7, reserved=832713, limit=1073741824, peak=903570, samples=0
+native lane finalizer after: height=7, reserved=832713, limit=1073741824, peak=903570, samples=0, outcome=Ok(())
+ok
+test sumeragi::lanes::merge::tests::sealed_entrypoints::current_lane_batch_codec_preserves_all_carriers_and_rejects_flat_signed_rows ... native lane finalizer before: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0
+native lane finalizer after: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0, outcome=Ok(())
+ok
+test sumeragi::lanes::merge::tests::sealed_entrypoints::funded_merge_index_refuses_one_short_retries_same_source_and_releases_after_state_reads ... native lane finalizer before: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0
+native lane finalizer after: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0, outcome=Ok(())
+native lane finalizer before: height=2, reserved=625728, limit=1073741824, peak=694623, samples=0
+native lane finalizer after: height=2, reserved=625728, limit=1073741824, peak=694623, samples=0, outcome=Ok(())
+native lane finalizer before: height=3, reserved=771579, limit=1073741824, peak=798532, samples=0
+native lane finalizer after: height=3, reserved=771579, limit=1073741824, peak=798532, samples=0, outcome=Ok(())
+native lane finalizer before: height=4, reserved=782387, limit=1073741824, peak=861587, samples=0
+native lane finalizer after: height=4, reserved=782387, limit=1073741824, peak=861587, samples=0, outcome=Ok(())
+ok
+test sumeragi::lanes::merge::tests::sealed_entrypoints::merge_identity_index_preserves_first_admitted_work_without_rehashing_carriers ... native lane finalizer before: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0
+native lane finalizer after: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0, outcome=Ok(())
+ok
+test sumeragi::lanes::merge::tests::sealed_entrypoints::native_lane_stateless_checks_require_each_carriers_original_network_and_signature ... native lane finalizer before: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0
+native lane finalizer after: height=1, reserved=605960, limit=1073741824, peak=605960, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=606440, samples=0, outcome=Ok(())
+native lane finalizer before: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0
+native lane finalizer after: height=1, reserved=606440, limit=1073741824, peak=610063, samples=0, outcome=Ok(())
+native lane finalizer before: height=2, reserved=625728, limit=1073741824, peak=694623, samples=0
+native lane finalizer after: height=2, reserved=625728, limit=1073741824, peak=694623, samples=0, outcome=Ok(())
+native lane finalizer before: height=3, reserved=771579, limit=1073741824, peak=798532, samples=0
+native lane finalizer after: height=3, reserved=771579, limit=1073741824, peak=798532, samples=0, outcome=Ok(())
+ok
+test sumeragi::lanes::routing::tests::anonymous_ballot_route_is_unavailable_before_default_or_missing_scope ... ok
+test sumeragi::lanes::tests::anonymous_ballot_lane_admission_retains_unavailable_without_a_verdict ... ok
+test tx::anonymous_ballot_tests::signerless_admission_and_lane_check_remain_locally_unavailable ... ok
+test tx::anonymous_ballot_tests::signerless_representation_has_no_signed_authority_or_metadata_cache ... ok
+test tx::anonymous_ballot_tests::unavailable_admission_cannot_be_projected_into_a_committed_rejection ... ok
+
+failures:
+
+failures:
+    state::parliament_candidate_testing::tests::candidate_testing_borrowed_and_user_executor_dispatch_cannot_inherit_direct_authority
+    state::parliament_candidate_testing::tests::candidate_testing_cannot_be_installed_or_replaced_after_genesis
+    state::parliament_candidate_testing::tests::candidate_testing_consumption_is_one_use_including_rejected_consumption
+    state::parliament_candidate_testing::tests::candidate_testing_duplicate_and_unsupported_signed_genesis_leave_no_committed_slot
+    state::parliament_candidate_testing::tests::candidate_testing_genesis_output_seal_rejects_omission_injection_and_change
+    state::parliament_candidate_testing::tests::candidate_testing_native_genesis_and_certified_replay_preserve_the_original_selection
+    state::parliament_candidate_testing::tests::candidate_testing_only_exact_direct_original_instruction_can_install
+    state::parliament_candidate_testing::tests::candidate_testing_preseeded_same_value_never_replaces_original_installation
+
+test result: FAILED. 21 passed; 8 failed; 0 ignored; 0 measured; 13979 filtered out; finished in 197.24s
+
+error: test failed, to rerun pass `-p iroha_core --lib`

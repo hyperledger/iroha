@@ -1515,6 +1515,10 @@ fn snapshot_that_crosses_time_budget_is_charged_and_completed_once() {
 fn scan_bounds_concurrency() {
     let _env = TestDataDirGuard::new();
     init_test_cfg();
+    let _clock_reset = SnapshotLoadClockReset;
+    // Exercise actual overlapping workers without host scheduling consuming
+    // the independent scan-time budget. Deadline behavior has its own fixture.
+    super::TEST_SCAN_ELAPSED_MS.store(0, AtomicOrdering::SeqCst);
     super::TEST_PROCESSING_DELAY_MS.store(50, AtomicOrdering::SeqCst);
     let tenant_key = anon_tenant_key();
     ensure_tenant_dir(&tenant_key);

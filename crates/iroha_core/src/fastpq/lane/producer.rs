@@ -529,6 +529,10 @@ impl Producer {
         self.select_source(engine, deadline)
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "Preserve the original by-value refusal without uncharged error backing; separate phase frames bound stack use."
+    )]
     #[inline(never)]
     fn persist_completed(
         &mut self,
@@ -553,6 +557,10 @@ impl Producer {
         check(deadline)
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "Preserve the original by-value refusal without uncharged error backing; separate phase frames bound stack use."
+    )]
     #[inline(never)]
     fn advance_job(
         &mut self,
@@ -592,6 +600,10 @@ impl Producer {
         check(deadline)
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "Preserve the original by-value refusal without uncharged error backing; separate phase frames bound stack use."
+    )]
     #[inline(never)]
     fn replay_source(&mut self, deadline: Instant) -> Result<(), ProducerError> {
         let read = self.source.as_mut().expect("retained original source");
@@ -637,6 +649,10 @@ impl Producer {
         check(deadline)
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "Preserve the original by-value refusal without uncharged error backing; separate phase frames bound stack use."
+    )]
     #[inline(never)]
     fn read_source(&mut self, deadline: Instant) -> Result<(), ProducerError> {
         let read = self.source.as_mut().expect("retained original source");
@@ -661,6 +677,10 @@ impl Producer {
         check(deadline)
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "Preserve the original by-value refusal without uncharged error backing; separate phase frames bound stack use."
+    )]
     #[inline(never)]
     fn select_source(
         &mut self,

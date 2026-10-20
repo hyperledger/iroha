@@ -937,6 +937,13 @@ mod artifact_tests {
             ));
             assert_eq!(artifacts.source().encode_wire().unwrap(), wire);
             drop(artifacts);
+            // Both refusal views still share the original prepared counter control.
+            let retained_control_bytes =
+                norito::core::PreparedDecodeWorkspace::allocation_layouts()[0].size();
+            assert_eq!(budget.reserved_bytes(), retained_control_bytes);
+            drop(local);
+            assert_eq!(budget.reserved_bytes(), retained_control_bytes);
+            drop(retained);
             assert_eq!(budget.reserved_bytes(), 0);
         }
     }

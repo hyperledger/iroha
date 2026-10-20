@@ -177,6 +177,10 @@ impl NativeReplaySeed {
     // Release World and State construction temporaries before canonical genesis
     // execution acquires another World block. Keeping both phases in begin stacks
     // their large inline layouts on the ordinary FASTPQ blocking worker.
+    #[expect(
+        clippy::result_large_err,
+        reason = "Preserve the original by-value refusal without uncharged error backing; separate phase frames bound stack use."
+    )]
     #[inline(never)]
     fn initialize_destination(
         &self,

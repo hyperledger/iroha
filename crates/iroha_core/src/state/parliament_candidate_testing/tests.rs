@@ -25,9 +25,7 @@ fn parameter() -> Parameter {
 fn config(selected: bool) -> TestChainConfig {
     let mut config = TestChainConfig::new(World::new(), 1_000);
     if selected {
-        config
-            .genesis_instructions
-            .push(SetParameter::new(parameter()).into());
+        config.genesis_parameters.push(parameter());
     }
     config
 }
@@ -96,34 +94,104 @@ async fn candidate_testing_cannot_be_installed_or_replaced_after_genesis() {
 
 #[tokio::test]
 async fn candidate_testing_duplicate_and_unsupported_signed_genesis_leave_no_committed_slot() {
-    let mut duplicate = config(true);
-    duplicate
-        .genesis_instructions
-        .push(SetParameter::new(parameter()).into());
+    // The authoring snapshot merges parameters by id. Build and sign a separate
+    // original transaction so this control really contains two policy occurrences.
+    let selected = config(true);
+    let signer = selected.genesis_key.clone();
+    let chain_id = selected.chain_id.clone();
+    let prepared = CertifiedTestChain::prepare(selected).unwrap();
+    let original = prepared.genesis.block();
+    let first = original.external_transactions().next().unwrap();
+    let mut builder = iroha_data_model::transaction::TransactionBuilder::new_genesis(
+        first.authority().clone(),
+        first.fee_payment_intent().clone(),
+    );
+    builder.set_creation_time(std::time::Duration::from_millis(1_001));
+    let second = builder
+        .with_instructions([SetParameter::new(parameter())])
+        .sign(signer.private_key());
+    let mut transactions = original
+        .external_transactions()
+        .cloned()
+        .collect::<Vec<_>>();
+    transactions.push(second);
+    let duplicate = SignedBlock::try_genesis_with_da_proof_policies(
+        transactions,
+        signer.private_key(),
+        original.header().confidential_features(),
+        original.da_commitments().cloned(),
+        original.da_proof_policies().cloned(),
+    )
+    .unwrap();
+    let network_id = NetworkId::from_genesis_hash(duplicate.hash());
+    assert!(matches!(
+        authenticate_parliament_candidate_genesis_v1(&duplicate, &network_id),
+        Err(ParliamentCandidateTestingErrorV1::DuplicatePolicy)
+    ));
+    let state = super::super::State::new_with_chain_and_network_id_for_testing(
+        World::new(),
+        crate::kura::Kura::blank_kura_for_testing(),
+        crate::query::store::LiveQueryStore::start_test(),
+        chain_id,
+        network_id,
+    );
+    let result = state
+        .block_with_owned_start_stages_with_carrier(
+            duplicate.header(),
+            Some(&duplicate),
+            |block| {
+                assert_eq!(
+                    block
+                        .network_policy_routes
+                        .as_ref()
+                        .unwrap()
+                        .validate_carrier(&duplicate),
+                    Err("Network genesis has no authenticated original candidate policy")
+                );
+                Err::<(), _>("duplicate source refused before execution")
+            },
+            |_, ()| Ok(()),
+        )
+        .map(|_| ());
+    assert!(matches!(
+        result,
+        Err(StateBlockStartError::Stage(
+            "duplicate source refused before execution"
+        ))
+    ));
+    assert_eq!(state.view().height(), 0);
+    assert!(
+        state
+            .view()
+            .world()
+            .parameters()
+            .custom()
+            .get(ParliamentCandidateTestingPolicyV1::parameter_id())
+            .is_none()
+    );
+    assert_eq!(state.kura().blocks_count(), 0);
+
     let mut unsupported = config(false);
-    unsupported.genesis_instructions.push(
-        SetParameter::new(Parameter::Custom(CustomParameter::new(
+    unsupported
+        .genesis_parameters
+        .push(Parameter::Custom(CustomParameter::new(
             ParliamentCandidateTestingPolicyV1::parameter_id().clone(),
             Json::new(ParliamentCandidateTestingPolicyV1 {
                 version: 2,
                 ..ParliamentCandidateTestingPolicyV1::CANDIDATE_V1
             }),
-        )))
-        .into(),
+        )));
+    let failure = CertifiedTestChain::prepare(unsupported).unwrap_err();
+    let view = failure.state.view();
+    assert_eq!(view.height(), 0);
+    assert!(
+        view.world()
+            .parameters()
+            .custom()
+            .get(ParliamentCandidateTestingPolicyV1::parameter_id())
+            .is_none()
     );
-    for config in [duplicate, unsupported] {
-        let failure = CertifiedTestChain::prepare(config).unwrap_err();
-        let view = failure.state.view();
-        assert_eq!(view.height(), 0);
-        assert!(
-            view.world()
-                .parameters()
-                .custom()
-                .get(ParliamentCandidateTestingPolicyV1::parameter_id())
-                .is_none()
-        );
-        assert_eq!(failure.state.kura().blocks_count(), 0);
-    }
+    assert_eq!(failure.state.kura().blocks_count(), 0);
 }
 
 /// Inspect one real original source before effects; no test creates a capability.

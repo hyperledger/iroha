@@ -447,8 +447,40 @@ async fn signed_reserve_http_source_quota_refusal_does_not_become_absence_or_poi
         error.message(),
         "native current cut exceeds its finite source policy"
     );
+    // H2 authenticates padded H1 both as the signed anchor and as its parent.
+    // Measure that complete original read under a finite fixture allowance, then
+    // fund the retry's decoder half from its actual cumulative demand.
+    let unit = WORKING_BYTES / 8;
+    let source_limits = super::NativeFinalityLimits {
+        block_bytes: unit,
+        journal_bytes: unit * 2,
+        block_count: 8,
+        allocated_bytes: WORKING_BYTES,
+    };
+    let decoder = norito::core::DecodeBudgetContext::new(source_limits.decode_limits().unwrap());
+    decoder
+        .with(|| {
+            crate::native_projection_response::current_global_tip(
+                &f.chain.state().view(),
+                2,
+                source_limits,
+                super::unavailable,
+            )
+        })
+        .expect("the original H2 read fits the finite fixture allowance");
+    let retry_working_bytes = usize::try_from(decoder.consumed_allocated_bytes())
+        .unwrap()
+        .checked_mul(2)
+        .unwrap()
+        .checked_next_multiple_of(8)
+        .unwrap()
+        .max(WORKING_BYTES);
+    eprintln!(
+        "H2 source decoder consumed {} bytes; retry working set: {retry_working_bytes} bytes",
+        decoder.consumed_allocated_bytes(),
+    );
     let proof = success_proof(
-        router(f.app(WORKING_BYTES))
+        router(f.app(retry_working_bytes))
             .oneshot(f.manager_request(2))
             .await
             .unwrap(),
