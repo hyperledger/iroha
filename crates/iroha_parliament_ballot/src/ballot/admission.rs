@@ -21,8 +21,9 @@ use std::sync::Arc;
 use iroha_data_model::{
     NetworkId,
     governance::anonymous_ballot::{
-        ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1, AnonymousBallotEnvelopeV1, BallotScopeV1,
-        CanonicalAnonymousBallotEnvelopeV1, Digest512, NullifierV1,
+        ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1, AnonymousBallotCodecErrorV1,
+        AnonymousBallotEnvelopeV1, BallotScopeV1, CanonicalAnonymousBallotEnvelopeV1, Digest512,
+        NullifierV1,
         digests::{
             leading_zero_bits_v1, stamp_meets_difficulty_v1, stamp_payload_digest_encoded_v1,
             stamp_work_digest_v1,
@@ -322,11 +323,18 @@ pub fn precheck_admission_v1<S: AdmissionStateV1 + ?Sized>(
         .into());
     }
     // 2. One canonical frame with exact fixed fields, naming this network.
-    let envelope = AnonymousBallotEnvelopeV1::decode_canonical_bounded(bytes).map_err(|error| {
-        AdmissionRejectionV1::Malformed {
-            reason: error.to_string(),
-        }
-    })?;
+    let envelope =
+        AnonymousBallotEnvelopeV1::decode_canonical_bounded(bytes).map_err(
+            |error| match error {
+                error @ AnonymousBallotCodecErrorV1::DecodeUnavailable(_) => {
+                    AdmissionErrorV1::Unavailable(VerificationUnavailableV1::Codec(error))
+                }
+                error => AdmissionRejectionV1::Malformed {
+                    reason: error.to_string(),
+                }
+                .into(),
+            },
+        )?;
     if envelope.network_id != state.network_id() {
         return Err(AdmissionRejectionV1::WrongNetwork.into());
     }
@@ -440,6 +448,52 @@ mod tests {
             Err(AdmissionErrorV1::Rejected(rejection)) => rejection,
             other => panic!("expected a rejection, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn caller_decode_shortage_is_unavailable_without_reserving_a_nullifier() {
+        use iroha_data_model::governance::anonymous_ballot::BallotProofBytesV1;
+        use norito::core::{DecodeLocalRefusalKind, DecodeResourceError};
+
+        let state = State::open();
+        let bytes = fixture_bytes(AYE_0);
+        let proof_bytes = BallotProofBytesV1::LENGTH;
+        for (limit, prior) in [(0, 0), (proof_bytes, 1)] {
+            let limits =
+                norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, limit, usize::MAX);
+            let result = norito::with_decode_limits_scope(limits, || {
+                norito::core::reserve_decode_allocation(prior).expect("prior caller charge");
+                precheck_admission_v1(&bytes, &state)
+            });
+            let Err(AdmissionErrorV1::Unavailable(VerificationUnavailableV1::Codec(
+                AnonymousBallotCodecErrorV1::DecodeUnavailable(refusal),
+            ))) = result
+            else {
+                panic!("a caller budget shortage is local unavailability");
+            };
+            assert_eq!(refusal.kind(), DecodeLocalRefusalKind::EnclosingLimit);
+            assert_eq!(
+                refusal.resource_error(),
+                DecodeResourceError::TotalAllocationExceeded {
+                    attempted: u64::try_from(prior + proof_bytes).unwrap(),
+                    limit: u64::try_from(limit).unwrap(),
+                }
+            );
+            assert!(state.committed.is_empty());
+            assert!(state.pending.is_empty());
+        }
+        let zero = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let malformed =
+            norito::with_decode_limits_scope(zero, || precheck_admission_v1(&[], &state));
+        assert!(matches!(
+            malformed,
+            Err(AdmissionErrorV1::Rejected(
+                AdmissionRejectionV1::Malformed { .. }
+            ))
+        ));
+        assert!(precheck_admission_v1(&bytes, &state).is_ok());
+        assert!(state.committed.is_empty());
+        assert!(state.pending.is_empty());
     }
 
     #[test]

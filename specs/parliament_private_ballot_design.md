@@ -1647,6 +1647,16 @@ Keep beacon machinery still required for consensus or sortition.
    qualification. Engineering completion, local tests and this authorization
    must never be described as qualification.
 
+   **Testing enablement.** The owner's subsequent instruction of 2026-10-18
+   explicitly permits enabling the candidate for testing. Qualification is
+   not a prerequisite to executing the real protocol in development. The
+   available local path is `scripts/test_parliament_ballot_local.sh`: genuine
+   registration and vote proofs, canonical admission, execution decisions,
+   corpus closure and independent replay on an in-memory board. Core/Torii
+   integration remains missing in this checkout; changing an availability
+   constant cannot supply it. This authorization does not create a
+   qualification record or request deployment to a live network.
+
    Conditions 2, 3 and 5 remain unmet. Under the authorization above, steps 3
    and 4 are being built with the launch gate closed.
    The second-opinion review's arguments for items 1, 2, 3, 4, 5 and 8 are

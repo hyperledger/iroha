@@ -4918,8 +4918,8 @@ def test_native_original_start_guard_refuses_before_body_admission():
         "fnnew(budget:&iroha_allocation::AllocationBudget)->Self{Self{"
         "bytes:None,charge:None,length:None,budget:budget.clone(),}}"
     )
-    owner = source.split("impl NativeFrameBinding {", 1)[1].split("impl Kura", 1)[0]
-    read = named_rust_function(owner, "read_original")
+    binding = source.split("impl NativeFrameBinding {", 1)[1].split("impl Kura", 1)[0]
+    read = named_rust_function(binding, "read_original")
     guard = read.index('sumeragi_core_mutation = "HC187"')
     assert "slot.start != start" in read
     assert read.index("slot.start != start") < read.index("let length = usize::try_from(wire_len)?;")
@@ -11170,7 +11170,7 @@ def test_incoming_execution_uses_one_scoped_merge_algorithm_and_explicit_native_
     assert parking.index("drop(previous);") < parking.index("drop(cancelled);")
 
 
-SCCP_MERGED_CUSTODY_RULES = (('HC440', 'HC420', 'smartcontracts/isi/sccp/forgery/execution/event_graph.rs', 'sumeragi/driver/startup/pending.rs', 'smartcontracts::isi::sccp::forgery::execution::event_graph::tests::event_graph_retains_exact_original_layouts_through_publication_and_last_reader', 'event graph retains the original pool', 'smartcontracts/isi/sccp/forgery/execution/event_graph/tests.rs'), ('HC441', 'HC422', 'sumeragi/evidence/sccp_record.rs', 'sumeragi/lanes/store.rs', 'sumeragi::evidence::record::sccp_record::tests::offender_preflight_rejects_each_oversized_graph_before_nested_decode', 'oversized SCCP graph is refused before nested decode', 'sumeragi/evidence/sccp_record/tests.rs'), ('HC442', 'HC424', 'smartcontracts/isi/sccp/forgery/execution.rs', 'sumeragi/lanes/store.rs', 'smartcontracts::isi::sccp::forgery::execution::tests::exact_local_refusal_survives_instruction_mapping_and_protocol_error_does_not_poison', 'local SCCP refusal cannot allocate a replacement diagnostic', 'smartcontracts/isi/sccp/forgery/execution/tests.rs'))
+SCCP_MERGED_CUSTODY_RULES = (('HC905', 'HC420', 'smartcontracts/isi/sccp/forgery/execution/event_graph.rs', 'sumeragi/driver/startup/pending.rs', 'smartcontracts::isi::sccp::forgery::execution::event_graph::tests::event_graph_retains_exact_original_layouts_through_publication_and_last_reader', 'event graph retains the original pool', 'smartcontracts/isi/sccp/forgery/execution/event_graph/tests.rs'), ('HC906', 'HC422', 'sumeragi/evidence/sccp_record.rs', 'sumeragi/lanes/store.rs', 'sumeragi::evidence::record::sccp_record::tests::offender_preflight_rejects_each_oversized_graph_before_nested_decode', 'oversized SCCP graph is refused before nested decode', 'sumeragi/evidence/sccp_record/tests.rs'), ('HC907', 'HC424', 'smartcontracts/isi/sccp/forgery/execution.rs', 'sumeragi/lanes/store.rs', 'smartcontracts::isi::sccp::forgery::execution::tests::exact_local_refusal_survives_instruction_mapping_and_protocol_error_does_not_poison', 'local SCCP refusal cannot allocate a replacement diagnostic', 'smartcontracts/isi/sccp/forgery/execution/tests.rs'))
 
 
 @pytest.mark.parametrize("mid,old_mid,owner,old_owner,selector,cause,source", SCCP_MERGED_CUSTODY_RULES)
@@ -11648,7 +11648,7 @@ def test_penalty_registration_lookup_mutation_uses_original_key_control():
 
 def test_penalty_sort_and_lane_wake_mutations_have_distinct_hooks_and_controls():
     registered = gate.index_mutations(gate.CORE_MUTATIONS)
-    ordering = registered["HC445"]
+    ordering = registered["HC901"]
     wake = registered["HC405"]
     penalty_owner = "crates/iroha_core/src/sumeragi/penalties.rs"
     lane_owner = "crates/iroha_core/src/sumeragi/lanes/runner/startup.rs"
@@ -11656,7 +11656,7 @@ def test_penalty_sort_and_lane_wake_mutations_have_distinct_hooks_and_controls()
         "sumeragi::penalties::tests::canonical_action_order_deduplicates_without_allocator_scratch",
     )
     assert ordering.causes == (gate.ExpectedFailure(
-        "canonical penalty sorting must not allocate stable-sort scratch", penalty_owner,
+        "HC901 canonical penalty sorting must not allocate stable-sort scratch", penalty_owner,
     ),)
     assert wake.tests == (
         "sumeragi::driver::tests::threaded::retirement_tests::ready_transfer_reissues_consumed_transaction_wake_to_original_workers",
@@ -11665,14 +11665,14 @@ def test_penalty_sort_and_lane_wake_mutations_have_distinct_hooks_and_controls()
         "Ready transfer must redeliver the consumed transaction wake to the original workers",
         "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs",
     ),)
-    owners = {"HC405": set(), "HC445": set()}
+    owners = {"HC405": set(), "HC901": set()}
     for path in (ROOT / "crates/iroha_core/src").rglob("*.rs"):
-        for mid in re.findall(r'sumeragi_core_mutation\s*=\s*"(HC405|HC445)"', path.read_text()):
+        for mid in re.findall(r'sumeragi_core_mutation\s*=\s*"(HC405|HC901)"', path.read_text()):
             owners[mid].add(path.relative_to(ROOT).as_posix())
-    assert owners == {"HC405": {lane_owner}, "HC445": {penalty_owner}}
+    assert owners == {"HC405": {lane_owner}, "HC901": {penalty_owner}}
     source = (ROOT / penalty_owner).read_text()
-    assert '#[cfg(all(test, sumeragi_core_mutation = "HC445"))]\n    actions.sort();' in source
-    assert '#[cfg(not(all(test, sumeragi_core_mutation = "HC445")))]\n    actions.sort_unstable();' in source
+    assert '#[cfg(all(test, sumeragi_core_mutation = "HC901"))]\n    actions.sort();' in source
+    assert '#[cfg(not(all(test, sumeragi_core_mutation = "HC901")))]\n    actions.sort_unstable();' in source
     for mid in owners:
         assert gate.has_switch(mid, core=True)
         assert not registered[mid].scenarios

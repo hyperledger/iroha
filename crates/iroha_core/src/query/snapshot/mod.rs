@@ -222,8 +222,8 @@ pub fn run_on_snapshot_with_mode_arc_and_start_budget(
 /// explicit deterministic work budget.
 ///
 /// This entry point never accepts continuations and never inserts an iterator
-/// into the live-query store. Canonical fanout behavior remains opt-in through
-/// [`QueryLimits::with_canonical_output_limits`].
+/// into the live-query store. The caller supplies the work and output limits
+/// for this one execution.
 ///
 /// # Errors
 /// Returns a validation error if the request is invalid or tries to continue a
@@ -488,6 +488,16 @@ mod tests {
         atomic::{AtomicU64, Ordering},
     };
 
+    /// Authorize the registered fixture reader to list all ledger entities.
+    fn ledger_reader_world(mut world: World) -> World {
+        let permission: Permission =
+            iroha_executor_data_model::permission::query::CanReadAllLedgerData.into();
+        world
+            .account_permissions
+            .insert(ALICE_ID.clone(), [permission].into_iter().collect());
+        world
+    }
+
     /// Commit the query limit through the same typed parameter owner read by queries.
     fn set_stored_query_minimum_for_fixture(state: &State, minimum: u64) {
         let policy = crate::pipeline_validity_policy::PipelineValidityPolicyV1 {
@@ -684,7 +694,6 @@ mod tests {
         let (_out, _rem, cursor) = batch.into_parts();
         assert!(cursor.is_none());
     }
-    include!("canonical_topk_tests.rs");
     #[tokio::test]
     async fn snapshot_sorted_asset_definitions_returns_first_batch_without_cursor() {
         use iroha_primitives::json::Json;
@@ -725,7 +734,7 @@ mod tests {
         ad2.metadata_mut()
             .insert("rank".parse().unwrap(), Json::from(norito::json!(1)));
         // Listing every definition requires the ledger-wide read root.
-        let world = canonical_reader_world(World::with(
+        let world = ledger_reader_world(World::with(
             [domain],
             [account],
             [ad1.clone(), ad2.clone(), ad3.clone()],
@@ -806,7 +815,7 @@ mod tests {
         ad2.metadata_mut()
             .insert("rank".parse().unwrap(), Json::from(norito::json!(1)));
         // Listing every definition requires the ledger-wide read root.
-        let world = canonical_reader_world(World::with(
+        let world = ledger_reader_world(World::with(
             [domain],
             [account],
             [ad1.clone(), ad2.clone(), ad3.clone()],

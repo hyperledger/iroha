@@ -120,3 +120,45 @@ fn cloned_tree_preserves_cache_for_incremental_updates() {
     assert_eq!(cloned.root_hash(), expected);
     assert_ne!(cloned.root_hash(), tree.root_hash());
 }
+
+#[test]
+fn marked_parent_rehash_matches_per_leaf_path_updates() {
+    for leaf_count in [1, 2, 3, 63, 64, 65, 100, 513, 4_097] {
+        let original: Vec<u8> = (0..leaf_count * 32 - 5)
+            .map(|byte| (byte % 239) as u8)
+            .collect();
+        let patterns: [Vec<usize>; 5] = [
+            // One leaf, a contiguous program image, scattered leaves, the last
+            // leaf of every bitmap word plus the ragged edge, and the full image.
+            vec![leaf_count / 3],
+            (0..leaf_count.div_ceil(4)).collect(),
+            (0..leaf_count).step_by(5).collect(),
+            (0..leaf_count)
+                .filter(|leaf| leaf % 64 == 63 || *leaf == leaf_count - 1)
+                .collect(),
+            (0..leaf_count).collect(),
+        ];
+        for marks in patterns {
+            let mut bytes = original.clone();
+            let mut dirty = DirtyChunks::new(leaf_count, None).unwrap();
+            for &leaf in &marks {
+                bytes[leaf * 32] ^= 0xa5;
+                dirty.insert(leaf);
+            }
+            let mut tree = ByteMerkleTree::from_bytes(&original, 32).unwrap();
+            let updated = ByteMerkleTree::from_bytes(&bytes, 32).unwrap();
+            // Reference: the previous one leaf-to-root path rewrite per dirty leaf.
+            let mut per_leaf = (**tree.nodes.lock()).clone();
+            for &leaf in &marks {
+                per_leaf.update_hashed_leaf_sha256(leaf, updated.leaves.lock()[leaf]);
+            }
+            tree.update_dirty_leaves_from_bytes(&bytes, &dirty);
+            assert!(tree.nodes.lock().is_current());
+            assert_eq!(**tree.nodes.lock(), per_leaf, "{leaf_count} leaves");
+            assert_eq!(tree.root_hash(), updated.root_hash());
+            for &leaf in &marks {
+                assert_eq!(tree.path(leaf).unwrap(), updated.path(leaf).unwrap());
+            }
+        }
+    }
+}

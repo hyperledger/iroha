@@ -82,3 +82,7 @@ path = "tests/cell_initial_custody.rs"
 [[test]]
 name = "cell_generation_backing"
 path = "tests/cell_generation_backing.rs"
+
+[[test]]
+name = "flat_index_transactions"
+path = "tests/flat_index_transactions.rs"

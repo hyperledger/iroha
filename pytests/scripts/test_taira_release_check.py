@@ -1601,7 +1601,7 @@ class BasicReleaseQualificationTests(unittest.TestCase):
         restoration = [name for name in names(
             (root / "crates/mv/src/storage/admitted_tests.rs").read_text()
         ) if name.startswith("admitted_snapshot_")]
-        self.assertEqual(len(restoration), 2)
+        self.assertEqual(len(restoration), 3)
         self.assertIn('#[path = "storage/admitted_tests.rs"]\nmod admitted_tests;',
                       (root / "crates/mv/src/storage.rs").read_text())
         paired = names((root / "vendor/concread/src/bptree/pair_admission_tests.rs").read_text())
@@ -3201,7 +3201,7 @@ class FocusedPrequalificationTests(unittest.TestCase):
             selected = gate.qualification_stages(scope)
             requested = tuple(harness + "=" + test for harness in gate.MV_OWNERSHIP_HARNESSES
                               for _, tests in selected[harness] for test in tests)
-            self.assertEqual(len(requested), 374)
+            self.assertEqual(len(requested), 375)
             copies = FixtureCopies({name: "/copies/" + name for name in gate.HARNESS_TARGETS})
             output = io.StringIO()
             with self.subTest(scope=scope), \
@@ -3227,7 +3227,7 @@ class FocusedPrequalificationTests(unittest.TestCase):
             shipping.assert_not_called()
             network.assert_not_called()
             evidence.assert_not_called()
-            self.assertIn("374 focused regressions", output.getvalue())
+            self.assertIn("375 focused regressions", output.getvalue())
             self.assertIn("Development diagnostic only; prepare builds without regression checks.", output.getvalue())
             self.assertNotIn("[taira-check] PASS:", output.getvalue())
 

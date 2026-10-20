@@ -1032,8 +1032,8 @@ fn multi_year_dormancy_rejects_before_mutation_and_bounded_sweeps_preserve_waive
             assert!(
                 stx.world
                     .asset_definition_nonzero_holders
-                    .get(&policy.ds_asset_id)
-                    .is_none_or(|holders| !holders.contains(&owner))
+                    .get(&(policy.ds_asset_id.clone(), owner.clone()))
+                    .is_none()
             );
             assert_eq!(
                 receipts(&stx.world, &owner, None, 100).unwrap().len(),

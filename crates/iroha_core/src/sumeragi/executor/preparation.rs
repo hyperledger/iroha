@@ -170,6 +170,13 @@ pub(super) fn validation_failure(
         return Ok(PublicationError::Retryable(original.to_string()));
     }
     let source = match error {
+        BlockValidationError::TransactionAccept(
+            crate::tx::AcceptTransactionFail::AnonymousBallotUnavailable,
+        ) => {
+            return validation_failure(BlockValidationError::ExecutionDeferred(
+                crate::tx::anonymous_ballot_unavailable(),
+            ));
+        }
         BlockValidationError::NativeHistory(original) => {
             return Ok(super::parent_native_source_error(original));
         }

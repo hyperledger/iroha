@@ -142,26 +142,61 @@ fn actual_catalog_rejects_corrupt_group_indexes_at_both_cuts_before_allocation()
     ] {
         for previous in [false, true] {
             let mut world = World::with([], [Account::new(ALICE_ID.clone()).build(&ALICE_ID)], []);
-            // An empty materialized bucket is invalid even with no source rows.
-            // The predecessor case removes it only from the published image.
+            // Orphan membership rows and invalid counters are rejected even
+            // without source rows. The predecessor case repairs only the tip.
+            use crate::state::authority_registry::grouped_ownership::{
+                asset_definition_test_support as definitions, escrow_test_support as escrow,
+                nft_rwa_test_support as nft_rwa,
+            };
             macro_rules! corrupt {
-                ($field:ident) => {{
-                    world.$field.insert(ALICE_ID.clone(), BTreeSet::new());
+                ($field:ident, $key:expr, $value:expr, $mismatch:expr) => {{
+                    let key = $key;
+                    world.$field.insert(key.clone(), $value);
                     if previous {
                         let mut block = world.$field.block();
-                        block.remove(ALICE_ID.clone());
+                        block.remove(key);
                         block.commit();
                     }
-                    concat!("world.", stringify!($field))
+                    (concat!("world.", stringify!($field)), $mismatch)
                 }};
             }
-            let index = match table {
-                "world.nfts" => corrupt!(nfts_by_owner),
-                "world.rwas" => corrupt!(rwas_by_owner),
-                "world.asset_escrows" => corrupt!(asset_escrows_by_seller),
-                "world.repo_agreements" => corrupt!(repo_agreements_by_initiator),
-                "world.asset_definitions" => corrupt!(asset_definitions_by_owner),
-                "world.assets" => corrupt!(assets_by_account),
+            let (index, mismatch) = match table {
+                "world.nfts" => corrupt!(
+                    nfts_by_owner,
+                    (ALICE_ID.clone(), nft_rwa::nft_id()),
+                    (),
+                    GroupMismatch::ForeignMember
+                ),
+                "world.rwas" => corrupt!(
+                    rwas_by_owner,
+                    (ALICE_ID.clone(), nft_rwa::rwa_id()),
+                    (),
+                    GroupMismatch::ForeignMember
+                ),
+                "world.asset_escrows" => corrupt!(
+                    asset_escrows_by_seller,
+                    (ALICE_ID.clone(), escrow::id()),
+                    (),
+                    GroupMismatch::ForeignMember
+                ),
+                "world.repo_agreements" => corrupt!(
+                    repo_agreements_by_initiator,
+                    ALICE_ID.clone(),
+                    BTreeSet::new(),
+                    GroupMismatch::EmptyGroup
+                ),
+                "world.asset_definitions" => corrupt!(
+                    asset_definitions_by_owner,
+                    (ALICE_ID.clone(), definitions::id(0)),
+                    (),
+                    GroupMismatch::ForeignMember
+                ),
+                "world.assets" => corrupt!(
+                    asset_definition_asset_counts,
+                    definitions::id(0),
+                    0,
+                    GroupMismatch::ForeignMember
+                ),
                 _ => unreachable!(),
             };
             let state = State::new_for_testing(
@@ -188,7 +223,7 @@ fn actual_catalog_rejects_corrupt_group_indexes_at_both_cuts_before_allocation()
                         } else {
                             GroupImage::Current
                         },
-                        mismatch: GroupMismatch::EmptyGroup,
+                        mismatch,
                     }
                 )),
                 "{table} {previous}",

@@ -2098,6 +2098,7 @@ MV_OWNERSHIP_STAGES = (
     ('funded snapshot restoration retains exact history and source custody', (
         'storage::admitted_tests::admitted_snapshot_preserves_exact_current_undo_and_replacement_history',
         'storage::admitted_tests::admitted_snapshot_capacity_and_planning_refusals_leave_source_reusable',
+        'storage::admitted_tests::admitted_snapshot_restore_successor_identity_refusal_retires_its_destination',
     )),
     ('finite transaction touch-key custody', (
         'storage::touches::tests::touch_sorted_unique_growth_moves_original_key_allocations_without_copying',

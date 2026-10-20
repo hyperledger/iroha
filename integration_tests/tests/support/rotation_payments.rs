@@ -22,7 +22,10 @@ use iroha::{
 use iroha_data_model::{
     account::AccountId,
     asset::{AssetDefinitionId, AssetId},
-    isi::{AtomicSettlementMovement, AtomicSettlementMovements, SettleAtomic, SettlementId},
+    isi::{
+        AtomicSettlementEscrows, AtomicSettlementMovement, AtomicSettlementMovements, SettleAtomic,
+        SettlementId,
+    },
     sumeragi_finality::{
         SignedGenesisPinsV1, SumeragiFinalityVerifier, authenticate_signed_genesis_v1,
     },
@@ -159,6 +162,7 @@ pub(super) async fn customer_payment_at_height(
             quantity: Quantity::one(),
         }])
         .map_err(|error| eyre!(error))?,
+        AtomicSettlementEscrows::empty(),
         last_workload_height,
         Metadata::default(),
     );

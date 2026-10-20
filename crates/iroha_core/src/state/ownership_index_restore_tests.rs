@@ -4,6 +4,18 @@ use super::*;
 use iroha_data_model::{account::Account, nft::Nft, prelude::Registrable, rwa::RwaControlPolicy};
 use norito::codec::DecodeAll;
 
+fn members<K: mv::Key, M: mv::Key>(
+    index: &impl StorageReadOnly<(K, M), ()>,
+    key: &K,
+) -> Option<BTreeSet<M>> {
+    let members: BTreeSet<_> = index
+        .iter()
+        .filter(|((bucket, _), ())| bucket == key)
+        .map(|((_, member), ())| member.clone())
+        .collect();
+    (!members.is_empty()).then_some(members)
+}
+
 fn encoded<K: mv::Key + Encode, V: mv::Value + Encode>(store: &Storage<K, V>) -> String {
     let mut result = String::new();
     snapshot_storage::serialize(store, &mut result);
@@ -214,15 +226,15 @@ fn ownership_indexes_restore_both_images_and_redundant_touches() {
             .nfts_by_domain
             .snapshot()
             .revert_map()
-            .contains_key(&domain("moving")),
-        "NFT ownership change still touches the unchanged domain bucket"
+            .contains_key(&(domain("moving"), nft_id("moving"))),
+        "NFT ownership change still touches its unchanged domain membership"
     );
     assert_eq!(
         recovered
             .rwas_by_status
             .snapshot()
             .revert_map()
-            .get(&Some("active".parse().unwrap())),
+            .get(&(Some("active".parse().unwrap()), rwa_id("moving"))),
         Some(&None),
         "new status bucket retains prior absence"
     );
@@ -230,7 +242,7 @@ fn ownership_indexes_restore_both_images_and_redundant_touches() {
         let mut replacement = recovered.block_and_revert();
         assert_eq!(index_images!(replacement), before);
         assert_eq!(
-            replacement.rwas_by_status.get(&None),
+            members(&replacement.rwas_by_status, &None).as_ref(),
             Some(&BTreeSet::from([rwa_id("moving"), rwa_id("shared")]))
         );
         change(&mut replacement, true);
@@ -314,4 +326,39 @@ fn grouped_projection_keeps_complete_buckets_and_ignores_absent_records() {
     assert_eq!(previous.get(&7), Some(&BTreeSet::from([1, 2])));
     assert_eq!(previous.get(&8), None);
     assert_eq!(previous.get(&9), Some(&BTreeSet::from([3])));
+}
+
+#[test]
+fn flat_projection_retains_member_preimages_without_touching_neighbours() {
+    let mut source: Storage<u8, u8> = [(1, 7), (2, 7), (3, 9)].into_iter().collect();
+    {
+        let mut block = source.block();
+        block.insert(1, 8);
+        block.insert(3, 9);
+        block.insert(4, 8);
+        block.remove(5);
+        block.commit();
+    }
+    let original = encoded(&source);
+    let projected = super::members(&source.history(), |_, value| Some(*value));
+    assert_eq!(encoded(&source), original);
+    assert_eq!(
+        projected
+            .snapshot()
+            .revert_map()
+            .iter()
+            .map(|(key, value)| (*key, *value))
+            .collect::<BTreeMap<_, _>>(),
+        BTreeMap::from([
+            ((7, 1), Some(())),
+            ((8, 1), None),
+            ((8, 4), None),
+            ((9, 3), Some(()))
+        ])
+    );
+    let previous = projected.block_and_revert();
+    assert_eq!(previous.get(&(7, 1)), Some(&()));
+    assert_eq!(previous.get(&(7, 2)), Some(&()));
+    assert_eq!(previous.get(&(8, 1)), None);
+    assert_eq!(previous.get(&(9, 3)), Some(&()));
 }

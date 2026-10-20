@@ -1346,10 +1346,9 @@ impl Memory {
         self.ensure_template_geometry(template)?;
         const CHUNK: usize = 32;
         let modified_chunks = &self.modified_chunks;
-        let indices = || modified_chunks.iter();
-        // Independent leaves commute. Streaming the same sources twice keeps
-        // the memory and Merkle images aligned without allocating reset scratch.
-        for index in indices() {
+        // Independent leaves commute. Reuse the original bitmap for byte
+        // restoration and canonical parent updates without reset scratch.
+        for index in modified_chunks.iter() {
             let start = index.saturating_mul(CHUNK);
             if start >= self.data.len() {
                 continue;
@@ -1357,7 +1356,7 @@ impl Memory {
             let end = (start + CHUNK).min(self.data.len());
             self.data[start..end].copy_from_slice(&template.data[start..end]);
         }
-        self.tree.reset_leaves_from(&template.tree, indices());
+        self.tree.reset_leaves_from(&template.tree, modified_chunks);
         self.heap_alloc = template.heap_alloc;
         self.heap_limit = template.heap_limit;
         self.heap_max_limit = template.heap_max_limit;
@@ -1466,6 +1465,9 @@ impl Memory {
         self.load_code(&src.data[0..len])
     }
 }
+
+#[cfg(test)]
+mod warm_reset_tests;
 
 impl Default for Memory {
     fn default() -> Self {

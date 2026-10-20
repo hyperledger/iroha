@@ -122,7 +122,7 @@ fn sccp_penalty_uses_captured_tuple_start_and_record_delay_without_generation_or
                 parent_service_commit_qc: None,
                 evidence_admissions: Vec::new(),
                 penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(
-                    actions,
+                    actions.as_slice().to_vec(),
                 ),
             },
             Some(&index),
@@ -287,6 +287,11 @@ fn sccp_penalty_original_pool_refusal_and_retry_share_the_same_record_graph() {
         .unwrap();
     assert_eq!(actions.len(), 2);
     drop(index);
+    assert!(
+        budget.reserved_bytes() > baseline,
+        "the action graph retains its original backing after the stake index retires"
+    );
+    drop(actions);
     assert_eq!(budget.reserved_bytes(), baseline);
     assert!(
         state
@@ -379,9 +384,37 @@ fn sccp_penalty_later_sink_failure_rolls_back_slash_and_applied_marker() {
     let original_exposure =
         std::ptr::from_ref(index.total_exposure(LaneId::SINGLE, &validator).unwrap());
     let moved_index = index;
+    let action_pool = state.evidence_preparation_budget();
+    let before_prepared = action_pool.reserved_bytes();
+    let mut proposal = iroha_data_model::block::builder::BlockBuilder::new(penalty_header(2));
+    proposal.set_npos_consensus_effects(Some(NposConsensusEffects {
+        parent_service_commit_qc: None,
+        evidence_admissions: Vec::new(),
+        penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(
+            actions.as_slice().to_vec(),
+        ),
+    }));
+    let proposal = proposal.build(iroha_data_model::block::BlockSignatures::default());
+    let generation = state.state_view_generation();
+    let prepared = crate::sumeragi::evidence::prepare(&state, &proposal, generation).unwrap();
+    assert_eq!(
+        prepared.action_slice_for_test(),
+        actions.as_slice(),
+        "HC913 pristine effects must retain the exact funded actions through application"
+    );
+    let prepared_pointer = prepared.action_slice_for_test().as_ptr();
+    let held_prepared = action_pool.reserved_bytes();
+    assert!(held_prepared > before_prepared);
+    let original_record = state
+        .world
+        .consensus_evidence
+        .view()
+        .get(&key)
+        .unwrap()
+        .clone();
     let (definition, _, _) = penalty_staking_ids();
     let mut block = state
-        .consensus_effects_probe_block(penalty_header(2))
+        .consensus_effects_probe_block(proposal.header())
         .unwrap();
     // A post-plan custody definition loss must reject the whole child, not mark Applied.
     {
@@ -396,7 +429,7 @@ fn sccp_penalty_later_sink_failure_rolls_back_slash_and_applied_marker() {
                 parent_service_commit_qc: None,
                 evidence_admissions: Vec::new(),
                 penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(
-                    actions
+                    actions.as_slice().to_vec()
                 )
             },
             &[],
@@ -406,6 +439,27 @@ fn sccp_penalty_later_sink_failure_rolls_back_slash_and_applied_marker() {
             2_000
         )
         .is_err()
+    );
+    assert_eq!(prepared.action_slice_for_test().as_ptr(), prepared_pointer);
+    assert_eq!(action_pool.reserved_bytes(), held_prepared);
+    assert!(
+        prepared
+            .apply(&mut block, &proposal, &state, generation)
+            .is_err()
+    );
+    assert_eq!(
+        action_pool.reserved_bytes(),
+        before_prepared,
+        "failed pristine application retires its actual original action owner"
+    );
+    assert!(
+        state
+            .world
+            .consensus_evidence
+            .view()
+            .get(&key)
+            .unwrap()
+            .shares_body(&original_record)
     );
     assert_eq!(
         block
@@ -525,9 +579,13 @@ fn sccp_penalty_multiple_generations_share_remaining_exposure_without_double_sla
 #[test]
 fn sccp_penalty_late_marker_refusal_rolls_back_prior_child_monetary_effects() {
     let (state, key, validator) = sccp_penalty_fixture(1);
-    let (mut actions, index) = PenaltyApplier::new(&state, None)
+    let (original_actions, index) = PenaltyApplier::new(&state, None)
         .derive_npos_penalty_actions(&penalty_header(2))
         .unwrap();
+    let original_pointer = original_actions.as_slice().as_ptr();
+    let action_pool = state.evidence_preparation_budget();
+    let held_actions = action_pool.reserved_bytes();
+    let mut actions = original_actions.as_slice().to_vec();
     let NposPenaltyAction::MarkConsensusEvidenceApplied(marker) = &mut actions[1] else {
         panic!("marker follows slash")
     };
@@ -543,7 +601,7 @@ fn sccp_penalty_late_marker_refusal_rolls_back_prior_child_monetary_effects() {
                 parent_service_commit_qc: None,
                 evidence_admissions: Vec::new(),
                 penalty_actions: iroha_data_model::consensus::NposPenaltyActions::from_untrusted(
-                    actions,
+                    actions.as_slice().to_vec(),
                 ),
             },
             Some(&index),
@@ -569,6 +627,12 @@ fn sccp_penalty_late_marker_refusal_rolls_back_prior_child_monetary_effects() {
             "first monetary effect happened only in the failed child"
         );
     }
+    assert_eq!(original_actions.as_slice().as_ptr(), original_pointer);
+    assert_eq!(
+        action_pool.reserved_bytes(),
+        held_actions,
+        "late child rollback retains the exact original action graph and charge ledger"
+    );
     assert_eq!(
         block
             .world

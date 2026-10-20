@@ -164,10 +164,16 @@ fn change(block: &mut WorldBlock<'_>) {
     }
     block.nfts.remove(nft("absent"));
     block.rwas.remove(rwa("absent"));
-    block.nfts_by_owner.remove(absent_account());
-    block.nfts_by_domain.remove(other_domain());
-    block.rwas_by_owner.remove(absent_account());
-    block.rwas_by_status.remove(Some("absent".parse().unwrap()));
+    block
+        .nfts_by_owner
+        .remove((absent_account(), nft("absent")));
+    block.nfts_by_domain.remove((other_domain(), nft("absent")));
+    block
+        .rwas_by_owner
+        .remove((absent_account(), rwa("absent")));
+    block
+        .rwas_by_status
+        .remove((Some("absent".parse().unwrap()), rwa("absent")));
 }
 
 #[test]
@@ -207,13 +213,17 @@ fn ordinary_nft_owner_history_keeps_insert_delete_noop_absence_and_untouched_ori
         original
             .owners
             .undo_entries()
-            .any(|(id, prior)| id == &absent_account() && prior.is_none())
+            .any(|((owner, id), prior)| owner == &absent_account()
+                && id == &nft("absent")
+                && prior.is_none())
     );
     assert!(
         original
             .domains
             .undo_entries()
-            .any(|(id, prior)| id == &other_domain() && prior.is_none())
+            .any(|((domain, id), prior)| domain == &other_domain()
+                && id == &nft("absent")
+                && prior.is_none())
     );
     let snapshot = capture_nfts(&block, limits(), nft_work(&original))
         .unwrap()
@@ -263,14 +273,22 @@ fn ordinary_rwa_owner_status_and_frozen_history_retains_none_and_all_original_to
         original
             .statuses
             .current_entries()
-            .any(|(status, members)| status.is_none() && members.contains(&rwa("untouched")))
+            .any(|((status, id), ())| status.is_none() && id == &rwa("untouched"))
     );
-    assert!(
+    assert_eq!(
         original
             .statuses
             .undo_entries()
-            .any(|(status, prior)| status.is_none()
-                && prior.as_ref().is_some_and(|members| members.len() == 4))
+            .filter(|((status, _), prior)| status.is_none() && prior.is_some())
+            .count(),
+        3,
+        "only moved, removed and explicitly rewritten memberships retain undo rows",
+    );
+    assert!(
+        !original
+            .statuses
+            .undo_entries()
+            .any(|((_, id), _)| id == &rwa("untouched"))
     );
     let snapshot = capture_rwas(&block, limits(), rwa_work(&original))
         .unwrap()
@@ -328,9 +346,21 @@ fn replacement_retains_all_seven_rewound_owners_modes_and_original_canonical_row
         ns.root(),
         capture_nfts_once(&state, limits()).unwrap().unwrap().root()
     );
+    // Tuple-key preimages retain every touched membership. The committed control
+    // uses a per-row reference budget, so allow its complete mixed history here;
+    // the frozen capture above still uses the independently computed exact work.
     assert_ne!(
         rs.root(),
-        capture_rwas_once(&state, limits()).unwrap().unwrap().root()
+        capture_rwas_once(
+            &state,
+            LeafLimits {
+                max_rows: 32,
+                ..limits()
+            },
+        )
+        .unwrap()
+        .unwrap()
+        .root()
     );
     assert_eq!(
         n.rows
@@ -389,24 +419,15 @@ macro_rules! defect {
         let case = $case;
         let restore = $restore;
         macro_rules! group {
-            ($field:ident, $valid:expr, $foreign:expr, $id:expr) => {{
-                let key = if case % 3 == 0 { $valid } else { $foreign };
+            ($field:ident, $valid:expr, $foreign:expr, $id:expr, $orphan:expr) => {{
+                let bucket = if case % 3 == 0 { $valid } else { $foreign };
+                let member = if case % 3 == 1 { $orphan } else { $id };
                 let value = if restore {
-                    if case % 3 == 0 {
-                        Some(BTreeSet::from([$id]))
-                    } else {
-                        None
-                    }
-                } else if case % 3 == 0 {
-                    None
+                    (case % 3 == 0).then_some(())
                 } else {
-                    Some(if case % 3 == 1 {
-                        BTreeSet::new()
-                    } else {
-                        BTreeSet::from([$id])
-                    })
+                    (case % 3 != 0).then_some(())
                 };
-                alter!($world, $kind, $field, key, value);
+                alter!($world, $kind, $field, (bucket, member), value);
             }};
         }
         match case / 3 {
@@ -414,27 +435,37 @@ macro_rules! defect {
                 nfts_by_owner,
                 ALICE_ID.clone(),
                 BOB_ID.clone(),
-                fixture::nft_id()
+                fixture::nft_id(),
+                nft("absent")
             ),
             1 => group!(
                 nfts_by_domain,
                 fixture::domain(),
                 other_domain(),
-                fixture::nft_id()
+                fixture::nft_id(),
+                nft("absent")
             ),
             2 => group!(
                 rwas_by_owner,
                 ALICE_ID.clone(),
                 BOB_ID.clone(),
-                fixture::rwa_id()
+                fixture::rwa_id(),
+                rwa("absent")
             ),
             3 => group!(
                 rwas_by_status,
                 None,
                 Some("foreign".parse().unwrap()),
-                fixture::rwa_id()
+                fixture::rwa_id(),
+                rwa("absent")
             ),
-            4 => group!(rwas_by_frozen, false, true, fixture::rwa_id()),
+            4 => group!(
+                rwas_by_frozen,
+                false,
+                true,
+                fixture::rwa_id(),
+                rwa("absent")
+            ),
             _ => unreachable!(),
         }
     }};
@@ -484,7 +515,7 @@ fn every_five_index_error_keeps_exact_current_or_predecessor_category_before_all
                         },
                         mismatch: match case % 3 {
                             0 => GroupMismatch::MissingMember,
-                            1 => GroupMismatch::EmptyGroup,
+                            1 => GroupMismatch::ForeignMember,
                             _ => GroupMismatch::ForeignMember,
                         },
                     }
@@ -662,22 +693,22 @@ fn exact_raw_shapes_and_independent_work_callbacks_cover_both_complete_images() 
     freeze(&mut block);
     let n = OriginalNfts::retain(&block).unwrap();
     let r = OriginalRwas::retain(&block).unwrap();
-    assert_eq!(nft_work(&n), 732);
-    assert_eq!(rwa_work(&r), 1482);
+    assert_eq!(nft_work(&n), 720);
+    assert_eq!(rwa_work(&r), 1464);
     assert_eq!(
-        capture_nfts(&block, limits(), 731).err(),
+        capture_nfts(&block, limits(), 719).err(),
         Some(LeafError::GroupedOwnership(
             GroupedOwnershipError::WorkLimit
         ))
     );
     assert_eq!(
-        capture_rwas(&block, limits(), 1481).err(),
+        capture_rwas(&block, limits(), 1463).err(),
         Some(LeafError::GroupedOwnership(
             GroupedOwnershipError::WorkLimit
         ))
     );
-    assert!(capture_nfts(&block, limits(), 732).unwrap().is_some());
-    assert!(capture_rwas(&block, limits(), 1482).unwrap().is_some());
+    assert!(capture_nfts(&block, limits(), 720).unwrap().is_some());
+    assert!(capture_rwas(&block, limits(), 1464).unwrap().is_some());
     let state = self::state(initial());
     let mut block = state.block(header());
     change(&mut block.world);
@@ -696,14 +727,14 @@ fn exact_raw_shapes_and_independent_work_callbacks_cover_both_complete_images() 
             n.owners.current_entries().count(),
             n.owners.undo_entries().count()
         ),
-        (2, 3)
+        (4, 6)
     );
     assert_eq!(
         (
             n.domains.current_entries().count(),
             n.domains.undo_entries().count()
         ),
-        (1, 2)
+        (4, 5)
     );
     assert_eq!(
         (
@@ -717,21 +748,21 @@ fn exact_raw_shapes_and_independent_work_callbacks_cover_both_complete_images() 
             r.owners.current_entries().count(),
             r.owners.undo_entries().count()
         ),
-        (2, 3)
+        (4, 6)
     );
     assert_eq!(
         (
             r.statuses.current_entries().count(),
             r.statuses.undo_entries().count()
         ),
-        (2, 3)
+        (4, 6)
     );
     assert_eq!(
         (
             r.frozen.current_entries().count(),
             r.frozen.undo_entries().count()
         ),
-        (2, 2)
+        (4, 5)
     );
     let nw = nft_work(&n);
     let rw = rwa_work(&r);
@@ -931,28 +962,16 @@ fn later_equal_or_changed_publications_cannot_refresh_any_original_nft_rwa_owner
             }
             match source {
                 0 => publish!(nfts, nft("later"), replacement_nft()),
-                1 => publish!(
-                    nfts_by_owner,
-                    absent_account(),
-                    BTreeSet::from([fixture::nft_id()])
-                ),
-                2 => publish!(
-                    nfts_by_domain,
-                    other_domain(),
-                    BTreeSet::from([fixture::nft_id()])
-                ),
+                1 => publish!(nfts_by_owner, (absent_account(), fixture::nft_id()), ()),
+                2 => publish!(nfts_by_domain, (other_domain(), fixture::nft_id()), ()),
                 3 => publish!(rwas, rwa("later"), replacement_rwa()),
-                4 => publish!(
-                    rwas_by_owner,
-                    absent_account(),
-                    BTreeSet::from([fixture::rwa_id()])
-                ),
+                4 => publish!(rwas_by_owner, (absent_account(), fixture::rwa_id()), ()),
                 5 => publish!(
                     rwas_by_status,
-                    Some("later".parse().unwrap()),
-                    BTreeSet::from([fixture::rwa_id()])
+                    (Some("later".parse().unwrap()), fixture::rwa_id()),
+                    ()
                 ),
-                6 => publish!(rwas_by_frozen, false, BTreeSet::from([rwa("later")])),
+                6 => publish!(rwas_by_frozen, (false, rwa("later")), ()),
                 _ => unreachable!(),
             }
             assert_eq!(n.rows.publication_identity(), n_identity);

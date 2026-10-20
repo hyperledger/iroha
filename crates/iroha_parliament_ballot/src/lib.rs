@@ -4,8 +4,9 @@
 //! byte-level construction in `specs/parliament_ballot_proof_profile.md` §6, and the
 //! production integration decisions of 2026-10-18 fix the envelope, the admission order,
 //! the corpus, the stamp, the encodings and the full-verification interface. This crate is
-//! the one implementation of those rules that Core, Torii, the CLI, the Rust client and the
-//! native bridge share. It sits between the data-model wire types
+//! the intended shared implementation for Core, Torii, the CLI, the Rust client and the
+//! native bridge; those consumers are not connected in this checkout. It sits between
+//! the wire types
 //! ([`iroha_data_model::governance::anonymous_ballot`]) and the state-free proof relations
 //! ([`iroha_parliament_ballot_proof`]):
 //!
@@ -15,7 +16,7 @@
 //!   scoped verification context that every verifier uses;
 //! - [`registration`]: the registration statement and its verification;
 //! - [`ballot`]: the vote statement, proof verification, the seven ordered admission
-//!   checks and the block-execution decision shared by Core and the full verifier;
+//!   checks and the block-execution decision used by the full verifier;
 //! - [`stamp`]: the admission-stamp nonce search;
 //! - [`corpus`]: the incremental accepted corpus and the closure-record builder;
 //! - [`replay`]: the streaming core of independent full verification;
@@ -26,10 +27,13 @@
 //!
 //! **Nothing here is qualified.** The data-model launch gate
 //! [`PARLIAMENT_BALLOT_QUALIFICATION_V1`] is `None`, so binding production use stays
-//! disabled; Core enforces that gate at its dispatch and state boundaries. This crate
-//! neither reads nor changes the gate and claims nothing about it: engineering completion
-//! and the tests here are not qualification evidence. The proof relations are the real
-//! candidate relations; no verification step is a placeholder.
+//! disabled. Core dispatch, state, queue and Torii integration remain to be implemented.
+//! This crate neither reads nor changes the gate: its real candidate proofs and protocol
+//! rules are available for engineering tests now. Run
+//! `scripts/test_parliament_ballot_local.sh` for registration, wallet admission/execution,
+//! corpus closure and replay, or add `--full` for the complete crate suite. These tests use
+//! an in-memory board with fixture authority and anchors; they do not establish network
+//! finality or qualification. No verification step is a placeholder.
 //!
 //! # One row
 //!
@@ -67,6 +71,9 @@ pub mod wallet;
 
 #[cfg(test)]
 mod test_support;
+
+#[cfg(test)]
+mod entrypoint_tests;
 
 use iroha_parliament_ballot_proof::profile::Row;
 

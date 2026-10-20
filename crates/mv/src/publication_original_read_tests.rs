@@ -17,7 +17,8 @@ fn every_initial_publication_supports_a_cold_allocation_free_observation() {
         let budget = AllocationBudget::new(required);
         let publication = match constructor {
             0 => Publication::new(),
-            1 => Publication::from_admission(budget.try_reserve_bytes(required).unwrap()),
+            1 => Publication::try_from_original(&mut budget.try_reserve_bytes(required).unwrap())
+                .unwrap(),
             2 => {
                 let mut reservation = budget.try_reserve_bytes(required).unwrap();
                 Publication::try_from_original(&mut reservation).unwrap()

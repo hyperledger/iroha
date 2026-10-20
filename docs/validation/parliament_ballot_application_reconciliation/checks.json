@@ -1,0 +1,14 @@
+{
+  "all_checks_passed": true,
+  "arithmetic_record": "arithmetic.json",
+  "external_urls_checked": false,
+  "inputs_unchanged": 22,
+  "local_markdown_targets_checked": 302,
+  "markdown_anchor_fragments_checked": false,
+  "markdown_files_checked": 5,
+  "missing_local_targets": 0,
+  "prior_manifest_entries_verified": 20,
+  "python": "3.11",
+  "scope": "Exact integer, scoped identity, preserved-manifest, local Markdown path and whitespace checks only; no theorem or runtime validation.",
+  "trailing_whitespace_failures": 0
+}

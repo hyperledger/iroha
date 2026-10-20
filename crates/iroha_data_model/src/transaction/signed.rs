@@ -16,6 +16,7 @@ use crate::{
     asset::AssetDefinitionId,
     block::consensus::NexusFeeReceipt,
     events::data::prelude::AssetBatchTransferOutcome,
+    governance::anonymous_ballot::CanonicalAnonymousBallotEnvelopeV1,
     isi::{CustomInstruction, ExecuteTrigger, InstructionBox, privacy::SubmitPrivacyProofV1},
     nexus::FeeSponsorProgramId,
     privacy::{
@@ -528,7 +529,10 @@ mod model {
             super::TransactionBuilder::validate_payload(&self.payload, self.construction)
         }
     }
-    /// Initial execution step of a transaction, which may invoke data triggers.
+    /// Canonical network input initiating execution.
+    ///
+    /// Signed inputs may invoke data triggers. An anonymous ballot is signerless
+    /// and its execution cannot invoke triggers or carry signed-transaction fees.
     #[derive(
         Debug,
         Clone,
@@ -547,11 +551,21 @@ mod model {
     #[norito_schema(name = "iroha_data_model::transaction::signed::model::TransactionEntrypoint")]
     pub enum TransactionEntrypoint {
         /// User request that initiates a transaction.
+        #[codec(index = 0)]
         External(SignedTransaction),
         /// Commitment to a sealed transaction, executed after reveal.
+        #[codec(index = 1)]
         SealedCommitment(SignedSealedTransactionCommitment),
         /// Reveal of a previously committed sealed transaction.
+        #[codec(index = 2)]
         SealedReveal(SealedTransactionReveal),
+        /// Exact canonical anonymous-ballot envelope, with no account authority.
+        ///
+        /// The carrier checks encoding, not proof validity, chain context or
+        /// admission. Those checks belong to the ballot execution path. Tag 3
+        /// is retired and must never decode as a network entrypoint.
+        #[codec(index = 4)]
+        AnonymousBallot(CanonicalAnonymousBallotEnvelopeV1),
     }
     /// The outcome of processing a transaction:
     /// either a sequence of data triggers, or a rejection reason.
@@ -2075,7 +2089,8 @@ impl TransactionEntrypoint {
     /// These are the exact bytes emitted by [`iroha_version::codec::EncodeVersioned`]. In
     /// particular, an external entrypoint retains its complete [`SignedTransaction`], including
     /// every authorization proof, so callers can compare an observed committed entrypoint with the
-    /// exact transaction they submitted.
+    /// exact transaction they submitted. An anonymous entrypoint likewise retains
+    /// the exact canonical envelope bytes, without adding an account authority.
     ///
     /// # Errors
     ///
@@ -2163,6 +2178,11 @@ impl norito::json::FastJsonWrite for TransactionEntrypoint {
                 out.push(':');
                 norito::json::JsonSerialize::json_serialize(reveal, out);
             }
+            TransactionEntrypoint::AnonymousBallot(envelope) => {
+                norito::json::write_json_string("AnonymousBallot", out);
+                out.push(':');
+                norito::json::JsonSerialize::json_serialize(envelope, out);
+            }
         }
         out.push('}');
     }
@@ -2185,6 +2205,10 @@ impl norito::json::FastJsonWrite for TransactionEntrypoint {
                 TransactionEntrypoint::SealedReveal(reveal) => {
                     out.push_str("\"SealedReveal\":")?;
                     norito::json::JsonSerialize::json_serialize_to(reveal, out)?;
+                }
+                TransactionEntrypoint::AnonymousBallot(envelope) => {
+                    out.push_str("\"AnonymousBallot\":")?;
+                    norito::json::JsonSerialize::json_serialize_to(envelope, out)?;
                 }
             }
             out.push('}')?;
@@ -2215,6 +2239,10 @@ impl norito::json::JsonDeserialize for TransactionEntrypoint {
             "SealedReveal" => {
                 let reveal = SealedTransactionReveal::json_deserialize(parser)?;
                 TransactionEntrypoint::SealedReveal(reveal)
+            }
+            "AnonymousBallot" => {
+                let envelope = CanonicalAnonymousBallotEnvelopeV1::json_deserialize(parser)?;
+                TransactionEntrypoint::AnonymousBallot(envelope)
             }
             other => {
                 return Err(norito::json::Error::UnknownField {
@@ -2733,6 +2761,9 @@ fn test_network_id(seed: u8) -> NetworkId {
     ))
 }
 #[cfg(test)]
+#[path = "signed/anonymous_ballot_tests.rs"]
+mod anonymous_ballot_tests;
+#[cfg(test)]
 #[path = "signed/authorization_tests.rs"]
 mod authorization_tests;
 #[cfg(all(test, feature = "fault_injection"))]
@@ -2761,18 +2792,7 @@ impl TransactionEntrypoint {
             TransactionEntrypoint::SealedReveal(entrypoint) => {
                 Some(entrypoint.signed_transaction().authority())
             }
-        }
-    }
-    /// Account authorized to initiate this transaction.
-    ///
-    #[inline]
-    pub fn authority(&self) -> &AccountId {
-        match self {
-            TransactionEntrypoint::External(entrypoint) => entrypoint.authority(),
-            TransactionEntrypoint::SealedCommitment(entrypoint) => entrypoint.authority(),
-            TransactionEntrypoint::SealedReveal(entrypoint) => {
-                entrypoint.signed_transaction().authority()
-            }
+            TransactionEntrypoint::AnonymousBallot(_) => None,
         }
     }
     /// Creation timestamp in milliseconds when the entrypoint carries one.
@@ -2785,7 +2805,8 @@ impl TransactionEntrypoint {
             TransactionEntrypoint::SealedReveal(entrypoint) => {
                 u64::try_from(entrypoint.signed_transaction().creation_time().as_millis()).ok()
             }
-            TransactionEntrypoint::SealedCommitment(_) => None,
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => None,
         }
     }
     /// Metadata attached to the entrypoint when one exists.
@@ -2796,7 +2817,8 @@ impl TransactionEntrypoint {
             TransactionEntrypoint::SealedReveal(entrypoint) => {
                 Some(entrypoint.signed_transaction().metadata())
             }
-            TransactionEntrypoint::SealedCommitment(_) => None,
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => None,
         }
     }
     /// Hash for this transaction entrypoint.
@@ -2804,7 +2826,9 @@ impl TransactionEntrypoint {
     pub fn hash(&self) -> HashOf<Self> {
         match self {
             Self::External(transaction) => transaction.hash_as_entrypoint(),
-            Self::SealedCommitment(_) | Self::SealedReveal(_) => HashOf::new(self),
+            Self::SealedCommitment(_) | Self::SealedReveal(_) | Self::AnonymousBallot(_) => {
+                HashOf::new(self)
+            }
         }
     }
     /// Actual network execution-call hash, distinct from a sealed reveal outer identity.
@@ -2907,7 +2931,7 @@ mod checked_container_cleanup_tests {
     use crate::checked_container_refusal_controls::{account, audit, definition};
 
     #[test]
-    fn original_entrypoint_checked_container_retains_every_legal_variant_and_depth() {
+    fn original_signed_entrypoints_checked_container_retain_all_signed_variants_and_depth() {
         let key = iroha_crypto::KeyPair::from_seed(vec![61; 32], iroha_crypto::Algorithm::Ed25519);
         let authority = crate::account::AccountId::new(key.public_key().clone());
         let network =

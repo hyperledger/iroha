@@ -14,7 +14,7 @@ use crate::{
 };
 use iroha_data_model::{asset::AssetBalanceScope, prelude::Registrable};
 use iroha_model_base::topology::DataSpaceId;
-use iroha_test_samples::{ALICE_ID, BOB_ID};
+use iroha_test_samples::ALICE_ID;
 use mv::storage::Storage;
 
 use super::test_support::*;
@@ -41,7 +41,7 @@ fn partitions_use_any_nonzero_value_and_restore_the_actual_predecessor() {
         world
             .asset_definition_nonzero_holders
             .view()
-            .get(&definition("coin"))
+            .get(&(definition("coin"), ALICE_ID.clone()))
             .is_none()
     );
     let checked = CheckedAssets::capture(&world, 16_777_216).unwrap();
@@ -59,8 +59,8 @@ fn partitions_use_any_nonzero_value_and_restore_the_actual_predecessor() {
         world
             .asset_definition_nonzero_holders
             .view()
-            .get(&definition("coin")),
-        Some(&BTreeSet::from([ALICE_ID.clone()]))
+            .get(&(definition("coin"), ALICE_ID.clone())),
+        Some(&())
     );
 }
 
@@ -83,21 +83,24 @@ fn changing_only_the_definition_domain_moves_untouched_balance_groups() {
         world
             .assets_by_domain
             .view()
-            .get(&domain("balances"))
+            .get(&(domain("balances"), id()))
             .is_none()
     );
     world.block_and_revert().commit();
     assert_eq!(check(&world, 16_777_216), Ok(()));
     assert_eq!(
-        world.assets_by_domain.view().get(&domain("balances")),
-        Some(&BTreeSet::from([id()]))
+        world
+            .assets_by_domain
+            .view()
+            .get(&(domain("balances"), id())),
+        Some(&())
     );
 }
 
 #[test]
-fn all_five_indexes_require_every_source_membership_in_both_images() {
+fn all_four_indexes_require_every_source_membership_in_both_images() {
     for previous in [false, true] {
-        for index in 0..5 {
+        for index in 0..4 {
             let mut world = fixture(true);
             macro_rules! omit {
                 ($field:ident, $key:expr) => {{
@@ -112,11 +115,16 @@ fn all_five_indexes_require_every_source_membership_in_both_images() {
                 }};
             }
             let index = match index {
-                0 => omit!(asset_definition_assets, definition("coin")),
-                1 => omit!(assets_by_account, ALICE_ID.clone()),
-                2 => omit!(assets_by_domain, domain("balances")),
-                3 => omit!(asset_definition_holders, definition("coin")),
-                4 => omit!(asset_definition_nonzero_holders, definition("coin")),
+                0 => omit!(asset_definition_assets, (definition("coin"), id())),
+                1 => omit!(assets_by_domain, (domain("balances"), id())),
+                2 => omit!(
+                    asset_definition_holders,
+                    (definition("coin"), ALICE_ID.clone())
+                ),
+                3 => omit!(
+                    asset_definition_nonzero_holders,
+                    (definition("coin"), ALICE_ID.clone())
+                ),
                 _ => unreachable!(),
             };
             assert_eq!(
@@ -128,59 +136,83 @@ fn all_five_indexes_require_every_source_membership_in_both_images() {
 }
 
 #[test]
-fn all_five_indexes_reject_empty_and_foreign_membership_in_both_images() {
+fn all_four_indexes_reject_foreign_membership_in_both_images() {
     for previous in [false, true] {
-        for empty in [false, true] {
-            for index in 0..5 {
-                let mut world = fixture(true);
-                macro_rules! extra {
-                    ($field:ident, $key:expr, $member:expr) => {{
-                        let key = $key;
-                        world.$field.insert(
-                            key.clone(),
-                            if empty {
-                                BTreeSet::new()
-                            } else {
-                                BTreeSet::from([$member])
-                            },
-                        );
-                        if previous {
-                            let mut block = world.$field.block();
-                            block.remove(key);
-                            block.commit();
-                        }
-                        concat!("world.", stringify!($field))
-                    }};
-                }
-                let index = match index {
-                    0 => extra!(asset_definition_assets, definition("absent"), id()),
-                    1 => extra!(assets_by_account, BOB_ID.clone(), id()),
-                    2 => extra!(assets_by_domain, domain("absent"), id()),
-                    3 => extra!(
-                        asset_definition_holders,
-                        definition("absent"),
-                        ALICE_ID.clone()
-                    ),
-                    4 => extra!(
-                        asset_definition_nonzero_holders,
-                        definition("absent"),
-                        ALICE_ID.clone()
-                    ),
-                    _ => unreachable!(),
-                };
-                assert_eq!(
-                    check(&world, 16_777_216),
-                    Err(corrupt(
-                        index,
-                        previous,
-                        if empty {
-                            GroupMismatch::EmptyGroup
-                        } else {
-                            GroupMismatch::ForeignMember
-                        }
-                    ))
-                );
+        for index in 0..4 {
+            let mut world = fixture(true);
+            macro_rules! extra {
+                ($field:ident, $key:expr, $member:expr) => {{
+                    let key = ($key, $member);
+                    world.$field.insert(key.clone(), ());
+                    if previous {
+                        let mut block = world.$field.block();
+                        block.remove(key);
+                        block.commit();
+                    }
+                    concat!("world.", stringify!($field))
+                }};
             }
+            let index = match index {
+                0 => extra!(asset_definition_assets, definition("absent"), id()),
+                1 => extra!(assets_by_domain, domain("absent"), id()),
+                2 => extra!(
+                    asset_definition_holders,
+                    definition("absent"),
+                    ALICE_ID.clone()
+                ),
+                3 => extra!(
+                    asset_definition_nonzero_holders,
+                    definition("absent"),
+                    ALICE_ID.clone()
+                ),
+                _ => unreachable!(),
+            };
+            assert_eq!(
+                check(&world, 16_777_216),
+                Err(corrupt(index, previous, GroupMismatch::ForeignMember))
+            );
+        }
+    }
+}
+
+#[test]
+fn asset_counts_reject_missing_wrong_and_orphan_rows_in_both_images() {
+    for previous in [false, true] {
+        for defect in 0..4 {
+            let mut world = fixture(true);
+            let key = if defect == 3 {
+                definition("absent")
+            } else {
+                definition("coin")
+            };
+            if defect == 0 {
+                omit_initial(&mut world.asset_definition_asset_counts, &key);
+            } else {
+                world
+                    .asset_definition_asset_counts
+                    .insert(key.clone(), if defect == 1 { 0 } else { 2 });
+            }
+            if previous {
+                let mut block = world.asset_definition_asset_counts.block();
+                if defect == 3 {
+                    block.remove(key);
+                } else {
+                    block.insert(key, 1);
+                }
+                block.commit();
+            }
+            assert_eq!(
+                check(&world, 16_777_216),
+                Err(corrupt(
+                    "world.asset_definition_asset_counts",
+                    previous,
+                    if defect == 0 {
+                        GroupMismatch::MissingMember
+                    } else {
+                        GroupMismatch::ForeignMember
+                    }
+                ))
+            );
         }
     }
 }
@@ -193,7 +225,7 @@ fn zero_only_and_deleted_partitions_cannot_supply_nonzero_membership() {
         world.rebuild_asset_definition_indexes().unwrap();
         world
             .asset_definition_nonzero_holders
-            .insert(definition("coin"), BTreeSet::from([ALICE_ID.clone()]));
+            .insert((definition("coin"), ALICE_ID.clone()), ());
         if previous {
             let mut balances = world.assets.block();
             balances.insert(id(), value(&id(), 5));
@@ -218,7 +250,7 @@ fn zero_only_and_deleted_partitions_cannot_supply_nonzero_membership() {
     assert_eq!(check(&world, 16_777_216), Ok(()));
     world
         .asset_definition_holders
-        .insert(definition("coin"), BTreeSet::from([ALICE_ID.clone()]));
+        .insert((definition("coin"), ALICE_ID.clone()), ());
     assert_eq!(
         check(&world, 16_777_216),
         Err(corrupt(
@@ -275,8 +307,9 @@ fn missing_definitions_and_domains_cannot_pass_through_consistent_indexes() {
 
 #[test]
 fn work_counts_both_cuts_range_rows_and_absent_source_undo() {
-    for (context, exact) in [(false, 2144), (true, 2838)] {
+    for context in [false, true] {
         let world = fixture(context);
+        let exact = world_work(&world);
         assert_eq!(check(&world, exact), Ok(()));
         assert_eq!(
             check(&world, exact - 1),
@@ -288,13 +321,10 @@ fn work_counts_both_cuts_range_rows_and_absent_source_undo() {
             block.commit();
         }
         assert_eq!(
-            check(&world, exact + if context { 840 } else { 735 } - 1),
+            check(&world, world_work(&world) - 1),
             Err(GroupedOwnershipError::WorkLimit)
         );
-        assert_eq!(
-            check(&world, exact + if context { 840 } else { 735 }),
-            Ok(())
-        );
+        assert_eq!(check(&world, world_work(&world)), Ok(()));
     }
 }
 
@@ -388,7 +418,7 @@ fn all_eight_original_native_owners_remain_part_of_the_final_identity_check() {
             1 => world.asset_definitions.block().commit(),
             2 => world.domains.block().commit(),
             3 => world.asset_definition_assets.block().commit(),
-            4 => world.assets_by_account.block().commit(),
+            4 => world.asset_definition_asset_counts.block().commit(),
             5 => world.assets_by_domain.block().commit(),
             6 => world.asset_definition_holders.block().commit(),
             7 => world.asset_definition_nonzero_holders.block().commit(),

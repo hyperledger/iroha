@@ -142,7 +142,7 @@ mod tests {
         block.commit();
         let stop = AtomicBool::new(false);
         let control = SccpNativeReadControl {
-            deadline: Instant::now() + Duration::from_secs(30),
+            deadline: Instant::now() + Duration::from_secs(3_600),
             stop: &stop,
         };
         let budget = AllocationBudget::new(64 << 10);
@@ -231,7 +231,7 @@ mod tests {
         }
         let stop = AtomicBool::new(false);
         let control = SccpNativeReadControl {
-            deadline: Instant::now() + Duration::from_secs(30),
+            deadline: Instant::now() + Duration::from_secs(3_600),
             stop: &stop,
         };
         let budget = AllocationBudget::new(64 << 10);

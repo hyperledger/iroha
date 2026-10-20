@@ -257,11 +257,11 @@ pub(in crate::a_relation) fn sigma_fixture() -> QSigmaPlan {
 #[test]
 fn incoming_verifier_input_substitutions_cannot_manufacture_soft_false() {
     for own in [true, false] {
-        substitutions_cannot_manufacture_soft_false(fixture(own));
+        substitutions_cannot_manufacture_soft_false(&fixture(own));
     }
 }
 
-fn substitutions_cannot_manufacture_soft_false(c: Bindings) {
+fn substitutions_cannot_manufacture_soft_false(c: &Bindings) {
     for verdict in [false, true] {
         let honest = Bindings {
             verdict,
@@ -292,7 +292,7 @@ fn substitutions_cannot_manufacture_soft_false(c: Bindings) {
             .unwrap()
             .is_satisfied()
     );
-    let known = synthesize(&c, 16, None).unwrap();
+    let known = synthesize(c, 16, None).unwrap();
     let unknown = synthesize(&c.without_witnesses(), 16, None).unwrap();
     assert_eq!(known.tables.fixed(), unknown.tables.fixed());
     assert_eq!(known.tables.permutation(), unknown.tables.permutation());

@@ -272,11 +272,18 @@ fn funded_identity_refund_observes_unlocked_publication_even_on_release_unwind()
             iroha_allocation::release::ReleaseRegistration::allocation_layout().size();
         let budget = AllocationBudget::new(initial + successor + registration_bytes);
         let mut registration = crate::release_test_support::registration(&budget);
-        let owner = Arc::new(super::Publication::from_admission(
-            budget.try_reserve_bytes(initial).unwrap(),
-        ));
-        let next =
-            super::NextPublication::from_admission(budget.try_reserve_bytes(successor).unwrap());
+        let owner = Arc::new(
+            super::Publication::try_from_original(&mut budget.try_reserve_bytes(initial).unwrap())
+                .unwrap(),
+        );
+        let next = super::NextPublication::try_from_charge(
+            budget
+                .try_reserve_bytes(successor)
+                .unwrap()
+                .try_split(super::NextPublication::allocation_layout())
+                .unwrap(),
+        )
+        .unwrap();
         let probe = Arc::new(Probe {
             owner: Arc::clone(&owner),
             wakes: AtomicUsize::new(0),

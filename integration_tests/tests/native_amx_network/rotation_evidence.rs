@@ -356,8 +356,10 @@ pub(super) fn native_carrier_fee(
         "one original immutable private fee policy required"
     );
     let policy = &policies[0];
-    policy.validate()?;
-    ensure!(policy.asset_definition_id == amx::fee_asset() && policy.per_byte_fee.is_zero());
+    policy
+        .validate_for_scope(&root.scope)
+        .map_err(|error| eyre!("original root fee policy is invalid for its scope: {error:?}"))?;
+    ensure!(policy.fee_asset_id == amx::fee_asset() && policy.per_byte_fee.is_zero());
     let Executable::Instructions(instructions) = carrier.instructions() else {
         return Err(eyre!("original AMX instructions absent"));
     };
@@ -372,7 +374,8 @@ pub(super) fn native_carrier_fee(
     let gas = iroha_core::gas::meter_instructions(
         instructions.as_ref(),
         &iroha_core::gas::DEFAULT_ZK_GAS,
-    );
+    )
+    .map_err(|error| eyre!("native gas metering refused the original AMX carrier: {error:?}"))?;
     let instruction_charge =
         policy
             .per_instruction_fee

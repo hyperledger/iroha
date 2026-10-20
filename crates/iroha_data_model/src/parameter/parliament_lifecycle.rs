@@ -395,6 +395,9 @@ mod tests {
     /// A change of the committed parameters, for table-driven refusal tests.
     type Change = fn(&mut ParliamentLifecycleParametersV1);
 
+    /// A change of the committed sortition parameters.
+    type SortitionChange = fn(&mut ParliamentSortitionParametersV1);
+
     #[test]
     fn the_defaults_are_the_decided_table_and_validate() {
         let defaults = ParliamentLifecycleParametersV1::default();
@@ -470,12 +473,12 @@ mod tests {
     #[test]
     fn the_sortition_ranges_are_inclusive_and_checked_per_concept() {
         let valid = ParliamentSortitionParametersV1::default();
-        let with = |change: fn(&mut ParliamentSortitionParametersV1)| {
+        let with = |change: SortitionChange| {
             let mut parameters = valid.clone();
             change(&mut parameters);
             parameters.validate()
         };
-        let accepted: [fn(&mut ParliamentSortitionParametersV1); 10] = [
+        let accepted: [SortitionChange; 10] = [
             |p| p.pulse_delay_blocks = 1,
             |p| p.pulse_delay_blocks = 65_536,
             |p| p.max_cross_body_assignment_cap = 1,
@@ -490,7 +493,7 @@ mod tests {
         for change in accepted {
             assert_eq!(with(change), Ok(()));
         }
-        let refused: [(&str, fn(&mut ParliamentSortitionParametersV1)); 9] = [
+        let refused: [(&str, SortitionChange); 9] = [
             ("pulse_delay_blocks", |p| p.pulse_delay_blocks = 0),
             ("pulse_delay_blocks", |p| p.pulse_delay_blocks = 65_537),
             ("max_cross_body_assignment_cap", |p| {

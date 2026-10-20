@@ -102,7 +102,8 @@ fn charged_evidence_decode_refusal_retires_capture_and_retries_unchanged_signed_
     let pointer = proof.native_frame().as_ptr();
     let hash = Hash::new(proof.native_frame());
     let observed = Cell::new(0);
-    let narrow = norito::DecodeLimits::new(usize::MAX, 1, usize::MAX, usize::MAX, usize::MAX);
+    // Admit the policy read that precedes decoding; the proof still exceeds this ceiling.
+    let narrow = super::super::codec_tests::policy_field_ceiling(state, &proof);
     let failure = norito::with_decode_limits_scope(narrow, || {
         AdmissionRead::capture_observing(
             state,

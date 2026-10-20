@@ -55,7 +55,19 @@ repetition (per group) or keys from an authenticated committee root, and
 distinct digests across `AggregateVerify` groups. Every consensus verifier runs
 on one `blst` pairing context; `ConsensusAggregateScratch` admits its exact
 backing before allocation like `BlsNormalAggregateScratch` and then verifies
-without heap allocation, and the free functions use an unfunded context. The
+without heap allocation. Both owners reserve the exact checked upstream u64
+layout fallibly, retain the original physical allocator error separately from
+the caller's admission refusal, and deallocate before releasing their custody.
+The free functions and portable verdict-only adapters use a bounded stack
+context with the same raw operations and verification relation. Its audited
+size is checked against the linked blst implementation before entering C; no
+physical allocator failure is converted into a cryptographic rejection. A
+linked context outside `1..=4096` bytes would make those adapters reject every
+valid aggregate, so `consensus::check_pairing_geometry` reports it and node
+startup refuses such a build; the heap owners refuse an empty context with a
+typed `UnsupportedGeometry` error before reserving or entering C. Relation
+tests cover 1 to 21 terms, crossing blst's eight-term buffer flush, against an
+independent multi-Miller-loop reference. The
 w3f transcript above and the w3f proof of possession are unchanged, so neither
 suite's signatures verify in the other.
 `fixtures/sccp/bls_consensus_rust_v1.json` holds the shared vectors; its unit

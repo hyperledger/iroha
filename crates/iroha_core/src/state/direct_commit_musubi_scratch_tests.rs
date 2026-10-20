@@ -466,6 +466,9 @@ fn original_cell_successor_bytes(state: &State) -> usize {
 
 #[test]
 fn retained_state_retries_actual_musubi_capacity_without_rebuilding_its_world_tail() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::StatePublicationOutcome;
     let (state, proposal) = fixture();
     let header = proposal.header();
@@ -545,6 +548,9 @@ fn retained_state_retries_actual_musubi_capacity_without_rebuilding_its_world_ta
 
 #[test]
 fn retained_state_refuses_changed_publication_generation_without_rebase() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::StatePublicationOutcome;
     let (state, proposal) = fixture();
     let budget = state.ivm_execution_budget();
@@ -584,6 +590,15 @@ fn retained_state_refuses_changed_publication_generation_without_rebase() {
 
 #[test]
 fn retained_state_deferred_releases_complete_inventory_while_frozen_reads_keep_originals() {
+    // Keep this exact retirement observation separate from other test readers.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::retained_state_deferred_releases_complete_inventory_while_frozen_reads_keep_originals",
+    ) {
+        return;
+    }
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::StatePublicationOutcome;
     use std::{sync::mpsc, time::Duration};
     for replacement in [false, true] {
@@ -688,6 +703,9 @@ fn retained_state_deferred_releases_complete_inventory_while_frozen_reads_keep_o
 
 #[test]
 fn retained_state_late_world_busy_recovers_all_original_cursors_before_retry() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::StatePublicationOutcome;
     let (state, proposal) = fixture();
     let budget = state.ivm_execution_budget();
@@ -730,6 +748,9 @@ fn retained_state_late_world_busy_recovers_all_original_cursors_before_retry() {
 
 #[test]
 fn retained_state_equal_value_component_advance_never_rebases_original_predecessor() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::StatePublicationOutcome;
     let (state, proposal) = fixture();
     let budget = state.ivm_execution_budget();
@@ -762,6 +783,9 @@ fn retained_state_equal_value_component_advance_never_rebases_original_predecess
 
 #[test]
 fn retained_state_da_capacity_refusal_keeps_original_bundle_and_all_writers_free() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::{PendingDaCommitmentBundle, StatePublicationOutcome};
     use iroha_data_model::{
         da::{
@@ -974,6 +998,9 @@ pub(in crate::state) mod retained_musubi_group_tests;
 
 #[test]
 fn retained_state_successful_musubi_validation_survives_late_writer_refusal() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::{StatePublicationOutcome, world_commit::validation_observer};
     let (state, proposal) = fixture();
     let budget = state.ivm_execution_budget();
@@ -1073,6 +1100,9 @@ fn retained_state_successful_musubi_validation_survives_late_writer_refusal() {
 
 #[test]
 fn retained_state_validated_musubi_refuses_changed_visibility_before_retry() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::{StatePublicationOutcome, world_commit::validation_observer};
     let (state, proposal) = fixture();
     let budget = state.ivm_execution_budget();
@@ -1127,6 +1157,9 @@ fn retained_state_validated_musubi_refuses_changed_visibility_before_retry() {
 
 #[test]
 fn retained_state_validated_musubi_refuses_equal_predecessor_advance() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::{StatePublicationOutcome, world_commit::validation_observer};
     let (state, proposal) = fixture();
     let budget = state.ivm_execution_budget();
@@ -1175,6 +1208,9 @@ fn retained_state_validated_musubi_refuses_equal_predecessor_advance() {
 
 #[test]
 fn retained_state_unchanged_musubi_skips_both_validators() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::{StatePublicationOutcome, world_commit::validation_observer};
     let (state, proposal) = fixture();
     let mut original = Box::new(staged_block(&state, proposal.header(), false, false));
@@ -1200,6 +1236,9 @@ fn retained_state_unchanged_musubi_skips_both_validators() {
 
 #[test]
 fn retained_state_live_musubi_success_survives_universal_capacity_refusal() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::{StatePublicationOutcome, world_commit::validation_observer};
     let (state, proposal) = fixture();
     let budget = state.ivm_execution_budget();
@@ -1326,6 +1365,9 @@ fn retained_state_live_musubi_success_survives_universal_capacity_refusal() {
 
 #[test]
 fn retained_state_partial_musubi_validation_refuses_changed_visibility() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::{StatePublicationOutcome, world_commit::validation_observer};
     let (state, proposal) = fixture();
     let budget = state.ivm_execution_budget();

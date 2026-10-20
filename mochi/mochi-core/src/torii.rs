@@ -893,7 +893,8 @@ fn smoke_transaction_result_in_block(
                 TransactionEntrypoint::SealedReveal(reveal) => {
                     reveal.signed_transaction().hash() == *tx_hash
                 }
-                TransactionEntrypoint::SealedCommitment(_) => false,
+                TransactionEntrypoint::SealedCommitment(_)
+                | TransactionEntrypoint::AnonymousBallot(_) => false,
             };
             if !is_match {
                 return None;

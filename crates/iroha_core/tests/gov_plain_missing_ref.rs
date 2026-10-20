@@ -83,6 +83,7 @@ fn plain_ballot_rejected_when_referendum_absent_or_closed() {
     assert!(stx.world.governance_locks().get("missing").is_none());
     assert!(stx.world.take_external_events().is_empty());
     // Insert a closed referendum and ensure rejection
+    let plain_context = iroha_core::query::standalone_plain_test_fixture::context(&stx.gov, 0);
     stx.world.governance_referenda_mut().insert(
         "closed".to_string(),
         iroha_core::state::GovernanceReferendumRecord {
@@ -90,7 +91,7 @@ fn plain_ballot_rejected_when_referendum_absent_or_closed() {
             h_end: 5,
             status: iroha_core::state::GovernanceReferendumStatus::Closed,
             mode: iroha_core::state::GovernanceReferendumMode::Plain,
-            plain_context: iroha_core::query::standalone_plain_test_fixture::context(&stx.gov, 0),
+            plain_context,
             plain_result: iroha_data_model::governance::conviction::PlainVotingResultV1::Decided(
                 iroha_data_model::governance::conviction::PlainVotingDecisionV1 {
                     approve: 0,

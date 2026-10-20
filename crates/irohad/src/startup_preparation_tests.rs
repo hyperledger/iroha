@@ -16,6 +16,33 @@ mod startup_preparation_tests {
     }
 
     #[test]
+    fn unsupported_consensus_pairing_refuses_startup_before_any_reservation() {
+        use crate::startup_preparation::refuse_unsupported_consensus_pairing;
+        let linked = iroha_core::sumeragi::crypto::BlsCrypto::check_pairing_geometry();
+        assert!(refuse_unsupported_consensus_pairing(linked).is_ok());
+        let refusal = iroha_crypto::bls::consensus::UnsupportedPairingGeometry {
+            context_bytes: 5496,
+            stack_bytes: 4096,
+        };
+        let report = refuse_unsupported_consensus_pairing(Err(refusal)).unwrap_err();
+        assert!(matches!(
+            report.current_context(),
+            StartError::ConsensusPairing
+        ));
+        let rendered = format!("{report:?}");
+        assert!(rendered.contains("reports 5496 bytes"), "{rendered}");
+        // Checked before the process-wide NTS reservation and every later owner.
+        let preparation = include_str!("startup_preparation.rs");
+        let check = preparation
+            .find("refuse_unsupported_consensus_pairing(pairing)?;")
+            .expect("startup pairing refusal");
+        let reservation = preparation
+            .find("let nts_reservation = iroha_core::time::reserve(")
+            .expect("NTS reservation");
+        assert!(check < reservation);
+    }
+
+    #[test]
     fn startup_logger_runs_on_owned_runtime_without_leaking_entry() {
         // The production logger is process-global. Isolate its real constructor from the
         // test suite's shared logger rather than borrowing an already initialized actor.

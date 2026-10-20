@@ -857,7 +857,7 @@ enum ContinuationMutation {
     OwnReceiptVerdict,
     /// Q1 slot 1: the soft Send receipt verdict, projected by Signatures.
     IncomingSignatureVerdict,
-    /// Another step witness for ReceiveTransition, with the statement unchanged.
+    /// Another step witness for `ReceiveTransition`, with the statement unchanged.
     Step,
     CarriedP,
     WPart,
@@ -2819,8 +2819,8 @@ pub(crate) struct AuthenticatedReceive {
     pub(crate) payment_digest: Fp,
     /// Exact accepted-credit verdict constrained by all result and mode owners.
     pub(crate) accepted_credit: bool,
-    /// Actual own σ_recv whose original digest the own receipt signs. Receive A
-    /// proves the step inline; the payer's ArchiveReceive verifies this proof.
+    /// Actual own `σ_recv` whose original digest the own receipt signs. Receive A
+    /// proves the step inline; the payer's `ArchiveReceive` verifies this proof.
     pub(crate) sigma: Vec<u8>,
     /// Original Request, payer credential, Send receipt, Payment, incoming Omega,
     /// incoming sigma, own receipt and quoted credential/certificate.

@@ -13,7 +13,7 @@ use super::{
     ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1, AdmissionNonceV1, BallotProofBytesV1, BallotScopeV1,
     Digest512, NullifierV1, ProofProfileIdV1, VoteAuthorizationV1,
     digests::{AnonymousBallotCorpusErrorV1, envelope_digest_v1},
-    framing::{AnonymousBallotCodecErrorV1, decode_enc_bounded, enc_bounded},
+    framing::{AnonymousBallotCodecErrorV1, decode_enc_bounded_with_limits, enc_bounded},
 };
 use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, NetworkId};
 
@@ -182,6 +182,18 @@ pub struct AnonymousBallotEnvelopeV1 {
 }
 
 impl AnonymousBallotEnvelopeV1 {
+    // Positional records and fixed byte fields borrow their input or stay inline.
+    // The only owned decode allocation is one exact proof copy, charged by
+    // BallotProofBytesV1 after its field length has been checked. There are no
+    // sequence counts in this schema, including inside the raw proof bytes.
+    const DECODE_LIMITS: norito::DecodeLimits = norito::DecodeLimits::new(
+        0,
+        ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1,
+        0,
+        BallotProofBytesV1::LENGTH,
+        norito::core::MAX_VALUE_NESTING_DEPTH,
+    );
+
     /// `Enc(self)`, refused above the envelope cap.
     ///
     /// # Errors
@@ -197,14 +209,31 @@ impl AnonymousBallotEnvelopeV1 {
 
     /// Decode one exact canonical envelope frame of at most the envelope cap.
     ///
+    /// The byte cap is checked before entering the decoder. Its schema budget
+    /// permits no sequence elements and at most one 233,012-byte proof allocation;
+    /// a narrower enclosing Norito budget remains in force. This is a cumulative
+    /// nominal codec charge, not a bound on physical workspace, allocator overhead,
+    /// codec controls or error storage. Generic Norito APIs do not apply this
+    /// schema-specific boundary. Decoding does not verify the stamp or proof.
+    ///
     /// # Errors
     /// [`AnonymousBallotCodecErrorV1`] for oversize input, another header or any
-    /// non-canonical or wrong-length field.
+    /// non-canonical or wrong-length field. An enclosing-budget or allocator
+    /// refusal is [`AnonymousBallotCodecErrorV1::DecodeUnavailable`], not malformed
+    /// ballot evidence.
     pub fn decode_canonical_bounded(bytes: &[u8]) -> Result<Self, AnonymousBallotCodecErrorV1> {
-        decode_enc_bounded(
+        if bytes.len() > ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1 {
+            return Err(AnonymousBallotCodecErrorV1::TooLarge {
+                kind: "anonymous ballot envelope",
+                actual: bytes.len(),
+                max: ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1,
+            });
+        }
+        decode_enc_bounded_with_limits(
             bytes,
             "anonymous ballot envelope",
             ANONYMOUS_BALLOT_ENVELOPE_MAX_BYTES_V1,
+            Self::DECODE_LIMITS,
         )
     }
 
@@ -286,8 +315,9 @@ impl CanonicalAnonymousBallotEnvelopeV1 {
     /// The decoded envelope.
     ///
     /// # Errors
-    /// Never for a value obtained through a constructor or a Norito decode; the error of
-    /// [`AnonymousBallotEnvelopeV1::decode_canonical_bounded`] otherwise.
+    /// Constructors and checked decoders guarantee canonical validity, but a
+    /// local decode-budget or allocator refusal can still make this operation
+    /// unavailable. See [`AnonymousBallotEnvelopeV1::decode_canonical_bounded`].
     pub fn envelope(&self) -> Result<AnonymousBallotEnvelopeV1, AnonymousBallotCodecErrorV1> {
         AnonymousBallotEnvelopeV1::decode_canonical_bounded(&self.bytes)
     }
@@ -300,10 +330,14 @@ impl CanonicalAnonymousBallotEnvelopeV1 {
         envelope_digest_v1(&self.bytes)
     }
 
-    /// Norito decode hook: the bytes must be one canonical envelope frame.
+    /// Norito decode hook: check the frame and retain original local refusal ownership.
     fn checked(self) -> Result<Self, norito::Error> {
-        AnonymousBallotEnvelopeV1::decode_canonical_bounded(&self.bytes)
-            .map_err(|error| norito::Error::Message(error.to_string()))?;
+        AnonymousBallotEnvelopeV1::decode_canonical_bounded(&self.bytes).map_err(|error| {
+            match error {
+                AnonymousBallotCodecErrorV1::DecodeUnavailable(refusal) => refusal.into_error(),
+                error => norito::Error::Message(error.to_string()),
+            }
+        })?;
         Ok(self)
     }
 }
@@ -323,8 +357,12 @@ impl JsonDeserialize for CanonicalAnonymousBallotEnvelopeV1 {
             bytes: Vec<u8>,
         }
         let fields = <Fields as JsonDeserialize>::json_deserialize(parser)?;
-        Self::from_canonical_bytes(fields.bytes)
-            .map_err(|error| json::Error::Message(error.to_string()))
+        Self::from_canonical_bytes(fields.bytes).map_err(|error| match error {
+            AnonymousBallotCodecErrorV1::DecodeUnavailable(refusal) => {
+                json::Error::from_decode_resource(refusal.into_error())
+            }
+            error => json::Error::Message(error.to_string()),
+        })
     }
 }
 
@@ -501,6 +539,10 @@ impl AnonymousBallotCorpusEntryV1 {
         (self.height, self.input_index)
     }
 }
+
+#[cfg(test)]
+#[path = "envelope_decode_tests.rs"]
+mod envelope_decode_tests;
 
 #[cfg(test)]
 mod tests {

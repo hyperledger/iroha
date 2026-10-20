@@ -844,53 +844,65 @@ fn exact_same_account_scope_transfer_rebuilds_all_holder_indexes_after_source_ex
         .unwrap();
     assert!(transaction.world.assets.get(&source).is_none());
     assert_eq!(asset_balance_or_zero(&transaction, &destination), amount);
-    let definition_assets = transaction
-        .world
-        .asset_definition_assets
-        .get(&definition)
-        .unwrap();
+    let definition_assets = crate::state::range_bounds::index_members(
+        &transaction.world.asset_definition_assets,
+        &definition,
+    )
+    .cloned()
+    .collect::<std::collections::BTreeSet<_>>();
     assert!(!definition_assets.contains(&source));
     assert!(definition_assets.contains(&destination));
     assert_eq!(definition_assets.len(), 1);
-    let account_assets = transaction.world.assets_by_account.get(&ALICE_ID).unwrap();
+    let account_assets = transaction
+        .world
+        .assets_in_account_iter(&ALICE_ID)
+        .map(|entry| entry.id().clone())
+        .collect::<std::collections::BTreeSet<_>>();
     assert!(!account_assets.contains(&source));
     assert!(account_assets.contains(&destination));
-    let domain_assets = transaction.world.assets_by_domain.get(&domain).unwrap();
+    let domain_assets =
+        crate::state::range_bounds::index_members(&transaction.world.assets_by_domain, &domain)
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
     assert!(!domain_assets.contains(&source));
     assert!(domain_assets.contains(&destination));
     assert_eq!(
-        transaction
-            .world
-            .asset_definition_holders
-            .get(&definition)
-            .unwrap()
-            .len(),
+        crate::state::range_bounds::index_members(
+            &transaction.world.asset_definition_holders,
+            &definition
+        )
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>()
+        .len(),
         1
     );
     assert!(
-        transaction
-            .world
-            .asset_definition_holders
-            .get(&definition)
-            .unwrap()
-            .contains(&ALICE_ID)
+        crate::state::range_bounds::index_members(
+            &transaction.world.asset_definition_holders,
+            &definition
+        )
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>()
+        .contains(&ALICE_ID)
     );
     assert_eq!(
-        transaction
-            .world
-            .asset_definition_nonzero_holders
-            .get(&definition)
-            .unwrap()
-            .len(),
+        crate::state::range_bounds::index_members(
+            &transaction.world.asset_definition_nonzero_holders,
+            &definition
+        )
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>()
+        .len(),
         1
     );
     assert!(
-        transaction
-            .world
-            .asset_definition_nonzero_holders
-            .get(&definition)
-            .unwrap()
-            .contains(&ALICE_ID)
+        crate::state::range_bounds::index_members(
+            &transaction.world.asset_definition_nonzero_holders,
+            &definition
+        )
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>()
+        .contains(&ALICE_ID)
     );
     assert_eq!(
         transaction
@@ -930,20 +942,22 @@ fn exact_pair_rechecks_destination_before_touching_source_or_its_indexes() {
     assert_eq!(asset_balance_or_zero(&transaction, &source), amount);
     assert!(transaction.world.assets.get(&destination).is_none());
     assert!(
-        transaction
-            .world
-            .asset_definition_assets
-            .get(&definition)
-            .unwrap()
-            .contains(&source)
+        crate::state::range_bounds::index_members(
+            &transaction.world.asset_definition_assets,
+            &definition
+        )
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>()
+        .contains(&source)
     );
     assert!(
-        transaction
-            .world
-            .asset_definition_nonzero_holders
-            .get(&definition)
-            .unwrap()
-            .contains(&ALICE_ID)
+        crate::state::range_bounds::index_members(
+            &transaction.world.asset_definition_nonzero_holders,
+            &definition
+        )
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>()
+        .contains(&ALICE_ID)
     );
 }
 
@@ -1003,8 +1017,8 @@ fn original_supply_preparation_is_read_only_and_consumes_exact_balance_then_tota
                 !transaction
                     .world
                     .asset_definition_nonzero_holders
-                    .get(&definition)
-                    .is_some_and(|holders| holders.contains(&ALICE_ID))
+                    .get(&(definition.clone(), ALICE_ID.clone()))
+                    .is_some()
             );
         }
         drop(transaction);

@@ -697,12 +697,14 @@ impl StateTransaction<'_, '_> {
         // enumeration. These original reverse indexes are updated by the same
         // typed balance mutator; raw writes remain sticky refusal. Do not add a
         // full-world scan to each domain-owned definition retirement.
-        self.world.asset_definition_assets.get(id).is_none()
-            && self.world.asset_definition_holders.get(id).is_none()
-            && self
-                .world
-                .asset_definition_nonzero_holders
-                .get(id)
+        super::index_members(&self.world.asset_definition_assets, id)
+            .next()
+            .is_none()
+            && super::index_members(&self.world.asset_definition_holders, id)
+                .next()
+                .is_none()
+            && super::index_members(&self.world.asset_definition_nonzero_holders, id)
+                .next()
                 .is_none()
     }
 

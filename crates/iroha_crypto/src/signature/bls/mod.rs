@@ -52,6 +52,7 @@ pub mod consensus;
 mod consolidation_tests;
 mod ethereum;
 mod implementation;
+mod pairing;
 pub(crate) mod signing;
 pub use signing::BlsSigningError;
 pub(crate) mod uncached;

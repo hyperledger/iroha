@@ -326,6 +326,9 @@ fn registry_rejects_missing_extra_duplicate_and_changed_original_sources() {
 
 #[test]
 fn allocation_refusal_retains_the_actual_partial_key_and_original_pool_for_retry() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures admission, refusal and capture-only refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let state = state();
     let budget = state.ivm_execution_budget();
     let mut block = state.block(header(1));
@@ -611,6 +614,9 @@ fn validated_original_with_crypto_source(
 
 #[test]
 fn complete_original_fixture_covers_every_table_and_all_cells() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures admission, refusal and capture-only refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (state, proposal) = crate::state::publication::musubi_materializer_test_support::fixture();
     let block = validated_original(&state, proposal.header());
     let mut cut = OriginalCut::new(&block, limits(), CaptureIntent::Complete).unwrap();
@@ -760,6 +766,9 @@ fn complete_original_fixture_covers_every_table_and_all_cells() {
 
 #[test]
 fn validated_publication_refuses_foreign_manifest_rebinding_and_runtime_target_advance() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures admission, refusal and capture-only refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     use std::{
         panic::{AssertUnwindSafe, catch_unwind},
         sync::Arc,
@@ -851,6 +860,9 @@ fn direct_target_advance_refuses_the_retained_cut_instead_of_recapturing_values(
 
 #[test]
 fn field_and_row_admission_precede_canonical_backing() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures admission, refusal and capture-only refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let state = state();
     let budget = state.ivm_execution_budget();
     let before = budget.reserved_bytes();
@@ -877,6 +889,9 @@ fn field_and_row_admission_precede_canonical_backing() {
 
 #[test]
 fn original_static_input_survives_prepublication_foreign_source_and_deferred_cut_retry() {
+    // Keep retired fixture generations from refunding the exact State pool
+    // while this test measures admission, refusal and capture-only refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (state, proposal) = crate::state::publication::musubi_materializer_test_support::fixture();
     let expected = state.crypto();
     let block = validated_original_with_crypto_source(&state, proposal.header(), true);

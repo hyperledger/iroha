@@ -388,22 +388,14 @@ fn record_holders_page(
     totals: &mut RecordingTotals<'_>,
     budget: usize,
 ) -> Result<(usize, bool), Error> {
-    let page: Vec<AssetId> = state_transaction
-        .world
-        .asset_definition_assets
-        .get(&record.id)
-        .map(|assets| {
-            let lower = cursor
-                .after_asset
-                .as_ref()
-                .map_or(Bound::Unbounded, Bound::Excluded);
-            assets
-                .range::<AssetId, _>((lower, Bound::Unbounded))
-                .take(budget)
-                .cloned()
-                .collect()
-        })
-        .unwrap_or_default();
+    let page: Vec<AssetId> = crate::state::range_bounds::index_members_after(
+        &state_transaction.world.asset_definition_assets,
+        &record.id,
+        cursor.after_asset.as_ref(),
+    )
+    .take(budget)
+    .cloned()
+    .collect();
     let used = page.len();
     for asset_id in page {
         let balance = state_transaction
@@ -1339,17 +1331,15 @@ fn is_escrow_return_to_seller(
     source: &AssetId,
     destination: &AssetId,
 ) -> bool {
-    world
-        .asset_escrows_by_seller()
-        .get(destination.account())
-        .is_some_and(|escrows| {
-            escrows.iter().any(|escrow_id| {
-                world.asset_escrows().get(escrow_id).is_some_and(|escrow| {
-                    escrow.asset_definition == *source.definition()
-                        && escrow.custody == *source.account()
-                })
-            })
+    crate::state::range_bounds::index_members(
+        world.asset_escrows_by_seller(),
+        destination.account(),
+    )
+    .any(|escrow_id| {
+        world.asset_escrows().get(escrow_id).is_some_and(|escrow| {
+            escrow.asset_definition == *source.definition() && escrow.custody == *source.account()
         })
+    })
 }
 
 /// Enforce the book closing and the redemption freeze of a registered bond on one movement.

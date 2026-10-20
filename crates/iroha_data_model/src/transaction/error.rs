@@ -2,6 +2,7 @@
 pub use self::model::*;
 use crate::{
     ValidationFail,
+    governance::anonymous_ballot::AnonymousBallotRejectionV1,
     isi::{Instruction, InstructionBox},
 };
 
@@ -132,6 +133,13 @@ mod model {
         InstructionExecution(#[source] InstructionExecutionFail),
         /// Execution of a time trigger or an invoked data trigger failed.
         TriggerExecution(#[source] TriggerExecutionFail),
+        /// Anonymous ballot rejected: {0}
+        ///
+        /// Only a valid-proof ballot outside its casting window or with an
+        /// already accepted nullifier has a canonical rejection result. Invalid
+        /// proofs and local verification unavailability are not these outcomes.
+        #[codec(index = 5)]
+        AnonymousBallot(#[source] AnonymousBallotRejectionV1),
     }
 }
 
@@ -204,6 +212,40 @@ pub mod prelude {
 mod tests {
     use super::*;
     use crate::{Level, isi::Log};
+
+    #[test]
+    fn anonymous_ballot_rejections_roundtrip_with_their_exact_reason() {
+        for rejection in [
+            AnonymousBallotRejectionV1::OutsideCastingWindow,
+            AnonymousBallotRejectionV1::DuplicateNullifier,
+        ] {
+            let reason = TransactionRejectionReason::AnonymousBallot(rejection);
+            assert_eq!(&reason.encode()[..4], &5_u32.to_le_bytes());
+            assert_eq!(
+                TransactionRejectionReason::decode(&mut &reason.encode()[..]).unwrap(),
+                reason
+            );
+            let bytes = norito::encode_canonical(&reason).unwrap();
+            assert_eq!(
+                norito::decode_canonical::<TransactionRejectionReason>(&bytes).unwrap(),
+                reason
+            );
+            let json = norito::json::to_json(&reason).unwrap();
+            assert_eq!(
+                norito::json::from_str::<TransactionRejectionReason>(&json).unwrap(),
+                reason
+            );
+            assert_eq!(
+                norito::json::to_json_bounded(&reason, json.len()).unwrap(),
+                json
+            );
+            assert_eq!(
+                norito::json::to_json_bounded(&reason, json.len() - 1),
+                Err(norito::json::BoundedJsonError::BodyTooLarge)
+            );
+            assert_eq!(TransactionRejectionReason::from(rejection), reason);
+        }
+    }
 
     #[test]
     fn rejection_reason_json_is_canonical_and_ambient_independent() {

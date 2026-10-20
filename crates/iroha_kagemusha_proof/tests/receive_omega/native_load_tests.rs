@@ -36,7 +36,7 @@ use std::{
 };
 
 /// A funded Load head from a synthetic ordinary receipt bound to the genuine rooted
-/// Bootstrap predecessor. Λ_load binds the receipt terms and never verifies BLS finality
+/// Bootstrap predecessor. `Λ_load` binds the receipt terms and never verifies BLS finality
 /// (native code checks it before Advance), so the downstream Send chain is the same as with
 /// a captured receipt. Each reconstruction writes fresh originals under `KAGEMUSHA_LOAD_OUTPUT`.
 fn synthetic_load_fixture(expected_rebuilds: usize) -> (load_chain::LoadFixture, Arc<AtomicUsize>) {

@@ -697,7 +697,7 @@ fn public_amx_initial_acquired_genesis_refuses_relocated_pinned_slot_without_rer
 #[test]
 fn public_amx_signed_policy_retains_completed_npos_stage_on_metadata_refusal() {
     use iroha_data_model::{
-        block::{SharedSignedBlock, decode_framed_signed_block},
+        block::{PreparedSignedBlockSignaturesDecode, SharedSignedBlock},
         isi::SetParameter,
         parameter::{Parameter, system::SumeragiNposParameters},
         sumeragi_finality::{GenesisReadError, signed_genesis_consensus_metadata},
@@ -724,7 +724,7 @@ fn public_amx_signed_policy_retains_completed_npos_stage_on_metadata_refusal() {
     let reference = DecodeBudgetContext::try_new_owned(limits, &budget).unwrap();
     // This is the actual original native source/prelude/body path, not Kura's cached body.
     // Its shared shell is admitted before the sole canonical body decoder, as in the owner.
-    let (original_slot, raw, body) = reference.with(|| {
+    let (original_slot, raw, body, prepared_body) = reference.with(|| {
         let mut slot = chain
             .kura()
             .native_frame_read(1, expected)
@@ -735,11 +735,23 @@ fn public_amx_signed_policy_retains_completed_npos_stage_on_metadata_refusal() {
             .unwrap()
             .unwrap();
         let shell = SharedSignedBlock::reserve(&budget).unwrap();
-        let body = shell.initialize(decode_framed_signed_block(raw.as_slice()).unwrap());
+        let mut prepared = PreparedSignedBlockSignaturesDecode::new(&budget).unwrap();
+        let body = shell.initialize(
+            prepared
+                .decode(
+                    raw.charged_source(),
+                    norito::core::SequenceSpan {
+                        start: 0,
+                        end: raw.len(),
+                    },
+                    norito::canonical_decode_limits(raw.len()),
+                )
+                .unwrap(),
+        );
         assert_eq!(body.hash(), expected);
         assert!(body.belongs_to(&budget) && raw.belongs_to(&budget));
         body.validate_proposal_commitments().unwrap();
-        (slot, raw, body)
+        (slot, raw, body, prepared)
     });
     let acquisition = reference.consumed_allocated_bytes();
     let policy = body
@@ -805,6 +817,7 @@ fn public_amx_signed_policy_retains_completed_npos_stage_on_metadata_refusal() {
     let original_wire = raw.as_slice().to_vec();
     budget.with_deferred_refund_notifications(|_| {
         drop(body);
+        drop(prepared_body);
         drop(raw);
     });
     drop(reference);

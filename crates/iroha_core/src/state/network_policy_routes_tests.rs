@@ -117,6 +117,9 @@ fn source(
             TransactionEntrypoint::SealedReveal(reveal) => {
                 builder.push_sealed_transaction_reveal(reveal);
             }
+            TransactionEntrypoint::AnonymousBallot(envelope) => {
+                builder.push_anonymous_ballot(envelope);
+            }
             TransactionEntrypoint::SealedCommitment(commitment) => {
                 builder.push_sealed_transaction_commitment(commitment);
             }
@@ -898,13 +901,27 @@ fn original_routing_capture_refusal(allocation: Option<usize>) {
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, limit, 32),
             || crate::sumeragi::lanes::routing::RoutingSnapshot::of(block).unwrap_err(),
         );
-        // The current JSON routing adapter carries a diagnostic-only refusal;
-        // it does not yet retain a canonical captured decoder scope.
+        // Both routing paths retain their original parser scope. Independent
+        // reads report the same resource limit without sharing observer identity.
         assert_eq!(snapshot_refusal.reason(), reason.reason());
         assert_eq!(snapshot_refusal.phase(), reason.phase());
+        let captured_decode = reason
+            .decode_refusal()
+            .expect("original capture decoder scope");
+        let snapshot_decode = snapshot_refusal
+            .decode_refusal()
+            .expect("original snapshot decoder scope");
+        assert_eq!(captured_decode.kind(), snapshot_decode.kind());
+        assert_eq!(
+            captured_decode.resource_error(),
+            snapshot_decode.resource_error()
+        );
+        assert!(matches!(captured_decode.resource_error(),
+            norito::core::DecodeResourceError::TotalAllocationExceeded { attempted, limit: observed }
+                if observed == limit as u64 && attempted > observed));
+        assert_ne!(captured_decode, snapshot_decode);
         for observed in [&snapshot_refusal, &reason] {
             assert!(observed.allocation_refusal().is_none());
-            assert!(observed.decode_refusal().is_none());
             assert!(observed.verification_refusal().is_none());
         }
         drop(owner);

@@ -263,24 +263,23 @@ where
     }
 }
 
-/// Keys of one secondary index set in identity order, strictly after `after`
-/// (before it when `descending`). Exact `id` candidates visit only the keys
-/// the index holds.
-fn seek_index_keys<'a, K: Ord>(
-    keys: Option<&'a BTreeSet<K>>,
-    candidates: Option<BTreeSet<K>>,
-    after: Option<&'a K>,
+/// Members of one secondary index prefix in identity order, strictly after
+/// the cursor (before it when descending). Exact candidates use tuple lookups.
+fn seek_index_keys<'a, K: mv::Key, M: mv::Key>(
+    index: &'a impl mv::storage::StorageReadOnly<(K, M), ()>,
+    key: &K,
+    candidates: Option<BTreeSet<M>>,
+    after: Option<&M>,
     descending: bool,
-) -> Box<dyn Iterator<Item = &'a K> + 'a> {
-    use std::ops::Bound::{Excluded, Unbounded};
-    let Some(keys) = keys else {
-        return Box::new(core::iter::empty());
+) -> Box<dyn Iterator<Item = &'a M> + 'a> {
+    use iroha_core::state::range_bounds::{
+        index_get_member, index_members_after, index_members_before,
     };
     if let Some(candidates) = candidates {
-        let held: Vec<&'a K> = candidates
-            .iter()
-            .filter_map(|candidate| keys.get(candidate))
-            .filter(|key| entry_after_cursor(*key, after, descending))
+        let held: Vec<&'a M> = candidates
+            .into_iter()
+            .filter_map(|candidate| index_get_member(index, key, &candidate))
+            .filter(|member| entry_after_cursor(*member, after, descending))
             .collect();
         return if descending {
             Box::new(held.into_iter().rev())
@@ -288,11 +287,10 @@ fn seek_index_keys<'a, K: Ord>(
             Box::new(held.into_iter())
         };
     }
-    match (after, descending) {
-        (Some(after), false) => Box::new(keys.range((Excluded(after), Unbounded))),
-        (Some(after), true) => Box::new(keys.range((Unbounded, Excluded(after))).rev()),
-        (None, false) => Box::new(keys.iter()),
-        (None, true) => Box::new(keys.iter().rev()),
+    if descending {
+        Box::new(index_members_before(index, key, after).rev())
+    } else {
+        Box::new(index_members_after(index, key, after))
     }
 }
 
@@ -389,6 +387,10 @@ pub fn canonicalize_collection_query(
 
 /// Validate and execute `query` against this node's state, returning full rows.
 #[cfg(test)]
+#[expect(
+    clippy::unused_async,
+    reason = "Fixture API mirrors the asynchronous collection response entry point."
+)]
 pub async fn execute_collection_local(
     app: Option<&crate::SharedAppState>,
     state: &Arc<CoreState>,
@@ -409,11 +411,10 @@ pub async fn execute_collection_local(
         &prepared,
         &limits,
     )
-    .await
 }
 
 /// Execute the one admitted plan without cloning its query or preparing again.
-async fn execute_prepared_collection_local(
+fn execute_prepared_collection_local(
     app: Option<&crate::SharedAppState>,
     state: &Arc<CoreState>,
     (target, query): (&CollectionTarget, &ListQuery),
@@ -453,7 +454,19 @@ async fn execute_prepared_collection_local(
                     ),
                     visibility
                         .allows_domain(&world, id)
-                        .then(|| domain_row(domain, limits.bytes))
+                        .then(|| {
+                            source_filtered_row(
+                                prepared,
+                                || {
+                                    limits.bytes.row_fields([
+                                        ("id", id),
+                                        ("owned_by", domain.owned_by()),
+                                        ("logo", domain.logo()),
+                                    ])
+                                },
+                                || domain_row(domain, limits.bytes),
+                            )
+                        })
                         .transpose()?,
                 ))
             });
@@ -491,7 +504,24 @@ async fn execute_prepared_collection_local(
                     ),
                     visibility
                         .allows_account(&world, id)
-                        .then(|| account_row(id, value.as_ref(), limits.bytes))
+                        .then(|| {
+                            source_filtered_row(
+                                prepared,
+                                || {
+                                    let uaid = value
+                                        .uaid
+                                        .as_ref()
+                                        .map(|uaid| limits.bytes.display(uaid))
+                                        .transpose()?;
+                                    limits.bytes.row_fields([
+                                        ("id", id),
+                                        ("label", &None::<&str>),
+                                        ("uaid", &uaid),
+                                    ])
+                                },
+                                || account_row(id, value.as_ref(), limits.bytes),
+                            )
+                        })
                         .transpose()?,
                 ))
             });
@@ -578,7 +608,17 @@ async fn execute_prepared_collection_local(
                     ),
                     visibility
                         .allows_nft(world_ref, id)
-                        .then(|| nft_row(id, value.as_ref(), limits.bytes))
+                        .then(|| {
+                            source_filtered_row(
+                                prepared,
+                                || {
+                                    limits
+                                        .bytes
+                                        .row_fields([("id", id), ("owned_by", &value.owned_by)])
+                                },
+                                || nft_row(id, value.as_ref(), limits.bytes),
+                            )
+                        })
                         .transpose()?,
                 ))
             });
@@ -668,9 +708,7 @@ async fn execute_prepared_collection_local(
                     asset_alias.as_ref(),
                     None,
                     visibility,
-                )
-                .await?
-                {
+                )? {
                     return prepared.execute(rows, limits).map_err(Error::from);
                 }
                 if !asset_holder_live_aggregate_enabled() {
@@ -691,7 +729,8 @@ async fn execute_prepared_collection_local(
                     .filter(|asset| asset.definition() == &definition)
             })?;
             let rows = seek_index_keys(
-                world.asset_definition_assets().get(&definition),
+                world.asset_definition_assets(),
+                &definition,
                 id_candidates(query, |id| AssetId::parse_literal(id).ok()),
                 after.as_ref().filter(|_| !query.include_total),
                 descending,
@@ -1604,6 +1643,8 @@ pub async fn execute_collection_response(
     telemetry: &MaybeTelemetry,
     visibility: &DataspaceReadVisibility,
 ) -> Result<Response> {
+    // Capture task-local custody and geometry before crossing to a physical
+    // worker. Cancellation cannot release its backing while execution runs.
     let owner = match app {
         Some(app) => {
             let reservation = crate::current_query_fanout_memory_for_state(app)
@@ -1612,26 +1653,55 @@ pub async fn execute_collection_response(
         }
         None => crate::history_producer::HistoryProducerOwner::current_if_admitted()?,
     };
-    canonicalize_collection_query(state, target, &mut query, telemetry)?;
     let limits = collection_execution_limits(app)?;
-    let prepared = collections::prepare(target.spec(), target.scope(), &query, &limits)?;
-    let page = execute_prepared_collection_local(
-        app,
-        state,
-        (target, &query),
-        telemetry,
-        visibility,
-        &prepared,
-        &limits,
-    )
-    .await?;
-    let page = prepared.project(page)?;
-    match owner {
-        Some(owner) => row_page_response_owned(page, limits.bytes, &owner),
-        // app=None is the explicit standalone engine/benchmark entry point. It has
-        // no query-pool certification; a present invalid admission was rejected above.
-        None => standalone_row_page_response(page, limits.bytes),
-    }
+    let app = app.cloned();
+    let state = Arc::clone(state);
+    let target = target.clone();
+    let telemetry = telemetry.clone();
+    let visibility = visibility.clone();
+    run_collection_worker(owner, move |owner| {
+        canonicalize_collection_query(&state, &target, &mut query, &telemetry)?;
+        let prepared = collections::prepare(target.spec(), target.scope(), &query, &limits)?;
+        let page = execute_prepared_collection_local(
+            app.as_ref(),
+            &state,
+            (&target, &query),
+            &telemetry,
+            &visibility,
+            &prepared,
+            &limits,
+        )?;
+        let page = prepared.project(page)?;
+        match owner {
+            Some(owner) => row_page_response_owned(page, limits.bytes, owner),
+            // app=None is the explicit standalone engine/benchmark entry point.
+            None => standalone_row_page_response(page, limits.bytes),
+        }
+    })
+    .await
+}
+
+/// Keep the original query owner on the worker through scanning and encoding.
+async fn run_collection_worker<T: Send + 'static>(
+    owner: Option<crate::history_producer::HistoryProducerOwner>,
+    work: impl FnOnce(Option<&crate::history_producer::HistoryProducerOwner>) -> Result<T>
+    + Send
+    + 'static,
+) -> Result<T> {
+    let worker = crate::panic_recovery::spawn_blocking_recoverable(move || match owner {
+        Some(owner) => owner.scope(|| work(Some(&owner))),
+        None => work(None),
+    });
+    crate::panic_recovery::join_recoverable(worker)
+        .await
+        .map_err(|error| {
+            iroha_logger::warn!(%error, "collection query worker failed");
+            Error::from(CollectionError::new(
+                "internal",
+                "query",
+                "collection query worker failed",
+            ))
+        })?
 }
 
 /// Serialize a page as the JSON page envelope.
@@ -1676,6 +1746,18 @@ fn standalone_row_page_response(
         axum::http::HeaderValue::from_static("application/json"),
     );
     Ok(response)
+}
+
+/// Preserve a rejected row's visible identity without expanding its metadata.
+fn source_filtered_row(
+    prepared: &collections::Prepared<'_>,
+    prefix: impl FnOnce() -> std::result::Result<Map, CollectionError>,
+    complete: impl FnOnce() -> Result<Map>,
+) -> Result<Map> {
+    match prepared.rejected_source_prefix(prefix)? {
+        Some(rejected) => Ok(rejected),
+        None => complete(),
+    }
 }
 
 fn domain_row(
@@ -2105,11 +2187,130 @@ mod tests {
             &prepared,
             &limits,
         )
-        .await
         .unwrap_err();
         assert!(
             matches!(error, Error::CollectionQuery(ref error) if error.code == "query_capacity_exceeded")
         );
+    }
+
+    #[tokio::test]
+    async fn rejected_accounts_do_not_serialize_oversized_metadata() {
+        use iroha_torii_shared::list_query::{FieldPath, FilterExpr};
+        let owner = authority(0xC2);
+        let mut metadata = Metadata::default();
+        metadata.insert(
+            "dense".parse().unwrap(),
+            Json::new(Value::Array(vec![Value::Null; 1024])),
+        );
+        let account = dm::Account::new(owner.clone())
+            .with_metadata(metadata)
+            .build(&owner);
+        let state = Arc::new(State::new_for_testing(
+            World::with([], [account], []),
+            Kura::blank_kura_for_testing(),
+            LiveQueryStore::start_test(),
+        ));
+        let mut limits = collection_limits();
+        limits.bytes.source_frame_bytes = 512;
+        limits.bytes.row_bytes = 2_048;
+        let query = ListQuery {
+            filter: Some(FilterExpr::Eq(
+                FieldPath::new("label"),
+                Value::from("not-the-null-label"),
+            )),
+            include_total: true,
+            ..ListQuery::default()
+        };
+        let target = CollectionTarget::Accounts;
+        let prepared =
+            collections::prepare(target.spec(), target.scope(), &query, &limits).unwrap();
+        let page = execute_prepared_collection_local(
+            None,
+            &state,
+            (&target, &query),
+            &MaybeTelemetry::for_tests(),
+            &DataspaceReadVisibility::all_for_tests(),
+            &prepared,
+            &limits,
+        )
+        .expect("a rejected row must not expand its metadata");
+        assert!(page.items.is_empty());
+        assert_eq!(page.total, Some(0));
+        limits.ordered_page_scan_budget = 1;
+        for order in [SortKey::asc("id"), SortKey::desc("id")] {
+            let query = ListQuery {
+                include_total: false,
+                ..query.clone()
+            }
+            .sort_by(order);
+            let prepared =
+                collections::prepare(target.spec(), target.scope(), &query, &limits).unwrap();
+            let page = execute_prepared_collection_local(
+                None,
+                &state,
+                (&target, &query),
+                &MaybeTelemetry::for_tests(),
+                &DataspaceReadVisibility::all_for_tests(),
+                &prepared,
+                &limits,
+            )
+            .expect("a rejected visible row still establishes sparse continuation");
+            assert!(page.items.is_empty());
+            let continuation = query
+                .clone()
+                .cursor(page.next_cursor.expect("sparse continuation"));
+            let prepared =
+                collections::prepare(target.spec(), target.scope(), &continuation, &limits)
+                    .unwrap();
+            let page = execute_prepared_collection_local(
+                None,
+                &state,
+                (&target, &continuation),
+                &MaybeTelemetry::for_tests(),
+                &DataspaceReadVisibility::all_for_tests(),
+                &prepared,
+                &limits,
+            )
+            .expect("continuation seeks past the rejected source");
+            assert!(page.items.is_empty());
+            assert!(page.next_cursor.is_none());
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn collection_worker_is_off_runtime_and_retains_admission_after_cancellation() {
+        const WORKING: usize = 48 * 1024 * 1024;
+        let pool = crate::ByteWeightedMemoryPool::new(WORKING).unwrap();
+        let memory = crate::QueryFanoutMemoryReservation::from_admitted_fanout(
+            pool.try_acquire_parts([WORKING as u64]).unwrap(),
+            crate::QueryFanoutMemoryEnvelope::for_body_admission(WORKING).unwrap(),
+            pool.generation(),
+        )
+        .unwrap();
+        let owner =
+            crate::history_producer::HistoryProducerOwner::from_reservation(&memory).unwrap();
+        drop(memory);
+        let runtime_thread = std::thread::current().id();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (finish_tx, finish_rx) = std::sync::mpsc::channel();
+        let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel::<()>();
+        let task = tokio::spawn(run_collection_worker(Some(owner), move |owner| {
+            assert!(owner.is_some());
+            assert!(crate::history_producer::HistoryProducerOwner::current().is_ok());
+            started_tx.send(std::thread::current().id()).unwrap();
+            finish_rx.recv().unwrap();
+            Ok(dropped_tx)
+        }));
+        assert_ne!(started_rx.await.unwrap(), runtime_thread);
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(pool.try_acquire_parts([WORKING as u64]).is_none());
+        finish_tx.send(()).unwrap();
+        assert!(
+            dropped_rx.await.is_err(),
+            "detached worker result drops only after its owner"
+        );
+        assert!(pool.try_acquire_parts([WORKING as u64]).is_some());
     }
 
     #[test]
@@ -2172,9 +2373,14 @@ mod tests {
 
     #[test]
     fn seek_index_keys_streams_identity_order_from_the_cursor() {
-        let keys = BTreeSet::from([2_u32, 4, 6, 8]);
+        let keys: mv::storage::Storage<(u8, u32), ()> =
+            [(1, 1), (2, 2), (2, 4), (2, 6), (2, 8), (3, 10)]
+                .into_iter()
+                .map(|key| (key, ()))
+                .collect();
+        let view = keys.view();
         let seek = |candidates: Option<BTreeSet<u32>>, after: Option<&u32>, descending| {
-            seek_index_keys(Some(&keys), candidates, after, descending)
+            seek_index_keys(&view, &2, candidates, after, descending)
                 .copied()
                 .collect::<Vec<_>>()
         };
@@ -2187,9 +2393,48 @@ mod tests {
         assert_eq!(seek(candidates(), Some(&4), false), [8]);
         assert_eq!(seek(candidates(), Some(&8), true), [4]);
         assert!(
-            seek_index_keys::<u32>(None, None, None, false)
+            seek_index_keys(&view, &9, None, None, false)
                 .next()
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn exact_index_candidates_do_not_clone_prefix_keys() {
+        thread_local! {
+            static CLONES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+        }
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+        struct Prefix(u8);
+        impl Clone for Prefix {
+            fn clone(&self) -> Self {
+                CLONES.with(|count| count.set(count.get() + 1));
+                Self(self.0)
+            }
+        }
+        let rows: mv::storage::Storage<(Prefix, u32), ()> = [
+            ((Prefix(1), 4), ()),
+            ((Prefix(2), 4), ()),
+            ((Prefix(2), 8), ()),
+        ]
+        .into_iter()
+        .collect();
+        let view = rows.view();
+        CLONES.with(|count| count.set(0));
+        let selected = seek_index_keys(
+            &view,
+            &Prefix(2),
+            Some(BTreeSet::from([1, 4, 8, 99])),
+            None,
+            false,
+        )
+        .copied()
+        .collect::<Vec<_>>();
+        assert_eq!(selected, [4, 8]);
+        assert_eq!(
+            CLONES.with(std::cell::Cell::get),
+            0,
+            "candidate filtering borrows the potentially allocated index prefix"
         );
     }
 

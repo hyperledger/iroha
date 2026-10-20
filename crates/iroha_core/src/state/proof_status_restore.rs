@@ -5,10 +5,10 @@
 
 use super::{World, ownership_index_restore};
 
-/// Preserve complete predecessor buckets and redundant source touches.
+/// Preserve predecessor memberships and redundant source touches.
 pub(super) fn rebuild(world: &mut World) {
     let by_status =
-        ownership_index_restore::grouped(&world.proofs.history(), |_, record| Some(record.status));
+        ownership_index_restore::members(&world.proofs.history(), |_, record| Some(record.status));
     world.proofs_by_status = by_status;
 }
 

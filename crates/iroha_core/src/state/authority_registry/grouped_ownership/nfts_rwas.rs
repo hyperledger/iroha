@@ -9,8 +9,8 @@ use crate::state::authority_registry::{
 pub(in super::super) struct CheckedNfts<'world> {
     world: &'world World,
     rows: CommittedStorageView<'world, NftId, NftValue>,
-    owners: CommittedStorageView<'world, AccountId, BTreeSet<NftId>>,
-    domains: CommittedStorageView<'world, DomainId, BTreeSet<NftId>>,
+    owners: CommittedStorageView<'world, (AccountId, NftId), ()>,
+    domains: CommittedStorageView<'world, (DomainId, NftId), ()>,
 }
 impl<'world> CheckedNfts<'world> {
     /// Check the sole both-image relation over these actual original readers.
@@ -57,9 +57,9 @@ impl<'world> CheckedNfts<'world> {
 pub(in super::super) struct CheckedRwas<'world> {
     world: &'world World,
     rows: CommittedStorageView<'world, RwaId, RwaValue>,
-    owners: CommittedStorageView<'world, AccountId, BTreeSet<RwaId>>,
-    statuses: CommittedStorageView<'world, Option<Name>, BTreeSet<RwaId>>,
-    frozen: CommittedStorageView<'world, bool, BTreeSet<RwaId>>,
+    owners: CommittedStorageView<'world, (AccountId, RwaId), ()>,
+    statuses: CommittedStorageView<'world, (Option<Name>, RwaId), ()>,
+    frozen: CommittedStorageView<'world, (bool, RwaId), ()>,
 }
 impl<'world> CheckedRwas<'world> {
     /// Check the sole both-image relation over these actual original readers.
@@ -114,10 +114,10 @@ impl<'world> CheckedRwas<'world> {
 }
 /// No-undo singleton NFT reference: domain63+63, Name63, Single Ed25519 owner.
 /// This local schedule is not a worst-case bound, physical limit or validity rule.
-pub(in crate::state) const NFT_WORK_PER_ROW: u64 = 4332;
+pub(in crate::state) const NFT_WORK_PER_ROW: u64 = 4320;
 /// No-undo singleton RWA reference: domain63+63, Some(Name63), Single Ed25519 owner.
 /// Larger actual geometry may need more admitted local work without changing validity.
-pub(in crate::state) const RWA_WORK_PER_ROW: u64 = 4626;
+pub(in crate::state) const RWA_WORK_PER_ROW: u64 = 4608;
 struct NftRwaWork(u64);
 impl NftRwaWork {
     fn bounded(max_work: u64) -> Self {
@@ -134,6 +134,12 @@ impl NftRwaWork {
 }
 trait BorrowedKey: mv::Key {
     fn prepay(&self, work: &mut NftRwaWork) -> Result<(), GroupedOwnershipError>;
+}
+impl<G: BorrowedKey, K: BorrowedKey> BorrowedKey for (G, K) {
+    fn prepay(&self, work: &mut NftRwaWork) -> Result<(), GroupedOwnershipError> {
+        self.0.prepay(work)?;
+        self.1.prepay(work)
+    }
 }
 impl BorrowedKey for DomainId {
     fn prepay(&self, work: &mut NftRwaWork) -> Result<(), GroupedOwnershipError> {
@@ -236,21 +242,31 @@ fn lookup<'a, K: BorrowedKey, V: mv::Value>(
     })?;
     Ok(found)
 }
-fn contains<K: BorrowedKey>(
-    members: &BTreeSet<K>,
-    key: &K,
+fn contains<G: BorrowedKey, K: BorrowedKey>(
+    groups: &impl RawStorageImages<(G, K), ()>,
+    image: GroupImage,
+    group: &G,
+    member: &K,
     work: &mut NftRwaWork,
 ) -> Result<bool, GroupedOwnershipError> {
-    let mut members = members.iter();
     let mut found = false;
-    while let Some(candidate) = next_physical(&mut members, work)? {
-        found |= equal(key, candidate, work)?;
-    }
+    visit_original(
+        groups,
+        image,
+        work,
+        |(candidate_group, candidate_member), (), work| {
+            let group_matches = equal(group, candidate_group, work)?;
+            let member_matches = equal(member, candidate_member, work)?;
+            found |= group_matches && member_matches;
+            Ok(())
+        },
+    )?;
     Ok(found)
 }
+
 fn validate_id_group<K: BorrowedKey, V: mv::Value, G: BorrowedKey>(
     rows: &impl RawStorageImages<K, V>,
-    groups: &impl RawStorageImages<G, BTreeSet<K>>,
+    groups: &impl RawStorageImages<(G, K), ()>,
     index: &'static str,
     project: impl for<'a> Fn(&'a K, &'a V) -> &'a G,
     work: &mut NftRwaWork,
@@ -262,29 +278,18 @@ fn validate_id_group<K: BorrowedKey, V: mv::Value, G: BorrowedKey>(
             mismatch,
         };
         visit_original(rows, image, work, |id, value, work| {
-            let found = if let Some(members) = lookup(groups, image, project(id, value), work)? {
-                contains(members, id, work)?
-            } else {
-                false
-            };
+            let found = contains(groups, image, project(id, value), id, work)?;
             if !found {
                 return Err(corrupt(GroupMismatch::MissingMember));
             }
             Ok(())
         })?;
-        visit_original(groups, image, work, |group, members, work| {
-            work.prepay(1)?;
-            if members.is_empty() {
-                return Err(corrupt(GroupMismatch::EmptyGroup));
-            }
-            let mut members = members.iter();
-            while let Some(id) = next_physical(&mut members, work)? {
-                let Some(value) = lookup(rows, image, id, work)? else {
-                    return Err(corrupt(GroupMismatch::ForeignMember));
-                };
-                if !equal(project(id, value), group, work)? {
-                    return Err(corrupt(GroupMismatch::ForeignMember));
-                }
+        visit_original(groups, image, work, |(group, id), (), work| {
+            let Some(value) = lookup(rows, image, id, work)? else {
+                return Err(corrupt(GroupMismatch::ForeignMember));
+            };
+            if !equal(project(id, value), group, work)? {
+                return Err(corrupt(GroupMismatch::ForeignMember));
             }
             Ok(())
         })?;
@@ -294,8 +299,8 @@ fn validate_id_group<K: BorrowedKey, V: mv::Value, G: BorrowedKey>(
 /// Sole NFT owner then domain relation, each Current/Predecessor and source-before-inverse.
 pub(in crate::state) fn validate_original_nfts(
     rows: &impl RawStorageImages<NftId, NftValue>,
-    owners: &impl RawStorageImages<AccountId, BTreeSet<NftId>>,
-    domains: &impl RawStorageImages<DomainId, BTreeSet<NftId>>,
+    owners: &impl RawStorageImages<(AccountId, NftId), ()>,
+    domains: &impl RawStorageImages<(DomainId, NftId), ()>,
     max_work: u64,
 ) -> Result<(), GroupedOwnershipError> {
     let mut work = NftRwaWork::bounded(max_work);
@@ -317,9 +322,9 @@ pub(in crate::state) fn validate_original_nfts(
 /// Sole RWA owner, status then frozen relation; None status remains a populated group key.
 pub(in crate::state) fn validate_original_rwas(
     rows: &impl RawStorageImages<RwaId, RwaValue>,
-    owners: &impl RawStorageImages<AccountId, BTreeSet<RwaId>>,
-    statuses: &impl RawStorageImages<Option<Name>, BTreeSet<RwaId>>,
-    frozen: &impl RawStorageImages<bool, BTreeSet<RwaId>>,
+    owners: &impl RawStorageImages<(AccountId, RwaId), ()>,
+    statuses: &impl RawStorageImages<(Option<Name>, RwaId), ()>,
+    frozen: &impl RawStorageImages<(bool, RwaId), ()>,
     max_work: u64,
 ) -> Result<(), GroupedOwnershipError> {
     let mut work = NftRwaWork::bounded(max_work);

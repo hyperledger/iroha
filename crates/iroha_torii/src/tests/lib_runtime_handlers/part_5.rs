@@ -3090,8 +3090,19 @@ async fn transaction_details_http_preserves_original_receipt_after_cold_body_rea
         assert_eq!(
             app.kura
                 .get_block_heights_by_entrypoint_hash(entrypoint_hash),
+            indexed_before,
+            "a cold body read must neither withdraw nor republish the append path's index entry"
+        );
+        // A restarted node indexes only the bodies it loaded, leaving this height partial
+        // until it is re-indexed. Details reads must not need that auxiliary index.
+        app.kura
+            .forget_transaction_entrypoint_index_for_testing(height)
+            .unwrap();
+        assert_eq!(
+            app.kura
+                .get_block_heights_by_entrypoint_hash(entrypoint_hash),
             None,
-            "an ordinary cold read must not authenticate the transaction index"
+            "a height awaiting re-indexing leaves the auxiliary index partial"
         );
         let work = routing::app_query_limits().max_fetch_size;
         let bytes = transaction_history_byte_limit(work);

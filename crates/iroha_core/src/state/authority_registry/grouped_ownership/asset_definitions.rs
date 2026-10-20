@@ -23,8 +23,8 @@ pub(in super::super) struct CheckedAssetDefinitions<'world> {
     rows: CommittedStorageView<'world, AssetDefinitionId, AssetDefinition>,
     domains: CommittedStorageView<'world, DomainId, Domain>,
     contexts: CommittedStorageView<'world, AssetDefinitionId, DomainId>,
-    by_domain: CommittedStorageView<'world, DomainId, BTreeSet<AssetDefinitionId>>,
-    by_owner: CommittedStorageView<'world, AccountId, BTreeSet<AssetDefinitionId>>,
+    by_domain: CommittedStorageView<'world, (DomainId, AssetDefinitionId), ()>,
+    by_owner: CommittedStorageView<'world, (AccountId, AssetDefinitionId), ()>,
     confidential_policies: RetainedConfidentialPolicies<'world>,
 }
 
@@ -133,7 +133,7 @@ impl<'world> CheckedAssetDefinitions<'world> {
 /// One-row Single Ed25519/domain126/pending-window reference over both images.
 /// Wider controllers and quadratic cuts may need more local admitted work; this
 /// is not a row, policy, controller, gas, schema or ledger-validity maximum.
-pub(in super::super) const ASSET_DEFINITION_WORK_PER_ROW: u64 = 3868;
+pub(in super::super) const ASSET_DEFINITION_WORK_PER_ROW: u64 = 3856;
 
 /// Prepay the existing fixed sixteen UUID bytes before copying/comparing them.
 /// The callback preserves the caller's exact local refusal and never reparses an id.
@@ -166,6 +166,12 @@ impl AssetDefinitionWork {
 pub(super) trait AssetWorkKey: mv::Key {
     fn prepay(&self, work: &mut AssetDefinitionWork) -> Result<(), GroupedOwnershipError>;
 }
+impl<G: AssetWorkKey, K: AssetWorkKey> AssetWorkKey for (G, K) {
+    fn prepay(&self, work: &mut AssetDefinitionWork) -> Result<(), GroupedOwnershipError> {
+        self.0.prepay(work)?;
+        self.1.prepay(work)
+    }
+}
 impl AssetWorkKey for AssetDefinitionId {
     fn prepay(&self, work: &mut AssetDefinitionWork) -> Result<(), GroupedOwnershipError> {
         prepay_asset_definition_id(self, |amount| work.prepay(amount))
@@ -185,12 +191,6 @@ impl AssetWorkKey for AccountId {
 impl AssetWorkKey for u64 {
     fn prepay(&self, work: &mut AssetDefinitionWork) -> Result<(), GroupedOwnershipError> {
         work.prepay(8)
-    }
-}
-impl AssetWorkKey for (u64, AssetDefinitionId) {
-    fn prepay(&self, work: &mut AssetDefinitionWork) -> Result<(), GroupedOwnershipError> {
-        work.prepay(8)?;
-        self.1.prepay(work)
     }
 }
 
@@ -262,16 +262,25 @@ pub(super) fn lookup<'a, K: AssetWorkKey, V: mv::Value>(
     Ok(found)
 }
 
-fn contains(
-    members: &BTreeSet<AssetDefinitionId>,
-    key: &AssetDefinitionId,
+fn contains<G: AssetWorkKey, K: AssetWorkKey>(
+    groups: &impl RawStorageImages<(G, K), ()>,
+    image: GroupImage,
+    group: &G,
+    member: &K,
     work: &mut AssetDefinitionWork,
 ) -> Result<bool, GroupedOwnershipError> {
-    let mut members = members.iter();
     let mut found = false;
-    while let Some(candidate) = next_physical(&mut members, work)? {
-        found |= equal(key, candidate, work)?;
-    }
+    visit_original(
+        groups,
+        image,
+        work,
+        |(candidate_group, candidate_member), (), work| {
+            let group_matches = equal(group, candidate_group, work)?;
+            let member_matches = equal(member, candidate_member, work)?;
+            found |= group_matches && member_matches;
+            Ok(())
+        },
+    )?;
     Ok(found)
 }
 
@@ -345,8 +354,8 @@ pub(in crate::state) fn validate_original_asset_definitions(
     rows: &impl RawStorageImages<AssetDefinitionId, AssetDefinition>,
     domains: &impl RawStorageImages<DomainId, Domain>,
     contexts: &impl RawStorageImages<AssetDefinitionId, DomainId>,
-    by_domain: &impl RawStorageImages<DomainId, BTreeSet<AssetDefinitionId>>,
-    by_owner: &impl RawStorageImages<AccountId, BTreeSet<AssetDefinitionId>>,
+    by_domain: &impl RawStorageImages<(DomainId, AssetDefinitionId), ()>,
+    by_owner: &impl RawStorageImages<(AccountId, AssetDefinitionId), ()>,
     transitions: &impl RawStorageImages<(u64, AssetDefinitionId), ()>,
     counts: &impl RawStorageImages<u64, u32>,
     homes: &impl RawStorageImages<AssetDefinitionId, AssetDefinitionDirectHomeV1>,
@@ -421,27 +430,17 @@ pub(in crate::state) fn validate_original_asset_definitions(
             mismatch,
         };
         visit_original(rows, image, &mut work, |id, definition, work| {
-            let Some(members) = lookup(by_owner, image, definition.owned_by(), work)? else {
-                return Err(corrupt(GroupMismatch::MissingMember));
-            };
-            if !contains(members, id, work)? {
+            if !contains(by_owner, image, definition.owned_by(), id, work)? {
                 return Err(corrupt(GroupMismatch::MissingMember));
             }
             Ok(())
         })?;
-        visit_original(by_owner, image, &mut work, |owner, members, work| {
-            work.prepay(1)?;
-            if members.is_empty() {
-                return Err(corrupt(GroupMismatch::EmptyGroup));
-            }
-            let mut members = members.iter();
-            while let Some(id) = next_physical(&mut members, work)? {
-                let Some(definition) = lookup(rows, image, id, work)? else {
-                    return Err(corrupt(GroupMismatch::ForeignMember));
-                };
-                if !equal(definition.owned_by(), owner, work)? {
-                    return Err(corrupt(GroupMismatch::ForeignMember));
-                }
+        visit_original(by_owner, image, &mut work, |(owner, id), (), work| {
+            let Some(definition) = lookup(rows, image, id, work)? else {
+                return Err(corrupt(GroupMismatch::ForeignMember));
+            };
+            if !equal(definition.owned_by(), owner, work)? {
+                return Err(corrupt(GroupMismatch::ForeignMember));
             }
             Ok(())
         })?;
@@ -454,30 +453,19 @@ pub(in crate::state) fn validate_original_asset_definitions(
         };
         visit_original(rows, image, &mut work, |id, definition, work| {
             work.prepay(1)?;
-            if let Some(domain) = definition.owning_domain().as_ref() {
-                let Some(members) = lookup(by_domain, image, domain, work)? else {
-                    return Err(corrupt(GroupMismatch::MissingMember));
-                };
-                if !contains(members, id, work)? {
-                    return Err(corrupt(GroupMismatch::MissingMember));
-                }
+            if let Some(domain) = definition.owning_domain().as_ref()
+                && !contains(by_domain, image, domain, id, work)?
+            {
+                return Err(corrupt(GroupMismatch::MissingMember));
             }
             Ok(())
         })?;
-        visit_original(by_domain, image, &mut work, |domain, members, work| {
-            work.prepay(1)?;
-            if members.is_empty() {
-                return Err(corrupt(GroupMismatch::EmptyGroup));
-            }
-            let mut members = members.iter();
-            while let Some(id) = next_physical(&mut members, work)? {
-                let Some(definition) = lookup(rows, image, id, work)? else {
-                    return Err(corrupt(GroupMismatch::ForeignMember));
-                };
-                if !optional_domain_equal(definition.owning_domain().as_ref(), Some(domain), work)?
-                {
-                    return Err(corrupt(GroupMismatch::ForeignMember));
-                }
+        visit_original(by_domain, image, &mut work, |(domain, id), (), work| {
+            let Some(definition) = lookup(rows, image, id, work)? else {
+                return Err(corrupt(GroupMismatch::ForeignMember));
+            };
+            if !optional_domain_equal(definition.owning_domain().as_ref(), Some(domain), work)? {
+                return Err(corrupt(GroupMismatch::ForeignMember));
             }
             Ok(())
         })?;

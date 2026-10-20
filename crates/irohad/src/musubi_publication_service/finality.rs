@@ -417,7 +417,8 @@ fn validate_registration_transaction(
                 }
                 continue;
             }
-            TransactionEntrypoint::SealedCommitment(_) => {
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => {
                 continue;
             }
         };

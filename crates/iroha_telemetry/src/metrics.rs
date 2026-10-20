@@ -1534,7 +1534,9 @@ fields {
     pub uptime_since_genesis_ms: gauge();
     /// Number of domains.
     pub domains: gauge();
-    /// Total number of users per domain
+    /// Number of accounts bound to each domain, exported for at most the first
+    /// 256 domains in domain-id order so on-chain domain registration cannot
+    /// grow the label set without bound.
     pub accounts: gauge_vec(&["domain"]);
     /// Transaction amounts.
     pub tx_amounts: histogram_with_buckets(

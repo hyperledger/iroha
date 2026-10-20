@@ -1,0 +1,30 @@
+{
+  "schema": "parliament-node-representation-pending-validation-v1",
+  "recorded_on": "2026-10-20",
+  "prior_observations": "observations.json",
+  "finding": "Global execution-call uniqueness rejected two byte-identical anonymous ballot inputs, preventing the success plus DuplicateNullifier result required by design section 3.6.",
+  "change": "Track the first call owner's kind and permit repeated hashes only when both owners are anonymous Network inputs. Keep contiguous input-index ownership, cardinality and phase order; preserve ordinary, internal and cross-kind collision refusal.",
+  "source_sha256": {
+    "crates/iroha_data_model/src/block/execution_output.rs": "2b7ec06cfa9965de7a86f707d2546cace66b279531906722c56d963ef0ccf73e",
+    "crates/iroha_data_model/src/block/execution_output_ballot_tests.rs": "8a6c0fcb94c0e30a00d961f27d9d60904bb361d3fd72ca3c3e2a62df88e96152"
+  },
+  "regression": "identical_anonymous_inputs_keep_distinct_results_and_canonical_source_positions",
+  "regression_scope": "Actual set_execution_outputs and canonical SignedBlockWire roundtrip; two source positions and output leaves; atomic refusal for duplicated, reversed, missing and foreign source positions. Fixtures assert codec shape, not real proof execution.",
+  "static_validation": {
+    "rustfmt": "passed",
+    "git_diff_check": "passed",
+    "independent_agent_source_review": "no findings"
+  },
+  "compiled_after_change": false,
+  "tests_executed_after_change": false,
+  "full_candidate_source_integrity_established": false,
+  "qualification_established": false,
+  "blocker": "Builds stopped with ENOSPC; approximately 122 MiB available at the last observation. No cache or evidence cleanup performed.",
+  "required_rechecks": [
+    "scripts/cargo_fast.sh --target-slot parliament-development --jobs 4 --stable-local-metadata -- test --profile local-release -p iroha_data_model --features transparent_api --lib anonymous",
+    "scripts/test_parliament_ballot_local.sh --full",
+    "scripts/cargo_fast.sh --target-slot parliament-development --jobs 4 --stable-local-metadata -- check --profile local-release -p iroha_core -p iroha_torii -p iroha -p iroha_cli -p iroha_kagami -p irohad --all-targets --features iroha_torii/connect",
+    "Execute focused Core/Torii regressions, and validate Python native and Mochi consumers."
+  ],
+  "note": "Prior passing logs are retained without attributing them to this later source change. Agent review is not independent cryptographic qualification."
+}

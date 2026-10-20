@@ -25,11 +25,11 @@ fn slash_observability_hash(
             bonded_amount,
             pending_unbond_amount,
         } = slash;
-        #[cfg(all(test, sumeragi_core_mutation = "HC406"))]
+        #[cfg(all(test, sumeragi_core_mutation = "HC902"))]
         let pending = hash_value(&())?;
-        #[cfg(not(all(test, sumeragi_core_mutation = "HC406")))]
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC902")))]
         let pending = hash_value(pending_unbond_amount)?;
-        #[cfg(all(test, sumeragi_core_mutation = "HC406"))]
+        #[cfg(all(test, sumeragi_core_mutation = "HC902"))]
         let _ = pending_unbond_amount;
         let parts = [hash_value(lane_id)?, hash_value(bonded_amount)?, pending];
         #[cfg(feature = "telemetry")]
@@ -447,7 +447,7 @@ mod tests {
         assert_ne!(
             slash_observability_hash(&values).unwrap(),
             original,
-            "HC406 local slash publication must bind the exact pending-unbond amount"
+            "HC902 local slash publication must bind the exact pending-unbond amount"
         );
         values[0].pending_unbond_amount = Quantity::from(7_u64);
         values.swap(0, 1);

@@ -2322,22 +2322,20 @@ where
     host.set_amx_limits(amx_limits);
     host.hydrate_axt_state(state_ro)?;
     host.set_public_inputs_from_parameters(state_ro.world().parameters());
-    host.set_vrf_epoch_seeds_from_state(state_ro)
+    let vrf_epoch_length = crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(state_ro)
         .map_err(|error| {
             contract_registry_attempt_error(error.map_rejection(ValidationFail::InternalError))
         })?;
-    host.set_query_state(state_ro);
-    host.set_bound_contract_records_by_subject_snapshot(
-        code::snapshot_bound_contract_records_by_subject(state_ro)
-            .map_err(contract_registry_attempt_error)?,
-    );
+    host.set_query_state_with_vrf_epoch_seeds(state_ro, vrf_epoch_length);
+    code::validate_bound_contract_records_by_subject(state_ro)
+        .map_err(contract_registry_attempt_error)?;
     apply_streaming_metadata(&mut host, streaming_meta);
     #[cfg(feature = "telemetry")]
     host.set_telemetry(state_ro.metrics().clone());
     host.set_crypto_config(state_ro.crypto());
     host.set_zk_config(state_ro.zk());
     host.set_chain_id(state_ro.chain_id());
-    host.set_zk_snapshots_from_world(state_ro.world(), state_ro.zk())
+    host.set_zk_snapshots_from_state(state_ro)
         .map_err(OverlayBuildError::IvmRun)?;
     if capture_access_log {
         host = host.with_access_logging();
@@ -2525,13 +2523,13 @@ where
             host.set_amx_limits(amx_limits);
             host.hydrate_axt_state(state_ro)?;
             host.set_public_inputs_from_parameters(state_ro.world().parameters());
-            host.set_vrf_epoch_seeds_from_state(state_ro)
-                .map_err(|error| {
-                    contract_registry_attempt_error(
-                        error.map_rejection(ValidationFail::InternalError),
-                    )
-                })?;
-            host.set_query_state(state_ro);
+            let vrf_epoch_length = crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(
+                state_ro,
+            )
+            .map_err(|error| {
+                contract_registry_attempt_error(error.map_rejection(ValidationFail::InternalError))
+            })?;
+            host.set_query_state_with_vrf_epoch_seeds(state_ro, vrf_epoch_length);
             host.set_contract_runtime_context(contract_runtime_context.clone());
             host.set_contract_entrypoint_authorization(Some(entrypoint_authorization.clone()));
             if let Some(pending) = lifecycle_transition {
@@ -2543,7 +2541,7 @@ where
             host.set_crypto_config(state_ro.crypto());
             host.set_zk_config(state_ro.zk());
             host.set_chain_id(state_ro.chain_id());
-            host.set_zk_snapshots_from_world(state_ro.world(), state_ro.zk())
+            host.set_zk_snapshots_from_state(state_ro)
                 .map_err(OverlayBuildError::IvmRun)?;
             vm.set_gas_limit(gas_limit);
             apply_contract_call_execution_context(&mut vm, Some(&contract_call_context))?;
@@ -2698,26 +2696,24 @@ where
             host.set_amx_limits(amx_limits);
             host.hydrate_axt_state(state_ro)?;
             host.set_public_inputs_from_parameters(state_ro.world().parameters());
-            host.set_vrf_epoch_seeds_from_state(state_ro)
-                .map_err(|error| {
-                    contract_registry_attempt_error(
-                        error.map_rejection(ValidationFail::InternalError),
-                    )
-                })?;
-            host.set_query_state(state_ro);
+            let vrf_epoch_length = crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(
+                state_ro,
+            )
+            .map_err(|error| {
+                contract_registry_attempt_error(error.map_rejection(ValidationFail::InternalError))
+            })?;
+            host.set_query_state_with_vrf_epoch_seeds(state_ro, vrf_epoch_length);
             host.set_contract_runtime_context(contract_runtime_context.clone());
             host.set_contract_entrypoint_authorization(Some(entrypoint_authorization.clone()));
-            host.set_bound_contract_records_by_subject_snapshot(
-                code::snapshot_bound_contract_records_by_subject(state_ro)
-                    .map_err(contract_registry_attempt_error)?,
-            );
+            code::validate_bound_contract_records_by_subject(state_ro)
+                .map_err(contract_registry_attempt_error)?;
             apply_streaming_metadata(&mut host, streaming_meta);
             #[cfg(feature = "telemetry")]
             host.set_telemetry(state_ro.metrics().clone());
             host.set_crypto_config(state_ro.crypto());
             host.set_zk_config(state_ro.zk());
             host.set_chain_id(state_ro.chain_id());
-            host.set_zk_snapshots_from_world(state_ro.world(), state_ro.zk())
+            host.set_zk_snapshots_from_state(state_ro)
                 .map_err(OverlayBuildError::IvmRun)?;
             vm.set_gas_limit(gas_limit);
             apply_contract_call_execution_context(&mut vm, contract_call_context.as_ref())?;
@@ -3063,13 +3059,13 @@ where
             host.set_amx_limits(amx_limits);
             host.hydrate_axt_state(state_ro)?;
             host.set_public_inputs_from_parameters(state_ro.world().parameters());
-            host.set_vrf_epoch_seeds_from_state(state_ro)
-                .map_err(|error| {
-                    contract_registry_attempt_error(
-                        error.map_rejection(ValidationFail::InternalError),
-                    )
-                })?;
-            host.set_query_state(state_ro);
+            let vrf_epoch_length = crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(
+                state_ro,
+            )
+            .map_err(|error| {
+                contract_registry_attempt_error(error.map_rejection(ValidationFail::InternalError))
+            })?;
+            host.set_query_state_with_vrf_epoch_seeds(state_ro, vrf_epoch_length);
             host.set_contract_runtime_context(contract_runtime_context.clone());
             host.set_contract_entrypoint_authorization(Some(entrypoint_authorization.clone()));
             apply_streaming_metadata(&mut host, streaming_meta);
@@ -3078,7 +3074,7 @@ where
             host.set_crypto_config(state_ro.crypto());
             host.set_zk_config(state_ro.zk());
             host.set_chain_id(state_ro.chain_id());
-            host.set_zk_snapshots_from_world(state_ro.world(), state_ro.zk())
+            host.set_zk_snapshots_from_state(state_ro)
                 .map_err(OverlayBuildError::IvmRun)?;
             if capture_access_log {
                 host = host.with_access_logging();
@@ -3256,26 +3252,24 @@ where
             host.set_amx_limits(amx_limits);
             host.hydrate_axt_state(state_ro)?;
             host.set_public_inputs_from_parameters(state_ro.world().parameters());
-            host.set_vrf_epoch_seeds_from_state(state_ro)
-                .map_err(|error| {
-                    contract_registry_attempt_error(
-                        error.map_rejection(ValidationFail::InternalError),
-                    )
-                })?;
-            host.set_query_state(state_ro);
+            let vrf_epoch_length = crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(
+                state_ro,
+            )
+            .map_err(|error| {
+                contract_registry_attempt_error(error.map_rejection(ValidationFail::InternalError))
+            })?;
+            host.set_query_state_with_vrf_epoch_seeds(state_ro, vrf_epoch_length);
             host.set_contract_runtime_context(contract_runtime_context.clone());
             host.set_contract_entrypoint_authorization(Some(entrypoint_authorization.clone()));
-            host.set_bound_contract_records_by_subject_snapshot(
-                code::snapshot_bound_contract_records_by_subject(state_ro)
-                    .map_err(contract_registry_attempt_error)?,
-            );
+            code::validate_bound_contract_records_by_subject(state_ro)
+                .map_err(contract_registry_attempt_error)?;
             apply_streaming_metadata(&mut host, streaming_meta);
             #[cfg(feature = "telemetry")]
             host.set_telemetry(state_ro.metrics().clone());
             host.set_crypto_config(state_ro.crypto());
             host.set_zk_config(state_ro.zk());
             host.set_chain_id(state_ro.chain_id());
-            host.set_zk_snapshots_from_world(state_ro.world(), state_ro.zk())
+            host.set_zk_snapshots_from_state(state_ro)
                 .map_err(OverlayBuildError::IvmRun)?;
             if capture_access_log {
                 host = host.with_access_logging();
@@ -3549,13 +3543,13 @@ pub(crate) fn build_overlay_for_transaction_quarantine(
             host.set_amx_limits(amx_limits);
             host.hydrate_axt_state(state_ro)?;
             host.set_public_inputs_from_parameters(state_ro.world().parameters());
-            host.set_vrf_epoch_seeds_from_state(state_ro)
-                .map_err(|error| {
-                    contract_registry_attempt_error(
-                        error.map_rejection(ValidationFail::InternalError),
-                    )
-                })?;
-            host.set_query_state(state_ro);
+            let vrf_epoch_length = crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(
+                state_ro,
+            )
+            .map_err(|error| {
+                contract_registry_attempt_error(error.map_rejection(ValidationFail::InternalError))
+            })?;
+            host.set_query_state_with_vrf_epoch_seeds(state_ro, vrf_epoch_length);
             host.set_contract_runtime_context(contract_runtime_context.clone());
             host.set_contract_entrypoint_authorization(Some(entrypoint_authorization.clone()));
             if let Some(pending) = lifecycle_transition {
@@ -3567,7 +3561,7 @@ pub(crate) fn build_overlay_for_transaction_quarantine(
             host.set_crypto_config(state_ro.crypto());
             host.set_zk_config(state_ro.zk());
             host.set_chain_id(state_ro.chain_id());
-            host.set_zk_snapshots_from_world(state_ro.world(), state_ro.zk())
+            host.set_zk_snapshots_from_state(state_ro)
                 .map_err(OverlayBuildError::IvmRun)?;
             vm.set_max_cycles(eff);
             vm.set_gas_limit(tx_gas_limit);
@@ -3724,26 +3718,24 @@ pub(crate) fn build_overlay_for_transaction_quarantine(
             host.set_amx_limits(amx_limits);
             host.hydrate_axt_state(state_ro)?;
             host.set_public_inputs_from_parameters(state_ro.world().parameters());
-            host.set_vrf_epoch_seeds_from_state(state_ro)
-                .map_err(|error| {
-                    contract_registry_attempt_error(
-                        error.map_rejection(ValidationFail::InternalError),
-                    )
-                })?;
-            host.set_query_state(state_ro);
+            let vrf_epoch_length = crate::smartcontracts::ivm::host::vrf_epoch_length_from_state(
+                state_ro,
+            )
+            .map_err(|error| {
+                contract_registry_attempt_error(error.map_rejection(ValidationFail::InternalError))
+            })?;
+            host.set_query_state_with_vrf_epoch_seeds(state_ro, vrf_epoch_length);
             host.set_contract_runtime_context(contract_runtime_context.clone());
             host.set_contract_entrypoint_authorization(Some(entrypoint_authorization.clone()));
-            host.set_bound_contract_records_by_subject_snapshot(
-                code::snapshot_bound_contract_records_by_subject(state_ro)
-                    .map_err(contract_registry_attempt_error)?,
-            );
+            code::validate_bound_contract_records_by_subject(state_ro)
+                .map_err(contract_registry_attempt_error)?;
             apply_streaming_metadata(&mut host, streaming_meta);
             #[cfg(feature = "telemetry")]
             host.set_telemetry(state_ro.metrics().clone());
             host.set_crypto_config(state_ro.crypto());
             host.set_zk_config(state_ro.zk());
             host.set_chain_id(state_ro.chain_id());
-            host.set_zk_snapshots_from_world(state_ro.world(), state_ro.zk())
+            host.set_zk_snapshots_from_state(state_ro)
                 .map_err(OverlayBuildError::IvmRun)?;
             vm.set_max_cycles(eff);
             vm.set_gas_limit(tx_gas_limit);

@@ -1198,7 +1198,11 @@ mod tests {
 
     pub(super) struct Accept;
     impl TransactionCheck for Accept {
-        fn check(&self, _tx: &TransactionEntrypoint, _time: u64) -> Result<(), String> {
+        fn check(
+            &self,
+            _tx: &TransactionEntrypoint,
+            _time: u64,
+        ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<String>> {
             Ok(())
         }
     }

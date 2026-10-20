@@ -239,8 +239,8 @@ fn transaction_proof_refuses_wrong_root_order_and_duplicate_envelopes() {
         // The receipt root is unchanged, even when the transaction root/list is wrong.
         assert_eq!(block.header.receipts_root, [5; 32]);
         rehash(&mut block);
-        let server = MockServer::start(replies(&served, 0));
-        let (client, _guard) = proof_client(&server, 4096);
+        let mock = MockServer::start(replies(&served, 0));
+        let (client, _guard) = proof_client(&mock, 4096);
         assert!(
             matches!(
                 client.block_transaction_proof(&block, 0, 4096),
@@ -249,7 +249,7 @@ fn transaction_proof_refuses_wrong_root_order_and_duplicate_envelopes() {
             "case {case}"
         );
         assert_eq!(
-            server.request_count(),
+            mock.request_count(),
             match case {
                 2 => 0,
                 3 => 2,

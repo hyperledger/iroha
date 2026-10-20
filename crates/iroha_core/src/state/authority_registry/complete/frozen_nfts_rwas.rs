@@ -15,11 +15,10 @@ use iroha_data_model::{
 };
 use iroha_model_base::{domain::DomainId, name::Name};
 use mv::storage::FrozenStorageImages;
-use std::collections::BTreeSet;
 struct OriginalNfts<'frozen> {
     rows: FrozenStorageImages<'frozen, NftId, NftValue>,
-    owners: FrozenStorageImages<'frozen, AccountId, BTreeSet<NftId>>,
-    domains: FrozenStorageImages<'frozen, DomainId, BTreeSet<NftId>>,
+    owners: FrozenStorageImages<'frozen, (AccountId, NftId), ()>,
+    domains: FrozenStorageImages<'frozen, (DomainId, NftId), ()>,
     budget: &'frozen AllocationBudget,
 }
 impl<'frozen> OriginalNfts<'frozen> {
@@ -78,9 +77,9 @@ pub(in crate::state) fn capture_nfts(
 }
 struct OriginalRwas<'frozen> {
     rows: FrozenStorageImages<'frozen, RwaId, RwaValue>,
-    owners: FrozenStorageImages<'frozen, AccountId, BTreeSet<RwaId>>,
-    statuses: FrozenStorageImages<'frozen, Option<Name>, BTreeSet<RwaId>>,
-    frozen: FrozenStorageImages<'frozen, bool, BTreeSet<RwaId>>,
+    owners: FrozenStorageImages<'frozen, (AccountId, RwaId), ()>,
+    statuses: FrozenStorageImages<'frozen, (Option<Name>, RwaId), ()>,
+    frozen: FrozenStorageImages<'frozen, (bool, RwaId), ()>,
     budget: &'frozen AllocationBudget,
 }
 impl<'frozen> OriginalRwas<'frozen> {

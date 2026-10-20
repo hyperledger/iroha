@@ -46,6 +46,16 @@ pub struct PreparedStartup {
     pub(super) lifetime: StartupLifetime,
 }
 
+/// Refuse a build whose linked BLS pairing context cannot verify consensus aggregates.
+///
+/// Dynamic QC/TC verification uses bounded stack pairing storage; on such a build every
+/// valid certificate would fail as a bad signature, so the node must not start.
+pub(super) fn refuse_unsupported_consensus_pairing<E: std::fmt::Display>(
+    check: Result<(), E>,
+) -> ReportResult<(), StartError> {
+    check.map_err(|error| Report::new(StartError::ConsensusPairing).attach(error.to_string()))
+}
+
 impl PreparedStartup {
     pub(super) fn config(&self) -> &Config {
         &self.native.config
@@ -55,6 +65,9 @@ impl PreparedStartup {
         config: Config,
         genesis: Option<GenesisBlock>,
     ) -> ReportResult<Self, StartError> {
+        // Before any process-wide reservation, so a refused build leaves nothing to clean up.
+        let pairing = iroha_core::sumeragi::crypto::BlsCrypto::check_pairing_geometry();
+        refuse_unsupported_consensus_pairing(pairing)?;
         let nts_reservation = iroha_core::time::reserve(iroha_core::time::Params::from(
             &config.nts,
         ))

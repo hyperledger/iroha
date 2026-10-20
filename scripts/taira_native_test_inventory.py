@@ -322,6 +322,7 @@ NATIVE_CORE_TEST_OWNERS = (
         'sccp_forgery_refusals_preserve_original_capacity_and_recovery_categories',
         'native_initializer_invariant_keeps_original_across_validation_and_producer_recovery',
         'original_evidence_decode_owner_survives_worker_deferral_until_its_last_reader',
+        'anonymous_ballot_adapter_absence_stays_deferred_through_publication',
     )),
     ('native publication refusal identity', 'sumeragi/executor/publication.rs', 'sumeragi/executor/publication/tests.rs', 'tests', 'sumeragi::executor::publication::tests', (
         'state_publication_lock_refusals_reach_scheduler_with_original_execution_and_release',
@@ -407,6 +408,14 @@ NATIVE_CORE_TEST_OWNERS = (
         'admitted_prefix_finish_matches_original_step_and_retains_original_slot_until_finish',
         'admitted_prefix_finish_preserves_original_pool_refusal_and_certificate_error_order',
         'walk_parent_link_retains_original_body_and_exact_native_continuity_without_result_copy',
+        'admitted_frame_refusal_rejects_foreign_pool_and_replacement_source_before_retry',
+        'admitted_initialization_binds_original_pool_and_genesis_before_first_admission',
+        'admitted_parameter_change_retains_pending_authority_across_later_scratch_refusal',
+        'admitted_prefix_rebuilds_funded_configuration_for_same_epoch_parameter_change',
+        'admitted_prepared_prefix_refusal_retains_metadata_slots_and_original_release',
+        'funded_prefix_authority_rejects_invalid_frames_exactly_like_the_portable_authority',
+        'one_shot_admitted_push_admits_both_slots_before_a_refusal_can_release_itself',
+        'one_shot_admitted_push_funds_no_owner_that_could_release_its_own_wait',
     )),
     ('native pending original execution', 'sumeragi/test_chain.rs', 'sumeragi/test_chain/pending_execution_tests.rs', 'pending_execution_tests', 'sumeragi::test_chain::tests::pending_execution_tests', (
         'pending_execution_retains_one_source_and_publishes_once',

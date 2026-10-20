@@ -5480,11 +5480,13 @@ mod tests {
             .execute(&old_account, &mut tx)
             .expect("seed an actual nonzero balance and tracked supply");
         assert!(
-            tx.world
-                .asset_definition_nonzero_holders
-                .get(&asset_def_id)
-                .unwrap()
-                .contains(&old_account)
+            crate::state::range_bounds::index_members(
+                &tx.world.asset_definition_nonzero_holders,
+                &asset_def_id
+            )
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>()
+            .contains(&old_account)
         );
         let new_key = checked_keypair();
         let new_account = new_account_id(&new_key);
@@ -5503,11 +5505,12 @@ mod tests {
             tx.world.assets.get(&new_asset_id).is_some(),
             "new account asset row should exist"
         );
-        let holders = tx
-            .world
-            .asset_definition_holders
-            .get(&asset_def_id)
-            .expect("holder index should exist after rekey");
+        let holders = crate::state::range_bounds::index_members(
+            &tx.world.asset_definition_holders,
+            &asset_def_id,
+        )
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
         assert!(
             holders.contains(&new_account),
             "new account should be present in holder index"
@@ -5516,11 +5519,12 @@ mod tests {
             !holders.contains(&old_account),
             "old account should be removed from holder index"
         );
-        let nonzero = tx
-            .world
-            .asset_definition_nonzero_holders
-            .get(&asset_def_id)
-            .expect("migrated nonzero holder");
+        let nonzero = crate::state::range_bounds::index_members(
+            &tx.world.asset_definition_nonzero_holders,
+            &asset_def_id,
+        )
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
         assert!(nonzero.contains(&new_account));
         assert!(!nonzero.contains(&old_account));
         assert_eq!(nonzero.len(), 1);
@@ -5596,24 +5600,30 @@ mod tests {
                     &Quantity::from(amount)
                 );
                 assert!(
-                    tx.world
-                        .asset_definition_assets
-                        .get(&definition)
-                        .unwrap()
-                        .contains(&moved)
+                    crate::state::range_bounds::index_members(
+                        &tx.world.asset_definition_assets,
+                        &definition
+                    )
+                    .cloned()
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .contains(&moved)
                 );
             }
-            assert!(tx.world.assets_by_account.get(&old_account).is_none());
-            assert_eq!(
-                tx.world.assets_by_account.get(&new_account).unwrap().len(),
-                2
+            assert!(
+                tx.world
+                    .assets_in_account_iter(&old_account)
+                    .next()
+                    .is_none()
             );
-            let nonzero = tx.world.asset_definition_nonzero_holders.get(&definition);
-            assert!(!nonzero.is_some_and(|holders| holders.contains(&old_account)));
-            assert_eq!(
-                nonzero.is_some_and(|holders| holders.contains(&new_account)),
-                !total.is_zero()
-            );
+            assert_eq!(tx.world.assets_in_account_iter(&new_account).count(), 2);
+            let nonzero: BTreeSet<_> = crate::state::range_bounds::index_members(
+                &tx.world.asset_definition_nonzero_holders,
+                &definition,
+            )
+            .cloned()
+            .collect();
+            assert!(!nonzero.contains(&old_account));
+            assert_eq!(nonzero.contains(&new_account), !total.is_zero());
             assert_eq!(
                 tx.world
                     .asset_definition(&definition)

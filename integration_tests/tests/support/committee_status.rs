@@ -145,6 +145,50 @@ where
     Ok(result)
 }
 
+/// Retry only a validated fee-quote capacity refusal for an unsigned transaction draft.
+/// Each read still authenticates its HTTP request; transaction signing happens afterwards.
+/// The account already carries the original submission deadline; sleeping or retrying
+/// never renews it, and this helper cannot sign or submit a transaction.
+pub async fn quote_fees_until(
+    account: &iroha::client::AccountClient,
+    payload: &iroha_data_model::transaction::TransactionPayload,
+    deadline: Instant,
+) -> Result<iroha_torii_shared::FeeQuoteResponse> {
+    loop {
+        ensure!(
+            Instant::now() < deadline,
+            "committee fee quote deadline elapsed"
+        );
+        let result = account
+            .quote_fees(iroha::client::FeeQuoteRequest::AccountSignature { payload })
+            .await;
+        match result {
+            Ok(quote) => {
+                ensure!(
+                    Instant::now() < deadline,
+                    "committee fee quote deadline elapsed"
+                );
+                return Ok(quote);
+            }
+            Err(error) => {
+                let Some(backpressure) =
+                    error.downcast_ref::<iroha::client::FeeQuoteBackpressure>()
+                else {
+                    return Err(error);
+                };
+                let delay = backpressure.retry_after();
+                if delay >= deadline.saturating_duration_since(Instant::now()) {
+                    return Err(error);
+                }
+                tokio::time::sleep(delay).await;
+                if Instant::now() >= deadline {
+                    return Err(error);
+                }
+            }
+        }
+    }
+}
+
 /// Read an authoritative applied height without extending the caller's deadline.
 pub async fn height_until(client: &iroha::client::Client, deadline: Instant) -> Result<u64> {
     tokio::time::timeout_at(deadline.into(), async {
@@ -1250,5 +1294,324 @@ mod status_observation_tests {
                 .contains("committee status deadline elapsed")
         );
         assert!(source.request_budgets.lock().unwrap().is_empty());
+    }
+    #[derive(Debug)]
+    struct FeeQuoteTransport {
+        responses: Mutex<VecDeque<Option<Response<Vec<u8>>>>>,
+        requests: Mutex<Vec<TransportRequest>>,
+    }
+    impl HttpTransport for FeeQuoteTransport {
+        fn send_blocking(&self, _: TransportRequest) -> Result<Response<Vec<u8>>> {
+            panic!("fee quotes must use the async account API")
+        }
+        fn send(&self, request: TransportRequest) -> TransportFuture<'_> {
+            Box::pin(async move {
+                assert_eq!(request.method, iroha::http::Method::POST);
+                assert_eq!(
+                    request.url.path(),
+                    "/v1/fees/quote",
+                    "retry helper must never dispatch a transaction"
+                );
+                let fee_request: iroha_torii_shared::FeeQuoteRequest =
+                    json::from_slice(&request.body).unwrap();
+                self.requests.lock().unwrap().push(request);
+                let response = self
+                    .responses
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .expect("unexpected quote attempt");
+                if let Some(response) = response {
+                    return Ok(response);
+                }
+                let quote = iroha_torii_shared::FeeQuoteResponse {
+                    intent: fee_request.payload.fee_payment.clone(),
+                    observation: iroha_torii_shared::FeeQuoteObservation {
+                        ledger_time_ms: 1,
+                        next_block_height: 1,
+                        route_dataspace_id: iroha_model_base::topology::DataSpaceId::UNIVERSAL,
+                    },
+                    components: Vec::new(),
+                    capacities: Vec::new(),
+                    decision: iroha_torii_shared::FeeQuoteDecision::Accepted {
+                        debit_source: iroha_data_model::nexus::FeeDebitSource::Account(
+                            fee_request.payload.authority().clone(),
+                        ),
+                        program_revision: None,
+                    },
+                };
+                Ok(Response::builder()
+                    .status(200)
+                    .header("content-type", "application/json")
+                    .body(json::to_vec(&quote).unwrap())?)
+            })
+        }
+    }
+    fn fee_capacity_response(status: u16, retry_after: Option<&str>) -> Response<Vec<u8>> {
+        let envelope = iroha_torii_shared::ErrorEnvelope::new(
+            "query_validation_failed",
+            iroha_data_model::query::error::QueryExecutionFail::CapacityLimit.to_string(),
+        )
+        .with_details(iroha_torii_shared::ErrorDetails {
+            retry_after_seconds: Some(1),
+            ..Default::default()
+        });
+        let mut response = Response::builder()
+            .status(status)
+            .header("content-type", "application/json");
+        if let Some(delay) = retry_after {
+            response = response.header("retry-after", delay);
+        }
+        response.body(json::to_vec(&envelope).unwrap()).unwrap()
+    }
+    fn fee_transport(
+        responses: impl IntoIterator<Item = Option<Response<Vec<u8>>>>,
+    ) -> Arc<FeeQuoteTransport> {
+        Arc::new(FeeQuoteTransport {
+            responses: Mutex::new(responses.into_iter().collect()),
+            requests: Mutex::new(Vec::new()),
+        })
+    }
+    fn fee_payload(
+        account: &iroha::client::AccountClient,
+    ) -> iroha_data_model::transaction::TransactionPayload {
+        account
+            .prepare_transaction(iroha::client::AccountTransactionDraft::new(
+                Vec::<iroha_data_model::isi::InstructionBox>::new(),
+                iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+                iroha_model_base::metadata::Metadata::default(),
+            ))
+            .unwrap()
+    }
+
+    fn assert_canonical_fee_quote_auth(
+        request: &TransportRequest,
+        account: &iroha::client::AccountClient,
+        payload: &iroha_data_model::transaction::TransactionPayload,
+    ) -> (String, String) {
+        use base64::Engine as _;
+        use iroha::client::{
+            canonical_network_request_signature_message, canonical_request_account_header_value,
+            canonical_request_signature_header_value, canonical_request_timestamp_header_value,
+        };
+
+        assert_eq!(request.method, iroha::http::Method::POST);
+        assert_eq!(
+            request.url,
+            account.endpoint().join("v1/fees/quote").unwrap()
+        );
+        let decoded: iroha_torii_shared::FeeQuoteRequest = json::from_slice(&request.body).unwrap();
+        assert_eq!(
+            &decoded.payload, payload,
+            "authentication must bind the original draft"
+        );
+        let header = |name: &str| {
+            let mut matches = request
+                .headers
+                .iter()
+                .filter(|(key, _)| key.as_str() == name);
+            let value = &matches.next().expect("required canonical auth header").1;
+            assert!(
+                matches.next().is_none(),
+                "authentication header {name} must occur once"
+            );
+            value.to_str().unwrap()
+        };
+        assert_eq!(
+            header("x-iroha-account"),
+            canonical_request_account_header_value(account.authority()).unwrap()
+        );
+        let timestamp = header("x-iroha-timestamp-ms");
+        let timestamp_ms = timestamp.parse::<u64>().unwrap();
+        assert_eq!(
+            timestamp,
+            canonical_request_timestamp_header_value(timestamp_ms).unwrap()
+        );
+        let nonce = header("x-iroha-nonce");
+        assert!(!nonce.is_empty());
+        let encoded_signature = header("x-iroha-signature");
+        let signature_bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded_signature)
+            .unwrap();
+        let signature = iroha_crypto::Signature::try_from_bytes(&signature_bytes).unwrap();
+        assert_eq!(
+            encoded_signature,
+            canonical_request_signature_header_value(&signature).unwrap()
+        );
+        let message = canonical_network_request_signature_message(
+            account.network_id(),
+            &request.method,
+            &request.url,
+            &request.body,
+            timestamp_ms,
+            nonce,
+        )
+        .unwrap();
+        signature
+            .verify(iroha_test_samples::ALICE_KEYPAIR.public_key(), &message)
+            .expect("fresh authentication must sign the exact network, target and unsigned draft");
+        assert!(
+            request
+                .headers
+                .iter()
+                .all(|(name, _)| name.as_str() != "x-iroha-witness")
+        );
+        (nonce.to_owned(), encoded_signature.to_owned())
+    }
+
+    #[tokio::test]
+    async fn fee_quote_retry_keeps_payload_deadline_and_single_submission_boundary() {
+        for fail_submission in [false, true] {
+            let transport = fee_transport([Some(fee_capacity_response(429, Some("1"))), None]);
+            let original = client(transport.clone());
+            let expected_account = original.account_client().unwrap();
+            let original_payload = fee_payload(&expected_account);
+            let prepared_payload = original_payload.clone();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let submissions = std::sync::atomic::AtomicUsize::new(0);
+            let submission_counter = &submissions;
+            let result = submit_async_until(original, deadline, |bounded| async move {
+                let account = bounded.account_client()?;
+                let mut payload = prepared_payload;
+                let original_payload = payload.clone();
+                let quote = quote_fees_until(&account, &payload, deadline).await?;
+                assert_eq!(
+                    payload, original_payload,
+                    "retry may not rebuild an unsigned transaction"
+                );
+                payload.fee_payment = quote.intent;
+                let signed = account.sign_transaction(payload)?;
+                signed.verify_signature()?;
+                // A deliberate downstream dispatch refusal is an injected boundary,
+                // not a real network claim. It must not cause quote/sign/submit replay.
+                submission_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if fail_submission {
+                    return Err(eyre::eyre!("original downstream submission refusal"));
+                }
+                Ok(())
+            })
+            .await;
+            assert_eq!(
+                submissions.load(std::sync::atomic::Ordering::SeqCst),
+                1,
+                "fee quote recovery must reach one submission boundary; quote_requests={}; \
+                 typed_backpressure={}; original_error={}",
+                transport.requests.lock().unwrap().len(),
+                result.as_ref().err().is_some_and(|error| {
+                    error
+                        .downcast_ref::<iroha::client::FeeQuoteBackpressure>()
+                        .is_some()
+                }),
+                result
+                    .as_ref()
+                    .err()
+                    .map_or_else(|| "<none>".to_owned(), |error| format!("{error:#}")),
+            );
+            if fail_submission {
+                assert_eq!(
+                    result.unwrap_err().to_string(),
+                    "original downstream submission refusal"
+                );
+            } else {
+                result.unwrap();
+            }
+            let requests = transport.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(requests[0].body, requests[1].body);
+            let first_auth =
+                assert_canonical_fee_quote_auth(&requests[0], &expected_account, &original_payload);
+            let retry_auth =
+                assert_canonical_fee_quote_auth(&requests[1], &expected_account, &original_payload);
+            assert_ne!(
+                first_auth.0, retry_auth.0,
+                "retry must generate a fresh nonce"
+            );
+            assert_ne!(
+                first_auth.1, retry_auth.1,
+                "retry must generate a fresh signature"
+            );
+            assert!(
+                requests[1].timeout.unwrap() < requests[0].timeout.unwrap(),
+                "the second read retains the same original deadline; first_timeout={:?}; \
+                 retry_timeout={:?}; quote_requests={}",
+                requests[0].timeout,
+                requests[1].timeout,
+                requests.len(),
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn fee_quote_retry_refuses_missing_invalid_and_permanent_errors_once() {
+        for (status, delay) in [
+            (429, None),
+            (429, Some("0")),
+            (429, Some("invalid")),
+            (429, Some("61")),
+            (403, Some("1")),
+        ] {
+            let transport = fee_transport([Some(fee_capacity_response(status, delay))]);
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let account = client(transport.clone())
+                .with_request_deadline(deadline)
+                .account_client()
+                .unwrap();
+            let error = quote_fees_until(&account, &fee_payload(&account), deadline)
+                .await
+                .unwrap_err();
+            assert!(
+                error
+                    .downcast_ref::<iroha::client::FeeQuoteBackpressure>()
+                    .is_none()
+            );
+            assert!(
+                error
+                    .to_string()
+                    .contains("failed to quote transaction fees")
+            );
+            assert_eq!(transport.requests.lock().unwrap().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn fee_quote_retry_exhausts_original_deadline_without_renewal() {
+        let transport = fee_transport([
+            Some(fee_capacity_response(429, Some("1"))),
+            Some(fee_capacity_response(429, Some("1"))),
+        ]);
+        let deadline = Instant::now() + Duration::from_millis(1500);
+        let account = client(transport.clone())
+            .with_request_deadline(deadline)
+            .account_client()
+            .unwrap();
+        let error = quote_fees_until(&account, &fee_payload(&account), deadline)
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .downcast_ref::<iroha::client::FeeQuoteBackpressure>()
+                .is_some()
+        );
+        let requests = transport.requests.lock().unwrap();
+        // Scheduling may exhaust the original deadline during the first sleep.
+        // The successful-retry test separately requires two reads; this refusal
+        // permits one or two, never a renewed deadline or a third request.
+        assert!((1..=2).contains(&requests.len()));
+        assert!(
+            requests
+                .windows(2)
+                .all(|pair| pair[1].timeout.unwrap() < pair[0].timeout.unwrap())
+        );
+        drop(requests);
+        let transport = fee_transport([]);
+        let deadline = Instant::now();
+        let account = client(transport.clone())
+            .with_request_deadline(deadline)
+            .account_client()
+            .unwrap();
+        quote_fees_until(&account, &fee_payload(&account), deadline)
+            .await
+            .unwrap_err();
+        assert!(transport.requests.lock().unwrap().is_empty());
     }
 }

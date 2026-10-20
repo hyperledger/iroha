@@ -1083,15 +1083,15 @@ pub mod isi {
             assert!(
                 stx.world
                     .rwas_by_owner
-                    .get(&owner)
-                    .is_some_and(|ids| ids.contains(&source_id)),
+                    .get(&(owner.clone(), source_id.clone()))
+                    .is_some(),
                 "source lot should remain indexed under the original owner",
             );
             assert!(
                 stx.world
                     .rwas_by_owner
-                    .get(&recipient)
-                    .is_some_and(|ids| ids.contains(child.id())),
+                    .get(&(recipient.clone(), (child.id()).clone()))
+                    .is_some(),
                 "child lot should be indexed under the recipient",
             );
         }
@@ -1142,15 +1142,15 @@ pub mod isi {
             assert!(
                 !stx.world
                     .rwas_by_owner
-                    .get(&owner)
-                    .is_some_and(|ids| ids.contains(&rwa_id)),
+                    .get(&(owner.clone(), rwa_id.clone()))
+                    .is_some(),
                 "full transfer should remove the lot from the previous owner index",
             );
             assert!(
                 stx.world
                     .rwas_by_owner
-                    .get(&recipient)
-                    .is_some_and(|ids| ids.contains(&rwa_id)),
+                    .get(&(recipient.clone(), rwa_id.clone()))
+                    .is_some(),
                 "full transfer should add the lot to the recipient owner index",
             );
         }
@@ -1909,8 +1909,8 @@ pub mod query {
             assert!(
                 stx.world
                     .rwas_by_owner
-                    .get(&recipient)
-                    .is_some_and(|ids| ids.contains(&recipient_rwa_id)),
+                    .get(&(recipient.clone(), recipient_rwa_id.clone()))
+                    .is_some(),
                 "recipient-owned lot should be present in the owner index before commit",
             );
             stx.apply();
@@ -2014,15 +2014,15 @@ pub mod query {
             assert!(
                 stx.world
                     .rwas_by_status
-                    .get(&Some(vaulted.clone()))
-                    .is_some_and(|ids| ids.contains(&target_id)),
+                    .get(&((&Some(vaulted.clone())).clone(), target_id.clone()))
+                    .is_some(),
                 "target lot should be present in the status index before commit",
             );
             assert!(
                 stx.world
                     .rwas_by_frozen
-                    .get(&true)
-                    .is_some_and(|ids| ids.contains(&target_id)),
+                    .get(&(true.clone(), target_id.clone()))
+                    .is_some(),
                 "target lot should be present in the frozen-state index before commit",
             );
             let predicate = CompoundPredicate::<Rwa>::build(|p| {

@@ -333,23 +333,41 @@ where
                     .map_err(AdmittedStorageError::Planning)?;
             }
             let (current, undo, mut identity) = reserve_owners(&budget, current, undo, identity)?;
-            let revert_released = ReleaseNotification::new_charged(
+            let revert_released = ReleaseNotification::try_new_charged(
                 identity
                     .try_split(notification_layout)
                     .expect("original undo notification capacity"),
-            );
-            let blocks_released = ReleaseNotification::new_charged(
+            )
+            .map_err(|(charge, error)| {
+                drop(charge);
+                AdmittedStorageError::Allocator {
+                    layout: error.layout(),
+                }
+            })?;
+            let blocks_released = ReleaseNotification::try_new_charged(
                 identity
                     .try_split(notification_layout)
                     .expect("original current notification capacity"),
-            );
+            )
+            .map_err(|(charge, error)| {
+                drop(charge);
+                AdmittedStorageError::Allocator {
+                    layout: error.layout(),
+                }
+            })?;
             let revert =
                 BptreeMap::try_new_with_node_custody(|demand| policy::<P>(&budget, undo, demand))?;
             let blocks = BptreeMap::try_new_with_node_custody(|demand| {
                 policy::<P>(&budget, current, demand)
             })?;
+            let publication = Publication::try_from_original(&mut identity).map_err(|error| {
+                AdmittedStorageError::Allocator {
+                    layout: error.layout(),
+                }
+            })?;
+            debug_assert_eq!(identity.remaining_bytes(), 0);
             Ok(Self {
-                publication: Publication::from_admission(identity),
+                publication,
                 revert_released,
                 blocks_released,
                 revert,
@@ -487,7 +505,7 @@ where
             .map_err(AdmittedStorageError::Planning)?;
         let identity =
             NextPublication::allocation_demand().map_err(AdmittedStorageError::Planning)?;
-        let (current, undo, identity) = reserve_owners(budget, current, undo, identity)?;
+        let (current, undo, mut identity) = reserve_owners(budget, current, undo, identity)?;
         let undo_wait = self.revert_released.observe();
         let revert = self.revert.try_acquire_writer().ok_or_else(|| {
             writer_error(
@@ -541,7 +559,18 @@ where
         // Its original reservation already exists; both writers now belong to
         // this opening, before reset, replacement copying or user execution.
         let writers = StorageWriters::new(self, revert, blocks);
-        let next = NextPublication::from_admission(identity);
+        let next = NextPublication::try_from_charge(
+            identity
+                .try_split(NextPublication::allocation_layout())
+                .expect("original successor identity admission"),
+        )
+        .map_err(|(charge, error)| {
+            drop(charge);
+            AdmittedStorageError::Allocator {
+                layout: error.layout(),
+            }
+        })?;
+        debug_assert_eq!(identity.remaining_bytes(), 0);
         Ok(AdmittedWriters { writers, next })
     }
 

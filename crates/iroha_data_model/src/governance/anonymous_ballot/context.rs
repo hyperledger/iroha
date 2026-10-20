@@ -12,7 +12,10 @@ use super::{
     BALLOT_CONTEXT_MAX_BYTES_V1, CredentialCommitmentV1, Digest512, FrozenBallotPolicyErrorV1,
     FrozenBallotPolicyV1, MAX_SEALED_SEATS_V1, MIN_SEALED_SEATS_V1, ProofProfileIdV1,
     RegistrationAuthorizationV1, RegistrationProofBytesV1,
-    framing::{AnonymousBallotCodecErrorV1, decode_enc_bounded, enc_bounded},
+    framing::{
+        AnonymousBallotCodecErrorV1, decode_enc_bounded, decode_enc_bounded_with_limits,
+        enc_bounded,
+    },
 };
 use crate::{
     DeriveJsonDeserialize, DeriveJsonSerialize, NetworkId,
@@ -408,8 +411,9 @@ impl SealedCredentialListBytesV1 {
     /// The validated list.
     ///
     /// # Errors
-    /// Never for a value obtained through a constructor or a Norito decode; otherwise a
-    /// [`BallotContextErrorV1`] for oversize, non-canonical or invalid list bytes.
+    /// Constructors and checked decoders guarantee canonical validity, but a local
+    /// allocator or enclosing-budget refusal can still make decoding unavailable.
+    /// Otherwise a [`BallotContextErrorV1`] for oversize, non-canonical or invalid bytes.
     pub fn decode_list(&self) -> Result<SealedCredentialListV1, BallotContextErrorV1> {
         Self::decode_bytes(&self.bytes)
     }
@@ -420,10 +424,14 @@ impl SealedCredentialListBytesV1 {
         Ok(list)
     }
 
-    /// Norito decode hook: the bytes must be one canonical frame of a valid list.
+    /// Norito decode hook: validate the list and retain original local refusal ownership.
     fn checked(self) -> Result<Self, norito::Error> {
-        Self::decode_bytes(&self.bytes)
-            .map_err(|error| norito::Error::Message(error.to_string()))?;
+        Self::decode_bytes(&self.bytes).map_err(|error| match error {
+            BallotContextErrorV1::Codec(AnonymousBallotCodecErrorV1::DecodeUnavailable(
+                refusal,
+            )) => refusal.into_error(),
+            error => norito::Error::Message(error.to_string()),
+        })?;
         Ok(self)
     }
 }
@@ -437,8 +445,12 @@ impl JsonDeserialize for SealedCredentialListBytesV1 {
             bytes: Vec<u8>,
         }
         let fields = <Fields as JsonDeserialize>::json_deserialize(parser)?;
-        Self::from_canonical_bytes(fields.bytes)
-            .map_err(|error| json::Error::Message(error.to_string()))
+        Self::from_canonical_bytes(fields.bytes).map_err(|error| match error {
+            BallotContextErrorV1::Codec(AnonymousBallotCodecErrorV1::DecodeUnavailable(
+                refusal,
+            )) => json::Error::from_decode_resource(refusal.into_error()),
+            error => json::Error::Message(error.to_string()),
+        })
     }
 }
 
@@ -626,6 +638,48 @@ impl AuthenticatedBallotContextV1 {
     /// Kind named in size errors.
     const KIND: &'static str = "authenticated ballot context";
 
+    // Only commitments and required_bodies use a Norito sequence count. The
+    // latter is strictly ordered over all ten ParliamentBody variants. Quantity
+    // has a custom fixed-u32 BigInt byte length, not a sequence count.
+    const DECODE_LIMITS: norito::DecodeLimits = norito::DecodeLimits::new(
+        MAX_SEALED_SEATS_V1 as usize,
+        BALLOT_CONTEXT_MAX_BYTES_V1,
+        MAX_SEALED_SEATS_V1 as usize + crate::governance::types::PARLIAMENT_BODIES_V1.len(),
+        2 * BALLOT_CONTEXT_MAX_BYTES_V1,
+        norito::core::MAX_VALUE_NESTING_DEPTH,
+    );
+
+    /// Decode one canonical context within its byte and collection budgets, then
+    /// validate its structure. This does not authenticate its supplied digests.
+    ///
+    /// The byte cap is checked before decoding. Each sequence is limited to
+    /// 1,000 elements, and both sequences together to 1,010, before their storage
+    /// is allocated. The policy's tighter ten-body limit follows from its
+    /// structural ordering check after bounded decoding.
+    ///
+    /// The 327,680-byte cumulative Norito allocation charge covers sequence
+    /// metadata, span planning, element payload charges and owned vectors, plus
+    /// the bounded numeric backing. It is not a physical workspace bound: codec
+    /// controls, allocator overhead and validation/error scratch are separate.
+    /// Generic Norito decode APIs do not apply this schema-specific boundary.
+    ///
+    /// # Errors
+    /// [`BallotContextErrorV1::Codec`] for an oversized, malformed, noncanonical
+    /// or resource-refused frame. Its [`AnonymousBallotCodecErrorV1::DecodeUnavailable`]
+    /// variant retains a local allocator or enclosing-budget refusal; this method's
+    /// own schema limits remain invalid input. Otherwise the structural error from
+    /// [`Self::validate`].
+    pub fn decode_canonical_bounded(bytes: &[u8]) -> Result<Self, BallotContextErrorV1> {
+        let context: Self = decode_enc_bounded_with_limits(
+            bytes,
+            Self::KIND,
+            BALLOT_CONTEXT_MAX_BYTES_V1,
+            Self::DECODE_LIMITS,
+        )?;
+        context.validate()?;
+        Ok(context)
+    }
+
     /// Check the structure, the frozen policy, their agreement and the encoded size: `S` is
     /// the number of commitments and at least 3, and it does not exceed the frozen seat
     /// target of the body's role in the policy's `required_bodies` (a cap, not a minimum).
@@ -687,6 +741,32 @@ impl AuthenticatedBallotContextV1 {
         Ok(list)
     }
 }
+
+// Source-derived bound for all structurally valid contexts. The ordinary
+// derived record walk borrows fields through inspect_len_from_slice; it does
+// not charge enclosing record payloads. Vec traversal charges one byte per
+// element, its span, its payload, and its retained Rust value. BigInt can
+// allocate at most 512 native bytes before Numeric and bond validation narrow
+// it further (valid integral bonds need at most 16 native magnitude bytes).
+// The remaining context fields are fixed scalars or inline raw byte arrays.
+const _: () = {
+    let span = core::mem::size_of::<norito::core::SequenceSpan>();
+    let commitments = MAX_SEALED_SEATS_V1 as usize
+        * (1 + span
+            + CredentialCommitmentV1::LENGTH
+            + core::mem::size_of::<CredentialCommitmentV1>());
+    let bodies = crate::governance::types::PARLIAMENT_BODIES_V1.len()
+        * (1 + span + 16 + core::mem::size_of::<super::RequiredBodyPolicyV1>());
+    assert!(commitments + bodies + 512 <= 2 * BALLOT_CONTEXT_MAX_BYTES_V1);
+};
+
+#[cfg(test)]
+#[path = "context_decode_tests.rs"]
+mod context_decode_tests;
+
+#[cfg(test)]
+#[path = "context_wire_size_tests.rs"]
+mod context_wire_size_tests;
 
 #[cfg(test)]
 mod tests {

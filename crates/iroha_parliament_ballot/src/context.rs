@@ -1,8 +1,8 @@
 //! The authenticated ballot context and the immutable scoped verification context
 //! (design §3.5 "validated list", integration decision 4).
 //!
-//! Core derives [`AuthenticatedBallotContextV1`] from authenticated state: the body context,
-//! the proposal digest, `B`, `R`, `S`, the complete ordered commitments, the profile, the
+//! Core integration must derive [`AuthenticatedBallotContextV1`] from authenticated state:
+//! the body context, the proposal digest, `B`, `R`, `S`, the complete ordered commitments, the profile, the
 //! frozen policy and its `policy_hash`. [`build_context_v1`] assembles it from those inputs
 //! and computes every derived field through the proof crate; [`check_context_v1`] recomputes
 //! every derived field of a context received from elsewhere, so no supplied digest is ever

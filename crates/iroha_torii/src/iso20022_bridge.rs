@@ -3053,6 +3053,10 @@ impl Iso20022BridgeRuntime {
                 "PRTRY:INSTRUCTION_EXEC".to_owned(),
                 format!("Instruction execution failed: {}", fail.reason),
             ),
+            TransactionRejectionReason::AnonymousBallot(reason) => (
+                "PRTRY:ANONYMOUS_BALLOT".to_owned(),
+                format!("Anonymous ballot rejected: {reason}"),
+            ),
             TransactionRejectionReason::TriggerExecution(fail) => (
                 "PRTRY:TRIGGER_EXEC".to_owned(),
                 format!("Trigger execution failed: {fail}"),

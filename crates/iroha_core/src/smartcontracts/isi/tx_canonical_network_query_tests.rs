@@ -192,7 +192,13 @@ fn canonical_query_keeps_sealed_outer_identity_authority_time_and_result_filters
         ),
         (
             "authority",
-            norito::json::to_value(sealed.entrypoint.authority()).unwrap(),
+            norito::json::to_value(
+                sealed
+                    .entrypoint
+                    .authority_opt()
+                    .expect("sealed authority fixture"),
+            )
+            .unwrap(),
         ),
         (
             "creation_time_ms",

@@ -1,62 +1,64 @@
-//! Exact proof-tag reverse-index validation for current and predecessor WSV cuts.
+//! Rebuild flat proof-tag memberships from both canonical snapshot images.
+//!
+//! TODO: admit reconstruction scratch through the original snapshot resource
+//! owner together with the remaining derived-index reconstruction.
+
+#![expect(
+    clippy::zero_sized_map_values,
+    reason = "MV snapshot restoration requires complete current and undo key/value maps"
+)]
 
 use super::*;
 use iroha_data_model::proof::ProofId;
 
-fn validate_cut(
-    tags_by_proof: &impl StorageReadOnly<ProofId, Vec<[u8; 4]>>,
-    proofs_by_tag: &impl StorageReadOnly<[u8; 4], Vec<ProofId>>,
+type Memberships = BTreeMap<([u8; 4], ProofId), ()>;
+
+fn project<'a>(
+    rows: impl Iterator<Item = (&'a ProofId, &'a Vec<[u8; 4]>)>,
     cut: &str,
-) -> Result<(), json::Error> {
-    let invalid = |message: &str| json::Error::InvalidField {
-        field: "world.proofs_by_tag".to_owned(),
-        message: format!("{cut} proof-tag index: {message}"),
-    };
-    for (proof, tags) in tags_by_proof.iter() {
+) -> Result<Memberships, json::Error> {
+    let mut members = Memberships::new();
+    for (proof, tags) in rows {
         if tags.is_empty() || tags.windows(2).any(|pair| pair[0] >= pair[1]) {
-            return Err(invalid(
-                "proof tag lists must be nonempty, sorted and unique",
-            ));
+            return Err(json::Error::InvalidField {
+                field: "world.proof_tags".into(),
+                message: format!("{cut} proof tag lists must be nonempty, sorted and unique"),
+            });
         }
         for tag in tags {
-            let Some(proofs) = proofs_by_tag.get(tag) else {
-                return Err(invalid("proof tag is absent from its reverse bucket"));
-            };
-            if proofs.binary_search(proof).is_err() {
-                return Err(invalid("proof tag is missing its reverse proof id"));
-            }
+            members.insert((*tag, proof.clone()), ());
         }
     }
-    for (tag, proofs) in proofs_by_tag.iter() {
-        if proofs.is_empty() || proofs.windows(2).any(|pair| pair[0] >= pair[1]) {
-            return Err(invalid(
-                "reverse proof buckets must be nonempty, sorted and unique",
-            ));
-        }
-        for proof in proofs {
-            let Some(tags) = tags_by_proof.get(proof) else {
-                return Err(invalid("reverse proof bucket contains an unknown proof id"));
-            };
-            if tags.binary_search(tag).is_err() {
-                return Err(invalid("reverse proof bucket contains an undeclared tag"));
-            }
-        }
-    }
-    Ok(())
+    Ok(members)
 }
 
-pub(super) fn validate_proof_tag_index(world: &World) -> Result<(), json::Error> {
-    validate_cut(
-        &world.proof_tags.view(),
-        &world.proofs_by_tag.view(),
-        "current",
-    )?;
-    // Dropping the uncommitted rollback views preserves the retained undo logs.
-    validate_cut(
-        &world.proof_tags.block_and_revert(),
-        &world.proofs_by_tag.block_and_revert(),
-        "predecessor",
-    )
+/// Restore exact current and predecessor membership images from canonical tags.
+/// The first-release snapshot stores no duplicate proof-tag inverse table.
+pub(in crate::state) fn rebuild(world: &mut World) -> Result<(), json::Error> {
+    let index = {
+        let history = world.proof_tags.history();
+        let current = project(history.current().iter(), "current")?;
+        let previous = project(history.iter_before_block(), "predecessor")?;
+        let mut touched = BTreeSet::new();
+        for (proof, prior) in history.revert_map().iter() {
+            for tags in [prior.as_ref(), history.current().get(proof)]
+                .into_iter()
+                .flatten()
+            {
+                touched.extend(tags.iter().map(|tag| (*tag, proof.clone())));
+            }
+        }
+        let undo = touched
+            .into_iter()
+            .map(|key| {
+                let prior = previous.get(&key).copied();
+                (key, prior)
+            })
+            .collect();
+        Storage::from_snapshot_parts(current, undo)
+    };
+    world.proofs_by_tag = index;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -70,62 +72,99 @@ mod tests {
         }
     }
 
-    fn valid_world() -> World {
-        let world = World::default();
-        let mut block = world.block();
-        block.proof_tags.insert(proof(1), vec![*b"TAG1", *b"TAG2"]);
-        block.proofs_by_tag.insert(*b"TAG1", vec![proof(1)]);
-        block.proofs_by_tag.insert(*b"TAG2", vec![proof(1)]);
-        block.commit();
-        world
-    }
-
     #[test]
-    fn current_cut_rejects_omissions_orphans_and_noncanonical_order() {
-        validate_proof_tag_index(&valid_world()).unwrap();
-        for mutation in 0..5 {
-            let world = valid_world();
-            let mut block = world.block();
-            match mutation {
-                0 => {
-                    block.proofs_by_tag.remove(*b"TAG1");
-                }
-                1 => {
-                    block.proofs_by_tag.insert(*b"TAG1", vec![proof(2)]);
-                }
-                2 => {
-                    block
-                        .proofs_by_tag
-                        .insert(*b"TAG1", vec![proof(1), proof(1)]);
-                }
-                3 => {
-                    block.proof_tags.insert(proof(1), vec![*b"TAG2", *b"TAG1"]);
-                }
-                4 => {
-                    block.proofs_by_tag.insert(*b"TAG3", vec![proof(1)]);
-                }
-                _ => unreachable!(),
-            }
-            block.commit();
-            let error = validate_proof_tag_index(&world).unwrap_err();
-            assert!(error.to_string().contains("world.proofs_by_tag"));
+    fn rebuild_rejects_empty_duplicate_and_unordered_canonical_tags() {
+        for tags in [vec![], vec![*b"TAG1", *b"TAG1"], vec![*b"TAG2", *b"TAG1"]] {
+            let mut world = World::default();
+            world.proof_tags.insert(proof(1), tags);
+            let error = rebuild(&mut world).unwrap_err();
+            assert!(error.to_string().contains("world.proof_tags"));
+            assert!(world.proofs_by_tag.view().is_empty());
         }
     }
 
     #[test]
-    fn predecessor_cut_cannot_hide_an_unrepaired_reverse_index() {
-        let world = World::default();
+    fn predecessor_canonical_tags_are_validated_before_replacing_the_index() {
+        let mut world = World::default();
+        world.proof_tags.insert(proof(1), vec![*b"TAG2", *b"TAG1"]);
         {
-            let mut block = world.block();
-            block.proof_tags.insert(proof(1), vec![*b"TAG1"]);
+            let mut block = world.proof_tags.block();
+            block.insert(proof(1), vec![*b"TAG1", *b"TAG2"]);
             block.commit();
         }
+        let error = rebuild(&mut world).unwrap_err();
+        assert!(error.to_string().contains("predecessor"));
+        assert!(world.proofs_by_tag.view().is_empty());
+    }
+
+    #[test]
+    fn memberships_restore_shared_tags_and_both_mv_images() {
+        let mut world = World::default();
+        world.proof_tags.insert(proof(1), vec![*b"TAG1", *b"TAG2"]);
+        world.proof_tags.insert(proof(2), vec![*b"TAG1"]);
         {
-            let mut block = world.block();
-            block.proofs_by_tag.insert(*b"TAG1", vec![proof(1)]);
+            let mut block = world.proof_tags.block();
+            block.insert(proof(1), vec![*b"TAG2", *b"TAG3"]);
+            block.insert(proof(3), vec![*b"TAG1"]);
             block.commit();
         }
-        let error = validate_proof_tag_index(&world).unwrap_err();
-        assert!(error.to_string().contains("predecessor"), "{error}");
+        rebuild(&mut world).unwrap();
+        let current = world.proofs_by_tag.view();
+        assert!(current.get(&(*b"TAG1", proof(1))).is_none());
+        assert_eq!(current.get(&(*b"TAG1", proof(2))), Some(&()));
+        assert_eq!(current.get(&(*b"TAG1", proof(3))), Some(&()));
+        assert_eq!(current.get(&(*b"TAG3", proof(1))), Some(&()));
+        drop(current);
+        let prior = world.proofs_by_tag.block_and_revert();
+        assert_eq!(prior.get(&(*b"TAG1", proof(1))), Some(&()));
+        assert_eq!(prior.get(&(*b"TAG1", proof(2))), Some(&()));
+        assert!(prior.get(&(*b"TAG1", proof(3))).is_none());
+        assert!(prior.get(&(*b"TAG3", proof(1))).is_none());
+    }
+
+    #[test]
+    fn canonical_snapshot_roundtrip_rebuilds_the_flat_inverse_and_predecessor() {
+        let mut world = World::default();
+        world.proof_tags.insert(proof(1), vec![*b"TAG1"]);
+        {
+            let mut block = world.proof_tags.block();
+            block.insert(proof(1), vec![*b"TAG2"]);
+            block.commit();
+        }
+        let encoded = json::to_json(&world).unwrap();
+        assert!(!encoded.contains("\"proofs_by_tag\""));
+        let ivm = IVM::new(0);
+        let seed = IvmSeed {
+            ivm: &ivm,
+            _marker: PhantomData,
+        };
+        let budget = iroha_allocation::AllocationBudget::new(
+            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+        );
+        let restored = parse_world(
+            &budget,
+            SnapshotJsonMap::parse_world_fixture(&encoded).unwrap(),
+            &seed,
+        )
+        .map_err(crate::state::deserialize::snapshot_format_error_for_test)
+        .unwrap();
+        assert_eq!(
+            restored.proofs_by_tag.view().get(&(*b"TAG2", proof(1))),
+            Some(&())
+        );
+        assert_eq!(
+            restored
+                .proofs_by_tag
+                .block_and_revert()
+                .get(&(*b"TAG1", proof(1))),
+            Some(&())
+        );
+        assert!(
+            restored
+                .proofs_by_tag
+                .view()
+                .get(&(*b"TAG1", proof(1)))
+                .is_none()
+        );
     }
 }

@@ -142,6 +142,7 @@ fn reproduces_imported_sign() {
 #[test]
 fn reproduces_imported_verify() {
     let reference = reference();
+    let mut scratch = ConsensusAggregateScratch::new(|_| Ok::<_, ()>(())).unwrap();
     for row in group(&reference, "verify") {
         let input = field(row, "input");
         let public = fixed::<48>(string(input, "pubkey"));
@@ -161,6 +162,12 @@ fn reproduces_imported_verify() {
             "{}",
             label(row)
         );
+        assert_eq!(
+            scratch.verify_fast_aggregate_committed(&[public], &digest, &signature),
+            expected,
+            "{} admitted scratch",
+            label(row)
+        );
     }
 }
 
@@ -168,6 +175,7 @@ fn reproduces_imported_verify() {
 fn reproduces_imported_fast_aggregate_verify() {
     let reference = reference();
     let keys = ethereum_keys();
+    let mut scratch = ConsensusAggregateScratch::new(|_| Ok::<_, ()>(())).unwrap();
     for row in group(&reference, "fast_aggregate_verify") {
         let input = field(row, "input");
         let public = fixed_list::<48>(input, "pubkeys");
@@ -181,6 +189,12 @@ fn reproduces_imported_fast_aggregate_verify() {
             "{}",
             label(row)
         );
+        assert_eq!(
+            scratch.verify_fast_aggregate_committed(&public, &digest, &signature),
+            expected,
+            "{} admitted scratch",
+            label(row)
+        );
         // The admitted-key API rejects duplicate membership; the committed-key API above
         // relies on the authenticated committee's ordering to exclude it.
         let admitted: Option<Vec<_>> = public
@@ -192,6 +206,12 @@ fn reproduces_imported_fast_aggregate_verify() {
             })
             .collect();
         if let Some(admitted) = admitted {
+            assert_eq!(
+                scratch.verify_fast_aggregate(admitted.iter().copied(), &digest, &signature),
+                expected,
+                "{} admitted scratch",
+                label(row)
+            );
             assert_eq!(
                 verify_fast_aggregate(&admitted, &digest, &signature),
                 expected,
@@ -239,6 +259,7 @@ fn reproduces_imported_aggregate_with_consensus_identity_refusal() {
 fn reproduces_imported_aggregate_verify() {
     let reference = reference();
     let keys = ethereum_keys();
+    let mut scratch = ConsensusAggregateScratch::new(|_| Ok::<_, ()>(())).unwrap();
     for row in group(&reference, "aggregate_verify") {
         let input = field(row, "input");
         let public = fixed_list::<48>(input, "pubkeys");
@@ -276,6 +297,17 @@ fn reproduces_imported_aggregate_verify() {
             verify_aggregate_multi(&paired, &signature),
             expected,
             "{}",
+            label(row)
+        );
+        assert_eq!(
+            scratch.verify_aggregate_multi(
+                paired
+                    .iter()
+                    .map(|(keys, digest)| (keys.iter().copied(), *digest)),
+                &signature
+            ),
+            expected,
+            "{} admitted scratch",
             label(row)
         );
     }

@@ -769,3 +769,88 @@ fn per_block_cost_is_proportional_to_the_change_set() {
         "incremental update ({per_block:?}) must not scale with the World ({cold:?})"
     );
 }
+
+#[test]
+fn flattened_memberships_and_counts_do_not_change_world_authority() {
+    use iroha_data_model::{
+        account::AccountAliasDomain,
+        asset::{AssetDefinitionId, AssetId},
+        escrow::{AssetEscrowStatus, EscrowId},
+        nft::NftId,
+        proof::{ProofId, ProofStatus},
+        rwa::RwaId,
+    };
+    use iroha_model_base::{domain::DomainId, topology::DataSpaceId};
+
+    let world = World::default();
+    let mut block = world.block();
+    let parent = WorldStateAccumulator::capture(&block).unwrap();
+    let owner = iroha_test_samples::ALICE_ID.clone();
+    let domain = DomainId::try_new("derived", "only").unwrap();
+    let definition =
+        AssetDefinitionId::derive_from_components(domain.clone(), "coin".parse().unwrap());
+    let asset = AssetId::new(definition.clone(), owner.clone());
+    let nft = NftId::new(domain.clone(), "badge".parse().unwrap());
+    let rwa = RwaId::generated(domain.clone(), Hash::new("derived-rwa"));
+    let escrow = EscrowId::new(Hash::new("derived-escrow"));
+    let proof = ProofId {
+        backend: "derived-proof".to_owned(),
+        proof_hash: [7; 32],
+    };
+    let scope = (
+        DataSpaceId::new(0),
+        AccountAliasDomain::new("derived".parse().unwrap()),
+    );
+
+    block
+        .account_scope_accounts
+        .insert((scope.clone(), owner.clone()), ());
+    block.account_scope_account_counts.insert(scope, 1);
+    block
+        .domain_asset_definitions
+        .insert((domain.clone(), definition.clone()), ());
+    block
+        .asset_definitions_by_owner
+        .insert((owner.clone(), definition.clone()), ());
+    block
+        .asset_definition_holders
+        .insert((definition.clone(), owner.clone()), ());
+    block
+        .asset_definition_assets
+        .insert((definition.clone(), asset.clone()), ());
+    block
+        .asset_definition_asset_counts
+        .insert(definition.clone(), 1);
+    block
+        .asset_definition_nonzero_holders
+        .insert((definition, owner.clone()), ());
+    block.assets_by_domain.insert((domain.clone(), asset), ());
+    block.nfts_by_owner.insert((owner.clone(), nft.clone()), ());
+    block.nfts_by_domain.insert((domain, nft), ());
+    block.rwas_by_owner.insert((owner.clone(), rwa.clone()), ());
+    block.rwas_by_status.insert((None, rwa.clone()), ());
+    block.rwas_by_frozen.insert((false, rwa), ());
+    block
+        .asset_escrows_by_seller
+        .insert((owner.clone(), escrow), ());
+    block.asset_escrows_by_buyer.insert((owner, escrow), ());
+    block
+        .asset_escrows_by_status
+        .insert((AssetEscrowStatus::Open, escrow), ());
+    block
+        .proofs_by_status
+        .insert((ProofStatus::Verified, proof.clone()), ());
+    block.proofs_by_tag.insert((*b"TEST", proof), ());
+
+    assert_eq!(
+        WorldStateAccumulator::capture(&block).unwrap().root(),
+        parent.root()
+    );
+    assert_eq!(
+        WorldStateAccumulator::capture_predecessor(&block)
+            .unwrap()
+            .root(),
+        parent.root()
+    );
+    assert_eq!(parent.apply_block(&block).unwrap().root(), parent.root());
+}

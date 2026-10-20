@@ -4,6 +4,18 @@ use super::*;
 use iroha_data_model::account::AccountDetails;
 use norito::codec::DecodeAll;
 
+fn members<K: mv::Key, M: mv::Key>(
+    index: &impl StorageReadOnly<(K, M), ()>,
+    key: &K,
+) -> Option<BTreeSet<M>> {
+    let members: BTreeSet<_> = index
+        .iter()
+        .filter(|((bucket, _), ())| bucket == key)
+        .map(|((_, member), ())| member.clone())
+        .collect();
+    (!members.is_empty()).then_some(members)
+}
+
 fn alias(name: &str, dataspace: u64, domain: Option<&str>) -> AccountAlias {
     AccountAlias::new(
         name.parse().unwrap(),
@@ -44,10 +56,11 @@ where
         .unwrap()
 }
 
-fn scopes(world: &World) -> (String, String) {
+fn scopes(world: &World) -> (String, String, String) {
     (
         encoded(&world.account_scope_directory),
         encoded(&world.account_scope_accounts),
+        encoded(&world.account_scope_account_counts),
     )
 }
 
@@ -124,7 +137,7 @@ fn changed_and_removed_aliases_and_bindings_restore_both_scope_owners() {
         AccountAliasDomain::new("shared".parse().unwrap()),
     );
     assert_eq!(
-        restart.account_scope_accounts.view().get(&shared),
+        members(&restart.account_scope_accounts.view(), &shared).as_ref(),
         Some(&BTreeSet::from([bob.clone()]))
     );
     {
@@ -154,6 +167,10 @@ fn changed_and_removed_aliases_and_bindings_restore_both_scope_owners() {
             .iter()
             .any(|(dataspace, domains)| *dataspace == DataSpaceId::new(11) && domains.is_empty())
     );
+    assert_eq!(
+        restart.account_scope_account_counts.view().get(&shared),
+        Some(&1)
+    );
     let tip = scopes(&restart);
     {
         let replacement = restart.block_and_revert();
@@ -164,7 +181,11 @@ fn changed_and_removed_aliases_and_bindings_restore_both_scope_owners() {
             );
         }
         assert_eq!(
-            replacement.account_scope_accounts.get(&shared),
+            replacement.account_scope_account_counts.get(&shared),
+            Some(&2)
+        );
+        assert_eq!(
+            members(&replacement.account_scope_accounts, &shared).as_ref(),
             Some(&BTreeSet::from([alice.clone(), bob.clone()]))
         );
     }
@@ -365,7 +386,7 @@ fn inverse_rebuild_preserves_catalog_pruning_and_redundant_touched_buckets() {
         .account_scope_accounts
         .view()
         .iter()
-        .map(|(key, value)| (key.clone(), value.clone()))
+        .map(|(key, value)| (key.clone(), *value))
         .collect::<AccountsIndex>();
     {
         let mut block = world.account_scope_directory.block();
@@ -382,7 +403,7 @@ fn inverse_rebuild_preserves_catalog_pruning_and_redundant_touched_buckets() {
         AccountAliasDomain::new("shared".parse().unwrap()),
     );
     assert_eq!(
-        world.account_scope_accounts.view().get(&shared),
+        members(&world.account_scope_accounts.view(), &shared).as_ref(),
         Some(&BTreeSet::from([bob.clone()]))
     );
     let unchanged = (
@@ -394,8 +415,8 @@ fn inverse_rebuild_preserves_catalog_pruning_and_redundant_touched_buckets() {
             .account_scope_accounts
             .snapshot()
             .revert_map()
-            .get(&unchanged),
-        Some(&Some(BTreeSet::from([bob.clone()])))
+            .get(&(unchanged, bob.clone())),
+        Some(&Some(()))
     );
     let rebuilt = scopes(&world);
     world.rebuild_account_scope_accounts_index();
@@ -403,7 +424,11 @@ fn inverse_rebuild_preserves_catalog_pruning_and_redundant_touched_buckets() {
     {
         let replacement = world.block_and_revert();
         assert_eq!(
-            replacement.account_scope_accounts.get(&shared),
+            replacement.account_scope_account_counts.get(&shared),
+            Some(&2)
+        );
+        assert_eq!(
+            members(&replacement.account_scope_accounts, &shared).as_ref(),
             Some(&BTreeSet::from([alice, bob]))
         );
     }
@@ -414,7 +439,7 @@ fn inverse_rebuild_preserves_catalog_pruning_and_redundant_touched_buckets() {
             .account_scope_accounts
             .view()
             .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
+            .map(|(key, value)| (key.clone(), *value))
             .collect::<AccountsIndex>(),
         original
     );

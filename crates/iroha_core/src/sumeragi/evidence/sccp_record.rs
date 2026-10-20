@@ -1,8 +1,10 @@
-//! Charged closed SCCP record claims; custody is not execution or restore authority.
+//! Closed SCCP record claims; custody is not execution or restore authority.
 //!
 //! The executing-parent handler consumes prepared custody in its atomic child.
 //! Snapshot parsing remains structural; native history restoration does not acquire
 //! SCCP verification authority from this representation.
+//! Constructed claims retain exact original layout charges. Snapshot-decoded claims
+//! still retain a conservative decoder allowance, as tracked by the S8 markers below.
 
 use super::{
     EvidenceRecordBodyFields, EvidenceRecordRestoreError as Error, RecordOwner,
@@ -25,6 +27,10 @@ enum Fields {
     Decoded(DecodedFields),
 }
 struct DecodedFields {
+    // TODO(S8): replace this cumulative decoder allowance with exact original layout
+    // charges for the record Box, both offender Vecs, every AccountId controller/key
+    // and all temporary JSON/I105 work. This needs a shared admitted AccountId JSON
+    // owner; the existing account APIs only fund clones of an already-decoded value.
     fields: ManuallyDrop<EvidenceRecordBodyFields>,
     allowance: ManuallyDrop<AllocationReservation>,
 }
@@ -71,7 +77,7 @@ impl SccpRecordBody {
     }
 }
 fn invalid(message: &'static str) -> Error {
-    json::Error::Message(message.into()).into()
+    super::invalid(message)
 }
 fn decode<T>(action: impl FnOnce() -> Result<T, norito::core::Error>) -> Result<T, Preparation> {
     // Classify around the actual operation while its original enclosing counter is active.
@@ -102,8 +108,11 @@ pub(super) enum MaterialKind {
     SccpForgery,
 }
 
-/// Fund the complete discriminator pass, including escaped keys and enum strings.
-/// Only a fixed closed tag escapes; scratch retires before the original allowance.
+/// Bound the discriminator pass with the captured original decoder allowance.
+/// Only a fixed closed tag escapes; scratch retires before that allowance.
+// TODO(S8): use exact admitted keys/tag and shared attribution/status prefix decoders.
+// Earlier fields must still be validated in source order; skipping their ordinary
+// decoders or only funding the tag would leave nested prefix allocations unowned.
 pub(super) fn material_kind(raw: &str, budget: &AllocationBudget) -> Result<MaterialKind, Error> {
     let mut controls = budget
         .try_reserve_layouts([norito::core::DecodeBudgetContext::allocation_layout()])
@@ -134,10 +143,10 @@ fn decode_material_kind(raw: &str) -> Result<MaterialKind, Error> {
             "recorded_at_view" => 8,
             "recorded_at_ms" => 16,
             "penalty_status" => 32,
-            other => return Err(json::Error::unknown_field(other).into()),
+            _ => return Err(invalid("unknown evidence JSON field")),
         };
         if seen & bit != 0 {
-            return Err(json::Error::duplicate_field(key.as_str()).into());
+            return Err(super::duplicate(key.as_str()));
         }
         seen |= bit;
         match key.as_str() {
@@ -164,7 +173,7 @@ fn decode_material_kind(raw: &str) -> Result<MaterialKind, Error> {
             _ => unreachable!("closed field name"),
         }
     }
-    let raw = material.ok_or_else(|| json::Error::missing_field("evidence"))?;
+    let raw = super::required(material, "evidence")?;
     // The selected exact decoder validates the whole source; this pass stops at
     // the discriminator so later fields cannot pre-empt earlier semantic errors.
     let mut p = Parser::new(raw);
@@ -174,14 +183,14 @@ fn decode_material_kind(raw: &str) -> Result<MaterialKind, Error> {
         match key.as_str() {
             "kind" => {
                 if kind.is_some() {
-                    return Err(json::Error::duplicate_field("kind").into());
+                    return Err(super::duplicate("kind"));
                 }
                 kind = Some(map.parse_value::<String>()?);
             }
             "value" => {
                 map.parse_value_with_parser(|p| p.raw_value_slice())?;
             }
-            other => return Err(json::Error::unknown_field(other).into()),
+            _ => return Err(invalid("unknown evidence JSON field")),
         }
     }
     map.finish()?;
@@ -189,7 +198,7 @@ fn decode_material_kind(raw: &str) -> Result<MaterialKind, Error> {
         Some("native") => Ok(MaterialKind::Native),
         Some("sccp_forgery") => Ok(MaterialKind::SccpForgery),
         Some(_) => Err(invalid("unknown JSON enum variant")),
-        None => Err(json::Error::missing_field("kind").into()),
+        None => Err(invalid("missing required evidence JSON field")),
     }
 }
 
@@ -253,9 +262,9 @@ fn preflight_offender_object(parser: &mut Parser<'_>) -> Result<(), Error> {
         if key.as_str() == "offenders" {
             map.parse_value_with_parser_typed(|parser| {
                 let mut sequence = json::SeqVisitor::new(parser)?;
-                #[cfg(all(test, sumeragi_core_mutation = "HC441"))]
+                #[cfg(all(test, sumeragi_core_mutation = "HC906"))]
                 let excessive = false;
-                #[cfg(not(all(test, sumeragi_core_mutation = "HC441")))]
+                #[cfg(not(all(test, sumeragi_core_mutation = "HC906")))]
                 let excessive = sequence.total_entries()
                     > iroha_data_model::block::consensus::MAX_VALIDATORS_PER_HEIGHT;
                 if excessive {
@@ -319,6 +328,10 @@ pub(super) fn decode_json(
     raw: &str,
     budget: &AllocationBudget,
 ) -> Result<RetainedEvidenceRecord, Error> {
+    // TODO(S8): stream the closed record into the same RetainedPayload ownership used
+    // by prepare_claim once shared admitted AccountId and SCCP-scope attribution
+    // decoding are available. A cumulative DecodeBudgetContext count is not a ledger
+    // of checked physical layouts and must not be reported as exact graph admission.
     let bytes = ChargedShared::<SccpRecordBody>::allocation_layout()
         .size()
         .checked_add(norito::core::DecodeBudgetContext::allocation_layout().size())
@@ -342,7 +355,7 @@ pub(super) fn decode_json(
         let record = EvidenceRecord::json_deserialize(&mut p)?;
         p.skip_ws();
         if !p.eof() {
-            return Err(json::Error::Message("trailing evidence JSON".into()).into());
+            return Err(invalid("trailing evidence JSON characters"));
         }
         Ok::<_, Error>(record)
     })?;

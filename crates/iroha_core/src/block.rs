@@ -1719,7 +1719,7 @@ pub enum BlockValidationError {
         actual: u64,
     },
     /// Cannot accept a transaction
-    TransactionAccept(#[from] AcceptTransactionFail),
+    TransactionAccept(#[source] AcceptTransactionFail),
     /// Mismatch between the actual and expected topology. Expected: {expected:?}, actual: {actual:?}
     TopologyMismatch {
         /// Expected value
@@ -1963,6 +1963,18 @@ impl From<crate::execution_attempt::ExecutionAttemptError<crate::sumeragi::sched
     }
 }
 
+/// A missing ballot adapter is a local deferral, never a committed invalid verdict.
+impl From<AcceptTransactionFail> for BlockValidationError {
+    fn from(error: AcceptTransactionFail) -> Self {
+        match error {
+            AcceptTransactionFail::AnonymousBallotUnavailable => {
+                Self::ExecutionDeferred(crate::tx::anonymous_ballot_unavailable())
+            }
+            other => Self::TransactionAccept(other),
+        }
+    }
+}
+
 /// Preserve the original epoch-allocation refusal before any diagnostic formatting.
 impl From<crate::sumeragi::schedule::ScheduleError> for BlockValidationError {
     fn from(error: crate::sumeragi::schedule::ScheduleError) -> Self {
@@ -1978,6 +1990,24 @@ impl From<crate::sumeragi::schedule::ScheduleError> for BlockValidationError {
             deterministic => Self::ExecutionContextInvalid(deterministic.to_string()),
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn anonymous_ballot_unavailable_has_no_block_rejection_reason() {
+    let error = BlockValidationError::from(AcceptTransactionFail::AnonymousBallotUnavailable);
+    assert!(
+        matches!(&error, BlockValidationError::ExecutionDeferred(reason)
+        if reason.reason() == ivm::error::ExecutionDeferral::VerifierInitializationUnavailable)
+    );
+    assert_eq!(event::map_block_err_to_reason(&error), None);
+    // Defensive classification also covers explicitly constructed public variants.
+    assert_eq!(
+        event::map_block_err_to_reason(&BlockValidationError::TransactionAccept(
+            AcceptTransactionFail::AnonymousBallotUnavailable,
+        )),
+        None
+    );
 }
 
 #[cfg(test)]
@@ -5627,7 +5657,8 @@ pub(crate) mod valid {
                 let signed = match entrypoint {
                     TransactionEntrypoint::External(signed) => signed,
                     TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-                    TransactionEntrypoint::SealedCommitment(_) => continue,
+                    TransactionEntrypoint::SealedCommitment(_)
+                    | TransactionEntrypoint::AnonymousBallot(_) => continue,
                 };
                 let count = keepalive::count(signed.instructions());
                 keepalives = keepalives.saturating_add(count);
@@ -5696,7 +5727,8 @@ pub(crate) mod valid {
             match entrypoint {
                 TransactionEntrypoint::External(tx) => Some(tx),
                 TransactionEntrypoint::SealedReveal(reveal) => Some(reveal.signed_transaction()),
-                TransactionEntrypoint::SealedCommitment(_) => None,
+                TransactionEntrypoint::SealedCommitment(_)
+                | TransactionEntrypoint::AnonymousBallot(_) => None,
             }
         }
         fn collect_external_signed_transactions(block: &SignedBlock) -> Vec<&SignedTransaction> {
@@ -6046,6 +6078,11 @@ pub(crate) mod valid {
             let mut prepared_signed_idx = 0usize;
             for entrypoint in block.external_entrypoints_slice() {
                 match entrypoint {
+                    TransactionEntrypoint::AnonymousBallot(_) => {
+                        return Err(BlockValidationError::ExecutionDeferred(
+                            crate::tx::anonymous_ballot_unavailable(),
+                        ));
+                    }
                     TransactionEntrypoint::External(_) => {
                         let prepared = prepared_txs
                             .get(prepared_signed_idx)
@@ -8990,7 +9027,7 @@ mod event {
                     let tx = match entrypoint {
                         TransactionEntrypoint::External(tx) => tx,
                         TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-                        TransactionEntrypoint::SealedCommitment(_) => return None,
+                        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => return None,
                     };
                     let input_index = u32::try_from(idx).ok()?;
                     let (_, output) = block.network_output_at(input_index)?;
@@ -9095,6 +9132,7 @@ mod event {
             BlockValidationError::PrevBlockHeightMismatch { .. } => Reason::PrevBlockHeightMismatch,
             BlockValidationError::MerkleRootMismatch => Reason::MerkleRootMismatch,
             BlockValidationError::TransactionAccept(fail) => match fail {
+                AcceptTransactionFail::AnonymousBallotUnavailable => return None,
                 AcceptTransactionFail::TransactionLimit(_)
                 | AcceptTransactionFail::SignedAttachments(_)
                 | AcceptTransactionFail::SignatureVerification(_)

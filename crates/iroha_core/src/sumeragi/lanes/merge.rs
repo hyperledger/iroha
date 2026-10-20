@@ -376,6 +376,14 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
     let policy = routing.policy();
     let inputs = routing.inputs(view.world());
     let own = proposal.external_entrypoints_slice();
+    if own
+        .iter()
+        .any(|input| matches!(input, TransactionEntrypoint::AnonymousBallot(_)))
+    {
+        return Err(MergeError::ResourceDeferred(
+            crate::tx::anonymous_ballot_unavailable(),
+        ));
+    }
     let mut step = LaneStepInput {
         time_ms,
         ..LaneStepInput::default()
@@ -461,6 +469,11 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
         step,
     };
     for (index, (lane, tx)) in candidates.into_iter().enumerate() {
+        if matches!(tx, TransactionEntrypoint::AnonymousBallot(_)) {
+            return Err(MergeError::ResourceDeferred(
+                crate::tx::anonymous_ballot_unavailable(),
+            ));
+        }
         let accepted = AcceptedTransaction::new_unchecked_entrypoint(Cow::Borrowed(&tx));
         let cached = identities.candidates.as_slice()[index];
         let hash = cached.carrier;
@@ -469,7 +482,7 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
             || cached
                 .replay_alias
                 .is_some_and(|alias| view.has_entrypoint(alias))
-            || !admission.admits(&tx, proposal)
+            || !admission.admits(&tx, proposal)?
         {
             continue;
         }
@@ -513,10 +526,12 @@ fn expand_from_view<'state, V: StateReadOnlyWithTransactions>(
 enum MergeWorkIdentity {
     Signed(HashOf<SignedTransaction>),
     Commitment(Hash),
+    AnonymousBallot(HashOf<TransactionEntrypoint>),
 }
 impl MergeWorkIdentity {
     fn of(entrypoint: &TransactionEntrypoint) -> Self {
         match entrypoint {
+            TransactionEntrypoint::AnonymousBallot(_) => Self::AnonymousBallot(entrypoint.hash()),
             TransactionEntrypoint::External(signed) => Self::Signed(signed.hash()),
             TransactionEntrypoint::SealedReveal(reveal) => {
                 Self::Signed(reveal.signed_transaction().hash())
@@ -564,9 +579,9 @@ impl MergeIdentityIndex {
                 TransactionEntrypoint::SealedReveal(reveal) => {
                     Some(reveal.signed_transaction().hash_as_entrypoint())
                 }
-                TransactionEntrypoint::External(_) | TransactionEntrypoint::SealedCommitment(_) => {
-                    None
-                }
+                TransactionEntrypoint::External(_)
+                | TransactionEntrypoint::SealedCommitment(_)
+                | TransactionEntrypoint::AnonymousBallot(_) => None,
             };
             cached.push_reserved(MergeCandidateIdentity {
                 carrier: entrypoint.hash(),
@@ -809,26 +824,40 @@ impl Admissibility {
         }
     }
 
-    fn admits(&self, tx: &TransactionEntrypoint, block: &SignedBlock) -> bool {
+    fn admits(&self, tx: &TransactionEntrypoint, block: &SignedBlock) -> Result<bool, MergeError> {
         let now = block.header().creation_time();
-        tx.creation_time_ms()
-            .is_none_or(|created| Duration::from_millis(created) < now)
-            && AcceptedTransaction::accept_borrowed_entrypoint_at_time(
-                tx,
-                &self.network,
-                self.max_clock_drift,
-                self.limits,
-                &self.crypto,
-                now,
-                false,
-            )
-            .is_ok()
-            && match tx {
-                TransactionEntrypoint::SealedCommitment(commitment) => {
-                    commitment.payload().reveal_after_height > block.header().height().get()
-                }
-                TransactionEntrypoint::External(_) | TransactionEntrypoint::SealedReveal(_) => true,
+        if tx
+            .creation_time_ms()
+            .is_some_and(|created| Duration::from_millis(created) >= now)
+        {
+            return Ok(false);
+        }
+        match AcceptedTransaction::accept_borrowed_entrypoint_at_time(
+            tx,
+            &self.network,
+            self.max_clock_drift,
+            self.limits,
+            &self.crypto,
+            now,
+            false,
+        ) {
+            Ok(_) => {}
+            Err(crate::tx::AcceptTransactionFail::AnonymousBallotUnavailable) => {
+                return Err(MergeError::ResourceDeferred(
+                    crate::tx::anonymous_ballot_unavailable(),
+                ));
             }
+            Err(_) => return Ok(false),
+        }
+        match tx {
+            TransactionEntrypoint::SealedCommitment(commitment) => {
+                Ok(commitment.payload().reveal_after_height > block.header().height().get())
+            }
+            TransactionEntrypoint::External(_) | TransactionEntrypoint::SealedReveal(_) => Ok(true),
+            TransactionEntrypoint::AnonymousBallot(_) => Err(MergeError::ResourceDeferred(
+                crate::tx::anonymous_ballot_unavailable(),
+            )),
+        }
     }
 }
 

@@ -920,6 +920,13 @@ fn pause_snapshot_rejects_malformed_current_and_undo_without_publication() {
 
 #[test]
 fn pause_snapshot_admits_complete_current_and_undo_graph_once_and_holds_final_readers() {
+    // This test advances the process-global collector and requires its actual
+    // grace period; unrelated reader pins must not govern the timeout.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "state::sccp_snapshot_state::tests::pause_snapshot_admits_complete_current_and_undo_graph_once_and_holds_final_readers",
+    ) {
+        return;
+    }
     // Cell values remain charged until the original EBR generation is reclaimed.
     // Advancing that real collector is distinct from dropping shared payload readers.
     fn collect_until(budget: &AllocationBudget, expected: usize) {

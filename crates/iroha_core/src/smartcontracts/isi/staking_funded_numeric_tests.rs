@@ -115,7 +115,7 @@ fn numeric_index_rejects_foreign_ledger_before_consuming_original_reservation() 
     let result = materialize_index_quantity(aggregate, &mut reservation, &mut ledger);
     assert!(
         matches!(result, Err(EvidencePreparationError::Invariant)),
-        "HC402 numeric index must reject a foreign charge ledger before allocating"
+        "HC900 numeric index must reject a foreign charge ledger before allocating"
     );
     assert_eq!(reservation.remaining_bytes(), layout.size());
     assert!(ledger.as_slice().is_empty());

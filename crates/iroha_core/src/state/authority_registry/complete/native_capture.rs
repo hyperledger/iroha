@@ -239,16 +239,8 @@ mod tests {
             state.crypto.observe_release(),
             state.state_write_lock.observe_release(),
         ];
-        // Fresh State also admits the empty native AMX participant's exact
-        // current/undo generations, identity and original release controls.
-        let native_amx_bytes = mv::cell::CellInitialization::<
-            crate::sumeragi::amx::RetainedNativeAmx,
-        >::allocation_layouts()
-        .iter()
-        .map(std::alloc::Layout::size)
-        .sum::<usize>();
         let initial_bytes = native_tip_bytes
-            + native_amx_bytes
+            + crate::state::initial_custody_test_support::world_live_bytes()
             + lock_releases.len()
                 * iroha_allocation::release::ReleaseNotification::allocation_layout::<
                     iroha_allocation::AllocationCharge,
@@ -256,6 +248,9 @@ mod tests {
                 .size();
         // These observations must not keep controls alive after State drops.
         drop(lock_releases);
+        // State readmits AMX into its original pool; drain the replaced empty
+        // generations so this census measures live owners, independent of EBR timing.
+        crate::state::initial_custody_test_support::reclaim_to(&budget, initial_bytes);
         assert_eq!(budget.reserved_bytes(), initial_bytes);
         budget.set_limit_bytes(0);
         assert!(matches!(
@@ -299,14 +294,8 @@ mod tests {
             .iter()
             .map(std::alloc::Layout::size)
             .sum::<usize>();
-        let retired_generations = retired_generations
-            + mv::cell::Cell::<
-                crate::sumeragi::amx::RetainedNativeAmx,
-                iroha_allocation::AllocationCharge,
-            >::allocation_layouts()
-            .iter()
-            .map(std::alloc::Layout::size)
-            .sum::<usize>();
+        let retired_generations =
+            retired_generations + crate::state::initial_custody_test_support::world_retired_bytes();
         let retirement_pin = crossbeam_epoch::pin();
         drop(state);
         assert_eq!(captured.root(), root);
@@ -314,7 +303,7 @@ mod tests {
         assert_eq!(
             budget.reserved_bytes(),
             captured_bytes + retired_generations,
-            "the live epoch retains the original native-tip and native-AMX generations after State drops",
+            "the live epoch retains every original funded World and native-tip generation after State drops",
         );
         drop(retirement_pin);
         collect_original_ebr_until(&budget, captured_bytes);

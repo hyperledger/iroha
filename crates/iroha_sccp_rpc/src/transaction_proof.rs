@@ -39,7 +39,7 @@ fn raw_method_error(error: RpcError) -> RpcError {
     error
 }
 
-pub(crate) fn build(
+pub fn build(
     client: &EvmClient,
     block: &EvmBlock,
     target: u64,

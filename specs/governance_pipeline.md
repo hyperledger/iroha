@@ -813,9 +813,11 @@ current source, including its height-based windows.
      opening that finds no free slot ends G2c; it keeps its place, and its
      deferral consumes no retry.
    - **Budget.** G1–G3 share `gov.governance_block_start_work_units` (default
-     64, minimum 10). The minimum funds all six possible SCCP conclusions and
-     one enactment, so recertification alone cannot starve every enactment.
-     Genesis and parameter updates enforce this floor. Each item has a fixed cost set by its owner; an enactment costs 4,
+     64, range 43–4 096; genesis and parameter updates enforce the range). The
+     minimum funds one recurring height-progress ticket (1 unit), the largest
+     Parliament item, a complete generation draw (32), all six possible SCCP
+     conclusions (1 each) and one enactment (4): 1 + 32 + 6 + 4 = 43. It does
+     not promise that every enactment fits a busy pass. Each item has a fixed cost set by its owner; an enactment costs 4,
      and a pause-panel conclusion or a reconciliation end costs 1. The first
      item of a pass is always processed; after that, processing stops at the
      first item whose cost exceeds the remaining budget, order is never

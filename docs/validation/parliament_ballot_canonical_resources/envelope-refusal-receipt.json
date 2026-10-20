@@ -1,0 +1,537 @@
+{
+  "behavior": {
+    "context_nominal_allocation_bytes": 327680,
+    "context_sequence_elements": 1010,
+    "envelope_nominal_allocation_bytes": 233012,
+    "envelope_sequence_elements": 0,
+    "local_decode_refusal": "original opaque Norito refusal; not malformed ballot or seal evidence",
+    "physical_workspace_bound": null,
+    "protocol_limit": "schema and canonical defaults created within the classification boundary",
+    "wire_changed": false
+  },
+  "campaign_runner": {
+    "path": "../../../.codex/parliament-envelope-refusal-20261020/run_campaign.py",
+    "sha256": "c7bc4b52970165b11576c1901724d47e80be16f0c8122c91aea9be78aa09b6be"
+  },
+  "campaign_verification": {
+    "path": "../../../.codex/parliament-envelope-refusal-20261020/verification.json",
+    "sha256": "24ddd5c2d5a86c9d10ca666732b9da7dc4904356f9febc1d63b876ec09bcc9b5"
+  },
+  "campaign_verifier": {
+    "path": "../../../.codex/parliament-envelope-refusal-20261020/verify_campaigns.py",
+    "sha256": "c6b2ad2171beeaea7a47f4ec337f3b72a69430a4712cf33ef1845b9b88f766c9"
+  },
+  "campaigns": {
+    "accel": {
+      "feature_record": {
+        "path": "../../../.codex/parliament-envelope-refusal-20261020/accel-aes-feature-tree.json",
+        "sha256": "53334aa293a9695c91f8c29ae192c621a8098e1c3fcaefd425a5019ba2b978f0"
+      },
+      "feature_tree": {
+        "path": "../../../.codex/parliament-envelope-refusal-20261020/accel-aes-feature-tree.txt",
+        "sha256": "d72d90850a963b73d35991c437622b53fa6036229e021ab83725d662972d4280"
+      },
+      "manifest": {
+        "path": "../../../.codex/parliament-envelope-refusal-20261020/campaign-accel/SHA256SUMS",
+        "sha256": "c1ca593e4d7945d71d44f32abd6539bcf8d6924336c47c8be6e72f914381e414"
+      },
+      "observations": 55,
+      "original_reports": [
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19073,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 4765632,
+          "arena_peak_requested_bytes": 3924851,
+          "charged_bytes": 234807,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 1352,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "accepted",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "complete",
+          "workspace_reserved_bytes": 43106304
+        },
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19073,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 5281728,
+          "arena_peak_requested_bytes": 4309766,
+          "charged_bytes": 299418,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 65963,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "accepted",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "complete",
+          "workspace_reserved_bytes": 43106304
+        },
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19072,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 5674944,
+          "arena_peak_requested_bytes": 4698862,
+          "charged_bytes": 364418,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 130963,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "accepted",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "complete",
+          "workspace_reserved_bytes": 43106304
+        },
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19070,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 5674944,
+          "arena_peak_requested_bytes": 4698862,
+          "charged_bytes": 364418,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 130963,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "rejected",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "proof",
+          "workspace_reserved_bytes": 43106304
+        }
+      ],
+      "process_exit": {
+        "path": "../../../.codex/parliament-envelope-refusal-20261020/campaign-accel-process/exit.json",
+        "sha256": "052fea6d33fc299d9514e0faaca546ab46b7d00233a9abfee7bb4e6f7336937e"
+      },
+      "summary": {
+        "path": "../../../.codex/parliament-envelope-refusal-20261020/campaign-accel/summary.json",
+        "sha256": "f5c883bbe2babc51f6036a2a41fed56096572bc5987feb6d7ca027a5b6599406"
+      },
+      "worker_sha256": "1f29b694fa107ef01e970e1e92fd85af15713364951d248e5a14fbc8be27990a"
+    },
+    "portable": {
+      "feature_record": {
+        "path": "../../../.codex/parliament-envelope-refusal-20261020/portable-aes-feature-tree.json",
+        "sha256": "5e87d1ea380f33a1af36db5b2d4b93decd717a0d82a13e84237758b924fb2e31"
+      },
+      "feature_tree": {
+        "path": "../../../.codex/parliament-envelope-refusal-20261020/portable-aes-feature-tree.txt",
+        "sha256": "58ac2b81a24613b734851c192c964fac70c96a41ad9b39cd4cedcbfc31f7c074"
+      },
+      "manifest": {
+        "path": "../../../.codex/parliament-envelope-refusal-20261020/campaign-portable/SHA256SUMS",
+        "sha256": "b93b8fb7a558918978c988b69c51c23d907c7ad053a06fd56c7da9fb97837015"
+      },
+      "observations": 55,
+      "original_reports": [
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19073,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 4765632,
+          "arena_peak_requested_bytes": 3924851,
+          "charged_bytes": 234807,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 1352,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "accepted",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "complete",
+          "workspace_reserved_bytes": 43106304
+        },
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19073,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 5281728,
+          "arena_peak_requested_bytes": 4309766,
+          "charged_bytes": 299418,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 65963,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "accepted",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "complete",
+          "workspace_reserved_bytes": 43106304
+        },
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19072,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 5674944,
+          "arena_peak_requested_bytes": 4698862,
+          "charged_bytes": 364418,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 130963,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "accepted",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "complete",
+          "workspace_reserved_bytes": 43106304
+        },
+        {
+          "acceleration_identity_external": true,
+          "arena_allocations": 19070,
+          "arena_enforced": true,
+          "arena_live_exit_block_bytes": 0,
+          "arena_live_exit_requested_bytes": 0,
+          "arena_peak_block_bytes": 5674944,
+          "arena_peak_requested_bytes": 4698862,
+          "charged_bytes": 364418,
+          "charged_units": 1,
+          "complete_workspace_certificate": false,
+          "context_bytes": 130963,
+          "control_reserved_bytes": 65536,
+          "envelope_bytes": 233455,
+          "fatal_control_reserved_bytes": 16384,
+          "guard_bytes": 32768,
+          "heap_limit_bytes": 33554432,
+          "heap_reserved_bytes": 33554432,
+          "metadata_reserved_bytes": 1048576,
+          "outcome": "rejected",
+          "profile_qualified": false,
+          "protocol_effect": false,
+          "stack_usable_bytes": 8388608,
+          "validity_only": true,
+          "verifier_stage": "proof",
+          "workspace_reserved_bytes": 43106304
+        }
+      ],
+      "process_exit": {
+        "path": "../../../.codex/parliament-envelope-refusal-20261020/campaign-portable-process/exit.json",
+        "sha256": "2a0cde626d5d2ba5155c0ce8369dff49b4720b34a64cd55fb804127bf30a1a83"
+      },
+      "summary": {
+        "path": "../../../.codex/parliament-envelope-refusal-20261020/campaign-portable/summary.json",
+        "sha256": "c927422a7ca9851245730a67fc2759cfe98e888ba58ccaf23cf7aadcd4af3a76"
+      },
+      "worker_sha256": "efb30cf5ddc6634e5a47e539366bfe969449d54da31cad1db9e48a80cfbf22cc"
+    }
+  },
+  "complete_workspace_certificate": false,
+  "environment": {
+    "path": "../../../.codex/parliament-envelope-refusal-20261020/environment.json",
+    "sha256": "62d6b3949f0294cc4bc9a20f55a2804cb18cc1a22010ca637c88b2e8576d6205"
+  },
+  "execution_note": "Portable worker campaign overlapped the accelerated build in separate processes; no isolated timing or physical cost calibration is claimed.",
+  "host": {
+    "path": "../../../.codex/parliament-envelope-refusal-20261020/host.json",
+    "sha256": "acff366fafd4eaec0010c15bf8ad16b0abfa8eb0a0e23237a19d49f412bfe290"
+  },
+  "initial_model_failure": {
+    "exit.json": {
+      "path": "../../../.codex/parliament-envelope-refusal-20261020/model-tests-initial/exit.json",
+      "sha256": "66aa4887aaf074c0f27537e09d6e80f2756677ad7caf8f1f9763ea7a8fbb380d"
+    },
+    "scoped-inputs-after.json": {
+      "path": "../../../.codex/parliament-envelope-refusal-20261020/model-tests-initial/scoped-inputs-after.json",
+      "sha256": "3c77548681ab3b770cad32e85e76f597b3f98f3f8b741fce4f7b8258bb7f1984"
+    },
+    "scoped-inputs-before.json": {
+      "path": "../../../.codex/parliament-envelope-refusal-20261020/model-tests-initial/scoped-inputs-before.json",
+      "sha256": "72d409b40f30585f12b88b5473b966fb90ede7facd1a302e72730e61de66fda2"
+    },
+    "start.json": {
+      "path": "../../../.codex/parliament-envelope-refusal-20261020/model-tests-initial/start.json",
+      "sha256": "0c6f1452702516eabda5cad231cba569f62bd4b247b4b6ed79feccb613b30233"
+    },
+    "stderr.txt": {
+      "path": "../../../.codex/parliament-envelope-refusal-20261020/model-tests-initial/stderr.txt",
+      "sha256": "9a14671659a4fad545b436629be3960172cb8ab762eaa5aabfecf21719bf2dd9"
+    },
+    "stdout.txt": {
+      "path": "../../../.codex/parliament-envelope-refusal-20261020/model-tests-initial/stdout.txt",
+      "sha256": "c4867aa5c6e0cb4ef1c2c6951d4287e95ba584c2c39572c4c811b4915b4b1b24"
+    }
+  },
+  "initial_model_failure_note": "103 passed, four test assertions failed: generic-vector charges were incorrectly assumed for specialized byte vectors, and enormous counts reached canonical-default ceilings before schema ceilings. Corrected assertions retain exact charges and protocol/local classification.",
+  "pass": true,
+  "phases": {
+    "accel-build": {
+      "build_record": {
+        "path": "../../../.codex/parliament-envelope-refusal-20261020/accel-build/build-record.json",
+        "sha256": "7d24f76f3a7f56b09cec0edf8ad68cb7b383cadf49635cb1cb5f8f5a24ba1ac4"
+      },
+      "files": {
+        "exit.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/accel-build/exit.json",
+          "sha256": "ccc9bebe31778ee263860e4c9b7e22d4b5f3bafa8ae911b73477b1d3cfbcd389"
+        },
+        "scoped-inputs-after.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/accel-build/scoped-inputs-after.json",
+          "sha256": "eb435ede84fd957bc6bcd14da8581e807056244a7bc12fc3b040a9aa5f36b3cd"
+        },
+        "scoped-inputs-before.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/accel-build/scoped-inputs-before.json",
+          "sha256": "eb435ede84fd957bc6bcd14da8581e807056244a7bc12fc3b040a9aa5f36b3cd"
+        },
+        "start.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/accel-build/start.json",
+          "sha256": "fc489a7b25fcf288fc75789d91f8c63565d6adfd72afdb3c6239e83d0a493c3f"
+        },
+        "stderr.txt": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/accel-build/stderr.txt",
+          "sha256": "2528147cf506bed3c6260bf1e77d88f4522a750819922c272f70de6c85e3ebd7"
+        },
+        "stdout.txt": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/accel-build/stdout.txt",
+          "sha256": "e9b6b7d8d08eabb53795b1285f1247cb7de96782556a4414f0a30bbf907a3fb8"
+        }
+      },
+      "scoped_changes": [],
+      "scoped_input_count": 114
+    },
+    "example-tests": {
+      "files": {
+        "exit.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/example-tests/exit.json",
+          "sha256": "f33de2356f71fa3935babf3631c10bb7709401a4b2d5f90369c19fc0740adb82"
+        },
+        "scoped-inputs-after.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/example-tests/scoped-inputs-after.json",
+          "sha256": "eb435ede84fd957bc6bcd14da8581e807056244a7bc12fc3b040a9aa5f36b3cd"
+        },
+        "scoped-inputs-before.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/example-tests/scoped-inputs-before.json",
+          "sha256": "eb435ede84fd957bc6bcd14da8581e807056244a7bc12fc3b040a9aa5f36b3cd"
+        },
+        "start.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/example-tests/start.json",
+          "sha256": "8792aeb268f2f6687cab377ef8ab2da3d7d707cd58ba2ca424a059ce30fbf6d3"
+        },
+        "stderr.txt": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/example-tests/stderr.txt",
+          "sha256": "f65dd1c2cf3a781790b5cc6940668382e3efb5996a322dd5bfa431578fbde556"
+        },
+        "stdout.txt": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/example-tests/stdout.txt",
+          "sha256": "a6a274ca9e0d45baa08b78475e59198527cd780b7b3af7552fd7cfa84716263e"
+        }
+      },
+      "scoped_changes": [],
+      "scoped_input_count": 114,
+      "test_summaries": [
+        {
+          "failed": 0,
+          "filtered_out": 0,
+          "ignored": 0,
+          "measured": 0,
+          "passed": 6
+        },
+        {
+          "failed": 0,
+          "filtered_out": 0,
+          "ignored": 0,
+          "measured": 0,
+          "passed": 19
+        }
+      ]
+    },
+    "model-tests": {
+      "files": {
+        "exit.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/model-tests/exit.json",
+          "sha256": "3fa6f173f6da0b5192bcf34a74203742a6a491d3bfb2760a2681f4e8c3b57e71"
+        },
+        "scoped-inputs-after.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/model-tests/scoped-inputs-after.json",
+          "sha256": "eb435ede84fd957bc6bcd14da8581e807056244a7bc12fc3b040a9aa5f36b3cd"
+        },
+        "scoped-inputs-before.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/model-tests/scoped-inputs-before.json",
+          "sha256": "eb435ede84fd957bc6bcd14da8581e807056244a7bc12fc3b040a9aa5f36b3cd"
+        },
+        "start.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/model-tests/start.json",
+          "sha256": "306f71004014452d32ba0aef27f83553f72f75bafc4c97ce44ba64e20205c716"
+        },
+        "stderr.txt": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/model-tests/stderr.txt",
+          "sha256": "cc67f965dbef2ca29145834e1871166fa73fcb8f9485475a8542c448c2eb9760"
+        },
+        "stdout.txt": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/model-tests/stdout.txt",
+          "sha256": "5bed8c4eccfa31370cff4f486e8f2a3ca658d64977124cd2c01bf5b62ac228d4"
+        }
+      },
+      "scoped_changes": [],
+      "scoped_input_count": 114,
+      "test_summaries": [
+        {
+          "failed": 0,
+          "filtered_out": 5323,
+          "ignored": 0,
+          "measured": 0,
+          "passed": 107
+        }
+      ]
+    },
+    "portable-build": {
+      "build_record": {
+        "path": "../../../.codex/parliament-envelope-refusal-20261020/portable-build/build-record.json",
+        "sha256": "d39707f50a0bb558b0b156b13586ff968da8a2d63f24b73afbb00596a069695b"
+      },
+      "files": {
+        "exit.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/portable-build/exit.json",
+          "sha256": "550307eeda4bb85dc97d94e421fbb71938a27e31ea26444fbca5e6a57243baec"
+        },
+        "scoped-inputs-after.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/portable-build/scoped-inputs-after.json",
+          "sha256": "eb435ede84fd957bc6bcd14da8581e807056244a7bc12fc3b040a9aa5f36b3cd"
+        },
+        "scoped-inputs-before.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/portable-build/scoped-inputs-before.json",
+          "sha256": "eb435ede84fd957bc6bcd14da8581e807056244a7bc12fc3b040a9aa5f36b3cd"
+        },
+        "start.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/portable-build/start.json",
+          "sha256": "107920903cdb9fce7016a870739fe96e4c50112c4232c88087c13eb6d4888723"
+        },
+        "stderr.txt": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/portable-build/stderr.txt",
+          "sha256": "f96112ad7d5ef5467148be01290ee6ee94b1db6dbdfc0fa4c39737e41093989f"
+        },
+        "stdout.txt": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/portable-build/stdout.txt",
+          "sha256": "64936642789a7b22cc53f8d17ee0c85ae58ab8694b44708b074ab0e7d29f5f6e"
+        }
+      },
+      "scoped_changes": [],
+      "scoped_input_count": 114
+    },
+    "protocol-tests": {
+      "files": {
+        "exit.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/protocol-tests/exit.json",
+          "sha256": "02b5158a864a6d9a21f3a4221cbb6ee2c7d843ca1d541f63b4a758650fb4f276"
+        },
+        "scoped-inputs-after.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/protocol-tests/scoped-inputs-after.json",
+          "sha256": "eb435ede84fd957bc6bcd14da8581e807056244a7bc12fc3b040a9aa5f36b3cd"
+        },
+        "scoped-inputs-before.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/protocol-tests/scoped-inputs-before.json",
+          "sha256": "eb435ede84fd957bc6bcd14da8581e807056244a7bc12fc3b040a9aa5f36b3cd"
+        },
+        "start.json": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/protocol-tests/start.json",
+          "sha256": "3e04a68a755bd145b837d4b1307fc95dd0db7841c65a4c136963ec3dc63347fd"
+        },
+        "stderr.txt": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/protocol-tests/stderr.txt",
+          "sha256": "1226f678c1952328a5f704c97da0ed5d240597ec446b538b72df4d937be3f37f"
+        },
+        "stdout.txt": {
+          "path": "../../../.codex/parliament-envelope-refusal-20261020/protocol-tests/stdout.txt",
+          "sha256": "add5bfb6f1eb1dfbfcbbc39416b8fc9f17eef53a6920218874f2a3ede5630335"
+        }
+      },
+      "scoped_changes": [],
+      "scoped_input_count": 114,
+      "test_summaries": [
+        {
+          "failed": 0,
+          "filtered_out": 0,
+          "ignored": 2,
+          "measured": 0,
+          "passed": 79
+        }
+      ]
+    }
+  },
+  "qualification": false,
+  "receipt_writer": {
+    "path": "../../../.codex/parliament-envelope-refusal-20261020/retain_receipt.py",
+    "sha256": "29f58893a0ea2b6c085d23d9113f2c6f06e7d4713c2ee08dbd4ac04240e42728"
+  },
+  "runner": {
+    "path": "../../../.codex/parliament-envelope-refusal-20261020/run.py",
+    "sha256": "f3733b368221d9f961381db260cc8dd4278897b7771123c33138162470508ee0"
+  },
+  "schema": "parliament-envelope-refusal-engineering-v1",
+  "source_scope": "ordinary live-checkout engineering validation; no complete frozen compiler-input claim"
+}

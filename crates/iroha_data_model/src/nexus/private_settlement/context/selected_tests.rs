@@ -29,7 +29,10 @@ fn entry<K: norito::codec::Encode, V: norito::codec::Encode>(
 fn fixture() -> (PrivateSettlementPoolKeyV1, PrivateSettlementContextProofV1) {
     let (key, pool) = super::super::proof::tests::fixture();
     let keys: [_; 4] = std::array::from_fn(|index| {
-        KeyPair::from_seed(vec![70 + index as u8; 32], Algorithm::BlsNormal)
+        KeyPair::from_seed(
+            vec![70 + u8::try_from(index).expect("four fixture keys"); 32],
+            Algorithm::BlsNormal,
+        )
     });
     let members: Vec<_> = keys
         .iter()
@@ -331,9 +334,9 @@ fn private_context_request_rejects_duplicate_empty_and_one_over_protocol_leg_bou
         .validate()
         .is_err()
     );
-    let keys = (0..255)
+    let keys = (0_u8..255)
         .map(|i| PrivateSettlementPoolKeyV1 {
-            pool_id: crate::privacy::PrivacyPoolIdV1::new([i as u8 + 1; 32]),
+            pool_id: crate::privacy::PrivacyPoolIdV1::new([i + 1; 32]),
             ..key
         })
         .collect();
@@ -425,10 +428,10 @@ fn private_context_json_preserves_four_originals_and_bounded_borrowed_writing() 
             )
         }),
     );
-    assert!(std::ptr::eq(borrowed.lanes.0, &proof.lanes));
+    assert!(std::ptr::eq(borrowed.lanes.0, &raw const proof.lanes));
     for (row, original) in borrowed.committee_keys.iter().zip(&proof.committee_keys) {
-        assert!(std::ptr::eq(row.index.0, &original.index));
-        assert!(std::ptr::eq(row.record.0, &original.record));
+        assert!(std::ptr::eq(row.index.0, &raw const original.index));
+        assert!(std::ptr::eq(row.record.0, &raw const original.record));
     }
     let actual = norito::json::to_json_bounded(&borrowed, usize::MAX).unwrap();
     let required = actual.len();
@@ -468,8 +471,8 @@ fn private_context_json_preserves_four_originals_and_bounded_borrowed_writing() 
         proof
     );
     for (row, original) in borrowed.committee_keys.iter().zip(&proof.committee_keys) {
-        assert!(std::ptr::eq(row.index.0, &original.index));
-        assert!(std::ptr::eq(row.record.0, &original.record));
+        assert!(std::ptr::eq(row.index.0, &raw const original.index));
+        assert!(std::ptr::eq(row.record.0, &raw const original.record));
     }
 }
 
@@ -497,7 +500,7 @@ fn private_context_json_rejects_nonfour_arrays_unknown_root_and_key_fields() {
     for replacement in [
         Value::Null,
         Value::String("four".into()),
-        Value::Object(Default::default()),
+        Value::Object(norito::json::Map::new()),
     ] {
         let Value::Object(mut fields) = original.clone() else {
             unreachable!()

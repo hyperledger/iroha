@@ -12,7 +12,6 @@ use crate::{
 use iroha_config::parameters::actual::LaneConfig;
 use iroha_data_model::proof::{ProofId, ProofRecord, ProofStatus};
 use mv::storage::Storage;
-use std::collections::BTreeSet;
 
 fn id(backend: &str) -> ProofId {
     ProofId {
@@ -54,13 +53,15 @@ fn state(backend: &str) -> State {
             .proofs_by_status
             .try_committed_view_nonblocking()
             .unwrap();
-        let members = BTreeSet::from([key.clone()]);
         assert_eq!(source.current().get(&key), Some(&record));
         assert_eq!(source.undo().get(&key), Some(&Some(record)));
-        assert_eq!(index.current().get(&ProofStatus::Submitted), Some(&members));
         assert_eq!(
-            index.undo().get(&ProofStatus::Submitted),
-            Some(&Some(members))
+            index.current().get(&(ProofStatus::Submitted, key.clone())),
+            Some(&())
+        );
+        assert_eq!(
+            index.undo().get(&(ProofStatus::Submitted, key.clone())),
+            Some(&Some(()))
         );
     }
     state
@@ -85,10 +86,9 @@ fn actual_catalog_rejects_proof_status_corruption_after_state_construction() {
     for previous in [false, true] {
         for defect in 0..5 {
             let mut state = state("stark/fri");
-            let correct = BTreeSet::from([id("stark/fri")]);
-            // Corrupt only after the live writer and State construction so
-            // the actual catalog, not fixture reconstruction, finds the defect.
-            if defect < 3 {
+            let correct = (ProofStatus::Submitted, id("stark/fri"));
+            // Corrupt only after the live writer and State construction.
+            if matches!(defect, 0 | 2) {
                 state.world.proofs_by_status = Storage::new();
             }
             match defect {
@@ -97,28 +97,28 @@ fn actual_catalog_rejects_proof_status_corruption_after_state_construction() {
                     state
                         .world
                         .proofs_by_status
-                        .insert(ProofStatus::Submitted, BTreeSet::new());
+                        .insert((ProofStatus::Verified, id("unknown")), ());
                 }
                 2 | 3 => {
                     state
                         .world
                         .proofs_by_status
-                        .insert(ProofStatus::Verified, correct.clone());
+                        .insert((ProofStatus::Verified, id("stark/fri")), ());
                 }
                 4 => {
-                    state.world.proofs_by_status.insert(
-                        ProofStatus::Submitted,
-                        BTreeSet::from([id("stark/fri"), id("unknown")]),
-                    );
+                    state
+                        .world
+                        .proofs_by_status
+                        .insert((ProofStatus::Submitted, id("unknown")), ());
                 }
                 _ => unreachable!(),
             }
             if previous {
                 let mut block = state.world.proofs_by_status.block();
-                block.insert(ProofStatus::Submitted, correct);
-                if matches!(defect, 2 | 3) {
-                    block.remove(ProofStatus::Verified);
-                }
+                block.insert(correct, ());
+                block.remove((ProofStatus::Verified, id("unknown")));
+                block.remove((ProofStatus::Verified, id("stark/fri")));
+                block.remove((ProofStatus::Submitted, id("unknown")));
                 block.commit();
             }
             state.ivm_execution_budget().set_limit_bytes(0);
@@ -134,7 +134,7 @@ fn actual_catalog_rejects_proof_status_corruption_after_state_construction() {
                         },
                         mismatch: match defect {
                             0 | 2 => GroupMismatch::MissingMember,
-                            1 => GroupMismatch::EmptyGroup,
+                            1 => GroupMismatch::ForeignMember,
                             3 | 4 => GroupMismatch::ForeignMember,
                             _ => unreachable!(),
                         },
@@ -155,6 +155,9 @@ fn actual_catalog_rejects_proof_status_corruption_after_state_construction() {
 
 #[test]
 fn actual_proof_catalog_keeps_original_pool_refusal_retry_and_final_owner() {
+    // The fixture publishes World cells before capture. Keep their retired
+    // generations fixed while checking the snapshot's synchronous refunds.
+    let _state_retirement = crossbeam_epoch::pin();
     let state = state("stark/fri");
     let original = state.ivm_execution_budget();
     let resident = original.reserved_bytes();

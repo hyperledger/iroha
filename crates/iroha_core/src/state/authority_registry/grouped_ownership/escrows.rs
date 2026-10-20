@@ -11,9 +11,9 @@ use iroha_data_model::escrow::{AssetEscrowRecord, AssetEscrowStatus, EscrowId};
 pub(in super::super) struct CheckedEscrows<'world> {
     world: &'world World,
     rows: CommittedStorageView<'world, EscrowId, AssetEscrowRecord>,
-    sellers: CommittedStorageView<'world, AccountId, BTreeSet<EscrowId>>,
-    buyers: CommittedStorageView<'world, AccountId, BTreeSet<EscrowId>>,
-    statuses: CommittedStorageView<'world, AssetEscrowStatus, BTreeSet<EscrowId>>,
+    sellers: CommittedStorageView<'world, (AccountId, EscrowId), ()>,
+    buyers: CommittedStorageView<'world, (AccountId, EscrowId), ()>,
+    statuses: CommittedStorageView<'world, (AssetEscrowStatus, EscrowId), ()>,
 }
 impl<'world> CheckedEscrows<'world> {
     /// Check both native images without allocating, rebuilding or repairing.
@@ -81,7 +81,7 @@ impl<'world> CheckedEscrows<'world> {
 
 /// Single Ed25519 seller/buyer and three singleton groups on both images, no undo.
 /// This local scheduling reference is neither a validity limit nor a worst-case bound.
-pub(in crate::state) const ESCROW_WORK_PER_ROW: u64 = 1366;
+pub(in crate::state) const ESCROW_WORK_PER_ROW: u64 = 1348;
 
 struct EscrowWork(u64);
 impl EscrowWork {
@@ -99,6 +99,12 @@ impl EscrowWork {
 }
 trait EscrowKey: mv::Key {
     fn prepay(&self, work: &mut EscrowWork) -> Result<(), GroupedOwnershipError>;
+}
+impl<G: EscrowKey, K: EscrowKey> EscrowKey for (G, K) {
+    fn prepay(&self, work: &mut EscrowWork) -> Result<(), GroupedOwnershipError> {
+        self.0.prepay(work)?;
+        self.1.prepay(work)
+    }
 }
 impl EscrowKey for EscrowId {
     fn prepay(&self, work: &mut EscrowWork) -> Result<(), GroupedOwnershipError> {
@@ -179,18 +185,28 @@ fn lookup<'a, K: EscrowKey, V: mv::Value>(
     })?;
     Ok(found)
 }
-fn contains<K: EscrowKey>(
-    members: &BTreeSet<K>,
-    key: &K,
+fn contains<G: EscrowKey, K: EscrowKey>(
+    groups: &impl RawStorageImages<(G, K), ()>,
+    image: GroupImage,
+    group: &G,
+    member: &K,
     work: &mut EscrowWork,
 ) -> Result<bool, GroupedOwnershipError> {
-    let mut members = members.iter();
     let mut found = false;
-    while let Some(candidate) = next_physical(&mut members, work)? {
-        found |= equal(key, candidate, work)?;
-    }
+    visit_original(
+        groups,
+        image,
+        work,
+        |(candidate_group, candidate_member), (), work| {
+            let group_matches = equal(group, candidate_group, work)?;
+            let member_matches = equal(member, candidate_member, work)?;
+            found |= group_matches && member_matches;
+            Ok(())
+        },
+    )?;
     Ok(found)
 }
+
 fn seller<'a>(
     record: &'a AssetEscrowRecord,
     _: &mut EscrowWork,
@@ -223,7 +239,7 @@ fn group_error(
 }
 fn validate_escrow_group<G: EscrowKey>(
     rows: &impl RawStorageImages<EscrowId, AssetEscrowRecord>,
-    groups: &impl RawStorageImages<G, BTreeSet<EscrowId>>,
+    groups: &impl RawStorageImages<(G, EscrowId), ()>,
     index: &'static str,
     project: impl for<'a> Fn(
         &'a AssetEscrowRecord,
@@ -234,35 +250,24 @@ fn validate_escrow_group<G: EscrowKey>(
     for image in [GroupImage::Current, GroupImage::Predecessor] {
         visit_original(rows, image, work, |id, record, work| {
             if let Some(group) = project(record, work)? {
-                let found = if let Some(members) = lookup(groups, image, group, work)? {
-                    contains(members, id, work)?
-                } else {
-                    false
-                };
+                let found = contains(groups, image, group, id, work)?;
                 if !found {
                     return Err(group_error(index, image, GroupMismatch::MissingMember));
                 }
             }
             Ok(())
         })?;
-        visit_original(groups, image, work, |group, members, work| {
-            work.prepay(1)?;
-            if members.is_empty() {
-                return Err(group_error(index, image, GroupMismatch::EmptyGroup));
-            }
-            let mut members = members.iter();
-            while let Some(id) = next_physical(&mut members, work)? {
-                let Some(record) = lookup(rows, image, id, work)? else {
-                    return Err(group_error(index, image, GroupMismatch::ForeignMember));
-                };
-                let matches = if let Some(projected) = project(record, work)? {
-                    equal(projected, group, work)?
-                } else {
-                    false
-                };
-                if !matches {
-                    return Err(group_error(index, image, GroupMismatch::ForeignMember));
-                }
+        visit_original(groups, image, work, |(group, id), (), work| {
+            let Some(record) = lookup(rows, image, id, work)? else {
+                return Err(group_error(index, image, GroupMismatch::ForeignMember));
+            };
+            let matches = if let Some(projected) = project(record, work)? {
+                equal(projected, group, work)?
+            } else {
+                false
+            };
+            if !matches {
+                return Err(group_error(index, image, GroupMismatch::ForeignMember));
             }
             Ok(())
         })?;
@@ -274,9 +279,9 @@ fn validate_escrow_group<G: EscrowKey>(
 /// No record ID, account/reference, custody, quantity or instruction validity is added.
 pub(in crate::state) fn validate_original_escrows(
     rows: &impl RawStorageImages<EscrowId, AssetEscrowRecord>,
-    sellers: &impl RawStorageImages<AccountId, BTreeSet<EscrowId>>,
-    buyers: &impl RawStorageImages<AccountId, BTreeSet<EscrowId>>,
-    statuses: &impl RawStorageImages<AssetEscrowStatus, BTreeSet<EscrowId>>,
+    sellers: &impl RawStorageImages<(AccountId, EscrowId), ()>,
+    buyers: &impl RawStorageImages<(AccountId, EscrowId), ()>,
+    statuses: &impl RawStorageImages<(AssetEscrowStatus, EscrowId), ()>,
     max_work: u64,
 ) -> Result<(), GroupedOwnershipError> {
     let mut work = EscrowWork::bounded(max_work);

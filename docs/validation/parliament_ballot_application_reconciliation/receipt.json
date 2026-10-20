@@ -1,0 +1,72 @@
+{
+  "adversary_to_aggregate_query_conversion": null,
+  "anonymity_and_unlinkability_formula": "min(1, 2*Z_F + 2*alpha_F + 2*rho_rep)",
+  "binding_production_activation": false,
+  "captured_at_utc": "2026-10-19T17:31:55.377036+00:00",
+  "complete_reduction_resources": null,
+  "default_Q_all_2_pow_64_is_adversary_plus_overhead_certificate": false,
+  "development_testing_enabled": true,
+  "exhaustion_preserves_application_exposure_logs_and_programmed_oracle_state": true,
+  "frozen_arguments_revised": false,
+  "frozen_calculators_or_reports_revised": false,
+  "local_reviews": {
+    "authorization_and_counting": "No blocking defect; equations match original 43/45/90 with explicitly changed simulator and premise.",
+    "authorization_review_spec_sha256": "378ede0861480b281ce131d2e8a389b3c4cd8f038cc7aa0b830e36b718a26693",
+    "final_resource_delta_review_spec_sha256": "2bdd292fac6e78db6659a521e06ffc8e5d299338b6ab15e81b24cbb821bb2be7",
+    "independent_cryptographic_review": false,
+    "privacy_and_false_input_totality": "No blocking defect; complete note read, with focus on sections 1-3.",
+    "resolved_clarifications": [
+      "q_other counts backend evaluations, not unspecified work.",
+      "Endpoint sampler costs do not cover real/mixed whole-lifetime primitive drivers.",
+      "Large circuit counts do not prove useful AES bounds impossible."
+    ],
+    "resource_scope": "Three wording clarifications resolved and verified; no arithmetic or double-count finding remained."
+  },
+  "new_credential_experiment": "P_F: original selective-entry credential experiment with both proof interfaces served by one persistent total IdealFrontierSim",
+  "old_credential_premise_transfers_automatically": false,
+  "prior_manifests_verified_unchanged": [
+    {
+      "manifest": "docs/validation/parliament_ballot_initial_programming/SHA256SUMS",
+      "sha256": "97d4498a1407ba9eed197e813b6c026078bd0c4a3435f554a80024eb7ca0af62",
+      "verified_entries": 10
+    },
+    {
+      "manifest": "docs/validation/parliament_ballot_conditional_composition/SHA256SUMS",
+      "sha256": "3e2b1f90c52f1ce1a697fc37c18d3a92015582b61de5f1083945e5b8c3a3cf57",
+      "verified_entries": 10
+    }
+  ],
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "properties_reconciled": [
+    2,
+    3,
+    8
+  ],
+  "quantified_aes_advantages": null,
+  "quantified_new_credential_premise": null,
+  "real_game_event_splits_preserved": true,
+  "required_next_work": [
+    "Complete total source-domain dispatcher and persistent overlay for one whole-lifetime root reduction.",
+    "Distinguish oracle-relative supplied functions from finite-cost independent-oracle realization.",
+    "Establish actual request/query and full-resource conversion; examine a more efficient overlay.",
+    "Quantify and obtain independent assessment of the changed credential, primitive, soundness, uniqueness and frame premises.",
+    "Complete native resource, named hardware and integration qualification."
+  ],
+  "schema": "parliament-ballot-application-reconciliation-evidence-v1",
+  "scope": "Source-informed conditional application reductions and resource/query boundary audit; no executable changes, theorem certification or independent cryptographic attestation.",
+  "specification": "specs/parliament_ballot_b6_application_reconciliation.md",
+  "specification_sha256": "2bdd292fac6e78db6659a521e06ffc8e5d299338b6ab15e81b24cbb821bb2be7",
+  "valid_witness_zk_used_on_false_intermediate_statements": false,
+  "validation": {
+    "arithmetic": "Python 3.11 exact integer checks against retained request observation, including repeated-body gate product, strict power-of-two comparison, illustrative disjoint query subtotal and batch pair count.",
+    "circuit_execution_run": false,
+    "full_workspace_tests_run": false,
+    "input_scope": "Selected source and antecedent records, not a dependency/build closure.",
+    "inputs_unchanged": true,
+    "new_unit_tests": 0,
+    "old_build_reauthenticated": false,
+    "rust_tests_run": false,
+    "scoped_input_count": 22
+  }
+}

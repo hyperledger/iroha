@@ -6,6 +6,12 @@ Status: evaluation as of 2026-10-13 against
 It incorporates the thirteen texts of the second-opinion review (section 3).
 **No profile is selected. Nothing is qualified.**
 
+**Current engineering order:** the owner's 2026-10-18 authorization in ballot
+design section 12.2 supersedes this evaluation's earlier preselection sequencing.
+Real-candidate schemas, integration and development tests may proceed alongside
+B6. The selection dossier and production activation requirements remain unmet;
+historical review decisions and evidence below retain their original scope.
+
 The construction to develop is decided (section 6). This record calls it the
 frozen construction: a proof over the public sealed list in a
 VOLE-in-the-head backend derived from FAEST v3.0, with a fresh 256-bit pad in
@@ -82,8 +88,8 @@ mappings, the production envelopes or authenticated integration), conditions
 evidence, condition 5 is not met (complete envelope, allocation and
 qualification-baseline evidence remains open), condition 6's obligations
 are enumerated and condition 7 holds. Schemas and Core integration (steps 3
-and 4) therefore stay blocked, and the permitted work is standalone
-implementation, measurement and proof work only (section 11.1).
+and 4) are authorized alongside qualification under ballot design section
+12.2; missing qualification evidence alone does not block development tests.
 `parliament_binding_ballot_available()` stays false until the owner records
 qualification.
 
@@ -3473,11 +3479,11 @@ Thresholds **[R]**. The hard limits of section 2 apply unchanged at
 | Phone proving p95 ≤ 10 s | Cannot be judged without runs on the baseline phones |
 | Phone prover memory ≤ 256 MiB | Supplementary iPhone 17 Pro Max and Samsung SM-S942B observations exist in the B6 record, with requested Rust heap and sampled process memory reported separately. The named baseline phones, battery/sustained-thermal conditions and complete memory qualification remain open |
 
-The [B6 interface note](parliament_ballot_b6_generator_interface.md) assigns
-the envelope-ordering ambiguity to the design owner and independent profile
-reviewer: selection requires complete envelope sizes, while production schemas
-are forbidden before selection. No interpretation, exemption or selection
-approval is inferred from the current standalone size inventory.
+The [B6 interface note](parliament_ballot_b6_generator_interface.md) records
+the earlier envelope-ordering ambiguity. Ballot design section 12.2 now
+authorizes schema engineering alongside qualification. Actual canonical
+envelope sizes and complete accounting remain required; the standalone size
+inventory supplies neither selection approval nor production qualification.
 
 ### 9.9 Measurements of the frozen standalone construction
 
@@ -3541,7 +3547,7 @@ qualification.
 | Privacy claims | Arbitrary-witness joint zero knowledge is preserved. The vote functionality has two entries: nullifiers indexed by credential and scope, authorizations by credential and `D_v`, with `D_v` computed from the returned nullifier and the complete statement. Privacy admissibility tracks both equality partitions, blocks both candidates' exact authorization entries, keeps quotas symmetric and prohibits corruption of protected handles. Equal nullifiers link conflicting ballots by design, and anonymity excludes previously identified candidate and scope pairs | Sections 7.1 and 8.7 |
 | Deployment limits | Every existing deployment limit is kept. The new proof is size-compatible with the envelope cap; the exact framed size, the verification cost and the memory still require qualification | Sections 9.7 and 9.8 |
 | Confirmations | Pad packing is least-significant-bit first, as implemented. A supplied `B` that differs from the recomputed digest is rejected before proof work, and `D_reg` and `R` are recomputed. `d_zk = 7`, all ten masks, all six transmitted coefficients and the existing bytes are kept; the three zero unmasked coefficients do not justify reducing the degree-seven soundness bound | Sections 6.1, 6.3 and 6.7 |
-| Ledger and nominal normalisation | The six-game ledger with `Z ≤ ε_1 + T·e + K + σ`, and the explicit nominal resource normalisation `Q* = 2^77`, with all actual primitive and gate costs kept in the resource vector. Recorded outcome: the structural soundness gap is closed; every listed game is below 1/2 under the stated hypothetical nominal values; the written bounds that contain `Z` stay above 2^-64. No claim is made of primitive advantages equal to zero, of a direct transfer of FAEST's signature theorem or of a completed gate. Primitive qualification and independent review remain required before the feature is enabled | Sections 7.1 and 8.5 |
+| Ledger and nominal normalisation | The six-game ledger with `Z ≤ ε_1 + T·e + K + σ`, and the explicit nominal resource normalisation `Q* = 2^77`, with all actual primitive and gate costs kept in the resource vector. Recorded outcome: the structural soundness gap is closed; every listed game is below 1/2 under the stated hypothetical nominal values; the written bounds that contain `Z` stay above 2^-64. No claim is made of primitive advantages equal to zero, of a direct transfer of FAEST's signature theorem or of a completed gate. Primitive qualification and independent review remain required before binding production activation | Sections 7.1 and 8.5 |
 | Contract recalibration | Two requirements replace the literal 2^128-query floor: a complete proven deployment-wide bound below 1/2 at 2^64 quantum queries, and an independently assessed attack cost of at least 2^128 elementary gates. The statistical budget, the lifetime ceilings and the 100-year archive horizon are unchanged. **This expressly weakens the earlier contract.** It is the review's recommended policy, not a theorem. Current compliance is unestablished and no parameter tuple is certified | Section 8.8; ballot design section 5 |
 | Public-list verifier and evidence contract | Flat digest of the ordered list; the list bytes are published in finalized block data at seal; every verifier holds a validated list or an immutable context authenticated to the seal | Section 6.4; ballot design sections 3.1, 3.3, 3.5, 3.8, 3.9 and 12.2 |
 | Gate 8 | Adaptive cross-relation registration unforgeability replaces simulation-extractability; no statement remains that gate 1 retains a separate knowledge obligation. Route: the opening-uniqueness split, per-handle authorization logs and an explicit registration-frame SHA3-512 collision term. It needs no extractor | Section 7.3; ballot design sections 3.2 and 5 |
@@ -3558,15 +3564,15 @@ qualification.
 | Hash prefixes | Every ballot backend hash call carries the 77-byte role prefix `PREFIX_R = ASCII("PARL/FAEST/v1") \|\| NS_R`; `mu_R` is defined with suffix `08`; no `H3` and no additional `H1` consistency digest. The suffixes and the PRG's IV and tweaks are unchanged. Reference mode, with the empty prefix, is a separate unchanged construction and is not an accepted ballot mode. Causal dependence on `mu` was judged insufficient for the disjoint-domain statement | Section 6.3 |
 | Proof layout and test codec | A fixed naked proof layout per row and relation, without header, with the salt after `iv_pre`; `a_0` hashed and not serialised; canonical opening padding, nonzero padding rejected; fixed length, no row autodetection, no trailing bytes. A test-only statement codec that is not a production schema | Section 6.6 |
 | Query offset | `Q = Q~ + 125` for compact-proof static comparisons; 85 only for the explicit-leaf intermediate of Lemma 10.49 | Section 8.1 |
-| Construction freeze | Selection-rule condition 1 is complete for standalone work. Selection and activation stay blocked on the remaining proof, ledger, implementation and qualification requirements. The feature remains disabled | Section 11.1 |
+| Construction freeze | Selection-rule condition 1 is complete for standalone work. Selection and activation stay blocked on the remaining proof, ledger, implementation and qualification requirements. Binding production use remains disabled; development testing is authorized | Section 11.1; ballot design section 12.2 |
 | AES binding assumption | Not made a dependency. Multi-key injectivity of `k -> AES_k(p_0) \|\| ... \|\| AES_k(p_5)` does not follow from single-key PRP security. It leaves the normative candidate with the hybrid | Section 4 |
 | Keyed-SHAKE assumption given the AES commitment | Not made a dependency; it leaves with the hybrid. The SHAKE256 public-list construction instead needs assumptions P and U, quantified, for the commitment, nullifier and authorization uses of SHAKE256 under one secret | Sections 4, 8.4 and 8.7 |
 | Arithmetisation-oriented hash | Not admissible in this profile, in its commitments or its transcript. Algebraic universal hashes inside the proof protocol are a different category, subject to their proved error bounds | Ballot design section 5 |
 | Hardware baselines | Intel Xeon Silver 4310 (one physical core, base frequency), Pixel 6a and iPhone SE third generation. The portable scalar path must be correct and bounded; it need not meet 250 ms | Section 11.4; ballot design section 5 |
 | Proof work | The written-argument standard of section 11.1. Complete reductions may await independent review; missing reductions may not. The review states that it can write and check the arguments in a follow-up, with no assured outcome | Sections 7.1 and 11.1 |
 | What selection requires | Profile selection is distinguished from activation qualification. Selection needs the complete dossier of section 11.1; independent review and the validator and phone launch measurements may remain enumerated obligations | Section 11.1; ballot design section 12.2 step 2 |
-| Selection rule amendment | Only the contract condition (condition 3) is amended, to the recalibrated contract. The proof-completeness and sequencing requirements and the stop conditions are unchanged | Sections 11.1 and 11.5; ballot design section 12.2 step 2 |
-| Boundary of permitted work | Standalone implementation, measurement and proof work only. No production schemas, no Core verifier bridge, no signerless envelope integration, no sealed-list or nullifier state transitions, no Torii or SDK paths, and no retirement of the old ballot or its threshold-encryption code before selection | Section 11.1; ballot design section 12.2 |
+| Selection rule amendment | The review amended only condition 3 to the recalibrated contract. Its sequencing restrictions were subsequently superseded by the owner's engineering authorization; selection and activation evidence remain required | Sections 11.1 and 11.5; ballot design section 12.2 step 2 |
+| Boundary of permitted work | Real-candidate schemas, Core verification, signerless envelopes, sealed-list/nullifier state, Torii/CLI/SDK paths, coordinated retirement and development testing are authorized alongside B6; no placeholder relations or protocol bypasses | Ballot design section 12.2 |
 | Qualification | Accepting and recording activation qualification is the owner's alone. Implementers and reviewers may produce evidence and record a profile selection; they may not claim qualification or make `parliament_binding_ballot_available()` true | Section 10.2 |
 | Standalone implementation | An in-tree, standalone experimental implementation, following FAEST specification v3.0. The owner authorised it, the download of the official test vectors and the patching of dependencies | Sections 11.2 and 11.3 |
 | Placement and dependencies | VOLE-in-the-head is a distinct mathematical family with exactly one reusable owner crate, `crates/iroha_zkp_vole`. The pinned `aes` 0.8.4 dependency is minimally patched to expose portable types and to put hardware dispatch behind a positive feature | Section 11.2; [zk_delivery_plan.md](zk_delivery_plan.md), "Shared proof backend and complete IVM proof" |
@@ -3612,8 +3618,9 @@ dependencies. Four items remain:
 ### 11.1 Selection rule
 
 Ballot design section 12.2 step 2 distinguishes profile selection from
-activation qualification **[C]**. Selection, and steps 3 to 5, may proceed only
-when all of these are true **[R]**:
+activation qualification **[C]**. Selection requires all of the following
+**[R]**. The earlier restriction on engineering steps 3–5 is superseded by
+the owner's authorization in that section; these evidence requirements remain.
 
 1. One exact construction and parameter row are frozen; no unresolved relation
    or transcript choice remains.
@@ -3634,8 +3641,8 @@ when all of these are true **[R]**:
    lifecycle and network qualification obligations are enumerated.
 7. `parliament_binding_ballot_available()` remains false.
 
-Condition 3 is the review's amended text; only the contract condition of the
-rule changed **[R]**.
+Condition 3 is the review's amended text; only the contract condition changed
+in that review **[R]**. The later engineering authorization is separate.
 
 **Where the record stands.**
 
@@ -3649,13 +3656,13 @@ rule changed **[R]**.
 | 6 | Enumerated. Sections 10.2, 11.4 and 12 and the [B6 requirement audit](parliament_ballot_b6_requirement_audit.md) identify local, owner/external and postselection obligations **[E]**; enumeration does not discharge them |
 | 7 | Holds **[C]** |
 
-**Conditions 2 and 3 are not met, so production schemas and Core integration do not
-start.** Standalone component implementation is complete; full resource
-accounting and qualification remain unfinished, and the feature remains disabled
-**[R]**. A false launch gate does not remove the selection precondition
-**[R]**.
+**Conditions 2 and 3 are not met.** Selection and activation remain unqualified;
+schemas, Core integration and real-candidate testing may proceed under ballot
+design section 12.2. Full resource accounting and qualification remain unfinished,
+and the binding production launch gate stays false.
 
-**Boundary of permitted work [R].** Standalone step-2 work only:
+**Continuing standalone work [R].** This work proceeds alongside authorized
+schema and integration engineering:
 
 - complete the backend, its conformance with the official plain-FAEST
   vectors, and the exact experimental ballot prover and verifier;
@@ -3666,11 +3673,11 @@ accounting and qualification remain unfinished, and the feature remains disabled
   1,000;
 - write and review the missing cryptographic arguments.
 
-Not permitted before selection: production schemas, a Core verifier trait
-bridge, signerless envelope integration, sealed-list or nullifier state
-transitions, Torii or SDK paths, and retirement of the old ballot or its
-threshold-encryption implementation. That retirement belongs to step 4, with
-the replacement **[R]**.
+The review originally deferred production schemas, a Core verifier bridge,
+signerless envelopes, state transitions, Torii/SDK paths and retirement until
+selection **[R]**. That sequencing is superseded by ballot design section
+12.2. Coordinated retirement still belongs with the actual replacement in
+step 4; engineering completion does not authorize binding production use.
 
 **Dossier that selection requires [R].** Selection for integration, with the
 launch gate false, needs:
@@ -3735,9 +3742,8 @@ submission. It is implemented in tree from that specification.
 
 The review placed the ballot relations under
 `crates/iroha_core_privacy/src/parliament_ballot/` **[R]**. The standalone
-experiment keeps them in a separate leaf crate so that nothing is wired into
-Core before selection; their placement at integration is settled with ballot
-design section 12.2 step 4. Governance state transitions stay in Core.
+experiment keeps them in a separate leaf crate. Integration is authorized by
+ballot design section 12.2 step 4; governance state transitions stay in Core.
 
 State of the modules **[C]**:
 
@@ -3905,10 +3911,9 @@ establishes no quantum simulation or security theorem.
    named-phone cancellation and the baseline qualification remain open.
 5. **Close envelope accounting.** Naked proof lengths are not complete
    envelope lengths. Exact dossier-level framing and accounting remain
-   required. The owner and independent reviewer must resolve the recorded
-   preselection-accounting/postselection-schema dependency without silently
-   waiving either condition or beginning the integration that section 11.1
-   still blocks.
+   required. Ballot design section 12.2 resolves the engineering sequence:
+   measure the actual canonical schemas during authorized integration, with
+   complete accounting still required for qualification.
 
 Passing the implementation checks does not substitute for the complete
 foundational arguments and the complete ledger that selection requires
@@ -3973,7 +3978,7 @@ Exploratory runs before the profile is frozen never count as qualification.
 
 ### 11.5 What stops selection or switches the construction
 
-Selection and integration stop again if any of these occurs **[R]**:
+The review's following conditions still prevent selection or activation **[R]**:
 
 - a foundational game, simulator, extractor or reduction is missing or fails;
 - the ledger fails the contract of section 8.8;
@@ -3983,9 +3988,11 @@ Selection and integration stop again if any of these occurs **[R]**:
 - the final secure parameters exceed a hard resource limit;
 - a primitive assumption is stronger than the recorded approved design.
 
-A performance experiment may continue to investigate such a blocker, clearly
-labelled experimental **[R]**. The recalibration of section 8.8 leaves these
-stop conditions unchanged **[R]**. Today no ledger satisfies the
+Engineering follows the later authorization in ballot design section 12.2:
+missing qualification evidence alone does not stop development. An identified
+unsound relation, invalid binding, determinism defect or exceeded hard resource
+limit stops the affected implementation pending correction. Experiments remain
+labelled experimental. Today no ledger satisfies the
 contract, because its primitive terms have no justified values
 (section 8.5); the written arguments are conditional and unreviewed; and the
 direct local argument for late `H4` and `H0` completions is missing, although

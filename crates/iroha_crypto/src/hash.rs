@@ -1,4 +1,4 @@
-use crate::{ParseError, hex_decode};
+use crate::ParseError;
 use blake2::{
     Blake2b,
     digest::{Digest, consts::U32},
@@ -253,6 +253,31 @@ fn parse_hash_literal(value: &str) -> Result<Hash, json::Error> {
     ensure_uppercase_hex(body, value)?;
     Hash::from_str(body).map_err(|err| json::Error::Message(err.to_string()))
 }
+/// Decode the fixed hash bytes without constructing a temporary vector.
+fn decode_hash_hex(key: &str) -> Result<[u8; Hash::LENGTH], hex::FromHexError> {
+    let key = key
+        .strip_prefix("0x")
+        .or_else(|| key.strip_prefix("0X"))
+        .unwrap_or(key);
+    let mut bytes = [0_u8; Hash::LENGTH];
+    hex::decode_to_slice(key, &mut bytes)?;
+    Ok(bytes)
+}
+#[cfg(feature = "json")]
+fn parse_hash_key(value: &str) -> Result<Hash, json::Error> {
+    let invalid = || json::Error::WithPos {
+        msg: "invalid canonical hash key",
+        byte: 0,
+        line: 1,
+        col: 1,
+    };
+    let body = literal::parse_without_diagnostics("hash", value).ok_or_else(invalid)?;
+    if body.bytes().any(|byte| byte.is_ascii_lowercase()) {
+        return Err(invalid());
+    }
+    let bytes = decode_hash_hex(body).map_err(|_| invalid())?;
+    Hash::from_marked_bytes(bytes).ok_or_else(invalid)
+}
 impl From<Hash> for [u8; Hash::LENGTH] {
     #[inline]
     fn from(hash: Hash) -> Self {
@@ -266,21 +291,49 @@ impl AsRef<[u8; Hash::LENGTH]> for Hash {
     }
 }
 #[cfg(feature = "json")]
+impl Hash {
+    /// Encode the fixed canonical literal without a heap-backed hex or CRC string.
+    fn json_literal_bytes(&self) -> [u8; 74] {
+        const HEX: &[u8; 16] = b"0123456789ABCDEF";
+        let mut bytes = [0_u8; 74];
+        bytes[..5].copy_from_slice(b"hash:");
+        for (byte, encoded) in self.0.iter().zip(bytes[5..69].chunks_exact_mut(2)) {
+            encoded[0] = HEX[usize::from(byte >> 4)];
+            encoded[1] = HEX[usize::from(byte & 15)];
+        }
+        // Norito literals use CRC-16/CCITT-FALSE over the tag, ':' and body.
+        let mut crc = 0xffff_u16;
+        for byte in &bytes[..69] {
+            crc ^= u16::from(*byte) << 8;
+            for _ in 0..8 {
+                crc = if crc & 0x8000 == 0 {
+                    crc << 1
+                } else {
+                    (crc << 1) ^ 0x1021
+                };
+            }
+        }
+        bytes[69] = b'#';
+        for (index, byte) in bytes[70..].iter_mut().enumerate() {
+            *byte = HEX[usize::from((crc >> (12 - 4 * index)) & 15)];
+        }
+        bytes
+    }
+}
+#[cfg(feature = "json")]
 impl FastJsonWrite for Hash {
     fn write_json(&self, out: &mut String) {
-        let body = hex::encode_upper(self.as_ref());
-        let literal = literal::format("hash", &body);
-        json::write_json_string(&literal, out);
+        let bytes = self.json_literal_bytes();
+        let literal = std::str::from_utf8(&bytes).expect("hash literal contains only ASCII");
+        json::write_json_string(literal, out);
     }
     fn write_json_to(
         &self,
         out: &mut dyn json::JsonWriteSink,
     ) -> Result<(), json::BoundedJsonError> {
-        // The canonical hash literal is fixed-width (32-byte body plus tag and
-        // checksum), so this scratch allocation cannot scale with a response.
-        let body = hex::encode_upper(self.as_ref());
-        let literal = literal::format("hash", &body);
-        json::write_json_string_to(&literal, out)
+        let bytes = self.json_literal_bytes();
+        let literal = std::str::from_utf8(&bytes).expect("hash literal contains only ASCII");
+        json::write_json_string_to(literal, out)
     }
 }
 #[cfg(feature = "json")]
@@ -296,15 +349,15 @@ impl json::JsonObjectKey for Hash {
         &self,
         mut visitor: impl FnMut(&str) -> Result<(), E>,
     ) -> Result<(), E> {
-        let body = hex::encode_upper(self.as_ref());
-        let canonical = literal::format("hash", &body);
-        visitor(&canonical)
+        let bytes = self.json_literal_bytes();
+        let canonical = std::str::from_utf8(&bytes).expect("hash literal contains only ASCII");
+        visitor(canonical)
     }
 }
 #[cfg(feature = "json")]
 impl json::JsonObjectKeyOwned for Hash {
     fn from_json_key_text(key: &str) -> Result<Self, json::Error> {
-        parse_hash_literal(key)
+        parse_hash_key(key)
     }
 }
 #[cfg(feature = "json")]
@@ -312,8 +365,14 @@ impl JsonKeyCodec for Hash {
     fn encode_json_key(&self, out: &mut String) {
         FastJsonWrite::write_json(self, out);
     }
+    fn encode_json_key_to(
+        &self,
+        out: &mut dyn json::JsonWriteSink,
+    ) -> Result<(), json::BoundedJsonError> {
+        FastJsonWrite::write_json_to(self, out)
+    }
     fn decode_json_key(encoded: &str) -> Result<Self, json::Error> {
-        parse_hash_literal(encoded)
+        parse_hash_key(encoded)
     }
 }
 
@@ -357,12 +416,7 @@ impl<'a> norito::core::DecodeFromSlice<'a> for Hash {
 impl FromStr for Hash {
     type Err = ParseError;
     fn from_str(key: &str) -> Result<Self, Self::Err> {
-        let hash: [u8; Self::LENGTH] = hex_decode(key)?.try_into().map_err(|hash_vec| {
-            ParseError(format!(
-                "Unable to parse {hash_vec:?} as [u8; {}]",
-                Self::LENGTH
-            ))
-        })?;
+        let hash = decode_hash_hex(key).map_err(|error| ParseError(error.to_string()))?;
         Hash::from_marked_bytes(hash)
             .ok_or_else(|| ParseError("expect least significant bit of hash to be 1".to_owned()))
     }
@@ -540,8 +594,14 @@ impl<T> JsonKeyCodec for HashOf<T> {
     fn encode_json_key(&self, out: &mut String) {
         FastJsonWrite::write_json(&self.0, out);
     }
+    fn encode_json_key_to(
+        &self,
+        out: &mut dyn json::JsonWriteSink,
+    ) -> Result<(), json::BoundedJsonError> {
+        self.0.encode_json_key_to(out)
+    }
     fn decode_json_key(encoded: &str) -> Result<Self, json::Error> {
-        parse_hash_literal(encoded).map(|hash| HashOf(hash, PhantomData))
+        Hash::decode_json_key(encoded).map(|hash| HashOf(hash, PhantomData))
     }
 }
 impl<T: IntoSchema> IntoSchema for HashOf<T> {
@@ -876,6 +936,28 @@ mod tests {
         assert_eq!(used, Hash::LENGTH);
     }
     #[test]
+    fn from_str_uses_fixed_bytes_without_allocations() {
+        for byte in 0..=255_u8 {
+            let hash = Hash::prehashed([byte; Hash::LENGTH]);
+            let lower = hex::encode(hash.as_ref());
+            let upper = hex::encode_upper(hash.as_ref());
+            let lower_prefix = format!("0x{lower}");
+            let upper_prefix = format!("0X{upper}");
+            crate::test_allocations::without_allocations(|| {
+                for text in [&lower, &upper, &lower_prefix, &upper_prefix] {
+                    assert_eq!(Hash::from_str(text).unwrap(), hash);
+                    assert_eq!(
+                        HashOf::<()>::from_str(text).unwrap(),
+                        HashOf::from_untyped_unchecked(hash)
+                    );
+                }
+            });
+        }
+        for invalid in ["", "0", "0x00", "00FFGG", "0X00FFGG"] {
+            assert!(Hash::from_str(invalid).is_err());
+        }
+    }
+    #[test]
     fn from_str_rejects_even_lsb() {
         // Hex string with the final byte ending in `0`, so its least significant bit is not set.
         let invalid_hex = "BA67336EFD6A3DF3A70EEB757860763036785C182FF4CF587541A0068D09F5B0";
@@ -1042,6 +1124,144 @@ mod tests {
 mod json_tests {
     use super::*;
     use norito::{json::FastJsonWrite, literal};
+
+    #[test]
+    fn fixed_hash_json_writers_match_canonical_literals_without_allocations() {
+        struct StackSink {
+            bytes: [u8; 76],
+            used: usize,
+            limit: usize,
+        }
+        impl json::JsonWriteSink for StackSink {
+            fn push(&mut self, value: char) -> Result<(), json::BoundedJsonError> {
+                self.push_str(value.encode_utf8(&mut [0; 4]))
+            }
+            fn push_str(&mut self, value: &str) -> Result<(), json::BoundedJsonError> {
+                let end = self.used + value.len();
+                if end > self.limit {
+                    return Err(json::BoundedJsonError::BodyTooLarge);
+                }
+                self.bytes[self.used..end].copy_from_slice(value.as_bytes());
+                self.used = end;
+                Ok(())
+            }
+        }
+        for byte in 0..=255_u8 {
+            let hash = Hash::new([byte; 32]);
+            let hash_of = HashOf::<()>::from_untyped_unchecked(hash);
+            let literal = literal::format("hash", &hex::encode_upper(hash.as_ref()));
+            let expected = format!("\"{literal}\"");
+            let mut ordinary = String::with_capacity(76);
+            crate::test_allocations::without_allocations(|| {
+                hash.write_json(&mut ordinary);
+                assert_eq!(ordinary, expected);
+                ordinary.clear();
+                hash.encode_json_key(&mut ordinary);
+                assert_eq!(ordinary, expected);
+                ordinary.clear();
+                hash_of.encode_json_key(&mut ordinary);
+                assert_eq!(ordinary, expected);
+                json::JsonObjectKey::visit_json_key_text(&hash, |text| {
+                    assert_eq!(text, literal);
+                    Ok::<_, ()>(())
+                })
+                .unwrap();
+                for typed in [false, true] {
+                    for key in [false, true] {
+                        let write = |sink: &mut StackSink| match (typed, key) {
+                            (false, false) => hash.write_json_to(sink),
+                            (false, true) => hash.encode_json_key_to(sink),
+                            (true, false) => hash_of.write_json_to(sink),
+                            (true, true) => hash_of.encode_json_key_to(sink),
+                        };
+                        let mut sink = StackSink {
+                            bytes: [0; 76],
+                            used: 0,
+                            limit: 76,
+                        };
+                        write(&mut sink).unwrap();
+                        assert_eq!(&sink.bytes[..sink.used], expected.as_bytes());
+                        // The same writer refuses a sink one byte short of its literal.
+                        sink.used = 0;
+                        sink.limit = 75;
+                        assert_eq!(
+                            write(&mut sink),
+                            Err(json::BoundedJsonError::BodyTooLarge),
+                            "typed={typed} key={key}"
+                        );
+                    }
+                }
+            });
+        }
+    }
+    #[test]
+    fn fixed_hash_json_key_decoders_retain_marker_and_literal_rules_without_allocations() {
+        for byte in 0..=255_u8 {
+            let hash = Hash::prehashed([byte; Hash::LENGTH]);
+            let key = literal::format("hash", &hex::encode_upper(hash.as_ref()));
+            crate::test_allocations::without_allocations(|| {
+                assert_eq!(Hash::decode_json_key(&key).unwrap(), hash);
+                assert_eq!(
+                    <Hash as json::JsonObjectKeyOwned>::from_json_key_text(&key).unwrap(),
+                    hash
+                );
+                assert_eq!(
+                    HashOf::<()>::decode_json_key(&key).unwrap(),
+                    HashOf::from_untyped_unchecked(hash)
+                );
+                assert_eq!(
+                    <HashOf<()> as json::JsonObjectKeyOwned>::from_json_key_text(&key).unwrap(),
+                    HashOf::from_untyped_unchecked(hash)
+                );
+            });
+        }
+        let mut invalid = vec![
+            String::new(),
+            "hash".to_owned(),
+            "hash:".to_owned(),
+            "hash:ABCD".to_owned(),
+            "hash:ABCD#0000".to_owned(),
+            literal::format("other", &"A1".repeat(Hash::LENGTH)),
+            literal::format("hash", &"a1".repeat(Hash::LENGTH)),
+            literal::format("hash", &"G1".repeat(Hash::LENGTH)),
+            literal::format("hash", &"A1".repeat(Hash::LENGTH - 1)),
+            literal::format("hash", &"A1".repeat(Hash::LENGTH + 1)),
+            literal::format("hash", &"A".repeat(2 * Hash::LENGTH - 1)),
+            literal::format("hash", &"A1".repeat(32 * 1024)),
+        ];
+        let checksum_lower = literal::format("hash", &"A1".repeat(Hash::LENGTH));
+        assert!(
+            checksum_lower[checksum_lower.len() - 4..]
+                .bytes()
+                .any(|byte| byte.is_ascii_alphabetic())
+        );
+        invalid.push(format!(
+            "{}{}",
+            &checksum_lower[..checksum_lower.len() - 4],
+            checksum_lower[checksum_lower.len() - 4..].to_ascii_lowercase()
+        ));
+        for final_byte in (0..=254_u8).step_by(2) {
+            let mut bytes = [0xa5; Hash::LENGTH];
+            bytes[Hash::LENGTH - 1] = final_byte;
+            invalid.push(literal::format("hash", &hex::encode_upper(bytes)));
+        }
+        crate::test_allocations::without_allocations(|| {
+            for key in &invalid {
+                assert!(matches!(
+                    Hash::decode_json_key(key),
+                    Err(json::Error::WithPos {
+                        msg: "invalid canonical hash key",
+                        byte: 0,
+                        line: 1,
+                        col: 1,
+                    })
+                ));
+                assert!(HashOf::<()>::decode_json_key(key).is_err());
+                assert!(<Hash as json::JsonObjectKeyOwned>::from_json_key_text(key).is_err());
+                assert!(<HashOf<()> as json::JsonObjectKeyOwned>::from_json_key_text(key).is_err());
+            }
+        });
+    }
     #[test]
     fn hash_json_roundtrip() {
         let hash = Hash::new(b"hash-json-roundtrip");

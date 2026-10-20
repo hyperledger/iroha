@@ -521,7 +521,21 @@ where
             unreachable!("original admitted block");
         };
         // Even identity allocation runs only after the slot owns both writers.
-        block.next = Some(NextPublication::from_admission(identity_reservation));
+        let mut identity_reservation = identity_reservation;
+        block.next = Some(
+            NextPublication::try_from_charge(
+                identity_reservation
+                    .try_split(NextPublication::allocation_layout())
+                    .expect("original successor identity admission"),
+            )
+            .map_err(|(charge, error)| {
+                drop(charge);
+                AdmittedStorageError::Allocator {
+                    layout: error.layout(),
+                }
+            })?,
+        );
+        debug_assert_eq!(identity_reservation.remaining_bytes(), 0);
         block.initialize_admitted_contents()?;
         self.complete = true;
         Ok(())

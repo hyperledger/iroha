@@ -51,6 +51,16 @@ Design rules:
 are [history collections](#history-collections) with a few
 restrictions.
 
+Collection planning, source scans, filtering, projection and final JSON encoding
+run on a blocking worker under the request's original query-memory owner.
+Cancelling the HTTP task does not release that owner while the worker or its
+response bytes still retain backing. One-shot reads resolve their current
+visibility without first constructing a long-lived stream admission scope.
+Domain, account and NFT sources evaluate available scalar fields before
+serializing metadata. Unknown metadata predicates remain undecided through
+`and`, `or` and `not`; every surviving complete row still passes the ordinary
+filter. Rejected source entries continue to count toward the scan limit.
+
 ## Request controls
 
 | Control | `GET` parameter | `POST` member | Notes |
@@ -67,8 +77,9 @@ Each control appears at most once. A `GET` with any other parameter, or a
 body with any other member, is rejected with `invalid_query`, listing the
 accepted names. `select` and `aggregate` are mutually exclusive.
 
-**Order and scan cost.** Domains, accounts, asset definitions, NFTs, RWA lots
-repo agreements, subscription plans and subscriptions are stored by `id`. Their default order, and `sort=id` or
+**Order and scan cost.** Domains, accounts, asset definitions, NFTs, RWA lots,
+repo agreements, subscription plans, subscriptions and the holders of one asset
+definition are stored by `id`. Their default order, and `sort=id` or
 `sort=-id`, is canonical identifier order: the order Torii stores the
 identifiers in, which is not always the alphabetical order of their text.
 These reads seek to the cursor instead of sorting, and an exact `id = …` or
@@ -257,7 +268,7 @@ absent.
 | NFTs | `id`, `owned_by` (strings, *sort*), `metadata.*` (the NFT content) | `id` |
 | RWA lots | `id`, `owned_by`, `primary_reference`, `status` (strings, *sort*), `quantity` (decimal, *sort*), `is_frozen` (bool), `metadata.*` | `id` |
 | account assets | `asset`, `asset_name`, `asset_alias`, `scope`, `account_id` (strings, *sort*), `quantity` (decimal, *sort*) | `asset`, `scope` |
-| asset holders | `account_id`, `asset`, `asset_alias`, `scope` (strings, *sort*), `quantity` (decimal, *sort*) | `account_id`, `scope` |
+| asset holders | `id` (the partition's canonical asset literal `<definition>#<account>[#dataspace:<id>]`), `account_id`, `asset`, `asset_alias`, `scope` (strings, *sort*), `quantity` (decimal, *sort*) | `id` (holder account, then scope) |
 | transactions, account transactions | `entrypoint_hash`, `block_hash`, `authority` (string or null), `entrypoint_kind` (strings), `block_height`, `block_index`, `timestamp_ms` (number or null) (numbers), `result_ok` (bool), `asset_ids`, `asset_definition_ids` (lists of strings), `metadata.*` | newest first |
 | repo agreements | `id`, `initiator`, `counterparty`, `custodian`, `status`, `cash_source`, `cash_leg.asset_definition_id`, `collateral_leg.asset_definition_id`, `collateral_custody_asset` (strings, *sort*), `cash_leg.quantity`, `collateral_leg.quantity` (decimals, *sort*), `rate_bps`, `maturity_timestamp_ms`, `initiated_timestamp_ms`, `last_margin_check_timestamp_ms`, `settlement_timestamp_ms`, `governance.haircut_bps`, `governance.margin_frequency_secs` (numbers, *sort*), `governance.allow_early_repayment` (bool) | `id` |
 | account permissions | `name` (string, *sort*), `payload` (JSON); effective grants include direct and role permissions, deduplicated by name and payload | `name`, `payload` |
@@ -443,6 +454,14 @@ All return `Page` with `items` and `next_cursor`; there is no nested pagination
 object or sampling timestamp. The default limit is 25 and maximum 100.
 `sort`, `aggregate` and `include_total` are rejected because these feeds retain
 bounded scans in their existing canonical index or newest-history order.
+
+Asset holder producers seek `(asset_definition_id, asset_id)` membership rows
+in the derived index, including reverse and exclusive-cursor ranges. Explorer
+account, definition, NFT and RWA selectors likewise stream prefix ranges;
+account-owned assets use the canonical asset store's account range. These
+indexes store one membership per row, so a transaction changing one member
+does not copy every holder or neighbouring group. Visibility-aware counts
+still filter the selected members before counting.
 
 Existing DTO row fields and visibility-aware counters are retained. A filter
 runs over each bounded candidate page before projection; a page may be empty
