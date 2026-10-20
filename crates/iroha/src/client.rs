@@ -14303,8 +14303,10 @@ pub enum FeeQuoteRequest<'a> {
 /// This is only a server-advertised read retry hint, not proof of query-count
 /// exhaustion or transient capacity. The same Torii response can represent
 /// authentication or fee-state refusal, including permanent internal limits.
-/// The SDK never retries automatically; callers must retain their original deadline
-/// and must never repeat a signed submission because of this hint.
+/// Direct-account JSON quotes may retry within their original bounded request
+/// deadline using fresh HTTP authentication for the unchanged unsigned draft.
+/// One-shot quotes return this hint without automatically retrying. Never repeat
+/// a signed submission because of this hint.
 #[derive(Clone, Copy, Debug, thiserror::Error)]
 #[error("fee quote capacity backpressure; retry after {retry_after:?}")]
 pub struct FeeQuoteBackpressure {
@@ -15343,8 +15345,7 @@ impl AccountClient {
     /// or multisignature authorization, request construction or transport
     /// failure, Torii rejection, an oversized response, or a response that is
     /// not bound to the exact payload. A validated capacity refusal retains a
-    /// downcastable [`FeeQuoteBackpressure`] and the original response error;
-    /// this operation still sends exactly one request.
+    /// downcastable [`FeeQuoteBackpressure`] and the original response error.
     pub async fn quote_fees(&self, request: FeeQuoteRequest<'_>) -> Result<FeeQuoteResponse> {
         let (payload, authorization) = match request {
             FeeQuoteRequest::AccountSignature { payload } => (payload, None),
@@ -28576,8 +28577,10 @@ mod tests {
         );
     }
     #[tokio::test]
-    async fn fee_quote_backpressure_requires_typed_response_and_never_replays() {
-        let client = client_with_base_url(base_url());
+    async fn fee_quote_backpressure_requires_typed_response_for_one_shot_client() {
+        let mut client = client_with_base_url(base_url());
+        // A zero timeout without an inherited deadline selects one quote dispatch.
+        client.torii_request_timeout = Duration::ZERO;
         let payload = account_context(&client)
             .prepare_transaction(AccountTransactionDraft::new(
                 Vec::<InstructionBox>::new(),
@@ -28627,7 +28630,7 @@ mod tests {
             assert_eq!(
                 requests.lock().unwrap().len(),
                 1,
-                "the SDK must never retry a quote"
+                "the one-shot client must send exactly one quote request"
             );
         }
     }
