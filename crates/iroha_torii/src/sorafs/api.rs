@@ -40623,7 +40623,7 @@ mod advert_tests {
         );
     }
     #[tokio::test]
-    async fn car_range_requires_manifest_envelope_when_policy_enabled() {
+    async fn car_range_validated_local_manifest_satisfies_envelope_policy() {
         let mut context = token_test_context();
         let mut app_inner = Arc::try_unwrap(context.app)
             .unwrap_or_else(|_| panic!("token test context should hold unique app state"));
@@ -40648,13 +40648,25 @@ mod advert_tests {
         insert_static_api_test_header(&mut headers, HEADER_SORA_NONCE, "nonce-download");
         insert_api_test_header(&mut headers, HEADER_SORA_STREAM_TOKEN, &token_base64);
 
-        let response = context.car_range(headers, 8085).await;
+        // Without a validated local manifest or signed envelope, policy still refuses.
+        let denied = enforce_gateway_policy_for_request(
+            &context.app,
+            &headers,
+            &manifest,
+            Some(authoritative_sorafs_provider_id(&context.app).unwrap()),
+            SocketAddr::from(([127, 0, 0, 1], 8085)),
+            false,
+        )
+        .expect_err("unvalidated manifest authority must be refused");
         let value =
-            api_test_response_json_with_status(response, StatusCode::PRECONDITION_REQUIRED).await;
+            api_test_response_json_with_status(denied, StatusCode::PRECONDITION_REQUIRED).await;
         assert_json_fields!(value; json_at ["error"] => Some(&Value::String("manifest_envelope_required".into())));
+        // The serving path authenticates its retained local manifest before policy evaluation.
+        let response = context.car_range(headers, 8085).await;
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
     }
     #[tokio::test]
-    async fn storage_chunk_requires_manifest_envelope_when_policy_enabled() {
+    async fn storage_chunk_validated_local_manifest_satisfies_envelope_policy() {
         let mut context = token_test_context();
         let manifest = context.manifest();
         let chunk_digest_hex =
@@ -40675,10 +40687,22 @@ mod advert_tests {
         app_inner.sorafs_gateway_config.require_manifest_envelope = true;
         refresh_api_test_gateway_security(&mut app_inner);
         context.app = Arc::new(app_inner);
-        let response = api_test_route!(get_storage_chunk; State(context.app.clone()); Path((context.manifest_id_hex.clone(), chunk_digest_hex)); headers; ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 8096))));
+        // Without a validated local manifest or signed envelope, policy still refuses.
+        let denied = enforce_gateway_policy_for_request(
+            &context.app,
+            &headers,
+            &manifest,
+            Some(authoritative_sorafs_provider_id(&context.app).unwrap()),
+            SocketAddr::from(([127, 0, 0, 1], 8096)),
+            false,
+        )
+        .expect_err("unvalidated manifest authority must be refused");
         let value =
-            api_test_response_json_with_status(response, StatusCode::PRECONDITION_REQUIRED).await;
+            api_test_response_json_with_status(denied, StatusCode::PRECONDITION_REQUIRED).await;
         assert_json_fields!(value; json_at ["error"] => Some(&Value::String("manifest_envelope_required".into())));
+        // The serving path authenticates its retained local manifest before policy evaluation.
+        let response = api_test_route!(get_storage_chunk; State(context.app.clone()); Path((context.manifest_id_hex.clone(), chunk_digest_hex)); headers; ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 8096))));
+        assert_eq!(response.status(), StatusCode::OK);
     }
     #[tokio::test]
     async fn car_range_allows_missing_manifest_envelope_when_policy_disabled() {
@@ -40921,6 +40945,27 @@ mod advert_tests {
         let end = manifest.content_length().saturating_sub(1);
         let trusted_token_base64 = issue_token_base64(&context, TokenOverrides::default()).await;
         let untrusted_token_base64 = issue_token_base64(&context, TokenOverrides::default()).await;
+        // Exercise the production ingress boundary which replaces any client-supplied
+        // internal address header before gateway rate policy reads it.
+        let router = Router::new()
+            .route(
+                "/range/{manifest}",
+                get(handle_get_sorafs_storage_car_range),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                context.app.clone(),
+                crate::inject_remote_addr_header,
+            ))
+            .with_state(context.app.clone());
+        let request = |headers: HeaderMap, remote: ConnectInfo<SocketAddr>| {
+            let mut request = Request::builder()
+                .uri(format!("/range/{}", context.manifest_id_hex))
+                .body(axum::body::Body::empty())
+                .unwrap();
+            *request.headers_mut() = headers;
+            request.extensions_mut().insert(remote);
+            request
+        };
         let trusted_proxy = ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 8093)));
         let untrusted_remote = ConnectInfo(SocketAddr::from(([198, 51, 100, 10], 8093)));
         let build_headers =
@@ -40943,6 +40988,11 @@ mod advert_tests {
                 insert_api_test_header(&mut headers, HEADER_SORA_STREAM_TOKEN, token_base64);
                 insert_static_api_test_header(&mut headers, HEADER_SORA_MANIFEST_ENVELOPE, "dummy");
                 insert_static_api_test_header(&mut headers, HEADER_SORA_CLIENT, "gateway-alpha");
+                insert_static_api_test_header(
+                    &mut headers,
+                    crate::limits::REMOTE_ADDR_HEADER,
+                    "192.0.2.99",
+                );
                 if let Some(ip) = forwarded_ip {
                     headers.insert(
                         header::HeaderName::from_static(crate::limits::FORWARDED_FOR_HEADER),
@@ -40951,21 +41001,52 @@ mod advert_tests {
                 }
                 headers
             };
-        let response = api_test_route!(get_storage_car_range; State(context.app.clone()); Path(context.manifest_id_hex.clone()); build_headers("nonce-fwd-a-0", Some("203.0.113.10"), &trusted_token_base64); trusted_proxy.clone());
+        let response = router
+            .clone()
+            .oneshot(request(
+                build_headers("nonce-fwd-a-0", Some("203.0.113.10"), &trusted_token_base64),
+                trusted_proxy.clone(),
+            ))
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
-        let response = api_test_route!(get_storage_car_range; State(context.app.clone()); Path(context.manifest_id_hex.clone()); build_headers("nonce-fwd-b-0", Some("203.0.113.11"), &trusted_token_base64); trusted_proxy.clone());
+        let response = router
+            .clone()
+            .oneshot(request(
+                build_headers("nonce-fwd-b-0", Some("203.0.113.11"), &trusted_token_base64),
+                trusted_proxy.clone(),
+            ))
+            .await
+            .unwrap();
         assert_eq!(
             response.status(),
             StatusCode::PARTIAL_CONTENT,
             "distinct forwarded client IPs should not share one gateway bucket"
         );
-        let response = api_test_route!(get_storage_car_range; State(context.app.clone()); Path(context.manifest_id_hex.clone()); build_headers("nonce-fwd-a-1", Some("203.0.113.10"), &trusted_token_base64); trusted_proxy);
+        let response = router
+            .clone()
+            .oneshot(request(
+                build_headers("nonce-fwd-a-1", Some("203.0.113.10"), &trusted_token_base64),
+                trusted_proxy,
+            ))
+            .await
+            .unwrap();
         assert_eq!(
             response.status(),
             StatusCode::TOO_MANY_REQUESTS,
             "reusing the same trusted forwarded client IP should hit the same gateway bucket"
         );
-        let response = api_test_route!(get_storage_car_range; State(context.app); Path(context.manifest_id_hex); build_headers( "nonce-untrusted-0", Some("203.0.113.10"), &untrusted_token_base64, ); untrusted_remote);
+        let response = router
+            .oneshot(request(
+                build_headers(
+                    "nonce-untrusted-0",
+                    Some("203.0.113.10"),
+                    &untrusted_token_base64,
+                ),
+                untrusted_remote,
+            ))
+            .await
+            .unwrap();
         assert_eq!(
             response.status(),
             StatusCode::PARTIAL_CONTENT,

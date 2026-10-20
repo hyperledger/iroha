@@ -589,3 +589,73 @@ fn genuine_prepared_publication_late_map_refusal_discards_first_offence_and_max(
     );
     drop(retained_record);
 }
+
+#[test]
+fn physical_pairing_refusal_is_moved_once_without_allocating_or_publishing() {
+    let (chain, keys) = active_member_chain();
+    let evidence = future(&chain, &keys);
+    let header = next_header(&chain);
+    let mut block = chain.state().block(header);
+    let mut stx = block.transaction_for_callback_testing();
+    let pool = stx.sccp_evidence_preparation_budget().clone();
+    let before = pool.reserved_bytes();
+    let layout = iroha_crypto::bls::consensus::ConsensusAggregateScratch::<()>::backing_layout();
+    let (result, observed) = crate::test_allocations::refuse_one_layout_during(layout, || {
+        execute_forgery(&evidence, &mut stx)
+    });
+    assert!(
+        observed,
+        "actual executing-parent pairing allocation was refused"
+    );
+    let error = result.unwrap_err();
+    assert!(!error.is_protocol_rejection());
+    assert_eq!(pool.reserved_bytes(), before);
+    let mut diagnostic = None;
+    assert_eq!(
+        crate::test_allocations::allocations_during(|| {
+            diagnostic = Some(error.into_instruction_error(&mut stx));
+        }),
+        0,
+        "failure transport must not allocate another diagnostic"
+    );
+    assert!(matches!(
+        diagnostic.unwrap(),
+        InstructionExecutionError::InvariantViolation(message) if message.is_empty()
+    ));
+    let original = stx.ensure_execution_ready().unwrap_err();
+    assert_eq!(
+        original.reason(),
+        ivm::error::ExecutionDeferral::AllocationUnavailable
+    );
+    assert!(original.allocation_refusal().is_none());
+    assert!(
+        original
+            .allocator_refusal()
+            .and_then(|cause| cause.vec_reserve_error())
+            .is_some_and(|(_, actual)| actual == layout),
+        "HC966 SCCP execution must retain the original physical pairing cause"
+    );
+    assert_eq!(
+        stx.ensure_execution_ready().unwrap_err().reason(),
+        ivm::error::ExecutionDeferral::LocalInvariantViolation,
+        "the original refusal can leave this disposable child only once"
+    );
+    assert!(stx.world.consensus_evidence.is_empty());
+    assert!(stx.world.sccp_forgery_offences.is_empty());
+    assert!(sccp_events(&mut stx).is_empty());
+    stx.apply();
+    assert!(block.world.consensus_evidence.is_empty());
+    assert!(block.world.sccp_forgery_offences.is_empty());
+    assert!(matches!(
+        block.commit(),
+        Err(crate::state::storage_transactions::TransactionsBlockError::ExecutionOutputCapacity)
+    ));
+    let mut retry_block = chain.state().block(header);
+    let mut retry = retry_block.transaction_for_callback_testing();
+    execute_forgery(&evidence, &mut retry).unwrap();
+    assert_eq!(retry.world.consensus_evidence.len(), 1);
+    assert_eq!(retry.world.sccp_forgery_offences.len(), 3);
+    drop(retry);
+    drop(retry_block);
+    assert!(chain.state().view().world().consensus_evidence().is_empty());
+}

@@ -842,11 +842,18 @@ pub fn validate_execution_outputs_v1<S: ExecutionInputs + ?Sized>(
                 time_event = Some(invocation.event);
             }
         }
-        let anonymous_network = matches!(output,
-            ExecutionOutputV1::Network(row)
-                if matches!(network_input(network_inputs, row.input_index)?,
-                    TransactionEntrypoint::AnonymousBallot(_)));
-        let call = output.execution_call_hash(proposal, network_inputs)?;
+        let (call, anonymous_network) = match output {
+            ExecutionOutputV1::Network(row) => {
+                // Resolve once for both the call identity and the exception's
+                // owner kind, preserving bounded random-access input validation.
+                let input = network_input(network_inputs, row.input_index)?;
+                (
+                    Hash::from(input.execution_call_hash()),
+                    matches!(input, TransactionEntrypoint::AnonymousBallot(_)),
+                )
+            }
+            _ => (output.execution_call_hash(proposal, network_inputs)?, false),
+        };
         if let Some(first_is_anonymous) = calls.get(&call) {
             if !(*first_is_anonymous && anonymous_network) {
                 return Err("multiple outputs claim one execution call".into());

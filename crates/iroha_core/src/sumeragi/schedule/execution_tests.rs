@@ -94,8 +94,7 @@ fn sccp_executed_genesis_rejects_work_budgets_that_starve_pause_enactment() {
                         ScheduleError::Epoch(ref message)))
                         if message == "governance block-start work budget must be between 43 and 4096"
                 ),
-                "genesis must reject a budget that cannot fund one ticket, one draw, six SCCP \
-                 conclusions and one pause enactment, or one above the bounded block-start work: {units}"
+                "genesis must reject budgets outside the current ticket, draw, six-conclusion and enactment range\nunits={units}, result={result:?}"
             );
         } else {
             result.unwrap_or_else(|error| {

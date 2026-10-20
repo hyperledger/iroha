@@ -489,7 +489,8 @@ fn expected_read_operation(method: &str, path: &str) -> bool {
         || (method == "post"
             && matches!(
                 path,
-                "/v1/accounts/query"
+                "/v1/amx/debit-approval/{height}"
+                    | "/v1/accounts/query"
                     | "/v1/accounts/inspect"
                     | "/v1/accounts/{account_id}/assets/query"
                     | "/v1/assets/{definition_id}/holders/query"
@@ -552,6 +553,7 @@ fn expected_read_operation(method: &str, path: &str) -> bool {
                     | "/v1/multisig/proposals/query"
                     | "/v1/multisig/proposals/resolve"
                     | "/v1/multisig/spec"
+                    | "/v1/nexus/private-settlements/context/{height}"
                     | "/v1/nexus/private-settlements/legs/{payload_digest}/audit-capsule"
                     | "/v1/nexus/staking/prepare"
                     | "/v1/nfts/query"

@@ -14303,10 +14303,11 @@ pub enum FeeQuoteRequest<'a> {
 /// This is only a server-advertised read retry hint, not proof of query-count
 /// exhaustion or transient capacity. The same Torii response can represent
 /// authentication or fee-state refusal, including permanent internal limits.
-/// Direct account quotes can retry JSON backpressure with fresh HTTP authentication
-/// within their original deadline. Refusals returned without an automatic retry
-/// retain this hint; callers must preserve their original deadline and must never
-/// repeat a signed submission because of it.
+/// Bounded direct-account quotes retry this hint within their original deadline,
+/// with fresh HTTP authentication for the same unsigned payload. A refusal whose
+/// delay cannot fit remains an error with this hint and its original response.
+/// Quotes without a deadline return this hint without automatically retrying.
+/// Callers must never repeat a signed submission because of this hint.
 #[derive(Clone, Copy, Debug, thiserror::Error)]
 #[error("fee quote capacity backpressure; retry after {retry_after:?}")]
 pub struct FeeQuoteBackpressure {
@@ -14322,7 +14323,9 @@ impl FeeQuoteBackpressure {
 }
 
 fn fee_quote_backpressure(response: &Response<Vec<u8>>) -> Option<FeeQuoteBackpressure> {
-    if response.status() != StatusCode::TOO_MANY_REQUESTS {
+    if response.status() != StatusCode::TOO_MANY_REQUESTS
+        || response.body().len() > FEE_QUOTE_RESPONSE_MAX_BYTES
+    {
         return None;
     }
     let retry_after = crate::error::retry_after(response.headers())?;
@@ -15335,7 +15338,7 @@ impl AccountClient {
     /// The request variant explicitly selects direct account authentication or
     /// a complete multisignature witness. The response is decoded and checked
     /// against the exact payload before it is returned. Direct account requests
-    /// honor explicit JSON fee-quote backpressure within the shorter configured HTTP
+    /// honor explicit fee-quote backpressure within the shorter configured HTTP
     /// timeout or inherited operation deadline, using fresh HTTP authentication
     /// for the unchanged unsigned payload. An external multisignature witness
     /// is never replayed automatically. Without either deadline, direct account
@@ -15345,9 +15348,10 @@ impl AccountClient {
     /// Returns an error for a foreign network or authority, an invalid direct
     /// or multisignature authorization, request construction or transport
     /// failure, Torii rejection, an oversized response, or a response that is
-    /// not bound to the exact payload. A validated capacity refusal returned without
-    /// retry retains a downcastable [`FeeQuoteBackpressure`] and the original
-    /// response error. Exhausting the retry budget returns a deadline error.
+    /// not bound to the exact payload. When a validated capacity refusal cannot
+    /// be retried within the fixed quote deadline, it retains a downcastable
+    /// [`FeeQuoteBackpressure`] and the original response error. Actual elapsed
+    /// deadlines and transport failures remain their original errors.
     pub async fn quote_fees(&self, request: FeeQuoteRequest<'_>) -> Result<FeeQuoteResponse> {
         let (payload, authorization) = match request {
             FeeQuoteRequest::AccountSignature { payload } => (payload, None),
@@ -15413,15 +15417,16 @@ impl AccountClient {
             ensure_before_deadline()?;
             if authorization.is_none()
                 && let Some(deadline) = deadline
-                && let Some(delay) = Client::fee_quote_retry_delay(&response)?
-            {
-                let retry_at = std::time::Instant::now()
-                    .checked_add(delay)
+                && let Some(backpressure) = fee_quote_backpressure(&response)
+                && let Some(retry_at) = std::time::Instant::now()
+                    .checked_add(backpressure.retry_after())
                     .filter(|retry_at| *retry_at < deadline)
-                    .ok_or_else(crate::http_default::request_deadline_elapsed)?;
+            {
                 tokio::time::sleep_until(tokio::time::Instant::from_std(retry_at)).await;
                 continue;
             }
+            // A validated refusal whose delay cannot fit keeps its original
+            // response and typed hint. An elapsed operation is checked above.
             let quote = Client::decode_fee_quote_response(payload, &response)?;
             ensure_before_deadline()?;
             return Ok(quote);
@@ -17978,39 +17983,6 @@ impl Client {
             ),
         }
     }
-    fn fee_quote_retry_delay(response: &Response<Vec<u8>>) -> Result<Option<Duration>> {
-        if response.status() != StatusCode::TOO_MANY_REQUESTS
-            || response.body().len() > FEE_QUOTE_RESPONSE_MAX_BYTES
-        {
-            return Ok(None);
-        }
-        let content_type = exact_single_response_header_bytes(response, "content-type")?;
-        if !Self::is_exact_json_content_type_bytes(content_type) {
-            return Ok(None);
-        }
-        let Ok(envelope) = norito::json::from_slice::<ErrorEnvelope>(response.body()) else {
-            return Ok(None);
-        };
-        if envelope.code() != "query_validation_failed" {
-            return Ok(None);
-        }
-        let Some(delay) = transaction_wait::retry_after_delay(response)? else {
-            return Ok(None);
-        };
-        if delay.is_zero() {
-            return Err(eyre!("fee quote Retry-After must be positive"));
-        }
-        if envelope
-            .details
-            .as_ref()
-            .and_then(|details| details.retry_after_seconds)
-            != Some(delay.as_secs())
-        {
-            return Err(eyre!("fee quote Retry-After differs from error details"));
-        }
-        Ok(Some(delay))
-    }
-
     fn decode_fee_quote_response(
         payload: &TransactionPayload,
         response: &Response<Vec<u8>>,
@@ -28009,18 +27981,13 @@ mod tests {
     }
 
     fn fee_quote_backpressure_response(retry_after: &str) -> HttpResponse<Vec<u8>> {
-        let mut response = json_response(
-            StatusCode::TOO_MANY_REQUESTS,
-            r#"{"code":"query_validation_failed","message":"local query admission refused","details":{"retry_after_seconds":1}}"#,
-        );
-        response.headers_mut().insert(
-            http::header::RETRY_AFTER,
-            retry_after.parse().expect("retry instruction"),
-        );
-        response
+        fee_quote_backpressure_response_in_format(retry_after, false)
     }
 
-    fn fee_quote_capacity_backpressure_response(native: bool) -> HttpResponse<Vec<u8>> {
+    fn fee_quote_backpressure_response_in_format(
+        retry_after: &str,
+        native: bool,
+    ) -> HttpResponse<Vec<u8>> {
         let envelope = ErrorEnvelope::new(
             "query_validation_failed",
             iroha_data_model::query::error::QueryExecutionFail::CapacityLimit.to_string(),
@@ -28029,32 +27996,28 @@ mod tests {
             retry_after_seconds: Some(1),
             ..Default::default()
         });
-        let (content_type, body) = if native {
-            (
-                APPLICATION_NORITO,
-                norito::to_bytes(&envelope).expect("encode native capacity refusal"),
-            )
-        } else {
-            (
-                APPLICATION_JSON,
-                norito::json::to_vec(&envelope).expect("encode JSON capacity refusal"),
-            )
-        };
         HttpResponse::builder()
             .status(StatusCode::TOO_MANY_REQUESTS)
-            .header("content-type", content_type)
-            .header("retry-after", "1")
-            .body(body)
-            .expect("capacity refusal response")
+            .header(
+                "content-type",
+                if native {
+                    APPLICATION_NORITO
+                } else {
+                    APPLICATION_JSON
+                },
+            )
+            .header("retry-after", retry_after)
+            .body(if native {
+                norito::to_bytes(&envelope).unwrap()
+            } else {
+                norito::json::to_vec(&envelope).unwrap()
+            })
+            .unwrap()
     }
 
     #[tokio::test]
     async fn fee_quote_backpressure_refreshes_http_auth_for_the_same_unsigned_payload() {
-        for (valid_quote, backpressure) in [
-            (true, fee_quote_backpressure_response("1")),
-            (false, fee_quote_backpressure_response("1")),
-            (true, fee_quote_capacity_backpressure_response(false)),
-        ] {
+        for (native, valid_quote) in [(false, true), (false, false), (true, true), (true, false)] {
             let client = client_with_base_url(base_url());
             let payload = account_context(&client)
                 .prepare_transaction(AccountTransactionDraft::new(
@@ -28084,7 +28047,7 @@ mod tests {
                     .expect("request times")
                     .push(std::time::Instant::now());
                 match requests.len() {
-                    1 => Ok(backpressure.clone()),
+                    1 => Ok(fee_quote_backpressure_response_in_format("1", native)),
                     2 => Ok(success.clone()),
                     _ => panic!("quote must never submit or keep retrying after a final response"),
                 }
@@ -28194,6 +28157,9 @@ mod tests {
         let mut oversized = fee_quote_backpressure_response("1");
         *oversized.body_mut() = vec![b'x'; FEE_QUOTE_RESPONSE_MAX_BYTES + 1];
         cases.push(oversized);
+        let mut noncanonical_native = fee_quote_backpressure_response_in_format("1", true);
+        noncanonical_native.body_mut().push(0);
+        cases.push(noncanonical_native);
         for status in [
             StatusCode::UNAUTHORIZED,
             StatusCode::FORBIDDEN,
@@ -28215,6 +28181,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fee_quote_backpressure_preserves_permanent_and_out_of_range_refusals_once() {
+        let mut client = client_with_base_url(base_url());
+        client.torii_request_timeout = Duration::from_millis(1500);
+        let payload = account_context(&client)
+            .prepare_transaction(AccountTransactionDraft::new(
+                Vec::<InstructionBox>::new(),
+                FeePaymentIntent::authority(Vec::new(), None),
+                Metadata::default(),
+            ))
+            .unwrap();
+        for native in [false, true] {
+            for (message, seconds) in [
+                ("permanent validation failure".to_owned(), 1),
+                (
+                    iroha_data_model::query::error::QueryExecutionFail::CapacityLimit.to_string(),
+                    61,
+                ),
+            ] {
+                let envelope = ErrorEnvelope::new("query_validation_failed", message).with_details(
+                    iroha_torii_shared::ErrorDetails {
+                        retry_after_seconds: Some(seconds),
+                        ..Default::default()
+                    },
+                );
+                let response = HttpResponse::builder()
+                    .status(StatusCode::TOO_MANY_REQUESTS)
+                    .header(
+                        "content-type",
+                        if native {
+                            APPLICATION_NORITO
+                        } else {
+                            APPLICATION_JSON
+                        },
+                    )
+                    .header("retry-after", seconds.to_string())
+                    .body(if native {
+                        norito::to_bytes(&envelope).unwrap()
+                    } else {
+                        norito::json::to_vec(&envelope).unwrap()
+                    })
+                    .unwrap();
+                let original = Client::decode_fee_quote_response(&payload, &response).unwrap_err();
+                let requests: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+                let error = quote_fees_with_response(&client, &payload, &requests, response)
+                    .await
+                    .unwrap_err();
+                assert!(error.downcast_ref::<FeeQuoteBackpressure>().is_none());
+                assert_eq!(format!("{error:#}"), format!("{original:#}"));
+                assert_eq!(requests.lock().unwrap().len(), 1);
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn fee_quote_backpressure_cannot_extend_either_deadline_or_create_an_unbounded_retry() {
         let client = client_with_base_url(base_url());
         let payload = account_context(&client)
@@ -28225,9 +28245,9 @@ mod tests {
             ))
             .expect("exact unsigned payload");
         for (request_timeout, inherited_timeout) in [
-            (Duration::from_secs(3), Duration::from_millis(20)),
-            (Duration::from_millis(20), Duration::from_secs(3)),
-            (Duration::ZERO, Duration::from_millis(20)),
+            (Duration::from_secs(3), Duration::from_millis(250)),
+            (Duration::from_millis(250), Duration::from_secs(3)),
+            (Duration::ZERO, Duration::from_millis(250)),
         ] {
             let mut selected = client.clone();
             selected.torii_request_timeout = request_timeout;
@@ -28242,14 +28262,22 @@ mod tests {
             )
             .await
             .expect_err("retry delay cannot fit the original budget");
-            assert!(error.to_string().contains("deadline elapsed"));
+            assert_eq!(
+                error
+                    .downcast_ref::<FeeQuoteBackpressure>()
+                    .unwrap()
+                    .retry_after(),
+                Duration::from_secs(1),
+                "an unfit advertised delay retains the original validated refusal"
+            );
+            assert!(format!("{error:#}").contains("failed to quote transaction fees; status: 429"));
             let requests = store.lock().expect("requests");
             assert_eq!(requests.len(), 1, "do not shorten Retry-After");
-            assert!(requests[0].timeout.unwrap() <= Duration::from_millis(20));
+            assert!(requests[0].timeout.unwrap() <= Duration::from_millis(250));
         }
         let store: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
         let expired = client.with_request_deadline(std::time::Instant::now());
-        quote_fees_with_response(
+        let error = quote_fees_with_response(
             &expired,
             &payload,
             &store,
@@ -28257,6 +28285,12 @@ mod tests {
         )
         .await
         .expect_err("expired operation cannot dispatch");
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::TimedOut)
+        );
         assert!(store.lock().expect("requests").is_empty());
 
         let mut unbounded = client.clone();
@@ -28270,7 +28304,14 @@ mod tests {
         )
         .await
         .expect_err("an unbounded client remains one-shot");
-        assert!(error.to_string().contains("429 Too Many Requests"));
+        assert!(format!("{error:#}").contains("429 Too Many Requests"));
+        assert_eq!(
+            error
+                .downcast_ref::<FeeQuoteBackpressure>()
+                .unwrap()
+                .retry_after(),
+            Duration::from_secs(1)
+        );
         assert_eq!(store.lock().expect("requests").len(), 1);
     }
 
@@ -28299,7 +28340,15 @@ mod tests {
         .await
         .expect("one request budget bounds all quote retries")
         .expect_err("second Retry-After cannot fit the original request budget");
-        assert!(error.to_string().contains("deadline elapsed"));
+        assert_eq!(
+            error
+                .downcast_ref::<FeeQuoteBackpressure>()
+                .unwrap()
+                .retry_after(),
+            Duration::from_secs(1),
+            "the final validated refusal keeps its original error"
+        );
+        assert!(format!("{error:#}").contains("failed to quote transaction fees; status: 429"));
         let requests = store.lock().expect("requests");
         assert_eq!(requests.len(), 2, "the budget must not reset after a retry");
         assert!(requests[1].timeout.unwrap() < Duration::from_millis(500));
@@ -28342,6 +28391,15 @@ mod tests {
             } else {
                 "injected fee quote transport refusal"
             }));
+            if late_success {
+                assert_eq!(
+                    error
+                        .downcast_ref::<std::io::Error>()
+                        .map(std::io::Error::kind),
+                    Some(std::io::ErrorKind::TimedOut)
+                );
+            }
+            assert!(error.downcast_ref::<FeeQuoteBackpressure>().is_none());
             assert_eq!(store.lock().expect("requests").len(), 1);
         }
     }
@@ -28399,6 +28457,13 @@ mod tests {
         .expect("original budget cancels the pending request")
         .expect_err("pending transport cannot outlive quote deadline");
         assert!(format!("{error:#}").contains("deadline elapsed"));
+        assert_eq!(
+            error
+                .downcast_ref::<std::io::Error>()
+                .map(std::io::Error::kind),
+            Some(std::io::ErrorKind::TimedOut)
+        );
+        assert!(error.downcast_ref::<FeeQuoteBackpressure>().is_none());
         assert_eq!(sends.load(Ordering::SeqCst), 1);
         assert_eq!(drops.load(Ordering::SeqCst), 1, "no orphaned HTTP work");
     }
@@ -28412,10 +28477,13 @@ mod tests {
             body,
             ..
         } = multisig_fee_quote_fixture();
+        let mut untyped_backpressure = fee_quote_backpressure_response("1");
+        *untyped_backpressure.body_mut() =
+            br#"{"code":"query_validation_failed","message":"local query admission refused","details":{"retry_after_seconds":1}}"#.to_vec();
         for (response, typed_capacity) in [
-            (fee_quote_backpressure_response("1"), false),
-            (fee_quote_capacity_backpressure_response(false), true),
-            (fee_quote_capacity_backpressure_response(true), true),
+            (untyped_backpressure, false),
+            (fee_quote_backpressure_response_in_format("1", false), true),
+            (fee_quote_backpressure_response_in_format("1", true), true),
         ] {
             let requests: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
             let transport = DefaultHttpTransport::mock(Arc::new(respond_with(&requests, response)));
@@ -28620,10 +28688,9 @@ mod tests {
         );
     }
     #[tokio::test]
-    async fn fee_quote_backpressure_without_retry_deadline_returns_typed_response_once() {
+    async fn fee_quote_backpressure_unbounded_direct_quotes_remain_one_shot_for_both_formats() {
         let mut client = client_with_base_url(base_url());
-        // A finite timeout enables direct-account retries. Exercise returned
-        // capacity hints without either a configured or an inherited deadline.
+        // A zero timeout without an inherited deadline selects one quote dispatch.
         client.torii_request_timeout = Duration::ZERO;
         let payload = account_context(&client)
             .prepare_transaction(AccountTransactionDraft::new(
@@ -28633,7 +28700,7 @@ mod tests {
             ))
             .unwrap();
         for native in [false, true] {
-            let response = fee_quote_capacity_backpressure_response(native);
+            let response = fee_quote_backpressure_response_in_format("1", native);
             let requests: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
             let error = quote_fees_with_response(&client, &payload, &requests, response)
                 .await
@@ -28649,7 +28716,7 @@ mod tests {
             assert_eq!(
                 requests.lock().unwrap().len(),
                 1,
-                "fee quotes must not retry without a finite deadline"
+                "an unbounded direct quote must not start an automatic retry loop"
             );
         }
     }

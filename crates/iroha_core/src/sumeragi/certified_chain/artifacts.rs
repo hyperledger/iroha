@@ -114,6 +114,11 @@ impl PrefixArtifactsError {
             {
                 io::ErrorKind::WouldBlock
             }
+            Self::Certificate(CertificateReadError::Canonical(original))
+                if original.kind() != norito::core::DecodeAttemptErrorKind::Invalid =>
+            {
+                io::ErrorKind::WouldBlock
+            }
             // A decoder-level allocator refusal also cannot prove malformed bytes.
             Self::Certificate(CertificateReadError::Decode(norito::Error::AllocationFailed {
                 ..
