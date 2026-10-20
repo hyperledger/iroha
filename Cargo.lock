@@ -5423,6 +5423,7 @@ dependencies = [
  "group",
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_measurement",
  "iroha_pasta",
  "iroha_plonk",
  "iroha_plonk_gadgets",

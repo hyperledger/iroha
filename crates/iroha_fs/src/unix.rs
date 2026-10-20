@@ -540,6 +540,14 @@ impl Directory {
     }
 
     fn revalidate_from(&self, first: usize) -> io::Result<()> {
+        let result = self.revalidate_chain_from(first);
+        custody_transaction::observe_ancestry_result(&result);
+        result
+    }
+
+    // One native ancestry recipe, including tree-scope suffix checks and complete walks.
+    // Record its refusal at the common boundary before any caller can handle the error.
+    fn revalidate_chain_from(&self, first: usize) -> io::Result<()> {
         crate::custody_work::record_ancestry_walk(self.links.len().saturating_sub(first));
         for (index, link) in self.links.iter().enumerate().skip(first) {
             // The held descriptor's identity was fixed when the link was admitted. When the
@@ -550,19 +558,16 @@ impl Directory {
             let named = if index == 0 {
                 open_directory(&link.path, link.access)
             } else {
-                link.path
-                    .file_name()
-                    .ok_or_else(changed)
-                    .and_then(|name| {
-                        rustix::fs::openat(
-                            &self.links[index - 1].file,
-                            name,
-                            link.access.flags(),
-                            Mode::empty(),
-                        )
-                        .map(File::from)
-                        .map_err(io::Error::from)
-                    })
+                link.path.file_name().ok_or_else(changed).and_then(|name| {
+                    rustix::fs::openat(
+                        &self.links[index - 1].file,
+                        name,
+                        link.access.flags(),
+                        Mode::empty(),
+                    )
+                    .map(File::from)
+                    .map_err(io::Error::from)
+                })
             };
             let named = named
                 .and_then(|named| validate_directory(&named, link.private))

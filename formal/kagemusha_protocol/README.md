@@ -4,8 +4,9 @@ The provider model covers the durable Advance publication boundary in canonical
 design [§4.1 and §5.2](../../specs/kagemusha_single_design_proposal.md). The separate
 [accounting model and conditional induction](ACCOUNTING.md) track reserve
 liabilities, core versus folded balance, fees, Archive no-op and retirement races.
-A bounded Send publication/accounting composition is also checked. Composition
-across all operations, native refinement and the complete protocol model remain open.
+A bounded Send publication/accounting composition and a separate receiver-provider
+frontier are modeled. Composition across all operations, native refinement and
+the complete protocol model remain open.
 
 Run from the repository root with the Python standard library only:
 
@@ -20,12 +21,13 @@ Optimized Python is refused because it would remove assertion gates. A search
 limit is an error; a partial traversal never reports success. The command emits
 actual state/edge counts and a shortest counterexample for every unsafe rule.
 The [focused workflow](../../.github/workflows/kagemusha_protocol.yml) runs these
-commands and retains failure logs. Local commands pass; hosted CI has not run.
+commands and retains failure logs. Hosted CI has not been observed.
 Discovery includes the accounting schedule and mutation controls; the 484-state
 exhaustive result below belongs only to the provider model.
-The combined unit suite contains 65 checks: 14 provider, 23 accounting, ten
-defensive-containment controls, eight schedule-explorer controls and ten Send
-composition controls. All 65 pass for the reviewed model candidate.
+The combined unit suite contains 76 checks: 14 provider, 23 accounting, ten
+defensive-containment controls, eight schedule-explorer controls, ten Send
+composition controls and eleven receiver-provider controls. Retain each
+invocation's result and source identities; old runs do not qualify changed models.
 Its reserve equation distinguishes actual burned backing from unbacked rejected
 input and checks each wallet/account effect separately. It covers split and
 cyclic transfers, fee entitlement before delivery, both Archive outcomes and
@@ -83,8 +85,45 @@ Four composition mutations have replayable shortest counterexamples: refunding
 uncertain selection, exposing an unpersisted Payment, debiting on replay and
 reconstructing erased Payment bytes from a ghost identity. Ten controls pass.
 Receive's own durable provider operation, the preceding authentic Load and
-successful fold verification remain premises. This one-head product does not
-establish arbitrary multi-wallet provider composition or a native refinement.
+successful fold verification remain premises of this first graph.
+
+The separate receiver graph starts only at a payer release and delivery reached
+through that first graph's legal transitions. It explores all four payer
+capsule/signature names, with payer loss, storage/signing availability and delivery
+interleaved with a second instance of the same provider. Receiver staging retains
+the actual Payment; losing the carrier and payer originals afterward does not erase
+that retained input. Losing every receiver capsule before selection cannot recover
+it from a ghost identity. Selection projects the irrevocable first credit into
+accounting exactly once. This is not an API completion or a claim that the native
+credit index is already written. Pending, unavailable and lost-output states keep
+their provider meaning; an in-memory signature or a single completion copy cannot
+report completion. Released retries use the exact receiver output, and a conflicting
+original is considered only after released readable custody.
+
+Receive completion does not require the later lineage fold. In this bounded
+vocabulary, fold success requires readable released custody and represents a
+verified, durably published fold. Pending custody parks it; proof refusal and
+cancellation preserve the modeled monetary/custody state. This does not assert
+that every native scratch/checkpoint write is absent on those paths. Both
+eventual verdicts preserve reserve conservation: the valid branch keeps the
+credit, while the specified containment branch moves its deferred amount to
+burned backing. The latter is an assumed post-commit proof outcome, not a claim
+that the correct native verifier normally admits malformed Payments.
+
+The receiver search has a structural bound of 139,392 states per payer original:
+at most 72 fixed released payer states, 484 receiver-provider states
+(28 Old, 168 Selected, 288 Released), two carrier states and two folded-sequence
+states. Other accounting fields and the retained intake are determined by those
+coordinates. The command reports the actual count for each of the four frontiers;
+no symmetry reduction, schedule pruning or partial traversal counts as exhaustion.
+Five receiver composition mutations must produce replayable counterexamples:
+premature completion, recrediting on retry, folding Pending custody, publishing
+after a refused fold and replaying an erased receipt from its ghost identity.
+
+These are separate finite frontier checks, not a Cartesian composition beginning
+before payer release, arbitrary multi-head histories or a machine-checked native
+refinement. Authentication, cryptographic acceptance, physical storage behavior,
+collection, enrollment and the complete C12 argument remain outside this model.
 
 ## State and scope
 
@@ -130,6 +169,9 @@ or an OS durability refinement.
 | Selected capability binds the receipt body; adopt an existing completion before signing | `finish_selected_inner`, A7–A8, in the same file |
 | Redundant completion, Released publication and anchor before return | A9–A12 and [`completion.rs`](../../crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/completion.rs) |
 | Recover the selected frozen capsule and resume its exact operation | `Coordinator::resume`; native [`reconcile.rs`](../../crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/reconcile.rs) |
+| Receiver selection's accounting ghost versus permanent first-credit publication | `Coordinator::commit` verifies and retains before Advance; [`Coordinator::sync_manifest`](../../crates/iroha_core_zk/src/kagemusha_wallet_state_v1/manifest.rs) indexes the exact released Receive before returning a completed fresh commit |
+| Duplicate-original comparison cannot override Pending or unavailable custody | `Coordinator::commit` calls `sync_manifest` before comparing indexed credit and the exact supplied Payment; existing selected-operation outcomes retain provider authority |
+| Pending Receive cannot fold; refused verification cannot publish monetary effects | `fold_turn` parks only typed Pending; `publish_progress` verifies the final lineage before credit, archive and manifest effects in [`folding.rs`](../../crates/iroha_core_zk/src/kagemusha_wallet_state_v1/folding.rs) |
 | Concrete I/O crash boundaries and storage availability | [`crash_matrix_tests.rs`](../../crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/crash_matrix_tests.rs) and provider/store tests |
 
 This table records a source review, not a machine-checked refinement or proof

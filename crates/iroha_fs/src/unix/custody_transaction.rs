@@ -98,6 +98,15 @@ fn update(change: impl FnOnce(&mut Frame)) {
     });
 }
 
+/// End consolidation after any fresh complete or suffix ancestry walk refuses, including a
+/// tree-scope walk that does not pass through the transaction's ordinary revalidation wrapper.
+/// Outside a transaction this leaves the same native result and has no state to change.
+pub(super) fn observe_ancestry_result(result: &io::Result<()>) {
+    if result.is_err() {
+        update(|frame| frame.refused = true);
+    }
+}
+
 fn state_unavailable() -> io::Error {
     io::Error::other("custody transaction state is unavailable on this thread")
 }
