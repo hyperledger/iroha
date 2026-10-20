@@ -46,7 +46,7 @@ use crate::state::{NativeExecutionTip, StateReadOnly, StateView, WorldReadOnly};
 mod execution;
 pub mod keeper;
 mod restoration;
-pub(crate) use execution::{ForgeryExecutionError, execute_forgery};
+pub(crate) use execution::{ForgeryExecutionError, ForgeryLocalRefusal, execute_forgery};
 pub(crate) use restoration::SccpRestore;
 
 /// Protocol refusals stay separate from local source, allocation, deadline or stop refusals.

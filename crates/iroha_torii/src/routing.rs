@@ -14303,7 +14303,11 @@ async fn submit_asset_transfer_request(
 #[cfg(all(feature = "app_api", test))]
 mod asset_transfer_request_tests {
     use super::*;
-    use iroha_data_model::{isi::TransferBox, transaction::executable::Executable};
+    use iroha_data_model::{
+        isi::TransferBox,
+        nexus::{DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneConfig},
+        transaction::executable::Executable,
+    };
     const NOW_MS: u64 = 1_700_000_000_000;
     fn fixture_network_id() -> NetworkId {
         NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(
@@ -14338,17 +14342,86 @@ mod asset_transfer_request_tests {
             signature_base64: None,
         }
     }
-    fn submission_components() -> (Arc<CoreState>, Arc<Queue>, Arc<ChainId>, MaybeTelemetry) {
-        let mut world = iroha_core::state::World::default();
+    fn submission_components(
+        signers: &[&KeyPair],
+    ) -> (Arc<CoreState>, Arc<Queue>, Arc<ChainId>, MaybeTelemetry) {
+        let owner = AccountId::new(signers[0].public_key().clone());
+        let destination = AccountId::new(fixture_keypair(0x32).public_key().clone());
+        let authorities: Vec<_> = signers
+            .iter()
+            .map(|signer| AccountId::new(signer.public_key().clone()))
+            .collect();
+        let accounts = authorities
+            .iter()
+            .chain(std::iter::once(&destination))
+            .map(|id| Account::new(id.clone()).build(&owner));
+        let domain_id = DomainId::try_new("transfers", "paynet").expect("transfer domain");
+        let definition_id = test_asset_definition_id_from_hex("00112233445546778899aabbccddeeff");
+        let definition = AssetDefinition::numeric(
+            definition_id.clone(),
+            "transfer_asset".to_owned(),
+            iroha_data_model::asset::AssetBalancePolicy::DataspaceRestricted,
+            Some(domain_id.clone()),
+        )
+        .build(&owner);
+        let dataspace = DataSpaceId::new(10);
+        let balances = authorities.iter().map(|authority| {
+            Asset::new(
+                AssetId::with_scope(
+                    definition_id.clone(),
+                    authority.clone(),
+                    iroha_data_model::asset::AssetBalanceScope::Dataspace(dataspace),
+                ),
+                Quantity::from(1_000_u32),
+            )
+        });
+        let mut world = iroha_core::state::World::with_assets(
+            [Domain::new(domain_id).build(&owner)],
+            accounts,
+            [definition],
+            balances,
+            [],
+        );
         crate::test_utils::bind_fixture_root(
             &mut world,
             iroha_data_model::block::consensus::SumeragiRootScope::Global,
         );
-        let state = Arc::new(CoreState::new_for_testing(
+        // Replay admission still authenticates the request's exact data space route.
+        // Install its catalog and account/asset records before capturing State authority.
+        let nexus = iroha_config::parameters::actual::Nexus {
+            dataspace_catalog: DataSpaceCatalog::new(vec![
+                DataSpaceMetadata::default(),
+                DataSpaceMetadata {
+                    id: dataspace,
+                    alias: "paynet".to_owned(),
+                    description: None,
+                    fault_tolerance: 1,
+                },
+            ])
+            .expect("transfer data space catalog"),
+            lane_catalog: LaneCatalog::new(
+                std::num::NonZeroU32::new(2).unwrap(),
+                vec![
+                    LaneConfig::default(),
+                    LaneConfig {
+                        id: LaneId::new(1),
+                        dataspace_id: dataspace,
+                        alias: "transfers".to_owned(),
+                        ..LaneConfig::default()
+                    },
+                ],
+            )
+            .expect("transfer lane catalog"),
+            ..Default::default()
+        };
+        let (state, _) = CoreState::new_with_chain_and_network_id_and_pre_genesis_nexus_for_testing(
             world,
-            Kura::blank_kura_for_testing(),
+            nexus,
             iroha_core::query::store::LiveQueryStore::start_test(),
-        ));
+            ChainId::from("asset-transfer-test"),
+            fixture_network_id(),
+        );
+        let state = Arc::new(state);
         let events: iroha_core::EventsSender = tokio::sync::broadcast::channel(8).0;
         let queue = Arc::new(Queue::from_config(
             iroha_config::parameters::actual::Queue::default(),
@@ -14372,7 +14445,8 @@ mod asset_transfer_request_tests {
     }
     fn signed_fixture_request(
         authority_keypair: &KeyPair,
-        network_id: NetworkId,
+        state: &CoreState,
+        queue: &Queue,
         creation_time_ms: u64,
         transaction_ttl_ms: u64,
     ) -> (
@@ -14389,7 +14463,15 @@ mod asset_transfer_request_tests {
             normalize_asset_transfer_request_shape(&chain_id, request.clone())
                 .expect("normalize signed fixture shape");
         assert!(matches!(signing_state, AssetTransferSigningState::Prepare));
-        let builder = transfer.transaction_builder(network_id);
+        let builder = transfer.transaction_builder(*state.network_id_ref());
+        let route = queue
+            .route_payload_plan_with_state(builder.payload(), state)
+            .expect("registered scoped transfer route");
+        assert!(matches!(route, RoutingPlan::Single(route)
+            if route.route.dataspace_id == DataSpaceId::new(10)));
+        let builder = quote_app_api_transaction_builder(builder, queue, state, "asset transfer")
+            .expect("quote the exact fixture payload before signing");
+        request.fee_payment = builder.payload().fee_payment.clone();
         let signature = Signature::try_new(
             authority_keypair.private_key(),
             &builder.payload_hash_bytes(),
@@ -14855,11 +14937,11 @@ mod asset_transfer_request_tests {
         );
     }
     routing_test! { async exact_queued_replay_is_idempotent_but_signed_field_substitution_is_not
-        let (state, queue, chain_id, telemetry) = submission_components();
         let authority_keypair = fixture_keypair(0x43);
+        let (state, queue, chain_id, telemetry) = submission_components(&[&authority_keypair]);
         let now_ms = current_time_millis();
         let (request, transaction_hash, _) =
-            signed_fixture_request(&authority_keypair, *state.network_id_ref(), now_ms, 60_000);
+            signed_fixture_request(&authority_keypair, &state, &queue, now_ms, 60_000);
         let first = submit_asset_transfer_request(
             Arc::clone(&chain_id),
             Arc::clone(&queue),
@@ -14910,11 +14992,12 @@ mod asset_transfer_request_tests {
         assert_eq!(queue.active_len(), 1);
     }
     routing_test! { async concurrent_exact_replays_converge_on_one_queue_entry
-        let (state, queue, chain_id, telemetry) = submission_components();
         let authority_keypair = fixture_keypair(0x46);
+        let (state, queue, chain_id, telemetry) = submission_components(&[&authority_keypair]);
         let (request, transaction_hash, _) = signed_fixture_request(
             &authority_keypair,
-            *state.network_id_ref(),
+            &state,
+            &queue,
             current_time_millis(),
             60_000,
         );
@@ -14955,12 +15038,16 @@ mod asset_transfer_request_tests {
         );
     }
     routing_test! { async exact_applied_replay_survives_expiry_but_unknown_expired_transaction_fails
-        let (state, queue, chain_id, telemetry) = submission_components();
+        let authority_keypair = fixture_keypair(0x44);
+        let unknown_keypair = fixture_keypair(0x45);
+        let (state, queue, chain_id, telemetry) =
+            submission_components(&[&authority_keypair, &unknown_keypair]);
         let now_ms = current_time_millis();
         let creation_time_ms = now_ms.saturating_sub(ASSET_TRANSFER_MAX_TTL_MS + 1);
         let (request, transaction_hash, transaction_entrypoint_hash) = signed_fixture_request(
-            &fixture_keypair(0x44),
-            *state.network_id_ref(),
+            &authority_keypair,
+            &state,
+            &queue,
             creation_time_ms,
             ASSET_TRANSFER_MAX_TTL_MS,
         );
@@ -14984,8 +15071,9 @@ mod asset_transfer_request_tests {
         assert_eq!(replay.receipt.status, "applied");
         assert_eq!(queue.active_len(), 0);
         let (unknown_request, unknown_hash, _) = signed_fixture_request(
-            &fixture_keypair(0x45),
-            *state.network_id_ref(),
+            &unknown_keypair,
+            &state,
+            &queue,
             creation_time_ms,
             ASSET_TRANSFER_MAX_TTL_MS,
         );
@@ -29584,9 +29672,12 @@ pub fn handle_get_sorafs_por_report(
     coordinator: Arc<sorafs::PorCoordinator>,
     cycle: PorReportIsoWeek,
 ) -> Result<PorWeeklyReportV1, Error> {
-    coordinator
-        .weekly_report(cycle)
-        .map_err(por_coordinator_error)
+    coordinator.weekly_report(cycle).map_err(|error| match error {
+        // This handler computes bounds from the caller's requested cycle; a valid
+        // ISO label can still have an end outside the supported calendar range.
+        error @ PorCoordinatorError::IsoWeekComputation => conversion_error(error.to_string()),
+        other => por_coordinator_error(other),
+    })
 }
 }
 pub fn parse_hex_array<const N: usize>(value: &str, field: &str) -> Result<[u8; N], Error> {
@@ -38840,24 +38931,28 @@ mod query_endpoint_tests {
         vk_record.gas_schedule_id = Some("native_pipa_r_default".into());
         vk_record.status = iroha_data_model::confidential::ConfidentialStatus::Active;
         vk_record.key = Some(vk_box);
-        let world = World::new();
-        {
-            let mut world_block = world.block();
-            world_block.verifying_keys_mut_for_testing().insert(vk_id.clone(), vk_record);
-            world_block.verifying_keys_by_circuit_mut_for_testing().insert((circuit_id.into(), 1), vk_id.clone());
-            world_block.commit();
-        }
         let attachment = proof::ProofAttachment {
             backend: backend.clone(),
             proof: proof.clone(),
-            vk_ref: vk_id,
+            vk_ref: vk_id.clone(),
             vk_commitment: Some(vk_commitment),
             envelope_hash: None,
             lane_privacy: None,
         };
         // Run the real instruction under the signed genesis capability. A synthetic
         // height-one component cannot authorize genesis instruction execution.
-        let mut config = TestChainConfig::new(world, 1_000);
+        let mut config = TestChainConfig::new(World::new(), 1_000);
+        // Author the key in signed genesis so its confidential registry digest agrees
+        // with the key actually installed before the original proof instruction.
+        config.genesis_instructions.push(
+            iroha_data_model::isi::Grant::account_permission(
+                iroha_executor_data_model::permission::governance::CanManageVerifyingKeys,
+                AccountId::new(config.genesis_key.public_key().clone()),
+            ).into(),
+        );
+        config.genesis_instructions.push(
+            iroha_data_model::isi::verifying_keys::RegisterVerifyingKey::new(vk_id, vk_record).into(),
+        );
         config.genesis_instructions.push(iroha_data_model::isi::zk::VerifyProof::new(attachment).into());
         let chain = CertifiedTestChain::start(config).expect("authenticated genesis verifies and records proof");
         let state = Arc::clone(chain.state());
@@ -55239,14 +55334,18 @@ mod explorer_asset_definition_econometrics_tests {
         for transaction in [tx_burn, tx_transfer, tx_mint, tx_batch] {
             crate::test_utils::commit_native_accepted_inputs(&mut native_chain, vec![transaction]);
         }
-        let resp = handle_v1_explorer_asset_definition_econometrics(
-            state,
-            DataspaceReadVisibility::all_for_tests(),
-            def_id,
-        )
-            .await
-            .expect("handler ok")
-            .into_response();
+        // Direct handler invocation retains the same bounded history producer that
+        // the routed physical worker supplies. This handler completes in one poll.
+        let resp = crate::history_producer::HistoryProducerOwner::for_test().scope(|| {
+            futures::FutureExt::now_or_never(handle_v1_explorer_asset_definition_econometrics(
+                state,
+                DataspaceReadVisibility::all_for_tests(),
+                def_id,
+            ))
+            .expect("synchronous econometrics projection")
+        })
+        .expect("handler ok")
+        .into_response();
         assert_eq!(resp.status(), StatusCode::OK);
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         let doc: norito::json::Value = norito::json::from_slice(body.as_ref()).unwrap();

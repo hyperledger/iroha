@@ -26869,6 +26869,8 @@ AccountEvent::PermissionRemoved(change))
                 task::{Context, Waker},
             };
 
+            // Keep retired fixture versions from changing the whole-State census.
+            let _retirement_pin = crossbeam_epoch::pin();
             let (code, manifest) = contract_artifact_with_max_cycles(1000);
             let key = ContractArtifactId::new(DataSpaceId::UNIVERSAL, manifest.code_hash.unwrap());
             let mut world = World::default();
@@ -26911,14 +26913,28 @@ AccountEvent::PermissionRemoved(change))
             );
             assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
             drop(occupied);
+            assert_eq!(budget.reserved_bytes(), original);
+            assert!(
+                wait.as_mut()
+                    .poll(&mut Context::from_waker(Waker::noop()))
+                    .is_pending(),
+                "refund callbacks wait for the original World field writers"
+            );
+            drop(transaction);
+            assert!(
+                wait.as_mut()
+                    .poll(&mut Context::from_waker(Waker::noop()))
+                    .is_pending()
+            );
+            drop(block);
             assert!(
                 wait.as_mut()
                     .poll(&mut Context::from_waker(Waker::noop()))
                     .is_ready()
             );
-            assert_eq!(budget.reserved_bytes(), original);
-            drop(transaction);
-            let retry = block.transaction();
+            let mut retry_block = state.block(first_test_block_header());
+            let retry = retry_block.transaction();
+            let retry_baseline = budget.reserved_bytes();
             assert_eq!(
                 super::verify_registered_contract_artifact_for_manifest(
                     &retry.world,
@@ -26930,7 +26946,7 @@ AccountEvent::PermissionRemoved(change))
                 code
             );
             assert!(!retry.is_execution_deferred());
-            assert_eq!(budget.reserved_bytes(), original);
+            assert_eq!(budget.reserved_bytes(), retry_baseline);
         }
 
         fn contract_artifact_with_max_cycles(max_cycles: u64) -> (Vec<u8>, ContractManifest) {

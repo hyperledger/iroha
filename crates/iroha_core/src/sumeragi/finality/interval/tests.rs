@@ -43,6 +43,9 @@ fn with_chain(check: fn(&CertifiedTestChain)) {
 }
 #[inline(never)]
 fn with_chain_of(height: u64, check: fn(&CertifiedTestChain)) {
+    // Keep retired World generations stable while the checks compare exact
+    // State-funded cache and proof ownership before and after each read.
+    let _state_retirement = crossbeam_epoch::pin();
     let mut chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 10_000)).unwrap();
     while chain.height() < height {
         chain.commit(Vec::new());

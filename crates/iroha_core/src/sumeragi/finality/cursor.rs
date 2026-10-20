@@ -1133,6 +1133,37 @@ mod tests {
     #[test]
     fn original_h2_anchor_exports_genesis_without_releasing_original_custody() {
         let (chain, _, _) = crate::sumeragi::test_chain::native_amx_approval_route_fixture();
+        // Independently decode the genuine source to census only immutable model
+        // children that outlive both the raw input and the prepared decoder.
+        let genesis_child_bytes = {
+            let wire = chain.committed(1).block().encode_wire().unwrap();
+            let census = AllocationBudget::new(16 * 1024 * 1024);
+            let mut source = ChargedBuffer::new(wire.len(), &census).unwrap();
+            source.append(&wire).unwrap();
+            let mut decoder =
+                iroha_data_model::block::PreparedSignedBlockSignaturesDecode::new(&census).unwrap();
+            let body = decoder
+                .decode(
+                    &source,
+                    norito::core::SequenceSpan {
+                        start: 0,
+                        end: wire.len(),
+                    },
+                    norito::canonical_decode_limits(wire.len()),
+                )
+                .unwrap();
+            assert_eq!(body.encode_wire().unwrap(), wire);
+            drop(decoder);
+            drop(source);
+            let retained = census.reserved_bytes();
+            assert!(
+                retained > 0,
+                "the decoded block retains original model children"
+            );
+            drop(body);
+            assert_eq!(census.reserved_bytes(), 0);
+            retained
+        };
         let budget = AllocationBudget::new(2 * 1024 * 1024 * 1024);
         let mut cursor = NativeFinalityCursorV1::new(chain.root_scope());
         assert!(cursor.take_genesis_execution().is_none());
@@ -1153,10 +1184,11 @@ mod tests {
         let handle_count = genesis._decode._charges.as_slice().len();
         let original_body = genesis.committed().block().clone();
         assert!(original_body.belongs_to(&budget));
-        // The canonical native acquisition prepays its shared block shell separately
-        // from the conservative nested-decoder envelope. Both original charges survive
-        // exporting this anchor; neither can be omitted from the exact custody oracle.
+        // The canonical native acquisition funds its model children and shared
+        // block shell separately from the conservative nested-decoder envelope.
+        // Every original charge survives exporting this anchor.
         let retained_genesis_bytes = SharedSignedBlock::allocation_layout().size()
+            + genesis_child_bytes
             + size_of::<GenesisExecutionAnchor>()
             + handle_count * size_of::<ChargedShared<AllocationCharge>>()
             + handle_count * ChargedShared::<AllocationCharge>::allocation_layout().size()
@@ -1187,7 +1219,7 @@ mod tests {
         assert_eq!(
             budget.reserved_bytes(),
             retained_genesis_bytes,
-            "exact original increments, their shared shells and the genesis slots remain held"
+            "exact original increments, model children, shared shells and genesis slots remain held"
         );
         let expected_remaining = budget.limit_bytes() - retained_genesis_bytes;
         assert!(

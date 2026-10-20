@@ -67,6 +67,10 @@ impl Fixture {
     }
 
     fn new_with_owner_funds(funded: bool) -> Self {
+        Self::new_with_source_padding(funded, 0)
+    }
+
+    fn new_with_source_padding(funded: bool, source_padding: usize) -> Self {
         let key = |seed| KeyPair::from_seed(vec![seed; 32], Algorithm::Ed25519);
         let manager_key = key(0xc1);
         let manager = AccountId::new(manager_key.public_key().clone());
@@ -129,6 +133,17 @@ impl Fixture {
             max_open_appeals_per_provider: 2,
         };
         let mut configuration = TestChainConfig::new(world, 1_000);
+        // Genuine signed source bytes make the block corridor narrower than
+        // its frame while still funding the complete authentication owner.
+        // Each inert log stays below the genesis manifest's string ceiling.
+        let mut remaining = source_padding;
+        while remaining != 0 {
+            let bytes = remaining.min(512 * 1024);
+            configuration
+                .genesis_instructions
+                .push(Log::new(iroha_logger::Level::TRACE, "x".repeat(bytes)).into());
+            remaining -= bytes;
+        }
         let mut governance = iroha_config::parameters::actual::Governance::default();
         governance
             .sorafs_provider_owners
@@ -175,12 +190,16 @@ impl Fixture {
             "the manager has no broad ledger-read permission",
         );
         assert!(view.world().accounts().get(&self.outsider).is_some());
-        assert!(
-            view.world()
-                .account_permissions()
-                .get(&self.outsider)
-                .is_none_or(BTreeSet::is_empty),
-            "the outsider has no explicit permissions after genesis registration",
+        assert_eq!(
+            view.world().account_permissions().get(&self.outsider),
+            Some(&BTreeSet::from([
+                iroha_data_model::permission::Permission::from(
+                    iroha_executor_data_model::permission::sorafs::CanOperateSorafsRepair {
+                        provider_id: self.provider,
+                    },
+                ),
+            ])),
+            "the provider owner has only its scoped repair permission, without ledger-read or reserve-policy authority",
         );
         drop(view);
         app
@@ -484,19 +503,21 @@ async fn signed_reserve_account_http_requires_operations_signer_and_errors_never
 #[tokio::test]
 async fn signed_reserve_account_http_source_refusal_preserves_the_same_native_retry() {
     let _auth = app_auth_test_guard(crate::app_auth::CanonicalRequestAuthConfig::default());
-    let mut f = Fixture::new();
+    let mut f = Fixture::new_with_source_padding(false, 2 * 1024 * 1024);
     f.publish_policy();
     let native = f.verified_tip();
     // Admit the original signer before refusing a native source frame, so
     // authentication capacity cannot stand in for the source-refusal assertion.
     let genesis_bytes = f.chain.committed(1).block().encode_wire().unwrap().len();
-    let narrow_app = f.app(
-        genesis_bytes
-            .checked_sub(1)
-            .unwrap()
-            .checked_mul(8)
-            .unwrap(),
-    );
+    assert!(genesis_bytes > 2 * 1024 * 1024);
+    assert!(genesis_bytes <= iroha_data_model::sumeragi::finality::NATIVE_FINALITY_MAX_BLOCK_BYTES);
+    let working_bytes = genesis_bytes
+        .checked_sub(1)
+        .unwrap()
+        .checked_mul(8)
+        .unwrap();
+    assert_eq!(working_bytes / 8 + 1, genesis_bytes);
+    let narrow_app = f.app(working_bytes);
     let probe = f.manager_request(3);
     assert_eq!(
         operator(&narrow_app, probe.headers(), probe.method(), probe.uri()).unwrap(),

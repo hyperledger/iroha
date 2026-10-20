@@ -41,7 +41,7 @@ paths; it is not a committed ballot rejection.
 
 | Development goal | Completion criterion | State |
 | --- | --- | --- |
-| E1 — runnable candidate tests | One command exercises the actual registration and vote proofs, stamped admission, execution decisions, corpus closure and replay without requiring qualification | Implemented; captured run passes 82 tests (two fixture helpers ignored), including all four runner filters. The later identical-ballot output fix and current model/node checks await disk space and a rerun |
+| E1 — runnable candidate tests | One command exercises the actual registration and vote proofs, stamped admission, execution decisions, corpus closure and replay without requiring qualification | Implemented; resumed run passes 83 tests (two fixture helpers ignored), including all five runner selections. Genuine identical ballots produce verified success and `DuplicateNullifier` results in a canonical block roundtrip. Corrected model/output suite passes 147 tests |
 | E2 — node integration | Canonical signerless input/result variants, Core registration and ballot state, bounded admission and gossip, rollback-safe execution, authenticated publication/replay, Torii and client paths | Open; these are missing implementation, not an approval blocker |
 | E3 — network testing | Run the integrated candidate through ordinary four-validator execution and restart with real finality and API submissions | Open; depends on E2 |
 
@@ -50,12 +50,20 @@ its implementation boundaries; none changes the qualification or activation gate
 
 | Component | Required implementation boundary |
 | --- | --- |
-| Canonical input/result representation | Implemented; cross-crate validation incomplete after filesystem exhaustion: `TransactionEntrypoint::AnonymousBallot` carries the exact canonical envelope at tag 4; rejection tag 5 carries either ballot reason. Output shape requires empty success or a ballot rejection and no triggers, completions, receipts, fees or emissions. Arbitrary inputs expose optional authority. Canonical block construction and a genuine candidate-proof roundtrip test are added. Node admission remains locally unavailable until authoritative context and State execution exist. |
+| Canonical input/result representation | Implemented; model/output tests and an initial six-package all-target check pass after disk recovery. Focused Core/Torii/consumer validation remains in progress. `TransactionEntrypoint::AnonymousBallot` carries the exact canonical envelope at tag 4; rejection tag 5 carries either ballot reason. Output shape requires empty success or a ballot rejection and no triggers, completions, receipts, fees or emissions. Arbitrary inputs expose optional authority. Canonical block construction and genuine candidate-proof roundtrips cover identical inputs with distinct result positions. Node admission remains locally unavailable until authoritative context and State execution exist. |
 | Canonical model and seal identities | Replace the existing 32-byte roster-root preimage with the specified 64-byte anonymous-ballot roster root, and migrate body-identity derivation, certificates, restore checks and authenticated seal-publication outputs together. No truncated root, compatibility form or old-root seal may stand in for this binding. |
 | Registration publication and compact State | Proposed ownership: retain the complete proof in its original signed acceptance input and authenticated finalized block history; retain compact assignment-to-credential records with the exact source binding in State. Require a private direct-signed-input origin; an execution authority alone does not prove the registration was published in that input. Bind compact locators to finalized canonical history and test retrieval after restart and DA sidecarring; unavailable retained bytes remain unavailable. Do not duplicate every 160,148-byte proof into the 16 MiB attempt snapshot or replace proof verification with a digest. |
-| Core acceptance, sealing and restore | Derive body context and assignment from authoritative State and transaction authority; require real registration verification for binding acceptance; reject duplicate commitments across accepted primaries and alternates and failed registrations atomically. Acceptance and sealing are one functional slice: the automatic planner must never feed new credentials into the old assignment-only seal. Seal exactly the ranked seated credentials, publish the complete canonical list, and validate restored mappings, roots and source bindings. Preserve public-body acceptance and decline semantics. |
+| Core acceptance, sealing and restore | Derive body context and assignment from authoritative State and transaction authority; require real registration verification for binding acceptance; reject duplicate commitments across accepted primaries and alternates and failed registrations atomically. Acceptance and sealing are one functional slice: the read-only due planner must predict the same credential-aware transition that signed execution applies. Seal exactly the ranked seated credentials, publish the complete canonical list, and validate restored mappings, roots and source bindings. Preserve public-body acceptance and decline semantics. |
+| Authenticated seal publication | Proposed ownership: add bounded typed publication artifacts to the existing `BlockResult` sealing path through `StateBlock::seal_execution_outputs`. Reserve capacity before mutation and bind the exact artifact bytes to canonical wire, finality and replay. Preserve Network/Pipeline/Time call ownership; a seal artifact is not an invented invocation. Reconcile the anonymous output module's proposed fourth phase with this actual owner before implementing the coordinated slice. |
 | API and client migration | Update the explicit proof-carrying acceptance model, instruction registry, Torii/OpenAPI, CLI, canonical Kotlin, Swift, JavaScript and Python consumers, plus shared schema fixtures and roundtrip tests. Do not introduce compatibility shims or a new Java duplicate. |
 | Signerless execution and network testing | Connect canonical ballot inputs/results, isolated bounded admission and verified gossip, rollback-safe State execution, corpus/closure publication and authenticated replay. Then exercise ordinary four-validator API submission, finality, restart and rollback for E3. |
+
+TODO: define and implement a genesis-bound candidate activation policy for
+ordinary development-network tests. The current checkout has no such policy.
+It must be immutable, bound to the network identity and consistent across
+validators; a node-local flag or chain-name convention cannot decide execution.
+Candidate testing must retain the real proof rules and must not assert
+qualification or enable production SCCP/enactment.
 
 The representation reserves explicit entrypoint tag `4`; retired Time tag `3`
 stays rejected. Ballot-only reasons are refused for ordinary and internal
@@ -65,13 +73,18 @@ processing and wrapped errors; they must not manufacture a committed rejection.
 
 The genuine [canonical-input resource diagnostic](../docs/validation/parliament_ballot_canonical_resources/README.md)
 retains 55 cases per mode with exact portable/accelerated parity for its captured
-source. The separate typed protocol run passed 82 tests, with two fixture helpers
-ignored, before the later identical-ballot output correction. The [engineering
-observations](../docs/validation/parliament_ballot_node_representation/observations.json)
-retain the successful and failed checks; the current model/node candidate still
-requires a rerun after disk space is available. The coordinated runtime migration remains
-open; there is no partial acceptance path feeding the obsolete seal and no
-relaxed activation gate.
+source. The separate [resumed engineering observations](../docs/validation/parliament_ballot_node_representation/resume-20261020/observations.json)
+retain 83 passing typed protocol tests (two fixture helpers ignored), the five
+default runner selections from that suite, and 147 passing model/output tests.
+The broader output controls first exposed an extra random-access lookup; the
+implementation now shares the input lookup and preserves the original bounded
+lookup assertion. An initial six-package all-target check passed on the
+concurrently changing checkout; this is component evidence, with focused node
+and consumer tests still in progress. The [earlier observations](../docs/validation/parliament_ballot_node_representation/observations.json)
+and [pending-validation record](../docs/validation/parliament_ballot_node_representation/pending-validation.json)
+retain the original source identities and disk failures. The coordinated runtime
+migration remains open; there is no partial acceptance path feeding the obsolete
+seal and no relaxed production activation gate.
 
 The [standalone validation record](../docs/validation/parliament_ballot_standalone.md)
 retains the source-bound measurements, conformance scope, reproduction commands

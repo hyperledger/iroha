@@ -234,7 +234,7 @@ contracts.account_recovery_finalize_post	POST	/v1/accounts/recovery/finalize	pub
 contracts.account_recovery_policy_set_post	POST	/v1/accounts/recovery/policy/set	public	canonical_account_signature	authenticated_account	mutation	http	feature(app_api)	true	true	false	true
 contracts.account_recovery_propose_post	POST	/v1/accounts/recovery/propose	public	canonical_account_signature	authenticated_account	mutation	http	feature(app_api)	true	true	false	true
 contracts.account_recovery_status_post	POST	/v1/accounts/recovery/status	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	true	false	true
-contracts.amx_debit_approval_proof_post	POST	/v1/amx/debit-approval/{height}	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	false	false	true
+contracts.amx_debit_approval_proof_post	POST	/v1/amx/debit-approval/{height}	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	true	false	true
 contracts.contracts_aliases_post	POST	/v1/contracts/aliases	public	canonical_account_signature	authenticated_account	mutation	http	feature(app_api)	true	true	false	true
 contracts.contracts_aliases_resolve_post	POST	/v1/contracts/aliases/resolve	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	true	false	true
 contracts.contracts_artifacts_by_dataspace_id_by_code_hash_bytes_get	GET	/v1/contracts/artifacts/{dataspace_id}/{code_hash}/bytes	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	true	false	true

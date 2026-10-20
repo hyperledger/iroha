@@ -96,7 +96,9 @@ pub(super) fn payload_failure(
         PayloadError::SignatureCustodyInvariant(reason) => {
             return Ok(PublicationError::RecoveryRequired(reason));
         }
-        PayloadError::RoutingDeferred(original) | PayloadError::DecodeResource(original) => {
+        PayloadError::RoutingDeferred(original)
+        | PayloadError::DecodeResource(original)
+        | PayloadError::SccpForgeryDeferred(original) => {
             PublicationError::Deferred(original.into())
         }
         PayloadError::SccpForgeryPreparation(original) => {

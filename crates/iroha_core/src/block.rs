@@ -9904,9 +9904,14 @@ pub(crate) mod tests {
         assert_eq!(state_block.zk_confidential_ops_in_block, 1);
         assert_eq!(state_block.zk_verify_calls_in_block, 1);
         assert_eq!(state_block.zk_proof_bytes_in_block, proof_bytes);
+        // Both instruction batches are deterministically metered before ISI
+        // execution. The second attempt retains its gas even though the
+        // exhausted block quota prevents its proof verification.
         assert_eq!(
             state_block.confidential_gas_used_in_block,
             expected_confidential_gas
+                .checked_mul(2)
+                .expect("both attempted proof instructions fit the fixture gas bound")
         );
     }
     #[test]

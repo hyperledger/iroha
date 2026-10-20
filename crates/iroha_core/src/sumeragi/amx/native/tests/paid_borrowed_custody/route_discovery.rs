@@ -12,6 +12,8 @@ use iroha_data_model::isi::sumeragi_amx::{
 #[test]
 fn native_amx_route_discovery_selects_prepare_expiry_and_final_decision_before_target_acquisition()
 {
+    // Stabilize retired fixture storage while checking exact original-pool refunds.
+    let _retirement_pin = crossbeam_epoch::pin();
     let (roots, restored, tx, begin_height) = restarted_paid_decision();
     let budget = restored.state().ivm_execution_budget();
     budget.with_deferred_refund_notifications(|_| {

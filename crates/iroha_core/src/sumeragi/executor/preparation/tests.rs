@@ -1474,3 +1474,37 @@ fn anonymous_ballot_adapter_absence_stays_deferred_through_publication() {
         Err(BlockValidationError::TransactionInTheFuture)
     ));
 }
+
+#[test]
+fn sccp_pairing_payload_refusal_preserves_actual_allocator_cause_without_release() {
+    let layout = iroha_crypto::bls::consensus::ConsensusAggregateScratch::<()>::backing_layout();
+    let (result, observed) = crate::test_allocations::refuse_one_layout_during(layout, || {
+        iroha_crypto::bls::consensus::ConsensusAggregateScratch::<()>::new(|_| Ok::<_, ()>(()))
+    });
+    assert!(observed);
+    let original = match result {
+        Err(iroha_crypto::bls::consensus::AggregateScratchError::Allocator {
+            error,
+            layout: actual,
+        }) => {
+            assert_eq!(actual, layout);
+            iroha_allocation::AllocatorRefusal::from_vec_reserve(error, actual)
+        }
+        _ => panic!("actual pairing constructor failure"),
+    };
+    let error = super::super::super::payload::PayloadError::SccpForgeryDeferred(original.into());
+    let PublicationError::Deferred(classified) = super::payload_failure(error).unwrap() else {
+        panic!("pairing refusal is an unfinished local producer attempt");
+    };
+    assert!(classified.release_wait().is_none());
+    let super::super::PublicationDeferral::Execution(original) = classified else {
+        panic!("move-only original execution cause");
+    };
+    assert!(
+        original
+            .allocator_refusal()
+            .and_then(|cause| cause.vec_reserve_error())
+            .is_some_and(|(_, actual)| actual == layout),
+        "actual physical cause survives the producer classifier"
+    );
+}

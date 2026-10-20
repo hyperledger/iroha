@@ -146,6 +146,9 @@ pub enum PayloadError {
     /// Original local forgery recheck refusal, retaining its physical preparation owner.
     #[error("SCCP forgery proposal preparation failed: {0}")]
     SccpForgeryPreparation(#[source] crate::state::StateStorageAdmissionError),
+    /// Original move-only pairing allocator cause from the SCCP proposer recheck.
+    #[error("SCCP forgery proposal verification deferred: {0}")]
+    SccpForgeryDeferred(#[source] crate::execution_attempt::ExecutionDeferred),
     /// The original versioned decoder refused this unfinished local attempt.
     #[error("payload decoding was refused by local resources: {0}")]
     DecodeResource(crate::execution_attempt::ExecutionDeferred),
@@ -518,7 +521,14 @@ fn current_sccp_forgery(
         Err(error) if error.is_protocol_rejection() => Ok(false),
         Err(error) => Err(error
             .into_local_refusal()
-            .map(PayloadError::SccpForgeryPreparation)
+            .map(|original| match original {
+                forgery::ForgeryLocalRefusal::Storage(original) => {
+                    PayloadError::SccpForgeryPreparation(original)
+                }
+                forgery::ForgeryLocalRefusal::Execution(original) => {
+                    PayloadError::SccpForgeryDeferred(original)
+                }
+            })
             .unwrap_or_else(|_| invalid_source())),
     }
 }
