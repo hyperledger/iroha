@@ -260,6 +260,12 @@ cancellation before publishing original intent and validates each newly issued a
 before returning it. Shared live-authorization checks close cancellation after the original
 and epoch reads, while preserving custody and expiry errors. Failed attempts retain their
 original intent and epoch history for retry.
+Successor-body preparation retains full admission before retirement. After an exact local
+retirement, a private staging owner writes only unsigned activation metadata, then performs
+full admission again before signing or returning usable history. Changes to an older wallet
+can therefore be rejected after unsigned metadata is written; cold recovery rejects the same
+invalid lineage. Original native owners remain checked on success and failure. Inherited
+decode budgets and uncertain recovery prefixes retain the complete preparation path.
 The ordinary CLI and Mochi global creation paths share this default; their private-root request
 constructors select `Standard`. Restart preserves the exact retained profile. Profile changes
 require a new context, and private roots reject the global service profile. Explicit unmanaged

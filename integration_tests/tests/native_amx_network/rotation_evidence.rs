@@ -356,8 +356,17 @@ pub(super) fn native_carrier_fee(
         "one original immutable private fee policy required"
     );
     let policy = &policies[0];
+    let scope = &selected.metadata().sumeragi_context.root_scope;
+    ensure!(
+        *scope == root.scope
+            && matches!(
+                scope,
+                iroha_data_model::block::consensus::SumeragiRootScope::Dataspace { .. }
+            ),
+        "original private fee policy must belong to the pinned bank root"
+    );
     policy
-        .validate_for_scope(&root.scope)
+        .validate_for_scope(scope)
         .map_err(|error| eyre!("original root fee policy is invalid for its scope: {error:?}"))?;
     ensure!(policy.fee_asset_id == amx::fee_asset() && policy.per_byte_fee.is_zero());
     let Executable::Instructions(instructions) = carrier.instructions() else {

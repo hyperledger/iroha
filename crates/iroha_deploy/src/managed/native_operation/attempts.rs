@@ -622,21 +622,34 @@ impl History {
     ) -> Result<()> {
         #[cfg(test)]
         retained_handle_census_tests::record_tree_operation();
-        tree.revalidate_directory(&self.operation)?;
-        // Existing callers can already lend a tree while a decoder is active. Preserve
-        // their original native observation recipe as well as the standalone fallback.
+        // Recheck at this operation, including a decoder installed after the caller's
+        // tree entry. Its literal native observation recipe remains independent.
         if norito::core::decode_limits_active() {
+            tree.revalidate_directory(&self.operation)?;
             return self.revalidate_descendant_handles_in_tree(tree);
         }
-        let result = self.revalidate_descendant_handles_in_tree(tree);
+        let read = |tree: &mut iroha_fs::PrivateReadTreeScope<'_>| {
+            let result = self.revalidate_descendant_handles_in_tree(tree);
+            #[cfg(test)]
+            let result = result.and_then(|()| retained_handle_census_tests::after_descendants());
+            #[cfg(test)]
+            retained_handle_census_tests::record_operation_exit();
+            result
+        };
+        // Literal test reference for the previous adjacent empty brackets. Both recipes
+        // invoke the same descendant walk; no production compatibility path is retained.
         #[cfg(test)]
-        let result = result.and_then(|()| retained_handle_census_tests::after_descendants());
-        // Preserve the operation's closing observation after every descendant and every
-        // ordinary result. Its refusal takes precedence before the outer root also closes.
-        #[cfg(test)]
-        retained_handle_census_tests::record_operation_exit();
-        tree.revalidate_directory(&self.operation)?;
-        result
+        if retained_handle_census_tests::original_operation_recipe() {
+            tree.revalidate_directory(&self.operation)?;
+            let result = read(tree);
+            tree.revalidate_directory(&self.operation)?;
+            return result;
+        }
+        // One callback-free native bracket retains the original operation through every
+        // descendant and closes every ordinary result before the outer root closes.
+        // No source bytes, decode decision or graph traversal is reused. An operation
+        // change wholly restored inside this bracket may be unseen; later fences remain.
+        tree.read_scope_with_tree(&self.operation, |tree, _reader| read(tree))
     }
 
     fn revalidate_descendant_handles_in_tree(
@@ -1200,7 +1213,17 @@ impl History {
         originals: Option<&retained_graph::OriginalReadPass<'_, '_>>,
         root_read: Option<&mut GraphRootReadPass<'_, '_>>,
     ) -> Result<()> {
-        self.require_current_local_admitted(pass, tree, originals, root_read, None)
+        #[cfg(test)]
+        crate::managed::stream_token_custody::body_history::local_census_tests::record_graph_visit(
+            self,
+        );
+        // A graph direction already owns its native tree/root and full snapshot fence.
+        // Admit the same exact-body census used by parser-local reads without nesting a
+        // new root bracket. Every leaf, attempt, inventory and graph direction still runs;
+        // late decoder ownership or uncertain snapshot membership keeps the original path.
+        let census =
+            pass.and_then(|snapshot| local_census::LocalHistoryCensus::admit(self, snapshot));
+        self.require_current_local_admitted(pass, tree, originals, root_read, census.as_ref())
     }
 
     fn require_current_local_admitted(

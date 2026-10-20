@@ -303,3 +303,15 @@ pub trait PreparedRecordDestination<T>: FieldDestination + SerializePayload {
     /// refunding any prepared backing. Called before every attempt and on failure.
     fn reset(&mut self);
 }
+
+/// Prepared custody for a materialized enum or whole-value-validated record.
+///
+/// The generated value walk returns the actual declared value. Complete-frame
+/// failure returns that same value through [`DecodeValueDestination::restore_value`].
+/// This trait does not fund the value: each concrete producer must prepay every
+/// backing and preserve it through partial-field and whole-value restoration.
+pub trait PreparedValueDestination<T>: DecodeValueDestination<T> {
+    /// Clear validity without dropping, replacing or refunding retained backing.
+    /// Called before each attempt and after an error, including after restoration.
+    fn reset(&mut self);
+}

@@ -10,6 +10,7 @@ Mochi.app/Contents/Info.plist
 Mochi.app/Contents/MacOS/mochi
 Mochi.app/Contents/MacOS/kagami
 Mochi.app/Contents/MacOS/iroha3d
+Mochi.app/Contents/Resources/Mochi.icns # Finder icon
 Mochi.app/Contents/Resources/network-profiles.nrt # required release-owned Taira preset
 docs/README.md
 LICENSE
@@ -23,9 +24,9 @@ are part of the same installed runtime. You may move or rename the application
 before creating a managed environment. Retained environments pin their original
 runtime location; relocation does not rewrite that custody.
 
-The application metadata supplies a native desktop identity. Bundle assembly
-alone does not establish code signing, notarization or authenticated release
-provenance.
+The application metadata supplies a native desktop identity and the Mochi icon
+shown in Finder. Bundle assembly alone does not establish code signing,
+notarization or authenticated release provenance.
 
 ## Start from a project
 

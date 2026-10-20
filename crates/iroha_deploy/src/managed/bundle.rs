@@ -7,6 +7,9 @@ use super::{Error, Result};
 /// Stable native macOS application identity; signing and notarization are separate release steps.
 pub const MOCHI_APPLICATION_ID: &str = "org.hyperledger.iroha.mochi";
 
+/// Application icon in the macOS package's `Contents/Resources`, named by the generated metadata.
+pub const MOCHI_ICON_FILENAME: &str = "Mochi.icns";
+
 /// Native CLI package geometry; the client, Kagami worker and matching daemon need no desktop application.
 #[derive(Debug, Clone, Copy)]
 pub struct KagamiBundleLayout;
@@ -86,6 +89,8 @@ impl NativeBundleLayout {
 
 /// Render the canonical application metadata from the Mochi package's release version.
 ///
+/// The metadata names [`MOCHI_ICON_FILENAME`] in `Contents/Resources` as the Finder icon.
+///
 /// # Errors
 /// Only a three-component decimal release version is accepted. Prerelease labels, XML text,
 /// leading zeroes and versions exceeding the local 64-byte metadata bound are rejected.
@@ -110,6 +115,7 @@ pub fn macos_info_plist(version: &str) -> Result<String> {
 <key>CFBundleDevelopmentRegion</key><string>en</string>\n\
 <key>CFBundleDisplayName</key><string>Mochi</string>\n\
 <key>CFBundleExecutable</key><string>mochi</string>\n\
+<key>CFBundleIconFile</key><string>{MOCHI_ICON_FILENAME}</string>\n\
 <key>CFBundleIdentifier</key><string>{MOCHI_APPLICATION_ID}</string>\n\
 <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>\n\
 <key>CFBundleName</key><string>Mochi</string>\n\
@@ -280,8 +286,33 @@ mod tests {
         assert!(macos_info_plist("10000.100.0").is_ok());
         assert!(macos_info_plist(&format!("{}.0.0", "1".repeat(65))).is_err());
         assert!(plist.contains("<key>CFBundleExecutable</key><string>mochi</string>"));
+        assert!(plist.contains("<key>CFBundleIconFile</key><string>Mochi.icns</string>"));
         for version in ["", "1", "1.2", "1.2.3.4", "1.2.3-rc.1", "1.02.3", "1.2.<"] {
             assert!(macos_info_plist(version).is_err(), "{version}");
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn app_metadata_is_a_native_property_list_naming_the_packaged_icon() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("Info.plist");
+        std::fs::write(&path, macos_info_plist("0.1.0").unwrap()).unwrap();
+        for (key, value) in [
+            ("CFBundleIconFile", MOCHI_ICON_FILENAME),
+            ("CFBundleExecutable", "mochi"),
+            ("CFBundleIdentifier", MOCHI_APPLICATION_ID),
+        ] {
+            let output = std::process::Command::new("/usr/bin/plutil")
+                .args(["-extract", key, "raw", "-o", "-"])
+                .arg(&path)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{key}");
+            assert_eq!(
+                String::from_utf8(output.stdout).unwrap(),
+                format!("{value}\n")
+            );
         }
     }
 }

@@ -106,13 +106,27 @@ fn graph_originals_share_only_closed_exact_bodies_and_preserve_mutable_work_and_
             )
         })
     };
+    let capture = finish_timing::Capture::start();
     let (((((old, old_visits), old_records), old_snapshot), old_leaves), old_reads) = read(true);
+    let old_envelopes = capture
+        .finish()
+        .sample(finish_timing::Phase::MetadataEnvelopeDecode)
+        .0;
+    let capture = finish_timing::Capture::start();
     let (((((new, new_visits), new_records), new_snapshot), new_leaves), new_reads) = read(false);
+    let new_envelopes = capture
+        .finish()
+        .sample(finish_timing::Phase::MetadataEnvelopeDecode)
+        .0;
     old.unwrap();
     new.unwrap();
     assert_eq!((old_reads, new_reads), ([12, 0], [0, 12]));
     assert_eq!(old_records, new_records);
-    assert!(old_records[0] > 0 && old_records[1] > 0);
+    assert!(old_records[0] > 0);
+    // Original-leaf coverage does not alter terminal-image ownership. The genuine current
+    // graph has immutable predecessors and a pristine Owned head with no typed children.
+    assert_eq!(old_records[1], 0);
+    assert_eq!((old_envelopes, new_envelopes), (4, 4));
     assert_eq!((old_visits.visits, new_visits.visits), (6, 6));
     assert_eq!(
         (old_visits.native_tree_visits, new_visits.native_tree_visits),
@@ -402,6 +416,7 @@ fn native_source_mutations(history: &BodyHistory) {
             let is_leaf = path.ends_with("original.nrt");
             let changed_path = path.clone();
             let mut changed = false;
+            let capture = finish_timing::Capture::start();
             let ((result, records), leaves) = operation_scope_tests::observe_leaves(
                 move |point| {
                     if !changed && point == Point::Inventory {
@@ -418,6 +433,10 @@ fn native_source_mutations(history: &BodyHistory) {
                 },
                 || History::test_operation_records(|| native.test_require_current(6).0),
             );
+            let envelopes = capture
+                .finish()
+                .sample(finish_timing::Phase::MetadataEnvelopeDecode)
+                .0;
             drop(restore);
             assert!(
                 matches!(result, Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::PermissionDenied)
@@ -426,9 +445,12 @@ fn native_source_mutations(history: &BodyHistory) {
                 assert_eq!(records, [0; 4]);
                 assert_eq!(leaves, [Point::Inventory]);
             } else if is_leaf {
-                // The former interior Original read is deliberately gone. Mutable decoders
-                // run, but no result escapes the fresh full snapshot's native leaf refusal.
-                assert!(records[0] > 0 && records[1] > 0);
+                // The former interior Original read is deliberately gone. Fresh metadata
+                // still runs before the full snapshot's native leaf refusal. Terminal images
+                // reuse typed children; the pristine head performs four envelope decodes.
+                assert!(records[0] > 0);
+                assert_eq!(records[1], 0);
+                assert_eq!(envelopes, 4);
                 assert!(!leaves.contains(&Point::Semantic));
             }
             native.test_require_current(6).0.unwrap();

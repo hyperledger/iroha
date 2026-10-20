@@ -517,6 +517,287 @@ impl PublishedBodyDelta {
     }
 }
 
+// Local preparation is shared with complete publication admission. It contains fresh
+// observations for this read only; no epoch or source verdict survives into activation.
+struct PreparedPublication {
+    root_names: NamesSnapshot,
+    snapshots: Arc<Snapshot>,
+    epochs: crate::managed::native_operation::authorization::EpochReader,
+}
+
+// These are the original native owners, retained independently of the incomplete value
+// consumed by C. There is no cached source, authority or validation result. In particular,
+// unsigned bodies absent from the retained graph keep their exact directory owners too.
+struct ActivationOwners {
+    root: Arc<PrivateDirectory>,
+    container: Arc<PrivateDirectory>,
+    bodies: Vec<Arc<PrivateDirectory>>,
+    graph: Option<std::rc::Rc<History>>,
+}
+impl ActivationOwners {
+    fn retain(history: &BodyHistory, publication: &PublishedBodyDelta) -> Result<Self> {
+        if history.active.is_some() || history.bodies.len() > usize::from(MAX_BODIES) {
+            return Err(invalid(
+                "activation staging changed its bounded original owners",
+            ));
+        }
+        let container = history
+            .body_root
+            .as_ref()
+            .ok_or_else(|| invalid("activation staging lost its original body container"))?;
+        let mut bodies = Vec::new();
+        bodies
+            .try_reserve_exact(history.bodies.len())
+            .map_err(|_| invalid("cannot retain bounded activation directory owners"))?;
+        bodies.extend(
+            history
+                .bodies
+                .iter()
+                .map(|body| Arc::clone(&body.directory)),
+        );
+        let graph = match publication {
+            PublishedBodyDelta::Closed { closure, .. } => {
+                Some(std::rc::Rc::clone(closure.shared_history()))
+            }
+            _ => history
+                .nearest_closure
+                .as_ref()
+                .map(|closure| std::rc::Rc::clone(closure.shared_history())),
+        };
+        Ok(Self {
+            root: Arc::clone(&history.root),
+            container: Arc::clone(container),
+            bodies,
+            graph,
+        })
+    }
+
+    fn revalidate(&self) -> Result<()> {
+        #[cfg(test)]
+        let _timing = finish_timing::phase(finish_timing::Phase::BodyHandleRevalidate);
+        self.root.read_tree_scope(|tree| {
+            tree.revalidate_directory(&self.container)?;
+            for body in &self.bodies {
+                tree.revalidate_directory(body)?;
+            }
+            if let Some(graph) = &self.graph {
+                graph.revalidate_retained_handles_in_tree(Some(&mut *tree))?;
+            }
+            Ok(())
+        })
+    }
+}
+
+// This incomplete body owner cannot leave publication.rs. Its only consuming production
+// method permits the two existing unsigned local writes, then full canonical C admission.
+// It cannot dispatch, sign, retire a wallet, renew authority or return a usable BodyHistory.
+struct ActivationStaging {
+    history: BodyHistory,
+    body_root: Arc<PrivateDirectory>,
+    ordinal: u8,
+    retirement: [u8; 32],
+    owners: ActivationOwners,
+}
+impl ActivationStaging {
+    fn eligible(
+        history: &BodyHistory,
+        body_root: &Arc<PrivateDirectory>,
+        publication: &PublishedBodyDelta,
+    ) -> bool {
+        #[cfg(test)]
+        if activation_staging_tests::original_recipe() {
+            return false;
+        }
+        if norito::core::decode_limits_active()
+            || history.active.is_some()
+            || !history
+                .body_root
+                .as_ref()
+                .is_some_and(|root| Arc::ptr_eq(root, body_root))
+            || history
+                .bodies
+                .last()
+                .is_none_or(|body| body.activation.is_some() || body.original.is_some())
+        {
+            return false;
+        }
+        match publication {
+            PublishedBodyDelta::Closed { root, .. } | PublishedBodyDelta::Unused { root, .. } => {
+                Arc::ptr_eq(&history.root, root)
+            }
+            _ => false,
+        }
+    }
+
+    fn bind(
+        history: &BodyHistory,
+        ordinal: u8,
+        retirement: [u8; 32],
+        publication: &PublishedBodyDelta,
+    ) -> Result<()> {
+        let pending = history
+            .anchor
+            .pending
+            .as_ref()
+            .ok_or_else(|| invalid("activation staging lost its pending reservation"))?;
+        if ordinal <= 1
+            || pending.ordinal != ordinal
+            || history.anchor.highest != ordinal
+            || history.bodies.len() != usize::from(ordinal)
+        {
+            return Err(invalid(
+                "activation staging selected another bounded successor",
+            ));
+        }
+        let previous = &history.bodies[usize::from(ordinal) - 2];
+        let current = &history.bodies[usize::from(ordinal) - 1];
+        let successor = pending.digest()?;
+        if current.reservation.digest()? != successor
+            || current.activation.is_some()
+            || current.original.is_some()
+            || current.unused.is_some()
+            || previous.reservation.ordinal != ordinal - 1
+        {
+            return Err(invalid(
+                "activation staging changed its exact reserved body",
+            ));
+        }
+        let bound = match publication {
+            PublishedBodyDelta::Closed {
+                root,
+                ordinal: closed,
+                closure,
+            } => {
+                Arc::ptr_eq(&history.root, root)
+                    && *closed == ordinal - 1
+                    && closure.digest() == retirement
+                    && closure.successor_selection() == successor
+                    && previous.semantic == Some(closure.closed_semantic())
+                    && previous.original.is_some()
+                    && closure.purpose() == history.selection.purpose
+                    && history.active.is_none()
+            }
+            PublishedBodyDelta::Unused {
+                root,
+                ordinal: unused,
+                value,
+                ..
+            } => {
+                Arc::ptr_eq(&history.root, root)
+                    && *unused == ordinal - 1
+                    && previous.original.is_none()
+                    && previous.unused.is_none()
+                    && value.reservation == previous.reservation.digest()?
+                    && value.successor == successor
+                    && attempts::semantic_digest(value, MAX_SELECTION_BYTES)? == retirement
+            }
+            _ => false,
+        };
+        if !bound {
+            return Err(invalid(
+                "activation staging changed its exact predecessor retirement",
+            ));
+        }
+        Ok(())
+    }
+
+    fn prepare(
+        mut history: BodyHistory,
+        owner: &ManagedStreamTokenCustody,
+        body_root: Arc<PrivateDirectory>,
+        ordinal: u8,
+        retirement: [u8; 32],
+        publication: PublishedBodyDelta,
+    ) -> Result<Self> {
+        let owners = ActivationOwners::retain(&history, &publication)?;
+        let result = (|| {
+            let (reference, plan) = history.publication_inputs(owner, &publication)?;
+            #[cfg(test)]
+            activation_staging_tests::before_prepare(&history, &publication)?;
+            Self::bind(&history, ordinal, retirement, &publication)?;
+            let prepared = history.prepare_publication(owner, publication, reference, plan)?;
+            #[cfg(test)]
+            let result = activation_staging_tests::after_prepare(&history, owner);
+            #[cfg(not(test))]
+            let result = Ok::<_, crate::managed::Error>(());
+            // These checks close even an ordinary inner refusal. The fresh complete linked
+            // source snapshots are rebuilt by the same producer used by full admission.
+            prepared.snapshots.revalidate()?;
+            prepared.root_names.revalidate()?;
+            result?;
+            // Drop the pure read workspace before any activation write or later parser.
+            drop(prepared);
+            Ok::<_, crate::managed::Error>(())
+        })();
+        let handles = owners.revalidate();
+        // Original profile refusal keeps precedence over ordinary inner/source errors.
+        owner.authority.validate_profile()?;
+        require_retained_material(handles)?;
+        require_retained_material(result)?;
+        Ok(Self {
+            history,
+            body_root,
+            ordinal,
+            retirement,
+            owners,
+        })
+    }
+
+    fn activate(
+        self,
+        owner: &ManagedStreamTokenCustody,
+        turn: &SigningTurn<'_>,
+        deadline: Instant,
+        wallets: &mut FinishWalletReads<'_>,
+    ) -> Result<BodyHistory> {
+        #[cfg(test)]
+        if let Some(limits) = activation_staging_tests::take_late_limits() {
+            return norito::core::with_decode_limits_scope(limits, || {
+                self.activate(owner, turn, deadline, wallets)
+            });
+        }
+        let Self {
+            mut history,
+            body_root,
+            ordinal,
+            retirement,
+            owners,
+        } = self;
+        let result = (|| {
+            // A resource owner installed after preparation receives the complete original B
+            // recovery path. Already prepared bytes grant no allocation or authority exemption.
+            if norito::core::decode_limits_active() {
+                wallets.clear();
+                history = history.reopen(owner)?;
+                return history.publish_activation(
+                    owner,
+                    &body_root,
+                    ordinal,
+                    Some(retirement),
+                    turn,
+                    deadline,
+                    wallets,
+                );
+            }
+            let publication =
+                history.write_activation(&body_root, ordinal, Some(retirement), turn, deadline);
+            let handles = owners.revalidate();
+            owner.authority.validate_profile()?;
+            let publication = require_retained_material(handles).and_then(|()| publication)?;
+            // Full C is mandatory before signing, expiry return or any other usable owner.
+            // A changed wallet/history may now refuse after unsigned local staging metadata;
+            // crash/error recovery also uses this same canonical parser before any authority.
+            history.reopen_after_publication_with_wallets(owner, publication, Some(wallets))
+        })();
+        // C consumes the incomplete BodyHistory even when it refuses. Independently retained
+        // original directories and graph close on every ordinary result before they are dropped.
+        let handles = owners.revalidate();
+        owner.authority.validate_profile()?;
+        require_retained_material(handles)?;
+        result
+    }
+}
+
 impl BodyHistory {
     pub(super) fn reopen_after_publication(
         self,
@@ -559,24 +840,7 @@ impl BodyHistory {
         }
         #[cfg(test)]
         let _timing = finish_timing::phase(finish_timing::Phase::Reopen);
-        require_retained_material(self.revalidate_handles())?;
-        require_retained_material(publication.revalidate_retained_handles())?;
-        owner.authority.directory.revalidate()?;
-        if self.root.path()
-            != owner
-                .authority
-                .directory
-                .path()
-                .join(self.purpose.directory_name()?)
-        {
-            return Err(invalid("retained enrollment belongs to another authority"));
-        }
-        let reference = read_reference(owner, self.purpose)?;
-        #[cfg(test)]
-        let timing = finish_timing::phase(finish_timing::Phase::ProfileEntry);
-        let plan = owner.authority.provider_plan()?;
-        #[cfg(test)]
-        drop(timing);
+        let (reference, plan) = self.publication_inputs(owner, &publication)?;
         #[cfg(test)]
         let step = publication.step();
         #[cfg(test)]
@@ -596,6 +860,35 @@ impl BodyHistory {
         Ok(value)
     }
 
+    fn publication_inputs(
+        &self,
+        owner: &ManagedStreamTokenCustody,
+        publication: &PublishedBodyDelta,
+    ) -> Result<(
+        (Option<Reference>, RecordSnapshot),
+        RetainedProviderServicePlan,
+    )> {
+        require_retained_material(self.revalidate_handles())?;
+        require_retained_material(publication.revalidate_retained_handles())?;
+        owner.authority.directory.revalidate()?;
+        if self.root.path()
+            != owner
+                .authority
+                .directory
+                .path()
+                .join(self.purpose.directory_name()?)
+        {
+            return Err(invalid("retained enrollment belongs to another authority"));
+        }
+        let reference = read_reference(owner, self.purpose)?;
+        #[cfg(test)]
+        let timing = finish_timing::phase(finish_timing::Phase::ProfileEntry);
+        let plan = owner.authority.provider_plan()?;
+        #[cfg(test)]
+        drop(timing);
+        Ok((reference, plan))
+    }
+
     fn admit_publication(
         mut self,
         owner: &ManagedStreamTokenCustody,
@@ -604,6 +897,36 @@ impl BodyHistory {
         plan: RetainedProviderServicePlan,
         wallets: Option<&mut FinishWalletReads<'_>>,
     ) -> Result<Self> {
+        let PreparedPublication {
+            root_names,
+            snapshots,
+            mut epochs,
+        } = self.prepare_publication(owner, publication, reference, plan)?;
+        let previous = PublishedHistory {
+            active: self.active.take(),
+            closed: self.nearest_closure.take(),
+        };
+        self.verify_histories_from_with_wallets(
+            owner,
+            None,
+            Some(&previous),
+            &mut epochs,
+            wallets,
+            Some(&snapshots),
+        )?;
+        root_names.revalidate()?;
+        if let Some(graph) = previous.retained_graph() {
+            graph.revalidate_retained_handles()?;
+        }
+        Ok(self)
+    }
+    fn prepare_publication(
+        &mut self,
+        owner: &ManagedStreamTokenCustody,
+        publication: PublishedBodyDelta,
+        reference: (Option<Reference>, RecordSnapshot),
+        plan: RetainedProviderServicePlan,
+    ) -> Result<PreparedPublication> {
         let root_names = NamesSnapshot::from_read(
             Arc::clone(&self.root),
             4,
@@ -626,7 +949,7 @@ impl BodyHistory {
                 "publication changed its external selection reference",
             ));
         }
-        publication.apply(&mut self)?;
+        publication.apply(self)?;
         let mut root_records = self.root_snapshots.records.clone();
         if root_records.len() != 3 {
             return Err(invalid("retained root snapshot layout changed"));
@@ -718,10 +1041,6 @@ impl BodyHistory {
         // This source check is independent of every prior observation and every write receipt.
         // It binds unchanged original bytes and exact new head records before any wallet call.
         snapshots.revalidate()?;
-        let previous = PublishedHistory {
-            active: self.active.take(),
-            closed: self.nearest_closure.take(),
-        };
         let mut epochs = crate::managed::native_operation::authorization::EpochReader::default();
         if let CustodyPurpose::Renewal(sequence) = self.purpose {
             epochs.validate_retained(
@@ -735,19 +1054,138 @@ impl BodyHistory {
             )?;
         }
         drop(plan);
-        self.verify_histories_from_with_wallets(
-            owner,
-            None,
-            Some(&previous),
-            &mut epochs,
-            wallets,
-            Some(&snapshots),
-        )?;
-        root_names.revalidate()?;
-        if let Some(graph) = previous.retained_graph() {
-            graph.revalidate_retained_handles()?;
+        Ok(PreparedPublication {
+            root_names,
+            snapshots,
+            epochs,
+        })
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "One concrete activation boundary retains its original owner, turn and deadline"
+    )]
+    pub(super) fn activate_reserved_body(
+        mut self,
+        owner: &ManagedStreamTokenCustody,
+        body_root: &Arc<PrivateDirectory>,
+        ordinal: u8,
+        previous_retirement: Option<[u8; 32]>,
+        retirement: Option<PublishedBodyDelta>,
+        turn: &SigningTurn<'_>,
+        deadline: Instant,
+        wallets: &mut FinishWalletReads<'_>,
+    ) -> Result<Self> {
+        if let Some(digest) = previous_retirement {
+            match retirement {
+                Some(publication)
+                    if ActivationStaging::eligible(&self, body_root, &publication) =>
+                {
+                    let result = ActivationStaging::prepare(
+                        self,
+                        owner,
+                        Arc::clone(body_root),
+                        ordinal,
+                        digest,
+                        publication,
+                    )
+                    .and_then(|staged| staged.activate(owner, turn, deadline, wallets));
+                    if result.is_err() {
+                        wallets.clear();
+                    }
+                    return result;
+                }
+                publication => {
+                    // Existing/crashed, foreign and inherited-decoder prefixes retain full B.
+                    self = self.reopen_after_publication_with_wallets(
+                        owner,
+                        publication,
+                        Some(wallets),
+                    )?;
+                }
+            }
         }
-        Ok(self)
+        self.publish_activation(
+            owner,
+            body_root,
+            ordinal,
+            previous_retirement,
+            turn,
+            deadline,
+            wallets,
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The sole local activation writer preserves all original mutation inputs"
+    )]
+    fn publish_activation(
+        self,
+        owner: &ManagedStreamTokenCustody,
+        body_root: &Arc<PrivateDirectory>,
+        ordinal: u8,
+        previous_retirement: Option<[u8; 32]>,
+        turn: &SigningTurn<'_>,
+        deadline: Instant,
+        wallets: &mut FinishWalletReads<'_>,
+    ) -> Result<Self> {
+        let publication =
+            self.write_activation(body_root, ordinal, previous_retirement, turn, deadline)?;
+        self.reopen_after_publication_with_wallets(owner, publication, Some(wallets))
+    }
+
+    fn write_activation(
+        &self,
+        body_root: &Arc<PrivateDirectory>,
+        ordinal: u8,
+        previous_retirement: Option<[u8; 32]>,
+        turn: &SigningTurn<'_>,
+        deadline: Instant,
+    ) -> Result<Option<PublishedBodyDelta>> {
+        let pending = self
+            .anchor
+            .pending
+            .as_ref()
+            .ok_or_else(|| invalid("pending enrollment selection absent"))?;
+        let activation = Activation {
+            reservation: pending.digest()?,
+            preceding_retirement: previous_retirement,
+        };
+        turn.check(&self.selection, deadline)?;
+        write_once(
+            body_root,
+            &format!("{ordinal:04}-activation.nrt"),
+            &activation,
+            MAX_SELECTION_BYTES,
+        )?;
+        #[cfg(test)]
+        activation_staging_tests::after_write(
+            activation_staging_tests::Point::ActivationWritten,
+            self,
+        )?;
+        turn.check(&self.selection, deadline)?;
+        let anchor = self.replace_anchor(&Anchor {
+            outer: self.selection.digest()?,
+            highest: ordinal,
+            active: Some(ordinal),
+            completed: None,
+            pending: None,
+        })?;
+        #[cfg(test)]
+        activation_staging_tests::after_write(
+            activation_staging_tests::Point::AnchorWritten,
+            self,
+        )?;
+        let publication = if self.bodies[usize::from(ordinal) - 1].activation.is_none() {
+            anchor
+                .map(|anchor| PublishedBodyDelta::activated(self, ordinal, &activation, anchor))
+                .transpose()?
+        } else {
+            // A pre-existing activation is a recovery prefix, even when its bytes match.
+            None
+        };
+        Ok(publication)
     }
 }
 
@@ -758,3 +1196,7 @@ mod publication_tests;
 #[cfg(test)]
 #[path = "publication_close_tests.rs"]
 mod publication_close_tests;
+
+#[cfg(test)]
+#[path = "activation_staging_tests.rs"]
+mod activation_staging_tests;

@@ -43,6 +43,8 @@
   <string>Use Nearby Connections for the disposable KAGEMUSHA phone qualification.</string>
   <key>NSBonjourServices</key>
   <array><string>_F2EBA4BCB49B._tcp</string></array>
+  <key>NSCameraUsageDescription</key>
+  <string>Scan the other phone’s QR codes during the explicitly selected disposable KAGEMUSHA payment.</string>
   <key>NSFaceIDUsageDescription</key>
   <string>Confirm the exact reviewed operation in the disposable KAGEMUSHA device probe.</string>
   <key>NSAppTransportSecurity</key>

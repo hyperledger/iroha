@@ -53,7 +53,10 @@ const STOP_OBSERVATION_MAXIMUM: Duration = WORKER_STARTUP_MAXIMUM
 use norito::json::{JsonDeserialize, JsonSerialize};
 
 pub use bootstrap_failure::ManagedBootstrapFailure;
-pub use bundle::{KagamiBundleLayout, MOCHI_APPLICATION_ID, NativeBundleLayout, macos_info_plist};
+pub use bundle::{
+    KagamiBundleLayout, MOCHI_APPLICATION_ID, MOCHI_ICON_FILENAME, NativeBundleLayout,
+    macos_info_plist,
+};
 pub use contracts::{
     ManagedContractCallOptions, ManagedContractCallReport, ManagedContractView,
     ManagedContractViewRequest,

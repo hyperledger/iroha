@@ -42,6 +42,13 @@ struct Server {
 
 impl Server {
     fn start(response: Vec<u8>, before_reply: impl FnOnce() + Send + 'static) -> Self {
+        Self::respond(move |_| {
+            before_reply();
+            response
+        })
+    }
+
+    fn respond(respond: impl FnOnce(&[u8]) -> Vec<u8> + Send + 'static) -> Self {
         let identity = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
         let certificate = reqwest::Certificate::from_der(identity.cert.der()).unwrap();
         let config = ServerConfig::builder_with_provider(Arc::new(ring::default_provider()))
@@ -64,7 +71,7 @@ impl Server {
             let connection = ServerConnection::new(Arc::new(config)).map_err(io::Error::other)?;
             let mut stream = StreamOwned::new(connection, socket);
             let request = read_request(&mut stream)?;
-            before_reply();
+            let response = respond(&request);
             stream.write_all(&response)?;
             stream.flush()?;
             Ok(request)
@@ -448,4 +455,312 @@ fn actual_tls_carries_canonical_asset_context_bound_to_selected_template() {
     assert_eq!(decoded.asset, asset);
     assert_eq!(decoded.request, request);
     assert_eq!(decoded.policy(&provider.eligibility).unwrap(), policy);
+}
+
+/// Authenticate the test issuer transport before handing its exact body to middleware.
+fn authenticated_observation_body(request: &[u8]) -> &[u8] {
+    let start = request.windows(4).position(|x| x == b"\r\n\r\n").unwrap() + 4;
+    let headers = std::str::from_utf8(&request[..start]).unwrap();
+    assert!(headers.starts_with("POST /eligibility HTTP/1.1\r\n"));
+    for header in [
+        "authorization: Bearer test-only-token",
+        "content-type: application/x-norito",
+        "accept: application/x-norito",
+    ] {
+        assert_eq!(headers.lines().filter(|line| *line == header).count(), 1);
+    }
+    &request[start..]
+}
+
+#[test]
+fn actual_middleware_signs_fresh_bank_and_operator_observations_across_tls() {
+    use iroha::kagemusha_enrollment::{
+        CurrentEnrollmentEligibilityV1, answer_enrollment_eligibility_v1,
+        sign_enrollment_eligibility_v1,
+    };
+    use iroha_crypto::{Algorithm, KeyPair};
+    use iroha_data_model::kagemusha::{
+        KagemushaEligibilityAuthorityV1 as Authority, KagemushaEligibilityDecisionV1 as Decision,
+        KagemushaEligibilityPurposeV1 as Purpose, KagemushaEligibilityResponseV1,
+    };
+    use std::sync::{
+        Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    for authority in [
+        Authority::Bank { fi_digest: [8; 32] },
+        Authority::SchemeOperator {
+            operator_digest: [8; 32],
+        },
+    ] {
+        let (_root, path) = credential(b"test-only-token");
+        let mut provider =
+            super::super::test_fixture::provider(path.with_file_name("unused.scalar"));
+        provider.observation_credential = path.clone();
+        provider.eligibility.authority = authority;
+        // One independently selected provider template serves unrelated exact token scopes.
+        let mut other_asset_response: Option<Vec<u8>> = None;
+        for (seed, scale) in [(61, 0), (83, 2), (107, 28)] {
+            let asset = super::super::test_fixture::asset(seed, scale);
+            let template = provider.eligibility;
+            let policy = template.for_asset(&asset).unwrap();
+            let reads = Arc::new(AtomicUsize::new(0));
+            let signs = Arc::new(AtomicUsize::new(0));
+            let clocks = Arc::new(AtomicUsize::new(0));
+            let current = Arc::new(Mutex::new(CurrentEnrollmentEligibilityV1 {
+                approved: false,
+                frozen: false,
+                revision: 1,
+                observed_at_ms: 1101,
+            }));
+            let mut previous: Option<Vec<u8>> = None;
+            for (index, (purpose, approved, frozen, decision)) in [
+                (
+                    Purpose::PreKeyPermit,
+                    true,
+                    false,
+                    Decision::ApprovedUnfrozen,
+                ),
+                (Purpose::VerifyEvidence, true, true, Decision::Frozen),
+                (
+                    Purpose::IssueCredential,
+                    false,
+                    false,
+                    Decision::NotApproved,
+                ),
+                (
+                    Purpose::DeliverCredential,
+                    true,
+                    false,
+                    Decision::ApprovedUnfrozen,
+                ),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let revision = u64::try_from(index + 1).unwrap();
+                *current.lock().unwrap() = CurrentEnrollmentEligibilityV1 {
+                    approved,
+                    frozen,
+                    revision,
+                    observed_at_ms: 1101,
+                };
+                let request = KagemushaEligibilityRequestV1 {
+                    version: 1,
+                    policy_digest: policy.policy_digest().unwrap(),
+                    account_digest: [22; 32],
+                    actor_digest: [23; 32],
+                    attempt_id: [24; 32],
+                    nonce: [u8::try_from(index + 1).unwrap(); 32],
+                    operation_digest: [u8::try_from(index + 41).unwrap(); 32],
+                    purpose,
+                    requested_at_ms: 1000,
+                    expires_at_ms: 2000,
+                };
+                let expected_asset = asset.clone();
+                let read_count = reads.clone();
+                let sign_count = signs.clone();
+                let clock_count = clocks.clone();
+                let source = current.clone();
+                let server = Server::respond(move |wire| {
+                    let original = authenticated_observation_body(wire);
+                    let key = KeyPair::from_seed(vec![7; 32], Algorithm::Ed25519);
+                    assert_eq!(key.public_key().to_bytes().1, template.public_key);
+                    let mut times = [1100, 1101, 1102].into_iter();
+                    let response = answer_enrollment_eligibility_v1(
+                        &template,
+                        original,
+                        || {
+                            clock_count.fetch_add(1, Ordering::SeqCst);
+                            Ok(times.next().unwrap())
+                        },
+                        |actual_asset, actual_policy, actual_request| {
+                            read_count.fetch_add(1, Ordering::SeqCst);
+                            assert_eq!(actual_asset, &expected_asset);
+                            assert_eq!(actual_policy, &policy);
+                            assert_eq!(actual_request, &request);
+                            Ok(*source.lock().unwrap())
+                        },
+                        |message| {
+                            sign_count.fetch_add(1, Ordering::SeqCst);
+                            sign_enrollment_eligibility_v1(&key, message)
+                        },
+                    )
+                    .unwrap();
+                    ok(&response)
+                });
+                provider.observation_endpoint = server.endpoint.clone();
+                let owner = EligibilityObservationTransport {
+                    selected: provider.clone(),
+                    http: server.open(&path),
+                };
+                let original = owner
+                    .observe(
+                        &provider,
+                        &asset,
+                        &request.encode_canonical(&policy).unwrap(),
+                        Duration::from_secs(3),
+                    )
+                    .unwrap();
+                let response = KagemushaEligibilityResponseV1::decode_canonical(
+                    &original, &policy, &request, 1102,
+                )
+                .unwrap();
+                assert_eq!(response.encode_canonical().unwrap(), original);
+                assert_eq!(response.body.decision, decision);
+                assert_eq!(response.body.source_revision, revision);
+                assert_eq!(
+                    response.body.request_digest,
+                    request.request_digest(&policy).unwrap()
+                );
+                assert_eq!(response.body.observed_at_ms, 1101);
+                assert_eq!(response.body.valid_until_ms, 2000);
+                if let Some(foreign) = other_asset_response.as_deref() {
+                    assert!(
+                        KagemushaEligibilityResponseV1::decode_canonical(
+                            foreign, &policy, &request, 1102,
+                        )
+                        .is_err()
+                    );
+                }
+                let sent = server.task.join().unwrap().unwrap();
+                let observed = KagemushaEligibilityObservationV1::decode_canonical(
+                    authenticated_observation_body(&sent),
+                    &template,
+                )
+                .unwrap();
+                assert_eq!(observed.asset, asset);
+                assert_eq!(observed.request, request);
+                // Rebinding otherwise valid signatures to another nonce or purpose must fail.
+                let mut changed = request;
+                changed.nonce[0] ^= 0x80;
+                assert!(
+                    KagemushaEligibilityResponseV1::decode_canonical(
+                        &original, &policy, &changed, 1102,
+                    )
+                    .is_err()
+                );
+                let mut changed = request;
+                changed.purpose = if purpose == Purpose::PreKeyPermit {
+                    Purpose::DeliverCredential
+                } else {
+                    Purpose::PreKeyPermit
+                };
+                assert!(
+                    KagemushaEligibilityResponseV1::decode_canonical(
+                        &original, &policy, &changed, 1102,
+                    )
+                    .is_err()
+                );
+                if let Some(old) = previous {
+                    assert!(
+                        KagemushaEligibilityResponseV1::decode_canonical(
+                            &old, &policy, &request, 1102,
+                        )
+                        .is_err()
+                    );
+                }
+                previous = Some(original);
+                assert_eq!(reads.load(Ordering::SeqCst), index + 1);
+                assert_eq!(signs.load(Ordering::SeqCst), index + 1);
+                assert_eq!(clocks.load(Ordering::SeqCst), 3 * (index + 1));
+            }
+            other_asset_response = previous;
+        }
+    }
+}
+
+#[test]
+fn actual_middleware_refuses_substituted_assets_and_unavailable_sources_across_tls() {
+    use iroha::kagemusha_enrollment::{
+        EnrollmentEligibilityMiddlewareErrorV1 as MiddlewareError, answer_enrollment_eligibility_v1,
+    };
+    use iroha_data_model::kagemusha::{
+        KagemushaEligibilityAuthorityV1 as Authority, KagemushaEligibilityPurposeV1 as Purpose,
+    };
+
+    for authority in [
+        Authority::Bank { fi_digest: [8; 32] },
+        Authority::SchemeOperator {
+            operator_digest: [8; 32],
+        },
+    ] {
+        let (_root, path) = credential(b"test-only-token");
+        let mut provider =
+            super::super::test_fixture::provider(path.with_file_name("unused.scalar"));
+        provider.observation_credential = path.clone();
+        provider.eligibility.authority = authority;
+        let template = provider.eligibility;
+        let asset = super::super::test_fixture::asset(61, 2);
+        let policy = template.for_asset(&asset).unwrap();
+        let request = KagemushaEligibilityRequestV1 {
+            version: 1,
+            policy_digest: policy.policy_digest().unwrap(),
+            account_digest: [22; 32],
+            actor_digest: [23; 32],
+            attempt_id: [24; 32],
+            nonce: [25; 32],
+            operation_digest: [26; 32],
+            purpose: Purpose::VerifyEvidence,
+            requested_at_ms: 1000,
+            expires_at_ms: 2000,
+        };
+        // All three exact asset coordinates are authenticated by the retained inner request.
+        for case in 0..4 {
+            let mut observation = KagemushaEligibilityObservationV1 {
+                version: 1,
+                asset: asset.clone(),
+                request,
+            };
+            let foreign = super::super::test_fixture::asset(83, 28);
+            match case {
+                0 => observation.asset.asset = foreign.asset,
+                1 => observation.asset.asset_incarnation = foreign.asset_incarnation,
+                2 => observation.asset.scale = foreign.scale,
+                _ => {}
+            }
+            // The first three use canonical framing but intentionally bypass semantic validation
+            // to exercise the independent middleware boundary after genuine HTTPS transport.
+            let original = norito::encode_canonical(&observation).unwrap();
+            let server = Server::respond(move |wire| {
+                let mut clocks = 0;
+                let mut reads = 0;
+                let result = answer_enrollment_eligibility_v1(
+                    &template,
+                    authenticated_observation_body(wire),
+                    || {
+                        clocks += 1;
+                        Ok(1100)
+                    },
+                    |_, _, _| {
+                        reads += 1;
+                        Err(MiddlewareError::Unavailable)
+                    },
+                    |_| panic!("invalid or unavailable current authority must never sign"),
+                );
+                assert_eq!(
+                    result,
+                    Err(if case == 3 {
+                        MiddlewareError::Unavailable
+                    } else {
+                        MiddlewareError::InvalidRequest
+                    })
+                );
+                assert_eq!(reads, usize::from(case == 3));
+                assert_eq!(clocks, usize::from(case == 3));
+                // An unavailable observation is an HTTP error, not a signed decision arm.
+                b"HTTP/1.1 503 Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    .to_vec()
+            });
+            assert!(matches!(
+                server
+                    .open(&path)
+                    .observe(&original, Duration::from_secs(3)),
+                Err(Error::Unavailable)
+            ));
+            let sent = server.task.join().unwrap().unwrap();
+            assert_eq!(authenticated_observation_body(&sent), original);
+        }
+    }
 }

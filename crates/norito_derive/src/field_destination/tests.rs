@@ -44,7 +44,7 @@ fn generated_owned_record_calls_one_destination_walk_with_exact_positional_types
 
 #[test]
 fn destination_walk_rejects_unimplemented_shape_contracts() {
-    let cases: [(DeriveInput, &str); 4] = [
+    let cases: [(DeriveInput, &str); 3] = [
         (
             syn::parse_quote! { #[norito(decode_fields)] struct Unit; },
             "closed positional record",
@@ -54,12 +54,8 @@ fn destination_walk_rejects_unimplemented_shape_contracts() {
             "without generic parameters",
         ),
         (
-            syn::parse_quote! { #[norito(decode_fields)] struct Skipped { #[norito(skip)] value:u8 } },
-            "skip and flatten are unsupported",
-        ),
-        (
             syn::parse_quote! { #[norito(decode_fields)] struct Flat { #[norito(flatten)] value:u8 } },
-            "skip and flatten are unsupported",
+            "does not support flattened positional fields",
         ),
     ];
     for (input, message) in cases {
@@ -225,4 +221,35 @@ fn enum_result_rollback_keeps_actual_coordinates_and_original_error_without_hook
     assert!(!text[hook..].contains("restore_value"));
     assert!(!text.contains("clone"));
     assert!(!text.contains("decode_context_field_canonical"));
+}
+
+#[test]
+fn skipped_record_fields_have_no_wire_callback_and_default_only_on_reconstruction() {
+    for input in [
+        syn::parse_quote! {
+            #[norito(decode_fields,decode_from_slice)]
+            struct Cached { first:u8, #[norito(skip)] middle:u16, last:u32, #[norito(skip)] tail:u64 }
+        },
+        syn::parse_quote! {
+            #[norito(decode_fields,decode_from_slice)]
+            struct Cached(u8, #[norito(skip)] u16, u32, #[norito(skip)] u64);
+        },
+        syn::parse_quote! {
+            #[norito(decode_fields,decode_from_slice,validate="Self::validate")]
+            struct Cached { first:u8, #[norito(skip)] middle:u16, last:u32, #[norito(skip)] tail:u64 }
+        },
+    ] {
+        let output = expansion(input);
+        syn::parse2::<syn::File>(output.clone()).expect("complete skipped-field implementations");
+        let text = output.to_string();
+        assert!(text.contains("DecodeField < 0usize , u8"));
+        assert!(text.contains("DecodeField < 2usize , u32"));
+        assert!(!text.contains("DecodeField < 1usize"));
+        assert!(!text.contains("DecodeField < 3usize"));
+        assert_eq!(text.matches("framed_field :: <").count(), 2);
+        assert_eq!(text.matches("Default :: default ()").count(), 2);
+        let finish = text.find("finish_context_fields").unwrap();
+        let first_default = text.find("Default :: default ()").unwrap();
+        assert!(finish < first_default);
+    }
 }

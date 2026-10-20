@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Mochi stand">
+  <title>Mochi stand</title>
+  <defs>
+    <radialGradient id="trice" cx="0.36" cy="0.28" r="0.85">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.68" stop-color="#F8F9FC"/>
+      <stop offset="1" stop-color="#E3E8F1"/>
+    </radialGradient>
+    <linearGradient id="twood" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#EDCB8E"/>
+      <stop offset="1" stop-color="#DDB06C"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="256" cy="480" rx="160" ry="10" fill="#1B1030" opacity="0.12"/>
+  <path d="M112 396H400L388 474H124Z" fill="url(#twood)"/>
+  <path d="M112 396H128L138 474H124Z" fill="#C99A5B" opacity="0.55"/>
+  <path d="M400 396H384L374 474H388Z" fill="#C99A5B" opacity="0.55"/>
+  <rect x="112" y="396" width="288" height="9" fill="#B98A4E" opacity="0.6"/>
+  <rect x="72" y="370" width="368" height="28" rx="5" fill="#E2B977"/>
+  <rect x="68" y="360" width="376" height="14" rx="6" fill="#F4DCAA"/>
+  <rect x="72" y="392" width="368" height="6" rx="3" fill="#C99A5B" opacity="0.7"/>
+  <!-- SORA mark as the stand's crest: unmodified geometry and colors on a white backing -->
+  <g transform="translate(222.66 402.66) scale(0.19)">
+    <circle cx="175.45" cy="175.45" r="192" fill="#FFFFFF"/>
+    <path d="M67.8,314l93.2-138.8H68.2v-28.8h92.9v-29.6H68.2V88h214.5v28.8h-92.8v29.6h92.8v28.8h-92.8L283.1,314 c41.3-32.1,67.8-82.2,67.8-138.6C350.9,78.6,272.4,0,175.5,0C78.6,0,0,78.6,0,175.5C0,231.8,26.6,281.9,67.8,314z" fill="#E3242D"/>
+    <path d="M175.5,205.4L91.9,329.8c24.8,13.5,53.3,21.1,83.5,21.1c30.2,0,58.7-7.7,83.5-21.1L175.5,205.4z" fill="#E3242D"/>
+  </g>
+  <path d="M88 358L424 358L436 368L76 368Z" fill="#FFFFFF" stroke="#E3242D" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M216 368H296L256 392Z" fill="#FFFFFF" stroke="#E3242D" stroke-width="3" stroke-linejoin="round"/>
+  <ellipse cx="256" cy="366" rx="150" ry="9" fill="#9C7240" opacity="0.35"/>
+</svg>

@@ -22,20 +22,42 @@ pub(super) fn derive(
     }
     let parsed = struct_fields(fields);
     for field in &parsed {
-        if field.attrs.skip || field.attrs.flatten {
+        if field.attrs.flatten {
             return syn::Error::new_spanned(
                 field.field,
-                "decode_fields requires every positional field; skip and flatten are unsupported",
+                "decode_fields does not support flattened positional fields",
             )
             .to_compile_error();
         }
     }
     let mut bounds = generics.clone();
-    let types: Vec<_> = parsed.iter().map(|field| &field.field.ty).collect();
-    let indices: Vec<_> = (0..parsed.len()).collect();
+    let wire_fields: Vec<_> = parsed
+        .iter()
+        .enumerate()
+        .filter(|(_, field)| !field.attrs.skip)
+        .collect();
+    let types: Vec<_> = wire_fields
+        .iter()
+        .map(|(_, field)| &field.field.ty)
+        .collect();
+    let indices: Vec<_> = wire_fields.iter().map(|(index, _)| *index).collect();
     let bindings: Vec<_> = indices
         .iter()
         .map(|index| format_ident!("__field_{index}"))
+        .collect();
+    let reconstructed: Vec<_> = parsed
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            if field.attrs.skip {
+                let ty = &field.field.ty;
+                add_bound(&mut bounds, ty, quote!(::core::default::Default));
+                quote!(::core::default::Default::default())
+            } else {
+                let binding = format_ident!("__field_{index}");
+                quote!(#binding)
+            }
+        })
         .collect();
     let reconstruct = match fields {
         Fields::Named(named) => {
@@ -43,12 +65,12 @@ pub(super) fn derive(
                 .named
                 .iter()
                 .map(|field| field.ident.as_ref().expect("named fields"));
-            quote! { Self { #(#names:#bindings,)* } }
+            quote! { Self { #(#names:#reconstructed,)* } }
         }
-        Fields::Unnamed(_) => quote! { Self(#(#bindings,)*) },
+        Fields::Unnamed(_) => quote! { Self(#(#reconstructed,)*) },
         Fields::Unit => unreachable!("unit records were rejected above"),
     };
-    let reads: Vec<_> = parsed.iter().map(|field| {
+    let reads: Vec<_> = wire_fields.iter().map(|(_, field)| {
         let ty=&field.field.ty;
         if let Some(length)=u8_array_len(ty) {
             quote! { norito::core::framed_byte_array_field::<{#length}>(__bytes, &mut __offset)? }

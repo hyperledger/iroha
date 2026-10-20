@@ -11,7 +11,7 @@ use crate::{
 use ::ff::{Field, PrimeField};
 use iroha_pasta::{Ep, Eq, PastaCurve};
 use iroha_plonk::{
-    check::{CheckMode, check_circuit},
+    check::{CheckFailure, CheckMode, check_circuit},
     cs::ConstraintSystem,
     frontend::{Circuit, Layouter, SimpleFloorPlanner, synthesize},
 };
@@ -305,7 +305,16 @@ fn ordinary_serialized_norm_both_fields() {
     fn run<C: PastaCurve>() {
         for modulus in [ForeignModulus::PASTA_FP, ForeignModulus::PASTA_FQ] {
             for widths in [[87, 87, 81], [88, 88, 80]] {
-                for value in [Nat::ZERO, Nat::ONE, modulus.nat().wrapping_sub(&Nat::ONE)] {
+                // m - 1 has high limb 2^80 for both Pasta moduli and
+                // needs 81 bits. Keep it positive there; at 80 bits use
+                // the largest canonical-radix input with that high bound.
+                // The excluded m - 1 fixture is an exact rejection below.
+                let boundary = if widths[2] == 80 {
+                    Nat::pow2(2 * LIMB_BITS + 80).wrapping_sub(&Nat::ONE)
+                } else {
+                    modulus.nat().wrapping_sub(&Nat::ONE)
+                };
+                for value in [Nat::ZERO, Nat::ONE, boundary] {
                     let c = Norm::<C> {
                         modulus,
                         values: to_limbs(&value).unwrap(),
@@ -317,19 +326,93 @@ fn ordinary_serialized_norm_both_fields() {
                         attack: 0,
                         marker: core::marker::PhantomData,
                     };
-                    assert!(
-                        check_circuit(&c, 10, &[], CheckMode::Strict)
-                            .unwrap()
-                            .is_satisfied()
+                    let context = format!(
+                        "curve={} base={} modulus={modulus:?} widths={widths:?} limbs={:?}",
+                        core::any::type_name::<C>(),
+                        core::any::type_name::<C::Base>(),
+                        c.values,
                     );
-                    let k = synthesize(&c, 10, Some(&[])).unwrap();
-                    let u = synthesize(&c.without_witnesses(), 10, None).unwrap();
-                    assert_eq!(k.tables.fixed(), u.tables.fixed());
-                    assert_eq!(k.tables.permutation(), u.tables.permutation());
-                    assert_eq!(k.tables.advice_assigned(), u.tables.advice_assigned());
-                    assert!(undetected_tampers(&c, 10, &[]).unwrap().is_empty());
+                    assert!(
+                        c.values
+                            .iter()
+                            .zip(c.widths)
+                            .all(|(limb, bits)| *limb < 1u128 << bits),
+                        "{context}: positive fixture exceeds its declared limb bounds"
+                    );
+                    let report = check_circuit(&c, 10, &[], CheckMode::Strict)
+                        .unwrap_or_else(|error| panic!("{context}: check failed: {error:?}"));
+                    assert!(report.is_satisfied(), "{context}: {report}");
+                    let k = synthesize(&c, 10, Some(&[]))
+                        .unwrap_or_else(|error| panic!("{context}: known layout: {error:?}"));
+                    let u = synthesize(&c.without_witnesses(), 10, None)
+                        .unwrap_or_else(|error| panic!("{context}: unknown layout: {error:?}"));
+                    assert_eq!(k.tables.fixed(), u.tables.fixed(), "{context}");
+                    assert_eq!(k.tables.permutation(), u.tables.permutation(), "{context}");
+                    assert_eq!(
+                        k.tables.advice_assigned(),
+                        u.tables.advice_assigned(),
+                        "{context}"
+                    );
+                    let undetected = undetected_tampers(&c, 10, &[])
+                        .unwrap_or_else(|error| panic!("{context}: tamper check: {error:?}"));
+                    assert!(undetected.is_empty(), "{context}: {undetected:?}");
                 }
             }
+        }
+    }
+    run::<Ep>();
+    run::<Eq>();
+}
+
+#[test]
+fn ordinary_serialized_norm_rejects_81_bit_input_at_80_bits_both_fields() {
+    fn run<C: PastaCurve>() {
+        for modulus in [ForeignModulus::PASTA_FP, ForeignModulus::PASTA_FQ] {
+            let c = Norm::<C> {
+                modulus,
+                values: to_limbs(&modulus.nat().wrapping_sub(&Nat::ONE)).unwrap(),
+                widths: [88, 88, 80],
+                known: true,
+                plain: true,
+                reference: false,
+                operation: 0,
+                attack: 0,
+                marker: core::marker::PhantomData,
+            };
+            let context = format!(
+                "curve={} base={} modulus={modulus:?} widths={:?} limbs={:?}",
+                core::any::type_name::<C>(),
+                core::any::type_name::<C::Base>(),
+                c.widths,
+                c.values,
+            );
+            assert_eq!(c.values[2], 1u128 << c.widths[2], "{context}");
+            assert!(
+                c.values[..2]
+                    .iter()
+                    .zip(&c.widths[..2])
+                    .all(|(limb, bits)| *limb < 1u128 << *bits),
+                "{context}: lower limbs must remain within their declared bounds"
+            );
+            let report = check_circuit(&c, 10, &[], CheckMode::Strict)
+                .unwrap_or_else(|error| panic!("{context}: check failed: {error:?}"));
+            assert!(!report.is_satisfied(), "{context}: {report}");
+            // The two 88-bit limbs each occupy 14 range rows. The
+            // 80-bit high limb starts at 28; its last ordinary 7-bit
+            // digit at 39 is 8, and the shifted digit at 40 is 8*16=128.
+            // Only that exact membership may fail; unrelated gates,
+            // copies, poison or infrastructure errors are not evidence.
+            assert_eq!(report.failures().len(), 1, "{context}: {report}");
+            assert!(
+                matches!(
+                    &report.failures()[0],
+                    CheckFailure::LookupInputMissing { name, location, input, .. }
+                        if name == "compact running-sum limb"
+                            && location.row == 40
+                            && input.as_slice() == [C::Base::from(128)]
+                ),
+                "{context}: {report}"
+            );
         }
     }
     run::<Ep>();
