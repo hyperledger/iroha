@@ -338,6 +338,15 @@ exists, actual and maximum for a bound, a diagnostic, and the progress of the
 last journal the call validated with its sequence. Progress is absent only
 when no trustworthy journal could be read.
 
+The stage comes from one vocabulary shared with the one-call operation contract
+([`zk_operation_contract.md`](zk_operation_contract.md)): `plan`, `load`,
+`store`, `prove`, `local_verify`, `build`, `sign`, `submit`, `reconcile`,
+`finality`, `round`, `cancel`. A workflow driver proves and builds a payload in
+one call (`WorkflowDriver::build_transaction`), so its failures and the checks
+of its result report `prove`, and a workflow reports neither `local_verify` nor
+`build`; the operation pipeline, whose driver separates those stages, reports
+them and `finality`. Only workflows report `round`.
+
 ## 9. Limits
 
 | Limit | Value |
@@ -391,7 +400,7 @@ completed transcripts can be discarded.
   absent" answer from the ledger, which does not exist. Until then the caller's
   only action is the authorized retransmission of the same bytes.
 - Workflow steps of a multisignature authority need the external-signing form
-  of the prepared operation (S.1).
+  of the prepared operation (S.1, [`zk_operation_contract.md`](zk_operation_contract.md)).
 - The journal types live in the Rust client crate. A port that needs them
   behind the native bridge may move the transport-free part
   (`contract`, `journal`) to a lower crate.

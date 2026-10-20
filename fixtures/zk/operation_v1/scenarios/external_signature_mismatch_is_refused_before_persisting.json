@@ -1,0 +1,196 @@
+{
+  "schema": "iroha.zk_operation.scenario.v1",
+  "id": "external_signature_mismatch_is_refused_before_persisting",
+  "category": "external_signing",
+  "rules": [
+    "external_signature_verified_before_persisting",
+    "persist_before_dispatch"
+  ],
+  "description": "The advanced form, call by call, with an external signer. A signature by a key that does not control the authority, and one over other bytes, are each BindingMismatch at stage sign: nothing is persisted or dispatched and the built payload stays ready to sign. The verified signature is persisted before the single dispatch.",
+  "request": {
+    "actions": [
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 4096
+          }
+        ]
+      }
+    ],
+    "signer": "external",
+    "finality": "authenticated"
+  },
+  "calls": [
+    {
+      "op": "prepare",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "status": "in_progress",
+        "state": "prepared",
+        "artifact": {
+          "kind": "PreparedZkOperationV1",
+          "actions": 1,
+          "attachment_slots": 1
+        }
+      }
+    },
+    {
+      "op": "prove",
+      "script": {
+        "proofs": [
+          "ok"
+        ]
+      },
+      "expect": {
+        "result": "ok",
+        "effects": [
+          "prove:1"
+        ],
+        "status": "in_progress",
+        "state": "proving"
+      }
+    },
+    {
+      "op": "local_verify",
+      "script": {
+        "local_verifications": [
+          "ok"
+        ]
+      },
+      "expect": {
+        "result": "ok",
+        "effects": [
+          "local_verify:1"
+        ],
+        "status": "in_progress",
+        "state": "proving"
+      }
+    },
+    {
+      "op": "build",
+      "script": {
+        "builds": [
+          "ok"
+        ]
+      },
+      "expect": {
+        "result": "ok",
+        "effects": [
+          "build:1"
+        ],
+        "status": "in_progress",
+        "state": "ready_to_sign",
+        "artifact": {
+          "kind": "BuiltZkOperationV1"
+        }
+      }
+    },
+    {
+      "op": "sign",
+      "script": {
+        "signs": [
+          "wrong_key"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "BindingMismatch",
+          "stage": "sign",
+          "resumable": true
+        },
+        "effects": [
+          "sign:1"
+        ],
+        "status": "in_progress",
+        "state": "ready_to_sign"
+      }
+    },
+    {
+      "op": "sign",
+      "script": {
+        "signs": [
+          "wrong_bytes"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "BindingMismatch",
+          "stage": "sign",
+          "resumable": true
+        },
+        "effects": [
+          "sign:1"
+        ],
+        "status": "in_progress",
+        "state": "ready_to_sign"
+      }
+    },
+    {
+      "op": "sign",
+      "script": {
+        "signs": [
+          "ok"
+        ]
+      },
+      "expect": {
+        "result": "ok",
+        "effects": [
+          "sign:1"
+        ],
+        "status": "in_progress",
+        "state": "signed",
+        "identity": {
+          "dispatches": 0,
+          "possible_admissions": 0
+        }
+      }
+    },
+    {
+      "op": "submit",
+      "script": {
+        "dispatches": [
+          "accepted"
+        ]
+      },
+      "expect": {
+        "result": "ok",
+        "effects": [
+          "dispatch:1"
+        ],
+        "status": "in_progress",
+        "state": "pending",
+        "identity": {
+          "dispatches": 1,
+          "possible_admissions": 1
+        }
+      }
+    },
+    {
+      "op": "await_finality",
+      "script": {
+        "statuses": [
+          "applied"
+        ],
+        "finality_proofs": [
+          "verified"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "status:1",
+          "finality:1"
+        ],
+        "status": "completed",
+        "state": "finalized",
+        "identity": {
+          "dispatches": 1,
+          "possible_admissions": 1,
+          "evidence": "applied"
+        }
+      }
+    }
+  ]
+}

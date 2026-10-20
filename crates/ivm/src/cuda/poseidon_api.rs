@@ -136,19 +136,28 @@ pub(super) fn admit(kernel: Kernel) -> bool {
             return Ok(false);
         }
         let state = output.state.as_ref().expect("valid output contains state");
-        Ok(state
-            .chunks_exact(input.width() * 4)
-            .enumerate()
-            .all(|(index, words)| {
-                words[0]
-                    == match input {
-                        Input::Two(values) => {
-                            crate::poseidon::poseidon2_simd(values[index].0, values[index].1)
-                        }
-                        Input::Six(values) => crate::poseidon::poseidon6_simd(values[index]),
-                    }
-            }))
+        Ok(matches_cpu_output(state, input))
     })
+}
+
+// The complete-state canonicality check precedes this CPU parity comparison.
+// Both admission and publication use the fixed-arity rate coordinate one.
+fn matches_cpu_output(state: &[u64], input: Input<'_>) -> bool {
+    if input.len().checked_mul(input.width() * 4) != Some(state.len()) {
+        return false;
+    }
+    state
+        .chunks_exact(input.width() * 4)
+        .enumerate()
+        .all(|(index, words)| {
+            words[4]
+                == match input {
+                    Input::Two(values) => {
+                        crate::poseidon::poseidon2_simd(values[index].0, values[index].1)
+                    }
+                    Input::Six(values) => crate::poseidon::poseidon6_simd(values[index]),
+                }
+        })
 }
 
 fn valid_request(input: Input<'_>, destination_len: usize) -> bool {
@@ -173,7 +182,7 @@ fn publish(
     }
     let state = state.expect("validated complete state");
     for (result, words) in destination.iter_mut().zip(state.chunks_exact(width * 4)) {
-        *result = words[0];
+        *result = words[4];
     }
     Ok(())
 }
@@ -314,6 +323,45 @@ pub(super) fn fault_probe(short_stride: bool) -> Option<[u32; 2]> {
 mod tests {
     use super::*;
     #[test]
+    fn admission_parity_and_publication_use_rate_coordinate_one() {
+        let pairs = [(1, 2), (u64::MAX, 7)];
+        let sixes = [[1, 2, 3, 4, 5, 6], [u64::MAX; 6]];
+        for input in [Input::Two(&pairs), Input::Six(&sixes)] {
+            let width = input.width();
+            let mut backing = [0u64; 48];
+            let state = &mut backing[..input.len() * width * 4];
+            let expected: [u64; 2] = std::array::from_fn(|index| match input {
+                Input::Two(values) => {
+                    crate::poseidon::poseidon2_simd(values[index].0, values[index].1)
+                }
+                Input::Six(values) => crate::poseidon::poseidon6_simd(values[index]),
+            });
+            for (words, value) in state.chunks_exact_mut(width * 4).zip(expected) {
+                words[0] = value ^ 1;
+                words[4] = value;
+            }
+            assert!(matches_cpu_output(state, input));
+            let mut published = [0; 2];
+            publish([0, 0], Some(state), width, &mut published, || true).unwrap();
+            assert_eq!(published, expected);
+            assert!(!matches_cpu_output(&state[..state.len() - 1], input));
+            state[width * 4 + 4] ^= 1;
+            assert!(
+                !matches_cpu_output(state, input),
+                "later item must be checked"
+            );
+            state[width * 4 + 4] ^= 1;
+            for words in state.chunks_exact_mut(width * 4) {
+                words.swap(0, 4);
+            }
+            assert!(
+                !matches_cpu_output(state, input),
+                "capacity output is not the fixed-arity result"
+            );
+        }
+    }
+
+    #[test]
     fn checked_requests_and_unadmitted_completion_preserve_caller_storage() {
         let two = [(1, 2), (3, 4)];
         let six = [[1; 6], [u64::MAX; 6]];
@@ -339,8 +387,8 @@ mod tests {
     fn full_state_validation_and_late_policy_refusal_precede_every_write() {
         for width in [3, 6] {
             let mut state = [0u64; 48];
-            state[0] = 7;
-            state[width * 4] = 11;
+            state[4] = 7;
+            state[width * 4 + 4] = 11;
             let complete = &state[..width * 8];
             let mut output = [91, 93];
             assert_eq!(
@@ -444,7 +492,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!((rc3.len(), rc6.len()), (64, 64));
+        assert_eq!((rc3.len(), rc6.len()), (65, 68));
     }
 
     #[test]
@@ -488,18 +536,29 @@ mod tests {
                         Input::Two(values) => {
                             let (a, b) = values[index];
                             let expected = crate::poseidon::parameter_tests::state2([
+                                crate::bn254_vec::FieldElem([0, 2, 0, 0]),
                                 crate::bn254_vec::FieldElem::from_u64(a),
                                 crate::bn254_vec::FieldElem::from_u64(b),
-                                crate::bn254_vec::FieldElem([0; 4]),
                             ]);
                             for (actual, expected) in words.chunks_exact(4).zip(expected) {
                                 assert_eq!(actual, expected.0);
                             }
                         }
                         Input::Six(values) => {
-                            let expected = crate::poseidon::parameter_tests::state6(
-                                values[index].map(crate::bn254_vec::FieldElem::from_u64),
+                            let input = values[index];
+                            let mut expected = crate::poseidon::parameter_tests::state6([
+                                crate::bn254_vec::FieldElem([0, 6, 0, 0]),
+                                crate::bn254_vec::FieldElem::from_u64(input[0]),
+                                crate::bn254_vec::FieldElem::from_u64(input[1]),
+                                crate::bn254_vec::FieldElem::from_u64(input[2]),
+                                crate::bn254_vec::FieldElem::from_u64(input[3]),
+                                crate::bn254_vec::FieldElem::from_u64(input[4]),
+                            ]);
+                            expected[1] = crate::bn254_vec::add(
+                                expected[1],
+                                crate::bn254_vec::FieldElem::from_u64(input[5]),
                             );
+                            let expected = crate::poseidon::parameter_tests::state6(expected);
                             for (actual, expected) in words.chunks_exact(4).zip(expected) {
                                 assert_eq!(actual, expected.0);
                             }

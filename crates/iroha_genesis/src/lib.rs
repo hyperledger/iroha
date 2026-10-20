@@ -1613,8 +1613,9 @@ impl RawGenesisTransaction {
     /// Returns an error if the manifest contains more than one structured parameter block or any
     /// explicit [`SetParameter`] instruction. Parameters must be supplied only through the
     /// structured `parameters` block. The transaction ceiling and block reserve must fit
-    /// the block ceiling, and clock drift must fit its protocol bound. Executed genesis
-    /// validates the final authoritative privacy policy.
+    /// the block ceiling, the chain parameters must fit the protocol transport limit, and
+    /// clock drift must fit its protocol bound. Executed genesis validates the final
+    /// authoritative privacy policy.
     pub fn effective_parameters(&self) -> Result<Parameters> {
         self.validate_no_explicit_set_parameter_instructions()?;
         self.validate_structured_parameter_blocks()?;
@@ -1632,6 +1633,15 @@ impl RawGenesisTransaction {
             parameters.transaction().max_tx_bytes(),
             parameters.sumeragi().max_block_bytes(),
         )?;
+        // Executed genesis applies the same rule before installing its schedule; checking it
+        // here keeps an author from signing a genesis that every validator would reject.
+        iroha_data_model::sumeragi_finality::ChainParamsRecord::from_parameters(
+            parameters.sumeragi(),
+        )
+        .validate()
+        .map_err(|error| {
+            eyre!("genesis chain parameters do not fit the protocol transport limit: {error}")
+        })?;
         Ok(parameters)
     }
     /// Populate consensus metadata fields with defaults and a computed consensus fingerprint.
@@ -3369,6 +3379,33 @@ mod tests {
                 NonZeroU32::new(4 * 1024 * 1024).unwrap(),
             )));
             assert!(manifest.effective_parameters().is_err());
+        }
+    }
+
+    #[test]
+    fn effective_chain_parameters_fit_the_protocol_transport_limit() {
+        use iroha_data_model::parameter::system::SumeragiParameter;
+        use std::num::NonZeroU32;
+        // The 16 MiB payload is the largest that leaves both frame allowances within the
+        // chain transport limit; one more byte is refused before signing.
+        for (block_bytes, accepted) in [(16 * 1024 * 1024, true), (16 * 1024 * 1024 + 1, false)] {
+            let mut manifest =
+                GenesisBuilder::new_without_executor(ChainId::from("chain-transport-limit"), ".")
+                    .build_raw_for_test();
+            manifest.transactions[0]
+                .parameters
+                .get_or_insert_default()
+                .set_parameter(Parameter::Sumeragi(SumeragiParameter::MaxBlockBytes(
+                    NonZeroU32::new(block_bytes).unwrap(),
+                )));
+            let result = manifest.effective_parameters();
+            assert_eq!(result.is_ok(), accepted, "max_block_bytes={block_bytes}");
+            if !accepted {
+                assert!(
+                    format!("{:?}", result.unwrap_err()).contains("MaxBlockBytesAboveTransport")
+                );
+                assert!(manifest.with_consensus_meta().is_err());
+            }
         }
     }
 

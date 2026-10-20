@@ -251,9 +251,12 @@
     "load",
     "store",
     "prove",
+    "local_verify",
+    "build",
     "sign",
     "submit",
     "reconcile",
+    "finality",
     "round",
     "cancel"
   ],

@@ -78,6 +78,7 @@ pub(crate) fn validate_final_policy(
     validate_successor_resource_limits(
         committed_height,
         parameters.transaction().max_tx_bytes(),
+        parameters.transaction().max_signatures(),
         next_cap,
         after_next_cap,
         world.privacy_consensus_policy(),
@@ -119,6 +120,7 @@ pub(crate) fn validate_restored_policy(
     validate_successor_resource_limits(
         committed_height,
         parameters.transaction().max_tx_bytes(),
+        parameters.transaction().max_signatures(),
         next,
         after_next,
         world.privacy_consensus_policy(),

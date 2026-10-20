@@ -937,7 +937,7 @@ fn fastpq_claim_type_is_supported(value: &str) -> bool {
 /// Compute the canonical descriptor binding used by asset handles.
 ///
 /// The current implementation prefixes the descriptor bytes with a stable domain separator and
-/// hashes the concatenation using the Poseidon2 sponge (rate 2, capacity 1). Byte packing appends
+/// hashes the concatenation using the original BN254 Poseidon sponge (rate 2, capacity 1). Byte packing appends
 /// a `0x01` delimiter and zero-pads to an eight-byte boundary before the sponge's field-level +1
 /// padding. This matches the normative definition documented in `nexus.md`.
 pub fn compute_binding(descriptor: &AxtDescriptor) -> Result<[u8; 32], norito::Error> {

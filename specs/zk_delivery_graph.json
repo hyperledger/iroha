@@ -347,7 +347,7 @@
           "crates/iroha_core/src/pipeline_gas_policy.rs",
           "crates/iroha_core/src/pipeline_validity_policy_tests.rs",
           "crates/iroha_core/src/state/runtime_configuration.rs",
-          "crates/iroha_core/src/executor/private_fees.rs",
+          "crates/iroha_core/src/executor/root_fees.rs",
           "crates/iroha_core/src/executor_fastpq_rejection_tail.rs",
           "crates/iroha_core/src/executor_fastpq_rejection_tail/sponsored_alias_tests.rs",
           "crates/iroha_core/src/smartcontracts/isi/world.rs",
@@ -1415,7 +1415,64 @@
       "acceptance": [
         "Test underflow, wrong reserve/asset/scope, ordinary-transfer bypass, duplicate effects and batch rollback. Preserve existing private-IVM reserve controls. Any new FCMP++/PQ-MASP public bridge requires its own specified invariant and covered state transition."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "5d63ed789acb8ad9bd2d9db968a9b36920746450 plus Codex's P.2 exact12 live adoption of 2026-10-19 (dist/zk-delivery-handoff/candidates/core-p2-live-adoption-2026-10-19/application/result.json, SHA-256 9f713538fa59b3014bef648c66d57d67949bbc34ee5d84af17e0c2ff19c22f7f) and the reconciled economic and State inventories (specs/zk_economic_invariants.json fdd8e11f, specs/state_table_inventory.json 23cd9942). Commands ran on the live tree on 2026-10-19 between 04:22 and 05:25 JST; all 12 adopted paths matched the adoption receipt at every step. Codex's own focused candidate run (127 Core and 9 CorePrivacy tests) is separate evidence and is not recorded here.",
+        "paths": [
+          "crates/iroha_core/src/smartcontracts/isi/asset.rs",
+          "crates/iroha_core/src/smartcontracts/isi/asset/prepared_source_additional_owner_tests.rs",
+          "crates/iroha_core/src/smartcontracts/isi/asset/privacy_economic_invariant_tests.rs",
+          "crates/iroha_core_privacy/src/privacy_state.rs",
+          "crates/iroha_core_privacy/src/privacy_state/funded_allowance_tests.rs",
+          "specs/privacy_public_reserve_turnstile.md",
+          "specs/zk_economic_invariants.json",
+          "specs/state_table_inventory.json"
+        ],
+        "commands": [
+          {
+            "command": "CARGO_TARGET_DIR=target/claude-p2-recon-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo test --locked --offline --jobs 6 -p iroha_core --lib -- dropped_transaction_discards_a_faulty_pool_withdrawal faulty_verifier_pool_deposit_moves_existing_units_and_never_mints faulty_verifier_pool_effect_cannot_reach_another_pool_asset_scope_or_account faulty_verifier_pool_withdrawal_is_bounded_by_the_reserve_balance funded_turnstile_apply_rechecks_deposit_owner_and_consumes_exact_delta_once funded_turnstile_does_not_authorize_bootstrap_balance_or_unsolicited_topups funded_turnstile_failed_deposit_withdrawal_batch_rolls_back_counter_and_balances funded_turnstile_rejects_zero_self_cross_asset_and_cross_scope_effects prepared_user_transfer_rechecks_new_privacy_reserve_custody_at_apply privacy_pool_bridge_requires_exact_owner_and_direction_before_reserve_debit privacy_public_reserve_apply_rejects_nonconserving_delta_before_balances_change privacy_public_reserve_apply_rejects_stale_destination_balance privacy_public_reserve_refuses_owner_delegate_general_bridge_and_burn privacy_reserve_rejection_is_leg_local_in_independent_batch private_note_apply_rejections_preserve_every_proof_managed_record unregister_account_rejects_governed_orchard_reserve_dependency_atomically unregister_asset_definition_rejects_governed_orchard_dependency_atomically unregister_domain_rejects_governed_orchard_asset_cascade_before_mutation",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/claude-p2-recon-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo test --locked --offline --jobs 6 -p iroha_core_privacy --lib -- canonical_note_bootstrap_fixtures_match_persisted_origin_and_frontier funded_reserve_record_roundtrips_without_reset_and_rejects_missing_allowance funded_reserve_restore_keeps_bootstrap_identity_and_requires_exact_backing public_reserve_lookup_checks_full_id_and_refuses_cross_protocol_owner public_reserve_restore_requires_exact_governed_index verified_orchard_effect_is_complete_and_derived_from_authoritative_frontier",
+            "outcome": "passed"
+          },
+          {
+            "command": "/opt/homebrew/bin/python3.12 scripts/check_zk_economic_invariants.py --strict-lines",
+            "outcome": "passed"
+          },
+          {
+            "command": "dist/zk-delivery-handoff/python312-validation-venv/bin/python -m pytest -q -p no:cacheprovider scripts/tests/check_zk_economic_invariants_test.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/claude-p2-recon-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo test --locked --offline --jobs 6 -p iroha_core --lib tracked_inventory_matches_the_source",
+            "outcome": "passed"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Enforce exact reserve debits/credits, asset and namespace isolation, committed issuance allowances and cross-pool conservation where applicable.",
+            "state": "partial",
+            "proof": "The public reserve owner in crates/iroha_core/src/smartcontracts/isi/asset.rs debits and credits exact amounts and keeps asset, scope and pool-namespace isolation, and it maintains the committed funded allowance of crates/iroha_core_privacy/src/privacy_state.rs as designed in specs/privacy_public_reserve_turnstile.md; specs/zk_economic_invariants.json records these invariants as enforced and `/opt/homebrew/bin/python3.12 scripts/check_zk_economic_invariants.py --strict-lines` passes. Relation-bound issuance allowances for hidden issuance (including private-IVM bootstrap notes) and cross-pool conservation are not built, so defect D-POOL-NO-TURNSTILE-OR-CAP stays open."
+          },
+          {
+            "clause": "Test underflow, wrong reserve/asset/scope, ordinary-transfer bypass, duplicate effects and batch rollback.",
+            "state": "partial",
+            "proof": "`CARGO_TARGET_DIR=target/claude-p2-recon-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo test --locked --offline --jobs 6 -p iroha_core --lib -- dropped_transaction_discards_a_faulty_pool_withdrawal faulty_verifier_pool_deposit_moves_existing_units_and_never_mints faulty_verifier_pool_effect_cannot_reach_another_pool_asset_scope_or_account faulty_verifier_pool_withdrawal_is_bounded_by_the_reserve_balance funded_turnstile_apply_rechecks_deposit_owner_and_consumes_exact_delta_once funded_turnstile_does_not_authorize_bootstrap_balance_or_unsolicited_topups funded_turnstile_failed_deposit_withdrawal_batch_rolls_back_counter_and_balances funded_turnstile_rejects_zero_self_cross_asset_and_cross_scope_effects prepared_user_transfer_rechecks_new_privacy_reserve_custody_at_apply privacy_pool_bridge_requires_exact_owner_and_direction_before_reserve_debit privacy_public_reserve_apply_rejects_nonconserving_delta_before_balances_change privacy_public_reserve_apply_rejects_stale_destination_balance privacy_public_reserve_refuses_owner_delegate_general_bridge_and_burn privacy_reserve_rejection_is_leg_local_in_independent_batch private_note_apply_rejections_preserve_every_proof_managed_record unregister_account_rejects_governed_orchard_reserve_dependency_atomically unregister_asset_definition_rejects_governed_orchard_dependency_atomically unregister_domain_rejects_governed_orchard_asset_cascade_before_mutation` passed all 18 tests on the live tree, including funded_turnstile_does_not_authorize_bootstrap_balance_or_unsolicited_topups (exhaustion and ordinary-transfer bypass) and funded_turnstile_failed_deposit_withdrawal_batch_rolls_back_counter_and_balances (batch rollback) in crates/iroha_core/src/smartcontracts/isi/asset/privacy_economic_invariant_tests.rs, and funded_turnstile_rejects_zero_self_cross_asset_and_cross_scope_effects (wrong asset and scope) and funded_turnstile_apply_rechecks_deposit_owner_and_consumes_exact_delta_once (duplicate effects) in crates/iroha_core/src/smartcontracts/isi/asset/prepared_source_additional_owner_tests.rs. These are focused component tests: underflow tests of hidden issuance allowances cannot exist until those allowances are built, and rollback on the original composed transaction path and the native proof and effect path are not qualified."
+          },
+          {
+            "clause": "Preserve existing private-IVM reserve controls.",
+            "state": "met",
+            "proof": "Existing private-IVM and Orchard reserve controls stay in force: `CARGO_TARGET_DIR=target/claude-p2-recon-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo test --locked --offline --jobs 6 -p iroha_core_privacy --lib -- canonical_note_bootstrap_fixtures_match_persisted_origin_and_frontier funded_reserve_record_roundtrips_without_reset_and_rejects_missing_allowance funded_reserve_restore_keeps_bootstrap_identity_and_requires_exact_backing public_reserve_lookup_checks_full_id_and_refuses_cross_protocol_owner public_reserve_restore_requires_exact_governed_index verified_orchard_effect_is_complete_and_derived_from_authoritative_frontier` passed the restore, bootstrap and lookup checks of crates/iroha_core_privacy/src/privacy_state.rs and crates/iroha_core_privacy/src/privacy_state/funded_allowance_tests.rs, `CARGO_TARGET_DIR=target/claude-p2-recon-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo test --locked --offline --jobs 6 -p iroha_core --lib -- dropped_transaction_discards_a_faulty_pool_withdrawal faulty_verifier_pool_deposit_moves_existing_units_and_never_mints faulty_verifier_pool_effect_cannot_reach_another_pool_asset_scope_or_account faulty_verifier_pool_withdrawal_is_bounded_by_the_reserve_balance funded_turnstile_apply_rechecks_deposit_owner_and_consumes_exact_delta_once funded_turnstile_does_not_authorize_bootstrap_balance_or_unsolicited_topups funded_turnstile_failed_deposit_withdrawal_batch_rolls_back_counter_and_balances funded_turnstile_rejects_zero_self_cross_asset_and_cross_scope_effects prepared_user_transfer_rechecks_new_privacy_reserve_custody_at_apply privacy_pool_bridge_requires_exact_owner_and_direction_before_reserve_debit privacy_public_reserve_apply_rejects_nonconserving_delta_before_balances_change privacy_public_reserve_apply_rejects_stale_destination_balance privacy_public_reserve_refuses_owner_delegate_general_bridge_and_burn privacy_reserve_rejection_is_leg_local_in_independent_batch private_note_apply_rejections_preserve_every_proof_managed_record unregister_account_rejects_governed_orchard_reserve_dependency_atomically unregister_asset_definition_rejects_governed_orchard_dependency_atomically unregister_domain_rejects_governed_orchard_asset_cascade_before_mutation` passed the custody, dependency and private-note apply rejections, and `CARGO_TARGET_DIR=target/claude-p2-recon-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo test --locked --offline --jobs 6 -p iroha_core --lib tracked_inventory_matches_the_source` passed against the regenerated specs/state_table_inventory.json, in which world.privacy_commitments stays canonical and certified with no new table."
+          },
+          {
+            "clause": "Any new FCMP++/PQ-MASP public bridge requires its own specified invariant and covered state transition.",
+            "state": "met",
+            "proof": "No FCMP++ or PQ-MASP public bridge was added (specs/privacy_public_reserve_turnstile.md); specs/zk_economic_invariants.json keeps both pools closed with no transparent boundary, and its checker tests `dist/zk-delivery-handoff/python312-validation-venv/bin/python -m pytest -q -p no:cacheprovider scripts/tests/check_zk_economic_invariants_test.py` pass (116)."
+          }
+        ]
+      }
     },
     {
       "id": "P.3",
@@ -1626,7 +1683,78 @@
       "acceptance": [
         "Measure maximum complete canonical envelopes with supported signatures and framing. The remaining 1 MiB over the proof ceiling must contain all required context; reject oversize atomically. If it cannot fit, redesign the canonical envelope or make an explicit documented parameter change rather than silently raising caps. Exact/one-over and inconsistent-parameter tests agree across peers."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "5d63ed789acb8ad9bd2d9db968a9b36920746450 plus the X.2 working-tree changes as of 2026-10-19 15:00 JST (dist/zk-delivery-handoff/claude/x2/logs/final-changed-files.sha256; final four-validator source fingerprint d73bda338f33ffc0...), after an independent verification and a confirmation of the repair round (claude/x2/verify.md, claude/x2/confirm.md). The four-validator run reaches the network and commits the exact-cap transaction on all four validators; the run fails on Torii's status route (finding G24), which is being fixed.",
+        "paths": [
+          "crates/iroha_sumeragi/src/machine/sync.rs",
+          "crates/irohad/src/main.rs",
+          "crates/iroha_genesis/src/lib.rs",
+          "crates/iroha_data_model/tests/maximum_proof_transport_v1.rs",
+          "crates/iroha_data_model/src/privacy.rs",
+          "crates/iroha_data_model/src/parameter/system/resource_coherence.rs",
+          "crates/iroha_core/src/resource_coherence.rs",
+          "integration_tests/tests/resource_policy_network.rs",
+          "specs/zk_resource_contract.json"
+        ],
+        "commands": [
+          {
+            "command": "CARGO_TARGET_DIR=target/claude-x2-20261019 CARGO_INCREMENTAL=0 cargo test --locked --offline -p iroha_data_model --lib --jobs 6 -- parameter::system::resource_coherence parameter::system::tests::sumeragi_parameter_defaults_match_the_consensus_core sumeragi_finality::tests",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/claude-x2-20261019 CARGO_INCREMENTAL=0 cargo test --locked --offline -p iroha_data_model --features privacy-exact12-conformance --test resource_contract_v1 --jobs 6 -- --nocapture",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/claude-x2-20261019 CARGO_INCREMENTAL=0 cargo test --locked --offline -p irohad_lib --lib --jobs 6 -- block_sync_topic_must_carry_the_local_sync_budget control_topic_must_carry_the_largest_control_frame check_config_and_runtime_enforce_frame_cap_boundary",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/claude-x2-20261019 CARGO_INCREMENTAL=0 cargo test --locked --offline -p iroha_core --lib --jobs 6 --no-run, then the built test binary with --exact and the 51 tests listed in dist/zk-delivery-handoff/claude/x2/scratch/core-audit-tests.txt",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/claude-x2-verify-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo test --locked --offline -p iroha_sumeragi --lib --jobs 6",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3.12 scripts/check_zk_resource_contract.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "dist/zk-delivery-handoff/claude/x2/scratch/run_g2_resource_policy.sh",
+            "outcome": "failed"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Implement the selected 16 MiB block payload default with committed genesis parameters, RS16 geometry, frame/sync/storage/proposer bounds and 10 MiB signed-transaction cap; keep proof ceiling 9,437,184 bytes.",
+            "state": "met",
+            "proof": "The 16 MiB payload, RS16 geometry, 10 MiB transaction cap and 9,437,184-byte proof ceiling are committed and unchanged. crates/iroha_sumeragi/src/machine/sync.rs charges each buffered sync entry its canonical size, and `CARGO_TARGET_DIR=target/claude-x2-verify-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo test --locked --offline -p iroha_sumeragi --lib --jobs 6` passes. crates/irohad/src/main.rs refuses block-sync and control frame caps below what the node itself needs, and `CARGO_TARGET_DIR=target/claude-x2-20261019 CARGO_INCREMENTAL=0 cargo test --locked --offline -p irohad_lib --lib --jobs 6 -- block_sync_topic_must_carry_the_local_sync_budget control_topic_must_carry_the_largest_control_frame check_config_and_runtime_enforce_frame_cap_boundary` passes at the exact and one-under values. crates/iroha_genesis/src/lib.rs validates the payload/frame relation before signing."
+          },
+          {
+            "clause": "Measure maximum complete canonical envelopes with supported signatures and framing.",
+            "state": "met",
+            "proof": "`CARGO_TARGET_DIR=target/claude-x2-20261019 CARGO_INCREMENTAL=0 cargo test --locked --offline -p iroha_data_model --features privacy-exact12-conformance --test resource_contract_v1 --jobs 6 -- --nocapture` measures the 132 maximum complete envelopes (12 protocols by 11 signature algorithms) in crates/iroha_data_model/tests/maximum_proof_transport_v1.rs, with the fee intent, nonce, TTL and flag-required metadata at their maxima; the largest is 9,725,852 bytes. The control-message maxima are pinned against the control frame cap by `CARGO_TARGET_DIR=target/claude-x2-20261019 CARGO_INCREMENTAL=0 cargo test --locked --offline -p iroha_core --lib --jobs 6 --no-run, then the built test binary with --exact and the 51 tests listed in dist/zk-delivery-handoff/claude/x2/scratch/core-audit-tests.txt`."
+          },
+          {
+            "clause": "The remaining 1 MiB over the proof ceiling must contain all required context; reject oversize atomically.",
+            "state": "met",
+            "proof": "The maximum required-context transaction is 9,938,306 bytes, leaving 547,454 bytes of the 1 MiB, and crates/iroha_data_model/src/privacy.rs defines that context. The coherence relation max_tx_bytes >= max_action_bytes + 7,193 + max_signatures x 14,470 in crates/iroha_data_model/src/parameter/system/resource_coherence.rs and crates/iroha_core/src/resource_coherence.rs is enforced at executed genesis, governance and restore. `CARGO_TARGET_DIR=target/claude-x2-20261019 CARGO_INCREMENTAL=0 cargo test --locked --offline -p iroha_data_model --lib --jobs 6 -- parameter::system::resource_coherence parameter::system::tests::sumeragi_parameter_defaults_match_the_consensus_core sumeragi_finality::tests` and `CARGO_TARGET_DIR=target/claude-x2-20261019 CARGO_INCREMENTAL=0 cargo test --locked --offline -p iroha_core --lib --jobs 6 --no-run, then the built test binary with --exact and the 51 tests listed in dist/zk-delivery-handoff/claude/x2/scratch/core-audit-tests.txt` pass the exact/one-over and 53/54-signer tests, and admission refuses oversize atomically."
+          },
+          {
+            "clause": "If it cannot fit, redesign the canonical envelope or make an explicit documented parameter change rather than silently raising caps.",
+            "state": "met",
+            "proof": "No cap or constant was raised: specs/zk_resource_contract.json keeps the 9,437,184-byte proof ceiling, the 10 MiB transaction cap and the 16 MiB payload, the new relation is explicit, and `python3.12 scripts/check_zk_resource_contract.py` passes."
+          },
+          {
+            "clause": "Exact/one-over and inconsistent-parameter tests agree across peers.",
+            "state": "unmet",
+            "proof": "`dist/zk-delivery-handoff/claude/x2/scratch/run_g2_resource_policy.sh` runs integration_tests/tests/resource_policy_network.rs on four validators from a same-source daemon. Every inconsistent-parameter step is rejected or applied identically on all peers, and the exact-cap 10,485,760-byte transaction commits on all four validators in view 0. The status route then answers every read with a retryable 429 because it decodes the whole committed block within a per-request budget (finding G24, being fixed), so the test's exact/one-over commit, restart and startup-refusal steps have not completed."
+          }
+        ]
+      }
     },
     {
       "id": "X.3",
@@ -1980,7 +2108,110 @@
       "acceptance": [
         "All six SDK families share semantic contracts, fixtures and typed errors; per-capability bindings ship in each functional delivery, without waiting for aggregate ports/conformance. Secure custody/randomness and correct pending/cancel/read-only recovery remain default; no silent batch splitting or private upload."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "5d63ed789acb8ad9bd2d9db968a9b36920746450 plus the shared uncommitted working tree, 2026-10-19 (packet S1-A1; provisional, pending plan-author review). The clippy command fails on files outside S1-A1 (iroha_data_model and the Codex-claimed client/amx_approval*.rs); S1-A1 code has no clippy diagnostic under --no-deps.",
+        "paths": [
+          "specs/zk_operation_contract.md",
+          "fixtures/zk/operation_v1/README.md",
+          "fixtures/zk/operation_v1/manifest.json",
+          "fixtures/zk/operation_v1/contract.json",
+          "fixtures/zk/operation_v1/scenarios/ambiguous_submit_is_recovered_read_only.json",
+          "fixtures/zk/operation_v1/scenarios/authenticated_mode_never_closes_on_torii_reported_expiry.json",
+          "fixtures/zk/operation_v1/scenarios/batch_at_both_count_bounds_is_one_transaction.json",
+          "fixtures/zk/operation_v1/scenarios/build_failure_returns_the_operation_to_prepared.json",
+          "fixtures/zk/operation_v1/scenarios/cancel_after_dispatch_stops_observation_only.json",
+          "fixtures/zk/operation_v1/scenarios/cancel_before_dispatch_drops_the_signed_bytes.json",
+          "fixtures/zk/operation_v1/scenarios/external_signature_mismatch_is_refused_before_persisting.json",
+          "fixtures/zk/operation_v1/scenarios/finality_evidence_must_authenticate_the_exact_transaction.json",
+          "fixtures/zk/operation_v1/scenarios/interrupt_before_submit_dispatches_the_persisted_bytes_once.json",
+          "fixtures/zk/operation_v1/scenarios/interrupt_while_proving_proves_and_verifies_again.json",
+          "fixtures/zk/operation_v1/scenarios/local_verification_failure_dispatches_nothing.json",
+          "fixtures/zk/operation_v1/scenarios/non_admissions_keep_the_signed_identity_dispatchable.json",
+          "fixtures/zk/operation_v1/scenarios/one_call_finalizes_on_authenticated_evidence.json",
+          "fixtures/zk/operation_v1/scenarios/over_bound_action_count_is_refused_at_prepare_without_a_split.json",
+          "fixtures/zk/operation_v1/scenarios/over_bound_attachment_occurrences_are_refused_at_prepare.json",
+          "fixtures/zk/operation_v1/scenarios/oversized_attachment_slot_is_refused_at_prepare.json",
+          "fixtures/zk/operation_v1/scenarios/private_material_upload_is_refused.json",
+          "fixtures/zk/operation_v1/scenarios/process_dies_during_dispatch_then_only_authorized_identical_bytes_are_resent.json",
+          "fixtures/zk/operation_v1/scenarios/torii_status_mode_is_explicit_and_trusts_the_queried_torii.json",
+          "fixtures/zk/operation_v1/scenarios/validated_refusal_of_the_only_dispatch_closes_the_identity.json",
+          "crates/iroha/src/client/operation_contract.rs",
+          "crates/iroha/src/client.rs",
+          "crates/iroha/src/workflow/contract.rs",
+          "fixtures/zk/workflow_v1/state_machine.json",
+          "scripts/check_operation_contract.py",
+          "scripts/tests/check_operation_contract_test.py",
+          "scripts/check_durable_workflow_contract.py",
+          "scripts/tests/check_durable_workflow_contract_test.py",
+          "specs/zk_durable_workflow.md",
+          "Makefile",
+          "crates/iroha/README.md"
+        ],
+        "commands": [
+          {
+            "command": "CARGO_TARGET_DIR=target/claude-s1-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo test -p iroha --lib --locked --offline --jobs 6 workflow",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/claude-s1-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo test -p iroha --lib --locked --offline --jobs 6 client::operation_contract",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/claude-s1-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo test -p iroha --lib --locked --offline --jobs 6 -- --ignored --exact client::operation_contract::tests::regenerate_operation_contract workflow::scenario_tests::regenerate_state_machine",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -I -S scripts/check_operation_contract.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -m pytest -q scripts/tests/check_operation_contract_test.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -I -S scripts/check_durable_workflow_contract.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 -m pytest -q scripts/tests/check_durable_workflow_contract_test.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 scripts/check_zk_operation_inventory.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 scripts/sdk_operation_inventory.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "python3 scripts/check_zk_runtime_validity.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/claude-s1-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo clippy -p iroha --lib --tests --locked --offline --jobs 6 -- -D warnings",
+            "outcome": "failed"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Provide shared prepare/prove/local-verify/build/sign/submit/finality and durable-operation handling, with a mandatory high-level call and advanced prepared canonical ISI form for external signing, batches and contracts.",
+            "state": "partial",
+            "proof": "specs/zk_operation_contract.md and fixtures/zk/operation_v1/contract.json, rendered by crates/iroha/src/client/operation_contract.rs and compared byte for byte by `CARGO_TARGET_DIR=target/claude-s1-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo test -p iroha --lib --locked --offline --jobs 6 client::operation_contract`, define the provisional contract: the mandatory durable execute_operation, the advanced calls prepare, prove, local_verify, build, sign, submit and await_finality with their stages and shared-reducer events, the ten durable states, the PreparedZkOperationV1 and BuiltZkOperationV1 fields, external-signature verification and one-transaction batches. crates/iroha/src/workflow/contract.rs extends the shared stage vocabulary with local_verify, build and finality (fixtures/zk/workflow_v1/state_machine.json). No family implements execute_operation or the advanced calls yet (S1-A2 core, S1-A3 Rust); the contract form stays partial until I.2/I.3 types exist; the canonical artifact types and vectors belong to S1-A2."
+          },
+          {
+            "clause": "All six SDK families share semantic contracts, fixtures and typed errors; per-capability bindings ship in each functional delivery, without waiting for aggregate ports/conformance.",
+            "state": "partial",
+            "proof": "The SDK-neutral contract, its 15 shared error codes with the ResourceLimitExceeded fields and 20 single-operation scenarios are published in fixtures/zk/operation_v1/ and checked without Rust by `python3 -I -S scripts/check_operation_contract.py` (mutation tests: `python3 -m pytest -q scripts/tests/check_operation_contract_test.py`). No family consumes them yet: the Rust runner lands with S1-A3 and the other five families with the S1-B/S1-C packets; per-capability bindings are not part of S1-A1."
+          },
+          {
+            "clause": "Secure custody/randomness and correct pending/cancel/read-only recovery remain default; no silent batch splitting or private upload.",
+            "state": "partial",
+            "proof": "fixtures/zk/operation_v1/contract.json states the custody rules (opaque signer handles, secure randomness, no private-material upload), the batch policy (one signed transaction, never split, ResourceLimitExceeded at plan with bound, action index, actual and maximum checked against the source by scripts/check_operation_contract.py) and the dispatch and identity-closure rules; the scenarios fixtures/zk/operation_v1/scenarios/cancel_before_dispatch_drops_the_signed_bytes.json, cancel_after_dispatch_stops_observation_only.json, ambiguous_submit_is_recovered_read_only.json, over_bound_action_count_is_refused_at_prepare_without_a_split.json and private_material_upload_is_refused.json exercise them at contract level. No operation path enforces them yet (S1-A3 and the family ports)."
+          }
+        ]
+      }
     },
     {
       "id": "S.2",
@@ -3283,7 +3514,53 @@
       "acceptance": [
         "Replace the unconditional ballot rejection with real relations and permissions, not a removed safety check alone. Test invalid credential/weight/tally corpus, replay/revote rules, deadlines, custody and restoration; one call exposes durable distributed progress without pretending one consensus round."
       ],
-      "status": "planned"
+      "status": "in_progress",
+      "evidence": {
+        "source": "5d63ed789acb8ad9bd2d9db968a9b36920746450 plus the uncommitted P8-0 hygiene packet of 2026-10-19 (accurate standalone refusal and Torii capability, stale gate documentation, single constant definitions). The plan author ruled on 2026-10-19 that P.8 carries two subtracks: Parliament anonymous public ballots, and standalone private elections (roadmap P13, blocker F11). Both remain open; no relation is delivered.",
+        "paths": [
+          "crates/iroha_core/src/smartcontracts/isi/world.rs",
+          "crates/iroha_parliament_ballot/src/lib.rs",
+          "crates/iroha_torii/src/gov.rs",
+          "specs/zk_runtime_validity_census.json",
+          "specs/zk_resource_contract.json"
+        ],
+        "commands": [
+          {
+            "command": "/opt/homebrew/bin/python3.12 scripts/check_zk_runtime_validity.py",
+            "outcome": "passed"
+          },
+          {
+            "command": "CARGO_TARGET_DIR=target/claude-p8-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo test --locked --offline --jobs 6 -p iroha_parliament_ballot",
+            "outcome": "passed"
+          },
+          {
+            "command": "/opt/homebrew/bin/python3.12 scripts/formal/check_sora_parliament_source_contract.py",
+            "outcome": "passed"
+          }
+        ],
+        "acceptance": [
+          {
+            "clause": "Complete credential-linked ballots and closed-corpus tally relations, correct backend/role dispatch, nullifiers, weights/revotes, encryption and key custody across the real election phases.",
+            "state": "unmet",
+            "proof": "The Parliament anonymous ballot exists only as the protocol crate crates/iroha_parliament_ballot/src/lib.rs, whose own tests pass (`CARGO_TARGET_DIR=target/claude-p8-20261019 CARGO_INCREMENTAL=0 nice -n 10 cargo test --locked --offline --jobs 6 -p iroha_parliament_ballot`); no node path registers, seals, casts, nullifies or closes it, and the standalone-election construction (blocker F11) has no relation."
+          },
+          {
+            "clause": "Ship operation-v1 with genuine maximum proofs, direct witness/constraint mutations, all supported SDKs, four-peer effects and current-genesis restart/replay.",
+            "state": "unmet",
+            "proof": "No operation-v1 surface exists: specs/zk_resource_contract.json declares proof.anonymous_ballot_verifier_budget with no node comparison site, and there is no SDK, four-peer or current-genesis restart and replay evidence."
+          },
+          {
+            "clause": "Replace the unconditional ballot rejection with real relations and permissions, not a removed safety check alone.",
+            "state": "unmet",
+            "proof": "crates/iroha_core/src/smartcontracts/isi/world.rs still rejects every standalone ZK ballot and tally unconditionally, now with an accurate unsupported error, and crates/iroha_torii/src/gov.rs advertises them as unsupported; specs/zk_runtime_validity_census.json records that refusal and the compiled anonymous-ballot qualification gate as open, and `/opt/homebrew/bin/python3.12 scripts/check_zk_runtime_validity.py` passes."
+          },
+          {
+            "clause": "Test invalid credential/weight/tally corpus, replay/revote rules, deadlines, custody and restoration; one call exposes durable distributed progress without pretending one consensus round.",
+            "state": "unmet",
+            "proof": "None of these tests exist outside the protocol crate; `/opt/homebrew/bin/python3.12 scripts/formal/check_sora_parliament_source_contract.py` passes only because it records the retired timed-OVN surfaces as retired and asserts no anonymous-ballot entrypoint, route or relation."
+          }
+        ]
+      }
     },
     {
       "id": "P.9",

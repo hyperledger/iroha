@@ -421,10 +421,6 @@ governance.lock.list	GET	/v1/gov/locks/{rid}	public	canonical_account_signature	
 governance.parliament.attempt.draft	POST	/v1/gov/parliament/attempts/draft	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	true	false	true
 governance.parliament.attempt.plan	GET	/v1/gov/parliament/attempts/{governance_attempt_id}/plan	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	true	false	true
 governance.parliament.attempt.read	GET	/v1/gov/parliament/attempts/{governance_attempt_id}	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	true	false	true
-governance.parliament.timed_ovn_casting_context.read	GET	/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	true	false	true
-governance.parliament.timed_ovn_casting_proof.read	POST	/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof	public	canonical_account_signature	authenticated_account	compute	http	feature(app_api)	true	true	false	true
-governance.parliament.tle_partial_release.create	POST	/v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	true	false	true
-governance.parliament.tle_release_context.read	GET	/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	true	false	true
 governance.parliament.transition.draft	POST	/v1/gov/parliament/transitions/draft	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	true	false	true
 governance.proposal.deploy_contract	POST	/v1/gov/proposals/deploy-contract	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	true	false	true
 governance.proposal.read	GET	/v1/gov/proposals/{id}	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	true	false	true
@@ -537,6 +533,7 @@ private_settlement.bundle.receipt	GET	/v1/nexus/private-settlements/bundles/{bun
 private_settlement.bundle.status	GET	/v1/nexus/private-settlements/bundles/{bundle_id}	public	torii_default	public	read	http	feature(app_api)	true	true	false	false
 private_settlement.bundle.submit	POST	/v1/nexus/private-settlements/bundles	public	canonical_account_signature	authenticated_account	mutation	http	feature(app_api)	true	true	false	true
 private_settlement.committee.proof	GET	/v1/nexus/private-settlements/legs/{payload_digest}/committee-proof	public	identity_bound_signature	validator_roster_member	read	http	feature(app_api)	true	true	false	true
+private_settlement.context	POST	/v1/nexus/private-settlements/context/{height}	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	true	false	true
 private_settlement.leg.status	GET	/v1/nexus/private-settlements/legs/{payload_digest}/status	public	canonical_account_signature	authenticated_account	read	http	feature(app_api)	true	true	false	true
 private_settlement.leg.upload	POST	/v1/nexus/private-settlements/legs	public	canonical_account_signature	authenticated_account	mutation	http	feature(app_api)	true	true	false	true
 private_settlement.phase.certificate	POST	/v1/nexus/private-settlements/phases/certificates	public	canonical_account_signature	authenticated_account	mutation	http	feature(app_api)	true	true	false	true

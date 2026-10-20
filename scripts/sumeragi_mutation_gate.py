@@ -496,6 +496,8 @@ MUTATIONS = [
       ["det_l33_verified_sync_donor_survives_saturated_history"], []),
     m("ML34", "process_sync_buffer: rejected deferred donor cannot refresh the missing height",
       ["det_l34_deferred_sync_donor_failure_refetches_current_height"], []),
+    m("ML35", "entry_bytes: charge the former header and skipped-leader allowance, not the canonical entry",
+      ["det_l35_sync_buffer_charges_canonical_entry_bytes"], []),
     m("MS42", "original publication recovery does not halt the core",
       ["det_s42_original_publication_recovery_halts"], []),
     m("MS43", "signing domains omit epoch identity and complete context", ["det_s43_every_signature_binds_epoch_and_complete_context"], []),
@@ -2373,7 +2375,7 @@ CORE_MUTATIONS = [
 
     m("HC304", "SCCP clock policy: accept a budget that can recertify but never enact a pause",
       ["sumeragi::schedule::execution::tests::sccp_executed_genesis_rejects_work_budgets_that_starve_pause_enactment"],
-      causes=(ExpectedFailure("genesis must reject budgets that cannot certify six rounds and enact one pause",
+      causes=(ExpectedFailure("genesis must reject budgets outside the current ticket, draw, six-conclusion and enactment range",
           "crates/iroha_core/src/sumeragi/schedule/execution_tests.rs"),)),
 
     m("HC302", "SCCP keepalive: replace the original parent pause-due set with the overlay",

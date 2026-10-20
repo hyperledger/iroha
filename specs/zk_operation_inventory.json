@@ -726,7 +726,7 @@
    "family": "none qualified",
    "status": "unavailable",
    "guarantee": "Credential-linked private ballot. The semantic guard refuses independently of the verifying-key role.",
-   "refusal": {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "STANDALONE_ZK_RELATION_UNQUALIFIED_V1.into(),"},
+   "refusal": {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "STANDALONE_ZK_RELATION_UNSUPPORTED_V1.into(),"},
    "owner_tasks": ["P.8"]
   },
   {
@@ -734,7 +734,7 @@
    "family": "none qualified",
    "status": "unavailable",
    "guarantee": "Closed-corpus tally. The semantic guard refuses independently of the verifying-key role.",
-   "refusal": {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "STANDALONE_ZK_RELATION_UNQUALIFIED_V1.into(),"},
+   "refusal": {"path": "crates/iroha_core/src/smartcontracts/isi/world.rs", "symbol": "STANDALONE_ZK_RELATION_UNSUPPORTED_V1.into(),"},
    "owner_tasks": ["P.8"]
   },
   {
@@ -884,6 +884,14 @@
    "register_dataspace_asset_definition": {
     "scope": "out",
     "reason": "Registers an ordinary asset definition under an explicit dataspace home after namespace-owner authority checks; carries no proof and calls no proof verifier."
+   },
+   "bond": {
+    "scope": "out",
+    "reason": "Native bond servicing (`BondInstructionBox`: register, record, fund, claim and close cashflows, call, default, paying-agent replacement, treasury-unit retirement; crates/iroha_core/src/smartcontracts/isi/bond.rs). Signer authority and the central numeric movement checks; no proof relation, and no handler calls a proof verifier (`VerifiedBondMovement` is a Rust capability type, not a proof)."
+   },
+   "chain": {
+    "scope": "out",
+    "reason": "`chain::Keepalive` (specs/sccp.md section 4.7.4): empty DATA that requests one block applying already-due governance or SCCP heartbeat work; its handler only consumes the exact direct signed source (crates/iroha_core/src/smartcontracts/isi/sccp/keepalive.rs). It carries no proof and grants no permission to produce an empty or non-due block."
    }
   },
   "tripwire": {
@@ -933,7 +941,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "tests": [
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/world_validation_fee_tests.rs",
@@ -1147,7 +1164,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": ["application.soracloud_state_mutate_post"],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "refused",
@@ -1184,7 +1210,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -1219,7 +1254,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -1250,7 +1294,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -1287,7 +1340,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": ["application.soracloud_fhe_job_run_post", "application.soracloud_ciphertext_query_post"],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "refused",
@@ -1322,7 +1384,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": ["application.soracloud_decrypt_request_post", "application.soracloud_health_access_request_post"],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "refused",
@@ -1497,7 +1568,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": ["application.ram_lfe_program_policies_get"],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "tests": [
     {
      "path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs",
@@ -1534,7 +1614,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -1563,7 +1652,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -1592,7 +1690,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": ["application.identifier_policies_get"],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -1621,7 +1728,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -1662,7 +1778,8 @@
      {
       "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/core/model/instructions/ClaimIdentifierWirePayloadEncoder.kt",
       "via": ["type_name", "wire_id"]
-     }
+     },
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
     ],
     "swift": [
      {"path": "IrohaSwift/Sources/IrohaSwift/TransactionEncoder.swift", "via": ["type_name"]}
@@ -1712,7 +1829,16 @@
    ],
    "kotodama": {"binding": "none"},
    "routes": [],
-   "sdk": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+   "sdk": {
+    "rust": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
+    "swift": [],
+    "javascript": [],
+    "python": [],
+    "csharp": []
+   },
    "status": {
     "presence": "registered",
     "verification": "not_applicable",
@@ -3112,7 +3238,8 @@
    "routes": ["private_settlement.bundle.submit"],
    "sdk": {
     "rust": [
-     {"path": "crates/iroha/src/client/private_settlement.rs", "via": ["type_name"]}
+     {"path": "crates/iroha/src/client/private_settlement.rs", "via": ["type_name"]},
+     {"path": "crates/iroha/src/client/private_settlement/operation.rs", "via": ["type_name"]}
     ],
     "kotlin_java_android": [
      {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
@@ -3131,7 +3258,7 @@
     "verification": "signature_only",
     "state_effects": "gated",
     "delivery": "not_delivered",
-    "missing": "Committed activation instead of a node-configured height (F.4); complete settlement flow (P.20); one-call and prepared SDK operation in the six SDK families, Kotodama binding, canonical fixtures, four-validator flow, cold restart and current-genesis replay"
+    "missing": "Committed activation instead of a node-configured height (F.4); complete settlement flow (P.20); Rust has a prepared-artifact workflow (`AccountClient::private_settlement`, a durable operation over caller-retained leg proofs and capsules that submits Register and Finalize and verifies finality itself); it produces no leg proof and builds no Abort. Kotlin/Java, Swift, JavaScript and Python have route-level clients only, and C# has none; one-call and prepared SDK operation in the six SDK families, Kotodama binding, canonical fixtures, four-validator flow, cold restart and current-genesis replay"
    },
    "owner_tasks": ["P.20"],
    "note": "Registers a complete all-Prepare barrier as global control locks. The handler checks the committee authority and Prepare certificates of every leg; it does not see the leg proofs, which committee validators verify before signing (operation private_settlement.committee_leg_validation). Requires the node-configured enable switch and activation height.",
@@ -3200,7 +3327,10 @@
    "routes": ["private_settlement.bundle.receipt", "private_settlement.bundle.status", "private_settlement.bundle.submit"],
    "sdk": {
     "rust": [
-     {"path": "crates/iroha/src/client/private_settlement.rs", "via": ["type_name"]}
+     {"path": "crates/iroha/src/client/private_settlement.rs", "via": ["type_name"]},
+     {"path": "crates/iroha/src/client/private_settlement/operation.rs", "via": ["type_name"]},
+     {"path": "crates/iroha/src/client/private_settlement/operation/observation.rs", "via": ["type_name"]},
+     {"path": "crates/iroha/src/client/private_settlement/verified.rs", "via": ["type_name"]}
     ],
     "kotlin_java_android": [
      {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["wire_id"]}
@@ -3219,7 +3349,7 @@
     "verification": "signature_only",
     "state_effects": "gated",
     "delivery": "not_delivered",
-    "missing": "Committed activation instead of a node-configured height (F.4); complete settlement flow (P.20); one-call and prepared SDK operation in the six SDK families, Kotodama binding, canonical fixtures, four-validator flow, cold restart and current-genesis replay"
+    "missing": "Committed activation instead of a node-configured height (F.4); complete settlement flow (P.20); Rust has a prepared-artifact workflow (`AccountClient::private_settlement`, a durable operation over caller-retained leg proofs and capsules that submits Register and Finalize and verifies finality itself); it produces no leg proof and builds no Abort. Kotlin/Java, Swift, JavaScript and Python have route-level clients only, and C# has none; one-call and prepared SDK operation in the six SDK families, Kotodama binding, canonical fixtures, four-validator flow, cold restart and current-genesis replay"
    },
    "owner_tasks": ["P.20"],
    "note": "Applies the finalized receipt and its phase certificates.",
@@ -4091,7 +4221,9 @@
    "routes": [],
    "sdk": {
     "rust": [],
-    "kotlin_java_android": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
     "swift": [],
     "javascript": [
      {"path": "javascript/iroha_js/src/instructionBuilders.js", "via": ["type_name", "wire_id"]},
@@ -4132,7 +4264,9 @@
    "routes": [],
    "sdk": {
     "rust": [],
-    "kotlin_java_android": [],
+    "kotlin_java_android": [
+     {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/InstructionWireIdsV1.kt", "via": ["type_name", "wire_id"]}
+    ],
     "swift": [],
     "javascript": [
      {"path": "javascript/iroha_js/src/instructionBuilders.js", "via": ["type_name", "wire_id"]},
@@ -4646,17 +4780,10 @@
     }
    ],
    "kotodama": {"binding": "none"},
-   "routes": [
-    "governance.parliament.transition.draft",
-    "governance.parliament.timed_ovn_casting_context.read",
-    "governance.parliament.timed_ovn_casting_proof.read",
-    "governance.parliament.tle_partial_release.create",
-    "governance.parliament.tle_release_context.read"
-   ],
+   "routes": ["governance.parliament.transition.draft"],
    "sdk": {
     "rust": [
      {"path": "crates/iroha/src/client.rs", "via": ["type_name"]},
-     {"path": "crates/iroha_cli/src/gov/parliament.rs", "via": ["type_name"]},
      {"path": "crates/iroha_cli/src/gov/parliament/member.rs", "via": ["type_name"]},
      {"path": "crates/iroha_cli/src/gov/parliament/test_context.rs", "via": ["type_name"]},
      {"path": "crates/iroha_cli/src/sccp/governance.rs", "via": ["type_name"]}
@@ -4698,10 +4825,10 @@
     "verification": "implemented",
     "state_effects": "implemented",
     "delivery": "not_delivered",
-    "missing": "Credential-linked ballot and closed-corpus tally relations (P.8); one-call and prepared SDK operation in the six SDK families, Kotodama binding, canonical fixtures, four-validator flow, cold restart and current-genesis replay"
+    "missing": "Credential-linked ballot and closed-corpus tally relations (P.8); a client path for timed-OVN casting: the Torii casting-context, casting-proof, partial-release and release-context routes, the CLI ballot commands and their SDK clients were removed (3be383b0e7, b88f6f5445), so no route, CLI command or SDK function in the tree builds a casting proof or requests a partial release any more; one-call and prepared SDK operation in the six SDK families, Kotodama binding, canonical fixtures, four-validator flow, cold restart and current-genesis replay"
    },
    "owner_tasks": ["P.8"],
-   "note": "Carries Parliament private ballots (timed OVN, threshold BLS release); Core replays every pulse, roster, corpus, release and certificate.",
+   "note": "Carries Parliament private ballots (timed OVN, threshold BLS release); Core replays every pulse, roster, corpus, release and certificate. specs/parliament_private_ballot_design.md section 12.1 retires timed OVN for the anonymous ballot: its client routes are already removed, while this handler, `iroha_core_timed_ovn` and the node TLE release runtime remain. The anonymous-ballot layer (crates/iroha_parliament_ballot; PARLIAMENT_BALLOT_QUALIFICATION_V1 = None) is used by no Core, Torii or SDK code at this revision.",
    "native_bridges": [],
    "torii": ["crates/iroha_torii/src/gov.rs"]
   },
@@ -7207,7 +7334,10 @@
      "reason": "Data-availability commitments and pin intents; signed RS16 availability of specs/sumeragi.md, not a relation of this plan."
     },
     {"prefix": "/v1/bridge/", "reason": "Bridge finality attestations and proofs read from consensus records."},
-    {"prefix": "/v1/sccp/", "reason": "SCCP message and control proofs: native Sumeragi CommitQC verification and source-chain light-client proofs (specs/sccp.md), not a ZK or FHE relation of this plan."},
+    {
+     "prefix": "/v1/sccp/",
+     "reason": "SCCP message and control proofs: native Sumeragi CommitQC verification and source-chain light-client proofs (specs/sccp.md), not a ZK or FHE relation of this plan."
+    },
     {"prefix": "/v1/musubi/", "reason": "Package registry provider attestations; signatures."},
     {"prefix": "/v1/operator/auth/", "reason": "Operator WebAuthn credentials of the node console; not a ledger proof."},
     {"prefix": "/v1/private-root/", "reason": "Private dataspace root anchors (specs/sumeragi_lanes.md)."},
@@ -7224,6 +7354,14 @@
     {
      "id": "validation_fee.policy.current_proof",
      "reason": "Inclusion proof of the current validation-fee policy in certified State; a read of State, not a proof admission."
+    },
+    {
+     "id": "application.explorer_transactions_by_hash_proof_get",
+     "reason": "Explorer read under ordinary dataspace visibility: one committed transaction's Network entrypoint and execution output with their Merkle paths in the block and the block's compact commit certificate (crates/iroha_torii/src/routing/explorer_transaction_proof.rs; genesis refused). Consensus record evidence the consumer verifies from its own root; no ZK or FHE proof is admitted."
+    },
+    {
+     "id": "contracts.amx_debit_approval_proof_post",
+     "reason": "Read of one native AMX debit approval with its World snapshot at a certified dataspace root tip, for a canonical-account-signed caller with current CanReadAllLedgerData, checked again before disclosure (crates/iroha_torii/src/amx_approval_proof.rs). Consensus record evidence of registry.modules.sumeragi_amx (specs/sumeragi.md section 11); not a ZK or FHE proof admission and not AXT."
     }
    ]
   },
@@ -7709,7 +7847,7 @@
     "product": "soracloud_fhe",
     "does": "Build and submit RecordSoracloudDecryptionRequest for a health-record access request.",
     "operations": ["soracloud::RecordSoracloudDecryptionRequest"],
-    "handler": {"path": "crates/iroha_torii/src/soracloud.rs", "symbol": "pub(crate) async fn handle_health_access_request("},
+    "handler": {"path": "crates/iroha_torii/src/soracloud.rs", "symbol": "pub async fn handle_health_access_request("},
     "sdk_literal": "/v1/soracloud/health/access/request",
     "sdk_files": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []}
    },
@@ -7723,7 +7861,7 @@
     "product": "soracloud_fhe",
     "does": "Read the health application audit report of decryption requests.",
     "operations": [],
-    "handler": {"path": "crates/iroha_torii/src/soracloud.rs", "symbol": "pub(crate) async fn handle_health_compliance_report("},
+    "handler": {"path": "crates/iroha_torii/src/soracloud.rs", "symbol": "pub async fn handle_health_compliance_report("},
     "sdk_literal": "/v1/soracloud/health/compliance/report",
     "sdk_files": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []}
    },
@@ -7737,7 +7875,7 @@
     "product": "soracloud_fhe",
     "does": "Build and submit MutateSoracloudState.",
     "operations": ["soracloud::MutateSoracloudState"],
-    "handler": {"path": "crates/iroha_torii/src/soracloud.rs", "symbol": "pub(crate) async fn handle_state_mutation("},
+    "handler": {"path": "crates/iroha_torii/src/soracloud.rs", "symbol": "pub async fn handle_state_mutation("},
     "sdk_literal": "/v1/soracloud/state/mutate",
     "sdk_files": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []}
    },
@@ -8169,9 +8307,7 @@
     "handler": {"path": "crates/iroha_torii/src/lib.rs", "symbol": "fn handler_gov_parliament_attempt_plan("},
     "sdk_literal": "/v1/gov/parliament/attempts/",
     "sdk_files": {
-     "rust": [
-      {"path": "crates/iroha_cli/src/sccp/governance.rs", "via": ["route_path"]}
-     ],
+     "rust": [],
      "kotlin_java_android": [
       {"path": "java/iroha_android/src/main/java/org/hyperledger/iroha/android/client/ParliamentApiV1.java", "via": ["route_path"]},
       {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/ParliamentApiV1.kt", "via": ["route_path"]}
@@ -8201,132 +8337,6 @@
     "operations": [],
     "handler": {"path": "crates/iroha_torii/src/lib.rs", "symbol": "fn handler_gov_parliament_attempt_read("},
     "sdk_literal": "/v1/gov/parliament/attempts/",
-    "sdk_files": {
-     "rust": [
-      {"path": "crates/iroha_cli/src/sccp/governance.rs", "via": ["route_path"]}
-     ],
-     "kotlin_java_android": [
-      {"path": "java/iroha_android/src/main/java/org/hyperledger/iroha/android/client/ParliamentApiV1.java", "via": ["route_path"]},
-      {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/ParliamentApiV1.kt", "via": ["route_path"]}
-     ],
-     "swift": [
-      {"path": "IrohaSwift/Sources/IrohaSwift/ToriiParliamentAPIV1.swift", "via": ["route_path"]}
-     ],
-     "javascript": [
-      {"path": "javascript/iroha_js/index.d.ts", "via": ["route_path"]},
-      {"path": "javascript/iroha_js/src/parliamentApiV1.js", "via": ["route_path"]}
-     ],
-     "python": [
-      {"path": "python/iroha_torii_client/parliament_api.py", "via": ["route_path"]}
-     ],
-     "csharp": []
-    }
-   },
-   {
-    "id": "governance.parliament.timed_ovn_casting_context.read",
-    "method": "GET",
-    "path": "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-context",
-    "surface": "public",
-    "effect": "read",
-    "sdk": "true",
-    "product": "voting",
-    "does": "Read the timed-OVN casting context of a ballot attempt.",
-    "operations": [],
-    "handler": {"path": "crates/iroha_torii/src/lib.rs", "symbol": "fn handler_gov_parliament_timed_ovn_casting_context_read("},
-    "sdk_literal": "/v1/gov/parliament/ballots/",
-    "sdk_files": {
-     "rust": [],
-     "kotlin_java_android": [
-      {"path": "java/iroha_android/src/main/java/org/hyperledger/iroha/android/client/ParliamentApiV1.java", "via": ["route_path"]},
-      {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/ParliamentApiV1.kt", "via": ["route_path"]}
-     ],
-     "swift": [
-      {"path": "IrohaSwift/Sources/IrohaSwift/ToriiParliamentAPIV1.swift", "via": ["route_path"]}
-     ],
-     "javascript": [
-      {"path": "javascript/iroha_js/index.d.ts", "via": ["route_path"]},
-      {"path": "javascript/iroha_js/src/parliamentApiV1.js", "via": ["route_path"]}
-     ],
-     "python": [
-      {"path": "python/iroha_torii_client/parliament_api.py", "via": ["route_path"]}
-     ],
-     "csharp": []
-    }
-   },
-   {
-    "id": "governance.parliament.timed_ovn_casting_proof.read",
-    "method": "POST",
-    "path": "/v1/gov/parliament/ballots/{ballot_attempt_id}/casting-proof",
-    "surface": "public",
-    "effect": "compute",
-    "sdk": "true",
-    "product": "voting",
-    "does": "Compute a timed-OVN casting proof for a member.",
-    "operations": ["governance::SubmitParliamentLifecycleTransitionV1"],
-    "handler": {"path": "crates/iroha_torii/src/lib.rs", "symbol": "fn handler_gov_parliament_timed_ovn_casting_proof("},
-    "sdk_literal": "/v1/gov/parliament/ballots/",
-    "sdk_files": {
-     "rust": [],
-     "kotlin_java_android": [
-      {"path": "java/iroha_android/src/main/java/org/hyperledger/iroha/android/client/ParliamentApiV1.java", "via": ["route_path"]},
-      {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/ParliamentApiV1.kt", "via": ["route_path"]}
-     ],
-     "swift": [
-      {"path": "IrohaSwift/Sources/IrohaSwift/ToriiParliamentAPIV1.swift", "via": ["route_path"]}
-     ],
-     "javascript": [
-      {"path": "javascript/iroha_js/index.d.ts", "via": ["route_path"]},
-      {"path": "javascript/iroha_js/src/parliamentApiV1.js", "via": ["route_path"]}
-     ],
-     "python": [
-      {"path": "python/iroha_torii_client/parliament_api.py", "via": ["route_path"]}
-     ],
-     "csharp": []
-    }
-   },
-   {
-    "id": "governance.parliament.tle_partial_release.create",
-    "method": "POST",
-    "path": "/v1/gov/parliament/ballots/{ballot_attempt_id}/partial-release",
-    "surface": "public",
-    "effect": "read",
-    "sdk": "true",
-    "product": "voting",
-    "does": "Create a partial release for a ballot attempt.",
-    "operations": ["governance::SubmitParliamentLifecycleTransitionV1"],
-    "handler": {"path": "crates/iroha_torii/src/lib.rs", "symbol": "fn handler_gov_parliament_tle_partial_release("},
-    "sdk_literal": "/v1/gov/parliament/ballots/",
-    "sdk_files": {
-     "rust": [],
-     "kotlin_java_android": [
-      {"path": "java/iroha_android/src/main/java/org/hyperledger/iroha/android/client/ParliamentApiV1.java", "via": ["route_path"]},
-      {"path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/ParliamentApiV1.kt", "via": ["route_path"]}
-     ],
-     "swift": [
-      {"path": "IrohaSwift/Sources/IrohaSwift/ToriiParliamentAPIV1.swift", "via": ["route_path"]}
-     ],
-     "javascript": [
-      {"path": "javascript/iroha_js/index.d.ts", "via": ["route_path"]},
-      {"path": "javascript/iroha_js/src/parliamentApiV1.js", "via": ["route_path"]}
-     ],
-     "python": [
-      {"path": "python/iroha_torii_client/parliament_api.py", "via": ["route_path"]}
-     ],
-     "csharp": []
-    }
-   },
-   {
-    "id": "governance.parliament.tle_release_context.read",
-    "method": "GET",
-    "path": "/v1/gov/parliament/ballots/{ballot_attempt_id}/release-context",
-    "surface": "public",
-    "effect": "read",
-    "sdk": "true",
-    "product": "voting",
-    "does": "Read the release context of a ballot attempt.",
-    "operations": [],
-    "handler": {"path": "crates/iroha_torii/src/lib.rs", "symbol": "fn handler_gov_parliament_tle_release_context_read("},
-    "sdk_literal": "/v1/gov/parliament/ballots/",
     "sdk_files": {
      "rust": [],
      "kotlin_java_android": [
@@ -8882,7 +8892,7 @@
     "product": "atomic_settlement",
     "does": "Record an auditor approval for a leg.",
     "operations": [],
-    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub(crate) async fn handler_auditor_approval("},
+    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub async fn handler_auditor_approval("},
     "sdk_literal": "/v1/nexus/private-settlements/legs/",
     "sdk_files": {
      "rust": [
@@ -8922,7 +8932,7 @@
     "product": "atomic_settlement",
     "does": "Read the audit capsule of a leg.",
     "operations": [],
-    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub(crate) async fn handler_auditor_capsule("},
+    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub async fn handler_auditor_capsule("},
     "sdk_literal": "/v1/nexus/private-settlements/legs/",
     "sdk_files": {
      "rust": [
@@ -8962,7 +8972,7 @@
     "product": "atomic_settlement",
     "does": "Post an availability share of a leg.",
     "operations": [],
-    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub(crate) async fn handler_availability_share("},
+    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub async fn handler_availability_share("},
     "sdk_literal": "/v1/nexus/private-settlements/legs/availability-shares",
     "sdk_files": {
      "rust": [
@@ -8998,7 +9008,7 @@
     "product": "atomic_settlement",
     "does": "Read the receipt of a bundle.",
     "operations": ["private_settlement::FinalizeAtomicPrivateSettlementV1"],
-    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub(crate) async fn handler_bundle_receipt("},
+    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub async fn handler_bundle_receipt("},
     "sdk_literal": "/v1/nexus/private-settlements/bundles/",
     "sdk_files": {
      "rust": [],
@@ -9032,7 +9042,7 @@
     "product": "atomic_settlement",
     "does": "Read the status of a bundle.",
     "operations": [],
-    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub(crate) async fn handler_bundle_status("},
+    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub async fn handler_bundle_status("},
     "sdk_literal": "/v1/nexus/private-settlements/bundles/",
     "sdk_files": {
      "rust": [],
@@ -9066,7 +9076,7 @@
     "product": "atomic_settlement",
     "does": "Submit a settlement bundle to the coordination service.",
     "operations": ["private_settlement::RegisterAtomicPrivateSettlementPrepareV1"],
-    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub(crate) async fn handler_bundle_submit("},
+    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub async fn handler_bundle_submit("},
     "sdk_literal": "/v1/nexus/private-settlements/bundles",
     "sdk_files": {
      "rust": [
@@ -9102,7 +9112,7 @@
     "product": "atomic_settlement",
     "does": "Read the committee proof of a leg.",
     "operations": [],
-    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub(crate) async fn handler_committee_proof("},
+    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub async fn handler_committee_proof("},
     "sdk_literal": "/v1/nexus/private-settlements/legs/",
     "sdk_files": {
      "rust": [
@@ -9133,6 +9143,21 @@
     "catalog_row": {"path": "crates/iroha_torii_shared/src/route_catalog/private_settlement.rs", "symbol": "private_settlement.committee.proof"}
    },
    {
+    "id": "private_settlement.context",
+    "method": "POST",
+    "path": "/v1/nexus/private-settlements/context/{height}",
+    "surface": "public",
+    "effect": "read",
+    "sdk": "true",
+    "product": "atomic_settlement",
+    "does": "Read the pool, native assignment and key originals of the selected settlement pools at a certified current global cut, authenticated by complete World hashes. Requires a canonical account signature and all-ledger read permission, checked again before disclosure. Builds no instruction and verifies no proof (TODO in the source: scoped keyed-State inclusion and absence proofs). The Rust client `Client::get_private_settlement_context_async` (crates/iroha/src/client/private_settlement_context.rs) builds the path from the route-catalog constant `CONTEXT`, which the literal-based SDK scan does not see.",
+    "operations": [],
+    "handler": {"path": "crates/iroha_torii/src/private_settlement_context.rs", "symbol": "pub(crate) async fn handler("},
+    "sdk_literal": "/v1/nexus/private-settlements/context/",
+    "sdk_files": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
+    "catalog_row": {"path": "crates/iroha_torii_shared/src/route_catalog/private_settlement.rs", "symbol": "private_settlement.context"}
+   },
+   {
     "id": "private_settlement.leg.status",
     "method": "GET",
     "path": "/v1/nexus/private-settlements/legs/{payload_digest}/status",
@@ -9142,7 +9167,7 @@
     "product": "atomic_settlement",
     "does": "Read the status of a leg.",
     "operations": [],
-    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub(crate) async fn handler_leg_status("},
+    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub async fn handler_leg_status("},
     "sdk_literal": "/v1/nexus/private-settlements/legs/",
     "sdk_files": {
      "rust": [
@@ -9182,7 +9207,7 @@
     "product": "atomic_settlement",
     "does": "Upload a leg with its proof, capsule and sidecar.",
     "operations": ["private_settlement::RegisterAtomicPrivateSettlementPrepareV1"],
-    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub(crate) async fn handler_leg_upload("},
+    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub async fn handler_leg_upload("},
     "sdk_literal": "/v1/nexus/private-settlements/legs",
     "sdk_files": {
      "rust": [],
@@ -9216,7 +9241,7 @@
     "product": "atomic_settlement",
     "does": "Post a phase certificate.",
     "operations": [],
-    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub(crate) async fn handler_phase_certificate("},
+    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub async fn handler_phase_certificate("},
     "sdk_literal": "/v1/nexus/private-settlements/phases/certificates",
     "sdk_files": {
      "rust": [],
@@ -9250,7 +9275,7 @@
     "product": "atomic_settlement",
     "does": "Read the phase certificates of a leg.",
     "operations": [],
-    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub(crate) async fn handler_phase_certificates_get("},
+    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub async fn handler_phase_certificates_get("},
     "sdk_literal": "/v1/nexus/private-settlements/legs/",
     "sdk_files": {
      "rust": [
@@ -9290,7 +9315,7 @@
     "product": "atomic_settlement",
     "does": "Post a commit vote.",
     "operations": [],
-    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub(crate) async fn handler_commit_vote("},
+    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub async fn handler_commit_vote("},
     "sdk_literal": "/v1/nexus/private-settlements/phases/commit-votes",
     "sdk_files": {
      "rust": [],
@@ -9324,7 +9349,7 @@
     "product": "atomic_settlement",
     "does": "Post a prepare vote.",
     "operations": [],
-    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub(crate) async fn handler_prepare_vote("},
+    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub async fn handler_prepare_vote("},
     "sdk_literal": "/v1/nexus/private-settlements/phases/prepare-votes",
     "sdk_files": {
      "rust": [],
@@ -9358,7 +9383,7 @@
     "product": "atomic_settlement",
     "does": "Diagnostic state commitment of a test network.",
     "operations": [],
-    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub(crate) async fn handler_test_network_state_commitment("},
+    "handler": {"path": "crates/iroha_torii/src/private_settlement.rs", "symbol": "pub async fn handler_test_network_state_commitment("},
     "sdk_literal": "/v1/nexus/private-settlements/test-network/state-commitment",
     "sdk_files": {"rust": [], "kotlin_java_android": [], "swift": [], "javascript": [], "python": [], "csharp": []},
     "catalog_row": {"path": "crates/iroha_torii_shared/src/route_catalog/private_settlement.rs", "symbol": "private_settlement.test_network.state_commitment"}
@@ -9741,7 +9766,6 @@
     "application.ram_lfe_programs_by_program_id_execute_post",
     "application.ram_lfe_receipts_verify_post",
     "application.identifiers_resolve_post",
-    "governance.parliament.timed_ovn_casting_proof.read",
     "privacy.bootle_lantern.issuance.issue",
     "private_settlement.leg.upload"
    ],
@@ -9960,7 +9984,7 @@
     },
     {
      "path": "crates/iroha_core/src/smartcontracts/ivm/host.rs",
-     "symbol": "let material = crate::zk::validate_and_prepare_verifying_key_record_v1(&id, &rec)",
+     "symbol": "let material = crate::zk::validate_and_prepare_verifying_key_record_v1(id, rec)",
      "note": "Host hydration of verifying keys (not at restore)."
     },
     {"path": "crates/iroha_core/src/state.rs", "symbol": "validate_election_state_for_restore_v1(election_id, election, \"current\")?;"},
@@ -10426,6 +10450,13 @@
      "path": "crates/fastpq_prover/src/backend/offline_compact/execution_effect.rs",
      "count": 1,
      "route": "definition"
+    },
+    {
+     "token": "ordinary_effects",
+     "path": "crates/iroha_core/src/fastpq/lane/durable.rs",
+     "count": 1,
+     "route": "not_admission",
+     "note": "Restart recovery of the lane producer (`FastpqWitnessJob::recover_next`): the node re-verifies an artifact it persisted itself in Kura against freshly prepared expectations before advancing its cursor; it admits no external proof."
     },
     {
      "token": "pgc_bootstrap",
@@ -10938,7 +10969,7 @@
       "role": "privacy STARK outer commitments and transcripts",
       "algorithm": "SHA3-384, 48-byte digests",
       "path": "crates/iroha_core_privacy/src/privacy_engines/privacy_outer_hash.rs",
-      "symbol": "pub(crate) const PRIVACY_OUTER_DIGEST_BYTES_V1: usize = 48;"
+      "symbol": "pub const PRIVACY_OUTER_DIGEST_BYTES_V1: usize = 48;"
      }
     ],
     "in_circuit": {"none": "Shared admission has no circuit of its own; each protocol's row names its inner digests."},
@@ -11140,7 +11171,7 @@
       "role": "statement digest and outer commitments",
       "algorithm": "SHA-256 and SHA3-384 outer hash",
       "path": "crates/iroha_core_privacy/src/privacy_engines/privacy_outer_hash.rs",
-      "symbol": "pub(crate) const PRIVACY_OUTER_DIGEST_BYTES_V1: usize = 48;"
+      "symbol": "pub const PRIVACY_OUTER_DIGEST_BYTES_V1: usize = 48;"
      }
     ],
     "in_circuit": [
@@ -11239,7 +11270,7 @@
       "role": "leg proof commitments and transcript",
       "algorithm": "SHA3-384 outer hash of the shared proof-managed-note STARK engine",
       "path": "crates/iroha_core_privacy/src/privacy_engines/privacy_outer_hash.rs",
-      "symbol": "pub(crate) const PRIVACY_OUTER_DIGEST_BYTES_V1: usize = 48;"
+      "symbol": "pub const PRIVACY_OUTER_DIGEST_BYTES_V1: usize = 48;"
      }
     ],
     "in_circuit": [
@@ -11554,13 +11585,15 @@
      },
      {
       "path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs",
-      "test": "unavailable_execution_relation_rejects_before_reading_proof_or_key"
+      "test": "unavailable_execution_relation_rejects_before_reading_proof_or_envelope_metadata"
      },
      {"path": "crates/iroha_core/src/smartcontracts/isi/ram_lfe.rs", "test": "verify_execution_proof_refuses_regardless_of_node_guardrails"},
      {
       "path": "crates/iroha_core/src/smartcontracts/isi/identifier_tests.rs",
       "test": "current_identifier_receipt_refuses_proof_mode_before_metadata_or_proof_decode",
-      "reaches": [{"path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs", "symbol": "fn validate_program_receipt("}]
+      "reaches": [
+       {"path": "crates/iroha_core/src/smartcontracts/isi/identifier.rs", "symbol": "fn validate_program_receipt("}
+      ]
      }
     ],
     "test_evidence": "default",
@@ -12050,7 +12083,7 @@
     {
      "token": "kaigi_policy_key",
      "path": "crates/iroha_core/src/state/authority_registry/zk_policy.rs",
-     "count": 6,
+     "count": 8,
      "site": "kaigi.policy_named_key"
     },
     {"token": "kaigi_policy_key", "path": "crates/iroha_core/src/zk_validity_policy.rs", "count": 10, "site": "kaigi.policy_named_key"},
@@ -12288,6 +12321,12 @@
    {
     "family": "rust",
     "path": "crates/iroha/src/client.rs",
+    "product": "atomic_settlement",
+    "symbols": ["get_private_settlement_context_async"]
+   },
+   {
+    "family": "rust",
+    "path": "crates/iroha/src/client.rs",
     "product": "exact12_admission",
     "symbols": ["get_privacy_capabilities", "get_privacy_capabilities_json"]
    },
@@ -12336,16 +12375,11 @@
     "path": "crates/iroha/src/client.rs",
     "product": "voting",
     "symbols": [
-     "catch_up_parliament_timed_ovn_casting_proof",
      "get_parliament_attempt",
      "get_parliament_attempt_plan",
-     "get_parliament_timed_ovn_casting_context",
-     "get_parliament_timed_ovn_casting_proof_page",
-     "get_parliament_tle_release_context",
      "post_gov_ballot_plain_json",
      "post_gov_ballot_zk_v1_json",
      "post_parliament_attempt_draft",
-     "post_parliament_tle_partial_release",
      "post_parliament_transition_draft",
      "require_exact_governance_ballot_identity",
      "validate_parliament_attempt_draft_response",
@@ -12391,11 +12425,13 @@
      "private_settlement_committee_proof_v1",
      "private_settlement_leg_ordinal_for_payload_v1",
      "private_settlement_leg_status_v1",
+     "private_settlement_manifest_with_availability_v1",
      "private_settlement_phase_certificates_from_v1",
      "private_settlement_phase_certificates_v1",
      "private_settlement_reserved_prepared_digest_v1",
      "private_settlement_resource_path_v1",
      "private_settlement_test_network_state_evidence_v1",
+     "promote_private_settlement_legs_v1",
      "recover_or_certify_private_settlement_commit_v1",
      "recover_or_certify_private_settlement_prepare_v1",
      "recover_or_commit_private_settlement_bundle_v1",
@@ -12422,6 +12458,24 @@
      "validate_private_settlement_endpoint_v1",
      "validate_private_settlement_sponsor_context_v1"
     ]
+   },
+   {
+    "family": "rust",
+    "path": "crates/iroha/src/client/private_settlement/operation.rs",
+    "product": "atomic_settlement",
+    "symbols": ["private_settlement"]
+   },
+   {
+    "family": "rust",
+    "path": "crates/iroha/src/client/private_settlement/operation/worker.rs",
+    "product": "atomic_settlement",
+    "symbols": ["run_private_settlement_worker"]
+   },
+   {
+    "family": "rust",
+    "path": "crates/iroha/src/client/private_settlement_context.rs",
+    "product": "atomic_settlement",
+    "symbols": ["get_private_settlement_context_async"]
    },
    {
     "family": "rust",
@@ -12460,18 +12514,6 @@
      "read_moderation_ballot_payload_file",
      "write_moderation_ballots_executor_bundle"
     ]
-   },
-   {
-    "family": "rust",
-    "path": "crates/iroha_cli/src/gov/parliament.rs",
-    "product": "voting",
-    "symbols": ["finalize_opened_ballot_instruction", "parse_ballot_attempt_id"]
-   },
-   {
-    "family": "rust",
-    "path": "crates/iroha_cli/src/gov/parliament/ballot.rs",
-    "product": "voting",
-    "symbols": ["archive_ballot_attempt_id", "ballot_from_seed", "ballot_rng", "find_ballot_progress", "read_ballot_progress"]
    },
    {"family": "rust", "path": "crates/iroha_cli/src/gov/parliament/member.rs", "product": "voting", "symbols": ["parse_election_attempt_id"]},
    {"family": "rust", "path": "crates/iroha_cli/src/main_shared.rs", "product": "generic_proof", "symbols": ["parse_data_verifying_key_id"]},
@@ -12543,12 +12585,6 @@
    },
    {
     "family": "kotlin_java_android",
-    "path": "java/iroha_android/android/src/main/java/org/hyperledger/iroha/android/governance/ParliamentTimedOvnWalletV1.java",
-    "product": "voting",
-    "symbols": ["ballot", "ballotFromProofV1"]
-   },
-   {
-    "family": "kotlin_java_android",
     "path": "java/iroha_android/src/main/java/org/hyperledger/iroha/android/client/ClientConfig.java",
     "product": "confidential_assets",
     "symbols": ["toConfidentialAssetToriiClient"]
@@ -12601,17 +12637,7 @@
     "family": "kotlin_java_android",
     "path": "java/iroha_android/src/main/java/org/hyperledger/iroha/android/client/HttpClientTransport.java",
     "product": "voting",
-    "symbols": [
-     "draftParliamentAttemptV1",
-     "draftParliamentTransitionV1",
-     "getParliamentAttemptV1",
-     "getParliamentTimedOvnCastingContextV1",
-     "getParliamentTimedOvnCastingProofPageV1",
-     "getParliamentTleReleaseContextV1",
-     "requestParliamentTimedOvnCastingProofUntilTerminalV1",
-     "requestParliamentTimedOvnCastingProofV1",
-     "requestParliamentTlePartialReleaseV1"
-    ]
+    "symbols": ["draftParliamentAttemptV1", "draftParliamentTransitionV1", "getParliamentAttemptV1"]
    },
    {
     "family": "kotlin_java_android",
@@ -12711,18 +12737,6 @@
    },
    {
     "family": "kotlin_java_android",
-    "path": "kotlin/client-android/src/main/java/org/hyperledger/iroha/sdk/governance/ParliamentTimedOvnWalletV1.kt",
-    "product": "soracloud_fhe",
-    "symbols": ["decrypt"]
-   },
-   {
-    "family": "kotlin_java_android",
-    "path": "kotlin/client-android/src/main/java/org/hyperledger/iroha/sdk/governance/ParliamentTimedOvnWalletV1.kt",
-    "product": "voting",
-    "symbols": ["ballot", "ballotAttemptIdBytes", "ballotFromProofV1", "expectedBallotAttemptId", "nativeBallotFromProofV1"]
-   },
-   {
-    "family": "kotlin_java_android",
     "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/ClientConfig.kt",
     "product": "confidential_assets",
     "symbols": ["toConfidentialAssetToriiClient"]
@@ -12790,24 +12804,7 @@
     "family": "kotlin_java_android",
     "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/HttpClientTransport.kt",
     "product": "voting",
-    "symbols": [
-     "draftParliamentAttemptV1",
-     "draftParliamentTransitionV1",
-     "getElectionTally",
-     "getParliamentAttemptV1",
-     "getParliamentTimedOvnCastingContextV1",
-     "getParliamentTimedOvnCastingProofPageV1",
-     "getParliamentTleReleaseContextV1",
-     "requestParliamentTimedOvnCastingProofUntilTerminalV1",
-     "requestParliamentTimedOvnCastingProofV1",
-     "requestParliamentTlePartialReleaseV1"
-    ]
-   },
-   {
-    "family": "kotlin_java_android",
-    "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/ParliamentApiV1.kt",
-    "product": "voting",
-    "symbols": ["validateCertificateBallot"]
+    "symbols": ["draftParliamentAttemptV1", "draftParliamentTransitionV1", "getElectionTally", "getParliamentAttemptV1"]
    },
    {
     "family": "kotlin_java_android",
@@ -13032,21 +13029,7 @@
     "family": "swift",
     "path": "IrohaSwift/Sources/IrohaSwift/NativeBridge.swift",
     "product": "voting",
-    "symbols": [
-     "decodeParliamentTimedOvnCastingProofPageVerificationV1",
-     "encodeGovernanceCastPlainBallot",
-     "encodeGovernanceCastZkBallot",
-     "parliamentTimedOvnBallotFromProofV1",
-     "parliamentTimedOvnPublicRecordV1",
-     "parliamentTimedOvnRegistrationFromProofV1",
-     "parliamentTimedOvnVerifyCastingProofPageV1"
-    ]
-   },
-   {
-    "family": "swift",
-    "path": "IrohaSwift/Sources/IrohaSwift/ParliamentTimedOvnKeychainSeed.swift",
-    "product": "voting",
-    "symbols": ["parliamentTimedOvnWipe", "withParliamentTimedOvnLock"]
+    "symbols": ["encodeGovernanceCastPlainBallot", "encodeGovernanceCastZkBallot"]
    },
    {
     "family": "swift",
@@ -13130,14 +13113,7 @@
      "draftParliamentTransitionV1",
      "getElectionTally",
      "getParliamentAttemptV1",
-     "getParliamentTimedOvnCastingContextV1",
-     "getParliamentTimedOvnCastingProofPageV1",
-     "getParliamentTleReleaseContextV1",
      "postGovernanceBallotJSON",
-     "requestParliamentTimedOvnCastingProofUntilTerminalV1",
-     "requestParliamentTimedOvnCastingProofV1",
-     "requestParliamentTlePartialReleaseV1",
-     "sendExactParliamentCastingProof",
      "submitGovernancePlainBallot",
      "submitGovernanceZkBallotProofV1",
      "submitGovernanceZkBallotV1"
@@ -13163,12 +13139,6 @@
     "path": "IrohaSwift/Sources/IrohaSwift/ToriiGovernancePlainBallot.swift",
     "product": "generic_proof",
     "symbols": ["canonicalizeGovernanceZkOwnerLiteral"]
-   },
-   {
-    "family": "swift",
-    "path": "IrohaSwift/Sources/IrohaSwift/ToriiParliamentAPIV1.swift",
-    "product": "voting",
-    "symbols": ["validateBallotBinding"]
    },
    {
     "family": "swift",
@@ -13361,28 +13331,15 @@
      "buildSubmitBallotTransaction",
      "draftParliamentAttemptV1",
      "draftParliamentTransitionV1",
-     "encodeParliamentTimedOvnCastingProofRequestV1",
      "getElectionTally",
      "getParliamentAttemptV1",
-     "getParliamentTimedOvnCastingContextV1",
-     "getParliamentTimedOvnCastingProofPageV1",
-     "getParliamentTleReleaseContextV1",
      "governanceSubmitPlainBallot",
      "governanceSubmitZkBallotProofV1",
      "governanceSubmitZkBallotV1",
      "normalizeParliamentAttemptDraftResponseV1",
      "normalizeParliamentAttemptReadResponseV1",
-     "normalizeParliamentTimedOvnCastingContextResponseV1",
-     "normalizeParliamentTlePartialReleaseShareV1",
-     "normalizeParliamentTleReleaseContextResponseV1",
      "normalizeParliamentTransitionDraftResponseV1",
-     "parliamentAttemptReadPathV1",
-     "parliamentTimedOvnCastingContextReadPathV1",
-     "parliamentTimedOvnCastingProofPathV1",
-     "parliamentTlePartialReleasePathV1",
-     "parliamentTleReleaseContextReadPathV1",
-     "requestParliamentTlePartialReleaseV1",
-     "validateParliamentTimedOvnCastingProofResponseFrameV1"
+     "parliamentAttemptReadPathV1"
     ]
    },
    {
@@ -13691,21 +13648,11 @@
     "symbols": [
      "buildParliamentAttemptDraftRequestV1",
      "buildParliamentTransitionDraftRequestV1",
-     "encodeParliamentTimedOvnCastingProofRequestV1",
      "normalizeParliamentAttemptDraftResponseV1",
      "normalizeParliamentAttemptReadResponseV1",
      "normalizeParliamentGovernanceCertificateV1",
-     "normalizeParliamentTimedOvnCastingContextResponseV1",
-     "normalizeParliamentTlePartialReleaseShareV1",
-     "normalizeParliamentTleReleaseContextResponseV1",
      "normalizeParliamentTransitionDraftResponseV1",
-     "parliamentAttemptReadPathV1",
-     "parliamentTimedOvnCastingContextReadPathV1",
-     "parliamentTimedOvnCastingProofPathV1",
-     "parliamentTlePartialReleasePathV1",
-     "parliamentTleReleaseContextReadPathV1",
-     "validateBallotCertificate",
-     "validateParliamentTimedOvnCastingProofResponseFrameV1"
+     "parliamentAttemptReadPathV1"
     ]
    },
    {
@@ -13891,13 +13838,9 @@
      "draftParliamentTransitionV1",
      "getElectionTally",
      "getParliamentAttemptV1",
-     "getParliamentTimedOvnCastingContextV1",
-     "getParliamentTimedOvnCastingProofPageV1",
-     "getParliamentTleReleaseContextV1",
      "governanceSubmitPlainBallot",
      "governanceSubmitZkBallotProofV1",
-     "governanceSubmitZkBallotV1",
-     "requestParliamentTlePartialReleaseV1"
+     "governanceSubmitZkBallotV1"
     ]
    },
    {
@@ -14405,15 +14348,9 @@
      "_parliament_json",
      "_parliament_response",
      "_reject_parliament_ambient_auth",
-     "_validate_ballot_binding",
      "draft_parliament_attempt_v1",
      "draft_parliament_transition_v1",
-     "encode_parliament_timed_ovn_casting_proof_request_v1",
-     "get_parliament_attempt_v1",
-     "get_parliament_timed_ovn_casting_context_v1",
-     "get_parliament_timed_ovn_casting_proof_page_v1",
-     "get_parliament_tle_release_context_v1",
-     "request_parliament_tle_partial_release_v1"
+     "get_parliament_attempt_v1"
     ]
    },
    {

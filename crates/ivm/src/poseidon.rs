@@ -2,8 +2,10 @@
 //!
 //! The permutations operate on BN254 field elements via
 //! [`bn254_vec`] which dispatches to SIMD backends when available.
-//! This mirrors the circuit implementation used by Halo2 and allows
-//! tests to exercise the same arithmetic on CPUs with SSE2, AVX2, AVX-512 or NEON.
+//! The H.2 fixed-arity mode matches the canonical native owner. Tests exercise
+//! the complete state on scalar, SSE2, AVX2, AVX-512 and NEON implementations.
+//! A native bridge is not a constrained Halo2 proof. Opcode outputs are truncated
+//! to 64 bits and must not be used as commitments.
 use crate::bn254_vec::{self as field_vec, FieldElem};
 use ff::PrimeField;
 use halo2curves::bn256::Fr;
@@ -17,10 +19,11 @@ fn to_u64(f: Fr) -> u64 {
         bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
     ])
 }
-const ROUND_COUNT: usize = 64;
+use iroha_zkp_halo2::poseidon::{
+    WIDTH3_PARTIAL_ROUNDS, WIDTH3_ROUNDS, WIDTH6_PARTIAL_ROUNDS, WIDTH6_ROUNDS,
+};
 const FULL_ROUNDS_HALF: usize = 4;
-const PARTIAL_ROUNDS: usize = 56;
-type Parameters<const W: usize> = ([[FieldElem; W]; ROUND_COUNT], [[FieldElem; W]; W]);
+type Parameters<const W: usize, const R: usize> = ([[FieldElem; W]; R], [[FieldElem; W]; W]);
 fn fixed_field(bytes: [u8; 32]) -> FieldElem {
     let field = FieldElem(std::array::from_fn(|i| {
         u64::from_le_bytes(bytes[i * 8..(i + 1) * 8].try_into().expect("fixed limb"))
@@ -28,29 +31,29 @@ fn fixed_field(bytes: [u8; 32]) -> FieldElem {
     assert!(field.is_canonical(), "canonical V1 parameter field");
     field
 }
-fn fixed_parameters<const W: usize>(
-    params: iroha_zkp_halo2::poseidon::Bn254PoseidonParams<W>,
-) -> Parameters<W> {
+fn fixed_parameters<const W: usize, const R: usize>(
+    params: iroha_zkp_halo2::poseidon::Bn254PoseidonParams<W, R>,
+) -> Parameters<W, R> {
     (
         params.round_constants.map(|row| row.map(fixed_field)),
         params.mds.map(|row| row.map(fixed_field)),
     )
 }
 pub(crate) fn poseidon2_params() -> (
-    &'static [[FieldElem; 3]; ROUND_COUNT],
+    &'static [[FieldElem; 3]; WIDTH3_ROUNDS],
     &'static [[FieldElem; 3]; 3],
 ) {
-    static PARAMS: OnceLock<Parameters<3>> = OnceLock::new();
+    static PARAMS: OnceLock<Parameters<3, WIDTH3_ROUNDS>> = OnceLock::new();
     let params = PARAMS.get_or_init(|| {
         fixed_parameters(iroha_zkp_halo2::poseidon::bn254_poseidon_params_width3())
     });
     (&params.0, &params.1)
 }
 pub(crate) fn poseidon6_params() -> (
-    &'static [[FieldElem; 6]; ROUND_COUNT],
+    &'static [[FieldElem; 6]; WIDTH6_ROUNDS],
     &'static [[FieldElem; 6]; 6],
 ) {
-    static PARAMS: OnceLock<Parameters<6>> = OnceLock::new();
+    static PARAMS: OnceLock<Parameters<6, WIDTH6_ROUNDS>> = OnceLock::new();
     let params = PARAMS.get_or_init(|| {
         fixed_parameters(iroha_zkp_halo2::poseidon::bn254_poseidon_params_width6())
     });
@@ -97,12 +100,12 @@ pub fn poseidon2_simd(a: u64, b: u64) -> u64 {
 }
 fn poseidon2_impl(a: u64, b: u64) -> u64 {
     let mut state = [
-        FieldElem::from_fr(Fr::from(a)),
-        FieldElem::from_fr(Fr::from(b)),
-        FieldElem([0u64; 4]),
+        FieldElem([0, 2, 0, 0]),
+        FieldElem::from_u64(a),
+        FieldElem::from_u64(b),
     ];
     permute2_with(&mut state, field_vec::add, field_vec::mul);
-    to_u64(state[0].to_fr())
+    to_u64(state[1].to_fr())
 }
 fn permute2_with(
     state: &mut [FieldElem; 3],
@@ -111,7 +114,7 @@ fn permute2_with(
 ) {
     let (round_constants, mds) = poseidon2_params();
     let rf_half = FULL_ROUNDS_HALF;
-    let rp = PARTIAL_ROUNDS;
+    let rp = WIDTH3_PARTIAL_ROUNDS;
     let sbox = |x: FieldElem| {
         let x2 = mul(x, x);
         let x4 = mul(x2, x2);
@@ -171,15 +174,17 @@ pub fn poseidon6_simd(inputs: [u64; 6]) -> u64 {
 }
 fn poseidon6_impl(inputs: [u64; 6]) -> u64 {
     let mut state = [
-        FieldElem::from_fr(Fr::from(inputs[0])),
-        FieldElem::from_fr(Fr::from(inputs[1])),
-        FieldElem::from_fr(Fr::from(inputs[2])),
-        FieldElem::from_fr(Fr::from(inputs[3])),
-        FieldElem::from_fr(Fr::from(inputs[4])),
-        FieldElem::from_fr(Fr::from(inputs[5])),
+        FieldElem([0, 6, 0, 0]),
+        FieldElem::from_u64(inputs[0]),
+        FieldElem::from_u64(inputs[1]),
+        FieldElem::from_u64(inputs[2]),
+        FieldElem::from_u64(inputs[3]),
+        FieldElem::from_u64(inputs[4]),
     ];
     permute6_with(&mut state, field_vec::add, field_vec::mul);
-    to_u64(state[0].to_fr())
+    state[1] = field_vec::add(state[1], FieldElem::from_u64(inputs[5]));
+    permute6_with(&mut state, field_vec::add, field_vec::mul);
+    to_u64(state[1].to_fr())
 }
 fn permute6_with(
     state: &mut [FieldElem; 6],
@@ -188,7 +193,7 @@ fn permute6_with(
 ) {
     let (round_constants, mds) = poseidon6_params();
     let rf_half = FULL_ROUNDS_HALF;
-    let rp = PARTIAL_ROUNDS;
+    let rp = WIDTH6_PARTIAL_ROUNDS;
     let sbox = |x: FieldElem| {
         let x2 = mul(x, x);
         let x4 = mul(x2, x2);

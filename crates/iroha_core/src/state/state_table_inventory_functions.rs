@@ -1232,6 +1232,12 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     ),
     function(
         "crates/iroha_core/src/sumeragi/finality.rs",
+        "attestation_proofs",
+        1,
+        UseOwner::Other(Use::ResultBinding, CERTIFIED_IDENTITY),
+    ),
+    function(
+        "crates/iroha_core/src/sumeragi/finality.rs",
         "build_proof",
         1,
         UseOwner::Other(Use::ResultBinding, CERTIFIED_IDENTITY),

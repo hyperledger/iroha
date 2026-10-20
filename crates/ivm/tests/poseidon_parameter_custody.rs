@@ -6,13 +6,13 @@ use iroha_zkp_halo2::poseidon::{
     bn254_poseidon_params_width3, bn254_poseidon_params_width6, hash2_bytes, hash6_bytes,
 };
 
-fn zero<T>(operation: impl FnOnce() -> T) -> T {
+fn zero<T>(name: &'static str, operation: impl FnOnce() -> T) -> T {
     let (result, observed) = observer::measured(operation);
     assert_eq!(
         observed.requests, [0; 3],
-        "alloc/alloc_zeroed/realloc requests"
+        "{name}: alloc/alloc_zeroed/realloc requests"
     );
-    assert_eq!(observed.bytes, 0);
+    assert_eq!(observed.bytes, 0, "{name}: requested bytes");
     result
 }
 #[test]
@@ -20,20 +20,20 @@ fn fresh_process_cold_and_warm_fixed_canonical_and_ivm_parameters_allocate_nothi
     // This binary contains exactly one test. Dispatch is prepared without hashing
     // or touching either parameter bank before the first measured cold call.
     let backend = ivm::field_dispatch::field_impl().type_id();
-    let width3 = zero(bn254_poseidon_params_width3);
-    let width6 = zero(bn254_poseidon_params_width6);
-    assert_eq!(width3.round_constants.len(), 64);
-    assert_eq!(width6.round_constants.len(), 64);
-    let canonical2 = zero(|| hash2_bytes(0, 0));
-    let canonical6 = zero(|| hash6_bytes([1, 2, 3, 4, 5, 6]));
-    let ordinary2 = zero(|| ivm::poseidon2(0, 0));
-    let ordinary6 = zero(|| ivm::poseidon6([1, 2, 3, 4, 5, 6]));
-    assert_eq!(ordinary2, 0x541b_c08e_21ea_84d9);
-    assert_eq!(ordinary6, 0xe56f_9ee6_b038_389a);
+    let width3 = zero("cold width3 export", bn254_poseidon_params_width3);
+    let width6 = zero("cold width6 export", bn254_poseidon_params_width6);
+    assert_eq!(width3.round_constants.len(), 65);
+    assert_eq!(width6.round_constants.len(), 68);
+    let canonical2 = zero("cold canonical hash2", || hash2_bytes(0, 0));
+    let canonical6 = zero("cold canonical hash6", || hash6_bytes([1, 2, 3, 4, 5, 6]));
+    let ordinary2 = zero("cold IVM poseidon2", || ivm::poseidon2(0, 0));
+    let ordinary6 = zero("cold IVM poseidon6", || ivm::poseidon6([1, 2, 3, 4, 5, 6]));
+    assert_eq!(ordinary2, 0x291e_f55c_ed50_4e95);
+    assert_eq!(ordinary6, 0xea55_3770_3da8_51ec);
     assert_eq!(&canonical2[..8], &ordinary2.to_le_bytes());
     assert_eq!(&canonical6[..8], &ordinary6.to_le_bytes());
     for _ in 0..8 {
-        zero(|| {
+        zero("warm repeated exports and hashes", || {
             assert_eq!(
                 bn254_poseidon_params_width3().round_constants,
                 width3.round_constants

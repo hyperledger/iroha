@@ -223,7 +223,7 @@ __device__ bool poseidon_permute(
     uint32_t partial_rounds,
     KernelStatus* status_ptr
 ) {
-    if (width == 0 || width > MAX_STATE_WIDTH) {
+    if (width != 3 && width != 6) {
         report_error(status_ptr, STATUS_ERR_WIDTH, width);
         return false;
     }
@@ -232,7 +232,7 @@ __device__ bool poseidon_permute(
         report_error(status_ptr, STATUS_ERR_STRIDE, state_stride_words);
         return false;
     }
-    if (full_rounds == 0 || (full_rounds & 1U)) {
+    if (full_rounds != 8 || partial_rounds != (width == 3 ? 57U : 60U) || domain_tag != 0) {
         report_error(status_ptr, STATUS_ERR_ROUNDS, full_rounds);
         return false;
     }
@@ -251,46 +251,57 @@ __device__ bool poseidon_permute(
         state[lane] = field_zero();
     }
 
-    if (domain_tag != 0) {
-        FieldElem tag = field_from_u64(domain_tag);
-        state[width - 1] = field_add(state[width - 1], tag);
+    // H.2 fixed-arity sponge: capacity coordinate zero, arity * 2^64.
+    // The raw input bank contains two or six u64 values, not a caller-chosen
+    // capacity value. The reserved ABI argument must be zero (checked above).
+    FieldElem final_input = state[5];
+    for (uint32_t lane = width - 1; lane > 0; --lane) {
+        state[lane] = state[lane - 1];
     }
+    state[0] = field_zero();
+    state[0].limbs[1] = width == 3 ? 2U : 6U;
 
     uint32_t rf_half = full_rounds / 2;
 
-    for (uint32_t round = 0; round < rf_half; ++round) {
-        for (uint32_t lane = 0; lane < width; ++lane) {
-            const uint64_t* rc_ptr =
-                round_constants + (round * width + lane) * FIELD_LIMBS;
-            FieldElem rc = load_field(rc_ptr);
-            FieldElem sum = field_add(state[lane], rc);
-            state[lane] = field_pow5(sum);
+    uint32_t blocks = width == 3 ? 1U : 2U;
+    for (uint32_t block = 0; block < blocks; ++block) {
+        if (block == 1) {
+            state[1] = field_add(state[1], final_input);
         }
-        apply_mds(mds_matrix, state, width);
-    }
+        for (uint32_t round = 0; round < rf_half; ++round) {
+            for (uint32_t lane = 0; lane < width; ++lane) {
+                const uint64_t* rc_ptr =
+                    round_constants + (round * width + lane) * FIELD_LIMBS;
+                FieldElem rc = load_field(rc_ptr);
+                FieldElem sum = field_add(state[lane], rc);
+                state[lane] = field_pow5(sum);
+            }
+            apply_mds(mds_matrix, state, width);
+        }
 
-    for (uint32_t round = 0; round < partial_rounds; ++round) {
-        uint32_t idx_round = rf_half + round;
-        for (uint32_t lane = 0; lane < width; ++lane) {
-            const uint64_t* rc_ptr =
-                round_constants + (idx_round * width + lane) * FIELD_LIMBS;
-            FieldElem rc = load_field(rc_ptr);
-            state[lane] = field_add(state[lane], rc);
+        for (uint32_t round = 0; round < partial_rounds; ++round) {
+            uint32_t idx_round = rf_half + round;
+            for (uint32_t lane = 0; lane < width; ++lane) {
+                const uint64_t* rc_ptr =
+                    round_constants + (idx_round * width + lane) * FIELD_LIMBS;
+                FieldElem rc = load_field(rc_ptr);
+                state[lane] = field_add(state[lane], rc);
+            }
+            state[0] = field_pow5(state[0]);
+            apply_mds(mds_matrix, state, width);
         }
-        state[0] = field_pow5(state[0]);
-        apply_mds(mds_matrix, state, width);
-    }
 
-    for (uint32_t round = 0; round < rf_half; ++round) {
-        uint32_t idx_round = rf_half + partial_rounds + round;
-        for (uint32_t lane = 0; lane < width; ++lane) {
-            const uint64_t* rc_ptr =
-                round_constants + (idx_round * width + lane) * FIELD_LIMBS;
-            FieldElem rc = load_field(rc_ptr);
-            FieldElem sum = field_add(state[lane], rc);
-            state[lane] = field_pow5(sum);
+        for (uint32_t round = 0; round < rf_half; ++round) {
+            uint32_t idx_round = rf_half + partial_rounds + round;
+            for (uint32_t lane = 0; lane < width; ++lane) {
+                const uint64_t* rc_ptr =
+                    round_constants + (idx_round * width + lane) * FIELD_LIMBS;
+                FieldElem rc = load_field(rc_ptr);
+                FieldElem sum = field_add(state[lane], rc);
+                state[lane] = field_pow5(sum);
+            }
+            apply_mds(mds_matrix, state, width);
         }
-        apply_mds(mds_matrix, state, width);
     }
 
     for (uint32_t lane = 0; lane < width; ++lane) {

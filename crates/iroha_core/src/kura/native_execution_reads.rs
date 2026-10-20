@@ -183,6 +183,24 @@ impl NativeFrameRead<'_> {
         self.binding
             .read_original(self.kura, admitted_wire_len, budget)
     }
+
+    /// Load one exact byte range of this admitted slot, with the same storage guards and
+    /// durable rechecks as [`Self::read_original`], but without reading the rest of the frame.
+    ///
+    /// The window is charged only to `pool`, and before any storage guard is taken or durable
+    /// metadata is decoded, so a refused window performs no source work. Window backing is a
+    /// physical I/O buffer, not a decoded graph; callers bound the cumulative bytes they read.
+    /// The returned bytes are untrusted: the caller authenticates every value derived from them.
+    pub(crate) fn read_window(
+        &self,
+        admitted_wire_len: u64,
+        offset: u64,
+        len: usize,
+        pool: &iroha_allocation::AllocationBudget,
+    ) -> Result<Option<NativeFrameBytes>> {
+        self.binding
+            .read_window(self.kura, admitted_wire_len, offset, len, pool)
+    }
 }
 
 /// The same untrusted original slot, retaining its actual Kura owner across State views.
@@ -327,8 +345,158 @@ impl NativeFrameBinding {
             Ok(Some(bytes.take_completed()))
         })
     }
+
+    // One exact range of the same original slot. Backing is admitted first; the guards,
+    // journal binding and slot identity are then rechecked exactly as for a whole frame.
+    fn read_window(
+        &self,
+        kura: &Kura,
+        admitted_wire_len: u64,
+        offset: u64,
+        len: usize,
+        pool: &iroha_allocation::AllocationBudget,
+    ) -> Result<Option<NativeFrameBytes>> {
+        pool.with_deferred_refund_notifications(|_| {
+            let Self {
+                height,
+                hash,
+                wire_len,
+                start,
+                journals,
+                ..
+            } = self;
+            let (height, hash, wire_len, start) = (*height, *hash, *wire_len, *start);
+            if admitted_wire_len != wire_len || len == 0 {
+                return Err(Error::CanonicalBlockWireMismatch { height });
+            }
+            offset
+                .checked_add(u64::try_from(len)?)
+                .filter(|end| *end <= wire_len)
+                .ok_or(Error::CanonicalBlockWireMismatch { height })?;
+            // A refused window must not take a storage guard or decode the durable marker.
+            let mut bytes = NativeFrameDestination::new(pool);
+            bytes.prepare(len, height)?;
+            let position = height - 1;
+            let (mut prune_releases, mut canonical_releases) = (
+                kura.prune_lock.defer_notifications(),
+                kura.canonical_chain_lock.defer_notifications(),
+            );
+            let _prune = prune_releases.lock();
+            kura.ensure_prune_recovery_not_required()?;
+            let _canonical = canonical_releases.lock();
+            kura.ensure_canonical_storage_not_poisoned()?;
+            let mut store = kura.block_store.lock();
+            let before = kura.native_frame_journal_binding(&mut store)?;
+            if !Kura::native_frame_journal_objects_unchanged(journals, &before) {
+                return Err(Error::CanonicalBlockWireMismatch { height });
+            }
+            let count = store.read_exact_durable_index_count()?;
+            if height > count {
+                return Ok(None);
+            }
+            if Kura::read_durable_hash_at_height(&mut store, height)? != Some(hash) {
+                return Err(Error::CanonicalBlockWireMismatch { height });
+            }
+            let slot = store.read_block_index(position)?;
+            if slot.length != wire_len || slot.start != start {
+                return Err(Error::CanonicalBlockWireMismatch { height });
+            }
+            if slot.is_evicted() {
+                let read = Kura::read_regular_sidecar_range_into(
+                    &store.path_to_blockchain,
+                    &store.da_block_path(height),
+                    &store.da_blocks_dir,
+                    height,
+                    wire_len,
+                    offset,
+                    bytes.as_mut(),
+                )?;
+                if !read {
+                    return Ok(None);
+                }
+            } else {
+                let at = slot
+                    .start
+                    .checked_add(offset)
+                    .ok_or(Error::CanonicalBlockWireMismatch { height })?;
+                store.read_block_data(at, bytes.as_mut())?;
+            }
+            let confirmed = store.read_block_index(position)?;
+            if store.read_exact_durable_index_count()? != count
+                || confirmed.start != slot.start
+                || confirmed.length != slot.length
+                || Kura::read_durable_hash_at_height(&mut store, height)? != Some(hash)
+                || !Kura::native_frame_journal_images_unchanged(
+                    &before,
+                    &kura.native_frame_journal_binding(&mut store)?,
+                )
+            {
+                return Err(Error::CanonicalBlockWireMismatch { height });
+            }
+            Ok(Some(bytes.take_completed()))
+        })
+    }
 }
 impl Kura {
+    // The stable no-follow walk of `read_regular_sidecar_snapshot_into`, reading only one
+    // exact range of an evicted frame whose complete length its durable slot already admits.
+    // Returns `false` when the sidecar is absent; a changed or resized sidecar is refused.
+    fn read_regular_sidecar_range_into(
+        store_root: &Path,
+        path: &Path,
+        expected_directory: &Path,
+        height: u64,
+        expected_len: u64,
+        offset: u64,
+        destination: &mut [u8],
+    ) -> Result<bool> {
+        let changed = |reason: &str| {
+            Error::IO(
+                std::io::Error::new(ErrorKind::InvalidData, reason.to_owned()),
+                path.to_path_buf(),
+            )
+        };
+        let directory_before =
+            Self::canonical_sidecar_directory_for(store_root, expected_directory)?;
+        let Some(metadata) =
+            Self::regular_sidecar_metadata_for(store_root, path, expected_directory)?
+        else {
+            return Ok(false);
+        };
+        let Some((_, directory_before)) = directory_before else {
+            return Err(changed("sidecar exists without a stable direct directory"));
+        };
+        if !Self::sidecar_directory_binding_unchanged(&directory_before, &metadata.directory) {
+            return Err(changed("sidecar directory changed before bounded read"));
+        }
+        if metadata.file.len() != expected_len {
+            return Err(Error::CanonicalBlockWireMismatch { height });
+        }
+        let mut file = open_read_only_regular_file(path, "bounded Kura sidecar")
+            .map_err(|err| Error::IO(err, path.to_path_buf()))?;
+        let opened = secure_file_metadata::from_file(&file)
+            .map_err(|err| Error::IO(err, path.to_path_buf()))?;
+        if !opened.is_file() || !Self::sidecar_file_metadata_unchanged(&metadata.file, &opened) {
+            return Err(changed("sidecar file changed while opening"));
+        }
+        file.seek(SeekFrom::Start(offset))
+            .map_err(|err| Error::IO(err, path.to_path_buf()))?;
+        file.read_exact(destination)
+            .map_err(|err| Error::IO(err, path.to_path_buf()))?;
+        let opened_after = secure_file_metadata::from_file(&file)
+            .map_err(|err| Error::IO(err, path.to_path_buf()))?;
+        let path_after = Self::regular_sidecar_metadata_for(store_root, path, expected_directory)?;
+        if !Self::sidecar_file_metadata_unchanged(&metadata.file, &opened_after)
+            || !path_after.as_ref().is_some_and(|after| {
+                Self::stable_sidecar_file_binding_unchanged(&metadata, after)
+                    && Self::sidecar_metadata_same_object(&directory_before, &after.directory)
+            })
+        {
+            return Err(changed("sidecar changed while reading its admitted range"));
+        }
+        Ok(true)
+    }
+
     /// Bind each retained original journal descriptor to its regular direct pathname.
     /// Missing, replaced, linked or special paths refuse before frame allocation or I/O.
     fn native_frame_journal_binding(
@@ -1115,6 +1283,129 @@ mod native_execution_read_tests {
                 .is_err()
         );
     }
+
+    #[test]
+    fn native_frame_windows_read_exact_ranges_from_both_stores() {
+        for evicted in [false, true] {
+            let mut chain =
+                CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+            chain.commit(Vec::new());
+            let original = chain.committed(2);
+            let wire = original.block().encode_wire().unwrap();
+            let height = NonZeroUsize::new(2).unwrap();
+            if evicted {
+                chain.kura().evict_native_frame_for_test(height);
+                let mut store = chain.kura().block_store.lock();
+                assert!(store.read_block_index(1).unwrap().is_evicted());
+            }
+            let source = chain
+                .kura()
+                .native_frame_read(2, original.block_hash())
+                .unwrap()
+                .unwrap();
+            let length = source.wire_len();
+            assert_eq!(length, u64::try_from(wire.len()).unwrap());
+            let pool = iroha_allocation::AllocationBudget::new(wire.len());
+            let middle = wire.len() / 2;
+            for (offset, len) in [
+                (0, 1),
+                (0, wire.len()),
+                (middle, wire.len() - middle),
+                (wire.len() - 1, 1),
+                (middle, 7),
+            ] {
+                let bytes = source
+                    .read_window(length, u64::try_from(offset).unwrap(), len, &pool)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(bytes.as_slice(), &wire[offset..offset + len]);
+                assert!(bytes.belongs_to(&pool));
+            }
+            assert_eq!(pool.reserved_bytes(), 0, "every window is released");
+            // One byte past the slot, an empty window and a changed admitted slot are refused.
+            for (offset, len, admitted) in [
+                (wire.len() - 1, 2, length),
+                (0, wire.len() + 1, length),
+                (0, 0, length),
+                (0, 1, length - 1),
+            ] {
+                assert!(matches!(
+                    source.read_window(admitted, u64::try_from(offset).unwrap(), len, &pool),
+                    Err(Error::CanonicalBlockWireMismatch { height: 2 })
+                ));
+            }
+            assert_eq!(pool.reserved_bytes(), 0);
+        }
+    }
+
+    #[test]
+    fn native_frame_window_is_charged_to_its_pool_before_any_storage_work() {
+        use iroha_allocation::{AllocationRefusal, ChargedBufferError};
+        let mut chain =
+            CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
+        chain.commit(Vec::new());
+        let original = chain.committed(2);
+        let wire = original.block().encode_wire().unwrap();
+        let source = chain
+            .kura()
+            .native_frame_read(2, original.block_hash())
+            .unwrap()
+            .unwrap();
+        let length = source.wire_len();
+        let limit = 64;
+        let pool = iroha_allocation::AllocationBudget::new(limit);
+        let context = norito::core::DecodeBudgetContext::new(norito::DecodeLimits::new(
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            64,
+        ));
+        // Exactly the pool limit is admitted and read once.
+        chain.kura().reset_canonical_query_reads_for_test();
+        let exact = context
+            .with(|| source.read_window(length, 0, limit, &pool))
+            .unwrap()
+            .unwrap();
+        assert_eq!(exact.as_slice(), &wire[..limit]);
+        drop(exact);
+        assert_eq!(
+            chain.kura().canonical_query_reads_for_test(),
+            (1, u64::try_from(limit).unwrap())
+        );
+        // One byte more can never fit this pool: no guard, durable marker or body is touched.
+        chain.kura().reset_canonical_query_reads_for_test();
+        let consumed = context.consumed_allocated_bytes();
+        let refused = context.with(|| source.read_window(length, 0, limit + 1, &pool));
+        assert!(
+            matches!(
+                refused,
+                Err(Error::NativeFrameAllocation(ChargedBufferError::Admission(
+                    AllocationRefusal::ExceedsLimit {
+                        requested_bytes,
+                        limit_bytes,
+                    }
+                ))) if requested_bytes == limit + 1 && limit_bytes == limit
+            ),
+            "{refused:?}"
+        );
+        // An occupied pool is transient capacity, refused before the same storage work.
+        let held = pool.try_reserve_bytes(limit).unwrap();
+        let busy = context.with(|| source.read_window(length, 0, 1, &pool));
+        assert!(
+            matches!(
+                busy,
+                Err(Error::NativeFrameAllocation(ChargedBufferError::Admission(
+                    AllocationRefusal::Capacity { .. }
+                )))
+            ),
+            "{busy:?}"
+        );
+        assert_eq!(chain.kura().canonical_query_reads_for_test(), (0, 0));
+        assert_eq!(context.consumed_allocated_bytes(), consumed);
+        drop(held);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
 }
 
 #[cfg(any(test, feature = "iroha-core-tests"))]
@@ -1130,6 +1421,53 @@ impl Kura {
         store.read_block_data(slot.start, &mut bytes).unwrap();
         *bytes.last_mut().expect("native frame is nonempty") ^= 1;
         store.write_block_data(slot.start, &bytes).unwrap();
+    }
+}
+
+#[cfg(any(test, feature = "iroha-core-tests"))]
+impl Kura {
+    /// Overwrite `bytes` at `offset` of one inline durable frame, leaving its hash, index,
+    /// commit marker and cached original unchanged, for fail-closed bounded-read tests.
+    pub fn overwrite_native_frame_bytes_for_test(
+        &self,
+        height: NonZeroUsize,
+        offset: u64,
+        bytes: &[u8],
+    ) {
+        let mut store = self.block_store.lock();
+        let slot = store
+            .read_block_index(u64::try_from(height.get() - 1).unwrap())
+            .unwrap();
+        assert!(!slot.is_evicted());
+        let end = offset
+            .checked_add(u64::try_from(bytes.len()).unwrap())
+            .unwrap();
+        assert!(
+            end <= slot.length,
+            "overwrite stays inside the original slot"
+        );
+        store
+            .write_block_data(slot.start.checked_add(offset).unwrap(), bytes)
+            .unwrap();
+    }
+
+    /// Move one inline durable frame into its evicted DA sidecar with the same bytes, length,
+    /// hash and commit marker, so readers exercise the evicted storage path.
+    pub fn evict_native_frame_for_test(&self, height: NonZeroUsize) {
+        let mut store = self.block_store.lock();
+        let position = u64::try_from(height.get() - 1).unwrap();
+        let slot = store.read_block_index(position).unwrap();
+        assert!(!slot.is_evicted());
+        let mut bytes = vec![0; usize::try_from(slot.length).unwrap()];
+        store.read_block_data(slot.start, &mut bytes).unwrap();
+        let count = store.read_exact_durable_index_count().unwrap();
+        store
+            .write_da_block_bytes(u64::try_from(height.get()).unwrap(), &bytes)
+            .unwrap();
+        store
+            .write_block_index(position, EVICTED_BLOCK_START, slot.length)
+            .unwrap();
+        store.publish_commit_marker(count).unwrap();
     }
 }
 

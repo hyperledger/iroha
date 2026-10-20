@@ -105,20 +105,42 @@ def find_tool(name: str, commands: list[dict]) -> Path:
         if result.returncode == 0:
             path = Path(result.stdout.strip())
             if result.stdout.strip() and path.is_file():
-                return path.resolve(strict=True)
+                # The basename selects the Apple multi-call tool mode. Resolve the
+                # directory, but retain the discovered final component (metallib).
+                return path.parent.resolve(strict=True) / path.name
         diagnostics.append(diagnostic(result))
     raise GenerationError(f"failed to locate {name}: {'; '.join(diagnostics)}")
 
 
+def require_tool_identity(path: Path, identity: dict, when: str) -> None:
+    """Reject alias retargeting even when the replacement has identical bytes."""
+    if (str(path) != identity["path"]
+            or str(path.resolve(strict=True)) != identity["resolved_path"]
+            or digest_file(path) != identity["sha256"]):
+        raise GenerationError(f"{path.name} identity changed {when}")
+
+
 def probe_tool(path: Path, commands: list[dict]) -> dict:
-    original_digest = digest_file(path)
+    """Pin invocation mode and resolved bytes separately, retaining both probes."""
+    identity = {"path": str(path), "resolved_path": str(path.resolve(strict=True)),
+                "sha256": digest_file(path)}
     result = run([str(path), "-v"], commands)
     if result.returncode != 0:
         raise GenerationError(f"{path.name} failed its -v probe: {diagnostic(result)}")
-    if digest_file(path) != original_digest:
-        raise GenerationError(f"{path.name} identity changed during its version probe")
-    return {"path": str(path), "sha256": original_digest,
-            "version_stdout": result.stdout, "version_stderr": result.stderr}
+    require_tool_identity(path, identity, "during its version probe")
+    help_result = run([str(path), "-help"], commands)
+    if help_result.returncode != 0:
+        raise GenerationError(f"{path.name} failed its -help probe: {diagnostic(help_result)}")
+    require_tool_identity(path, identity, "during its help probe")
+    return {**identity, "version_stdout": result.stdout, "version_stderr": result.stderr,
+            "help_stdout": help_result.stdout, "help_stderr": help_result.stderr}
+
+
+def recheck_tool(path: Path, identity: dict, commands: list[dict], when: str) -> None:
+    """Reobserve the original invocation mode before publishing any approval input."""
+    require_tool_identity(path, identity, when)
+    if probe_tool(path, commands) != identity:
+        raise GenerationError(f"{path.name} mode changed {when}")
 
 
 def require_output(path: Path, label: str) -> None:
@@ -147,19 +169,14 @@ def generate(root: Path, output: Path, target: str) -> dict:
     try:
         metal = find_tool("metal", commands)
         metal_identity = probe_tool(metal, commands)
-        try:
-            metallib = find_tool("metallib", commands)
-        except GenerationError:
-            metallib = metal.with_name("metallib")
-            if not metallib.is_file():
-                raise
-            metallib = metallib.resolve(strict=True)
+        metallib = find_tool("metallib", commands)
         metallib_identity = probe_tool(metallib, commands)
-        # An unverified deterministic flag cannot silently become producer policy.
-        help_result = run([str(metal), "-help"], commands)
-        if help_result.returncode != 0 or "-fno-fast-math" not in help_result.stdout + help_result.stderr:
-            raise GenerationError("actual Metal compiler does not advertise the required -fno-fast-math option")
-        flags = [f"-std={LANGUAGE}", "-O3", "-fno-fast-math"]
+        # Help is retained diagnostic evidence, not option acceptance authority:
+        # Apple Metal may advertise only -ffast-math, while accepting its negative.
+        # Every original compilation must accept the unchanged deterministic flag;
+        # an ignored argument is a hard error, never a silently weakened policy.
+        flags = [f"-std={LANGUAGE}", "-O3", "-fno-fast-math",
+                 "-Werror=unused-command-line-argument"]
         modules = generation / "metal_modules"
         modules.mkdir()
         include = generation / "source/crates/fastpq_prover/metal/include"
@@ -178,6 +195,11 @@ def generate(root: Path, output: Path, target: str) -> dict:
         result = run([str(metallib), *(str(path) for path in objects), "-o", str(library)], commands)
         if result.returncode != 0:
             raise GenerationError(f"failed to link Metal library: {diagnostic(result)}")
+        # Some linker modes exit successfully after warning that every AIR input
+        # was ignored. Such output is not a completed library generation.
+        if re.search(r"\bwarning\b|\bignoring\s+(?:file|object)\b",
+                     result.stderr + "\n" + result.stdout, re.IGNORECASE):
+            raise GenerationError(f"Metal linker warned or omitted input: {diagnostic(result)}")
         require_output(library, "Metal library")
         library_digest = digest_file(library)
         captured, captured_digest = snapshot(generation / "source")
@@ -186,8 +208,8 @@ def generate(root: Path, output: Path, target: str) -> dict:
         current, current_digest = snapshot(root)
         if current != inputs or current_digest != source_digest:
             raise GenerationError("original eight source inputs changed during generation")
-        if digest_file(metal) != metal_identity["sha256"] or digest_file(metallib) != metallib_identity["sha256"]:
-            raise GenerationError("original compiler/linker identity changed during generation")
+        recheck_tool(metal, metal_identity, commands, "during generation")
+        recheck_tool(metallib, metallib_identity, commands, "during generation")
         if digest_file(producer) != producer_digest:
             raise GenerationError("original producer source changed during generation")
         # Exclusively claim this candidate only after natural successful exits.
@@ -201,8 +223,8 @@ def generate(root: Path, output: Path, target: str) -> dict:
         current, current_digest = snapshot(root)
         if current != inputs or current_digest != source_digest:
             raise GenerationError("original eight source inputs changed before metadata publication")
-        if digest_file(metal) != metal_identity["sha256"] or digest_file(metallib) != metallib_identity["sha256"]:
-            raise GenerationError("original compiler/linker identity changed before metadata publication")
+        recheck_tool(metal, metal_identity, commands, "before metadata publication")
+        recheck_tool(metallib, metallib_identity, commands, "before metadata publication")
         if digest_file(producer) != producer_digest:
             raise GenerationError("original producer source changed before metadata publication")
         captured, captured_digest = snapshot(generation / "source")

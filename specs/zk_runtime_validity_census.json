@@ -117,7 +117,7 @@
    "gates": "Every limit, window, verifier switch, relation-selecting verifying-key identity (Kaigi authorization and usage) and verification gas charge bound by compute_zk_consensus_policy_hash: Native PIPA-R and STARK proof and envelope sizes, batch, SCCP proof and verifier-work limits, proof retention, bridge-proof windows, confidential anchor age and policy-transition windows, registry caps and the confidential gas schedule.",
    "decided_by": "The committed custom parameter `zk_validity_policy_v1` (type, protocol default and canonical structural and coherence validation in iroha_data_model; application to State in iroha_core::zk_validity_policy). An ordinary authorized `SetParameter` installs or changes it, in genesis or later; block construction freezes the policy of the predecessor's committed parameters, so a change governs the next block and the genesis block runs under the protocol default. Executor data-model reconciliation never writes it. A node installs local resources only (State::install_node_zk) and its configuration schema has no validity field (cfg.zk.node_schema).",
    "attribution": "read",
-   "note": "Verification gas is metered with the schedule frozen in each block's settings; no process-wide schedule exists (gas.process_wide_schedule, done). The two enable switches are committed fields that the plan author decided to delete (switch.zk.backend_enabled).",
+   "note": "Verification gas is metered with the schedule frozen in each block's settings; no process-wide schedule exists (gas.process_wide_schedule, done). The two enable switches are committed fields that the plan author decided to delete (switch.zk.backend_enabled). Two more rows read or write the committed policy, not node configuration: state/authority_registry/zk_policy.rs `borrowed` projects `policy.pipa_r.enabled` and `policy.stark.enabled` of the ZkValidityPolicyV1 held by the current and predecessor committed parameters into the authority registry cell `state.zk`, and pipeline_gas_policy.rs assigns StateParameters.zk (the typed projection of the same original parameter MV value) the validated committed payload on SetParameter and the protocol default when the custom parameter is removed, as StateParameters.pipeline does for cfg.pipeline.settings_writes.",
    "anchors": [
     {
      "path": "crates/iroha_core/src/state.rs",
@@ -290,8 +290,9 @@
     }
    ],
    "sites": [
+    ["crates/iroha_core/src/pipeline_gas_policy.rs", "zk_settings_write", "<expression>", 2],
     ["crates/iroha_core/src/state.rs", "zk_settings_write", "<expression>", 1],
-    ["crates/iroha_core/src/state/authority_registry/zk_policy.rs", "config_switch", "enabled", 2],
+    ["crates/iroha_core/src/state/authority_registry/zk_policy.rs", "config_switch", "enabled", 4],
     ["crates/iroha_core/src/zk_guardrails.rs", "config_switch", "enabled", 2],
     ["crates/iroha_core/src/zk_validity_policy.rs", "config_switch", "enabled", 2]
    ]
@@ -868,7 +869,7 @@
    "gates": "Reads and writes of `config.zk` outside the configuration crate: the daemon installing local resources into State (install_node_zk), starting the local diagnostic ZK lane from the node's own verifier settings, FASTPQ prover selection, device labels and the compatibility probe; the staged-genesis builder and the test network installing the same local resources; and the localnet builder passing the settings value to the execution-policy digest.",
    "decided_by": "Stays node-local: the settings value a configuration produces holds this node's local resources and the protocol-default validity values, because the node schema has no validity field (cfg.zk.node_schema).",
    "attribution": "read",
-   "note": "Negative test: installs_actual_zk_and_settlement_config_before_kura_replay (irohad) asserts that an SCCP limit placed in a settings value by hand does not reach State. The writes are `config.zk.fastpq.*` assignments of the daemon's FASTPQ command-line overrides. The two startup_preparation reads moved from main: one configures local FASTPQ sidecar limits, and one supplies node ZK resources to snapshot recovery before the same install/replay boundary; neither introduces an independent validity-policy owner.",
+   "note": "Negative test: installs_actual_zk_and_settlement_config_before_kura_replay (irohad) asserts that an SCCP limit placed in a settings value by hand does not reach State. The writes are `config.zk.fastpq.*` assignments of the daemon's FASTPQ command-line overrides. The two startup_preparation reads moved from main: one configures local FASTPQ sidecar limits, and one supplies node ZK resources to snapshot recovery before the same install/replay boundary; neither introduces an independent validity-policy owner. iroha_test_network retained_genesis.rs passes the runtime ZK configuration to config::validate_genesis_with_runtime_config, which installs it through install_node_zk (local resources only); the committed policy of the genesis under validation supplies validity.",
    "tests": [
     {
      "path": "crates/irohad/src/main.rs",
@@ -880,6 +881,7 @@
     ["crates/iroha_deploy/src/localnet/service_authorities.rs", "node_config_read", "zk", 1],
     ["crates/iroha_test_network/src/config.rs", "node_config_read", "zk", 1],
     ["crates/iroha_test_network/src/lib.rs", "node_config_read", "zk", 2],
+    ["crates/iroha_test_network/src/retained_genesis.rs", "node_config_read", "zk", 1],
     ["crates/irohad/src/compatibility_probe.rs", "node_config_read", "zk", 1],
     ["crates/irohad/src/main.rs", "node_config_read", "zk", 14],
     ["crates/irohad/src/main.rs", "zk_settings_write", "fastpq", 8],
@@ -1325,7 +1327,7 @@
    "owner": "P.8",
    "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
    "symbol": "ensure_qualified_standalone_zk_relation_v1",
-   "gates": "Standalone ZK ballot and tally instructions always fail with STANDALONE_ZK_RELATION_UNQUALIFIED_V1: the ballot relation that proves anonymous credential authorization and a committee-free tally does not exist yet.",
+   "gates": "Standalone ZK ballot and tally instructions always fail with the unsupported-operation error STANDALONE_ZK_RELATION_UNSUPPORTED_V1: no standalone ballot or tally relation exists that proves anonymous credential authorization, the confidential bond and a committee-free tally over the closed corpus.",
    "decided_by": "The complete private election relation (P.8). The error depends on no configuration, feature or environment.",
    "attribution": "read",
    "anchors": [
@@ -1998,12 +2000,13 @@
     ["crates/iroha_core/src/smartcontracts/isi/sccp/read/coalition.rs", "node_policy_read", "staking.max_slash_bps", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sns.rs", "node_policy_read", "endorsement.quorum", 1],
     ["crates/iroha_core/src/smartcontracts/isi/soracloud.rs", "node_policy_read", "hf_shared_leases.drain_grace.*", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/staking.rs", "node_policy_read", "staking.*", 3],
+    ["crates/iroha_core/src/smartcontracts/isi/staking.rs", "node_policy_read", "staking.*", 2],
     ["crates/iroha_core/src/smartcontracts/isi/staking.rs", "node_policy_read", "staking.max_pending_unbonds_per_share", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/staking.rs", "node_policy_read", "staking.max_stake_shares_per_validator", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/staking.rs", "node_policy_read", "staking.max_slash_bps", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/staking.rs", "node_policy_read", "staking.max_stake_shares_per_validator", 2],
     ["crates/iroha_core/src/smartcontracts/isi/staking.rs", "node_policy_read", "staking.max_validators", 1],
     ["crates/iroha_core/src/smartcontracts/isi/staking.rs", "node_policy_read", "staking.min_validator_stake", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/staking.rs", "node_policy_read", "staking.slash_sink_account_id", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/staking.rs", "node_policy_read", "staking.slash_sink_account_id", 2],
     ["crates/iroha_core/src/smartcontracts/isi/staking.rs", "node_policy_read", "staking.unbonding_delay.*", 1],
     ["crates/iroha_core/src/smartcontracts/isi/staking_preparation.rs", "node_policy_read", "staking.*", 2],
     ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "dataspace_fee_sponsor_program_ids", 1],
@@ -2024,7 +2027,8 @@
     ["crates/iroha_core/src/sumeragi/penalties.rs", "node_policy_read", "staking.max_validators", 1],
     ["crates/iroha_torii/src/private_settlement.rs", "node_policy_read", "atomic_private_settlement.*", 1],
     ["crates/irohad/src/main.rs", "node_policy_read", "staking.*", 1]
-   ]
+   ],
+   "note": "apply_slash_to_validator_inner (smartcontracts/isi/staking.rs) now reads max_slash_bps, max_stake_shares_per_validator and slash_sink_account_id of state_transaction.nexus.staking as field paths instead of through a local clone of the whole staking value (counted as `staking.*` before). The slash ratio cap, the stake-share cap and the slash sink still come from the node-local staking projection and decide whether a slash is applied: the same open dependence of this entry, now visible field by field, not a new decision."
   },
   {
    "id": "cfg.root_fees.committed_policy",
@@ -2039,14 +2043,14 @@
    "open_reason": "Causal original execution dependence was reproduced after identical H1 (two failures). Source migration, replay/update controls, deployment and SDK conversions are staged; current-candidate Rust compilation, generated digests/fixtures and combined network qualification remain pending. The regression does not establish divergent admissible fresh-node configurations, whose signed-genesis digest checks already refused mismatch.",
    "sites": [
     ["crates/iroha_core/src/executor.rs", "node_policy_read", "fees", 9],
+    ["crates/iroha_core/src/executor/root_fees.rs", "node_policy_read", "fees", 1],
     ["crates/iroha_core/src/executor_execution_fee.rs", "node_policy_read", "fees", 5],
     ["crates/iroha_core/src/executor_fastpq_rejection_tail.rs", "node_policy_read", "fees", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/asset.rs", "node_policy_read", "fees", 5],
     ["crates/iroha_core/src/smartcontracts/isi/domain/asset_alias_scope.rs", "node_policy_read", "fees", 2],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/settle.rs", "node_policy_read", "fees", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sns.rs", "node_policy_read", "fees", 1],
     ["crates/iroha_core/src/smartcontracts/isi/soracloud.rs", "node_policy_read", "fees", 2],
-    ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "fees", 4],
+    ["crates/iroha_core/src/smartcontracts/isi/world.rs", "node_policy_read", "fees", 1],
     ["crates/iroha_torii/src/game.rs", "node_policy_read", "fees", 1],
     ["crates/iroha_torii/src/lib.rs", "node_policy_read", "fees", 2]
    ],
@@ -2067,7 +2071,8 @@
      "path": "crates/iroha_genesis/src/root_fee_policy_tests.rs",
      "name": "authenticated_signed_policy_has_one_exact_original_owner"
     }
-   ]
+   ],
+   "note": "executor::root_fees::sponsor_vault_custody replaced five sponsor-custody reads of `nexus.fees` in smartcontracts/isi/asset.rs and three in smartcontracts/isi/world.rs; it reads the authored root fee policy of the World during initial genesis and the frozen predecessor projection `state_transaction.nexus.fees` otherwise; world.rs keeps one read (the root fee currency checked when a domain is unregistered)."
   },
   {
    "id": "feature.zk_stark",
@@ -2421,7 +2426,7 @@
    "note": "QuantityLifecycleOrder, lifecycle layouts and `quantity_kind_matches_live_lifecycle` order and check the writes of one quantity through its creation, mutation and retirement inside a block (state/fastpq_quantity_capture.rs and the prover's quantity tape). Nothing is activated or made available.",
    "sites": [
     ["crates/fastpq_prover/src/gadgets/public_transfer_statement/execution_effect/funded_preparation.rs", "activation", "lifecycle", 2],
-    ["crates/iroha_core/src/state/fastpq_quantity_capture.rs", "activation", "lifecycle", 18],
+    ["crates/iroha_core/src/state/fastpq_quantity_capture.rs", "activation", "lifecycle", 21],
     ["crates/iroha_core/src/state/fastpq_quantity_write_plan.rs", "activation", "lifecycle", 12],
     ["crates/iroha_data_model/src/fastpq/execution_effect.rs", "activation", "lifecycle", 1]
    ]
@@ -2967,6 +2972,7 @@
    "attribution": "path_rule",
    "note": "KAGEMUSHA is the offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate; it is not a product of the ZK delivery plan, which only requires mixed blocks with KAGEMUSHA top-ups to be exercised (A.1, A.3). Its release, qualification and lifecycle names are recorded so that a change to them is seen, not because F.4 or a later plan task removes them.",
    "sites": [
+    ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi.rs", "activation", "activation", 4],
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/exports.rs", "activation", "lifecycle", 4],
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/setup.rs", "activation", "activation", 31],
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/terminal.rs", "activation", "lifecycle", 1],
@@ -2980,6 +2986,7 @@
     ["crates/iroha_core/src/kagemusha_wallet_v1/routing.rs", "activation", "activation", 2],
     ["crates/iroha_core/src/kagemusha_wallet_v1/storage.rs", "activation", "activation", 2],
     ["crates/iroha_core/src/smartcontracts/isi/kagemusha_wallet.rs", "activation", "activation", 6],
+    ["crates/iroha_core/src/state/block_proofs.rs", "activation", "activation", 9],
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/setup.rs", "activation", "activation", 2],
     ["crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1.rs", "activation", "lifecycle", 4],
     ["crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/archive/prepare.rs", "activation", "lifecycle", 2],
@@ -2993,6 +3000,7 @@
     ["crates/iroha_core_zk/src/kagemusha_wallet_proofs_v1.rs", "activation", "lifecycle", 1],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1.rs", "activation", "activation", 1],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1.rs", "activation", "lifecycle", 3],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/capacity.rs", "activation", "lifecycle", 5],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/collection.rs", "activation", "activation", 4],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/custody.rs", "activation", "activation", 2],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/custody/deletion.rs", "activation", "lifecycle", 4],
@@ -3006,6 +3014,7 @@
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/close_loads.rs", "activation", "lifecycle", 2],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/ledger_producer.rs", "activation", "activation", 3],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/ledger_producer.rs", "activation", "lifecycle", 2],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/review.rs", "activation", "lifecycle", 2],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/sessions.rs", "activation", "lifecycle", 2],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker/incoming.rs", "activation", "lifecycle", 2],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker/inputs.rs", "activation", "lifecycle", 2],
@@ -3044,14 +3053,16 @@
     ["crates/iroha_core/src/kagemusha_wallet_v1/enrollment_issuer/selection.rs", "digest_identity", "release", 2],
     ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1.rs", "digest_identity", "catalog", 3],
     ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory.rs", "digest_identity", "catalog", 1],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/builtin.rs", "digest_identity", "source", 1],
     ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler.rs", "digest_identity", "source", 1],
     ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/pack.rs", "digest_identity", "catalog", 4],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/pack/transport.rs", "digest_identity", "catalog", 3],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/pack/transport.rs", "digest_identity", "catalog", 2],
     ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler/reuse.rs", "digest_identity", "source", 4],
     ["crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/owner/prekey_owner.rs", "digest_identity", "release", 2],
     ["crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/prekey.rs", "digest_identity", "release", 5],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/choices.rs", "digest_identity", "source", 4],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/lifecycle/dispatch.rs", "digest_identity", "source", 7],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/choices.rs", "digest_identity", "source", 6],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/lifecycle/dispatch.rs", "digest_identity", "source", 8],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/lifecycle/dispatch/intake.rs", "digest_identity", "source", 3],
     ["crates/iroha_data_model/src/kagemusha/kagemusha_enrollment_permit_v1.rs", "digest_identity", "release", 3]
    ]
   },
@@ -3067,30 +3078,35 @@
    "attribution": "path_rule",
    "note": "KAGEMUSHA is the offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate; it is not a product of the ZK delivery plan, which only requires mixed blocks with KAGEMUSHA top-ups to be exercised (A.1, A.3). Its release, qualification and lifecycle names are recorded so that a change to them is seen, not because F.4 or a later plan task removes them.",
    "sites": [
-    ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/installed.rs", "qualification", "qualification", 3],
+    ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/installed.rs", "qualification", "qualification", 5],
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/installed/selection.rs", "qualification", "qualification", 3],
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/installed/selection/universal.rs", "qualification", "qualification", 1],
     ["crates/iroha_core/src/kagemusha_wallet_v1/enrollment_issuer.rs", "qualification", "qualification", 1],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory.rs", "qualification", "qualification", 14],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/bootstrap.rs", "qualification", "qualification", 26],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory.rs", "qualification", "qualification", 18],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/bootstrap.rs", "qualification", "qualification", 31],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/builtin.rs", "qualification", "qualification", 7],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/compiler.rs", "qualification", "qualification", 1],
     ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/finality.rs", "qualification", "qualification", 10],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/omega.rs", "qualification", "qualification", 29],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/operation.rs", "qualification", "qualification", 98],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/q.rs", "qualification", "qualification", 30],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/sigma.rs", "qualification", "qualification", 12],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/wallet.rs", "qualification", "qualification", 54],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/omega.rs", "qualification", "qualification", 34],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/opening_metrics.rs", "qualification", "qualification", 3],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/operation.rs", "qualification", "qualification", 129],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/operation/session.rs", "qualification", "qualification", 78],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/q.rs", "qualification", "qualification", 42],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/q/session.rs", "qualification", "qualification", 30],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/sigma.rs", "qualification", "qualification", 24],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/wallet.rs", "qualification", "qualification", 73],
     ["crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker.rs", "qualification", "qualification", 1],
     ["crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker_configuration.rs", "qualification", "qualification", 2],
     ["crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/owner.rs", "qualification", "qualification", 1],
     ["crates/iroha_core_zk/src/kagemusha_wallet_intake_v1.rs", "qualification", "qualification", 8],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/dispatch.rs", "qualification", "qualification", 5],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/load.rs", "qualification", "qualification", 2],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/dispatch.rs", "qualification", "qualification", 3],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner.rs", "qualification", "qualification", 2],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/review.rs", "qualification", "qualification", 1],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/runtime.rs", "qualification", "qualification", 6],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker.rs", "qualification", "qualification", 11],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker/incoming_inputs.rs", "qualification", "qualification", 2],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker/inputs.rs", "qualification", "qualification", 1],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker/stages.rs", "qualification", "qualification", 7]
+    ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker/stages.rs", "qualification", "qualification", 14]
    ]
   },
   {
@@ -3103,10 +3119,14 @@
    "gates": "KAGEMUSHA offline monetary authority: a timeout, deadline or millisecond budget on the proof path.",
    "decided_by": "Outside the ZK delivery plan; recorded for visibility only.",
    "attribution": "path_rule",
-   "note": "KAGEMUSHA is the offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate; it is not a product of the ZK delivery plan, which only requires mixed blocks with KAGEMUSHA top-ups to be exercised (A.1, A.3). Its release, qualification and lifecycle names are recorded so that a change to them is seen, not because F.4 or a later plan task removes them.",
+   "note": "KAGEMUSHA is the offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate; it is not a product of the ZK delivery plan, which only requires mixed blocks with KAGEMUSHA top-ups to be exercised (A.1, A.3). Its release, qualification and lifecycle names are recorded so that a change to them is seen, not because F.4 or a later plan task removes them. The Instant readings of kagemusha_wallet_advance_v1/counters.rs (sync call duration), producer_inventory/opening_metrics.rs (opening laps) and kagemusha_wallet_state_v1/fold_metrics.rs (fold phase time) only accumulate diagnostic counters; nothing compares them with a limit.",
    "sites": [
     ["crates/iroha_core/src/kagemusha_wallet_v1/enrollment_issuer/runtime.rs", "time_budget", "timeout", 1],
     ["crates/iroha_core/src/kagemusha_wallet_v1/enrollment_issuer/selection.rs", "time_budget", "timeout", 1],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/counters.rs", "wall_clock", "elapsed", 1],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/counters.rs", "wall_clock", "instant", 1],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/opening_metrics.rs", "wall_clock", "instant", 1],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/fold_metrics.rs", "wall_clock", "instant", 3],
     ["crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/policy.rs", "time_budget", "deadline", 5]
    ]
   },
@@ -3122,18 +3142,18 @@
    "attribution": "path_rule",
    "note": "KAGEMUSHA is the offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate; it is not a product of the ZK delivery plan, which only requires mixed blocks with KAGEMUSHA top-ups to be exercised (A.1, A.3). Its release, qualification and lifecycle names are recorded so that a change to them is seen, not because F.4 or a later plan task removes them. Individually read added dispatch/native_owner sites distinguish unavailable original sigma artifact custody from invalid proof content and refuse a poisoned original-source lock. These local wallet preparation failures do not relax the separate hardware custody or qualified artifact checks.",
    "sites": [
-    ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi.rs", "unavailable", "unavailable", 15],
+    ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi.rs", "unavailable", "unavailable", 16],
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi.rs", "unavailable", "unsupported", 1],
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/android.rs", "unavailable", "unavailable", 15],
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/installed.rs", "unavailable", "unavailable", 6],
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/installed/exports.rs", "unavailable", "unavailable", 2],
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/installed/jni.rs", "unavailable", "unavailable", 2],
-    ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/installed/originals.rs", "unavailable", "unavailable", 4],
+    ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/installed/originals.rs", "unavailable", "unavailable", 3],
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/installed/registration.rs", "unavailable", "unavailable", 2],
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/installed/selection.rs", "unavailable", "unavailable", 1],
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/installed/selection/universal.rs", "unavailable", "unavailable", 2],
     ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/open.rs", "unavailable", "unavailable", 2],
-    ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/platform.rs", "unavailable", "unavailable", 45],
+    ["crates/connect_norito_bridge/src/kagemusha_wallet_ffi/platform.rs", "unavailable", "unavailable", 48],
     ["crates/iroha/src/kagemusha_enrollment.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core/src/kagemusha_wallet_v1/artifacts.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core/src/kagemusha_wallet_v1/committed.rs", "unavailable", "unavailable", 10],
@@ -3141,6 +3161,7 @@
     ["crates/iroha_core/src/kagemusha_wallet_v1/enrollment_issuer.rs", "unavailable", "unavailable", 5],
     ["crates/iroha_core/src/kagemusha_wallet_v1/enrollment_issuer/operations.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core/src/kagemusha_wallet_v1/enrollment_journal.rs", "unavailable", "unavailable", 18],
+    ["crates/iroha_core/src/kagemusha_wallet_v1/enrollment_journal/expiry.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core/src/kagemusha_wallet_v1/enrollment_journal/permits.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core/src/kagemusha_wallet_v1/enrollment_journal/worker.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core/src/kagemusha_wallet_v1/event_evidence.rs", "unavailable", "unavailable", 1],
@@ -3153,40 +3174,45 @@
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1.rs", "unavailable", "unsupported", 1],
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/advance.rs", "unavailable", "unavailable", 16],
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/anchor.rs", "unavailable", "unavailable", 11],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/archive.rs", "unavailable", "unavailable", 32],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/archive.rs", "unavailable", "unavailable", 60],
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/capsule.rs", "unavailable", "unavailable", 16],
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/completion.rs", "unavailable", "unavailable", 4],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/enrollment.rs", "unavailable", "unavailable", 69],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/counters.rs", "unavailable", "unavailable", 1],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/enrollment.rs", "unavailable", "unavailable", 68],
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/enrollment_phase.rs", "unavailable", "unavailable", 5],
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/layout.rs", "unavailable", "unavailable", 25],
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/layout.rs", "unavailable", "unsupported", 5],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/live_enrollment_clock.rs", "unavailable", "unavailable", 3],
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/marker.rs", "unavailable", "unavailable", 13],
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/platform.rs", "unavailable", "unavailable", 50],
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/platform.rs", "unavailable", "unsupported", 1],
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/prekey_custody.rs", "unavailable", "unavailable", 10],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/provider.rs", "unavailable", "unavailable", 22],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/provider.rs", "unavailable", "unavailable", 25],
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/reconcile.rs", "unavailable", "unavailable", 37],
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/retained.rs", "unavailable", "unavailable", 7],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/store.rs", "unavailable", "unavailable", 45],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/store.rs", "unavailable", "unsupported", 7],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/store.rs", "unavailable", "unavailable", 56],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/store.rs", "unavailable", "unsupported", 9],
     ["crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/terminal.rs", "unavailable", "unavailable", 17],
     ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/directory.rs", "unavailable", "unavailable", 2],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/encoded.rs", "unavailable", "unavailable", 1],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/encoded/snapshot.rs", "unavailable", "unavailable", 2],
     ["crates/iroha_core_zk/src/kagemusha_wallet_artifacts_v1/producer_inventory/wallet.rs", "unavailable", "unavailable", 7],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker.rs", "unavailable", "unavailable", 1],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker.rs", "unavailable", "unavailable", 3],
     ["crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/issuer_worker_protocol.rs", "unavailable", "unavailable", 2],
     ["crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/owner.rs", "unavailable", "unavailable", 2],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/owner/prekey_owner.rs", "unavailable", "unavailable", 5],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_enrollment_v1/owner/prekey_owner.rs", "unavailable", "unavailable", 12],
     ["crates/iroha_core_zk/src/kagemusha_wallet_intake_v1.rs", "unavailable", "unavailable", 5],
     ["crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/choices.rs", "unavailable", "unavailable", 3],
     ["crates/iroha_core_zk/src/kagemusha_wallet_preparation_v1/dispatch.rs", "unavailable", "unavailable", 6],
     ["crates/iroha_core_zk/src/kagemusha_wallet_proofs_v1.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core_zk/src/kagemusha_wallet_proofs_v1/randomness.rs", "unavailable", "unavailable", 3],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_registration_v1.rs", "unavailable", "unavailable", 5],
-    ["crates/iroha_core_zk/src/kagemusha_wallet_registration_v1/builder.rs", "unavailable", "unavailable", 3],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_registration_v1.rs", "unavailable", "unavailable", 6],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_registration_v1/builder.rs", "unavailable", "unavailable", 4],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner.rs", "unavailable", "unavailable", 6],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/bootstrap.rs", "unavailable", "unavailable", 3],
+    ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/review.rs", "unavailable", "unavailable", 3],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_owner/runtime.rs", "unavailable", "unavailable", 4],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/native_worker.rs", "unavailable", "unavailable", 6],
     ["crates/iroha_core_zk/src/kagemusha_wallet_state_v1/session_custody.rs", "unavailable", "unavailable", 7],
@@ -3198,7 +3224,7 @@
     ["crates/iroha_torii/src/kagemusha_enrollment/signer.rs", "unavailable", "unavailable", 2],
     ["crates/iroha_torii/src/kagemusha_enrollment/worker.rs", "unavailable", "unavailable", 17],
     ["crates/iroha_torii/src/kagemusha_enrollment/worker/process.rs", "unavailable", "unavailable", 26],
-    ["crates/iroha_torii/src/kagemusha_wallet.rs", "unavailable", "unavailable", 15],
+    ["crates/iroha_torii/src/kagemusha_wallet.rs", "unavailable", "unavailable", 23],
     ["crates/iroha_torii/src/kagemusha_wallet_finality.rs", "unavailable", "unavailable", 3]
    ]
   },
@@ -3231,7 +3257,8 @@
    "note": "Canonical-layout validation of carried bytes (UnsupportedVersion, UnsupportedProofVersion and the like): the same bytes are rejected by every validator, no configuration, feature or environment is read, and nothing is unfinished. A version that becomes defined removes its arm.",
    "sites": [
     ["crates/iroha_data_model/src/isi/kagemusha_wallet/load_finality.rs", "unavailable", "version_check", 1],
-    ["crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1.rs", "unavailable", "version_check", 3]
+    ["crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1.rs", "unavailable", "version_check", 3],
+    ["crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/messages.rs", "unavailable", "version_check", 1]
    ]
   },
   {
@@ -3326,8 +3353,8 @@
    "note": "Circuit row/group selectors and gate activation conditions in constraint_system, descriptor and ff gadgets are part of the deterministic relation, not node-local protocol readiness.",
    "sites": [
     ["crates/iroha_plonk/src/cs/constraint_system.rs", "activation", "activation", 26],
-    ["crates/iroha_plonk/src/cs/descriptor.rs", "activation", "activation", 7],
-    ["crates/iroha_plonk/src/cs/selector_compression.rs", "activation", "activation", 11],
+    ["crates/iroha_plonk/src/cs/descriptor.rs", "activation", "activation", 11],
+    ["crates/iroha_plonk/src/cs/selector_compression.rs", "activation", "activation", 19],
     ["crates/iroha_plonk_gadgets/src/ff/mod.rs", "activation", "activation", 6],
     ["crates/iroha_plonk_gadgets/src/statement.rs", "activation", "lifecycle", 4]
    ]
@@ -3342,11 +3369,13 @@
    "gates": "PLONK constraint system and IPA commitment stack: typed unavailable, suspended or unsupported outcomes other than local-resource failures and version checks, which have their own entries. The names fall into two groups, which `note` separates for this entry: outcomes of an engine, profile, provider or protocol that is not available or not finished (EngineUnavailable, ProtocolUnavailable, CompiledProfileUnavailable, NotImplemented and the like), and rejections of a carried parameter value this release does not define (an unsupported degree, bit length, authority kind or layout).",
    "decided_by": "Committed State already decides it.",
    "attribution": "path_rule",
-   "note": "Names inside the PLONK stack: selector activations of the constraint system (`activations`, `ActivationLength`), the successor-lifecycle word of a key-rotation statement, and typed errors for a circuit degree or size outside the supported range (`UnsupportedDegree`, `UnsupportedK`). They are arithmetic and structural validation of carried bytes, identical on every validator; nothing is activated or switched.",
+   "note": "Names inside the PLONK stack: selector activations of the constraint system (`activations`, `ActivationLength`), the successor-lifecycle word of a key-rotation statement, and typed errors for a circuit degree or size outside the supported range (`UnsupportedDegree`, `UnsupportedK`). They are arithmetic and structural validation of carried bytes, identical on every validator; nothing is activated or switched. MultiopenError::UnsupportedDomain (pcs/multiopen) rejects a domain exponent k above the pinned parameter extent MAX_K or the field two-adicity S: structural validation of the carried k.",
    "sites": [
     ["crates/iroha_plonk/src/keys/mod.rs", "unavailable", "unsupported", 2],
     ["crates/iroha_plonk/src/keys/pk.rs", "unavailable", "unsupported", 8],
-    ["crates/iroha_plonk/src/pcs/ipa/accumulator.rs", "unavailable", "unsupported", 3]
+    ["crates/iroha_plonk/src/pcs/ipa/accumulator.rs", "unavailable", "unsupported", 3],
+    ["crates/iroha_plonk/src/pcs/multiopen/mod.rs", "unavailable", "unsupported", 2],
+    ["crates/iroha_plonk/src/pcs/multiopen/regularity.rs", "unavailable", "unsupported", 1]
    ]
   },
   {
@@ -3710,10 +3739,10 @@
    "gates": "privacy, voting, RAM-LFE and SoraCloud names in shared State, instruction and Torii code: code that names a qualification, a readiness record or a reviewer.",
    "decided_by": "Remove as a prerequisite of use. Proof validity under the committed relation, key and policy State decides; qualification and review records stay evidence outside consensus.",
    "attribution": "read",
-   "note": "The World cell `privacy_exact12_qualification` with its record `PrivacyExact12QualificationRecordV1`, its instruction `RegisterPrivacyExact12QualificationV1`, its restore validation and its wire identifier; `qualified_privacy_activation_v1` and `resolve_qualified_privacy_activation_v1` in state.rs, which accept an activation only with that record (P.5); and `ensure_qualified_standalone_zk_relation_v1` with `STANDALONE_ZK_RELATION_UNQUALIFIED_V1` in isi/world.rs, a guard that refuses every standalone ballot and tally proof because the relation does not bind credential, bond and corpus yet (the accurate refusal of an unfinished relation, P.8).",
+   "note": "The World cell `privacy_exact12_qualification` with its record `PrivacyExact12QualificationRecordV1`, its instruction `RegisterPrivacyExact12QualificationV1`, its restore validation and its wire identifier; `qualified_privacy_activation_v1` and `resolve_qualified_privacy_activation_v1` in state.rs, which accept an activation only with that record (P.5); and the name of `ensure_qualified_standalone_zk_relation_v1` in isi/world.rs, a guard that refuses every standalone ballot and tally proof with the unsupported-operation error `STANDALONE_ZK_RELATION_UNSUPPORTED_V1` because no relation binds credential, bond and corpus yet (the accurate refusal of an unfinished relation, P.8; only the guard's name still says qualified).",
    "sites": [
     ["crates/iroha_core/src/smartcontracts/isi/mod.rs", "qualification", "qualification", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/world.rs", "qualification", "qualification", 6],
+    ["crates/iroha_core/src/smartcontracts/isi/world.rs", "qualification", "qualification", 4],
     ["crates/iroha_core/src/state.rs", "qualification", "qualification", 18],
     ["crates/iroha_core/src/state/authority_registry/world.rs", "qualification", "qualification", 4],
     ["crates/iroha_core/src/state/deserialize_core.rs", "qualification", "qualification", 2],
@@ -3733,10 +3762,10 @@
    "gates": "privacy, voting, RAM-LFE and SoraCloud names in shared State, instruction and Torii code: typed unavailable, suspended or unsupported outcomes other than local-resource failures and version checks, which have their own entries. The names fall into two groups, which `note` separates for this entry: outcomes of an engine, profile, provider or protocol that is not available or not finished (EngineUnavailable, ProtocolUnavailable, CompiledProfileUnavailable, NotImplemented and the like), and rejections of a carried parameter value this release does not define (an unsupported degree, bit length, authority kind or layout).",
    "decided_by": "For the first group: an unfinished operation keeps an accurate typed error that no configuration, feature or environment changes, and stays mandatory work of the owner; a finished operation removes it. For the second group nothing changes: it is ordinary validation of carried bytes, identical on every validator.",
    "attribution": "read",
-   "note": "Unfinished operations with an accurate typed error: `PrivacyTransactionIntentUnsupportedPathV1` and `privacy_in_unsupported_path` (crates/iroha_data_model/src/transaction/signed.rs: a privacy action inside a contract call, raw or proved IVM code, a mixed batch, a custom instruction or a by-call trigger has no V1 intent projection; I.1 to I.3 and P.5) and `ProofBackedTriggerUnavailable` (isi/triggers/set.rs: a proof-backed executable cannot be registered as a trigger; M.2). Not gates: `unsupported_proof_backend_error` (isi/world.rs) rejects a backend tag this release does not define; `SnapshotMerkleError::ProofUnavailable` (snapshot.rs) is a missing Merkle proof of a local snapshot chunk; `PrivacyOverlayUnsupported` (streaming.rs) is a streaming capability mismatch; `BallotReleasePulseUnavailable` is a telemetry label and `FreshBallotUnavailable` a failure kind of the committed time-lock key schedule.",
+   "note": "Unfinished operations with an accurate typed error: `PrivacyTransactionIntentUnsupportedPathV1` and `privacy_in_unsupported_path` (crates/iroha_data_model/src/transaction/signed.rs: a privacy action inside a contract call, raw or proved IVM code, a mixed batch, a custom instruction or a by-call trigger has no V1 intent projection; I.1 to I.3 and P.5), `ProofBackedTriggerUnavailable` (isi/triggers/set.rs: a proof-backed executable cannot be registered as a trigger; M.2) and `STANDALONE_ZK_RELATION_UNSUPPORTED_V1` (isi/world.rs: every standalone ZK ballot and tally is refused because no standalone ballot or tally relation exists; P.8). Not gates: `unsupported_proof_backend_error` (isi/world.rs) rejects a backend tag this release does not define; `SnapshotMerkleError::ProofUnavailable` (snapshot.rs) is a missing Merkle proof of a local snapshot chunk; `PrivacyOverlayUnsupported` (streaming.rs) is a streaming capability mismatch; `BallotReleasePulseUnavailable` is a telemetry label and `FreshBallotUnavailable` a failure kind of the committed time-lock key schedule.",
    "sites": [
     ["crates/iroha_core/src/smartcontracts/isi/triggers/set.rs", "unavailable", "unavailable", 2],
-    ["crates/iroha_core/src/smartcontracts/isi/world.rs", "unavailable", "unsupported", 3],
+    ["crates/iroha_core/src/smartcontracts/isi/world.rs", "unavailable", "unsupported", 5],
     ["crates/iroha_core/src/snapshot.rs", "unavailable", "unavailable", 4],
     ["crates/iroha_core/src/state.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core/src/streaming.rs", "unavailable", "unsupported", 2],
@@ -3757,7 +3786,7 @@
    "sites": [
     ["crates/iroha_core_privacy/src/privacy_engines/ivm_private_note/facade.rs", "unavailable", "local_resource", 3],
     ["crates/iroha_core_privacy/src/privacy_engines/ivm_private_note/facade.rs", "unavailable", "unavailable", 1],
-    ["crates/iroha_core_privacy/src/privacy_engines/ivm_private_note/wallet.rs", "unavailable", "local_resource", 6],
+    ["crates/iroha_core_privacy/src/privacy_engines/ivm_private_note/wallet.rs", "unavailable", "local_resource", 7],
     ["crates/iroha_core_privacy/src/privacy_engines/proof_managed_note_stark.rs", "unavailable", "local_resource", 2]
    ]
   },
@@ -3788,9 +3817,24 @@
    "decided_by": "Nothing in committed State: the failure is local. In a prover, wallet or key-generation call it fails that local call and nothing is submitted. On the validation path it defers the local attempt without a rejection or a vote (resource contract behavior `missing_local_resource_defers`) and never changes an accepted effect, gas or root; a validation site that turns it into a rejection is a defect of the owner.",
    "attribution": "path_rule",
    "sites": [
-    ["crates/iroha_core_privacy/src/privacy_engines/atomic_private_settlement/audit.rs", "unavailable", "local_resource", 1],
+    ["crates/iroha_core_privacy/src/privacy_engines/atomic_private_settlement/audit.rs", "unavailable", "local_resource", 4],
     ["crates/iroha_core_privacy/src/privacy_engines/atomic_private_settlement/facade.rs", "unavailable", "local_resource", 3],
     ["crates/iroha_core_privacy/src/privacy_engines/atomic_private_settlement/facade.rs", "unavailable", "unavailable", 1]
+   ]
+  },
+  {
+   "id": "private_settlement.version_check",
+   "kind": "activation_lifecycle",
+   "status": "not_a_gate",
+   "owner": null,
+   "path": "crates/iroha_data_model/src/nexus/private_settlement/proof_intent.rs",
+   "symbol": "UnsupportedVersion",
+   "gates": "Atomic private settlement: typed rejection of an encoding, proof or key version this release does not define.",
+   "decided_by": "Committed State already decides it.",
+   "attribution": "path_rule",
+   "note": "Canonical-layout validation of carried bytes (UnsupportedVersion, UnsupportedProofVersion and the like): the same bytes are rejected by every validator, no configuration, feature or environment is read, and nothing is unfinished. A version that becomes defined removes its arm.",
+   "sites": [
+    ["crates/iroha_data_model/src/nexus/private_settlement/proof_intent.rs", "unavailable", "version_check", 1]
    ]
   },
   {
@@ -3851,7 +3895,7 @@
    "gates": "SCCP proofs: code that names an activation or a lifecycle state.",
    "decided_by": "Outside the ZK delivery plan; recorded for visibility only.",
    "attribution": "path_rule",
-   "note": "SCCP bridge proofs and governed routes are outside the products of the ZK delivery plan. Proof-admission limits remain the committed ZK validity policy (cfg.zk.validity_policy). Route activation, suspension deadlines and generation membership are committed bridge State. Individually read forgery execution/restoration, liability, evidence and penalty rows use activation_height as the original validator-registration coordinate: captured lane, account, key and activation must agree with retained generation membership; current committee membership cannot substitute. These rows do not establish complete SCCP launch or retirement qualification (sccp.qualification and sccp.unavailable). Persisting a suspension table and cleaning expired rows alone does not establish pause-panel or selective-lift behavior.",
+   "note": "SCCP bridge proofs and governed routes are outside the products of the ZK delivery plan. Proof-admission limits remain the committed ZK validity policy (cfg.zk.validity_policy). Route activation, suspension deadlines and generation membership are committed bridge State. Individually read forgery execution/restoration, liability, evidence and penalty rows use activation_height as the original validator-registration coordinate: captured lane, account, key and activation must agree with retained generation membership; current committee membership cannot substitute. These rows do not establish complete SCCP launch or retirement qualification (sccp.qualification and sccp.unavailable). Persisting a suspension table and cleaning expired rows alone does not establish pause-panel or selective-lift behavior. The forgery offender registration coordinate (`activation_height: offender.activation_height`) moved from forgery/execution.rs into forgery/execution/event_graph.rs. smartcontracts/isi/sccp/reference_fixture_support.rs holds test-only fixture DATA (its own header says so): it is reached only through `#[path]` declarations inside the `#[cfg(test)] mod reference_fixtures;` modules of forgery.rs, governance/registration.rs and liability/tests.rs, which the scan cannot follow because the inner declarations carry no cfg(test) of their own. Its rows are fixture field values, no production gate.",
    "sites": [
     ["crates/iroha_cli/src/sccp/governance.rs", "activation", "lifecycle", 10],
     ["crates/iroha_cli/src/sccp/mod.rs", "activation", "activation", 5],
@@ -3863,11 +3907,11 @@
     ["crates/iroha_core/src/smartcontracts/isi/sccp/fast_pause.rs", "activation", "activation", 5],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/fast_pause.rs", "unavailable", "suspended", 5],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/fast_pause/certification.rs", "activation", "activation", 4],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution.rs", "activation", "activation", 2],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/forgery/execution/event_graph.rs", "activation", "activation", 2],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/forgery/restoration.rs", "activation", "activation", 2],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/generation_record.rs", "activation", "activation", 3],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/generations.rs", "activation", "activation", 7],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs", "activation", "activation", 37],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs", "activation", "activation", 39],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/governance.rs", "unavailable", "suspended", 2],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/hold.rs", "activation", "activation", 8],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/inbound.rs", "activation", "activation", 3],
@@ -3880,6 +3924,7 @@
     ["crates/iroha_core/src/smartcontracts/isi/sccp/read/native/fast_pause.rs", "unavailable", "suspended", 13],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/read/native/governance_metadata.rs", "activation", "activation", 9],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/read/native/governance_metadata/diagnostics.rs", "activation", "activation", 23],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/reference_fixture_support.rs", "activation", "activation", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/registry.rs", "activation", "activation", 20],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/self_claim.rs", "activation", "activation", 3],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/settle.rs", "activation", "activation", 10],
@@ -3915,16 +3960,17 @@
    "gates": "SCCP carried message and retained generation deadlines, including the native registration pin margin.",
    "decided_by": "Committed bridge State and canonical executing block time, rather than a node elapsed-time budget.",
    "attribution": "path_rule",
-   "note": "SCCP is outside the products of the ZK delivery plan. These deadlines are committed coordinates: generation/read projections retain immutable trust deadlines. registration::retained_pin binds until_ms to the exact retained generation and checks the canonical block timestamp plus committed committee_heartbeat_ms and the fixed protocol PIN_MARGIN_MS against every retained successor. The moved native message projection and its separate local request deadlines are distinguished in sccp.native_read_controls. No Instant-based request timeout is classified as a committed route deadline here.",
+   "note": "SCCP is outside the products of the ZK delivery plan. These deadlines are committed coordinates: generation/read projections retain immutable trust deadlines. registration::retained_pin binds until_ms to the exact retained generation and checks the canonical block timestamp plus committed committee_heartbeat_ms and the fixed protocol PIN_MARGIN_MS against every retained successor. The moved native message projection and its separate local request deadlines are distinguished in sccp.native_read_controls. No Instant-based request timeout is classified as a committed route deadline here. smartcontracts/isi/sccp/reference_fixture_support.rs holds test-only fixture DATA (its own header says so): it is reached only through `#[path]` declarations inside the `#[cfg(test)] mod reference_fixtures;` modules of forgery.rs, governance/registration.rs and liability/tests.rs, which the scan cannot follow because the inner declarations carry no cfg(test) of their own. Its rows are fixture field values, no production gate.",
    "sites": [
     ["crates/iroha_core/src/smartcontracts/isi/sccp/generation_record.rs", "time_budget", "deadline", 5],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/generations.rs", "time_budget", "deadline", 4],
-    ["crates/iroha_core/src/smartcontracts/isi/sccp/governance/registration.rs", "time_budget", "deadline", 2],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/governance/registration.rs", "time_budget", "deadline", 4],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/inbound.rs", "time_budget", "deadline", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/outbound.rs", "time_budget", "deadline", 8],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/read.rs", "time_budget", "deadline", 2],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/read/committee.rs", "time_budget", "deadline", 3],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/read/views.rs", "time_budget", "deadline", 2],
+    ["crates/iroha_core/src/smartcontracts/isi/sccp/reference_fixture_support.rs", "time_budget", "deadline", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/self_claim.rs", "time_budget", "deadline", 1],
     ["crates/iroha_data_model/src/sccp/events.rs", "time_budget", "deadline", 2],
     ["crates/iroha_data_model/src/sccp/generation.rs", "time_budget", "deadline", 2],
@@ -4388,7 +4434,7 @@
    "note": "SoraFS, Musubi, SoraNet and runtime-signer services qualify providers, signers and releases of those services. They are not a ZK, privacy, FHE or proof-validity path of the ZK delivery plan; the names match a detector by word only.",
    "sites": [
     ["crates/iroha_torii/src/soranet_privacy_ingress.rs", "unavailable", "unavailable", 1],
-    ["crates/iroha_torii/src/stream_token_custody_proof.rs", "unavailable", "unavailable", 5],
+    ["crates/iroha_torii/src/stream_token_custody_proof.rs", "unavailable", "unavailable", 4],
     ["crates/irohad/src/runtime_provider_broker/protocol/platform/operation_dispatch/privacy.rs", "unavailable", "unavailable", 6],
     ["crates/irohad/src/soracloud_runtime.rs", "unavailable", "unavailable", 30],
     ["crates/irohad/src/soracloud_runtime.rs", "unavailable", "unsupported", 6],
@@ -4655,9 +4701,8 @@
    "gates": "private voting and timed OVN: code that names an activation or a lifecycle state.",
    "decided_by": "Committed State already decides it.",
    "attribution": "read",
-   "note": "Phases of one election and the schedule of its keys, all committed State. `TimedOvnLifecycleStateV1` / `TimedOvnLifecyclePhaseV1` (Registered, RegistrationClosed, SurvivorsFrozen, CorpusOpen, Sealed, Released) and `InvalidLifecycleTransition` order the steps of a timed-OVN ballot; `ParliamentLifecycleTransitionV1` and `validate_ballot_lifecycle` are the transitions of a parliament ballot; `TleKeySessionLifecycleV1` with its `activation_height` is the committed height from which a time-lock key session is the current key. No capability is switched: these are the real stages of the protocol, which the plan keeps (P.8).",
+   "note": "Phases of one election and the schedule of its keys, all committed State. `TimedOvnLifecycleStateV1` / `TimedOvnLifecyclePhaseV1` (Registered, RegistrationClosed, SurvivorsFrozen, CorpusOpen, Sealed, Released) and `InvalidLifecycleTransition` order the steps of a timed-OVN ballot; `ParliamentLifecycleTransitionV1` and `validate_ballot_lifecycle` are the transitions of a parliament ballot; `TleKeySessionLifecycleV1` with its `activation_height` is the committed height from which a time-lock key session is the current key. No capability is switched: these are the real stages of the protocol, which the plan keeps (P.8). The CLI parliament ballot commands (iroha_cli gov/parliament/ballot.rs) and the Torii timed-OVN progress, casting-context, casting-proof and TLE-release routes were removed; ParliamentLifecycleTransitionV1 is still named by iroha_cli gov/parliament.rs, which is no family file and yields no row.",
    "sites": [
-    ["crates/iroha_cli/src/gov/parliament/ballot.rs", "activation", "lifecycle", 4],
     ["crates/iroha_core/src/governance/parliament/reducer_ballot.rs", "activation", "lifecycle", 5],
     ["crates/iroha_core/src/tle_release.rs", "activation", "lifecycle", 2],
     ["crates/iroha_core/src/tle_release/casting.rs", "activation", "lifecycle", 14],
@@ -4665,8 +4710,7 @@
     ["crates/iroha_core_timed_ovn/src/evidence.rs", "activation", "lifecycle", 16],
     ["crates/iroha_core_timed_ovn/src/tle.rs", "activation", "activation", 11],
     ["crates/iroha_core_timed_ovn/src/tle.rs", "activation", "lifecycle", 25],
-    ["crates/iroha_data_model/src/governance/types.rs", "activation", "lifecycle", 2],
-    ["crates/iroha_torii/src/gov.rs", "activation", "lifecycle", 8]
+    ["crates/iroha_data_model/src/governance/types.rs", "activation", "lifecycle", 2]
    ]
   },
   {
@@ -4682,6 +4726,41 @@
    "note": "The official release-audit reviewer of timed OVN (crates/iroha_crypto/src/timed_ovn.rs): `reviewer_public_key`, `reviewer_signature`, `trusted_reviewer_public_key`, `parse_official_release_audit_reviewer_key` and the rejection `UntrustedOfficialReleaseAuditReviewer`. A reviewer signature decides whether release evidence is accepted; P.8 removes it as a prerequisite of use. The DKG qualified dealer set in the same subsystem is entry voting.dkg_qualified_set.",
    "sites": [
     ["crates/iroha_crypto/src/timed_ovn.rs", "qualification", "reviewer", 35]
+   ]
+  },
+  {
+   "id": "voting.anonymous_ballot_qualification",
+   "kind": "readiness_qualification",
+   "status": "open",
+   "owner": "P.8",
+   "path": "crates/iroha_data_model/src/governance/anonymous_ballot/qualification.rs",
+   "symbol": "PARLIAMENT_BALLOT_QUALIFICATION_V1",
+   "gates": "Binding Parliament ballots: attempt creation, registration and sealing, anonymous-ballot admission and inclusion, and binding certification and enactment are released only when the compiled constant PARLIAMENT_BALLOT_QUALIFICATION_V1 names the digest of an owner-signed BallotQualificationRecordV1, whose detached signature release validation checks against a pinned owner key (parliament_ballot_qualified_v1). The constant is None, so all of them stay disabled; QualifiedBallotParameterBoundsV1 of the record would also bound the committed parliament_ballot_v1 values.",
+   "decided_by": "Committed State and proof validity under the committed relation, key and parameters, with qualification records kept as release evidence outside consensus (F.4 acceptance), unless the owner decides that the ballot stays outside the plan under its own release control.",
+   "attribution": "read",
+   "open_reason": "The gate is a design decision of the anonymous ballot (integration decision 0 of the module documentation): owner qualification is a deliberate protocol release control, which conflicts with the F.4 rule that no readiness certificate decides availability. No Core, Torii or SDK path consults it yet, because the Core integration that is to enforce it is not wired. It needs an owner decision; until then it is open work of P.8.",
+   "sites": [
+    ["crates/iroha_data_model/src/governance/anonymous_ballot.rs", "qualification", "qualification", 6],
+    ["crates/iroha_data_model/src/governance/anonymous_ballot/digests.rs", "qualification", "qualification", 1],
+    ["crates/iroha_data_model/src/governance/anonymous_ballot/qualification.rs", "qualification", "qualification", 10]
+   ]
+  },
+  {
+   "id": "voting.anonymous_ballot_lifecycle_policy",
+   "kind": "activation_lifecycle",
+   "status": "not_a_gate",
+   "owner": null,
+   "path": "crates/iroha_data_model/src/governance/anonymous_ballot/policy.rs",
+   "symbol": "FrozenLifecyclePolicyV1",
+   "gates": "Parliament anonymous ballot: names of the attempt lifecycle policy and of the duration of its Qualification stage.",
+   "decided_by": "Committed State already decides it.",
+   "attribution": "read",
+   "note": "The lifecycle identifiers (FrozenLifecyclePolicyV1, lifecycle_policy, the Lifecycle error field, ParliamentLifecycleParametersV1 with its error type and module, and LIFECYCLE_RECEIPT_ROW_MAX_BYTES_V1) name the attempt durations frozen at admission from the committed parliament_lifecycle_v1 parameter and compared with committed block time, and the byte cap of a lifecycle receipt row; `qualification_window_ms` is the frozen duration of the Qualification stage of an attempt. None reads an environment variable, node configuration, feature, digest, chain identity, signer, switch, manifest or wall clock. The release gate of the same product is voting.anonymous_ballot_qualification.",
+   "sites": [
+    ["crates/iroha_data_model/src/governance/anonymous_ballot.rs", "activation", "lifecycle", 5],
+    ["crates/iroha_data_model/src/governance/anonymous_ballot/output.rs", "activation", "lifecycle", 1],
+    ["crates/iroha_data_model/src/governance/anonymous_ballot/policy.rs", "activation", "lifecycle", 30],
+    ["crates/iroha_data_model/src/governance/anonymous_ballot/policy.rs", "qualification", "qualification", 3]
    ]
   },
   {
@@ -5071,10 +5150,10 @@
    "gates": "ZK-X509: a timeout, deadline or millisecond budget on the proof path.",
    "decided_by": "Committed State already decides it.",
    "attribution": "read",
-   "note": "`presentation_deadline_unix_ms` (crates/iroha_data_model/src/privacy/zk_x509_interval.rs) is a const function of the signed certificate and CRL intervals and the presentation window (X.1); `deadline_exclusive_millis` in crates/iroha_core/src/privacy_release_evidence/zk_x509.rs compares measured prover finish times of release evidence with that statement deadline, in a tool that no validator runs. No local clock decides validity.",
+   "note": "`presentation_deadline_unix_ms` (crates/iroha_data_model/src/privacy/zk_x509_interval.rs) is a const function of the signed certificate and CRL intervals and the presentation window (X.1); `deadline_exclusive_millis` in crates/iroha_core/src/privacy_release_evidence/zk_x509.rs compares measured prover finish times of release evidence with that statement deadline, in a tool that no validator runs. No local clock decides validity. PrivacyZkX509HolderScheduleV1::assess in the same file is a holder-side estimate that compares its own planned completion with that statement deadline and answers WithinBudget or Reprepare; it never accepts or extends the deadline and no validator runs it.",
    "sites": [
     ["crates/iroha_core/src/privacy_release_evidence/zk_x509.rs", "time_budget", "deadline", 3],
-    ["crates/iroha_data_model/src/privacy/zk_x509_interval.rs", "time_budget", "deadline", 1]
+    ["crates/iroha_data_model/src/privacy/zk_x509_interval.rs", "time_budget", "deadline", 4]
    ]
   },
   {
@@ -5209,20 +5288,26 @@
    "gates": "JavaScript SDK: words that a detector matches in names and comments.",
    "decided_by": "Committed State already decides it.",
    "attribution": "read",
-   "note": "Qualified struct identifiers (`qualifiedStruct`, `isCanonicalQualifiedStructIdentifier`, `fully-qualified`), the word `qualifier`, retail `qualifying_payments`, account onboarding and dataspace readiness, consensus seat readiness, accelerator qualification, and doc comments. A few of the comments describe the Exact12 admission of entry `sdk_javascript.exact12_capability` (HttpClientTransport.kt, tx.py, crypto.py, crypto.js); a comment gates nothing and the code they describe is counted there.",
+   "note": "Qualified struct identifiers (`qualifiedStruct`, `isCanonicalQualifiedStructIdentifier`, `fully-qualified`), the word `qualifier`, retail `qualifying_payments`, account onboarding and dataspace readiness, consensus seat readiness, accelerator qualification, and doc comments. A few of the comments describe the Exact12 admission of entry `sdk_javascript.exact12_capability` (HttpClientTransport.kt, tx.py, crypto.py, crypto.js); a comment gates nothing and the code they describe is counted there. The DomainId and settlement helpers (domainId.js, instructionBuilders.js, settlementId.js, settlementIdentifiers.js, settlementIntents.js, transactionReview.js) say \"fully qualified\" and \"owner-qualified\" of identifier structure in doc comments.",
    "sites": [
     ["javascript/iroha_js/src/connect.browser.js", "sdk_availability", "qualification", 1],
     ["javascript/iroha_js/src/contractDeclarations.js", "sdk_availability", "qualification", 1],
     ["javascript/iroha_js/src/crypto.js", "sdk_availability", "readiness", 1],
+    ["javascript/iroha_js/src/domainId.js", "sdk_availability", "qualification", 1],
+    ["javascript/iroha_js/src/instructionBuilders.js", "sdk_availability", "qualification", 2],
     ["javascript/iroha_js/src/kotodamaIdentifiers.js", "sdk_availability", "qualification", 6],
     ["javascript/iroha_js/src/nft.js", "sdk_availability", "qualification", 1],
     ["javascript/iroha_js/src/norito.js", "sdk_availability", "qualification", 2],
     ["javascript/iroha_js/src/petal/decode.js", "sdk_availability", "qualification", 1],
     ["javascript/iroha_js/src/retailFeeAssessment.js", "sdk_availability", "qualification", 5],
+    ["javascript/iroha_js/src/settlementId.js", "sdk_availability", "qualification", 2],
+    ["javascript/iroha_js/src/settlementIdentifiers.js", "sdk_availability", "qualification", 3],
+    ["javascript/iroha_js/src/settlementIntents.js", "sdk_availability", "qualification", 2],
     ["javascript/iroha_js/src/soracloud.js", "sdk_availability", "qualification", 3],
     ["javascript/iroha_js/src/sumeragiTyped.js", "sdk_availability", "readiness", 1],
     ["javascript/iroha_js/src/toriiClient.js", "sdk_availability", "qualification", 24],
-    ["javascript/iroha_js/src/toriiCompatibility.js", "sdk_availability", "qualification", 14]
+    ["javascript/iroha_js/src/toriiCompatibility.js", "sdk_availability", "qualification", 14],
+    ["javascript/iroha_js/src/transactionReview.js", "sdk_availability", "qualification", 1]
    ]
   },
   {
@@ -5235,9 +5320,9 @@
    "gates": "JavaScript SDK: parliament API models.",
    "decided_by": "Committed State already decides it.",
    "attribution": "read",
-   "note": "`qualified_dealers` and `qualified_dealer_commitments` are the qualified dealer set of the threshold-key DKG (entry voting.dkg_qualified_set), and `CompleteQualification` is a transition kind of the parliament procedure. Where the word `readiness` occurs, it names the projection of `GET /v1/gov/capabilities` (network identity, ABI version, supported proposal kinds, body sizes), a read of committed governance State. The SDK decodes these values; no qualification record is involved.",
+   "note": "`CompleteQualification` is a public transition kind of the Parliament procedure and \"Qualification\" the label of its stage, both committed governance State. Where the word `readiness` occurs, it names the projection of `GET /v1/gov/capabilities` (network identity, ABI version, supported proposal kinds, body sizes), a read of committed governance State. The SDK decodes these values; no qualification record is involved. The timed-OVN TLE models with their qualified dealer sets were removed from the clients.",
    "sites": [
-    ["javascript/iroha_js/src/parliamentApiV1.js", "sdk_availability", "qualification", 20]
+    ["javascript/iroha_js/src/parliamentApiV1.js", "sdk_availability", "qualification", 2]
    ]
   },
   {
@@ -5312,7 +5397,7 @@
     ["kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/consensus/ValidatorStakingNoritoV1.kt", "sdk_availability", "qualification", 3],
     ["kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/consensus/ValidatorStakingNoritoV1.kt", "sdk_availability", "readiness", 10],
     ["kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/offline/petal/PetalDecoder.kt", "sdk_availability", "qualification", 1],
-    ["kotlin/kagemusha-wallet-android/src/main/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletEnrollmentV1.kt", "sdk_availability", "qualification", 1],
+    ["kotlin/kagemusha-wallet-android/src/main/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletEnrollmentV1.kt", "sdk_availability", "qualification", 2],
     ["kotlin/kagemusha-wallet-android/src/main/java/org/hyperledger/iroha/sdk/offline/wallet/KagemushaWalletV1.kt", "sdk_availability", "readiness", 1]
    ]
   },
@@ -5322,13 +5407,13 @@
    "status": "not_a_gate",
    "owner": null,
    "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/ParliamentApiV1.kt",
-   "symbol": "qualif",
+   "symbol": "CompleteQualification",
    "gates": "Kotlin/Java/Android SDK: parliament API models.",
    "decided_by": "Committed State already decides it.",
    "attribution": "read",
-   "note": "`qualified_dealers` and `qualified_dealer_commitments` are the qualified dealer set of the threshold-key DKG (entry voting.dkg_qualified_set), and `CompleteQualification` is a transition kind of the parliament procedure. Where the word `readiness` occurs, it names the projection of `GET /v1/gov/capabilities` (network identity, ABI version, supported proposal kinds, body sizes), a read of committed governance State. The SDK decodes these values; no qualification record is involved.",
+   "note": "`CompleteQualification` is a public transition kind of the Parliament procedure and \"Qualification\" the label of its stage, both committed governance State. Where the word `readiness` occurs, it names the projection of `GET /v1/gov/capabilities` (network identity, ABI version, supported proposal kinds, body sizes), a read of committed governance State. The SDK decodes these values; no qualification record is involved. The timed-OVN TLE models with their qualified dealer sets were removed from the clients.",
    "sites": [
-    ["kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/ParliamentApiV1.kt", "sdk_availability", "qualification", 29]
+    ["kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/ParliamentApiV1.kt", "sdk_availability", "qualification", 2]
    ]
   },
   {
@@ -5394,10 +5479,10 @@
    "gates": "Python SDK: parliament API models.",
    "decided_by": "Committed State already decides it.",
    "attribution": "read",
-   "note": "`qualified_dealers` and `qualified_dealer_commitments` are the qualified dealer set of the threshold-key DKG (entry voting.dkg_qualified_set), and `CompleteQualification` is a transition kind of the parliament procedure. Where the word `readiness` occurs, it names the projection of `GET /v1/gov/capabilities` (network identity, ABI version, supported proposal kinds, body sizes), a read of committed governance State. The SDK decodes these values; no qualification record is involved.",
+   "note": "`CompleteQualification` is a public transition kind of the Parliament procedure and \"Qualification\" the label of its stage, both committed governance State. Where the word `readiness` occurs, it names the projection of `GET /v1/gov/capabilities` (network identity, ABI version, supported proposal kinds, body sizes), a read of committed governance State. The SDK decodes these values; no qualification record is involved. The timed-OVN TLE models with their qualified dealer sets were removed from the clients.",
    "sites": [
-    ["python/iroha_torii_client/parliament_api.py", "sdk_availability", "qualification", 17],
-    ["python/iroha_torii_client/parliament_api.py", "sdk_availability", "readiness", 2]
+    ["python/iroha_torii_client/parliament_api.py", "sdk_availability", "qualification", 2],
+    ["python/iroha_torii_client/parliament_api.py", "sdk_availability", "readiness", 3]
    ]
   },
   {
@@ -5455,10 +5540,12 @@
    "gates": "Swift SDK: words that a detector matches in names and comments.",
    "decided_by": "Committed State already decides it.",
    "attribution": "read",
-   "note": "Qualified struct identifiers (`qualifiedStruct`, `isCanonicalQualifiedStructIdentifier`, `fully-qualified`), the word `qualifier`, retail `qualifying_payments`, account onboarding and dataspace readiness, consensus seat readiness, accelerator qualification, and doc comments. A few of the comments describe the Exact12 admission of entry `sdk_swift.exact12_capability` (HttpClientTransport.kt, tx.py, crypto.py, crypto.js); a comment gates nothing and the code they describe is counted there.",
+   "note": "Qualified struct identifiers (`qualifiedStruct`, `isCanonicalQualifiedStructIdentifier`, `fully-qualified`), the word `qualifier`, retail `qualifying_payments`, account onboarding and dataspace readiness, consensus seat readiness, accelerator qualification, and doc comments. A few of the comments describe the Exact12 admission of entry `sdk_swift.exact12_capability` (HttpClientTransport.kt, tx.py, crypto.py, crypto.js); a comment gates nothing and the code they describe is counted there. KagemushaWalletApplePlatformV1.swift and KagemushaWalletAppleSystemV1.swift mention in comments that platform rollback qualification stays open; no code reads a qualification record.",
    "sites": [
     ["IrohaSwift/Sources/IrohaSwift/AccelerationSettings.swift", "sdk_availability", "qualification", 2],
     ["IrohaSwift/Sources/IrohaSwift/ConnectClient.swift", "sdk_availability", "qualification", 1],
+    ["IrohaSwift/Sources/IrohaSwift/KagemushaWalletApplePlatformV1.swift", "sdk_availability", "qualification", 1],
+    ["IrohaSwift/Sources/IrohaSwift/KagemushaWalletAppleSystemV1.swift", "sdk_availability", "qualification", 1],
     ["IrohaSwift/Sources/IrohaSwift/KagemushaWalletEnrollmentV1.swift", "sdk_availability", "qualification", 2],
     ["IrohaSwift/Sources/IrohaSwift/KagemushaWalletV1.swift", "sdk_availability", "readiness", 1],
     ["IrohaSwift/Sources/IrohaSwift/KaigiInstructionsV1.swift", "sdk_availability", "qualification", 1],
@@ -5482,9 +5569,9 @@
    "gates": "Swift SDK: parliament API models.",
    "decided_by": "Committed State already decides it.",
    "attribution": "read",
-   "note": "`qualified_dealers` and `qualified_dealer_commitments` are the qualified dealer set of the threshold-key DKG (entry voting.dkg_qualified_set), and `CompleteQualification` is a transition kind of the parliament procedure. Where the word `readiness` occurs, it names the projection of `GET /v1/gov/capabilities` (network identity, ABI version, supported proposal kinds, body sizes), a read of committed governance State. The SDK decodes these values; no qualification record is involved.",
+   "note": "`CompleteQualification` is a public transition kind of the Parliament procedure and \"Qualification\" the label of its stage, both committed governance State. Where the word `readiness` occurs, it names the projection of `GET /v1/gov/capabilities` (network identity, ABI version, supported proposal kinds, body sizes), a read of committed governance State. The SDK decodes these values; no qualification record is involved. The timed-OVN TLE models with their qualified dealer sets were removed from the clients.",
    "sites": [
-    ["IrohaSwift/Sources/IrohaSwift/ToriiParliamentAPIV1.swift", "sdk_availability", "qualification", 34]
+    ["IrohaSwift/Sources/IrohaSwift/ToriiParliamentAPIV1.swift", "sdk_availability", "qualification", 6]
    ]
   },
   {
@@ -5497,10 +5584,11 @@
    "gates": "SCCP original source and restoration custody, native-only decoder boundaries, compiled light-client profile availability, pending settlement reasons and incomplete destination operations.",
    "decided_by": "Outside the ZK delivery plan; native SCCP source and operation requirements remain independently enforced.",
    "attribution": "read",
-   "note": "Native committee, rotation, finality, message and control HTTP reads now invoke the admitted original native reader. Missing or inconsistent original source/rotation custody remains unavailable, not authenticated absence; actual Pruned has its own response. UnsupportedScope requires the actual Global root. Request deadline/cancellation is 408 and local capacity or source refusal is 503, with no-store responses. Forgery synchronous execution rechecks the original parent and uses a sticky local storage refusal for missing/inconsistent source or resource failure before any deterministic result can publish; bad signed evidence remains a separate protocol rejection. Native evidence-record and funded-attribution decoders explicitly refuse SCCP data: they are not the independent SccpRestore archive reauthentication owner selected by sumeragi/evidence/restoration.rs. Missing required original anchors refuse that SCCP restoration; decoded snapshot claims are not authority. Light-client profile absence still arms VerifierArtifactsUnavailable during execution, and fee-sink absence remains a deterministic pending reason. RegisterRoute launch gaps remain sccp.qualification. The block hook now calls generation/anchor pruning, which preserves pending forgery penalties and retained generation boundaries. Generation/anchor allocation failure remains Deferred rather than deterministic Degraded. This inventory does not qualify complete SCCP delivery.",
+   "note": "Native committee, rotation, finality, message and control HTTP reads now invoke the admitted original native reader. Missing or inconsistent original source/rotation custody remains unavailable, not authenticated absence; actual Pruned has its own response. UnsupportedScope requires the actual Global root. Request deadline/cancellation is 408 and local capacity or source refusal is 503, with no-store responses. Forgery synchronous execution rechecks the original parent and uses a sticky local storage refusal for missing/inconsistent source or resource failure before any deterministic result can publish; bad signed evidence remains a separate protocol rejection. Native evidence-record and funded-attribution decoders explicitly refuse SCCP data: they are not the independent SccpRestore archive reauthentication owner selected by sumeragi/evidence/restoration.rs. Missing required original anchors refuse that SCCP restoration; decoded snapshot claims are not authority. Light-client profile absence still arms VerifierArtifactsUnavailable during execution, and fee-sink absence remains a deterministic pending reason. RegisterRoute launch gaps remain sccp.qualification. The block hook now calls generation/anchor pruning, which preserves pending forgery penalties and retained generation boundaries. Generation/anchor allocation failure remains Deferred rather than deterministic Degraded. This inventory does not qualify complete SCCP delivery. The CLI TON evidence helper (iroha_cli sccp/ton.rs) turns BuildError::Unavailable of the account-state proof builder into no evidence (`Ok(None)`): a local client outcome, not authenticated absence.",
    "sites": [
     ["crates/iroha_cli/src/sccp/mod.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_cli/src/sccp/recipient_claim.rs", "unavailable", "unavailable", 1],
+    ["crates/iroha_cli/src/sccp/ton.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/admission.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/fast_pause/certification.rs", "unavailable", "unavailable", 6],
     ["crates/iroha_core/src/smartcontracts/isi/sccp/fast_pause/draw.rs", "unavailable", "unavailable", 8],
@@ -5602,13 +5690,30 @@
    "gates": "An untrusted engineering fingerprint locates a possible native proving-key artifact.",
    "decided_by": "The strict original artifact import reconstructs the circuit tables, descriptor binding and verifying-key selector commitments.",
    "attribution": "read",
-   "note": "The source fingerprint is only a lookup hint and excludes cryptographic authority. keys/keygen.rs and keys/pk/artifact.rs require from_artifact_v2_cancellable to compare actual source tables and bindings before accepting a key; digest equality cannot authorize a proof or bypass the relation.",
+   "note": "The source fingerprint is only a lookup hint and excludes cryptographic authority. keys/keygen.rs and keys/pk/artifact.rs require from_artifact_v2_cancellable to compare actual source tables and bindings before accepting a key; digest equality cannot authorize a proof or bypass the relation. The `source_digest` of a source-bound key is the fingerprint of reconstructed tables: keygen.rs compares a freshly computed fingerprint with it, and keygen/rebuild.rs recomputes it from the actual circuit before proving and refuses a mismatch with the seal, including for an original admitted through the compiled built-in profile (entry plonk.builtin_source_profile).",
    "sites": [
-    ["crates/iroha_plonk/src/keys/keygen.rs", "digest_identity", "source", 3],
-    ["crates/iroha_plonk/src/keys/keygen/rebuild.rs", "digest_identity", "source", 8],
+    ["crates/iroha_plonk/src/keys/keygen.rs", "digest_identity", "source", 12],
+    ["crates/iroha_plonk/src/keys/keygen/rebuild.rs", "digest_identity", "source", 15],
     ["crates/iroha_plonk/src/keys/mod.rs", "digest_identity", "source", 4],
-    ["crates/iroha_plonk/src/keys/pk/artifact.rs", "digest_identity", "source", 3],
-    ["crates/iroha_plonk/src/keys/source_fingerprint.rs", "digest_identity", "source", 4]
+    ["crates/iroha_plonk/src/keys/pk/artifact.rs", "digest_identity", "source", 12],
+    ["crates/iroha_plonk/src/keys/source_fingerprint.rs", "digest_identity", "source", 6]
+   ]
+  },
+  {
+   "id": "plonk.builtin_source_profile",
+   "kind": "digest",
+   "status": "out_of_plan",
+   "owner": null,
+   "path": "crates/iroha_plonk/src/keys/keygen/builtin.rs",
+   "symbol": "fn select_profile(",
+   "gates": "Closed compiled source-profile admission of a PLONK verifying-key original (BuiltinSourceProfileV1::match_actual, BuiltinSourceMemberV1::admit_originals_*): a profile is admitted only when its exact bytes match an entry of the table generated into this binary (keys/keygen/builtin/generated.rs) and the build-computed source identity, the complete source closure and the supported compile target agree; otherwise UnsupportedProfile, StaleSource, UnsupportedTarget or IncompleteSourceClosure.",
+   "decided_by": "Outside the ZK delivery plan: the only production callers are KAGEMUSHA wallet owners, which select it explicitly instead of strict source reconstruction (plonk.source_lookup).",
+   "attribution": "read",
+   "note": "BuiltinSourceProfileV1, BuiltinSourceMemberV1 and builtin_source_identity_v1 are called in production only by the KAGEMUSHA producer inventory (iroha_core_zk kagemusha_wallet_artifacts_v1: wallet.rs qualify_wallet_builtin, builtin.rs, operation.rs, sigma.rs), the KAGEMUSHA proof crate (iroha_kagemusha_proof OriginalAdmission::Builtin), the wallet bridge (connect_norito_bridge kagemusha_wallet_ffi/installed.rs) and the offline kagemusha_wallet_artifacts tool; no validator path and no product of the ZK delivery plan calls it. Availability there depends on the binary: the generated table, the build-computed source digest and the compile target. This is a binary/source-digest gate in the sense of F.4; it is recorded here, out of plan with the rest of KAGEMUSHA, and becomes open F.4 work as soon as any operation of the delivery plan admits an original through it. Later proving still rebuilds the actual source and compares its digest (plonk.source_lookup).",
+   "sites": [
+    ["crates/iroha_plonk/src/keys/keygen/builtin.rs", "digest_identity", "source", 13],
+    ["crates/iroha_plonk/src/keys/keygen/builtin.rs", "unavailable", "unsupported", 8],
+    ["crates/iroha_plonk/src/keys/keygen/builtin/generated.rs", "digest_identity", "source", 275]
    ]
   },
   {
@@ -6267,6 +6372,7 @@
    "sm": {"class": "validity_gate", "entry": "feature.sm_gost_bls_pqc", "cfg_sites": 2}
   },
   "iroha_p2p": {
+   "mutation-testing": {"class": "development_or_test", "reason": "Test-only mutation feature: the crate unconditionally includes its p2p_mutation_guard.rs, whose compile_error rejects this feature outside cfg(test). No shipping dependency/library build can enable it."},
    "quic": {"class": "service_surface", "reason": "Selects an API, transport, codec or model surface of the crate, not a validity rule."},
    "test-fixtures": {"class": "development_or_test", "reason": "Development, test, benchmark or measurement tooling; not part of a node release."}
   },
@@ -6353,9 +6459,9 @@
   }
  },
  "summary": {
-  "entries": 224,
-  "sites": 1530,
-  "by_status": {"done": 11, "local_resource": 23, "not_a_gate": 98, "open": 57, "out_of_plan": 20, "unsupported": 15},
-  "by_owner": {"-": 118, "A.3": 2, "B.2": 3, "C.2": 1, "C.5": 6, "C.6": 4, "F.4": 28, "M.2": 6, "P.11": 1, "P.12": 2, "P.13": 2, "P.14": 4, "P.15": 3, "P.16": 1, "P.17": 1, "P.18": 1, "P.19": 1, "P.20": 3, "P.5": 16, "P.8": 3, "P.9": 3, "R.12": 3, "S.1": 1, "S.3": 1, "S.4": 2, "S.5": 2, "X.4": 6}
+  "entries": 228,
+  "sites": 1577,
+  "by_status": {"done": 11, "local_resource": 23, "not_a_gate": 100, "open": 58, "out_of_plan": 21, "unsupported": 15},
+  "by_owner": {"-": 121, "A.3": 2, "B.2": 3, "C.2": 1, "C.5": 6, "C.6": 4, "F.4": 28, "M.2": 6, "P.11": 1, "P.12": 2, "P.13": 2, "P.14": 4, "P.15": 3, "P.16": 1, "P.17": 1, "P.18": 1, "P.19": 1, "P.20": 3, "P.5": 16, "P.8": 4, "P.9": 3, "R.12": 3, "S.1": 1, "S.3": 1, "S.4": 2, "S.5": 2, "X.4": 6}
  }
 }

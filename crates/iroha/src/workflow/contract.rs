@@ -437,21 +437,35 @@ impl WorkflowErrorCode {
 
 contract_enum! {
     /// Stage that produced an error.
+    ///
+    /// One vocabulary serves durable workflows and the one-call operation contract
+    /// (`specs/zk_operation_contract.md`), whose advanced calls report `plan` (prepare),
+    /// `prove`, `local_verify`, `build`, `sign`, `submit`, and `reconcile` and `finality`
+    /// (await finality). A workflow driver proves and builds in one payload call, so a
+    /// workflow reports neither `local_verify` nor `build`; only workflows report `round`.
     pub enum WorkflowStage {
-        /// Validating the plan, driver identity or account binding.
+        /// Validating the plan or operation request: driver identity, account binding and bounds.
         Plan => "plan",
         /// Loading and verifying the journal.
         Load => "load",
         /// Persisting a journal record.
         Store => "store",
-        /// Proving and building a payload.
+        /// Proving. A workflow driver's payload call, which also builds, and the checks of
+        /// its result report this stage.
         Prove => "prove",
-        /// Signing a payload.
+        /// Verifying a generated proof locally before anything is built or signed.
+        /// Local acceptance is diagnostic, never ledger authorization.
+        LocalVerify => "local_verify",
+        /// Building the exact canonical unsigned payload from locally verified proofs.
+        Build => "build",
+        /// Signing a payload, or assembling and verifying an external signature.
         Sign => "sign",
         /// Dispatching signed bytes.
         Submit => "submit",
         /// Read-only reconciliation of a transaction identity.
         Reconcile => "reconcile",
+        /// Authenticating the finality of a committed outcome selected by reconciliation.
+        Finality => "finality",
         /// Running or recovering an off-chain round.
         Round => "round",
         /// Applying a cancellation.
@@ -1180,6 +1194,41 @@ mod tests {
             extensions,
             ["StorageCorrupted", "JournalConflict", "RoundPending"]
         );
+    }
+
+    #[test]
+    fn stages_are_the_shared_vocabulary_in_pipeline_order() {
+        // The operation pipeline prepare -> prove -> local_verify -> build -> sign ->
+        // submit -> await_finality reports these stages in this order; workflows add
+        // `round`, and every durable call may report the journal stages and `cancel`.
+        assert_eq!(
+            WorkflowStage::ALL
+                .iter()
+                .map(|stage| stage.id())
+                .collect::<Vec<_>>(),
+            [
+                "plan",
+                "load",
+                "store",
+                "prove",
+                "local_verify",
+                "build",
+                "sign",
+                "submit",
+                "reconcile",
+                "finality",
+                "round",
+                "cancel",
+            ]
+        );
+        let rendered = state_machine_json();
+        let stages = rendered
+            .as_object()
+            .and_then(|root| root.get("stages"))
+            .and_then(Value::as_array)
+            .expect("stages");
+        assert_eq!(stages.len(), WorkflowStage::ALL.len());
+        assert_eq!(WorkflowStage::LocalVerify.to_string(), "local_verify");
     }
 
     #[test]

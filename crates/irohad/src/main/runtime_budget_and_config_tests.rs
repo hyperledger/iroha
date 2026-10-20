@@ -247,6 +247,65 @@ fn validate_config_io_flags_address_conflict() -> eyre::Result<()> {
     Ok(())
 }
 #[test]
+fn block_sync_topic_must_carry_the_local_sync_budget() -> eyre::Result<()> {
+    let (config, _dir, _config_path) = load_config_with_overrides(|_, _| {})?;
+    let origin = config.common.trusted_peers.value().myself.id().clone();
+    let required =
+        iroha_core::sumeragi::net::minimum_block_sync_frame_bytes(&origin, &config.sumeragi.local);
+    assert!(
+        required <= iroha_config::parameters::defaults::network::MAX_FRAME_BYTES_BLOCK_SYNC.get(),
+        "the shipped block-sync cap carries the default sync budget"
+    );
+    validate_network_frame_runtime_limit(&config).expect("shipped defaults are accepted");
+    for (cap, accepted) in [(required, true), (required - 1, false)] {
+        let (topic_config, _topic_dir, _topic_config_path) =
+            load_config_with_overrides(|table, _genesis_key| {
+                iroha_config::base::toml::Writer::new(table).write(
+                    ["network", "max_frame_bytes_block_sync"],
+                    i64::try_from(cap).expect("topic cap fits i64"),
+                );
+            })?;
+        let result = validate_network_frame_runtime_limit(&topic_config);
+        assert_eq!(result.is_ok(), accepted, "max_frame_bytes_block_sync={cap}");
+        if !accepted {
+            assert_contains!(
+                format!("{:#}", result.unwrap_err()),
+                "cannot carry the largest sync response of sumeragi.sync_max_bytes"
+            );
+        }
+    }
+    Ok(())
+}
+#[test]
+fn control_topic_must_carry_the_largest_control_frame() -> eyre::Result<()> {
+    let (config, _dir, _config_path) = load_config_with_overrides(|_, _| {})?;
+    let origin = config.common.trusted_peers.value().myself.id().clone();
+    let required = iroha_core::sumeragi::net::minimum_control_frame_bytes(&origin);
+    assert!(
+        required <= iroha_config::parameters::defaults::network::MAX_FRAME_BYTES_CONTROL.get(),
+        "the shipped control cap carries the largest control frame"
+    );
+    validate_network_frame_runtime_limit(&config).expect("shipped defaults are accepted");
+    for (cap, accepted) in [(required, true), (required - 1, false)] {
+        let (topic_config, _topic_dir, _topic_config_path) =
+            load_config_with_overrides(|table, _genesis_key| {
+                iroha_config::base::toml::Writer::new(table).write(
+                    ["network", "max_frame_bytes_control"],
+                    i64::try_from(cap).expect("topic cap fits i64"),
+                );
+            })?;
+        let result = validate_network_frame_runtime_limit(&topic_config);
+        assert_eq!(result.is_ok(), accepted, "max_frame_bytes_control={cap}");
+        if !accepted {
+            assert_contains!(
+                format!("{:#}", result.unwrap_err()),
+                "cannot carry the largest consensus control frame"
+            );
+        }
+    }
+    Ok(())
+}
+#[test]
 fn check_config_and_runtime_enforce_frame_cap_boundary() -> eyre::Result<()> {
     let (exact_config, _exact_dir, _exact_config_path) =
         load_config_with_overrides(|table, _genesis_key| {

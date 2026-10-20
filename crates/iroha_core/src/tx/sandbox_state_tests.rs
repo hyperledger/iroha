@@ -705,7 +705,7 @@ impl SandboxBlock<'_> {
             .unpack(|_| {});
         // Execution already produced the data, trigger, and transaction events.
         // Publication metadata requires finality and must not mutate this sealed cut.
-        let events = self.state.world.external_event_buf.clone();
+        let events = self.state.world.pending_external_events().to_vec();
         assert_eq!(
             self.state.block_hashes.len(),
             committed_history_len,

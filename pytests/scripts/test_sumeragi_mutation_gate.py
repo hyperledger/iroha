@@ -4060,7 +4060,7 @@ def test_retained_musubi_validation_stage_has_exact_core_owner_and_real_late_ref
     assert "fn " + name + "(" in controls
     retained_control = named_rust_function(controls, name)
     assert "state.world.governance_last_unlock_sweep_height.block()" in retained_control
-    assert "merge_global_state_root" not in controls
+    assert "merge_global_state_root" not in retained_control
     assert retained_control.index("let blocker =") < retained_control.index("let completed =")
     assert "successful Musubi validation must survive a later original writer refusal" in controls
     assert "refused_prefix[0] + 1" in controls and "refused_prefix[1] + 1" in controls
@@ -4547,7 +4547,9 @@ def test_checkpoint_status_preserves_g1_h2_and_internal_full_prefix_boundaries()
     source = (ROOT / "crates/iroha_torii/src/lib_pipeline_handlers.rs").read_text()
     selected = source.split("fn read_pipeline_transaction_carrier(", 1)[1].split("\nfn ", 1)[0]
     assert "read_pipeline_execution_carrier(app, anchor.height)" in selected
-    http = source.split("fn read_pipeline_execution_carrier(", 1)[1].split("\nfn ", 1)[0]
+    wrapper = named_rust_function(source, "read_pipeline_execution_carrier")
+    assert "read_pipeline_execution_carrier_within(app, height, work, bytes)" in wrapper
+    http = named_rust_function(source, "read_pipeline_execution_carrier_within")
     assert "HistoryProducerOwner::authentication_read(app)?" in http
     assert "owner.scope(||" in http
     assert "if height == NonZeroUsize::MIN" in http
@@ -4557,9 +4559,21 @@ def test_checkpoint_status_preserves_g1_h2_and_internal_full_prefix_boundaries()
     ordinary = source.split("fn authenticate_canonical_transaction_outcome(", 1)[1].split("// HTTP status", 1)[0]
     assert "visit_finalized_network_transactions(" in ordinary
     assert "checkpoint" not in ordinary.split("// HTTP", 1)[0]
-    status = source.split("fn pipeline_status_terminal_or_state_entry(", 1)[1].split("\nfn ", 1)[0]
-    assert "read_pipeline_transaction_carrier(app, anchor)" in status
-    assert "pipeline_status_terminal_or_state_entry_with_carrier_reader(" in status
+    status = named_rust_function(source, "pipeline_status_terminal_or_state_entry")
+    assert "reconcile_pending_pipeline_transaction(app, hash)?" in status
+    assert "pipeline_status_terminal_or_state_entry_from_outcome(app, hash, outcome)" in status
+    production = named_rust_function(source, "reconcile_pending_pipeline_transaction")
+    assert "canonical_transaction_read_with_authenticator(&app.state, hash" in production
+    assert "if anchor.height == NonZeroUsize::MIN" in production
+    assert "read_pipeline_transaction_carrier(app, anchor)?" in production
+    assert "read_pipeline_transaction_outcome(app, hash, anchor)?" in production
+    assert production.index("canonical_transaction_read_with_authenticator") < production.index("complete_pending_from_carrier")
+    assert production.index("canonical_transaction_read_with_authenticator") < production.index("complete_pending_from_exact_outcome")
+    exact = named_rust_function(source, "read_pipeline_transaction_outcome")
+    assert "HistoryProducerOwner::authentication_read(app)?" in exact
+    assert "owner.scope(||" in exact and "owner.canonical_history_budget()" in exact
+    assert "read_committed_network_outcome(" in exact
+    assert "canonical_transaction_outcome_from_committed(hash, anchor, &committed)" in exact
     checked = source.split("fn pipeline_status_terminal_or_state_entry_with_carrier_reader(", 1)[1].split("\nfn ", 1)[0]
     assert "reconcile_pending_pipeline_transaction_with_carrier_reader(app, hash, read)?" in checked
     reconciled = source.split("fn reconcile_pending_pipeline_transaction_with_carrier_reader(", 1)[1].split("\nfn ", 1)[0]
@@ -6117,7 +6131,8 @@ def test_kaigi_record_refusal_controls_use_the_existing_shared_hc32_owner():
     start = source.index('fn decode_stored_kaigi_record(')
     stop = source.index('fn store_relay_feedback(', start)
     decoder = source[start:stop]
-    assert 'norito_decode_attempt_error(error' in decoder
+    assert 'canonical_decode_attempt_error(error' in decoder
+    assert 'norito::core::classify_decode_attempt(' in decoder
     assert 'value.clone().try_into_any_norito' not in decoder
     assert 'sumeragi_core_mutation' not in decoder
     assert 'ExecutionAttemptError<Error>' in decoder
@@ -6149,7 +6164,8 @@ def test_kaigi_relay_refusals_use_the_same_owned_hc32_classifier():
         ('fn decode_kaigi_relay_allowlist(', 'fn decode_stored_kaigi_relay_allowlist('),
     ]:
         decoder = source[source.index(begin):source.index(end)]
-        assert 'norito_decode_attempt_error(error' in decoder
+        assert 'canonical_decode_attempt_error(error' in decoder
+        assert 'norito::core::classify_decode_attempt(' in decoder
         assert 'value.clone()' not in decoder
         assert 'ExecutionAttemptError<' in decoder
     start = source.index('fn ensure_manifest_relays_registered(')
@@ -6240,7 +6256,7 @@ def test_kaigi_sns_refusals_use_original_sns_owner_and_shared_hc32():
     sns = (ROOT / 'crates/iroha_core/src/sns.rs').read_text()
     start = sns.index('fn sns_decode_error(')
     stop = sns.index('impl From<PricingError>', start)
-    assert 'norito_decode_attempt_error(error' in sns[start:stop]
+    assert 'canonical_decode_attempt_error(error' in sns[start:stop]
     assert gate.has_switch('HC32', core=True)
     owner = (ROOT / 'crates/iroha_core/src/smartcontracts/isi/kaigi/relay_typed_deferral_tests.rs').read_text()
     for selector in required:
@@ -6720,7 +6736,9 @@ def test_native_cursor_retention_mutations_have_original_owner_and_causal_contro
     assert "if block.hash() != self.expected || block.header().height().get() != height" in decoder
     assert "KuraOwner::Owned(kura)" in acquisition and "self.budget.same_pool(budget)" in acquisition
     storage = (core / "kura/native_execution_reads.rs").read_text()
-    assert storage.count("let confirmed = store.read_block_index(position)?;") == 1
+    binding = storage.split("impl NativeFrameBinding {", 1)[1].split("impl Kura {", 1)[0]
+    original_read = named_rust_function(binding, "read_original")
+    assert original_read.count("let confirmed = store.read_block_index(position)?;") == 1
     assert "binding: source.binding" in storage and "kura: Arc::clone(self)" in storage
 
 
@@ -10963,7 +10981,7 @@ def test_proposal_tip_retirement_mutation_preserves_real_history_and_exact_cause
     assert "commit_independent_global_work(&mut closed.fixture)" in native
     assert "closed.record.retirement_height()" in native
     assert "Some(closed.frame.len())" in native
-    assert native.index("drop((body, certificate, replay, closed));") < native.index("assert_eq!(budget.reserved_bytes(), 0);") < native.index(json.dumps(cause))
+    assert native.index("drop((body, certificate, replay, closed, epoch));") < native.index("assert_eq!(budget.reserved_bytes(), 0);") < native.index(json.dumps(cause))
     assert "refunded && released_lock" in native
     assert "closed_unhosted_lane_proposal_retries_original_opening_and_preserves_certified_backlog" in controls
     rows = re.findall(r"^\| HC428 \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)

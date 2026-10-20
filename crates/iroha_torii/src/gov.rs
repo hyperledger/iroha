@@ -633,7 +633,8 @@ pub struct GovernanceCapabilitiesV1 {
     pub proposal_backed_referendum_ballots_supported: bool,
     /// Whether explicitly standalone PLAIN referenda retain their separate route.
     pub standalone_plain_ballots_supported: bool,
-    /// Whether explicitly standalone ZK referenda retain their separate route.
+    /// Whether standalone ZK ballots and tallies can be accepted: `false`, because no
+    /// standalone ballot or tally relation exists and Core refuses every such instruction.
     pub standalone_zk_ballots_supported: bool,
     /// Citizenship bond asset.
     pub citizenship_asset_id: String,
@@ -698,7 +699,7 @@ pub async fn handle_gov_capabilities(
         data_model_version: iroha_data_model::DATA_MODEL_VERSION.to_string(),
         proposal_backed_referendum_ballots_supported: false,
         standalone_plain_ballots_supported: gov.plain_voting_enabled,
-        standalone_zk_ballots_supported: true,
+        standalone_zk_ballots_supported: false,
         citizenship_asset_id: gov.citizenship_asset_id.to_string(),
         citizenship_bond_amount: gov.citizenship_bond_amount.to_string(),
         citizenship_escrow_account: gov.citizenship_escrow_account.to_string(),
@@ -731,8 +732,6 @@ pub async fn handle_gov_capabilities(
             "/v1/gov/parliament/attempts/{governance_attempt_id}/plan".to_owned(),
             "/v1/gov/parliament/transitions/draft".to_owned(),
             "/v1/gov/ballots/plain".to_owned(),
-            "/v1/gov/ballots/zk-v1".to_owned(),
-            "/v1/gov/ballots/zk-v1/ballot-proof".to_owned(),
             "/v1/validation-fee/proposals".to_owned(),
             "/v1/validation-fee/proposals/{proposal_id}".to_owned(),
             "/v1/validation-fee/proposals/draft".to_owned(),

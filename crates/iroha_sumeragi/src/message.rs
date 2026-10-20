@@ -1862,6 +1862,10 @@ mod tests {
         }
     }
 
+    /// The certificate and header parts of a proposal at the generic core bounds fit
+    /// `FRAME_OVERHEAD`. The availability table is a separate part: this fixture carries a
+    /// six-row table, and `generic_maximum_frames_fit_every_admissible_transport` measures
+    /// complete frames with the largest table.
     #[test]
     fn source_complete_maximum_certificate_and_header_fit_declared_frame_allowance() {
         let count = MAX_COMMITTEE_SIZE;
@@ -1901,6 +1905,139 @@ mod tests {
             frame.len()
         );
         assert!(WireMessage::decode(&frame, crate::pacemaker::FRAME_OVERHEAD as usize).is_ok());
+    }
+
+    /// Complete frames at the generic decode bounds of the core: `MAX_COMMITTEE_SIZE`
+    /// certificates, skipped leaders with `MAX_PUBLIC_KEY_LEN`-byte keys, the full control
+    /// witness and a `MAX_DA_CHUNK_COUNT`-row availability table (`MAX_AVAILABILITY_FRAME_BYTES`).
+    ///
+    /// Proposals, manifests and sync entries carry signed metadata and the availability table,
+    /// never the payload; payload bytes travel as rows of at most `MAX_DA_CHUNK_SIZE_BYTES`.
+    /// The certificate/header part and the table each fit `FRAME_OVERHEAD`, but together they
+    /// can exceed it, so the overhead alone is not a complete-frame bound at these generic
+    /// shapes. Every such frame fits twice the overhead, hence the transport limit of every
+    /// admissible chain (`validate_chain` requires at least `minimum_transport_frame_bytes(1)`).
+    /// A node accepts these frames within its transport class cap and rejects a shape that
+    /// differs from its committee during validation. The application's own consensus keys and
+    /// committees are smaller; their complete frames are pinned by the node's serving tests.
+    #[test]
+    fn generic_maximum_frames_fit_every_admissible_transport() {
+        use crate::{
+            availability::{
+                AvailabilityFrame, MAX_AVAILABILITY_FRAME_BYTES, MAX_DA_CHUNK_COUNT,
+                MAX_DA_CHUNK_SIZE_BYTES, RowBytes,
+            },
+            pacemaker::{FRAME_OVERHEAD, minimum_transport_frame_bytes},
+            types::{ControlWitness, MAX_CONTROL_WITNESS_BYTES, MAX_PUBLIC_KEY_LEN},
+        };
+        let count = MAX_COMMITTEE_SIZE;
+        let epoch = EpochId {
+            epoch: u64::MAX,
+            context: h(0xEE),
+        };
+        let qc = |kind, view| Qc {
+            kind,
+            instance: h(1),
+            epoch,
+            height: u64::MAX,
+            view,
+            block_hash: h(7),
+            result: h(8),
+            signers: Bitmap::from_indices(count, (0..count).map(crate::types::index_of)).unwrap(),
+            agg_sig: AggregateSignature([9; SIGNATURE_LEN]),
+        };
+        let header = BlockHeader {
+            instance: h(1),
+            epoch,
+            height: u64::MAX,
+            origin_view: u64::MAX,
+            parent_hash: h(2),
+            parent_result: h(3),
+            payload_hash: h(4),
+            availability_digest: h(5),
+            payload_len: u32::MAX,
+            proposer: ValidatorIndex::MAX,
+            skipped_leaders: (0..count)
+                .map(|i| {
+                    let mut bytes = vec![5; MAX_PUBLIC_KEY_LEN];
+                    bytes[..8].copy_from_slice(&(i as u64).to_be_bytes());
+                    PublicKey::new(bytes).unwrap()
+                })
+                .collect(),
+            control_witness: ControlWitness::try_from_slice(&[3; MAX_CONTROL_WITNESS_BYTES])
+                .unwrap(),
+        };
+        let table = {
+            let mut bytes = vec![0; MAX_AVAILABILITY_FRAME_BYTES];
+            bytes[..4].copy_from_slice(&MAX_DA_CHUNK_COUNT.to_be_bytes());
+            let table = AvailabilityFrame::from_untrusted(bytes).unwrap();
+            assert!(table.has_valid_structure());
+            table
+        };
+        assert!(MAX_AVAILABILITY_FRAME_BYTES <= FRAME_OVERHEAD as usize);
+        let proposal = WireMessage::Proposal(Box::new(ProposalMessage {
+            proposal: Proposal {
+                instance: h(1),
+                height: u64::MAX,
+                view: u64::MAX,
+                header: header.clone(),
+                justify: Some(TimeoutCert {
+                    instance: h(1),
+                    epoch,
+                    height: u64::MAX,
+                    view: u64::MAX - 1,
+                    entries: (0..count)
+                        .map(|i| TcEntry {
+                            signer: crate::types::index_of(i),
+                            hq: Some(u64::MAX - 2),
+                        })
+                        .collect(),
+                    agg_sig: AggregateSignature([10; SIGNATURE_LEN]),
+                    high_pqc: Some(qc(VoteKind::Prepare, u64::MAX - 2)),
+                }),
+                parent_qc: Some(qc(VoteKind::Commit, u64::MAX)),
+                sig: Signature([13; SIGNATURE_LEN]),
+            },
+            availability: table.clone(),
+        }));
+        let manifest = PayloadManifest {
+            header,
+            availability: table,
+        };
+        let sync = WireMessage::SyncResponse(SyncResponse {
+            instance: h(1),
+            blocks: vec![SyncEntry {
+                manifest: manifest.clone(),
+                commit_qc: qc(VoteKind::Commit, u64::MAX),
+            }],
+        });
+        let row = WireMessage::PayloadChunk(PayloadChunk {
+            instance: h(1),
+            height: u64::MAX,
+            block_hash: h(7),
+            index: MAX_DA_CHUNK_COUNT - 1,
+            bytes: RowBytes::from_untrusted(vec![0x5a; MAX_DA_CHUNK_SIZE_BYTES as usize]).unwrap(),
+        });
+        let manifest = WireMessage::PayloadManifest(manifest);
+        let overhead = FRAME_OVERHEAD as usize;
+        let smallest_transport = usize::try_from(minimum_transport_frame_bytes(1)).unwrap();
+        // Measured canonical lengths; a change to any carrier must update them deliberately.
+        for (label, message, measured) in [
+            ("proposal", proposal, 295_504),
+            ("manifest", manifest, 276_904),
+            ("one-entry sync response", sync, 277_364),
+            ("row", row, 262_284),
+        ] {
+            let frame = message.encode().unwrap();
+            assert_eq!(frame.len(), measured, "{label}");
+            assert!(frame.len() <= 2 * overhead, "{label}");
+            assert!(frame.len() < smallest_transport, "{label}");
+            assert_eq!(WireMessage::decode(&frame, frame.len()).unwrap(), message);
+            assert!(
+                WireMessage::decode(&frame, frame.len() - 1).is_err(),
+                "{label} decodes only within its complete length"
+            );
+        }
     }
 
     /// The raw classifier refuses what is not a canonical `WireMessage` frame.

@@ -201,6 +201,13 @@ class Mutations(unittest.TestCase):
         self.tree.edit("state_machine.json", lambda machine: machine.update(atomicity="workflow"))
         self.assert_problem("atomicity must be per_transaction_only")
 
+    def test_stages_are_the_shared_vocabulary(self) -> None:
+        def change(machine):
+            machine["stages"].remove("local_verify")
+
+        self.tree.edit("state_machine.json", change)
+        self.assert_problem("the stages differ from the vocabulary shared with the operation contract")
+
     def test_shared_error_codes_are_fixed(self) -> None:
         def change(machine):
             machine["error_codes"][0]["id"] = "BadInput"
@@ -366,6 +373,12 @@ class Mutations(unittest.TestCase):
         )
         self.assert_problem("does not name transaction state `outcome_unknown`")
         self.assert_problem("limit table lacks the value 16777216")
+
+    def test_specification_must_name_every_stage(self) -> None:
+        spec = self.tree.root / checker.SPEC
+        text = spec.read_text(encoding="utf-8")
+        spec.write_text(text.replace("`finality`", "`final`"), encoding="utf-8")
+        self.assert_problem("does not name stage `finality`")
 
 
 if __name__ == "__main__":

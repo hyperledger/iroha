@@ -312,17 +312,24 @@ through compound operations. There is no second GPU manager or parallel
 admission registry. Native batch helpers fill caller destinations only after
 complete result validation; ordinary helpers handle qualified CPU fallback.
 
-BN254 Poseidon V1 CPU parameters have one canonical fixed-byte owner in
-`iroha_zkp_poseidon::poseidon::bn254_v1`: the existing complete AXT fixture's
-621 full fields, width/rate 3/2 and 6/5, x^5, 8 full + 56 partial rounds and the
-original dense MDS. Strict canonical field initialization, width-explicit exports,
-IVM four-limb banks and FastPQ flattened host banks use fixed inline arrays;
-the pinned original generator is test-only. Full-field digest/oracle and
-fresh-process allocation controls cover this finite parameter scope. GPU
-request buffers, uploads, device ownership, cancellation, signed artifacts and
-physical native qualification remain separate open gates. No hash domain,
-opcode, gas, default, wire or native kernel/profile changes follow from fixed
-parameter ownership.
+BN254 Poseidon V1 parameters have one canonical fixed-byte owner in
+`iroha_zkp_poseidon::poseidon::bn254_v1`: 648 full fields, widths/rates 3/2
+and 6/5, x^5, 8 full rounds with 57/60 partial rounds, and the exact complete
+circomlibjs v0.1.7 constants/MDS. The Iroha H.2 fixed-arity mode puts
+`arity * 2^64` in capacity coordinate zero, adds inputs into rate coordinates,
+and returns coordinate one. Six inputs require two additive rate-five blocks.
+The 64-bit opcode outputs are not commitments. The separate FASTPQ variable
+word sponge retains its padding and coordinate convention using the new table.
+
+Strict canonical initialization, explicit width/round-count exports, IVM
+four-limb banks and FASTPQ flattened banks use fixed inline arrays. Independent
+full-field vectors and fresh-process allocation controls cover parameter and
+mode behavior; they do not establish a constrained BN254 Halo2 relation. CUDA
+uses the same fixed mode in one authenticated invocation and publishes only
+after validating the complete output state. GPU request buffers, cancellation,
+signed artifacts and physical qualification remain separate requirements.
+The previous tables and untagged modes are removed; ABI V1 opcode outputs and
+shared fixture hashes change together without a compatibility path.
 
 Ordinary BN254 addition, subtraction and multiplication, and Poseidon2/6 batches,
 retain five separate inline cost profiles in each original device policy owner.

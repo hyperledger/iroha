@@ -11,7 +11,7 @@ use usage_v1::{KaigiUsageContextV1, KaigiUsageOutputsV1, compute_usage_v1};
 pub(crate) mod reference;
 
 pub(crate) fn reference_parameters() -> ([[Scalar; 3]; 64], [[Scalar; 3]; 3]) {
-    let (rounds, mds) = reference::parameters::<3>(include_str!(
+    let (rounds, mds) = reference::parameters::<3, 64>(include_str!(
         "../../../fixtures/poseidon/pasta-fp-w3-rp56.hex"
     ));
     let field = |bytes| Scalar::from_repr(bytes).unwrap();

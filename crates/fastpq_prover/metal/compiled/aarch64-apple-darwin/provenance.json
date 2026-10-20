@@ -1,0 +1,113 @@
+{
+  "schema": "fastpq-compiled-metal-provenance-v1",
+  "record_kind": "original-generation-inputs-not-hardware-qualification",
+  "target": "aarch64-apple-darwin",
+  "language": "macos-metal2.4",
+  "library": {
+    "path": "fastpq.metallib",
+    "bytes": 141566,
+    "sha256": "83dcd29444a84b2fed58da786cac7282c9b8183fbccac957da987d84ddb61051"
+  },
+  "source_sha256": "c54c6343b6b79b54cc5d0c6c62f11c81f79d1671dfc2853594edb4e7e6cb3d9e",
+  "sources": [
+    {
+      "path": "crates/fastpq_prover/metal/include/params.h",
+      "bytes": 735,
+      "sha256": "3ccd0467bc78f214f121a365af285bcda06d704b7fa5e4d0eab432a40ead69ef"
+    },
+    {
+      "path": "crates/fastpq_prover/metal/kernels/field.metal",
+      "bytes": 2005,
+      "sha256": "0c2676dad3ad19660fb76968a35ea1d977c37b2d3aec7fe6a43c91371d409606"
+    },
+    {
+      "path": "crates/fastpq_prover/metal/kernels/ntt_stage.metal",
+      "bytes": 16530,
+      "sha256": "6b1f50587521e23635dd62448ab0d3748b7a3859d661e6329a4b0fa98af9661e"
+    },
+    {
+      "path": "crates/fastpq_prover/metal/kernels/exact_root.metal",
+      "bytes": 5313,
+      "sha256": "76fee7330040fbec7eb10b3a422dab91a9f2bc3acf272f2a583c878521f7462c"
+    },
+    {
+      "path": "crates/fastpq_prover/metal/kernels/poseidon.metal",
+      "bytes": 19922,
+      "sha256": "0cd0af6b1154fc4ea4701f2a6a33152c53845b2eb489f264f5749e5d2f7156e7"
+    },
+    {
+      "path": "crates/fastpq_prover/metal/kernels/digest384.metal",
+      "bytes": 8293,
+      "sha256": "ddde19845ac91689a33b125f54a880e6dfcc6e2657e74d7d18ee7f3a65d3813b"
+    },
+    {
+      "path": "crates/fastpq_prover/metal/kernels/keccak256.metal",
+      "bytes": 3035,
+      "sha256": "8cbe25e1f11035372c142923109b1e0ceb61621fcc43310ce0ef808b47a0b2b9"
+    },
+    {
+      "path": "crates/fastpq_prover/metal/kernels/bn254.metal",
+      "bytes": 18548,
+      "sha256": "0b4578848b3ba6be1c659132f510661e3eb86c1eb5cb597b1ad019926b1b74df"
+    }
+  ],
+  "entry_points": [
+    "fastpq_fft_columns",
+    "fastpq_lde_columns",
+    "fastpq_fft_post_tiling",
+    "exact_root_bit_reverse_v1",
+    "exact_root_local_tiles_v1",
+    "exact_root_global_stage_v1",
+    "poseidon_permute",
+    "poseidon_hash_rows",
+    "poseidon_hash_columns",
+    "fastpq_digest384_last_fields",
+    "digest384_hash_frames_v1",
+    "digest384_indexed_first_coordinate_v1",
+    "fastpq_sha3_256_continuations",
+    "bn254_fft_columns",
+    "bn254_lde_columns",
+    "bn254_poseidon_hash_words"
+  ],
+  "compiler_flags": [
+    "-std=macos-metal2.4",
+    "-O3",
+    "-fno-fast-math",
+    "-Werror=unused-command-line-argument"
+  ],
+  "producer": {
+    "path": "scripts/build_fastpq_metal_bundle.py",
+    "sha256": "6a798061e42ca2640b7ec7990efaa8daba5d38da27d662692008cd6c3ea836cd"
+  },
+  "tools": {
+    "compiler": {
+      "invocation_name": "metal",
+      "resolved_executable_name": "metal",
+      "sha256": "ac3dcce4f331e301def076a2280c973c978f72e6622f8576eb3f7c34d1486dd6",
+      "version_stdout": "",
+      "version_stderr": "Apple metal version 32023.921 (metalfe-32023.921.6)\nTarget: air64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /private/var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v27.1.266.1.gWoTg4/Metal.xctoolchain/usr/metal/current/bin\n",
+      "help_stdout_sha256": "4b8d8a1d2747148e19ada314e07c4e27e4ea9510632a6df67dc4bdfff663422b",
+      "help_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "linker": {
+      "invocation_name": "metallib",
+      "resolved_executable_name": "air-lld",
+      "sha256": "08555936a88a025585ae6415ebe8b27e6092670868d92f9677cdcfa9730c340d",
+      "version_stdout": "AIR-LLD 32023.921 (metalfe-32023.921.6) (compatible with legacy metallib linker)\n",
+      "version_stderr": "",
+      "help_stdout_sha256": "e23a418aedcf5a17a97e3fc05418faeba93673679a465bb8ec48ab0fb018754a",
+      "help_stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "source_receipt_sha256": "1d1204ddbd7c105ee2c3f94ab98eee3d1c380ab41e768dfff908852b3304a4eb",
+  "generation_records_sha256": [
+    "b110d7bd4ceaf2d94c923736cbc84cd146bd7eaa679685ed3ace204fe2eab806",
+    "14ef23411c03ef31a35ed7618ff10550ead77a96a9565182bc6b861fb0253c03"
+  ],
+  "original_guarded_result_sha256": [
+    "111c95a3e839c891a540b193ca78850372d938d1629872027454c361432dd3fc",
+    "d47afc5cf19c04d8ab996c6ac170098a7c43e739cb52bb12c58a9982512d608d"
+  ],
+  "repeated_original_library_bytes_equal": true,
+  "scope": "Source and compiled-byte integrity only. No signed provenance, GPU numerical qualification, measured cost, driver allocation custody, settlement authority, or release qualification is established by this record."
+}

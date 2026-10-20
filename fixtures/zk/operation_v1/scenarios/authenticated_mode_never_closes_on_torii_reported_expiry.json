@@ -1,0 +1,104 @@
+{
+  "schema": "iroha.zk_operation.scenario.v1",
+  "id": "authenticated_mode_never_closes_on_torii_reported_expiry",
+  "category": "finality_modes",
+  "rules": [
+    "no_clock_closes_an_identity",
+    "authenticated_finality_by_default",
+    "reconcile_read_only_first"
+  ],
+  "description": "In the default mode a Torii-reported Expired is only a hint: no authenticated evidence of expiry exists, so it closes nothing, and neither does the elapsed local observation bound. The call returns FinalityPending with the identity. The transaction later turns out applied, which read-only recovery authenticates.",
+  "request": {
+    "actions": [
+      {
+        "attachments": [
+          {
+            "kind": "proof",
+            "length": 4096
+          }
+        ]
+      }
+    ],
+    "signer": "handle",
+    "finality": "authenticated"
+  },
+  "calls": [
+    {
+      "op": "execute",
+      "options": {
+        "observation_timeout_ms": 1000,
+        "poll_interval_ms": 1000
+      },
+      "script": {
+        "proofs": [
+          "ok"
+        ],
+        "local_verifications": [
+          "ok"
+        ],
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "expired",
+          "expired"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "FinalityPending",
+          "stage": "reconcile",
+          "resumable": true,
+          "has_transaction_identity": true
+        },
+        "effects": [
+          "prove:1",
+          "local_verify:1",
+          "build:1",
+          "sign:1",
+          "dispatch:1",
+          "status:1",
+          "sleep:1000",
+          "status:1"
+        ],
+        "status": "in_progress",
+        "state": "pending",
+        "identity": {
+          "dispatches": 1,
+          "possible_admissions": 1
+        }
+      }
+    },
+    {
+      "op": "recover",
+      "script": {
+        "statuses": [
+          "applied"
+        ],
+        "finality_proofs": [
+          "verified"
+        ]
+      },
+      "expect": {
+        "result": "ok",
+        "effects": [
+          "status:1",
+          "finality:1"
+        ],
+        "status": "completed",
+        "state": "finalized",
+        "identity": {
+          "dispatches": 1,
+          "possible_admissions": 1,
+          "evidence": "applied"
+        }
+      }
+    }
+  ]
+}

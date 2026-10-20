@@ -2504,6 +2504,8 @@ mod tests {
 
     #[test]
     fn idle_chain_never_advances_and_real_work_survives_restart() {
+        use mv::storage::StorageReadOnly as _;
+
         let chain = chain(4, 200);
         let disks = disks(&chain);
         let validators = start_all(&chain, &disks, true);

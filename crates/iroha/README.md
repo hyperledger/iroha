@@ -407,6 +407,14 @@ resubmitted while it may still commit. Capability logic (payloads, rounds, custo
 
 The contract is `specs/zk_durable_workflow.md`; its fixtures are in `fixtures/zk/workflow_v1/`.
 
+## One-call and prepared operation contract
+
+`client::operation_contract` renders the machine-readable form of the shared one-call and prepared
+operation contract, `specs/zk_operation_contract.md`, into `fixtures/zk/operation_v1/contract.json`:
+calls and stages, durable states, typed errors, artifact fields, batch bounds, custody, local
+verification, finality modes and dispatch classification. The contract is provisional, pending the
+plan author's review. `execute_operation` and its advanced calls are not implemented yet.
+
 ## Examples
 
 The [disposable KAGEMUSHA eligibility operator](examples/kagemusha_eligibility_operator.md)

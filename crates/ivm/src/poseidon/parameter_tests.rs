@@ -1,4 +1,4 @@
-//! Fixed V1 banks and full-state parity against the original pinned Fr oracle.
+//! Fixed V1 banks and full-state parity against the independently selected Fr oracle.
 
 use super::*;
 use crate::field_dispatch::{self, FieldArithmetic, ScalarField};
@@ -6,8 +6,8 @@ use ff::Field;
 #[path = "../../../../fixtures/poseidon/reader.rs"]
 mod reference;
 
-fn captured<const W: usize>(text: &str) -> ([[Fr; W]; 64], [[Fr; W]; W]) {
-    let (rounds, mds) = reference::parameters::<W>(text);
+fn captured<const W: usize, const R: usize>(text: &str) -> ([[Fr; W]; R], [[Fr; W]; W]) {
+    let (rounds, mds) = reference::parameters::<W, R>(text);
     let field = |bytes: [u8; 32]| Fr::from_repr(bytes.into()).expect("canonical reference field");
     (
         rounds.map(|row| row.map(field)),
@@ -17,11 +17,11 @@ fn captured<const W: usize>(text: &str) -> ([[Fr; W]; 64], [[Fr; W]; W]) {
 fn bytes(field: FieldElem) -> [u8; 32] {
     std::array::from_fn(|i| field.0[i / 8].to_le_bytes()[i % 8])
 }
-fn check_bank<const W: usize>(
-    actual: (&[[FieldElem; W]; ROUND_COUNT], &[[FieldElem; W]; W]),
-    canonical: iroha_zkp_halo2::poseidon::Bn254PoseidonParams<W>,
+fn check_bank<const W: usize, const R: usize>(
+    actual: (&[[FieldElem; W]; R], &[[FieldElem; W]; W]),
+    canonical: iroha_zkp_halo2::poseidon::Bn254PoseidonParams<W, R>,
 ) {
-    assert_eq!(actual.0.len(), 64);
+    assert_eq!(actual.0.len(), R);
     for (field, expected) in actual
         .0
         .iter()
@@ -65,12 +65,12 @@ fn all_fixed_ivm_parameter_fields_and_stable_banks_match_canonical_owner() {
     );
 }
 fn oracle<const W: usize>(mut state: [Fr; W], rounds: &[[Fr; W]], mds: &[[Fr; W]; W]) -> [Fr; W] {
-    assert_eq!(rounds.len(), 64);
+    assert_eq!(rounds.len(), if W == 3 { 65 } else { 68 });
     for (round, constants) in rounds.iter().enumerate() {
         for i in 0..W {
             state[i] += constants[i];
         }
-        if !(4..60).contains(&round) {
+        if !(4..rounds.len() - 4).contains(&round) {
             for value in &mut state {
                 *value = value.pow_vartime([5]);
             }
@@ -92,11 +92,11 @@ pub(crate) fn state6(mut state: [FieldElem; 6]) -> [FieldElem; 6] {
     state
 }
 fn parity(backend: &dyn FieldArithmetic) {
-    let (rc3, m3) = captured::<3>(include_str!(
-        "../../../../fixtures/poseidon/bn254-w3-rp56.hex"
+    let (rc3, m3) = captured::<3, 65>(include_str!(
+        "../../../../fixtures/poseidon/bn254-w3-rp57.hex"
     ));
-    let (rc6, m6) = captured::<6>(include_str!(
-        "../../../../fixtures/poseidon/bn254-w6-rp56.hex"
+    let (rc6, m6) = captured::<6, 68>(include_str!(
+        "../../../../fixtures/poseidon/bn254-w6-rp60.hex"
     ));
     let fields = [
         Fr::ZERO,

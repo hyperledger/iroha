@@ -125,7 +125,9 @@ expected_hash_file = "genesis.expected_hash"
 # fetch_retry_ms = 250             # 500
 # sync_batch = 64
 # sync_retry_ms = 1000
-# sync_max_bytes = 16777216
+## At least the committed max_block_bytes + FRAME_OVERHEAD (264224), and with FRAME_OVERHEAD
+## added at most the chain frame limit: both are 17041440 at the 16 MiB payload default.
+# sync_max_bytes = 17041440
 # max_observers = 64
 ## Safety records and key installation log (§7.4). Records must stay outside
 ## `kura.store_dir` and out of backups; the log must be outside `records_dir`.

@@ -21555,6 +21555,16 @@ pub trait WorldReadOnly {
     world_ro_accessors!(soracloud, declaration);
     world_ro_accessors!(agreements_and_lanes, declaration);
     world_ro_accessors!(sorafs_and_privacy, declaration);
+    /// Load the exact governed reserve owner from this same retained world view.
+    /// Unrelated privacy records are not scanned.
+    ///
+    /// # Errors
+    /// Rejects malformed, mismatched, or multiply claimed exact reserve custody.
+    fn privacy_public_reserve_owner_v1(
+        &self,
+        id: &AssetId,
+    ) -> core::result::Result<Option<crate::privacy_state::PrivacyPublicReserveOwnerV1>, String>;
+
     /// Load one current authoritative Bootle/Lantern issuer policy by its
     /// exact typed issuer and policy identities.
     ///
@@ -22331,6 +22341,13 @@ macro_rules! impl_world_ro {
             world_ro_accessors!(soracloud, implementation);
             world_ro_accessors!(agreements_and_lanes, implementation);
             world_ro_accessors!(sorafs_and_privacy, implementation);
+            fn privacy_public_reserve_owner_v1(
+                &self,
+                id: &AssetId,
+            ) -> core::result::Result<Option<crate::privacy_state::PrivacyPublicReserveOwnerV1>, String> {
+                crate::privacy_state::privacy_public_reserve_owner_v1(&self.privacy_commitments, id)
+            }
+
             fn privacy_bootle_lantern_issuer_policy_v1(
                 &self,
                 issuer_id: iroha_data_model::privacy::PrivacyIssuerIdV1,

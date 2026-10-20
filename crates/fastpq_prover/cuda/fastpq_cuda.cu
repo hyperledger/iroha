@@ -1770,7 +1770,7 @@ __global__ void fastpq_poseidon_hash_columns_kernel(
 
 static constexpr unsigned int BN254_POSEIDON_WIDTH = 3u;
 static constexpr unsigned int BN254_POSEIDON_FULL_ROUNDS_HALF = 4u;
-static constexpr unsigned int BN254_POSEIDON_PARTIAL_ROUNDS = 56u;
+static constexpr unsigned int BN254_POSEIDON_PARTIAL_ROUNDS = 57u;
 static constexpr unsigned int BN254_POSEIDON_TOTAL_ROUNDS =
     BN254_POSEIDON_FULL_ROUNDS_HALF * 2u + BN254_POSEIDON_PARTIAL_ROUNDS;
 
