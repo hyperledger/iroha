@@ -4462,8 +4462,21 @@ where
 
     fn try_deserialize(archived: &'a Archived<Result<T, E>>) -> Result<Self, Error> {
         let ptr = archived as *const _ as *const u8;
-        let tag = unsafe { *ptr };
-        let (len, hdr) = unsafe { try_read_len_ptr_unchecked(ptr.add(1)) }?;
+        // Validate the archived pointer against the active payload context before
+        // dereferencing it. Unlike the sibling `Option` decoder, this path read the
+        // tag and the length header straight through the raw pointer, so a `Result`
+        // element whose buffer was shorter than `tag + length header` (for example a
+        // one-byte element under fixed-width lengths) read up to 8 bytes past the
+        // allocation. Read both from the bounds-checked payload slice instead.
+        let (base, total) = payload_ctx().ok_or(Error::MissingPayloadContext)?;
+        let ptr_us = ptr as usize;
+        if ptr_us < base || ptr_us >= base + total {
+            return Err(Error::LengthMismatch);
+        }
+        let payload = unsafe { std::slice::from_raw_parts(base as *const u8, total) };
+        let start = ptr_us - base;
+        let tag = payload[start];
+        let (len, hdr) = read_len_dyn_slice(&payload[start + 1..])?;
         let data_ptr = unsafe { ptr.add(1 + hdr) };
         match tag {
             0 => {
