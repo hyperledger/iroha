@@ -13,7 +13,6 @@ use iroha_data_model::{
     account::{Account, AccountId},
     block::execution_output::ExecutionOutputV1,
     isi::{InstructionBox, Log, Unregister},
-    nexus::DataSpaceId,
     query::{
         CommittedTransaction, QueryOutput, QueryOutputBatchBox, QueryOutputBatchBoxTuple,
         QueryResponse,
@@ -21,6 +20,7 @@ use iroha_data_model::{
     sumeragi_finality::{SumeragiFinalityCheckpoint, verify_checkpoint_page},
     transaction::{FeePaymentIntent, TransactionBuilder},
 };
+use iroha_model_base::topology::DataSpaceId;
 use std::time::Duration;
 const CHAIN: &str = "sumeragi-certified-test-chain";
 fn fixture(offset: u64) -> CertifiedTestChain {
@@ -398,4 +398,192 @@ fn public_checkpoint_genesis_reader_diagnostics_keep_original_source_category() 
             );
         }
     });
+}
+
+#[test]
+fn public_checkpoint_pages_match_original_prefix_and_replay() {
+    let chain = fixture(0);
+    let frames = wires(&chain);
+    let genesis = build_proof(&chain.state().view(), 1).unwrap().block_wire;
+    let initial = call(&genesis, &frames[..2], chain.network_id(), CHAIN).unwrap();
+    let original_checkpoint = initial.checkpoint.clone();
+    let page1 = advance(
+        &initial.checkpoint,
+        &[&frames[1], &frames[2]],
+        chain.network_id(),
+        CHAIN,
+    )
+    .unwrap();
+    let page2 = advance(
+        &page1.checkpoint,
+        &[&frames[2], &frames[3]],
+        chain.network_id(),
+        CHAIN,
+    )
+    .unwrap();
+    let all = call(&genesis, &frames, chain.network_id(), CHAIN).unwrap();
+    assert_eq!(page2.checkpoint, all.checkpoint);
+    assert_eq!(page2.tip_proof_chain_json, all.tip_proof_chain_json);
+    assert_eq!(initial.checkpoint, original_checkpoint);
+    let metadata: json::Value = json::from_json(&page2.metadata_json).unwrap();
+    assert_eq!(metadata["anchor_height"].as_u64(), Some(3));
+    assert_eq!(metadata["height"].as_u64(), Some(4));
+    assert_eq!(metadata["proof_count"].as_u64(), Some(2));
+    let replay = advance(&page2.checkpoint, &[&frames[3]], chain.network_id(), CHAIN).unwrap();
+    assert_eq!(replay.checkpoint, page2.checkpoint);
+    assert_eq!(replay.tip_proof_chain_json, page2.tip_proof_chain_json);
+    // Exercise the actual PyO3 boundary with real canonical frames too.
+    Python::initialize();
+    Python::attach(|py| {
+        let proof_tuple = PyTuple::new(
+            py,
+            [&frames[1], &frames[2]].map(|wire| PyBytes::new(py, wire)),
+        )
+        .unwrap();
+        let network = super::super::PyNetworkId::parse(&chain.network_id().to_string()).unwrap();
+        let (metadata_json, checkpoint, tip) = advance_public_finality_checkpoint_v1(
+            py,
+            &PyBytes::new(py, &initial.checkpoint),
+            &proof_tuple,
+            &network,
+            CHAIN,
+        )
+        .unwrap();
+        assert_eq!(checkpoint.bind(py).as_bytes(), page1.checkpoint);
+        assert_eq!(metadata_json, page1.metadata_json);
+        assert_eq!(tip, page1.tip_proof_chain_json);
+    });
+}
+
+#[test]
+fn public_checkpoint_pages_refuse_wrong_context_gap_fork_tamper_and_bounds() {
+    let chain = fixture(0);
+    let frames = wires(&chain);
+    let genesis = chain.genesis().encode_wire().unwrap();
+    let initial = call(&genesis, &frames[..2], chain.network_id(), CHAIN).unwrap();
+    let original = initial.checkpoint.clone();
+    for page in [
+        vec![],
+        vec![&frames[2]],
+        vec![&frames[1], &frames[3]],
+        vec![&frames[1], &frames[1]],
+        vec![&frames[2], &frames[1]],
+    ] {
+        let refs: Vec<_> = page.into_iter().map(Vec::as_slice).collect();
+        assert!(advance(&original, &refs, chain.network_id(), CHAIN).is_err());
+    }
+    assert!(advance(&original, &[&frames[1]], chain.network_id(), "foreign").is_err());
+    let foreign =
+        NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(b"foreign page")));
+    assert!(advance(&original, &[&frames[1]], foreign, CHAIN).is_err());
+    let fork_frames = wires(&fixture(1));
+    assert!(
+        advance(
+            &original,
+            &[&frames[1], &fork_frames[2]],
+            chain.network_id(),
+            CHAIN
+        )
+        .is_err()
+    );
+    let mut changed = frames[2].clone();
+    changed.push(0);
+    assert!(
+        advance(
+            &original,
+            &[&frames[1], &changed],
+            chain.network_id(),
+            CHAIN
+        )
+        .is_err()
+    );
+    let mut signature: SumeragiFinalityProof = norito::decode_canonical(&frames[2]).unwrap();
+    signature.committee[0].proof_of_possession[0] ^= 1;
+    let changed = norito::to_bytes(&signature).unwrap();
+    assert!(
+        advance(
+            &original,
+            &[&frames[1], &changed],
+            chain.network_id(),
+            CHAIN
+        )
+        .is_err()
+    );
+    assert!(
+        advance(
+            &original,
+            &vec![b"x".as_slice(); MAX_PROOFS + 1],
+            chain.network_id(),
+            CHAIN
+        )
+        .is_err()
+    );
+    assert!(
+        advance(
+            &original,
+            &[&vec![0; MAX_PROOF_BYTES + 1]],
+            chain.network_id(),
+            CHAIN
+        )
+        .is_err()
+    );
+    assert!(advance(&original, &[b""], chain.network_id(), CHAIN).is_err());
+    assert!(advance(&[], &[&frames[1]], chain.network_id(), CHAIN).is_err());
+    assert_eq!(initial.checkpoint, original);
+}
+
+#[test]
+fn public_checkpoint_page_preserves_original_decoder_refusal() {
+    let chain = fixture(0);
+    let frames = wires(&chain);
+    let initial = call(
+        &chain.genesis().encode_wire().unwrap(),
+        &frames[..2],
+        chain.network_id(),
+        CHAIN,
+    )
+    .unwrap();
+    let limit = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+    let failure = norito::with_decode_limits_scope(limit, || {
+        advance(
+            &initial.checkpoint,
+            &[&frames[1], &frames[2]],
+            chain.network_id(),
+            CHAIN,
+        )
+    })
+    .unwrap_err();
+    assert!(matches!(
+        failure,
+        Failure::Native("checkpoint_decode", FinalityReadError::DecodeResource(_))
+    ));
+}
+
+#[test]
+fn public_checkpoint_page_refuses_genuine_private_successor() {
+    use iroha_data_model::sumeragi_finality::test_fixtures::NativeFinalityFixture;
+    let parent =
+        NetworkId::from_genesis_hash(HashOf::from_untyped_unchecked(Hash::new(b"public parent")));
+    let mut private = NativeFinalityFixture::start_with_scope(
+        "private-page",
+        SumeragiRootScope::Dataspace {
+            parent_network_id: parent,
+            dataspace_id: DataSpaceId::new(7),
+        },
+    );
+    let block = private.block_with_submitted_work(private.next_header());
+    private.certify(block);
+    let checkpoint = private.checkpoint().encode_canonical().unwrap();
+    let wire = norito::to_bytes(private.latest()).unwrap();
+    let failure = advance(
+        &checkpoint,
+        &[&wire],
+        private.network_id(),
+        private.chain_id(),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        failure,
+        Failure::Input("public checkpoint page requires the selected Global genesis")
+    ));
 }

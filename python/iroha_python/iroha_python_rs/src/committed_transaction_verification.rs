@@ -25,6 +25,26 @@ pub(super) fn authenticate_committed_transaction(
     expected_chain: &str,
     trusted_checkpoint: &[u8],
 ) -> PyResult<(CommittedTransaction, VerifiedFinalityPage)> {
+    authenticate_selected_response(
+        expected,
+        transaction_response_bytes,
+        native_finality_proof_chain_json,
+        expected_network_id,
+        expected_chain,
+        trusted_checkpoint,
+        super::decode_single_committed_transaction,
+    )
+}
+
+pub(super) fn authenticate_selected_response(
+    expected: HashOf<TransactionEntrypoint>,
+    transaction_response_bytes: &[u8],
+    native_finality_proof_chain_json: &str,
+    expected_network_id: NetworkId,
+    expected_chain: &str,
+    trusted_checkpoint: &[u8],
+    decode_response: impl FnOnce(&[u8]) -> PyResult<CommittedTransaction>,
+) -> PyResult<(CommittedTransaction, VerifiedFinalityPage)> {
     if native_finality_proof_chain_json.is_empty()
         || native_finality_proof_chain_json.len() > MAX_FINALITY_CHAIN_JSON_BYTES
     {
@@ -79,7 +99,7 @@ pub(super) fn authenticate_committed_transaction(
         PyValueError::new_err(format!("native finality authentication failed: {error}"))
     })?;
     let tip = page.tip();
-    let committed = super::decode_single_committed_transaction(transaction_response_bytes)?;
+    let committed = decode_response(transaction_response_bytes)?;
     if committed.entrypoint_hash != expected {
         return Err(PyValueError::new_err(
             "committed transaction does not match requested transaction hash",

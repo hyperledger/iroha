@@ -30898,3 +30898,35 @@ fn pair_index_members_write_only_when_membership_changes() {
     assert_eq!(transaction.touched_entries().len(), 2);
     transaction.apply();
 }
+
+state_test! { sync canonical_merge_cells_follow_actual_transaction_apply_and_drop
+    let state = blank_state();
+    let header = BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
+    let mut block = state.block(header);
+    let hints = vec![Hash::new(b"transaction retained hint")];
+    let root = Some(Hash::new(b"transaction retained root"));
+    {
+        let mut transaction = block.transaction();
+        *transaction.world.merge_hint_roots = hints.clone();
+        *transaction.world.merge_global_state_root = root;
+        // Drop the original transaction; neither canonical value may escape.
+    }
+    assert!(block.world.merge_hint_roots.is_empty());
+    assert_eq!(**block.world.merge_global_state_root, None);
+    {
+        let mut transaction = block.transaction();
+        *transaction.world.merge_hint_roots = hints.clone();
+        *transaction.world.merge_global_state_root = root;
+        transaction.apply();
+    }
+    assert_eq!(block.world.merge_hint_roots.as_slice(), hints.as_slice());
+    assert_eq!(**block.world.merge_global_state_root, root);
+    {
+        let mut transaction = block.transaction();
+        transaction.world.merge_hint_roots.clear();
+        *transaction.world.merge_global_state_root = None;
+        transaction.apply();
+    }
+    assert!(block.world.merge_hint_roots.is_empty());
+    assert_eq!(**block.world.merge_global_state_root, None);
+}

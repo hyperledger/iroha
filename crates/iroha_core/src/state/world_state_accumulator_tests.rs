@@ -854,3 +854,111 @@ fn flattened_memberships_and_counts_do_not_change_world_authority() {
     );
     assert_eq!(parent.apply_block(&block).unwrap().root(), parent.root());
 }
+
+/// These are the single canonical schema and empty predecessor already committed by Taira.
+/// Updating the constants to accept a divergent ledger is not a continuity correction.
+#[test]
+fn retained_taira_world_schema_and_empty_predecessor_are_unchanged() {
+    let index = field_index().as_ref().unwrap();
+    assert_eq!(
+        crate::state::State::native_world_schema_hash_v1().unwrap(),
+        index.schema
+    );
+    assert_eq!(
+        hex::encode_upper(index.schema.as_ref()),
+        "E2CC3531F5544E26DBDAE571E921CBABF9764BF128AF0ED761A01A9679C0B547"
+    );
+    assert_eq!(
+        hex::encode_upper(WorldStateAccumulator::empty().root().unwrap().as_ref()),
+        "D3026F30932BBC181F5243B72C9FC2E4FC6C729C718BBCC55BD2554C527341AD"
+    );
+}
+
+#[test]
+fn canonical_merge_cell_deltas_preserve_nonempty_history_and_exact_undo() {
+    let world = World::default();
+    let empty = WorldStateAccumulator::capture(&world.block()).unwrap();
+    let hints = vec![Hash::new(b"retained canonical hint")];
+    let root = Some(Hash::new(b"retained canonical merge value"));
+    let mut block = world.block();
+    {
+        let mut aborted = block.merge_hint_roots.transaction();
+        *aborted = hints.clone();
+    }
+    assert_eq!(empty.root(), empty.apply_block(&block).unwrap().root());
+    *block.merge_hint_roots.get_mut() = hints.clone();
+    *block.merge_global_state_root.get_mut() = root;
+    let populated = empty.apply_block(&block).unwrap();
+    assert_ne!(empty.root(), populated.root());
+    assert_eq!(
+        populated.root(),
+        WorldStateAccumulator::capture(&block).unwrap().root()
+    );
+    assert_eq!(
+        empty.root(),
+        WorldStateAccumulator::capture_predecessor(&block)
+            .unwrap()
+            .root()
+    );
+    block.commit();
+    // A later block with no metadata writer retains both canonical values and their roots.
+    {
+        let mut next = world.block();
+        assert_eq!(next.merge_hint_roots.as_slice(), hints.as_slice());
+        assert_eq!(**next.merge_global_state_root, root);
+        *next.merge_hint_roots.get_mut() = hints.clone();
+        *next.merge_global_state_root.get_mut() = root;
+        assert_eq!(
+            populated.root(),
+            populated.apply_block(&next).unwrap().root(),
+            "same-value touches preserve the canonical semantic root"
+        );
+    }
+    let replacement = world.block_and_revert();
+    assert!(replacement.merge_hint_roots.is_empty());
+    assert_eq!(**replacement.merge_global_state_root, None);
+    assert_eq!(
+        empty.root(),
+        WorldStateAccumulator::capture(&replacement).unwrap().root()
+    );
+}
+
+/// Original public retained carrier, not a generated genesis or a projected World snapshot.
+/// Structural result binding is not native re-execution or successor-finality qualification.
+#[test]
+fn retained_taira_certified_genesis_decodes_and_binds_the_same_empty_world() {
+    use iroha_data_model::{
+        block::decode_framed_signed_block,
+        sumeragi_finality::{CertifiedResultScope, CertifiedResultV1},
+    };
+    use sha2::{Digest, Sha256};
+    let wire = include_bytes!("../../tests/fixtures/taira_world_continuity/genesis.block.nrt");
+    assert_eq!(wire.len(), 114_919);
+    assert_eq!(
+        format!("{:x}", Sha256::digest(wire)),
+        "35565d5b041ee144cc5922451423544037f82d2259788c3a9bc2009fc80e8f5c"
+    );
+    let genesis = decode_framed_signed_block(wire).expect("exact original current native frame");
+    assert!(genesis.header().is_genesis());
+    let certificate = genesis
+        .commit_certificate()
+        .expect("retained result-only certificate");
+    assert!(certificate.consensus_header().is_empty());
+    assert!(certificate.commit_qc().is_empty());
+    assert!(certificate.availability().is_empty());
+    let retained = CertifiedResultV1::decode(
+        certificate.result_preimage(),
+        CertifiedResultScope::TairaGlobal,
+    )
+    .expect("original typed certified result preimage");
+    assert_eq!(retained.commitment().height, 1);
+    assert_eq!(
+        retained.commitment().execution.parent_world_state_root,
+        WorldStateAccumulator::empty().root().unwrap()
+    );
+    assert_eq!(
+        genesis.encode_wire().unwrap().as_slice(),
+        wire.as_slice(),
+        "no carrier conversion or re-signing"
+    );
+}

@@ -1631,7 +1631,25 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let extra = extra(&keys);
+        let fee_asset = iroha_config::parameters::defaults::nexus::fees::genesis_policy()
+            .fee_asset_id;
+        // Ordinary fixture work pays the committed fee policy. Establish its funds
+        // in the original signed genesis so replay reconstructs the same supply.
         let mut builder = GenesisBuilder::new_without_executor(chain_id.clone(), ".")
+            .append_instruction(Register::asset_definition(AssetDefinition::numeric(
+                fee_asset.clone(),
+                "node fixture fee",
+                iroha_data_model::asset::AssetBalancePolicy::Global,
+                Some(iroha_genesis::GENESIS_DOMAIN_ID.clone()),
+            )))
+            .append_instruction(Mint::asset_quantity(
+                1_000_000_u32,
+                AssetId::new(fee_asset.clone(), ALICE_ID.clone()),
+            ))
+            .append_instruction(Mint::asset_quantity(
+                1_000_000_u32,
+                AssetId::new(fee_asset, second_shard_account()),
+            ))
             .append_parameter(Parameter::Sumeragi(
                 SumeragiParameter::PayloadRetryIntervalMs(
                     NonZeroU64::new(payload_retry_interval_ms).expect("non-zero"),
@@ -2014,13 +2032,40 @@ mod tests {
         message: &str,
     ) -> HashOf<TransactionEntrypoint> {
         let network_id = NetworkId::from_genesis_hash(chain.genesis.hash());
-        let signed = TransactionBuilder::new(
+        let builder = TransactionBuilder::new(
             network_id,
             AccountId::new(key.public_key().clone()),
             FeePaymentIntent::authority(Vec::new(), None),
         )
-        .with_instructions([Log::new(Level::INFO, message.to_owned())])
-        .sign(key.private_key());
+        .with_instructions([Log::new(Level::INFO, message.to_owned())]);
+        // Quote the original payload against the actual committed parent, then put
+        // its exact native bounds into the payload before the submitted signature.
+        let draft = builder.clone().sign(key.private_key());
+        let view = validators.first().expect("a running validator").state.view();
+        let horizon = draft.creation_time().saturating_add(
+            draft.time_to_live().expect("fixture input has a bounded lifetime"),
+        );
+        let quote = crate::executor::quote_nexus_fee_admission_draft(
+            view.world(),
+            view.nexus(),
+            view.pipeline(),
+            &view.zk().gas,
+            draft.payload(),
+            u64::try_from(horizon.as_millis()).expect("fixture fee horizon fits"),
+            crate::smartcontracts::isi::sccp::hold::committed_time_ms(&view)
+                .expect("original committed fixture time"),
+            view.height() as u64 + 1,
+            Some(iroha_model_base::topology::DataSpaceId::UNIVERSAL),
+        )
+        .expect("original genesis funds the ordinary native fee quote");
+        assert!(
+            quote.quote.charges.iter().any(|charge| !charge.max_bound.is_zero()),
+            "ordinary fixture input must pay its positive committed fee"
+        );
+        drop(view);
+        let signed = builder
+            .with_fee_payment_intent(quote.recommended_intent)
+            .sign(key.private_key());
         let accepted = AcceptedTransaction::accept(
             signed,
             &network_id,

@@ -1426,6 +1426,8 @@ macro_rules! with_world_overlay_fields {
             global_beacon_latest_pulse,
             global_beacon_pulses,
             global_beacon_pulse_slots,
+            merge_hint_roots,
+            merge_global_state_root,
             sccp_parameters,
             sccp_reset_nonce,
             sccp_committee_generations,
@@ -4389,6 +4391,11 @@ pub struct WorldData {
     /// Inverted index from ZK1 TLV tag to proof ids (sorted, unique) for efficient queries.
     #[norito(skip)]
     pub(crate) proofs_by_tag: Storage<([u8; 4], iroha_data_model::proof::ProofId), ()>,
+    /// Retained canonical merge-hint values; their field identity and values are ledger data.
+    /// Preserve current and predecessor cuts even without an active metadata writer.
+    pub(crate) merge_hint_roots: Cell<Vec<Hash>>,
+    /// Retained canonical reduced merge-root value; not the World state root.
+    pub(crate) merge_global_state_root: Cell<Option<Hash>>,
     /// Persisted consensus evidence records keyed by deterministic digest.
     pub(crate) consensus_evidence: Storage<Hash, RetainedEvidenceRecord>,
     /// Registry of contract manifests by exact dataspace artifact identity (on-chain).
@@ -5786,6 +5793,10 @@ pub struct WorldBlockFields<'world> {
     /// Derived unique pulse id keyed by the authoritative logical-beacon height slot.
     #[norito(skip)]
     pub(crate) global_beacon_pulse_slots: StorageField<'world, (BeaconSessionId, u64), [u8; 32]>,
+    /// Retained canonical merge-hint values visible in this block.
+    pub(crate) merge_hint_roots: CellField<'world, Vec<Hash>>,
+    /// Retained canonical reduced merge-root value visible in this block.
+    pub(crate) merge_global_state_root: CellField<'world, Option<Hash>>,
     // SCCP v1 state (`specs/sccp.md` §4); persisted by the SCCP snapshot envelope.
     /// SCCP v1 consensus parameters; SCCP exists iff present (`specs/sccp.md` §4.1).
     #[norito(skip)]
@@ -6294,6 +6305,8 @@ impl WorldBlock<'_> {
             musubi_resolver_index_revision,
             musubi_replication_shortfall_releases,
             soracloud_sequence_watermark,
+            merge_hint_roots,
+            merge_global_state_root,
             sumeragi_lanes,
             sumeragi_amx,
             sumeragi_amx_participant,
@@ -7489,6 +7502,10 @@ pub struct WorldTransaction<'block, 'world> {
     >,
     pub(crate) global_beacon_pulse_slots:
         StorageTransaction<'block, (BeaconSessionId, u64), [u8; 32]>,
+    /// Retained canonical merge-hint values in this transaction scope.
+    pub(crate) merge_hint_roots: CellTransaction<'block, 'world, Vec<Hash>>,
+    /// Retained canonical reduced merge-root value in this transaction scope.
+    pub(crate) merge_global_state_root: CellTransaction<'block, 'world, Option<Hash>>,
     // SCCP v1 state (`specs/sccp.md` §4).
     /// SCCP v1 consensus parameters; SCCP exists iff present (`specs/sccp.md` §4.1).
     pub(crate) sccp_parameters:
@@ -9332,6 +9349,10 @@ pub struct WorldView<'world> {
     pub(crate) proof_tags: StorageView<'world, iroha_data_model::proof::ProofId, Vec<[u8; 4]>>,
     /// Inverted index from TLV tag to proof ids.
     pub(crate) proofs_by_tag: StorageView<'world, ([u8; 4], iroha_data_model::proof::ProofId), ()>,
+    /// Retained canonical merge-hint values.
+    pub(crate) merge_hint_roots: CellView<'world, Vec<Hash>>,
+    /// Retained canonical reduced merge-root value; not the World state root.
+    pub(crate) merge_global_state_root: CellView<'world, Option<Hash>>,
     // SCCP v1 state (`specs/sccp.md` §4).
     /// SCCP v1 consensus parameters; SCCP exists iff present (`specs/sccp.md` §4.1).
     pub(crate) sccp_parameters:
@@ -20982,6 +21003,10 @@ macro_rules! world_ro_accessors {
             storage runtime_upgrades:
                 iroha_data_model::runtime::RuntimeUpgradeId =>
                 iroha_data_model::runtime::RuntimeUpgradeRecord;
+            /// Retained canonical merge-hint values.
+            cell_ref merge_hint_roots: Vec<Hash>;
+            /// Retained canonical reduced merge-root value; not the World state root.
+            cell_ref merge_global_state_root: Option<Hash>;
             /// Persisted consensus evidence log (read-only).
             storage consensus_evidence: Hash => RetainedEvidenceRecord;
             /// Proof verification records (read-only).
@@ -24847,6 +24872,8 @@ impl WorldTransaction<'_, '_> {
             consensus_evidence: _,
             external_event_sink: _,
             external_event_buf: _,
+            merge_hint_roots: _,
+            merge_global_state_root: _,
             sccp_parameters: _,
             sccp_reset_nonce: _,
             sccp_committee_generations: _,
@@ -24936,6 +24963,8 @@ impl WorldTransaction<'_, '_> {
         self.proof_tags.apply();
         self.proofs_by_tag.apply();
         self.consensus_evidence.apply();
+        self.merge_global_state_root.apply();
+        self.merge_hint_roots.apply();
         self.contract_manifests.apply();
         self.contract_code.apply();
         self.contract_code_uploads.apply();

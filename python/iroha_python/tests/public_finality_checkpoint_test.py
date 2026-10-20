@@ -64,3 +64,60 @@ def test_public_checkpoint_exception_is_public_and_native():
     from iroha_native import load_crypto_extension
     assert iroha_python.PublicFinalityReadError is crypto.PublicFinalityReadError
     assert crypto.PublicFinalityReadError is load_crypto_extension().PublicFinalityReadError
+
+
+def page_values():
+    return dict(trusted_checkpoint=b"wrapper-contract-only", proof_wires=(b"two", b"three"),
+                expected_network_id=crypto.NetworkId.from_bytes(bytes([1])*32),
+                expected_chain="selected-public-chain")
+
+
+def page_output(arguments):
+    return (json.dumps(dict(network_id=arguments["expected_network_id"].literal,
+        chain_id=arguments["expected_chain"],root_scope="Global",anchor_height=2,height=3,
+        proof_count=2,block_hash="a"*64,context_id="b"*64)), b"opaque-promoted-checkpoint", "[{}]")
+
+
+def test_public_checkpoint_page_wrapper_forwards_exact_selected_bytes(monkeypatch):
+    supplied=page_values(); seen=[]
+    def stub(checkpoint, proof_wires, **pins):
+        seen.append((checkpoint, proof_wires, pins))
+        return page_output(supplied)
+    monkeypatch.setattr(crypto,"_crypto",SimpleNamespace(advance_public_finality_checkpoint_v1=stub))
+    output=crypto.advance_public_finality_checkpoint_v1(**supplied)
+    assert seen == [(supplied["trusted_checkpoint"], supplied["proof_wires"],
+                    {key:value for key,value in supplied.items() if key.startswith("expected_")})]
+    assert output["checkpoint"] == page_output(supplied)[1]
+    assert output["metadata"]["height"] == 3
+
+
+@pytest.mark.parametrize("field,value", [
+    ("trusted_checkpoint",bytearray(b"x")), ("trusted_checkpoint",b""),
+    ("proof_wires",[]), ("proof_wires",()), ("proof_wires",(b"",)),
+    ("proof_wires",(bytearray(b"two"),)), ("proof_wires",(b"x",)*4097),
+    ("proof_wires",(bytes(16*1024*1024),b"x")),
+    ("expected_chain"," padded"), ("expected_chain","x"*513), ("expected_chain","x\0y"),
+])
+def test_public_checkpoint_page_wrapper_rejects_before_native(monkeypatch,field,value):
+    def unexpected(*args,**kwargs): raise AssertionError("native must not be entered")
+    monkeypatch.setattr(crypto,"_crypto",SimpleNamespace(advance_public_finality_checkpoint_v1=unexpected))
+    arguments=page_values(); arguments[field]=value
+    with pytest.raises((TypeError,ValueError)): crypto.advance_public_finality_checkpoint_v1(**arguments)
+
+
+@pytest.mark.parametrize("key,value", [("height",4),("anchor_height",1),("anchor_height",True),
+    ("proof_count",True),("root_scope","Dataspace"),("chain_id","foreign"),("context_id","F"*64)])
+def test_public_checkpoint_page_wrapper_refuses_wrong_native_context(monkeypatch,key,value):
+    args=page_values(); metadata,checkpoint,tip=page_output(args)
+    metadata=json.loads(metadata);metadata[key]=value
+    monkeypatch.setattr(crypto,"_crypto",SimpleNamespace(advance_public_finality_checkpoint_v1=
+        lambda *a,**kw:(json.dumps(metadata),checkpoint,tip)))
+    with pytest.raises(RuntimeError):crypto.advance_public_finality_checkpoint_v1(**args)
+
+
+def test_public_checkpoint_page_wrapper_preserves_original_refusal(monkeypatch):
+    refusal=RuntimeError("original native decoder refusal")
+    def refused(*a,**kw):raise refusal
+    monkeypatch.setattr(crypto,"_crypto",SimpleNamespace(advance_public_finality_checkpoint_v1=refused))
+    with pytest.raises(RuntimeError) as seen:crypto.advance_public_finality_checkpoint_v1(**page_values())
+    assert seen.value is refusal

@@ -7991,6 +7991,8 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
     typed_cell!(soradns_directory_latest, Some([3_u8; 32]));
     typed_cell!(soracloud_sequence_watermark, 9_u64);
     typed_cell!(governance_last_unlock_sweep_height, 3_u64);
+    typed_cell!(merge_hint_roots, vec![Hash::new(b"hint")]);
+    typed_cell!(merge_global_state_root, Some(Hash::new(b"root")));
     typed_cell!(sccp_reset_nonce, Some([1_u8; 32]));
     typed_cell!(sccp_forgery_max_generation, Some(7_u64));
     typed_cell!(sccp_committee_current, 7_u64);
@@ -8126,6 +8128,8 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
         "world.domains_by_owner",
         "world.global_beacon_active_session",
         "world.governance_last_unlock_sweep_height",
+        "world.merge_global_state_root",
+        "world.merge_hint_roots",
         "world.musubi_domain_ownership_generations",
         "world.proofs_by_tag",
         "world.provider_owners",
