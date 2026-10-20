@@ -1,0 +1,5 @@
+seiyaku Demo {
+    view fn inspect(int divisor) authorize(anyone) -> int {
+        return 7 / divisor;
+    }
+}

@@ -504,20 +504,23 @@ mod tests {
         let error = enforce_sdn_registry_record_count(JDG_SDN_REGISTRY_MAX_RECORDS_V1 + 1)
             .expect_err("first over-limit registry record must fail");
         assert!(error.to_string().contains("first-release limit"));
+        // Decode depth excludes the root; lexical preflight includes it. Each
+        // array adds one level below the root, including the innermost scalar.
         let exact = format!(
-            "{}0{}",
-            "[".repeat(JDG_INPUT_MAX_NESTING_DEPTH_V1 - 1),
-            "]".repeat(JDG_INPUT_MAX_NESTING_DEPTH_V1 - 1)
-        );
-        admit_jdg_json(exact.as_bytes(), "fixture").expect("exact JSON depth is admitted");
-        let over = format!(
             "{}0{}",
             "[".repeat(JDG_INPUT_MAX_NESTING_DEPTH_V1),
             "]".repeat(JDG_INPUT_MAX_NESTING_DEPTH_V1)
         );
+        admit_jdg_json(exact.as_bytes(), "fixture").expect("exact JSON depth is admitted");
+        let over = format!(
+            "{}0{}",
+            "[".repeat(JDG_INPUT_MAX_NESTING_DEPTH_V1 + 1),
+            "]".repeat(JDG_INPUT_MAX_NESTING_DEPTH_V1 + 1)
+        );
         let error = admit_jdg_json(over.as_bytes(), "fixture")
             .expect_err("first over-limit JSON depth must fail");
         assert!(error.to_string().contains("lexical resource bounds"));
+        assert!(error.to_string().contains("NestingDepth"));
     }
     #[test]
     fn jdg_file_size_is_rejected_before_decode() {

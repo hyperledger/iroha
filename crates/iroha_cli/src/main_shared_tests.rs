@@ -113,53 +113,88 @@ fn parse_register_account_id_accepts_canonical_i105_literal() {
 }
 #[test]
 fn data_verifying_key_filter_parser_rejects_unsafe_backend_and_name() {
-    let id = trigger::parse_data_verifying_key_id("halo2/ipa: vk_main ")
-        .expect("valid verifying-key event filter id");
-    assert_eq!(id.backend.as_str(), "halo2/ipa");
-    assert_eq!(id.name, "vk_main");
-    for spec in [
-        "mock/dev:vk_main",
-        "halo2/ipa/orchard:vk_main",
-        " halo2/ipa:vk_main",
-        "halo2/ipa :vk_main",
-        ":vk_main",
-        "halo2/ipa:",
-        "halo2/ipa:   ",
-        "halo2/ipa:vk:main",
-        "halo2/ipa",
+    for &backend in iroha_data_model::zk::ZK_VERIFIER_BACKEND_REGISTRY_LABELS_V1 {
+        let id = trigger::parse_data_verifying_key_id(&format!("{backend}: vk_main "))
+            .expect("valid verifying-key event filter id");
+        assert_eq!(id.backend.as_str(), backend);
+        assert_eq!(id.name, "vk_main");
+    }
+    for (spec, expected) in [
+        ("mock/dev:vk_main", "unsupported verifier-registry label"),
+        ("halo2/ipa:vk_main", "unsupported verifier-registry label"),
+        (
+            "halo2/ipa/orchard:vk_main",
+            "unsupported verifier-registry label",
+        ),
+        (
+            " pipa-r/pasta:vk_main",
+            "unsupported verifier-registry label",
+        ),
+        (
+            "pipa-r/pasta :vk_main",
+            "unsupported verifier-registry label",
+        ),
+        (":vk_main", "backend must be non-empty"),
+        ("pipa-r/pasta:", "name must be non-empty"),
+        ("pipa-r/pasta:   ", "name must be non-empty"),
+        ("pipa-r/pasta:vk:main", "name must not contain ':'"),
+        ("pipa-r/pasta", "requires BACKEND:NAME format"),
     ] {
         let err = trigger::parse_data_verifying_key_id(spec)
             .expect_err("unsafe verifying-key event filter id must reject");
         let message = err.to_string();
         assert!(
-            message.contains("--data-verifying-key"),
+            message.contains("--data-verifying-key") && message.contains(expected),
             "unexpected error for {spec:?}: {message}"
         );
     }
 }
 #[test]
 fn data_proof_filter_parser_rejects_unsafe_backend_and_hash() {
-    let id = trigger::parse_data_proof_id(&format!("halo2/ipa:0x{}", "A5".repeat(32)))
-        .expect("valid proof event filter id");
-    assert_eq!(id.backend.as_str(), "halo2/ipa");
-    assert_eq!(id.proof_hash, [0xA5; 32]);
-    for spec in [
-        format!("mock/dev:{}", "a".repeat(64)),
-        format!("groth16/bls12-377:{}", "a".repeat(64)),
-        format!(" halo2/ipa:{}", "a".repeat(64)),
-        format!("halo2/ipa:{}", "a".repeat(63)),
-        format!("halo2/ipa:{}", "z".repeat(64)),
-        "halo2/ipa:".to_string(),
-        ":aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
-        "halo2/ipa".to_string(),
+    for &backend in iroha_data_model::zk::ZK_VERIFIER_BACKEND_REGISTRY_LABELS_V1 {
+        let id = trigger::parse_data_proof_id(&format!("{backend}:0x{}", "A5".repeat(32)))
+            .expect("valid proof event filter id");
+        assert_eq!(id.backend.as_str(), backend);
+        assert_eq!(id.proof_hash, [0xA5; 32]);
+    }
+    for (spec, expected) in [
+        (
+            format!("mock/dev:{}", "a".repeat(64)),
+            "unsupported verifier-registry label",
+        ),
+        (
+            format!("halo2/ipa:{}", "a".repeat(64)),
+            "unsupported verifier-registry label",
+        ),
+        (
+            format!("groth16/bls12-377:{}", "a".repeat(64)),
+            "unsupported verifier-registry label",
+        ),
+        (
+            format!(" pipa-r/pasta:{}", "a".repeat(64)),
+            "unsupported verifier-registry label",
+        ),
+        (
+            format!("pipa-r/pasta :{}", "a".repeat(64)),
+            "unsupported verifier-registry label",
+        ),
+        (
+            format!("pipa-r/pasta:{}", "a".repeat(63)),
+            "hash must be 32 bytes",
+        ),
+        (
+            format!("pipa-r/pasta:{}", "z".repeat(64)),
+            "invalid hex for proof hash",
+        ),
+        ("pipa-r/pasta:".to_string(), "hash must be 32 bytes"),
+        (format!(":{}", "a".repeat(64)), "backend must be non-empty"),
+        ("pipa-r/pasta".to_string(), "requires BACKEND:HEX format"),
     ] {
         let err = trigger::parse_data_proof_id(&spec)
             .expect_err("unsafe proof event filter id must reject");
         let message = err.to_string();
         assert!(
-            message.contains("--data-proof")
-                || message.contains("unsupported verifier-registry label")
-                || message.contains("invalid hex"),
+            message.contains(expected),
             "unexpected error for {spec:?}: {message}"
         );
     }

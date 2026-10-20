@@ -1,5 +1,5 @@
 seiyaku __SORACLOUD_SEIYAKU_NAME__ {
-  view fn serve_auth_me(bytes _request_body, Json _request_meta, int observed_height) -> Json {
+  view fn serve_auth_me(bytes _request_body, Json _request_meta, int observed_height) authorize(anyone) -> Json {
     return json {
       authenticated: false,
       observed_height: observed_height,
@@ -7,21 +7,21 @@ seiyaku __SORACLOUD_SEIYAKU_NAME__ {
     };
   }
 
-  view fn serve_user_preferences(bytes _request_body, Json _request_meta, int observed_height) -> Json {
+  view fn serve_user_preferences(bytes _request_body, Json _request_meta, int observed_height) authorize(anyone) -> Json {
     return json {
       observed_height: observed_height,
       preferences: json {}
     };
   }
 
-  view fn serve_saved_searches(bytes _request_body, Json _request_meta, int observed_height) -> Json {
+  view fn serve_saved_searches(bytes _request_body, Json _request_meta, int observed_height) authorize(anyone) -> Json {
     return json {
       observed_height: observed_height,
       saved_searches: json []
     };
   }
 
-  view fn issue_auth_challenge(bytes _request_body, int execution_sequence, int observed_height) -> Json {
+  view fn issue_auth_challenge(bytes _request_body, int execution_sequence, int observed_height) authorize(anyone) -> Json {
     return json {
       accepted: true,
       challenge_id: execution_sequence,
@@ -29,7 +29,7 @@ seiyaku __SORACLOUD_SEIYAKU_NAME__ {
     };
   }
 
-  view fn complete_auth_login(bytes _request_body, int execution_sequence, int observed_height) -> Json {
+  view fn complete_auth_login(bytes _request_body, int execution_sequence, int observed_height) authorize(anyone) -> Json {
     return json {
       accepted: true,
       action: "login",
@@ -38,7 +38,7 @@ seiyaku __SORACLOUD_SEIYAKU_NAME__ {
     };
   }
 
-  view fn close_auth_session(bytes _request_body, int execution_sequence, int observed_height) -> Json {
+  view fn close_auth_session(bytes _request_body, int execution_sequence, int observed_height) authorize(anyone) -> Json {
     return json {
       accepted: true,
       action: "logout",
@@ -47,7 +47,7 @@ seiyaku __SORACLOUD_SEIYAKU_NAME__ {
     };
   }
 
-  view fn store_user_preferences(bytes _request_body, int execution_sequence, int observed_height) -> Json {
+  view fn store_user_preferences(bytes _request_body, int execution_sequence, int observed_height) authorize(anyone) -> Json {
     return json {
       accepted: true,
       action: "store_preferences",
@@ -56,7 +56,7 @@ seiyaku __SORACLOUD_SEIYAKU_NAME__ {
     };
   }
 
-  view fn store_saved_search(bytes _request_body, int execution_sequence, int observed_height) -> Json {
+  view fn store_saved_search(bytes _request_body, int execution_sequence, int observed_height) authorize(anyone) -> Json {
     return json {
       accepted: true,
       action: "store_saved_search",
