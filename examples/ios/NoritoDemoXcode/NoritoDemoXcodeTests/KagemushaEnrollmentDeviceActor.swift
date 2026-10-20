@@ -184,7 +184,8 @@ import Foundation
     var pendingReview: KagemushaProbePendingReview?
     let nearbyIdentity = KagemushaNearbyDiagnosticIdentity()
     var nearbyRun: KagemushaNearbyDiagnostic?
-    var nearbyBusy = false
+    var qrRun: KagemushaQRDiagnostic?
+    var carrierBusy = false
     var timeExchange: KagemushaWalletTimeExchangeV1?
     init(configuration: Configuration) throws {
       config = configuration
@@ -214,7 +215,7 @@ import Foundation
       try output("service-evidence.norito", frame.canonicalOriginal, sequence: sequence)
     }
     func execute(_ command: Command, sequence: Int) async throws -> String {
-      guard !closed, !nearbyBusy else { throw EnrollmentProbeFailure.lifecycle }
+      guard !closed, !carrierBusy else { throw EnrollmentProbeFailure.lifecycle }
       if KagemushaMonetaryProbeManifest.actions.contains(command.action) {
         return try await executeMonetary(command, sequence: sequence)
       }
@@ -363,7 +364,7 @@ import Foundation
     }
     /// Release is explicit and awaited; no abandonment, key deletion, replacement or bootstrap.
     func close() throws {
-      guard !nearbyBusy else { throw EnrollmentProbeFailure.lifecycle }
+      guard !carrierBusy else { throw EnrollmentProbeFailure.lifecycle }
       if closed { return }
       try releaseWallet()
       if let enrollment {

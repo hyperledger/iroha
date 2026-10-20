@@ -168,10 +168,28 @@ selected plans, collection cursor and signing-completion records. Each next
 result follows from this state and the predeclared service transition/coins;
 it is not a posthoc success/failure label chosen to fit an unrelated carrier.
 
-Exact retry adopts the same original. A fresh attempt requires the source's
-definite-absence condition; missing acknowledgement is not definite absence.
-Fresh interrupted attempts count in the coin ledger. Selected replay draws no
-fresh proof coins, but retains its actual storage and error outcome.
+An authorized exact replay adopts the same original. A fresh attempt requires
+the source's definite-absence condition; missing acknowledgement is not definite
+absence. Fresh interrupted attempts count in the coin ledger. Selected replay
+draws no fresh proof coins, but retains its actual storage and error outcome.
+
+The selected custody state includes the permanent operation-to-sequence locator
+and matching `StepEntry`, selected together by one manifest publication and
+preserved through collection. A low-level `Unknown` after loss of both historical
+completion copies is not sufficient evidence of nonselection. The coordinator
+checks the canonical bounded locator, the authenticated step's operation, and
+its capsule binding where supplied by the request or direct-commit mapping.
+An authenticated indexed match in this `Unknown` branch returns
+`DeliveryDataLoss`; unavailable, corrupt or conflicting index paths propagate
+their custody error.
+These outcomes precede new preparation or signing in request execution and
+operation commit; retry cannot convert them to a new Send. Authenticated index
+nonmembership leaves the unselected path possible only subject to Advance's own
+selected-state checks; a preparation binding alone does not establish a commit.
+For an uncollected indexed operation, a restored completion must match the same
+step's exact completion binding before replay. This is a source-state invariant
+of the logical custody service, not a guarantee that lost bytes can be recovered
+or that physical storage satisfies the service.
 
 The custody service includes the bounded retirement journal, exact grave set
 and their stopped/recovery states: slot and record identities, operational

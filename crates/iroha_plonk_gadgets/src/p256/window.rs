@@ -43,7 +43,8 @@
 //! dynamic digit is checked against `1..=16` only; the limb bound of the
 //! proper scalar bounds its top digit.
 //!
-//! Inputs and table expressions have degree 2, so the lookup has degree 6.
+//! Inputs and table expressions have degree 2, so the norm lookup argument
+//! has degree `2 + 2*2 + 2*2 = 10`.
 //!
 //! # Rows
 //!

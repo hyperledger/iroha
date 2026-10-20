@@ -1,9 +1,9 @@
 //! Observe actual retained-handle census recipes without substituting custody results.
 
 use super::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
-#[derive(Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub(in crate::managed) struct Census {
     pub(in crate::managed) history_order: Vec<usize>,
     pub(in crate::managed) descendant_order: Vec<(bool, usize)>,
@@ -15,8 +15,12 @@ pub(in crate::managed) struct Census {
 
 type AfterDescendants = Box<dyn FnOnce() -> Result<()>>;
 thread_local! {
+    static ORIGINAL_OPERATION: Cell<bool> = const { Cell::new(false) };
     static CENSUS: RefCell<Option<Census>> = const { RefCell::new(None) };
     static AFTER_DESCENDANTS: RefCell<Option<AfterDescendants>> = const { RefCell::new(None) };
+}
+pub(super) fn original_operation_recipe() -> bool {
+    ORIGINAL_OPERATION.get()
 }
 fn record(action: impl FnOnce(&mut Census)) {
     CENSUS.with(|state| {
@@ -77,6 +81,26 @@ fn counted<T>(action: impl FnOnce() -> T) -> (T, Census) {
     (result, census)
 }
 impl History {
+    pub(in crate::managed) fn test_operation_handle_recipe<T>(
+        original: bool,
+        read: impl FnOnce() -> T,
+    ) -> T {
+        struct Restore(bool);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                ORIGINAL_OPERATION.set(self.0);
+            }
+        }
+        let _restore = Restore(ORIGINAL_OPERATION.replace(original));
+        read()
+    }
+    pub(in crate::managed) fn test_empty_operation_bracket(
+        &self,
+        tree: &iroha_fs::PrivateReadTreeScope<'_>,
+    ) -> Result<()> {
+        tree.revalidate_directory(&self.operation)?;
+        Ok(())
+    }
     pub(in crate::managed) fn test_handle_work<T>(action: impl FnOnce() -> T) -> (T, Census) {
         counted(action)
     }

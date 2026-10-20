@@ -83,24 +83,40 @@ fn outcome(result: Result<()>) -> std::result::Result<(), String> {
 
 #[test]
 fn operation_trios_keep_genuine_graph_leaf_order_active_recipe_and_callback_boundaries() {
-    // Isolate operation-scope grouping with the original Original-read recipe.
-    // Combined operation-scope grouping and Original-read coverage belongs to graph_original_tests.
-    graph_original_tests::with_original_reads(operation_trios_with_original_reads);
+    // Isolate the two trio scopes with original leaf reads and without the encompassing
+    // local census. graph_original_tests and local_census_tests cover the shipping combination.
+    local_census_tests::with_separate_operations(|| {
+        graph_original_tests::with_original_reads(operation_trios_with_original_reads)
+    });
 }
 fn operation_trios_with_original_reads() {
     let _resources = crate::managed::native_test_guard();
     let (fixture, history) = shared_snapshot_tests::history_with_bodies(3);
     let native = history.current_history().unwrap();
+    let capture = finish_timing::Capture::start();
     let (((old_result, old_visits), old_records), old) = counted(true, None, || {
         History::test_operation_records(|| native.test_require_current(6))
     });
+    let old_envelopes = capture
+        .finish()
+        .sample(finish_timing::Phase::MetadataEnvelopeDecode)
+        .0;
     old_result.unwrap();
+    let capture = finish_timing::Capture::start();
     let (((new_result, new_visits), new_records), new) = counted(false, None, || {
         History::test_operation_records(|| native.test_require_current(6))
     });
+    let new_envelopes = capture
+        .finish()
+        .sample(finish_timing::Phase::MetadataEnvelopeDecode)
+        .0;
     new_result.unwrap();
     assert_eq!(old_records, new_records);
-    assert!(old_records[0] > 0 && old_records[1] > 0);
+    assert!(old_records[0] > 0);
+    // Grouping preserves fresh reads. Retained predecessors reuse their terminal images;
+    // the pristine Owned head has no typed children but decodes both envelopes per direction.
+    assert_eq!(old_records[1], 0);
+    assert_eq!((old_envelopes, new_envelopes), (4, 4));
     assert_eq!((old_visits.visits, new_visits.visits), (6, 6));
     assert_eq!(
         (old_visits.native_tree_visits, new_visits.native_tree_visits),

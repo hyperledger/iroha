@@ -18,6 +18,8 @@ final class KagemushaEnrollmentProbeStageTests: XCTestCase {
       "native-complete-load": "loaded",
       "native-complete-send": "sent",
       "native-exact-send-delivery-admitted-over-nearby": "sent",
+      "native-exact-send-delivery-admitted-over-qr": "sent",
+      "native-durable-receive-credited-display-closed-over-qr": "received",
       "native-complete-receive": "received",
       "native-durable-receive-acknowledged-over-nearby": "received",
       "native-unload-confirmed": "unloaded",
@@ -43,6 +45,7 @@ final class KagemushaEnrollmentProbeStageTests: XCTestCase {
 
   func testRawStatusesBurnedPendingAndExportsNeverEstablishReceived() {
     let outcomes = [
+      "qr-displayed", "receiver-display-closed", "camera-qr-observed",
       "native-credit-evidence-0", "native-credit-evidence-3", "native-credit-evidence-4",
       "native-credit-evidence-PENDING", "native-credit-evidence-ARCHIVED",
       "native-credit-evidence-UNFOLDED", "native-credit-evidence-CREDITED",

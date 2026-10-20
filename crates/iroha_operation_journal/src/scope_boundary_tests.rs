@@ -85,8 +85,16 @@ fn journal_scope_preserves_bytes_and_replaces_only_two_adjacent_ancestry_walks()
     new.0.unwrap();
     assert_eq!((old.1.ancestry_walks, new.1.ancestry_walks), (6, 4));
     assert_eq!(old.1.ancestry_opens * 2, new.1.ancestry_opens * 3);
-    for allocation in [0, 1, usize::MAX] {
-        let limits = norito::DecodeLimits::new(0, 0, 0, allocation, 0);
+    // Keep the original all-zero structural limits as a refusal control. Allocation-only
+    // cases must permit the nested JSON object before they can witness successful decoding.
+    let allocation_cases = [0, 1, usize::MAX].map(|allocation| {
+        (
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, allocation, 64),
+            allocation == usize::MAX,
+        )
+    });
+    let structural_refusal = (norito::DecodeLimits::new(0, 0, 0, usize::MAX, 0), false);
+    for (limits, succeeds) in allocation_cases.into_iter().chain([structural_refusal]) {
         let old = norito::core::with_decode_limits_measured(limits, || {
             outcome(original(&journal, |reader| {
                 reader.read_native::<norito::json::Value>(NativeRecord::Request)
@@ -98,7 +106,7 @@ fn journal_scope_preserves_bytes_and_replaces_only_two_adjacent_ancestry_walks()
             }))
         });
         assert_eq!(old, new);
-        if allocation == usize::MAX {
+        if succeeds {
             assert_eq!(new.0, Ok(Some(request.clone())));
         } else {
             assert!(new.0.is_err());

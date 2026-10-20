@@ -46,6 +46,13 @@ fn autonomous_two_bank_paid_pvp_survives_all_root_restart_without_successor_traf
 fn autonomous_final_silent_bank_aborts_after_relay_restart_and_releases_original_escrow()
 -> Result<()> {
     let exchange = Exchange::start()?;
+    run_silent_bank_lifecycle(&exchange)
+}
+
+// Genesis validation runs on this test's default stack. Keep post-start proof and
+// future temporaries out of its call stack while constructing the three roots.
+#[inline(never)]
+fn run_silent_bank_lifecycle(exchange: &Exchange) -> Result<()> {
     let (transaction, approvals) = exchange.begin(120, 0xA2, true)?;
     exchange.wait_for_first_escrow(&transaction, &approvals[0])?;
     exchange.global_progress(&transaction, false)?;

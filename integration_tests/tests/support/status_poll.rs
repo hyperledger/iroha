@@ -1,4 +1,4 @@
-//! Bounded diagnostic-only polling for AMX acceptance fixtures.
+//! Bounded diagnostic-only polling for payment acceptance fixtures.
 //!
 //! A status height schedules original proof reads; it never establishes a payment
 //! outcome. This owner receives no transaction, signer or submission callback.

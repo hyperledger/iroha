@@ -266,7 +266,7 @@ async fn require_idle(network: &Network, height: u64) -> Result<()> {
     while tokio::time::Instant::now() < end {
         for peer in network.validators() {
             ensure!(
-                peer.status().await?.blocks == height,
+                status_poll::read_until(end, || peer.status()).await?.blocks == height,
                 "read-only rejection recovery produced successor traffic"
             );
         }

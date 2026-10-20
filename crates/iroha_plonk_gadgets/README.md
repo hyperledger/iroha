@@ -38,9 +38,10 @@ Chips for the Iroha-native PIPA-v1 PLONKish engine (`iroha_plonk`,
   linked byte. `PBytes` builds `P_bytes(d, b)` (length element, 31-byte
   zero-filled chunks) from constants, tape runs, opaque chunks (18 cells at
   `b = 15`) and bounded pieces, splitting pieces that cross a chunk
-  boundary; `export_length_prefixed` cuts `LE32 len(sigma) || sigma` into the
-  107 pieces a leaf exports. 32-byte messages decode to `lo`, `hi` and bit
-  255: compressed points link to `(x, parity(y))` with canonical `x` and
+  boundary; `export_length_prefixed` cuts `LE32 len(sigma) || sigma` into
+  `ceil((4 + len(sigma)) / 31)` pieces at origin zero (107 for the existing
+  3,296-byte fixture). 32-byte messages decode to `lo`, `hi` and bit 255:
+  compressed points link to `(x, parity(y))` with canonical `x` and
   canonical parity (99 cells at `b = 15`), scalars to canonical limbs (39
   cells); hard forms are unsatisfiable on a mismatch, soft forms return a
   bit. Soft point decoding has two verdicts: `decode_point_soft` is
@@ -123,14 +124,15 @@ Chips for the Iroha-native PIPA-v1 PLONKish engine (`iroha_plonk`,
   conditions on synthesized tables. Five witness-key and one fixed-key
   verification with their SHA blocks span 64,238 of 65,530 rows.
 - `statement`: the G1 step statement encoding of the split-lineage step
-  relations: 28 elements under `kgwstmt1`, in the order of the G1
-  `KagemushaWalletStatementV1::field_items` (wire record section 3.2; not yet
-  wired into a protocol path): version, the scheme-level relation identity
-  (two limbs, witness cells bound by the public digest), scheme, asset,
-  credential, successor lifecycle, sequence and `next_load`, the
-  enabled-controls mask, the lineage inputs of a Send, both state
-  commitments, the effect tag and a 10-element effect union (`credit_id` is
-  one element). Its tests reproduce the G1 statement vectors of
+  relations: 26 elements under `kgwstmt1`, in the order of
+  `KagemushaWalletStatementV1::field_items` (wire record section 3.2): version,
+  the scheme-level relation identity (two little-endian 128-bit limbs,
+  witness cells bound by the public digest), scheme and asset (two limbs
+  each), credential (one canonical Poseidon field element), successor
+  lifecycle, sequence and `next_load`, the enabled-controls mask, the
+  lineage inputs of a Send (zero for Receive), both state commitments, the
+  effect tag and a zero-padded 9-element effect union (`credit_id` is one
+  field element). Its tests reproduce the G1 statement vectors of
   `fixtures/kagemusha/wallet_v1_vectors.json` natively and in circuit. Also
   the canonical cross-field limb encoding of spec S6 (`lo < 2^128`,
   `hi < 2^127`, `lo + 2^128 hi < modulus`) and the decomposition of an

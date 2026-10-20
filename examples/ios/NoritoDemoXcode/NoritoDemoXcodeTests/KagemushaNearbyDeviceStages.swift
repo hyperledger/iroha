@@ -7,10 +7,10 @@ import UIKit
 #if os(iOS) && !targetEnvironment(macCatalyst)
 extension KagemushaEnrollmentDeviceActor {
   func executeNearby(_ command: Command, inputs: [String: Data], sequence: Int) async throws -> String {
-    guard !nearbyBusy, nearbyRun == nil, pendingReview == nil else { throw EnrollmentProbeFailure.lifecycle }
+    guard !carrierBusy, nearbyRun == nil, qrRun == nil, pendingReview == nil, timeExchange == nil else { throw EnrollmentProbeFailure.lifecycle }
     // Reserve before the first suspension; actor reentrancy must not share this Native owner.
-    nearbyBusy = true
-    defer { nearbyRun = nil; nearbyBusy = false }
+    carrierBusy = true
+    defer { nearbyRun = nil; carrierBusy = false }
     func input(_ name: String) throws -> Data {
       guard let value = inputs[name] else { throw EnrollmentProbeFailure.input }; return value
     }

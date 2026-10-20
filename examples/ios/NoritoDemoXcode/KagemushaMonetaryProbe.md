@@ -4,7 +4,7 @@ This extends the physical enrollment XCTest mailbox. Every command calls the
 current Swift SDK on the actor's actual Native owner and real Apple platform.
 It is test glue; full-SDK arm64 iOS typechecking and host harness tests do not
 replace matching-source Native linking or physical monetary execution.
-It supplies no account key, FI issuer, ledger signer, ledger execution, transport
+It supplies no account key, FI issuer, ledger signer, ledger execution, monetary
 implementation or qualification verdict. Only exact externally produced originals
 can complete those boundaries. Native refusals remain refusals.
 
@@ -153,6 +153,69 @@ it makes no claim of a hardware-authenticated display or NFC tap confirmation.
 Native `executeReviewed` still consumes the real owner-local token and rechecks
 its complete source. An exported projection can never recreate that capability.
 
+## Physical QR commands
+
+The iOS probe uses the system CoreImage renderer and AVFoundation rear camera with
+existing IAK1/IRQR/IPM1 codecs. `NSCameraUsageDescription` belongs to the host app.
+These closed actions select local identities; none accepts imported QR text,
+images, envelopes, Payment, Credited or a caller success verdict:
+
+| Action | Exact inputs |
+|---|---|
+| `qr-send` | `setup-id`, `request-id` |
+| `qr-receive` | `setup-id`, `request-id`, `amount`; optionally both `fee-schedule`, `fee-certificate` |
+| `qr-recover-send` | the original `setup-id`, `request-id` |
+| `qr-recover-receive` | the original `setup-id`, `request-id` |
+
+Start `qr-receive` on the recipient and `qr-send` on the payer. The recipient
+shows the Ask for its selected amount and Native account digest. Point the payer's
+rear camera at that screen. The payer then shows its Native Offer; after the other
+phone has scanned it, use the visible button to switch to scanning the response.
+Repeat this explicit screen/camera exchange for Request, Payment and Credited.
+Only the payer's exact Native Request review plus fresh system authentication
+permits dispatch. The signed Request's Native destination digest and amount must
+match the camera-read Ask; Request carries its mandatory account original.
+Request/Payment correspondence is checked against the exact displayed/scanned
+Request before Receive or Payment display. Native retains all proof, signature,
+custody, conservation and Send-bound acknowledgement checks.
+
+Each attempt retains originals, complete envelopes, IPM1 messages, generated QR
+frames and actual camera observations separately. The renderer round-trips each
+symbol through the system decoder and checks its actual version (at most 17) and
+M error correction. An oversized static symbol uses the existing canonical
+animated mode. Animated frames change every 150 ms. Display and camera callbacks
+share a maximum of 4,096 retained observations and an attempt deadline of 300
+seconds. Every cancellation, permission refusal, background interruption, expiry
+and slow attempt remains evidence; neither limit silently resamples the run.
+These limits belong to this test actor, not the wire protocol.
+
+The receiver's **Close display (delivery unconfirmed)** button records only that
+its already proven durable credit's Credited screen was closed locally. It does
+not prove payer receipt. The payer completes only after camera reconstruction of
+Credited and `acceptCreditedForSend` returns Native COMPLETE for the selected Send.
+Payer timing retains camera arrival and Native admission separately, measured from
+that same phone's fresh authentication callback; operator handling and retention
+costs remain included. No clock from another phone is subtracted. Recovery has no
+new end-to-end latency sample for the original operation.
+
+A recovered setup retains its original Ask, Offer, Request, account companion,
+amount/fee inputs and IDs. Rescan the exact retained Request or Payment as prompted.
+If a dispatch fence already exists, recovery uses Native status and retained
+release/current credit projection; it never re-confirms or creates a replacement
+Send/Receive. An incomplete Native result remains a failed QR attempt. Resolve
+that exact pending operation through the existing `request-status`, `resume` or
+`retry` commands before another QR recovery attempt. The conservative
+fence-published-but-Native-not-started case remains a recovery limitation; never
+erase its marker. Foreground loss, cancellation and scene disconnection drain the
+camera and Native worker before releasing the shared carrier owner.
+
+Current QR validation covers source parsing, system-only iOS adapter typechecking
+and portable gate/renderer/schema/stage tests. The package now requires bridge
+ABI 30; no matching authenticated iOS SDK/native candidate was available for the
+full hosted QR target check. Full hosted compilation/linking and execution on the
+specified physical phones remain open. Android has no corresponding optical QR
+actor yet; existing text codec tests do not establish cross-platform QR delivery.
+
 ## Recovery and timing
 
 Before every Load/Receive/reviewed operation, the harness freezes the action and
@@ -206,9 +269,9 @@ diagnostic; only the exact native Credited original enters the acknowledgement.
 Sender recovery remains `COMPLETE`-only. Recovery does not reconstruct the
 original completion time.
 
-For A→B→C, the external controller must carry original Offer/Request/Payment/
-Credited bytes through the selected actual carrier and preserve independent
-physical ingress/egress evidence. The mailbox's file copy is not carrier success.
+For A→B→C, select the actual carrier and preserve independent physical
+ingress/egress evidence. The QR actor performs its own camera/display exchange;
+generic mailbox export/decode commands require external carrier execution. The mailbox's file copy is not carrier success.
 Real cross-phone P1a timing needs an externally observed common boundary, or the
 specified one-device request/ack round trip; these local clocks alone cannot
 produce a cross-device duration. After B's fold and successful onward review,

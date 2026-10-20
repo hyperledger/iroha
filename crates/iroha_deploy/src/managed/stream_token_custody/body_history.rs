@@ -2672,52 +2672,16 @@ impl BodyHistory {
                     Some(attempts::semantic_digest(&unused, MAX_SELECTION_BYTES)?)
                 }
             };
-            // The first reservation has no predecessor work between the full reparse above
-            // and this activation. Admit the exact successful retirement before the CAS;
-            // uncertain or inherited-budget observations keep canonical recovery parsing.
-            if previous_retirement.is_some() {
-                self = self.reopen_after_publication_with_wallets(
-                    owner,
-                    retirement_publication,
-                    Some(&mut wallets),
-                )?;
-            }
-            let pending = self
-                .anchor
-                .pending
-                .as_ref()
-                .ok_or_else(|| invalid("pending enrollment selection absent"))?;
-            let activation = Activation {
-                reservation: pending.digest()?,
-                preceding_retirement: previous_retirement,
-            };
-            turn.check(&self.selection, deadline)?;
-            write_once(
+            self = self.activate_reserved_body(
+                owner,
                 &body_root,
-                &format!("{ordinal:04}-activation.nrt"),
-                &activation,
-                MAX_SELECTION_BYTES,
+                ordinal,
+                previous_retirement,
+                retirement_publication,
+                turn,
+                deadline,
+                &mut wallets,
             )?;
-            turn.check(&self.selection, deadline)?;
-            let anchor = self.replace_anchor(&Anchor {
-                outer: self.selection.digest()?,
-                highest: ordinal,
-                active: Some(ordinal),
-                completed: None,
-                pending: None,
-            })?;
-            let publication = if self.bodies[usize::from(ordinal) - 1].activation.is_none() {
-                anchor
-                    .map(|anchor| {
-                        PublishedBodyDelta::activated(&self, ordinal, &activation, anchor)
-                    })
-                    .transpose()?
-            } else {
-                // A pre-existing activation is a recovery prefix, even when its bytes match.
-                None
-            };
-            self =
-                self.reopen_after_publication_with_wallets(owner, publication, Some(&mut wallets))?;
         }
         // An expired unsigned reservation is activated but never signed. A generated caller can
         // retire this exact unused body through the same bounded outer chain; an explicit caller
@@ -2814,6 +2778,13 @@ impl BodyHistory {
             .signing_payload()
             .map_err(|_| invalid("invalid retained attester statement"))?;
         let key = owner.attester()?;
+        // Close the full native/source scan before the final live and UTC checks. A source
+        // refusal takes precedence if that scan also outlives the signing authorization.
+        #[cfg(test)]
+        signing_boundary_tests::before_snapshot(&self);
+        body.snapshots.revalidate()?;
+        #[cfg(test)]
+        signing_boundary_tests::after_snapshot();
         // This is the sole attester signature boundary: original bytes already exist, and no
         // retained epoch, old wall clock or unsigned local record can substitute a live call.
         turn.check(&self.selection, deadline)?;
@@ -2824,9 +2795,10 @@ impl BodyHistory {
         if now >= unsigned.statement.expires_at_unix_ms {
             return Err(ManagedBootstrapFailure::EnrollmentExpired.into());
         }
-        body.snapshots.revalidate()?;
         let signature = Signature::try_new(key.private_key(), &payload)
             .map_err(|_| invalid("cannot attest retained custody enrollment"))?;
+        #[cfg(test)]
+        signing_boundary_tests::signed();
         let record = SignerCustodyRecordV1 {
             statement: unsigned.statement.clone(),
             attestation: signature
@@ -3019,3 +2991,7 @@ pub(in crate::managed) mod current_active_tests;
 #[cfg(test)]
 #[path = "body_history/metadata_reuse_tests.rs"]
 pub(in crate::managed) mod metadata_reuse_tests;
+
+#[cfg(test)]
+#[path = "body_history/signing_boundary_tests.rs"]
+mod signing_boundary_tests;

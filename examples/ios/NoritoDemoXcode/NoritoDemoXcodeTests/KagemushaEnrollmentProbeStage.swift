@@ -14,8 +14,10 @@ enum KagemushaEnrollmentProbeStage {
     case "native-wallet-opened": return "opened"
     case "native-activation-confirmed": return "activated"
     case "native-complete-load": return "loaded"
-    case "native-complete-send", "native-exact-send-delivery-admitted-over-nearby": return "sent"
+    case "native-complete-send", "native-exact-send-delivery-admitted-over-nearby",
+      "native-exact-send-delivery-admitted-over-qr": return "sent"
     case "native-complete-receive", "native-durable-receive-acknowledged-over-nearby",
+      "native-durable-receive-credited-display-closed-over-qr",
       "native-credit-evidence-1", "native-credit-evidence-2": return "received"
     case "native-unload-confirmed": return "unloaded"
     default: return nil

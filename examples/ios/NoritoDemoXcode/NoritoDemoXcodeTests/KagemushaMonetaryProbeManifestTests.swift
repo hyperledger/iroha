@@ -7,6 +7,21 @@ import XCTest
 
 /// Test-only intent/decision guards; no reconstructed Native authority or fake proof output.
 final class KagemushaMonetaryProbeManifestTests: XCTestCase {
+  func testQRCommandsAdmitOnlyLocalSelectionAndNoImportedOpticalEvidence() throws {
+    let identity: Set<String> = ["setup-id", "request-id"]
+    for action in ["qr-send", "qr-recover-send", "qr-recover-receive"] {
+      try KagemushaMonetaryProbeManifest.validate(action, names: identity)
+      for imported in ["qr-text", "image", "payment", "credited", "envelope", "caller-success"] {
+        XCTAssertThrowsError(try KagemushaMonetaryProbeManifest.validate(action, names: identity.union([imported])))
+      }
+      XCTAssertThrowsError(try KagemushaMonetaryProbeManifest.validate(action, names: ["request-id"]))
+    }
+    try KagemushaMonetaryProbeManifest.validate("qr-receive", names: identity.union(["amount"]))
+    try KagemushaMonetaryProbeManifest.validate("qr-receive", names: identity.union(["amount", "fee-schedule", "fee-certificate"]))
+    XCTAssertThrowsError(try KagemushaMonetaryProbeManifest.validate("qr-receive", names: identity))
+    XCTAssertThrowsError(try KagemushaMonetaryProbeManifest.validate("qr-receive", names: identity.union(["amount", "fee-schedule"])))
+    XCTAssertThrowsError(try KagemushaMonetaryProbeManifest.validate("qr-import", names: ["qr-text"]))
+  }
   func testNearbyCommandInputsAreClosedAndRecoveryHasSameOriginalIDs() throws {
     let sender: Set<String> = ["request-id", "session-id", "request-hash", "peer-certificate"]
     for action in ["nearby-send", "nearby-recover-send"] {

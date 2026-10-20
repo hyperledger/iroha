@@ -398,3 +398,8 @@ mod prepared_string;
 mod enum_rollback;
 #[path = "exact_field_streaming_allocations/materialized_destination.rs"]
 mod materialized_destination;
+
+#[path = "exact_field_streaming_allocations/prepared_value_root.rs"]
+mod prepared_value_root;
+#[path = "exact_field_streaming_allocations/skipped_fields.rs"]
+mod skipped_fields;

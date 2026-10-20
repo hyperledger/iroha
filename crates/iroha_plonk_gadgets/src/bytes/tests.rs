@@ -54,6 +54,12 @@ use crate::{
 // Harness
 // ---------------------------------------------------------------------------
 
+/// Fixed byte-linking fixture; production proof lengths come from descriptors.
+const FIXTURE_PROOF_BYTES: usize = 3_296;
+/// Preserve the fixture's original 107-chunk geometry and every inventory check.
+const FIXTURE_EXPORT_CHUNKS: usize = length_prefixed_chunks(FIXTURE_PROOF_BYTES);
+const _: () = assert!(FIXTURE_EXPORT_CHUNKS == 107);
+
 /// The step-proof digest domain (`kgwstep1`).
 const STEP_DOMAIN: u64 = u64::from_le_bytes(*b"kgwstep1");
 /// The Omega || sigma `proof_digest` domain (`kgwprf_1`).
@@ -748,15 +754,22 @@ fn chunk_planner_cuts_at_chunk_boundaries() {
     assert_eq!(chunk_segments(4, 30), vec![27, 3]);
     assert_eq!(chunk_segments(28, 3), vec![3]);
     assert_eq!(chunk_segments(62, 1), vec![1]);
-    // The sigma export: 3,300 bytes of `LE32 len || sigma` from origin 0.
-    let pieces = chunk_segments(0, LENGTH_PREFIX_BYTES + SIGMA_PROOF_BYTES);
-    assert_eq!(pieces.len(), SIGMA_EXPORT_CHUNKS);
+    // The fixed fixture: 3,300 bytes of `LE32 len || sigma` from origin 0.
+    let pieces = chunk_segments(0, LENGTH_PREFIX_BYTES + FIXTURE_PROOF_BYTES);
+    assert_eq!(pieces.len(), FIXTURE_EXPORT_CHUNKS);
     assert_eq!(pieces[106], 14);
     assert!(pieces[..106].iter().all(|len| *len == 31));
-    let proof = chunk_segments(LENGTH_PREFIX_BYTES, SIGMA_PROOF_BYTES);
+    let proof = chunk_segments(LENGTH_PREFIX_BYTES, FIXTURE_PROOF_BYTES);
     assert_eq!(proof[0], 27);
-    assert_eq!(proof.len(), SIGMA_EXPORT_CHUNKS);
+    assert_eq!(proof.len(), FIXTURE_EXPORT_CHUNKS);
     assert_eq!(length_prefixed_chunks(48), 2);
+    // Current monetary sizes use the same generic planner, not a fixed export cap.
+    for (bytes, chunks) in [(3_360, 109), (3_520, 114)] {
+        let pieces = chunk_segments(0, LENGTH_PREFIX_BYTES + bytes);
+        assert_eq!(length_prefixed_chunks(bytes), chunks);
+        assert_eq!(pieces.len(), chunks);
+        assert_eq!(pieces.iter().sum::<usize>(), LENGTH_PREFIX_BYTES + bytes);
+    }
     for offset in 0..70 {
         for len in [0, 1, 30, 31, 32, 62, 100] {
             let plan = chunk_segments(offset, len);
@@ -995,16 +1008,16 @@ fn sigma_export_program<F: PoseidonField>(
 
 #[test]
 fn sigma_export_has_107_chunks_matching_native() {
-    let sigma = pattern(SIGMA_PROOF_BYTES, 1);
-    let mut string = length_prefix(SIGMA_PROOF_BYTES).expect("len").to_vec();
+    let sigma = pattern(FIXTURE_PROOF_BYTES, 1);
+    let mut string = length_prefix(FIXTURE_PROOF_BYTES).expect("len").to_vec();
     string.extend_from_slice(&sigma);
     let items = p_bytes_items_native::<Fq>(&string);
-    assert_eq!(items.len(), SIGMA_EXPORT_CHUNKS + 1);
+    assert_eq!(items.len(), FIXTURE_EXPORT_CHUNKS + 1);
     assert_eq!(items[0], Fq::from(3_300_u64));
     let circuit = build(
         sigma_export_program::<Fq>,
         Inputs::new(sigma, Vec::new(), Vec::new()),
-        SIGMA_EXPORT_CHUNKS,
+        FIXTURE_EXPORT_CHUNKS,
     );
     let public = items[1..].to_vec();
     assert!(
@@ -2134,9 +2147,9 @@ fn inventory_cells_per_byte_and_per_link() {
     );
 }
 
-/// The leaf side at k16: sigma (3,296 bytes = 43 points + 60 scalars, the
+/// The byte-linking fixture at k16: 3,296 bytes = 43 points + 60 scalars, the
 /// PIPA-v1 section 7 split of a k12 descriptor with `d = 6`, 5 advice, 7
-/// equality columns and one lookup) exported as 107 pieces with every
+/// equality columns and one lookup, exported as 107 pieces with every
 /// message linked (points hard; scalars hard against `Fp`). `fields` holds
 /// `(x, y)` of the points.
 fn sigma_leaf_program(
@@ -2180,7 +2193,7 @@ fn sigma_aggregator_program(
     region: &mut Region<'_, Fp>,
     inputs: &Inputs<Fp>,
 ) -> Result<Vec<Word<Fp>>, Error> {
-    let lengths = chunk_segments(0, LENGTH_PREFIX_BYTES + SIGMA_PROOF_BYTES);
+    let lengths = chunk_segments(0, LENGTH_PREFIX_BYTES + FIXTURE_PROOF_BYTES);
     let words = chips.glue.witnesses(region, &inputs.all_fields())?;
     let mut string = PBytes::new();
     let domain = if inputs.arg(0) == 0 {
@@ -2245,14 +2258,14 @@ fn unit_leaf_program(
 fn bytes_gate_shape_measurement() {
     const POINTS: usize = 43;
     const SCALARS: usize = 60;
-    assert_eq!(MESSAGE_BYTES * (POINTS + SCALARS), SIGMA_PROOF_BYTES);
+    assert_eq!(MESSAGE_BYTES * (POINTS + SCALARS), FIXTURE_PROOF_BYTES);
     let k = 16;
     let shape = |public| Shape {
         public,
         limb_bits: 15,
     };
     let vesta = points::<EqAffine>(u64::try_from(POINTS).expect("count"));
-    let mut sigma = Vec::with_capacity(SIGMA_PROOF_BYTES);
+    let mut sigma = Vec::with_capacity(FIXTURE_PROOF_BYTES);
     let mut coordinates = Vec::with_capacity(2 * POINTS);
     for point in &vesta {
         sigma.extend_from_slice(&compressed(point));
@@ -2264,7 +2277,7 @@ fn bytes_gate_shape_measurement() {
             .unwrap_or(Fp::ONE);
         sigma.extend_from_slice(&scalar.to_repr());
     }
-    let mut string = length_prefix(SIGMA_PROOF_BYTES).expect("len").to_vec();
+    let mut string = length_prefix(FIXTURE_PROOF_BYTES).expect("len").to_vec();
     string.extend_from_slice(&sigma);
 
     // Unit costs: an opaque 31-byte chunk and a 31-byte piece split at 24
@@ -2401,7 +2414,7 @@ fn bytes_gate_shape_measurement() {
             },
             cells[TAPE_COLUMNS[0]] + cells[TAPE_COLUMNS[1]],
             sum(&cells, GLUE_COLUMNS),
-            SIGMA_EXPORT_CHUNKS,
+            FIXTURE_EXPORT_CHUNKS,
             cells[RANGE_COLUMN],
             chunks,
             domain_permutations(chunks + 1, false),
@@ -2433,14 +2446,14 @@ fn split_unit_program(
     Ok(vec![word])
 }
 
-/// The chip alone stays within the crate's degree policy: the byte lookup
-/// has input degree 2 (lookup degree 5) and the link gate degree 3.
+/// The byte link's arithmetic degree is 3, within the crate's degree-six
+/// policy. Its degree-two input and degree-one table require norm degree 8.
 #[test]
 fn bytes_chip_degree_at_most_six() {
     for (cs_degree, gate_degree) in [chip_degrees::<Fp>(), chip_degrees::<Fq>()] {
         assert_eq!(gate_degree, 3);
-        assert_eq!(cs_degree, 5);
-        assert!(cs_degree <= crate::MAX_GATE_DEGREE);
+        assert_eq!(cs_degree, 8);
+        assert!(gate_degree <= crate::MAX_GATE_DEGREE);
     }
 }
 
@@ -2453,6 +2466,12 @@ fn chip_degrees<F: PastaField>() -> (usize, usize) {
     let _config = BytesConfig::configure(&mut meta, z, w);
     assert_eq!(meta.check(), Ok(()));
     assert_eq!(meta.lookups().len(), 1);
+    let lookup = &meta.lookups()[0];
+    assert_eq!(lookup.name(), "bytes primary byte");
+    assert_eq!(lookup.width(), 1);
+    assert_eq!(lookup.input_expressions()[0].degree(), 2);
+    assert_eq!(lookup.table_expressions()[0].degree(), 1);
+    assert_eq!(lookup.required_degree(), 8);
     let gate_degree = meta
         .gates()
         .iter()

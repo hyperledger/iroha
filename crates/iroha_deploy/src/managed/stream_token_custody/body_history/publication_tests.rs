@@ -12,7 +12,7 @@ use std::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Point {
+pub(super) enum Point {
     Before(PublicationStep),
     After(PublicationStep),
 }
@@ -41,7 +41,7 @@ fn hit(point: Point, history: &BodyHistory, owner: &ManagedStreamTokenCustody) -
             .map_or(Ok(()), |hook| hook(point, history, owner))
     })
 }
-fn with_hook<T>(
+pub(super) fn with_hook<T>(
     hook: impl FnMut(Point, &BodyHistory, &ManagedStreamTokenCustody) -> Result<()> + 'static,
     action: impl FnOnce() -> T,
 ) -> T {
@@ -57,7 +57,7 @@ fn with_hook<T>(
     action()
 }
 
-fn same_state(actual: &BodyHistory, recovered: &BodyHistory) {
+pub(super) fn same_state(actual: &BodyHistory, recovered: &BodyHistory) {
     actual.require_retained_prefix(recovered).unwrap();
     recovered.require_retained_prefix(actual).unwrap();
     assert_eq!(
@@ -114,10 +114,24 @@ fn same_state(actual: &BodyHistory, recovered: &BodyHistory) {
 // This is an equivalence fixture, not the deep-history latency gate. Its original policy
 // deliberately allows the additional cold recovery after each write. The existing deep64
 // fixture retains its original ten-second bodies, nofile limit, stack limit and deadlines.
-fn advance(
+pub(super) fn advance(
     fixture: &Fixture,
     previous: Option<BodyHistory>,
     request_only: bool,
+) -> Result<BodyHistory> {
+    advance_with_reads(
+        fixture,
+        previous,
+        request_only,
+        &NativeEnrollmentReads(&fixture.native),
+    )
+}
+
+pub(super) fn advance_with_reads(
+    fixture: &Fixture,
+    previous: Option<BodyHistory>,
+    request_only: bool,
+    reads: &impl EnrollmentReads,
 ) -> Result<BodyHistory> {
     if let Some(history) = previous.as_ref() {
         wait_until(
@@ -172,7 +186,7 @@ fn advance(
         &current,
         &SigningTurn::Generated(authorization),
         fixture.options.deadline,
-        &NativeEnrollmentReads(&fixture.native),
+        reads,
     )?;
     if request_only {
         fixture.retain_generated_attempt(authorization, &finished, &current)?;
@@ -182,6 +196,13 @@ fn advance(
 
 #[test]
 fn every_successful_local_publication_matches_genuine_cold_recovery() {
+    // Preserve all original per-publication assertions on the complete admission recipe.
+    // The combined staging path has independent cold-recovery/crash-cut coverage.
+    activation_staging_tests::with_original_recipe(
+        every_successful_local_publication_matches_genuine_cold_recovery_original,
+    );
+}
+fn every_successful_local_publication_matches_genuine_cold_recovery_original() {
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::enrolled_with_renewal_validity(4_000, 30_000);
     wait_until(
@@ -353,6 +374,13 @@ fn original_source_and_profile_exit_refuse_after_native_publication_without_sign
 
 #[test]
 fn successful_unused_retirement_matches_cold_recovery_without_wallet_or_signature() {
+    // Preserve all original per-publication assertions on the complete admission recipe.
+    // The combined staging path has independent cold-recovery/crash-cut coverage.
+    activation_staging_tests::with_original_recipe(
+        successful_unused_retirement_matches_cold_recovery_without_wallet_or_signature_original,
+    );
+}
+fn successful_unused_retirement_matches_cold_recovery_without_wallet_or_signature_original() {
     let _guard = crate::managed::native_test_guard();
     let fixture = Fixture::enrolled_with_renewal_validity(4_000, 8_000);
     wait_until(

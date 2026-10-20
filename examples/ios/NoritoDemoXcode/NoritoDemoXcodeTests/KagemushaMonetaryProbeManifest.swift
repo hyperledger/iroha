@@ -37,9 +37,13 @@ enum KagemushaMonetaryProbeManifest {
     "decode-payment": [["envelope"]], "decode-credited": [["envelope"]],
     "refresh-time": [["request-id", "anchor", "certificates"]],
     "begin-time": [[]], "finish-time": [["anchor", "certificate"]], "cancel-time": [[]],
-  ]
+  ].merging(KagemushaQRProbeManifest.schemas) { _, _ in preconditionFailure("duplicate probe command") }
   static var actions: Set<String> { Set(schemas.keys) }
   static func validate(_ action: String, names: Set<String>) throws {
+    if action.hasPrefix("qr-") {
+      guard KagemushaQRProbeManifest.accepts(action, names: names) else { throw EnrollmentProbeFailure.input }
+      return
+    }
     guard schemas[action]?.contains(names) == true else { throw EnrollmentProbeFailure.input }
   }
   static func maximum(_ name: String) throws -> Int {

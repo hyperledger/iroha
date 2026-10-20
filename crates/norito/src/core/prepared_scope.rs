@@ -141,6 +141,8 @@ impl PreparedDecodeWorkspace {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod value_tests;
 
 /// Original byte error, original destination refusal, or prepared scope invariant.
 #[derive(Debug, thiserror::Error)]
@@ -149,7 +151,7 @@ pub enum PreparedDecodeError<E> {
     #[error(transparent)]
     Codec(DecodeAttemptError),
     /// The exact prepared destination refusal; this is never malformed input.
-    #[error("prepared record destination refused: {0}")]
+    #[error("prepared destination refused: {0}")]
     Destination(#[source] E),
     /// Original prepared scope/control failure, without protocol meaning.
     #[error(transparent)]
@@ -232,6 +234,54 @@ impl PreparedDecodeWorkspace {
         )
     }
 
+    /// Materialize a canonical value with its sole generated field traversal.
+    ///
+    /// This entry uses the same header, flags, depth, quota and comparison kernel
+    /// as [`Self::decode_canonical_into`]. It returns the actual value only after
+    /// its complete canonical frame matches the original bytes. If final
+    /// consumption or streaming comparison fails, the exact value is restored
+    /// into its original destination before validity is reset. No graph clone,
+    /// owned-decoder fallback or replacement control is created.
+    ///
+    /// Consuming validation hooks retain their existing ownership contract: a
+    /// hook that consumes and rejects a value cannot restore it. Concrete graph
+    /// producers must audit that path as well as their field/default allocations.
+    ///
+    /// # Errors
+    /// Preserves original codec, enclosing resource, destination and scope
+    /// causes. Reset must retain storage; it cannot replenish inherited work.
+    pub fn decode_canonical_value_into<T, D>(
+        &mut self,
+        bytes: &[u8],
+        limits: DecodeLimits,
+        destination: &mut D,
+    ) -> Result<T, PreparedDecodeError<D::Error>>
+    where
+        T: NoritoSerialize + DecodeValueFields<D>,
+        D: PreparedValueDestination<T>,
+    {
+        destination.reset();
+        let result = self.decode_canonical_with_root::<T, _, _>(
+            bytes,
+            limits,
+            PreparedRecordRoot::CanonicalField,
+            |payload| {
+                let (value, used) = T::decode_value_fields(payload, destination)?;
+                let checked = validate_decode_consumption(payload, used)
+                    .and_then(|()| compare_prepared_frame::<T, T>(bytes, &value));
+                if let Err(error) = checked {
+                    destination.restore_value(value);
+                    return Err(DecodeIntoError::Codec(error));
+                }
+                Ok(value)
+            },
+        );
+        if result.is_err() {
+            destination.reset();
+        }
+        result
+    }
+
     fn decode_canonical_into_with_root<T, D>(
         &mut self,
         bytes: &[u8],
@@ -244,7 +294,29 @@ impl PreparedDecodeWorkspace {
         D: PreparedRecordDestination<T>,
     {
         destination.reset();
-        let result = decode_attempt::observe(|| {
+        let result = self.decode_canonical_with_root::<T, _, _>(bytes, limits, root, |payload| {
+            let (_, used) = T::decode_fields(payload, destination)?;
+            validate_decode_consumption(payload, used)?;
+            compare_prepared_frame::<T, D>(bytes, destination)?;
+            Ok(())
+        });
+        if result.is_err() {
+            destination.reset();
+        }
+        result
+    }
+
+    fn decode_canonical_with_root<T, R, E>(
+        &mut self,
+        bytes: &[u8],
+        limits: DecodeLimits,
+        root: PreparedRecordRoot,
+        decode: impl FnOnce(&[u8]) -> Result<R, DecodeIntoError<E>>,
+    ) -> Result<R, PreparedDecodeError<E>>
+    where
+        T: NoritoSerialize,
+    {
+        decode_attempt::observe(|| {
             let header = crate::checked_canonical_header(bytes)
                 .map_err(|error| PreparedDecodeError::Codec(decode_attempt::capture(error)))?;
             // ArchiveView authenticates its complete frame and type before entering
@@ -306,22 +378,7 @@ impl PreparedDecodeWorkspace {
                         PreparedRecordRoot::CanonicalField => FieldDecodeBoundary::Canonical,
                         PreparedRecordRoot::ArchiveView => FieldDecodeBoundary::Prefix,
                     });
-                    let (_, used) = T::decode_fields(payload, destination)?;
-                    validate_decode_consumption(payload, used)?;
-                    let mut exact = ExactSliceWriter::new(bytes);
-                    let encoded = encode_frames::write_typed_payload_frame::<T, D, _>(
-                        destination,
-                        &mut exact,
-                        default_encode_flags(),
-                    );
-                    if exact.mismatched() {
-                        return Err(DecodeIntoError::Codec(Error::NonCanonicalEncoding));
-                    }
-                    encoded?;
-                    if !exact.is_complete() {
-                        return Err(DecodeIntoError::Codec(Error::NonCanonicalEncoding));
-                    }
-                    Ok(())
+                    decode(payload)
                 },
             );
             match attempt {
@@ -341,12 +398,29 @@ impl PreparedDecodeWorkspace {
                     };
                     Err(PreparedDecodeError::Codec(decode_attempt::capture(error)))
                 }
-                Ok(Ok(())) => Ok(()),
+                Ok(Ok(value)) => Ok(value),
             }
-        });
-        if result.is_err() {
-            destination.reset();
-        }
-        result
+        })
     }
+}
+
+/// Compare through the existing typed writer, with no alternate frame layout.
+fn compare_prepared_frame<T: NoritoSerialize, D: SerializePayload>(
+    bytes: &[u8],
+    value: &D,
+) -> Result<(), Error> {
+    let mut exact = ExactSliceWriter::new(bytes);
+    let encoded = encode_frames::write_typed_payload_frame::<T, D, _>(
+        value,
+        &mut exact,
+        default_encode_flags(),
+    );
+    if exact.mismatched() {
+        return Err(Error::NonCanonicalEncoding);
+    }
+    encoded?;
+    if !exact.is_complete() {
+        return Err(Error::NonCanonicalEncoding);
+    }
+    Ok(())
 }

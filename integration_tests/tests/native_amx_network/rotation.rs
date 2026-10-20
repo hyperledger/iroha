@@ -264,12 +264,8 @@ fn original_epoch_zero_commit_releases_paid_escrow_after_real_four_seven_four_ro
         "requires three network permits and --test-threads=1"
     );
     init_instruction_registry();
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
-    let global = global_root()?;
-    let setup = prepare_rotation_exchange(global, runtime)?;
-    recover_original_decision_after_rotation(setup)
+    let mut setup = prepare_rotation_exchange()?;
+    recover_original_decision_after_rotation(&mut setup)
 }
 
 // Retain only the durable owners between phases. The original test held its
@@ -283,14 +279,16 @@ struct RotationSetup {
     workload: rotation_payments::CustomerWorkload,
 }
 
-// Both child roots finish ordinary genesis execution before the rotation proof
-// phase acquires its larger stack frame. This is a lifetime boundary, not a
-// different execution path or an increased thread stack.
+// Keep durable setup owners behind one box in the test wrapper. Preparation
+// returns before recovery acquires its proof temporaries; the recovery phase
+// borrows this same setup without moving the large Exchange through the wrapper.
+// TODO: Qualify this phase boundary with the complete default-stack network test.
 #[inline(never)]
-fn prepare_rotation_exchange(
-    global: amx::Root,
-    runtime: tokio::runtime::Runtime,
-) -> Result<RotationSetup> {
+fn prepare_rotation_exchange() -> Result<Box<RotationSetup>> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let global = global_root()?;
     let customer_journal = global.network.env_dir().join("rotation-customer-workflows");
     let workload = rotation_payments::CustomerWorkload::new(
         global.pins.clone(),
@@ -344,14 +342,14 @@ fn prepare_rotation_exchange(
         ],
         43_200_000,
     )?;
-    Ok(RotationSetup {
+    Ok(Box::new(RotationSetup {
         exchange,
         dkg,
         catalogs,
         admin,
         operators,
         workload,
-    })
+    }))
 }
 
 // Only the original obligation owners cross phases. The old certified decision is
@@ -380,10 +378,10 @@ struct RetainedRotationCustody {
 // Keep only durable owners on this orchestration frame. Each completed ceremony
 // and proof acquisition frame returns before the next phase is entered.
 #[inline(never)]
-fn recover_original_decision_after_rotation(mut setup: RotationSetup) -> Result<()> {
+fn recover_original_decision_after_rotation(setup: &mut RotationSetup) -> Result<()> {
     let pending = freeze_original_rotation_payment(&mut setup.exchange)?;
-    let first = perform_first_rotation_handoff(&setup, &pending)?;
-    let _custody = perform_second_rotation_handoff(&setup, &pending, first)?;
+    let first = perform_first_rotation_handoff(setup, &pending)?;
+    let _custody = perform_second_rotation_handoff(setup, &pending, first)?;
     let final_heights = release_original_rotation_payment(&mut setup.exchange, &pending)?;
     verify_final_rotation_effects(&setup.exchange, &setup.workload, final_heights)
 }

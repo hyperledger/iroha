@@ -114,15 +114,72 @@ fn terminal_image_reuse_keeps_fresh_reads_and_inventory_order_with_fewer_actual_
             .0
     );
 
-    // The mutable head remains on the original decoder, even when every byte matches.
+    // The final signed mutable head has no dispatch or attempt yet: its empty typed
+    // components need no decoder. Its two fresh metadata envelopes still use the full
+    // original decoder, even when every native byte matches the owned in-memory image.
     let head = history.current_history().unwrap();
+    assert!(head.last().is_none());
     let run_head = |original| {
         recipe(original, || {
-            History::test_operation_records(|| outcome(head.test_local_census(&snapshot)))
+            let capture = finish_timing::Capture::start();
+            let measured = native_work(|| {
+                History::test_operation_records(|| outcome(head.test_local_census(&snapshot)))
+            });
+            (measured, capture.finish())
         })
     };
-    assert_eq!(run_head(true), run_head(false));
-    assert!(run_head(false).1[1] > 0);
+    let (old_head, old_timing) = run_head(true);
+    let (new_head, new_timing) = run_head(false);
+    assert_eq!(old_head, new_head);
+    assert_eq!(new_head.0.0, Ok(()));
+    assert_eq!(
+        new_head.0.1[1], 0,
+        "the pristine head has no typed child record"
+    );
+    assert!(
+        new_head.0.1[0] >= 2,
+        "both metadata images are freshly read"
+    );
+    for timing in [&old_timing, &new_timing] {
+        assert_eq!(
+            timing
+                .sample(finish_timing::Phase::MetadataEnvelopeDecode)
+                .0,
+            2
+        );
+    }
+
+    // The envelope borrows geometry and this pristine head has no typed child frames.
+    // An inherited allocation budget therefore charges zero and succeeds even at zero;
+    // the actual full envelope decoder still runs at both original read positions.
+    let bounded_head = |original, allocation| {
+        recipe(original, || {
+            let capture = finish_timing::Capture::start();
+            let measured = norito::core::with_decode_limits_measured(limits(allocation), || {
+                native_work(|| {
+                    History::test_operation_records(|| outcome(head.test_local_census(&snapshot)))
+                })
+            });
+            (
+                measured,
+                capture
+                    .finish()
+                    .sample(finish_timing::Phase::MetadataEnvelopeDecode)
+                    .0,
+            )
+        })
+    };
+    for allocation in [0, 1, usize::MAX] {
+        let (old, old_envelopes) = bounded_head(true, allocation);
+        let (new, new_envelopes) = bounded_head(false, allocation);
+        assert_eq!(old, new);
+        let (((result, records), _native), usage) = new;
+        assert_eq!(result, Ok(()));
+        assert_eq!(records[1], 0);
+        assert!(records[0] >= 2);
+        assert_eq!(usage.total_allocated_bytes(), 0);
+        assert_eq!((old_envelopes, new_envelopes), (2, 2));
+    }
 }
 
 #[test]

@@ -105,12 +105,31 @@ fn graph_root_scope_keeps_all_material_and_collapses_only_same_owner_brackets() 
                 })
             })
         };
+        let capture = finish_timing::Capture::start();
         let ((((old, old_visits), old_records), old_snapshots), old_counts) = read(true);
+        let old_envelopes = capture
+            .finish()
+            .sample(finish_timing::Phase::MetadataEnvelopeDecode)
+            .0;
+        let capture = finish_timing::Capture::start();
         let ((((new, new_visits), new_records), new_snapshots), new_counts) = read(false);
+        let new_envelopes = capture
+            .finish()
+            .sample(finish_timing::Phase::MetadataEnvelopeDecode)
+            .0;
         old.unwrap();
         new.unwrap();
         assert_eq!(old_records, new_records);
-        assert!(new_records[0] > 0 && new_records[1] > 0);
+        assert!(new_records[0] > 0);
+        // Both graphs decode their Owned head's entry/exit envelope in both directions.
+        // Only the freshly parsed, populated predecessor has typed dispatch/attempt children;
+        // the three-body graph's current head is pristine and its predecessors are Retained.
+        assert_eq!((old_envelopes, new_envelopes), (4, 4));
+        if bodies == 3 {
+            assert_eq!(new_records[1], 0);
+        } else {
+            assert!(new_records[1] > 0);
+        }
         assert_eq!(old_snapshots, new_snapshots);
         assert_eq!(new_snapshots, (6 + 8 * bodies, 4 + 2 * bodies));
         assert_eq!(

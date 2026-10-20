@@ -56,7 +56,8 @@ use budget_scope::CounterOwner;
 pub use field_destination::{
     CanonicalField, DecodeField, DecodeIntoError, DecodeRecordFields, DecodeValueDestination,
     DecodeValueFields, DecodeVariantField, EnumFieldDestination, FieldDestination, OwnedFields,
-    PreparedRecordDestination, framed_byte_array_field, framed_field, with_context_fields,
+    PreparedRecordDestination, PreparedValueDestination, framed_byte_array_field, framed_field,
+    with_context_fields,
 };
 pub use prepared_scope::{PreparedDecodeError, PreparedDecodeScopeError, PreparedDecodeWorkspace};
 pub use prepared_sequence::{

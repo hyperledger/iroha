@@ -15,20 +15,21 @@ both and asserts `frame = wire - 1 + 40 + padding`; it never silently treats the
 lengths as equal. The fixed resultless block payload cap is 16,777,216 bytes, with
 65,536 bytes reserved by global selection, leaving 16,711,680 bytes for selection.
 
-The fixture creates a genuine single-movement `SettleAtomic` with one signed
-`reconciliation_text` metadata value. The existing intent schema permits this text,
-binds every byte into its signature and intent hash, and carries it in the verified
-settlement receipt. A probe uses `target - 8192` text bytes, measures the actual signed
-frame, adds the exact remaining difference, and asserts the result is exactly the
-fixed cap. The fixture requires absent nonces for stable signing geometry, and checks
+The fixture creates a genuine single-movement `SettleAtomic` with ordered signed
+`reconciliation_text_00`, `reconciliation_text_01`, … metadata values. Each JSON value
+stays within the existing 1 MiB limit, including its string quotes. The intent schema
+binds every entry into the signature and intent hash and carries the entries in the
+verified settlement receipt. A probe uses `target - 8192` total text bytes, measures
+the actual signed frame, adds the exact remaining difference without changing the
+number of chunks, and asserts that the result is exactly the fixed cap. The fixture requires absent nonces for stable signing geometry, and checks
 the exact signed extent again on every certified and cold-stored carrier. Another
 complete signed request is exactly one framed byte larger. No proof is padded, no alternate serializer is installed, and no allowance is raised
 for measurement or execution. The numeric signed-frame cap stays independently pinned.
 
 ## Required observations
 
-The existing four-validator paid-payment fixture supplies its signed genesis, native
-fee configuration and account funds. Its existing local disk custody allowance is
+The existing four-validator paid-payment fixture supplies its signed genesis with
+the committed `root_fees_v1` policy and account funds. Its existing local disk custody allowance is
 1 GiB; this is inherited unchanged, not the unspecified default host budget. The
 added test changes only the logger to JSON for the existing signed-RS16 process
 observation parser. The ordinary case retains its original
@@ -55,10 +56,11 @@ input, checks the actual fee schedule (base one, all variable rates zero, one na
 instruction), and requires the original success or exact principal-insufficiency error.
 The expectation is independent of balance differences.
 
-The inherited Global fixture currently authors these fee rates in node-local Nexus
-configuration. It does not establish committed fee-policy authority or close F.4.
-The independent committed Global/Dataspace fee migration must adapt this fixture to
-the real policy owner while retaining the exact one-unit charges and receipt checks.
+The inherited Global fixture authors these rates through a `SetParameter` instruction
+for `root_fees_v1` in signed genesis. Ordinary paid execution uses the committed root
+fee policy; the source-bound receipt assertions retain the exact one-unit charges.
+This fixture alone does not qualify policy updates, independent data space fees, or
+the remaining F.4 validity-policy work.
 
 Each peer supplies a genesis-rooted finality proof for both original carriers. The test
 requires one exact input per block, the exact signed-frame size, bounded actual

@@ -356,8 +356,17 @@ pub(super) fn native_carrier_fee(
         "one original immutable private fee policy required"
     );
     let policy = &policies[0];
-    policy.validate()?;
-    ensure!(policy.asset_definition_id == amx::fee_asset() && policy.per_byte_fee.is_zero());
+    let scope = &selected.metadata().sumeragi_context.root_scope;
+    ensure!(
+        *scope == root.scope
+            && matches!(
+                scope,
+                iroha_data_model::block::consensus::SumeragiRootScope::Dataspace { .. }
+            ),
+        "original private fee policy must belong to the pinned bank root"
+    );
+    policy.validate_for_scope(scope)?;
+    ensure!(policy.fee_asset_id == amx::fee_asset() && policy.per_byte_fee.is_zero());
     let Executable::Instructions(instructions) = carrier.instructions() else {
         return Err(eyre!("original AMX instructions absent"));
     };
@@ -372,7 +381,7 @@ pub(super) fn native_carrier_fee(
     let gas = iroha_core::gas::meter_instructions(
         instructions.as_ref(),
         &iroha_core::gas::DEFAULT_ZK_GAS,
-    );
+    )?;
     let instruction_charge =
         policy
             .per_instruction_fee

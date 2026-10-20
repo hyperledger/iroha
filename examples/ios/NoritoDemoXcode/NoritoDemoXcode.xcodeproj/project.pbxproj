@@ -31,6 +31,15 @@
 		BF0250000000000000000211 /* IrohaSwiftMobileTransports in Frameworks */ = {isa = PBXBuildFile; productRef = BF0250000000000000000210 /* IrohaSwiftMobileTransports */; };
 		BF0250000000000000000213 /* KagemushaEnrollmentProbeStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0250000000000000000212 /* KagemushaEnrollmentProbeStage.swift */; };
 		BF0250000000000000000215 /* KagemushaEnrollmentProbeStageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0250000000000000000214 /* KagemushaEnrollmentProbeStageTests.swift */; };
+		BF0260000000000000000301 /* KagemushaQRRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0260000000000000000300 /* KagemushaQRRenderer.swift */; };
+		BF0260000000000000000303 /* KagemushaQRRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0260000000000000000302 /* KagemushaQRRendererTests.swift */; };
+		BF0260000000000000000305 /* KagemushaQRPlatform.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0260000000000000000304 /* KagemushaQRPlatform.swift */; };
+		BF0260000000000000000307 /* KagemushaQRAttemptGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0260000000000000000306 /* KagemushaQRAttemptGate.swift */; };
+		BF0260000000000000000309 /* KagemushaQRAttemptGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0260000000000000000308 /* KagemushaQRAttemptGateTests.swift */; };
+		BF026000000000000000030B /* KagemushaQRDiagnostic.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF026000000000000000030A /* KagemushaQRDiagnostic.swift */; };
+		BF026000000000000000030D /* KagemushaQRDeviceStages.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF026000000000000000030C /* KagemushaQRDeviceStages.swift */; };
+		BF0260000000000000000321 /* KagemushaQRProbeManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0260000000000000000320 /* KagemushaQRProbeManifest.swift */; };
+		BF0260000000000000000323 /* KagemushaQRProbeManifestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0260000000000000000322 /* KagemushaQRProbeManifestTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -60,6 +69,15 @@
 		BF0250000000000000000208 /* KagemushaNearbyAttemptGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaNearbyAttemptGateTests.swift; sourceTree = "<group>"; };
 		BF0250000000000000000212 /* KagemushaEnrollmentProbeStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaEnrollmentProbeStage.swift; sourceTree = "<group>"; };
 		BF0250000000000000000214 /* KagemushaEnrollmentProbeStageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaEnrollmentProbeStageTests.swift; sourceTree = "<group>"; };
+		BF0260000000000000000300 /* KagemushaQRRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaQRRenderer.swift; sourceTree = "<group>"; };
+		BF0260000000000000000302 /* KagemushaQRRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaQRRendererTests.swift; sourceTree = "<group>"; };
+		BF0260000000000000000304 /* KagemushaQRPlatform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaQRPlatform.swift; sourceTree = "<group>"; };
+		BF0260000000000000000306 /* KagemushaQRAttemptGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaQRAttemptGate.swift; sourceTree = "<group>"; };
+		BF0260000000000000000308 /* KagemushaQRAttemptGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaQRAttemptGateTests.swift; sourceTree = "<group>"; };
+		BF026000000000000000030A /* KagemushaQRDiagnostic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaQRDiagnostic.swift; sourceTree = "<group>"; };
+		BF026000000000000000030C /* KagemushaQRDeviceStages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaQRDeviceStages.swift; sourceTree = "<group>"; };
+		BF0260000000000000000320 /* KagemushaQRProbeManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaQRProbeManifest.swift; sourceTree = "<group>"; };
+		BF0260000000000000000322 /* KagemushaQRProbeManifestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KagemushaQRProbeManifestTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -89,6 +107,15 @@
 			3F1C3AC62C7F4F7A00C1C001 /* AccelerationConfigLoaderTests.swift */,
 			BF0250000000000000000001 /* NativePrivacyPhysicalDeviceTests.swift */,
 			BF0250000000000000000003 /* KagemushaStoragePhysicalDeviceTests.swift */,
+			BF0260000000000000000300 /* KagemushaQRRenderer.swift */,
+			BF0260000000000000000302 /* KagemushaQRRendererTests.swift */,
+			BF0260000000000000000304 /* KagemushaQRPlatform.swift */,
+			BF0260000000000000000306 /* KagemushaQRAttemptGate.swift */,
+			BF0260000000000000000308 /* KagemushaQRAttemptGateTests.swift */,
+			BF026000000000000000030A /* KagemushaQRDiagnostic.swift */,
+			BF026000000000000000030C /* KagemushaQRDeviceStages.swift */,
+			BF0260000000000000000320 /* KagemushaQRProbeManifest.swift */,
+			BF0260000000000000000322 /* KagemushaQRProbeManifestTests.swift */,
 			BF0250000000000000000200 /* KagemushaNearbyAttemptGate.swift */,
 			BF0250000000000000000202 /* KagemushaNearbyPrompt.swift */,
 			BF0250000000000000000204 /* KagemushaNearbyDiagnostic.swift */,
@@ -146,6 +173,15 @@
 			3F1C3AC72C7F4F7A00C1C001 /* AccelerationConfigLoaderTests.swift in Sources */,
 			BF0250000000000000000002 /* NativePrivacyPhysicalDeviceTests.swift in Sources */,
 			BF0250000000000000000004 /* KagemushaStoragePhysicalDeviceTests.swift in Sources */,
+			BF0260000000000000000301 /* KagemushaQRRenderer.swift in Sources */,
+			BF0260000000000000000303 /* KagemushaQRRendererTests.swift in Sources */,
+			BF0260000000000000000305 /* KagemushaQRPlatform.swift in Sources */,
+			BF0260000000000000000307 /* KagemushaQRAttemptGate.swift in Sources */,
+			BF0260000000000000000309 /* KagemushaQRAttemptGateTests.swift in Sources */,
+			BF026000000000000000030B /* KagemushaQRDiagnostic.swift in Sources */,
+			BF026000000000000000030D /* KagemushaQRDeviceStages.swift in Sources */,
+			BF0260000000000000000321 /* KagemushaQRProbeManifest.swift in Sources */,
+			BF0260000000000000000323 /* KagemushaQRProbeManifestTests.swift in Sources */,
 			BF0250000000000000000201 /* KagemushaNearbyAttemptGate.swift in Sources */,
 			BF0250000000000000000203 /* KagemushaNearbyPrompt.swift in Sources */,
 			BF0250000000000000000205 /* KagemushaNearbyDiagnostic.swift in Sources */,

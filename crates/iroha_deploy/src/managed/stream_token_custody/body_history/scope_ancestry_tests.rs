@@ -113,14 +113,24 @@ fn graph_scope_ancestry_keeps_combined_census_order_and_inherited_admission() {
             })
         })
     };
+    let capture = finish_timing::Capture::start();
     let (
         (((((old, old_visits), old_records), old_snapshot), old_leaves), old_originals),
         old_scope,
     ) = read(true);
+    let old_envelopes = capture
+        .finish()
+        .sample(finish_timing::Phase::MetadataEnvelopeDecode)
+        .0;
+    let capture = finish_timing::Capture::start();
     let (
         (((((new, new_visits), new_records), new_snapshot), new_leaves), new_originals),
         new_scope,
     ) = read(false);
+    let new_envelopes = capture
+        .finish()
+        .sample(finish_timing::Phase::MetadataEnvelopeDecode)
+        .0;
     old.unwrap();
     new.unwrap();
     assert_eq!(
@@ -137,7 +147,11 @@ fn graph_scope_ancestry_keeps_combined_census_order_and_inherited_admission() {
     expected.extend([Point::Full, Point::Inventory]);
     assert_eq!(new_scope.points, expected);
     assert_eq!(old_records, new_records);
-    assert!(new_records[0] > 0 && new_records[1] > 0);
+    assert!(new_records[0] > 0);
+    // Scope ancestry grouping preserves image ownership: terminal predecessors reuse typed
+    // children, while the pristine Owned head still decodes both envelopes per direction.
+    assert_eq!(new_records[1], 0);
+    assert_eq!((old_envelopes, new_envelopes), (4, 4));
     assert_eq!(old_snapshot, new_snapshot);
     assert_eq!(new_snapshot, (30, 10));
     assert_eq!(old_originals, new_originals);

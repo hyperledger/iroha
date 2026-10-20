@@ -160,7 +160,7 @@ pub fn compact_bootstrap_load_send_catalog_rebinds_every_proof_and_key(fixture: 
     assert_eq!(send.source.maps.witness.after.core, send.source.state.core);
     assert_eq!(send.source.context.stage_count(), 3);
     assert_eq!(send.source.predecessor_omega.len(), 5312);
-    assert_eq!(send.source.sigma.len(), 3296);
+    assert_eq!(send.source.sigma.len(), 3360);
 }
 
 /// Run the retained composition assertions with genuine native Load originals.

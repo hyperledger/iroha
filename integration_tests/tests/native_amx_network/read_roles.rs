@@ -115,6 +115,13 @@ fn verify_preserved_debit(
 #[ignore = "12 validators across 3 roots; set IROHA_TEST_NETWORK_PARALLELISM=3 and use isolated permits with --test-threads=1"]
 fn native_bank_read_role_revocation_preserves_debit_after_restart() -> Result<()> {
     let exchange = Exchange::start()?;
+    run_read_role_revocation(&exchange)
+}
+
+// Post-start proof and response futures must not occupy the ordinary stack
+// while independent bank genesis authenticates its parent registration source.
+#[inline(never)]
+fn run_read_role_revocation(exchange: &Exchange) -> Result<()> {
     let (_, approvals) = exchange.intent(300, 0xA3)?;
     let mut approved = Vec::new();
     for bank in 0..2 {
