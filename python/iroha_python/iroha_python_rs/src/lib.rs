@@ -12670,6 +12670,58 @@ fn verify_committed_transaction_inclusion_py(
         expected_chain_discriminant,
     )
 }
+/// Project the original route only after the caller authenticates the complete block.
+///
+/// The selected output's input index owns the route. Hash search would silently
+/// accept a reordered bundle or another occurrence of the same entrypoint.
+fn project_selected_execution_context(
+    block: &iroha_data_model::block::SignedBlock,
+    committed: &CommittedTransaction,
+) -> PyResult<json::Value> {
+    use iroha_data_model::block::execution_output::ExecutionOutputV1;
+    let ExecutionOutputV1::Network(output) = &committed.output else {
+        return Err(PyValueError::new_err(
+            "verified route requires a Network output",
+        ));
+    };
+    let bundle = block.execution_context().ok_or_else(|| {
+        PyValueError::new_err("authenticated block is missing its execution context")
+    })?;
+    if !bundle.has_current_version() || bundle.external.len() != block.network_entrypoint_count() {
+        return Err(PyValueError::new_err(
+            "authenticated execution context has an obsolete version or wrong cardinality",
+        ));
+    }
+    for (route, entrypoint) in bundle.external.iter().zip(block.network_entrypoints()) {
+        if route.entrypoint_hash != entrypoint.hash() {
+            return Err(PyValueError::new_err(
+                "authenticated execution context is not aligned with its network inputs",
+            ));
+        }
+    }
+    let index = usize::try_from(output.input_index)
+        .map_err(|_| PyValueError::new_err("verified route input index overflow"))?;
+    let route = bundle.external.get(index).ok_or_else(|| {
+        PyValueError::new_err("verified route input index is outside the original block")
+    })?;
+    if route.entrypoint_hash != committed.entrypoint_hash {
+        return Err(PyValueError::new_err(
+            "verified route belongs to a different selected transaction",
+        ));
+    }
+    let mut projected = json::Map::new();
+    projected.insert("bundle_version".into(), json::Value::from(bundle.version));
+    projected.insert("input_index".into(), json::Value::from(output.input_index));
+    projected.insert(
+        "route".into(),
+        json::to_value(route).map_err(|error| {
+            PyValueError::new_err(format!(
+                "failed to serialize verified execution route: {error}"
+            ))
+        })?,
+    );
+    Ok(json::Value::Object(projected))
+}
 fn project_authenticated_committed_transaction(
     py: Python<'_>,
     committed: CommittedTransaction,
@@ -12680,6 +12732,7 @@ fn project_authenticated_committed_transaction(
     let _guard = ChainDiscriminantGuard::enter(expected_chain_discriminant);
     let tip = page.tip();
     let execution_commitment = tip.execution();
+    let execution_context = project_selected_execution_context(tip.block(), &committed)?;
     let entrypoint_kind = match &committed.entrypoint {
         TransactionEntrypoint::External(_) => "External",
         TransactionEntrypoint::SealedCommitment(_) => "SealedCommitment",
@@ -12878,6 +12931,7 @@ fn project_authenticated_committed_transaction(
         "entrypoint_kind".into(),
         norito::json::Value::String(entrypoint_kind.to_owned()),
     );
+    result.insert("execution_context".into(), execution_context);
     result.insert("authority".into(), authority);
     result.insert(
         "signer_public_key_hex".into(),

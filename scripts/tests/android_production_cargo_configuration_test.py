@@ -112,6 +112,23 @@ class AndroidProductionCargoConfigurationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Android root Cargo.lock changed", result.stderr)
 
+    def test_demo_root_lock_drift_preserves_actual_child_exit_and_closed_environment(self):
+        log = self.base / "demo-source.jsonl"
+        for exit_code in (0, 7):
+            with self.subTest(exit_code=exit_code):
+                self.fake_cargo(
+                    "pathlib.Path(" + repr(str(self.root / "Cargo.lock"))
+                    + ").write_text('changed source " + str(exit_code) + "'); "
+                    + "raise SystemExit(" + str(exit_code) + ")"
+                )
+                with mock.patch.dict(os.environ, MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG=str(log)):
+                    result = self.launch()
+                self.assertEqual(result.returncode, exit_code, result.stderr)
+                self.assertIn("WARNING: Android root Cargo.lock", result.stderr)
+        observations = [json.loads(line) for line in log.read_text().splitlines()]
+        self.assertEqual(len(observations), 2)
+        self.assertTrue(all(row["selected"] != row["observed"] for row in observations))
+
     def test_production_lock_jobs_and_override_refusals_are_unchanged(self):
         variants = [self.arguments + ["--config", "build.jobs=6"],
                     self.arguments + ["--lockfile-path", str(self.cwd / "Cargo.lock")],

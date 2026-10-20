@@ -15,7 +15,7 @@ from iroha_torii_client.errors import ToriiUnavailableError
 
 from generic_transfer_escrow_contract_test import (
     FakeSession, NETWORK_ID, PURE_PACKAGE, ToriiClient,
-    VerifiedCommittedTransaction, _norito_response, client_module,
+    VerifiedCommittedTransaction, _norito_response, client_module, _route_projection,
 )
 
 
@@ -38,6 +38,7 @@ def _batch_projection():
         "network_id": "native-network-label", "context_id": "native-context-label",
         "promoted_checkpoint": b"unit-projection-checkpoint",
         "execution_commitment": {"executed_block_wire_len": 123},
+        "execution_context": _route_projection(),
         "executed_block_wire_hash": "57" * 32, "executed_block_wire_len": 123,
         "entrypoint_kind": "External", "authority": "sender",
         "signer_public_key_hex": "44" * 32, "metadata": {},
@@ -132,3 +133,66 @@ def test_verified_committed_query_does_not_replay_nonce_under_post_retry_policy(
         assert verifications == []
     finally:
         client.close()
+
+
+def test_original_route_preserves_all_legs_without_inferring_lane_zero():
+    payload = _batch_projection()
+    result = VerifiedCommittedTransaction.from_payload(payload)
+    route = result.execution_context["route"]
+    assert result.execution_context == payload["execution_context"]
+    assert result.execution_context["input_index"] == 1
+    assert route["dataspace_id"] == 0
+    assert route["lane_id"] == 7
+    assert [leg["lane_id"] for leg in route["routing_plan_legs"]] == [7, 9]
+    payload["execution_context"]["route"]["routing_plan_legs"][0]["role"]["role"] = "participant"
+    assert route["routing_plan_legs"][0]["role"]["role"] == "coordinator"
+
+
+@pytest.mark.parametrize("path,value", [
+    (("bundle_version",), True), (("bundle_version",), 0), (("bundle_version",), 2),
+    (("input_index",), True), (("input_index",), -1), (("input_index",), 2 ** 32),
+    (("route", "entrypoint_hash"), None),
+    (("route", "entrypoint_hash"), _route_projection("33" * 32)["route"]["entrypoint_hash"]),
+    (("route", "routing_plan_digest"), None),
+    (("route", "routing_plan_digest"), "57" * 32),
+    (("route", "lane_id"), True), (("route", "lane_id"), 2 ** 32),
+    (("route", "dataspace_id"), -1), (("route", "dataspace_id"), 2 ** 64),
+    (("route", "routing_plan_legs"), ()),
+    (("route", "routing_plan_legs", 1, "lane_id"), -1),
+    (("route", "routing_plan_legs", 1, "dataspace_id"), False),
+    (("route", "routing_plan_legs", 1, "role", "role"), "unknown"),
+    (("route", "routing_plan_legs", 1, "role", "detail"), {}),
+])
+def test_original_route_refuses_wrong_types_versions_hashes_and_roles(path, value):
+    payload = _batch_projection()
+    cursor = payload["execution_context"]
+    for part in path[:-1]:
+        cursor = cursor[part]
+    cursor[path[-1]] = value
+    with pytest.raises((TypeError, ValueError)):
+        VerifiedCommittedTransaction.from_payload(payload)
+
+
+def test_original_route_refuses_missing_and_extra_fields_at_every_level():
+    for path in (
+        (), ("route",), ("route", "routing_plan_legs", 0),
+        ("route", "routing_plan_legs", 0, "role"),
+    ):
+        baseline = _batch_projection()["execution_context"]
+        for part in path:
+            baseline = baseline[part]
+        for field in (*baseline, "extra"):
+            payload = _batch_projection()
+            cursor = payload["execution_context"]
+            for part in path:
+                cursor = cursor[part]
+            if field == "extra":
+                cursor[field] = None
+            else:
+                del cursor[field]
+            with pytest.raises((TypeError, ValueError)):
+                VerifiedCommittedTransaction.from_payload(payload)
+    payload = _batch_projection()
+    del payload["execution_context"]
+    with pytest.raises(ValueError):
+        VerifiedCommittedTransaction.from_payload(payload)

@@ -16,25 +16,27 @@ def _add_path(path: Path) -> None:
 
 
 _ROOT = Path(__file__).resolve().parents[2]
-_add_path(_ROOT)
-_add_path(_ROOT / "norito_py" / "src")
-_add_path(_ROOT / "iroha_torii_client")
-_add_path(_ROOT / "iroha_python" / "tests")
+# Test helpers are not SDK packages. Source package paths belong only to
+# source mode; installed mode must admit every maintained SDK wheel.
+_INSTALLED_OWNERS = ("iroha_python", "iroha_native", "iroha_torii_client", "norito")
 
 _INSTALLED_PACKAGE_MODE = os.environ.get("IROHA_PYTHON_TEST_INSTALLED_PACKAGE")
 if _INSTALLED_PACKAGE_MODE not in {None, "1"}:
     raise RuntimeError("IROHA_PYTHON_TEST_INSTALLED_PACKAGE must be unset or 1")
 
 if _INSTALLED_PACKAGE_MODE == "1":
+    _add_path(_ROOT / "iroha_python" / "tests")
     for module_name in sorted(name for name in tuple(sys.modules) if type(name) is str):
         if type(module_name) is str and any(
             module_name == owner or module_name.startswith(owner + ".")
-            for owner in ("iroha_python", "iroha_native")
+            for owner in _INSTALLED_OWNERS
         ):
             raise RuntimeError(
                 f"installed-package tests reject pre-seeded module {module_name}"
             )
 
+    if sys.prefix == sys.base_prefix:
+        raise RuntimeError("installed-package tests require a private virtual environment")
     environment_root = Path(sys.prefix).resolve(strict=True)
     site_package_roots = {
         Path(path).resolve(strict=True)
@@ -82,8 +84,9 @@ if _INSTALLED_PACKAGE_MODE == "1":
             raise RuntimeError(f"{name} source loader must match its trusted origin")
         return spec, origin
 
-    package_spec, package_origin = _package_spec("iroha_python")
-    owner_spec, owner_origin = _package_spec("iroha_native")
+    installed_specs = {name: _package_spec(name) for name in _INSTALLED_OWNERS}
+    package_spec, package_origin = installed_specs["iroha_python"]
+    owner_spec, owner_origin = installed_specs["iroha_native"]
     native_spec = importlib.machinery.PathFinder.find_spec(
         "iroha_native._crypto", [str(owner_origin.parent)]
     )
@@ -101,6 +104,13 @@ if _INSTALLED_PACKAGE_MODE == "1":
     sys.modules["iroha_native"] = owner
     owner_spec.loader.exec_module(owner)
     native = owner.load_crypto_extension()
+    dependencies = {}
+    for name in ("norito", "iroha_torii_client"):
+        spec, _ = installed_specs[name]
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+        dependencies[name] = module
     package = importlib.util.module_from_spec(package_spec)
     sys.modules["iroha_python"] = package
     package_spec.loader.exec_module(package)
@@ -123,7 +133,13 @@ if _INSTALLED_PACKAGE_MODE == "1":
     _assert_loaded(owner, "iroha_native", owner_origin, importlib.machinery.SourceFileLoader)
     _assert_loaded(package, "iroha_python", package_origin, importlib.machinery.SourceFileLoader)
     _assert_loaded(native, "iroha_native._crypto", native_origin, importlib.machinery.ExtensionFileLoader)
+    for name, module in dependencies.items():
+        _assert_loaded(module, name, installed_specs[name][1], importlib.machinery.SourceFileLoader)
 else:
+    _add_path(_ROOT)
+    _add_path(_ROOT / "norito_py" / "src")
+    _add_path(_ROOT / "iroha_torii_client")
+    _add_path(_ROOT / "iroha_python" / "tests")
     _SOURCE_ROOTS = {
         "iroha_python": _ROOT / "iroha_python" / "src" / "iroha_python",
         "iroha_native": _ROOT / "iroha_native" / "src" / "iroha_native",

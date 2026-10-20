@@ -50,6 +50,27 @@ ToriiClient = client_module.ToriiClient
 VerifiedCommittedTransaction = client_module.VerifiedCommittedTransaction
 
 
+def _route_projection(transaction_hash: str = "11" * 32):
+    """Parser fixture only: native finality and routing are exercised in Rust."""
+    def literal(body: str) -> str:
+        body = body.upper()
+        return f"hash:{body}#{client_module._contract_hash_crc16(body):04X}"
+    return {
+        "bundle_version": 1, "input_index": 1,
+        "route": {
+            "entrypoint_hash": literal(transaction_hash),
+            "lane_id": 7, "dataspace_id": 0,
+            "routing_plan_digest": literal("57" * 32),
+            "routing_plan_legs": [
+                {"lane_id": 7, "dataspace_id": 0,
+                 "role": {"role": "coordinator", "detail": None}},
+                {"lane_id": 9, "dataspace_id": 3,
+                 "role": {"role": "participant", "detail": None}},
+            ],
+        },
+    }
+
+
 class FakeNetworkId:
     def __init__(self, value: bytes) -> None:
         self._value = value
@@ -604,6 +625,7 @@ def test_verified_committed_transaction_joins_signed_query_to_required_finality_
             "context_id": "trusted-context",
             "promoted_checkpoint": b"promoted-checkpoint",
             "execution_commitment": {"executed_block_wire_len": 123},
+            "execution_context": _route_projection(transaction_hash),
             "executed_block_wire_hash": "55" * 32,
             "executed_block_wire_len": 123,
             "entrypoint_kind": "External",
@@ -684,6 +706,7 @@ def test_verified_contract_rejection_is_manifest_typed_and_fail_closed() -> None
         "context_id": "trusted-context",
             "promoted_checkpoint": b"promoted-checkpoint",
         "execution_commitment": {"executed_block_wire_len": 123},
+        "execution_context": _route_projection(),
         "executed_block_wire_hash": "55" * 32,
         "executed_block_wire_len": 123,
         "entrypoint_kind": "External",

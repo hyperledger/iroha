@@ -50,6 +50,7 @@ resolve_trusted_python312() {
     [[ -f "$candidate" && -x "$candidate" ]] || continue
     if ! canonical="$(
       env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
         HOME=/tmp \
         PATH=/usr/bin:/bin \
         TMPDIR=/tmp \
@@ -97,6 +98,7 @@ PYTHON_BINARY="$(resolve_trusted_python312)" || exit 1
 
 run_python312_clean() {
   env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
     HOME=/tmp \
     PATH=/usr/bin:/bin \
     TMPDIR=/tmp \
@@ -807,6 +809,7 @@ done
 
 run_source_seal() {
   env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
     HOME="$USER_HOME_DIR" \
     PATH="${PYTHON_BINARY%/*}:${CARGO_BINARY%/*}:${RUSTC_BINARY%/*}:${RUSTDOC_BINARY%/*}:${GIT_BINARY%/*}:/usr/bin:/bin" \
     TMPDIR="$MOBILE_TMPDIR" \
@@ -826,6 +829,7 @@ run_source_seal() {
 
 run_source_git() {
   env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
     HOME="$USER_HOME_DIR" \
     PATH="${GIT_BINARY%/*}:/usr/bin:/bin" \
     TMPDIR="$MOBILE_TMPDIR" \
@@ -839,6 +843,7 @@ run_source_git() {
 
 run_isolated_python() {
   env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
     HOME="$USER_HOME_DIR" \
     PATH="${PYTHON_BINARY%/*}:/usr/bin:/bin" \
     TMPDIR="$MOBILE_TMPDIR" \
@@ -948,8 +953,23 @@ assert_bridge_source_seal() {
   if [[ "$current_commit" != "$SOURCE_COMMIT_START" \
       || "$current_status" != "$SOURCE_STATUS_START" \
       || "$current_fingerprint" != "$SOURCE_FINGERPRINT_START" ]]; then
-    echo "[-] NoritoBridge source changed during $phase; refusing mixed-source Apple slices" >&2
-    exit 1
+    if [[ -n "${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" ]]; then
+      run_isolated_python - "$SOURCE_SEAL_SCRIPT" "$phase" "$SOURCE_COMMIT_START" "$SOURCE_FINGERPRINT_START" "$current_commit" "$current_fingerprint" <<'PY_DEMO_DRIFT'
+import importlib.util
+import sys
+spec = importlib.util.spec_from_file_location("mobile_demo_source", sys.argv[1])
+owner = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(owner)
+if not owner.record_demo_source_drift(
+    sys.argv[2], {"commit": sys.argv[3], "fingerprint": sys.argv[4]},
+    {"commit": sys.argv[5], "fingerprint": sys.argv[6]},
+):
+    raise SystemExit("demo source observation was not recorded")
+PY_DEMO_DRIFT
+    else
+      echo "[-] NoritoBridge source changed during $phase; refusing mixed-source Apple slices" >&2
+      exit 1
+    fi
   fi
   assert_selected_cargo_lock "$phase"
 }
@@ -965,6 +985,7 @@ fi
 
 sha256_file() {
   env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
     HOME="$USER_HOME_DIR" \
     PATH="${PYTHON_BINARY%/*}:/usr/bin:/bin" \
     TMPDIR="$MOBILE_TMPDIR" \
@@ -988,6 +1009,7 @@ PYTHON_VERSION="$(run_python312_clean -c \
   'import platform; print(platform.python_version())')"
 GIT_VERSION="$(
   env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
     HOME="$USER_HOME_DIR" \
     PATH=/usr/bin:/bin \
     GIT_CONFIG_NOSYSTEM=1 \
@@ -1018,6 +1040,7 @@ HERMETIC_RUNNER_SHA256="$(sha256_file "$HERMETIC_RUNNER")"
 
 CARGO_VERSION_VERBOSE="$(
   env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
     HOME="$USER_HOME_DIR" \
     PATH="${CARGO_BINARY%/*}:${RUSTC_BINARY%/*}:/usr/bin:/bin" \
     RUSTUP_HOME="$MOBILE_RUSTUP_HOME" \
@@ -1028,6 +1051,7 @@ CARGO_VERSION_VERBOSE="$(
 )"
 RUSTC_VERSION_VERBOSE="$(
   env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
     HOME="$USER_HOME_DIR" \
     PATH="${CARGO_BINARY%/*}:${RUSTC_BINARY%/*}:/usr/bin:/bin" \
     RUSTUP_HOME="$MOBILE_RUSTUP_HOME" \
@@ -1038,6 +1062,7 @@ RUSTC_VERSION_VERBOSE="$(
 )"
 RUSTDOC_VERSION_VERBOSE="$(
   env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
     HOME="$USER_HOME_DIR" \
     PATH="${CARGO_BINARY%/*}:${RUSTC_BINARY%/*}:${RUSTDOC_BINARY%/*}:/usr/bin:/bin" \
     RUSTUP_HOME="$MOBILE_RUSTUP_HOME" \
@@ -1080,6 +1105,7 @@ if [[ -n "${NORITO_BRIDGE_DEVELOPER_DIR:-}" ]]; then
 else
   XCODE_DEVELOPER_DIR="$(
     env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
       HOME="$USER_HOME_DIR" \
       PATH=/usr/bin:/bin \
       TMPDIR="$MOBILE_TMPDIR" \
@@ -1098,6 +1124,7 @@ XCODE_DEVELOPER_DIR="$(run_python312_clean -c \
 
 xcrun_value() {
   env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
     HOME="$USER_HOME_DIR" \
     PATH=/usr/bin:/bin \
     TMPDIR="$MOBILE_TMPDIR" \
@@ -1151,6 +1178,7 @@ RANLIB_BINARY="$(run_python312_clean -c \
 }
 XCODE_VERSION_OUTPUT="$(
   env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
     HOME="$USER_HOME_DIR" \
     PATH=/usr/bin:/bin \
     TMPDIR="$MOBILE_TMPDIR" \
@@ -1362,6 +1390,7 @@ int main(void) {
 CONSUMER_EOF
   echo "[+] Linking complete native archive into a C consumer: $target_triple" >&2
   env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
     HOME="$USER_HOME_DIR" \
     PATH="${CLANG_BINARY%/*}:/usr/bin:/bin" \
     TMPDIR="$MOBILE_TMPDIR" \
@@ -1672,6 +1701,7 @@ SIM_UNI="$STAGE_DIR/${FRAMEWORK_NAME}-sim-universal.a"
 MAC_UNI="$STAGE_DIR/${FRAMEWORK_NAME}-macos-universal.a"
 echo "[+] Creating simulator universal static library" >&2
 env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
   HOME="$USER_HOME_DIR" \
   PATH="${LIPO_BINARY%/*}:/usr/bin:/bin" \
   TMPDIR="$MOBILE_TMPDIR" \
@@ -1682,6 +1712,7 @@ env -i \
 
 echo "[+] Creating macOS universal static library" >&2
 env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
   HOME="$USER_HOME_DIR" \
   PATH="${LIPO_BINARY%/*}:/usr/bin:/bin" \
   TMPDIR="$MOBILE_TMPDIR" \
@@ -1720,6 +1751,7 @@ cp "$CRATE_DIR/module.modulemap.template" "$HEADERS_MAC/module.modulemap"
 
 echo "[+] Creating XCFramework" >&2
 if env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
   HOME="$USER_HOME_DIR" \
   PATH=/usr/bin:/bin \
   TMPDIR="$MOBILE_TMPDIR" \
@@ -2076,6 +2108,7 @@ if [[ "$ALLOW_DIRTY_SOURCE" == "1" ]]; then
   SWIFT_PIN_OWNER_ARGUMENTS+=(--allow-dirty-source)
 fi
 env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
   HOME="$USER_HOME_DIR" \
   PATH="${PYTHON_BINARY%/*}:${CARGO_BINARY%/*}:${RUSTC_BINARY%/*}:${RUSTDOC_BINARY%/*}:${GIT_BINARY%/*}:/usr/bin:/bin" \
   TMPDIR="$MOBILE_TMPDIR" \
@@ -2570,6 +2603,7 @@ if [[ -n "$ARCHIVE_OUTPUT" ]]; then
     ARCHIVE_OWNER_ARGUMENTS+=(--allow-dirty-source)
   fi
   env -i \
+    MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG="${MOBILE_SDK_DEMO_SOURCE_DRIFT_LOG:-}" \
     HOME="$USER_HOME_DIR" \
     PATH="${PYTHON_BINARY%/*}:${CARGO_BINARY%/*}:${RUSTC_BINARY%/*}:${RUSTDOC_BINARY%/*}:${GIT_BINARY%/*}:/usr/bin:/bin" \
     TMPDIR="$MOBILE_TMPDIR" \
