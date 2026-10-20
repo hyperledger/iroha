@@ -15341,7 +15341,8 @@ impl AccountClient {
     /// honor explicit fee-quote backpressure within the shorter configured HTTP
     /// timeout or inherited operation deadline, using fresh HTTP authentication
     /// for the unchanged unsigned payload. An external multisignature witness
-    /// is never replayed automatically.
+    /// is never replayed automatically. Without either deadline, direct account
+    /// requests also send exactly once.
     ///
     /// # Errors
     /// Returns an error for a foreign network or authority, an invalid direct
@@ -28476,21 +28477,33 @@ mod tests {
             body,
             ..
         } = multisig_fee_quote_fixture();
-        let requests: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
-        let transport = DefaultHttpTransport::mock(Arc::new(respond_with(
-            &requests,
-            fee_quote_backpressure_response("1"),
-        )));
-        let client = client.with_test_http_transport(transport);
-        let error = account_context(&client)
-            .quote_fees(FeeQuoteRequest::MultisigWitness {
-                payload: &payload,
-                witness: &witness,
-            })
-            .await
-            .expect_err("a consumed threshold witness needs external renewal");
-        assert!(format!("{error:#}").contains("429 Too Many Requests"));
-        assert_multisig_fee_quote_request(&requests, &body);
+        let mut untyped_backpressure = fee_quote_backpressure_response("1");
+        *untyped_backpressure.body_mut() =
+            br#"{"code":"query_validation_failed","message":"local query admission refused","details":{"retry_after_seconds":1}}"#.to_vec();
+        for (response, typed_capacity) in [
+            (untyped_backpressure, false),
+            (fee_quote_backpressure_response_in_format("1", false), true),
+            (fee_quote_backpressure_response_in_format("1", true), true),
+        ] {
+            let requests: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+            let transport = DefaultHttpTransport::mock(Arc::new(respond_with(&requests, response)));
+            let client = client.clone().with_test_http_transport(transport);
+            let error = account_context(&client)
+                .quote_fees(FeeQuoteRequest::MultisigWitness {
+                    payload: &payload,
+                    witness: &witness,
+                })
+                .await
+                .expect_err("a consumed threshold witness needs external renewal");
+            assert!(format!("{error:#}").contains("429 Too Many Requests"));
+            assert_eq!(
+                error
+                    .downcast_ref::<FeeQuoteBackpressure>()
+                    .map(FeeQuoteBackpressure::retry_after),
+                typed_capacity.then_some(Duration::from_secs(1))
+            );
+            assert_multisig_fee_quote_request(&requests, &body);
+        }
     }
 
     struct MultisigFeeQuoteFixture {
@@ -28686,33 +28699,8 @@ mod tests {
                 Metadata::default(),
             ))
             .unwrap();
-        let envelope = ErrorEnvelope::new(
-            "query_validation_failed",
-            iroha_data_model::query::error::QueryExecutionFail::CapacityLimit.to_string(),
-        )
-        .with_details(iroha_torii_shared::ErrorDetails {
-            retry_after_seconds: Some(1),
-            ..Default::default()
-        });
         for native in [false, true] {
-            let body = if native {
-                norito::to_bytes(&envelope).unwrap()
-            } else {
-                norito::json::to_vec(&envelope).unwrap()
-            };
-            let response = HttpResponse::builder()
-                .status(StatusCode::TOO_MANY_REQUESTS)
-                .header(
-                    "content-type",
-                    if native {
-                        APPLICATION_NORITO
-                    } else {
-                        APPLICATION_JSON
-                    },
-                )
-                .header("retry-after", "1")
-                .body(body)
-                .unwrap();
+            let response = fee_quote_backpressure_response_in_format("1", native);
             let requests: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
             let error = quote_fees_with_response(&client, &payload, &requests, response)
                 .await
@@ -28720,7 +28708,7 @@ mod tests {
             assert_eq!(
                 error
                     .downcast_ref::<FeeQuoteBackpressure>()
-                    .unwrap()
+                    .expect("one-shot capacity refusal retains its typed hint")
                     .retry_after(),
                 Duration::from_secs(1)
             );
