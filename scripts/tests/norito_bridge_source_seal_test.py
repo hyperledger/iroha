@@ -586,9 +586,9 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
                     self.assertTrue(self.public_role_original(source))
 
     def test_public_required_roles_are_exact_without_suffix_widening(self) -> None:
-        self.assertEqual(len(self.public_role_inputs()), 100)
-        self.assertEqual(len(seal._REVIEWED_PUBLIC_SOURCE_FOLDER_INPUTS), 8)
-        self.assertEqual(len(seal._REVIEWED_PUBLIC_FIXTURE_INPUTS), 44)
+        self.assertEqual(len(self.public_role_inputs()), 102)
+        self.assertEqual(len(seal._REVIEWED_PUBLIC_SOURCE_FOLDER_INPUTS), 9)
+        self.assertEqual(len(seal._REVIEWED_PUBLIC_FIXTURE_INPUTS), 45)
         self.assertEqual(len(seal._REVIEWED_PUBLIC_NONOPERATIONAL_FIXTURE_PINS), 4)
         for relative in self.public_role_inputs():
             self.assertEqual(seal._public_source_relative(relative).as_posix(), relative)
@@ -598,6 +598,9 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
         for relative in (
             "crates/ivm/docs/examples/unowned.to",
             "crates/ivm/metal/v1/unowned.metallib",
+            "crates/fastpq_prover/metal/compiled/aarch64-apple-darwin/unowned.metallib",
+            "crates/fastpq_prover/metal/compiled/x86_64-apple-darwin/fastpq.metallib",
+            "crates/fastpq_prover/metal/compiled/aarch64-apple-darwin/fastpq.metallib.bak",
             "crates/ivm/fuzz/corpus/numeric_v1/unowned_seed",
             "crates/norito/tests/data/unowned.tape",
             "crates/norito/tests/fixtures/unowned.norito",
@@ -627,8 +630,10 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
         selected = (
             "crates/ivm/docs/examples/01_hajimari.to",
             "crates/ivm/tests/fixtures/predecoder/mixed/artifacts/artifact_v1_1_mode00_vlen0_cycles0_abi1.to",
+            "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata/destination.rs",
             "crates/iroha_p2p/src/peer/run/granted.rs",
             "crates/ivm/metal/v1/ivm_kernels.metallib",
+            "crates/fastpq_prover/metal/compiled/aarch64-apple-darwin/fastpq.metallib",
             "crates/ivm/fuzz/corpus/numeric_v1/valid_int_seed",
             "crates/norito/tests/data/small_a1.tape",
             "crates/norito/tests/fixtures/sample_payload_frame.norito",
@@ -645,6 +650,13 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
     def test_public_source_folder_roles_do_not_admit_operations_or_neighbors(self) -> None:
         for relative in (
             "crates/iroha_core/src/sumeragi/certified_chain/artifacts/other.rs",
+            "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata/other.rs",
+            "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata/destination_test.rs",
+            "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata/destination.rs.bak",
+            "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata/destination.rs.pem",
+            "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata/destination.rs/other.rs",
+            "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata/private/destination.rs",
+            "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata/Destination.rs",
             "crates/iroha_p2p/src/peer/run/other.rs",
             "crates/ivm/tests/fixtures/predecoder/mixed/artifacts/unowned.to",
             "crates/ivm/tests/fixtures/predecoder/mixed/private/artifacts/unowned.to",
@@ -693,6 +705,7 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
 
     def test_public_roles_keep_source_descriptor_and_root_custody(self) -> None:
         for relative in (
+            "crates/iroha_core/src/sumeragi/certified_chain/artifacts/metadata/destination.rs",
             "crates/iroha_p2p/src/peer/run/granted.rs",
             "crates/ivm/tests/fixtures/predecoder/mixed/artifacts/artifact_v1_1_mode00_vlen0_cycles0_abi1.to",
             "crates/iroha_config/tests/fixtures/minimal_file_and_env.env",
