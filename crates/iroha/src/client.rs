@@ -14303,8 +14303,10 @@ pub enum FeeQuoteRequest<'a> {
 /// This is only a server-advertised read retry hint, not proof of query-count
 /// exhaustion or transient capacity. The same Torii response can represent
 /// authentication or fee-state refusal, including permanent internal limits.
-/// The SDK never retries automatically; callers must retain their original deadline
-/// and must never repeat a signed submission because of this hint.
+/// Direct account quotes can retry JSON backpressure with fresh HTTP authentication
+/// within their original deadline. Refusals returned without an automatic retry
+/// retain this hint; callers must preserve their original deadline and must never
+/// repeat a signed submission because of it.
 #[derive(Clone, Copy, Debug, thiserror::Error)]
 #[error("fee quote capacity backpressure; retry after {retry_after:?}")]
 pub struct FeeQuoteBackpressure {
@@ -15333,18 +15335,19 @@ impl AccountClient {
     /// The request variant explicitly selects direct account authentication or
     /// a complete multisignature witness. The response is decoded and checked
     /// against the exact payload before it is returned. Direct account requests
-    /// honor explicit fee-quote backpressure within the shorter configured HTTP
+    /// honor explicit JSON fee-quote backpressure within the shorter configured HTTP
     /// timeout or inherited operation deadline, using fresh HTTP authentication
     /// for the unchanged unsigned payload. An external multisignature witness
-    /// is never replayed automatically.
+    /// is never replayed automatically. Without either deadline, direct account
+    /// requests also send exactly once.
     ///
     /// # Errors
     /// Returns an error for a foreign network or authority, an invalid direct
     /// or multisignature authorization, request construction or transport
     /// failure, Torii rejection, an oversized response, or a response that is
-    /// not bound to the exact payload. A validated capacity refusal retains a
-    /// downcastable [`FeeQuoteBackpressure`] and the original response error;
-    /// this operation still sends exactly one request.
+    /// not bound to the exact payload. A validated capacity refusal returned without
+    /// retry retains a downcastable [`FeeQuoteBackpressure`] and the original
+    /// response error. Exhausting the retry budget returns a deadline error.
     pub async fn quote_fees(&self, request: FeeQuoteRequest<'_>) -> Result<FeeQuoteResponse> {
         let (payload, authorization) = match request {
             FeeQuoteRequest::AccountSignature { payload } => (payload, None),
@@ -28017,9 +28020,41 @@ mod tests {
         response
     }
 
+    fn fee_quote_capacity_backpressure_response(native: bool) -> HttpResponse<Vec<u8>> {
+        let envelope = ErrorEnvelope::new(
+            "query_validation_failed",
+            iroha_data_model::query::error::QueryExecutionFail::CapacityLimit.to_string(),
+        )
+        .with_details(iroha_torii_shared::ErrorDetails {
+            retry_after_seconds: Some(1),
+            ..Default::default()
+        });
+        let (content_type, body) = if native {
+            (
+                APPLICATION_NORITO,
+                norito::to_bytes(&envelope).expect("encode native capacity refusal"),
+            )
+        } else {
+            (
+                APPLICATION_JSON,
+                norito::json::to_vec(&envelope).expect("encode JSON capacity refusal"),
+            )
+        };
+        HttpResponse::builder()
+            .status(StatusCode::TOO_MANY_REQUESTS)
+            .header("content-type", content_type)
+            .header("retry-after", "1")
+            .body(body)
+            .expect("capacity refusal response")
+    }
+
     #[tokio::test]
     async fn fee_quote_backpressure_refreshes_http_auth_for_the_same_unsigned_payload() {
-        for valid_quote in [true, false] {
+        for (valid_quote, backpressure) in [
+            (true, fee_quote_backpressure_response("1")),
+            (false, fee_quote_backpressure_response("1")),
+            (true, fee_quote_capacity_backpressure_response(false)),
+        ] {
             let client = client_with_base_url(base_url());
             let payload = account_context(&client)
                 .prepare_transaction(AccountTransactionDraft::new(
@@ -28049,7 +28084,7 @@ mod tests {
                     .expect("request times")
                     .push(std::time::Instant::now());
                 match requests.len() {
-                    1 => Ok(fee_quote_backpressure_response("1")),
+                    1 => Ok(backpressure.clone()),
                     2 => Ok(success.clone()),
                     _ => panic!("quote must never submit or keep retrying after a final response"),
                 }
@@ -28377,21 +28412,30 @@ mod tests {
             body,
             ..
         } = multisig_fee_quote_fixture();
-        let requests: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
-        let transport = DefaultHttpTransport::mock(Arc::new(respond_with(
-            &requests,
-            fee_quote_backpressure_response("1"),
-        )));
-        let client = client.with_test_http_transport(transport);
-        let error = account_context(&client)
-            .quote_fees(FeeQuoteRequest::MultisigWitness {
-                payload: &payload,
-                witness: &witness,
-            })
-            .await
-            .expect_err("a consumed threshold witness needs external renewal");
-        assert!(format!("{error:#}").contains("429 Too Many Requests"));
-        assert_multisig_fee_quote_request(&requests, &body);
+        for (response, typed_capacity) in [
+            (fee_quote_backpressure_response("1"), false),
+            (fee_quote_capacity_backpressure_response(false), true),
+            (fee_quote_capacity_backpressure_response(true), true),
+        ] {
+            let requests: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
+            let transport = DefaultHttpTransport::mock(Arc::new(respond_with(&requests, response)));
+            let client = client.clone().with_test_http_transport(transport);
+            let error = account_context(&client)
+                .quote_fees(FeeQuoteRequest::MultisigWitness {
+                    payload: &payload,
+                    witness: &witness,
+                })
+                .await
+                .expect_err("a consumed threshold witness needs external renewal");
+            assert!(format!("{error:#}").contains("429 Too Many Requests"));
+            assert_eq!(
+                error
+                    .downcast_ref::<FeeQuoteBackpressure>()
+                    .map(FeeQuoteBackpressure::retry_after),
+                typed_capacity.then_some(Duration::from_secs(1))
+            );
+            assert_multisig_fee_quote_request(&requests, &body);
+        }
     }
 
     struct MultisigFeeQuoteFixture {
@@ -28576,8 +28620,11 @@ mod tests {
         );
     }
     #[tokio::test]
-    async fn fee_quote_backpressure_requires_typed_response_and_never_replays() {
-        let client = client_with_base_url(base_url());
+    async fn fee_quote_backpressure_without_retry_deadline_returns_typed_response_once() {
+        let mut client = client_with_base_url(base_url());
+        // A finite timeout enables direct-account retries. Exercise returned
+        // capacity hints without either a configured or an inherited deadline.
+        client.torii_request_timeout = Duration::ZERO;
         let payload = account_context(&client)
             .prepare_transaction(AccountTransactionDraft::new(
                 Vec::<InstructionBox>::new(),
@@ -28585,33 +28632,8 @@ mod tests {
                 Metadata::default(),
             ))
             .unwrap();
-        let envelope = ErrorEnvelope::new(
-            "query_validation_failed",
-            iroha_data_model::query::error::QueryExecutionFail::CapacityLimit.to_string(),
-        )
-        .with_details(iroha_torii_shared::ErrorDetails {
-            retry_after_seconds: Some(1),
-            ..Default::default()
-        });
         for native in [false, true] {
-            let body = if native {
-                norito::to_bytes(&envelope).unwrap()
-            } else {
-                norito::json::to_vec(&envelope).unwrap()
-            };
-            let response = HttpResponse::builder()
-                .status(StatusCode::TOO_MANY_REQUESTS)
-                .header(
-                    "content-type",
-                    if native {
-                        APPLICATION_NORITO
-                    } else {
-                        APPLICATION_JSON
-                    },
-                )
-                .header("retry-after", "1")
-                .body(body)
-                .unwrap();
+            let response = fee_quote_capacity_backpressure_response(native);
             let requests: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
             let error = quote_fees_with_response(&client, &payload, &requests, response)
                 .await
@@ -28619,7 +28641,7 @@ mod tests {
             assert_eq!(
                 error
                     .downcast_ref::<FeeQuoteBackpressure>()
-                    .unwrap()
+                    .expect("one-shot capacity refusal retains its typed hint")
                     .retry_after(),
                 Duration::from_secs(1)
             );
@@ -28627,7 +28649,7 @@ mod tests {
             assert_eq!(
                 requests.lock().unwrap().len(),
                 1,
-                "the SDK must never retry a quote"
+                "fee quotes must not retry without a finite deadline"
             );
         }
     }
