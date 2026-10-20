@@ -293,9 +293,11 @@ fn execute_fixture_genesis(
     // constant is not the configured Core policy used by this execution fixture.
     let provisional = manifest
         .clone()
-        .build_and_sign_with_confidential_policy_hash(
+        .build_and_sign_with_da_proof_policies_and_confidential_policy_hash_at(
             key,
+            None,
             Some(iroha_core::state::default_genesis_confidential_policy_hash()),
+            1_000,
         )
         .unwrap();
     let authority = AccountId::new(key.public_key().clone());
@@ -401,11 +403,15 @@ fn execute_fixture_genesis(
         .unwrap()
         .sumeragi_context
         .root_scope;
+    // Genesis timestamps advance one millisecond per transaction. Validate at
+    // the signed block time so fixture execution cannot race the wall clock.
+    let time_source =
+        iroha_primitives::time::TimeSource::new_fixed(provisional.0.header().creation_time());
     let validation = ValidBlock::validate_signed_genesis(
         provisional.0,
         &topology,
         &authority,
-        &iroha_primitives::time::TimeSource::new_system(),
+        &time_source,
         &state,
         iroha_data_model::block::consensus::ConsensusMode::Npos,
         root_scope,

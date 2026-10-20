@@ -1,5 +1,5 @@
 seiyaku Demo {
-    view fn inspect() authorize(anyone) -> int {
-        return 99;
+    view fn inspect(int divisor) authorize(anyone) -> int {
+        return 99 / divisor;
     }
 }
