@@ -41,17 +41,17 @@ fn exact_equality<K: BorrowedKey>(left: &K, right: &K, exact: u64, truth: bool) 
 }
 #[test]
 fn independent_nft_rwa_reference_and_original_fixture_work_are_exact() {
-    // Both images of a no-undo singleton: 14 + 8*complete ID + 8*group key.
+    // Both images of a no-undo singleton: 8 + 8*complete ID + 8*group key.
     assert_eq!(
         NFT_WORK_PER_ROW,
-        (14 + 8 * 189 + 8 * 34) + (14 + 8 * 189 + 8 * 126)
+        (8 + 8 * 189 + 8 * 34) + (8 + 8 * 189 + 8 * 126)
     );
     assert_eq!(
         RWA_WORK_PER_ROW,
-        (14 + 8 * 158 + 8 * 34) + (14 + 8 * 158 + 8 * 64) + (14 + 8 * 158 + 8)
+        (8 + 8 * 158 + 8 * 34) + (8 + 8 * 158 + 8 * 64) + (8 + 8 * 158 + 8)
     );
     let world = fixture();
-    for (rwa, exact) in [(false, 732), (true, 1482)] {
+    for (rwa, exact) in [(false, 720), (true, 1464)] {
         assert_eq!(world_work(&world, rwa), exact);
         assert_eq!(
             without_allocations(|| if rwa {
@@ -74,16 +74,16 @@ fn independent_nft_rwa_reference_and_original_fixture_work_are_exact() {
     reference.rwas = [(rwa, rwa_value)].into_iter().collect();
     reference.rebuild_nft_owner_index();
     reference.rebuild_rwa_indexes();
-    assert_eq!(world_work(&reference, false), 4332);
-    assert_eq!(world_work(&reference, true), 4626);
-    assert!(CheckedNfts::capture(&reference, 4332).is_ok());
+    assert_eq!(world_work(&reference, false), 4320);
+    assert_eq!(world_work(&reference, true), 4608);
+    assert!(CheckedNfts::capture(&reference, 4320).is_ok());
     assert!(matches!(
-        CheckedNfts::capture(&reference, 4331),
+        CheckedNfts::capture(&reference, 4319),
         Err(GroupedOwnershipError::WorkLimit)
     ));
-    assert!(CheckedRwas::capture(&reference, 4626).is_ok());
+    assert!(CheckedRwas::capture(&reference, 4608).is_ok());
     assert!(matches!(
-        CheckedRwas::capture(&reference, 4625),
+        CheckedRwas::capture(&reference, 4607),
         Err(GroupedOwnershipError::WorkLimit)
     ));
     let mut active = fixture();
@@ -91,10 +91,10 @@ fn independent_nft_rwa_reference_and_original_fixture_work_are_exact() {
     value.status = Some("active".parse().unwrap());
     active.rwas.insert(rwa_id(), value);
     active.rebuild_rwa_indexes();
-    assert_eq!(world_work(&active, true), 1530);
-    assert!(CheckedRwas::capture(&active, 1530).is_ok());
+    assert_eq!(world_work(&active, true), 1512);
+    assert!(CheckedRwas::capture(&active, 1512).is_ok());
     assert!(matches!(
-        CheckedRwas::capture(&active, 1529),
+        CheckedRwas::capture(&active, 1511),
         Err(GroupedOwnershipError::WorkLimit)
     ));
 }
@@ -147,7 +147,12 @@ fn all_nft_rwa_physical_mask_lookup_and_member_tails_are_prepaid() {
                 ),
                 Err(GroupedOwnershipError::WorkLimit)
             );
-            let members = BTreeSet::from([first.clone(), second.clone()]);
+            let members = [first.clone(), second.clone()];
+            let member_rows: Storage<_, _> = members
+                .iter()
+                .map(|member| ((first.clone(), member.clone()), ()))
+                .collect();
+            let member_view = member_rows.try_committed_view_nonblocking().unwrap();
             for key in [&first, &second] {
                 assert_eq!(
                     lookup(
@@ -168,11 +173,23 @@ fn all_nft_rwa_physical_mask_lookup_and_member_tails_are_prepaid() {
                     Ok(view.current().get(key))
                 );
                 assert_eq!(
-                    contains(&members, key, &mut NftRwaWork::bounded($member - 1)),
+                    contains(
+                        &member_view,
+                        GroupImage::Current,
+                        &first,
+                        key,
+                        &mut NftRwaWork::bounded(2 * ($member) - 3)
+                    ),
                     Err(GroupedOwnershipError::WorkLimit)
                 );
                 assert_eq!(
-                    contains(&members, key, &mut NftRwaWork::bounded($member)),
+                    contains(
+                        &member_view,
+                        GroupImage::Current,
+                        &first,
+                        key,
+                        &mut NftRwaWork::bounded(2 * ($member) - 2)
+                    ),
                     Ok(true)
                 );
             }
@@ -376,23 +393,23 @@ fn masked_absent_noop_and_matching_predecessor_tails_keep_actual_callbacks() {
         block.remove(absent);
         block.commit();
     }
-    assert_eq!(world_work(&world, false), 908);
+    assert_eq!(world_work(&world, false), 896);
     assert!(matches!(
-        CheckedNfts::capture(&world, 907),
+        CheckedNfts::capture(&world, 895),
         Err(GroupedOwnershipError::WorkLimit)
     ));
-    assert!(CheckedNfts::capture(&world, 908).is_ok());
+    assert!(CheckedNfts::capture(&world, 896).is_ok());
     {
         let mut block = world.rwas.block();
         block.remove(RwaId::generated(domain(), Hash::new(b"absent RWA")));
         block.commit();
     }
-    assert_eq!(world_work(&world, true), 2076);
+    assert_eq!(world_work(&world, true), 2058);
     assert!(matches!(
-        CheckedRwas::capture(&world, 2075),
+        CheckedRwas::capture(&world, 2057),
         Err(GroupedOwnershipError::WorkLimit)
     ));
-    assert!(CheckedRwas::capture(&world, 2076).is_ok());
+    assert!(CheckedRwas::capture(&world, 2058).is_ok());
 }
 #[test]
 fn nft_owner_domain_and_rwa_owner_status_frozen_phases_keep_first_failure() {
@@ -400,7 +417,7 @@ fn nft_owner_domain_and_rwa_owner_status_frozen_phases_keep_first_failure() {
     world.nfts_by_owner = Storage::default();
     {
         let mut block = world.nfts_by_owner.block();
-        block.insert(ALICE_ID.clone(), BTreeSet::from([nft_id()]));
+        block.insert((ALICE_ID.clone(), nft_id()), ());
         block.commit();
     }
     world.nfts_by_domain = Storage::default();
@@ -416,7 +433,7 @@ fn nft_owner_domain_and_rwa_owner_status_frozen_phases_keep_first_failure() {
     world.rwas_by_status = Storage::default();
     {
         let mut block = world.rwas_by_status.block();
-        block.insert(None, BTreeSet::from([rwa_id()]));
+        block.insert((None, rwa_id()), ());
         block.commit();
     }
     world.rwas_by_frozen = Storage::default();
@@ -456,7 +473,7 @@ fn publish(world: &World, rwa: bool, source: usize) {
 #[test]
 fn all_original_nft_rwa_results_precede_actual_native_refusal_propagation() {
     let world = fixture();
-    let checked = CheckedNfts::capture(&world, 732).unwrap();
+    let checked = CheckedNfts::capture(&world, 720).unwrap();
     publish(&world, false, 0);
     let detached = world
         .nfts_by_owner
@@ -480,7 +497,7 @@ fn all_original_nft_rwa_results_precede_actual_native_refusal_propagation() {
     drop(prepared);
     assert_eq!(check(&world, false), Ok(()));
     let world = fixture();
-    let checked = CheckedRwas::capture(&world, 1482).unwrap();
+    let checked = CheckedRwas::capture(&world, 1464).unwrap();
     publish(&world, true, 0);
     publish(&world, true, 2);
     let detached = world
@@ -521,7 +538,7 @@ fn changed_original_sources_precede_stable_work_or_corruption_results() {
                     )),
                 };
                 if rwa {
-                    let checked = CheckedRwas::capture(&world, 1482).unwrap();
+                    let checked = CheckedRwas::capture(&world, 1464).unwrap();
                     publish(&world, true, source);
                     assert!(matches!(
                         checked.finish_validation(result),
@@ -530,7 +547,7 @@ fn changed_original_sources_precede_stable_work_or_corruption_results() {
                         ))
                     ));
                 } else {
-                    let checked = CheckedNfts::capture(&world, 732).unwrap();
+                    let checked = CheckedNfts::capture(&world, 720).unwrap();
                     publish(&world, false, source);
                     assert!(matches!(
                         checked.finish_validation(result),

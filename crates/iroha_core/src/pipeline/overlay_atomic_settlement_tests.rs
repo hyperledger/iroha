@@ -353,7 +353,7 @@ fn observable(state_tx: &StateTransaction<'_, '_>) -> (Vec<Vec<u8>>, usize) {
             capture!(accounts),
             capture!(account_permissions),
             capture!(asset_definition_assets),
-            capture!(assets_by_account),
+            capture!(asset_definition_asset_counts),
             capture!(assets_by_domain),
             capture!(asset_definition_nonzero_holders),
             capture!(settlement_receipts),

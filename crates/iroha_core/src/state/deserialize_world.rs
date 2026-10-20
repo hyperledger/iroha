@@ -24,7 +24,7 @@ mod musubi_derived;
 #[path = "deserialize_world_musubi_universal.rs"]
 pub(in crate::state) mod musubi_universal;
 #[path = "deserialize_world_proof_tag_index.rs"]
-mod proof_tag_index;
+pub(in crate::state) mod proof_tag_index;
 #[path = "deserialize_world_verifying_key_index.rs"]
 mod verifying_key_index;
 
@@ -5911,7 +5911,7 @@ mod global_beacon_persistence_tests {
             &iroha_allocation::AllocationBudget::new(
                 iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
             ),
-            SnapshotJsonMap::parse(&encoded, "world").expect("World snapshot map"),
+            SnapshotJsonMap::parse_world_fixture(&encoded).expect("World snapshot map"),
             &seed,
         )
         .map_err(crate::state::deserialize::snapshot_format_error_for_test)
@@ -6061,7 +6061,7 @@ mod global_beacon_persistence_tests {
         };
         let restored = parse_world(
             &budget,
-            SnapshotJsonMap::parse(&encoded, "world").expect("World snapshot map"),
+            SnapshotJsonMap::parse_world_fixture(&encoded).expect("World snapshot map"),
             &seed,
         )
         .map_err(crate::state::deserialize::snapshot_format_error_for_test)
@@ -7453,7 +7453,7 @@ mod validation_fee_registry_restore_tests {
             &iroha_allocation::AllocationBudget::new(
                 iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
             ),
-            SnapshotJsonMap::parse(&encoded, "world")?,
+            SnapshotJsonMap::parse_world_fixture(&encoded)?,
             &seed,
         )
     }
@@ -7940,7 +7940,6 @@ fn take_native_lane_custody(
     // Borrow the original field until both generations have their original-pool owners.
     // A refusal drops only this attempt's decoded graph and copies, not the raw source.
     let field = map
-        .fields
         .get("sumeragi_lanes")
         .ok_or_else(|| json::Error::missing_field("sumeragi_lanes"))?;
     let snapshot: NativeLaneCustodySnapshot = match field {
@@ -7956,7 +7955,7 @@ fn take_native_lane_custody(
             value
         }
         #[cfg(test)]
-        SnapshotJsonField::Owned(value) => json::value::from_value(value.clone())?,
+        SnapshotJsonField::Owned(value) => json::value::from_value(value)?,
     };
     let current = crate::sumeragi::lanes::custody::admit_state(&snapshot.blocks, budget)
         .map_err(StateRestoreError::NativeLaneCustody)?;
@@ -8014,7 +8013,6 @@ fn take_native_beacon_sessions(
         GlobalThresholdBeaconSessionError, RetainedFinalizedGlobalThresholdBeaconSessionV1,
     };
     let field = map
-        .fields
         .get("global_beacon_key_sessions")
         .ok_or_else(|| json::Error::missing_field("global_beacon_key_sessions"))?;
     let snapshot: NativeBeaconSessionSnapshot = match field {
@@ -8029,7 +8027,7 @@ fn take_native_beacon_sessions(
             value
         }
         #[cfg(test)]
-        SnapshotJsonField::Owned(value) => json::value::from_value(value.clone())?,
+        SnapshotJsonField::Owned(value) => json::value::from_value(value)?,
     };
     let admit = |key: &[u8; 32],
                  value: &crate::beacon::FinalizedGlobalThresholdBeaconKeySessionRecordV1|
@@ -8178,27 +8176,9 @@ fn decode_world_fields(
     mut map: SnapshotJsonMap<'_>,
     ivm_seed: &IvmSeed<'_, World>,
 ) -> Result<World, StateRestoreError> {
-    if let Some(actual) = map.source_order.as_ref() {
-        let expected = canonical_world_field_order();
-        if let Some(unknown) = actual.iter().find(|key| !expected.contains(&key.as_str())) {
-            return Err(json::Error::InvalidField {
-                field: format!("world.{unknown}"),
-                message: "unknown field is not permitted in a signed first-release snapshot"
-                    .to_owned(),
-            }
-            .into());
-        }
-        if !actual
-            .iter()
-            .map(String::as_str)
-            .eq(expected.iter().copied())
-        {
-            return Err(json::Error::InvalidField {
-                field: "world".to_owned(),
-                message: "snapshot world fields are not in canonical schema order".to_owned(),
-            }
-            .into());
-        }
+    // Check the admitted index itself; no caller's earlier check is assumed.
+    if !cfg!(all(test, sumeragi_core_mutation = "HC930")) {
+        map.require_source_order(canonical_world_field_order(), "world")?;
     }
     let parameters = take_parameters_cell(&mut map, "parameters")?;
     let peers: Cell<Peers> = take_required(&mut map, "peers")?;
@@ -8731,7 +8711,6 @@ fn decode_world_fields(
     })?;
     let proofs = take_required(&mut map, "proofs")?;
     let proof_tags = take_required(&mut map, "proof_tags")?;
-    let proofs_by_tag = take_required(&mut map, "proofs_by_tag")?;
     let contract_manifests = take_required(&mut map, "contract_manifests")?;
     let contract_code = take_required(&mut map, "contract_code")?;
     let contract_code_uploads = take_required(&mut map, "contract_code_uploads")?;
@@ -8914,9 +8893,6 @@ fn decode_world_fields(
     let nft_custody_records = take_optional(&mut map, "nft_custody_records")?.unwrap_or_default();
 
     let vpn_leases = take_required(&mut map, "vpn_leases")?;
-    let merge_hint_roots: Cell<Vec<Hash>> = take_required(&mut map, "merge_hint_roots")?;
-    let merge_global_state_root: Cell<Option<Hash>> =
-        take_required(&mut map, "merge_global_state_root")?;
     let consensus_evidence = map
         .remove("consensus_evidence")
         .ok_or_else(|| json::Error::missing_field("consensus_evidence"))?
@@ -8941,6 +8917,7 @@ fn decode_world_fields(
         account_aliases_by_account: Storage::default(),
         account_scope_directory: Storage::default(),
         account_scope_accounts: Storage::default(),
+        account_scope_account_counts: Storage::default(),
         opaque_uaids: Storage::default(),
         ram_lfe_program_policies,
         identifier_policies,
@@ -8963,8 +8940,8 @@ fn decode_world_fields(
         domain_asset_definitions: Storage::default(),
         asset_definitions_by_owner: Storage::default(),
         asset_definition_holders: Storage::default(),
+        asset_definition_asset_counts: Storage::default(),
         asset_definition_assets: Storage::default(),
-        assets_by_account: Storage::default(),
         assets_by_domain: Storage::default(),
         asset_definition_nonzero_holders: Storage::default(),
         assets,
@@ -9061,7 +9038,7 @@ fn decode_world_fields(
         proofs,
         proofs_by_status: Storage::default(),
         proof_tags,
-        proofs_by_tag,
+        proofs_by_tag: Storage::default(),
         contract_manifests,
         contract_code,
         contract_code_uploads,
@@ -9201,8 +9178,6 @@ fn decode_world_fields(
         global_beacon_latest_pulse,
         global_beacon_pulses,
         global_beacon_pulse_slots: Storage::default(),
-        merge_hint_roots,
-        merge_global_state_root,
         consensus_evidence,
         // SCCP v1 state is restored from its own snapshot envelope after `parse_world`.
         sccp_parameters: Cell::default(),
@@ -9287,7 +9262,7 @@ fn parse_world(
             message,
         }
     })?;
-    proof_tag_index::validate_proof_tag_index(&world)?;
+    proof_tag_index::rebuild(&mut world)?;
     verifying_key_index::validate_verifying_key_index(&world)?;
     validate_asset_transfer_control_persistence_v1(&world)?;
     super::retail_daily_limit_state::validate_persistence(&mut world).map_err(|message| {
@@ -10340,7 +10315,7 @@ pub(in crate::state) fn decode_world_component_for_testing(
         &iroha_allocation::AllocationBudget::new(
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         ),
-        SnapshotJsonMap::parse(&encoded, "world")?,
+        SnapshotJsonMap::parse_world_fixture(&encoded)?,
         &IvmSeed {
             ivm: &ivm,
             _marker: PhantomData,
@@ -10366,6 +10341,50 @@ pub(in crate::state) fn seeded_musubi_attested_publication_world_for_testing() -
 mod decode_tests {
     use super::*;
     include!("deserialize_world_musubi_live_tests.rs");
+
+    #[test]
+    fn world_snapshot_has_no_retired_merge_roots_and_rejects_their_reintroduction() {
+        let encoded = json::to_json(&World::default()).expect("encode current World schema");
+        let fields = SnapshotJsonMap::parse(&encoded, "world").expect("current World object");
+        let retired = ["merge_hint_roots", "merge_global_state_root"];
+        for field in retired {
+            assert!(
+                !fields.contains_key(field),
+                "retired field {field} survived"
+            );
+        }
+        let pool = iroha_allocation::AllocationBudget::new(
+            iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
+        );
+        let ivm = IVM::new(0);
+        let seed = IvmSeed {
+            ivm: &ivm,
+            _marker: PhantomData,
+        };
+        let decoded = parse_world(&pool, fields, &seed)
+            .expect("current World fields decode without retired merge roots");
+        assert_eq!(
+            json::to_json(&decoded).expect("reencode current World"),
+            encoded,
+            "removing writerless cells preserves every surviving field and schema order"
+        );
+        let prefix = encoded.strip_suffix('}').expect("World object ending");
+        for field in retired {
+            let injected = format!("{prefix},\"{field}\":null}}");
+            let error = parse_world(
+                &pool,
+                SnapshotJsonMap::parse(&injected, "world").expect("substituted World object"),
+                &seed,
+            )
+            .err()
+            .expect("retired fields cannot reenter a first-release snapshot");
+            assert!(
+                matches!(error, StateRestoreError::Serialization(json::Error::InvalidField {
+                    field: rejected, ref message,
+                }) if rejected == format!("world.{field}") && message.contains("unknown field"))
+            );
+        }
+    }
     use crate::query::store::LiveQueryStore;
     use iroha_crypto::SignatureOf;
     use iroha_data_model::account::AccountDetails;
@@ -10534,7 +10553,7 @@ mod decode_tests {
             &iroha_allocation::AllocationBudget::new(
                 iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
             ),
-            SnapshotJsonMap::parse(&encoded, "world").expect("parse election fixture"),
+            SnapshotJsonMap::parse_world_fixture(&encoded).expect("parse election fixture"),
             &IvmSeed {
                 ivm: &ivm,
                 _marker: PhantomData,
@@ -11608,8 +11627,12 @@ mod decode_tests {
     }
     #[test]
     fn borrowed_snapshot_map_rejects_duplicates_and_noncanonical_order() {
-        let canonical = SnapshotJsonMap::parse(r#"{"first":0,"second":1}"#, "fixture")
-            .expect("borrowed fixture map");
+        let canonical = SnapshotJsonMap::parse_admitted_fixture(
+            r#"{"first":0,"second":1}"#,
+            "fixture",
+            &["first", "second"],
+        )
+        .expect("borrowed fixture map");
         canonical
             .require_source_order(&["first", "second"], "fixture")
             .expect("declared schema order must match");
@@ -11619,7 +11642,12 @@ mod decode_tests {
                 .is_err()
         );
         assert!(
-            SnapshotJsonMap::parse(r#"{"first":0,"first":1}"#, "fixture").is_err(),
+            SnapshotJsonMap::parse_admitted_fixture(
+                r#"{"first":0,"first":1}"#,
+                "fixture",
+                &["first", "second"]
+            )
+            .is_err(),
             "duplicate signed snapshot fields must fail closed"
         );
     }
@@ -11674,7 +11702,7 @@ mod decode_tests {
             &iroha_allocation::AllocationBudget::new(
                 iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
             ),
-            SnapshotJsonMap::parse(&encoded, "world").expect("parse governed pool World"),
+            SnapshotJsonMap::parse_world_fixture(&encoded).expect("parse governed pool World"),
             &IvmSeed {
                 ivm: &ivm,
                 _marker: PhantomData,
@@ -11699,7 +11727,7 @@ mod decode_tests {
             &iroha_allocation::AllocationBudget::new(
                 iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
             ),
-            SnapshotJsonMap::parse(&corrupt, "world").expect("parse corrupt World"),
+            SnapshotJsonMap::parse_world_fixture(&corrupt).expect("parse corrupt World"),
             &IvmSeed {
                 ivm: &ivm,
                 _marker: PhantomData,
@@ -11743,7 +11771,8 @@ mod decode_tests {
             &iroha_allocation::AllocationBudget::new(
                 iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
             ),
-            SnapshotJsonMap::parse(&encoded, "world").expect("parse finalized settlement World"),
+            SnapshotJsonMap::parse_world_fixture(&encoded)
+                .expect("parse finalized settlement World"),
             &IvmSeed {
                 ivm: &ivm,
                 _marker: PhantomData,
@@ -11807,7 +11836,8 @@ mod decode_tests {
             &iroha_allocation::AllocationBudget::new(
                 iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
             ),
-            SnapshotJsonMap::parse(&encoded, "world").expect("parse prepared settlement World"),
+            SnapshotJsonMap::parse_world_fixture(&encoded)
+                .expect("parse prepared settlement World"),
             &IvmSeed {
                 ivm: &ivm,
                 _marker: PhantomData,
@@ -11856,7 +11886,7 @@ mod decode_tests {
             &iroha_allocation::AllocationBudget::new(
                 iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
             ),
-            SnapshotJsonMap::parse(&encoded, "world").expect("parse adversarial World"),
+            SnapshotJsonMap::parse_world_fixture(&encoded).expect("parse adversarial World"),
             &IvmSeed {
                 ivm: &ivm,
                 _marker: PhantomData,
@@ -11936,7 +11966,7 @@ mod decode_tests {
             iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
         );
         const CEILING: usize = 64 * 1024 * 1024;
-        let fields = SnapshotJsonMap::parse(&encoded, "world").unwrap();
+        let fields = SnapshotJsonMap::parse_world_fixture(&encoded).unwrap();
         let prefix_allocation = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, CEILING, usize::MAX),
             || {
@@ -11950,7 +11980,7 @@ mod decode_tests {
                 usize::try_from(attempted).unwrap() - CEILING - 1
             },
         );
-        let fields = SnapshotJsonMap::parse(&encoded, "world").unwrap();
+        let fields = SnapshotJsonMap::parse_world_fixture(&encoded).unwrap();
         norito::with_decode_limits_scope(
             norito::DecodeLimits::new(
                 usize::MAX,
@@ -11971,7 +12001,7 @@ mod decode_tests {
                 ));
             },
         );
-        let fields = SnapshotJsonMap::parse(&encoded, "world").unwrap();
+        let fields = SnapshotJsonMap::parse_world_fixture(&encoded).unwrap();
         let error = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(
                 usize::MAX,
@@ -11990,7 +12020,7 @@ mod decode_tests {
         );
         let restored = parse_world(
             &budget,
-            SnapshotJsonMap::parse(&encoded, "world").unwrap(),
+            SnapshotJsonMap::parse_world_fixture(&encoded).unwrap(),
             &seed,
         )
         .expect("retry identical serialized World with available decoder capacity");
@@ -12018,7 +12048,7 @@ mod decode_tests {
             let encoded = json::to_json(&world).unwrap();
             let error = parse_world(
                 &budget,
-                SnapshotJsonMap::parse(&encoded, "world").unwrap(),
+                SnapshotJsonMap::parse_world_fixture(&encoded).unwrap(),
                 &seed,
             )
             .err()
@@ -12041,7 +12071,8 @@ mod decode_tests {
 
         assert!(
             !encoded.contains("\"account_aliases_by_account\"")
-                && !encoded.contains("\"account_scope_directory\""),
+                && !encoded.contains("\"account_scope_directory\"")
+                && !encoded.contains("\"proofs_by_tag\""),
             "derived account indexes must remain outside the canonical snapshot"
         );
         assert!(
@@ -12052,14 +12083,15 @@ mod decode_tests {
             &iroha_allocation::AllocationBudget::new(
                 iroha_config::parameters::defaults::pipeline::IVM_EXECUTION_MAX_BYTES,
             ),
-            SnapshotJsonMap::parse(&encoded, "world").expect("parse default World"),
+            SnapshotJsonMap::parse_world_fixture(&encoded).expect("parse default World"),
             &seed,
         )
         .map_err(crate::state::deserialize::snapshot_format_error_for_test)
         .expect("canonical World must decode while rebuilding skipped account indexes");
 
         for required in ["account_aliases", "private_dataspaces"] {
-            let mut map = SnapshotJsonMap::parse(&encoded, "world").expect("parse default World");
+            let mut map =
+                SnapshotJsonMap::parse_world_fixture(&encoded).expect("parse default World");
             map.remove(required)
                 .expect("canonical World contains required field");
             let error = match parse_world(
@@ -12087,9 +12119,11 @@ mod decode_tests {
             "council",
             "parliament_bodies",
             "lane_relay_emergency_validators",
+            "proofs_by_tag",
+            "assets_by_account",
         ] {
             let injected = format!("{encoded_prefix},\"{retired_field}\":[]}}");
-            let error = SnapshotJsonMap::parse(&injected, "world")
+            let error = SnapshotJsonMap::parse_world_fixture(&injected)
                 .and_then(|map| {
                     parse_world(
                         &iroha_allocation::AllocationBudget::new(
@@ -12098,10 +12132,10 @@ mod decode_tests {
                         map,
                         &seed,
                     )
-                    .map_err(crate::state::deserialize::snapshot_format_error_for_test)
                 })
+                .map_err(crate::state::deserialize::snapshot_format_error_for_test)
                 .err()
-                .expect("retired caller-selected council state must fail closed");
+                .expect("unsupported snapshot fields must fail closed");
             assert!(
                 error.to_string().contains(retired_field)
                     && error.to_string().contains("unknown field"),
@@ -12625,7 +12659,12 @@ mod decode_tests {
             .map(|layout| layout.size())
             .sum::<usize>();
         let pool = iroha_allocation::AllocationBudget::new(demand - 1);
-        let mut map = SnapshotJsonMap::parse(raw, "world").unwrap();
+        let mut map = SnapshotJsonMap::parse_admitted_fixture(
+            raw,
+            "world",
+            &["musubi_replication_shortfall_releases"],
+        )
+        .unwrap();
         let error = take_musubi_replication_shortfall_releases(&mut map, &pool)
             .err()
             .unwrap();
@@ -12643,17 +12682,14 @@ mod decode_tests {
             r#"{"musubi_replication_shortfall_releases":{"revert":{"value":6},"blocks":9,"blocks":9}}"#,
         ] {
             let budget = iroha_allocation::AllocationBudget::new(demand);
-            let mut map = match SnapshotJsonMap::parse(raw, "world") {
-                Ok(map) => map,
-                Err(error) => {
-                    // The canonical JSON scanner rejects nested duplicate keys
-                    // before a field decoder can acquire any funded shells.
-                    assert!(raw.contains("\"blocks\":9,\"blocks\":9"));
-                    assert!(error.to_string().contains("duplicate field `blocks`"));
-                    assert_eq!(budget.reserved_bytes(), 0);
-                    continue;
-                }
-            };
+            // As in production, the admitted index skips nested values lexically;
+            // the exact scalar decoder rejects the nested duplicate key as well.
+            let mut map = SnapshotJsonMap::parse_admitted_fixture(
+                raw,
+                "world",
+                &["musubi_replication_shortfall_releases"],
+            )
+            .unwrap();
             let error = take_musubi_replication_shortfall_releases(&mut map, &budget)
                 .err()
                 .unwrap();

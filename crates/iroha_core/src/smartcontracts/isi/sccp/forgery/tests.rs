@@ -456,16 +456,68 @@ fn local_refusal_and_stop_never_become_protocol_verdicts_or_leak_budget() {
     let evidence = future(&chain, &keys);
     let stop = AtomicBool::new(false);
     let view = chain.state().view();
-    let bytes = ConsensusAggregateScratch::<()>::backing_bytes();
+    let layout = ConsensusAggregateScratch::<()>::backing_layout();
+    let bytes = layout.size();
+    // A finite limit below the exact demand can never be satisfied: no release wait.
     let budget = AllocationBudget::new(bytes - 1);
     assert!(matches!(
         verify_committed(&view, &evidence, 3_000, &budget, control(&stop)),
-        Err(ForgeryVerificationError::Allocation(_))
+        Err(ForgeryVerificationError::Allocation(AllocationRefusal::ExceedsLimit {
+            requested_bytes,
+            limit_bytes,
+        })) if requested_bytes == bytes && limit_bytes == bytes - 1
     ));
     assert_eq!(budget.reserved_bytes(), 0);
+    // Capacity held by another owner of the same pool is a typed retryable refusal.
     budget.set_limit_bytes(bytes);
-    assert!(verify_committed(&view, &evidence, 3_000, &budget, control(&stop)).is_ok());
+    let occupied = budget.try_reserve_bytes(1).unwrap();
+    assert!(matches!(
+        verify_committed(&view, &evidence, 3_000, &budget, control(&stop)),
+        Err(ForgeryVerificationError::Allocation(AllocationRefusal::Capacity {
+            requested_bytes,
+            reserved_bytes: 1,
+            limit_bytes,
+            ..
+        })) if requested_bytes == bytes && limit_bytes == bytes
+    ));
+    assert_eq!(budget.reserved_bytes(), 1);
+    drop(occupied);
     assert_eq!(budget.reserved_bytes(), 0);
+    assert_eq!(
+        crate::test_allocations::allocations_during(|| {
+            assert!(verify_committed(&view, &evidence, 3_000, &budget, control(&stop)).is_ok());
+        }),
+        1,
+        "exact pairing charge construction requires only its one backing allocation"
+    );
+    assert_eq!(budget.reserved_bytes(), 0);
+    let (failure, observed) = crate::test_allocations::refuse_one_layout_during(layout, || {
+        verify_committed(&view, &evidence, 3_000, &budget, control(&stop))
+    });
+    assert!(observed, "actual forgery pairing allocator was refused");
+    assert!(
+        matches!(&failure, Err(ForgeryVerificationError::PhysicalAllocation(original))
+            if original.vec_reserve_error().is_some_and(|(_, actual)| actual == layout)),
+        "HC941 forgery pairing allocator refusal must remain local with its original cause"
+    );
+    let Err(ForgeryVerificationError::PhysicalAllocation(original)) = failure else {
+        unreachable!("asserted original pairing cause")
+    };
+    let deferred = crate::execution_attempt::ExecutionDeferred::from(original);
+    assert!(deferred.allocation_refusal().is_none());
+    assert_eq!(
+        deferred.reason(),
+        ivm::error::ExecutionDeferral::AllocationUnavailable
+    );
+    assert!(
+        deferred
+            .allocator_refusal()
+            .unwrap()
+            .vec_reserve_error()
+            .is_some()
+    );
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert!(verify_committed(&view, &evidence, 3_000, &budget, control(&stop)).is_ok());
     stop.store(true, Ordering::Release);
     assert!(matches!(
         verify_committed(&view, &evidence, 3_000, &budget, control(&stop)),

@@ -1,7 +1,7 @@
 //! Genuine Receive step, state and depth32 maps for an exactly signed Request.
 //!
 //! A1 proves this step relation inline (`ReceiveTransition`, lean lineage); the
-//! wallet still produces σ_recv from the same step for the payer's ArchiveReceive.
+//! wallet still produces `σ_recv` from the same step for the payer's `ArchiveReceive`.
 //! The supplied Payment digest is an operation input, not authenticated by this
 //! fixture. The full A owner must derive it from the same original byte tapes.
 

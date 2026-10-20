@@ -58,7 +58,10 @@ pub use field_destination::{
     DecodeValueFields, DecodeVariantField, EnumFieldDestination, FieldDestination, OwnedFields,
     PreparedRecordDestination, framed_byte_array_field, framed_field, with_context_fields,
 };
-pub use prepared_scope::{PreparedDecodeError, PreparedDecodeScopeError, PreparedDecodeWorkspace};
+pub use prepared_scope::{
+    PreparedDecodeError, PreparedDecodeScopeError, PreparedDecodeWorkspace,
+    PreparedDecodeWorkspaceConstruction,
+};
 pub use prepared_sequence::{
     ChargedElementSequence, PreparedElementSequence, RetainedElementSequence,
     RetainedSequenceError, SequenceAdmissionError, SequenceDestinationError,
@@ -1087,11 +1090,11 @@ impl DecodeStateSnapshot {
         DECODE_ROOT_SPAN.with(|slot| *slot.borrow_mut() = self.root_span);
     }
 }
-struct IsolatedDecodeGuard {
+pub(crate) struct IsolatedDecodeGuard {
     snapshot: Option<DecodeStateSnapshot>,
 }
 impl IsolatedDecodeGuard {
-    fn enter() -> Self {
+    pub(crate) fn enter() -> Self {
         let snapshot = DecodeStateSnapshot::capture();
         reset_decode_state();
         clear_decode_root();

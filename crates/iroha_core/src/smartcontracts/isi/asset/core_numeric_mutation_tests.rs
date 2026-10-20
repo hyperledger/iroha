@@ -516,8 +516,8 @@ fn find_asset_definitions_filters_owner_with_owner_index() {
         world
             .view()
             .asset_definitions_by_owner
-            .get(&ALICE_ID)
-            .is_some_and(|ids| ids.contains(&alice_definition_id)),
+            .get(&(ALICE_ID.clone(), alice_definition_id.clone()))
+            .is_some(),
         "world constructor should build the asset-definition owner index",
     );
     let kura = Kura::blank_kura_for_testing();
@@ -1011,20 +1011,20 @@ fn full_balance_self_transfer_preserves_asset_metadata_and_indexes() {
     assert!(
         stx.world
             .asset_definition_assets
-            .get(&definition_id)
-            .is_some_and(|assets| assets.contains(&asset_id))
+            .get(&(definition_id.clone(), asset_id.clone()))
+            .is_some()
     );
     assert!(
         stx.world
             .asset_definition_holders
-            .get(&definition_id)
-            .is_some_and(|holders| holders.contains(&ALICE_ID))
+            .get(&(definition_id.clone(), ALICE_ID.clone()))
+            .is_some()
     );
     assert!(
         stx.world
             .asset_definition_nonzero_holders
-            .get(&definition_id)
-            .is_some_and(|holders| holders.contains(&ALICE_ID))
+            .get(&(definition_id.clone(), ALICE_ID.clone()))
+            .is_some()
     );
     assert_eq!(
         stx.world.internal_event_buf.len(),
@@ -2683,7 +2683,9 @@ fn stale_prepared_movement_discards_its_prepared_occurrence() {
     assert_eq!(asset_balance_or_zero(&tx, &destination), Quantity::zero());
     assert_eq!(tx.pending_transfer_transcript_count_for_testing(), 0);
     tx.apply();
-    assert!(block.drain_transfer_transcripts().is_empty());
+    // The refused movement completes the original execution, so only the immutable
+    // observation may read the staging map afterwards.
+    assert!(block.transfer_transcripts_are_empty_for_testing());
     assert!(
         block
             .captured_fastpq_transcript_sources()

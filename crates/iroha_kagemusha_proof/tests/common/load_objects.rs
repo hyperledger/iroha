@@ -104,33 +104,6 @@ pub fn policy() -> OwnPolicy {
     OwnPolicy::new([31, 32], key(23)).unwrap()
 }
 
-/// Separate mandatory C4 signature leaf: current credential and fixed-root certificate.
-pub fn current_signatures(
-    witnesses: &[iroha_kagemusha_proof::q_signature::SignatureWitness; 2],
-) -> (
-    iroha_kagemusha_proof::q_signature::QSignatureCircuit,
-    [Vec<iroha_pasta::Fq>; 1],
-) {
-    use iroha_kagemusha_proof::q_signature::{
-        QSignatureCircuit, QSignaturePlan, SignatureKey, SignatureSlot,
-    };
-    use iroha_plonk_gadgets::p256::VerifyMode;
-    let plan = QSignaturePlan::new(vec![
-        SignatureSlot {
-            mode: VerifyMode::Hard,
-            key: SignatureKey::Variable,
-        },
-        SignatureSlot {
-            mode: VerifyMode::Hard,
-            key: SignatureKey::Fixed(key(23)),
-        },
-    ])
-    .unwrap();
-    let circuit = QSignatureCircuit::new(plan, witnesses.to_vec()).unwrap();
-    let instances = circuit.instances(&[true; 2]).unwrap();
-    (circuit, instances)
-}
-
 /// Own Advance receipt signature, independent of ledger consensus finality.
 pub fn own_signature(
     witness: iroha_kagemusha_proof::q_signature::SignatureWitness,

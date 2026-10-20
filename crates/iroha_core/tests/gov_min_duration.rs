@@ -44,6 +44,7 @@ fn plain_ballot_rejected_when_duration_below_min() {
     Grant::account_permission(permission, ALICE_ID.clone())
         .execute(&ALICE_ID, &mut stx)
         .expect("grant exact ballot permission");
+    let plain_context = iroha_core::query::standalone_plain_test_fixture::context(&stx.gov, 0);
     stx.world.governance_referenda_mut().insert(
         "rid-min-dur".into(),
         iroha_core::state::GovernanceReferendumRecord {
@@ -51,7 +52,7 @@ fn plain_ballot_rejected_when_duration_below_min() {
             h_end: 2,
             status: iroha_core::state::GovernanceReferendumStatus::Open,
             mode: iroha_core::state::GovernanceReferendumMode::Plain,
-            plain_context: iroha_core::query::standalone_plain_test_fixture::context(&stx.gov, 0),
+            plain_context,
             plain_result: iroha_data_model::governance::conviction::PlainVotingResultV1::Pending,
         },
     );

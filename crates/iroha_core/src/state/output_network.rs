@@ -136,6 +136,11 @@ impl<'source> ExecutionOutputProducer<'_, '_, 'source> {
             )
         })?;
         for (index, input) in source.network_entrypoints().enumerate() {
+            if matches!(input, TransactionEntrypoint::AnonymousBallot(_)) {
+                return Err(ExecutionAttemptError::Deferred(
+                    crate::tx::anonymous_ballot_unavailable(),
+                ));
+            }
             let (routing, policy_route) = policy_routes.get(source, index)?;
             // Lane admission does not preserve TTL. Expansion filters invalid
             // merged inputs at this same global time before they enter Network,
@@ -167,6 +172,10 @@ impl<'source> ExecutionOutputProducer<'_, '_, 'source> {
                     signatures_prechecked,
                 )
                 .map_err(execution_rejection_from_admission_failure)
+            };
+            let admission = match admission {
+                Ok(accepted) => Ok(accepted),
+                Err(rejection) => Err(rejection.map_err(ExecutionAttemptError::Deferred)?),
             };
             let admission = if genesis_account.is_none() {
                 if let Some(signed) = signed_source(input) {
@@ -853,7 +862,9 @@ fn signed_source(
     match input {
         TransactionEntrypoint::External(signed) => Some(signed),
         TransactionEntrypoint::SealedReveal(reveal) => Some(reveal.signed_transaction()),
-        TransactionEntrypoint::SealedCommitment(_) => None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => {
+            None
+        }
     }
 }
 

@@ -59,9 +59,9 @@ fn fixture() -> FastpqExecutionEffectsV1 {
         .into_iter()
         .enumerate()
         .map(|(i, kind)| FastpqExecutionEffectV1 {
-            ordinal: i as u32,
-            authority_digest: Hash::new([i as u8]),
-            authorization_context: Hash::new([i as u8, 1]),
+            ordinal: u32::try_from(i).expect("fixture ordinal fits u32"),
+            authority_digest: Hash::new([u8::try_from(i).expect("fixture index fits u8")]),
+            authorization_context: Hash::new([u8::try_from(i).expect("fixture index fits u8"), 1]),
             kind,
         })
         .collect();
@@ -85,10 +85,9 @@ fn decode(
     )
 }
 fn finish(mut pending: PendingFastpqEffectsDecodeV1) -> AllocatedFastpqEffectsV1 {
-    match pending.finish() {
-        Ok(owner) => owner,
-        Err(_) => panic!("canonical complete tape was not consumable"),
-    }
+    pending
+        .finish()
+        .unwrap_or_else(|_| panic!("canonical complete tape was not consumable"))
 }
 #[test]
 fn every_closed_effect_variant_keeps_exact_original_graph_and_physical_custody() {

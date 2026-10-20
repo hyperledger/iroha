@@ -43,6 +43,7 @@ def test_configuration_methods_return_validated_models(
         "https://torii.example",
         session=RecordingSession(response),
         max_retries=0,
+        chain_discriminant=753,
     )
     monkeypatch.setattr(client, "_operator_get", lambda *_args, **_kwargs: response)
 
@@ -65,6 +66,7 @@ def test_network_time_methods_return_validated_models(
         "https://torii.example",
         session=RecordingSession(now_response),
         max_retries=0,
+        chain_discriminant=753,
     )
 
     now = client.get_time_now()
@@ -106,6 +108,7 @@ def test_json_reads_reject_non_json_success_bodies() -> None:
         "https://torii.example",
         session=RecordingSession(response),
         max_retries=0,
+        chain_discriminant=753,
     )
 
     with pytest.raises(RuntimeError, match="not valid JSON"):
@@ -170,6 +173,6 @@ def test_collection_surface_is_reused_from_the_lightweight_client() -> None:
     assert iroha_python.F is iroha_torii_client.F
     assert iroha_python.ListQuery is iroha_torii_client.ListQuery
     assert iroha_python.ToriiError is iroha_torii_client.ToriiError
-    client = ToriiClient("https://torii.example", session=RecordingSession(StubResponse()))
+    client = ToriiClient("https://torii.example", session=RecordingSession(StubResponse()), chain_discriminant=753)
     assert isinstance(client.accounts, iroha_torii_client.AccountsCollection)
     assert isinstance(client.asset_definitions, iroha_torii_client.AssetDefinitionsCollection)

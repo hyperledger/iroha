@@ -130,7 +130,8 @@ impl ExplorerTransactionProof {
         let transaction = match &selected.entrypoint {
             TransactionEntrypoint::External(transaction) => transaction,
             TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-            TransactionEntrypoint::SealedCommitment(_) => {
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => {
                 return Err(eyre!(
                     "Explorer transaction proof requires a visible signed transaction"
                 ));

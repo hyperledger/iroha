@@ -3090,8 +3090,19 @@ async fn transaction_details_http_preserves_original_receipt_after_cold_body_rea
         assert_eq!(
             app.kura
                 .get_block_heights_by_entrypoint_hash(entrypoint_hash),
+            indexed_before,
+            "a cold body read must neither withdraw nor republish the append path's index entry"
+        );
+        // A restarted node indexes only the bodies it loaded, leaving this height partial
+        // until it is re-indexed. Details reads must not need that auxiliary index.
+        app.kura
+            .forget_transaction_entrypoint_index_for_testing(height)
+            .unwrap();
+        assert_eq!(
+            app.kura
+                .get_block_heights_by_entrypoint_hash(entrypoint_hash),
             None,
-            "an ordinary cold read must not authenticate the transaction index"
+            "a height awaiting re-indexing leaves the auxiliary index partial"
         );
         let work = routing::app_query_limits().max_fetch_size;
         let bytes = transaction_history_byte_limit(work);
@@ -3145,12 +3156,11 @@ async fn transaction_details_http_preserves_original_receipt_after_cold_body_rea
             b"cold receipt absent identity",
         ));
         assert!(
-            canonical_transaction_details_for_indexed_identity(app.as_ref(), height, &missing)
-                .is_err()
+            canonical_transaction_details_for_indexed_identity(&app, height, &missing).is_err()
         );
         assert!(
             canonical_transaction_details_for_indexed_identity(
-                app.as_ref(),
+                &app,
                 NonZeroUsize::new(1).unwrap(),
                 &entrypoint_hash
             )
@@ -3184,6 +3194,8 @@ async fn transaction_details_http_preserves_original_receipt_after_cold_body_rea
         );
     }
 }
+
+include!("part_5_transaction_details_checkpoint.rs");
 
 #[tokio::test]
 async fn transaction_details_allows_sender_and_batch_recipient_but_rejects_other_accounts() {
@@ -3837,7 +3849,7 @@ async fn pipeline_status_resolves_native_executed_sealed_reveal_and_signed_alias
     for identity in [reveal_hash, signed_alias] {
         assert_eq!(
             canonical_transaction_details_for_indexed_identity(
-                app.as_ref(),
+                &app,
                 NonZeroUsize::new(3).unwrap(),
                 &identity,
             )
@@ -3884,8 +3896,7 @@ async fn pipeline_status_rejects_uncertified_sealed_reveal_carrier_and_signed_al
     app.state.update_latest_block_header_cache_for_tests(header);
     for identity in [reveal_entry_hash, signed_entrypoint_alias] {
         assert!(
-            canonical_transaction_details_for_indexed_identity(app.as_ref(), height_nz, &identity)
-                .is_err(),
+            canonical_transaction_details_for_indexed_identity(&app, height_nz, &identity).is_err(),
             "an indexed synthetic reveal must not replace a native commit certificate"
         );
     }

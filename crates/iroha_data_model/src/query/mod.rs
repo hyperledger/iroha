@@ -2749,7 +2749,7 @@ impl CommittedTransaction {
             TransactionEntrypoint::External(entrypoint) => {
                 entrypoint.inject_instructions(additions.clone());
             }
-            TransactionEntrypoint::SealedCommitment(_) => {}
+            TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => {}
             TransactionEntrypoint::SealedReveal(entrypoint) => {
                 entrypoint
                     .signed_transaction

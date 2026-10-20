@@ -776,7 +776,8 @@ fn core_query_page_is_bounded_ordered_and_validates_arguments() {
         (0, 0, 1),
         (
             CoreQueryEntityTagV1::Account.as_u64(),
-            u64::try_from(-1_i64).expect("fixture value fits u64"),
+            // The register carries the two's-complement bits of a negative offset.
+            (-1_i64).cast_unsigned(),
             1,
         ),
         (

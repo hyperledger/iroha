@@ -609,14 +609,18 @@ fn admitted_prefix_initializes_every_field_like_the_owned_constructor() {
     let id = ChainId::from("sumeragi-certified-test-chain");
     let mut owned = CertifiedPrefix::new(&id, chain.network_id(), frame(&chain, 1)).unwrap();
     let prefix_bytes = std::mem::size_of::<CertifiedPrefix>();
+    let authority_bytes =
+        funded_authority::FundedPrefixAuthority::allocation_bytes(owned.current_epoch_context())
+            .unwrap();
     let budget = iroha_allocation::AllocationBudget::new(
         prefix_bytes
+            + authority_bytes
             + std::mem::size_of::<CommittedBlock>()
             + std::mem::size_of::<CertifiedResultV1>(),
     );
     let mut slot =
         CertifiedPrefix::new_admitted(&id, chain.network_id(), frame(&chain, 1), &budget).unwrap();
-    assert_eq!(budget.reserved_bytes(), prefix_bytes);
+    assert_eq!(budget.reserved_bytes(), prefix_bytes + authority_bytes);
     let admitted = &mut slot.as_mut_slice()[0];
     assert_eq!(admitted.instance(), owned.instance());
     assert_eq!(admitted.root_scope, owned.root_scope);
@@ -632,7 +636,576 @@ fn admitted_prefix_initializes_every_field_like_the_owned_constructor() {
     assert_eq!(actual.current.id(), expected.current.id());
     assert!(actual.has_genesis_anchor() && expected.has_genesis_anchor());
     assert_eq!(admitted.prefix.proof_source, None);
+    assert_eq!(budget.reserved_bytes(), prefix_bytes + authority_bytes);
     drop(slot);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+/// Admitted completion preserves every original native receipt and refunds its exact slots.
+#[test]
+fn admitted_prepared_prefix_refusal_retains_metadata_slots_and_original_release() {
+    use std::{
+        future::Future as _,
+        pin::Pin,
+        task::{Context, Waker},
+    };
+
+    let (chain, _) = chain();
+    let id = ChainId::from("sumeragi-certified-test-chain");
+    let budget = iroha_allocation::AllocationBudget::new(32 << 20);
+    let mut prefix =
+        CertifiedPrefix::new_admitted(&id, chain.network_id(), frame(&chain, 1), &budget).unwrap();
+    let authority_bytes = funded_authority::FundedPrefixAuthority::allocation_bytes(
+        prefix.as_slice()[0].current_epoch_context(),
+    )
+    .unwrap();
+    let base_bytes = std::mem::size_of::<CertifiedPrefix>() + authority_bytes;
+    assert_eq!(budget.reserved_bytes(), base_bytes);
+    let source = frame(&chain, 2);
+    let artifacts = artifacts::PrefixArtifactsRead::new(source.clone(), budget.clone())
+        .complete(&budget)
+        .unwrap_or_else(|(_, error)| panic!("genuine prepared metadata: {error}"));
+    let header_pointer = std::ptr::from_ref::<BlockHeader>(artifacts.header());
+    let header_bytes = artifacts.header().allocation_bytes();
+    let (qc, availability, payload) = artifacts
+        .clone()
+        .into_parts(&source, &PrefixHeader::Funded(artifacts.header().clone()))
+        .unwrap();
+    let qc_pointer = std::ptr::from_ref::<Qc>(&qc);
+    let qc_bytes = qc.allocation_bytes();
+    drop((availability, payload));
+    let registration_bytes =
+        iroha_allocation::release::ReleaseRegistration::allocation_layout().size();
+    let mut reservation = budget.try_reserve_bytes(registration_bytes).unwrap();
+    let mut registration =
+        iroha_allocation::release::ReleaseRegistration::from_reservation(&mut reservation).unwrap();
+    drop(reservation);
+    let original_bytes = budget.reserved_bytes();
+    let frame_bytes = std::mem::size_of::<CommittedBlock>();
+    let external = budget
+        .try_reserve_bytes(budget.limit_bytes() - original_bytes - frame_bytes)
+        .unwrap();
+    let prior = prefix.as_slice()[0].prefix.tip.id();
+    let mut read = AdmittedPrefixPush::default();
+    let failure = read
+        .complete_prepared_with_finish(&mut prefix.as_mut_slice()[0], &artifacts, &budget, |_| {
+            panic!("refused frame cannot publish a receipt")
+        })
+        .unwrap_err();
+    let ExecutionAttemptError::Deferred(refusal) = failure else {
+        panic!("original result-slot capacity refusal")
+    };
+    assert!(
+        read.frame.committed.is_some(),
+        "HC951 admitted prefix refusal must retain its original frame slot"
+    );
+    let slot_pointer = read.frame.committed.as_ref().unwrap().as_slice().as_ptr();
+    assert!(read.frame.result.is_none());
+    assert_eq!(prefix.as_slice()[0].prefix.tip.id(), prior);
+    assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+    let Some(iroha_allocation::AllocationRefusal::Capacity {
+        requested_bytes,
+        release,
+        ..
+    }) = refusal.allocation_refusal()
+    else {
+        panic!("original result-slot release observation")
+    };
+    assert_eq!(*requested_bytes, std::mem::size_of::<CertifiedResultV1>());
+    let mut wait = release.clone().wait_for_release(&mut registration);
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(Pin::new(&mut wait).poll(&mut cx).is_pending());
+    let unrelated = iroha_allocation::AllocationBudget::new(frame_bytes);
+    drop(unrelated.try_reserve_bytes(frame_bytes).unwrap());
+    assert!(Pin::new(&mut wait).poll(&mut cx).is_pending());
+    assert_eq!(
+        std::ptr::from_ref::<BlockHeader>(artifacts.header()),
+        header_pointer
+    );
+    assert_eq!(std::ptr::from_ref::<Qc>(&qc), qc_pointer);
+    assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+        artifacts.source(),
+        &source
+    ));
+    assert_eq!(
+        read.frame.committed.as_ref().unwrap().as_slice().as_ptr(),
+        slot_pointer
+    );
+    drop(external);
+    assert!(Pin::new(&mut wait).poll(&mut cx).is_ready());
+    drop(wait);
+    let certified = read
+        .complete_prepared_with_finish(&mut prefix.as_mut_slice()[0], &artifacts, &budget, |step| {
+            step.into_parts().0
+        })
+        .unwrap();
+    assert!(read.frame.committed.is_none() && read.frame.result.is_none());
+    assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+        certified.committed().block(),
+        &source
+    ));
+    assert_eq!(
+        std::ptr::from_ref(certified.committed().header().unwrap()),
+        header_pointer
+    );
+    assert_eq!(
+        std::ptr::from_ref(certified.commit_qc().unwrap()),
+        qc_pointer
+    );
+    drop(artifacts);
+    drop(qc);
+    assert_eq!(
+        budget.reserved_bytes(),
+        base_bytes + header_bytes + qc_bytes + registration_bytes
+    );
+    drop(certified);
+    assert_eq!(
+        budget.reserved_bytes(),
+        base_bytes + header_bytes + registration_bytes
+    );
+    drop(prefix);
+    drop(registration);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn admitted_frame_refusal_rejects_foreign_pool_and_replacement_source_before_retry() {
+    let (chain, _) = chain();
+    let source = frame(&chain, 2);
+    let bytes = std::mem::size_of::<CommittedBlock>() + std::mem::size_of::<CertifiedResultV1>();
+    let budget = iroha_allocation::AllocationBudget::new(bytes);
+    let foreign = iroha_allocation::AllocationBudget::new(bytes);
+    let occupied = budget.try_reserve_bytes(bytes).unwrap();
+    let mut read = AdmittedFrameRead::default();
+    let mut validation = EpochValidationScope::new();
+    let scope = chain.committed(2).root_scope();
+    assert!(matches!(
+        read.initialize(source.clone(), 2, scope, &mut validation, &budget),
+        Err(ExecutionAttemptError::Deferred(_))
+    ));
+    assert!(read.committed.is_none() && read.result.is_none());
+    let failure = read.initialize(source.clone(), 2, scope, &mut validation, &foreign);
+    assert!(
+        matches!(failure, Err(ExecutionAttemptError::Deferred(ref original))
+        if original.reason() == ivm::error::ExecutionDeferral::LocalInvariantViolation
+            && original.allocation_refusal().is_none()),
+        "HC952 admitted frame retry must reject a foreign original pool before allocating"
+    );
+    assert_eq!(foreign.reserved_bytes(), 0);
+    assert_eq!(budget.reserved_bytes(), bytes);
+    drop(occupied);
+    let shell_budget = iroha_allocation::AllocationBudget::new(
+        iroha_data_model::block::SharedSignedBlock::allocation_layout().size(),
+    );
+    let replacement = iroha_data_model::block::SharedSignedBlock::reserve(&shell_budget)
+        .unwrap()
+        .initialize(source.as_ref().clone());
+    assert!(!iroha_data_model::block::SharedSignedBlock::ptr_eq(
+        &replacement,
+        &source
+    ));
+    // Equal bytes re-read into another carrier, or another scope, are local custody faults:
+    // no invalid-history verdict may depend on pointer identity.
+    let local = |result: Result<(), ExecutionAttemptError<ChainReadError>>| {
+        matches!(result, Err(ExecutionAttemptError::Deferred(original))
+            if original.reason() == ivm::error::ExecutionDeferral::LocalInvariantViolation
+                && original.allocation_refusal().is_none())
+    };
+    assert!(
+        local(read.initialize(replacement, 2, scope, &mut validation, &budget)),
+        "HC962 a retained carrier mismatch is local custody, never a history verdict"
+    );
+    let other_scope = SumeragiRootScope::Dataspace {
+        parent_network_id: chain.network_id(),
+        dataspace_id: iroha_model_base::topology::DataSpaceId::new(7),
+    };
+    assert!(
+        local(read.initialize(source.clone(), 2, other_scope, &mut validation, &budget)),
+        "HC962 a retained scope mismatch is local custody, never a history verdict"
+    );
+    // The original carrier at another height is still a genuine input rejection.
+    assert!(matches!(
+        read.initialize(source.clone(), 3, scope, &mut validation, &budget),
+        Err(ExecutionAttemptError::Rejected(
+            ChainReadError::HeaderMismatch { height: 3 }
+        ))
+    ));
+    assert_eq!(budget.reserved_bytes(), 0);
+    read.initialize(source.clone(), 2, scope, &mut validation, &budget)
+        .unwrap();
+    assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+        read.committed().block(),
+        &source
+    ));
+    drop(read);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn admitted_prefix_rebuilds_funded_configuration_for_same_epoch_parameter_change() {
+    with_same_epoch_parameter_change(assert_same_epoch_parameter_change);
+}
+
+// Genesis admits 16 KiB of transactions per block. A permitted lag-two update raises the
+// block cap that the signed-availability verifier consumes, and the activation height
+// carries a genuine payload above the original cap: a stale native configuration rejects it.
+const ORIGINAL_MAX_BLOCK_BYTES: u32 =
+    iroha_data_model::parameter::system::BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES + 16 * 1024;
+const RAISED_MAX_BLOCK_BYTES: u32 =
+    iroha_data_model::parameter::system::BLOCK_PAYLOAD_NON_TRANSACTION_RESERVE_BYTES + 128 * 1024;
+
+#[inline(never)]
+fn with_same_epoch_parameter_change(check: fn(&CertifiedTestChain)) {
+    use iroha_data_model::{
+        isi::{Grant, SetParameter},
+        parameter::{Parameter, SumeragiParameter, TransactionParameter},
+        privacy::{PrivacyConsensusLimitsV1, PrivacyConsensusPolicyV1},
+    };
+    use std::num::{NonZeroU32, NonZeroU64};
+
+    const INCLUDABLE: u32 = 16 * 1024;
+    let mut world = World::new();
+    // Every contained privacy byte bound must fit the small genesis transaction cap.
+    let mut limits = PrivacyConsensusLimitsV1::taira_default();
+    limits.max_proof_bytes_per_action = INCLUDABLE;
+    limits.max_action_bytes = INCLUDABLE;
+    limits.max_privacy_bytes_per_transaction = INCLUDABLE;
+    limits.max_privacy_bytes_per_block = INCLUDABLE;
+    limits.max_statement_and_encrypted_output_bytes_per_transaction = INCLUDABLE;
+    limits
+        .validate()
+        .expect("coherent small fixture privacy limits");
+    world.privacy_consensus_policy = mv::cell::Cell::new(PrivacyConsensusPolicyV1 {
+        current_limits: limits,
+        pending_tightening: None,
+    });
+    let mut config = TestChainConfig::new(world, 1_000);
+    config
+        .genesis_parameters
+        .push(Parameter::Sumeragi(SumeragiParameter::MaxBlockBytes(
+            NonZeroU32::new(ORIGINAL_MAX_BLOCK_BYTES).unwrap(),
+        )));
+    config
+        .genesis_parameters
+        .push(Parameter::Transaction(TransactionParameter::MaxTxBytes(
+            NonZeroU64::new(u64::from(INCLUDABLE)).unwrap(),
+        )));
+    let author = config.genesis_key.clone();
+    config.genesis_instructions.push(
+        Grant::account_permission(
+            iroha_executor_data_model::permission::parameter::CanSetParameters,
+            iroha_data_model::account::AccountId::new(author.public_key().clone()),
+        )
+        .into(),
+    );
+    let mut chain = Box::new(CertifiedTestChain::start(config).unwrap());
+    let update = chain.sign(
+        &author,
+        [
+            SetParameter::new(Parameter::Sumeragi(SumeragiParameter::MaxBlockBytes(
+                NonZeroU32::new(RAISED_MAX_BLOCK_BYTES).unwrap(),
+            )))
+            .into(),
+        ],
+        1_500,
+    );
+    assert_eq!(chain.commit_at(2_000, vec![update]), [true]);
+    chain.commit_at(3_000, Vec::new());
+    // Six near-cap transactions fit only the raised cap that activates at height 4.
+    let large = (0..6_u64)
+        .map(|index| {
+            chain.sign(
+                &author,
+                [InstructionBox::from(Log::new(
+                    Level::DEBUG,
+                    "x".repeat(15_000),
+                ))],
+                3_500 + index,
+            )
+        })
+        .collect();
+    assert_eq!(chain.commit_at(4_000, large), [true; 6]);
+    assert!(
+        chain.committed(4).header().unwrap().payload_len > ORIGINAL_MAX_BLOCK_BYTES,
+        "the activation height carries a payload above the original cap"
+    );
+    check(&chain);
+}
+
+#[inline(never)]
+fn assert_same_epoch_parameter_change(chain: &CertifiedTestChain) {
+    let id = ChainId::from("sumeragi-certified-test-chain");
+    let original = chain.committed(1);
+    let authority_bytes = funded_authority::FundedPrefixAuthority::allocation_bytes(
+        &original.commitment().schedule.current,
+    )
+    .unwrap();
+    let prefix_bytes = std::mem::size_of::<CertifiedPrefix>();
+    let budget = iroha_allocation::AllocationBudget::new(
+        prefix_bytes
+            + 2 * authority_bytes
+            + std::mem::size_of::<CommittedBlock>()
+            + std::mem::size_of::<CertifiedResultV1>(),
+    );
+    // The unfunded portable walk derives each configuration afresh: it is the verdict oracle.
+    let mut portable = CertifiedPrefix::new(&id, chain.network_id(), frame(chain, 1)).unwrap();
+    let mut slot =
+        CertifiedPrefix::new_admitted(&id, chain.network_id(), frame(chain, 1), &budget).unwrap();
+    let prefix = &mut slot.as_mut_slice()[0];
+    let incumbent = prefix.prefix.authority.clone();
+    let initial_pointer = std::ptr::from_ref(incumbent.material());
+    let initial_params = incumbent.funded_config().unwrap().params;
+    assert_eq!(initial_params.max_block_bytes, ORIGINAL_MAX_BLOCK_BYTES);
+    let mut read = AdmittedPrefixPush::default();
+    for height in 2..=4 {
+        let expected = prefix
+            .prefix
+            .schedule
+            .ready(height)
+            .unwrap()
+            .params
+            .to_core();
+        let source = frame(chain, height);
+        let oracle = portable
+            .push(source.clone())
+            .map(|step| step.into_parts().0.id());
+        let funded = read
+            .complete_with_finish(prefix, source, &budget, |step| step.into_parts().0.id())
+            .map_err(|error| format!("{error:?}"));
+        assert_eq!(
+            funded.as_ref().ok(),
+            oracle.as_ref().ok(),
+            "HC953 same-epoch parameter activation must verify with the active native configuration: {funded:?}"
+        );
+        assert!(oracle.is_ok(), "genuine height {height}");
+        assert_eq!(prefix.current_epoch_context(), incumbent.material());
+        assert_eq!(
+            prefix.prefix.authority.funded_config().unwrap().params,
+            expected,
+            "the funded native configuration follows the lag-two activation"
+        );
+        if height < 4 {
+            assert_eq!(
+                std::ptr::from_ref(prefix.current_epoch_context()),
+                initial_pointer
+            );
+            assert_eq!(budget.reserved_bytes(), prefix_bytes + authority_bytes);
+        } else {
+            assert_eq!(expected.max_block_bytes, RAISED_MAX_BLOCK_BYTES);
+            assert_ne!(
+                std::ptr::from_ref(prefix.current_epoch_context()),
+                initial_pointer
+            );
+            assert_eq!(budget.reserved_bytes(), prefix_bytes + 2 * authority_bytes);
+        }
+    }
+    assert_eq!(incumbent.funded_config().unwrap().params, initial_params);
+    drop(incumbent);
+    assert_eq!(budget.reserved_bytes(), prefix_bytes + authority_bytes);
+    drop(read);
+    drop(slot);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn admitted_parameter_change_retains_pending_authority_across_later_scratch_refusal() {
+    with_same_epoch_parameter_change(assert_pending_parameter_authority_survives_refusal);
+}
+
+#[inline(never)]
+fn assert_pending_parameter_authority_survives_refusal(chain: &CertifiedTestChain) {
+    use std::{
+        future::Future as _,
+        pin::Pin,
+        task::{Context, Waker},
+    };
+
+    let id = ChainId::from("sumeragi-certified-test-chain");
+    let budget = iroha_allocation::AllocationBudget::new(32 << 20);
+    let mut prefix =
+        CertifiedPrefix::new_admitted(&id, chain.network_id(), frame(chain, 1), &budget).unwrap();
+    for height in 2..=3 {
+        prefix.as_mut_slice()[0].push(frame(chain, height)).unwrap();
+    }
+    let prior = prefix.as_slice()[0].prefix.tip.id();
+    let incumbent = prefix.as_slice()[0].prefix.authority.clone();
+    let authority_bytes =
+        funded_authority::FundedPrefixAuthority::allocation_bytes(incumbent.material()).unwrap();
+    let source = frame(chain, 4);
+    let artifacts = artifacts::PrefixArtifactsRead::new(source.clone(), budget.clone())
+        .complete(&budget)
+        .unwrap_or_else(|(_, error)| panic!("genuine parameter-activation artifacts: {error}"));
+    let mut read = AdmittedPrefixPush::default();
+    let active = &mut prefix.as_mut_slice()[0];
+    read.frame
+        .initialize_prepared(
+            source.clone(),
+            4,
+            active.root_scope,
+            &mut active.prefix.validation,
+            &budget,
+            Some(artifacts.header().clone()),
+        )
+        .unwrap();
+    let slot_pointer = read.frame.committed.as_ref().unwrap().as_slice().as_ptr();
+    let shape = active
+        .prefix
+        .schedule
+        .ready(4)
+        .unwrap()
+        .epoch
+        .da_layout
+        .shape(u64::from(artifacts.header().payload_len))
+        .unwrap();
+    let scratch_bytes =
+        shape.encoded_bytes() + shape.workspace_words() * std::mem::size_of::<u16>();
+    let registration_bytes =
+        iroha_allocation::release::ReleaseRegistration::allocation_layout().size();
+    let mut registration_credit = budget.try_reserve_bytes(registration_bytes).unwrap();
+    let mut registration =
+        iroha_allocation::release::ReleaseRegistration::from_reservation(&mut registration_credit)
+            .unwrap();
+    drop(registration_credit);
+    let retained = budget.reserved_bytes();
+    let external = budget
+        .try_reserve_bytes(budget.limit_bytes() - retained - authority_bytes)
+        .unwrap();
+    let failure = read
+        .complete_prepared_with_finish(active, &artifacts, &budget, |_| {
+            panic!("refused scratch cannot install the candidate")
+        })
+        .unwrap_err();
+    let ExecutionAttemptError::Deferred(original) = failure else {
+        panic!("original RS16 scratch capacity refusal")
+    };
+    let Some(iroha_allocation::AllocationRefusal::Capacity {
+        requested_bytes,
+        release,
+        ..
+    }) = original.allocation_refusal()
+    else {
+        panic!("actual original scratch release observation")
+    };
+    assert_eq!(*requested_bytes, scratch_bytes);
+    let mut wait = release.clone().wait_for_release(&mut registration);
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(
+        Pin::new(&mut wait).poll(&mut cx).is_pending(),
+        "HC957 later scratch refusal must retain the original pending authority without satisfying its own release wait"
+    );
+    let candidate = read
+        .pending_authority
+        .as_ref()
+        .expect("same authority survives refusal");
+    let candidate_pointer = std::ptr::from_ref(candidate.projection().material);
+    assert_eq!(
+        candidate.config().params.max_block_bytes,
+        RAISED_MAX_BLOCK_BYTES
+    );
+    assert_ne!(
+        incumbent.funded_config().unwrap().params.max_block_bytes,
+        RAISED_MAX_BLOCK_BYTES
+    );
+    assert_eq!(active.prefix.tip.id(), prior);
+    assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+    assert_eq!(
+        read.frame.committed.as_ref().unwrap().as_slice().as_ptr(),
+        slot_pointer
+    );
+    let foreign = iroha_allocation::AllocationBudget::new(authority_bytes);
+    drop(foreign.try_reserve_bytes(authority_bytes).unwrap());
+    assert!(Pin::new(&mut wait).poll(&mut cx).is_pending());
+
+    let retained_candidate = read.pending_authority.take().unwrap();
+    let PrefixAuthority::Funded(stale_parameters) = &incumbent else {
+        panic!("original admitted incumbent")
+    };
+    read.pending_authority = Some(stale_parameters.clone());
+    let mismatched = read
+        .complete_prepared_with_finish(active, &artifacts, &budget, |_| {
+            panic!("stale pending native parameters cannot replace the exact candidate")
+        })
+        .unwrap_err();
+    let ExecutionAttemptError::Deferred(mismatched) = mismatched else {
+        panic!("pending owner mismatch is local")
+    };
+    assert_eq!(
+        mismatched.reason(),
+        ivm::error::ExecutionDeferral::LocalInvariantViolation
+    );
+    assert!(mismatched.allocation_refusal().is_none());
+    read.pending_authority = Some(retained_candidate);
+    assert!(Pin::new(&mut wait).poll(&mut cx).is_pending());
+
+    let foreign_candidate = funded_authority::FundedPrefixAuthority::admit(
+        active.prefix.schedule.ready(4).unwrap(),
+        4,
+        &mut EpochValidationScope::new(),
+        &foreign,
+    )
+    .unwrap();
+    let retained_candidate = read.pending_authority.replace(foreign_candidate).unwrap();
+    let mismatched = read
+        .complete_prepared_with_finish(active, &artifacts, &budget, |_| {
+            panic!("foreign funded candidate cannot replace original authority custody")
+        })
+        .unwrap_err();
+    let ExecutionAttemptError::Deferred(mismatched) = mismatched else {
+        panic!("foreign candidate is a local invariant violation")
+    };
+    assert_eq!(
+        mismatched.reason(),
+        ivm::error::ExecutionDeferral::LocalInvariantViolation
+    );
+    assert!(mismatched.allocation_refusal().is_none());
+    read.pending_authority = Some(retained_candidate);
+    assert_eq!(foreign.reserved_bytes(), 0);
+    assert!(Pin::new(&mut wait).poll(&mut cx).is_pending());
+
+    let repeated = read
+        .complete_prepared_with_finish(active, &artifacts, &budget, |_| {
+            panic!("unreleased original scratch still cannot complete")
+        })
+        .unwrap_err();
+    assert!(matches!(repeated, ExecutionAttemptError::Deferred(_)));
+    assert_eq!(
+        std::ptr::from_ref(
+            read.pending_authority
+                .as_ref()
+                .unwrap()
+                .projection()
+                .material
+        ),
+        candidate_pointer
+    );
+    assert!(Pin::new(&mut wait).poll(&mut cx).is_pending());
+    drop(external);
+    assert!(Pin::new(&mut wait).poll(&mut cx).is_ready());
+    drop(wait);
+    read.complete_prepared_with_finish(active, &artifacts, &budget, |step| {
+        assert_eq!(step.into_parts().0.height(), 4);
+    })
+    .unwrap();
+    assert!(read.pending_authority.is_none());
+    assert_eq!(
+        std::ptr::from_ref(active.current_epoch_context()),
+        candidate_pointer
+    );
+    assert_eq!(
+        active
+            .prefix
+            .authority
+            .funded_config()
+            .unwrap()
+            .params
+            .max_block_bytes,
+        RAISED_MAX_BLOCK_BYTES
+    );
+    drop(read);
+    drop(incumbent);
+    drop(artifacts);
+    drop(prefix);
+    drop(registration);
     assert_eq!(budget.reserved_bytes(), 0);
 }
 
@@ -889,5 +1462,323 @@ fn assert_walk_parent_link_retains_original_body(
     assert!(link.is_extended_by(&child));
     assert!(!link.is_extended_by(&read_frame(frame(chain, 4), 4, chain.root_scope()).unwrap()));
     drop(link);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn one_shot_admitted_push_funds_no_owner_that_could_release_its_own_wait() {
+    with_same_epoch_parameter_change(assert_one_shot_push_funds_no_successor_owner);
+}
+
+#[inline(never)]
+fn assert_one_shot_push_funds_no_successor_owner(chain: &CertifiedTestChain) {
+    let id = ChainId::from("sumeragi-certified-test-chain");
+    let budget = iroha_allocation::AllocationBudget::new(32 << 20);
+    let mut portable = CertifiedPrefix::new(&id, chain.network_id(), frame(chain, 1)).unwrap();
+    let mut slot =
+        CertifiedPrefix::new_admitted(&id, chain.network_id(), frame(chain, 1), &budget).unwrap();
+    let prefix = &mut slot.as_mut_slice()[0];
+    for height in 2..=3 {
+        portable.push(frame(chain, height)).unwrap();
+        prefix.push(frame(chain, height)).unwrap();
+    }
+    let source = frame(chain, 4);
+    let artifacts = artifacts::PrefixArtifactsRead::new(source.clone(), budget.clone())
+        .complete(&budget)
+        .unwrap_or_else(|(_, error)| panic!("genuine activation artifacts: {error}"));
+    // Height 4 needs a rebuilt authority and RS16 scratch. With the original pool exhausted,
+    // a one-shot push that funded them would refuse, drop its candidate authority and refund
+    // the bytes its own release wait observes. It must admit no such owner at all.
+    let external = budget
+        .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+        .unwrap();
+    let expected = portable.push(source.clone()).unwrap().into_parts().0.id();
+    // Prepared artifacts bind their exact carrier: equal bytes in another carrier are local
+    // custody misuse, not a verdict on the history they encode.
+    let replacement = crate::block::reserve_block_for_tests().initialize(source.as_ref().clone());
+    let misbound = prefix
+        .push_with_finish(replacement, Some(artifacts.clone()), |_| ())
+        .unwrap_err();
+    assert!(
+        matches!(misbound, ExecutionAttemptError::Deferred(ref original)
+        if original.reason() == ivm::error::ExecutionDeferral::LocalInvariantViolation
+            && original.allocation_refusal().is_none())
+    );
+    assert_eq!(prefix.prefix.tip.height(), 3);
+    let (current, genesis) = prefix
+        .push_prepared(artifacts)
+        .expect("HC963 one-shot pushes admit no successor owner from the original pool")
+        .into_parts();
+    assert!(genesis.is_none());
+    assert_eq!(current.id(), expected);
+    assert!(
+        prefix.prefix.authority.funded_config().is_none(),
+        "the one-shot successor authority stays outside original-pool custody"
+    );
+    assert_eq!(
+        prefix.current_epoch_context(),
+        portable.current_epoch_context()
+    );
+    drop(current);
+    drop(external);
+    drop(slot);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn one_shot_admitted_push_admits_both_slots_before_a_refusal_can_release_itself() {
+    use std::{
+        future::Future as _,
+        pin::Pin,
+        task::{Context, Waker},
+    };
+
+    let (chain, _) = chain();
+    let id = ChainId::from("sumeragi-certified-test-chain");
+    let mut admitted = CertifiedPrefix::new(&id, chain.network_id(), frame(&chain, 1)).unwrap();
+    let frame_bytes = std::mem::size_of::<CommittedBlock>();
+    let result_bytes = std::mem::size_of::<CertifiedResultV1>();
+    let registration_bytes =
+        iroha_allocation::release::ReleaseRegistration::allocation_layout().size();
+    let budget =
+        iroha_allocation::AllocationBudget::new(frame_bytes + result_bytes + registration_bytes);
+    let mut credit = budget.try_reserve_bytes(registration_bytes).unwrap();
+    let mut registration =
+        iroha_allocation::release::ReleaseRegistration::from_reservation(&mut credit).unwrap();
+    drop(credit);
+    // Room for the receipt slot alone: a per-slot reader would admit it, refuse the result
+    // slot, then refund the receipt slot into the release wait it has just returned.
+    let external = budget.try_reserve_bytes(result_bytes).unwrap();
+    let successor = frame(&chain, 2);
+    let refusal = admitted
+        .push_admitted_with_finish(successor.clone(), &budget, |_| -> u64 {
+            panic!("refused slots cannot publish a receipt")
+        })
+        .unwrap_err();
+    let ExecutionAttemptError::Deferred(refusal) = refusal else {
+        panic!("original slot capacity refusal")
+    };
+    let Some(iroha_allocation::AllocationRefusal::Capacity {
+        requested_bytes,
+        release,
+        ..
+    }) = refusal.allocation_refusal()
+    else {
+        panic!("original slot release observation")
+    };
+    let mut wait = release.clone().wait_for_release(&mut registration);
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(
+        Pin::new(&mut wait).poll(&mut cx).is_pending(),
+        "HC964 one-shot admitted push cannot satisfy its own release wait"
+    );
+    assert_eq!(*requested_bytes, frame_bytes + result_bytes);
+    assert_eq!(budget.reserved_bytes(), registration_bytes + result_bytes);
+    assert_eq!(admitted.prefix.tip.height(), 1);
+    let foreign = iroha_allocation::AllocationBudget::new(frame_bytes);
+    drop(foreign.try_reserve_bytes(frame_bytes).unwrap());
+    assert!(Pin::new(&mut wait).poll(&mut cx).is_pending());
+    drop(external);
+    assert!(Pin::new(&mut wait).poll(&mut cx).is_ready());
+    drop(wait);
+    let height = admitted
+        .push_admitted_with_finish(successor, &budget, |step| {
+            assert_eq!(budget.reserved_bytes(), registration_bytes + frame_bytes);
+            step.into_parts().0.height()
+        })
+        .unwrap();
+    assert_eq!(height, 2);
+    assert_eq!(budget.reserved_bytes(), registration_bytes);
+    drop(registration);
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn admitted_initialization_binds_original_pool_and_genesis_before_first_admission() {
+    let (chain, _) = chain();
+    let id = ChainId::from("sumeragi-certified-test-chain");
+    let genesis = frame(&chain, 1);
+    let prefix_bytes = std::mem::size_of::<CertifiedPrefix>();
+    let budget = iroha_allocation::AllocationBudget::new(32 << 20);
+    let foreign = iroha_allocation::AllocationBudget::new(32 << 20);
+    let blocker = budget
+        .try_reserve_bytes(budget.limit_bytes() - prefix_bytes + 1)
+        .unwrap();
+    let mut initialization = AdmittedPrefixInitialization::default();
+    let refused = initialization.complete(&id, chain.network_id(), genesis.clone(), &budget);
+    assert!(
+        matches!(refused, Err(ExecutionAttemptError::Deferred(ref original))
+        if original.allocation_refusal().is_some())
+    );
+    assert!(initialization.original.is_none());
+    let local = |result: Result<_, ExecutionAttemptError<ChainReadError>>| {
+        matches!(result, Err(ExecutionAttemptError::Deferred(original))
+            if original.reason() == ivm::error::ExecutionDeferral::LocalInvariantViolation
+                && original.allocation_refusal().is_none())
+    };
+    assert!(
+        local(initialization.complete(&id, chain.network_id(), genesis.clone(), &foreign)),
+        "HC965 retained initialization binds its original pool before the first admission"
+    );
+    assert_eq!(foreign.reserved_bytes(), 0);
+    let replacement = crate::block::reserve_block_for_tests().initialize(genesis.as_ref().clone());
+    assert!(
+        local(initialization.complete(&id, chain.network_id(), replacement, &budget)),
+        "HC965 retained initialization binds its original genesis before the first admission"
+    );
+    assert!(initialization.original.is_none());
+    drop(blocker);
+    let prefix = initialization
+        .complete(&id, chain.network_id(), genesis.clone(), &budget)
+        .unwrap();
+    assert!(prefix.belongs_to(&budget));
+    assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+        prefix.as_slice()[0].prefix.tip.block(),
+        &genesis
+    ));
+    assert!(initialization.budget.is_none() && initialization.source.is_none());
+    drop(prefix);
+    assert_eq!(budget.reserved_bytes(), 0);
+    assert_eq!(foreign.reserved_bytes(), 0);
+}
+
+/// The funded prefix authority rejects every invalid frame exactly like the portable one.
+#[test]
+fn funded_prefix_authority_rejects_invalid_frames_exactly_like_the_portable_authority() {
+    let (chain, _) = chain();
+    let parent = chain.committed(2);
+    let schedule::ScheduledSlot::Ready(scheduled) = &parent.commitment().schedule.next else {
+        panic!("genuine executed parent authorizes height 3")
+    };
+    let budget = iroha_allocation::AllocationBudget::new(1 << 26);
+    let mut validation = EpochValidationScope::new();
+    let funded =
+        funded_authority::FundedPrefixAuthority::admit(scheduled, 3, &mut validation, &budget)
+            .unwrap();
+    let portable = VerifiedAuthority::new(scheduled.epoch.clone(), 3, &mut validation).unwrap();
+    let portable_config = scheduled
+        .height_config_with_validation(&mut validation)
+        .unwrap();
+    assert_eq!(funded.config(), &portable_config);
+    let context = PrefixVerifierContext {
+        instance: chain.instance(),
+        root_scope: chain.root_scope(),
+    };
+    let original = frame(&chain, 3);
+    let changed_table = {
+        let certificate = original.commit_certificate().unwrap();
+        let (header, qc) = decode_certificate(certificate).unwrap();
+        let table: iroha_sumeragi::availability::AvailabilityFrame =
+            norito::decode_canonical(certificate.availability()).unwrap();
+        let mut bytes = table.as_slice().to_vec();
+        let last = bytes.len() - 1;
+        bytes[last] ^= 1;
+        let table = iroha_sumeragi::availability::AvailabilityFrame::from_untrusted(bytes).unwrap();
+        crate::block::reserve_block_for_tests().initialize(
+            original.as_ref().clone().with_commit_certificate(Some(
+                commit_certificate(
+                    &header,
+                    &qc,
+                    certificate.result_preimage().to_vec(),
+                    norito::encode_canonical(&table).unwrap(),
+                )
+                .unwrap(),
+            )),
+        )
+    };
+    let cases = [
+        (
+            "forged aggregate signature",
+            with_parts(&original, |_, qc, _| qc.agg_sig.0[5] ^= 1),
+        ),
+        (
+            "missing signer",
+            with_parts(&original, |_, qc, _| {
+                let first = qc.signers.ones().next().unwrap();
+                let mut bytes = qc.signers.as_bytes().to_vec();
+                bytes[usize::try_from(first / 8).unwrap()] &= !(1 << (first % 8));
+                qc.signers = iroha_sumeragi::types::Bitmap::from_bytes(bytes);
+            }),
+        ),
+        (
+            "extra bitmap byte",
+            with_parts(&original, |_, qc, _| {
+                qc.signers = iroha_sumeragi::types::Bitmap::from_bytes(
+                    [qc.signers.as_bytes(), &[0]].concat(),
+                );
+            }),
+        ),
+        (
+            "prepare kind",
+            with_parts(&original, |_, qc, _| qc.kind = VoteKind::Prepare),
+        ),
+        (
+            "another view",
+            with_parts(&original, |_, qc, _| qc.view += 1),
+        ),
+        (
+            "another height",
+            with_parts(&original, |_, qc, _| qc.height += 1),
+        ),
+        (
+            "another block hash",
+            with_parts(&original, |_, qc, _| qc.block_hash.0[0] ^= 1),
+        ),
+        (
+            "another result",
+            with_parts(&original, |_, qc, _| qc.result.0[0] ^= 1),
+        ),
+        (
+            "another epoch",
+            with_parts(&original, |_, qc, _| qc.epoch.epoch += 1),
+        ),
+        (
+            "another instance",
+            with_parts(&original, |_, qc, _| qc.instance.0[0] ^= 1),
+        ),
+        (
+            "another header view",
+            with_parts(&original, |header, _, _| header.origin_view += 1),
+        ),
+        ("corrupt signed availability", changed_table),
+    ];
+    let verdict = |committed: &CommittedBlock,
+                   authority: AuthorityRef<'_>,
+                   config: &iroha_sumeragi::types::HeightConfig| {
+        context
+            .prepare_certificate_with_scratch_admission(
+                committed,
+                authority,
+                Some(config),
+                None,
+                &mut crate::sumeragi::certified_chain::state_certificate::query_scratch_admission,
+            )
+            .map(|verdict| verdict.verification)
+    };
+    let genuine = read_frame(original.clone(), 3, chain.root_scope()).unwrap();
+    assert_eq!(
+        verdict(&genuine, funded.projection(), funded.config()).unwrap(),
+        QcVerification::Verified
+    );
+    assert_eq!(
+        verdict(&genuine, portable.projection(), &portable_config).unwrap(),
+        QcVerification::Verified
+    );
+    for (label, block) in cases {
+        let committed = read_frame(block, 3, chain.root_scope())
+            .unwrap_or_else(|error| panic!("{label}: structural frame {error:?}"));
+        let funded_verdict = verdict(&committed, funded.projection(), funded.config());
+        let portable_verdict = verdict(&committed, portable.projection(), &portable_config);
+        match (&funded_verdict, &portable_verdict) {
+            (
+                Err(VerificationReadError::Source(funded)),
+                Err(VerificationReadError::Source(portable)),
+            ) => assert_eq!(funded, portable, "{label}"),
+            _ => panic!(
+                "{label}: funded {funded_verdict:?} and portable {portable_verdict:?} must reject alike"
+            ),
+        }
+    }
+    drop(funded);
     assert_eq!(budget.reserved_bytes(), 0);
 }

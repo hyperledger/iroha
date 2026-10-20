@@ -12,8 +12,8 @@ use iroha_sumeragi::{
 use norito::core as ncore;
 
 use crate::sumeragi::{
-    durable_qc_codec::{self, QcMetadata},
-    durable_record_codec::{BytesRef, MAX_HEADER_METADATA_BYTES, byte_range, decode_header},
+    certified_chain::artifacts::metadata::{self, FundedMetadata},
+    durable_record_codec::{BytesRef, byte_range},
 };
 
 /// Corruption and source errors remain distinct from a recoverable local allocation refusal.
@@ -44,14 +44,10 @@ impl std::error::Error for CertificateReadError {
     }
 }
 
-struct Layout {
-    header: BlockHeader,
-    availability: Range<usize>,
-    qc: QcMetadata,
-}
-
 /// Exact source and decoded artifacts; decoding alone does not authorize a historical body.
 /// The caller checks independent height configuration, certificate relations and signatures.
+// TODO: the native BodyRestoration destination still takes bare header/QC graphs.
+// Migrate that shared handoff before claiming original metadata custody outside prefix reads.
 pub(in crate::sumeragi) struct DecodedCertificate {
     pub(in crate::sumeragi) source: iroha_data_model::block::SharedSignedBlock,
     pub(in crate::sumeragi) header: BlockHeader,
@@ -59,12 +55,26 @@ pub(in crate::sumeragi) struct DecodedCertificate {
     pub(in crate::sumeragi) commit_qc: Qc,
 }
 
+/// Prefix destination retaining canonical metadata through immutable sharing.
+/// A decoded body reader has a separate native handoff; no funded field is extracted bare.
+#[derive(Clone)]
+pub(in crate::sumeragi) struct FundedDecodedCertificate {
+    pub(in crate::sumeragi) source: iroha_data_model::block::SharedSignedBlock,
+    pub(in crate::sumeragi) header: FundedMetadata<BlockHeader>,
+    pub(in crate::sumeragi) availability: AvailabilityFrame,
+    pub(in crate::sumeragi) commit_qc: FundedMetadata<Qc>,
+}
+
 /// One bounded read owner retains its immutable source and every partial funded destination.
-/// No generic availability decoding allocates a temporary bulk Vec.
+/// No generic availability decoding allocates a temporary bulk Vec. Both destinations use
+/// the sole canonical metadata decoder, so body and prefix readers share every verdict.
 pub(in crate::sumeragi) struct CertificateRead {
     source: iroha_data_model::block::SharedSignedBlock,
     budget: AllocationBudget,
-    layout: Option<Layout>,
+    header: Option<BlockHeader>,
+    qc: Option<Qc>,
+    prefix_header: Option<FundedMetadata<BlockHeader>>,
+    prefix_qc: Option<FundedMetadata<Qc>>,
     table_backing: Option<ChargedBuffer<u8>>,
     table: Option<AvailabilityFrame>,
 }
@@ -76,7 +86,10 @@ impl CertificateRead {
         Self {
             source,
             budget,
-            layout: None,
+            header: None,
+            qc: None,
+            prefix_header: None,
+            prefix_qc: None,
             table_backing: None,
             table: None,
         }
@@ -115,15 +128,59 @@ impl CertificateRead {
         if let Err(error) = self.prepare(budget) {
             return Err((self, error));
         }
-        let layout = self.layout.take().expect("validated canonical certificate");
         Ok(DecodedCertificate {
             source: self.source,
-            header: layout.header,
+            header: self.header.take().expect("validated canonical header"),
             availability: self.table.take().expect("original-funded availability"),
-            commit_qc: layout.qc.finish(),
+            commit_qc: self.qc.take().expect("validated canonical QC"),
         })
     }
 
+    /// Finish into an immutable prefix destination with every metadata allocation retained.
+    /// Refusal retains the original source, completed metadata and partial bulk backing.
+    #[allow(
+        clippy::result_large_err,
+        reason = "retain original source and partial metadata"
+    )]
+    pub(in crate::sumeragi) fn complete_for_prefix(
+        mut self,
+        budget: &AllocationBudget,
+    ) -> Result<FundedDecodedCertificate, (Self, CertificateReadError)> {
+        if let Err(error) = self.prepare_for_prefix(budget) {
+            return Err((self, error));
+        }
+        Ok(FundedDecodedCertificate {
+            source: self.source,
+            header: self.prefix_header.take().expect("original funded header"),
+            availability: self.table.take().expect("original funded availability"),
+            commit_qc: self.prefix_qc.take().expect("original funded QC"),
+        })
+    }
+
+    fn prepare_for_prefix(
+        &mut self,
+        budget: &AllocationBudget,
+    ) -> Result<(), CertificateReadError> {
+        if !self.budget.same_pool(budget) {
+            return Err(CertificateReadError::ForeignBudget);
+        }
+        let certificate = self
+            .source
+            .commit_certificate()
+            .ok_or(CertificateReadError::MissingCertificate)?;
+        if self.prefix_header.is_none() {
+            self.prefix_header = Some(metadata::header(certificate.consensus_header(), budget)?);
+        }
+        let availability =
+            table_range(certificate.availability()).map_err(CertificateReadError::Decode)?;
+        if self.prefix_qc.is_none() {
+            self.prefix_qc = Some(metadata::qc(certificate.commit_qc(), budget)?);
+        }
+        self.prepare_table(availability, budget)
+    }
+
+    // The native destination keeps the same predicate order as the prefix destination:
+    // header, availability range, QC, then the original-funded table.
     fn prepare(&mut self, budget: &AllocationBudget) -> Result<(), CertificateReadError> {
         if !self.budget.same_pool(budget) {
             return Err(CertificateReadError::ForeignBudget);
@@ -132,24 +189,30 @@ impl CertificateRead {
             .source
             .commit_certificate()
             .ok_or(CertificateReadError::MissingCertificate)?;
-        if self.layout.is_none() {
-            let header =
-                header(certificate.consensus_header()).map_err(CertificateReadError::Decode)?;
-            let availability =
-                table_range(certificate.availability()).map_err(CertificateReadError::Decode)?;
-            let qc = durable_qc_codec::parse_frame(certificate.commit_qc())
-                .map_err(CertificateReadError::Decode)?;
-            self.layout = Some(Layout {
-                header,
-                availability,
-                qc,
-            });
+        if self.header.is_none() {
+            self.header = Some(metadata::decoded_header(certificate.consensus_header())?);
         }
-        let layout = self.layout.as_ref().expect("retained canonical ranges");
+        let availability =
+            table_range(certificate.availability()).map_err(CertificateReadError::Decode)?;
+        if self.qc.is_none() {
+            self.qc = Some(metadata::decoded_qc(certificate.commit_qc())?);
+        }
+        self.prepare_table(availability, budget)
+    }
+
+    fn prepare_table(
+        &mut self,
+        availability: Range<usize>,
+        budget: &AllocationBudget,
+    ) -> Result<(), CertificateReadError> {
+        let certificate = self
+            .source
+            .commit_certificate()
+            .ok_or(CertificateReadError::MissingCertificate)?;
         if self.table.is_none() {
             fill(
                 &mut self.table_backing,
-                &certificate.availability()[layout.availability.clone()],
+                &certificate.availability()[availability],
                 budget,
             )?;
             let backing = self.table_backing.take().expect("original table backing");
@@ -183,29 +246,6 @@ fn fill(
             .map_err(|error| CertificateReadError::Decode(error.into()))?;
     }
     Ok(())
-}
-
-fn header(raw: &[u8]) -> Result<BlockHeader, norito::Error> {
-    if raw.len() > MAX_HEADER_METADATA_BYTES + ncore::Header::SIZE {
-        return Err(norito::Error::FieldLengthExceeded {
-            length: raw.len() as u64,
-            limit: (MAX_HEADER_METADATA_BYTES + ncore::Header::SIZE) as u64,
-        });
-    }
-    let view = ncore::from_bytes_view(raw)?;
-    if view.schema() != norito::schema::identity::frame_hash::<BlockHeader>() {
-        return Err(norito::Error::SchemaMismatch);
-    }
-    let header = {
-        let _context = ncore::PayloadCtxGuard::enter_with_schema_and_flags(
-            view.as_bytes(),
-            view.schema(),
-            view.flags(),
-        );
-        decode_header(view.as_bytes())?
-    };
-    norito::verify_exact_canonical_frame(&header, raw)?;
-    Ok(header)
 }
 
 struct TableRef<'a>(&'a [u8]);

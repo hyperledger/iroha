@@ -78,7 +78,7 @@ fn every_index_rejects_missing_current_or_predecessor_membership() {
                     world.$field = Storage::default();
                     if previous {
                         let mut block = world.$field.block();
-                        block.insert($key, BTreeSet::from([$member]));
+                        block.insert(($key, $member), ());
                         block.commit();
                     }
                 }};
@@ -123,25 +123,21 @@ fn every_index_rejects_missing_current_or_predecessor_membership() {
 }
 
 #[test]
-fn empty_groups_and_foreign_members_cannot_compensate_for_valid_members() {
-    for empty in [true, false] {
+fn orphan_and_foreign_members_cannot_compensate_for_valid_members() {
+    for orphan in [true, false] {
         let mut world = fixture();
-        world.nfts_by_owner.insert(
-            BOB_ID.clone(),
-            if empty {
-                BTreeSet::new()
-            } else {
-                BTreeSet::from([nft_id()])
-            },
-        );
-        world.rwas_by_frozen.insert(
-            true,
-            if empty {
-                BTreeSet::new()
-            } else {
-                BTreeSet::from([rwa_id()])
-            },
-        );
+        let nft = if orphan {
+            NftId::new(domain(), "absent".parse().unwrap())
+        } else {
+            nft_id()
+        };
+        let rwa = if orphan {
+            RwaId::generated(domain(), iroha_crypto::Hash::new(b"absent"))
+        } else {
+            rwa_id()
+        };
+        world.nfts_by_owner.insert((BOB_ID.clone(), nft), ());
+        world.rwas_by_frozen.insert((true, rwa), ());
         for rwa in [false, true] {
             assert_eq!(
                 check(&world, rwa),
@@ -152,11 +148,7 @@ fn empty_groups_and_foreign_members_cannot_compensate_for_valid_members() {
                         "world.nfts_by_owner"
                     },
                     image: GroupImage::Current,
-                    mismatch: if empty {
-                        GroupMismatch::EmptyGroup
-                    } else {
-                        GroupMismatch::ForeignMember
-                    },
+                    mismatch: GroupMismatch::ForeignMember,
                 })
             );
         }
@@ -166,16 +158,17 @@ fn empty_groups_and_foreign_members_cannot_compensate_for_valid_members() {
 #[test]
 fn exact_work_charges_every_physical_row_and_absent_undo_entry() {
     let world = fixture();
-    // Each singleton group pays physical scans, full two-operand typed comparisons
-    // and complete member tails in both original images.
-    assert!(CheckedNfts::capture(&world, 732).is_ok());
+    // The independent model charges each membership row and both typed operands.
+    let nft_work = world_work(&world, false);
+    let rwa_work = world_work(&world, true);
+    assert!(CheckedNfts::capture(&world, nft_work).is_ok());
     assert!(matches!(
-        CheckedNfts::capture(&world, 731),
+        CheckedNfts::capture(&world, nft_work - 1),
         Err(GroupedOwnershipError::WorkLimit)
     ));
-    assert!(CheckedRwas::capture(&world, 1482).is_ok());
+    assert!(CheckedRwas::capture(&world, rwa_work).is_ok());
     assert!(matches!(
-        CheckedRwas::capture(&world, 1481),
+        CheckedRwas::capture(&world, rwa_work - 1),
         Err(GroupedOwnershipError::WorkLimit)
     ));
     {
@@ -183,12 +176,13 @@ fn exact_work_charges_every_physical_row_and_absent_undo_entry() {
         block.remove(NftId::new(domain(), "absent".parse().unwrap()));
         block.commit();
     }
-    // The Name6 absent preimage adds44 to each of four predecessor source visits.
+    let after = world_work(&world, false);
+    assert!(after > nft_work);
     assert!(matches!(
-        CheckedNfts::capture(&world, 907),
+        CheckedNfts::capture(&world, after - 1),
         Err(GroupedOwnershipError::WorkLimit)
     ));
-    assert!(CheckedNfts::capture(&world, 908).is_ok());
+    assert!(CheckedNfts::capture(&world, after).is_ok());
 }
 
 #[test]
@@ -220,7 +214,7 @@ fn actual_state_capture_consumes_exact_groups_and_keeps_local_work_refusal() {
     world.rwas_by_status = Storage::default();
     {
         let mut block = world.rwas_by_status.block();
-        block.insert(None, BTreeSet::from([rwa_id()]));
+        block.insert((None, rwa_id()), ());
         block.commit();
     }
     let mut state = State::new_for_testing(

@@ -7,7 +7,7 @@
 //! resident inputs; no stale entry survives a removal.
 
 use core::time::Duration;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
 use iroha_crypto::Hash;
 
@@ -37,7 +37,7 @@ pub(super) struct PendingOrderIndex {
     /// `(deadline, incarnation)` of every entry with a finite expiry deadline.
     expiry: BTreeSet<(Duration, u64)>,
     /// Canonical frame digest of every entry, mapped to its incarnation.
-    frames: HashMap<Hash, u64>,
+    frames: BTreeMap<Hash, u64>,
     /// Advisory local sampling position: the first incarnation of the next bounded window.
     /// It is never part of proposal validity. Any removal restarts sampling at the FIFO front.
     scan_from: Option<u64>,
@@ -96,8 +96,10 @@ impl PendingOrderIndex {
 
     /// Take the next advisory window of at most `max` resident inputs in admission order.
     ///
-    /// Returns the window and whether further resident inputs follow it. A window that reaches
-    /// the FIFO end makes the next call start again at the front.
+    /// Returns the window and whether further resident inputs follow it. The cursor always
+    /// stays after the last scanned input, so inputs admitted after a window that reached the
+    /// FIFO end are sampled next; only when nothing follows the cursor does sampling start
+    /// again at the front.
     pub(super) fn next_window(&mut self, max: usize) -> (Vec<(u64, EntrypointHash)>, bool) {
         let start = self
             .scan_from
@@ -116,7 +118,11 @@ impl PendingOrderIndex {
             }
             window.push((incarnation, entry.hash));
         }
-        self.scan_from = next;
+        self.scan_from = next.or_else(|| {
+            window
+                .last()
+                .and_then(|(incarnation, _)| incarnation.checked_add(1))
+        });
         (window, next.is_some())
     }
 
@@ -281,6 +287,27 @@ mod tests {
         let (all, more) = index.next_window(usize::MAX);
         assert_eq!((hashes(&all), more), (vec![4, 5], false));
         assert_eq!(index.next_window(usize::MAX).0.len(), 4);
+    }
+
+    #[test]
+    fn a_window_that_reached_the_end_continues_with_inputs_admitted_after_it() {
+        let mut index = PendingOrderIndex::default();
+        assert!(index.insert(1, entry(1, None)));
+        let (first, more) = index.next_window(8);
+        assert_eq!((hashes(&first), more), (vec![1], false));
+        assert!(index.insert(2, entry(2, None)));
+        let (suffix, more) = index.next_window(8);
+        assert_eq!(
+            (hashes(&suffix), more),
+            (vec![2], false),
+            "inputs admitted after an exhausted window are sampled next"
+        );
+        let (wrapped, _) = index.next_window(8);
+        assert_eq!(
+            hashes(&wrapped),
+            vec![1, 2],
+            "with nothing new after the cursor, sampling wraps to the front"
+        );
     }
 
     #[test]

@@ -75,6 +75,20 @@ impl BlockBuilder {
         self.external_entrypoints.push(entrypoint);
         idx
     }
+    /// Push a canonical anonymous ballot and bind its exact envelope in the input Merkle tree.
+    ///
+    /// This assembles untrusted proposal data; it does not verify the ballot proof,
+    /// admission stamp, authenticated context or execution outcome.
+    pub fn push_anonymous_ballot(
+        &mut self,
+        envelope: crate::governance::anonymous_ballot::CanonicalAnonymousBallotEnvelopeV1,
+    ) -> usize {
+        let idx = self.external_entrypoints.len();
+        let entrypoint = TransactionEntrypoint::AnonymousBallot(envelope);
+        self.entry_merkle.add(entrypoint.hash());
+        self.external_entrypoints.push(entrypoint);
+        idx
+    }
     /// Attach a pre-built DA commitment bundle that will be embedded in the resulting block.
     pub fn set_da_commitments(&mut self, bundle: Option<DaCommitmentBundle>) {
         self.da_commitments = bundle.filter(|bundle| !bundle.is_empty());

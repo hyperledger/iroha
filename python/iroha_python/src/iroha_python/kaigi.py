@@ -561,7 +561,7 @@ class KaigiInstructionWireV1:
 
         from .crypto import Instruction
 
-        instruction = Instruction.from_json(self.to_json())
+        instruction = Instruction.from_norito_bytes(self.to_norito_bytes())
         if instruction.wire_id() != self.wire_id:
             raise RuntimeError("native Kaigi instruction decoder changed the canonical wire ID")
         if bytes(instruction.to_norito_bytes()) != self.to_norito_bytes():

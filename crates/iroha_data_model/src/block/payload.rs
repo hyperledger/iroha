@@ -237,7 +237,8 @@ impl SignedBlock {
         &self.payload
     }
     /// Signed transactions originating from external sources.
-    /// Indices align with those of the entrypoints.
+    /// Sealed commitments and anonymous ballots are omitted; iterator positions
+    /// therefore need not equal canonical network input indices.
     #[inline]
     pub fn external_transactions(
         &self,
@@ -253,7 +254,7 @@ impl SignedBlock {
     }
     /// Borrow one signed external transaction and return its canonical entrypoint hash.
     ///
-    /// Authority-free commitments are not signed transactions and return `None`. The lookup is
+    /// Sealed commitments and anonymous ballots have no signed transaction and return `None`. The lookup is
     /// constant-space and does not clone either the transaction or the complete entrypoint list.
     #[inline]
     pub fn external_signed_transaction_at(
@@ -265,7 +266,8 @@ impl SignedBlock {
         let transaction = match entrypoint {
             TransactionEntrypoint::External(transaction) => transaction,
             TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-            TransactionEntrypoint::SealedCommitment(_) => {
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => {
                 return None;
             }
         };
@@ -280,7 +282,8 @@ impl SignedBlock {
         match self.payload.external_entrypoints.get(index)? {
             TransactionEntrypoint::External(transaction) => Some(transaction),
             TransactionEntrypoint::SealedReveal(reveal) => Some(reveal.signed_transaction()),
-            TransactionEntrypoint::SealedCommitment(_) => None,
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => None,
         }
     }
     /// Durable execution context embedded in this block, if any.
@@ -607,7 +610,8 @@ impl<'a> ExternalTransactionIterator<'a> {
         match self.entrypoints.get(index)? {
             TransactionEntrypoint::External(transaction) => Some(transaction),
             TransactionEntrypoint::SealedReveal(reveal) => Some(reveal.signed_transaction()),
-            TransactionEntrypoint::SealedCommitment(_) => None,
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => None,
         }
     }
 }

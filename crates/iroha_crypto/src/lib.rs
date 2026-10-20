@@ -146,7 +146,7 @@ pub use signature::admission::{
     verify_bls_normal_pop_borrowed, verify_bls_normal_signature_borrowed,
 };
 #[cfg(feature = "bls")]
-pub use signature::bls::aggregate_custody::BlsNormalAggregateScratch;
+pub use signature::bls::aggregate_custody::{AggregateScratchError, BlsNormalAggregateScratch};
 #[cfg(any(feature = "bls", feature = "pqc"))]
 use std::sync::Arc;
 #[cfg(feature = "bls")]
@@ -1672,15 +1672,7 @@ pub fn bls_normal_verify_preaggregated_multi_message(
     groups: &[(&[&BlsNormalPopVerifiedKey], &[u8])],
     aggregated_signature: &[u8],
 ) -> Result<(), Error> {
-    let mut scratch = BlsNormalAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
-        .unwrap_or_else(|never| match never {});
-    scratch
-        .verify(
-            groups
-                .iter()
-                .map(|(keys, message)| (keys.iter().copied(), *message)),
-            aggregated_signature,
-        )
+    signature::bls::aggregate_custody::verify_on_stack(groups, aggregated_signature)
         .map_err(SignatureVerificationError::into_error)
 }
 // Note: small-variant pre-aggregated helpers are not exposed; consensus uses BLS-normal only.

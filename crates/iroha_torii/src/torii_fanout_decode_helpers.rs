@@ -66,9 +66,6 @@ const QUERY_FANOUT_BASE_OVERHEAD_BYTES: usize = 64 * 1024;
 /// Conservative logical charge for one route while the deduplicating
 /// `BTreeMap` and final route `Vec` overlap.
 const QUERY_FANOUT_ROUTE_OVERHEAD_BYTES: usize = 1024;
-/// Core's protocol-derived bound for one allocation-free identity source row.
-const QUERY_FANOUT_SOURCE_OVERHEAD_BYTES: usize =
-    iroha_core::smartcontracts::isi::query::CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES as usize;
 /// Fixed scratch used while validating the largest protocol-admitted public
 /// key. Exact public-key sizing is allocation-free, but validation still owns
 /// this bounded temporary beside the request representation.
@@ -139,7 +136,6 @@ fn query_fanout_candidate_snapshot_overhead_bytes() -> Option<usize> {
 fn query_fanout_fixed_overhead_bytes() -> Option<usize> {
     checked_sum([
         query_ingress_fixed_overhead_bytes()?,
-        QUERY_FANOUT_SOURCE_OVERHEAD_BYTES,
         query_fanout_candidate_snapshot_overhead_bytes()?,
     ])
 }
@@ -149,24 +145,17 @@ fn query_fanout_fixed_overhead_bytes() -> Option<usize> {
 /// fixed allowance remain live for the operation. The remaining bytes are divided into seven equal
 /// parts so that every high-water phase fits in one working-set reservation:
 ///
-/// - request decode + outer accumulator + a local Core accumulator + two
-///   candidate-sized encoder transients (direct frame and nested serialization
-///   scratch); the 1 KiB protocol-bounded source row is charged in the fixed
-///   allowance above;
-/// - request decode + outer accumulator + the accumulated raw route body +
+/// - request decode + retained first singular output + the accumulated raw route body +
 ///   one concurrently held transport chunk + decoded route output;
-/// - request decode + outer accumulator + decoded route output + direct
-///   candidate frame + nested serialization scratch;
 /// - final decoded output + the exact direct-streamed response body + one
-///   cache-free identifier encoder scratch allowance. A retained identifier's
-///   canonical bytes fit its decoded-output phase, while the bounded I105
-///   writer reserves less than twice those bytes, so the two-unit final-body
-///   allowance also bounds this scratch; and
+///   cache-free identifier encoder scratch allowance;
 /// - response body + proxy snapshot copy; and
-/// - retained first singular output + the retained Core builder + the current
+/// - request decode + retained first singular output + the retained Core builder + the current
 ///   source/output corridor + the destination canonical frame + two
-///   canonicalization scratch units. This is a sequential comparison phase,
-///   not a route-count multiplier.
+///   canonicalization scratch units. Routes execute sequentially.
+///
+/// Application collection reads also use these phase ceilings for retained rows and merge
+/// scratch, with their own admission accounting. Signed iterable queries never fan out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[expect(
     clippy::struct_field_names,
@@ -323,40 +312,13 @@ impl QueryFanoutMemoryEnvelope {
         request_bytes: usize,
         phase_bytes: usize,
     ) -> Result<Self, Response> {
-        let retained_item_overhead = usize::try_from(
-            iroha_core::smartcontracts::isi::query::CANONICAL_QUERY_RETAINED_ITEM_OVERHEAD_BYTES,
-        )
-        .map_err(|_| {
-            torii_proxy_error_response(
+        if phase_bytes < 2 {
+            return Err(torii_proxy_error_response(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "query_capacity_exceeded",
-                "canonical candidate overhead does not fit the platform address space",
-            )
-        })?;
-        let candidate_encoded_bytes = phase_bytes
-            .checked_sub(retained_item_overhead)
-            .filter(|bytes| *bytes > 0)
-            .ok_or_else(|| {
-                torii_proxy_error_response(
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    "query_capacity_exceeded",
-                    "signed-query fanout phase cannot admit one canonical candidate",
-                )
-            })?;
-        let candidate_allocation_bytes = u64::try_from(candidate_encoded_bytes)
-            .ok()
-            .and_then(
-                iroha_core::smartcontracts::isi::query::canonical_query_candidate_allocation_bytes,
-            )
-            .and_then(|bytes| usize::try_from(bytes).ok())
-            .filter(|bytes| *bytes <= phase_bytes)
-            .ok_or_else(|| {
-                torii_proxy_error_response(
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    "query_capacity_exceeded",
-                    "canonical candidate allocation exceeds its fanout phase",
-                )
-            })?;
+                "signed-query fanout phase cannot admit the request and its local clone",
+            ));
+        }
         let final_body_bytes = phase_bytes.checked_mul(2).ok_or_else(|| {
             torii_proxy_error_response(
                 StatusCode::PAYLOAD_TOO_LARGE,
@@ -371,8 +333,8 @@ impl QueryFanoutMemoryEnvelope {
             accumulator_retained_bytes: phase_bytes,
             route_body_bytes: phase_bytes,
             decode_allocated_bytes: phase_bytes,
-            candidate_allocation_bytes,
-            candidate_encoded_bytes,
+            candidate_allocation_bytes: phase_bytes,
+            candidate_encoded_bytes: phase_bytes,
             final_body_bytes,
         };
         if envelope.phases_fit() {
@@ -392,31 +354,12 @@ impl QueryFanoutMemoryEnvelope {
         let Some(fixed) = self.request_bytes.checked_add(fixed_overhead) else {
             return false;
         };
-        let Some(local_scan) = checked_sum([
-            self.request_decode_allocated_bytes,
-            self.accumulator_retained_bytes,
-            self.accumulator_retained_bytes,
-            self.candidate_allocation_bytes,
-            self.candidate_encoded_bytes,
-        ]) else {
-            return false;
-        };
         let Some(remote_decode) = checked_sum([
             self.request_decode_allocated_bytes,
-            self.accumulator_retained_bytes,
+            self.decode_allocated_bytes,
             self.route_body_bytes,
             self.route_body_bytes,
             self.decode_allocated_bytes,
-        ]) else {
-            return false;
-        };
-        let Some(merge_candidate) = checked_sum([
-            self.request_decode_allocated_bytes,
-            self.accumulator_retained_bytes,
-            self.decode_allocated_bytes,
-            self.candidate_allocation_bytes,
-            self.candidate_encoded_bytes,
-            self.candidate_encoded_bytes,
         ]) else {
             return false;
         };
@@ -441,9 +384,7 @@ impl QueryFanoutMemoryEnvelope {
         ]) else {
             return false;
         };
-        let peak = local_scan
-            .max(remote_decode)
-            .max(merge_candidate)
+        let peak = remote_decode
             .max(final_encode)
             .max(proxy_copy)
             .max(singular_compare);
@@ -785,16 +726,10 @@ fn query_memory_geometry(
     // configured body exceeds that ceiling or the pool, the phase-derived
     // query-body limit shrinks while the general Torii body limit remains
     // unchanged. Raising aggregate capacity never raises one request's limits.
-    // Even a one-byte ingress limit needs the canonical encoder's minimum
-    // allocation and its retained candidate overhead. Only the ingress cap
-    // follows max_content_bytes; a complete response phase cannot shrink below
-    // that allocation floor.
-    let minimum_candidate_phase_bytes = usize::try_from(
-        iroha_core::smartcontracts::isi::query::canonical_query_candidate_allocation_bytes(1)?,
-    )
-    .ok()?;
+    // One request-decode phase is shared by the retained request and its local clone.
+    // Keep a byte for each owner even when the listener admits only one body byte.
     let desired_fanout_working_set = max_content_bytes
-        .max(minimum_candidate_phase_bytes)
+        .max(2)
         .checked_mul(QUERY_FANOUT_PREBODY_UNITS)
         .and_then(|bytes| bytes.checked_add(query_fanout_fixed_overhead_bytes()?));
     let available_working_set_bytes = fanout_pool_bytes.min(max_working_set_bytes);

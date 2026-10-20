@@ -147,6 +147,7 @@ def test_transaction_draft_register_and_merge_rwa_wrap_payload_mappings(monkeypa
             authority=AUTHORITY,
             fee_payment=tx.authority_fee_payment(charge_limits=[]),
             ttl_ms=60_000,
+            chain_discriminant=753,
         )
     )
 
@@ -197,6 +198,7 @@ def test_transaction_draft_rwa_scalar_helpers_use_canonical_quantities(monkeypat
             authority=AUTHORITY,
             fee_payment=tx.authority_fee_payment(charge_limits=[]),
             ttl_ms=60_000,
+            chain_discriminant=753,
         )
     )
 
@@ -239,6 +241,7 @@ def test_transaction_draft_rwa_metadata_helpers_forward_json_values(monkeypatch)
             authority=AUTHORITY,
             fee_payment=tx.authority_fee_payment(charge_limits=[]),
             ttl_ms=60_000,
+            chain_discriminant=753,
         )
     )
 

@@ -350,8 +350,9 @@ fn merge_identity_index_preserves_first_admitted_work_without_rehashing_carriers
             match expected {
                 TransactionEntrypoint::SealedReveal(reveal) =>
                     Some(reveal.signed_transaction().hash_as_entrypoint()),
-                TransactionEntrypoint::External(_) | TransactionEntrypoint::SealedCommitment(_) =>
-                    None,
+                TransactionEntrypoint::External(_)
+                | TransactionEntrypoint::SealedCommitment(_)
+                | TransactionEntrypoint::AnonymousBallot(_) => None,
             }
         );
     }
@@ -779,12 +780,12 @@ fn native_lane_stateless_checks_require_each_carriers_original_network_and_signa
     ];
     for (original, invalid) in cases {
         let original_bytes = norito::encode_canonical(&original).unwrap();
-        assert_eq!(checks.check(&original, 0), Ok(()));
-        assert_eq!(
-            foreign_checks.check(&original, 0),
-            Err("the transaction belongs to another network".to_owned())
-        );
+        assert!(checks.check(&original, 0).is_ok());
+        assert!(matches!(foreign_checks.check(&original, 0),
+            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(reason))
+                if reason == "the transaction belongs to another network"));
         let original_signature_error = match &invalid {
+            TransactionEntrypoint::AnonymousBallot(_) => unreachable!("signed carrier fixture"),
             TransactionEntrypoint::External(signed) => {
                 signed.verify_signature().unwrap_err().to_string()
             }
@@ -797,10 +798,9 @@ fn native_lane_stateless_checks_require_each_carriers_original_network_and_signa
                 commitment.verify_signature().unwrap_err().to_string()
             }
         };
-        assert_eq!(
-            checks.check(&invalid, 0),
-            Err(original_signature_error.clone())
-        );
+        assert!(matches!(checks.check(&invalid, 0),
+            Err(crate::execution_attempt::ExecutionAttemptError::Rejected(reason))
+                if reason == original_signature_error));
         let batch = |entrypoint| {
             LaneBatch {
                 anchor_height: 3,
@@ -838,7 +838,7 @@ fn native_lane_stateless_checks_require_each_carriers_original_network_and_signa
             ));
         }
         assert_eq!(norito::encode_canonical(&original).unwrap(), original_bytes);
-        assert_eq!(checks.check(&original, 0), Ok(()));
+        assert!(checks.check(&original, 0).is_ok());
         assert_eq!(fixture.record().merged.height, 0);
     }
 }

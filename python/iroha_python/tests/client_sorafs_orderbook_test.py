@@ -297,7 +297,7 @@ def test_sorafs_orderbook_read_helpers_parse_finalized_pages() -> None:
             ),
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     anchor_hex = "a0" * 32
 
     book = client.get_sorafs_orderbook(
@@ -340,14 +340,14 @@ def test_sorafs_orderbook_read_helpers_parse_finalized_pages() -> None:
 
 def test_sorafs_orderbook_event_list_honors_not_modified() -> None:
     session = SequencedSession([StubResponse(304, None)])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     assert client.list_sorafs_orderbook_events(if_none_match='"same"') is None
     assert session.calls[0]["headers"]["If-None-Match"] == '"same"'
 
 
 def test_sorafs_orderbook_helpers_reject_retired_and_unbounded_inputs() -> None:
-    client = ToriiClient("http://torii.example", session=SequencedSession([]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=SequencedSession([]), max_retries=0, chain_discriminant=753)
 
     with pytest.raises(TypeError, match="unexpected keyword argument 'since'"):
         client.list_sorafs_orderbook_events(since=8)  # type: ignore[call-arg]
@@ -402,7 +402,7 @@ def test_high_client_requires_local_network_before_http(
     native = Verifier()
     session, transport = stock_session(AssertionError("must not send"))
     monkeypatch.setattr(client_module, "_require_crypto", lambda: native)
-    client = ToriiClient("https://torii.example", session=session, max_retries=0)
+    client = ToriiClient("https://torii.example", session=session, max_retries=0, chain_discriminant=753)
     with pytest.raises(ValueError, match="local_signing_context"):
         client.submit_sorafs_orderbook_order(
             b"\x01", expected_receipt_signer=SIGNER
@@ -445,7 +445,7 @@ def test_sorafs_orderbook_stream_helper_parses_finalized_sse() -> None:
             )
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     iterator = client.stream_sorafs_orderbook_events(
         after_sequence=8,
@@ -484,7 +484,7 @@ def test_sorafs_orderbook_websocket_helper_uses_finalized_cursor() -> None:
         captured["kwargs"] = kwargs
         return socket
 
-    client = ToriiClient("https://torii.example", session=SequencedSession([]), max_retries=0)
+    client = ToriiClient("https://torii.example", session=SequencedSession([]), max_retries=0, chain_discriminant=753)
     url = client.build_sorafs_orderbook_events_websocket_url(
         after_sequence=8,
         after_block_height=41,
@@ -523,7 +523,7 @@ def test_sorafs_orderbook_websocket_helper_uses_finalized_cursor() -> None:
 
 
 def test_sorafs_orderbook_websocket_helper_validates_before_connect() -> None:
-    client = ToriiClient("http://torii.example", session=SequencedSession([]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=SequencedSession([]), max_retries=0, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="1..=500"):
         client.build_sorafs_orderbook_events_websocket_url(limit=0)

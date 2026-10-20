@@ -51,7 +51,8 @@ impl StateTransaction<'_, '_> {
         let signed = match input {
             TransactionEntrypoint::External(signed) => signed,
             TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-            TransactionEntrypoint::SealedCommitment(_) => return,
+            TransactionEntrypoint::SealedCommitment(_)
+            | TransactionEntrypoint::AnonymousBallot(_) => return,
         };
         if !matches!(signed.instructions(), Executable::Instructions(rows) if rows.iter().any(|row| PauseOperation::of(row).is_some()))
         {

@@ -161,3 +161,58 @@ async fn current_http_admission_rejects_actual_multiroute_before_local_custody()
         assert_eq!(lifecycle_pending_wire(&app), before);
     }
 }
+
+#[cfg(feature = "connect")]
+#[tokio::test]
+async fn anonymous_entrypoint_unavailable_returns_503_before_queue_mutation() {
+    use iroha_version::codec::EncodeVersioned as _;
+    use tower::ServiceExt as _;
+    let (app, _, _, _) = lifecycle_ordinary_fixture(true);
+    let entry = crate::anonymous_ballot_test_support::entrypoint(*app.state.network_id_ref());
+    let endpoint = route_catalog::pipeline::TRANSACTION_ENTRYPOINT.path();
+    let router = axum::Router::new()
+        .route(
+            endpoint,
+            axum::routing::post(super::handler_post_transaction_entrypoint),
+        )
+        .with_state(app.clone());
+    for (mime, body) in [
+        (crate::utils::NORITO_MIME_TYPE, entry.encode_versioned()),
+        (
+            "application/json",
+            format!(
+                "{{\"version\":1,\"content\":{}}}",
+                norito::json::to_json(&entry).unwrap()
+            )
+            .into_bytes(),
+        ),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("POST")
+                    .uri(endpoint)
+                    .header(axum::http::header::CONTENT_TYPE, mime)
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(response.headers().get("x-iroha-reject-code").is_none());
+        assert!(
+            response
+                .headers()
+                .get("x-iroha-transactions-accepted")
+                .is_none()
+        );
+        let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let envelope: iroha_torii_shared::ErrorEnvelope =
+            norito::decode_from_bytes(&bytes).unwrap();
+        assert_eq!(envelope.code(), "anonymous_ballot_unavailable");
+        assert!(lifecycle_pending_wire(&app).is_empty());
+    }
+}

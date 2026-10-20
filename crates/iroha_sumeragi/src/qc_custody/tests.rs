@@ -834,3 +834,140 @@ fn qc_terminal_geometry_source_retention_and_layout_errors_stay_typed_without_re
     assert!(source.source().is_none());
     assert!(!error.source().unwrap().is::<AllocationRefusal>());
 }
+
+fn shared_source(
+    bytes: &[u8],
+    pool: &AllocationBudget,
+    prefix: usize,
+) -> (ChargedShared<ChargedBuffer<u8>>, SequenceSpan) {
+    let (input, range) = source(bytes, pool, prefix);
+    let mut credit = pool
+        .try_reserve_layouts([ChargedShared::<ChargedBuffer<u8>>::allocation_layout()])
+        .unwrap();
+    let owner = ChargedShared::from_reservation(input, &mut credit)
+        .unwrap_or_else(|(_, error)| panic!("{error}"));
+    (owner, range)
+}
+
+#[test]
+fn shared_qc_retains_original_source_partial_fields_and_fixed_pool_retry() {
+    let value = fixture(VoteKind::Commit, 4);
+    let frame = norito::encode_canonical(&value).unwrap();
+    let pool = AllocationBudget::new(1 << 20);
+    let (source, range) = shared_source(&frame, &pool, 7);
+    let pointer = source.as_slice().as_ptr();
+    let bytes = pool.reserved_bytes();
+    let mut pending: PreparedQc<'static> =
+        PreparedQc::new_shared(source.clone(), range, &pool).unwrap();
+    let occupied = pool.reserved_bytes();
+    let blocker = pool
+        .try_reserve_bytes(pool.limit_bytes() - occupied - 3)
+        .unwrap();
+    let first = pending
+        .prepare_shared(&source, range, generous())
+        .unwrap_err();
+    let QcCustodyError::Decode(PreparedDecodeError::Destination(QcFieldError::Bitmap(
+        ChargedBufferError::Admission(first),
+    ))) = first
+    else {
+        panic!("actual original shared QC bitmap Capacity refusal")
+    };
+    assert!(
+        matches!(&first, AllocationRefusal::Capacity { requested_bytes: 4, reserved_bytes, limit_bytes, .. }
+        if *reserved_bytes == pool.limit_bytes() - 3 && *limit_bytes == 1 << 20)
+    );
+    let QcCustodyError::Decode(PreparedDecodeError::Destination(QcFieldError::Bitmap(
+        ChargedBufferError::Admission(repeated),
+    ))) = pending
+        .prepare_shared(&source, range, generous())
+        .unwrap_err()
+    else {
+        panic!("original repeated Capacity")
+    };
+    assert_eq!(first, repeated);
+    assert_eq!(source.as_slice().as_ptr(), pointer);
+    assert_eq!(pending.fields.payload.block_hash, value.block_hash);
+    assert_eq!(pool.reserved_bytes(), occupied + blocker.remaining_bytes());
+    drop(blocker);
+    pending.prepare_shared(&source, range, generous()).unwrap();
+    let bitmap = pending.fields.payload.signers.as_bytes().as_ptr();
+    let owner = pending.finish().unwrap();
+    let clone = owner.clone();
+    assert!(NativeQc::ptr_eq(&owner, &clone));
+    drop(source);
+    drop(owner);
+    assert_eq!(clone.source_bytes(), frame);
+    assert_eq!(clone.get(), &value);
+    assert_eq!(clone.get().signers.as_bytes().as_ptr(), bitmap);
+    assert!(clone.belongs_to(&pool));
+    assert_eq!(pool.reserved_bytes(), occupied + 4);
+    assert!(occupied > bytes);
+    drop(clone);
+    assert_eq!(pool.reserved_bytes(), 0);
+    assert_eq!(pool.limit_bytes(), 1 << 20);
+}
+
+#[test]
+fn shared_qc_refuses_same_wire_replacement_and_different_source_span() {
+    let frame = norito::encode_canonical(&fixture(VoteKind::Prepare, 4)).unwrap();
+    let pool = AllocationBudget::new(1 << 20);
+    let (source, range) = shared_source(&frame, &pool, 7);
+    let (replacement, _) = shared_source(&frame, &pool, 7);
+    let mut pending = PreparedQc::new_shared(source.clone(), range, &pool).unwrap();
+    let occupied = pool.reserved_bytes();
+    assert!(
+        matches!(
+            pending.prepare_shared(&replacement, range, generous()),
+            Err(QcCustodyError::Source)
+        ),
+        "shared QC retry must retain the exact original immutable source control"
+    );
+    assert!(matches!(
+        pending.prepare_shared(
+            &source,
+            SequenceSpan {
+                start: 0,
+                end: range.end
+            },
+            generous()
+        ),
+        Err(QcCustodyError::Source)
+    ));
+    assert_eq!(pool.reserved_bytes(), occupied);
+    pending.prepare_shared(&source, range, generous()).unwrap();
+    drop(pending.finish().unwrap());
+    drop(source);
+    drop(replacement);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn shared_qc_requires_leaf_and_control_to_share_the_exact_original_pool() {
+    let frame = norito::encode_canonical(&fixture(VoteKind::Commit, 4)).unwrap();
+    let pool = AllocationBudget::new(1 << 20);
+    let other = AllocationBudget::new(1 << 20);
+    let (input, range) = source(&frame, &pool, 0);
+    let mut credit = other
+        .try_reserve_layouts([ChargedShared::<ChargedBuffer<u8>>::allocation_layout()])
+        .unwrap();
+    let shared = ChargedShared::from_reservation(input, &mut credit)
+        .unwrap_or_else(|(_, error)| panic!("{error}"));
+    let original_bytes = pool.reserved_bytes();
+    let original_control = other.reserved_bytes();
+    assert!(
+        matches!(
+            PreparedQc::new_shared(shared.clone(), range, &pool),
+            Err(QcCustodyError::Source)
+        ),
+        "shared QC source control must belong to the original byte pool"
+    );
+    assert!(matches!(
+        PreparedQc::new_shared(shared.clone(), range, &other),
+        Err(QcCustodyError::Source)
+    ));
+    assert_eq!(pool.reserved_bytes(), original_bytes);
+    assert_eq!(other.reserved_bytes(), original_control);
+    drop(shared);
+    assert_eq!(pool.reserved_bytes(), 0);
+    assert_eq!(other.reserved_bytes(), 0);
+}

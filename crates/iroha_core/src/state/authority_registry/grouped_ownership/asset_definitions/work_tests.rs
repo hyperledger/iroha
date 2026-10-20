@@ -24,7 +24,7 @@ fn check(world: &World, work: u64) -> Result<(), GroupedOwnershipError> {
 }
 #[test]
 fn independent_reference_and_original_fixture_have_exact_full_boundaries() {
-    for (context, expected) in [(false, 434), (true, 1218)] {
+    for (context, expected) in [(false, 428), (true, 1206)] {
         let mut world = reference::world(context, None);
         // The original fixture's no-pending mode does not constrain feature policy.
         let mut value = reference::definition(0, &ALICE_ID, context, None);
@@ -50,10 +50,10 @@ fn independent_reference_and_original_fixture_have_exact_full_boundaries() {
         *reference::definition(0, &ALICE_ID, false, Some(41)).confidential_policy(),
     );
     let world = World::with([Domain::new(domain).build(&ALICE_ID)], [], [value]);
-    assert_eq!(ASSET_DEFINITION_WORK_PER_ROW, 2 * (831 + 207 + 578 + 318));
-    assert_eq!(reference::world_work(&world), 3868);
-    assert_eq!(check(&world, 3867), Err(GroupedOwnershipError::WorkLimit));
-    assert_eq!(check(&world, 3868), Ok(()));
+    assert_eq!(ASSET_DEFINITION_WORK_PER_ROW, 2 * (831 + 204 + 575 + 318));
+    assert_eq!(reference::world_work(&world), 3856);
+    assert_eq!(check(&world, 3855), Err(GroupedOwnershipError::WorkLimit));
+    assert_eq!(check(&world, 3856), Ok(()));
 }
 #[test]
 fn every_original_physical_mask_lookup_and_member_tail_is_prepaid() {
@@ -120,14 +120,31 @@ fn every_original_physical_mask_lookup_and_member_tail_is_prepaid() {
             Ok(view.current().get(id))
         );
     }
-    let members = BTreeSet::from([first, second]);
+    let members = [first.clone(), second.clone()];
+    let member_rows: Storage<_, _> = members
+        .iter()
+        .map(|member| ((first.clone(), member.clone()), ()))
+        .collect();
+    let member_view = member_rows.try_committed_view_nonblocking().unwrap();
     for id in &members {
         assert_eq!(
-            contains(&members, id, &mut AssetDefinitionWork::bounded(65)),
+            contains(
+                &member_view,
+                GroupImage::Current,
+                &first,
+                id,
+                &mut AssetDefinitionWork::bounded(2 * (66) - 3)
+            ),
             Err(GroupedOwnershipError::WorkLimit)
         );
         assert_eq!(
-            contains(&members, id, &mut AssetDefinitionWork::bounded(66)),
+            contains(
+                &member_view,
+                GroupImage::Current,
+                &first,
+                id,
+                &mut AssetDefinitionWork::bounded(2 * (66) - 2)
+            ),
             Ok(true)
         );
     }
@@ -233,12 +250,12 @@ fn malformed_typed_identity_and_unused_policy_fields_add_no_validity_rule() {
     world.asset_definitions.insert(reference::id(0), value);
     world
         .asset_definitions_by_owner
-        .insert(owner, BTreeSet::from([reference::id(0)]));
+        .insert((owner, reference::id(0)), ());
     assert!(world.accounts.view().iter().next().is_none());
     assert!(world.zk_assets.view().iter().next().is_none());
-    assert_eq!(reference::world_work(&world), 178);
-    assert_eq!(check(&world, 177), Err(GroupedOwnershipError::WorkLimit));
-    assert_eq!(check(&world, 178), Ok(()));
+    assert_eq!(reference::world_work(&world), 172);
+    assert_eq!(check(&world, 171), Err(GroupedOwnershipError::WorkLimit));
+    assert_eq!(check(&world, 172), Ok(()));
 }
 #[test]
 fn phased_predecessor_reference_and_owner_failures_keep_original_precedence() {

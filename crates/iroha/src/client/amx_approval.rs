@@ -102,11 +102,11 @@ impl Client {
                         }
                     })?;
                 let failure = iroha_torii_shared::amx_approval_read::AmxApprovalReadFailureV1::decode_response(
-                    response.status().as_u16(), &media, response.body(), expected_approval,
+                    response.status().as_u16(), media, response.body(), expected_approval,
                     expected_relay, block.height(),
                  ).map_err(|error| crate::Error::Decode {
                     operation: OPERATION,
-                    details: error.to_string(),
+                    details: error.clone(),
                 })?;
                 return Err(failure.into());
             }
@@ -136,7 +136,7 @@ impl Client {
             })?;
             let verified = proof.verify(expected_approval, expected_relay, native_schema, block)?;
             self.ensure_activation_evidence_deadline()?;
-            return Ok(verified);
+            Ok(verified)
         }
     }
 }

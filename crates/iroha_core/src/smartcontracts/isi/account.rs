@@ -2422,11 +2422,12 @@ pub mod query {
             let new_asset_id =
                 AssetId::new(asset_definition_id.clone(), replacement_account.clone());
             assert!(stx.world.assets.get(&new_asset_id).is_some());
-            let holders = stx
-                .world
-                .asset_definition_holders
-                .get(&asset_definition_id)
-                .expect("holder index should be present");
+            let holders = crate::state::range_bounds::index_members(
+                &stx.world.asset_definition_holders,
+                &asset_definition_id,
+            )
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
             assert!(holders.contains(&replacement_account));
             assert!(!holders.contains(&account_id));
             assert_eq!(
@@ -4253,8 +4254,8 @@ pub mod query {
             assert!(
                 stx.world
                     .asset_definitions_by_owner
-                    .get(&destination)
-                    .is_some_and(|definitions| definitions.contains(&asset_definition)),
+                    .get(&(destination.clone(), asset_definition.clone()))
+                    .is_some(),
                 "successful transfer should update the owner index",
             );
         }

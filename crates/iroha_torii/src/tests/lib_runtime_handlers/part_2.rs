@@ -2960,6 +2960,25 @@ fn long_lived_dataspace_context_rechecks_permission_revocation() {
     }
     .into();
     grant_account_permission_for_test(&app, &caller, permission.clone());
+    let one_shot = super::torii_one_shot_caller_from_headers(
+        &app,
+        &HeaderMap::new(),
+        &Method::GET,
+        &"/v1/contracts/activity".parse().unwrap(),
+        "v1/contracts/activity",
+    )
+    .expect("unsigned one-shot admission");
+    assert!(
+        !one_shot
+            .dataspace_visibility(app.as_ref())
+            .allows_dataspace(restricted_dataspace)
+    );
+    let one_shot = super::ToriiAccountReadVisibility::Signed(caller.clone());
+    assert!(
+        one_shot
+            .dataspace_visibility(app.as_ref())
+            .allows_dataspace(restricted_dataspace)
+    );
     let context = super::ToriiAccountReadVisibility::Signed(caller.clone())
         .into_dataspace_context(app.clone());
 
@@ -2999,6 +3018,13 @@ fn long_lived_dataspace_context_rechecks_permission_revocation() {
             .allows_dataspace(restricted_dataspace),
         "an established stream/read context must not retain a revoked grant"
     );
+    assert!(
+        !one_shot
+            .dataspace_visibility(app.as_ref())
+            .allows_dataspace(restricted_dataspace),
+        "one-shot callers resolve their visibility at execution instead of capturing a stream baseline"
+    );
+
     assert!(
         !context.authorization_is_current(),
         "a long-lived stream must terminate after losing any admitted route"

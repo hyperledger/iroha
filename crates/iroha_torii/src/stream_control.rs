@@ -162,20 +162,21 @@ impl ExplorerReadContext {
         self.owner.admitted_height()
     }
 
-    pub(crate) fn current_visibility(
+    pub(crate) fn current_read_scope(
         &self,
-    ) -> Result<crate::routing::DataspaceReadVisibility, Error> {
+    ) -> Result<(usize, crate::routing::DataspaceReadVisibility), Error> {
         #[cfg(test)]
         if let Some(fixed) = &self.fixed_visibility {
-            return Ok(fixed.clone());
+            return Ok((self.committed_height(), fixed.clone()));
         }
         let app = self.owner.app();
         let auth = crate::history_producer::HistoryProducerOwner::authentication_read(app)?;
-        let (scope, all) = auth
+        let (height, scope, all) = auth
             .scope(|| {
                 app.state
                     .try_with_authorization_view(auth.allocation_context(), |view| {
-                        authorized_scope(&view, self.owner.caller())
+                        let (scope, all) = authorized_scope(&view, self.owner.caller())?;
+                        Ok::<_, Error>((view.height(), scope, all))
                     })
             })
             .map_err(crate::app_auth::authorization_view_error)??;
@@ -192,10 +193,24 @@ impl ExplorerReadContext {
                 message: "Stream authorization was revoked.".into(),
             });
         }
-        Ok(crate::routing::DataspaceReadVisibility::from_fixed_scope(
-            self.owner.scope_owner(scope)?,
-            all,
+        Ok((
+            height,
+            crate::routing::DataspaceReadVisibility::from_fixed_scope(
+                self.owner.scope_owner(scope)?,
+                all,
+            ),
         ))
+    }
+
+    pub(crate) fn committed_height(&self) -> usize {
+        self.owner.app().state.committed_height()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn current_visibility(
+        &self,
+    ) -> Result<crate::routing::DataspaceReadVisibility, Error> {
+        self.current_read_scope().map(|(_, visibility)| visibility)
     }
 
     #[cfg(test)]
@@ -663,6 +678,9 @@ mod tests {
         let method = axum::http::Method::GET;
         let uri = "/v1/explorer/blocks/stream".parse().unwrap();
         let reader = ExplorerReadContext::from_headers(&app, &headers, &method, &uri).unwrap();
+        let mut cached =
+            crate::stream_read_authorization::ExplorerStreamReadAuthorization::new(reader.clone());
+        cached.visibility().unwrap();
         // Corrupt the actual protected native catalog, rather than substituting a mocked
         // StateViewError. Both the initial and retained reader use the real Core decoder.
         let mut world = app.state.world.block();
@@ -692,6 +710,8 @@ mod tests {
                 .err()
                 .unwrap(),
             reader.current_visibility().unwrap_err(),
+            cached.revalidate().unwrap_err(),
+            cached.visibility().unwrap_err(),
         ] {
             match error {
                 Error::Query(ValidationFail::InternalError(message)) => {
@@ -700,6 +720,7 @@ mod tests {
                 other => panic!("malformed native catalog must remain internal: {other:?}"),
             }
         }
+        drop(cached);
         drop(reader);
         assert_eq!(app.query_fanout_inflight.available_bytes(), available);
     }

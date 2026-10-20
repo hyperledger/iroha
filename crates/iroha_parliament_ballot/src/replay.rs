@@ -40,8 +40,8 @@ use iroha_data_model::{
     NetworkId,
     governance::{
         anonymous_ballot::{
-            AnonymousBallotRejectionV1, BallotClosureErrorV1, BallotClosureRecordV1,
-            BallotContextErrorV1, BallotScopeV1, Digest512, NullifierV1,
+            AnonymousBallotCodecErrorV1, AnonymousBallotRejectionV1, BallotClosureErrorV1,
+            BallotClosureRecordV1, BallotContextErrorV1, BallotScopeV1, Digest512, NullifierV1,
             SealedCredentialListPublishedV1,
         },
         types::ProposalContentId,
@@ -286,6 +286,10 @@ pub enum ResourceUnavailableV1 {
     /// This node could not verify a ballot.
     #[error(transparent)]
     Verifier(VerificationUnavailableV1),
+    /// The published seal's list could not be decoded under the local resources;
+    /// retains the original refusal without concluding that the list is invalid.
+    #[error("the seal's list cannot be decoded locally: {0}")]
+    SealedList(norito::core::DecodeLocalRefusal),
     /// The empty corpus could not be computed.
     #[error(transparent)]
     Corpus(CorpusErrorV1),
@@ -368,6 +372,13 @@ fn check_seal(request: &FullVerificationRequestV1) -> Verdict<()> {
     }
     let list = match seal.sealed_list_bytes.decode_list() {
         Ok(list) => list,
+        Err(BallotContextErrorV1::Codec(AnonymousBallotCodecErrorV1::DecodeUnavailable(
+            refusal,
+        ))) => {
+            return Err(FullVerificationV1::ResourceUnavailable(
+                ResourceUnavailableV1::SealedList(refusal),
+            ));
+        }
         Err(error) => return invalid(InvalidEvidenceV1::SealedList(error)),
     };
     let sealed = context.context();
@@ -896,6 +907,71 @@ mod tests {
         blocks: Vec<ReplayBlockV1>,
     ) -> FullVerificationV1 {
         verify_full_v1(request, blocks.into_iter().map(Ok))
+    }
+
+    #[test]
+    fn a_valid_seal_under_a_local_decode_shortage_is_unavailable() {
+        let request = request();
+        assert_eq!(check_seal(&request), Ok(()));
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let (verdict, usage) =
+            norito::core::with_decode_limits_measured(limits, || verify(&request, Vec::new()));
+        let FullVerificationV1::ResourceUnavailable(ResourceUnavailableV1::SealedList(refusal)) =
+            verdict
+        else {
+            panic!("a local shortage must not invalidate the genuine seal");
+        };
+        assert_eq!(
+            refusal.kind(),
+            norito::core::DecodeLocalRefusalKind::EnclosingLimit
+        );
+        assert_eq!(
+            refusal.resource_error(),
+            norito::core::DecodeResourceError::TotalAllocationExceeded {
+                attempted: u64::from(request.context.seats()),
+                limit: 0,
+            }
+        );
+        assert_eq!(refusal.allocation_bytes(), None);
+        assert_eq!(usage.total_allocated_bytes(), 0);
+        assert_eq!(usage.total_elements(), usize::from(request.context.seats()));
+        // The refusal owns the original cause after its budget scope retires.
+        assert_eq!(refusal.clone(), refusal);
+        assert_eq!(check_seal(&request), Ok(()));
+        assert_eq!(
+            verify(&request, Vec::new()),
+            FullVerificationV1::IncompleteEvidence(IncompleteEvidenceV1::MissingBlock {
+                height: request.anchors.opening.height,
+            })
+        );
+    }
+
+    #[test]
+    fn invalid_seal_evidence_is_not_relabelled_as_local_unavailability() {
+        let mut request = request();
+        // Malformed frames cannot enter the private validated carrier at all.
+        let mut malformed = request.seal.sealed_list_bytes.as_bytes().to_vec();
+        malformed.push(0);
+        assert!(matches!(
+            SealedCredentialListBytesV1::from_canonical_bytes(malformed),
+            Err(BallotContextErrorV1::Codec(
+                AnonymousBallotCodecErrorV1::Codec(_)
+            ))
+        ));
+        // A well-formed published list can still contradict the authenticated
+        // context. This remains invalid evidence at the actual replay entry.
+        let mut conflicting = sealed_list();
+        let mut digest = conflicting.body_context_digest.into_bytes();
+        digest[0] ^= 1;
+        conflicting.body_context_digest = Digest512::new(digest);
+        request.seal.sealed_list_bytes = SealedCredentialListBytesV1::from_list(&conflicting)
+            .expect("canonical conflicting list");
+        assert_eq!(
+            verify(&request, Vec::new()),
+            FullVerificationV1::InvalidEvidence(InvalidEvidenceV1::SealMismatch {
+                field: "sealed_list_bytes",
+            })
+        );
     }
 
     #[test]

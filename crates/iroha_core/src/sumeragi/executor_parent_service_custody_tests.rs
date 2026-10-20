@@ -1,8 +1,10 @@
 //! Actual worker parent-service refusal, retained original source, retry and cancellation.
 //!
 //! Signed genesis and nonempty H2/H3 run through the real State/consensus fixture. Capacity
-//! is occupied only at the real successor-authority admission boundary, after source reads.
-//! This does not qualify nested native decoder or returned signer-graph funding.
+//! is occupied at real successor-authority and offered-QC field admission boundaries.
+//! These controls exercise the offered semantic QC and selected signer owners;
+//! the producer destination copy is retained before queue leasing; native-body nested
+//! decoding and enclosing evidence funding remain open.
 
 use super::*;
 use crate::sumeragi::{
@@ -811,6 +813,9 @@ fn parent_service_missing_predecessor_retries_original_tip_and_refuses_nontip_pr
                 let reader =
                     super::super::certified_chain::CertifiedChain::new_for_parent_service(&view)
                         .unwrap();
+                prepared
+                    .prepare_producer_copy(&view, parent.block())
+                    .unwrap();
                 assert_eq!(
                     prepared.proposal_original(&view, parent.block()).unwrap(),
                     reader
@@ -914,6 +919,371 @@ fn parent_service_validation_busy_view_retains_original_receipts_before_parent_l
             assert!(worker.run_execution(&block, hash, false).unwrap().is_some());
             assert_eq!(worker.state.view().height(), 3);
             drop(epoch);
+        },
+    );
+}
+
+#[test]
+fn parent_service_semantic_qc_worker_keeps_partial_owner_and_exact_refusal_until_retry() {
+    publication_tests::with_worker_from(
+        executed_chain,
+        ConsensusMode::Permissioned,
+        |chain, worker, _blocks, events| {
+            let block = publication_tests::proposal(chain, worker);
+            let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
+            let budget = worker.state.ivm_execution_budget();
+            let mut registration = crate::unit_test_support::release_registration(&budget);
+            let epoch = crossbeam_epoch::pin();
+            let baseline = budget.reserved_bytes();
+            let retained = Rc::new(RefCell::new(None));
+            let blocker = Rc::clone(&retained);
+            let observation = Rc::new(RefCell::new(None));
+            let observed = Rc::clone(&observation);
+            let original_pool = budget.clone();
+            let _probe: super::super::certified_chain::ParentServiceQcAdmissionProbe =
+                super::super::certified_chain::observe_parent_service_qc_admission(
+                    move |source, pool| {
+                        assert!(pool.same_pool(&original_pool));
+                        let qc: iroha_sumeragi::message::Qc =
+                            norito::decode_canonical(source.as_slice()).unwrap();
+                        assert_eq!(qc.signers.as_bytes().len(), 1);
+                        *observed.borrow_mut() =
+                            Some((source.as_slice().as_ptr().addr(), pool.reserved_bytes()));
+                        *blocker.borrow_mut() = Some(
+                            pool.try_reserve_bytes(pool.limit_bytes() - pool.reserved_bytes())
+                                .unwrap(),
+                        );
+                    },
+                );
+            let error = worker
+                .run_execution(&block, hash, false)
+                .expect_err("actual semantic bitmap admission refuses");
+            let first = release_of(error);
+            let (source, controls) = observation
+                .borrow()
+                .expect("actual semantic QC boundary observed");
+            let original = worker
+                .signature_decode
+                .as_ref()
+                .expect("original worker attempt retained");
+            assert_eq!(
+                original.parent_service.qc_pointers(),
+                (source, 0),
+                "semantic QC refusal must retain the original worker source and partial decoder"
+            );
+            assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+            assert!(
+                matches!(first.allocation_refusal(), Some(AllocationRefusal::Capacity {requested_bytes: 1, reserved_bytes, limit_bytes, ..}) if *reserved_bytes == budget.limit_bytes() && *limit_bytes == budget.limit_bytes())
+            );
+            let AllocationRefusal::Capacity { release, .. } = first.allocation_refusal().unwrap()
+            else {
+                unreachable!()
+            };
+            let mut wait_context = Context::from_waker(Waker::noop());
+            assert!(
+                registration
+                    .poll_wait(release, &mut wait_context)
+                    .is_pending()
+            );
+            let second = release_of(
+                worker
+                    .run_execution(&block, hash, false)
+                    .expect_err("same original pool still refuses"),
+            );
+            assert_eq!(second.allocation_refusal(), first.allocation_refusal());
+            assert!(
+                registration
+                    .poll_wait(release, &mut wait_context)
+                    .is_pending()
+            );
+            assert_eq!(
+                worker
+                    .signature_decode
+                    .as_ref()
+                    .unwrap()
+                    .parent_service
+                    .qc_pointers(),
+                (source, 0)
+            );
+            assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+            assert!(
+                worker.live.is_none() && worker.finishing.is_none() && worker.recovery.is_none()
+            );
+            assert_eq!(worker.state.view().height(), 3);
+            assert_eq!(worker.applied.0, 3);
+            assert!(events.try_recv().is_err());
+            drop(retained.borrow_mut().take());
+            assert!(
+                registration
+                    .poll_wait(release, &mut wait_context)
+                    .is_ready()
+            );
+            assert_eq!(budget.reserved_bytes(), controls);
+            assert!(worker.run_execution(&block, hash, false).unwrap().is_some());
+            let pointers = worker
+                .signature_decode
+                .as_ref()
+                .unwrap()
+                .parent_service
+                .qc_pointers();
+            assert_eq!(pointers.0, source);
+            assert_ne!(pointers.1, 0);
+            assert_eq!(worker.state.view().height(), 3);
+            assert_eq!(worker.applied.0, 3);
+            worker.discard(block.header().height, &[]);
+            drop(first);
+            drop(second);
+            assert_eq!(budget.reserved_bytes(), baseline);
+            drop(epoch);
+        },
+    );
+}
+
+#[test]
+fn parent_service_signer_worker_keeps_paid_prefix_before_overlay_and_external_release() {
+    publication_tests::with_worker_from(
+        executed_chain,
+        ConsensusMode::Permissioned,
+        |chain, worker, _blocks, events| {
+            let block = publication_tests::proposal(chain, worker);
+            let hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
+            let budget = worker.state.ivm_execution_budget();
+            let expected_key_bytes = chain.committed(3).commitment().schedule.current.committee[0]
+                .validator
+                .public_key()
+                .retained_allocation_layout()
+                .size();
+            let mut registration = crate::unit_test_support::release_registration(&budget);
+            let epoch = crossbeam_epoch::pin();
+            let baseline = budget.reserved_bytes();
+            let retained = Rc::new(RefCell::new(None));
+            let blocker = Rc::clone(&retained);
+            let observation = Rc::new(RefCell::new(None));
+            let observed = Rc::clone(&observation);
+            let original_pool = budget.clone();
+            let _probe: super::super::certified_chain::ParentServiceSignersAdmissionProbe =
+                super::super::certified_chain::observe_parent_service_signers_admission(
+                    move |pool, first_prefix_bytes| {
+                        assert!(pool.same_pool(&original_pool));
+                        *observed.borrow_mut() = Some(pool.reserved_bytes() + first_prefix_bytes);
+                        *blocker.borrow_mut() = Some(
+                            pool.try_reserve_bytes(
+                                pool.limit_bytes() - pool.reserved_bytes() - first_prefix_bytes,
+                            )
+                            .unwrap(),
+                        );
+                    },
+                );
+            let first = release_of(
+                worker
+                    .run_execution(&block, hash, false)
+                    .expect_err("actual second signer key admission refuses"),
+            );
+            assert_eq!(
+                budget.reserved_bytes(),
+                budget.limit_bytes(),
+                "worker signer refusal retains its paid prefix before any overlay"
+            );
+            let controls = observation
+                .borrow()
+                .expect("actual signer destination observed");
+            let pointers = worker
+                .signature_decode
+                .as_ref()
+                .unwrap()
+                .parent_service
+                .signer_pointers();
+            assert!(pointers.0 != 0 && pointers.1 != 0 && pointers.2 != 0);
+            assert!(
+                matches!(first.allocation_refusal(), Some(AllocationRefusal::Capacity {requested_bytes, reserved_bytes, limit_bytes, ..})
+                if *requested_bytes == expected_key_bytes && *reserved_bytes == budget.limit_bytes() && *limit_bytes == budget.limit_bytes())
+            );
+            let AllocationRefusal::Capacity { release, .. } = first.allocation_refusal().unwrap()
+            else {
+                unreachable!()
+            };
+            let mut context = Context::from_waker(Waker::noop());
+            assert!(registration.poll_wait(release, &mut context).is_pending());
+            let second = release_of(
+                worker
+                    .run_execution(&block, hash, false)
+                    .expect_err("same original pool still refuses the same unfinished key"),
+            );
+            assert_eq!(second.allocation_refusal(), first.allocation_refusal());
+            assert_eq!(
+                worker
+                    .signature_decode
+                    .as_ref()
+                    .unwrap()
+                    .parent_service
+                    .signer_pointers(),
+                pointers
+            );
+            assert!(registration.poll_wait(release, &mut context).is_pending());
+            assert!(
+                worker.live.is_none() && worker.finishing.is_none() && worker.recovery.is_none()
+            );
+            assert_eq!(worker.state.view().height(), 3);
+            assert_eq!(worker.applied.0, 3);
+            assert!(events.try_recv().is_err());
+            drop(retained.borrow_mut().take());
+            assert!(registration.poll_wait(release, &mut context).is_ready());
+            assert_eq!(budget.reserved_bytes(), controls);
+            assert!(worker.run_execution(&block, hash, false).unwrap().is_some());
+            assert_eq!(
+                worker
+                    .signature_decode
+                    .as_ref()
+                    .unwrap()
+                    .parent_service
+                    .signer_pointers(),
+                pointers
+            );
+            assert_eq!(worker.state.view().height(), 3);
+            assert_eq!(worker.applied.0, 3);
+            worker.discard(block.header().height, &[]);
+            drop(first);
+            drop(second);
+            assert_eq!(budget.reserved_bytes(), baseline);
+            drop(epoch);
+        },
+    );
+}
+
+#[test]
+fn parent_service_producer_copy_refusal_precedes_queue_lease_and_retries_same_input() {
+    publication_tests::with_worker_from(
+        executed_chain,
+        ConsensusMode::Permissioned,
+        |chain, worker, _blocks, events| {
+            let transaction = chain.tick(4_000);
+            let original_hash = transaction.hash_as_entrypoint();
+            let (_, time) =
+                iroha_primitives::time::TimeSource::new_mock(Duration::from_millis(4_001));
+            chain.set_execution_time(time.now());
+            let queue = Arc::new(Queue::test(
+                iroha_config::parameters::actual::Queue::default(),
+                &time,
+            ));
+            let accepted = crate::tx::AcceptedTransaction::accept_with_time_source(
+                transaction,
+                &chain.network_id(),
+                Duration::from_secs(1),
+                chain.state().view().world().parameters().transaction(),
+                &iroha_config::parameters::actual::Crypto::default(),
+                &time,
+            )
+            .unwrap();
+            queue.push(accepted, chain.state().view()).unwrap();
+            worker.queue = Some(queue.clone());
+            let pool = worker.state.ivm_execution_budget();
+            let _epoch = crossbeam_epoch::pin();
+            let mut registration = crate::unit_test_support::release_registration(&pool);
+            let occupied = Rc::new(RefCell::new(None));
+            let blocker = Rc::clone(&occupied);
+            let expected = Rc::new(RefCell::new(None));
+            let observed = Rc::clone(&expected);
+            let original_pool = pool.clone();
+            let _probe: super::super::certified_chain::ParentServiceCopyAdmissionProbe =
+                super::super::certified_chain::observe_parent_service_copy_admission(
+                    move |pool, layouts| {
+                        assert!(pool.same_pool(&original_pool));
+                        let demand: usize = layouts.iter().map(std::alloc::Layout::size).sum();
+                        *blocker.borrow_mut() = Some(
+                            pool.try_reserve_bytes(pool.limit_bytes() - pool.reserved_bytes())
+                                .unwrap(),
+                        );
+                        *observed.borrow_mut() = Some((demand, pool.reserved_bytes()));
+                    },
+                );
+            let first = release_of(
+                worker
+                    .build(4, 0, 1 << 20, 100)
+                    .expect_err("real producer copy capacity refuses"),
+            );
+            let (demand, at_admission) = expected
+                .borrow()
+                .expect("actual destination admission observed");
+            assert!(
+                matches!(first.allocation_refusal(), Some(AllocationRefusal::Capacity { requested_bytes, reserved_bytes, limit_bytes, .. })
+            if *requested_bytes == demand && *reserved_bytes == at_admission && *limit_bytes == pool.limit_bytes())
+            );
+            let original_receipts = worker
+                .assembly_parent_service
+                .as_ref()
+                .unwrap()
+                .1
+                .original_pointers();
+            assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+            assert!(original_receipts.iter().all(|pointer| *pointer != 0));
+            assert!(worker.payload_build.is_none() && worker.completed_payload.is_none());
+            assert_eq!(queue.queued_len(), 1);
+            assert!(queue.contains_entrypoint_hash(original_hash));
+            assert_eq!(worker.state.view().height(), 3);
+            assert!(events.try_recv().is_err());
+            // Initial acquisition scratch can refund at the outer scope boundary. A fresh
+            // unchanged refusal captures the actual remaining source, never an invented wake.
+            let mut context = Context::from_waker(Waker::noop());
+            let AllocationRefusal::Capacity { release, .. } = first.allocation_refusal().unwrap()
+            else {
+                unreachable!()
+            };
+            let _ = registration.poll_wait(release, &mut context);
+            let second = release_of(
+                worker
+                    .build(4, 0, 1 << 20, 100)
+                    .expect_err("same original copy still refuses"),
+            );
+            let AllocationRefusal::Capacity { release, .. } = second.allocation_refusal().unwrap()
+            else {
+                unreachable!()
+            };
+            assert!(registration.poll_wait(release, &mut context).is_pending());
+            assert_eq!(
+                worker
+                    .assembly_parent_service
+                    .as_ref()
+                    .unwrap()
+                    .1
+                    .original_pointers(),
+                original_receipts
+            );
+            assert!(worker.payload_build.is_none() && worker.completed_payload.is_none());
+            drop(occupied.borrow_mut().take());
+            assert!(registration.poll_wait(release, &mut context).is_ready());
+            registration.cancel();
+            let result = worker
+                .build(4, 0, 1 << 20, 100)
+                .unwrap()
+                .expect("original paid input resumes");
+            let proposal = payload::decode(result.payload.as_slice()).unwrap();
+            assert!(
+                proposal
+                    .external_entrypoints_slice()
+                    .iter()
+                    .any(|entry| entry.hash() == original_hash)
+            );
+            let parent = chain.committed(3);
+            let view = chain.state().view();
+            let prepared = &worker.assembly_parent_service.as_ref().unwrap().1;
+            let first = prepared.proposal_original(&view, parent.block()).unwrap();
+            let second = prepared.proposal_original(&view, parent.block()).unwrap();
+            assert!(
+                iroha_data_model::consensus::NposParentServiceCommitQc::ptr_eq(&first, &second)
+            );
+            assert!(first.admitted_to(&pool));
+            assert_eq!(
+                proposal
+                    .npos_consensus_effects()
+                    .unwrap()
+                    .parent_service_commit_qc
+                    .as_ref()
+                    .unwrap()
+                    .as_slice(),
+                first.as_slice()
+            );
+            assert_eq!(queue.queued_len(), 1);
+            assert!(queue.contains_entrypoint_hash(original_hash));
         },
     );
 }

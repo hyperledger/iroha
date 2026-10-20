@@ -1390,6 +1390,9 @@ fn emit_genuine_signed_quantity_effect_capture() {
 
 /// Begin from a genuine signed effect and its retained source/quota owner.
 fn with_signed_quantity_block(test: impl FnOnce(&mut StateBlock<'_>, &AssetId, &AssetId, Hash)) {
+    // Keep retired State generations fixed while exact graph/refund charges are
+    // observed; their EBR release is independent of the operation under test.
+    let _state_retirement = crossbeam_epoch::pin();
     let (state, alice, bob) = fixture();
     let (source, call) = source(
         &state,
@@ -2122,6 +2125,13 @@ fn nested_canonical_payloads_remain_charged_through_unwind_and_release_after_des
 
 #[test]
 fn callback_error_and_unwind_discard_new_tape_while_transaction_rollback_preserves_parent() {
+    // Exact retirement accounting must not share the global EBR collector with
+    // unrelated parallel tests and their reader lifetimes.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "state::fastpq_quantity_capture::tests::callback_error_and_unwind_discard_new_tape_while_transaction_rollback_preserves_parent",
+    ) {
+        return;
+    }
     for unwind in [false, true] {
         with_signed_quantity_block(|block, alice, _, call| {
             let budget = block.pipeline_ivm_prepared_cache.execution_budget().clone();
@@ -2459,6 +2469,9 @@ fn with_quantity_source_census_before_seal<T>(
     before_seal: impl FnOnce(&mut StateBlock<'_>) -> T,
     action: impl FnOnce(&mut StateBlock<'_>, &SignedBlock, &AssetId, &AssetId, T),
 ) {
+    // Keep retired State generations fixed while exact graph/refund charges are
+    // observed; their EBR release is independent of the operation under test.
+    let _state_retirement = crossbeam_epoch::pin();
     use iroha_data_model::{isi::Log, prelude::Level};
     let (state, alice, bob) = fixture();
     let header = quantity_successor_header(&state);
@@ -2881,6 +2894,9 @@ fn bob_account_removal_source(state: &State, repeat: bool) -> (SignedBlock, Hash
 
 #[test]
 fn signed_account_removal_captures_original_supply_first_burn_and_exact_source_census() {
+    // Keep retired State generations fixed while exact graph/refund charges are
+    // observed; their EBR release is independent of the operation under test.
+    let _state_retirement = crossbeam_epoch::pin();
     for amount in [0_u32, 3] {
         let (state, alice, bob) = account_removal_fixture(Some(Quantity::from(amount)));
         let (mut source, call) = bob_account_removal_source(&state, false);
@@ -3348,10 +3364,8 @@ fn signed_definition_and_domain_retirement_capture_exact_original_enumeration_an
                             .is_none()
                     );
                     assert!(
-                        block
-                            .world
-                            .asset_definition_assets
-                            .get(&asset.definition)
+                        index_members(&block.world.asset_definition_assets, &asset.definition)
+                            .next()
                             .is_none()
                     );
                     retired.push((asset.definition.clone(), asset.incarnation));
@@ -3417,6 +3431,9 @@ fn signed_definition_and_domain_retirement_capture_exact_original_enumeration_an
 
 #[test]
 fn signed_empty_definition_retirement_has_no_dummy_balance_burn_and_exact_one_shot_custody() {
+    // Keep retired State generations fixed while exact graph/refund charges are
+    // observed; their EBR release is independent of the operation under test.
+    let _state_retirement = crossbeam_epoch::pin();
     let (state, _, _, empty, _) = retirement_fixture();
     let (source, call) = source(
         &state,
@@ -4113,6 +4130,14 @@ fn retirement_fee_source(
 
 #[test]
 fn actual_due_fee_write_refuses_retirement_capture_and_rolls_back_original_credit() {
+    if crate::unit_test_support::run_in_isolated_harness(
+        "state::fastpq_quantity_capture::tests::actual_due_fee_write_refuses_retirement_capture_and_rolls_back_original_credit",
+    ) {
+        return;
+    }
+    // Keep retired State generations fixed while exact graph/refund charges are
+    // observed; their EBR release is independent of the operation under test.
+    let _state_retirement = crossbeam_epoch::pin();
     let (chain, policy, source_asset, empty) = retirement_due_fee_fixture();
     let wallet_key =
         iroha_crypto::KeyPair::try_from_seed(vec![3; 32], iroha_crypto::Algorithm::Ed25519)
@@ -5134,6 +5159,9 @@ fn mandatory_source_bytes_ignore_optional_archive_loss_and_refusal() {
 
 #[test]
 fn mandatory_source_finalizer_memory_refusal_is_original_local_deferred_without_output() {
+    // Keep retired State generations fixed while exact graph/refund charges are
+    // observed; their EBR release is independent of the operation under test.
+    let _state_retirement = crossbeam_epoch::pin();
     let (state, alice, _) = fixture();
     let (mut source, call) = source(
         &state,

@@ -56,7 +56,11 @@ impl AnchorSource for Anchor {
 }
 struct IntrinsicComponentCheck;
 impl TransactionCheck for IntrinsicComponentCheck {
-    fn check(&self, _: &TransactionEntrypoint, _: u64) -> Result<(), String> {
+    fn check(
+        &self,
+        _: &TransactionEntrypoint,
+        _: u64,
+    ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<String>> {
         Ok(())
     }
 }

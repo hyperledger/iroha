@@ -18,7 +18,7 @@ fn proof_test_helpers_seed_records() {
         .insert(proof_id.clone(), vec![*b"TAG1"]);
     stx.world
         .proofs_by_tag_mut_for_testing()
-        .insert(*b"TAG1", vec![proof_id.clone()]);
+        .insert((*b"TAG1", proof_id.clone()), ());
     stx.apply();
     block
         .commit_world_overlay_for_testing()
@@ -28,8 +28,8 @@ fn proof_test_helpers_seed_records() {
     assert_eq!(world.proofs().get(&proof_id), Some(&record));
     assert_eq!(world.proof_tags().get(&proof_id), Some(&vec![*b"TAG1"]));
     assert_eq!(
-        world.proofs_by_tag().get(b"TAG1"),
-        Some(&vec![proof_id.clone()])
+        world.proofs_by_tag().get(&(*b"TAG1", proof_id.clone())),
+        Some(&())
     );
 }
 #[tokio::test]

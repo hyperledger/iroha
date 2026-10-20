@@ -185,6 +185,9 @@ fn carrier(state: &State, inputs: Vec<TransactionEntrypoint>) -> SignedBlock {
             TransactionEntrypoint::External(tx) => {
                 builder.push_transaction(tx);
             }
+            TransactionEntrypoint::AnonymousBallot(envelope) => {
+                builder.push_anonymous_ballot(envelope);
+            }
             TransactionEntrypoint::SealedCommitment(tx) => {
                 builder.push_sealed_transaction_commitment(tx);
             }

@@ -1875,6 +1875,78 @@ impl MerkleTree<[u8; 32]> {
         self.update(idx);
     }
 
+    /// Install every marked leaf from `digests`, then rehash each affected
+    /// parent exactly once, level by level up to the root.
+    ///
+    /// Bit `i % 64` of `marked_words[i / 64]` marks leaf `i`; `digests` holds
+    /// the current digest of every leaf. The nodes are bit-identical to calling
+    /// [`Self::update_hashed_leaf_sha256`] for each marked leaf in ascending
+    /// order, but a parent above several marked leaves is hashed once instead
+    /// of once per leaf. Nothing is allocated.
+    ///
+    /// # Errors
+    /// Returns [`MerkleError::InvalidLayout`], leaving the tree unchanged, for
+    /// another hash scheme, a digest count other than the leaf count, or a
+    /// mark at or beyond the leaf count.
+    pub fn update_marked_hashed_leaves_sha256(
+        &mut self,
+        digests: &[[u8; 32]],
+        marked_words: &[u64],
+    ) -> Result<(), MerkleError> {
+        let leaf_count = self.leaf_count();
+        let marks_in_range = marked_words
+            .iter()
+            .rposition(|word| *word != 0)
+            .is_none_or(|index| {
+                let last = index * 64 + (63 - marked_words[index].leading_zeros() as usize);
+                last < leaf_count
+            });
+        if self.hash_scheme != MerkleHashScheme::Sha256V1
+            || digests.len() != leaf_count
+            || !marks_in_range
+        {
+            return Err(MerkleError::InvalidLayout(
+                "marked SHA-256 update requires the existing leaf count, scheme and range".into(),
+            ));
+        }
+        let marked = || {
+            marked_words.iter().enumerate().flat_map(|(index, word)| {
+                let mut remaining = *word;
+                core::iter::from_fn(move || {
+                    (remaining != 0).then(|| {
+                        let bit = remaining.trailing_zeros() as usize;
+                        remaining &= remaining - 1;
+                        index * 64 + bit
+                    })
+                })
+            })
+        };
+        let height = self.height();
+        let leaf_offset = (1_usize << height) - 1;
+        for leaf in marked() {
+            self.nodes[leaf_offset + leaf] = Some(HashOf::from_untyped_unchecked(Hash::prehashed(
+                digests[leaf],
+            )));
+        }
+        for level in 1..=height {
+            let level_offset = (1_usize << (height - level)) - 1;
+            // Marks arrive in ascending order, so equal ancestors are adjacent.
+            let mut previous = None;
+            for leaf in marked() {
+                let position = leaf >> level;
+                if previous == Some(position) {
+                    continue;
+                }
+                previous = Some(position);
+                let parent = level_offset + position;
+                let left = self.nodes.get((parent << 1) + 1).and_then(Option::as_ref);
+                let right = self.nodes.get((parent << 1) + 2).and_then(Option::as_ref);
+                self.nodes[parent] = Self::pair_hash_sha256(left, right);
+            }
+        }
+        Ok(())
+    }
+
     /// Rewrite every SHA-256 leaf and parent in an existing tree without changing
     /// its node allocation. The caller must supply exactly the current leaf count.
     ///
@@ -2324,6 +2396,69 @@ mod tests {
             MerkleTree::<[u8; 32]>::try_from_repeated_hashed_leaf_sha256(usize::MAX, digest,),
             Err(MerkleError::AllocationUnavailable)
         ));
+    }
+
+    #[test]
+    fn marked_leaf_update_matches_per_leaf_path_rewrites() {
+        fn digest(seed: usize) -> [u8; 32] {
+            let mut out = [0_u8; 32];
+            for (index, byte) in out.iter_mut().enumerate() {
+                *byte = u8::try_from(seed.wrapping_mul(131).wrapping_add(index * 7) % 251)
+                    .expect("remainder below 251 fits u8");
+            }
+            out
+        }
+        for count in [1, 2, 3, 5, 8, 63, 64, 65, 127, 129, 1_000, 4_097] {
+            let initial: Vec<[u8; 32]> = (0..count).map(digest).collect();
+            let patterns: [Vec<usize>; 6] = [
+                Vec::new(),
+                vec![count / 2],
+                (0..count.div_ceil(3)).collect(),
+                (0..count).step_by(7).collect(),
+                (0..count)
+                    .filter(|leaf| leaf % 64 == 63 || *leaf == count - 1)
+                    .collect(),
+                (0..count).collect(),
+            ];
+            for marks in patterns {
+                let mut digests = initial.clone();
+                let mut words = vec![0_u64; count.div_ceil(64)];
+                let mut per_leaf = MerkleTree::<[u8; 32]>::try_from_hashed_leaves_sha256(&initial)
+                    .expect("bounded tree");
+                for &leaf in &marks {
+                    digests[leaf] = digest(leaf + 10_000);
+                    words[leaf / 64] |= 1 << (leaf % 64);
+                    per_leaf.update_hashed_leaf_sha256(leaf, digests[leaf]);
+                }
+                let mut marked = MerkleTree::<[u8; 32]>::try_from_hashed_leaves_sha256(&initial)
+                    .expect("bounded tree");
+                marked
+                    .update_marked_hashed_leaves_sha256(&digests, &words)
+                    .expect("marks inside the tree");
+                assert_eq!(marked, per_leaf, "{count} leaves, marks {marks:?}");
+                assert_eq!(
+                    marked,
+                    MerkleTree::<[u8; 32]>::try_from_hashed_leaves_sha256(&digests)
+                        .expect("bounded tree"),
+                );
+            }
+        }
+        let initial: Vec<[u8; 32]> = (0..65).map(digest).collect();
+        let mut tree =
+            MerkleTree::<[u8; 32]>::try_from_hashed_leaves_sha256(&initial).expect("bounded tree");
+        let unchanged = tree.clone();
+        let changed: Vec<[u8; 32]> = (0..65).map(|leaf| digest(leaf + 1)).collect();
+        for (digests, words) in [
+            (&changed[..64], vec![1_u64]),
+            (&changed[..], vec![0, 0b10]),
+            (&changed[..], vec![0, 0, 1]),
+        ] {
+            assert!(matches!(
+                tree.update_marked_hashed_leaves_sha256(digests, &words),
+                Err(MerkleError::InvalidLayout(_))
+            ));
+            assert_eq!(tree, unchanged);
+        }
     }
 
     #[test]

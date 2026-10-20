@@ -393,7 +393,9 @@ async fn cancelled_interval_http_future_keeps_original_worker_credit_until_physi
     release.send(()).unwrap();
     let (stopped, codec_debit) = result.await.unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        while query.available_permits() != 1 {
+        // The query permit can retire before the worker's final allocation owner.
+        // Wait for both independent resources before checking physical retirement.
+        while query.available_permits() != 1 || pool.available_bytes() != 48_000_000 {
             tokio::task::yield_now().await;
         }
     })

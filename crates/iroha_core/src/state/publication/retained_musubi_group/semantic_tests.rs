@@ -59,6 +59,9 @@ fn prepare(block: &mut StateBlock<'_>) {
 
 #[test]
 fn original_frozen_semantic_graph_checks_both_exact_images_in_ordinary_and_replacement_modes() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     for replacement in [false, true] {
         let (state, proposal) = fixture();
         if replacement {
@@ -92,6 +95,9 @@ fn original_frozen_semantic_graph_checks_both_exact_images_in_ordinary_and_repla
 
 #[test]
 fn original_frozen_semantic_work_refusal_cannot_become_absence_or_empty_iteration() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = pending(&state, proposal.header(), false);
     prepare(&mut block);
@@ -127,6 +133,9 @@ fn original_frozen_semantic_work_refusal_cannot_become_absence_or_empty_iteratio
 
 #[test]
 fn original_frozen_semantic_scratch_refusal_retains_the_actual_pool_and_original_rows() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = pending(&state, proposal.header(), false);
     prepare(&mut block);
@@ -204,6 +213,9 @@ fn corrupt_pending(state: &State, header: BlockHeader) -> Box<StateBlock<'_>> {
 
 #[test]
 fn original_frozen_semantic_rejection_names_the_actual_current_cut_without_committed_fallback() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = corrupt_pending(&state, proposal.header());
     prepare(&mut block);
@@ -237,6 +249,9 @@ fn original_frozen_semantic_rejection_names_the_actual_current_cut_without_commi
 #[test]
 fn original_frozen_semantic_graph_rejects_invalid_undo_while_accepting_the_repaired_current_image()
 {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     staged_block(&state, proposal.header(), false, true)
         .commit()
@@ -285,6 +300,9 @@ fn original_frozen_semantic_graph_rejects_invalid_undo_while_accepting_the_repai
 
 #[test]
 fn semantic_success_is_discarded_if_the_original_state_changes_during_its_callback() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = pending(&state, proposal.header(), false);
     prepare(&mut block);
@@ -314,6 +332,9 @@ fn semantic_success_is_discarded_if_the_original_state_changes_during_its_callba
 
 #[test]
 fn original_source_admission_retains_exact_row_prefix_and_refuses_policy_replacement() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use iroha_data_model::musubi::source_work::{SourceGeometry, SourceShape};
     let (state, proposal) = fixture();
     let mut block = pending(&state, proposal.header(), false);
@@ -436,6 +457,16 @@ fn original_source_admission_retains_exact_row_prefix_and_refuses_policy_replace
 
 #[test]
 fn original_source_policy_refusal_is_sticky_without_replenishing_geometry_or_native_work() {
+    // Exact retirement accounting must not share the global EBR collector with
+    // unrelated parallel tests and their reader lifetimes.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::retained_musubi_group_tests::semantic_tests::original_source_policy_refusal_is_sticky_without_replenishing_geometry_or_native_work",
+    ) {
+        return;
+    }
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = pending(&state, proposal.header(), false);
     prepare(&mut block);
@@ -485,6 +516,9 @@ fn original_source_policy_refusal_is_sticky_without_replenishing_geometry_or_nat
 
 #[test]
 fn original_source_cursor_control_admission_retains_the_exact_pool_refusal() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::publication::{
         original_musubi_admission_control_layout_for_test,
         original_musubi_admission_live_layout_for_test,
@@ -540,6 +574,9 @@ fn original_source_cursor_control_admission_retains_the_exact_pool_refusal() {
 
 #[test]
 fn original_source_cursor_control_capacity_refusal_waits_for_external_release() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::publication::{
         original_musubi_admission_control_layout_for_test,
         original_musubi_admission_live_layout_for_test,
@@ -637,6 +674,9 @@ fn original_source_cursor_control_capacity_refusal_waits_for_external_release() 
 
 #[test]
 fn original_universal_cursor_retains_ordinal_scratch_and_completed_rows_on_work_refusal() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = pending(&state, proposal.header(), false);
     prepare(&mut block);
@@ -758,6 +798,9 @@ fn original_universal_cursor_retains_ordinal_scratch_and_completed_rows_on_work_
 
 #[test]
 fn original_universal_scratch_refusal_preserves_validated_package_prefix_and_exact_pool() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::deserialize::musubi_universal::cursor::UniversalValidation;
     let (state, proposal) = fixture();
     let mut block = pending(&state, proposal.header(), false);
@@ -822,6 +865,9 @@ fn original_universal_scratch_refusal_preserves_validated_package_prefix_and_exa
 
 #[test]
 fn original_universal_rejection_is_sticky_and_predecessor_validation_is_independent() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = corrupt_pending(&state, proposal.header());
     prepare(&mut block);
@@ -877,6 +923,9 @@ fn original_universal_rejection_is_sticky_and_predecessor_validation_is_independ
 
 #[test]
 fn configured_original_admission_keeps_the_block_policy_and_cannot_borrow_memory_as_work() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     use crate::state::deserialize::musubi_source_work::{WorkDimension, WorkRefusal};
     let (mut state, proposal) = fixture();
     let mut configuration = state.pipeline.clone();
@@ -923,6 +972,9 @@ fn configured_original_admission_keeps_the_block_policy_and_cannot_borrow_memory
 
 #[test]
 fn original_live_model_prefix_and_directory_scratch_survive_exact_native_refusal() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (state, proposal) = fixture();
     let mut block = Box::new(
         crate::state::acquisition_fixture_tests::direct_commit_musubi_scratch_tests::staged_attested_block(
@@ -1063,6 +1115,9 @@ fn original_live_model_prefix_and_directory_scratch_survive_exact_native_refusal
 
 #[test]
 fn zero_scheduling_quantum_retains_original_sources_without_fabricating_work_credit() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (mut state, proposal) = fixture();
     let mut node = state.pipeline.clone();
     node.state_capture.native_work_per_attempt = 0;
@@ -1095,6 +1150,9 @@ fn zero_scheduling_quantum_retains_original_sources_without_fabricating_work_cre
 
 #[test]
 fn one_unit_configured_grants_complete_both_original_images_without_prefix_starvation() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (mut state, proposal) = fixture();
     let mut node = state.pipeline.clone();
     node.state_capture.native_work_per_attempt = 1;
@@ -1162,6 +1220,9 @@ fn one_unit_configured_grants_complete_both_original_images_without_prefix_starv
 
 #[test]
 fn configured_work_grants_accumulate_independently_of_consumed_source_work() {
+    // Retain the constructor's retired AMX generations until this test finishes,
+    // so collection cannot create spare capacity after the pool is saturated.
+    let _constructor_retirement = crossbeam_epoch::pin();
     let (mut state, proposal) = fixture();
     let mut node = state.pipeline.clone();
     node.state_capture.native_work_per_attempt = 7;

@@ -132,7 +132,7 @@ class NativeInventoryTests(unittest.TestCase):
     def test_real_checkout_matches_every_reviewed_owner(self):
         names = inventory.validate_native_source_inventory(ROOT)
         self.assertEqual(len(names), sum(len(row[-1]) for row in inventory.NATIVE_CORE_TEST_OWNERS))
-        self.assertEqual(len(names), 574)
+        self.assertEqual(len(names), 627)
 
     def test_authenticated_epoch_schedule_stays_in_exact_boundary_census(self):
         owner, = (row for row in inventory.NATIVE_CORE_TEST_OWNERS
@@ -557,6 +557,14 @@ class NativeInventoryTests(unittest.TestCase):
             'admitted_prefix_finish_matches_original_step_and_retains_original_slot_until_finish',
             'admitted_prefix_finish_preserves_original_pool_refusal_and_certificate_error_order',
             'walk_parent_link_retains_original_body_and_exact_native_continuity_without_result_copy',
+            'admitted_frame_refusal_rejects_foreign_pool_and_replacement_source_before_retry',
+            'admitted_initialization_binds_original_pool_and_genesis_before_first_admission',
+            'admitted_parameter_change_retains_pending_authority_across_later_scratch_refusal',
+            'admitted_prefix_rebuilds_funded_configuration_for_same_epoch_parameter_change',
+            'admitted_prepared_prefix_refusal_retains_metadata_slots_and_original_release',
+            'funded_prefix_authority_rejects_invalid_frames_exactly_like_the_portable_authority',
+            'one_shot_admitted_push_admits_both_slots_before_a_refusal_can_release_itself',
+            'one_shot_admitted_push_funds_no_owner_that_could_release_its_own_wait',
         ))
 
     def test_reviewed_resume_restore_and_reader_additions_require_exact_source_owners(self):

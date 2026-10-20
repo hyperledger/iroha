@@ -4561,10 +4561,10 @@ def test_every_term_of_the_path_crates_is_pinned_with_the_limits_it_is_part_of()
             "VPN_HEADER_LEN",
         ),
         (
-            "crates/iroha_core/src/smartcontracts/isi/query/canonical_topk.rs",
-            "CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES: u64 = 1024;",
-            "CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES: u64 = 1;",
-            "CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES",
+            "crates/iroha_crypto/src/lib.rs",
+            "MAX_PUBLIC_KEY_PAYLOAD_BYTES: usize = 2 + (u16::MAX as usize / 8) + 65;",
+            "MAX_PUBLIC_KEY_PAYLOAD_BYTES: usize = 1;",
+            "MAX_PUBLIC_KEY_PAYLOAD_BYTES",
         ),
         (
             "crates/iroha_core/src/privacy_release_evidence.rs",

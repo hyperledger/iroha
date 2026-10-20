@@ -2388,12 +2388,21 @@ fn asset_escrow_ids_for_accounts(
 ) -> BTreeSet<EscrowId> {
     let mut ids = BTreeSet::new();
     for account_id in accounts {
-        let escrow_ids = match index {
-            AssetEscrowAccountIndex::Seller => world.asset_escrows_by_seller().get(&account_id),
-            AssetEscrowAccountIndex::Buyer => world.asset_escrows_by_buyer().get(&account_id),
-        };
-        if let Some(escrow_ids) = escrow_ids {
-            ids.extend(escrow_ids.iter().copied());
+        match index {
+            AssetEscrowAccountIndex::Seller => ids.extend(
+                crate::state::range_bounds::index_members(
+                    world.asset_escrows_by_seller(),
+                    &account_id,
+                )
+                .copied(),
+            ),
+            AssetEscrowAccountIndex::Buyer => ids.extend(
+                crate::state::range_bounds::index_members(
+                    world.asset_escrows_by_buyer(),
+                    &account_id,
+                )
+                .copied(),
+            ),
         }
     }
     ids
@@ -2404,9 +2413,10 @@ fn asset_escrow_ids_for_statuses(
 ) -> BTreeSet<EscrowId> {
     let mut ids = BTreeSet::new();
     for status in statuses {
-        if let Some(escrow_ids) = world.asset_escrows_by_status().get(&status) {
-            ids.extend(escrow_ids.iter().copied());
-        }
+        ids.extend(
+            crate::state::range_bounds::index_members(world.asset_escrows_by_status(), &status)
+                .copied(),
+        );
     }
     ids
 }
@@ -2530,13 +2540,11 @@ impl ValidQuery for FindAssetEscrowsBySeller {
     ) -> Result<impl Iterator<Item = AssetEscrowRecord>, QueryExecutionFail> {
         let seller = self.seller;
         let world = state_ro.world();
-        Ok(world
-            .asset_escrows_by_seller()
-            .get(&seller)
-            .into_iter()
-            .flat_map(BTreeSet::iter)
-            .filter_map(move |escrow_id| world.asset_escrows().get(escrow_id).cloned())
-            .filter(move |record| filter.applies(record)))
+        Ok(
+            crate::state::range_bounds::index_members(world.asset_escrows_by_seller(), &seller)
+                .filter_map(move |escrow_id| world.asset_escrows().get(escrow_id).cloned())
+                .filter(move |record| filter.applies(record)),
+        )
     }
 }
 impl ValidQuery for FindAssetEscrowsByBuyer {
@@ -2547,13 +2555,11 @@ impl ValidQuery for FindAssetEscrowsByBuyer {
     ) -> Result<impl Iterator<Item = AssetEscrowRecord>, QueryExecutionFail> {
         let buyer = self.buyer;
         let world = state_ro.world();
-        Ok(world
-            .asset_escrows_by_buyer()
-            .get(&buyer)
-            .into_iter()
-            .flat_map(BTreeSet::iter)
-            .filter_map(move |escrow_id| world.asset_escrows().get(escrow_id).cloned())
-            .filter(move |record| filter.applies(record)))
+        Ok(
+            crate::state::range_bounds::index_members(world.asset_escrows_by_buyer(), &buyer)
+                .filter_map(move |escrow_id| world.asset_escrows().get(escrow_id).cloned())
+                .filter(move |record| filter.applies(record)),
+        )
     }
 }
 impl ValidQuery for FindAssetEscrowsByStatus {
@@ -2564,13 +2570,11 @@ impl ValidQuery for FindAssetEscrowsByStatus {
     ) -> Result<impl Iterator<Item = AssetEscrowRecord>, QueryExecutionFail> {
         let status = self.status;
         let world = state_ro.world();
-        Ok(world
-            .asset_escrows_by_status()
-            .get(&status)
-            .into_iter()
-            .flat_map(BTreeSet::iter)
-            .filter_map(move |escrow_id| world.asset_escrows().get(escrow_id).cloned())
-            .filter(move |record| filter.applies(record)))
+        Ok(
+            crate::state::range_bounds::index_members(world.asset_escrows_by_status(), &status)
+                .filter_map(move |escrow_id| world.asset_escrows().get(escrow_id).cloned())
+                .filter(move |record| filter.applies(record)),
+        )
     }
 }
 #[cfg(test)]
@@ -4271,31 +4275,31 @@ mod tests {
             .execute(&buyer, &mut tx)
             .expect("mark payment sent");
         assert!(
-            tx.world
-                .asset_escrows_by_seller
-                .get(&seller)
-                .expect("seller index entry")
+            crate::state::range_bounds::index_members(&tx.world.asset_escrows_by_seller, &seller)
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>()
                 .contains(&escrow_id)
         );
         assert!(
-            tx.world
-                .asset_escrows_by_buyer
-                .get(&buyer)
-                .expect("buyer index entry")
+            crate::state::range_bounds::index_members(&tx.world.asset_escrows_by_buyer, &buyer)
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>()
                 .contains(&escrow_id)
         );
         assert!(
-            tx.world
-                .asset_escrows_by_status
-                .get(&AssetEscrowStatus::PaymentSent)
-                .expect("payment-sent index entry")
-                .contains(&escrow_id)
+            crate::state::range_bounds::index_members(
+                &tx.world.asset_escrows_by_status,
+                &AssetEscrowStatus::PaymentSent
+            )
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>()
+            .contains(&escrow_id)
         );
         let stale_open_entry = tx
             .world
             .asset_escrows_by_status
-            .get(&AssetEscrowStatus::Open)
-            .is_some_and(|escrows| escrows.contains(&escrow_id));
+            .get(&(AssetEscrowStatus::Open.clone(), escrow_id.clone()))
+            .is_some();
         assert!(
             !stale_open_entry,
             "status update should remove stale open index entry"
@@ -4303,8 +4307,8 @@ mod tests {
         let stale_accepted_entry = tx
             .world
             .asset_escrows_by_status
-            .get(&AssetEscrowStatus::Accepted)
-            .is_some_and(|escrows| escrows.contains(&escrow_id));
+            .get(&(AssetEscrowStatus::Accepted.clone(), escrow_id.clone()))
+            .is_some();
         assert!(
             !stale_accepted_entry,
             "status update should remove stale accepted index entry"

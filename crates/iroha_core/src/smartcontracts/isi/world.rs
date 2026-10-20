@@ -13182,17 +13182,7 @@ pub mod isi {
         tags.dedup();
         world.proof_tags.insert(pid.clone(), tags.clone());
         for tag in tags {
-            let tag_slice: &[u8] = &tag;
-            let mut ids = world
-                .proofs_by_tag
-                .get(tag_slice)
-                .cloned()
-                .unwrap_or_default();
-            if !ids.iter().any(|existing| existing == pid) {
-                ids.push(pid.clone());
-                ids.sort();
-            }
-            world.proofs_by_tag.insert(tag, ids);
+            world.proofs_by_tag.insert((tag, pid.clone()), ());
         }
     }
     fn proof_retention_removals(
@@ -13255,19 +13245,10 @@ pub mod isi {
         for old_id in removals {
             if let Some(existing_tags) = state_transaction.world.proof_tags.get(old_id) {
                 for tag in existing_tags {
-                    let tag_slice: &[u8] = &tag[..];
-                    let mut ids = state_transaction
+                    state_transaction
                         .world
                         .proofs_by_tag
-                        .get(tag_slice)
-                        .cloned()
-                        .unwrap_or_default();
-                    ids.retain(|entry| entry != old_id);
-                    if ids.is_empty() {
-                        state_transaction.world.proofs_by_tag.remove(*tag);
-                    } else {
-                        state_transaction.world.proofs_by_tag.insert(*tag, ids);
-                    }
+                        .remove((*tag, old_id.clone()));
                 }
             }
             state_transaction.world.proof_tags.remove(old_id.clone());
@@ -17261,12 +17242,13 @@ pub mod isi {
             // This reverse index is rebuilt from the persisted authoritative mapping at restore
             // and maintained atomically by the world mutators. Enumerating it keeps teardown
             // proportional to the domain being removed instead of scanning every definition.
-            let remove_asset_definitions: BTreeSet<AssetDefinitionId> = state_transaction
-                .world
-                .domain_asset_definitions
-                .get(&domain_id)
+            let remove_asset_definitions: BTreeSet<AssetDefinitionId> =
+                crate::state::range_bounds::index_members(
+                    &state_transaction.world.domain_asset_definitions,
+                    &domain_id,
+                )
                 .cloned()
-                .unwrap_or_default();
+                .collect::<BTreeSet<_>>();
             crate::sumeragi::amx::ensure_retained_definitions(
                 &state_transaction.world,
                 &remove_asset_definitions,
@@ -17401,12 +17383,12 @@ pub mod isi {
                     ).into());
                 }
             }
-            let remove_assets = state_transaction
-                .world
-                .assets_by_domain
-                .get(&domain_id)
-                .cloned()
-                .unwrap_or_default();
+            let remove_assets = crate::state::range_bounds::index_members(
+                &state_transaction.world.assets_by_domain,
+                &domain_id,
+            )
+            .cloned()
+            .collect::<BTreeSet<_>>();
             let mut assets_from_definitions = BTreeSet::new();
             for asset_definition_id in &remove_asset_definitions {
                 if state_transaction
@@ -17437,12 +17419,12 @@ pub mod isi {
                     )
                     .into());
                 }
-                let definition_assets = state_transaction
-                    .world
-                    .asset_definition_assets
-                    .get(asset_definition_id)
-                    .cloned()
-                    .unwrap_or_default();
+                let definition_assets = crate::state::range_bounds::index_members(
+                    &state_transaction.world.asset_definition_assets,
+                    asset_definition_id,
+                )
+                .cloned()
+                .collect::<BTreeSet<_>>();
                 let mut expected_holders = BTreeSet::new();
                 let mut expected_nonzero_holders = BTreeSet::new();
                 for asset_id in &definition_assets {
@@ -17464,38 +17446,24 @@ pub mod isi {
                         )
                         .into());
                     };
-                    if !state_transaction
-                        .world
-                        .assets_by_account
-                        .get(asset_id.account())
-                        .is_some_and(|assets| assets.contains(asset_id))
-                    {
-                        return Err(InstructionExecutionError::InvariantViolation(
-                            format!(
-                                "cannot unregister domain {domain_id}: account asset index omits {asset_id}"
-                            )
-                            .into(),
-                        )
-                        .into());
-                    }
                     expected_holders.insert(asset_id.account().clone());
                     if !value.as_ref().is_zero() {
                         expected_nonzero_holders.insert(asset_id.account().clone());
                     }
                 }
-                if state_transaction
-                    .world
-                    .asset_definition_holders
-                    .get(asset_definition_id)
-                    .cloned()
-                    .unwrap_or_default()
+                if crate::state::range_bounds::index_members(
+                    &state_transaction.world.asset_definition_holders,
+                    asset_definition_id,
+                )
+                .cloned()
+                .collect::<BTreeSet<_>>()
                     != expected_holders
-                    || state_transaction
-                        .world
-                        .asset_definition_nonzero_holders
-                        .get(asset_definition_id)
-                        .cloned()
-                        .unwrap_or_default()
+                    || crate::state::range_bounds::index_members(
+                        &state_transaction.world.asset_definition_nonzero_holders,
+                        asset_definition_id,
+                    )
+                    .cloned()
+                    .collect::<BTreeSet<_>>()
                         != expected_nonzero_holders
                 {
                     return Err(InstructionExecutionError::InvariantViolation(
@@ -17815,11 +17783,12 @@ pub mod isi {
             for asset_id in &remove_assets {
                 retirement.remove_asset(state_transaction, asset_id)?;
             }
-            if state_transaction
-                .world
-                .assets_by_domain
-                .get(&domain_id)
-                .is_some()
+            if crate::state::range_bounds::index_members(
+                &state_transaction.world.assets_by_domain,
+                &domain_id,
+            )
+            .next()
+            .is_some()
             {
                 return Err(InstructionExecutionError::InvariantViolation(
                     format!(
@@ -17830,15 +17799,10 @@ pub mod isi {
                 .into());
             }
             for asset_id in &remove_assets {
-                if state_transaction
-                    .world
-                    .assets_by_account
-                    .get(asset_id.account())
-                    .is_some_and(|assets| assets.contains(asset_id))
-                {
+                if state_transaction.world.assets.get(asset_id).is_some() {
                     return Err(InstructionExecutionError::InvariantViolation(
                         format!(
-                            "cannot unregister domain {domain_id}: account asset index retained removed asset {asset_id}"
+                            "cannot unregister domain {domain_id}: asset store retained removed asset {asset_id}"
                         )
                         .into(),
                     )
@@ -17846,21 +17810,24 @@ pub mod isi {
                 }
             }
             for asset_definition_id in &remove_asset_definitions {
-                if state_transaction
-                    .world
-                    .asset_definition_assets
-                    .get(asset_definition_id)
+                if crate::state::range_bounds::index_members(
+                    &state_transaction.world.asset_definition_assets,
+                    asset_definition_id,
+                )
+                .next()
+                .is_some()
+                    || crate::state::range_bounds::index_members(
+                        &state_transaction.world.asset_definition_holders,
+                        asset_definition_id,
+                    )
+                    .next()
                     .is_some()
-                    || state_transaction
-                        .world
-                        .asset_definition_holders
-                        .get(asset_definition_id)
-                        .is_some()
-                    || state_transaction
-                        .world
-                        .asset_definition_nonzero_holders
-                        .get(asset_definition_id)
-                        .is_some()
+                    || crate::state::range_bounds::index_members(
+                        &state_transaction.world.asset_definition_nonzero_holders,
+                        asset_definition_id,
+                    )
+                    .next()
+                    .is_some()
                 {
                     return Err(InstructionExecutionError::InvariantViolation(
                         format!(
@@ -33525,7 +33492,13 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
             let drift = current.max_clock_drift_ms();
             let cadence = current.block_cadence_ms.get();
             let minimum = 2 * drift + 4 * cadence;
-            for (lag, units) in [(minimum - 1, 64), (minimum, 0), (minimum, 4), (minimum, 9)] {
+            for (lag, units) in [
+                (minimum - 1, 64),
+                (minimum, 0),
+                (minimum, 9),
+                (minimum, 42),
+                (minimum, 4_097),
+            ] {
                 let before = stx.world.parameters.get().clone();
                 let events = stx.world.internal_event_buf.len();
                 SetParameter(governance_clock_test_parameter(lag, units))
@@ -33534,7 +33507,9 @@ seiyaku GovernanceLifecycle { permission CanEnactGovernance;
                 assert_eq!(*stx.world.parameters.get(), before);
                 assert_eq!(stx.world.internal_event_buf.len(), events);
             }
-            SetParameter(governance_clock_test_parameter(minimum, 10))
+            SetParameter(governance_clock_test_parameter(minimum, 4_096))
+                .expect_execute(&ALICE_ID, &mut stx, "inclusive upper work bound");
+            SetParameter(governance_clock_test_parameter(minimum, 43))
                 .expect_execute(&ALICE_ID, &mut stx, "inclusive governance lag and work bounds");
             SetParameter(Parameter::Sumeragi(SumeragiParameter::MaxClockDriftMs(drift + 1)))
                 .execute(&ALICE_ID, &mut stx)

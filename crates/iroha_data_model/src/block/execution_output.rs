@@ -11,7 +11,7 @@
 //! allocation before work. Callers must enforce encoded and allocation limits
 //! before decoding, then validate shape. A successful shape check is not acceptance.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use iroha_crypto::{Hash, HashOf};
 use norito::codec::{Decode, Encode};
@@ -19,7 +19,11 @@ use norito::codec::{Decode, Encode};
 use super::BlockHeader;
 use crate::{
     events::{time::TimeEvent, trigger_completed::TriggerCompletedOutcome},
-    transaction::signed::{ExecutionStep, TransactionEntrypoint, TransactionResult},
+    governance::anonymous_ballot::AnonymousBallotRejectionV1,
+    transaction::{
+        error::TransactionRejectionReason,
+        signed::{ExecutionStep, TransactionEntrypoint, TransactionResult},
+    },
     trigger::TriggerId,
 };
 
@@ -431,9 +435,10 @@ impl ExecutionInputs for super::SignedBlock {
 }
 
 impl ExecutionOutputV1 {
-    /// Construct the bounded terminal reserved for one immutable network source.
+    /// Construct the bounded terminal reserved for one ordinary network source.
     ///
     /// This is a proposed fallback, not evidence that execution has occurred.
+    /// An anonymous ballot cannot use this fallback as a canonical result.
     pub fn network_output_limit_rejection(input_index: u32) -> Self {
         Self::Network(NetworkExecutionOutputV1 {
             input_index,
@@ -567,6 +572,8 @@ impl ExecutionOutputV1 {
     ///
     /// Network `SealedReveal` uses the inner signed call identity; it retains its
     /// distinct outer source identity through `input_index`. No output enters the hash.
+    /// Byte-identical anonymous ballots share this hash; their separate occurrences
+    /// are owned by their canonical `input_index`, without callbacks or side outputs.
     ///
     /// # Errors
     /// Rejects absent network inputs and invalid invocation preimages.
@@ -593,6 +600,8 @@ impl ExecutionOutputV1 {
     /// This checks source positions, registration chronology, trace/diagnostic
     /// shape and completion order. It cannot establish callback completeness,
     /// actual receipts, action policy, resource feasibility or finality.
+    /// Anonymous ballot rows have no trigger trace or side outputs and permit
+    /// only their two typed rejection reasons; this does not verify the ballot.
     ///
     /// # Errors
     /// Rejects malformed source, root, rollback receipt, or completion claims.
@@ -611,6 +620,36 @@ impl ExecutionOutputV1 {
                 completions,
             }) => {
                 let input = network_input(network_inputs, *input_index)?;
+                if matches!(input, TransactionEntrypoint::AnonymousBallot(_)) {
+                    match &result.0 {
+                        Ok(steps) if steps.is_empty() => {}
+                        Err(TransactionRejectionReason::AnonymousBallot(
+                            AnonymousBallotRejectionV1::OutsideCastingWindow
+                            | AnonymousBallotRejectionV1::DuplicateNullifier,
+                        )) => {}
+                        _ => {
+                            return Err(
+                                "anonymous ballot output must be an empty success or a canonical ballot rejection"
+                                    .into(),
+                            );
+                        }
+                    }
+                    if !completions.is_empty()
+                        || !result.batch_transfer_outcomes().is_empty()
+                        || result.nexus_fee_receipt().is_some()
+                        || !result.contract_events().is_empty()
+                    {
+                        return Err("anonymous ballot output cannot retain side outputs".into());
+                    }
+                } else if matches!(
+                    &result.0,
+                    Err(TransactionRejectionReason::AnonymousBallot(_))
+                ) {
+                    return Err(
+                        "ordinary Network output cannot contain an anonymous ballot rejection"
+                            .into(),
+                    );
+                }
                 if let Some(receipt) = result.nexus_fee_receipt() {
                     receipt.validate_for_network_input(input, proposal_height)?;
                 }
@@ -673,6 +712,12 @@ impl ExecutionOutputV1 {
             return Err("rolled-back output retains batch-transfer receipts".into());
         }
         if let Some((trigger, failure_root)) = internal {
+            if matches!(
+                &result.0,
+                Err(TransactionRejectionReason::AnonymousBallot(_))
+            ) {
+                return Err("internal output cannot contain an anonymous ballot rejection".into());
+            }
             if result.nexus_fee_receipt().is_some() {
                 return Err("internal output cannot publish a Network Nexus receipt".into());
             }
@@ -729,11 +774,13 @@ impl ExecutionOutputV1 {
     }
 }
 
-/// Check canonical source/phase order and unique top-level call ownership.
+/// Check canonical source/phase order and top-level call ownership.
 ///
 /// Exactly one Network row precedes internal rows for each supplied network
 /// input. Pipeline candidates and Time schedule positions may have gaps after
 /// actual use-time skips. Internal events/actions remain untrusted claims.
+/// Only anonymous Network inputs may repeat a call hash, with each occurrence
+/// still owned by its unique source index. Every other call hash remains unique.
 /// This is an allocated-value shape check, not an ingress/resource policy.
 ///
 /// # Errors
@@ -758,7 +805,9 @@ pub fn validate_execution_outputs_v1<S: ExecutionInputs + ?Sized>(
     let mut previous_time = None;
     let mut time_event = None;
     let mut pipeline_triggers = BTreeSet::new();
-    let mut calls = BTreeSet::new();
+    // Preserve the first owner's kind so the anonymous-repeat exception cannot
+    // authorize a collision with an ordinary Network or internal call.
+    let mut calls = BTreeMap::new();
     for output in outputs {
         output.validate_structure(proposal_height, network_inputs)?;
         match output {
@@ -793,8 +842,17 @@ pub fn validate_execution_outputs_v1<S: ExecutionInputs + ?Sized>(
                 time_event = Some(invocation.event);
             }
         }
-        if !calls.insert(output.execution_call_hash(proposal, network_inputs)?) {
-            return Err("multiple outputs claim one execution call".into());
+        let anonymous_network = matches!(output,
+            ExecutionOutputV1::Network(row)
+                if matches!(network_input(network_inputs, row.input_index)?,
+                    TransactionEntrypoint::AnonymousBallot(_)));
+        let call = output.execution_call_hash(proposal, network_inputs)?;
+        if let Some(first_is_anonymous) = calls.get(&call) {
+            if !(*first_is_anonymous && anonymous_network) {
+                return Err("multiple outputs claim one execution call".into());
+            }
+        } else {
+            calls.insert(call, anonymous_network);
         }
     }
     if network_count != network_inputs.input_count() {

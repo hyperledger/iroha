@@ -77,7 +77,7 @@ def test_asset_balance_rejects_noncanonical_or_untyped_quantities(quantity: obje
             )
         ]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises((TypeError, ValueError)):
         client.asset_balance("adult@is", "ds#wonderland.is")
@@ -101,7 +101,7 @@ def test_explorer_rwa_list_uses_strict_cursor_contract() -> None:
         ],
     }
     session = FakeSession([response(200, payload)])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     page = client.explorer_rwas.list(
         cursor=cursor,
@@ -146,6 +146,7 @@ def test_explorer_rwa_list_optionally_signs_exact_final_uri() -> None:
         session=session,
         canonical_request_auth=auth,
         max_retries=3,
+        chain_discriminant=753,
     )
 
     page = client.explorer_rwas.list(
@@ -178,7 +179,7 @@ def test_explorer_rwa_list_optionally_signs_exact_final_uri() -> None:
 @pytest.mark.parametrize("limit", [0, -1, True, 1.5])
 def test_explorer_rwa_list_rejects_invalid_limit_before_dispatch(limit: object) -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises((TypeError, ValueError)):
         client.explorer_rwas.list(limit=limit)  # type: ignore[arg-type]
@@ -188,7 +189,7 @@ def test_explorer_rwa_list_rejects_invalid_limit_before_dispatch(limit: object) 
 @pytest.mark.parametrize("cursor", ["", "a" * 4097])
 def test_explorer_rwa_list_rejects_invalid_cursor_before_dispatch(cursor: str) -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(ValueError, match="cursor"):
         client.explorer_rwas.list(cursor=cursor)
@@ -203,13 +204,13 @@ def test_explorer_rwa_list_rejects_invalid_cursor_before_dispatch(cursor: str) -
     {"items": [{}, {}], "next_cursor": None},
 ])
 def test_explorer_collection_response_rejects_retired_or_inconsistent_fields(payload: dict) -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([response(200, payload)]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=FakeSession([response(200, payload)]), max_retries=0, chain_discriminant=753)
     with pytest.raises(ValueError, match="malformed page"):
         client.explorer_rwas.list(limit=1)
 
 
 def test_explorer_rwa_list_hard_cuts_retired_page_arguments() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, chain_discriminant=753)
 
     with pytest.raises(TypeError, match="unexpected keyword argument"):
         client.explorer_rwas.list(page=1, per_page=25)  # type: ignore[call-arg]

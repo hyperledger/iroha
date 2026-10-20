@@ -228,18 +228,7 @@ pub fn insert_proof_tags_for_test(
     let mut stx = block.transaction();
     stx.world.proof_tags.insert(id.clone(), tags.clone());
     for tag in tags {
-        let tag_slice: &[u8] = &tag;
-        let mut ids = stx
-            .world
-            .proofs_by_tag
-            .get(tag_slice)
-            .cloned()
-            .unwrap_or_default();
-        if !ids.iter().any(|existing| existing == &id) {
-            ids.push(id.clone());
-            ids.sort();
-        }
-        stx.world.proofs_by_tag.insert(tag, ids);
+        stx.world.proofs_by_tag.insert((tag, id.clone()), ());
     }
     stx.apply();
     block

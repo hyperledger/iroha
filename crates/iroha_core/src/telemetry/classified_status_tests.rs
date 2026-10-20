@@ -471,24 +471,11 @@ async fn cold_status_history_refusal_retains_original_pool_and_unpublished_count
 }
 
 #[tokio::test(start_paused = true)]
-async fn cold_genesis_uptime_refusal_remains_deferred_after_classified_prefix() {
+async fn cold_genesis_read_refusal_is_deferred_until_genesis_time_is_cached() {
     use iroha_data_model::block::SharedSignedBlock;
 
     let sut = SystemUnderTest::new_native();
-    let (_, height) = sut
-        .telemetry
-        .status_snapshot(&BuildStatus::default())
-        .await
-        .unwrap()
-        .into_parts();
-    assert_eq!(height, 1);
-    let total = sut
-        .telemetry
-        .metrics
-        .txs
-        .with_label_values(&["total"])
-        .get();
-    let uptime = sut.telemetry.metrics.uptime_since_genesis_ms.get();
+    // No status sync has read genesis yet: its first history read is refused.
     sut.kura
         .forget_cached_block_for_testing(NonZeroUsize::MIN)
         .unwrap();
@@ -509,30 +496,44 @@ async fn cold_genesis_uptime_refusal_remains_deferred_after_classified_prefix() 
     inspect_retained_status_refusal(&sut, move |owner| {
         assert_eq!(
             owner
-                .expect("actor owns original uptime read refusal")
+                .expect("actor owns original history read refusal")
                 .allocation_refusal(),
             Some(&expected)
         );
     })
     .await;
-    assert_eq!(sut.telemetry.metrics.block_height.get(), 1);
-    assert_eq!(
-        sut.telemetry
-            .metrics
-            .txs
-            .with_label_values(&["total"])
-            .get(),
-        total
-    );
-    assert_eq!(sut.telemetry.metrics.uptime_since_genesis_ms.get(), uptime);
+    assert_eq!(sut.telemetry.metrics.uptime_since_genesis_ms.get(), 0);
     drop(occupied);
-    let (_, recovered_height) = sut
+    let (_, height) = sut
         .telemetry
         .status_snapshot(&BuildStatus::default())
         .await
         .unwrap()
         .into_parts();
-    assert_eq!(recovered_height, 1);
+    assert_eq!(height, 1);
+    let total = sut
+        .telemetry
+        .metrics
+        .txs
+        .with_label_values(&["total"])
+        .get();
+    // Genesis is immutable: once its time is cached, a cold genesis body and a
+    // full history pool no longer block status. The storage read above does not
+    // refill the body cache, so genesis is still cold here.
+    assert!(matches!(
+        sut.kura.forget_cached_block_for_testing(NonZeroUsize::MIN),
+        Err(crate::kura::Error::CanonicalBlockWireMismatch { height: 1 })
+    ));
+    let occupied = budget
+        .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+        .unwrap();
+    let (_, height) = sut
+        .telemetry
+        .status_snapshot(&BuildStatus::default())
+        .await
+        .expect("a cached genesis time needs no history read")
+        .into_parts();
+    assert_eq!(height, 1);
     assert_eq!(
         sut.telemetry
             .metrics
@@ -541,6 +542,7 @@ async fn cold_genesis_uptime_refusal_remains_deferred_after_classified_prefix() 
             .get(),
         total
     );
+    drop(occupied);
 }
 
 // Test-owned real publisher lifetime. Cleanup releases and joins on every outcome.

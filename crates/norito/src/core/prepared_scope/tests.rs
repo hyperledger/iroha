@@ -476,3 +476,69 @@ fn prepared_archive_root_authenticates_complete_frame_before_field_refusal_and_k
     assert_eq!(destination.fixed, Some([2, 3, 5, 7]));
     assert_eq!(DECODE_NESTING_DEPTH.with(Cell::get), 0);
 }
+
+#[test]
+fn retained_workspace_construction_preserves_foreign_and_wrong_layout_charges() {
+    let pool = AllocationBudget::new(1 << 20);
+    let foreign = AllocationBudget::new(1 << 20);
+    let layouts = PreparedDecodeWorkspace::allocation_layouts();
+    let mut reservation = pool.try_reserve_layouts(layouts).unwrap();
+    let charges = layouts.map(|layout| reservation.try_split(layout).unwrap());
+    let (charges, error) =
+        match PreparedDecodeWorkspaceConstruction::from_charges(&foreign, charges) {
+            Ok(_) => panic!("foreign pool cannot acquire original counters"),
+            Err(original) => original,
+        };
+    assert!(matches!(error, PreparedDecodeScopeError::ForeignPool));
+    assert_eq!(pool.reserved_bytes(), demand());
+    assert_eq!(foreign.reserved_bytes(), 0);
+    let pending = PreparedDecodeWorkspaceConstruction::from_charges(&pool, charges)
+        .unwrap_or_else(|_| panic!("exact original charges"));
+    assert!(pending.belongs_to(&pool));
+    assert!(!pending.belongs_to(&foreign));
+    pool.set_limit_bytes(0);
+    let workspace = pending
+        .try_finish()
+        .unwrap_or_else(|_| panic!("already admitted controls"));
+    assert!(workspace.belongs_to(&pool));
+    assert_eq!(pool.reserved_bytes(), demand());
+    drop(workspace);
+    assert_eq!(pool.reserved_bytes(), 0);
+    pool.set_limit_bytes(1 << 20);
+    let wrong = Layout::new::<u8>();
+    let mut reservation = pool.try_reserve_layouts([layouts[0], wrong]).unwrap();
+    let charges = [
+        reservation.try_split(layouts[0]).unwrap(),
+        reservation.try_split(wrong).unwrap(),
+    ];
+    let pending = PreparedDecodeWorkspaceConstruction::from_charges(&pool, charges)
+        .unwrap_or_else(|_| panic!("original pool"));
+    let (pending, error) = match pending.try_finish() {
+        Ok(_) => panic!("wrong second original layout"),
+        Err(original) => original,
+    };
+    assert!(
+        matches!(error, SharedFromChargeError::LayoutMismatch { expected, actual }
+        if expected == layouts[1] && actual == wrong)
+    );
+    assert!(pending.belongs_to(&pool));
+    assert!(!pending.belongs_to(&foreign));
+    let first = pending.controls[0].as_ref().unwrap().clone();
+    assert!(pending.charges[0].is_none());
+    assert!(pending.charges[1].as_ref().unwrap().belongs_to(&pool));
+    let occupied = pool.reserved_bytes();
+    let (pending, repeated) = match pending.try_finish() {
+        Ok(_) => panic!("cannot substitute wrong original charge"),
+        Err(original) => original,
+    };
+    assert_eq!(repeated, error);
+    assert!(ChargedShared::ptr_eq(
+        &first,
+        pending.controls[0].as_ref().unwrap()
+    ));
+    assert_eq!(pool.reserved_bytes(), occupied);
+    drop(pending);
+    assert_eq!(pool.reserved_bytes(), layouts[0].size());
+    drop(first);
+    assert_eq!(pool.reserved_bytes(), 0);
+}

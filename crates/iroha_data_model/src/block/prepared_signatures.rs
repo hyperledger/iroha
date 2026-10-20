@@ -24,14 +24,17 @@ use crate::da::commitment::{
     PreparedDaCommitmentBundle, PreparedDaProofPolicyBundle,
 };
 use crate::inline_fields::DecodedField;
-use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError};
+use iroha_allocation::{
+    AllocationBudget, ChargedBuffer, ChargedBufferError, SharedFromChargeError,
+};
 use iroha_crypto::Hash;
 use norito::core::DecodeRecordFields;
 use norito::{
     SerializePayload,
     core::{
         CanonicalField, DecodeField, DecodeIntoError, FieldDestination, PreparedDecodeError,
-        PreparedDecodeScopeError, PreparedDecodeWorkspace, PreparedRecordDestination, SequenceSpan,
+        PreparedDecodeScopeError, PreparedDecodeWorkspace, PreparedDecodeWorkspaceConstruction,
+        PreparedRecordDestination, SequenceSpan,
     },
 };
 
@@ -41,6 +44,9 @@ pub enum PreparedSignatureBlockError {
     /// Original pool/allocator refused the two actual canonical decode controls.
     #[error(transparent)]
     Storage(#[from] ChargedBufferError),
+    /// Physical construction refused an exact retained original counter charge.
+    #[error(transparent)]
+    ControlBacking(#[from] SharedFromChargeError),
     /// Actual reusable canonical control construction/reuse failed.
     #[error(transparent)]
     Scope(#[from] PreparedDecodeScopeError),
@@ -115,22 +121,31 @@ pub struct PreparedSignedBlockSignaturesDecode {
     policy_completed: Option<DaProofPolicyBundle>,
     certificate_pending: Option<PreparedCommitCertificate>,
     certificate_completed: Option<CommitCertificate>,
-    workspace: PreparedDecodeWorkspace,
+    workspace: Option<PreparedDecodeWorkspace>,
+    workspace_construction: Option<PreparedDecodeWorkspaceConstruction>,
     pending: Option<PreparedBlockSignatures>,
     completed: Option<BlockSignatures>,
     source: Option<Source>,
     budget: AllocationBudget,
 }
 impl PreparedSignedBlockSignaturesDecode {
-    /// Physically prepare both reusable canonical controls from one finite original pool.
+    /// Reserve both original counter charges before returning a retained continuation.
+    /// Physical construction happens inside `decode`, after the caller stores this owner
+    /// and the exact source has been bound. No physical constructor can discard a prefix.
     ///
     /// # Errors
-    /// Returns exact original capacity/control/allocator refusal before source consumption.
+    /// Returns the exact original finite-pool refusal before consuming any source.
     pub fn new(budget: &AllocationBudget) -> Result<Self, PreparedSignatureBlockError> {
         let mut reservation = budget
             .try_reserve_layouts(PreparedDecodeWorkspace::allocation_layouts())
             .map_err(ChargedBufferError::Admission)?;
-        let workspace = PreparedDecodeWorkspace::from_reservation(budget, &mut reservation)?;
+        let charges = PreparedDecodeWorkspace::allocation_layouts().map(|layout| {
+            reservation
+                .try_split(layout)
+                .expect("both exact original counter charges")
+        });
+        let construction = PreparedDecodeWorkspaceConstruction::from_charges(budget, charges)
+            .unwrap_or_else(|_| unreachable!("charges split from this exact original pool"));
         Ok(Self {
             parent_absent: false,
             parent_pending: None,
@@ -144,7 +159,8 @@ impl PreparedSignedBlockSignaturesDecode {
             policy_completed: None,
             certificate_pending: None,
             certificate_completed: None,
-            workspace,
+            workspace: None,
+            workspace_construction: Some(construction),
             pending: None,
             completed: None,
             source: None,
@@ -194,7 +210,14 @@ impl PreparedSignedBlockSignaturesDecode {
                 .certificate_completed
                 .as_ref()
                 .is_none_or(|owner| owner.admitted_to(budget))
-            && self.workspace.belongs_to(budget)
+            && self
+                .workspace
+                .as_ref()
+                .is_none_or(|owner| owner.belongs_to(budget))
+            && self
+                .workspace_construction
+                .as_ref()
+                .is_none_or(|owner| owner.belongs_to(budget))
             && self
                 .pending
                 .as_ref()
@@ -405,6 +428,25 @@ impl PreparedSignedBlockSignaturesDecode {
         })
     }
 
+    fn prepare_workspace(&mut self) -> Result<(), PreparedSignatureBlockError> {
+        if self.workspace.is_some() {
+            return Ok(());
+        }
+        let pending = self
+            .workspace_construction
+            .take()
+            .ok_or(PreparedSignatureBlockError::Source)?;
+        match pending.try_finish() {
+            Ok(workspace) => self.workspace = Some(workspace),
+            Err((pending, error)) => {
+                if !cfg!(all(test, sumeragi_model_mutation = "DM54")) {
+                    self.workspace_construction = Some(pending);
+                }
+                return Err(error.into());
+            }
+        }
+        Ok(())
+    }
     /// Decode the original complete `SignedBlockWire` through its one canonical field walk.
     ///
     /// # Errors
@@ -425,6 +467,7 @@ impl PreparedSignedBlockSignaturesDecode {
         } else {
             self.source = Some(Source::new(input.as_slice(), span));
         }
+        self.prepare_workspace()?;
         let bytes = span
             .get(input.as_slice())
             .map_err(|_| PreparedSignatureBlockError::Source)?;
@@ -471,6 +514,8 @@ impl PreparedSignedBlockSignaturesDecode {
             certificate: DecodedField::Missing,
         };
         self.workspace
+            .as_mut()
+            .expect("complete original counter controls")
             .decode_canonical_archive_into::<SignedBlock, _>(framed, limits, &mut destination)
             .map_err(retain_field_failure)?;
         let block = SignedBlock {

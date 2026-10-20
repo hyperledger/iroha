@@ -1,8 +1,8 @@
+use super::*;
+use crate::role::RoleIdWithOwner;
 use core::ops::{Bound, RangeBounds};
 use iroha_data_model::proof::ProofId;
 use iroha_primitives::{cmpext::MinMaxExt, impl_as_dyn_key};
-use super::*;
-use crate::role::RoleIdWithOwner;
 /// Key for range queries over account for roles
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub struct RoleIdByAccount<'role> {
@@ -352,4 +352,256 @@ impl_as_dyn_key! {
     target: iroha_data_model::bond::BondEntitlementId,
     key: BondEntitlementBondCompare<'_>,
     trait: AsBondEntitlementBondCompare
+}
+
+/// Borrowed ordering key for an individual member in a derived pair index.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub struct PairIndexKey<'a, K, M> {
+    key: &'a K,
+    member: MinMaxExt<&'a M>,
+}
+
+/// Borrowed pair ordering used to seek directly to one index key's members.
+///
+/// This is the generic equivalent of the `impl_as_dyn_key!` adapters above.
+pub trait AsPairIndex<K, M> {
+    /// Return the pair's borrowed ordering key.
+    fn as_pair_key(&self) -> PairIndexKey<'_, K, M>;
+}
+
+impl<K, M> AsPairIndex<K, M> for (K, M) {
+    fn as_pair_key(&self) -> PairIndexKey<'_, K, M> {
+        PairIndexKey {
+            key: &self.0,
+            member: MinMaxExt::Value(&self.1),
+        }
+    }
+}
+impl<K, M> AsPairIndex<K, M> for PairIndexKey<'_, K, M> {
+    fn as_pair_key(&self) -> PairIndexKey<'_, K, M> {
+        PairIndexKey {
+            key: self.key,
+            member: self.member,
+        }
+    }
+}
+impl<K: Ord, M: Ord> PartialEq for dyn AsPairIndex<K, M> + '_ {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_pair_key() == other.as_pair_key()
+    }
+}
+impl<K: Ord, M: Ord> Eq for dyn AsPairIndex<K, M> + '_ {}
+impl<K: Ord, M: Ord> PartialOrd for dyn AsPairIndex<K, M> + '_ {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl<K: Ord, M: Ord> Ord for dyn AsPairIndex<K, M> + '_ {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.as_pair_key().cmp(&other.as_pair_key())
+    }
+}
+impl<'a, K: 'a, M: 'a> core::borrow::Borrow<dyn AsPairIndex<K, M> + 'a> for (K, M) {
+    fn borrow(&self) -> &(dyn AsPairIndex<K, M> + 'a) {
+        self
+    }
+}
+
+/// Prefix bounds over pair rows, with optional exclusive member cursors.
+pub struct PairIndexBounds<'a, K, M> {
+    start: PairIndexKey<'a, K, M>,
+    end: PairIndexKey<'a, K, M>,
+}
+impl<'a, K, M> PairIndexBounds<'a, K, M> {
+    /// Select all members of `key`.
+    pub fn new(key: &'a K) -> Self {
+        Self::between(key, None, None)
+    }
+    /// Select members strictly after an optional cursor.
+    pub fn after(key: &'a K, after: Option<&'a M>) -> Self {
+        Self::between(key, after, None)
+    }
+    /// Select members strictly before an optional cursor.
+    pub fn before(key: &'a K, before: Option<&'a M>) -> Self {
+        Self::between(key, None, before)
+    }
+    /// Select members strictly between the optional cursors.
+    pub fn between(key: &'a K, after: Option<&'a M>, before: Option<&'a M>) -> Self {
+        Self {
+            start: PairIndexKey {
+                key,
+                member: after.map_or(MinMaxExt::Min, MinMaxExt::Value),
+            },
+            end: PairIndexKey {
+                key,
+                member: before.map_or(MinMaxExt::Max, MinMaxExt::Value),
+            },
+        }
+    }
+}
+impl<'a, K, M> RangeBounds<dyn AsPairIndex<K, M> + 'a> for PairIndexBounds<'a, K, M> {
+    fn start_bound(&self) -> Bound<&(dyn AsPairIndex<K, M> + 'a)> {
+        Bound::Excluded(&self.start)
+    }
+    fn end_bound(&self) -> Bound<&(dyn AsPairIndex<K, M> + 'a)> {
+        Bound::Excluded(&self.end)
+    }
+}
+
+/// Test one membership with borrowed keys, without allocating or cloning either key.
+pub fn index_contains<K: MvKey, M: MvKey>(
+    index: &impl StorageReadOnly<(K, M), ()>,
+    key: &K,
+    member: &M,
+) -> bool {
+    index
+        .get::<dyn AsPairIndex<K, M>>(&PairIndexKey {
+            key,
+            member: MinMaxExt::Value(member),
+        })
+        .is_some()
+}
+
+/// Return the stored member for an exact borrowed pair, without cloning either key.
+pub fn index_get_member<'a, K: MvKey, M: MvKey>(
+    index: &'a impl StorageReadOnly<(K, M), ()>,
+    key: &K,
+    member: &M,
+) -> Option<&'a M> {
+    let probe = PairIndexKey {
+        key,
+        member: MinMaxExt::Value(member),
+    };
+    let probe: &dyn AsPairIndex<K, M> = &probe;
+    index
+        .range::<dyn AsPairIndex<K, M>>((Bound::Included(probe), Bound::Included(probe)))
+        .next()
+        .map(|((_, member), ())| member)
+}
+
+/// Seek one key's members without scanning or copying adjacent index groups.
+///
+/// Bounds are consumed during the seek; yielded references borrow only `index`.
+pub fn index_members<'a, K: MvKey, M: MvKey, S: StorageReadOnly<(K, M), ()>>(
+    index: &'a S,
+    key: &K,
+) -> impl DoubleEndedIterator<Item = &'a M> + use<'a, K, M, S> {
+    index
+        .range::<dyn AsPairIndex<K, M>>(PairIndexBounds::new(key))
+        .map(|((_, member), ())| member)
+}
+/// Seek members strictly after an optional cursor, borrowing only the index.
+pub fn index_members_after<'a, K: MvKey, M: MvKey, S: StorageReadOnly<(K, M), ()>>(
+    index: &'a S,
+    key: &K,
+    after: Option<&M>,
+) -> impl DoubleEndedIterator<Item = &'a M> + use<'a, K, M, S> {
+    index
+        .range::<dyn AsPairIndex<K, M>>(PairIndexBounds::after(key, after))
+        .map(|((_, member), ())| member)
+}
+/// Seek members strictly before an optional cursor, borrowing only the index.
+pub fn index_members_before<'a, K: MvKey, M: MvKey, S: StorageReadOnly<(K, M), ()>>(
+    index: &'a S,
+    key: &K,
+    before: Option<&M>,
+) -> impl DoubleEndedIterator<Item = &'a M> + use<'a, K, M, S> {
+    index
+        .range::<dyn AsPairIndex<K, M>>(PairIndexBounds::before(key, before))
+        .map(|((_, member), ())| member)
+}
+
+#[cfg(test)]
+mod pair_index_tests {
+    //! Prefix and cursor behavior for row-oriented derived indexes.
+    use super::*;
+
+    fn rows() -> Storage<(u64, u64), ()> {
+        [(0, 99), (1, 10), (1, 20), (1, 30), (2, 0)]
+            .into_iter()
+            .map(|row| (row, ()))
+            .collect()
+    }
+
+    #[test]
+    fn pair_membership_uses_both_borrowed_components() {
+        let rows = rows();
+        let view = rows.view();
+        assert!(index_contains(&view, &1, &20));
+        assert!(!index_contains(&view, &1, &99));
+        assert!(!index_contains(&view, &0, &20));
+        assert!(!index_contains(&view, &3, &20));
+        let found = {
+            let key = 1;
+            let member = 20;
+            index_get_member(&view, &key, &member)
+        };
+        assert_eq!(found, Some(&20));
+        assert!(index_get_member(&view, &1, &99).is_none());
+    }
+
+    #[test]
+    fn pair_prefix_seeks_only_selected_members_in_both_directions() {
+        let rows = rows();
+        let view = rows.view();
+        assert_eq!(
+            index_members(&view, &1).copied().collect::<Vec<_>>(),
+            [10, 20, 30]
+        );
+        assert_eq!(
+            index_members(&view, &1).rev().copied().collect::<Vec<_>>(),
+            [30, 20, 10]
+        );
+        assert!(index_members(&view, &3).next().is_none());
+    }
+
+    #[test]
+    fn pair_cursors_are_exclusive_and_do_not_borrow_seek_inputs() {
+        let rows = rows();
+        let view = rows.view();
+        let after = {
+            let key = 1;
+            let cursor = 20;
+            index_members_after(&view, &key, Some(&cursor))
+        };
+        assert_eq!(after.copied().collect::<Vec<_>>(), [30]);
+        assert_eq!(
+            index_members_before(&view, &1, Some(&20))
+                .copied()
+                .collect::<Vec<_>>(),
+            [10]
+        );
+        assert_eq!(
+            index_members_after(&view, &1, Some(&15))
+                .copied()
+                .collect::<Vec<_>>(),
+            [20, 30]
+        );
+        assert_eq!(index_members_before(&view, &1, None).count(), 3);
+        assert_eq!(index_members_after(&view, &1, None).count(), 3);
+    }
+
+    #[test]
+    fn pair_bounds_support_intersection_and_lexicographic_prefixes() {
+        let rows = rows();
+        let view = rows.view();
+        let bounded = view.range::<dyn AsPairIndex<u64, u64>>(PairIndexBounds::between(
+            &1,
+            Some(&10),
+            Some(&30),
+        ));
+        assert_eq!(
+            bounded.map(|((_, member), ())| *member).collect::<Vec<_>>(),
+            [20]
+        );
+        let rows: Storage<((u64, u64), u64), ()> =
+            [(((0, 1), 99), ()), (((1, 0), 10), ()), (((1, 1), 20), ())]
+                .into_iter()
+                .collect();
+        let view = rows.view();
+        assert_eq!(
+            index_members(&view, &(1, 0)).copied().collect::<Vec<_>>(),
+            [10]
+        );
+    }
 }

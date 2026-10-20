@@ -15,12 +15,14 @@ use iroha_allocation::{
 pub(super) enum PrefixAuthority {
     Transient(Arc<VerifiedAuthority>),
     Retained(ChargedShared<RetainedQueryAuthority>),
+    Funded(ChargedShared<funded_authority::FundedPrefixAuthority>),
 }
 impl PrefixAuthority {
     pub(super) fn projection(&self) -> AuthorityRef<'_> {
         match self {
             Self::Transient(original) => original.projection(),
             Self::Retained(original) => original.authority.projection(),
+            Self::Funded(original) => original.projection(),
         }
     }
     pub(super) fn material(&self) -> &ValidatorEpochContextV1 {
@@ -28,8 +30,15 @@ impl PrefixAuthority {
     }
     pub(super) fn retained(&self) -> Option<ChargedShared<RetainedQueryAuthority>> {
         match self {
-            Self::Transient(_) => None,
+            Self::Transient(_) | Self::Funded(_) => None,
             Self::Retained(original) => Some(original.clone()),
+        }
+    }
+
+    pub(super) fn funded_config(&self) -> Option<&iroha_sumeragi::types::HeightConfig> {
+        match self {
+            Self::Funded(original) => Some(original.config()),
+            Self::Transient(_) | Self::Retained(_) => None,
         }
     }
 }

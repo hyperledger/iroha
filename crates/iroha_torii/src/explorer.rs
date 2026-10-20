@@ -13,6 +13,7 @@ use crate::{
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use iroha_core::state::WorldReadOnly;
+use iroha_core::state::range_bounds::{index_contains, index_members, index_members_after};
 use iroha_crypto::HashOf;
 use iroha_data_model::{
     HasMetadata, Identifiable,
@@ -1466,21 +1467,17 @@ pub(crate) fn account_counters_from_world(
                     .count(),
             )
         }),
-        assets: world.assets_by_account().get(id).map_or(0, |assets| {
-            saturating_usize_to_u32(
-                assets
-                    .iter()
-                    .filter(|asset| visibility.allows_asset(world, asset))
-                    .count(),
-            )
-        }),
-        nfts: world.nfts_by_owner().get(id).map_or(0, |nfts| {
-            saturating_usize_to_u32(
-                nfts.iter()
-                    .filter(|nft| visibility.allows_nft(world, nft))
-                    .count(),
-            )
-        }),
+        assets: saturating_usize_to_u32(
+            world
+                .assets_in_account_iter(id)
+                .filter(|asset| visibility.allows_asset(world, asset.id()))
+                .count(),
+        ),
+        nfts: saturating_usize_to_u32(
+            index_members(world.nfts_by_owner(), id)
+                .filter(|nft| visibility.allows_nft(world, nft))
+                .count(),
+        ),
     }
 }
 pub(crate) fn domain_counters_from_world(
@@ -1488,34 +1485,35 @@ pub(crate) fn domain_counters_from_world(
     id: &DomainId,
     visibility: &DataspaceReadVisibility,
 ) -> DomainCounters {
-    let accounts = world
-        .account_scope_domain_key(id)
-        .and_then(|key| world.account_scope_accounts().get(&key))
-        .map_or(0, |accounts| {
-            saturating_usize_to_u32(
-                accounts
-                    .iter()
-                    .filter(|account| visibility.allows_account(world, account))
-                    .count(),
+    let accounts = world.account_scope_domain_key(id).map_or(0, |key| {
+        if visibility.can_read_all() {
+            return u32::try_from(
+                world
+                    .account_scope_account_counts()
+                    .get(&key)
+                    .copied()
+                    .unwrap_or(0),
             )
-        });
+            .unwrap_or(u32::MAX);
+        }
+        saturating_usize_to_u32(
+            index_members(world.account_scope_accounts(), &key)
+                .filter(|account| visibility.allows_account(world, account))
+                .count(),
+        )
+    });
     DomainCounters {
         accounts,
-        assets: world.assets_by_domain().get(id).map_or(0, |assets| {
-            saturating_usize_to_u32(
-                assets
-                    .iter()
-                    .filter(|asset| visibility.allows_asset(world, asset))
-                    .count(),
-            )
-        }),
-        nfts: world.nfts_by_domain().get(id).map_or(0, |nfts| {
-            saturating_usize_to_u32(
-                nfts.iter()
-                    .filter(|nft| visibility.allows_nft(world, nft))
-                    .count(),
-            )
-        }),
+        assets: saturating_usize_to_u32(
+            index_members(world.assets_by_domain(), id)
+                .filter(|asset| visibility.allows_asset(world, asset))
+                .count(),
+        ),
+        nfts: saturating_usize_to_u32(
+            index_members(world.nfts_by_domain(), id)
+                .filter(|nft| visibility.allows_nft(world, nft))
+                .count(),
+        ),
     }
 }
 pub(crate) fn definition_instance_count_from_world(
@@ -1523,24 +1521,28 @@ pub(crate) fn definition_instance_count_from_world(
     id: &AssetDefinitionId,
     visibility: &DataspaceReadVisibility,
 ) -> u32 {
-    world.asset_definition_assets().get(id).map_or(0, |assets| {
-        saturating_usize_to_u32(
-            assets
-                .iter()
-                .filter(|asset| visibility.allows_asset(world, asset))
-                .count(),
+    if visibility.can_read_all() {
+        return u32::try_from(
+            world
+                .asset_definition_asset_counts()
+                .get(id)
+                .copied()
+                .unwrap_or(0),
         )
-    })
+        .unwrap_or(u32::MAX);
+    }
+    saturating_usize_to_u32(
+        index_members(world.asset_definition_assets(), id)
+            .filter(|asset| visibility.allows_asset(world, asset))
+            .count(),
+    )
 }
 fn account_holds_definition_from_world(
     world: &impl WorldReadOnly,
     definition: &AssetDefinitionId,
     account: &AccountId,
 ) -> bool {
-    world
-        .asset_definition_holders()
-        .get(definition)
-        .map_or(false, |holders| holders.contains(account))
+    index_contains(world.asset_definition_holders(), definition, account)
 }
 pub(crate) fn accounts_page_for_filters<'world>(
     world: &'world impl WorldReadOnly,
@@ -1574,23 +1576,15 @@ pub(crate) fn accounts_page_for_filters<'world>(
         // bounded lookup-name copy; do not clone account alias/domain graphs.
         norito::core::reserve_decode_allocation(domain.name().as_ref().len())
             .map_err(|_| ExplorerCursorError::ByteLimitExceeded)?;
-        world
-            .account_scope_domain_key(domain)
-            .and_then(|key| world.account_scope_accounts().get(&key))
+        world.account_scope_domain_key(domain)
     } else {
         None
     };
     let accounts: Box<dyn Iterator<Item = AccountEntry<'world>> + 'world> = if !selectors_visible {
         explorer_iterator(std::iter::empty())?
     } else if let Some(definition) = definition_filter {
-        let holders = world.asset_definition_holders().get(definition);
-        let account_ids: Box<dyn Iterator<Item = &'world AccountId> + 'world> = match holders {
-            Some(holders) => match after {
-                Some(after) => explorer_iterator(holders.range((Excluded(after), Unbounded)))?,
-                None => explorer_iterator(holders.iter())?,
-            },
-            None => explorer_iterator(std::iter::empty())?,
-        };
+        let account_ids =
+            index_members_after(world.asset_definition_holders(), definition, after.as_ref());
         explorer_iterator(account_ids.filter_map(move |account_id| {
             world
                 .accounts()
@@ -1598,14 +1592,15 @@ pub(crate) fn accounts_page_for_filters<'world>(
                 .map(|(id, value)| AccountEntry::new(id, value))
         }))?
     } else if domain_filter.is_some() {
-        let account_ids = domain_accounts;
-        let account_ids: Box<dyn Iterator<Item = &'world AccountId> + 'world> = match account_ids {
-            Some(account_ids) => match after {
-                Some(after) => explorer_iterator(account_ids.range((Excluded(after), Unbounded)))?,
-                None => explorer_iterator(account_ids.iter())?,
-            },
-            None => explorer_iterator(std::iter::empty())?,
-        };
+        let account_ids: Box<dyn Iterator<Item = &'world AccountId> + 'world> =
+            match &domain_accounts {
+                Some(key) => explorer_iterator(index_members_after(
+                    world.account_scope_accounts(),
+                    key,
+                    after.as_ref(),
+                ))?,
+                None => explorer_iterator(std::iter::empty())?,
+            };
         explorer_iterator(account_ids.filter_map(move |account_id| {
             world
                 .accounts()
@@ -1631,7 +1626,9 @@ pub(crate) fn accounts_page_for_filters<'world>(
         |entry| visibility.allows_account(world, entry.id()),
         |entry| {
             (domain_filter.is_none()
-                || domain_accounts.is_some_and(|accounts| accounts.contains(entry.id())))
+                || domain_accounts.as_ref().is_some_and(|key| {
+                    index_contains(world.account_scope_accounts(), key, entry.id())
+                }))
                 && definition_filter.is_none_or(|definition| {
                     account_holds_definition_from_world(world, definition, entry.id())
                 })
@@ -1753,30 +1750,12 @@ pub(crate) fn asset_definitions_page_for_filters<'world>(
         if !selectors_visible {
             explorer_iterator(std::iter::empty())?
         } else if let Some(owner) = owner_filter {
-            let definition_ids = world.asset_definitions_by_owner().get(owner);
-            let definition_ids: Box<dyn Iterator<Item = &'world AssetDefinitionId> + 'world> =
-                match definition_ids {
-                    Some(definition_ids) => match after {
-                        Some(after) => {
-                            explorer_iterator(definition_ids.range((Excluded(after), Unbounded)))?
-                        }
-                        None => explorer_iterator(definition_ids.iter())?,
-                    },
-                    None => explorer_iterator(std::iter::empty())?,
-                };
+            let definition_ids =
+                index_members_after(world.asset_definitions_by_owner(), owner, after.as_ref());
             explorer_iterator(definition_ids.filter_map(|id| world.asset_definitions().get(id)))?
         } else if let Some(domain) = owning_domain_filter {
-            let definition_ids = world.domain_asset_definitions().get(domain);
-            let definition_ids: Box<dyn Iterator<Item = &'world AssetDefinitionId> + 'world> =
-                match definition_ids {
-                    Some(definition_ids) => match after {
-                        Some(after) => {
-                            explorer_iterator(definition_ids.range((Excluded(after), Unbounded)))?
-                        }
-                        None => explorer_iterator(definition_ids.iter())?,
-                    },
-                    None => explorer_iterator(std::iter::empty())?,
-                };
+            let definition_ids =
+                index_members_after(world.domain_asset_definitions(), domain, after.as_ref());
             explorer_iterator(definition_ids.filter_map(|id| world.asset_definitions().get(id)))?
         } else {
             match after {
@@ -1903,14 +1882,8 @@ pub(crate) fn assets_page_for_filters<'world>(
             }
         }
     } else if let Some(definition) = definition_filter {
-        let asset_ids = world.asset_definition_assets().get(definition);
-        let asset_ids: Box<dyn Iterator<Item = &'world AssetId> + 'world> = match asset_ids {
-            Some(asset_ids) => match after {
-                Some(after) => explorer_iterator(asset_ids.range((Excluded(after), Unbounded)))?,
-                None => explorer_iterator(asset_ids.iter())?,
-            },
-            None => explorer_iterator(std::iter::empty())?,
-        };
+        let asset_ids =
+            index_members_after(world.asset_definition_assets(), definition, after.as_ref());
         explorer_iterator(asset_ids.filter_map(move |asset_id| {
             world
                 .assets()
@@ -1984,14 +1957,7 @@ pub(crate) fn nfts_page_for_filters<'world>(
     let nfts: Box<dyn Iterator<Item = NftEntry<'world>> + 'world> = if !selectors_visible {
         explorer_iterator(std::iter::empty())?
     } else if let Some(owner) = owned_by {
-        let nft_ids = world.nfts_by_owner().get(owner);
-        let nft_ids: Box<dyn Iterator<Item = &'world NftId> + 'world> = match nft_ids {
-            Some(nft_ids) => match after {
-                Some(after) => explorer_iterator(nft_ids.range((Excluded(after), Unbounded)))?,
-                None => explorer_iterator(nft_ids.iter())?,
-            },
-            None => explorer_iterator(std::iter::empty())?,
-        };
+        let nft_ids = index_members_after(world.nfts_by_owner(), owner, after.as_ref());
         explorer_iterator(nft_ids.filter_map(move |nft_id| {
             world
                 .nfts()
@@ -1999,14 +1965,7 @@ pub(crate) fn nfts_page_for_filters<'world>(
                 .map(|(id, value)| NftEntry::new(id, value))
         }))?
     } else if let Some(domain) = domain_filter {
-        let nft_ids = world.nfts_by_domain().get(domain);
-        let nft_ids: Box<dyn Iterator<Item = &'world NftId> + 'world> = match nft_ids {
-            Some(nft_ids) => match after {
-                Some(after) => explorer_iterator(nft_ids.range((Excluded(after), Unbounded)))?,
-                None => explorer_iterator(nft_ids.iter())?,
-            },
-            None => explorer_iterator(std::iter::empty())?,
-        };
+        let nft_ids = index_members_after(world.nfts_by_domain(), domain, after.as_ref());
         explorer_iterator(nft_ids.filter_map(move |nft_id| {
             world
                 .nfts()
@@ -2079,15 +2038,7 @@ pub(crate) fn rwas_page_for_filters<'world>(
     let rwas: Box<dyn Iterator<Item = RwaEntry<'world>> + 'world> = if !selectors_visible {
         explorer_iterator(std::iter::empty())?
     } else if let Some(owner) = owned_by {
-        let rwa_ids = world.rwas_by_owner().get(owner);
-        let rwa_ids: Box<dyn Iterator<Item = &'world iroha_data_model::rwa::RwaId> + 'world> =
-            match rwa_ids {
-                Some(rwa_ids) => match after {
-                    Some(after) => explorer_iterator(rwa_ids.range((Excluded(after), Unbounded)))?,
-                    None => explorer_iterator(rwa_ids.iter())?,
-                },
-                None => explorer_iterator(std::iter::empty())?,
-            };
+        let rwa_ids = index_members_after(world.rwas_by_owner(), owner, after.as_ref());
         explorer_iterator(rwa_ids.filter_map(move |rwa_id| {
             world
                 .rwas()
@@ -2260,12 +2211,16 @@ mod tests {
         )
         .with_alias(Some(alias))
         .build(&ALICE_ID);
-        let world = World::with_assets(
+        let mut world = World::with_assets(
             [Domain::new(domain_id.clone()).build(&ALICE_ID)],
             [Account::new(ALICE_ID.clone()).build(&ALICE_ID)],
             [definition],
             [],
             [],
+        );
+        crate::test_utils::bind_fixture_root(
+            &mut world,
+            iroha_data_model::block::consensus::SumeragiRootScope::Global,
         );
         let view = world.view();
         assert_eq!(
@@ -3055,12 +3010,34 @@ mod tests {
         let expected = old_scopes
             .iter()
             .all(|scope| *scope == DataSpaceId::UNIVERSAL);
+        // Authenticating the committed root decodes its metadata. The account
+        // directory lookup must add no charged allocation to that fixed cost.
+        let (root, root_usage) = norito::core::with_decode_limits_measured(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 32),
+            || iroha_core::sumeragi::lanes::routing::committed_root_scope(&global),
+        );
+        assert_eq!(root, Some(SumeragiRootScope::Global));
+        assert!(root_usage.total_allocated_bytes() > 0);
         let (allowed, usage) = norito::core::with_decode_limits_measured(
-            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 32),
+            norito::DecodeLimits::new(
+                usize::MAX,
+                usize::MAX,
+                usize::MAX,
+                root_usage.total_allocated_bytes(),
+                32,
+            ),
             || public.allows_account(&global, &ALICE_ID),
         );
         assert_eq!(allowed, expected);
-        assert_eq!(usage.total_allocated_bytes(), 0);
+        assert_eq!(
+            usage.total_allocated_bytes(),
+            root_usage.total_allocated_bytes()
+        );
+        let denied = norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 32),
+            || public.allows_account(&global, &ALICE_ID),
+        );
+        assert!(!denied, "root metadata refusal must fail closed");
         assert!(!DataspaceReadVisibility::default().allows_account(&global, &ALICE_ID));
         let exact = DataspaceReadVisibility::exact_account(
             std::collections::BTreeSet::from([DataSpaceId::UNIVERSAL]),
@@ -3318,6 +3295,33 @@ mod tests {
             gem,
         }
     }
+    #[test]
+    fn definition_counts_preserve_restricted_visibility() {
+        let fixture = selector_world();
+        let view = fixture.world.view();
+        assert_eq!(
+            definition_instance_count_from_world(
+                &view,
+                &fixture.coin,
+                &DataspaceReadVisibility::all_for_tests(),
+            ),
+            2
+        );
+        let alice_only = DataspaceReadVisibility::exact_account(
+            std::collections::BTreeSet::from([iroha_model_base::topology::DataSpaceId::UNIVERSAL]),
+            ALICE_ID.clone(),
+        );
+        assert_eq!(
+            definition_instance_count_from_world(&view, &fixture.coin, &alice_only),
+            1
+        );
+        let hidden = DataspaceReadVisibility::new(std::collections::BTreeSet::new(), false);
+        assert_eq!(
+            definition_instance_count_from_world(&view, &fixture.coin, &hidden),
+            0
+        );
+    }
+
     #[test]
     fn accounts_page_binds_domain_and_definition_selectors_into_its_cursor() {
         let fixture = selector_world();

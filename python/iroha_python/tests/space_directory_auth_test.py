@@ -121,6 +121,7 @@ def _client(
             timestamp_ms=4_102_444_801_000,
             nonce="python-space-directory-auth",
         ),
+        chain_discriminant=753,
     )
 
 

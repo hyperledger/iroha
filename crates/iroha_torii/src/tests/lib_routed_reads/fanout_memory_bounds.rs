@@ -1,4 +1,4 @@
-// Focused cross-dataspace fanout allocation and pagination bounds.
+// Focused cross-data-space singular fanout allocation and request bounds.
 fn fanout_memory_test_request(
     limit: Option<u64>,
 ) -> iroha_data_model::query::QueryRequestWithAuthority {
@@ -146,68 +146,45 @@ fn fanout_envelope_charges_exact_signed_and_verified_request_frames() {
     );
 }
 #[test]
-fn fanout_envelope_covers_outer_and_local_core_accumulators() {
+fn fanout_singular_frame_uses_its_complete_encoding_phase() {
+    let output = iroha_data_model::query::SingularQueryOutputBox::AbiVersion(
+        iroha_data_model::query::runtime::AbiVersion { abi_version: 1 },
+    );
+    let frame_bytes = norito::core::encoded_frame_len(&output).expect("measure singular frame");
+    let fixed = query_fanout_fixed_overhead_bytes().expect("fixed overhead fits usize");
+    let working_set = fixed + QUERY_FANOUT_PHASE_COUNT * frame_bytes;
+    let envelope = QueryFanoutMemoryEnvelope::with_phase_bytes(working_set, 0, frame_bytes)
+        .expect("singular comparison fits exact working set");
+    assert_eq!(envelope.candidate_encoded_bytes, frame_bytes);
+    assert_eq!(envelope.candidate_allocation_bytes, frame_bytes);
+    assert_eq!(
+        envelope.singular_output_limits().max_frame_bytes(),
+        frame_bytes as u64
+    );
+    let encoded = norito::core::to_bytes_bounded(&output, envelope.candidate_encoded_bytes)
+        .expect("complete singular frame fits without an iterable retained-node surcharge");
+    assert_eq!(encoded.len(), frame_bytes);
+    assert_eq!(encoded.capacity(), frame_bytes);
+    assert!(norito::core::to_bytes_bounded(&output, frame_bytes - 1).is_err());
+    assert!(envelope.phases_fit());
+    assert!(
+        QueryFanoutMemoryEnvelope::with_phase_bytes(working_set - 1, 0, frame_bytes).is_err(),
+        "one byte below the complete singular comparison peak cannot be admitted"
+    );
+}
+#[test]
+fn fanout_response_encoding_and_proxy_copy_fit_the_reserved_phases() {
     let envelope = QueryFanoutMemoryEnvelope::for_request_lengths(64_000_000, 4_096, 8_192)
         .expect("test envelope should fit");
-    let local_scan = checked_sum([
-        envelope.request_decode_allocated_bytes,
-        envelope.accumulator_retained_bytes,
-        envelope.accumulator_retained_bytes,
-        envelope.candidate_allocation_bytes,
-        envelope.candidate_encoded_bytes,
-    ])
-    .expect("test phase accounting fits usize");
-    let admitted = envelope
-        .working_set_bytes
-        .checked_sub(envelope.request_bytes)
-        .and_then(|remaining| {
-            remaining.checked_sub(
-                query_fanout_fixed_overhead_bytes().expect("fanout fixed overhead fits usize"),
-            )
-        })
-        .expect("admitted phase bytes fit checked subtraction");
-    assert!(local_scan <= admitted);
-    let final_encode = checked_sum([
-        envelope.decode_allocated_bytes,
-        envelope.final_body_bytes,
-        envelope.final_body_bytes,
-    ])
-    .expect("test final phase accounting fits usize");
-    assert!(final_encode <= admitted);
+    let fixed = envelope.request_bytes + query_fanout_fixed_overhead_bytes().unwrap();
+    let final_encode = envelope.decode_allocated_bytes + 2 * envelope.final_body_bytes;
+    let proxy_copy = 2 * envelope.final_body_bytes;
+    assert!(fixed + final_encode <= envelope.working_set_bytes);
+    assert!(fixed + proxy_copy <= envelope.working_set_bytes);
     assert_eq!(
         envelope.final_body_bytes,
-        envelope
-            .decode_allocated_bytes
-            .checked_mul(2)
-            .expect("two decode units fit usize"),
-        "the final phase must reserve two units for cache-free identifier encoding scratch"
+        2 * envelope.decode_allocated_bytes
     );
-    assert_eq!(
-        iroha_core::smartcontracts::isi::query::canonical_query_candidate_allocation_bytes(
-            u64::try_from(envelope.candidate_encoded_bytes).expect("candidate cap fits u64"),
-        ),
-        Some(
-            u64::try_from(envelope.candidate_allocation_bytes)
-                .expect("candidate allocation cap fits u64")
-        ),
-        "Torii must charge Core's complete frame-capacity and retained-node envelope"
-    );
-    let next_encoded = envelope
-        .candidate_encoded_bytes
-        .checked_add(1)
-        .and_then(|bytes| u64::try_from(bytes).ok())
-        .expect("next candidate cap fits u64");
-    let next_allocation =
-        iroha_core::smartcontracts::isi::query::canonical_query_candidate_allocation_bytes(
-            next_encoded,
-        )
-        .and_then(|bytes| usize::try_from(bytes).ok())
-        .expect("next candidate allocation fits usize");
-    assert!(
-        next_allocation > envelope.candidate_allocation_bytes,
-        "one frame byte above the admitted candidate cap must exceed its phase"
-    );
-    assert!(envelope.phases_fit());
 }
 #[test]
 fn fanout_envelope_covers_retain_first_singular_comparison() {
@@ -289,9 +266,7 @@ fn fanout_fixed_overhead_covers_the_protocol_route_catalogue() {
     );
     assert_eq!(
         query_fanout_fixed_overhead_bytes(),
-        ingress_fixed
-            .checked_add(QUERY_FANOUT_SOURCE_OVERHEAD_BYTES)
-            .and_then(|bytes| bytes.checked_add(candidate_snapshot))
+        ingress_fixed.checked_add(candidate_snapshot)
     );
     assert!(
         QUERY_FANOUT_ROUTE_OVERHEAD_BYTES
@@ -302,26 +277,21 @@ fn fanout_fixed_overhead_covers_the_protocol_route_catalogue() {
         "the per-route charge must cover map payload plus the collected route"
     );
     assert_eq!(
-        QUERY_FANOUT_SOURCE_OVERHEAD_BYTES,
-        usize::try_from(
-            iroha_core::smartcontracts::isi::query::CANONICAL_QUERY_PREBOUNDED_SOURCE_BYTES
-        )
-        .expect("Core source bound fits usize")
-    );
-    assert_eq!(
         QUERY_FANOUT_PUBLIC_KEY_VALIDATION_SCRATCH_BYTES,
         iroha_crypto::MAX_PUBLIC_KEY_PAYLOAD_BYTES
     );
     let envelope = QueryFanoutMemoryEnvelope::for_request_lengths(64_000_000, 4_096, 8_192)
         .expect("the protocol-fixed validation scratch fits the working set");
-    let local_scan = checked_sum([
+    let singular_compare = checked_sum([
         envelope.request_decode_allocated_bytes,
-        envelope.accumulator_retained_bytes,
-        envelope.accumulator_retained_bytes,
-        envelope.candidate_allocation_bytes,
+        envelope.decode_allocated_bytes,
+        envelope.decode_allocated_bytes,
+        envelope.decode_allocated_bytes,
+        envelope.candidate_encoded_bytes,
+        envelope.candidate_encoded_bytes,
         envelope.candidate_encoded_bytes,
     ])
-    .expect("test local phase accounting fits usize");
+    .expect("test singular comparison phase accounting fits usize");
     let route_catalogue = QUERY_FANOUT_ROUTE_OVERHEAD_BYTES
         .checked_mul(iroha_data_model::nexus::MAX_ACTIVE_EXECUTION_LANES)
         .expect("route catalogue accounting fits usize");
@@ -329,10 +299,9 @@ fn fanout_fixed_overhead_covers_the_protocol_route_catalogue() {
         envelope.request_bytes,
         QUERY_FANOUT_BASE_OVERHEAD_BYTES,
         route_catalogue,
-        QUERY_FANOUT_SOURCE_OVERHEAD_BYTES,
         QUERY_FANOUT_PUBLIC_KEY_VALIDATION_SCRATCH_BYTES,
         candidate_snapshot,
-        local_scan,
+        singular_compare,
     ])
     .expect("complete test accounting fits usize");
     assert!(accounted_peak <= envelope.working_set_bytes);
@@ -562,6 +531,8 @@ fn query_memory_pool_admits_eight_portal_reads_without_raising_request_limits() 
 #[test]
 fn query_memory_parser_geometry_matches_runtime_complete_phases() {
     use iroha_config::parameters::defaults::torii as config;
+    assert!(query_memory_geometry(512_000_000, 48_000_000, 0, 32).is_none());
+    assert!(config::query_fanout_working_set_bytes(512_000_000, 48_000_000, 0).is_none());
     assert_eq!(
         query_fanout_fixed_overhead_bytes().unwrap() as u64,
         config::QUERY_FANOUT_FIXED_OVERHEAD_BYTES_V1
@@ -592,6 +563,7 @@ fn query_memory_parser_geometry_matches_runtime_complete_phases() {
         (512_000_000, 48_000_000, 64_000_000),
         (512_000_000, 36_000_000, 64_000_000),
         (512_000_000, 48_000_000, 8 * 1024),
+        (512_000_000, 48_000_000, 1),
     ] {
         let geometry = query_memory_geometry(aggregate, ceiling, content, 32).unwrap();
         let envelope =
@@ -624,8 +596,8 @@ fn query_memory_parser_geometry_matches_runtime_complete_phases() {
             )
             .unwrap()
         );
-        assert!(geometry.ingress.body_bytes >= 8 * 1024);
-        assert!(envelope.route_body_bytes >= 8 * 1024);
+        assert!(geometry.ingress.body_bytes >= content.min(8 * 1024));
+        assert!(envelope.route_body_bytes >= content.min(8 * 1024));
         assert!(geometry.ingress.phases_fit());
         assert!(envelope.phases_fit());
     }
@@ -707,22 +679,14 @@ fn skewed_query_memory_pool_cannot_raise_ingress_above_fanout_or_content_cap() {
         .expect("derived fanout geometry should fit");
     assert_eq!(geometry.ingress.body_bytes, max_content);
     assert!(geometry.ingress.body_bytes <= fanout.route_body_bytes);
-    let minimum_candidate_bytes = usize::try_from(
-        iroha_core::smartcontracts::isi::query::canonical_query_candidate_allocation_bytes(1)
-            .expect("minimum canonical candidate allocation"),
-    )
-    .expect("minimum candidate allocation fits usize");
-    assert!(fanout.route_body_bytes >= minimum_candidate_bytes);
-    assert!(fanout.candidate_allocation_bytes <= fanout.route_body_bytes);
+    assert_eq!(fanout.route_body_bytes, 2);
+    assert_eq!(fanout.candidate_allocation_bytes, fanout.route_body_bytes);
+    assert_eq!(fanout.candidate_encoded_bytes, fanout.route_body_bytes);
     assert!(fanout.phases_fit());
     assert!(
-        QueryFanoutMemoryEnvelope::with_phase_bytes(
-            geometry.fanout_working_set_bytes,
-            0,
-            minimum_candidate_bytes - 1,
-        )
-        .is_err(),
-        "one byte below the real canonical allocation floor must still fail"
+        QueryFanoutMemoryEnvelope::with_phase_bytes(geometry.fanout_working_set_bytes, 0, 1)
+            .is_err(),
+        "the request and its local clone each require a nonzero decode share"
     );
 }
 #[test]

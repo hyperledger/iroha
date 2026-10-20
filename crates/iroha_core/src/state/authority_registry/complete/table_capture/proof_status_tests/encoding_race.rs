@@ -13,6 +13,9 @@ enum Change {
 }
 
 fn capture_at_real_overflow(change: Change) {
+    // The fixture publishes World cells before capture. Keep their retired
+    // generations fixed while checking the snapshot's synchronous refunds.
+    let _state_retirement = crossbeam_epoch::pin();
     let state = state("stark/fri");
     let pool = state.ivm_execution_budget();
     let baseline = pool.reserved_bytes();
@@ -25,7 +28,7 @@ fn capture_at_real_overflow(change: Change) {
         .unwrap();
     let key = id("stark/fri");
     let record = source.get(&key).unwrap().clone();
-    let members = index.get(&ProofStatus::Submitted).unwrap().clone();
+    assert_eq!(index.get(&(ProofStatus::Submitted, key.clone())), Some(&()));
     let mut limits = native_test_support::limits();
     // Keep real grouping work and storage admission intact. Admit the exact key, then fail
     // the larger ProofRecord's real serializer while its original charged key remains live.
@@ -58,7 +61,7 @@ fn capture_at_real_overflow(change: Change) {
             }
             Change::Index => {
                 let mut block = state.world.proofs_by_status.block();
-                block.insert(ProofStatus::Submitted, members.clone());
+                block.insert((ProofStatus::Submitted, key.clone()), ());
                 block.commit();
             }
             Change::State => {
@@ -97,8 +100,8 @@ fn capture_at_real_overflow(change: Change) {
                 .world
                 .proofs_by_status
                 .view()
-                .get(&ProofStatus::Submitted),
-            Some(&members)
+                .get(&(ProofStatus::Submitted, key.clone())),
+            Some(&())
         );
         resume_tx
             .send(())

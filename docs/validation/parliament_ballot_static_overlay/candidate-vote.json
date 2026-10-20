@@ -1,0 +1,164 @@
+{
+  "capacity": 18446779258081640448,
+  "exclusions": [
+    "Source field/schedule generation and prior programming-game commutations.",
+    "Full adaptive dispatcher, controller, allocation/preparation and family-wide resource maxima.",
+    "Base oracle construction, external queries, primitive advantages and physical routing."
+  ],
+  "frames": [
+    {
+      "challenge": 1,
+      "domain": 9,
+      "fields": [
+        [
+          "namespace_digest",
+          64
+        ],
+        [
+          "mu",
+          64
+        ],
+        [
+          "commitment",
+          64
+        ],
+        [
+          "corrections",
+          214016
+        ],
+        [
+          "mult_corrections",
+          880
+        ],
+        [
+          "iv_pre",
+          16
+        ],
+        [
+          "salt",
+          32
+        ]
+      ],
+      "key_bytes": 215150,
+      "value_bytes": 264
+    },
+    {
+      "challenge": 2,
+      "domain": 10,
+      "fields": [
+        [
+          "namespace_digest",
+          64
+        ],
+        [
+          "challenge_1",
+          264
+        ],
+        [
+          "u_tilde",
+          128
+        ],
+        [
+          "d_tilde",
+          128
+        ],
+        [
+          "masked_witness",
+          6688
+        ]
+      ],
+      "key_bytes": 7286,
+      "value_bytes": 104
+    },
+    {
+      "challenge": 3,
+      "domain": 11,
+      "fields": [
+        [
+          "namespace_digest",
+          64
+        ],
+        [
+          "challenge_2",
+          104
+        ],
+        [
+          "a0",
+          32
+        ],
+        [
+          "coefficients",
+          192
+        ],
+        [
+          "counter_u32_le",
+          4
+        ]
+      ],
+      "key_bytes": 410,
+      "value_bytes": 32
+    }
+  ],
+  "full_resource_vector": false,
+  "full_root_driver_integrated": false,
+  "independent_cryptographic_review": false,
+  "inherited_lookup": {
+    "ccx": 127046178489999163970816066,
+    "cx": 127007108211530547056345088,
+    "elementary_one_two_qubit_gates": 889245182660173946293332300,
+    "oracle": 2,
+    "x": 127007181998647579382906882
+  },
+  "inherited_lookup_clean_work_bits": 36893558516165004274,
+  "length_bits": 64,
+  "physical_verification_workspace_certificate": false,
+  "premises": [
+    "Each assigned slot is initially zero and used once in chronological invocation order.",
+    "The controller supplies/authenticates a classical valid-invocation ordinal.",
+    "Generated fields, validity, and primary-prefix flags are supplied; auxiliary trials never write.",
+    "Scratch/staging start zero; original fields and coins remain retained.",
+    "Lookup requires complete canonical addresses and the same supplied base XOR oracle.",
+    "The chosen length width covers every allowed full query, not merely programmed keys."
+  ],
+  "production_gate_changed": false,
+  "profile_qualified": false,
+  "request_cap": 17592186044416,
+  "request_index": 0,
+  "role": "vote",
+  "row": "candidate",
+  "schema": "parliament-static-overlay-v1",
+  "scope": "Fixed-slot W0 writer with supplied transcript fields/flags; unchanged coherent scan lookup priced separately.",
+  "source_pin_scope": "Two helper files only; not complete Rust/source/dependency custody.",
+  "source_sha256_after": {
+    "scripts/parliament_ballot_oracle_log_circuit.py": "d045f66581f7a50bcb4e696b0346a192724f5d0858a21c23343bb35478d5c558",
+    "scripts/parliament_ballot_write_framing.py": "ad5230fdcd01b52588b40d29a2e766625050ef530dfba4cb529350f993a21617"
+  },
+  "source_sha256_before": {
+    "scripts/parliament_ballot_oracle_log_circuit.py": "d045f66581f7a50bcb4e696b0346a192724f5d0858a21c23343bb35478d5c558",
+    "scripts/parliament_ballot_write_framing.py": "ad5230fdcd01b52588b40d29a2e766625050ef530dfba4cb529350f993a21617"
+  },
+  "trials": 1048576,
+  "writer": {
+    "auxiliary_writes": 0,
+    "clean_work_bits": 1723409,
+    "counter_bits": 0,
+    "disabled_write_gates_charged": true,
+    "first_slot": 0,
+    "fixed_write_circuits": 1048578,
+    "gates": {
+      "base_xor_oracle_calls": 0,
+      "ccx": 1807096256480,
+      "cx": 7185261446,
+      "elementary_one_two_qubit_gates": 9042794470332,
+      "x": 127926486
+    },
+    "key_capacity_bytes": 215150,
+    "last_slot": 1048577,
+    "persistent_log_bits": 31790755097454963270352896,
+    "supplied_input_bits": 271265409,
+    "synthetic_reduced_trials": false,
+    "total_logical_bits": 31790755097454963543341714,
+    "trial_constant_work_bits": 32,
+    "vacancy_and_schedule_are_premises": true
+  }
+}

@@ -901,11 +901,15 @@ pub(crate) fn observe_lane(
 /// Capture bounded original frames under one immutable parent, then release all World/pool
 /// guards before the shared retained admission reader performs native disk I/O. The final
 /// caller rechecks the same generation before publishing any proposal.
+///
+/// Only capture and selection-backing refusals propagate. A retryable per-report refusal
+/// ends the selection with the reports admitted before it; a terminal one skips that report.
+#[allow(unsafe_code)]
 pub(crate) fn pending_evidence_admissions(
     state: &State,
     height: u64,
     generation: u64,
-) -> Vec<Evidence> {
+) -> Result<FundedEvidenceAdmissions, EvidenceAdmissionError> {
     let captured = (|| -> Result<ChargedBuffer<ChargedBuffer<u8>>, EvidenceAdmissionError> {
         let view = state.view();
         if !crate::state::is_stable_state_view_generation(generation, state.state_view_generation())
@@ -933,38 +937,49 @@ pub(crate) fn pending_evidence_admissions(
         }
         Ok(frames)
     })();
-    let Ok(frames) = captured else {
-        return Vec::new();
+    #[cfg(all(test, sumeragi_core_mutation = "HC912"))]
+    let mut frames = match captured {
+        Ok(frames) => frames,
+        Err(_) => {
+            return FundedEvidenceAdmissions::empty(state.evidence_preparation_budget())
+                .map_err(Into::into);
+        }
     };
-    let mut selected = Vec::new();
-    if frames.as_slice().is_empty() {
-        return selected;
-    }
-    if selected
-        .try_reserve_exact(MAX_EVIDENCE_ADMISSIONS_PER_BLOCK)
-        .is_err()
-    {
-        return selected;
-    }
-    for frame in frames.as_slice() {
-        if selected.len() == MAX_EVIDENCE_ADMISSIONS_PER_BLOCK {
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC912")))]
+    let mut frames = captured?;
+    let budget = state.evidence_preparation_budget();
+    let count = frames
+        .as_slice()
+        .len()
+        .min(MAX_EVIDENCE_ADMISSIONS_PER_BLOCK);
+    // Declare the ledger first so every partially selected frame is destroyed
+    // before its exact original charge on refusal or unwind.
+    let mut charges = ChargedBuffer::new(if count == 0 { 0 } else { count + 1 }, budget)
+        .map_err(EvidencePreparationError::from)?;
+    let mut selected = ChargedBuffer::new(count, budget).map_err(EvidencePreparationError::from)?;
+    for frame in frames.drain_all() {
+        if selected.as_slice().len() == count {
             break;
         }
-        // TODO(S8): the outgoing proposal model and decoded proof graph still require their
-        // complete funded owner. Temporary original source snapshots above are fully charged.
-        let mut native = Vec::new();
-        if native.try_reserve_exact(frame.as_slice().len()).is_err() {
-            break;
-        }
-        native.extend_from_slice(frame.as_slice());
-        selected.push(Evidence { native });
-        match admission::prepare_admissions(state, generation, height, &selected) {
+        // SAFETY: the captured frame allocation moves without copying into a
+        // fixed selected slot. Its original charge is retained in the sibling
+        // ledger until that exact frame is destroyed, including rejected rows.
+        let (native, charge) = unsafe { frame.into_allocation_parts() };
+        charges.push_reserved(charge);
+        selected.push_reserved(Evidence { native });
+        match admission::prepare_admissions(state, generation, height, selected.as_slice()) {
             Ok(_) => {}
             Err(error) => {
-                selected.pop();
+                drop(selected.pop());
+                drop(charges.pop());
                 if admission::retryable(&error) {
-                    // Temporary refusal retains the exact original read. Ordinary work may
-                    // continue; publication explicitly cancels an obsolete acquisition.
+                    // Temporary refusal retains the exact original read in State. The
+                    // reports admitted before it remain a complete funded selection;
+                    // propagating it would abort the proposal and, persisting on every
+                    // validator, halt the chain. Publication cancels an obsolete read.
+                    #[cfg(all(test, sumeragi_core_mutation = "HC914"))]
+                    return Err(error);
+                    #[cfg(not(all(test, sumeragi_core_mutation = "HC914")))]
                     break;
                 }
                 // A terminally failed local source grants no proof authority, but cannot
@@ -973,7 +988,57 @@ pub(crate) fn pending_evidence_admissions(
             }
         }
     }
-    selected
+    // SAFETY: every frame and this exact backing enter the closed owner together.
+    // No conversion to the proposal's bare wire graph happens inside this owner.
+    let (selected, backing) = unsafe { selected.into_allocation_parts() };
+    if count == 0 {
+        drop(backing);
+    } else {
+        charges.push_reserved(backing);
+    }
+    match unsafe { iroha_allocation::RetainedPayload::try_new(selected, charges, budget) } {
+        Ok(owner) => Ok(FundedEvidenceAdmissions(owner)),
+        Err((selected, charges, _)) => {
+            drop(selected);
+            drop(charges);
+            Err(EvidencePreparationError::Invariant.into())
+        }
+    }
+}
+
+/// Move-only proposal selection retaining exact native frames and vector backing.
+pub(crate) struct FundedEvidenceAdmissions(iroha_allocation::RetainedPayload<Vec<Evidence>>);
+
+impl FundedEvidenceAdmissions {
+    /// Admit an allocation-free empty selection in the captured original pool.
+    #[allow(unsafe_code)]
+    pub(crate) fn empty(
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<Self, EvidencePreparationError> {
+        let charges = ChargedBuffer::new(0, budget).map_err(EvidencePreparationError::from)?;
+        // SAFETY: the empty vector and zero-capacity ledger own no allocation.
+        unsafe { iroha_allocation::RetainedPayload::try_new(Vec::new(), charges, budget) }
+            .map(Self)
+            .map_err(|_| EvidencePreparationError::Invariant)
+    }
+
+    /// Borrow original selected frames without extracting their allocation custody.
+    pub(crate) fn as_slice(&self) -> &[Evidence] {
+        self.0.get()
+    }
+}
+
+impl std::ops::Deref for FundedEvidenceAdmissions {
+    type Target = [Evidence];
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl std::fmt::Debug for FundedEvidenceAdmissions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_slice().fmt(f)
+    }
 }
 
 /// Finality controls independently prepared from one pristine State generation.
@@ -985,10 +1050,19 @@ pub(crate) struct PreparedStakingEffects<'state> {
     tip: Option<NativeExecutionTip>,
     effects_hash: Option<HashOf<iroha_data_model::consensus::NposConsensusEffects>>,
     admissions: ChargedBuffer<AdmittedEvidence>,
+    // The exact expected graph remains owned until this consumed preparation
+    // token has finished applying its independently hash-bound candidate effects.
+    _actions: super::penalties::FundedPenaltyActions,
     prune: ChargedBuffer<Hash>,
     stake_index: Option<crate::smartcontracts::isi::staking::PublicLaneStakeIndex>,
 }
 impl PreparedStakingEffects<'_> {
+    /// Borrow the actual prepared action backing for production-path custody tests.
+    #[cfg(test)]
+    pub(crate) fn action_slice_for_test(&self) -> &[NposPenaltyAction] {
+        self._actions.as_slice()
+    }
+
     /// Rejoin the exact State, header and original publication before any execution effect.
     pub(crate) fn apply(
         self,
@@ -1072,7 +1146,11 @@ pub(crate) fn prepare<'state>(
             .any(|action| matches!(action, NposPenaltyAction::ConsensusSlash(_)));
         (actions, needs_index.then_some(index))
     } else {
-        (Vec::new(), None)
+        (
+            super::penalties::FundedPenaltyActions::empty(state.evidence_preparation_budget())
+                .map_err(BlockValidationError::EvidencePreparation)?,
+            None,
+        )
     };
     if actions.as_slice() != effects.penalty_actions.as_slice() {
         return Err(BlockValidationError::NposEffectsInvalid(
@@ -1091,6 +1169,14 @@ pub(crate) fn prepare<'state>(
             reason: "native evidence parent changed during pristine preparation".into(),
         });
     }
+    #[cfg(all(test, sumeragi_core_mutation = "HC913"))]
+    let retained_actions = {
+        drop(actions);
+        super::penalties::FundedPenaltyActions::empty(state.evidence_preparation_budget())
+            .map_err(BlockValidationError::EvidencePreparation)?
+    };
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC913")))]
+    let retained_actions = actions;
     Ok(PreparedStakingEffects {
         state,
         generation,
@@ -1098,6 +1184,7 @@ pub(crate) fn prepare<'state>(
         tip,
         effects_hash: block.npos_consensus_effects().map(HashOf::new),
         admissions,
+        _actions: retained_actions,
         prune,
         stake_index: index,
     })

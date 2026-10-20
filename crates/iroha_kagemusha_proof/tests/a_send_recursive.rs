@@ -180,11 +180,9 @@ fn sources(artifact: &load_outer::DiagnosticLoadOmega) -> Sources {
         },
     ])
     .unwrap();
-    let signature = iroha_kagemusha_proof::q_signature::QSignatureCircuit::new(
-        schema,
-        vec![receipt.signature.clone()],
-    )
-    .unwrap();
+    let signature =
+        iroha_kagemusha_proof::q_signature::QSignatureCircuit::new(schema, vec![receipt.signature])
+            .unwrap();
     let instances = signature.instances(&[true]).unwrap();
     let params = PinnedParams::<Ep>::derive(16).unwrap();
     let key = keygen_pk_v2(

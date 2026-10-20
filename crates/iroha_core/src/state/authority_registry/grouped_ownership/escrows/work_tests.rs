@@ -36,8 +36,8 @@ fn multisig() -> AccountId {
 }
 #[test]
 fn independent_escrow_singletons_wide_keys_and_original_fixture_work_are_exact() {
-    assert_eq!(ESCROW_WORK_PER_ROW, 2 * (135 + 136 + 136 + 137 + 69 + 70));
-    for (buyer, exact) in [(false, 824), (true, 1366)] {
+    assert_eq!(ESCROW_WORK_PER_ROW, 2 * (134 + 134 + 135 + 135 + 68 + 68));
+    for (buyer, exact) in [(false, 812), (true, 1348)] {
         let world = fixture(buyer);
         assert_eq!(world_work(&world), exact);
         assert_eq!(
@@ -47,7 +47,7 @@ fn independent_escrow_singletons_wide_keys_and_original_fixture_work_are_exact()
         assert_eq!(check(&world, exact), Ok(()));
         assert!(world_work(&world) < TEST_WORK_ALLOWANCE);
     }
-    for (buyer, exact) in [(false, 1224), (true, 2166)] {
+    for (buyer, exact) in [(false, 1212), (true, 2148)] {
         let mut world = fixture(buyer);
         let mut record = world.asset_escrows.view().get(&id()).unwrap().clone();
         record.seller = multisig();
@@ -62,7 +62,7 @@ fn independent_escrow_singletons_wide_keys_and_original_fixture_work_are_exact()
         assert_eq!(check(&world, exact), Ok(()));
     }
     // Independent current/undo arithmetic admits the old migration/restore fixtures.
-    for (initial_buyer, migration_work) in [(false, 1806), (true, 1803)] {
+    for (initial_buyer, migration_work) in [(false, 2367), (true, 2300)] {
         let mut world = fixture(initial_buyer);
         let mut record = world.asset_escrows.view().get(&id()).unwrap().clone();
         record.seller = BOB_ID.clone();
@@ -77,7 +77,7 @@ fn independent_escrow_singletons_wide_keys_and_original_fixture_work_are_exact()
             block.commit();
         }
         let actual = world_work(&world);
-        // Seller960 + status432 + optional-buyer414/411 from actual native history.
+        // Seller1210 + status682 + optional-buyer475/408 from actual native history.
         assert_eq!(actual, migration_work);
         assert!(actual < TEST_WORK_ALLOWANCE);
         assert_eq!(check(&world, actual), Ok(()));
@@ -149,14 +149,31 @@ fn escrow_physical_mask_lookup_and_member_tails_are_fully_prepaid() {
             Ok(view.current().get(key))
         );
     }
-    let members = BTreeSet::from([first, second]);
+    let members = [first, second];
+    let member_rows: Storage<_, _> = members
+        .iter()
+        .map(|member| ((first, *member), ()))
+        .collect();
+    let member_view = member_rows.try_committed_view_nonblocking().unwrap();
     for key in &members {
         assert_eq!(
-            contains(&members, key, &mut EscrowWork::bounded(129)),
+            contains(
+                &member_view,
+                GroupImage::Current,
+                &first,
+                key,
+                &mut EscrowWork::bounded(2 * (130) - 3)
+            ),
             Err(GroupedOwnershipError::WorkLimit)
         );
         assert_eq!(
-            contains(&members, key, &mut EscrowWork::bounded(130)),
+            contains(
+                &member_view,
+                GroupImage::Current,
+                &first,
+                key,
+                &mut EscrowWork::bounded(2 * (130) - 2)
+            ),
             Ok(true)
         );
     }
@@ -267,8 +284,8 @@ fn complete_escrow_controller_id_status_and_optional_projection_geometry_is_paid
     }
 }
 #[test]
-fn original_absent_source_and_bucket_visits_have_literal_exact_boundaries() {
-    for (buyer, base, delta) in [(false, 824, 335), (true, 1366, 402)] {
+fn original_absent_source_and_membership_visits_have_literal_exact_boundaries() {
+    for (buyer, base, delta) in [(false, 812, 335), (true, 1348, 402)] {
         let world = fixture(buyer);
         {
             let mut block = world.asset_escrows.block();
@@ -283,26 +300,26 @@ fn original_absent_source_and_bucket_visits_have_literal_exact_boundaries() {
         assert_eq!(check(&world, base + delta), Ok(()));
     }
     for (buyer, source, base, delta) in [
-        (true, 0, 1366, 142),
-        (true, 1, 1366, 142),
-        (true, 2, 1366, 10),
-        (false, 1, 824, 2),
+        (true, 0, 1348, 270),
+        (true, 1, 1348, 270),
+        (true, 2, 1348, 138),
+        (false, 1, 812, 2),
     ] {
         let world = fixture(buyer);
         match source {
             0 => {
                 let mut block = world.asset_escrows_by_seller.block();
-                block.remove(absent_account());
+                block.remove((absent_account(), absent_id()));
                 block.commit();
             }
             1 => {
                 let mut block = world.asset_escrows_by_buyer.block();
-                block.remove(absent_account());
+                block.remove((absent_account(), absent_id()));
                 block.commit();
             }
             2 => {
                 let mut block = world.asset_escrows_by_status.block();
-                block.remove(AssetEscrowStatus::Expired);
+                block.remove((AssetEscrowStatus::Expired, absent_id()));
                 block.commit();
             }
             _ => unreachable!(),
@@ -318,13 +335,16 @@ fn original_absent_source_and_bucket_visits_have_literal_exact_boundaries() {
 #[test]
 fn escrow_group_and_image_phases_keep_original_first_failure() {
     let mut world = fixture(true);
-    let saved = omit_initial(&mut world.asset_escrows_by_seller, &ALICE_ID);
+    omit_initial(
+        &mut world.asset_escrows_by_seller,
+        &(ALICE_ID.clone(), id()),
+    );
     {
         let mut block = world.asset_escrows_by_seller.block();
-        block.insert(ALICE_ID.clone(), saved);
+        block.insert((ALICE_ID.clone(), id()), ());
         block.commit();
     }
-    omit_initial(&mut world.asset_escrows_by_buyer, &BOB_ID);
+    omit_initial(&mut world.asset_escrows_by_buyer, &(BOB_ID.clone(), id()));
     assert_eq!(
         check(&world, TEST_WORK_ALLOWANCE),
         Err(corrupt(
@@ -334,13 +354,16 @@ fn escrow_group_and_image_phases_keep_original_first_failure() {
         ))
     );
     let mut world = fixture(true);
-    let saved = omit_initial(&mut world.asset_escrows_by_buyer, &BOB_ID);
+    omit_initial(&mut world.asset_escrows_by_buyer, &(BOB_ID.clone(), id()));
     {
         let mut block = world.asset_escrows_by_buyer.block();
-        block.insert(BOB_ID.clone(), saved);
+        block.insert((BOB_ID.clone(), id()), ());
         block.commit();
     }
-    omit_initial(&mut world.asset_escrows_by_status, &AssetEscrowStatus::Open);
+    omit_initial(
+        &mut world.asset_escrows_by_status,
+        &(AssetEscrowStatus::Open, id()),
+    );
     assert_eq!(
         check(&world, TEST_WORK_ALLOWANCE),
         Err(corrupt(

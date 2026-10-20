@@ -2210,7 +2210,7 @@ fn kaigi_signal_authority(
         TransactionEntrypoint::SealedReveal(reveal) => {
             Some(reveal.signed_transaction().authority())
         }
-        TransactionEntrypoint::SealedCommitment(_) => None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => None,
     }
 }
 #[cfg(test)]
@@ -2439,7 +2439,7 @@ fn kaigi_signal_metadata_from_transaction(
     }
     let metadata = match tx.entrypoint() {
         TransactionEntrypoint::External(signed) => signed.metadata(),
-        TransactionEntrypoint::SealedCommitment(_) => return None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => return None,
         TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction().metadata(),
     };
     let key: Name = "kaigi_signal".parse().ok()?;
@@ -2471,7 +2471,7 @@ fn kaigi_signal_from_metadata(
         TransactionEntrypoint::External(signed) => {
             reveal_authorities.then(|| crate::account_literal::display_literal(signed.authority()))
         }
-        TransactionEntrypoint::SealedCommitment(_) => return None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => return None,
         TransactionEntrypoint::SealedReveal(reveal) => reveal_authorities.then(|| {
             crate::account_literal::display_literal(reveal.signed_transaction().authority())
         }),
@@ -9599,6 +9599,7 @@ pub fn accept_transaction_for_ingress(
         TransactionEntrypoint::SealedCommitment(_) => {
             (1, tx_limits.max_signatures().get(), "sealed_commitment")
         }
+        TransactionEntrypoint::AnonymousBallot(_) => (0, 0, "anonymous_ballot"),
         TransactionEntrypoint::SealedReveal(reveal) => {
             let signed = reveal.signed_transaction();
             let authority_label = match signed.authority().controller() {
@@ -9633,7 +9634,7 @@ pub fn accept_transaction_for_ingress(
             Ok(tx)
         }
         Err(err) => {
-            iroha_logger::warn!(?err, "transaction rejected during admission");
+            iroha_logger::warn!(?err, "transaction admission did not complete");
             #[cfg(feature = "telemetry")]
             telemetry.with_metrics(|tel| {
                 if let AcceptTransactionFail::TransactionLimit(limit) = &err {
@@ -9759,7 +9760,7 @@ pub fn accept_decoded_signed_transaction_for_ingress_with_precheck(
             Ok(tx)
         }
         Err(err) => {
-            iroha_logger::warn!(?err, "transaction rejected during admission");
+            iroha_logger::warn!(?err, "transaction admission did not complete");
             #[cfg(feature = "telemetry")]
             telemetry.with_metrics(|tel| {
                 if let AcceptTransactionFail::TransactionLimit(limit) = &err {
@@ -16484,17 +16485,17 @@ fn contract_vm_attempt_error<E>(
 }
 
 
-// A projection refusal must stop local execution before the guest runs. Preserve the
+// A policy refusal must stop local execution before the guest runs. Preserve the
 // original deferred owner while mapping only a completed source rejection to the DTO.
-fn hydrate_contract_vrf_epoch_seeds<
-    E,
-    QS: Default + iroha_core::smartcontracts::ivm::host::QueryStateAccess,
->(
-    host: &mut iroha_core::smartcontracts::ivm::host::CoreHostImpl<QS>,
+// The attached immutable query view supplies pulses only if the guest reads a seed.
+fn contract_vrf_epoch_length<E>(
     state: &impl iroha_core::state::StateReadOnly,
     rejected: impl FnOnce(String) -> E,
-) -> std::result::Result<(), iroha_core::execution_attempt::ExecutionAttemptError<E>> {
-    host.set_vrf_epoch_seeds_from_state(state)
+) -> std::result::Result<
+    Option<std::num::NonZeroU64>,
+    iroha_core::execution_attempt::ExecutionAttemptError<E>,
+> {
+    iroha_core::smartcontracts::ivm::host::vrf_epoch_length_from_state(state)
         .map_err(|error| error.map_rejection(rejected))
 }
 
@@ -16711,14 +16712,13 @@ gas_limit: u64,
             fault: None,
         })?;
     host.set_public_inputs_from_parameters(query_view.world.parameters());
-    hydrate_contract_vrf_epoch_seeds(&mut host, &query_view, |message| {
-        ContractViewExecutionError {
+    let vrf_epoch_length =
+        contract_vrf_epoch_length(&query_view, |message| ContractViewExecutionError {
             message: format!("invalid VRF epoch seed source: {message}"),
             vm_diagnostic: None,
             fault: None,
-        }
-    })?;
-    host.set_query_state(&query_view);
+        })?;
+    host.set_query_state_with_vrf_epoch_seeds(&query_view, vrf_epoch_length);
     host.set_prepared_contract_cache(program.prepared_contract_cache());
     vm.set_gas_limit(gas_limit);
     let return_pc = vm.memory.code_len();
@@ -16934,17 +16934,16 @@ gas_limit: u64,
             queued_instructions: Vec::new(),
         })?;
     host.set_public_inputs_from_parameters(query_view.world.parameters());
-    hydrate_contract_vrf_epoch_seeds(&mut host, &query_view, |message| {
-        ContractCallSimulationError {
+    let vrf_epoch_length =
+        contract_vrf_epoch_length(&query_view, |message| ContractCallSimulationError {
             message: format!("invalid VRF epoch seed source: {message}"),
             vm_diagnostic: None,
             fault: None,
             normalized_payload: normalized_payload.clone(),
             gas_used: 0,
             queued_instructions: Vec::new(),
-        }
-    })?;
-    host.set_query_state(&query_view);
+        })?;
+    host.set_query_state_with_vrf_epoch_seeds(&query_view, vrf_epoch_length);
     host.set_prepared_contract_cache(program.prepared_contract_cache());
     vm.set_gas_limit(gas_limit);
     let return_pc = vm.memory.code_len();
@@ -19104,6 +19103,21 @@ mod multisig_contract_call_tests {
     }
 
     #[test]
+    fn contract_vrf_policy_without_npos_has_no_epoch_seed_source() {
+        let state = CoreState::new_for_testing(
+            iroha_core::state::World::new(),
+            iroha_core::kura::Kura::blank_kura_for_testing(),
+            iroha_core::query::store::LiveQueryStore::start_test(),
+        );
+        let view = state.query_view();
+        assert_eq!(
+            contract_vrf_epoch_length(&view, |error| error)
+                .expect("a state without NPoS policy has no seed source"),
+            None,
+        );
+    }
+
+    #[test]
     fn original_contract_vrf_policy_refusal_is_unfinished_and_same_source_retries() {
         use iroha_core::{
             execution_attempt::ExecutionAttemptError,
@@ -19122,23 +19136,38 @@ mod multisig_contract_call_tests {
         ));
         let chain = CertifiedTestChain::start(config).unwrap();
         let view = chain.state().query_view();
-        let custom = view.world().parameters().custom()
-            .get(&SumeragiNposParameters::parameter_id()).unwrap();
+        let custom = view
+            .world()
+            .parameters()
+            .custom()
+            .get(&SumeragiNposParameters::parameter_id())
+            .unwrap();
         let original = custom.payload().get().to_owned();
-        let mut host = iroha_core::smartcontracts::ivm::host::CoreHost::new(sample_account_id());
         let refused = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
-            || hydrate_contract_vrf_epoch_seeds(&mut host, &view, |_| -> () {
-                panic!("unfinished policy read cannot become a completed contract result")
-            }),
+            || {
+                contract_vrf_epoch_length(&view, |_| -> () {
+                    panic!("unfinished policy read cannot become a completed contract result")
+                })
+            },
         );
-        assert!(matches!(&refused, Err(ExecutionAttemptError::Deferred(reason))
-            if reason.reason() == ivm::error::ExecutionDeferral::ActiveMemoryCapacity));
+        assert!(
+            matches!(&refused, Err(ExecutionAttemptError::Deferred(reason))
+            if reason.reason() == ivm::error::ExecutionDeferral::ActiveMemoryCapacity)
+        );
         let error = contract_transport_attempt(refused).unwrap_err();
-        assert_eq!(error.into_response().status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(
+            error.into_response().status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
         assert_eq!(custom.payload().get(), &original);
-        let retried = hydrate_contract_vrf_epoch_seeds(&mut host, &view, |error| error);
-        assert!(matches!(contract_transport_attempt(retried), Ok(Ok(()))));
+        let retried = contract_vrf_epoch_length(&view, |error| error);
+        assert_eq!(
+            contract_transport_attempt(retried)
+                .expect("the original policy fits on retry")
+                .expect("the original policy remains valid"),
+            Some(SumeragiNposParameters::default().epoch_length_blocks),
+        );
     }
 
     #[test]
@@ -19160,7 +19189,6 @@ mod multisig_contract_call_tests {
     fn contract_seed_source_refusal_is_unfinished_and_retries_original_policy() {
         use iroha_core::{
             execution_attempt::ExecutionAttemptError,
-            smartcontracts::ivm::host::CoreHost,
             state::{StateReadOnly, World, WorldReadOnly},
             sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
         };
@@ -19175,32 +19203,45 @@ mod multisig_contract_call_tests {
         ));
         let chain = CertifiedTestChain::start(config).unwrap();
         let view = chain.state().view();
-        let original = view.world().parameters().custom()
-            .get(&SumeragiNposParameters::parameter_id()).unwrap();
+        let original = view
+            .world()
+            .parameters()
+            .custom()
+            .get(&SumeragiNposParameters::parameter_id())
+            .unwrap();
         let bytes = original.payload().get().to_owned();
         let prepared_cache = view.prepared_contract_cache();
         let budget = prepared_cache.execution_budget();
         let reserved = budget.reserved_bytes();
-        let mut host = CoreHost::new(sample_account_id());
         let attempt = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64),
-            || hydrate_contract_vrf_epoch_seeds::<(), _>(&mut host, &view, |_| {
-                panic!("unfinished seed projection became completed contract result")
-            }),
+            || {
+                contract_vrf_epoch_length::<()>(&view, |_| {
+                    panic!("unfinished seed projection became completed contract result")
+                })
+            },
         );
-        assert!(matches!(&attempt, Err(ExecutionAttemptError::Deferred(reason))
-            if reason.reason() == ivm::error::ExecutionDeferral::ActiveMemoryCapacity));
+        assert!(
+            matches!(&attempt, Err(ExecutionAttemptError::Deferred(reason))
+            if reason.reason() == ivm::error::ExecutionDeferral::ActiveMemoryCapacity)
+        );
         assert_eq!(budget.reserved_bytes(), reserved);
-        assert!(matches!(contract_transport_attempt(attempt), Err(Error::Query(
-            iroha_data_model::ValidationFail::QueryFailed(
+        assert!(matches!(
+            contract_transport_attempt(attempt),
+            Err(Error::Query(iroha_data_model::ValidationFail::QueryFailed(
                 iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded
-            )
-        ))));
+            )))
+        ));
         assert_eq!(original.payload().get(), &bytes);
-        let retry = hydrate_contract_vrf_epoch_seeds::<(), _>(&mut host, &view, |_| {
+        let retry = contract_vrf_epoch_length::<()>(&view, |_| {
             panic!("valid original source cannot become a completed rejection")
         });
-        assert!(matches!(contract_transport_attempt(retry), Ok(Ok(()))));
+        assert_eq!(
+            contract_transport_attempt(retry)
+                .expect("the original policy fits on retry")
+                .expect("the original policy remains valid"),
+            Some(SumeragiNposParameters::default().epoch_length_blocks),
+        );
         assert_eq!(original.payload().get(), &bytes);
         assert_eq!(budget.reserved_bytes(), reserved);
     }
@@ -32143,6 +32184,7 @@ fn append_account_history_projections_for_tx(
         }
     };
     match tx.entrypoint() {
+        TransactionEntrypoint::AnonymousBallot(_) => {}
         TransactionEntrypoint::External(signed) => {
             for instruction in signed.instructions().explicit_instructions() {
                 append_for_instruction(instruction);
@@ -32366,7 +32408,7 @@ fn bound_contract_call(tx: &impl HistoryTransaction) -> Option<BoundContractCall
     let signed = match tx.entrypoint() {
         TransactionEntrypoint::External(signed) => signed,
         TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-        TransactionEntrypoint::SealedCommitment(_) => return None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => return None,
     };
     let Executable::ContractCall(invocation) = signed.instructions() else {
         return None;
@@ -32826,9 +32868,11 @@ fn tx_field_value(
             iroha_data_model::transaction::signed::TransactionEntrypoint::SealedReveal(_) => {
                 "sealed_reveal".to_owned()
             }
+            TransactionEntrypoint::AnonymousBallot(_) => "anonymous_ballot".to_owned(),
         }),
         // authority account id string if External entrypoint
         "authority" => match &tx.entrypoint() {
+            TransactionEntrypoint::AnonymousBallot(_) => None,
             iroha_data_model::transaction::signed::TransactionEntrypoint::External(signed) => {
                 // For server-side filtering/sorting, expose the authority regardless of
                 // transparent_api feature. The response projection still controls visibility.
@@ -32843,6 +32887,7 @@ fn tx_field_value(
         },
         // creation timestamp if External entrypoint
         "timestamp_ms" => match &tx.entrypoint() {
+            TransactionEntrypoint::AnonymousBallot(_) => None,
             iroha_data_model::transaction::signed::TransactionEntrypoint::External(signed) => {
                 // Use API method to avoid relying on internal payload field names
                 Some(format!("{}", signed.creation_time().as_millis()))
@@ -32872,6 +32917,7 @@ fn tx_field_value(
             let rest = field.strip_prefix("metadata.")?;
             let name: iroha_model_base::name::Name = rest.parse().ok()?;
             match &tx.entrypoint() {
+                TransactionEntrypoint::AnonymousBallot(_) => None,
                 iroha_data_model::transaction::signed::TransactionEntrypoint::External(signed) => {
                     signed.metadata().get(&name).map(|json| json.get().clone())
                 }
@@ -32901,7 +32947,7 @@ fn tx_metadata_json_value(
         }
         TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction().metadata()
             .get(&name).map(|json| json.get().clone()),
-        TransactionEntrypoint::SealedCommitment(_) => None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => None,
     }?;
     norito::json::from_str(&raw).ok()
 }
@@ -33084,6 +33130,7 @@ pub fn tx_references_account_id(
     expected: &AccountId,
 ) -> bool {
     match tx.entrypoint() {
+        TransactionEntrypoint::AnonymousBallot(_) => false,
         TransactionEntrypoint::External(signed) => {
             signed.authority() == expected
                 || executable_contains_account_id(signed.instructions(), expected)
@@ -33139,7 +33186,7 @@ fn tx_collect_asset_ids(
         TransactionEntrypoint::External(signed) => {
             executable_explicit_instructions(signed.instructions(), &mut visit_instruction);
         }
-        TransactionEntrypoint::SealedCommitment(_) => {}
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => {}
         TransactionEntrypoint::SealedReveal(reveal) => {
             executable_explicit_instructions(
                 reveal.signed_transaction().instructions(),
@@ -33158,6 +33205,7 @@ fn tx_matches_account_history_subject(
     account_id: &iroha_data_model::account::AccountId,
 ) -> bool {
     match tx.entrypoint() {
+        TransactionEntrypoint::AnonymousBallot(_) => false,
         TransactionEntrypoint::External(signed) => {
             signed.authority().controller() == account_id.controller()
                 || executable_contains_account_id(signed.instructions(), account_id)
@@ -33215,7 +33263,7 @@ fn tx_fee_projection(
         TransactionEntrypoint::SealedReveal(reveal) => {
             Some(reveal.signed_transaction().fee_payment_intent().clone())
         }
-        TransactionEntrypoint::SealedCommitment(_) => None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => None,
     }
 }
 static SUBSCRIPTION_PLAN_KEY: LazyLock<Name> = LazyLock::new(|| {
@@ -39525,12 +39573,13 @@ fn explorer_stream(
     let stream = stream::unfold(
         ExplorerStreamState {
             source, pending: None, kind, keepalive_at: now, authorization_at: now,
-            next_height, maximum_backlog, terminal: false, visibility, acquire,
+            next_height, maximum_backlog, terminal: false,
+            authorization: crate::stream_read_authorization::ExplorerStreamReadAuthorization::new(visibility), acquire,
         },
         |mut state| async move {
             if state.terminal { return None; }
             loop {
-                let visibility = match state.visibility.current_visibility() {
+                let visibility = match state.authorization.visibility() {
                     Ok(visibility) => visibility,
                     Err(crate::Error::AppUnauthorized { .. }) => {
                         state.pending = None; state.terminal = true;
@@ -39542,7 +39591,7 @@ fn explorer_stream(
                     }
                 };
                 if let Some(pending) = state.pending.as_mut() {
-                    match pending.next_payload(state.kind, &visibility) {
+                    match pending.next_payload(state.kind, visibility) {
                         Ok(Some(payload)) => return Some((Ok(payload), state)),
                         Ok(None) => state.pending = None,
                         Err(error) => {
@@ -39601,6 +39650,12 @@ fn explorer_stream(
                     }
                     _ = &mut authorization => {
                         state.authorization_at = next_explorer_timer_deadline(state.authorization_at, STREAM_AUTHORIZATION_CHECK_INTERVAL);
+                        // Re-read even on an idle chain; a refusal clears cached authority.
+                        if let Err(error) = state.authorization.revalidate() {
+                            state.pending = None; state.terminal = true;
+                            let payload = if matches!(error, crate::Error::AppUnauthorized { .. }) { EXPLORER_STREAM_REVOKED } else { EXPLORER_STREAM_HISTORY_UNAVAILABLE };
+                            return Some((Ok(axum::body::Bytes::from_static(payload)), state));
+                        }
                     }
                 }
             }
@@ -39630,7 +39685,7 @@ struct ExplorerStreamState<F> {
     next_height: Option<u64>,
     maximum_backlog: u64,
     terminal: bool,
-    visibility: crate::stream_control::ExplorerReadContext,
+    authorization: crate::stream_read_authorization::ExplorerStreamReadAuthorization,
     acquire: F,
 }
 fn explorer_backlog_is_lagged(next_height: u64, current_height: u64, maximum: u64) -> bool {
@@ -48827,17 +48882,17 @@ fn faucet_pow_recent_claims(
     }
     let queued_claims = {
         let state_view = app.state.view();
-        app.queue
-            .all_transactions(&state_view)
-            .filter(|tx| {
-                tx.authority() == &faucet.authority
-                    && tx.external().is_some_and(|signed| faucet_executable_is_claim(
+        // Count in place: copying every pending transaction just to filter it is O(queue).
+        app.queue.count_pending_transactions(&state_view, |tx| {
+            tx.authority_opt() == Some(&faucet.authority)
+                && tx.external().is_some_and(|signed| {
+                    faucet_executable_is_claim(
                         signed.instructions(),
                         &source_asset_id,
                         &faucet_amount,
-                    ))
-            })
-            .count()
+                    )
+                })
+        })
     };
     Ok(total.saturating_add(u64::try_from(queued_claims).unwrap_or(u64::MAX)))
 }
@@ -52522,9 +52577,10 @@ fn handle_v1_explorer_asset_definitions_sync(
     let zero_locked_quantity = Quantity::zero();
     if page.items.iter().any(|item| item.id == voting_asset_id) {
         // Borrow the committed key instead of cloning the escrow controller to build a lookup ID.
-        let escrow_asset_id = world.assets_by_account().get(bond_escrow_account)
-            .and_then(|assets| assets.iter().find(|asset| asset.definition() == voting_asset_id
-                && matches!(asset.scope(), dm::asset::AssetBalanceScope::Global)));
+        let escrow_asset_id = world.assets_in_account_iter(bond_escrow_account)
+            .map(|entry| entry.id)
+            .find(|asset| asset.definition() == voting_asset_id
+                && matches!(asset.scope(), dm::asset::AssetBalanceScope::Global));
         if visibility.can_read_all || escrow_asset_id.is_some_and(|id| visibility.allows_asset(&world, id)) {
             let locked = escrow_asset_id.and_then(|id| world.assets().get(id))
                 .map_or(&zero_locked_quantity, |value| value.as_ref());
@@ -53657,7 +53713,7 @@ fn network_signed_transaction_at(block: &SignedBlock, index: usize) -> Option<(H
     let signed = match source {
         TransactionEntrypoint::External(signed) => signed,
         TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-        TransactionEntrypoint::SealedCommitment(_) => return None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => return None,
     };
     Some((source.hash(), signed))
 }
@@ -53690,7 +53746,7 @@ fn external_signed_transaction_result_at(
     let signed = match source {
         TransactionEntrypoint::External(signed) => signed,
         TransactionEntrypoint::SealedReveal(reveal) => reveal.signed_transaction(),
-        TransactionEntrypoint::SealedCommitment(_) => return None,
+        TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::AnonymousBallot(_) => return None,
     };
     let entrypoint_hash = source.hash();
     let (_, output) = block.network_output_at(u32::try_from(index).ok()?)?;
@@ -57839,7 +57895,7 @@ enum QueryProjectionArchiveResolutionSource {
 fn query_projection_archive_validation_error(message: impl Into<String>) -> Error {
     projection_archive_unavailable_error(message.into())
 }
-async fn asset_holder_projection_query_rows(
+fn asset_holder_projection_query_rows(
     app: Option<&crate::SharedAppState>,
     state: &CoreState,
     def_id: &AssetDefinitionId,

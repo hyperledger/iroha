@@ -76,7 +76,9 @@ fn canonical_nodes_keep_exact_geometry_across_dense_sparse_reset_and_final_borro
             assert_eq!(tree.nodes.lock().allocated_bytes(), nodes_bytes);
             assert_eq!(canonical_nodes::ALLOCATIONS.get(), allocations);
         }
-        tree.reset_leaves_from(&template, (0..count).rev());
+        dirty.extend((0..count).rev());
+        tree.reset_leaves_from(&template, &dirty);
+        assert!(tree.nodes.lock().is_current());
         assert_eq!(tree.root_hash(), template.root_hash());
         assert_eq!(canonical_nodes::ALLOCATIONS.get(), allocations);
         assert_eq!(budget.reserved_bytes(), plan.requested_bytes());

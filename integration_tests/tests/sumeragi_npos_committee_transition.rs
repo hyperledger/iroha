@@ -9,8 +9,9 @@
 //! by the unchanged generation and a fresh, separately identified future attempt.
 //! The complete rotation withdraws a departing seat's full bond only after replacement and liability
 //! expiry, then restarts every process and proves paid progress and consumed-plan rejection.
-//! Every validator boot must close successfully. Its genuine Parliament pulse consumes current credentials while the next
-//! committee remains pending. Retail monthly policy and network slashing remain separate gates.
+//! Every validator boot and its original required broker must close successfully. Its genuine
+//! Parliament pulse consumes current credentials while the next committee remains pending.
+//! Retail monthly policy and network slashing remain separate gates.
 
 use eyre::{Result, WrapErr as _, ensure, eyre};
 use integration_tests::{sandbox, sync::rebind_blocking_client};
@@ -294,12 +295,16 @@ async fn shutdown_all_cleanly(network: &Network) -> Result<()> {
     for peer in network.all_peers() {
         let events = peer.events();
         let pid = peer.process_id().await;
+        // Capture the retiring run, not a newly installed provider configuration.
+        // A capture failure must not prevent cleanup of this or another peer.
+        let broker = peer.disposable_broker_shutdown_evidence().await;
         boots.push((
             peer,
             peer.is_running(),
             pid,
             peer.latest_stdout_log_path(),
             events,
+            broker,
         ));
     }
     network.shutdown().await;
@@ -308,7 +313,7 @@ async fn shutdown_all_cleanly(network: &Network) -> Result<()> {
         "qualification cannot close an empty process census"
     );
     let mut original_pids = BTreeSet::new();
-    for (peer, was_running, pid, log, events) in &mut boots {
+    for (peer, was_running, pid, log, events, broker) in &mut boots {
         let id = peer.id();
         ensure!(
             *was_running && pid.is_some(),
@@ -319,6 +324,11 @@ async fn shutdown_all_cleanly(network: &Network) -> Result<()> {
             "validator process census reused one PID for two peers"
         );
         verify_clean_peer_exit(events).wrap_err_with(|| format!("validator {id} shutdown"))?;
+        let broker = broker
+            .as_ref()
+            .map_err(|error| eyre!("validator {id} original broker capture failed: {error:#}"))?;
+        peer.verify_disposable_broker_shutdown(broker, pid.expect("checked original live process"))
+            .wrap_err_with(|| format!("validator {id} original broker shutdown"))?;
         ensure!(
             !peer.is_running()
                 && peer.process_id().await.is_none()
@@ -777,11 +787,9 @@ async fn advance_to_height_with_workload(
                                     Metadata::default(),
                                 ),
                             )?;
-                            let quote = account
-                                .quote_fees(iroha::client::FeeQuoteRequest::AccountSignature {
-                                    payload: &payload,
-                                })
-                                .await?;
+                            let quote =
+                                committee_status::quote_fees_until(&account, &payload, deadline)
+                                    .await?;
                             ensure!(
                                 payload
                                     .fee_payment

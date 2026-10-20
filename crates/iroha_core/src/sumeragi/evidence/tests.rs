@@ -142,8 +142,93 @@ fn observer_pool_is_charged_and_refusal_preserves_original_source() {
     assert!(retained > 0);
     assert!(!observe(state, &evidence).unwrap());
     assert_eq!(budget.reserved_bytes(), retained);
-    let selected = pending_evidence_admissions(state, 3, state.state_view_generation());
+    let original_frame = {
+        let pending = state.native_pending_evidence.lock();
+        let entries = pending.entries.as_ref().unwrap().as_slice();
+        assert_eq!(entries.len(), 1);
+        (entries[0].key, entries[0].frame.as_slice().as_ptr())
+    };
+    let occupation = budget
+        .try_reserve_bytes(budget.limit_bytes() - retained)
+        .unwrap();
+    let expected = budget
+        .try_reserve(std::alloc::Layout::array::<ChargedBuffer<u8>>(1).unwrap())
+        .unwrap_err();
+    let error = pending_evidence_admissions(state, 3, state.state_view_generation()).expect_err(
+        "HC912 pending selection must preserve original capacity refusal and signed source",
+    );
+    let EvidenceAdmissionError::Preparation(EvidencePreparationError::Admission(actual)) = error
+    else {
+        panic!("pending selection must preserve the original typed capacity source");
+    };
+    assert_eq!(actual, expected);
+    {
+        let pending = state.native_pending_evidence.lock();
+        let entries = pending.entries.as_ref().unwrap().as_slice();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            (entries[0].key, entries[0].frame.as_slice().as_ptr()),
+            original_frame
+        );
+    }
+    assert_eq!(budget.reserved_bytes(), budget.limit_bytes());
+    drop(occupation);
+    let frame_bytes = Evidence::from_native(&evidence)
+        .unwrap()
+        .native_frame()
+        .len();
+    // State::view allocates identical 56- and 24-byte nodes infallibly before capture,
+    // so allocator faults for the one-frame capture and selected-vector layouts cannot
+    // reach the selection's fallible path. The capacity refusal above covers the first.
+    for layout in [
+        std::alloc::Layout::array::<u8>(frame_bytes).unwrap(),
+        std::alloc::Layout::array::<iroha_allocation::AllocationCharge>(2).unwrap(),
+    ] {
+        let (refused, injected) = crate::test_allocations::refuse_one_layout_during(layout, || {
+            pending_evidence_admissions(state, 3, state.state_view_generation())
+        });
+        assert!(
+            injected,
+            "each selected graph allocation is fault-injected: {layout:?}"
+        );
+        let error = refused.expect_err("physical selection failure must not become an empty batch");
+        assert!(matches!(
+            error,
+            EvidenceAdmissionError::Preparation(EvidencePreparationError::Allocator { requested_bytes })
+                if requested_bytes == layout.size()
+        ));
+        assert_eq!(budget.reserved_bytes(), retained);
+        let pending = state.native_pending_evidence.lock();
+        let entries = pending.entries.as_ref().unwrap().as_slice();
+        assert_eq!(
+            (entries[0].key, entries[0].frame.as_slice().as_ptr()),
+            original_frame
+        );
+    }
+    let selected = pending_evidence_admissions(state, 3, state.state_view_generation()).unwrap();
     assert_eq!(selected.len(), 1);
+    assert!(selected.0.belongs_to(budget));
+    let selected_bytes = selected.0.allocation_bytes().unwrap();
+    assert_eq!(budget.reserved_bytes(), retained + selected_bytes);
+    let selected_backing = selected.as_slice().as_ptr();
+    let selected_frame = selected[0].native.as_ptr();
+    let moved = selected;
+    assert_eq!(moved.as_slice().as_ptr(), selected_backing);
+    assert_eq!(moved[0].native.as_ptr(), selected_frame);
+    drop(moved);
+    assert_eq!(budget.reserved_bytes(), retained);
+    let mut empty = None;
+    assert_eq!(
+        crate::test_allocations::allocations_during(|| {
+            empty = Some(FundedEvidenceAdmissions::empty(budget).unwrap());
+        }),
+        0
+    );
+    let empty = empty.unwrap();
+    assert!(empty.as_slice().is_empty());
+    assert!(empty.0.belongs_to(budget));
+    assert_eq!(empty.0.allocation_bytes(), Some(0));
+    drop(empty);
     assert!(
         state
             .view()
@@ -196,7 +281,12 @@ fn captured_admission_uses_the_original_parent_even_after_successor_admission() 
         "admission belongs to the captured parent"
     );
     assert!(
-        pending_evidence_admissions(&state, 3, generation).is_empty(),
+        matches!(
+            pending_evidence_admissions(&state, 3, generation),
+            Err(EvidenceAdmissionError::Preparation(
+                EvidencePreparationError::OriginalHistoryPending
+            ))
+        ),
         "publication cannot propose from an obsolete original cut"
     );
 }
@@ -991,14 +1081,27 @@ fn original_root_observation_refusal_keeps_pending_bytes_and_same_state_retry() 
         usize::try_from(attempted).unwrap() - ceiling - 1
     });
     assert!(policy_bytes > 0);
-    let expected = norito::with_decode_limits_scope(limits(policy_bytes), || {
+    // Observation first canonicalizes the native pair through counted output. Admit
+    // exactly that and the policy read, so the routing read is the refused operation.
+    let canonical_bytes = norito::with_decode_limits_scope(limits(ceiling), || {
+        assert_eq!(Evidence::from_native(&native).unwrap(), original);
+        let norito::Error::TotalAllocationExceeded { attempted, .. } =
+            norito::core::reserve_decode_allocation(ceiling + 1).unwrap_err()
+        else {
+            panic!("non-charging canonical pair allocation probe")
+        };
+        usize::try_from(attempted).unwrap() - ceiling - 1
+    });
+    let admitted = canonical_bytes + policy_bytes;
+    let expected = norito::with_decode_limits_scope(limits(admitted), || {
+        assert_eq!(Evidence::from_native(&native).unwrap(), original);
         assert!(horizon(view.world()).unwrap().is_some());
         routing::read_routing_root_scope(view.world()).unwrap_err()
     });
     assert_eq!(expected.reason(), ExecutionDeferral::ActiveMemoryCapacity);
     assert!(expected.allocation_refusal().is_none());
-    let error = norito::with_decode_limits_scope(limits(policy_bytes), || observe(state, &native))
-        .unwrap_err();
+    let error =
+        norito::with_decode_limits_scope(limits(admitted), || observe(state, &native)).unwrap_err();
     assert!(
         matches!(&error, EvidenceAdmissionError::History(Attempt::Deferred(local)) if local.reason() == expected.reason() && local.allocation_refusal().is_none()),
         "real root observation lost original decode refusal: {error:?}"

@@ -1,10 +1,10 @@
 //! Actual exact-layout allocation refusal and zero-extra-heap complete QC controls.
-use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError};
-use iroha_sumeragi::{
+use crate::{
     message::{Qc, VoteKind},
     qc_custody::{PreparedQc, QcCustodyError},
     types::{AggregateSignature, Bitmap, EpochId, Hash32, SIGNATURE_LEN},
 };
+use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError};
 use norito::core::{DecodeLimits, SequenceSpan};
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -119,37 +119,119 @@ fn limits() -> DecodeLimits {
     DecodeLimits::new(1 << 20, 1 << 20, 1 << 20, 1 << 20, 64)
 }
 #[test]
-fn every_actual_qc_control_layout_refusal_keeps_original_input_and_reclaims_retired_prefix() {
+fn every_actual_qc_control_layout_refusal_retains_original_charge_prefix_and_same_source_retry() {
+    use iroha_allocation::release::ReleaseRegistration;
+    use iroha_allocation::{
+        AllocationRefusal, ChargedBufferFromChargeError, SharedFromChargeError,
+    };
+    use std::{
+        future::Future,
+        pin::Pin,
+        task::{Context, Poll, Waker},
+    };
     let bytes = frame();
     let layouts = PreparedQc::control_layouts();
     for index in 0..layouts.len() {
         let pool = AllocationBudget::new(1 << 20);
         let (input, range) = source(&bytes, &pool);
+        let (substitute, _) = source(&bytes, &pool);
+        let mut registration = ReleaseRegistration::from_reservation(
+            &mut pool
+                .try_reserve(ReleaseRegistration::allocation_layout())
+                .unwrap(),
+        )
+        .unwrap();
         let floor = pool.reserved_bytes();
         let ptr = input.as_slice().as_ptr();
         let hash = norito::core::crc64_fallback(input.as_slice());
-        // Two original protocol counter controls can have identical layouts.
-        // Select their genuine request ordinal, never assume layout uniqueness.
+        let (pending, requests) = run(None, 0, || PreparedQc::new(&input, range, &pool));
+        let mut pending = pending.unwrap();
+        assert_eq!(
+            requests, 0,
+            "retain every charge before first physical constructor"
+        );
+        let occupied = floor + layouts.iter().map(Layout::size).sum::<usize>();
+        assert_eq!(pool.reserved_bytes(), occupied);
+        let blocker = pool
+            .try_reserve_bytes(pool.limit_bytes() - occupied)
+            .unwrap();
+        let AllocationRefusal::Capacity { release, .. } = pool.try_reserve_bytes(1).unwrap_err()
+        else {
+            panic!("original pool is full")
+        };
+        let mut wait = release.wait_for_release(&mut registration);
+        let mut context = Context::from_waker(Waker::noop());
+        assert_eq!(Pin::new(&mut wait).poll(&mut context), Poll::Pending);
+        // Select the genuine request ordinal when counter layouts are identical.
         let skip = layouts[..index]
             .iter()
             .filter(|layout| **layout == layouts[index])
             .count();
         let (refused, requests) = run(Some(layouts[index]), skip, || {
-            PreparedQc::new(&input, range, &pool)
+            pending.prepare(&input, range, limits())
+        });
+        let error = refused.unwrap_err();
+        if index == 0 {
+            assert!(matches!(error, QcCustodyError::LedgerBacking(
+                ChargedBufferFromChargeError::Allocator { layout }) if layout == layouts[index]));
+        } else {
+            assert!(matches!(error, QcCustodyError::ControlBacking(
+                SharedFromChargeError::Allocator { layout }) if layout == layouts[index]));
+        }
+        assert_eq!(requests, index + 1);
+        assert_eq!(
+            pool.reserved_bytes(),
+            pool.limit_bytes(),
+            "constructor refusal must retain every original charge and completed control"
+        );
+        assert_eq!(
+            Pin::new(&mut wait).poll(&mut context),
+            Poll::Pending,
+            "constructor refusal cannot wake itself by refunding original credit"
+        );
+        let (refused, requests) = run(None, 0, || pending.prepare(&substitute, range, limits()));
+        assert!(matches!(refused, Err(QcCustodyError::Source)));
+        assert_eq!(requests, 0);
+        // Completed prefix allocations are never repeated, even for equal layouts.
+        let (refused, requests) = run(Some(layouts[index]), 0, || {
+            pending.prepare(&input, range, limits())
         });
         assert!(refused.is_err());
-        assert!(requests > index);
-        assert_eq!(pool.reserved_bytes(), floor);
+        assert_eq!(requests, 1);
+        assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+        let (refused, requests) = run(None, 0, || pending.prepare(&input, range, limits()));
+        assert!(matches!(
+            refused,
+            Err(QcCustodyError::Decode(
+                norito::core::PreparedDecodeError::Destination(
+                    crate::qc_custody::QcFieldError::Bitmap(ChargedBufferError::Admission(
+                        AllocationRefusal::Capacity {
+                            requested_bytes: 4,
+                            ..
+                        }
+                    ))
+                )
+            ))
+        ));
+        assert_eq!(requests, layouts.len() - index);
+        assert_eq!(Pin::new(&mut wait).poll(&mut context), Poll::Pending);
         assert_eq!(input.as_slice().as_ptr(), ptr);
         assert_eq!(norito::core::crc64_fallback(input.as_slice()), hash);
-        drop(refused);
-        let mut ready = PreparedQc::new(&input, range, &pool).unwrap();
-        ready.prepare(&input, range, limits()).unwrap();
-        let owner = ready.finish().unwrap();
+        drop(blocker);
+        assert_eq!(Pin::new(&mut wait).poll(&mut context), Poll::Ready(()));
+        drop(wait);
+        let (complete, requests) = run(None, 0, || pending.prepare(&input, range, limits()));
+        complete.unwrap();
+        assert_eq!(requests, 1, "only the original bitmap remains unallocated");
+        let owner = pending.finish().unwrap();
         assert!(owner.belongs_to(&pool));
+        let reader = owner.clone();
         drop(owner);
+        assert_eq!(pool.reserved_bytes(), occupied + 4);
+        assert_eq!(norito::encode_canonical(reader.get()).unwrap(), bytes);
+        drop(reader);
         assert_eq!(pool.reserved_bytes(), floor);
-        drop(input);
+        drop((input, substitute, registration));
         assert_eq!(pool.reserved_bytes(), 0);
     }
 }
@@ -164,12 +246,12 @@ fn actual_qc_bitmap_allocator_refusal_preserves_controls_and_same_source_retry()
     let (refused, requests) = run(Some(Layout::array::<u8>(4).unwrap()), 0, || {
         decoder.prepare(&input, range, limits())
     });
-    assert_eq!(requests, 1);
+    assert_eq!(requests, PreparedQc::control_layouts().len() + 1);
     assert!(matches!(
         refused,
         Err(QcCustodyError::Decode(
             norito::core::PreparedDecodeError::Destination(
-                iroha_sumeragi::qc_custody::QcFieldError::BitmapBacking(
+                crate::qc_custody::QcFieldError::BitmapBacking(
                     iroha_allocation::ChargedBufferFromChargeError::Allocator { layout }
                 )
             )
@@ -197,7 +279,7 @@ fn actual_qc_bitmap_allocator_refusal_preserves_controls_and_same_source_retry()
     assert_eq!(pool.reserved_bytes(), 0);
 }
 #[test]
-fn complete_qc_decode_has_only_original_bitmap_allocation_then_publication_and_sharing_allocate_nothing()
+fn complete_qc_decode_has_only_original_controls_and_bitmap_then_publication_and_sharing_allocate_nothing()
  {
     let bytes = frame();
     let pool = AllocationBudget::new(1 << 20);
@@ -206,8 +288,9 @@ fn complete_qc_decode_has_only_original_bitmap_allocation_then_publication_and_s
     let (preparation, requests) = run(None, 0, || decoder.prepare(&input, range, limits()));
     preparation.unwrap();
     assert_eq!(
-        requests, 1,
-        "nine-field parse and exact frame comparison allocate only actual bitmap Vec"
+        requests,
+        PreparedQc::control_layouts().len() + 1,
+        "nine-field parse allocates only admitted controls and the actual bitmap Vec"
     );
     let (owner, requests) = run(None, 0, || decoder.finish().unwrap());
     assert_eq!(requests, 0);
@@ -246,7 +329,7 @@ fn actual_original_qc_source_allocation_failure_refunds_only_its_own_charge() {
 
 #[test]
 fn actual_bitmap_allocator_error_chain_borrows_same_cause_and_keeps_original_credit() {
-    use iroha_sumeragi::qc_custody::QcFieldError;
+    use crate::qc_custody::QcFieldError;
     use norito::core::PreparedDecodeError;
     use std::error::Error as _;
     let bytes = frame();
@@ -256,7 +339,7 @@ fn actual_bitmap_allocator_error_chain_borrows_same_cause_and_keeps_original_cre
     let occupied = pool.reserved_bytes();
     let layout = Layout::array::<u8>(4).unwrap();
     let (result, requests) = run(Some(layout), 0, || decoder.prepare(&input, range, limits()));
-    assert_eq!(requests, 1);
+    assert_eq!(requests, PreparedQc::control_layouts().len() + 1);
     let error = result.unwrap_err();
     let QcCustodyError::Decode(original) = &error else {
         panic!("actual prepared allocator refusal");

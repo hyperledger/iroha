@@ -494,12 +494,6 @@ impl ValidQueryRequest {
                         stored_cursor_budget
                     ),
                     QueryItemKind::ProofRecord => {
-                        if limits.canonical_output_limits.is_some() {
-                            return Err(Error::Conversion(
-                                        "canonical fanout rejects proof queries before source execution because their implementations are not protocol-bounded"
-                                            .to_owned(),
-                                    ));
-                        }
                         let pred = decoder
                             .decode::<iroha_data_model::query::dsl::CompoundPredicate<
                                 iroha_data_model::proof::ProofRecord,
@@ -818,12 +812,6 @@ impl ValidQueryRequest {
                 let params = iter_query.params();
                 // Canonical path: reconstruct the typed query from the item kind and
                 // encoded query, predicate, and selector components.
-                if limits.canonical_output_limits.is_some() {
-                    return Err(Error::Conversion(
-                        "canonical fanout rejects opaque canonical starts before nested payload, predicate, or selector decoding"
-                            .to_owned(),
-                    ).into());
-                }
                 let (item, predicate_bytes, selector_bytes, query_payload) = iter_query.parts();
                 let mut decoder = FastIterComponentDecoder::new(
                     limits,

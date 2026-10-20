@@ -31,6 +31,7 @@ fn parent_service_owner_keeps_vec_wire_json_and_exact_admitted_clone() {
         let _flags = DecodeFlagsGuard::enter(flags);
         for original in [vec![], vec![0, 17, 127, 255]] {
             let untrusted = NposParentServiceCommitQc::from_untrusted(original.clone());
+            assert!(untrusted.admitted_source().is_none());
             assert_eq!(bytes(&untrusted), bytes(&original));
             let encoded = bytes(&untrusted);
             let (decoded, used) = NposParentServiceCommitQc::decode_from_slice(&encoded).unwrap();
@@ -64,6 +65,14 @@ fn parent_service_owner_keeps_vec_wire_json_and_exact_admitted_clone() {
             );
             assert_eq!(clone.as_slice().as_ptr(), pointer);
             assert!(clone.admitted_to(&pool));
+            let source = clone.admitted_source().unwrap();
+            assert_eq!(source.as_slice().as_ptr(), pointer);
+            assert!(source.belongs_to(&pool));
+            assert!(ChargedBuffer::belongs_to(source, &pool));
+            assert!(ChargedShared::ptr_eq(
+                source,
+                admitted.admitted_source().unwrap()
+            ));
             let json = norito::json::to_json(&original).unwrap();
             assert_eq!(norito::json::to_json(&admitted).unwrap(), json);
             assert_eq!(
@@ -161,4 +170,152 @@ fn parent_service_source_and_capacity_retry_preserve_original_full_frame_pool_an
     drop((admitted, copy, foreign, input));
     assert_eq!(pool.reserved_bytes(), 0);
     assert_eq!(foreign_pool.reserved_bytes(), 0);
+}
+
+fn native_parent(pool: &AllocationBudget) -> SharedSignedBlock {
+    use crate::block::{BlockHeader, BlockSignature, CommitCertificate, SignedBlock};
+    use iroha_crypto::{Signature, SignatureOf};
+    let block = SignedBlock::presigned(
+        BlockSignature::new(
+            0,
+            SignatureOf::from_signature(Signature::try_from_bytes(&[0x35; 64]).unwrap()),
+        ),
+        BlockHeader::new(std::num::NonZeroU64::new(2).unwrap(), None, None, 1_000, 0),
+        Vec::new(),
+    )
+    .with_commit_certificate(Some(CommitCertificate::from_untrusted_parts(
+        vec![1, 2],
+        vec![0x17; 73],
+        vec![3, 4],
+        vec![5, 6],
+    )));
+    SharedSignedBlock::try_new(block, pool).unwrap()
+}
+
+#[test]
+fn producer_copy_binds_actual_parent_control_pool_and_unchanged_vec_wire() {
+    let pool = AllocationBudget::new(1 << 20);
+    let parent = native_parent(&pool);
+    let replacement = SharedSignedBlock::try_new(parent.as_ref().clone(), &pool).unwrap();
+    assert_eq!(
+        parent.encode_wire().unwrap(),
+        replacement.encode_wire().unwrap()
+    );
+    let foreign = AllocationBudget::new(pool.limit_bytes());
+    let baseline = pool.reserved_bytes();
+    let mut pending = PreparedParentServiceCommitQc::from_parent(&parent, &pool).unwrap();
+    assert_eq!(
+        pool.reserved_bytes(),
+        baseline,
+        "initial copy shares only the original block control"
+    );
+    assert!(
+        matches!(
+            pending.prepare_parent(&replacement, &pool),
+            Err(Error::SourceChanged)
+        ),
+        "producer copy must bind the actual original parent control"
+    );
+    assert!(matches!(
+        pending.prepare_parent(&parent, &foreign),
+        Err(Error::ForeignPool)
+    ));
+    assert!(matches!(
+        PreparedParentServiceCommitQc::from_parent(&parent, &foreign),
+        Err(Error::ForeignPool)
+    ));
+    assert_eq!(foreign.reserved_bytes(), 0);
+    let layouts = pending.allocation_layouts().unwrap();
+    let demand: usize = layouts.iter().map(Layout::size).sum();
+    let blocker = pool
+        .try_reserve_bytes(pool.limit_bytes() - baseline - demand + 1)
+        .unwrap();
+    let first = pending.prepare_parent(&parent, &pool).unwrap_err();
+    let Error::Admission(original @ AllocationRefusal::Capacity { .. }) = first else {
+        panic!("exact original pool capacity refusal")
+    };
+    assert!(
+        matches!(&original, AllocationRefusal::Capacity { requested_bytes, reserved_bytes, limit_bytes, .. }
+        if *requested_bytes == demand && *reserved_bytes == pool.limit_bytes() - demand + 1 && *limit_bytes == pool.limit_bytes())
+    );
+    let Error::Admission(retry) = pending.prepare_parent(&parent, &pool).unwrap_err() else {
+        panic!("same original capacity refusal")
+    };
+    assert_eq!(retry, original);
+    assert!(
+        pending
+            .initialized_parent(&parent, &pool)
+            .unwrap()
+            .is_none()
+    );
+    assert!(pending.belongs_to(&pool));
+    drop(blocker);
+    pending.prepare_parent(&parent, &pool).unwrap();
+    let pointer = pending
+        .initialized_parent(&parent, &pool)
+        .unwrap()
+        .unwrap()
+        .as_ptr();
+    let (pending, error) = pending.finish_parent(&replacement, &pool).err().unwrap();
+    assert!(matches!(error, Error::SourceChanged));
+    let complete = pending
+        .finish_parent(&parent, &pool)
+        .unwrap_or_else(|(_, error)| panic!("{error}"));
+    assert_eq!(complete.as_slice().as_ptr(), pointer);
+    let clone = complete.clone();
+    assert!(NposParentServiceCommitQc::ptr_eq(&clone, &complete));
+    assert!(clone.admitted_to(&pool));
+    assert_eq!(pool.reserved_bytes(), baseline + demand);
+    for flags in [0, header_flags::COMPACT_LEN] {
+        let _flags = DecodeFlagsGuard::enter(flags);
+        assert_eq!(
+            bytes(&complete),
+            bytes(&parent.commit_certificate().unwrap().commit_qc())
+        );
+    }
+    assert_eq!(
+        norito::json::to_json(&complete).unwrap(),
+        norito::json::to_json(&parent.commit_certificate().unwrap().commit_qc().to_vec()).unwrap()
+    );
+    drop(complete);
+    assert_eq!(pool.reserved_bytes(), baseline + demand);
+    drop(clone);
+    assert_eq!(pool.reserved_bytes(), baseline);
+    drop((parent, replacement));
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn producer_input_cannot_substitute_a_canonical_field_or_missing_certificate() {
+    let pool = AllocationBudget::new(1 << 20);
+    let parent = native_parent(&pool);
+    let _flags = DecodeFlagsGuard::enter(header_flags::COMPACT_LEN);
+    let (input, span) = source(parent.commit_certificate().unwrap().commit_qc(), &pool);
+    let mut field = PreparedParentServiceCommitQc::from_source(&input, span, &pool).unwrap();
+    let mut producer = PreparedParentServiceCommitQc::from_parent(&parent, &pool).unwrap();
+    assert!(matches!(
+        field.prepare_parent(&parent, &pool),
+        Err(Error::SourceChanged)
+    ));
+    assert!(matches!(
+        producer.prepare(&input),
+        Err(Error::SourceChanged)
+    ));
+    let missing =
+        SharedSignedBlock::try_new(parent.as_ref().clone().with_commit_certificate(None), &pool)
+            .unwrap();
+    assert!(matches!(
+        PreparedParentServiceCommitQc::from_parent(&missing, &pool),
+        Err(Error::SourceRange)
+    ));
+    // Raw parent bytes are already a field value; no inherited Norito layout is guessed.
+    drop(_flags);
+    producer.prepare_parent(&parent, &pool).unwrap();
+    assert_eq!(
+        producer
+            .initialized_parent(&parent, &pool)
+            .unwrap()
+            .unwrap(),
+        parent.commit_certificate().unwrap().commit_qc()
+    );
 }

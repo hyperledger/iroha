@@ -1115,6 +1115,9 @@ pub mod isi {
                         "execute_called_trigger rejected"
                     );
                     match rej {
+                        TransactionRejectionReason::AnonymousBallot(reason) => Error::Conversion(
+                            format!("anonymous ballot result is not a trigger outcome: {reason:?}"),
+                        ),
                         TransactionRejectionReason::Validation(vf) => {
                             iroha_logger::debug!(
                                 ?vf,

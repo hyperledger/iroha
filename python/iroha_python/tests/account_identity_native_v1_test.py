@@ -81,9 +81,9 @@ def test_all_full_controller_owners_preserve_rust_fixture(item):
     )
     for instruction in instructions:
         encoded = instruction.to_json()
-        assert native.Instruction.from_json(encoded).to_json() == encoded
+        assert native.Instruction.from_json(encoded, chain_discriminant=753).to_json() == encoded
     network = native.NetworkId.parse("hash:" + "A5" * 32 + "#95D7")
-    builder = native.TransactionBuilder(network, item["i105"], json.dumps({"payer": "authority", "value": {"charge_limits": [], "gas_limit": None}}))
+    builder = native.TransactionBuilder(network, item["i105"], json.dumps({"payer": "authority", "value": {"charge_limits": [], "gas_limit": None}}), chain_discriminant=753)
     builder.add_instruction(instructions[0])
     assert json.loads(builder.payload_json())["authority"] == item["i105"]
     if item["name"] != "ed25519":

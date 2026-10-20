@@ -1455,3 +1455,22 @@ fn original_evidence_decode_owner_survives_worker_deferral_until_its_last_reader
     drop(retained);
     assert_eq!(pool.reserved_bytes(), 0);
 }
+
+#[test]
+fn anonymous_ballot_adapter_absence_stays_deferred_through_publication() {
+    for error in [
+        BlockValidationError::from(crate::tx::AcceptTransactionFail::AnonymousBallotUnavailable),
+        BlockValidationError::TransactionAccept(
+            crate::tx::AcceptTransactionFail::AnonymousBallotUnavailable,
+        ),
+    ] {
+        assert!(matches!(
+            validation_failure(error),
+            Ok(PublicationError::Deferred(_))
+        ));
+    }
+    assert!(matches!(
+        validation_failure(BlockValidationError::TransactionInTheFuture),
+        Err(BlockValidationError::TransactionInTheFuture)
+    ));
+}

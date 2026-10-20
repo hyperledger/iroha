@@ -28,10 +28,10 @@ use std::collections::BTreeSet;
 use super::{
     AdmissionNonceV1, AnonymousBallotAuthorizationV1, AnonymousBallotCorpusEntryV1,
     AnonymousParliamentRosterRootPreimageV1, AuthenticatedBallotContextV1,
-    BallotAuthorityBindingV1, BallotClosureRecordV1, BallotContextErrorV1, BallotScopeV1,
-    Digest512, MAX_SEALED_SEATS_V1, ProofProfileIdV1, SealedCredentialListV1,
-    SealedRegistrationPairV1,
-    framing::{AnonymousBallotCodecErrorV1, enc, frame_digest},
+    BALLOT_CONTEXT_MAX_BYTES_V1, BallotAuthorityBindingV1, BallotClosureRecordV1,
+    BallotContextErrorV1, BallotScopeV1, Digest512, MAX_SEALED_SEATS_V1, ProofProfileIdV1,
+    SealedCredentialListV1, SealedRegistrationPairV1,
+    framing::{AnonymousBallotCodecErrorV1, enc, enc_bounded, frame_digest},
 };
 use crate::{account::AccountId, governance::types::ProposalKind};
 
@@ -304,15 +304,21 @@ pub struct EncodedBallotContextV1 {
 }
 
 impl EncodedBallotContextV1 {
-    /// Encode `context` once.
+    /// Encode `context` once, checking its byte cap before allocating the output frame.
+    /// The caller remains responsible for structural validation and authentication.
     ///
     /// # Errors
-    /// [`AnonymousBallotCodecErrorV1`] if `Enc(context)` cannot be produced.
+    /// [`AnonymousBallotCodecErrorV1`] if `Enc(context)` cannot be produced or exceeds
+    /// [`BALLOT_CONTEXT_MAX_BYTES_V1`].
     pub fn new(
         context: &AuthenticatedBallotContextV1,
     ) -> Result<Self, AnonymousBallotCodecErrorV1> {
         Ok(Self {
-            bytes: enc(context)?,
+            bytes: enc_bounded(
+                context,
+                "authenticated ballot context",
+                BALLOT_CONTEXT_MAX_BYTES_V1,
+            )?,
             stamp_difficulty_bits: context.policy.binding.stamp_difficulty_bits,
         })
     }
@@ -814,6 +820,40 @@ mod tests {
         assert_ne!(
             stamp_payload_digest_v1(&altered, &easy),
             stamp_payload_digest_v1(&authorization, &easy)
+        );
+    }
+
+    #[test]
+    fn the_encoded_context_constructor_enforces_its_byte_cap() {
+        let mut oversized = context();
+        // The public constructor must enforce its own bound even when its caller
+        // has not yet checked the roster or policy. The caller owns this vector.
+        oversized.commitments = vec![commitment(1); 1_261];
+        let actual = norito::canonical_frame_len(&oversized).expect("count frame");
+        assert!(actual > BALLOT_CONTEXT_MAX_BYTES_V1);
+        let expected = AnonymousBallotCodecErrorV1::TooLarge {
+            kind: "authenticated ballot context",
+            actual,
+            max: BALLOT_CONTEXT_MAX_BYTES_V1,
+        };
+        assert_eq!(
+            EncodedBallotContextV1::new(&oversized),
+            Err(expected.clone())
+        );
+        assert_eq!(
+            stamp_payload_digest_v1(
+                &envelope(BallotChoiceV1::Aye, 1).authorization(),
+                &oversized
+            ),
+            Err(expected)
+        );
+
+        let ordinary = context();
+        assert_eq!(
+            EncodedBallotContextV1::new(&ordinary)
+                .expect("bounded context")
+                .as_bytes(),
+            enc(&ordinary).expect("same canonical bytes")
         );
     }
 

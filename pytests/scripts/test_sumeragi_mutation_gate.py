@@ -2892,6 +2892,8 @@ MODEL_NAMES = {
     "DM50": "consensus::parent_service::prepared::tests::parent_service_owner_keeps_vec_wire_json_and_exact_admitted_clone",
     "DM51": "consensus::parent_service::prepared::tests::parent_service_source_and_capacity_retry_preserve_original_full_frame_pool_and_layout",
     "DM52": "block::prepared_signatures::tests::parent_service_tests::field5_parent_service_survives_later_action_refusal_with_exact_original_cut_and_retry",
+    "DM53": "consensus::parent_service::prepared::tests::producer_copy_binds_actual_parent_control_pool_and_unchanged_vec_wire",
+    "DM54": "block::prepared_signatures::tests::prepared_block_counter_physical_refusals_keep_original_charges_prefix_source_and_retry",
 }
 MODEL_ALLOCATION_OBSERVER = "amx_prepare_streaming_allocations::observer_counts_all_three_allocation_routes_and_resets_after_unwind"
 
@@ -4056,7 +4058,10 @@ def test_retained_musubi_validation_stage_has_exact_core_owner_and_real_late_ref
     assert "world.try_prepare_frozen_publication()" in compact_publication
     assert "original_preparation_error" in publication
     assert "fn " + name + "(" in controls
-    assert "state.world.merge_global_state_root.block()" in controls
+    retained_control = named_rust_function(controls, name)
+    assert "state.world.governance_last_unlock_sweep_height.block()" in retained_control
+    assert "merge_global_state_root" not in controls
+    assert retained_control.index("let blocker =") < retained_control.index("let completed =")
     assert "successful Musubi validation must survive a later original writer refusal" in controls
     assert "refused_prefix[0] + 1" in controls and "refused_prefix[1] + 1" in controls
     assert "state.world.musubi_packages.block()" in controls
@@ -4905,9 +4910,28 @@ def test_native_original_start_guard_refuses_before_body_admission():
     capture = source.split("pub(crate) fn native_frame_read(", 1)[1].split("/// Read the exact frame", 1)[0]
     assert "let slot = store.read_block_index(position)?;" in capture
     assert "start: slot.start" in capture
-    read = source.split("pub(crate) fn read(", 1)[1].split("impl Kura", 1)[0]
-    assert read.index('sumeragi_core_mutation = "HC187"') < read.index("NativeFrameDestination::new")
+    # The retained destination constructor stores only the original pool handle;
+    # backing admission lives in prepare after exact durable-source authentication.
+    destination = source.split("impl NativeFrameDestination {", 1)[1].split("impl AsRef", 1)[0]
+    constructor = named_rust_function(destination, "new")
+    assert re.sub(r"\s+", "", constructor) == (
+        "fnnew(budget:&iroha_allocation::AllocationBudget)->Self{Self{"
+        "bytes:None,charge:None,length:None,budget:budget.clone(),}}"
+    )
+    binding = source.split("impl NativeFrameBinding {", 1)[1].split("impl Kura", 1)[0]
+    read = named_rust_function(binding, "read_original")
+    guard = read.index('sumeragi_core_mutation = "HC187"')
     assert "slot.start != start" in read
+    assert read.index("slot.start != start") < read.index("let length = usize::try_from(wire_len)?;")
+    assert read.count("destination.prepare(length, height)") == 2
+    for admission in ("Kura::read_regular_sidecar_snapshot_into(",
+                      "reserve_decode_allocation(length)",
+                      "destination.prepare(length, height)",
+                      "store.read_block_data(slot.start, bytes.as_mut())?"):
+        assert guard < read.index(admission)
+    prepare = named_rust_function(destination, "prepare")
+    assert "self.budget.try_reserve(layout)" in prepare
+    assert "iroha_allocation::ChargedBuffer::try_from_charge(length, charge)" in prepare
     body = source.split("fn native_frame_original_start_refuses_same_inode_relocation_before_body_admission()", 1)[1].split("#[test]", 1)[0]
     for required in ["slot.start.checked_add(1)", "pool.try_reserve_bytes(pool.limit_bytes())",
                      "source.read(length, &pool)", "Error::CanonicalBlockWireMismatch { height: 2 }",
@@ -6685,7 +6709,15 @@ def test_native_cursor_retention_mutations_have_original_owner_and_causal_contro
     handle = state.split("macro_rules! impl_state_ro", 1)[1].split("fn kura_handle(&self) -> Arc<Kura> {", 1)[1].split("}", 1)[0]
     assert "Arc::clone(self.kura)" in handle
     acquisition = (core / "sumeragi/certified_chain/native_acquisition.rs").read_text()
-    assert acquisition.count("decode_framed_signed_block(") == 1
+    assert "decode_framed_signed_block(" not in acquisition
+    decoder = named_rust_function(acquisition, "decode_original_body")
+    assert decoder.count("PreparedSignedBlockSignaturesDecode::new(&self.budget)") == 1
+    compact_decoder = re.sub(r"\s+", "", decoder)
+    assert "self.decoder.as_mut().expect(\"originalretainedmodeldecoder\").decode(" in compact_decoder
+    assert decoder.index("self.decoder = Some(") < decoder.index("let result = self")
+    assert ".charged_source()" in decoder
+    assert "norito::canonical_decode_limits(source.as_slice().len())" in decoder
+    assert "if block.hash() != self.expected || block.header().height().get() != height" in decoder
     assert "KuraOwner::Owned(kura)" in acquisition and "self.budget.same_pool(budget)" in acquisition
     storage = (core / "kura/native_execution_reads.rs").read_text()
     assert storage.count("let confirmed = store.read_block_index(position)?;") == 1
@@ -11138,7 +11170,7 @@ def test_incoming_execution_uses_one_scoped_merge_algorithm_and_explicit_native_
     assert parking.index("drop(previous);") < parking.index("drop(cancelled);")
 
 
-SCCP_MERGED_CUSTODY_RULES = (('HC440', 'HC420', 'smartcontracts/isi/sccp/forgery/execution/event_graph.rs', 'sumeragi/driver/startup/pending.rs', 'smartcontracts::isi::sccp::forgery::execution::event_graph::tests::event_graph_retains_exact_original_layouts_through_publication_and_last_reader', 'event graph retains the original pool', 'smartcontracts/isi/sccp/forgery/execution/event_graph/tests.rs'), ('HC441', 'HC422', 'sumeragi/evidence/sccp_record.rs', 'sumeragi/lanes/store.rs', 'sumeragi::evidence::record::sccp_record::tests::offender_preflight_rejects_each_oversized_graph_before_nested_decode', 'oversized SCCP graph is refused before nested decode', 'sumeragi/evidence/sccp_record/tests.rs'), ('HC442', 'HC424', 'smartcontracts/isi/sccp/forgery/execution.rs', 'sumeragi/lanes/store.rs', 'smartcontracts::isi::sccp::forgery::execution::tests::exact_local_refusal_survives_instruction_mapping_and_protocol_error_does_not_poison', 'local SCCP refusal cannot allocate a replacement diagnostic', 'smartcontracts/isi/sccp/forgery/execution/tests.rs'))
+SCCP_MERGED_CUSTODY_RULES = (('HC905', 'HC420', 'smartcontracts/isi/sccp/forgery/execution/event_graph.rs', 'sumeragi/driver/startup/pending.rs', 'smartcontracts::isi::sccp::forgery::execution::event_graph::tests::event_graph_retains_exact_original_layouts_through_publication_and_last_reader', 'event graph retains the original pool', 'smartcontracts/isi/sccp/forgery/execution/event_graph/tests.rs'), ('HC906', 'HC422', 'sumeragi/evidence/sccp_record.rs', 'sumeragi/lanes/store.rs', 'sumeragi::evidence::record::sccp_record::tests::offender_preflight_rejects_each_oversized_graph_before_nested_decode', 'oversized SCCP graph is refused before nested decode', 'sumeragi/evidence/sccp_record/tests.rs'), ('HC907', 'HC424', 'smartcontracts/isi/sccp/forgery/execution.rs', 'sumeragi/lanes/store.rs', 'smartcontracts::isi::sccp::forgery::execution::tests::exact_local_refusal_survives_instruction_mapping_and_protocol_error_does_not_poison', 'local SCCP refusal cannot allocate a replacement diagnostic', 'smartcontracts/isi/sccp/forgery/execution/tests.rs'))
 
 
 @pytest.mark.parametrize("mid,old_mid,owner,old_owner,selector,cause,source", SCCP_MERGED_CUSTODY_RULES)
@@ -11616,7 +11648,7 @@ def test_penalty_registration_lookup_mutation_uses_original_key_control():
 
 def test_penalty_sort_and_lane_wake_mutations_have_distinct_hooks_and_controls():
     registered = gate.index_mutations(gate.CORE_MUTATIONS)
-    ordering = registered["HC445"]
+    ordering = registered["HC901"]
     wake = registered["HC405"]
     penalty_owner = "crates/iroha_core/src/sumeragi/penalties.rs"
     lane_owner = "crates/iroha_core/src/sumeragi/lanes/runner/startup.rs"
@@ -11624,7 +11656,7 @@ def test_penalty_sort_and_lane_wake_mutations_have_distinct_hooks_and_controls()
         "sumeragi::penalties::tests::canonical_action_order_deduplicates_without_allocator_scratch",
     )
     assert ordering.causes == (gate.ExpectedFailure(
-        "canonical penalty sorting must not allocate stable-sort scratch", penalty_owner,
+        "HC901 canonical penalty sorting must not allocate stable-sort scratch", penalty_owner,
     ),)
     assert wake.tests == (
         "sumeragi::driver::tests::threaded::retirement_tests::ready_transfer_reissues_consumed_transaction_wake_to_original_workers",
@@ -11633,14 +11665,14 @@ def test_penalty_sort_and_lane_wake_mutations_have_distinct_hooks_and_controls()
         "Ready transfer must redeliver the consumed transaction wake to the original workers",
         "crates/iroha_core/src/sumeragi/driver/tests/threaded_retirement.rs",
     ),)
-    owners = {"HC405": set(), "HC445": set()}
+    owners = {"HC405": set(), "HC901": set()}
     for path in (ROOT / "crates/iroha_core/src").rglob("*.rs"):
-        for mid in re.findall(r'sumeragi_core_mutation\s*=\s*"(HC405|HC445)"', path.read_text()):
+        for mid in re.findall(r'sumeragi_core_mutation\s*=\s*"(HC405|HC901)"', path.read_text()):
             owners[mid].add(path.relative_to(ROOT).as_posix())
-    assert owners == {"HC405": {lane_owner}, "HC445": {penalty_owner}}
+    assert owners == {"HC405": {lane_owner}, "HC901": {penalty_owner}}
     source = (ROOT / penalty_owner).read_text()
-    assert '#[cfg(all(test, sumeragi_core_mutation = "HC445"))]\n    actions.sort();' in source
-    assert '#[cfg(not(all(test, sumeragi_core_mutation = "HC445")))]\n    actions.sort_unstable();' in source
+    assert '#[cfg(all(test, sumeragi_core_mutation = "HC901"))]\n    actions.sort();' in source
+    assert '#[cfg(not(all(test, sumeragi_core_mutation = "HC901")))]\n    actions.sort_unstable();' in source
     for mid in owners:
         assert gate.has_switch(mid, core=True)
         assert not registered[mid].scenarios
@@ -11806,3 +11838,216 @@ def test_parent_qc_custody_mutations_have_unique_owners_and_causal_controls():
             assert MODEL_NAMES[mid] == selector
     build = (ROOT / "crates/iroha_data_model/build.rs").read_text()
     assert tuple(re.findall(r'"(DM\d+)"', build.split("const IDS:", 1)[1].split(";", 1)[0])) == tuple(MODEL_NAMES)
+
+
+def test_semantic_parent_qc_custody_controls_have_unique_sources_and_exact_causes():
+    """Registry/source checks are metadata controls, not a native mutation verdict."""
+    controls = (('MS82', 'qc_custody::tests::shared_qc_refuses_same_wire_replacement_and_different_source_span', 'shared QC retry must retain the exact original immutable source control', 'crates/iroha_sumeragi/src/qc_custody/tests.rs', 'crates/iroha_sumeragi/src/qc_custody.rs'), ('MS83', 'qc_custody::tests::shared_qc_requires_leaf_and_control_to_share_the_exact_original_pool', 'shared QC source control must belong to the original byte pool', 'crates/iroha_sumeragi/src/qc_custody/tests.rs', 'crates/iroha_sumeragi/src/qc_custody.rs'), ('HC462', 'sumeragi::executor::parent_service_custody_tests::parent_service_semantic_qc_worker_keeps_partial_owner_and_exact_refusal_until_retry', 'semantic QC refusal must retain the original worker source and partial decoder', 'crates/iroha_core/src/sumeragi/executor_parent_service_custody_tests.rs', 'crates/iroha_core/src/sumeragi/certified_chain/state_certificate/parent_service_qc.rs'), ('HC463', 'sumeragi::certified_chain::state_certificate::parent_service_qc::tests::semantic_qc_error_transport_retains_exact_original_capacity_and_allocator_fields', 'parent-service semantic QC must preserve the original capacity cause', 'crates/iroha_core/src/sumeragi/certified_chain/state_certificate/parent_service_qc/tests.rs', 'crates/iroha_core/src/sumeragi/certified_chain/state_certificate/parent_service_qc.rs'))
+    families = (gate.MUTATIONS, gate.CORE_MUTATIONS, gate.DAEMON_MUTATIONS,
+                gate.MODEL_MUTATIONS, gate.SDK_MUTATIONS, gate.DEPLOY_MUTATIONS,
+                gate.TORII_MUTATIONS, gate.NORITO_MUTATIONS, gate.P2P_MUTATIONS)
+    all_rules = [rule for family in families for rule in family]
+    assert len(gate.index_mutations(all_rules)) == len(all_rules)
+    for mid, selector, cause, test_owner, source_owner in controls:
+        core = mid.startswith("HC")
+        rule = gate.index_mutations(gate.CORE_MUTATIONS if core else gate.MUTATIONS)[mid]
+        assert rule.tests == (selector,) and not rule.scenarios
+        extra = dict(worker_thread="sumeragi-publication-test",
+                     join_source="crates/iroha_core/src/sumeragi/executor_publication_tests.rs",
+                     join_message="publication worker fixture: Any { .. }") if mid == "HC462" else {}
+        assert rule.causes == (gate.ExpectedFailure(cause, test_owner, **extra),)
+        assert gate.has_switch(mid, core=core)
+        folder = ROOT / ("crates/iroha_core/src" if core else "crates/iroha_sumeragi/src")
+        cfg = "sumeragi_core_mutation" if core else "sumeragi_mutation"
+        owners = {path.relative_to(ROOT).as_posix() for path in folder.rglob("*.rs")
+                  if re.search(cfg + r'\s*=\s*"' + mid + '"', path.read_text())}
+        assert owners == {source_owner}
+        control = named_rust_function((ROOT / test_owner).read_text(), selector.rsplit("::", 1)[-1])
+        assert cause in control
+        if mid == "HC462":
+            assert "pool.try_reserve_bytes(pool.limit_bytes() - pool.reserved_bytes())" in control
+            assert "AllocationRefusal::Capacity" in control and "requested_bytes: 1" in control
+            assert "drop(retained.borrow_mut().take())" in control
+            assert "worker.discard(block.header().height, &[])" in control
+            assert "set_limit_bytes" not in control
+        rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+        assert len(rows) == 1 and selector in rows[0]
+    source = (ROOT / "crates/iroha_core/src/sumeragi/certified_chain/state_certificate.rs").read_text()
+    for name in ("verify_parent_service_at", "authenticate"):
+        body = named_rust_function(source, name)
+        assert "decode_canonical" not in body
+    worker = named_rust_function((ROOT / "crates/iroha_core/src/sumeragi/executor.rs").read_text(), "run_execution_with_finisher")
+    assert worker.index("prepare_proposal_qc") < worker.index("validate_sumeragi_block")
+
+
+def test_qc_constructor_physical_mutation_owns_the_real_allocator_control():
+    rule = gate.BY_ID["MS84"]
+    selector = "qc_custody::physical_tests::every_actual_qc_control_layout_refusal_retains_original_charge_prefix_and_same_source_retry"
+    source = "crates/iroha_sumeragi/src/qc_custody/physical_tests.rs"
+    cause = "constructor refusal must retain every original charge and completed control"
+    assert rule.tests == (selector,)
+    assert rule.causes == (gate.ExpectedFailure(cause, source),)
+    assert not rule.scenarios
+    assert gate.has_switch("MS84")
+    assert not gate.has_switch("MS84", core=True)
+    body = named_rust_function((ROOT / source).read_text(), selector.rsplit("::", 1)[1])
+    assert cause in body
+    assert re.search(r"run\(\s*Some\(layouts\[index\]\)", body)
+    assert "Poll::Pending" in body
+    owner = (ROOT / "crates/iroha_sumeragi/src/qc_custody.rs").read_text()
+    assert re.search(r"#\[cfg\(test\)\]\s*mod physical_tests;", owner)
+    assert not (ROOT / "crates/iroha_sumeragi/tests/qc_custody_physical.rs").exists()
+
+
+def test_parent_service_signer_rules_bind_original_custody_and_exact_native_causes():
+    owner = "crates/iroha_core/src/sumeragi/certified_chain/state_certificate/parent_service_signers.rs"
+    tests = owner.removesuffix(".rs") + "/tests.rs"
+    prefix = "sumeragi::certified_chain::state_certificate::parent_service_signers::tests::"
+    controls = (
+        ("HC465", "original_signer_late_capacity_retains_prefix_waiter_and_same_pool_retry",
+         "signer refusal must retain every original charge and completed key prefix"),
+        ("HC466", "original_signer_lend_refuses_same_wire_source_pool_cut_and_selection_substitution",
+         "same-wire signer source substitution must refuse the retained original owner"),
+    )
+    rules = gate.index_mutations(gate.CORE_MUTATIONS)
+    source = (ROOT / owner).read_text()
+    for mid, leaf, cause in controls:
+        assert sum(rule.id == mid for rule in gate.CORE_MUTATIONS) == 1
+        rule = rules[mid]
+        assert rule.tests == (prefix + leaf,) and not rule.scenarios
+        assert rule.causes == (gate.ExpectedFailure(cause, tests),)
+        assert gate.has_switch(mid, core=True)
+        owners = {path.relative_to(ROOT).as_posix() for path in (ROOT / "crates/iroha_core/src").rglob("*.rs")
+                  if re.search(r'sumeragi_core_mutation\s*=\s*"' + mid + '"', path.read_text())}
+        assert owners == {owner}
+        body = named_rust_function((ROOT / tests).read_text(), leaf)
+        assert cause in body
+        if mid == "HC465":
+            assert body.index(cause) < body.index("let expected =")
+            assert "AllocationRefusal::Capacity" in body
+            assert "drop(blocker)" in body and "poll_wait" in body
+            assert "set_limit_bytes" not in body
+        rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+        assert len(rows) == 1 and prefix + leaf in rows[0]
+    assert "try_clone_from_charge" in source and "reserve_from_charge" in source
+    relation = (ROOT / "crates/iroha_core/src/sumeragi/certified_chain/state_certificate.rs").read_text()
+    assert "signers: Vec<" not in relation
+    for name in ("verify_parent_service_at", "authenticate"):
+        body = named_rust_function(relation, name)
+        assert "verify_parent_service_relation" in body
+        assert "decode_canonical" not in body
+    worker = named_rust_function((ROOT / "crates/iroha_core/src/sumeragi/executor.rs").read_text(), "run_execution_with_finisher")
+    assert worker.index("prepare_proposal_qc") < worker.index("validate_sumeragi_block")
+
+
+def test_producer_parent_qc_mutations_pin_actual_source_and_original_charge_controls():
+    expected = {
+        "DM53": (gate.MODEL_MUTATIONS, "consensus::parent_service::prepared::tests::producer_copy_binds_actual_parent_control_pool_and_unchanged_vec_wire",
+                 "producer copy must bind the actual original parent control", "crates/iroha_data_model/src/consensus/parent_service/tests.rs"),
+        "HC464": (gate.CORE_MUTATIONS, "sumeragi::certified_chain::state_certificate::parent_service_copy::tests::producer_copy_physical_byte_and_root_refusals_keep_original_charges_and_retry",
+                  "producer copy refusal must retain original byte and control charges", "crates/iroha_core/src/sumeragi/certified_chain/state_certificate/parent_service_copy/tests.rs"),
+    }
+    for identifier, (registry, selector, message, source) in expected.items():
+        rule = gate.index_mutations(registry)[identifier]
+        assert rule.tests == (selector,)
+        assert rule.causes == (gate.ExpectedFailure(message, source),)
+        assert gate.has_switch(identifier, model=identifier.startswith("DM"), core=identifier.startswith("HC"))
+        assert not gate.has_switch(identifier)
+
+
+def test_native_block_continuation_rules_pin_original_physical_and_capacity_causes():
+    controls = {
+        "DM54": (gate.MODEL_MUTATIONS,
+            "block::prepared_signatures::tests::prepared_block_counter_physical_refusals_keep_original_charges_prefix_source_and_retry",
+            "prepared block constructor refusal must retain both original counter charges",
+            "crates/iroha_data_model/src/block/prepared_signatures/tests.rs"),
+        "HC467": (gate.CORE_MUTATIONS,
+            "sumeragi::certified_chain::native_acquisition::tests::native_late_certificate_capacity_retains_same_decoder_children_and_original_retry",
+            "native late refusal must retain the original prepared decoder and child charges",
+            "crates/iroha_core/src/sumeragi/certified_chain/native_acquisition/tests.rs"),
+        "HC468": (gate.CORE_MUTATIONS,
+            "sumeragi::certified_chain::native_acquisition::tests::native_shell_actual_physical_refusal_keeps_original_charge_source_and_retry",
+            "native shell refusal must retain the exact original shell charge",
+            "crates/iroha_core/src/sumeragi/certified_chain/native_acquisition/tests.rs"),
+    }
+    for mid, (registry, selector, cause, path) in controls.items():
+        rule = gate.index_mutations(registry)[mid]
+        execution = {'HC467': ('sumeragi::certified_chain::execution_read::continuation_tests::execution_late_certificate_refusal_retains_prepared_children_and_exact_cause', 'execution late refusal must retain the original prepared decoder and child charges', 'crates/iroha_core/src/sumeragi/certified_chain/execution_read/continuation_tests.rs'), 'HC468': ('sumeragi::certified_chain::execution_read::continuation_tests::execution_shell_physical_refusal_keeps_original_charge_and_single_wire_delivery', 'execution shell refusal must retain the exact original shell charge', 'crates/iroha_core/src/sumeragi/certified_chain/execution_read/continuation_tests.rs')}
+        extra = execution.get(mid)
+        assert rule.tests == ((selector, extra[0]) if extra else (selector,)) and not rule.scenarios
+        assert rule.causes == ((gate.ExpectedFailure(cause, path), gate.ExpectedFailure(extra[1], extra[2]))
+                               if extra else (gate.ExpectedFailure(cause, path),))
+        assert gate.has_switch(mid, model=mid.startswith("DM"), core=mid.startswith("HC"))
+        assert not gate.has_switch(mid)
+        body = named_rust_function((ROOT / path).read_text(), selector.rsplit("::", 1)[1])
+        assert cause in body and "set_limit_bytes" not in body
+        assert body.index(cause) < body.index("drop(blocker)")
+        rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+        assert len(rows) == 1 and selector in rows[0]
+    source = (ROOT / "crates/iroha_core/src/sumeragi/certified_chain/native_acquisition.rs").read_text()
+    assert "decode_framed_signed_block(" not in source
+    assert "charged_source()" in source
+    assert source.index("PreparedSignedBlockSignaturesDecode::new") < source.index(".decode(")
+
+
+def test_raw_frame_continuation_rules_pin_original_charge_and_sidecar_image():
+    controls = {'HC469': ('kura::native_frame_continuation_tests::original_raw_frame_physical_refusal_retains_charge_and_retries_without_credit', 'raw-frame refusal must retain the exact original backing charge', 'crates/iroha_core/src/kura/native_frame_continuation_tests.rs'), 'HC470': ('kura::native_frame_continuation_tests::original_raw_frame_retry_refuses_replaced_sidecar_before_backing_allocation', 'raw-frame retry must reject the original sidecar image substitution before body allocation', 'crates/iroha_core/src/kura/native_frame_continuation_tests.rs')}
+    for mid, (selector, cause, path) in controls.items():
+        rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+        assert rule.tests == (selector,) and not rule.scenarios
+        assert rule.causes == (gate.ExpectedFailure(cause, path),)
+        assert gate.has_switch(mid, core=True) and not gate.has_switch(mid)
+        body = named_rust_function((ROOT / path).read_text(), selector.rsplit("::", 1)[1])
+        assert cause in body and "refuse_one_layout_during" in body
+        assert "set_limit_bytes" not in body
+        rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+        assert len(rows) == 1 and selector in rows[0]
+    source = (ROOT / "crates/iroha_core/src/kura/native_execution_reads.rs").read_text()
+    prepare = named_rust_function(source, "prepare")
+    assert "try_from_charge" in prepare and "self.charge = Some(charge)" in prepare
+    assert "ChargedBuffer::new" not in prepare
+    body = named_rust_function((ROOT / "crates/iroha_core/src/kura/native_frame_continuation_tests.rs").read_text(),
+                               "original_raw_frame_narrower_scope_replay_retains_physical_charge_and_source")
+    assert "spent - 1" in body and "DecodeResourceError::TotalAllocationExceeded" in body
+    assert "assert!(!allocated" in body
+
+
+def test_execution_reader_continuation_uses_current_native_owner_controls():
+    controls = {'HC467': ('sumeragi::certified_chain::execution_read::continuation_tests::execution_late_certificate_refusal_retains_prepared_children_and_exact_cause', 'execution late refusal must retain the original prepared decoder and child charges', 'crates/iroha_core/src/sumeragi/certified_chain/execution_read/continuation_tests.rs'), 'HC468': ('sumeragi::certified_chain::execution_read::continuation_tests::execution_shell_physical_refusal_keeps_original_charge_and_single_wire_delivery', 'execution shell refusal must retain the exact original shell charge', 'crates/iroha_core/src/sumeragi/certified_chain/execution_read/continuation_tests.rs'), 'HC471': ('sumeragi::certified_chain::execution_read::continuation_tests::execution_retry_rejects_replacement_pool_backend_and_expected_hash', 'execution retry must retain its original backend slot hash and finite pool', 'crates/iroha_core/src/sumeragi/certified_chain/execution_read/continuation_tests.rs')}
+    for mid, (selector, cause, path) in controls.items():
+        rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+        assert rule.tests.count(selector) == 1
+        assert rule.causes.count(gate.ExpectedFailure(cause, path)) == 1
+        assert gate.has_switch(mid, core=True) and not gate.has_switch(mid)
+        body = named_rust_function((ROOT / path).read_text(), selector.rsplit("::", 1)[1])
+        assert cause in body and "set_limit_bytes" not in body
+        rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+        assert len(rows) == 1 and selector in rows[0]
+    source = (ROOT / "crates/iroha_core/src/sumeragi/certified_chain/execution_read.rs").read_text()
+    body = named_rust_function(source, "read_block")
+    assert "matches_owner" in body and "recheck_original_source" in body
+    assert body.index("matches_owner") < body.index("self.acquisition.complete()")
+    assert "decode_framed_signed_block" not in source and "SharedSignedBlock::reserve" not in source
+    assert "canonical_wire_identity" in body and "Hash::new(wire)" in body
+
+
+def test_execution_prefix_mutation_pins_actual_retained_charge_and_native_cause():
+    mid = "HC472"
+    selector = "sumeragi::certified_chain::execution_read::prefix_construction_tests::prefix_physical_refusal_retains_original_charge_and_retries_without_credit"
+    cause = "prefix physical refusal must retain its exact original backing charge"
+    path = "crates/iroha_core/src/sumeragi/certified_chain/execution_read/prefix_construction_tests.rs"
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    assert rule.tests == (selector,) and rule.causes == (gate.ExpectedFailure(cause, path),)
+    assert gate.has_switch(mid, core=True) and not gate.has_switch(mid)
+    body = named_rust_function((ROOT / path).read_text(), selector.rsplit("::",1)[1])
+    assert "refuse_one_layout_during" in body and "set_limit_bytes" not in body
+    assert body.index(cause) < body.index("let blocker =")
+    rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows)==1 and selector in rows[0]
+    source = (ROOT / "crates/iroha_core/src/sumeragi/certified_chain/execution_read.rs").read_text()
+    kernel = named_rust_function(source, "prepare_execution_read_prefix_backing")
+    assert "try_from_charge" in kernel and "*charge = Some(original_charge)" in kernel
+    assert "AllocatorRefusal::try_from(original)" in kernel
+    assert "ChargedBuffer::new(1" not in source
+    advance = named_rust_function(source, "advance")
+    assert advance.index("original.read_block") < advance.index("prepare_execution_read_prefix_backing") < advance.index("initialize_execution_read_prefix")

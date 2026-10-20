@@ -283,46 +283,263 @@ impl<'a> SnapshotJsonField<'a> {
             // representation. The test-only DOM adapter has already discarded field
             // order, just like decode_canonical's owned path above. Neither path grants
             // authority to restored claims.
-            // TODO(S8): fund this canonical comparison and its nested codec scratch
-            // from the original pool before replacing the existing checked semantics.
-            if has_original_bytes && json::to_json(&value)?.as_bytes() != raw.as_bytes() {
-                return Err(StateRestoreError::Serialization(json::Error::Message(
-                    "snapshot field is not canonically encoded".into(),
-                )));
+            let canonical = if has_original_bytes {
+                snapshot_json_matches(&value, &raw).map_err(|error| {
+                    use crate::sumeragi::evidence::record::EvidenceRecordRestoreError;
+                    use json::BoundedJsonError;
+                    let original = match error {
+                        error @ (BoundedJsonError::DecodeResource(_)
+                        | BoundedJsonError::ScopedDecodeResource(_)) => {
+                            EvidenceRecordRestoreError::Logical(json::Error::from_decode_resource(
+                                error.into_core_error(),
+                            ))
+                        }
+                        BoundedJsonError::AllocationFailed => {
+                            EvidenceRecordRestoreError::Preparation(
+                                EvidencePreparationError::Allocator { requested_bytes: 0 },
+                            )
+                        }
+                        _ => EvidenceRecordRestoreError::Preparation(
+                            EvidencePreparationError::Invariant,
+                        ),
+                    };
+                    StateRestoreError::Evidence(original)
+                })?
+            } else {
+                true
+            };
+            if !canonical {
+                return Err(StateRestoreError::Serialization(json::Error::WithPos {
+                    msg: "consensus_evidence snapshot field is not canonically encoded",
+                    byte: 0,
+                    line: 1,
+                    col: 1,
+                }));
             }
             Ok(value)
         })();
-        decoded.map_err(|error| match error {
-            StateRestoreError::Serialization(error) => json::Error::InvalidField {
-                field: "consensus_evidence".into(),
-                message: error.to_string(),
-            }
-            .into(),
-            local => local,
-        })
+        decoded
     }
-    fn into_object(self, field: &str) -> Result<SnapshotJsonMap<'a>, json::Error> {
+    fn into_object(
+        self,
+        field: &str,
+        schema: &[&str],
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<SnapshotJsonMap<'a>, StateRestoreError> {
         match self {
-            Self::Borrowed { raw } => SnapshotJsonMap::parse(raw, field),
+            Self::Borrowed { raw } => SnapshotJsonMap::parse_admitted(raw, field, schema, budget),
             #[cfg(test)]
             Self::Owned(json::Value::Object(map)) => Ok(SnapshotJsonMap::from_owned(map)),
             #[cfg(test)]
             Self::Owned(_) => Err(json::Error::InvalidField {
                 field: field.to_owned(),
                 message: "expected object".to_owned(),
-            }),
+            }
+            .into()),
         }
     }
 }
 
+/// Compare checked canonical output directly with the authenticated input bytes.
+/// The sink owns no scratch and never materializes a second field-sized string.
+fn snapshot_json_matches(
+    value: &impl JsonSerialize,
+    raw: &str,
+) -> Result<bool, json::BoundedJsonError> {
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC927")))]
+    struct Comparison<'a> {
+        remaining: &'a [u8],
+    }
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC927")))]
+    impl json::JsonWriteSink for Comparison<'_> {
+        fn push(&mut self, value: char) -> Result<(), json::BoundedJsonError> {
+            self.push_str(value.encode_utf8(&mut [0; 4]))
+        }
+        fn push_str(&mut self, value: &str) -> Result<(), json::BoundedJsonError> {
+            let Some(remaining) = self.remaining.strip_prefix(value.as_bytes()) else {
+                return Err(json::BoundedJsonError::LengthMismatch);
+            };
+            self.remaining = remaining;
+            Ok(())
+        }
+    }
+    #[cfg(all(test, sumeragi_core_mutation = "HC927"))]
+    {
+        let _ = (value, raw);
+        Ok(true)
+    }
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC927")))]
+    {
+        let mut sink = Comparison {
+            remaining: raw.as_bytes(),
+        };
+        match value.json_serialize_to(&mut sink) {
+            Ok(()) => Ok(sink.remaining.is_empty()),
+            Err(json::BoundedJsonError::LengthMismatch) => Ok(false),
+            Err(original) => Err(original),
+        }
+    }
+}
+
+struct SnapshotJsonEntry<'a> {
+    key: &'a str,
+    raw: Option<&'a str>,
+}
+/// Classify a refusal while indexing the State or World object; neither is the
+/// evidence table. An active decode-resource refusal is a local restore deferral,
+/// exactly as for every other non-evidence field; completed syntax is rejection.
+fn snapshot_index_json_error(error: json::Error) -> StateRestoreError {
+    #[cfg(all(test, sumeragi_core_mutation = "HC928"))]
+    {
+        StateRestoreError::Serialization(error)
+    }
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC928")))]
+    {
+        crate::execution_attempt::json_decode_attempt_error(error, std::convert::identity).into()
+    }
+}
 struct SnapshotJsonMap<'a> {
+    // This single original-pool allocation owns the complete production index.
+    // Keys and values borrow authenticated input; retained keys also record source
+    // order after values are removed, so no key copies or ordering Vec are needed.
+    admitted: Option<iroha_allocation::ChargedBuffer<SnapshotJsonEntry<'a>>>,
+    #[cfg(test)]
     fields: BTreeMap<String, SnapshotJsonField<'a>>,
+    // Only the DOM-order test fixture records this; admitted maps validate their
+    // retained entries directly.
+    #[cfg(test)]
     source_order: Option<Vec<String>>,
 }
 impl<'a> SnapshotJsonMap<'a> {
+    /// Index one signed snapshot object `field` whose canonical field list is `schema`.
+    ///
+    /// Only distinct schema fields can be indexed: an unknown key is refused when it is
+    /// read and a repeated key is a duplicate. The original-pool index is therefore
+    /// sized by the fixed schema, never by the input's lexical entry count, and its
+    /// duplicate scan is bounded by the schema too. Order remains the
+    /// `require_source_order` check.
+    fn parse_admitted(
+        input: &'a str,
+        field: &str,
+        schema: &[&str],
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<Self, StateRestoreError> {
+        let mut parser = json::Parser::new(input);
+        let mut visitor = json::MapVisitor::new(&mut parser).map_err(snapshot_index_json_error)?;
+        let capacity = if cfg!(all(test, sumeragi_core_mutation = "HC929")) {
+            visitor.total_entries()
+        } else {
+            visitor.total_entries().min(schema.len())
+        };
+        #[cfg(all(test, sumeragi_core_mutation = "HC926"))]
+        let substituted = iroha_allocation::AllocationBudget::new(budget.limit_bytes());
+        #[cfg(all(test, sumeragi_core_mutation = "HC926"))]
+        let budget = &substituted;
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC926")))]
+        let budget = budget;
+        let layout =
+            std::alloc::Layout::array::<SnapshotJsonEntry<'a>>(capacity).map_err(|_| {
+                mv::storage::AdmittedStorageError::Allocation(
+                    iroha_allocation::AllocationRefusal::DemandOverflow,
+                )
+            })?;
+        let mut entries: iroha_allocation::ChargedBuffer<SnapshotJsonEntry<'a>> =
+            iroha_allocation::ChargedBuffer::new(capacity, budget).map_err(
+                |error| match error {
+                    iroha_allocation::ChargedBufferError::Admission(original) => {
+                        mv::storage::AdmittedStorageError::Allocation(original)
+                    }
+                    iroha_allocation::ChargedBufferError::Allocator { .. } => {
+                        mv::storage::AdmittedStorageError::Allocator { layout }
+                    }
+                },
+            )?;
+        loop {
+            let position = visitor.parser().position();
+            let key = visitor
+                .next_key_with_buffer(|_| -> Result<[u8; 0], json::Error> {
+                    // Signed snapshot schema keys have canonical unescaped ASCII spelling.
+                    // Refuse escaped aliases before requesting any scratch allocation.
+                    Err(json::Error::WithPos {
+                        msg: "snapshot schema keys must be unescaped",
+                        byte: position,
+                        line: 1,
+                        col: position + 1,
+                    })
+                })
+                .map_err(snapshot_index_json_error)?;
+            let Some(json::KeyRef::Borrowed(key)) = key else {
+                break;
+            };
+            // Indexed keys are distinct schema fields, so pushes never exceed `capacity`.
+            if !schema.contains(&key) {
+                return Err(unknown_snapshot_field(field, key).into());
+            }
+            if entries.as_slice().iter().any(|entry| entry.key == key) {
+                return Err(json::Error::WithPos {
+                    msg: "duplicate snapshot field",
+                    byte: position,
+                    line: 1,
+                    col: position + 1,
+                }
+                .into());
+            }
+            let raw = visitor
+                .parse_value_with_parser(|parser| {
+                    parser.skip_ws();
+                    let start = parser.position();
+                    parser.skip_value_lexical()?;
+                    Ok(&input[start..parser.position()])
+                })
+                .map_err(snapshot_index_json_error)?;
+            entries.push_reserved(SnapshotJsonEntry {
+                key,
+                raw: Some(raw),
+            });
+        }
+        visitor.finish().map_err(snapshot_index_json_error)?;
+        parser.skip_ws();
+        if !parser.eof() {
+            return Err(json::Error::WithPos {
+                msg: "trailing bytes after snapshot object",
+                byte: parser.position(),
+                line: 1,
+                col: parser.position() + 1,
+            }
+            .into());
+        }
+        Ok(Self {
+            admitted: Some(entries),
+            #[cfg(test)]
+            fields: BTreeMap::new(),
+            #[cfg(test)]
+            source_order: None,
+        })
+    }
+    /// Test fixture over the production index, funded by a large private pool so
+    /// fixture maps exercise the admitted entries rather than a separate parser.
+    #[cfg(test)]
+    fn parse_admitted_fixture(
+        input: &'a str,
+        field: &str,
+        schema: &[&str],
+    ) -> Result<Self, StateRestoreError> {
+        Self::parse_admitted(
+            input,
+            field,
+            schema,
+            &iroha_allocation::AllocationBudget::new(1 << 20),
+        )
+    }
+    /// Admitted fixture for one complete canonical World object.
+    #[cfg(test)]
+    fn parse_world_fixture(input: &'a str) -> Result<Self, StateRestoreError> {
+        Self::parse_admitted_fixture(input, "world", canonical_world_field_order())
+    }
     #[cfg(test)]
     fn from_owned(map: json::native::Map) -> Self {
         Self {
+            admitted: None,
             fields: map
                 .into_iter()
                 .map(|(key, value)| (key, SnapshotJsonField::Owned(value)))
@@ -330,6 +547,9 @@ impl<'a> SnapshotJsonMap<'a> {
             source_order: None,
         }
     }
+    /// DOM-order fixture kept only for tests that inspect `fields` or its nested
+    /// duplicate scan; other fixtures use `parse_admitted_fixture`.
+    #[cfg(test)]
     fn parse(input: &'a str, field: &str) -> Result<Self, json::Error> {
         let mut parser = json::Parser::new(input);
         parser
@@ -402,52 +622,164 @@ impl<'a> SnapshotJsonMap<'a> {
             });
         }
         Ok(Self {
+            admitted: None,
             fields,
             source_order: Some(source_order),
         })
     }
     fn remove(&mut self, key: &str) -> Option<SnapshotJsonField<'a>> {
-        self.fields.remove(key)
+        if let Some(entries) = self.admitted.as_mut() {
+            return entries
+                .as_mut_slice()
+                .iter_mut()
+                .find(|entry| entry.key == key)
+                .and_then(|entry| entry.raw.take())
+                .map(|raw| SnapshotJsonField::Borrowed { raw });
+        }
+        #[cfg(test)]
+        return self.fields.remove(key);
+        #[cfg(not(test))]
+        unreachable!("production snapshot maps always retain their admitted index")
+    }
+    /// Borrow one remaining field without removing it, so a refused admission keeps the
+    /// original source in the index for its retry.
+    fn get(&self, key: &str) -> Option<SnapshotJsonField<'a>> {
+        if let Some(entries) = &self.admitted {
+            return entries
+                .as_slice()
+                .iter()
+                .find(|entry| entry.key == key)
+                .and_then(|entry| entry.raw)
+                .map(|raw| SnapshotJsonField::Borrowed { raw });
+        }
+        #[cfg(test)]
+        return self.fields.get(key).map(|field| match field {
+            SnapshotJsonField::Borrowed { raw } => SnapshotJsonField::Borrowed { raw: *raw },
+            SnapshotJsonField::Owned(value) => SnapshotJsonField::Owned(value.clone()),
+        });
+        #[cfg(not(test))]
+        unreachable!("production snapshot maps always retain their admitted index")
     }
     fn contains_key(&self, key: &str) -> bool {
-        self.fields.contains_key(key)
+        if let Some(entries) = &self.admitted {
+            return entries
+                .as_slice()
+                .iter()
+                .any(|entry| entry.key == key && entry.raw.is_some());
+        }
+        #[cfg(test)]
+        return self.fields.contains_key(key);
+        #[cfg(not(test))]
+        unreachable!("production snapshot maps always retain their admitted index")
     }
     #[cfg(test)]
     fn is_empty(&self) -> bool {
-        self.fields.is_empty()
+        self.first_key().is_none()
     }
     fn first_key(&self) -> Option<&str> {
-        self.fields.keys().next().map(String::as_str)
+        if let Some(entries) = &self.admitted {
+            return entries
+                .as_slice()
+                .iter()
+                .filter(|entry| entry.raw.is_some())
+                .map(|entry| entry.key)
+                .min();
+        }
+        #[cfg(test)]
+        return self.fields.keys().next().map(String::as_str);
+        #[cfg(not(test))]
+        unreachable!("production snapshot maps always retain their admitted index")
     }
+    /// Require exactly `expected`, in order. Admitted and fixture maps report the same
+    /// diagnostics; either refusal is terminal, so it may own its field name.
     fn require_source_order(&self, expected: &[&str], field: &str) -> Result<(), json::Error> {
-        let Some(actual) = self.source_order.as_ref() else {
-            return Ok(());
-        };
-        if let Some(unknown) = actual.iter().find(|key| !expected.contains(&key.as_str())) {
-            return Err(json::Error::InvalidField {
-                field: format!("{field}.{unknown}"),
-                message: "unknown field is not permitted in a signed first-release snapshot"
-                    .to_owned(),
-            });
+        if let Some(entries) = &self.admitted {
+            let actual = entries.as_slice();
+            if let Some(entry) = actual.iter().find(|entry| !expected.contains(&entry.key)) {
+                return Err(unknown_snapshot_field(field, entry.key));
+            }
+            return if actual
+                .iter()
+                .map(|entry| entry.key)
+                .eq(expected.iter().copied())
+            {
+                Ok(())
+            } else {
+                Err(unordered_snapshot_fields(field))
+            };
         }
-        if actual
-            .iter()
-            .map(String::as_str)
-            .eq(expected.iter().copied())
+        #[cfg(not(test))]
         {
-            Ok(())
-        } else {
-            Err(json::Error::InvalidField {
-                field: field.to_owned(),
-                message: "snapshot object fields are not in canonical schema order".to_owned(),
-            })
+            unreachable!("production snapshot maps always retain their admitted index")
         }
+        #[cfg(test)]
+        {
+            let Some(actual) = self.source_order.as_ref() else {
+                return Ok(());
+            };
+            if let Some(unknown) = actual.iter().find(|key| !expected.contains(&key.as_str())) {
+                return Err(unknown_snapshot_field(field, unknown));
+            }
+            if actual
+                .iter()
+                .map(String::as_str)
+                .eq(expected.iter().copied())
+            {
+                Ok(())
+            } else {
+                Err(unordered_snapshot_fields(field))
+            }
+        }
+    }
+}
+fn unknown_snapshot_field(field: &str, key: &str) -> json::Error {
+    json::Error::InvalidField {
+        field: format!("{field}.{key}"),
+        message: "unknown field is not permitted in a signed first-release snapshot".to_owned(),
+    }
+}
+fn unordered_snapshot_fields(field: &str) -> json::Error {
+    json::Error::InvalidField {
+        field: field.to_owned(),
+        message: "snapshot object fields are not in canonical schema order".to_owned(),
     }
 }
 fn canonical_world_field_order() -> &'static [&'static str] {
     <World as norito::json::FastJsonWrite>::json_object_field_order()
         .expect("World snapshot has a fixed derived object schema")
 }
+/// Canonical first-release State envelope fields, in signed source order.
+const STATE_SNAPSHOT_FIELDS: &[&str] = &[
+    "chain_id",
+    "network_id",
+    "world",
+    "nexus_runtime",
+    "native_execution_tip",
+    "block_hashes",
+    "transactions",
+    "public_lane_validators",
+    "public_lane_stake_shares",
+    "public_lane_stake_custody",
+    "public_lane_stake_reserves",
+    "space_directory_manifests",
+    "capacity_fee_ledger",
+    "capacity_disputes",
+    "provider_credit_ledger",
+    "sorafs_pricing",
+    "soradns_directory_records",
+    "soradns_directory_pending",
+    "soradns_directory_history",
+    "soradns_directory_prev_of",
+    "soradns_directory_revocations",
+    "soradns_release_signers",
+    "soradns_directory_latest",
+    "soradns_rotation_policy",
+    "soradns_last_publish_ms",
+    "soradns_history_len",
+    "sccp",
+    "commit_topology",
+    "prev_commit_topology",
+];
 #[derive(Clone, Copy)]
 pub struct IvmSeed<'e, T> {
     pub ivm: &'e IVM,
@@ -630,6 +962,7 @@ mod state_snapshot_decode_error_tests {
 
     fn parameters_map(raw: &str) -> SnapshotJsonMap<'_> {
         SnapshotJsonMap {
+            admitted: None,
             fields: BTreeMap::from([(
                 "parameters".to_owned(),
                 SnapshotJsonField::Borrowed { raw },
@@ -747,7 +1080,12 @@ impl KuraSeed {
         self,
         input: &str,
     ) -> Result<Box<State>, StateRestoreError> {
-        let map = SnapshotJsonMap::parse(input, "state")?;
+        let map = SnapshotJsonMap::parse_admitted(
+            input,
+            "state",
+            STATE_SNAPSHOT_FIELDS,
+            &self.execution_budget,
+        )?;
         self.into_state_from_snapshot_map(map, true, None)
     }
     /// Decode a signed snapshot with the process's validated static Nexus policy.
@@ -758,7 +1096,12 @@ impl KuraSeed {
         input: &str,
         configured_nexus: iroha_config::parameters::actual::Nexus,
     ) -> Result<Box<State>, StateRestoreError> {
-        let map = SnapshotJsonMap::parse(input, "state")?;
+        let map = SnapshotJsonMap::parse_admitted(
+            input,
+            "state",
+            STATE_SNAPSHOT_FIELDS,
+            &self.execution_budget,
+        )?;
         self.into_state_from_snapshot_map(map, true, Some(configured_nexus))
     }
     /// Construct an empty State bound to an exact empty emergency manifest boundary.
@@ -847,7 +1190,12 @@ impl KuraSeed {
         self,
         input: &str,
     ) -> Result<Box<State>, StateRestoreError> {
-        let map = SnapshotJsonMap::parse(input, "state")?;
+        let map = SnapshotJsonMap::parse_admitted(
+            input,
+            "state",
+            STATE_SNAPSHOT_FIELDS,
+            &self.execution_budget,
+        )?;
         self.into_state_from_snapshot_map(map, false, None)
     }
     /// Validate writer-generated bytes against the same configured static policy
@@ -858,7 +1206,12 @@ impl KuraSeed {
         input: &str,
         configured_nexus: iroha_config::parameters::actual::Nexus,
     ) -> Result<Box<State>, StateRestoreError> {
-        let map = SnapshotJsonMap::parse(input, "state")?;
+        let map = SnapshotJsonMap::parse_admitted(
+            input,
+            "state",
+            STATE_SNAPSHOT_FIELDS,
+            &self.execution_budget,
+        )?;
         self.into_state_from_snapshot_map(map, false, Some(configured_nexus))
     }
     #[cfg(test)]
@@ -899,42 +1252,16 @@ impl KuraSeed {
         allow_durable_recovery: bool,
         replay_nexus: Option<iroha_config::parameters::actual::Nexus>,
     ) -> Result<Box<State>, StateRestoreError> {
-        const CANONICAL_FIELDS: &[&str] = &[
-            "chain_id",
-            "network_id",
-            "world",
-            "nexus_runtime",
-            "native_execution_tip",
-            "block_hashes",
-            "transactions",
-            "public_lane_validators",
-            "public_lane_stake_shares",
-            "public_lane_stake_custody",
-            "public_lane_stake_reserves",
-            "space_directory_manifests",
-            "capacity_fee_ledger",
-            "capacity_disputes",
-            "provider_credit_ledger",
-            "sorafs_pricing",
-            "soradns_directory_records",
-            "soradns_directory_pending",
-            "soradns_directory_history",
-            "soradns_directory_prev_of",
-            "soradns_directory_revocations",
-            "soradns_release_signers",
-            "soradns_directory_latest",
-            "soradns_rotation_policy",
-            "soradns_last_publish_ms",
-            "soradns_history_len",
-            "sccp",
-            "commit_topology",
-            "prev_commit_topology",
-        ];
-        map.require_source_order(CANONICAL_FIELDS, "state")?;
+        map.require_source_order(STATE_SNAPSHOT_FIELDS, "state")?;
         let world_value = map
             .remove("world")
             .ok_or_else(|| json::Error::missing_field("world"))?;
-        let world_map = world_value.into_object("world")?;
+        let world_map = world_value.into_object(
+            "world",
+            canonical_world_field_order(),
+            &self.execution_budget,
+        )?;
+        world_map.require_source_order(canonical_world_field_order(), "world")?;
         if !world_map.contains_key("contract_subject_bindings") {
             return Err((json::Error::missing_field("world.contract_subject_bindings")).into());
         }
@@ -1660,7 +1987,8 @@ pub(in crate::state) fn decode_world_snapshot_projection_for_testing(
         let world_map = map
             .remove("world")
             .ok_or_else(|| json::Error::missing_field("world"))?
-            .into_object("world")?;
+            .into_object("world", canonical_world_field_order(), execution_budget)?;
+        world_map.require_source_order(canonical_world_field_order(), "world")?;
         let ivm = IVM::try_new(0).map_err(StateRestoreError::VmInitialization)?;
         let seed = IvmSeed {
             ivm: &ivm,
@@ -2953,6 +3281,49 @@ mod evidence_record_restore_adapter_tests {
     use iroha_allocation::{AllocationBudget, AllocationRefusal};
 
     #[test]
+    fn borrowed_evidence_canonical_refusal_allocates_no_diagnostic_buffers() {
+        let budget = AllocationBudget::new(1 << 20);
+        let mut restored = None;
+        let admitted_allocations = crate::test_allocations::allocations_during(|| {
+            restored = Some(
+                SnapshotJsonField::Borrowed {
+                    raw: r#"{"revert":{},"blocks":{}}"#,
+                }
+                .decode_evidence(&budget),
+            );
+        });
+        drop(
+            restored
+                .unwrap()
+                .expect("canonical evidence table restores"),
+        );
+        assert_eq!(budget.reserved_bytes(), 0);
+        let mut refused = None;
+        let refused_allocations = crate::test_allocations::allocations_during(|| {
+            refused = Some(
+                SnapshotJsonField::Borrowed {
+                    raw: r#"{"blocks":{},"revert":{}}"#,
+                }
+                .decode_evidence(&budget),
+            );
+        });
+        assert!(matches!(
+            refused.unwrap(),
+            Err(StateRestoreError::Serialization(json::Error::WithPos {
+                msg: "consensus_evidence snapshot field is not canonically encoded",
+                byte: 0,
+                line: 1,
+                col: 1,
+            }))
+        ));
+        assert_eq!(
+            refused_allocations, admitted_allocations,
+            "canonical refusal adds no unadmitted diagnostic allocations"
+        );
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+
+    #[test]
     fn evidence_snapshot_requires_canonical_borrowed_bytes_but_restores_owned_projection() {
         let storage = Storage::<iroha_crypto::Hash, RetainedEvidenceRecord>::default();
         let canonical = json::to_json(&storage).unwrap();
@@ -2971,10 +3342,15 @@ mod evidence_record_restore_adapter_tests {
             .decode_evidence(&budget)
             .err()
             .expect("reordered native snapshot bytes must remain rejected");
-        assert!(
-            matches!(rejected, StateRestoreError::Serialization(json::Error::InvalidField {ref field, ref message})
-            if field == "consensus_evidence" && message.contains("not canonically encoded"))
-        );
+        assert!(matches!(
+            rejected,
+            StateRestoreError::Serialization(json::Error::WithPos {
+                msg: "consensus_evidence snapshot field is not canonically encoded",
+                byte: 0,
+                line: 1,
+                col: 1,
+            })
+        ));
         let restored = SnapshotJsonField::Owned(projection)
             .decode_evidence(&budget)
             .expect("test DOM projection restores through the same admitted record reader");
@@ -3028,10 +3404,15 @@ mod evidence_record_restore_adapter_tests {
         else {
             panic!("after original credit returns the later canonical syntax error is reached");
         };
-        assert!(
-            matches!(error, StateRestoreError::Serialization(json::Error::InvalidField {ref field, ref message})
-            if field == "consensus_evidence" && message.contains("late"))
-        );
+        assert!(matches!(
+            error,
+            StateRestoreError::Serialization(json::Error::WithPos {
+                msg: "unknown evidence JSON field",
+                byte: 0,
+                line: 1,
+                col: 1,
+            })
+        ));
         assert_eq!(budget.reserved_bytes(), 0);
     }
 
@@ -3062,3 +3443,7 @@ impl From<sccp_forgery_custody::ForgeryStorageError> for StateRestoreError {
         ))
     }
 }
+
+#[cfg(test)]
+#[path = "deserialize_snapshot_map_tests.rs"]
+mod snapshot_map_tests;

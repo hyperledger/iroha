@@ -155,6 +155,9 @@ impl CapturedNetworkPolicyRoute {
         state: &StateTransaction<'_, '_>,
         native: RoutingDecision,
     ) -> Result<Self, ExecutionDeferred> {
+        if matches!(tx.entrypoint(), TransactionEntrypoint::AnonymousBallot(_)) {
+            return Err(crate::tx::anonymous_ballot_unavailable());
+        }
         let projection = if tx.external().is_some() {
             let resolved = PhysicalExecutionPolicyRoute::resolve(
                 &state.nexus,
@@ -315,6 +318,11 @@ impl CapturedNetworkPolicyRoutes {
             ledger_time_ms,
         };
         for (index, input) in source.network_entrypoints().enumerate() {
+            if matches!(input, TransactionEntrypoint::AnonymousBallot(_)) {
+                return Err(ExecutionAttemptError::Deferred(
+                    crate::tx::anonymous_ballot_unavailable(),
+                ));
+            }
             let accepted = AcceptedTransaction::new_unchecked_entrypoint(Cow::Borrowed(input));
             let native = if genesis {
                 RoutingDecision::new(

@@ -25,6 +25,8 @@ mod puzzle_work_admission;
 mod soranet_handshake_runtime;
 pub mod streaming;
 pub mod transport;
+#[cfg(feature = "bench")]
+pub use peer::benchmark;
 pub(crate) mod sampler {
     //! Simple per-event log sampler: emits once per period and accumulates a suppressed count.
     #[derive(Debug, Clone)]

@@ -20,7 +20,7 @@ const STATUSES: [ProofStatus; 3] = [
 pub(in super::super) struct CheckedProofRecords<'world> {
     world: &'world World,
     rows: CommittedStorageView<'world, ProofId, ProofRecord>,
-    index: CommittedStorageView<'world, ProofStatus, BTreeSet<ProofId>>,
+    index: CommittedStorageView<'world, (ProofStatus, ProofId), ()>,
 }
 
 impl<'world> CheckedProofRecords<'world> {
@@ -79,49 +79,74 @@ impl<'world> CheckedProofRecords<'world> {
 /// and the separate proof-tag relation are not established by this result.
 pub(in crate::state) fn validate_original_proofs(
     rows: &impl RawStorageImages<ProofId, ProofRecord>,
-    index: &impl RawStorageImages<ProofStatus, BTreeSet<ProofId>>,
+    index: &impl RawStorageImages<(ProofStatus, ProofId), ()>,
     max_work: u64,
 ) -> Result<(), GroupedOwnershipError> {
     validate(rows, index, &mut Work(max_work))
 }
 
-// The enum is closed to these three keys. Stack slots retain only original borrows;
-// no index reconstruction, comparison, hidden lookup or source allocation occurs.
-fn status_slot(status: ProofStatus) -> usize {
-    match status {
-        ProofStatus::Submitted => 0,
-        ProofStatus::Verified => 1,
-        ProofStatus::Rejected => 2,
-    }
-}
-// Admit every physical index row before inspecting any logical bucket. A small
-// local allowance may therefore return WorkLimit before a latent empty bucket is
-// diagnosed. Neither refusal establishes validity; retrying these same sources
-// with sufficient work reports the corruption. Valid exact work is unchanged.
-fn status_buckets<'a>(
-    index: &'a impl RawStorageImages<ProofStatus, BTreeSet<ProofId>>,
+/// Stream the exact ordered membership rows without rebuilding either image.
+fn index_members<'a>(
+    index: &'a impl RawStorageImages<(ProofStatus, ProofId), ()>,
     image: GroupImage,
-    work: &mut Work,
-) -> Result<[Option<&'a BTreeSet<ProofId>>; 3], GroupedOwnershipError> {
-    let mut buckets = [None; 3];
-    for (status, members) in index.current_entries() {
-        work.charge()?;
-        buckets[status_slot(*status)] = Some(members);
-    }
-    if image == GroupImage::Predecessor {
-        for (status, prior) in index.undo_entries() {
-            // Charge masked current rows and every physical undo row, including
-            // absent/no-op preimages, before inspecting the logical member set.
-            work.charge()?;
-            buckets[status_slot(*status)] = prior.as_ref();
+) -> impl FnMut(&mut Work) -> Result<Option<&'a (ProofStatus, ProofId)>, GroupedOwnershipError> {
+    let mut current = index.current_entries();
+    let mut undo = index.undo_entries();
+    let mut current_row = None;
+    let mut undo_row = None;
+    let mut advance_current = true;
+    let mut advance_undo = image == GroupImage::Predecessor;
+    move |work| loop {
+        if advance_current {
+            current_row = next_physical(&mut current, work)?;
+            advance_current = false;
+        }
+        if advance_undo {
+            undo_row = next_physical(&mut undo, work)?;
+            advance_undo = false;
+        }
+        match (current_row, undo_row) {
+            (Some((current_key, ())), Some((undo_key, prior))) => {
+                work.charge()?;
+                let member_order = compare_keys(&current_key.1, &undo_key.1, work)?;
+                match current_key.0.cmp(&undo_key.0).then(member_order) {
+                    Ordering::Less => {
+                        advance_current = true;
+                        return Ok(Some(current_key));
+                    }
+                    Ordering::Equal => {
+                        advance_current = true;
+                        advance_undo = true;
+                        if prior.is_some() {
+                            return Ok(Some(undo_key));
+                        }
+                    }
+                    Ordering::Greater => {
+                        advance_undo = true;
+                        if prior.is_some() {
+                            return Ok(Some(undo_key));
+                        }
+                    }
+                }
+            }
+            (Some((key, ())), None) => {
+                advance_current = true;
+                return Ok(Some(key));
+            }
+            (None, Some((key, prior))) => {
+                advance_undo = true;
+                if prior.is_some() {
+                    return Ok(Some(key));
+                }
+            }
+            (None, None) => return Ok(None),
         }
     }
-    Ok(buckets)
 }
 
 fn validate(
     rows: &impl RawStorageImages<ProofId, ProofRecord>,
-    index: &impl RawStorageImages<ProofStatus, BTreeSet<ProofId>>,
+    index: &impl RawStorageImages<(ProofStatus, ProofId), ()>,
     work: &mut Work,
 ) -> Result<(), GroupedOwnershipError> {
     for image in [GroupImage::Current, GroupImage::Predecessor] {
@@ -130,37 +155,33 @@ fn validate(
             image,
             mismatch,
         };
-        // These keys are fixed-size enum values. Charge every physical
-        // bucket, including a masked current row and an absent preimage.
-        let buckets = status_buckets(index, image, work)?;
-        for members in buckets.iter().flatten() {
-            if members.is_empty() {
-                return Err(corrupt(GroupMismatch::EmptyGroup));
-            }
-        }
+        let mut next_member = index_members(index, image);
+        let mut member = next_member(work)?;
         for status in STATUSES {
             work.charge()?;
-            let mut members = buckets[status_slot(status)]
-                .into_iter()
-                .flat_map(BTreeSet::iter);
             // Filtering preserves source-key order. Exact sequence equality
             // proves both directions without variable-key tree searches.
             visit_proofs(rows, image, work, |key, record, work| {
                 if record.status != status {
                     return Ok(());
                 }
-                let Some(member) = members.next() else {
+                let Some((member_status, member_key)) = member else {
                     return Err(corrupt(GroupMismatch::MissingMember));
                 };
                 work.charge()?;
-                match compare_keys(key, member, work)? {
-                    Ordering::Equal => Ok(()),
+                if *member_status != status {
+                    return Err(corrupt(GroupMismatch::MissingMember));
+                }
+                match compare_keys(key, member_key, work)? {
+                    Ordering::Equal => {
+                        member = next_member(work)?;
+                        Ok(())
+                    }
                     Ordering::Less => Err(corrupt(GroupMismatch::MissingMember)),
                     Ordering::Greater => Err(corrupt(GroupMismatch::ForeignMember)),
                 }
             })?;
-            if members.next().is_some() {
-                work.charge()?;
+            if member.is_some_and(|(member_status, _)| *member_status == status) {
                 return Err(corrupt(GroupMismatch::ForeignMember));
             }
         }
@@ -188,10 +209,10 @@ fn compare_keys(
     Ok(left.cmp(right))
 }
 
-fn next_physical<'a, V: 'a>(
-    rows: &mut impl Iterator<Item = (&'a ProofId, &'a V)>,
+fn next_physical<'a, K: 'a, V: 'a>(
+    rows: &mut impl Iterator<Item = (&'a K, &'a V)>,
     work: &mut Work,
-) -> Result<Option<(&'a ProofId, &'a V)>, GroupedOwnershipError> {
+) -> Result<Option<(&'a K, &'a V)>, GroupedOwnershipError> {
     let row = rows.next();
     if row.is_some() {
         // Charge before inspecting/filtering a physical row, even a tombstone.

@@ -980,7 +980,8 @@ fn check_original_crypto_refusal(chain: &CertifiedTestChain) {
     let original_signature = proof.data().aggregate_signature;
     let generation = signing_generation(view.world(), 2, control(&stop)).unwrap();
     let occupied = budget.reserved_bytes();
-    let exact = ConsensusAggregateScratch::<()>::backing_bytes();
+    let layout = ConsensusAggregateScratch::<()>::backing_layout();
+    let exact = layout.size();
     assert!(exact > 0);
     let external = budget
         .try_reserve_bytes(budget.limit_bytes() - occupied - (exact - 1))
@@ -1008,14 +1009,60 @@ fn check_original_crypto_refusal(chain: &CertifiedTestChain) {
     assert_eq!(budget.reserved_bytes(), reserved_bytes);
     assert_eq!(proof.data().aggregate_signature, original_signature);
     drop(external);
-    let verified = verify_original_relation(
-        proof.data(),
-        chain.instance(),
-        &generation.keys,
-        &budget,
-        control(&stop),
-    )
-    .unwrap();
+    let (failure, observed) = crate::test_allocations::refuse_one_layout_during(layout, || {
+        verify_original_relation(
+            proof.data(),
+            chain.instance(),
+            &generation.keys,
+            &budget,
+            control(&stop),
+        )
+    });
+    assert!(
+        observed,
+        "actual original-certificate pairing allocator was refused"
+    );
+    assert!(
+        matches!(&failure, Err(SccpNativeReadError::PairingAllocation(original))
+            if original.vec_reserve_error().is_some_and(|(_, actual)| actual == layout)),
+        "HC942 native certificate pairing allocator refusal must preserve its original physical cause"
+    );
+    let Err(SccpNativeReadError::PairingAllocation(original)) = failure else {
+        unreachable!("asserted original pairing cause")
+    };
+    let deferred = crate::execution_attempt::ExecutionDeferred::from(original);
+    assert!(deferred.allocation_refusal().is_none());
+    assert_eq!(
+        deferred.reason(),
+        ivm::error::ExecutionDeferral::AllocationUnavailable
+    );
+    assert!(
+        deferred
+            .allocator_refusal()
+            .unwrap()
+            .vec_reserve_error()
+            .is_some()
+    );
+    assert_eq!(budget.reserved_bytes(), occupied);
+    assert_eq!(proof.data().aggregate_signature, original_signature);
+    let mut verified = None;
+    assert_eq!(
+        crate::test_allocations::allocations_during(|| {
+            verified = Some(
+                verify_original_relation(
+                    proof.data(),
+                    chain.instance(),
+                    &generation.keys,
+                    &budget,
+                    control(&stop),
+                )
+                .unwrap(),
+            );
+        }),
+        1,
+        "exact pairing charge construction requires only its one backing allocation"
+    );
+    let verified = verified.unwrap();
     assert_eq!(
         verified.0,
         verify_certificate(

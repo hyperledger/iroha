@@ -23,6 +23,9 @@ use iroha_sumeragi::types::{ChainParams, EpochConfig, HeightConfig, PublicKey};
 use super::*;
 use crate::sumeragi::crypto::funded::{CommitteeAdmissionError, FundedBlsCommittee};
 
+mod prefix;
+pub(super) use prefix::FundedPrefixAuthority;
+
 /// The original epoch is borrowed; all newly owned authority graph allocations are prepaid.
 pub(super) struct FundedExecutionAuthority<'a> {
     material: &'a ValidatorEpochContextV1,
@@ -134,7 +137,24 @@ impl FundedHeightConfig {
             if algorithm != iroha_crypto::Algorithm::BlsNormal {
                 return Err(CommitteeAdmissionError::Algorithm { index, algorithm });
             }
-            let mut bytes = ChargedBuffer::<u8>::from_reservation(payload.len(), original)?;
+            let mut copy_key = || ChargedBuffer::<u8>::from_reservation(payload.len(), original);
+            #[cfg(not(test))]
+            let mut bytes = copy_key()?;
+            #[cfg(test)]
+            let mut bytes = if REFUSE_CONFIG_KEY_AT.with(|selected| selected.get() == Some(index)) {
+                REFUSE_CONFIG_KEY_AT.with(|selected| selected.set(None));
+                let (result, refused) = crate::test_allocations::refuse_one_layout_during(
+                    Layout::array::<u8>(payload.len()).expect("config demand checked key layout"),
+                    copy_key,
+                );
+                assert!(
+                    refused,
+                    "selected original config key allocation was attempted"
+                );
+                result?
+            } else {
+                copy_key()?
+            };
             for byte in payload {
                 bytes.push_reserved(*byte);
             }
@@ -318,6 +338,7 @@ fn admission_error(height: u64, error: CommitteeAdmissionError) -> VerificationR
     };
     match error {
         E::Admission(original) => VerificationReadError::Deferred(original.into()),
+        E::PhysicalAllocation(original) => VerificationReadError::Deferred(original.into()),
         E::Buffer(PrepaidBufferError::Allocation(ChargedBufferError::Admission(original))) => {
             VerificationReadError::Deferred(original.into())
         }
@@ -365,6 +386,7 @@ enum ConstructionStage {
 #[cfg(test)]
 thread_local! {
     static UNWIND_AT: std::cell::Cell<Option<ConstructionStage>> = const { std::cell::Cell::new(None) };
+    static REFUSE_CONFIG_KEY_AT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
 }
 #[cfg(test)]
 fn checkpoint(stage: ConstructionStage) {

@@ -1,0 +1,21 @@
+{
+  "batch_ballot_handle_pairs": 1001000,
+  "candidate_vote_gates_per_body": 166702860207775482442106240502206,
+  "comparison_power_of_two": 151,
+  "complete_resource_vector": false,
+  "elementary_convention": "X+CNOT+5*Toffoli; base oracle calls remain separate",
+  "illustrative_disjoint_verification_subtotal": {
+    "adversary_backend_calls": 18446744073709551616,
+    "allowed_under_simultaneous_aggregate_2_pow_64_cap": false,
+    "backend_calls_per_verification": 744,
+    "full_verifications": 18446744073709551616,
+    "total_backend_calls": 13742824334913615953920
+  },
+  "observation": "docs/validation/parliament_ballot_request_machine/capture/source/target/parliament-ideal-machine-stage/request-accepted-observation.json.template",
+  "observation_sha256": "81ffb1db693c94f73f41239da3cd8164893d9c84ddd805d873ec3ede974f4f4c",
+  "profile_qualified": false,
+  "repeated_body_gates": 2932667730911459172349823042824132140461981696,
+  "repetitions": 17592186044416,
+  "scope": "Integer checks against retained structural metadata; no circuit execution, resource maximum, cryptographic advantage or attack inference.",
+  "strictly_above_comparison": true
+}

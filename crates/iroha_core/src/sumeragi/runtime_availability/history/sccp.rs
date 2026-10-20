@@ -7,7 +7,10 @@
 //! bytes are released after one successful consume; no height-sized descriptor is allocated.
 
 use super::*;
-use crate::sumeragi::certified_chain::{CertifiedPrefix, CommittedBlock};
+use crate::sumeragi::certified_chain::{
+    AdmittedPrefixInitialization, AdmittedPrefixPush, CertifiedPrefix, CommittedBlock,
+    PrefixArtifacts,
+};
 use iroha_data_model::block::{SharedSignedBlock, consensus::SumeragiRootScope};
 use iroha_sumeragi::types::Hash32;
 
@@ -66,6 +69,9 @@ pub(crate) struct SccpHistoryRead {
     #[cfg(test)]
     peak_retained_carriers: usize,
     prefix: Option<ChargedBuffer<CertifiedPrefix>>,
+    initialization: AdmittedPrefixInitialization,
+    push: AdmittedPrefixPush,
+    prepared: Option<PrefixArtifacts>,
     current: Option<SharedSignedBlock>,
     bytes: Option<ChargedBuffer<u8>>,
     artifacts: Option<PrefixArtifactsRead>,
@@ -86,6 +92,9 @@ impl SccpHistoryRead {
             #[cfg(test)]
             peak_retained_carriers: 0,
             prefix: None,
+            initialization: AdmittedPrefixInitialization::default(),
+            push: AdmittedPrefixPush::default(),
+            prepared: None,
             current: None,
             bytes: None,
             artifacts: None,
@@ -257,67 +266,81 @@ impl SccpHistoryRead {
             if self.next == 1 {
                 if self.prefix.is_none() {
                     self.prefix = Some(
-                        CertifiedPrefix::new_admitted(
-                            &self.capture.chain_id,
-                            self.capture.network,
-                            block.clone(),
-                            &self.capture.budget,
-                        )
-                        .map_err(|error| error.map_rejection(invalid))?,
+                        self.initialization
+                            .complete(
+                                &self.capture.chain_id,
+                                self.capture.network,
+                                block.clone(),
+                                &self.capture.budget,
+                            )
+                            .map_err(|error| error.map_rejection(invalid))?,
                     );
                 }
                 self.genesis = self.bytes.take();
             } else {
-                let read = self.artifacts.take().unwrap_or_else(|| {
-                    PrefixArtifactsRead::new(block.clone(), self.capture.budget.clone())
-                });
-                let artifacts = match read.complete(&self.capture.budget) {
-                    Ok(value) => value,
-                    Err((read, error)) => {
-                        self.artifacts = Some(read);
-                        return Err(prefix_error(error));
-                    }
-                };
+                if self.prepared.is_none() {
+                    let read = self.artifacts.take().unwrap_or_else(|| {
+                        PrefixArtifactsRead::new(block.clone(), self.capture.budget.clone())
+                    });
+                    self.prepared = Some(match read.complete(&self.capture.budget) {
+                        Ok(value) => value,
+                        Err((read, error)) => {
+                            self.artifacts = Some(read);
+                            return Err(prefix_error(error));
+                        }
+                    });
+                }
                 // Keep bytes in their fields until the native prefix accepts this exact input.
                 let capture = &self.capture;
                 let current_bytes = &mut self.bytes;
                 let genesis_bytes = &mut self.genesis;
                 let pending = &mut self.pending;
-                self.prefix
-                    .as_mut()
-                    .expect("signed genesis prefix")
-                    .as_mut_slice()[0]
-                    .push_with_finish(block.clone(), Some(artifacts), |step| {
-                        let (current, genesis) = step.into_parts();
-                        let current = current.into_committed();
-                        if current.height() == capture.original_tip.height()
-                            && (current.block_hash() != capture.original_tip.iroha_hash()
-                                || current.core_hash() != capture.original_tip.core_hash()
-                                || current.result() != capture.original_tip.result()
-                                || current.block_time_ms()
-                                    != capture.original_tip.creation_time_ms()
-                                || current.root_scope() != capture.original_tip.root_scope())
-                        {
-                            return Err(invalid("SCCP prefix differs from original captured tip"));
-                        }
-                        let current = Pending::new(
-                            current,
-                            current_bytes.take().expect("original bytes"),
-                            capture,
-                        );
-                        if let Some(genesis) = genesis {
-                            pending[0] = Some(Pending::new(
-                                genesis.into_committed(),
-                                genesis_bytes.take().expect("original genesis bytes"),
+                self.push
+                    .complete_prepared_with_finish(
+                        &mut self
+                            .prefix
+                            .as_mut()
+                            .expect("signed genesis prefix")
+                            .as_mut_slice()[0],
+                        self.prepared
+                            .as_ref()
+                            .expect("original prepared certificate"),
+                        &capture.budget,
+                        |step| {
+                            let (current, genesis) = step.into_parts();
+                            let current = current.into_committed();
+                            if current.height() == capture.original_tip.height()
+                                && (current.block_hash() != capture.original_tip.iroha_hash()
+                                    || current.core_hash() != capture.original_tip.core_hash()
+                                    || current.result() != capture.original_tip.result()
+                                    || current.block_time_ms()
+                                        != capture.original_tip.creation_time_ms()
+                                    || current.root_scope() != capture.original_tip.root_scope())
+                            {
+                                return Err(invalid(
+                                    "SCCP prefix differs from original captured tip",
+                                ));
+                            }
+                            let current = Pending::new(
+                                current,
+                                current_bytes.take().expect("original bytes"),
                                 capture,
-                            ));
-                            pending[1] = Some(current);
-                        } else {
-                            pending[0] = Some(current);
-                        }
-                        Ok(())
-                    })
+                            );
+                            if let Some(genesis) = genesis {
+                                pending[0] = Some(Pending::new(
+                                    genesis.into_committed(),
+                                    genesis_bytes.take().expect("original genesis bytes"),
+                                    capture,
+                                ));
+                                pending[1] = Some(current);
+                            } else {
+                                pending[0] = Some(current);
+                            }
+                            Ok(())
+                        },
+                    )
                     .map_err(|error| error.map_rejection(invalid))??;
+                self.prepared = None;
             }
             self.current = None;
             self.next = self

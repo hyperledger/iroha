@@ -233,7 +233,7 @@ def test_write_dataspace_plan_rejects_tampered_artifact_path(
 
 
 def test_client_dataspace_readiness_accepts_lane_governance_status() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, chain_discriminant=753)
     status = {
         "lane_governance": [
             {
@@ -253,7 +253,7 @@ def test_client_dataspace_readiness_accepts_lane_governance_status() -> None:
 
 
 def test_client_dataspace_smoke_rejects_missing_or_sealed_status() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, chain_discriminant=753)
 
     missing = client.dataspace_status("boi", status={"lane_governance": []})
     assert missing.found is False
@@ -277,7 +277,7 @@ def test_client_dataspace_smoke_rejects_missing_or_sealed_status() -> None:
 
 
 def test_client_dataspace_smoke_counts_dataspace_catalog_lanes() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, chain_discriminant=753)
     status = {
         "dataspace_catalog": [
             {
@@ -302,7 +302,7 @@ def test_client_dataspace_smoke_counts_dataspace_catalog_lanes() -> None:
 
 
 def test_client_dataspace_catalog_metadata_survives_backlog_entries() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, chain_discriminant=753)
     status = {
         "dataspace_catalog": [
             {
@@ -339,7 +339,7 @@ def test_client_dataspace_catalog_metadata_survives_backlog_entries() -> None:
 
 
 def test_client_dataspace_smoke_rejects_wrong_expected_dataspace_id() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, chain_discriminant=753)
     status = {
         "dataspace_catalog": [
             {
@@ -357,7 +357,7 @@ def test_client_dataspace_smoke_rejects_wrong_expected_dataspace_id() -> None:
 
 def test_get_status_rejects_missing_canonical_route_without_fallback() -> None:
     session = FakeSession([response(404)])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(RuntimeError, match="unexpected status 404"):
         client.get_status()
@@ -368,7 +368,7 @@ def test_get_status_rejects_missing_canonical_route_without_fallback() -> None:
 
 def test_get_status_does_not_fallback_on_non_404_failure() -> None:
     session = FakeSession([response(500, {"message": "temporary failure"})])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     with pytest.raises(RuntimeError, match="temporary failure"):
         client.get_status()
@@ -380,7 +380,7 @@ def test_get_status_snapshot_typed_uses_canonical_route() -> None:
     session = FakeSession(
         [response(200, {"peers": 1, "queue_size": 0, "commit_time_ms": 1})]
     )
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     snapshot = client.get_status_snapshot_typed()
 
@@ -563,7 +563,7 @@ def test_nexus_lane_lifecycle_status_fetches_exact_json_snapshot(
     status = lifecycle_status()
     status["runtime_catalog_hash"] = runtime_catalog_hash
     session = FakeSession([response(200, status)])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     assert client.nexus_lane_lifecycle_status() == status
     assert len(session.calls) == 1
@@ -579,6 +579,7 @@ def test_nexus_lane_lifecycle_status_requires_explicit_runtime_catalog_hash() ->
         "http://torii.example",
         session=FakeSession([response(200, status)]),
         max_retries=0,
+        chain_discriminant=753,
     )
 
     with pytest.raises(TypeError, match="missing required `runtime_catalog_hash`"):
@@ -600,7 +601,8 @@ def test_nexus_lane_lifecycle_status_rejects_duplicate_runtime_catalog_hash(
         + b"}"
     )
     client = ToriiClient(
-        "http://torii.example", session=FakeSession([duplicate]), max_retries=0
+        "http://torii.example", session=FakeSession([duplicate]), max_retries=0,
+        chain_discriminant=753,
     )
 
     with pytest.raises(ValueError, match="duplicate field `runtime_catalog_hash`"):
@@ -617,6 +619,7 @@ def test_nexus_lane_lifecycle_status_rejects_nonstring_runtime_catalog_hash(
         "http://torii.example",
         session=FakeSession([response(200, status)]),
         max_retries=0,
+        chain_discriminant=753,
     )
 
     with pytest.raises(TypeError, match="`runtime_catalog_hash` must be a canonical hash"):
@@ -630,6 +633,7 @@ def test_nexus_lane_lifecycle_status_rejects_removed_enablement_field() -> None:
         "http://torii.example",
         session=FakeSession([response(200, status)]),
         max_retries=0,
+        chain_discriminant=753,
     )
 
     with pytest.raises(ValueError, match="unknown field `nexus_enabled`"):
@@ -645,7 +649,7 @@ def test_nexus_lane_lifecycle_submits_native_signed_set_parameter(
     status = lifecycle_status()
     status["runtime_catalog_hash"] = runtime_catalog_hash
     session = FakeSession([response(200, status)])
-    client = ToriiClient("http://torii.example", session=session, max_retries=3)
+    client = ToriiClient("http://torii.example", session=session, max_retries=3, chain_discriminant=753)
     addition = lane_config(lane_id=5, shard_id=9, dataspace_id=42, alias="is")
     addition.update(
         {
@@ -707,7 +711,7 @@ def test_nexus_lane_lifecycle_submits_native_signed_set_parameter(
 
 
 def test_nexus_lane_lifecycle_rejects_malformed_inputs() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, chain_discriminant=753)
     auth = {
         "network_id": NETWORK_ID,
         "authority": "alice@wonderland",
@@ -781,7 +785,7 @@ def test_nexus_lane_lifecycle_rejects_incomplete_lane_before_status_fetch(
     missing_field: str,
 ) -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     addition = lane_config(lane_id=3, shard_id=7, dataspace_id=42, alias="payments")
     del addition[missing_field]
 
@@ -903,7 +907,7 @@ def test_nexus_lane_lifecycle_rejects_noncanonical_lane_fields_before_status_fet
     match: str,
 ) -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     addition = lane_config(lane_id=3, shard_id=7, dataspace_id=42, alias="payments")
     addition[field] = value
 
@@ -940,7 +944,7 @@ def test_nexus_lane_lifecycle_rejects_retired_functional_metadata_before_status_
     retired_key: str,
 ) -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     addition = lane_config(lane_id=3, shard_id=7, dataspace_id=42, alias="payments")
     addition["metadata"] = {retired_key: "retired"}
 
@@ -958,7 +962,7 @@ def test_nexus_lane_lifecycle_rejects_retired_functional_metadata_before_status_
 
 def test_nexus_lane_lifecycle_requires_nonreplicated_confidential_storage() -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     addition = lane_config(lane_id=3, shard_id=7, dataspace_id=42, alias="payments")
     addition["confidential_compute"] = {
         "mechanism": "encryption",
@@ -984,7 +988,7 @@ def test_nexus_lane_lifecycle_canonicalizes_typed_confidential_audiences(
     import iroha_python.client as client_module
 
     session = FakeSession([response(200, lifecycle_status())])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     default_lane = lane_config(lane_id=3, dataspace_id=42, alias="payments")
     default_lane["metadata"] = {"owner": "payments"}
     default_lane["scheduler"] = {
@@ -1059,7 +1063,7 @@ def test_nexus_lane_lifecycle_canonicalizes_typed_confidential_audiences(
 
 def test_nexus_lane_lifecycle_rejects_unknown_lane_field_before_status_fetch() -> None:
     session = FakeSession([])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
     addition = lane_config(lane_id=3, shard_id=7, dataspace_id=42, alias="payments")
     addition["shard"] = 7
 
@@ -1076,7 +1080,7 @@ def test_nexus_lane_lifecycle_rejects_unknown_lane_field_before_status_fetch() -
 
 
 def test_nexus_lane_lifecycle_requires_full_transaction_signing_context() -> None:
-    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0)
+    client = ToriiClient("http://torii.example", session=FakeSession([]), max_retries=0, chain_discriminant=753)
     with pytest.raises(TypeError, match="network_id"):
         client.nexus_lane_lifecycle(
             [],
@@ -1115,6 +1119,7 @@ def test_nexus_lane_lifecycle_rejects_malformed_status() -> None:
         "http://torii.example",
         session=FakeSession([response(200, malformed)]),
         max_retries=0,
+        chain_discriminant=753,
     )
 
     with pytest.raises(ValueError, match="catalog_hash"):
@@ -1128,6 +1133,7 @@ def test_nexus_lane_lifecycle_rejects_malformed_status() -> None:
         "http://torii.example",
         session=FakeSession([response(200, wrong_incarnation)]),
         max_retries=0,
+        chain_discriminant=753,
     )
     with pytest.raises(ValueError, match="exactly match"):
         client.nexus_lane_lifecycle_status()
@@ -1138,6 +1144,7 @@ def test_nexus_lane_lifecycle_rejects_malformed_status() -> None:
         "http://torii.example",
         session=FakeSession([response(200, missing_root)]),
         max_retries=0,
+        chain_discriminant=753,
     )
     with pytest.raises(ValueError, match="incarnation_root"):
         client.nexus_lane_lifecycle_status()
@@ -1152,6 +1159,7 @@ def test_nexus_lane_lifecycle_status_requires_explicit_shard_id() -> None:
         "http://torii.example",
         session=FakeSession([response(200, malformed)]),
         max_retries=0,
+        chain_discriminant=753,
     )
 
     with pytest.raises(TypeError, match="missing required `shard_id`"):
@@ -1189,7 +1197,7 @@ def test_nexus_lane_lifecycle_rejects_noncanonical_hash_before_native_bridge(
     else:
         malformed[field] = value
     session = FakeSession([response(200, malformed)])
-    client = ToriiClient("http://torii.example", session=session, max_retries=0)
+    client = ToriiClient("http://torii.example", session=session, max_retries=0, chain_discriminant=753)
 
     def unexpected_bridge() -> object:
         raise AssertionError("native bridge must not observe malformed lifecycle JSON")
@@ -1214,7 +1222,7 @@ def test_nexus_lane_lifecycle_surfaces_stale_transaction_without_refetch(
     import iroha_python.client as client_module
 
     session = FakeSession([response(200, lifecycle_status())])
-    client = ToriiClient("http://torii.example", session=session, max_retries=3)
+    client = ToriiClient("http://torii.example", session=session, max_retries=3, chain_discriminant=753)
 
     class FakeInstruction:
         @staticmethod

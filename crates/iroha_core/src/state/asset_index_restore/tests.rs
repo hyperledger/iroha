@@ -5,6 +5,18 @@ use iroha_data_model::{account::Account, asset::AssetBalanceScope, prelude::Regi
 use iroha_test_samples::{ALICE_ID, BOB_ID};
 use norito::codec::DecodeAll;
 
+fn members<K: mv::Key, M: mv::Key>(
+    index: &impl StorageReadOnly<(K, M), ()>,
+    key: &K,
+) -> Option<BTreeSet<M>> {
+    let members: BTreeSet<_> = index
+        .iter()
+        .filter(|((bucket, _), ())| bucket == key)
+        .map(|((_, member), ())| member.clone())
+        .collect();
+    (!members.is_empty()).then_some(members)
+}
+
 fn domain(name: &str) -> DomainId {
     DomainId::try_new(name, "universal").unwrap()
 }
@@ -57,7 +69,7 @@ macro_rules! images {
             image(&world.asset_definitions_by_owner),
             image(&world.asset_definition_holders),
             image(&world.asset_definition_assets),
-            image(&world.assets_by_account),
+            image(&world.asset_definition_asset_counts),
             image(&world.assets_by_domain),
             image(&world.asset_definition_nonzero_holders),
         ]
@@ -71,7 +83,7 @@ fn indexes(world: &World) -> [String; 8] {
         encoded(&world.asset_definitions_by_owner),
         encoded(&world.asset_definition_holders),
         encoded(&world.asset_definition_assets),
-        encoded(&world.assets_by_account),
+        encoded(&world.asset_definition_asset_counts),
         encoded(&world.assets_by_domain),
         encoded(&world.asset_definition_nonzero_holders),
     ]
@@ -159,27 +171,26 @@ fn all_eight_indexes_restore_both_images_through_canonical_snapshot_and_replacem
     let view = world.view();
     assert_eq!(view.asset_definition_domains.get(&definition("coin")), None);
     assert_eq!(
-        view.asset_definitions_by_owner.get(&BOB_ID),
+        members(&view.asset_definitions_by_owner, &BOB_ID).as_ref(),
         Some(&BTreeSet::from([definition("coin")]))
     );
     assert_eq!(
-        view.asset_definition_holders.get(&definition("coin")),
+        members(&view.asset_definition_holders, &definition("coin")).as_ref(),
         Some(&BTreeSet::from([BOB_ID.clone()]))
     );
     assert_eq!(
-        view.asset_definition_nonzero_holders
-            .get(&definition("coin")),
+        members(&view.asset_definition_nonzero_holders, &definition("coin")).as_ref(),
         Some(&BTreeSet::from([BOB_ID.clone()]))
     );
     assert_eq!(
-        view.assets_by_domain.get(&domain("assets")),
+        members(&view.assets_by_domain, &domain("assets")).as_ref(),
         Some(&BTreeSet::from([AssetId::new(
             definition("spare"),
             BOB_ID.clone()
         )]))
     );
     assert_eq!(
-        view.assets_by_domain.get(&domain("next")),
+        members(&view.assets_by_domain, &domain("next")).as_ref(),
         Some(&BTreeSet::from([AssetId::new(
             definition("new"),
             ALICE_ID.clone()
@@ -213,7 +224,7 @@ fn definition_only_domain_changes_move_untouched_balances_in_both_images() {
     assert!(world.assets.history().revert_map().is_empty());
     assets(&mut world).unwrap();
     assert_eq!(
-        world.assets_by_domain.view().get(&domain("next")),
+        members(&world.assets_by_domain.view(), &domain("next")).as_ref(),
         Some(&BTreeSet::from([
             AssetId::new(definition("coin"), ALICE_ID.clone()),
             AssetId::new(definition("coin"), BOB_ID.clone()),
@@ -304,13 +315,17 @@ fn redundant_touches_preserve_complete_members_and_explicit_absence() {
     assets(&mut world).unwrap();
     let owners = world.asset_definitions_by_owner.history();
     assert_eq!(
-        owners.revert_map().get(&ALICE_ID),
-        Some(&Some(BTreeSet::from([
-            definition("coin"),
-            definition("spare")
-        ])))
+        owners
+            .revert_map()
+            .get(&(ALICE_ID.clone(), definition("coin"))),
+        Some(&Some(()))
     );
-    assert_eq!(owners.revert_map().get(&BOB_ID), Some(&None));
+    assert_eq!(
+        owners
+            .revert_map()
+            .get(&(BOB_ID.clone(), definition("domainless"))),
+        Some(&None)
+    );
     let domains = world.asset_definition_domains.history();
     assert_eq!(
         domains.revert_map().get(&definition("domainless")),
@@ -332,6 +347,13 @@ fn holders_deduplicate_partitions_and_keep_any_nonzero_predecessor() {
         Asset::new(partition.clone(), 2_u32).into_key_value().1,
     );
     assets(&mut world).unwrap();
+    assert_eq!(
+        world
+            .asset_definition_asset_counts
+            .view()
+            .get(&definition("coin")),
+        Some(&3)
+    );
     let before = images!(world.view());
     {
         let mut balances = world.assets.block();
@@ -343,17 +365,15 @@ fn holders_deduplicate_partitions_and_keep_any_nonzero_predecessor() {
     }
     assets(&mut world).unwrap();
     assert_eq!(
-        world
-            .asset_definition_holders
-            .view()
-            .get(&definition("coin")),
+        members(&world.asset_definition_holders.view(), &definition("coin")).as_ref(),
         Some(&BTreeSet::from([ALICE_ID.clone(), BOB_ID.clone()]))
     );
     assert_eq!(
-        world
-            .asset_definition_nonzero_holders
-            .view()
-            .get(&definition("coin")),
+        members(
+            &world.asset_definition_nonzero_holders.view(),
+            &definition("coin")
+        )
+        .as_ref(),
         Some(&BTreeSet::from([ALICE_ID.clone()]))
     );
     assert_eq!(images!(world.block_and_revert()), before);

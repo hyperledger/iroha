@@ -316,9 +316,8 @@ fn domain_retirement_rejects_active_sorafs_reserve_backing_atomically() {
             transaction
                 .world
                 .domain_asset_definitions
-                .get(&domain_id)
-                .expect("original domain definition index")
-                .contains(&definition_id)
+                .get(&(domain_id.clone(), definition_id.clone()))
+                .is_some()
         );
         let configured = policy(1, None, custody.clone(), treasury.clone(), &governance);
         SetSorafsReservePolicy::new(configured).execute(&governance, transaction)?;
